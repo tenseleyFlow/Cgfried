@@ -14,12 +14,12 @@ typedef struct Arena {
     size_t next_block_size;
 } Arena;
 
-void  arena_init(Arena *a);
+void arena_init(Arena *a);
 /* align must be a power of two (ICE otherwise): a misaligned pointer load is
  * undefined behavior that detonates on arm64 even when x86 shrugs it off. */
 void *arena_alloc(Arena *a, size_t size, size_t align);
 char *arena_strdup(Arena *a, const char *s);
 char *arena_strndup(Arena *a, const char *s, size_t n);
-void  arena_free_all(Arena *a);
+void arena_free_all(Arena *a);
 
 #endif

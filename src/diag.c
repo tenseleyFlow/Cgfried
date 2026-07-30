@@ -192,8 +192,7 @@ void diag_render(FILE *f, const Diag *d, const DiagCtx *dc, bool color)
         const char *src_line;
         size_t line_len;
 
-        if (!file_line(dc, d->span.file_id, d->span.line, &src_line,
-                       &line_len))
+        if (!file_line(dc, d->span.file_id, d->span.line, &src_line, &line_len))
             return; /* span beyond the buffer: header already printed */
 
         fwrite(src_line, 1, line_len, f);
@@ -228,8 +227,7 @@ void cgf_ice_set_input(const char *path)
     ice_input = path;
 }
 
-_Noreturn void cgf_ice(const char *src_file, int src_line, const char *fmt,
-                       ...)
+_Noreturn void cgf_ice(const char *src_file, int src_line, const char *fmt, ...)
 {
     va_list ap;
 
@@ -241,9 +239,8 @@ _Noreturn void cgf_ice(const char *src_file, int src_line, const char *fmt,
     fputc('\n', stderr);
     if (ice_input)
         fprintf(stderr, "cgfried: while compiling '%s'\n", ice_input);
-    fprintf(stderr,
-            "cgfried: this is a bug in cgfried, not in your code; "
-            "please report it with the input that triggered it\n");
+    fprintf(stderr, "cgfried: this is a bug in cgfried, not in your code; "
+                    "please report it with the input that triggered it\n");
     /* Exit-code contract: 4 = ICE. The single exit() call in src/. */
     exit(4);
 }

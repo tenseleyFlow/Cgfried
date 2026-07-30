@@ -126,7 +126,7 @@ void strmap_free(Strmap *m)
 
 StrmapIter strmap_iter(const Strmap *m)
 {
-    StrmapIter it = { m, 0 };
+    StrmapIter it = {m, 0};
     return it;
 }
 

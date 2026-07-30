@@ -24,18 +24,18 @@ typedef struct {
     StrmapEntry *entries; /* insertion order, append-only */
     size_t len;
     size_t cap;
-    u32 *slots;           /* hash table of entry-index + 1; 0 = empty */
-    size_t slot_count;    /* power of two */
+    u32 *slots;        /* hash table of entry-index + 1; 0 = empty */
+    size_t slot_count; /* power of two */
 } Strmap;
 
-void   strmap_init(Strmap *m);
+void strmap_init(Strmap *m);
 /* Inserts or replaces; returns the previous value (NULL if new). A replaced
  * key keeps its original insertion position. */
-void  *strmap_put(Strmap *m, const char *key, size_t key_len, void *val);
-void  *strmap_get(const Strmap *m, const char *key, size_t key_len);
-bool   strmap_has(const Strmap *m, const char *key, size_t key_len);
+void *strmap_put(Strmap *m, const char *key, size_t key_len, void *val);
+void *strmap_get(const Strmap *m, const char *key, size_t key_len);
+bool strmap_has(const Strmap *m, const char *key, size_t key_len);
 size_t strmap_len(const Strmap *m);
-void   strmap_free(Strmap *m);
+void strmap_free(Strmap *m);
 
 typedef struct {
     const Strmap *m;

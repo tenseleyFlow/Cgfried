@@ -4,7 +4,7 @@
 
 DriverArgs args_parse(int argc, char **argv)
 {
-    DriverArgs a = { false, false, false, NULL, NULL };
+    DriverArgs a = {false, false, false, NULL, NULL};
     int i;
 
     for (i = 1; i < argc; i++) {

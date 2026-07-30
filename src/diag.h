@@ -42,14 +42,14 @@ typedef struct DiagSink {
 struct Arena; /* util/arena.h */
 
 DiagCtx *diag_ctx_new(struct Arena *arena); /* default sink: stderr renderer */
-void     diag_set_sink(DiagCtx *dc, DiagSink sink);
+void diag_set_sink(DiagCtx *dc, DiagSink sink);
 
 /* Registers a source buffer; returns its file_id (>= 1). The path is copied;
  * src is borrowed and must outlive the context. */
-u32  diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len);
+u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len);
 void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...);
 bool diag_had_error(const DiagCtx *dc);
-u32  diag_error_count(const DiagCtx *dc);
+u32 diag_error_count(const DiagCtx *dc);
 
 /* Default sink; renders per the format contract (path:line:col, source line,
  * caret line mirroring pre-caret tabs). Color per diag_use_color(). */

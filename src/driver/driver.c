@@ -30,7 +30,7 @@ static const char help_text[] =
 
 int driver_main(int argc, char **argv)
 {
-    static const Span no_span = { 0, 0, 0, 0 };
+    static const Span no_span = {0, 0, 0, 0};
     Arena arena;
     DiagCtx *dc;
     DriverArgs a;
