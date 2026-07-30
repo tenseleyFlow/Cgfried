@@ -1,4 +1,4 @@
-# Cgfried — the one hand-written GNU Makefile (locked decision; CLAUDE.md).
+# Cgfried — the one hand-written GNU Makefile
 # Any C11 compiler bootstraps stage0: never hardcode gcc.
 CC     ?= cc
 BUILD  ?= build
