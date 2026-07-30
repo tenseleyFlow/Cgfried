@@ -4,7 +4,9 @@
 
 DriverArgs args_parse(int argc, char **argv)
 {
-    DriverArgs a = {false, false, false, NULL, NULL};
+    DriverArgs a;
+
+    memset(&a, 0, sizeof(a));
     int i;
 
     for (i = 1; i < argc; i++) {
@@ -16,6 +18,10 @@ DriverArgs args_parse(int argc, char **argv)
             a.show_dumpversion = true;
         } else if (strcmp(s, "--help") == 0) {
             a.show_help = true;
+        } else if (strcmp(s, "-E") == 0) {
+            a.mode_E = true;
+        } else if (strcmp(s, "-trigraphs") == 0) {
+            a.trigraphs = true;
         } else if (s[0] == '-' && s[1] != '\0') {
             if (!a.unknown_opt)
                 a.unknown_opt = s;
@@ -23,6 +29,8 @@ DriverArgs args_parse(int argc, char **argv)
             /* A bare "-" is stdin input, not an option. */
             if (!a.input)
                 a.input = s;
+            else if (!a.extra_input)
+                a.extra_input = s;
         }
     }
     return a;

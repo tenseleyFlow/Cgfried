@@ -22,8 +22,11 @@ typedef struct {
     bool show_version;
     bool show_dumpversion;
     bool show_help;
+    bool mode_E;             /* -E: stop after preprocessing */
+    bool trigraphs;          /* -trigraphs (default off, gcc parity) */
     const char *unknown_opt; /* first unrecognized option, or NULL */
     const char *input;       /* first input-file argument, or NULL */
+    const char *extra_input; /* second input file (unsupported), or NULL */
 } DriverArgs;
 
 DriverArgs args_parse(int argc, char **argv);

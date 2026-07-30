@@ -79,4 +79,9 @@ int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input);
 /* The guidance string for a missing tool (exit-3 diagnostics). */
 const char *cgf_tool_missing_hint(ToolKind which);
 
+/* Non-toolchain CGF_* variables (debug/testing knobs like
+ * CGF_PP_DUMP_TOKENS) ALSO route through this translation unit, so the
+ * single-getenv-site ban stays absolute. NULL when unset or empty. */
+const char *cgf_env(const char *name);
+
 #endif

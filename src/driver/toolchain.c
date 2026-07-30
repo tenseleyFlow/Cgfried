@@ -216,6 +216,11 @@ int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input)
     CGF_ICE("cgf_tool_exit_code: bad tool kind %d", (int)which);
 }
 
+const char *cgf_env(const char *name)
+{
+    return env_override(real_getenv, NULL, name, NULL);
+}
+
 const char *cgf_tool_missing_hint(ToolKind which)
 {
     switch (which) {
