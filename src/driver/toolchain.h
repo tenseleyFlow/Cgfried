@@ -2,6 +2,7 @@
 #define CGF_DRIVER_TOOLCHAIN_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "target.h"
 
@@ -78,6 +79,11 @@ int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input);
 
 /* The guidance string for a missing tool (exit-3 diagnostics). */
 const char *cgf_tool_missing_hint(ToolKind which);
+
+/* Builds "<dir-of-our-binary><suffix>" into out (e.g. "/../include" for
+ * the shipped freestanding headers). False if the exe dir is unknown or
+ * the result would not fit. */
+bool cgf_exe_relative(const char *suffix, char *out, size_t out_size);
 
 /* Non-toolchain CGF_* variables (debug/testing knobs like
  * CGF_PP_DUMP_TOKENS) ALSO route through this translation unit, so the

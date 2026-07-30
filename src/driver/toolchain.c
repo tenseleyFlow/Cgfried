@@ -216,6 +216,17 @@ int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input)
     CGF_ICE("cgf_tool_exit_code: bad tool kind %d", (int)which);
 }
 
+bool cgf_exe_relative(const char *suffix, char *out, size_t out_size)
+{
+    const char *dir = exe_dir();
+    int n;
+
+    if (!dir)
+        return false;
+    n = snprintf(out, out_size, "%s%s", dir, suffix);
+    return n > 0 && (size_t)n < out_size;
+}
+
 const char *cgf_env(const char *name)
 {
     return env_override(real_getenv, NULL, name, NULL);

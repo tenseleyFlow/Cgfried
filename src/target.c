@@ -29,6 +29,77 @@ TargetSpec cgf_target_host(void)
     return t;
 }
 
+void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
+{
+    /* Exhaustive on purpose: adding a target must force this table to be
+     * revisited. Values are the LP64 SysV answers; per-target divergence
+     * (char signedness macros, Mach-O, ILP32) arrives with those targets. */
+    switch (t.kind) {
+    case CGF_TARGET_X86_64_LINUX_GNU:
+    case CGF_TARGET_X86_64_LINUX_MUSL:
+        buf_printf(out, "#define __x86_64__ 1\n#define __x86_64 1\n"
+                        "#define __amd64__ 1\n#define __amd64 1\n");
+        goto linux_common;
+    case CGF_TARGET_ARM64_LINUX:
+        buf_printf(out, "#define __aarch64__ 1\n");
+    linux_common:
+        buf_printf(out, "#define __linux__ 1\n#define __linux 1\n"
+                        "#define __gnu_linux__ 1\n#define __unix__ 1\n"
+                        "#define __unix 1\n#define __ELF__ 1\n");
+        if (gnu_mode)
+            buf_printf(out, "#define linux 1\n#define unix 1\n");
+        break;
+    case CGF_TARGET_ARM64_MACOS:
+        buf_printf(out, "#define __aarch64__ 1\n#define __APPLE__ 1\n"
+                        "#define __MACH__ 1\n");
+        break;
+    case CGF_TARGET_X86_64_FREEBSD:
+        buf_printf(out, "#define __x86_64__ 1\n#define __x86_64 1\n"
+                        "#define __amd64__ 1\n#define __amd64 1\n"
+                        "#define __FreeBSD__ 15\n#define __unix__ 1\n"
+                        "#define __unix 1\n#define __ELF__ 1\n");
+        break;
+    }
+
+    /* LP64 core-integer subset (all five current targets agree). */
+    buf_printf(out,
+               "#define __LP64__ 1\n#define _LP64 1\n"
+               "#define __CHAR_BIT__ 8\n"
+               "#define __SIZEOF_SHORT__ 2\n#define __SIZEOF_INT__ 4\n"
+               "#define __SIZEOF_LONG__ 8\n#define __SIZEOF_LONG_LONG__ 8\n"
+               "#define __SIZEOF_POINTER__ 8\n#define __SIZEOF_SIZE_T__ 8\n"
+               "#define __SIZEOF_PTRDIFF_T__ 8\n#define __SIZEOF_FLOAT__ 4\n"
+               "#define __SIZEOF_DOUBLE__ 8\n"
+               "#define __SIZEOF_LONG_DOUBLE__ 16\n"
+               "#define __SIZEOF_WCHAR_T__ 4\n#define __SIZEOF_WINT_T__ 4\n"
+               "#define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__\n"
+               "#define __ORDER_LITTLE_ENDIAN__ 1234\n"
+               "#define __ORDER_BIG_ENDIAN__ 4321\n"
+               "#define __ORDER_PDP_ENDIAN__ 3412\n"
+               "#define __SCHAR_MAX__ 0x7f\n#define __SHRT_MAX__ 0x7fff\n"
+               "#define __INT_MAX__ 0x7fffffff\n"
+               "#define __LONG_MAX__ 0x7fffffffffffffffL\n"
+               "#define __LONG_LONG_MAX__ 0x7fffffffffffffffLL\n"
+               "#define __WCHAR_MAX__ 0x7fffffff\n"
+               "#define __WINT_MAX__ 0xffffffffU\n"
+               "#define __SIZE_MAX__ 0xffffffffffffffffUL\n"
+               "#define __PTRDIFF_MAX__ 0x7fffffffffffffffL\n"
+               "#define __INTMAX_MAX__ 0x7fffffffffffffffL\n"
+               "#define __UINTMAX_MAX__ 0xffffffffffffffffUL\n"
+               "#define __INTPTR_MAX__ 0x7fffffffffffffffL\n"
+               "#define __UINTPTR_MAX__ 0xffffffffffffffffUL\n"
+               "#define __SIZE_TYPE__ long unsigned int\n"
+               "#define __PTRDIFF_TYPE__ long int\n"
+               "#define __WCHAR_TYPE__ int\n"
+               "#define __WINT_TYPE__ unsigned int\n"
+               "#define __INTMAX_TYPE__ long int\n"
+               "#define __UINTMAX_TYPE__ long unsigned int\n"
+               "#define __INTPTR_TYPE__ long int\n"
+               "#define __UINTPTR_TYPE__ long unsigned int\n"
+               "#define __CHAR16_TYPE__ short unsigned int\n"
+               "#define __CHAR32_TYPE__ unsigned int\n");
+}
+
 size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
                                       size_t max)
 {

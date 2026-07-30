@@ -19,6 +19,7 @@ DriverArgs args_parse(int argc, char **argv)
     int i;
 
     memset(&a, 0, sizeof(a));
+    a.std = 3; /* STD_C17 — the locked default */
 
     for (i = 1; i < argc; i++) {
         const char *s = argv[i];
@@ -31,6 +32,30 @@ DriverArgs args_parse(int argc, char **argv)
             a.show_help = true;
         } else if (strcmp(s, "-E") == 0) {
             a.mode_E = true;
+        } else if (strcmp(s, "-dM") == 0) {
+            a.dump_macros = true;
+        } else if (strncmp(s, "-std=", 5) == 0) {
+            const char *v = s + 5;
+            if (strcmp(v, "c89") == 0 || strcmp(v, "c90") == 0 ||
+                strcmp(v, "iso9899:1990") == 0)
+                a.std = 0; /* STD_C89 */
+            else if (strcmp(v, "c99") == 0 || strcmp(v, "iso9899:1999") == 0)
+                a.std = 1; /* STD_C99 */
+            else if (strcmp(v, "c11") == 0 || strcmp(v, "iso9899:2011") == 0)
+                a.std = 2; /* STD_C11 */
+            else if (strcmp(v, "c17") == 0 || strcmp(v, "c18") == 0 ||
+                     strcmp(v, "iso9899:2017") == 0)
+                a.std = 3; /* STD_C17 */
+            else if (strcmp(v, "gnu89") == 0 || strcmp(v, "gnu90") == 0)
+                a.std = 4; /* STD_GNU89 */
+            else if (strcmp(v, "gnu99") == 0)
+                a.std = 5; /* STD_GNU99 */
+            else if (strcmp(v, "gnu11") == 0)
+                a.std = 6; /* STD_GNU11 */
+            else if (strcmp(v, "gnu17") == 0 || strcmp(v, "gnu18") == 0)
+                a.std = 7; /* STD_GNU17 */
+            else if (!a.unknown_opt)
+                a.unknown_opt = s;
         } else if (strcmp(s, "-trigraphs") == 0) {
             a.trigraphs = true;
         } else if (strcmp(s, "-nostdinc") == 0) {

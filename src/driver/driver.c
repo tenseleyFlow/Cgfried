@@ -91,21 +91,35 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     Preprocessor pp;
     SourceFile *sf, *cmdline;
     PpToken t;
+    PpToken prev_tok;
     bool dump = cgf_env("CGF_PP_DUMP_TOKENS") != NULL;
     bool first = true;
+
+    memset(&prev_tok, 0, sizeof(prev_tok));
     int i;
 
     intern_init(&interner, arena);
     pp_init(&pp, arena, dc, &interner);
     pp.trigraphs = a->trigraphs;
     pp.verbose = a->verbose;
+    pp.std = (CStd)a->std;
+    pp.gnu_mode = pp.std >= STD_GNU89;
     for (i = 0; i < a->n_include; i++)
         pp.include_dirs[pp.n_include++] = a->include_dirs[i];
     for (i = 0; i < a->n_iquote; i++)
         pp.iquote_dirs[pp.n_iquote++] = a->iquote_dirs[i];
-    if (!a->nostdinc)
-        pp.n_system = cgf_target_system_include_dirs(
-            cgf_target_host(), pp.system_dirs, PP_MAX_DIRS);
+    if (!a->nostdinc) {
+        /* Our shipped freestanding headers (stddef.h et al.) come FIRST —
+         * glibc's own headers include them and gcc likewise places its own
+         * include dir ahead of /usr/include. Dev tree: build/../include;
+         * installed: <prefix>/bin/../include. */
+        static char shipped[4096];
+        if (cgf_exe_relative("/../include", shipped, sizeof(shipped)))
+            pp.system_dirs[pp.n_system++] = shipped;
+        pp.n_system += cgf_target_system_include_dirs(
+            cgf_target_host(), pp.system_dirs + pp.n_system,
+            PP_MAX_DIRS - pp.n_system);
+    }
 
     sf = pp_source_load(&pp, a->input);
     if (!sf) {
@@ -128,16 +142,24 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                    (unsigned)col, (t.flags & PPTOK_F_BOL) ? " BOL" : "",
                    (t.flags & PPTOK_F_SPACE) ? " SPACE" : "");
         } else {
-            if (!first && (t.flags & PPTOK_F_BOL))
+            if (!first && (t.flags & PPTOK_F_BOL)) {
                 putchar('\n');
-            else if (!first && (t.flags & PPTOK_F_SPACE))
-                putchar(' ');
+            } else if (!first) {
+                /* Explicit spacing, or gcc's avoid-paste rule: adjacent
+                 * tokens that would re-lex as one must stay two. */
+                if ((t.flags & PPTOK_F_SPACE) ||
+                    pp_tokens_would_merge(&pp, &prev_tok, &t))
+                    putchar(' ');
+            }
             fputs(t.spelling, stdout);
+            prev_tok = t;
             first = false;
         }
     }
     if (!dump && !first)
         putchar('\n');
+    if (a->dump_macros)
+        pp_dump_macros(&pp);
 
     pp_end(&pp);
     intern_free(&interner);

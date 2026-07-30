@@ -1,7 +1,10 @@
 #ifndef CGF_TARGET_H
 #define CGF_TARGET_H
 
+#include <stdbool.h>
 #include <stddef.h>
+
+#include "util/buf.h"
 
 /* Closed target set — no triple parser (locked decision). Adding a target is
  * an enum variant plus the exhaustive-switch fallout, on purpose. */
@@ -29,6 +32,11 @@ extern const char *const cgf_target_names[CGF_TARGET_COUNT];
 TargetSpec cgf_target_host(void);
 
 const char *cgf_target_name(TargetSpec t);
+
+/* Appends the target's predefined-macro `#define` lines (the gcc -dM
+ * core-integer subset: arch/OS/ABI ids, type sizes, limits, byte order,
+ * __SIZE_TYPE__ family). NEVER __GNUC__ — see pp_predefine_all's policy. */
+void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out);
 
 /* Default system include directories for the target, in search order.
  * Returns the count written (<= max). Host-native only until sysroots
