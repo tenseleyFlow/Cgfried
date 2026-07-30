@@ -104,6 +104,12 @@ int main(int argc, char **argv)
     int i, files = 0, diffs = 0, xfailed = 0;
     int skipped_gcc = 0, skipped_clang = 0, compared = 0;
 
+    /* Pin __DATE__/__TIME__ for BOTH children: without an epoch they
+     * use local wall-clock time (gcc parity, findings F21), so a second
+     * ticking between our run and the oracle's is a false difference.
+     * Inherited by every spawn. */
+    setenv("SOURCE_DATE_EPOCH", "1000000000", 1);
+
     buf_init(&xfail);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--std") == 0 && i + 1 < argc) {

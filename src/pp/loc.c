@@ -105,7 +105,7 @@ SrcLoc pp_loc_expansion_parent(const LocTable *t, SrcLoc loc)
 }
 
 /* Fills a Span for `loc` (physical + #line presumed display info). */
-static Span span_of(Preprocessor *pp, SrcLoc loc, u32 len)
+Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len)
 {
     Span sp;
     FileId f = 0;
@@ -190,7 +190,7 @@ static void emit_expansion_chain(Preprocessor *pp, SrcLoc loc)
         /* The use site is this frame's parent (where the macro was
          * invoked); the innermost frame's own span is the message's. */
         diag_emit(pp->diag, DIAG_NOTE,
-                  span_of(pp, pp_loc_expansion_parent(&pp->loc, frames[i]),
+                  pp_span(pp, pp_loc_expansion_parent(&pp->loc, frames[i]),
                           (u32)strlen(name)),
                   "in expansion of macro '%s'", name);
 
@@ -207,7 +207,7 @@ static void emit_expansion_chain(Preprocessor *pp, SrcLoc loc)
         }
         def = pp_loc_macro_def(&pp->loc, frames[i]);
         if (def != SRCLOC_INVALID)
-            diag_emit(pp->diag, DIAG_NOTE, span_of(pp, def, (u32)strlen(name)),
+            diag_emit(pp->diag, DIAG_NOTE, pp_span(pp, def, (u32)strlen(name)),
                       "macro '%s' defined here", name);
     }
 }
@@ -215,7 +215,7 @@ static void emit_expansion_chain(Preprocessor *pp, SrcLoc loc)
 void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
                 const char *fmt, ...)
 {
-    Span sp = span_of(pp, loc, len);
+    Span sp = pp_span(pp, loc, len);
     va_list ap, ap2;
     int need;
     char *msg;

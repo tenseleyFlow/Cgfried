@@ -16,3 +16,4 @@ Rules:
 
 | ID | Owning sprint | Description | Status |
 |---|---|---|---|
+| XD-S08-FPHOST | Sprint 15 | `lex_fp_interim` in `src/lex/numlit.c` wraps host `strtod`: its rounding is the HOST's, which is wrong for cross-target constant folding (determinism invariant #3) and for `long double`. Tokens deliberately carry the exact spelling so Sprint 15's correctly-rounded softfloat engine can replace exactly this one function. `scripts/check_bans.sh` enforces that no other conversion site exists. | open |

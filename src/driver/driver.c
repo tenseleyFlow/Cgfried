@@ -5,6 +5,7 @@
 
 #include "diag.h"
 #include "driver/toolchain.h"
+#include "lex/lex.h"
 #include "pp/pp.h"
 #include "target.h"
 #include "util/arena.h"
@@ -17,12 +18,15 @@ static const char help_text[] =
     "\n"
     "Modes:\n"
     "  -E                preprocess only, print tokens to stdout\n"
+    "  --dump-tokens     run the lexer and dump one token per line\n"
     "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
     "  construction sprint by sprint)\n"
     "\n"
     "Language:\n"
     "  -trigraphs        enable trigraph translation (default off)\n"
+    "  -std=<std>        c89/gnu89/c99/c11/c17/gnu17 (default c17)\n"
+    "  -pedantic         warn about non-ISO constructs\n"
     "  -D name[=value]   predefine a macro (value defaults to 1)\n"
     "  -U name           undefine a macro (processed in -D/-U order)\n"
     "\n"
@@ -55,6 +59,51 @@ static const char help_text[] =
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
     "  Empty-string values are treated as unset.\n";
+
+VEC_DECL(PpTokVecD, PpToken);
+
+/* One line per token, stable and greppable: golden --dump-tokens files
+ * assert on these. Constants print their CLASSIFIED type, which is the
+ * whole point of the phase-7 conversion. */
+static void dump_token(const Token *t)
+{
+    switch ((TokenKind)t->kind) {
+    case TOK_KEYWORD:
+        printf("KEYWORD %s\n", t->spelling);
+        break;
+    case TOK_IDENT:
+        printf("IDENT %s\n", t->spelling);
+        break;
+    case TOK_PUNCT:
+        printf("PUNCT %s\n", t->spelling);
+        break;
+    case TOK_INT_CONST:
+        printf("INT_CONST %llu %s\n", (unsigned long long)t->int_val,
+               lex_int_type_name((IntConstType)t->int_type));
+        break;
+    case TOK_CHAR_CONST:
+        printf("CHAR_CONST %lld %s\n", (long long)t->int_val,
+               lex_int_type_name((IntConstType)t->int_type));
+        break;
+    case TOK_FLOAT_CONST: {
+        static const char *const fnames[] = {"float", "double", "long double"};
+        printf("FLOAT_CONST %s %s\n", t->spelling, fnames[t->float_type]);
+        break;
+    }
+    case TOK_STRING: {
+        static const char *const enames[] = {"", "L", "u", "U", "u8"};
+        u32 i;
+        printf("STRING %s%u bytes:", enames[t->str.enc], t->str.nbytes);
+        for (i = 0; i < t->str.nbytes; i++)
+            printf(" %02x", t->str.bytes[i]);
+        printf("\n");
+        break;
+    }
+    case TOK_EOF:
+        printf("EOF\n");
+        break;
+    }
+}
 
 /* Builds the "<command-line>" pseudo-file from -D/-U flags, in order.
  * -D name means 1; -D name=val splits at the first '='. */
@@ -136,6 +185,31 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     }
     cmdline = build_cmdline_file(&pp, a);
     pp_begin(&pp, sf, cmdline);
+
+    if (a->dump_tokens) {
+        /* Phase 5-7: collect the pp-token stream, convert, dump. */
+        PpTokVecD collected = {NULL, 0, 0};
+        LangOpts lang;
+        TokenList tl;
+        u32 k;
+
+        memset(&lang, 0, sizeof(lang));
+        lang.std = (CStd)a->std;
+        lang.gnu_mode = lang.std >= STD_GNU89;
+        lang.pedantic = a->pedantic;
+        while (pp_next(&pp, &t))
+            PpTokVecD_push(&collected, t);
+        tl = lex_convert(&pp, collected.data, (u32)collected.len, &lang,
+                         cgf_target_host(), arena);
+        for (k = 0; k < tl.n; k++)
+            dump_token(&tl.toks[k]);
+        PpTokVecD_free(&collected);
+        pp_end(&pp);
+        intern_free(&interner);
+        pp_loc_free(&pp.loc);
+        strmap_free(&pp.macros);
+        return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
+    }
 
     while (pp_next(&pp, &t)) {
         if (dump) {
@@ -228,13 +302,13 @@ int driver_main(int argc, char **argv)
         status = CGF_EXIT_COMPILE;
     } else if (a.input) {
         cgf_ice_set_input(a.input);
-        if (a.mode_E) {
+        if (a.mode_E || a.dump_tokens) {
             status = run_preprocess(&arena, dc, &a);
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,
-                      "only -E (preprocessing) is supported so far: full "
-                      "compilation lands sprint by sprint (next: Sprint 5, "
-                      "macro expansion)");
+                      "only -E and --dump-tokens are supported so far: "
+                      "full compilation lands sprint by sprint (next: "
+                      "Sprint 9, the parser)");
             status = CGF_EXIT_COMPILE;
         }
     } else {

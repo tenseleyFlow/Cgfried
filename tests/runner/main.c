@@ -400,7 +400,12 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                 if (*end)
                     *end++ = '\0';
                 if (*piece) {
-                    if (strcmp(piece, "-E") == 0)
+                    /* Flags whose OUTPUT is the result under test (the
+                     * compiler writes to stdout and produces no object):
+                     * the pipeline stops after the compile step and
+                     * CHECK/EXIT_CODE apply to the compiler itself. */
+                    if (strcmp(piece, "-E") == 0 ||
+                        strcmp(piece, "--dump-tokens") == 0)
                         pp_mode = true;
                     if (n >= 28) {
                         if (!quiet)

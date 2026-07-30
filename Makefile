@@ -100,6 +100,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
+	sh scripts/lex_diff.sh $(BUILD)/cgfried
 	sh scripts/tinycc_pp_smoke.sh $(BUILD)/cgfried
 	sh scripts/toolchain_smoke.sh > $(BUILD)/toolchain.log 2>&1; s=$$?; \
 	    cat $(BUILD)/toolchain.log; exit $$s

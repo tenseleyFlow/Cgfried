@@ -396,8 +396,14 @@ SourceFile *pp_source_add_buffer(Preprocessor *pp, const char *path,
 /* Loads + normalizes a file; NULL + diagnostic on I/O error (exit 3). */
 SourceFile *pp_source_load(Preprocessor *pp, const char *path);
 
-/* Diagnostic at a SrcLoc (resolves through expansion entries to the
- * spelling location; chain RENDERING is Sprint 7). */
+/* The Span a diagnostic at `loc` would carry (physical + #line presumed
+ * display info). Consumers past the preprocessor (the lexer onward) use
+ * this so they never synthesize locations. */
+Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len);
+
+/* Diagnostic at a SrcLoc; anything inside a macro expansion automatically
+ * gets its expansion backtrace (Sprint 7). Front-end phases route their
+ * diagnostics through this to inherit that. */
 void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
                 const char *fmt, ...);
 

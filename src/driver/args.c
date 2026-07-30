@@ -36,6 +36,10 @@ DriverArgs args_parse(int argc, char **argv)
             a.dump_macros = true;
         } else if (strcmp(s, "-P") == 0) {
             a.no_linemarkers = true;
+        } else if (strcmp(s, "--dump-tokens") == 0) {
+            a.dump_tokens = true;
+        } else if (strcmp(s, "-pedantic") == 0) {
+            a.pedantic = true;
         } else if (strncmp(s, "-std=", 5) == 0) {
             const char *v = s + 5;
             if (strcmp(v, "c89") == 0 || strcmp(v, "c90") == 0 ||

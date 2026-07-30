@@ -333,6 +333,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Pin __DATE__/__TIME__ for BOTH children: without an epoch they
+     * use local wall-clock time (gcc parity, findings F21), so a second
+     * ticking between our run and the oracle's is a false difference.
+     * Inherited by every spawn. */
+    setenv("SOURCE_DATE_EPOCH", "1000000000", 1);
+
     snprintf(work, sizeof(work), "%s/fuzz-work", "build");
     mkdir("build", 0777);
     mkdir(work, 0777);

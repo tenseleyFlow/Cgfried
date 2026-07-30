@@ -1,0 +1,86 @@
+/* The keyword table: one row per keyword, X-macro'd into the Keyword enum
+ * and the lookup table. `group` selects the std modes in which the
+ * spelling is a KEYWORD; in every other mode it is an ordinary identifier
+ * (so `int inline = 1;` must compile under -std=c89).
+ *
+ * Groups:
+ *   KWG_C89   every mode
+ *   KWG_C99   c99 and later (both ISO and GNU flavors)
+ *   KWG_C11   c11 and later
+ *   KWG_GNU89 gnu89's `inline` only — it is a keyword in gnu89 (with the
+ *             gnu89 inline SEMANTICS, Sprint 16) but not in ISO c89
+ *   KWG_GNU   gnu modes only (typeof, asm)
+ *   KWG_ALT   the __-spelled variants: keywords in EVERY mode (gcc does
+ *             this so system headers work under -std=c89)
+ */
+
+CGF_KEYWORD(KW_AUTO, "auto", KWG_C89)
+CGF_KEYWORD(KW_BREAK, "break", KWG_C89)
+CGF_KEYWORD(KW_CASE, "case", KWG_C89)
+CGF_KEYWORD(KW_CHAR, "char", KWG_C89)
+CGF_KEYWORD(KW_CONST, "const", KWG_C89)
+CGF_KEYWORD(KW_CONTINUE, "continue", KWG_C89)
+CGF_KEYWORD(KW_DEFAULT, "default", KWG_C89)
+CGF_KEYWORD(KW_DO, "do", KWG_C89)
+CGF_KEYWORD(KW_DOUBLE, "double", KWG_C89)
+CGF_KEYWORD(KW_ELSE, "else", KWG_C89)
+CGF_KEYWORD(KW_ENUM, "enum", KWG_C89)
+CGF_KEYWORD(KW_EXTERN, "extern", KWG_C89)
+CGF_KEYWORD(KW_FLOAT, "float", KWG_C89)
+CGF_KEYWORD(KW_FOR, "for", KWG_C89)
+CGF_KEYWORD(KW_GOTO, "goto", KWG_C89)
+CGF_KEYWORD(KW_IF, "if", KWG_C89)
+CGF_KEYWORD(KW_INT, "int", KWG_C89)
+CGF_KEYWORD(KW_LONG, "long", KWG_C89)
+CGF_KEYWORD(KW_REGISTER, "register", KWG_C89)
+CGF_KEYWORD(KW_RETURN, "return", KWG_C89)
+CGF_KEYWORD(KW_SHORT, "short", KWG_C89)
+CGF_KEYWORD(KW_SIGNED, "signed", KWG_C89)
+CGF_KEYWORD(KW_SIZEOF, "sizeof", KWG_C89)
+CGF_KEYWORD(KW_STATIC, "static", KWG_C89)
+CGF_KEYWORD(KW_STRUCT, "struct", KWG_C89)
+CGF_KEYWORD(KW_SWITCH, "switch", KWG_C89)
+CGF_KEYWORD(KW_TYPEDEF, "typedef", KWG_C89)
+CGF_KEYWORD(KW_UNION, "union", KWG_C89)
+CGF_KEYWORD(KW_UNSIGNED, "unsigned", KWG_C89)
+CGF_KEYWORD(KW_VOID, "void", KWG_C89)
+CGF_KEYWORD(KW_VOLATILE, "volatile", KWG_C89)
+CGF_KEYWORD(KW_WHILE, "while", KWG_C89)
+
+CGF_KEYWORD(KW_INLINE, "inline", KWG_C99_OR_GNU89)
+CGF_KEYWORD(KW_RESTRICT, "restrict", KWG_C99)
+CGF_KEYWORD(KW_BOOL, "_Bool", KWG_C99)
+CGF_KEYWORD(KW_COMPLEX, "_Complex", KWG_C99)
+CGF_KEYWORD(KW_IMAGINARY, "_Imaginary", KWG_C99)
+
+CGF_KEYWORD(KW_ALIGNAS, "_Alignas", KWG_C11)
+CGF_KEYWORD(KW_ALIGNOF, "_Alignof", KWG_C11)
+CGF_KEYWORD(KW_ATOMIC, "_Atomic", KWG_C11)
+CGF_KEYWORD(KW_GENERIC, "_Generic", KWG_C11)
+CGF_KEYWORD(KW_NORETURN, "_Noreturn", KWG_C11)
+CGF_KEYWORD(KW_STATIC_ASSERT, "_Static_assert", KWG_C11)
+CGF_KEYWORD(KW_THREAD_LOCAL, "_Thread_local", KWG_C11)
+
+CGF_KEYWORD(KW_TYPEOF, "typeof", KWG_GNU)
+CGF_KEYWORD(KW_ASM, "asm", KWG_GNU)
+
+CGF_KEYWORD(KW_ALT_TYPEOF, "__typeof__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_TYPEOF2, "__typeof", KWG_ALT)
+CGF_KEYWORD(KW_ALT_INLINE, "__inline__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_INLINE2, "__inline", KWG_ALT)
+CGF_KEYWORD(KW_ALT_ASM, "__asm__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_ASM2, "__asm", KWG_ALT)
+CGF_KEYWORD(KW_ALT_RESTRICT, "__restrict__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_RESTRICT2, "__restrict", KWG_ALT)
+CGF_KEYWORD(KW_ALT_VOLATILE, "__volatile__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_VOLATILE2, "__volatile", KWG_ALT)
+CGF_KEYWORD(KW_ALT_CONST, "__const__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_CONST2, "__const", KWG_ALT)
+CGF_KEYWORD(KW_ALT_SIGNED, "__signed__", KWG_ALT)
+CGF_KEYWORD(KW_ATTRIBUTE, "__attribute__", KWG_ALT)
+CGF_KEYWORD(KW_ATTRIBUTE2, "__attribute", KWG_ALT)
+CGF_KEYWORD(KW_EXTENSION, "__extension__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_ALIGNOF, "__alignof__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_ALIGNOF2, "__alignof", KWG_ALT)
+CGF_KEYWORD(KW_ALT_LABEL, "__label__", KWG_ALT)
+CGF_KEYWORD(KW_ALT_BUILTIN_VA_LIST, "__builtin_va_list", KWG_ALT)

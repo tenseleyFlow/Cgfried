@@ -29,6 +29,8 @@ typedef struct {
     bool mode_E;             /* -E: stop after preprocessing */
     bool dump_macros;        /* -dM (requires -E) */
     bool no_linemarkers;     /* -P */
+    bool dump_tokens;        /* --dump-tokens (phase 7 golden dumps) */
+    bool pedantic;           /* -pedantic (hook; Sprint 37 makes it real) */
     int std;                 /* CStd value; default C17 */
     bool trigraphs;          /* -trigraphs (default off, gcc parity) */
     bool nostdinc;           /* -nostdinc: no system include dirs */
