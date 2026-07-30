@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [trunk]
+  # No branches filter on pull_request: sprint PRs stack (each based on the
+  # previous), and a base filter would silently skip CI on stacked PRs.
+  pull_request:
+
+jobs:
+  build-gcc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make CC=gcc
+
+  build-clang:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make CC=clang
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make CC=gcc test
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned major from scripts/check_format.sh, installed via apt.llvm.org
+      # (ubuntu's own repos lag behind the pin).
+      - name: install pinned clang-format
+        run: |
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
+          sudo apt-get install -y clang-format-22
+      - run: CGF_FORMAT_REQUIRED=1 sh scripts/check_format.sh

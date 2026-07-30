@@ -1,0 +1,35 @@
+#!/bin/sh
+# Enforces the repo-wide bans from Sprint 0/1 over C sources in src/ and
+# tests/. Banned:
+#   - the libc sort (unstable; glibc/musl disagree on ties -> nondeterminism)
+#   - GNU attributes (we are strict C11)
+#   - strtok (hidden global state)
+#   - rand/srand (nondeterminism; no randomness belongs in a compiler)
+# The call-shaped regexes use a non-identifier guard so parse_operand() and
+# friends never false-positive.
+set -eu
+LC_ALL=C
+export LC_ALL
+
+files=$(find src tests -name '*.c' -o -name '*.h' | sort)
+status=0
+
+hits=$(printf '%s\n' "$files" |
+    xargs grep -nE '(^|[^a-zA-Z0-9_])(qsort|strtok|s?rand)\(' 2>/dev/null |
+    grep -v 'check_bans allow' || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: banned call(s) found:" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
+hits=$(printf '%s\n' "$files" |
+    xargs grep -n '__attribute__' 2>/dev/null || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: GNU attribute found (strict C11 source):" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
+[ "$status" -eq 0 ] && echo "check_bans: clean"
+exit "$status"

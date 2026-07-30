@@ -7,21 +7,34 @@ PREFIX ?= /usr/local
 # -MMD not -MD: system-header deps churn without value. -MP: survive header
 # deletion. No -D with absolute build paths — that breaks the byte-identical
 # stage1 == stage2 bootstrap (Sprint 58) and reproducible dists (Sprint 62).
+# _POSIX_C_SOURCE: we are C11 + POSIX (spawn, poll, isatty); strict -std=c11
+# alone hides POSIX declarations behind feature guards on glibc.
 CFLAGS := -std=c11 -pedantic -Wall -Wextra -Werror -g -O2 \
-          -fno-strict-overflow -MMD -MP -Isrc
+          -fno-strict-overflow -D_POSIX_C_SOURCE=200809L -MMD -MP -Isrc
 
 # Sorted: raw find order varies by filesystem and would leak into link order,
 # making binaries nondeterministic.
 SRC := $(shell find src -name '*.c' | sort)
 OBJ := $(SRC:%.c=$(BUILD)/%.o)
 
-UNIT_SRC := $(shell find tests/unit -name '*.c' | sort)
-UNIT_OBJ := $(UNIT_SRC:%.c=$(BUILD)/%.o) \
-            $(filter-out $(BUILD)/src/main.o,$(OBJ))
+# Everything but the driver entry point, shared by test binaries.
+LIB_OBJ := $(filter-out $(BUILD)/src/main.o,$(OBJ))
 
-# Order-only prerequisites: a normal dir prereq would rebuild on every dir
-# mtime change.
-DIRS := $(sort $(dir $(OBJ) $(UNIT_OBJ)))
+# cgf-test runner: consumer of src/util, never a fork of it.
+RUNNER_SRC := $(sort $(wildcard tests/runner/*.c))
+RUNNER_OBJ := $(RUNNER_SRC:%.c=$(BUILD)/%.o) $(LIB_OBJ)
+
+# Unit harness: explicit registry generated at build time (strict C11 — no
+# constructor attributes). The registry depends on every test_*.c, or a
+# stale registry would silently drop new tests.
+UNIT_TEST_SRC := $(sort $(wildcard tests/unit/test_*.c))
+UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
+            $(UNIT_TEST_SRC:%.c=$(BUILD)/%.o) \
+            $(BUILD)/gen/unit_registry.o \
+            $(BUILD)/tests/runner/directive.o \
+            $(LIB_OBJ)
+
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test clean tools bootstrap install
 
@@ -34,18 +47,38 @@ $(BUILD)/cgfried: $(OBJ)
 $(BUILD)/cgf: $(BUILD)/cgfried
 	ln -sf cgfried $@
 
-$(BUILD)/unit_tests: $(UNIT_OBJ)
-	$(CC) $(CFLAGS) -o $@ $(UNIT_OBJ)
+$(BUILD)/cgf-test: $(sort $(RUNNER_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(RUNNER_OBJ))
 
+$(BUILD)/unit_tests: $(sort $(UNIT_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(UNIT_OBJ))
+
+$(BUILD)/gen/unit_registry.c: scripts/gen_unit_registry.sh $(UNIT_TEST_SRC) \
+                              | $(BUILD)/gen/
+	sh scripts/gen_unit_registry.sh $@ $(UNIT_TEST_SRC)
+
+$(BUILD)/gen/unit_registry.o: $(BUILD)/gen/unit_registry.c
+	$(CC) $(CFLAGS) -Itests/unit -c -o $@ $<
+
+# Order-only prerequisites: a normal dir prereq would rebuild on every dir
+# mtime change.
 $(BUILD)/%.o: %.c | $(DIRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(DIRS):
 	mkdir -p $@
 
-test: all $(BUILD)/unit_tests
+# Stage composition: every stage must pass; the corpus log is captured so
+# check_skips can assert the exact HARNESS_SKIP set.
+test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(BUILD)/unit_tests
-	sh scripts/smoke.sh $(BUILD)/cgfried
+	$(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
+	    > $(BUILD)/programs.log 2>&1; s=$$?; \
+	    cat $(BUILD)/programs.log; exit $$s
+	sh ci/check_skips.sh linux-x86_64 $(BUILD)/programs.log
+	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
+	sh scripts/check_bans.sh
+	sh scripts/check_format.sh
 
 tools:
 	@echo "error: 'make tools' is not available yet: Sprint 2 (toolchain submodules)" >&2
@@ -63,4 +96,4 @@ install: all
 clean:
 	rm -rf $(BUILD)
 
--include $(sort $(OBJ:.o=.d) $(UNIT_OBJ:.o=.d))
+-include $(sort $(OBJ:.o=.d) $(RUNNER_OBJ:.o=.d) $(UNIT_OBJ:.o=.d))
