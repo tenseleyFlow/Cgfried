@@ -1,4 +1,7 @@
 .fac/
 .docs/
 CLAUDE.md
+AGENTS.md
+build/
 *.o
+*.a
