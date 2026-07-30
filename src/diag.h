@@ -69,6 +69,12 @@ void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...);
  * call (string literals and interned names qualify). */
 void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
                      const char *insert, const char *fmt, ...);
+/* The insertion point immediately after `sp`, clamped to the end of that
+ * PHYSICAL line. A token whose spelling was assembled across line splices
+ * starts on one line and ends on another, so span.col + span.len can point
+ * past the line it names; clamping here keeps every emitted span
+ * renderable. Found by the frontend fuzzer's span-bounds invariant. */
+Span diag_point_after(const DiagCtx *dc, Span sp);
 bool diag_had_error(const DiagCtx *dc);
 u32 diag_error_count(const DiagCtx *dc);
 

@@ -89,9 +89,10 @@ static Span span_after_prev(Parser *p)
     if (p->pos == 0)
         return parse_peek(p)->span;
     prev = &p->toks[p->pos - 1];
-    sp = prev->span;
-    sp.col += sp.len;
-    sp.len = 1;
+    /* Clamped in diag, which is where the file lengths live: a token
+     * spelled across line splices ends on a later physical line than its
+     * span names, so col + len can overrun. */
+    sp = diag_point_after(p->dc, prev->span);
     return sp;
 }
 

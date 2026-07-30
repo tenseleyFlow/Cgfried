@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "driver/toolchain.h"
 #include "util/arena.h"
 
 typedef struct {
@@ -69,6 +70,79 @@ u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
     return (u32)dc->files_len; /* ids are 1-based; 0 = no location */
 }
 
+/* Span validation, on only under CGF_FUZZ=1. A diagnostic whose Span
+ * points outside its file renders garbage or reads out of bounds, and
+ * those bugs are invisible in normal testing because the span is usually
+ * right — the fuzzer's whole value here is finding the cases where it is
+ * not. An ICE (exit 4, structured report) is the correct outcome: the
+ * fuzzer treats it as a finding, and a user would rather see a compiler
+ * bug report than a corrupted caret. */
+static bool fuzz_span_checks(void)
+{
+    static int on = -1;
+
+    if (on < 0) {
+        const char *v = cgf_env("CGF_FUZZ");
+        on = (v && *v && strcmp(v, "0") != 0) ? 1 : 0;
+    }
+    return on == 1;
+}
+
+static void check_span(const DiagCtx *dc, Span sp)
+{
+    const DiagFile *f;
+    size_t line = 1, col = 1, i;
+
+    if (!fuzz_span_checks() || sp.file_id == 0)
+        return;
+    if (sp.file_id > dc->files_len)
+        CGF_ICE("diagnostic span names file_id %u, only %zu registered",
+                sp.file_id, dc->files_len);
+    f = &dc->files[sp.file_id - 1];
+    if (sp.line == 0 || sp.col == 0)
+        CGF_ICE("diagnostic span has zero line/col (%u:%u)", sp.line, sp.col);
+    /* Walk to the named line and check the column fits it. Cheap enough:
+     * this path only runs under the fuzzer. */
+    for (i = 0; i < f->len && line < sp.line; i++)
+        if (f->src[i] == '\n')
+            line++;
+    if (line != sp.line)
+        CGF_ICE("diagnostic span names line %u, file '%s' has %zu", sp.line,
+                f->path, line);
+    for (; i < f->len && f->src[i] != '\n'; i++)
+        col++;
+    if (sp.col > col)
+        CGF_ICE("diagnostic span col %u past end of line %u (len %zu) in '%s'",
+                sp.col, sp.line, col - 1, f->path);
+}
+
+Span diag_point_after(const DiagCtx *dc, Span sp)
+{
+    const DiagFile *f;
+    size_t line = 1, cols = 1, i;
+    Span out = sp;
+
+    out.len = 1;
+    if (sp.file_id == 0 || sp.file_id > dc->files_len) {
+        out.col = sp.col + sp.len;
+        return out;
+    }
+    f = &dc->files[sp.file_id - 1];
+    for (i = 0; i < f->len && line < sp.line; i++)
+        if (f->src[i] == '\n')
+            line++;
+    if (line != sp.line) {
+        out.col = sp.col + sp.len;
+        return out;
+    }
+    for (; i < f->len && f->src[i] != '\n'; i++)
+        cols++;
+    out.col = sp.col + sp.len;
+    if (out.col > cols)
+        out.col = cols; /* one past the last character of the line */
+    return out;
+}
+
 /* The single emission path. `fix_where`/`insert` may be a zero Span and
  * NULL for the (usual) no-fix-it case. */
 static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
@@ -83,6 +157,8 @@ static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
      * point of the cap is to bound output volume. */
     if (dc->limit_reached)
         return;
+
+    check_span(dc, sp);
 
     va_copy(ap2, ap);
     need = vsnprintf(NULL, 0, fmt, ap);

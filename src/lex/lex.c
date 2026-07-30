@@ -235,9 +235,17 @@ TokenList lex_convert(Preprocessor *pp, const PpToken *toks, u32 ntoks,
 
     {
         Token eof;
+
         memset(&eof, 0, sizeof(eof));
         eof.kind = TOK_EOF;
         eof.spelling = "";
+        /* Inherit the LAST token's location. Without this an "unexpected
+         * end of file" carries no span at all and renders as a bare
+         * driver-level line with no caret — the least useful form of the
+         * most confusing error. Pointing at the final token at least names
+         * the construct that was left open. */
+        if (out.len)
+            eof.span = out.data[out.len - 1].span;
         TokVecL_push(&out, eof);
     }
 

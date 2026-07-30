@@ -32,6 +32,9 @@ PPDIFF_OBJ := $(BUILD)/tests/runner/ppdiff.o $(BUILD)/tests/runner/spawn.o $(LIB
 
 # The PP fuzzer: zero deps, deterministic seeds, forks the real binary.
 FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
+# The frontend fuzzer: same shape, drives -fsyntax-only over pp+lex+parse.
+FEFUZZ_OBJ := $(BUILD)/tests/fuzz/fuzz_frontend.o \
+              $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
 
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
@@ -43,7 +46,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(BUILD)/tests/runner/directive.o \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff fuzz-smoke pp-bench clean tools bootstrap install
 
@@ -64,6 +67,12 @@ $(BUILD)/cgf-ppdiff: $(sort $(PPDIFF_OBJ))
 
 $(BUILD)/tests/fuzz/ppfuzz.o: tests/fuzz/ppfuzz.c | $(DIRS)
 	$(CC) $(CFLAGS) -Itests/runner -c -o $@ $<
+
+$(BUILD)/tests/fuzz/fuzz_frontend.o: tests/fuzz/fuzz_frontend.c | $(DIRS)
+	$(CC) $(CFLAGS) -Itests/runner -c -o $@ $<
+
+$(BUILD)/fuzz_frontend: $(sort $(FEFUZZ_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(FEFUZZ_OBJ))
 
 $(BUILD)/ppfuzz: $(sort $(FUZZ_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(FUZZ_OBJ))
