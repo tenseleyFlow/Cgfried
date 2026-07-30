@@ -37,3 +37,34 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
           sudo apt-get install -y clang-format-22
       - run: CGF_FORMAT_REQUIRED=1 sh scripts/check_format.sh
+
+  # The only Rust-touching job — the compiler jobs above stay Rust-free,
+  # which is the proof of the "Rust for tools only" dependency claim.
+  toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: submodules (https mirror of the SSH URLs)
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cache cargo + tool targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            afs-as/target
+            afs-ld/target
+          key: tools-v1-${{ hashFiles('.gitmodules') }}-${{ github.sha }}
+          restore-keys: |
+            tools-v1-${{ hashFiles('.gitmodules') }}-
+            tools-v1-
+      - run: make tools
+      - name: smoke differential (afs-as vs gas, section bytes)
+        run: |
+          sh scripts/toolchain_smoke.sh > toolchain.log 2>&1; s=$?
+          cat toolchain.log
+          [ $s -eq 0 ]
+          sh ci/check_skips.sh toolchain toolchain.log

@@ -68,8 +68,10 @@ $(BUILD)/%.o: %.c | $(DIRS)
 $(DIRS):
 	mkdir -p $@
 
-# Stage composition: every stage must pass; the corpus log is captured so
-# check_skips can assert the exact HARNESS_SKIP set.
+# Stage composition: every stage must pass; logs are captured so check_skips
+# can assert the exact HARNESS_SKIP set. The toolchain profile is picked by
+# whether afs-as is built: with it, zero skips are tolerated; without it, the
+# skip must appear exactly (never silent either way).
 test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(BUILD)/unit_tests
 	$(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
@@ -77,12 +79,24 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    cat $(BUILD)/programs.log; exit $$s
 	sh ci/check_skips.sh linux-x86_64 $(BUILD)/programs.log
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
+	sh scripts/toolchain_smoke.sh > $(BUILD)/toolchain.log 2>&1; s=$$?; \
+	    cat $(BUILD)/toolchain.log; exit $$s
+	@if [ -x afs-as/target/release/afs-as ]; then p=toolchain; \
+	    else p=toolchain-notools; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/toolchain.log
 	sh scripts/check_bans.sh
 	sh scripts/check_format.sh
 
+# Rust/cargo is a build-time dependency of the bundled assembler/linker ONLY.
+# The compiler is C11 + POSIX; it builds and runs without a Rust toolchain,
+# using system as/ld. `tools` is never a prerequisite of `all` or the
+# compiler's own tests.
 tools:
-	@echo "error: 'make tools' is not available yet: Sprint 2 (toolchain submodules)" >&2
-	@exit 1
+	@command -v cargo >/dev/null 2>&1 || { \
+	    echo "tools: cargo not found - Rust is required to build afs-as/afs-ld (tools only); the compiler itself builds without Rust" >&2; \
+	    exit 1; }
+	cd afs-as && cargo build --release
+	cd afs-ld && cargo build --release
 
 bootstrap:
 	@echo "error: 'make bootstrap' is not available yet: Sprint 58 (self-host)" >&2
@@ -92,6 +106,10 @@ install: all
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(BUILD)/cgfried $(DESTDIR)$(PREFIX)/bin/cgfried
 	ln -sf cgfried $(DESTDIR)$(PREFIX)/bin/cgf
+	@if [ -x afs-as/target/release/afs-as ]; then \
+	    install -m 755 afs-as/target/release/afs-as \
+	        $(DESTDIR)$(PREFIX)/bin/afs-as; \
+	fi
 
 clean:
 	rm -rf $(BUILD)

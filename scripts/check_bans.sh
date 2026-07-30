@@ -31,5 +31,15 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
+# CGF_* toolchain env vars are read ONLY in toolchain.c's env_override —
+# that single choke point is what keeps the documented routing table true.
+hits=$(grep -rn 'getenv' src | grep 'CGF_' |
+    grep -v '^src/driver/toolchain\.c:' || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: CGF_* env read outside toolchain.c env_override:" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
 [ "$status" -eq 0 ] && echo "check_bans: clean"
 exit "$status"
