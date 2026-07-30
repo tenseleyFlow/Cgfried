@@ -347,18 +347,32 @@ AstNode *conv_to_bool(Sema *s, AstNode *e)
  * like a candidate reports rather than being silently accepted. */
 bool conv_is_npc(Sema *s, const AstNode *e)
 {
+    ConstValue v;
+    const AstNode *inner = e;
+
     if (!e)
         return false;
-    while (e->kind == AST_EXPR_PAREN ||
-           (e->kind == AST_EXPR_CAST && e->implicit))
-        e = e->lhs;
-    if (e->kind == AST_EXPR_INT)
-        return e->tok && e->tok->int_val == 0;
-    if (e->kind == AST_EXPR_CAST && e->sem_type &&
-        e->sem_type->kind == TY_PTR && e->sem_type->base &&
-        e->sem_type->base->kind == TY_VOID)
-        return conv_is_npc(s, e->lhs);
-    return false;
+    /* Sprint 15 replaced the syntactic recognizer that stood here: an NPC
+     * is any INTEGER CONSTANT EXPRESSION with value 0, so `(1-1)` and
+     * `(2*0)` qualify just as `0` does. CE_FOLD is the right mode —
+     * failing to fold simply means "not an NPC", never a diagnostic. */
+    while (inner->kind == AST_EXPR_PAREN ||
+           (inner->kind == AST_EXPR_CAST && inner->implicit))
+        inner = inner->lhs;
+
+    /* `(void *)0` is an NPC; `(char *)0` is a null POINTER but NOT a null
+     * pointer constant, and the difference decides `?:` typing and
+     * varargs sentinels. */
+    if (inner->kind == AST_EXPR_CAST && inner->sem_type &&
+        inner->sem_type->kind == TY_PTR && inner->sem_type->base &&
+        inner->sem_type->base->kind == TY_VOID &&
+        inner->sem_type->base->quals == 0)
+        return conv_is_npc(s, inner->lhs);
+
+    if (!inner->sem_type || !type_is_integer(inner->sem_type))
+        return false;
+    v = constexpr_eval(s, (AstNode *)inner, CE_FOLD);
+    return v.kind == CV_INT && v.i == 0;
 }
 
 /* --- pointer assignment compatibility (6.5.16.1) ------------------------- */
