@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=ctestsuite test=corpus count=1 reason="reference clone .docs/refs/c-testsuite absent"

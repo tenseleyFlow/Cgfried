@@ -102,6 +102,11 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
 	sh scripts/lex_diff.sh $(BUILD)/cgfried
 	sh scripts/parse_diff.sh $(BUILD)/cgfried
+	sh scripts/ctestsuite_diff.sh $(BUILD)/cgfried > $(BUILD)/ctestsuite.log 2>&1; s=$$?; \
+	    cat $(BUILD)/ctestsuite.log; exit $$s
+	@if [ -d .docs/refs/c-testsuite/tests/single-exec ]; then p=ctestsuite; \
+	    else p=ctestsuite-norefs; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/ctestsuite.log
 	sh scripts/tinycc_pp_smoke.sh $(BUILD)/cgfried
 	sh scripts/toolchain_smoke.sh > $(BUILD)/toolchain.log 2>&1; s=$$?; \
 	    cat $(BUILD)/toolchain.log; exit $$s
