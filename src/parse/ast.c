@@ -2,6 +2,23 @@
 
 #include <string.h>
 
+/* Set by sema so ast.c can render semantic types without depending on
+ * sema — the include arrow stays one-way. */
+static AstSemTypeRenderer sem_renderer;
+
+void ast_set_sem_type_renderer(AstSemTypeRenderer fn)
+{
+    sem_renderer = fn;
+}
+
+void ast_sem_type_render(const AstNode *n, Buf *out)
+{
+    if (sem_renderer)
+        sem_renderer(n, out);
+    else
+        buf_printf(out, "?");
+}
+
 AstNode *ast_new(Arena *a, AstKind k, Span sp)
 {
     AstNode *n = arena_alloc(a, sizeof(AstNode), _Alignof(AstNode));
@@ -255,6 +272,19 @@ void ast_expr_render(const AstNode *e, Buf *out)
         buf_printf(out, "%s%s)", e->is_arrow ? "->" : ".", e->name);
         return;
     case AST_EXPR_CAST:
+        /* An IMPLICIT cast is one sema materialized (Sprint 13). Printing
+         * it distinctly is the whole point: the goldens assert that the
+         * conversion exists in the tree rather than being re-derived by
+         * every later pass. Its type comes from sema, not from a written
+         * type-name, so it renders through the sema hook. */
+        if (e->implicit) {
+            buf_printf(out, "(icast<");
+            ast_sem_type_render(e, out);
+            buf_printf(out, "> ");
+            ast_expr_render(e->lhs, out);
+            buf_printf(out, ")");
+            return;
+        }
         buf_printf(out, "(cast<");
         ast_type_render(e->type, out);
         buf_printf(out, "> ");

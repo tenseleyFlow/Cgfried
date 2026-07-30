@@ -154,11 +154,12 @@ static bool enum_fold(Sema *s, const AstNode *e, i64 *out)
     }
     case AST_EXPR_SIZEOF:
     case AST_EXPR_ALIGNOF:
-        /* These need layout, which is Sprint 14's, so they cannot be
-         * silently folded to anything. */
+        /* These HAVE a type (size_t) but not yet a VALUE — the value needs
+         * object layout, which is Sprint 14's. So an expression merely
+         * mentioning sizeof types fine; only FOLDING one defers. */
         sema_unimplemented(s, e->span,
-                           "'sizeof'/'_Alignof' in a constant "
-                           "expression",
+                           "the VALUE of 'sizeof'/'_Alignof' in a constant "
+                           "expression (its type is already known)",
                            14);
         return false;
     default:
@@ -273,6 +274,9 @@ declare_new: {
 }
 }
 
+static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
+                       bool is_last_decl);
+
 static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
 {
     Member *last = NULL;
@@ -280,16 +284,37 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
 
     for (i = 0; i < rec->nmembers; i++) {
         const AstNode *m = rec->members[i];
-        Member *mem;
-        Type *mt;
+        u32 j;
 
         if (!m || m->kind == AST_STATIC_ASSERT)
             continue;
+        /* `int i, j, k;` is ONE declaration node whose siblings hang off
+         * items[] — walking only the top node registered `i` and silently
+         * dropped `j` and `k`. Found by the c-testsuite differential. */
+        add_member(s, tag, &last, m, i + 1 == rec->nmembers && m->nitems == 0);
+        for (j = 0; j < m->nitems; j++)
+            add_member(s, tag, &last, m->items[j],
+                       i + 1 == rec->nmembers && j + 1 == m->nitems);
+    }
+    tag->complete = true;
+}
+
+static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
+                       bool is_last_decl)
+{
+    {
+        Member *mem;
+        Type *mt;
+
+        if (!m)
+            return;
         mt = type_from_ast(s, m->type, m->span);
         /* A member of incomplete type has no size, so the struct could
-         * never be laid out — catchable now, without knowing any size. */
+         * never be laid out — catchable now, without knowing any size.
+         * The one exception is a flexible array member, which must be
+         * LAST (its own constraints are Sprint 16's). */
         if (mt && mt->kind != TY_ERROR && !type_is_complete(mt) &&
-            !(mt->kind == TY_ARRAY && i + 1 == rec->nmembers)) {
+            !(mt->kind == TY_ARRAY && is_last_decl)) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, m->span,
                       "field '%s' has incomplete type '%s'",
@@ -329,14 +354,13 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
         mem->is_bitfield = m->is_bitfield;
         mem->bitfield_width = m->bitfield_width;
         mem->span = m->span;
-        if (last)
-            last->next = mem;
+        if (*last)
+            (*last)->next = mem;
         else
             tag->members = mem;
-        last = mem;
+        *last = mem;
         tag->nmembers++;
     }
-    tag->complete = true;
 }
 
 /* gcc's underlying-type ladder: the first of int, unsigned int, long,
@@ -849,7 +873,7 @@ static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
     return true;
 }
 
-static void declare_one(Sema *s, const AstNode *d)
+static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
     Symbol *sym;
@@ -926,9 +950,9 @@ static void declare_one(Sema *s, const AstNode *d)
     scope_declare(s, sym);
 }
 
-static void sema_stmt(Sema *s, const AstNode *st);
+static void sema_stmt(Sema *s, AstNode *st);
 
-static void sema_decl(Sema *s, const AstNode *d)
+static void sema_decl(Sema *s, AstNode *d)
 {
     u32 i;
 
@@ -1019,7 +1043,7 @@ static void sema_decl(Sema *s, const AstNode *d)
  * declarations inside, because block scope and the 6.2.2p4 linkage rule
  * are this sprint's business. Expression typing is Sprint 13 and
  * control-flow sema is Sprint 16. */
-static void sema_stmt(Sema *s, const AstNode *st)
+static void sema_stmt(Sema *s, AstNode *st)
 {
     u32 i;
 
@@ -1041,10 +1065,19 @@ static void sema_stmt(Sema *s, const AstNode *st)
     case AST_STMT_DECL:
         sema_decl(s, st->lhs);
         return;
+    case AST_STMT_EXPR:
+        st->lhs = sema_expr(s, st->lhs);
+        return;
+    case AST_STMT_RETURN:
+        if (st->lhs)
+            st->lhs = sema_expr(s, st->lhs);
+        return;
     case AST_STMT_IF:
     case AST_STMT_SWITCH:
     case AST_STMT_WHILE:
     case AST_STMT_DO:
+        if (st->lhs)
+            st->lhs = sema_expr(s, st->lhs);
         sema_stmt(s, st->body);
         if (st->kind == AST_STMT_IF)
             sema_stmt(s, st->rhs);
@@ -1054,13 +1087,30 @@ static void sema_stmt(Sema *s, const AstNode *st)
          * body, and ends with the loop — so the scope opens here, around
          * everything, and the body's own block nests inside it. */
         scope_push(s, SCOPE_BLOCK);
-        if (st->lhs)
-            sema_stmt(s, st->lhs);
+        /* The for-init clause is either an expression statement or a bare
+         * DECLARATION node — parse_for stores the declaration directly,
+         * not wrapped in AST_STMT_DECL, so dispatching on kind is what
+         * makes `for (int j = 0; j < 3; j++)` see its own `j`. */
+        if (st->lhs) {
+            if (st->lhs->kind == AST_DECL || st->lhs->kind == AST_EMPTY_DECL ||
+                st->lhs->kind == AST_FUNC_DEF)
+                sema_decl(s, st->lhs);
+            else
+                sema_stmt(s, st->lhs);
+        }
+        if (st->mid)
+            st->mid = sema_expr(s, st->mid);
+        if (st->rhs)
+            st->rhs = sema_expr(s, st->rhs);
         sema_stmt(s, st->body);
         scope_pop(s);
         return;
-    case AST_STMT_LABEL:
     case AST_STMT_CASE:
+        if (st->lhs)
+            st->lhs = sema_expr(s, st->lhs);
+        sema_stmt(s, st->body);
+        return;
+    case AST_STMT_LABEL:
     case AST_STMT_DEFAULT:
         sema_stmt(s, st->body);
         return;

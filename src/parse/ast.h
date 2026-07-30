@@ -14,6 +14,11 @@
 
 typedef struct AstNode AstNode;
 typedef struct AstType AstType;
+/* Sema annotates the tree in place rather than building a parallel one.
+ * Forward-declared so ast.h stays free of any sema dependency — the
+ * arrow points one way only. */
+struct Type;
+struct Symbol;
 
 typedef enum AstKind {
     AST_DECL,        /* one declarator + optional initializer */
@@ -214,6 +219,16 @@ struct AstNode {
      * pass that still knows which scope it was written in. */
     bool is_static_storage;
 
+    /* --- filled in by SEMA (Sprint 13 onward), NULL/false before it runs.
+     * Implicit conversions are MATERIALIZED as AST_EXPR_CAST nodes with
+     * `implicit` set, never left for a later pass to re-derive: IR
+     * lowering and -Wconversion both read the tree, and a conversion that
+     * exists only as a rule gets applied twice or not at all. */
+    struct Type *sem_type;
+    struct Symbol *sym; /* AST_EXPR_IDENT: the declaration it resolved to */
+    bool is_lvalue;
+    bool implicit; /* AST_EXPR_CAST: inserted by sema, not written */
+
     /* AST_TRANSLATION_UNIT */
     AstNode **decls;
     u32 ndecls;
@@ -235,5 +250,12 @@ const char *ast_punct_name(u16 punct);
  * matrix's oracle: `a+b*c` must print as `(a + (b * c))`, so a wrong
  * binding power cannot hide behind a flat dump. */
 void ast_expr_render(const AstNode *e, Buf *out);
+
+/* Rendering a node's SEMANTIC type needs sema's vocabulary, which ast.c
+ * must not depend on — so sema installs a renderer and ast.c calls back.
+ * One-way include arrow preserved. */
+typedef void (*AstSemTypeRenderer)(const AstNode *n, Buf *out);
+void ast_set_sem_type_renderer(AstSemTypeRenderer fn);
+void ast_sem_type_render(const AstNode *n, Buf *out);
 
 #endif

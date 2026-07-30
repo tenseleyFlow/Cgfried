@@ -135,6 +135,17 @@ static void dump_expr_line(const char *label, const AstNode *e, int depth)
     indent(depth);
     printf("%s ", label);
     fwrite(b.data, 1, b.len, stdout);
+    if (e && e->sem_type) {
+        Buf tb;
+
+        buf_init(&tb);
+        ast_sem_type_render(e, &tb);
+        printf(" : ");
+        fwrite(tb.data, 1, tb.len, stdout);
+        buf_free(&tb);
+        if (e->is_lvalue)
+            printf(" [lvalue]");
+    }
     if (e && e->unevaluated)
         printf(" [unevaluated]");
     printf("\n");
@@ -431,11 +442,19 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             if (a->dump_sema || a->syntax_only) {
                 Sema sema;
 
+                sema_install_renderer();
                 sema_init(&sema, arena, dc, &interner, &lang,
                           cgf_target_host());
                 sema_run(&sema, tu);
-                if (a->dump_sema)
+                if (a->dump_sema) {
                     sema_dump(&sema, stdout);
+                    /* Function bodies too, so the goldens can assert that
+                     * implicit conversions are MATERIALIZED in the tree
+                     * rather than left as rules for a later pass. */
+                    for (k = 0; k < tu->ndecls; k++)
+                        if (tu->decls[k] && tu->decls[k]->kind == AST_FUNC_DEF)
+                            dump_decl(tu->decls[k], 0);
+                }
             }
         }
         PpTokVecD_free(&collected);

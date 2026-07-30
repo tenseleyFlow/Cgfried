@@ -454,3 +454,18 @@ char *type_to_str(Arena *ar, const Type *t)
     buf_free(&b);
     return out;
 }
+
+/* The callback ast.c uses to print a node's resolved type in --dump-ast
+ * and -fdump-sema goldens. */
+static void sem_type_render_cb(const AstNode *n, Buf *out)
+{
+    if (n && n->sem_type)
+        render(n->sem_type, out);
+    else
+        buf_printf(out, "<untyped>");
+}
+
+void sema_install_renderer(void)
+{
+    ast_set_sem_type_renderer(sem_type_render_cb);
+}

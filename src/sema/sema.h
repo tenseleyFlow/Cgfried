@@ -191,6 +191,48 @@ char *type_to_str(Arena *ar, const Type *t);
  * observable at link time; Sprint 57 owns it. */
 bool type_compatible_cross_tu(Sema *s, const Type *a, const Type *b);
 
+/* --- conversions (6.3) --------------------------------------------------- */
+
+/* Which construct is doing the assigning. It exists so ONE function
+ * produces gcc's four different sentences ("assignment to X from Y",
+ * "passing argument N of 'f'", ...) rather than four near-copies drifting
+ * apart. */
+typedef enum { ACTX_ASSIGN, ACTX_INIT, ACTX_ARG, ACTX_RETURN } AssignCtxKind;
+
+typedef struct {
+    AssignCtxKind kind;
+    u32 arg_index;      /* ACTX_ARG: 1-based, as gcc numbers them */
+    const char *callee; /* ACTX_ARG: the function's name, if known */
+} AssignCtx;
+
+/* Implicit conversions are MATERIALIZED as AST_EXPR_CAST nodes with
+ * `implicit` set. Later passes read the tree; none re-derives the rules. */
+AstNode *conv_cast(Sema *s, AstNode *e, Type *to);
+AstNode *conv_lvalue(Sema *s, AstNode *e);  /* drops TOP-level quals */
+AstNode *conv_decay(Sema *s, AstNode *e);   /* array->ptr, func->ptr */
+AstNode *conv_promote(Sema *s, AstNode *e); /* integer promotions */
+AstNode *conv_to_bool(Sema *s, AstNode *e); /* `!= 0`, never truncation */
+Type *conv_uac(Sema *s, AstNode **a, AstNode **b);
+/* The type-level halves, so the unit suite can build a truth table
+ * without constructing expressions. */
+Type *conv_promote_type(Sema *s, Type *t);
+Type *conv_uac_type(Sema *s, Type *a, Type *b);
+Type *conv_strip_quals(Sema *s, const Type *t);
+int conv_rank(const Type *t);
+bool conv_is_signed(Sema *s, const Type *t);
+u32 conv_int_bits(Sema *s, const Type *t);
+/* 6.3.2.3p3. `(char *)0` is a null POINTER but not a null pointer
+ * CONSTANT — the difference decides `?:` typing and varargs sentinels. */
+bool conv_is_npc(Sema *s, const AstNode *e);
+bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx);
+
+/* --- expressions --------------------------------------------------------- */
+
+/* Types an expression in place: fills sem_type/is_lvalue and rewrites
+ * children with the implicit conversions the operator demands. Returns
+ * the (possibly wrapped) node. */
+AstNode *sema_expr(Sema *s, AstNode *e);
+
 /* --- scopes -------------------------------------------------------------- */
 
 void sema_init(Sema *s, Arena *ar, DiagCtx *dc, Interner *in,
@@ -211,6 +253,8 @@ void sema_run(Sema *s, AstNode *tu);
 /* -fdump-sema: file-scope symbols with their resolved types and linkage,
  * in DECLARATION order. */
 void sema_dump(Sema *s, FILE *f);
+/* Teaches ast.c to render semantic types; call once before any dump. */
+void sema_install_renderer(void);
 /* Converts an AST type chain to a semantic Type. Exposed for unit tests. */
 Type *sema_type_from_ast(Sema *s, const AstType *at, Span span);
 
