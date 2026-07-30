@@ -12,179 +12,16 @@
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
 static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 
-/* --- the enumerator constant evaluator ----------------------------------- */
+/* --- constant folding ---------------------------------------------------- */
 
-/* Enumerator values are needed HERE — the underlying type is chosen from
- * the value range and `previous + 1` needs the previous value — but the
- * general constant-expression evaluator is Sprint 15's. So this is a
- * deliberately minimal integer folder covering what enumerator lists
- * actually contain: literals, character constants, other enum constants,
- * and the arithmetic between them. Anything richer hard-errors naming
- * Sprint 15 rather than guessing a value. */
-static bool enum_fold(Sema *s, AstNode *e, i64 *out);
-
-static bool enum_fold_binary(Sema *s, AstNode *e, i64 *out)
-{
-    i64 l, r;
-
-    if (!enum_fold(s, e->lhs, &l) || !enum_fold(s, e->rhs, &r))
-        return false;
-    switch (e->op) {
-    case PUNCT_PLUS:
-        *out = (i64)((u64)l + (u64)r);
-        return true;
-    case PUNCT_MINUS:
-        *out = (i64)((u64)l - (u64)r);
-        return true;
-    case PUNCT_STAR:
-        *out = (i64)((u64)l * (u64)r);
-        return true;
-    case PUNCT_SLASH:
-    case PUNCT_PERCENT:
-        if (r == 0) {
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, e->span,
-                      "division by zero in an enumerator value");
-            return false;
-        }
-        *out = e->op == PUNCT_SLASH ? l / r : l % r;
-        return true;
-    case PUNCT_SHL:
-        *out = (i64)((u64)l << (r & 63));
-        return true;
-    case PUNCT_SHR:
-        *out = l >> (r & 63);
-        return true;
-    case PUNCT_AMP:
-        *out = l & r;
-        return true;
-    case PUNCT_PIPE:
-        *out = l | r;
-        return true;
-    case PUNCT_CARET:
-        *out = l ^ r;
-        return true;
-    case PUNCT_LT:
-        *out = l < r;
-        return true;
-    case PUNCT_GT:
-        *out = l > r;
-        return true;
-    case PUNCT_LE:
-        *out = l <= r;
-        return true;
-    case PUNCT_GE:
-        *out = l >= r;
-        return true;
-    case PUNCT_EQEQ:
-        *out = l == r;
-        return true;
-    case PUNCT_NOTEQ:
-        *out = l != r;
-        return true;
-    case PUNCT_AMPAMP:
-        *out = l && r;
-        return true;
-    case PUNCT_PIPEPIPE:
-        *out = l || r;
-        return true;
-    default:
-        sema_unimplemented(s, e->span, "this operator in a constant expression",
-                           15);
-        return false;
-    }
-}
-
+/* Sprint 12 landed a minimal integer folder here because enum values were
+ * needed before the real evaluator existed. Sprint 15 replaced it: every
+ * constant context now goes through constexpr.c's single evaluator, so
+ * there is exactly one set of rules and no chance of two folders
+ * disagreeing about what is constant. */
 static bool enum_fold(Sema *s, AstNode *e, i64 *out)
 {
-    if (!e)
-        return false;
-    switch (e->kind) {
-    case AST_ERROR:
-        return false; /* already diagnosed: stay silent (Sprint 11) */
-    case AST_EXPR_INT:
-    case AST_EXPR_CHAR:
-        *out = (i64)e->tok->int_val;
-        return true;
-    case AST_EXPR_PAREN:
-        return enum_fold(s, e->lhs, out);
-    case AST_EXPR_IDENT: {
-        Symbol *sym = scope_lookup(s->scope, e->name, NS_ORDINARY);
-
-        if (sym && sym->kind == SYM_ENUM_CONST) {
-            *out = sym->enum_value;
-            return true;
-        }
-        s->nerrors++;
-        diag_emit(s->dc, DIAG_ERROR, e->span,
-                  "'%s' is not a constant expression", e->name);
-        return false;
-    }
-    case AST_EXPR_UNARY: {
-        i64 v;
-
-        if (e->is_postfix || !enum_fold(s, e->lhs, &v))
-            return false;
-        switch (e->op) {
-        case PUNCT_PLUS:
-            *out = v;
-            return true;
-        case PUNCT_MINUS:
-            *out = (i64)(0ull - (u64)v);
-            return true;
-        case PUNCT_TILDE:
-            *out = ~v;
-            return true;
-        case PUNCT_BANG:
-            *out = !v;
-            return true;
-        default:
-            sema_unimplemented(s, e->span,
-                               "this operator in a constant expression", 15);
-            return false;
-        }
-    }
-    case AST_EXPR_BINARY:
-        return enum_fold_binary(s, e, out);
-    case AST_EXPR_COND: {
-        i64 c;
-
-        if (!enum_fold(s, e->lhs, &c))
-            return false;
-        return enum_fold(s, c ? e->mid : e->rhs, out);
-    }
-    case AST_EXPR_SIZEOF:
-    case AST_EXPR_ALIGNOF: {
-        /* Sprint 14 landed layout, so these fold. The operand type is
-         * whichever of the two forms was written: a type-name, or the
-         * type of an unevaluated expression. */
-        Type *t = e->type ? sema_type_from_ast(s, e->type, e->span)
-                          : (e->lhs ? e->lhs->sem_type : NULL);
-
-        if (!t && e->lhs) {
-            /* The operand was not typed yet (a constant context reached
-             * before expression sema); type it now. */
-            e->lhs = sema_expr(s, e->lhs);
-            t = e->lhs->sem_type;
-        }
-        if (!t)
-            return false;
-        if (!layout_is_complete_for_size(t)) {
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, e->span,
-                      "invalid application of '%s' to incomplete type '%s'",
-                      e->kind == AST_EXPR_SIZEOF ? "sizeof" : "_Alignof",
-                      type_to_str(s->arena, t));
-            return false;
-        }
-        *out = e->kind == AST_EXPR_SIZEOF ? (i64)layout_of(s, t).size
-                                          : (i64)layout_of(s, t).align;
-        return true;
-    }
-    default:
-        sema_unimplemented(s, e->span, "this form of constant expression", 15);
-        return false;
-    }
+    return sema_require_ice(s, e, out, "this");
 }
 
 /* --- tags ---------------------------------------------------------------- */
@@ -998,7 +835,8 @@ static void sema_init_expr_list(Sema *s, AstNode *list)
  * errors inside them still surface, and the element-by-element
  * compatibility check waits. A scalar initializer goes through the full
  * assignment constraints with ACTX_INIT so the wording is gcc's. */
-static void sema_init_expr(Sema *s, Type *target, AstNode *d)
+static void sema_init_expr(Sema *s, Type *target, AstNode *d,
+                           bool is_static_init)
 {
     AssignCtx ctx;
 
@@ -1023,6 +861,17 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d)
     memset(&ctx, 0, sizeof(ctx));
     ctx.kind = ACTX_INIT;
     conv_assignable(s, target, &d->init, ctx);
+
+    /* An object with STATIC storage duration is initialized before any
+     * code runs, so its initializer must be a CONSTANT — and an address
+     * constant may not name an automatic object, which is the check that
+     * keeps a stack address out of .data. This runs after typing because
+     * an address constant needs its identifiers resolved first. */
+    if (is_static_init && target->kind != TY_ERROR) {
+        ConstValue cv = constexpr_eval(
+            s, d->init, target->kind == TY_PTR ? CE_ADDR : CE_ARITH);
+        (void)cv; /* constexpr_eval reports the specific reason itself */
+    }
 }
 
 /* _Alignas (6.7.5). The constraints are the deliverable: it may not
@@ -1111,6 +960,7 @@ static void declare_one(Sema *s, AstNode *d)
     Symbol *prev;
     Symbol *visible;
     bool is_func;
+    bool static_init;
     bool file_scope = s->scope->kind == SCOPE_FILE;
 
     if (!d || !d->name)
@@ -1174,17 +1024,22 @@ static void declare_one(Sema *s, AstNode *d)
                   d->name);
     }
 
+    /* File-scope objects and block-scope `static` ones share one rule:
+     * there is no code running when they are initialized. */
+    static_init = !is_func && sym->kind != SYM_TYPEDEF &&
+                  (file_scope || (d->storage & AST_SC_STATIC));
+
     prev = scope_lookup_local(s->scope, d->name, NS_ORDINARY);
     if (prev) {
         merge_redeclaration(s, prev, sym, d->storage);
         /* The initializer still has to be TYPED even when the declaration
          * merged into an earlier one, or its expressions never get
          * checked at all. */
-        sema_init_expr(s, prev->type, d);
+        sema_init_expr(s, prev->type, d, static_init);
         return;
     }
     scope_declare(s, sym);
-    sema_init_expr(s, sym->type, d);
+    sema_init_expr(s, sym->type, d, static_init);
 }
 
 static void sema_stmt(Sema *s, AstNode *st);

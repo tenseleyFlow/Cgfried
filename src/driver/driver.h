@@ -35,6 +35,7 @@ typedef struct {
     bool dump_ast;       /* --dump-ast (declarator round-trip goldens) */
     bool dump_sema;      /* -fdump-sema (symbol/type goldens) */
     bool dump_layout;    /* -fdump-layout (record offsets/sizes) */
+    bool dump_init;      /* -fdump-init (static initializer images) */
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
     bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
     u32 max_errors;      /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */

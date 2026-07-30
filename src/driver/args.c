@@ -44,6 +44,8 @@ DriverArgs args_parse(int argc, char **argv)
             a.dump_sema = true;
         } else if (strcmp(s, "-fdump-layout") == 0) {
             a.dump_layout = true;
+        } else if (strcmp(s, "-fdump-init") == 0) {
+            a.dump_init = true;
         } else if (strcmp(s, "-fsyntax-only") == 0) {
             a.syntax_only = true;
         } else if (strcmp(s, "-pedantic") == 0) {

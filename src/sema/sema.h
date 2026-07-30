@@ -228,6 +228,58 @@ Sf constexpr_parse_float(const char *spelling, SfFormat f, SfStatus *st);
 /* The value of a float literal token, with gcc's range diagnostics. */
 Sf constexpr_float_literal(Sema *s, AstNode *e);
 
+/* C11 6.6 has THREE constant-expression categories with different rules,
+ * and one permissive folder that gcc applies opportunistically. They are
+ * one function with four modes rather than four functions, because four
+ * functions drift apart and the drift is invisible until a program is
+ * accepted in one context and rejected in another. */
+typedef enum {
+    CE_ICE,   /* integer constant expression: the strict constraint check */
+    CE_ARITH, /* arithmetic constant expression: floats allowed */
+    CE_ADDR,  /* address constant: &object + offset */
+    CE_FOLD   /* opportunistic; failure is silent */
+} CeMode;
+
+typedef enum { CV_INT, CV_FLOAT, CV_ADDR, CV_ERROR } CvKind;
+
+typedef struct {
+    CvKind kind;
+    Type *type;
+    u64 i;       /* CV_INT: the two's-complement bit pattern, target width */
+    Sf f;        /* CV_FLOAT: in the format its type calls for */
+    Symbol *sym; /* CV_ADDR: the symbol, for Sprint 19's relocation */
+    i64 addend;
+} ConstValue;
+
+ConstValue constexpr_eval(Sema *s, AstNode *e, CeMode mode);
+/* The ICE entry point every constraint context uses. `what` names the
+ * context in the diagnostic ("array bound", "case label", ...). */
+bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what);
+
+/* --- static initializer images (consumed by Sprint 19) ------------------- */
+
+typedef struct {
+    u64 offset;  /* byte offset within the image */
+    Symbol *sym; /* the symbol whose address goes here */
+    i64 addend;
+} InitReloc;
+
+typedef struct {
+    u8 *bytes;
+    u64 size;
+    InitReloc *relocs;
+    u32 nrelocs;
+} InitImage;
+
+/* Evaluates a static initializer into the exact bytes Sprint 19 will emit
+ * into .data/.rodata, plus the relocations for any address constants.
+ * Padding is ZERO — both for determinism and to match gcc. */
+bool constexpr_eval_initializer(Sema *s, Type *type, AstNode *init,
+                                InitImage *out);
+/* -fdump-init: one line per file-scope object with an initializer, as
+ * hex bytes plus any relocations. This is exactly what Sprint 19 emits. */
+void constexpr_dump_initializers(Sema *s, AstNode *tu, FILE *f);
+
 /* --- layout (Sprint 14) -------------------------------------------------- */
 
 typedef struct {

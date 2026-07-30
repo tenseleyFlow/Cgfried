@@ -409,6 +409,7 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                         strcmp(piece, "--dump-ast") == 0 ||
                         strcmp(piece, "-fdump-sema") == 0 ||
                         strcmp(piece, "-fdump-layout") == 0 ||
+                        strcmp(piece, "-fdump-init") == 0 ||
                         strcmp(piece, "-fsyntax-only") == 0)
                         pp_mode = true;
                     if (n >= 28) {

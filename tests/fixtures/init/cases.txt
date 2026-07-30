@@ -1,0 +1,56 @@
+# Static-initializer differential corpus.
+# Format: <type prelude> | <declarator> = <initializer>
+# The prelude is emitted verbatim, so it carries its own semicolons.
+| int a = 42
+| int a = -7
+| unsigned u = 4000000000u
+| long l = 1234567890123
+| char c = 'x'
+| short sh = -300
+| double d = 0.1
+| double d = 3.141592653589793
+| double d = 5e-324
+| double d = 1.0
+| double d = -2.5
+| float f = 1.5f
+| float f = 0.1f
+| long double ld = 1.0
+| long double ld = 0.1
+| int a = 2 + 3 * 4
+| int a = (1 << 10) - 1
+| int a = 100 / 7
+| int a = 100 % 7
+| int a = 1 ? 2 : 3
+| int a = sizeof(long)
+| int a = (int)3.9
+| double d = (double)7
+| int arr[4] = { 1, 2, 3, 4 }
+| int arr[4] = { 1, 2 }
+| int arr[4] = { [2] = 7 }
+| int arr[4] = { [1] = 5, 6 }
+| char s[8] = "abc"
+| char s[4] = "abcd"
+| char s[3] = "ab"
+| int m[2][3] = { { 1, 2, 3 }, { 4, 5, 6 } }
+| int m[2][3] = { { 1 }, { 4 } }
+| int a = '\n'
+| _Bool b = 1
+| _Bool b = 0
+| long long ll = -1
+| unsigned long long ull = 18446744073709551615ull
+struct P { char c; int i; long l; }; | struct P p = { 1, 2, 3 }
+struct P { char c; int i; long l; }; | struct P p = { 1 }
+struct Q { int a; double d; }; | struct Q q = { 7, 2.5 }
+struct R { char a; char b; short c; }; | struct R r = { 1, 2, 3 }
+struct N { struct { int x; int y; } in; int z; }; | struct N n = { { 1, 2 }, 3 }
+union U { int i; char c[4]; }; | union U u = { 0x11223344 }
+union V { char c; double d; }; | union V v = { 5 }
+struct B { int a:3; int b:5; }; | struct B bf = { 3, 5 }
+struct B2 { int a:1; int b:31; }; | struct B2 bf = { 1, 7 }
+struct B3 { char a:4; char b:4; }; | struct B3 bf = { 15, 15 }
+struct B4 { int a:7; int b:25; }; | struct B4 bf = { 100, 12345 }
+struct B5 { char a:2; char :0; char b:2; }; | struct B5 bf = { 1, 2 }
+struct M { int i; char pad; double d; }; | struct M m = { 1, 2, 3.5 }
+struct A2 { int v[3]; }; | struct A2 a = { { 9, 8, 7 } }
+struct A3 { char c; int v[2]; long l; }; | struct A3 a = { 1, { 2, 3 }, 4 }
+struct S1 { int a; }; struct S2 { struct S1 s; int b; }; | struct S2 x = { { 5 }, 6 }
