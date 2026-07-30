@@ -9,6 +9,7 @@
 #include "util/base.h"
 #include "util/buf.h"
 #include "util/intern.h"
+#include "util/vec.h"
 
 /* ISO C17 translation phases 1-3: ingestion (normalization), line splicing,
  * pp-tokenization. Directives are Sprint 4, macro expansion Sprint 5,
@@ -86,8 +87,11 @@ typedef enum PpTokKind {
     PPTOK_STRLIT,
     PPTOK_PUNCT,
     PPTOK_HEADER_NAME,
-    PPTOK_OTHER, /* stray byte (@, `, ...): error only if it survives to
-                    phase 7 — -E passes it through (gcc parity) */
+    PPTOK_OTHER,       /* stray byte (@, `, ...): error only if it survives
+                          to phase 7 — -E passes it through (gcc parity) */
+    PPTOK_PLACEMARKER, /* C11 6.10.3.3 placemarker: exists only inside
+                          substitution, deleted after ## processing; must
+                          never escape macro.c */
     PPTOK_EOF,
 } PpTokKind;
 
@@ -148,7 +152,19 @@ typedef enum PpPunct {
 #define PPTOK_F_BOL 0x01   /* first token after a LOGICAL newline */
 #define PPTOK_F_SPACE 0x02 /* preceded by whitespace or a comment */
 
-struct HideSet; /* Sprint 5 (Prosser hide-sets); the field exists NOW */
+/* Prosser hide-set: immutable persistent list of interned macro names. A
+ * token carrying macro X in its hideset is never expanded as X again,
+ * through ALL rescans — paint lives on TOKENS, never on a global
+ * "currently expanding" flag (which would wrongly block sibling
+ * expansions and wrongly unblock painted tokens later). */
+typedef struct HideSet {
+    const char *name; /* interned */
+    struct HideSet *next;
+} HideSet;
+
+HideSet *pp_hs_insert(Arena *a, HideSet *hs, const char *name);
+HideSet *pp_hs_intersect(Arena *a, HideSet *x, HideSet *y);
+bool pp_hs_contains(const HideSet *hs, const char *name);
 
 typedef struct PpToken {
     const char *spelling;    /* interned, NUL-terminated, splices removed */
@@ -162,14 +178,24 @@ typedef struct PpToken {
 
 _Static_assert(sizeof(PpToken) <= 32, "PpToken must stay lean");
 
-/* --- Macro table (storage; expansion LANDS_IN_SPRINT(5)) --------------- */
+/* --- Macro table + expansion ------------------------------------------- */
+
+/* Dynamic builtins are computed at each expansion; static predefines are
+ * ordinary object-like macros defined from the "<built-in>" pseudo-file. */
+typedef enum {
+    MACRO_BUILTIN_NONE,
+    MACRO_BUILTIN_FILE,    /* __FILE__: presumed path (honors #line) */
+    MACRO_BUILTIN_LINE,    /* __LINE__: presumed line of the invocation */
+    MACRO_BUILTIN_COUNTER, /* __COUNTER__: per-TU counter from 0 (gcc ext) */
+} MacroBuiltinKind;
 
 typedef struct MacroDef {
     const char *name; /* interned */
     SrcLoc loc;       /* definition site */
     bool is_function;
     bool is_variadic;
-    bool is_builtin;
+    bool is_builtin; /* predefined (redefinition warns instead of erroring) */
+    u8 builtin_kind; /* MacroBuiltinKind */
     u16 nparams;
     const char **params; /* interned names */
     PpToken *body;
@@ -219,6 +245,29 @@ typedef struct {
     PpStdcSwitch cx_limited_range;
 } PpStdcPragmaState;
 
+/* --- Language standard (drives predefines and GNU-ext acceptance) ------ */
+
+typedef enum {
+    STD_C89,
+    STD_C99,
+    STD_C11,
+    STD_C17, /* the default (locked decision) */
+    STD_GNU89,
+    STD_GNU99,
+    STD_GNU11,
+    STD_GNU17,
+} CStd;
+
+/* --- Macro-expansion output buffers (rescan stack) ---------------------
+ * Expansion output is PUSHED BACK onto this stack above the file lexer, so
+ * rescanning continues into the remaining input — a function-like
+ * invocation can assemble across the expansion edge (ISO 6.10.3.4). */
+typedef struct PpTokBuf {
+    PpToken *toks;
+    u32 n;
+    u32 pos;
+} PpTokBuf;
+
 /* --- Preprocessor state ------------------------------------------------ */
 
 #define PP_MAX_DIRS 32
@@ -260,6 +309,22 @@ typedef struct Preprocessor {
     PpToken *pass;
     u32 npass;
     u32 pass_pos;
+
+    /* Language standard. */
+    CStd std;
+    bool gnu_mode;
+
+    /* Expansion machinery. */
+    PpTokBuf *bufs; /* rescan stack; bufs[nbufs-1] is consumed first */
+    size_t nbufs;
+    size_t bufs_cap;
+    PpToken pending; /* one-token lookahead (fn-like `(` probe) */
+    bool has_pending;
+    bool pending_from_file; /* pending came from the lexer: may be a
+                               directive `#`; buffer tokens never are */
+    u32 counter;            /* __COUNTER__ */
+    bool collecting_args;   /* directive-in-argument-list detection */
+    bool in_if_line;        /* #if expansion: `defined` operands stay raw */
 } Preprocessor;
 
 void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner);
@@ -305,11 +370,49 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n);
 void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc);
 const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name);
 
-/* The Sprint-5 seam: every path that needs macro expansion routes through
- * this. Today it hard-errors iff any token is a defined macro name and
- * reports whether expansion would have happened. */
-bool pp_expansion_needed(Preprocessor *pp, const PpToken *toks, u32 n,
-                         const char *context);
+/* One collected macro argument: raw tokens always; the pre-expanded form
+ * computed LAZILY (an argument used only as a #/## operand must never be
+ * expanded, even if expanding it would error). */
+typedef struct MacroArg {
+    const PpToken *raw;
+    u32 nraw;
+    PpToken *expanded;
+    u32 nexp;
+    bool computed;
+} MacroArg;
+
+/* Substitution core (Prosser): builds the fully-substituted, pasted,
+ * placemarker-free replacement list; every output token gets hideset
+ * hs_new merged in and an expansion SrcLoc chaining to `inv`. */
+PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
+                        u32 nargs, HideSet *hs_new, SrcLoc inv, u32 *out_n);
+bool pp_macro_check_args(Preprocessor *pp, const MacroDef *m, u32 nargs,
+                         SrcLoc loc);
+PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc);
+
+/* Registers predefined macros for the configured std/target: static ones
+ * via the returned "<built-in>" pseudo-file (process before everything),
+ * dynamic builtins (__FILE__/__LINE__/__COUNTER__) directly in the table.
+ * __DATE__/__TIME__ freeze once (SOURCE_DATE_EPOCH honored). */
+SourceFile *pp_predefine_all(Preprocessor *pp);
+
+/* Isolated macro expansion of a token list (#if lines, computed includes,
+ * #line arguments, argument pre-expansion). No cross-boundary rescan: a
+ * function-like name whose `(` is not inside the list stays unexpanded. */
+u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out);
+
+/* Stream-side expansion attempt for one identifier token: returns true if
+ * it consumed the token (expansion output pushed onto the rescan stack, or
+ * a dynamic builtin was synthesized). False: emit the token as-is. */
+bool pp_try_expand(Preprocessor *pp, const PpToken *t);
+
+/* Dumps #define lines for -dM (dynamic builtins omitted, gcc parity). */
+void pp_dump_macros(Preprocessor *pp);
+
+/* -E writer support: must a space be inserted between adjacently-printed
+ * tokens to keep them two tokens? */
+bool pp_tokens_would_merge(Preprocessor *pp, const PpToken *a,
+                           const PpToken *b);
 
 /* --- PP constant expressions (ppexpr.c) -------------------------------- */
 

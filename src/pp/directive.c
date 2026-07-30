@@ -85,6 +85,235 @@ static bool frame_next(Preprocessor *pp, PpToken *out)
     return pp_lex_token(&cur_frame(pp)->lx, out);
 }
 
+/* --- rescan-stack token flow (expansion output above the lexer) --------- */
+
+static void push_buf(Preprocessor *pp, PpToken *toks, u32 n)
+{
+    PpTokBuf *b;
+
+    if (n == 0)
+        return;
+    if (pp->nbufs == pp->bufs_cap) {
+        pp->bufs_cap = pp->bufs_cap ? pp->bufs_cap * 2 : 8;
+        pp->bufs = cgf_xrealloc(pp->bufs, pp->bufs_cap * sizeof(PpTokBuf));
+    }
+    b = &pp->bufs[pp->nbufs++];
+    b->toks = toks;
+    b->n = n;
+    b->pos = 0;
+}
+
+/* Pending slot > rescan stack > file lexer. False ONLY at the current
+ * frame's EOF with everything else drained (the caller pops the frame). */
+static bool raw_next(Preprocessor *pp, PpToken *out, bool *from_file)
+{
+    if (pp->has_pending) {
+        *out = pp->pending;
+        *from_file = pp->pending_from_file;
+        pp->has_pending = false;
+        return true;
+    }
+    while (pp->nbufs) {
+        PpTokBuf *b = &pp->bufs[pp->nbufs - 1];
+        if (b->pos < b->n) {
+            *out = b->toks[b->pos++];
+            *from_file = false;
+            if (b->pos == b->n)
+                pp->nbufs--;
+            return true;
+        }
+        pp->nbufs--;
+    }
+    *from_file = true;
+    return frame_next(pp, out);
+}
+
+static void unget_raw(Preprocessor *pp, const PpToken *t, bool from_file)
+{
+    if (pp->has_pending)
+        CGF_ICE("pp: double unget in raw stream");
+    pp->pending = *t;
+    pp->pending_from_file = from_file;
+    pp->has_pending = true;
+}
+
+/* --- stream-side macro expansion --------------------------------------- */
+
+VEC_DECL(PpStreamVec, PpToken);
+
+/* Collects a function-like invocation's arguments from the RAW STREAM (the
+ * `(` already consumed). Directives inside argument lists are UB
+ * (6.10.3p11): conditionals error, others warn and are processed (gcc
+ * parity). Returns false on unterminated list (diagnosed). */
+static bool handle_directive(Preprocessor *pp, const PpToken *hash,
+                             PpToken **passthrough, u32 *npassthrough);
+
+static bool collect_args_stream(Preprocessor *pp, const MacroDef *m, SrcLoc inv,
+                                MacroArg **out_args, u32 *out_nargs,
+                                HideSet **rparen_hs)
+{
+    u32 max_args = m->nparams + (m->is_variadic ? 1u : 0u);
+    MacroArg *args =
+        arena_alloc(pp->arena, (max_args ? max_args : 1) * sizeof(MacroArg),
+                    _Alignof(MacroArg));
+    PpStreamVec cur = {NULL, 0, 0};
+    u32 depth = 0, nargs = 0;
+
+    memset(args, 0, (max_args ? max_args : 1) * sizeof(MacroArg));
+
+    for (;;) {
+        PpToken t;
+        bool from_file;
+
+        if (!raw_next(pp, &t, &from_file)) {
+            pp_diag_at(pp, DIAG_ERROR, inv, 1,
+                       "unterminated argument list invoking macro '%s'",
+                       m->name);
+            PpStreamVec_free(&cur);
+            return false;
+        }
+        if (from_file && t.kind == PPTOK_PUNCT && t.punct == PUNCT_HASH &&
+            (t.flags & PPTOK_F_BOL)) {
+            /* Directive while collecting arguments: UB (6.10.3p11); gcc
+             * warns, processes it, and honors conditionals — verified
+             * against gcc on tinycc pp/22 (the sprint file predicted an
+             * error for the #if family; gcc disagrees). */
+            PpToken *pass;
+            u32 npass;
+            pp_diag_at(pp, DIAG_WARNING, t.loc, t.len,
+                       "embedding a directive within macro arguments is "
+                       "not portable");
+            pp->collecting_args = true;
+            handle_directive(pp, &t, &pass, &npass);
+            pp->collecting_args = false;
+            continue;
+        }
+        if (from_file && !in_live_region(pp))
+            continue; /* skipped conditional group inside the arg list */
+        if (t.kind == PPTOK_PUNCT && t.punct == PUNCT_LPAREN)
+            depth++;
+        if (t.kind == PPTOK_PUNCT && t.punct == PUNCT_RPAREN) {
+            if (depth == 0) {
+                if (rparen_hs)
+                    *rparen_hs = t.hideset;
+                break;
+            }
+            depth--;
+        }
+        if (t.kind == PPTOK_PUNCT && t.punct == PUNCT_COMMA && depth == 0 &&
+            !(m->is_variadic && nargs >= m->nparams)) {
+            if (nargs < max_args) {
+                PpToken *copy = NULL;
+                if (cur.len) {
+                    copy = arena_alloc(pp->arena, cur.len * sizeof(PpToken),
+                                       _Alignof(PpToken));
+                    memcpy(copy, cur.data, cur.len * sizeof(PpToken));
+                }
+                args[nargs].raw = copy;
+                args[nargs].nraw = (u32)cur.len;
+            }
+            nargs++;
+            cur.len = 0;
+            continue;
+        }
+        PpStreamVec_push(&cur, t);
+    }
+
+    if (nargs < max_args) {
+        PpToken *copy = NULL;
+        if (cur.len) {
+            copy = arena_alloc(pp->arena, cur.len * sizeof(PpToken),
+                               _Alignof(PpToken));
+            memcpy(copy, cur.data, cur.len * sizeof(PpToken));
+        }
+        args[nargs].raw = copy;
+        args[nargs].nraw = (u32)cur.len;
+        nargs++;
+    } else {
+        nargs++;
+    }
+
+    if (nargs == 1 && args[0].nraw == 0 && m->nparams == 0 && !m->is_variadic)
+        nargs = 0;
+    if (m->is_variadic && nargs == m->nparams) {
+        args[nargs].raw = NULL;
+        args[nargs].nraw = 0;
+        nargs++;
+    }
+
+    PpStreamVec_free(&cur);
+    *out_args = args;
+    *out_nargs = nargs;
+    return true;
+}
+
+bool pp_try_expand(Preprocessor *pp, const PpToken *t)
+{
+    const MacroDef *m;
+
+    if (pp_hs_contains(t->hideset, t->spelling))
+        return false;
+    m = pp_macro_lookup(pp, t->spelling);
+    if (!m)
+        return false;
+
+    if (m->builtin_kind != MACRO_BUILTIN_NONE) {
+        PpToken *one =
+            arena_alloc(pp->arena, sizeof(PpToken), _Alignof(PpToken));
+        *one = pp_builtin_token(pp, m, t->loc);
+        one->flags |= t->flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
+        push_buf(pp, one, 1);
+        return true;
+    }
+
+    if (!m->is_function) {
+        HideSet *hs = pp_hs_insert(pp->arena, t->hideset, m->name);
+        u32 sn;
+        PpToken *sub = pp_macro_subst(pp, m, NULL, 0, hs, t->loc, &sn);
+        if (sn)
+            sub[0].flags =
+                (sub[0].flags & (u8) ~(PPTOK_F_SPACE | PPTOK_F_BOL)) |
+                (t->flags & (PPTOK_F_SPACE | PPTOK_F_BOL));
+        push_buf(pp, sub, sn);
+        return true;
+    }
+
+    /* Function-like: only an immediate `(` (whitespace/newlines allowed)
+     * makes an invocation; a directive line or frame EOF blocks it. */
+    {
+        PpToken nx;
+        bool from_file;
+
+        if (!raw_next(pp, &nx, &from_file))
+            return false; /* frame EOF: plain identifier */
+        if (nx.kind != PPTOK_PUNCT || nx.punct != PUNCT_LPAREN ||
+            (from_file && (nx.flags & PPTOK_F_BOL) && nx.punct == PUNCT_HASH)) {
+            unget_raw(pp, &nx, from_file);
+            return false;
+        }
+        {
+            MacroArg *args;
+            u32 nargs, sn;
+            HideSet *rp_hs = NULL, *hs;
+            PpToken *sub;
+
+            if (!collect_args_stream(pp, m, t->loc, &args, &nargs, &rp_hs))
+                return true; /* diagnosed; invocation swallowed */
+            if (!pp_macro_check_args(pp, m, nargs, t->loc))
+                return true;
+            hs = pp_hs_intersect(pp->arena, t->hideset, rp_hs);
+            hs = pp_hs_insert(pp->arena, hs, m->name);
+            sub = pp_macro_subst(pp, m, args, nargs, hs, t->loc, &sn);
+            if (sn)
+                sub[0].flags =
+                    (sub[0].flags & (u8) ~(PPTOK_F_SPACE | PPTOK_F_BOL)) |
+                    (t->flags & (PPTOK_F_SPACE | PPTOK_F_BOL));
+            push_buf(pp, sub, sn);
+            return true;
+        }
+    }
+}
+
 /* True iff the current frame is at end-of-directive-line (next token would
  * start a new logical line). Never consumes: a directive's effects must be
  * recorded before the following line's tokens get lexed. */
@@ -265,8 +494,16 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
                        "#include expects <FILENAME> or \"FILENAME\"");
             return;
         }
-        if (pp_expansion_needed(pp, toks, n, "a computed #include"))
+        {
+            PpToken *ex;
+            n = pp_expand_list(pp, toks, n, &ex);
+            toks = ex;
+        }
+        if (n == 0) {
+            pp_diag_at(pp, DIAG_ERROR, dloc, 1,
+                       "#include expects <FILENAME> or \"FILENAME\"");
             return;
+        }
         if (toks[0].kind == PPTOK_STRLIT) {
             if (n > 1)
                 pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
@@ -297,8 +534,15 @@ static void directive_line(Preprocessor *pp, PpToken *toks, u32 n, SrcLoc dloc,
         pp_diag_at(pp, DIAG_ERROR, dloc, 1, "#line expects a line number");
         return;
     }
-    if (pp_expansion_needed(pp, toks, n, "#line"))
+    {
+        PpToken *ex;
+        n = pp_expand_list(pp, toks, n, &ex);
+        toks = ex;
+    }
+    if (n == 0) {
+        pp_diag_at(pp, DIAG_ERROR, dloc, 1, "#line expects a line number");
         return;
+    }
     if (toks[0].kind != PPTOK_PPNUM) {
         pp_diag_at(pp, DIAG_ERROR, toks[0].loc, toks[0].len,
                    "#line expects a decimal line number");
@@ -687,21 +931,31 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
 
 void pp_begin(Preprocessor *pp, SourceFile *main_file, SourceFile *cmdline)
 {
+    SourceFile *builtin;
+
     push_frame(pp, main_file, -1);
     if (cmdline)
-        push_frame(pp, cmdline, -1); /* processed first, popped first */
+        push_frame(pp, cmdline, -1);
+    /* Topmost = processed first: builtins, then -D/-U, then the TU. */
+    builtin = pp_predefine_all(pp);
+    push_frame(pp, builtin, -1);
 }
 
 void pp_end(Preprocessor *pp)
 {
     while (pp->nframes)
         pop_frame(pp);
+    free(pp->bufs);
+    pp->bufs = NULL;
+    pp->nbufs = 0;
+    pp->bufs_cap = 0;
 }
 
 bool pp_next(Preprocessor *pp, PpToken *out)
 {
     for (;;) {
         PpToken t;
+        bool from_file;
 
         if (pp->nframes == 0)
             return false;
@@ -720,12 +974,14 @@ bool pp_next(Preprocessor *pp, PpToken *out)
             return true;
         }
 
-        if (!frame_next(pp, &t)) {
+        if (!raw_next(pp, &t, &from_file)) {
             pop_frame(pp);
             continue;
         }
 
-        if (t.kind == PPTOK_PUNCT && t.punct == PUNCT_HASH &&
+        /* Directives are recognized only in tokens straight from the file
+         * lexer — expansion output is NEVER reinterpreted as directives. */
+        if (from_file && t.kind == PPTOK_PUNCT && t.punct == PUNCT_HASH &&
             (t.flags & PPTOK_F_BOL)) {
             PpToken *pass;
             u32 npass;
@@ -740,11 +996,14 @@ bool pp_next(Preprocessor *pp, PpToken *out)
         if (!in_live_region(pp))
             continue; /* skipped group: discard text tokens */
 
-        /* Text token. Defined macro names route through the expansion
-         * seam; everything else passes untouched. */
-        if (t.kind == PPTOK_IDENT && pp_macro_lookup(pp, t.spelling)) {
-            pp_expansion_needed(pp, &t, 1, "program text");
-            continue;
+        if (t.kind == PPTOK_IDENT) {
+            if (strcmp(t.spelling, "_Pragma") == 0) {
+                pp_diag_at(pp, DIAG_ERROR, t.loc, t.len,
+                           "_Pragma is not yet supported" LANDS_IN_SPRINT(6));
+                continue;
+            }
+            if (pp_try_expand(pp, &t))
+                continue;
         }
         *out = t;
         return true;

@@ -47,6 +47,9 @@ struct Arena; /* util/arena.h */
 
 DiagCtx *diag_ctx_new(struct Arena *arena); /* default sink: stderr renderer */
 void diag_set_sink(DiagCtx *dc, DiagSink sink);
+/* Installs `sink`, returning the previous one (scoped suppression — e.g.
+ * the macro engine's silent paste re-lex probe). */
+DiagSink diag_swap_sink(DiagCtx *dc, DiagSink sink);
 
 /* Registers a source buffer; returns its file_id (>= 1). The path is copied;
  * src is borrowed and must outlive the context. */

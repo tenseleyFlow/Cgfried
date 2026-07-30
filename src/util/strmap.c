@@ -34,7 +34,9 @@ static size_t probe(const Strmap *m, const char *key, size_t key_len)
             return i;
         {
             const StrmapEntry *e = &m->entries[idx - 1];
-            if (e->key_len == key_len && memcmp(e->key, key, key_len) == 0)
+            if (e->key_len == key_len &&
+                (key_len == 0 || /* memcmp with NULL is UB even for 0 */
+                 memcmp(e->key, key, key_len) == 0))
                 return i;
         }
         i = (i + 1) & mask;

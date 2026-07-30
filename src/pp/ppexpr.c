@@ -290,6 +290,7 @@ static PpVal eval_primary(EvalCtx *c, bool live)
     case PPTOK_PUNCT:
     case PPTOK_HEADER_NAME:
     case PPTOK_OTHER:
+    case PPTOK_PLACEMARKER:
     case PPTOK_EOF:
         break;
     }
@@ -623,8 +624,21 @@ bool pp_eval_condition(Preprocessor *pp, const PpToken *toks, u32 n, SrcLoc loc)
     sn = replace_defined(pp, toks, n, scratch, loc, &ok);
     if (!ok)
         return false;
-    if (pp_expansion_needed(pp, scratch, sn, "#if"))
-        return false;
+    {
+        /* Real expansion; then one more defined-replacement pass for
+         * `defined` produced BY expansion (UB per 6.10.1p4 — match gcc:
+         * evaluate it as the operator, no diagnostic). */
+        PpToken *ex;
+        u32 en;
+        pp->in_if_line = true;
+        en = pp_expand_list(pp, scratch, sn, &ex);
+        pp->in_if_line = false;
+        scratch = arena_alloc(pp->arena, (en ? en : 1) * sizeof(PpToken),
+                              _Alignof(PpToken));
+        sn = replace_defined(pp, ex, en, scratch, loc, &ok);
+        if (!ok)
+            return false;
+    }
 
     memset(&c, 0, sizeof(c));
     c.pp = pp;

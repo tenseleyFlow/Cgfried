@@ -737,6 +737,8 @@ const char *pp_tok_kind_name(PpTokKind k)
         return "header";
     case PPTOK_OTHER:
         return "other";
+    case PPTOK_PLACEMARKER:
+        return "placemarker"; /* must never escape macro.c */
     case PPTOK_EOF:
         return "eof";
     }

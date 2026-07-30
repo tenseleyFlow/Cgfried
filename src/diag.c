@@ -40,6 +40,14 @@ void diag_set_sink(DiagCtx *dc, DiagSink sink)
     dc->sink = sink;
 }
 
+DiagSink diag_swap_sink(DiagCtx *dc, DiagSink sink)
+{
+    DiagSink prev = dc->sink;
+
+    dc->sink = sink;
+    return prev;
+}
+
 u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
 {
     if (dc->files_len == dc->files_cap) {
