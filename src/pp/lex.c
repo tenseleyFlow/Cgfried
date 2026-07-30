@@ -665,6 +665,28 @@ bool pp_lex_token(PpLexer *lx, PpToken *out)
     return true;
 }
 
+/* True iff the next token (after whitespace/comments) begins a new logical
+ * line, or EOF — WITHOUT consuming anything. The directive engine uses this
+ * to find end-of-directive so that a directive's effects (#line remaps,
+ * #define entries) are recorded BEFORE the next line's tokens are lexed —
+ * their diagnostics must already see those effects. The splice-warning
+ * watermark deliberately stays advanced (no duplicate warnings on the
+ * re-scan). */
+bool pp_lex_at_line_end(PpLexer *lx)
+{
+    size_t save_pos = lx->pos;
+    bool save_bol = lx->at_bol;
+    bool save_space = lx->pending_space;
+    bool r;
+
+    skip_ws_and_comments(lx);
+    r = lx->at_bol || peekc(lx) == '\0';
+    lx->pos = save_pos;
+    lx->at_bol = save_bol;
+    lx->pending_space = save_space;
+    return r;
+}
+
 bool pp_lex_header_name(PpLexer *lx, PpToken *out)
 {
     size_t start;

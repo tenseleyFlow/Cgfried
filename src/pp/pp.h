@@ -14,7 +14,21 @@
  * pp-tokenization. Directives are Sprint 4, macro expansion Sprint 5,
  * _Pragma Sprint 6. */
 
-typedef u16 FileId; /* 1-based; 0 invalid */
+typedef u16 FileId;                       /* 1-based; 0 invalid */
+typedef struct Preprocessor Preprocessor; /* fwd: PpLexer points back */
+
+/* Seam marker: a reachable path a future sprint finishes. Concatenates into
+ * the diagnostic string; grep for LANDS_IN_SPRINT to audit all seams. */
+#define LANDS_IN_SPRINT(n) " (lands in Sprint " #n ")"
+
+/* #line remap event: physical lines >= from_line display as
+ * presumed_line + (phys - from_line), in file `path`. Physical LocTable
+ * entries are never touched (Sprint 3 design note). */
+typedef struct {
+    u32 from_line;
+    u32 presumed_line;
+    const char *path; /* NULL = keep the real path */
+} PresumedRemap;
 
 typedef struct SourceFile {
     FileId id;
@@ -24,6 +38,9 @@ typedef struct SourceFile {
     u32 size;          /* bytes, excluding the NUL */
     u32 *line_offsets; /* byte offset of each physical line start */
     u32 nlines;
+    PresumedRemap *remaps; /* #line events, ascending from_line */
+    u32 nremaps;
+    u32 remaps_cap;
 } SourceFile;
 
 /* --- Location table ---------------------------------------------------
@@ -145,7 +162,66 @@ typedef struct PpToken {
 
 _Static_assert(sizeof(PpToken) <= 32, "PpToken must stay lean");
 
+/* --- Macro table (storage; expansion LANDS_IN_SPRINT(5)) --------------- */
+
+typedef struct MacroDef {
+    const char *name; /* interned */
+    SrcLoc loc;       /* definition site */
+    bool is_function;
+    bool is_variadic;
+    bool is_builtin;
+    u16 nparams;
+    const char **params; /* interned names */
+    PpToken *body;
+    u32 body_len;
+} MacroDef;
+
+/* --- Conditional stack -------------------------------------------------- */
+
+typedef struct PpCond {
+    SrcLoc loc; /* the opening #if/#ifdef/#ifndef */
+    bool parent_live;
+    bool live;      /* this group's tokens are being consumed */
+    bool taken_any; /* some group of this conditional already ran */
+    bool seen_else;
+} PpCond;
+
+typedef struct PpLexer {
+    Preprocessor *pp;
+    SourceFile *sf;
+    size_t pos;
+    size_t warned_upto; /* splice-warning watermark (peeks recross bytes) */
+    Buf scratch;        /* token spelling accumulator (splices removed) */
+    bool at_bol;        /* logical beginning-of-line state */
+    bool pending_space;
+    bool had_error;
+} PpLexer;
+
+/* --- Include stack frame ------------------------------------------------ */
+
+#define PP_INCLUDE_DEPTH_MAX 200
+
+typedef struct PpFrame {
+    PpLexer lx;
+    size_t cond_base; /* conditional-stack depth on entry: conditionals may
+                         not straddle include boundaries */
+    int found_dir;    /* search-chain index this file was found at
+                         (#include_next resumes after it); -1 = main file */
+} PpFrame;
+
+/* --- STDC pragma state (recorded now; consumed Sprints 15/36) ----------- */
+
+typedef enum { PP_STDC_DEFAULT, PP_STDC_ON, PP_STDC_OFF } PpStdcSwitch;
+
+typedef struct {
+    PpStdcSwitch fp_contract;
+    PpStdcSwitch fenv_access;
+    PpStdcSwitch cx_limited_range;
+} PpStdcPragmaState;
+
 /* --- Preprocessor state ------------------------------------------------ */
+
+#define PP_MAX_DIRS 32
 
 typedef struct Preprocessor {
     Arena *arena;
@@ -156,6 +232,34 @@ typedef struct Preprocessor {
     size_t nfiles;
     size_t files_cap;
     bool trigraphs; /* -trigraphs (gcc parity: default off) */
+    bool verbose;   /* -v: print the include search list */
+
+    /* Include search chains (set up by the driver before pp_begin). */
+    const char *iquote_dirs[PP_MAX_DIRS];
+    size_t n_iquote;
+    const char *include_dirs[PP_MAX_DIRS]; /* -I */
+    size_t n_include;
+    const char
+        *system_dirs[PP_MAX_DIRS]; /* from TargetSpec; -nostdinc empties */
+    size_t n_system;
+
+    Strmap macros; /* interned name -> MacroDef* */
+
+    PpFrame *frames; /* include stack; frames[nframes-1] is active */
+    size_t nframes;
+    size_t frames_cap;
+
+    PpCond *conds;
+    size_t nconds;
+    size_t conds_cap;
+
+    PpStdcPragmaState stdc;
+    bool fatal; /* missing include etc.: drain to EOF immediately */
+
+    /* Pending -E passthrough tokens (#pragma lines). */
+    PpToken *pass;
+    u32 npass;
+    u32 pass_pos;
 } Preprocessor;
 
 void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner);
@@ -173,24 +277,45 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
 /* --- pp-lexer (phases 2+3 fused: splices are skipped, never rewritten,
  * so every token keeps its true physical location) -------------------- */
 
-typedef struct PpLexer {
-    Preprocessor *pp;
-    SourceFile *sf;
-    size_t pos;
-    size_t warned_upto; /* splice-warning watermark (peeks recross bytes) */
-    Buf scratch;        /* token spelling accumulator (splices removed) */
-    bool at_bol;        /* logical beginning-of-line state */
-    bool pending_space;
-    bool had_error;
-} PpLexer;
-
 void pp_lexer_init(PpLexer *lx, Preprocessor *pp, SourceFile *sf);
 /* False at EOF (out is then the PPTOK_EOF token). */
 bool pp_lex_token(PpLexer *lx, PpToken *out);
-/* ONLY valid in #include context (Sprint 4 calls it); header-names do not
- * exist elsewhere — never called from the main loop. */
+/* ONLY valid in #include context (the directive engine calls it);
+ * header-names do not exist elsewhere — never called from the main loop. */
 bool pp_lex_header_name(PpLexer *lx, PpToken *out);
+/* Non-consuming: is the next token on a new logical line (or EOF)? */
+bool pp_lex_at_line_end(PpLexer *lx);
 
 const char *pp_tok_kind_name(PpTokKind k);
+
+/* --- Engine (directive.c): the token stream the rest of the compiler
+ * consumes. Directives are handled internally; pp_next yields text tokens
+ * only (plus passed-through #pragma lines under -E). ------------------- */
+
+/* Pushes the main file (and, first, the <command-line> -D/-U buffer if
+ * cmdline is non-NULL). */
+void pp_begin(Preprocessor *pp, SourceFile *main_file, SourceFile *cmdline);
+bool pp_next(Preprocessor *pp, PpToken *out); /* false at end of input */
+void pp_end(Preprocessor *pp);                /* frees engine-owned buffers */
+
+/* --- Macro table (macro.c) --------------------------------------------- */
+
+/* Parses a #define line (tokens after the `define` keyword). */
+void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n);
+void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc);
+const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name);
+
+/* The Sprint-5 seam: every path that needs macro expansion routes through
+ * this. Today it hard-errors iff any token is a defined macro name and
+ * reports whether expansion would have happened. */
+bool pp_expansion_needed(Preprocessor *pp, const PpToken *toks, u32 n,
+                         const char *context);
+
+/* --- PP constant expressions (ppexpr.c) -------------------------------- */
+
+/* Full pipeline for a #if/#elif token line: defined-replacement, expansion
+ * seam, evaluation. False on error (diagnosed) or a zero result. */
+bool pp_eval_condition(Preprocessor *pp, const PpToken *toks, u32 n,
+                       SrcLoc loc);
 
 #endif

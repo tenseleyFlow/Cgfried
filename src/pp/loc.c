@@ -94,6 +94,7 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
     int need;
     char *msg;
 
+    memset(&sp, 0, sizeof(sp));
     if (loc != SRCLOC_INVALID)
         pp_loc_resolve(&pp->loc, loc, &f, &line, &col);
     sp.file_id =
@@ -101,6 +102,25 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
     sp.line = line;
     sp.col = col;
     sp.len = len;
+
+    /* #line presumed remap: display-time only; physical stays true. */
+    if (f && (size_t)f <= pp->nfiles) {
+        const SourceFile *sf = pp->files[f - 1];
+        u32 lo = 0, hi = sf->nremaps; /* last remap with from_line <= line */
+
+        while (hi > lo) {
+            u32 mid = lo + (hi - lo) / 2;
+            if (sf->remaps[mid].from_line <= line)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        if (lo > 0) {
+            const PresumedRemap *r = &sf->remaps[lo - 1];
+            sp.presumed_line = r->presumed_line + (line - r->from_line);
+            sp.presumed_path = r->path; /* NULL keeps the real path */
+        }
+    }
 
     va_start(ap, fmt);
     va_copy(ap2, ap);
