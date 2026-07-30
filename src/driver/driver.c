@@ -7,6 +7,7 @@
 #include "driver/toolchain.h"
 #include "ir/ir.h"
 #include "lex/lex.h"
+#include "lower/lower.h"
 #include "parse/parse.h"
 #include "pp/pp.h"
 #include "sema/sema.h"
@@ -27,8 +28,8 @@ static const char help_text[] =
     "  -fdump-layout     dump record layout (offsets, sizes, alignment)\n"
     "  -fdump-init       dump static initializer images as hex bytes\n"
     "  -fsyntax-only     parse and report diagnostics; produce no output\n"
-    "  -emit-ir          parse, verify and reprint a .cgfir module\n"
-    "                    (lowering C to IR lands in Sprint 18)\n"
+    "  -emit-ir          emit the SSA IR: lowers a .c file through the\n"
+    "                    full front end, or reprints a .cgfir module\n"
     "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
     "  construction sprint by sprint)\n"
@@ -365,20 +366,44 @@ static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
     return sf;
 }
 
-/* -emit-ir on a .cgfir file: parse -> verify -> print. The path does more
- * than print, deliberately: it re-parses its own output, demands
- * structural equality, prints AGAIN and demands byte equality — so every
- * .cgfir fixture that runs through the driver proves the round-trip AND
- * print-determinism invariants for free. A failure in either is an ICE
- * (our printer/parser disagree = our bug, never the user's). */
+/* Prints a module to stdout with the round-trip self-check: re-parse the
+ * output demanding structural equality, print again demanding byte
+ * equality. Every fixture through the driver proves round-trip AND
+ * determinism; a failure in either is an ICE (our printer/parser
+ * disagree = our bug, never the user's). */
+static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
+                         const char *input)
+{
+    Buf b1, b2;
+    IrModule *m2;
+
+    buf_init(&b1);
+    ir_print_module_buf(&b1, m);
+    buf_push_u8(&b1, 0); /* the parser wants a C string */
+    m2 = ir_parse_module(arena, dc, (const char *)b1.data, "<reprint>");
+    b1.len--; /* drop the NUL again for the byte-compare and the output */
+    if (!m2 || !ir_module_struct_eq(m, m2))
+        CGF_ICE("-emit-ir round-trip broke: parse(print(M)) != M for '%s'",
+                input);
+    buf_init(&b2);
+    ir_print_module_buf(&b2, m2);
+    if (b1.len != b2.len || memcmp(b1.data, b2.data, b1.len) != 0)
+        CGF_ICE("-emit-ir determinism broke: two prints differ for '%s'",
+                input);
+    fwrite(b1.data, 1, b1.len, stdout);
+    buf_free(&b1);
+    buf_free(&b2);
+    return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
+}
+
+/* -emit-ir on a .cgfir file: parse -> verify -> print. */
 static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 {
     FILE *f = fopen(a->input, "rb");
     char *src;
     long len;
     size_t rd;
-    IrModule *m, *m2;
-    Buf b1, b2;
+    IrModule *m;
 
     if (!f) {
         fprintf(stderr, "cgfried: error: cannot open '%s'\n", a->input);
@@ -407,8 +432,8 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     if (!m)
         return CGF_EXIT_COMPILE;
     /* Hand-written IR that fails the verifier is a USER error (exit 1);
-     * only generated IR failing it is an ICE (Sprint 18 wires that). Either
-     * way CGF_DUMP_BAD_IR=path captures the offending module — and the dump
+     * generated IR failing it is an ICE (see run_preprocess). Either way
+     * CGF_DUMP_BAD_IR=path captures the offending module — and the dump
      * is itself parseable .cgfir, pinned by test. */
     if (!ir_verify(dc, m)) {
         const char *dump = cgf_env("CGF_DUMP_BAD_IR");
@@ -423,24 +448,7 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
         }
         return CGF_EXIT_COMPILE;
     }
-
-    buf_init(&b1);
-    ir_print_module_buf(&b1, m);
-    buf_push_u8(&b1, 0); /* the parser wants a C string */
-    m2 = ir_parse_module(arena, dc, (const char *)b1.data, "<reprint>");
-    b1.len--; /* drop the NUL again for the byte-compare and the output */
-    if (!m2 || !ir_module_struct_eq(m, m2))
-        CGF_ICE("-emit-ir round-trip broke: parse(print(M)) != M for '%s'",
-                a->input);
-    buf_init(&b2);
-    ir_print_module_buf(&b2, m2);
-    if (b1.len != b2.len || memcmp(b1.data, b2.data, b1.len) != 0)
-        CGF_ICE("-emit-ir determinism broke: two prints differ for '%s'",
-                a->input);
-    fwrite(b1.data, 1, b1.len, stdout);
-    buf_free(&b1);
-    buf_free(&b2);
-    return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
+    return emit_ir_print(arena, dc, m, a->input);
 }
 
 /* -E: preprocess through the directive engine, printed with SPACE/BOL-
@@ -496,7 +504,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     pp_begin(&pp, sf, cmdline);
 
     if (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
-        a->dump_init || a->syntax_only) {
+        a->dump_init || a->syntax_only || a->emit_ir) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -515,7 +523,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
         if (a->dump_ast || a->dump_sema || a->dump_layout || a->dump_init ||
-            a->syntax_only) {
+            a->syntax_only || a->emit_ir) {
             Parser ps;
             AstNode *tu;
 
@@ -528,7 +536,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
              * but is semantically wrong must still be reported, and that
              * is what -fsyntax-only means. */
             if (a->dump_sema || a->dump_layout || a->dump_init ||
-                a->syntax_only) {
+                a->syntax_only || a->emit_ir) {
                 Sema sema;
 
                 sema_install_renderer();
@@ -550,6 +558,35 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                     for (k = 0; k < tu->ndecls; k++)
                         if (tu->decls[k] && tu->decls[k]->kind == AST_FUNC_DEF)
                             dump_decl(tu->decls[k], 0);
+                }
+                if (a->emit_ir && !diag_had_error(dc)) {
+                    /* AST -> IR. This module is GENERATED: a verifier
+                     * failure here is an ICE, never a user error — the
+                     * user's errors all ended in sema. CGF_DUMP_BAD_IR
+                     * captures the module first so the bug is
+                     * reportable. */
+                    IrModule *m = lower_translation_unit(arena, dc, &sema, tu);
+
+                    if (m && !ir_verify(dc, m)) {
+                        const char *dump = cgf_env("CGF_DUMP_BAD_IR");
+
+                        if (dump) {
+                            FILE *df = fopen(dump, "wb");
+
+                            if (df) {
+                                ir_print_module(df, m);
+                                fclose(df);
+                            }
+                        }
+                        CGF_ICE("lowering produced IR the verifier "
+                                "rejects for '%s'",
+                                a->input);
+                    }
+                    if (m) {
+                        int rc = emit_ir_print(arena, dc, m, a->input);
+
+                        (void)rc;
+                    }
                 }
             }
         }
@@ -660,14 +697,12 @@ int driver_main(int argc, char **argv)
 
         cgf_ice_set_input(a.input);
         if (a.emit_ir) {
-            if (ilen >= 6 && strcmp(a.input + ilen - 6, ".cgfir") == 0) {
+            /* .cgfir goes straight to the IR parser; anything else runs
+             * the whole C pipeline and lowers (Sprint 18). */
+            if (ilen >= 6 && strcmp(a.input + ilen - 6, ".cgfir") == 0)
                 status = run_emit_ir(&arena, dc, &a);
-            } else {
-                diag_emit(dc, DIAG_ERROR, no_span,
-                          "-emit-ir takes a .cgfir file for now; lowering "
-                          "C to IR lands in Sprint 18");
-                status = CGF_EXIT_COMPILE;
-            }
+            else
+                status = run_preprocess(&arena, dc, &a);
         } else if (a.mode_E || a.dump_tokens || a.dump_ast || a.dump_sema ||
                    a.dump_layout || a.dump_init || a.syntax_only) {
             status = run_preprocess(&arena, dc, &a);
