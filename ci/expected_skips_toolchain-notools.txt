@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=toolchain test=smoke-differential count=1 reason="afs-as not built (run make tools)"
