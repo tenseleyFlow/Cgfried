@@ -873,6 +873,57 @@ static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
     return true;
 }
 
+static void sema_init_expr_list(Sema *s, AstNode *list)
+{
+    u32 i;
+
+    if (!list || list->kind != AST_INIT_LIST)
+        return;
+    for (i = 0; i < list->nitems; i++) {
+        AstNode *item = list->items[i];
+
+        if (!item)
+            continue;
+        if (item->kind == AST_INIT_LIST)
+            sema_init_expr_list(s, item);
+        else
+            list->items[i] = sema_expr(s, item);
+    }
+}
+
+/* Types an initializer and checks it against the declared type. A BRACED
+ * initializer needs the current-object algorithm to match elements to
+ * subobjects, which is Sprint 15/16's; here its expressions are typed so
+ * errors inside them still surface, and the element-by-element
+ * compatibility check waits. A scalar initializer goes through the full
+ * assignment constraints with ACTX_INIT so the wording is gcc's. */
+static void sema_init_expr(Sema *s, Type *target, AstNode *d)
+{
+    AssignCtx ctx;
+
+    if (!d->init)
+        return;
+    if (d->init->kind == AST_INIT_LIST) {
+        u32 i;
+
+        for (i = 0; i < d->init->nitems; i++) {
+            AstNode *item = d->init->items[i];
+
+            if (item && item->kind != AST_INIT_LIST)
+                d->init->items[i] = sema_expr(s, item);
+            else if (item)
+                sema_init_expr_list(s, item);
+        }
+        return;
+    }
+    d->init = sema_expr(s, d->init);
+    if (!target || target->kind == TY_ARRAY)
+        return; /* `char s[] = "abc"` was handled by array completion */
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.kind = ACTX_INIT;
+    conv_assignable(s, target, &d->init, ctx);
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
@@ -945,9 +996,14 @@ static void declare_one(Sema *s, AstNode *d)
     prev = scope_lookup_local(s->scope, d->name, NS_ORDINARY);
     if (prev) {
         merge_redeclaration(s, prev, sym, d->storage);
+        /* The initializer still has to be TYPED even when the declaration
+         * merged into an earlier one, or its expressions never get
+         * checked at all. */
+        sema_init_expr(s, prev->type, d);
         return;
     }
     scope_declare(s, sym);
+    sema_init_expr(s, sym->type, d);
 }
 
 static void sema_stmt(Sema *s, AstNode *st);

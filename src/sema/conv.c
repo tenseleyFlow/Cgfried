@@ -38,7 +38,12 @@ AstNode *conv_cast(Sema *s, AstNode *e, Type *to)
 
     if (!e || !to)
         return e;
-    if (e->sem_type == to)
+    /* Skip a cast that would convert a type to ITSELF. Comparing by
+     * pointer is not enough: derived types are allocated per use, so two
+     * structurally identical `int *` nodes are different pointers and a
+     * pointer test emitted `(icast<int *> (icast<int *> a))` — visible in
+     * the -fdump-sema goldens, and pure noise for every later pass. */
+    if (e->sem_type == to || type_compatible(e->sem_type, to))
         return e;
     c = ast_new(s->arena, AST_EXPR_CAST, e->span);
     c->lhs = e;

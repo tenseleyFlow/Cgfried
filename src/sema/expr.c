@@ -75,7 +75,13 @@ static const char *suggest_ident(Sema *s, const char *typo)
             if (!dlev_is_suggestion(typo, tlen, sym->name, strlen(sym->name),
                                     &d))
                 continue;
-            if (!best || d < best_d) {
+            /* `<=` breaks ties toward the EARLIEST declaration: the
+             * chain runs newest-first, so the last match at a given
+             * distance is the oldest. Two candidates one edit away is
+             * common (`gj` reaches both `gi` and `ga`), and picking by
+             * declaration order is both deterministic and the answer a
+             * reader expects. */
+            if (!best || d <= best_d) {
                 best = sym->name;
                 best_d = d;
             }
@@ -534,7 +540,14 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
         Type *ptype = is_ptr(at) ? at : bt;
 
         if (conv_is_npc(s, intside)) {
-            e->sem_type = ptype; /* one side an NPC: the other's type */
+            /* One side a null pointer constant: the result is the other
+             * side's type, and the NPC is CONVERTED to it — lowering must
+             * not have to rediscover that the 0 is a pointer. */
+            if (is_ptr(at))
+                e->rhs = conv_cast(s, e->rhs, ptype);
+            else
+                e->mid = conv_cast(s, e->mid, ptype);
+            e->sem_type = ptype;
             return e;
         }
         diag_emit(s->dc, DIAG_WARNING, e->span,

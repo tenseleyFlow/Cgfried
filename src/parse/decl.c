@@ -1318,8 +1318,7 @@ bool parse_at_unknown_type(Parser *p)
  * search to typedefs is not an optimization — it is the correctness
  * requirement: suggesting a variable or a struct tag where a type name
  * belongs would send the reader somewhere the name cannot legally go.
- * Nearest wins, and ties break toward the first declared, which keeps the
- * message deterministic. */
+ * Nearest wins; ties break toward the earliest declaration. */
 static const char *suggest_type_name(Parser *p, const char *typo)
 {
     size_t tlen = strlen(typo);
@@ -1337,7 +1336,13 @@ static const char *suggest_type_name(Parser *p, const char *typo)
                 continue;
             if (!dlev_is_suggestion(typo, tlen, e->name, strlen(e->name), &d))
                 continue;
-            if (!best || d < best_d) {
+            /* `<=` breaks ties toward the EARLIEST declaration: the
+             * chain runs newest-first, so the last match at a given
+             * distance is the oldest. Two candidates one edit away is
+             * common (`gj` reaches both `gi` and `ga`), and picking by
+             * declaration order is both deterministic and the answer a
+             * reader expects. */
+            if (!best || d <= best_d) {
                 best = e->name;
                 best_d = d;
             }
