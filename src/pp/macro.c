@@ -50,6 +50,15 @@ const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name)
     return strmap_get(&pp->macros, name, strlen(name));
 }
 
+/* `defined(_Pragma)` and `#ifdef _Pragma` answer TRUE in both gcc and
+ * clang — the operator is registered as a macro-like name for that
+ * purpose even though it never expands like one. Verified against both
+ * oracles (findings row F20); found by ppfuzz seed 1837. */
+bool pp_name_is_defined(const Preprocessor *pp, const char *name)
+{
+    return pp_macro_lookup(pp, name) != NULL || strcmp(name, "_Pragma") == 0;
+}
+
 static bool bodies_identical(const MacroDef *a, const MacroDef *b)
 {
     u32 i;
@@ -307,10 +316,12 @@ static PpToken make_tok(Preprocessor *pp, PpTokKind kind, const char *spell,
 /* Wraps a token with an expansion location (spelled_at = its current loc,
  * expanded_from = the invocation site) and strips BOL: expansion output
  * never begins a directive line. */
-static PpToken wrap_tok(Preprocessor *pp, PpToken t, SrcLoc inv)
+static PpToken wrap_tok(Preprocessor *pp, PpToken t, SrcLoc inv,
+                        const MacroDef *m)
 {
     if (t.loc != SRCLOC_INVALID && inv != SRCLOC_INVALID)
-        t.loc = pp_loc_expansion(&pp->loc, t.loc, inv);
+        t.loc = pp_loc_expansion(&pp->loc, t.loc, inv, m ? m->name : NULL,
+                                 m ? m->loc : SRCLOC_INVALID);
     t.flags &= (u8)~PPTOK_F_BOL;
     return t;
 }
@@ -561,14 +572,14 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
             (pi = find_param(m, &m->body[i + 1])) >= 0) {
             MacroArg *a = &args[pi];
             PpToken s =
-                stringize(pp, a->raw, a->nraw, wrap_tok(pp, *bt, inv).loc);
+                stringize(pp, a->raw, a->nraw, wrap_tok(pp, *bt, inv, m).loc);
             s.flags |= bt->flags & PPTOK_F_SPACE;
             PpTokVec_push(&out, s);
             i++; /* skip the parameter */
             continue;
         }
         if (bt->kind == PPTOK_PUNCT && bt->punct == PUNCT_HASHHASH) {
-            PpToken op = wrap_tok(pp, *bt, inv);
+            PpToken op = wrap_tok(pp, *bt, inv, m);
 
             /* GNU , ## __VA_ARGS__: gcc applies this in ALL modes (the
              * ISO-mode difference is only a -Wpedantic pedwarn — verified
@@ -587,7 +598,7 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
                      * "g(2, 3)" for LOG2(2, 3) — argument flags win). */
                     u32 k;
                     for (k = 0; k < va->nraw; k++)
-                        PpTokVec_push(&out, wrap_tok(pp, va->raw[k], inv));
+                        PpTokVec_push(&out, wrap_tok(pp, va->raw[k], inv, m));
                 }
                 i++; /* skip __VA_ARGS__ */
                 continue;
@@ -612,12 +623,12 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
                     memset(&pm, 0, sizeof(pm));
                     pm.kind = PPTOK_PLACEMARKER;
                     pm.spelling = "";
-                    pm.loc = wrap_tok(pp, *bt, inv).loc;
+                    pm.loc = wrap_tok(pp, *bt, inv, m).loc;
                     PpTokVec_push(&out, pm);
                 } else {
                     u32 k;
                     for (k = 0; k < a->nraw; k++) {
-                        PpToken t = wrap_tok(pp, a->raw[k], inv);
+                        PpToken t = wrap_tok(pp, a->raw[k], inv, m);
                         if (k == 0)
                             t.flags |= bt->flags & PPTOK_F_SPACE;
                         PpTokVec_push(&out, t);
@@ -629,7 +640,7 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
                 u32 k;
                 arg_expanded(pp, a);
                 for (k = 0; k < a->nexp; k++) {
-                    PpToken t = wrap_tok(pp, a->expanded[k], inv);
+                    PpToken t = wrap_tok(pp, a->expanded[k], inv, m);
                     if (k == 0) /* UNION: body spacing or the arg's own
                                    (gcc emits "2 +(3,4)" — tinycc pp/02) */
                         t.flags |= bt->flags & PPTOK_F_SPACE;
@@ -638,7 +649,7 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
             }
             continue;
         }
-        PpTokVec_push(&out, wrap_tok(pp, *bt, inv));
+        PpTokVec_push(&out, wrap_tok(pp, *bt, inv, m));
     }
 
     /* Pass B: process body-origin ## left-to-right. */
@@ -1030,10 +1041,15 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
             for (p = sde; *p >= '0' && *p <= '9'; p++)
                 v = v * 10 + (*p - '0');
             when = (time_t)v;
+            /* reproducible-builds.org mandates UTC for SOURCE_DATE_EPOCH. */
+            gmtime_r(&when, &tmv);
         } else {
+            /* No epoch pinned: gcc uses LOCAL time, and parity beats a
+             * private preference here (the reproducible case is the one
+             * that must be pinned, and it is). */
             when = time(NULL);
+            localtime_r(&when, &tmv);
         }
-        gmtime_r(&when, &tmv);
         buf_printf(&b, "#define __DATE__ \"%s %2d %d\"\n", mon[tmv.tm_mon],
                    tmv.tm_mday, tmv.tm_year + 1900);
         buf_printf(&b, "#define __TIME__ \"%02d:%02d:%02d\"\n", tmv.tm_hour,

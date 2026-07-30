@@ -34,9 +34,12 @@ void test_pp_loc_expansion_chain(TestCtx *t)
     pp_loc_init(&lt);
     spell = pp_loc_file(&lt, 1, 2, 3); /* macro body spelling */
     inv = pp_loc_file(&lt, 1, 20, 1);  /* invocation site */
-    e1 = pp_loc_expansion(&lt, spell, inv);
-    e2 = pp_loc_expansion(&lt, e1, inv);
-    e3 = pp_loc_expansion(&lt, e2, e1); /* 3-deep chain */
+    /* Sprint 7 grew the entry: each frame remembers WHICH macro it
+     * expanded, as name + def-loc (not a MacroDef*) so a late diagnostic
+     * survives a post-expansion #undef or redefinition. */
+    e1 = pp_loc_expansion(&lt, spell, inv, "M1", spell);
+    e2 = pp_loc_expansion(&lt, e1, inv, "M2", spell);
+    e3 = pp_loc_expansion(&lt, e2, e1, "M3", spell); /* 3-deep chain */
 
     T_ASSERT(t, pp_loc_is_expansion(&lt, e3));
     /* Resolution walks spelled_at links to the physical spelling. */
@@ -48,6 +51,13 @@ void test_pp_loc_expansion_chain(TestCtx *t)
     T_ASSERT(t, pp_loc_expansion_parent(&lt, e3) == e1);
     T_ASSERT(t, pp_loc_expansion_parent(&lt, e2) == inv);
     T_ASSERT(t, pp_loc_expansion_parent(&lt, e1) == inv);
+
+    /* Frame identity survives table growth and is NULL for file locs. */
+    T_ASSERT_EQ_STR(t, pp_loc_macro_name(&lt, e3), "M3");
+    T_ASSERT_EQ_STR(t, pp_loc_macro_name(&lt, e1), "M1");
+    T_ASSERT(t, pp_loc_macro_name(&lt, spell) == NULL);
+    T_ASSERT(t, pp_loc_macro_def(&lt, e2) == spell);
+    T_ASSERT(t, pp_loc_macro_def(&lt, inv) == SRCLOC_INVALID);
 
     /* Growth must not invalidate resolution (ids, never pointers). */
     for (i = 0; i < 5000; i++)

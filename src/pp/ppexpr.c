@@ -595,7 +595,7 @@ static u32 replace_defined(Preprocessor *pp, const PpToken *in, u32 n,
             }
             memset(&out[o], 0, sizeof(PpToken));
             out[o].kind = PPTOK_PPNUM;
-            out[o].spelling = pp_macro_lookup(pp, name) ? "1" : "0";
+            out[o].spelling = pp_name_is_defined(pp, name) ? "1" : "0";
             out[o].len = 1;
             out[o].loc = loc;
             o++;

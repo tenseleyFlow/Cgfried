@@ -33,7 +33,7 @@ fi
 
 # tests/runner/meta/ holds fixture DATA (directive bytes are load-bearing),
 # not code — never formatted.
-find src tests/runner tests/unit \( -name '*.c' -o -name '*.h' \) \
+find src tests/runner tests/unit tests/fuzz \( -name '*.c' -o -name '*.h' \) \
     ! -path 'tests/runner/meta/*' | sort |
     xargs "$BIN" --dry-run -Werror
 echo "check_format: clean ($BIN)"

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "driver/toolchain.h"
 #include "pp/pp.h"
 
 void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
@@ -13,6 +14,13 @@ void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
     pp->interner = interner;
     pp_loc_init(&pp->loc);
     strmap_init(&pp->macros);
+    /* The fast path is ON by default; CGF_PP_GUARD_FASTPATH=0 is the
+     * permanent differential control proving it changes nothing. */
+    {
+        const char *v = cgf_env("CGF_PP_GUARD_FASTPATH");
+        pp->guard_fastpath = !(v && v[0] == '0');
+        pp->stats = cgf_env("CGF_PP_STATS") != NULL;
+    }
 }
 
 /* Phase 1 normalization, in dependency order:
@@ -22,14 +30,30 @@ void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
  * Splicing itself (phase 2) is NOT a rewrite — the lexer skips backslash-
  * newline in place so tokens keep true physical locations. */
 static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
-                       size_t *out_len)
+                       size_t *out_len, bool *synth_nl)
 {
     char *out = arena_alloc(pp->arena, in_len + 2, 1); /* +LF +NUL */
     size_t n = 0, i = 0;
+    bool nul_warned = false;
+    bool *saw_nul = &nul_warned;
 
     while (i < in_len) {
         char c = in[i];
 
+        if (c == '\0') {
+            /* Embedded NUL: gcc warns and ignores it. We MUST drop it —
+             * the lexer uses NUL as its end-of-buffer sentinel, so an
+             * embedded one would silently truncate the file (found by
+             * ppfuzz seed 1278). Warned once per file. */
+            if (!*saw_nul) {
+                Span sp = {0};
+                *saw_nul = true;
+                diag_emit(pp->diag, DIAG_WARNING, sp,
+                          "null character(s) ignored");
+            }
+            i++;
+            continue;
+        }
         if (c == '\r') {
             out[n++] = '\n';
             i += (i + 1 < in_len && in[i + 1] == '\n') ? 2 : 1;
@@ -80,15 +104,18 @@ static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
     /* C11 5.1.1.2p1(2): source must end in a newline. gcc accepts with a
      * pedantic warning; we append silently for now (the -Wpedantic hook is
      * Sprint 37's warning machinery — never an error). */
-    if (n == 0 || out[n - 1] != '\n')
+    *synth_nl = false;
+    if (n == 0 || out[n - 1] != '\n') {
         out[n++] = '\n';
+        *synth_nl = true;
+    }
     out[n] = '\0';
     *out_len = n;
     return out;
 }
 
 static SourceFile *add_normalized(Preprocessor *pp, const char *path,
-                                  char *contents, size_t size)
+                                  char *contents, size_t size, bool synth_nl)
 {
     SourceFile *sf =
         arena_alloc(pp->arena, sizeof(SourceFile), _Alignof(SourceFile));
@@ -107,6 +134,7 @@ static SourceFile *add_normalized(Preprocessor *pp, const char *path,
         CGF_ICE("too many source files (FileId is 16-bit)");
 
     memset(sf, 0, sizeof(*sf)); /* arena memory is never pre-zeroed */
+    sf->synth_final_newline = synth_nl;
     sf->id = (FileId)(pp->nfiles + 1);
     sf->path = arena_strdup(pp->arena, path);
     sf->contents = contents;
@@ -137,9 +165,10 @@ SourceFile *pp_source_add_buffer(Preprocessor *pp, const char *path,
                                  const char *bytes, size_t len)
 {
     size_t norm_len;
-    char *norm = normalize(pp, bytes, len, &norm_len);
+    bool synth_nl;
+    char *norm = normalize(pp, bytes, len, &norm_len, &synth_nl);
 
-    return add_normalized(pp, path, norm, norm_len);
+    return add_normalized(pp, path, norm, norm_len, synth_nl);
 }
 
 SourceFile *pp_source_load(Preprocessor *pp, const char *path)

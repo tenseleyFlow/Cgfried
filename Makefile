@@ -30,6 +30,9 @@ RUNNER_OBJ := $(RUNNER_SRC:%.c=$(BUILD)/%.o) $(LIB_OBJ)
 # compiler's own pp lexer (it tokenizes -E output, never text-diffs).
 PPDIFF_OBJ := $(BUILD)/tests/runner/ppdiff.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
 
+# The PP fuzzer: zero deps, deterministic seeds, forks the real binary.
+FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
+
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
 # stale registry would silently drop new tests.
@@ -40,9 +43,9 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(BUILD)/tests/runner/directive.o \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san test-ppdiff clean tools bootstrap install
+.PHONY: all test test-san test-ppdiff fuzz-smoke pp-bench clean tools bootstrap install
 
 all: $(BUILD)/cgfried $(BUILD)/cgf
 
@@ -58,6 +61,12 @@ $(BUILD)/cgf-test: $(sort $(RUNNER_OBJ))
 
 $(BUILD)/cgf-ppdiff: $(sort $(PPDIFF_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(PPDIFF_OBJ))
+
+$(BUILD)/tests/fuzz/ppfuzz.o: tests/fuzz/ppfuzz.c | $(DIRS)
+	$(CC) $(CFLAGS) -Itests/runner -c -o $@ $<
+
+$(BUILD)/ppfuzz: $(sort $(FUZZ_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(FUZZ_OBJ))
 
 $(BUILD)/unit_tests: $(sort $(UNIT_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(UNIT_OBJ))
@@ -97,7 +106,9 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	@if [ -x afs-as/target/release/afs-as ]; then p=toolchain; \
 	    else p=toolchain-notools; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/toolchain.log
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-smoke
 	sh scripts/check_bans.sh
+	sh scripts/check_pp_seams.sh
 	sh scripts/check_format.sh
 
 # Preprocessor differential: token-level vs gcc AND clang over fixtures
@@ -108,6 +119,18 @@ test-ppdiff: $(BUILD)/cgfried $(BUILD)/cgf-ppdiff
 	$(BUILD)/cgf-ppdiff --std -std=c17 -I tests/fixtures/imported/chibicc --xfail tests/fixtures/imported/ppdiff-xfail.txt $(BUILD)/cgfried $(PPDIFF_FILES) > $(BUILD)/ppdiff.log 2>&1; s=$$?; cat $(BUILD)/ppdiff.log; [ $$s -eq 0 ]
 	$(BUILD)/cgf-ppdiff --std -std=gnu17 -I tests/fixtures/imported/chibicc --xfail tests/fixtures/imported/ppdiff-xfail.txt $(BUILD)/cgfried $(PPDIFF_FILES) >> $(BUILD)/ppdiff.log 2>&1; s=$$?; tail -1 $(BUILD)/ppdiff.log; [ $$s -eq 0 ]
 	sh ci/check_skips.sh ppdiff $(BUILD)/ppdiff.log
+
+# Fuzz smoke: both modes, fixed seeds, must be clean. Long runs are
+# manual/nightly (--iters). Findings reproduce from their seed alone.
+FUZZ_CORPUS := tests/programs/pp tests/fixtures/imported
+
+fuzz-smoke: $(BUILD)/cgfried $(BUILD)/ppfuzz
+	$(BUILD)/ppfuzz --iters 2000 $(BUILD)/cgfried $(FUZZ_CORPUS)
+	$(BUILD)/ppfuzz -diff --iters 2000 $(BUILD)/cgfried $(FUZZ_CORPUS)
+
+# Include-guard fast-path benchmark (see the script for the ceiling math).
+pp-bench: $(BUILD)/cgfried
+	sh tests/perf/pp_include_bench.sh $(BUILD)/cgfried
 
 # The whole suite under ASan+UBSan (host sanitizers are dev tooling, never a
 # dependency). Separate build tree so it composes with the normal one.

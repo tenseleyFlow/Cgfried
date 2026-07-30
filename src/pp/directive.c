@@ -11,6 +11,9 @@
 
 /* --- frame / stack helpers --------------------------------------------- */
 
+static void fcache_record(Preprocessor *pp, u64 dev, u64 ino, const char *guard,
+                          const char *path);
+
 static PpFrame *cur_frame(Preprocessor *pp)
 {
     return pp->nframes ? &pp->frames[pp->nframes - 1] : NULL;
@@ -49,8 +52,11 @@ static void pop_frame(Preprocessor *pp)
     }
     /* Finalize include-guard shape (no behavior change this sprint:
      * Sprint 7's fast path is the consumer). */
-    if (f->guard_state == GUARD_AFTER_ENDIF && f->guard_macro)
+    if (f->guard_state == GUARD_AFTER_ENDIF && f->guard_macro) {
         f->lx.sf->guard_macro = f->guard_macro;
+        fcache_record(pp, f->lx.sf->st_dev, f->lx.sf->st_ino, f->guard_macro,
+                      f->lx.sf->path);
+    }
     buf_free(&f->lx.scratch);
     pp->nframes--;
 }
@@ -416,6 +422,62 @@ static void once_record(Preprocessor *pp, u64 dev, u64 ino)
     pp->nonce++;
 }
 
+/* --- include-guard fast-path cache -------------------------------------- */
+
+/* Path-keyed shortcut: a repeat #include of the SAME path string skips
+ * the fopen+fstat entirely. Identity (dev,ino) remains the authority for
+ * correctness — this only avoids re-deriving it for a path we already
+ * resolved this TU. (A path whose identity changes mid-compile would be
+ * missed; gcc caches the same way. Findings row F18.) */
+static const char *fcache_guard_by_path(const Preprocessor *pp,
+                                        const char *path)
+{
+    size_t i;
+
+    for (i = 0; i < pp->nfcache; i++)
+        if (pp->fcache[i].path && strcmp(pp->fcache[i].path, path) == 0)
+            return pp->fcache[i].guard_macro;
+    return NULL;
+}
+
+static const char *fcache_guard(const Preprocessor *pp, u64 dev, u64 ino)
+{
+    size_t i;
+
+    if (dev == 0 && ino == 0)
+        return NULL;
+    for (i = 0; i < pp->nfcache; i++)
+        if (pp->fcache[i].dev == dev && pp->fcache[i].ino == ino)
+            return pp->fcache[i].guard_macro;
+    return NULL;
+}
+
+static void fcache_record(Preprocessor *pp, u64 dev, u64 ino, const char *guard,
+                          const char *path)
+{
+    size_t i;
+
+    if ((dev == 0 && ino == 0) || !guard)
+        return;
+    for (i = 0; i < pp->nfcache; i++)
+        if (pp->fcache[i].dev == dev && pp->fcache[i].ino == ino)
+            return;
+    if (pp->nfcache == pp->fcache_cap) {
+        size_t cap = pp->fcache_cap ? pp->fcache_cap * 2 : 32;
+        void *grown =
+            arena_alloc(pp->arena, cap * sizeof(pp->fcache[0]), _Alignof(u64));
+        if (pp->nfcache)
+            memcpy(grown, pp->fcache, pp->nfcache * sizeof(pp->fcache[0]));
+        pp->fcache = grown;
+        pp->fcache_cap = cap;
+    }
+    pp->fcache[pp->nfcache].dev = dev;
+    pp->fcache[pp->nfcache].ino = ino;
+    pp->fcache[pp->nfcache].guard_macro = guard;
+    pp->fcache[pp->nfcache].path = path;
+    pp->nfcache++;
+}
+
 /* --- #include resolution ------------------------------------------------ */
 
 static const char *dir_of(Preprocessor *pp, const char *path)
@@ -457,20 +519,58 @@ static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name,
     memcpy(path, dir, dlen);
     path[dlen] = '/';
     memcpy(path + dlen + 1, name, nlen + 1);
+    if (pp->guard_fastpath) {
+        const char *g = fcache_guard_by_path(pp, path);
+        if (g && pp_macro_lookup(pp, g)) {
+            pp->inc_guard_skipped++;
+            *once_skipped = true;
+            return NULL; /* guarded, still defined: no syscall at all */
+        }
+    }
     probe = fopen(path, "rb");
     if (!probe)
         return NULL;
+    /* fopen succeeds on DIRECTORIES: an empty header name (from an
+     * unterminated `#include <x`) would otherwise "open" the include dir
+     * itself and spin. Only regular files are headers. (ppfuzz seed
+     * 1123.) */
+    {
+        struct stat probe_st;
+        if (fstat(fileno(probe), &probe_st) != 0 ||
+            !S_ISREG(probe_st.st_mode)) {
+            fclose(probe);
+            return NULL;
+        }
+    }
     /* #pragma once identity is (st_dev, st_ino) of the OPEN file, never
      * the pathname: symlinked/hardlinked includes dedupe, same-named files
      * in different dirs do not. Known hole (gcc shares it; findings
      * table): bind mounts/overlayfs can show one file as two identities. */
-    if (fstat(fileno(probe), &st) == 0 &&
-        once_seen(pp, (u64)st.st_dev, (u64)st.st_ino)) {
-        fclose(probe);
-        *once_skipped = true;
-        return NULL;
+    if (fstat(fileno(probe), &st) == 0) {
+        u64 dev = (u64)st.st_dev, ino = (u64)st.st_ino;
+
+        if (once_seen(pp, dev, ino)) {
+            fclose(probe);
+            pp->inc_once_skipped++;
+            *once_skipped = true;
+            return NULL;
+        }
+        if (pp->guard_fastpath) {
+            /* Guarded and the guard macro is STILL defined: the file would
+             * produce nothing. Skip without reading or tokenizing. The
+             * re-check (not a "seen" boolean) is what makes #undef GUARD
+             * between inclusions correctly re-include. */
+            const char *g = fcache_guard(pp, dev, ino);
+            if (g && pp_macro_lookup(pp, g)) {
+                fclose(probe);
+                pp->inc_guard_skipped++;
+                *once_skipped = true;
+                return NULL;
+            }
+        }
     }
     fclose(probe);
+    pp->inc_opened++;
     return pp_source_load(pp, path);
 }
 
@@ -560,8 +660,11 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
         u32 nrest = read_line(pp, &rest);
         char *name;
 
-        if (h.len < 2) {
-            pp_diag_at(pp, DIAG_ERROR, h.loc, h.len, "empty header name");
+        if (h.len < 3) { /* <> or unterminated: no name between the
+                            delimiters (len - 2 would also underflow) */
+            pp_diag_at(pp, DIAG_ERROR, h.loc, h.len,
+                       "empty filename in "
+                       "#include");
             return;
         }
         if (nrest != 0)
@@ -594,7 +697,7 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
                        "#include expects <FILENAME> or \"FILENAME\"");
             return;
         }
-        if (toks[0].kind == PPTOK_STRLIT) {
+        if (toks[0].kind == PPTOK_STRLIT && toks[0].len >= 2) {
             if (n > 1)
                 pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
                            "extra tokens at end of #include directive");
@@ -688,7 +791,10 @@ static void directive_line(Preprocessor *pp, PpToken *toks, u32 n, SrcLoc dloc,
             v = 1;
     }
     if (n >= 2) {
-        if (toks[1].kind != PPTOK_STRLIT) {
+        if (toks[1].kind != PPTOK_STRLIT || toks[1].len < 2) {
+            /* len < 2 means an UNTERMINATED literal (just the opening
+             * quote, already diagnosed by the lexer): len - 2 would
+             * underflow to ~4G. Found by ppfuzz seed 957. */
             pp_diag_at(pp, DIAG_ERROR, toks[1].loc, toks[1].len,
                        "#line filename must be a string literal");
             return;
@@ -915,7 +1021,7 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
                 pp_diag_at(pp, DIAG_ERROR, name.loc, name.len,
                            "#%s expects an identifier", name.spelling);
         } else if (live) {
-            bool def = pp_macro_lookup(pp, toks[0].spelling) != NULL;
+            bool def = pp_name_is_defined(pp, toks[0].spelling);
             taken = (k == DK_IFDEF) ? def : !def;
             if (n > 1)
                 pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
@@ -1072,6 +1178,7 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
                                        _Alignof(PpToken));
             out[0] = *hash;
             out[1] = name;
+            out[1].flags &= (u8)~PPTOK_F_SPACE; /* "#pragma" (gcc) */
             if (n)
                 memcpy(out + 2, toks, n * sizeof(PpToken));
             *passthrough = out;
@@ -1186,7 +1293,7 @@ static void pragma_operator(Preprocessor *pp, const PpToken *op)
                 intern_str(pp->interner, intern(pp->interner, "pragma", 6));
             out[1].len = 6;
             out[1].loc = op->loc;
-            out[1].flags = PPTOK_F_SPACE;
+            out[1].flags = 0; /* gcc prints "#pragma", not "# pragma" */
             for (k = 0; k < n; k++) {
                 out[2 + k] = toks[k];
                 out[2 + k].flags &= (u8)~PPTOK_F_BOL;
@@ -1217,6 +1324,12 @@ void pp_end(Preprocessor *pp)
 {
     while (pp->nframes)
         pop_frame(pp);
+    if (pp->stats) {
+        printf("includes: %u opened, %u guard-skipped, %u once-skipped\n",
+               (unsigned)pp->inc_opened, (unsigned)pp->inc_guard_skipped,
+               (unsigned)pp->inc_once_skipped);
+        pp->stats = false; /* pp_end may be called twice (fatal path) */
+    }
     free(pp->bufs);
     pp->bufs = NULL;
     pp->nbufs = 0;

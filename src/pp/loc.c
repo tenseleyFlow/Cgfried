@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "driver/toolchain.h"
 #include "pp/pp.h"
 
 void pp_loc_init(LocTable *t)
@@ -31,13 +32,16 @@ SrcLoc pp_loc_file(LocTable *t, FileId f, u32 line, u32 col)
 {
     LocEnt e;
 
+    e.macro_name = NULL;
+    e.macro_def_loc = SRCLOC_INVALID;
     e.w0 = line;
     e.w1 = col;
     e.w2 = (u32)f << 1;
     return push_ent(t, e);
 }
 
-SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from)
+SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from,
+                        const char *macro_name, SrcLoc macro_def_loc)
 {
     LocEnt e;
 
@@ -46,6 +50,8 @@ SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from)
     e.w0 = spelled_at;
     e.w1 = expanded_from;
     e.w2 = 1;
+    e.macro_name = macro_name;
+    e.macro_def_loc = macro_def_loc;
     return push_ent(t, e);
 }
 
@@ -54,6 +60,20 @@ static const LocEnt *ent(const LocTable *t, SrcLoc loc)
     if (loc == SRCLOC_INVALID || (size_t)loc > t->len)
         CGF_ICE("bad SrcLoc %u (table has %zu)", (unsigned)loc, t->len);
     return &t->ents[loc - 1];
+}
+
+const char *pp_loc_macro_name(const LocTable *t, SrcLoc loc)
+{
+    const LocEnt *e = ent(t, loc);
+
+    return (e->w2 & 1u) ? e->macro_name : NULL;
+}
+
+SrcLoc pp_loc_macro_def(const LocTable *t, SrcLoc loc)
+{
+    const LocEnt *e = ent(t, loc);
+
+    return (e->w2 & 1u) ? e->macro_def_loc : SRCLOC_INVALID;
 }
 
 bool pp_loc_is_expansion(const LocTable *t, SrcLoc loc)
@@ -84,15 +104,12 @@ SrcLoc pp_loc_expansion_parent(const LocTable *t, SrcLoc loc)
     return (e->w2 & 1u) ? (SrcLoc)e->w1 : SRCLOC_INVALID;
 }
 
-void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
-                const char *fmt, ...)
+/* Fills a Span for `loc` (physical + #line presumed display info). */
+static Span span_of(Preprocessor *pp, SrcLoc loc, u32 len)
 {
+    Span sp;
     FileId f = 0;
     u32 line = 0, col = 0;
-    Span sp;
-    va_list ap, ap2;
-    int need;
-    char *msg;
 
     memset(&sp, 0, sizeof(sp));
     if (loc != SRCLOC_INVALID)
@@ -102,11 +119,9 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
     sp.line = line;
     sp.col = col;
     sp.len = len;
-
-    /* #line presumed remap: display-time only; physical stays true. */
     if (f && (size_t)f <= pp->nfiles) {
         const SourceFile *sf = pp->files[f - 1];
-        u32 lo = 0, hi = sf->nremaps; /* last remap with from_line <= line */
+        u32 lo = 0, hi = sf->nremaps;
 
         while (hi > lo) {
             u32 mid = lo + (hi - lo) / 2;
@@ -118,9 +133,92 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
         if (lo > 0) {
             const PresumedRemap *r = &sf->remaps[lo - 1];
             sp.presumed_line = r->presumed_line + (line - r->from_line);
-            sp.presumed_path = r->path; /* NULL keeps the real path */
+            sp.presumed_path = r->path;
         }
     }
+    return sp;
+}
+
+/* Macro-expansion backtrace (gcc order: innermost first). Each frame gets
+ * "in expansion of macro 'X'" carets at the USE site; each DISTINCT macro
+ * additionally gets one "macro 'X' defined here" note per diagnostic.
+ * Deep chains are real (X-macro stacks go 50+ deep), so frames are capped
+ * at 8 with an elision note; CGF_DIAG_FULL_BACKTRACE=1 disables the cap. */
+#define BT_MAX_FRAMES 8
+#define BT_HEAD 4
+#define BT_TAIL 3
+
+static void emit_expansion_chain(Preprocessor *pp, SrcLoc loc)
+{
+    SrcLoc frames[256];
+    const char *seen[256];
+    size_t nframes = 0, nseen = 0, i;
+    bool full = cgf_env("CGF_DIAG_FULL_BACKTRACE") != NULL;
+    size_t head, tail;
+
+    for (; loc != SRCLOC_INVALID && pp_loc_is_expansion(&pp->loc, loc);
+         loc = pp_loc_expansion_parent(&pp->loc, loc)) {
+        if (nframes == CGF_ARRAY_LEN(frames))
+            break;
+        frames[nframes++] = loc;
+    }
+    if (nframes == 0)
+        return;
+
+    head = nframes;
+    tail = 0;
+    if (!full && nframes > BT_MAX_FRAMES) {
+        head = BT_HEAD;
+        tail = BT_TAIL;
+    }
+
+    for (i = 0; i < nframes; i++) {
+        const char *name;
+        SrcLoc def;
+
+        if (i == head && tail) {
+            Span none;
+            memset(&none, 0, sizeof(none));
+            diag_emit(pp->diag, DIAG_NOTE, none, "(skipped %zu expansions)",
+                      nframes - head - tail);
+            i = nframes - tail - 1;
+            continue;
+        }
+        name = pp_loc_macro_name(&pp->loc, frames[i]);
+        if (!name)
+            continue;
+        /* The use site is this frame's parent (where the macro was
+         * invoked); the innermost frame's own span is the message's. */
+        diag_emit(pp->diag, DIAG_NOTE,
+                  span_of(pp, pp_loc_expansion_parent(&pp->loc, frames[i]),
+                          (u32)strlen(name)),
+                  "in expansion of macro '%s'", name);
+
+        {
+            bool dup = false;
+            size_t k;
+            for (k = 0; k < nseen; k++)
+                if (seen[k] == name)
+                    dup = true;
+            if (dup)
+                continue;
+            if (nseen < CGF_ARRAY_LEN(seen))
+                seen[nseen++] = name;
+        }
+        def = pp_loc_macro_def(&pp->loc, frames[i]);
+        if (def != SRCLOC_INVALID)
+            diag_emit(pp->diag, DIAG_NOTE, span_of(pp, def, (u32)strlen(name)),
+                      "macro '%s' defined here", name);
+    }
+}
+
+void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
+                const char *fmt, ...)
+{
+    Span sp = span_of(pp, loc, len);
+    va_list ap, ap2;
+    int need;
+    char *msg;
 
     va_start(ap, fmt);
     va_copy(ap2, ap);
@@ -133,4 +231,10 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
     va_end(ap2);
 
     diag_emit(pp->diag, lvl, sp, "%s", msg);
+    /* Anything diagnosed inside a macro expansion gets its chain. This is
+     * what the Sprint-3 location design was for; Sprint 8+ front-end
+     * diagnostics inherit it for free. Notes never recurse (they carry
+     * already-resolved spans). */
+    if (lvl != DIAG_NOTE)
+        emit_expansion_chain(pp, loc);
 }

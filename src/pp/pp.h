@@ -47,6 +47,10 @@ typedef struct SourceFile {
      * dedupe, same names in different dirs must not). 0/0 for buffers. */
     u64 st_dev;
     u64 st_ino;
+    /* True when phase 1 appended the ISO-required final newline. A
+     * backslash immediately before a SYNTHESIZED newline is not a splice
+     * (gcc keeps the backslash) — findings row F19. */
+    bool synth_final_newline;
     /* Include-guard shape (Sprint 6 detector; Sprint 7 fast path):
      * non-NULL iff the whole file is #ifndef X/#define X ... #endif. */
     const char *guard_macro;
@@ -67,6 +71,13 @@ typedef struct {
     u32 w0; /* file: line       | expansion: spelled_at   */
     u32 w1; /* file: col        | expansion: expanded_from */
     u32 w2; /* bit0: 1 = expansion; file: file_id << 1     */
+    /* Expansion entries only: WHICH macro this frame expanded. Stored as
+     * name + definition loc rather than a MacroDef* because #undef and
+     * redefinition after expansion are legal and real — a late diagnostic
+     * must name the definition the token actually came from, not whatever
+     * the table holds now. */
+    const char *macro_name; /* interned; NULL for file locs */
+    SrcLoc macro_def_loc;
 } LocEnt;
 
 typedef struct LocTable {
@@ -78,7 +89,11 @@ typedef struct LocTable {
 void pp_loc_init(LocTable *t);
 void pp_loc_free(LocTable *t);
 SrcLoc pp_loc_file(LocTable *t, FileId f, u32 line, u32 col);
-SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from);
+SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from,
+                        const char *macro_name, SrcLoc macro_def_loc);
+/* Expansion frame metadata; name is NULL for file locs. */
+const char *pp_loc_macro_name(const LocTable *t, SrcLoc loc);
+SrcLoc pp_loc_macro_def(const LocTable *t, SrcLoc loc);
 bool pp_loc_is_expansion(const LocTable *t, SrcLoc loc);
 /* Walks spelled_at links to the physical spelling location. */
 void pp_loc_resolve(const LocTable *t, SrcLoc loc, FileId *f, u32 *line,
@@ -325,12 +340,32 @@ typedef struct Preprocessor {
     PpStdcPragmaState stdc;
     bool fatal; /* missing include etc.: drain to EOF immediately */
 
-    /* #pragma once identities (dev,ino pairs), linear (includes are few). */
+    /* #pragma once identities (dev,ino pairs), linear (includes are few).
+     * PER-TU state: a future `-c a.c b.c` driver resets this per TU. */
     struct {
         u64 dev, ino;
     } *once;
     size_t nonce;
     size_t once_cap;
+
+    /* Include-guard fast path cache. Guard SHAPE is a pure file property
+     * (safe to keep per-process when multi-TU driving arrives); whether
+     * the guard macro is currently defined is per-TU and is re-checked at
+     * every include — #undef between inclusions must re-include. */
+    struct {
+        u64 dev, ino;
+        const char *guard_macro;
+        const char *path; /* as resolved; enables a syscall-free shortcut */
+    } *fcache;
+    size_t nfcache;
+    size_t fcache_cap;
+    bool guard_fastpath; /* CGF_PP_GUARD_FASTPATH=0 disables (control) */
+
+    /* CGF_PP_STATS=1 counters — tests read these instead of timing. */
+    bool stats;
+    u32 inc_opened;
+    u32 inc_guard_skipped;
+    u32 inc_once_skipped;
 
     /* Pending -E passthrough tokens (#pragma lines). */
     PpToken *pass;
@@ -396,6 +431,8 @@ void pp_end(Preprocessor *pp);                /* frees engine-owned buffers */
 void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n);
 void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc);
 const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name);
+/* As `defined`/#ifdef see it: macros PLUS _Pragma (gcc+clang parity). */
+bool pp_name_is_defined(const Preprocessor *pp, const char *name);
 
 /* One collected macro argument: raw tokens always; the pre-expanded form
  * computed LAZILY (an argument used only as a #/## operand must never be

@@ -58,6 +58,10 @@ static size_t skip_spl(PpLexer *lx, size_t p)
         }
         if (s[q] != '\n')
             break;
+        /* A backslash before the newline WE synthesized (phase 1, for a
+         * file not ending in one) is not a splice: gcc keeps it. */
+        if (lx->sf->synth_final_newline && q + 1 >= lx->sf->size)
+            break;
         if (spaced && p >= lx->warned_upto) {
             pp_diag_at(lx->pp, DIAG_WARNING, loc_at(lx, p), 1,
                        "backslash and newline separated by space");
