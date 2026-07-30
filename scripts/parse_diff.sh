@@ -22,8 +22,21 @@ for f in "$DIR"/accept/*.c "$DIR"/reject/*.c; do
     [ -f "$f" ] || continue
     ours=0
     theirs=0
+    # The two corpora ask gcc different questions, and the asymmetry is the
+    # point. ACCEPT files must survive gcc's DEFAULT flags — several are
+    # legal C that gcc merely pedwarns about (`int a[] = {};`), and
+    # -pedantic-errors would turn those into false disagreements. REJECT
+    # files are constraint violations, where the standard demands only "a
+    # diagnostic" and gcc is free to pick warning or error: gcc <= 13 warns
+    # on an identifier list in a declaration (6.7.6.3p3) while gcc >= 14
+    # errors. -pedantic-errors pins that to error on every version, so this
+    # harness does not silently depend on the runner's gcc.
+    case $f in
+    */reject/*) gccflags='-pedantic-errors' ;;
+    *) gccflags='-w' ;;
+    esac
     "$CGF" -fsyntax-only -std=c17 "$f" >/dev/null 2>&1 || ours=1
-    "$GCC" -fsyntax-only -std=c17 -w "$f" >/dev/null 2>&1 || theirs=1
+    "$GCC" -fsyntax-only -std=c17 $gccflags "$f" >/dev/null 2>&1 || theirs=1
     if [ "$ours" = "$theirs" ]; then
         agree=$((agree + 1))
     else
