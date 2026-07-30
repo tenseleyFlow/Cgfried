@@ -1,0 +1,6 @@
+// FLAGS: -E
+// ENV: SOURCE_DATE_EPOCH=0
+// CHECK: "Jan  1 1970"
+// CHECK: "00:00:00"
+__DATE__
+__TIME__

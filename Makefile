@@ -83,6 +83,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh ci/check_skips.sh linux-x86_64 $(BUILD)/programs.log
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	sh scripts/pp_diff.sh $(BUILD)/cgfried tests/ppdiff
+	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
+	sh scripts/tinycc_pp_smoke.sh $(BUILD)/cgfried
 	sh scripts/toolchain_smoke.sh > $(BUILD)/toolchain.log 2>&1; s=$$?; \
 	    cat $(BUILD)/toolchain.log; exit $$s
 	@if [ -x afs-as/target/release/afs-as ]; then p=toolchain; \

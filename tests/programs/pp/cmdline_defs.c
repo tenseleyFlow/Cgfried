@@ -1,8 +1,8 @@
 // FLAGS: -E -DALPHA -DBETA=2 -UALPHA
-// CHECK: beta_defined
+// CHECK: beta_is_two
 // CHECK: alpha_gone
-#ifdef BETA
-beta_defined
+#if BETA == 2
+beta_is_two
 #endif
 #ifndef ALPHA
 alpha_gone

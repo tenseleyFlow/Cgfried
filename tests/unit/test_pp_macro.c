@@ -222,9 +222,146 @@ void test_pp_engine_skipping(TestCtx *t)
     T_ASSERT_EQ_STR(t, toks[0].spelling, "yes");
     mfix_free(&f);
 
-    /* A defined macro name in text hard-errors naming Sprint 5. */
+    /* Real expansion in program text. */
     mfix_init(&f);
-    run_pp(&f, "#define M 1\nM\n", toks, 8);
+    n = run_pp(&f, "#define M 41 + 1\nM\n", toks, 8);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, n, 3);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "41");
+    T_ASSERT_EQ_STR(t, toks[2].spelling, "1");
+    mfix_free(&f);
+}
+
+void test_pp_hidesets(TestCtx *t)
+{
+    MacFix f;
+    HideSet *a, *b, *i;
+    const char *n1, *n2;
+
+    mfix_init(&f);
+    n1 = intern_str(&f.in, intern(&f.in, "alpha", 5));
+    n2 = intern_str(&f.in, intern(&f.in, "beta", 4));
+    a = pp_hs_insert(&f.arena, NULL, n1);
+    a = pp_hs_insert(&f.arena, a, n2);
+    b = pp_hs_insert(&f.arena, NULL, n2);
+    T_ASSERT(t, pp_hs_contains(a, n1));
+    T_ASSERT(t, pp_hs_contains(a, n2));
+    T_ASSERT(t, !pp_hs_contains(b, n1));
+    i = pp_hs_intersect(&f.arena, a, b);
+    T_ASSERT(t, pp_hs_contains(i, n2));
+    T_ASSERT(t, !pp_hs_contains(i, n1));
+    T_ASSERT(t, !pp_hs_contains(NULL, n1));
+    mfix_free(&f);
+}
+
+/* Runs src through the engine and renders text tokens SPACE-separated. */
+static void expect_pp(TestCtx *t, MacFix *f, const char *src, const char *want)
+{
+    PpToken toks[64];
+    u32 n, i;
+    char got[512];
+    size_t o = 0;
+
+    mfix_init(f);
+    n = run_pp(f, src, toks, 64);
+    for (i = 0; i < n && o + toks[i].len + 2 < sizeof(got); i++) {
+        if (i && (toks[i].flags & (PPTOK_F_SPACE | PPTOK_F_BOL)))
+            got[o++] = ' ';
+        memcpy(got + o, toks[i].spelling, toks[i].len);
+        o += toks[i].len;
+    }
+    got[o] = '\0';
+    if (strcmp(got, want) != 0)
+        t_fail(t, __FILE__, __LINE__, "pp of %s: got \"%s\", want \"%s\"", src,
+               got, want);
+    t->assertions++;
+    mfix_free(f);
+}
+
+void test_pp_placemarker_table(TestCtx *t)
+{
+    MacFix f;
+
+    /* C11 6.10.3.3p2-3 truth table. */
+    expect_pp(t, &f, "#define cat(a,b) a##b\ncat(x,y)\n", "xy");
+    expect_pp(t, &f, "#define cat(a,b) a##b\ncat(x,)\n", "x");
+    expect_pp(t, &f, "#define cat(a,b) a##b\ncat(,y)\n", "y");
+    expect_pp(t, &f, "#define cat(a,b) a##b\ncat(,)\n", "");
+    /* Chains evaluate left-to-right with placemarkers intact. */
+    expect_pp(t, &f, "#define c3(a,b,c) a##b##c\nc3(1,,3)\n", "13");
+    expect_pp(t, &f, "#define c3(a,b,c) a##b##c\nc3(,,)\n", "");
+    expect_pp(t, &f, "#define c3(a,b,c) a##b##c\nc3(x,y,z)\n", "xyz");
+}
+
+void test_pp_paste_matrix(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[8];
+
+    expect_pp(t, &f, "#define P(a,b) a##b\nP(+,+)\n", "++");
+    expect_pp(t, &f, "#define P(a,b) a##b\nP(<,<)\n", "<<");
+    expect_pp(t, &f, "#define P(a,b) a##b\nP(x,1)\n", "x1");
+    expect_pp(t, &f, "#define P(a,b) a##b\nP(1,e5)\n", "1e5");
+
+    /* Invalid pastes: error, operands kept (gcc keeps both tokens). */
+    mfix_init(&f);
+    run_pp(&f, "#define P(a,b) a##b\nP(x,+)\n", toks, 8);
     T_ASSERT(t, f.errors >= 1);
+    mfix_free(&f);
+    mfix_init(&f);
+    run_pp(&f, "#define P(a,b) a##b\nP(.,.)\n", toks, 8);
+    T_ASSERT(t, f.errors >= 1); /* .. is not a pp-token */
+    mfix_free(&f);
+
+    /* Pasted tokens are expansion candidates (not painted). */
+    expect_pp(t, &f, "#define X 42\n#define GLUE(a,b) a##b\nGLUE(,X)\n", "42");
+}
+
+void test_pp_stringize_fidelity(TestCtx *t)
+{
+    MacFix f;
+
+    expect_pp(t, &f, "#define S(x) #x\nS(a   +b)\n", "\"a +b\"");
+    expect_pp(t, &f, "#define S(x) #x\nS(\"q\\n\")\n", "\"\\\"q\\\\n\\\"\"");
+    expect_pp(t, &f, "#define S(x) #x\nS()\n", "\"\"");
+    expect_pp(t, &f, "#define S(x) #x\nS(  lead trail  )\n", "\"lead trail\"");
+    /* Unexpanded: # operand uses the ORIGINAL argument tokens. */
+    expect_pp(t, &f, "#define N 42\n#define S(x) #x\nS(N)\n", "\"N\"");
+    /* Both roles: #x x. */
+    expect_pp(t, &f, "#define N 42\n#define B(x) #x x\nB(N)\n", "\"N\" 42");
+}
+
+void test_pp_expansion_loc_chain(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[8];
+    u32 n;
+    FileId fid;
+    u32 line, col;
+    SrcLoc l;
+    int depth = 0;
+
+    /* 3-level nest: INNER's token reaches the output through three
+     * expansions; parents walk to the outermost use site (line 4). */
+    mfix_init(&f);
+    n = run_pp(&f,
+               "#define INNER 7\n#define MID INNER\n#define OUTER MID\n"
+               "OUTER\n",
+               toks, 8);
+    T_ASSERT_EQ_INT(t, n, 1);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "7");
+    l = toks[0].loc;
+    T_ASSERT(t, pp_loc_is_expansion(&f.pp.loc, l));
+    while (pp_loc_is_expansion(&f.pp.loc, l)) {
+        l = pp_loc_expansion_parent(&f.pp.loc, l);
+        depth++;
+        T_ASSERT(t, depth < 10);
+    }
+    T_ASSERT(t, depth >= 3);
+    pp_loc_resolve(&f.pp.loc, l, &fid, &line, &col);
+    T_ASSERT_EQ_INT(t, line, 4); /* the OUTER use site */
+    /* And the spelling side resolves to the definition of INNER (line 1). */
+    pp_loc_resolve(&f.pp.loc, toks[0].loc, &fid, &line, &col);
+    T_ASSERT_EQ_INT(t, line, 1);
     mfix_free(&f);
 }

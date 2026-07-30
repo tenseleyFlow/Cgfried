@@ -1,4 +1,3 @@
 // FLAGS: -E
-// ERROR_EXPECTED: Sprint 5
-#define M 42
-int x = M;
+// ERROR_EXPECTED: Sprint 6
+_Pragma("once")

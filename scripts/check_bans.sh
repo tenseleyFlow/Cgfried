@@ -11,7 +11,10 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-files=$(find src tests -name '*.c' -o -name '*.h' | sort)
+# tests/tinycc-pp is imported third-party test DATA (attribution in its
+# README) — exempt from our source bans, like the meta fixtures.
+files=$(find src tests \( -name '*.c' -o -name '*.h' \) \
+    ! -path 'tests/tinycc-pp/*' | sort)
 status=0
 
 hits=$(printf '%s\n' "$files" |
