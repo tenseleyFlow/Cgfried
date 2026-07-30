@@ -26,9 +26,12 @@ out=$("$BIN" -dumpversion) || fail "-dumpversion exit code"
 err=$("$BIN" foo.c 2>&1)
 [ $? -eq 1 ] || fail "input file should exit 1"
 case $err in
-*"Sprint 3"*) ;;
-*) fail "input error should name Sprint 3: '$err'" ;;
+*"only -E"*) ;;
+*) fail "non--E input should say only -E is supported: '$err'" ;;
 esac
+
+"$BIN" -E /nonexistent-cgf.c >/dev/null 2>&1
+[ $? -eq 3 ] || fail "-E on a missing file should exit 3 (I/O)"
 
 "$BIN" >/dev/null 2>&1
 [ $? -eq 1 ] || fail "no args should exit 1"
