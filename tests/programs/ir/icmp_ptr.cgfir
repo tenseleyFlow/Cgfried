@@ -1,0 +1,8 @@
+// Pointer equality is icmp on ptr operands.
+// IR_CHECK: icmp eq ptr %0, @g
+func i32 @f(ptr %p) {
+entry():
+    %c = icmp eq ptr %p, @g
+    ret i32 %c
+}
+global @g size 4 align 4 external

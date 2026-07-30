@@ -1,0 +1,16 @@
+// IR_CHECK: %1 = call i32 @callee(i32 %0)
+// IR_CHECK: %2 = call i32 @external_fn(i32 %1)
+// IR_CHECK: call void %4(i32 %2)
+func i32 @callee(i32 %x) {
+entry():
+    ret i32 %x
+}
+func i32 @main(i32 %a) {
+entry():
+    %r1 = call i32 @callee(i32 %a)
+    %r2 = call i32 @external_fn(i32 %r1)
+    %p = alloca 8, align 8
+    %fp = load ptr, %p, align 8
+    call void %fp(i32 %r2)
+    ret i32 %r2
+}

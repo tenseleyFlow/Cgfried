@@ -1,0 +1,11 @@
+// IR_CHECK: func void @nop()
+// IR_CHECK: ret
+func void @nop() {
+entry():
+    ret
+}
+func void @caller() {
+entry():
+    call void @nop()
+    ret
+}

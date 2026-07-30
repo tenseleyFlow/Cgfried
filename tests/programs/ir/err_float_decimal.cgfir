@@ -1,0 +1,8 @@
+// Float constants are exact bits only — a decimal would smuggle a host
+// float conversion into the IR (the determinism law at the parser door).
+// ERROR_EXPECTED: exact bits
+func void @f() {
+entry():
+    %a = fadd f64 1, 2
+    ret
+}

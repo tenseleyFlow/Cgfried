@@ -1,0 +1,16 @@
+// IR_CHECK: store i32 -1, %0, align 4, volatile
+// IR_CHECK: %1 = load i32, %0, align 4, seq_cst
+// IR_CHECK: %2 = load i64, %0, align 1
+// IR_CHECK: memcpy %0, @g, 8, align 8, volatile
+// IR_CHECK: memset %0, 170, 16, align 1
+func void @f() {
+entry():
+    %p = alloca 16, align 16
+    store i32 -1, %p, align 4, volatile
+    %v = load i32, %p, align 4, seq_cst
+    %under = load i64, %p, align 1
+    memcpy %p, @g, 8, align 8, volatile
+    memset %p, 170, 16, align 1
+    ret
+}
+global @g size 8 align 8 external

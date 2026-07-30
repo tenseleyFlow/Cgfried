@@ -1,0 +1,13 @@
+// A textual forward reference: %x is used in a block printed BEFORE the
+// block that defines it — legal SSA, since mid dominates use.
+// IR_CHECK: %0 = iadd i32 %1, 1
+func i32 @f() {
+entry():
+    br mid()
+use():
+    %y = iadd i32 %x, 1
+    ret i32 %y
+mid():
+    %x = iadd i32 2, 3
+    br use()
+}

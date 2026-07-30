@@ -1,0 +1,13 @@
+// alloca is legal in ANY block, not just entry: VLAs need a dynamic
+// alloca at the point of declaration. Do not "fix" this to LLVM's rule.
+// IR_CHECK: later():
+// IR_CHECK: %2 = alloca %0, align 16
+func void @f(i64 %n) {
+entry():
+    %fixed = alloca 8, align 8
+    br later()
+later():
+    %dyn = alloca %n, align 16
+    store i64 %n, %dyn, align 8
+    ret
+}

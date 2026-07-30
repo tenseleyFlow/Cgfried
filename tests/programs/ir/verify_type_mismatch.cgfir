@@ -1,0 +1,7 @@
+// Check 4: per-op type discipline.
+// ERROR_EXPECTED: ir verify [4]
+func void @f(i64 %w) {
+entry():
+    %a = iadd i32 %w, 1
+    ret
+}

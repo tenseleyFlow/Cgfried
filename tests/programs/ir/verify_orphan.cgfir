@@ -1,0 +1,9 @@
+// Check 6: unreachable blocks are REJECTED, not tolerated — passes must
+// delete dead blocks, not abandon them.
+// ERROR_EXPECTED: ir verify [6]
+func void @f() {
+entry():
+    ret
+island():
+    ret
+}

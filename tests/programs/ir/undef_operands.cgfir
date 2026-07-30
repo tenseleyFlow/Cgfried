@@ -1,0 +1,10 @@
+// IR_CHECK: %0 = iadd i32 undef, 0
+// IR_CHECK: %1 = xor i32 undef, undef
+// IR_CHECK: select undef, i64 undef, undef
+func void @f() {
+entry():
+    %a = iadd i32 undef, 0
+    %b = xor i32 undef, undef
+    %c = select undef, i64 undef, undef
+    ret
+}

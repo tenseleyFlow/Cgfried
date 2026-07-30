@@ -1,0 +1,11 @@
+// 0 params and 8 params; condbr with BOTH edges to one target block
+// carrying different argument lists.
+// IR_CHECK: wide(i32 %1, i32 %2, i32 %3, i32 %4, i32 %5, i32 %6, i32 %7, i32 %8):
+func i32 @f(i32 %c) {
+entry():
+    br none()
+none():
+    condbr %c, wide(i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8), wide(i32 8, i32 7, i32 6, i32 5, i32 4, i32 3, i32 2, i32 1)
+wide(i32 %p0, i32 %p1, i32 %p2, i32 %p3, i32 %p4, i32 %p5, i32 %p6, i32 %p7):
+    ret i32 %p7
+}

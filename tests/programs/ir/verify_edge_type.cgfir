@@ -1,0 +1,8 @@
+// Check 2: edge arg TYPES match too.
+// ERROR_EXPECTED: ir verify [2]
+func void @f() {
+entry():
+    br tgt(i32 1)
+tgt(i64 %w):
+    ret
+}

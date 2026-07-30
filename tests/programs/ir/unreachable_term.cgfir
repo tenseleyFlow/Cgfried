@@ -1,0 +1,6 @@
+// IR_CHECK: unreachable
+func void @f() {
+entry():
+    call void @aborts()
+    unreachable
+}

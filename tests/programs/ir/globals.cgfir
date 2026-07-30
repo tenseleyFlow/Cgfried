@@ -1,0 +1,12 @@
+// IR_CHECK: global @init size 8 align 8 internal init x1122334455667788
+// IR_CHECK: global @bss size 4096 align 16 external
+// IR_CHECK: global @tent size 4 align 4 common tentative
+// IR_CHECK: reloc 0 @init 4
+func void @f() {
+entry():
+    ret
+}
+global @init size 8 align 8 internal init x1122334455667788
+global @bss size 4096 align 16 external
+global @tent size 4 align 4 common tentative
+global @withreloc size 16 align 8 external init x0000000000000000ffffffffffffffff reloc 0 @init 4 reloc 8 @bss -2

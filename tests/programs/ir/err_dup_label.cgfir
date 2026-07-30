@@ -1,0 +1,9 @@
+// ERROR_EXPECTED: duplicate block label 'twice'
+func void @f() {
+entry():
+    br twice()
+twice():
+    ret
+twice():
+    ret
+}

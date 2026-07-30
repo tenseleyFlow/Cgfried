@@ -1,0 +1,6 @@
+// Check 5: the entry block has no predecessors.
+// ERROR_EXPECTED: ir verify [5]
+func void @f() {
+entry():
+    br entry()
+}

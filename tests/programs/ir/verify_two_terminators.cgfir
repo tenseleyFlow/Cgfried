@@ -1,0 +1,7 @@
+// Check 3: exactly one terminator, and it is last.
+// ERROR_EXPECTED: ir verify [3]
+func void @f() {
+entry():
+    ret
+    ret
+}

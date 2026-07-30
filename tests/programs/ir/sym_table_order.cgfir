@@ -1,0 +1,13 @@
+// The sym table prints first, in index order — insertion-ordered, the
+// repo-wide determinism law.
+// IR_CHECK: sym @zeta
+// IR_CHECK: sym @alpha
+// IR_CHECK: sym @f
+sym @zeta
+sym @alpha
+func void @f() {
+entry():
+    store i32 1, @zeta, align 4
+    store i32 2, @alpha, align 4
+    ret
+}

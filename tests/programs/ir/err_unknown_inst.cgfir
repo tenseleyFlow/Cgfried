@@ -1,0 +1,5 @@
+// ERROR_EXPECTED: expected an instruction
+func void @f() {
+entry():
+    frobnicate i32 1, 2
+}

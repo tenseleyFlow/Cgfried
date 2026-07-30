@@ -1,0 +1,12 @@
+// IR_CHECK: fneg f64 %0
+// IR_CHECK: fsub f32
+// IR_CHECK: fmul f64
+// IR_CHECK: fdiv f64
+func void @f(f64 %x) {
+entry():
+    %n = fneg f64 %x
+    %a = fsub f32 0x3F800000, 0x00000000
+    %m = fmul f64 %n, %x
+    %d = fdiv f64 %m, %n
+    ret
+}

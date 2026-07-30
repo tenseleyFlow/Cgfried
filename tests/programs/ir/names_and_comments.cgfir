@@ -1,0 +1,8 @@
+// Dotted and underscored names; comments between instructions.
+// IR_CHECK: func i32 @do.work_1(i32 %0)
+func i32 @do.work_1(i32 %arg.0) {
+entry():
+    // a comment inside a block
+    %r_1.a = iadd i32 %arg.0, 1
+    ret i32 %r_1.a
+}

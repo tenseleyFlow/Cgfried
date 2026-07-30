@@ -1,0 +1,25 @@
+// IR_CHECK: sext i8 %0 to i64
+// IR_CHECK: zext i8 %0 to i16
+// IR_CHECK: trunc i64 %1 to i32
+// IR_CHECK: fpext f32 0x3F800000 to f128
+// IR_CHECK: sitofp i32 %3 to f64
+// IR_CHECK: fptrunc f64 %5 to f32
+// IR_CHECK: fptosi f64 %5 to i32
+// IR_CHECK: fptoui f32 %6 to i64
+// IR_CHECK: uitofp i64 %1 to f32
+// IR_CHECK: bitcast f64 %5 to i64
+func void @f(i8 %c) {
+entry():
+    %w = sext i8 %c to i64
+    %h = zext i8 %c to i16
+    %t = trunc i64 %w to i32
+    %e = fpext f32 0x3F800000 to f128
+    %d = sitofp i32 %t to f64
+    %s = fptrunc f64 %d to f32
+    %i = fptosi f64 %d to i32
+    %u = fptoui f32 %s to i64
+    %g = uitofp i64 %w to f32
+    %b = bitcast f64 %d to i64
+    %b2 = bitcast i32 %t to f32
+    ret
+}

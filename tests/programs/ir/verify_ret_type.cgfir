@@ -1,0 +1,6 @@
+// Check 4: ret must match the function's return type.
+// ERROR_EXPECTED: ir verify [4]
+func i32 @f() {
+entry():
+    ret i64 0
+}

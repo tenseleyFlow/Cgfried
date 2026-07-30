@@ -1,0 +1,9 @@
+// Check 8: an OVER-aligned load claims a guarantee nobody made.
+// Under-aligned is honest (packed structs) and legal.
+// ERROR_EXPECTED: ir verify [8]
+func void @f() {
+entry():
+    %p = alloca 8, align 8
+    %v = load i32, %p, align 16
+    ret
+}

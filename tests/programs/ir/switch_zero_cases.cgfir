@@ -1,0 +1,8 @@
+// A switch with no cases is just a branch to the default.
+// IR_CHECK: switch i64 %0, done()
+func void @f(i64 %x) {
+entry():
+    switch i64 %x, done()
+done():
+    ret
+}

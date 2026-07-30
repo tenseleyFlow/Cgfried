@@ -1,0 +1,24 @@
+// IR_CHECK: icmp eq i32
+// IR_CHECK: icmp ne i32
+// IR_CHECK: icmp slt i32
+// IR_CHECK: icmp sle i32
+// IR_CHECK: icmp sgt i32
+// IR_CHECK: icmp sge i32
+// IR_CHECK: icmp ult i32
+// IR_CHECK: icmp ule i32
+// IR_CHECK: icmp ugt i32
+// IR_CHECK: icmp uge i32
+func void @f(i32 %a, i32 %b) {
+entry():
+    %c0 = icmp eq i32 %a, %b
+    %c1 = icmp ne i32 %a, %b
+    %c2 = icmp slt i32 %a, %b
+    %c3 = icmp sle i32 %a, %b
+    %c4 = icmp sgt i32 %a, %b
+    %c5 = icmp sge i32 %a, %b
+    %c6 = icmp ult i32 %a, %b
+    %c7 = icmp ule i32 %a, %b
+    %c8 = icmp ugt i32 %a, %b
+    %c9 = icmp uge i32 %a, %b
+    ret
+}

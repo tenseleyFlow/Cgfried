@@ -1,0 +1,11 @@
+// Check 9: internal call arity must match the callee's signature.
+// ERROR_EXPECTED: ir verify [9]
+func void @callee(i64 %x) {
+entry():
+    ret
+}
+func void @caller() {
+entry():
+    call void @callee()
+    ret
+}

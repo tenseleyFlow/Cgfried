@@ -1,0 +1,6 @@
+// ERROR_EXPECTED: use of undefined value '%ghost'
+func void @f() {
+entry():
+    %a = iadd i32 %ghost, 1
+    ret
+}

@@ -1,0 +1,8 @@
+// Check 2: edge args match the target's params.
+// ERROR_EXPECTED: ir verify [2]
+func void @f() {
+entry():
+    br tgt(i32 1, i32 2)
+tgt(i32 %only):
+    ret
+}

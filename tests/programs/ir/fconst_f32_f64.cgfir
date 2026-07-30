@@ -1,0 +1,8 @@
+// IR_CHECK: fadd f32 0x3F800000, 0x40490FDB
+// IR_CHECK: fadd f64 0x3FF0000000000000, 0x7FF8000000000000
+func void @f() {
+entry():
+    %a = fadd f32 0x3F800000, 0x40490FDB
+    %b = fadd f64 0x3FF0000000000000, 0x7FF8000000000000
+    ret
+}

@@ -1,0 +1,14 @@
+// IR_CHECK: %2 = select %1, i32 10, 20
+// IR_CHECK: switch i32 %2, other(), 1: one(), -2: neg(), 9223372036854775807: one()
+func i32 @f(i32 %c) {
+entry():
+    %cmp = icmp ne i32 %c, 0
+    %s = select %cmp, i32 10, 20
+    switch i32 %s, other(), 1: one(), -2: neg(), 9223372036854775807: one()
+one():
+    ret i32 1
+neg():
+    ret i32 -2
+other():
+    ret i32 0
+}

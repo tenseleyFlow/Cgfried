@@ -1,0 +1,18 @@
+// IR_CHECK: shl i64
+// IR_CHECK: lshr i64
+// IR_CHECK: ashr i64
+// IR_CHECK: sdiv i32
+// IR_CHECK: udiv i32
+// IR_CHECK: srem i32
+// IR_CHECK: urem i32
+func void @f(i64 %x, i32 %y) {
+entry():
+    %a = shl i64 %x, 3
+    %b = lshr i64 %x, %a
+    %c = ashr i64 %x, 1
+    %d = sdiv i32 %y, 2
+    %e = udiv i32 %y, 3
+    %f = srem i32 %y, 4
+    %g = urem i32 %y, 5
+    ret
+}

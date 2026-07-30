@@ -1,0 +1,7 @@
+// ERROR_EXPECTED: redefinition of value '%a'
+func void @f() {
+entry():
+    %a = iadd i32 1, 2
+    %a = iadd i32 3, 4
+    ret
+}

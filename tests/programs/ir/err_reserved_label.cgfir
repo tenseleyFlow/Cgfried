@@ -1,0 +1,7 @@
+// ERROR_EXPECTED: reserved and cannot label a block
+func void @f() {
+entry():
+    br iadd()
+iadd():
+    ret
+}

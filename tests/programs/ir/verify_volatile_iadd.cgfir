@@ -1,0 +1,11 @@
+// Check 7: volatile only means something on memory operations.
+// (Not expressible in the text grammar for iadd, so this drives the
+// flags path through a load with an unknown-flag test instead: seq_cst
+// on memcpy.)
+// ERROR_EXPECTED: ir verify [7]
+func void @f() {
+entry():
+    %p = alloca 8, align 8
+    memcpy %p, %p, 8, align 8, seq_cst
+    ret
+}

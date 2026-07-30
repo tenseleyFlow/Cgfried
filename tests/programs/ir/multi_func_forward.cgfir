@@ -1,0 +1,11 @@
+// IR_CHECK: %0 = call i32 @later()
+// IR_CHECK: func i32 @later()
+func i32 @first() {
+entry():
+    %r = call i32 @later()
+    ret i32 %r
+}
+func i32 @later() {
+entry():
+    ret i32 7
+}

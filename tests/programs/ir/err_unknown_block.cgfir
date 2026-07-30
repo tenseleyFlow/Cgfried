@@ -1,0 +1,5 @@
+// ERROR_EXPECTED: branch to unknown block 'nowhere'
+func void @f() {
+entry():
+    br nowhere()
+}

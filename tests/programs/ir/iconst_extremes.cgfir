@@ -1,0 +1,10 @@
+// IR_CHECK: iadd i64 9223372036854775807, -9223372036854775808
+// IR_CHECK: iadd i64 %0, -1
+// IR_CHECK: iadd i8 127, -128
+func void @f() {
+entry():
+    %a = iadd i64 9223372036854775807, -9223372036854775808
+    %b = iadd i64 %a, -1
+    %c = iadd i8 127, -128
+    ret
+}

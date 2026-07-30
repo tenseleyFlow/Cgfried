@@ -1,0 +1,34 @@
+// The NaN story: o* predicates are false when either side is NaN, u* are
+// true. C == lowers to oeq; C != lowers to une.
+// IR_CHECK: fcmp oeq f64
+// IR_CHECK: fcmp one f64
+// IR_CHECK: fcmp olt f64
+// IR_CHECK: fcmp ole f64
+// IR_CHECK: fcmp ogt f64
+// IR_CHECK: fcmp oge f64
+// IR_CHECK: fcmp ord f64
+// IR_CHECK: fcmp ueq f64
+// IR_CHECK: fcmp une f64
+// IR_CHECK: fcmp ult f64
+// IR_CHECK: fcmp ule f64
+// IR_CHECK: fcmp ugt f64
+// IR_CHECK: fcmp uge f64
+// IR_CHECK: fcmp uno f64
+func void @f(f64 %a, f64 %b) {
+entry():
+    %c0 = fcmp oeq f64 %a, %b
+    %c1 = fcmp one f64 %a, %b
+    %c2 = fcmp olt f64 %a, %b
+    %c3 = fcmp ole f64 %a, %b
+    %c4 = fcmp ogt f64 %a, %b
+    %c5 = fcmp oge f64 %a, %b
+    %c6 = fcmp ord f64 %a, %b
+    %c7 = fcmp ueq f64 %a, %b
+    %c8 = fcmp une f64 %a, %b
+    %c9 = fcmp ult f64 %a, %b
+    %c10 = fcmp ule f64 %a, %b
+    %c11 = fcmp ugt f64 %a, %b
+    %c12 = fcmp uge f64 %a, %b
+    %c13 = fcmp uno f64 %a, %b
+    ret
+}

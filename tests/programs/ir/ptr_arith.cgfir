@@ -1,0 +1,11 @@
+// IR_CHECK: %0 = ptradd @tab, 40
+// IR_CHECK: %1 = ptradd @tab, -8
+// IR_CHECK: store i64 0, @tab+16, align 8
+func void @f() {
+entry():
+    %p = ptradd @tab, 40
+    %q = ptradd @tab, -8
+    store i64 0, @tab+16, align 8
+    ret
+}
+global @tab size 64 align 8 internal
