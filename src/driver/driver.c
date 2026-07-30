@@ -108,6 +108,134 @@ static void dump_token(const Token *t)
     }
 }
 
+static void dump_decl(const AstNode *n, int depth);
+
+static void indent(int depth)
+{
+    int i;
+
+    for (i = 0; i < depth; i++)
+        printf("  ");
+}
+
+/* Statements print as an indented tree, expressions FULLY PARENTHESIZED.
+ * The parenthesization is the point: it makes a precedence or
+ * associativity mistake visible in the golden rather than hidden behind a
+ * flat reprint of the source. */
+static void dump_expr_line(const char *label, const AstNode *e, int depth)
+{
+    Buf b;
+
+    buf_init(&b);
+    ast_expr_render(e, &b);
+    indent(depth);
+    printf("%s ", label);
+    fwrite(b.data, 1, b.len, stdout);
+    if (e && e->unevaluated)
+        printf(" [unevaluated]");
+    printf("\n");
+    buf_free(&b);
+}
+
+static void dump_stmt(const AstNode *s, int depth)
+{
+    u32 i;
+
+    if (!s)
+        return;
+    switch (s->kind) {
+    case AST_STMT_COMPOUND:
+        indent(depth);
+        printf("BLOCK\n");
+        for (i = 0; i < s->nitems; i++)
+            dump_stmt(s->items[i], depth + 1);
+        return;
+    case AST_STMT_DECL:
+        dump_decl(s->lhs, depth);
+        return;
+    case AST_STMT_EXPR:
+        dump_expr_line("EXPR", s->lhs, depth);
+        return;
+    case AST_STMT_NULL:
+        indent(depth);
+        printf("NULLSTMT\n");
+        return;
+    case AST_STMT_IF:
+        dump_expr_line("IF", s->lhs, depth);
+        dump_stmt(s->body, depth + 1);
+        if (s->rhs) {
+            indent(depth);
+            printf("ELSE\n");
+            dump_stmt(s->rhs, depth + 1);
+        }
+        return;
+    case AST_STMT_SWITCH:
+        dump_expr_line("SWITCH", s->lhs, depth);
+        dump_stmt(s->body, depth + 1);
+        return;
+    case AST_STMT_WHILE:
+        dump_expr_line("WHILE", s->lhs, depth);
+        dump_stmt(s->body, depth + 1);
+        return;
+    case AST_STMT_DO:
+        indent(depth);
+        printf("DO\n");
+        dump_stmt(s->body, depth + 1);
+        dump_expr_line("DOWHILE", s->lhs, depth);
+        return;
+    case AST_STMT_FOR:
+        indent(depth);
+        printf("FOR\n");
+        /* The init clause is either an expression statement or a
+         * declaration — the c99 for-init form. */
+        if (s->lhs)
+            dump_stmt(s->lhs, depth + 1);
+        if (s->mid)
+            dump_expr_line("FORCOND", s->mid, depth + 1);
+        if (s->rhs)
+            dump_expr_line("FORSTEP", s->rhs, depth + 1);
+        dump_stmt(s->body, depth + 1);
+        return;
+    case AST_STMT_RETURN:
+        if (s->lhs) {
+            dump_expr_line("RETURN", s->lhs, depth);
+        } else {
+            indent(depth);
+            printf("RETURN\n");
+        }
+        return;
+    case AST_STMT_GOTO:
+        indent(depth);
+        printf("GOTO %s\n", s->name ? s->name : "?");
+        return;
+    case AST_STMT_BREAK:
+        indent(depth);
+        printf("BREAK\n");
+        return;
+    case AST_STMT_CONTINUE:
+        indent(depth);
+        printf("CONTINUE\n");
+        return;
+    case AST_STMT_LABEL:
+        indent(depth);
+        printf("LABEL %s\n", s->name ? s->name : "?");
+        dump_stmt(s->body, depth + 1);
+        return;
+    case AST_STMT_CASE:
+        dump_expr_line("CASE", s->lhs, depth);
+        dump_stmt(s->body, depth + 1);
+        return;
+    case AST_STMT_DEFAULT:
+        indent(depth);
+        printf("DEFAULT\n");
+        dump_stmt(s->body, depth + 1);
+        return;
+    default:
+        dump_decl(s, depth);
+        return;
+    }
+}
+
 /* One line per top-level declaration: name, rendered declarator, and the
  * storage class. This IS the declarator round-trip proof — the chain is
  * built inside-out by the parser and printed outside-in here. */
@@ -139,6 +267,12 @@ static void dump_decl(const AstNode *n, int depth)
         if (n->init)
             printf(" [init]");
         printf("\n");
+        /* A scalar initializer is an expression, so render it — the
+         * initializer goldens assert binding just like statements do. */
+        if (n->init && n->init->kind != AST_INIT_LIST)
+            dump_expr_line("INIT", n->init, depth + 1);
+        if (n->kind == AST_FUNC_DEF && n->body)
+            dump_stmt(n->body, depth + 1);
         break;
     case AST_ENUMERATOR:
         for (i = 0; i < (u32)depth; i++)

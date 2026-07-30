@@ -81,6 +81,21 @@ const char *ast_base_type_name(AstBaseType b)
     CGF_ICE("ast_base_type_name: bad base %d", (int)b);
 }
 
+const char *ast_punct_name(u16 punct)
+{
+    static const char *const names[] = {
+        "[",   "]",   "(",  ")",   "{",  "}",  ".",  "->", "++", "--",
+        "&",   "*",   "+",  "-",   "~",  "!",  "/",  "%",  "<<", ">>",
+        "<",   ">",   "<=", ">=",  "==", "!=", "^",  "|",  "&&", "||",
+        "?",   ":",   ";",  "...", "=",  "*=", "/=", "%=", "+=", "-=",
+        "<<=", ">>=", "&=", "^=",  "|=", ",",  "#",  "##",
+    };
+
+    if (punct >= sizeof(names) / sizeof(names[0]))
+        CGF_ICE("ast_punct_name: bad punct %u", (unsigned)punct);
+    return names[punct];
+}
+
 static void render_quals(u32 q, Buf *out)
 {
     if (q & AST_QUAL_CONST)
@@ -161,4 +176,139 @@ void ast_type_render(const AstType *t, Buf *out)
         return;
     }
     CGF_ICE("ast_type_render: bad kind %d", (int)t->kind);
+}
+
+/* Fully parenthesized expression rendering. Every composite form gets its
+ * own parentheses, so `--dump-ast` output is an unambiguous statement of
+ * how the parser bound the operators — which is exactly what the
+ * precedence matrix asserts against. */
+void ast_expr_render(const AstNode *e, Buf *out)
+{
+    u32 i;
+
+    if (!e) {
+        buf_printf(out, "<null>");
+        return;
+    }
+    switch (e->kind) {
+    case AST_EXPR_INT:
+    case AST_EXPR_FLOAT:
+    case AST_EXPR_CHAR:
+    case AST_EXPR_STRING:
+        buf_printf(out, "%s", e->tok ? e->tok->spelling : "?");
+        return;
+    case AST_EXPR_IDENT:
+        buf_printf(out, "%s", e->name ? e->name : "?");
+        return;
+    case AST_EXPR_PAREN:
+        /* Redundant parens carry no meaning past the parse; render the
+         * inner expression so goldens describe BINDING, not spelling. */
+        ast_expr_render(e->lhs, out);
+        return;
+    case AST_EXPR_UNARY:
+        if (e->is_postfix) {
+            buf_printf(out, "(");
+            ast_expr_render(e->lhs, out);
+            buf_printf(out, " post%s)", ast_punct_name(e->op));
+        } else {
+            buf_printf(out, "(%s ", ast_punct_name(e->op));
+            ast_expr_render(e->lhs, out);
+            buf_printf(out, ")");
+        }
+        return;
+    case AST_EXPR_BINARY:
+        buf_printf(out, "(");
+        ast_expr_render(e->lhs, out);
+        buf_printf(out, " %s ", ast_punct_name(e->op));
+        ast_expr_render(e->rhs, out);
+        buf_printf(out, ")");
+        return;
+    case AST_EXPR_COND:
+        buf_printf(out, "(");
+        ast_expr_render(e->lhs, out);
+        buf_printf(out, " ? ");
+        ast_expr_render(e->mid, out);
+        buf_printf(out, " : ");
+        ast_expr_render(e->rhs, out);
+        buf_printf(out, ")");
+        return;
+    case AST_EXPR_CALL:
+        buf_printf(out, "(call ");
+        ast_expr_render(e->lhs, out);
+        buf_printf(out, " [%u]", (unsigned)e->nargs);
+        for (i = 0; i < e->nargs; i++) {
+            buf_printf(out, " ");
+            ast_expr_render(e->args[i], out);
+        }
+        buf_printf(out, ")");
+        return;
+    case AST_EXPR_INDEX:
+        buf_printf(out, "(");
+        ast_expr_render(e->lhs, out);
+        buf_printf(out, "[");
+        ast_expr_render(e->rhs, out);
+        buf_printf(out, "])");
+        return;
+    case AST_EXPR_MEMBER:
+        buf_printf(out, "(");
+        ast_expr_render(e->lhs, out);
+        buf_printf(out, "%s%s)", e->is_arrow ? "->" : ".", e->name);
+        return;
+    case AST_EXPR_CAST:
+        buf_printf(out, "(cast<");
+        ast_type_render(e->type, out);
+        buf_printf(out, "> ");
+        ast_expr_render(e->lhs, out);
+        buf_printf(out, ")");
+        return;
+    case AST_EXPR_SIZEOF:
+        if (e->type) {
+            buf_printf(out, "(sizeof<");
+            ast_type_render(e->type, out);
+            buf_printf(out, ">)");
+        } else {
+            buf_printf(out, "(sizeof ");
+            ast_expr_render(e->lhs, out);
+            buf_printf(out, ")");
+        }
+        return;
+    case AST_EXPR_ALIGNOF:
+        buf_printf(out, "(alignof<");
+        ast_type_render(e->type, out);
+        buf_printf(out, ">)");
+        return;
+    case AST_EXPR_GENERIC:
+        buf_printf(out, "(_Generic ");
+        ast_expr_render(e->lhs, out);
+        for (i = 0; i < e->nitems; i++) {
+            buf_printf(out, " ");
+            ast_expr_render(e->items[i], out);
+        }
+        buf_printf(out, ")");
+        return;
+    case AST_GENERIC_ASSOC:
+        if (e->type) {
+            buf_printf(out, "<");
+            ast_type_render(e->type, out);
+            buf_printf(out, ">:");
+        } else {
+            buf_printf(out, "default:");
+        }
+        ast_expr_render(e->lhs, out);
+        return;
+    case AST_EXPR_COMPOUND_LIT:
+        buf_printf(out, "(complit%s<", e->is_static_storage ? "-static" : "");
+        ast_type_render(e->type, out);
+        buf_printf(out, ">[%u])", (unsigned)(e->init ? e->init->nitems : 0));
+        return;
+    case AST_INIT_LIST:
+        buf_printf(out, "{%u}", (unsigned)e->nitems);
+        return;
+    case AST_ERROR:
+        buf_printf(out, "<error>");
+        return;
+    default:
+        break;
+    }
+    buf_printf(out, "<kind:%d>", (int)e->kind);
 }

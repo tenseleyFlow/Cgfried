@@ -1096,6 +1096,53 @@ static AstNode *parse_initializer(Parser *p)
     return n;
 }
 
+AstNode *parse_braced_initializer(Parser *p)
+{
+    return parse_initializer(p);
+}
+
+/* --- type-names (6.7.7) -------------------------------------------------- */
+
+/* The cast-vs-parenthesized-expression decision. The caller has already
+ * consumed the '('; a type-name starts with a specifier keyword or with a
+ * VISIBLE TYPEDEF NAME, and that second half is the whole ambiguity:
+ * `(x)(y)` is a call when x is an ordinary identifier and a cast when it
+ * is a typedef. */
+bool parse_at_type_name(Parser *p)
+{
+    return parse_at_decl_specs(p);
+}
+
+AstType *parse_type_name(Parser *p)
+{
+    SpecSoup s;
+    const Token *start = parse_peek(p);
+    AstType *base;
+    const char *name = NULL;
+    AstType *ty;
+
+    if (!parse_decl_specs(p, &s)) {
+        parse_error(p, start, "expected a type name but found '%s'",
+                    tok_desc(start));
+        base = ast_type_new(p->arena, ATY_BASE, start->span);
+        base->base = ABT_INT;
+        return base;
+    }
+    base = ast_type_new(p->arena, ATY_BASE, start->span);
+    base->base = soup_resolve(p, &s, start);
+    base->typedef_name = s.typedef_name;
+    base->record = s.record;
+    base->quals = s.quals;
+    if (s.storage)
+        parse_error(p, start, "a type name cannot have a storage class");
+    /* Abstract declarator: the name is optional, and a type-name that DOES
+     * name something is a constraint violation, not a parse failure. */
+    ty = parse_declarator(p, base, &name, true);
+    if (name)
+        parse_error(p, start, "a type name cannot declare '%s'", name);
+    return ty;
+}
+
 /* --- declarations ------------------------------------------------------- */
 
 static bool type_is_function(const AstType *t)
@@ -1166,9 +1213,23 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         if (allow_func_def && !first && type_is_function(n->type) &&
             (parse_at_punct(p, PUNCT_LBRACE) || parse_at_decl_specs(p))) {
             NodeVec krs = {NULL, 0, 0};
+            u32 pi;
 
             n->kind = AST_FUNC_DEF;
-            /* K&R declaration list, before the body. */
+            /* parse_param_list already closed the prototype scope (it must
+             * — a prototype's parameter names die at the ')'). A
+             * DEFINITION needs them alive again, and 6.2.1p4 puts them in
+             * the SAME scope as the body's outermost block, so we reopen
+             * one scope here and re-declare the parameters into it rather
+             * than trying to keep the prototype's scope alive across two
+             * functions. The K&R declaration list belongs in this scope
+             * too — it declares those same parameters. */
+            parse_scope_enter(p);
+            p->scope_depth++;
+            for (pi = 0; pi < n->type->nparams; pi++)
+                if (n->type->params[pi].name)
+                    parse_scope_declare(p, n->type->params[pi].name, false);
+
             while (!parse_at_punct(p, PUNCT_LBRACE) &&
                    parse_peek(p)->kind != TOK_EOF) {
                 AstNode *kd = parse_declaration(p, false);
@@ -1187,22 +1248,12 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
                 memcpy(n->kr_decls, krs.data, krs.len * sizeof(AstNode *));
             }
             NodeVec_free(&krs);
-            /* The body is Sprint 10's; today we consume it as a balanced
-             * brace group so declarations after it still parse. */
-            {
-                u32 depth = 0;
-                if (parse_at_punct(p, PUNCT_LBRACE)) {
-                    do {
-                        if (parse_at_punct(p, PUNCT_LBRACE))
-                            depth++;
-                        else if (parse_at_punct(p, PUNCT_RBRACE))
-                            depth--;
-                        p->pos++;
-                    } while (depth && parse_peek(p)->kind != TOK_EOF);
-                } else {
-                    parse_error(p, parse_peek(p), "expected a function body");
-                }
-            }
+            if (parse_at_punct(p, PUNCT_LBRACE))
+                n->body = parse_func_body(p);
+            else
+                parse_error(p, parse_peek(p), "expected a function body");
+            p->scope_depth--;
+            parse_scope_leave(p);
             return n;
         }
 

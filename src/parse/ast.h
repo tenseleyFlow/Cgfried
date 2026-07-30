@@ -28,19 +28,43 @@ typedef enum AstKind {
     AST_TRANSLATION_UNIT,
     AST_EMPTY_DECL, /* `struct S;` / stray `;` — declares no object */
 
-    /* Expression kinds. Sprint 10 completes the grammar; the subset here
-     * exists because constant contexts (enum values, bitfield widths,
-     * array sizes) need SOMETHING to store. */
+    /* Expressions — the full C11 6.5 grammar. */
     AST_EXPR_INT,
     AST_EXPR_FLOAT,
     AST_EXPR_CHAR,
     AST_EXPR_STRING,
     AST_EXPR_IDENT,
-    AST_EXPR_UNARY,
-    AST_EXPR_BINARY,
-    AST_EXPR_COND,
-    AST_EXPR_CALL,
+    AST_EXPR_UNARY,   /* prefix op; `is_postfix` marks x++ / x-- */
+    AST_EXPR_BINARY,  /* also the assignment ops and `,` */
+    AST_EXPR_COND,    /* lhs ? mid : rhs */
+    AST_EXPR_CALL,    /* lhs(args...) */
+    AST_EXPR_INDEX,   /* lhs[rhs] */
+    AST_EXPR_MEMBER,  /* lhs.name / lhs->name (`is_arrow`) */
+    AST_EXPR_CAST,    /* (type)lhs */
+    AST_EXPR_SIZEOF,  /* sizeof type / sizeof lhs */
+    AST_EXPR_ALIGNOF, /* _Alignof(type) — the expr form is GNU */
+    AST_EXPR_GENERIC, /* _Generic(lhs, items...) */
+    AST_GENERIC_ASSOC,
+    AST_EXPR_COMPOUND_LIT, /* (type){ init } */
     AST_EXPR_PAREN,
+
+    /* Statements (C11 6.8). */
+    AST_STMT_COMPOUND, /* { items... } */
+    AST_STMT_EXPR,     /* lhs ; */
+    AST_STMT_NULL,     /* bare ; */
+    AST_STMT_IF,       /* lhs ? body : rhs */
+    AST_STMT_SWITCH,   /* switch (lhs) body */
+    AST_STMT_WHILE,    /* while (lhs) body */
+    AST_STMT_DO,       /* do body while (lhs) */
+    AST_STMT_FOR,      /* for (lhs; mid; rhs) body */
+    AST_STMT_GOTO,     /* goto name */
+    AST_STMT_CONTINUE,
+    AST_STMT_BREAK,
+    AST_STMT_RETURN, /* return lhs (lhs may be NULL) */
+    AST_STMT_LABEL,  /* name : body */
+    AST_STMT_CASE,   /* case lhs : body */
+    AST_STMT_DEFAULT,
+    AST_STMT_DECL, /* a declaration used as a block item; lhs is the decl */
 
     AST_ERROR, /* poison; Sprint 11 owns recovery */
 } AstKind;
@@ -170,6 +194,20 @@ struct AstNode {
     AstNode *lhs, *rhs, *mid;
     AstNode **args;
     u32 nargs;
+    bool is_postfix; /* AST_EXPR_UNARY: x++ rather than ++x */
+    bool is_arrow;   /* AST_EXPR_MEMBER: -> rather than . */
+    /* AST_EXPR_SIZEOF / _ALIGNOF / _CAST / _COMPOUND_LIT / AST_GENERIC_ASSOC
+     * put the type-name in `type`. sizeof with a NULL type is the
+     * expression form. */
+    bool unevaluated; /* operand of sizeof/_Alignof, or a _Generic
+                       * controlling expression: sema and lowering must
+                       * never emit code for it (6.5.1.1p2, 6.5.3.4p2) */
+    /* A compound literal's storage duration follows its SCOPE, not a
+     * keyword: static at file scope, automatic (and block-lifetime!) at
+     * block scope. Sprint 19 lowers it; Sprint 42 diagnoses the escaping
+     * `&(struct S){0}` case. Recorded here because the parser is the only
+     * pass that still knows which scope it was written in. */
+    bool is_static_storage;
 
     /* AST_TRANSLATION_UNIT */
     AstNode **decls;
@@ -186,5 +224,11 @@ AstType *ast_type_chain(AstType *head, AstType *tail);
  * "array 3 of ptr to func(void) ret ptr to array 5 of int". */
 void ast_type_render(const AstType *t, Buf *out);
 const char *ast_base_type_name(AstBaseType b);
+const char *ast_punct_name(u16 punct);
+
+/* Renders an expression FULLY PARENTHESIZED. This is the precedence
+ * matrix's oracle: `a+b*c` must print as `(a + (b * c))`, so a wrong
+ * binding power cannot hide behind a flat dump. */
+void ast_expr_render(const AstNode *e, Buf *out);
 
 #endif

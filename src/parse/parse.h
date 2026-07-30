@@ -27,6 +27,18 @@ typedef struct ParseScope {
     struct ParseScope *parent;
 } ParseScope;
 
+/* Labels live in their OWN namespace and have FUNCTION scope, not block
+ * scope: `foo: foo = 1; goto foo;` is legal, and a `goto` may precede its
+ * label. So they cannot ride the ordinary scope stack — uses and
+ * definitions are collected per function and reconciled at the closing
+ * brace, which is the first moment "undefined label" is knowable. */
+typedef struct LabelEntry {
+    const char *name; /* interned */
+    bool defined;
+    Span first_use; /* for the undefined-label diagnostic */
+    struct LabelEntry *next;
+} LabelEntry;
+
 typedef struct Parser {
     const Token *toks;
     u32 ntoks;
@@ -38,6 +50,14 @@ typedef struct Parser {
     ParseScope *scope;
     const LangOpts *lang;
     u32 nerrors;
+
+    u32 scope_depth;    /* 0 = file scope; drives compound-literal storage */
+    u32 unevaluated;    /* >0 inside sizeof/_Alignof/_Generic controllers */
+    u32 switch_depth;   /* `case`/`default` outside a switch is an error */
+    u32 loop_depth;     /* `continue` outside a loop is an error */
+    u32 break_depth;    /* loops AND switches both accept `break` */
+    LabelEntry *labels; /* reset per function definition */
+    bool in_func_body;
 } Parser;
 
 void parse_init(Parser *p, const TokenList *tl, Preprocessor *pp, DiagCtx *dc,
@@ -51,11 +71,30 @@ bool parse_is_typedef_name(Parser *p, const char *name);
 AstNode *parse_translation_unit(Parser *p);
 AstNode *parse_declaration(Parser *p, bool allow_func_def);
 
-/* Sprint 10 replaces this with the full expression grammar. Today it
- * parses the constant-expression subset that declarations need: enum
- * values, bitfield widths, array sizes, initializers. */
+/* The C11 6.5 expression grammar. `parse_expr` includes the comma
+ * operator; `parse_assign_expr` does NOT, which is why argument lists and
+ * initializer elements call the latter — `f(a, b)` has two arguments, not
+ * one comma expression. `parse_cond_expr` is the constant-expression
+ * entry point (6.6). */
+AstNode *parse_expr(Parser *p);
 AstNode *parse_assign_expr(Parser *p);
 AstNode *parse_cond_expr(Parser *p);
+
+/* Statements. `parse_compound_stmt` does NOT push a scope — the caller
+ * decides, because a function body's outermost block SHARES the parameter
+ * scope (6.2.1p4) while every other block gets its own. */
+AstNode *parse_stmt(Parser *p);
+AstNode *parse_compound_stmt(Parser *p);
+AstNode *parse_func_body(Parser *p);
+
+/* A type-name (6.7.7): specifier list + abstract declarator. Shared by
+ * casts, sizeof, _Alignof, compound literals, and _Generic associations. */
+AstType *parse_type_name(Parser *p);
+/* True if the current token opens a type-name — the cast-vs-parenthesized
+ * -expression decision, and the one place the typedef table is consulted
+ * from the expression grammar. */
+bool parse_at_type_name(Parser *p);
+AstNode *parse_braced_initializer(Parser *p);
 
 /* Token helpers shared with the (Sprint 10) statement parser. */
 const Token *parse_peek(Parser *p);
