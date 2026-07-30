@@ -6,6 +6,7 @@
 #include "diag.h"
 #include "driver/toolchain.h"
 #include "lex/lex.h"
+#include "parse/parse.h"
 #include "pp/pp.h"
 #include "target.h"
 #include "util/arena.h"
@@ -19,6 +20,8 @@ static const char help_text[] =
     "Modes:\n"
     "  -E                preprocess only, print tokens to stdout\n"
     "  --dump-tokens     run the lexer and dump one token per line\n"
+    "  --dump-ast        parse and dump declarations (declarator shapes)\n"
+    "  -fsyntax-only     parse and report diagnostics; produce no output\n"
     "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
     "  construction sprint by sprint)\n"
@@ -105,6 +108,77 @@ static void dump_token(const Token *t)
     }
 }
 
+/* One line per top-level declaration: name, rendered declarator, and the
+ * storage class. This IS the declarator round-trip proof — the chain is
+ * built inside-out by the parser and printed outside-in here. */
+static void dump_decl(const AstNode *n, int depth)
+{
+    Buf b;
+    u32 i;
+
+    if (!n)
+        return;
+    buf_init(&b);
+    switch (n->kind) {
+    case AST_FUNC_DEF:
+    case AST_DECL:
+        for (i = 0; i < (u32)depth; i++)
+            printf("  ");
+        printf("%s %s: ", n->kind == AST_FUNC_DEF ? "FUNCDEF" : "DECL",
+               n->name ? n->name : "<abstract>");
+        ast_type_render(n->type, &b);
+        fwrite(b.data, 1, b.len, stdout);
+        if (n->storage & AST_SC_TYPEDEF)
+            printf(" [typedef]");
+        if (n->storage & AST_SC_STATIC)
+            printf(" [static]");
+        if (n->storage & AST_SC_EXTERN)
+            printf(" [extern]");
+        if (n->is_bitfield)
+            printf(" [bitfield]");
+        if (n->init)
+            printf(" [init]");
+        printf("\n");
+        break;
+    case AST_ENUMERATOR:
+        for (i = 0; i < (u32)depth; i++)
+            printf("  ");
+        printf("ENUMERATOR %s%s\n", n->name, n->init ? " = [expr]" : "");
+        break;
+    case AST_STATIC_ASSERT:
+        for (i = 0; i < (u32)depth; i++)
+            printf("  ");
+        printf("STATIC_ASSERT\n");
+        break;
+    case AST_EMPTY_DECL:
+        /* `struct S { ... };` declares no object, but the TAG it introduces
+         * is the whole point of the line — render it. */
+        for (i = 0; i < (u32)depth; i++)
+            printf("  ");
+        printf("EMPTY_DECL");
+        if (n->type) {
+            printf(" ");
+            ast_type_render(n->type, &b);
+            fwrite(b.data, 1, b.len, stdout);
+        }
+        printf("\n");
+        break;
+    default:
+        break;
+    }
+    buf_free(&b);
+    /* Sibling declarators from the same specifier list. */
+    for (i = 0; i < n->nitems; i++)
+        dump_decl(n->items[i], depth);
+    /* Record members, so struct shapes are visible in goldens. */
+    if (n->type && n->type->kind == ATY_BASE && n->type->record &&
+        n->type->record->is_definition) {
+        u32 m;
+        for (m = 0; m < n->type->record->nmembers; m++)
+            dump_decl(n->type->record->members[m], depth + 1);
+    }
+}
+
 /* Builds the "<command-line>" pseudo-file from -D/-U flags, in order.
  * -D name means 1; -D name=val splits at the first '='. */
 static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
@@ -186,7 +260,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     cmdline = build_cmdline_file(&pp, a);
     pp_begin(&pp, sf, cmdline);
 
-    if (a->dump_tokens) {
+    if (a->dump_tokens || a->dump_ast || a->syntax_only) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -201,8 +275,19 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             PpTokVecD_push(&collected, t);
         tl = lex_convert(&pp, collected.data, (u32)collected.len, &lang,
                          cgf_target_host(), arena);
-        for (k = 0; k < tl.n; k++)
-            dump_token(&tl.toks[k]);
+        if (a->dump_tokens)
+            for (k = 0; k < tl.n; k++)
+                dump_token(&tl.toks[k]);
+        if (a->dump_ast || a->syntax_only) {
+            Parser ps;
+            AstNode *tu;
+
+            parse_init(&ps, &tl, &pp, dc, arena, &lang);
+            tu = parse_translation_unit(&ps);
+            if (a->dump_ast)
+                for (k = 0; k < tu->ndecls; k++)
+                    dump_decl(tu->decls[k], 0);
+        }
         PpTokVecD_free(&collected);
         pp_end(&pp);
         intern_free(&interner);
@@ -302,13 +387,14 @@ int driver_main(int argc, char **argv)
         status = CGF_EXIT_COMPILE;
     } else if (a.input) {
         cgf_ice_set_input(a.input);
-        if (a.mode_E || a.dump_tokens) {
+        if (a.mode_E || a.dump_tokens || a.dump_ast || a.syntax_only) {
             status = run_preprocess(&arena, dc, &a);
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,
-                      "only -E and --dump-tokens are supported so far: "
-                      "full compilation lands sprint by sprint (next: "
-                      "Sprint 9, the parser)");
+                      "only -E, --dump-tokens, --dump-ast and "
+                      "-fsyntax-only are supported so far: full "
+                      "compilation lands sprint by sprint (next: Sprint "
+                      "10, statements and expressions)");
             status = CGF_EXIT_COMPILE;
         }
     } else {

@@ -26,15 +26,17 @@ typedef struct {
     bool show_version;
     bool show_dumpversion;
     bool show_help;
-    bool mode_E;             /* -E: stop after preprocessing */
-    bool dump_macros;        /* -dM (requires -E) */
-    bool no_linemarkers;     /* -P */
-    bool dump_tokens;        /* --dump-tokens (phase 7 golden dumps) */
-    bool pedantic;           /* -pedantic (hook; Sprint 37 makes it real) */
-    int std;                 /* CStd value; default C17 */
-    bool trigraphs;          /* -trigraphs (default off, gcc parity) */
-    bool nostdinc;           /* -nostdinc: no system include dirs */
-    bool verbose;            /* -v: print include search lists */
+    bool mode_E;         /* -E: stop after preprocessing */
+    bool dump_macros;    /* -dM (requires -E) */
+    bool no_linemarkers; /* -P */
+    bool dump_tokens;    /* --dump-tokens (phase 7 golden dumps) */
+    bool dump_ast;       /* --dump-ast (declarator round-trip goldens) */
+    bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
+    bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
+    int std;             /* CStd value; default C17 */
+    bool trigraphs;      /* -trigraphs (default off, gcc parity) */
+    bool nostdinc;       /* -nostdinc: no system include dirs */
+    bool verbose;        /* -v: print include search lists */
     const char *unknown_opt; /* first unrecognized option, or NULL */
     const char *missing_arg; /* option lacking its argument, or NULL */
     const char *too_many;    /* which fixed cap overflowed, or NULL */

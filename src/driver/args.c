@@ -38,6 +38,10 @@ DriverArgs args_parse(int argc, char **argv)
             a.no_linemarkers = true;
         } else if (strcmp(s, "--dump-tokens") == 0) {
             a.dump_tokens = true;
+        } else if (strcmp(s, "--dump-ast") == 0) {
+            a.dump_ast = true;
+        } else if (strcmp(s, "-fsyntax-only") == 0) {
+            a.syntax_only = true;
         } else if (strcmp(s, "-pedantic") == 0) {
             a.pedantic = true;
         } else if (strncmp(s, "-std=", 5) == 0) {
