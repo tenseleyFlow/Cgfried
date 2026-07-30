@@ -748,8 +748,20 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
 
         e->lhs = expr(s, saved);
     }
-    if (e->type)
-        (void)sema_type_from_ast(s, e->type, e->span);
+    {
+        Type *operand = e->type ? sema_type_from_ast(s, e->type, e->span)
+                                : (e->lhs ? e->lhs->sem_type : NULL);
+
+        /* An incomplete operand has no size — an error at the point that
+         * demanded it, never a silent zero. */
+        if (operand && !layout_is_complete_for_size(operand)) {
+            err(s, e->span,
+                "invalid application of '%s' to incomplete type '%s'",
+                e->kind == AST_EXPR_SIZEOF ? "sizeof" : "_Alignof",
+                type_to_str(s->arena, operand));
+            return poison(s, e);
+        }
+    }
     e->sem_type = type_basic(TY_ULONG);
     e->is_lvalue = false;
     return e;

@@ -213,6 +213,10 @@ typedef struct {
     AstBaseType other_base;
     const char *typedef_name;
     AstNode *record;
+    /* _Alignas, as written; sema checks the constraints. */
+    AstNode *alignas_expr;
+    AstType *alignas_type;
+    bool has_alignas;
     bool saw_any;
     bool bad;
 } SpecSoup;
@@ -499,6 +503,25 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                     "supported (lands in Sprint 55)");
                 s->bad = true;
                 goto consumed;
+            case KW_ALIGNAS: {
+                /* `_Alignas(N)` or `_Alignas(type-name)`. It is an
+                 * alignment SPECIFIER, so it may appear anywhere in the
+                 * specifier list; which of the two forms was written is
+                 * decided by the same typedef-table lookup that separates
+                 * a cast from a parenthesized expression. */
+                p->pos++;
+                parse_expect_punct(p, PUNCT_LPAREN, "after '_Alignas'");
+                if (parse_at_type_name(p))
+                    s->alignas_type = parse_type_name(p);
+                else
+                    s->alignas_expr = parse_cond_expr(p);
+                parse_expect_punct(p, PUNCT_RPAREN,
+                                   "after the _Alignas "
+                                   "operand");
+                s->has_alignas = true;
+                s->saw_any = true;
+                continue;
+            }
             case KW_EXTENSION:
                 p->pos++; /* __extension__ just suppresses pedwarns */
                 continue;
@@ -701,6 +724,13 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         base->typedef_name = s.typedef_name;
         base->record = s.record;
         base->quals = s.quals;
+        /* 6.7.5p2: an alignment specifier may not appear on a parameter.
+         * Checked HERE rather than in sema because a parameter is an
+         * AstParam, not an AstNode, so there is nowhere to carry the
+         * request forward — and nothing downstream should have to. */
+        if (s.has_alignas)
+            parse_error(p, start,
+                        "'_Alignas' cannot appear on a function parameter");
 
         memset(&prm, 0, sizeof(prm));
         prm.span = start->span;
@@ -1027,6 +1057,9 @@ static AstNode *parse_member_decl(Parser *p)
         bt->record = s.record;
         bt->quals = s.quals;
 
+        n->has_alignas = s.has_alignas;
+        n->alignas_expr = s.alignas_expr;
+        n->alignas_type = s.alignas_type;
         if (!parse_at_punct(p, PUNCT_COLON))
             n->type = parse_declarator(p, bt, &n->name, true);
         else
@@ -1437,6 +1470,9 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         bt->quals = s.quals;
         n->storage = s.storage;
         n->func_specs = s.func_specs;
+        n->has_alignas = s.has_alignas;
+        n->alignas_expr = s.alignas_expr;
+        n->alignas_type = s.alignas_type;
         n->type = parse_declarator(p, bt, &n->name, false);
 
         /* DECLARATION POINT (6.2.1p7): the name enters scope as soon as

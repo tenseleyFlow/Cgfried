@@ -69,6 +69,7 @@ struct Member {
     u64 bit_offset;
     u32 bit_width;
     u64 container_size;
+    u64 align_override; /* _Alignas on the member, 0 = none */
     bool laid_out;
 
     Member *next;

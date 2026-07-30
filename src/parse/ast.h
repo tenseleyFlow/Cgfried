@@ -163,9 +163,15 @@ struct AstNode {
     /* AST_DECL / AST_FUNC_DEF */
     const char *name;
     AstType *type;
-    u32 storage;        /* AST_SC_* */
-    u32 func_specs;     /* AST_FS_* */
-    AstNode *init;      /* initializer, or NULL */
+    u32 storage;    /* AST_SC_* */
+    u32 func_specs; /* AST_FS_* */
+    AstNode *init;  /* initializer, or NULL */
+    /* _Alignas: either an expression (`_Alignas(16)`) or a type-name
+     * (`_Alignas(double)`). Only one is set. Constraints are sema's — the
+     * parser records what was written. */
+    AstNode *alignas_expr;
+    AstType *alignas_type;
+    bool has_alignas;
     AstNode *body;      /* AST_FUNC_DEF: compound statement (Sprint 10) */
     AstNode **kr_decls; /* AST_FUNC_DEF: K&R declaration list */
     u32 nkr_decls;

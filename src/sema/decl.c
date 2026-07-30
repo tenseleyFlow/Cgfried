@@ -10,6 +10,7 @@
  * always an error and never a wrong answer. */
 
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
+static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 
 /* --- the enumerator constant evaluator ----------------------------------- */
 
@@ -319,11 +320,22 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
         Member *mm;
         bool any_named = false;
 
-        for (mm = tag->members; mm; mm = mm->next)
+        for (mm = tag->members; mm; mm = mm->next) {
             if (mm->name) {
                 any_named = true;
                 break;
             }
+            /* An ANONYMOUS struct or union member has no name of its own
+             * but contributes its members' names to the parent
+             * (6.7.2.1p13), so it satisfies the non-empty requirement.
+             * Only unnamed BITFIELDS contribute nothing — they are the
+             * shape the rule is actually about. */
+            if (!mm->is_bitfield && mm->type &&
+                (mm->type->kind == TY_STRUCT || mm->type->kind == TY_UNION)) {
+                any_named = true;
+                break;
+            }
+        }
         /* 6.7.2.1 requires a non-empty member list, and an unnamed
          * bitfield does not make one: `struct { int :0; }` has no named
          * member and gcc gives it size ZERO as a GNU extension. Sizes of
@@ -347,10 +359,16 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
     {
         Member *mem;
         Type *mt;
+        u64 member_align;
 
         if (!m)
             return;
         mt = type_from_ast(s, m->type, m->span);
+        /* A member carries its own _Alignas constraints; the bitfield
+         * case in particular has no address to align. The RESULT feeds
+         * layout — an _Alignas on a member raises the record's alignment
+         * too, so it cannot just be validated and dropped. */
+        member_align = check_alignas(s, (AstNode *)m, mt);
         /* A member of incomplete type has no size, so the struct could
          * never be laid out — catchable now, without knowing any size.
          * The one exception is a flexible array member, which must be
@@ -436,6 +454,7 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             }
         }
         mem->span = m->span;
+        mem->align_override = member_align;
         if (*last)
             (*last)->next = mem;
         else
@@ -1006,6 +1025,85 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d)
     conv_assignable(s, target, &d->init, ctx);
 }
 
+/* _Alignas (6.7.5). The constraints are the deliverable: it may not
+ * WEAKEN an alignment, it may not appear on a typedef, a bitfield, a
+ * parameter or a `register` object, and the value must be a power of two.
+ * Returns the requested alignment, or 0 for "none". */
+static u64 check_alignas(Sema *s, AstNode *d, Type *type)
+{
+    u64 natural;
+    i64 want = 0;
+
+    if (!d->has_alignas)
+        return 0;
+
+    if (d->storage & AST_SC_TYPEDEF) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "'_Alignas' cannot appear on a typedef");
+        return 0;
+    }
+    if (d->storage & AST_SC_REGISTER) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "'_Alignas' cannot appear on a 'register' declaration");
+        return 0;
+    }
+    if (d->is_bitfield) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "'_Alignas' cannot appear on a bit-field");
+        return 0;
+    }
+    if (type && type->kind == TY_FUNC) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "'_Alignas' cannot appear on a function declaration");
+        return 0;
+    }
+
+    if (d->alignas_type) {
+        Type *at = sema_type_from_ast(s, d->alignas_type, d->span);
+
+        if (!layout_is_complete_for_size(at)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "'_Alignas' requires a complete type");
+            return 0;
+        }
+        want = (i64)layout_of(s, at).align;
+    } else if (d->alignas_expr) {
+        if (!enum_fold(s, d->alignas_expr, &want))
+            return 0; /* already reported, naming Sprint 15 if unfoldable */
+        /* 6.7.5p6: zero is IGNORED, which is not the same as an error. */
+        if (want == 0)
+            return 0;
+        if (want < 0 || (want & (want - 1)) != 0) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "requested alignment %lld is not a power of two",
+                      (long long)want);
+            return 0;
+        }
+    }
+
+    if (!type || !layout_is_complete_for_size(type))
+        return (u64)want;
+    natural = layout_of(s, type).align;
+    if ((u64)want < natural) {
+        /* An alignment may be RAISED, never weakened — a weaker one would
+         * be a promise the object cannot keep. */
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "requested alignment %lld is weaker than the natural "
+                  "alignment %llu of '%s'",
+                  (long long)want, (unsigned long long)natural,
+                  type_to_str(s->arena, type));
+        return 0;
+    }
+    return (u64)want;
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
@@ -1022,6 +1120,7 @@ static void declare_one(Sema *s, AstNode *d)
 
     type = type_from_ast(s, d->type, d->span);
     is_func = type && type->kind == TY_FUNC;
+    (void)check_alignas(s, d, type);
 
     /* Completion event: an unsized array with an initializer takes its
      * size from that initializer. Doing it before the incomplete-type

@@ -132,6 +132,11 @@ static void layout_struct(Sema *s, TagDecl *tag)
         }
         ml = layout_of(s, m->type);
         malign = ml.align;
+        /* _Alignas on a member raises BOTH its own placement and the
+         * record's alignment (6.7.5): the record must be aligned strictly
+         * enough that every member lands where it asked to. */
+        if (m->align_override > malign)
+            malign = m->align_override;
 
         if (m->is_bitfield) {
             u64 unit_bits = declared_bits(s, m->type);
@@ -419,6 +424,12 @@ int layout_classify_sysv(Sema *s, Type *t, AbiClass out[2])
         return -1;
     /* (b) an X87UP not preceded by X87 -> MEMORY. */
     if (n == 2 && out[1] == ABI_X87UP && out[0] != ABI_X87)
+        return -1;
+    /* An x87 long double inside an AGGREGATE is passed in memory; a BARE
+     * one keeps X87/X87UP, because it is RETURNED in st0 and Sprint 23
+     * needs to tell the two cases apart. */
+    if ((t->kind == TY_STRUCT || t->kind == TY_UNION || t->kind == TY_ARRAY) &&
+        (out[0] == ABI_X87 || out[0] == ABI_COMPLEX_X87))
         return -1;
     /* An x87 long double inside an AGGREGATE ends in MEMORY via (a)/(b)
      * once merged; a BARE long double keeps X87/X87UP and is passed on
