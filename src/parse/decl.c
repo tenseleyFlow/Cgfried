@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "parse/parse.h"
+#include "util/dlev.h"
 
 /* Declarations: specifier soup, the recursive declarator grammar,
  * struct/union/enum, and initializer SYNTAX. Nothing here type-checks —
@@ -758,24 +759,42 @@ static AstType *parse_array_suffix(Parser *p, AstType *elem)
     return arr;
 }
 
+/* Suffixes bind LEFT TO RIGHT, so the FIRST one is outermost: `a[2][3]`
+ * is an array of 2 arrays of 3 ints, not the reverse. Wrapping each new
+ * suffix around the previous result gets this backwards — invisibly so
+ * when every bound is present (`int a[3][4]` reads the same either way),
+ * which is why the bug survived Sprint 9's declarator torture and only
+ * surfaced when sema checked `int a[][3]` for a complete element type.
+ *
+ * So: parse the suffixes in order, then thread them head-to-tail with the
+ * base type last. */
 static AstType *parse_type_suffixes(Parser *p, AstType *inner)
 {
-    AstType *result = inner;
+    AstType *head = NULL;
+    AstType *tail = NULL;
 
     for (;;) {
+        AstType *suffix;
+
         if (parse_at_punct(p, PUNCT_LBRACKET)) {
             p->pos++;
-            result = parse_array_suffix(p, result);
-            continue;
-        }
-        if (parse_at_punct(p, PUNCT_LPAREN)) {
+            suffix = parse_array_suffix(p, NULL);
+        } else if (parse_at_punct(p, PUNCT_LPAREN)) {
             p->pos++;
-            result = parse_param_list(p, result);
-            continue;
+            suffix = parse_param_list(p, NULL);
+        } else {
+            break;
         }
-        break;
+        if (tail)
+            tail->next = suffix;
+        else
+            head = suffix;
+        tail = suffix;
     }
-    return result;
+    if (!head)
+        return inner;
+    tail->next = inner;
+    return head;
 }
 
 /* THE declarator recursion.
@@ -1295,12 +1314,50 @@ bool parse_at_unknown_type(Parser *p)
 }
 
 /* Diagnoses (once) and registers. Returns the token consumed. */
+/* Scans VISIBLE TYPEDEF NAMES for a close spelling. Restricting the
+ * search to typedefs is not an optimization — it is the correctness
+ * requirement: suggesting a variable or a struct tag where a type name
+ * belongs would send the reader somewhere the name cannot legally go.
+ * Nearest wins, and ties break toward the first declared, which keeps the
+ * message deterministic. */
+static const char *suggest_type_name(Parser *p, const char *typo)
+{
+    size_t tlen = strlen(typo);
+    const char *best = NULL;
+    unsigned best_d = 0;
+    ParseScope *sc;
+
+    for (sc = p->scope; sc; sc = sc->parent) {
+        ScopeEntry *e;
+
+        for (e = sc->ordinary; e; e = e->next) {
+            unsigned d;
+
+            if (!e->is_typedef || !e->name)
+                continue;
+            if (!dlev_is_suggestion(typo, tlen, e->name, strlen(e->name), &d))
+                continue;
+            if (!best || d < best_d) {
+                best = e->name;
+                best_d = d;
+            }
+        }
+    }
+    return best;
+}
+
 static void take_unknown_type(Parser *p, SpecSoup *s)
 {
     const Token *id = parse_peek(p);
 
     if (!is_known_unknown_type(p, id->spelling)) {
-        parse_error(p, id, "unknown type name '%s'", id->spelling);
+        const char *did_you_mean = suggest_type_name(p, id->spelling);
+
+        if (did_you_mean)
+            parse_error(p, id, "unknown type name '%s'; did you mean '%s'?",
+                        id->spelling, did_you_mean);
+        else
+            parse_error(p, id, "unknown type name '%s'", id->spelling);
         declare_unknown_type(p, id);
     }
     /* Recover AS IF it were a typedef: the declarator, the initializer and
@@ -1354,6 +1411,11 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->type->base = base_kind;
         n->type->record = s.record;
         n->type->typedef_name = s.typedef_name;
+        /* No declarator followed, so a tag here is a FORWARD DECLARATION
+         * rather than a use — and 6.7.2.3p7 makes that introduce a new tag
+         * in this scope even when an outer one is visible. */
+        if (s.record && !s.record->is_definition)
+            s.record->is_forward_decl = true;
         if (base_kind != ABT_RECORD && base_kind != ABT_ENUM)
             diag_emit(p->dc, DIAG_WARNING, start->span,
                       "declaration does not declare anything");

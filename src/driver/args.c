@@ -40,6 +40,8 @@ DriverArgs args_parse(int argc, char **argv)
             a.dump_tokens = true;
         } else if (strcmp(s, "--dump-ast") == 0) {
             a.dump_ast = true;
+        } else if (strcmp(s, "-fdump-sema") == 0) {
+            a.dump_sema = true;
         } else if (strcmp(s, "-fsyntax-only") == 0) {
             a.syntax_only = true;
         } else if (strcmp(s, "-pedantic") == 0) {

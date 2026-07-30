@@ -174,6 +174,11 @@ struct AstNode {
     AstNode *bitfield_width; /* on a member AST_DECL: the width EXPRESSION */
     bool is_bitfield;
     bool is_anon_member; /* C11 anonymous struct/union member */
+    /* `struct S;` on its own ALWAYS introduces a new tag in the current
+     * scope (6.7.2.3p7), while a USE like `struct S *p;` refers to a
+     * visible one. Only the parser can tell them apart — by whether a
+     * declarator followed — so it records the answer here. */
+    bool is_forward_decl;
 
     /* AST_STATIC_ASSERT */
     AstNode *assert_expr;

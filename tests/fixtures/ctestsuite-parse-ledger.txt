@@ -7,6 +7,8 @@
 #   hard-errors naming it.
 # XD-S10-GNUEXT  — a GNU extension deferred to Sprint 55 (statement
 #   expressions, __attribute__, typeof).
+# XD-S12-SIZEOF  — a constant expression containing sizeof, which needs
+#   layout; Sprint 14 lands it. Reached through system headers.
 #
 00056.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
 00125.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
@@ -72,3 +74,4 @@
 00216.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
 00219.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
 00220.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
+00040.c  XD-S12-SIZEOF  'sizeof' in a constant expression (system header)

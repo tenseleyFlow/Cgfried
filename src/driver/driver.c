@@ -8,6 +8,7 @@
 #include "lex/lex.h"
 #include "parse/parse.h"
 #include "pp/pp.h"
+#include "sema/sema.h"
 #include "target.h"
 #include "util/arena.h"
 #include "util/intern.h"
@@ -21,6 +22,7 @@ static const char help_text[] =
     "  -E                preprocess only, print tokens to stdout\n"
     "  --dump-tokens     run the lexer and dump one token per line\n"
     "  --dump-ast        parse and dump declarations (declarator shapes)\n"
+    "  -fdump-sema       run semantic analysis and dump file-scope symbols\n"
     "  -fsyntax-only     parse and report diagnostics; produce no output\n"
     "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
@@ -396,7 +398,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     cmdline = build_cmdline_file(&pp, a);
     pp_begin(&pp, sf, cmdline);
 
-    if (a->dump_tokens || a->dump_ast || a->syntax_only) {
+    if (a->dump_tokens || a->dump_ast || a->dump_sema || a->syntax_only) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -414,7 +416,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
         if (a->dump_tokens)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
-        if (a->dump_ast || a->syntax_only) {
+        if (a->dump_ast || a->dump_sema || a->syntax_only) {
             Parser ps;
             AstNode *tu;
 
@@ -423,6 +425,18 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             if (a->dump_ast)
                 for (k = 0; k < tu->ndecls; k++)
                     dump_decl(tu->decls[k], 0);
+            /* Sema runs for -fsyntax-only too: a declaration that parses
+             * but is semantically wrong must still be reported, and that
+             * is what -fsyntax-only means. */
+            if (a->dump_sema || a->syntax_only) {
+                Sema sema;
+
+                sema_init(&sema, arena, dc, &interner, &lang,
+                          cgf_target_host());
+                sema_run(&sema, tu);
+                if (a->dump_sema)
+                    sema_dump(&sema, stdout);
+            }
         }
         PpTokVecD_free(&collected);
         pp_end(&pp);
@@ -528,7 +542,8 @@ int driver_main(int argc, char **argv)
         status = CGF_EXIT_COMPILE;
     } else if (a.input) {
         cgf_ice_set_input(a.input);
-        if (a.mode_E || a.dump_tokens || a.dump_ast || a.syntax_only) {
+        if (a.mode_E || a.dump_tokens || a.dump_ast || a.dump_sema ||
+            a.syntax_only) {
             status = run_preprocess(&arena, dc, &a);
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,

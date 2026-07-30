@@ -33,6 +33,7 @@ typedef struct {
     bool no_linemarkers; /* -P */
     bool dump_tokens;    /* --dump-tokens (phase 7 golden dumps) */
     bool dump_ast;       /* --dump-ast (declarator round-trip goldens) */
+    bool dump_sema;      /* -fdump-sema (symbol/type goldens) */
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
     bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
     u32 max_errors;      /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
