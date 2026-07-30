@@ -32,6 +32,25 @@ jobs:
       - uses: actions/checkout@v4
       - run: make CC=gcc test-san
 
+  # 100k fixed-seed iterations under ASan+UBSan. Fixed seed, not random:
+  # a red CI run must be reproducible from the log alone, and a nightly
+  # job (Sprint 37 adds it) is the right place for wider seeds.
+  fuzz-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build with sanitizers
+        run: |
+          make BUILD=build-san \
+            EXTRA_CFLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all" \
+            build-san/cgfried build-san/fuzz_frontend
+      - name: fuzz
+        run: |
+          build-san/fuzz_frontend --iters 100000 --seed 1 \
+            build-san/cgfried tests/fixtures tests/programs
+      - name: no unfixed findings
+        run: sh scripts/check_fuzz_crashes.sh
+
   format:
     runs-on: ubuntu-latest
     steps:

@@ -33,6 +33,16 @@ command -v "$GCC" >/dev/null 2>&1 || {
 expected=$(grep -v '^#' "$LEDGER" 2>/dev/null | grep -v '^[[:space:]]*$' |
     awk '{print $1}' | sort || true)
 
+# A hang must read as a hang. Without a cap, an infinite loop in the parser
+# shows up as the shell reporting "Killed" (the OOM killer arriving first)
+# with the counts still matching — which is how the 00210.c hang nearly
+# went unnoticed. `timeout` is not POSIX, so degrade gracefully.
+if command -v timeout >/dev/null 2>&1; then
+    CAP="timeout 20"
+else
+    CAP=""
+fi
+
 agree=0
 newdiff=0
 xfail=0
@@ -44,7 +54,12 @@ for f in "$DIR"/*.c; do
     base=$(basename "$f")
     ours=0
     theirs=0
-    "$CGF" -fsyntax-only -std=c17 "$f" >/dev/null 2>&1 || ours=1
+    $CAP "$CGF" -fsyntax-only -std=c17 "$f" >/dev/null 2>&1 || ours=$?
+    if [ "$ours" -gt 1 ]; then
+        echo "ctestsuite_diff: ABNORMAL exit $ours on $base (124 = hang)" >&2
+        newdiff=$((newdiff + 1))
+        continue
+    fi
     "$GCC" -fsyntax-only -std=c17 -w "$f" >/dev/null 2>&1 || theirs=1
 
     listed=0

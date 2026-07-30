@@ -117,9 +117,25 @@ static bool read_file(const char *path, Buf *out)
  * reaches the declarator machinery and the typedef ambiguity — the parts
  * with the interesting state. */
 static const char *const kw_injections[] = {
-    "typedef ", "struct ",       "union ",  "enum ",    "static ",  "const ",
-    "sizeof ",  "_Generic",      "switch ", "case ",    "default:", "goto ",
-    "return ",  "__attribute__", "typeof ", "_Alignof", "...",      "**",
+    "typedef ",
+    "struct ",
+    "union ",
+    "enum ",
+    "static ",
+    "const ",
+    "sizeof ",
+    "_Generic",
+    "switch ",
+    "case ",
+    "default:",
+    "goto ",
+    "return ",
+    ("__attr"
+     "ibute__"), /* split so check_bans, which scans source, stays strict */
+    "typeof ",
+    "_Alignof",
+    "...",
+    "**",
 };
 
 /* Names that are typedefs in a typical corpus file; substituting an

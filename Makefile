@@ -48,7 +48,8 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san test-ppdiff fuzz-smoke pp-bench clean tools bootstrap install
+.PHONY: all test test-san test-ppdiff fuzz-smoke fuzz-frontend-smoke fuzz \
+        pp-bench clean tools bootstrap install asan ubsan
 
 all: $(BUILD)/cgfried $(BUILD)/cgf
 
@@ -123,6 +124,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    else p=toolchain-notools; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/toolchain.log
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-smoke
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-frontend-smoke
+	sh scripts/check_fuzz_crashes.sh
 	sh scripts/check_bans.sh
 	sh scripts/check_pp_seams.sh
 	sh scripts/check_format.sh
@@ -143,6 +146,46 @@ FUZZ_CORPUS := tests/programs/pp tests/fixtures/imported
 fuzz-smoke: $(BUILD)/cgfried $(BUILD)/ppfuzz
 	$(BUILD)/ppfuzz --iters 2000 $(BUILD)/cgfried $(FUZZ_CORPUS)
 	$(BUILD)/ppfuzz -diff --iters 2000 $(BUILD)/cgfried $(FUZZ_CORPUS)
+
+# Frontend fuzz corpus: our own fixtures plus every parse-corpus program.
+FE_FUZZ_CORPUS := tests/fixtures tests/programs
+
+# The smoke run is small enough for `make test`; CI runs FUZZ_ITERS=100000
+# under sanitizers. The digest gate is the determinism proof: if a mutator
+# changes, the sequence a given seed produces changes, and a pinned digest
+# is the only way to notice that a "green" fuzz run is testing something
+# else than it used to.
+fuzz-frontend-smoke: $(BUILD)/cgfried $(BUILD)/fuzz_frontend
+	$(BUILD)/fuzz_frontend --iters 2000 $(BUILD)/cgfried $(FE_FUZZ_CORPUS)
+	@got=$$($(BUILD)/fuzz_frontend --hash --iters 5000 $(BUILD)/cgfried \
+	    $(FE_FUZZ_CORPUS) | awk '{print $$4}'); \
+	    want=$$(cat ci/fuzz_sequence_digest.txt); \
+	    if [ "$$got" != "$$want" ]; then \
+	        echo "fuzz digest changed: got $$got want $$want" >&2; \
+	        echo "  (a mutator changed; re-pin ci/fuzz_sequence_digest.txt" >&2; \
+	        echo "   only when that change is intended)" >&2; \
+	        exit 1; \
+	    fi; \
+	    echo "fuzz_frontend: mutation sequence digest $$got matches"
+
+# Long runs: `make fuzz FUZZ_ITERS=100000 FUZZ_SEED=1`. The seed is always
+# printed so a finding reproduces from the log alone.
+FUZZ_ITERS ?= 100000
+FUZZ_SEED  ?= 1
+
+fuzz: $(BUILD)/cgfried $(BUILD)/fuzz_frontend
+	$(BUILD)/fuzz_frontend --iters $(FUZZ_ITERS) --seed $(FUZZ_SEED) \
+	    $(BUILD)/cgfried $(FE_FUZZ_CORPUS)
+	sh scripts/check_fuzz_crashes.sh
+
+# Sanitizer build flavors — dev and CI tooling, never release flags.
+asan:
+	$(MAKE) BUILD=build-asan \
+	    EXTRA_CFLAGS="-fsanitize=address -fno-omit-frame-pointer -O1 -g" all
+
+ubsan:
+	$(MAKE) BUILD=build-ubsan \
+	    EXTRA_CFLAGS="-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -O1 -g" all
 
 # Include-guard fast-path benchmark (see the script for the ceiling math).
 pp-bench: $(BUILD)/cgfried
