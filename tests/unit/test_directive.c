@@ -114,9 +114,18 @@ void test_directive_reserved(TestCtx *t)
     ds = parse(&a, "// ASM_CHECK(x86_64-linux-gnu): mov\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     T_ASSERT(t, strstr(ds.errs[0].msg, "Sprint 24") != NULL);
+    /* IR_CHECK was reserved here until Sprint 17 landed it; it now
+     * parses as a value directive with CHECK semantics. */
     ds = parse(&a, "// IR_CHECK: iadd\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.ndirs, 1);
+    T_ASSERT(t, ds.dirs[0].kind == DIR_IR_CHECK);
+    T_ASSERT_EQ_STR(t, ds.dirs[0].value, "iadd");
+    /* Empty value and ERROR_EXPECTED-conflict rules apply to it too. */
+    ds = parse(&a, "// IR_CHECK:\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
-    T_ASSERT(t, strstr(ds.errs[0].msg, "Sprint 17") != NULL);
+    ds = parse(&a, "// ERROR_EXPECTED: bad\n// IR_CHECK: iadd\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     arena_free_all(&a);
 }
 

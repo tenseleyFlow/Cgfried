@@ -32,7 +32,8 @@ typedef enum {
     DIR_ENV,       /* NAME=VALUE for the compile step; repeatable */
     DIR_OPT_EQ,    /* reserved: hard-errors naming Sprint 30 */
     DIR_ASM_CHECK, /* reserved: hard-errors naming Sprint 24 */
-    DIR_IR_CHECK,  /* reserved: hard-errors naming Sprint 17 */
+    DIR_IR_CHECK,  /* CHECK semantics against `cgf -emit-ir` output
+                      (.cgfir fixtures; live since Sprint 17) */
 } DirectiveKind;
 
 typedef struct {

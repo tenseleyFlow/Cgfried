@@ -240,11 +240,6 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             err(p, line_no, "ASM_CHECK is not yet supported: Sprint 24");
             return;
         }
-        if (hit->kind == DIR_IR_CHECK) {
-            err(p, line_no, "IR_CHECK is not yet supported: Sprint 17");
-            return;
-        }
-
         /* Selector legality per directive. */
         if (hit->kind == DIR_XFAIL || hit->kind == DIR_SKIP) {
             if (sel_len == 0) {
@@ -274,6 +269,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
 
         switch (hit->kind) {
         case DIR_CHECK:
+        case DIR_IR_CHECK: /* Sprint 17: CHECK semantics against the
+                              -emit-ir reprint of a .cgfir fixture */
         case DIR_ERROR_EXPECTED:
         case DIR_WARNING_EXPECTED:
             if (value_len == 0) {
@@ -367,7 +364,6 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         }
         case DIR_OPT_EQ:
         case DIR_ASM_CHECK:
-        case DIR_IR_CHECK:
             /* Unreachable: reserved directives returned above. Exhaustive
              * switch, no default — adding a directive must break here. */
             break;
@@ -377,7 +373,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             p->set->has_error_expected = true;
         if (hit->kind == DIR_WARNING_EXPECTED)
             p->set->has_warning_expected = true;
-        if (hit->kind == DIR_CHECK || hit->kind == DIR_ERROR_EXPECTED ||
+        if (hit->kind == DIR_CHECK || hit->kind == DIR_IR_CHECK ||
+            hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
             hit->kind == DIR_SKIP || hit->kind == DIR_ENV)
             add_dir(p, d);
@@ -414,7 +411,8 @@ void directive_parse(Arena *a, const char *src, size_t len, DirectiveSet *out)
     if (out->has_error_expected) {
         size_t i;
         for (i = 0; i < out->ndirs; i++) {
-            if (out->dirs[i].kind == DIR_CHECK) {
+            if (out->dirs[i].kind == DIR_CHECK ||
+                out->dirs[i].kind == DIR_IR_CHECK) {
                 err(&p, out->dirs[i].line,
                     "CHECK is meaningless with ERROR_EXPECTED (the compile "
                     "step stops before running anything)");

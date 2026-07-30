@@ -128,7 +128,8 @@ static bool has_test_ext(const char *name)
 {
     const char *dot = strrchr(name, '.');
 
-    return dot && (strcmp(dot, ".c") == 0 || strcmp(dot, ".s") == 0);
+    return dot && (strcmp(dot, ".c") == 0 || strcmp(dot, ".s") == 0 ||
+                   strcmp(dot, ".cgfir") == 0);
 }
 
 static int str_cmp_ctx(const void *a, const void *b, void *ctx)
@@ -264,7 +265,7 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
         const Directive *dir = &ds->dirs[d];
         bool matched = false;
 
-        if (dir->kind != DIR_CHECK)
+        if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK)
             continue;
         while (cursor < out->len && !matched) {
             size_t eol = cursor;
@@ -386,6 +387,28 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
 
     binpath =
         aprintf(&r->arena, "build/test-work/%s_%s.bin", t->suite, t->name);
+
+    /* .cgfir fixtures go through `cgf -emit-ir` (parse -> verify ->
+     * reprint); the compiler's stdout is the result under test, matched
+     * by IR_CHECK/CHECK in order. ERROR_EXPECTED asserts parse/verify
+     * rejection exactly as it does for C fixtures. */
+    {
+        const char *dot = strrchr(t->path, '.');
+
+        if (dot && strcmp(dot, ".cgfir") == 0) {
+            char *argv[4];
+
+            argv[0] = (char *)r->cc;
+            argv[1] = (char *)"-emit-ir";
+            argv[2] = (char *)t->path;
+            argv[3] = NULL;
+            saved_n = env_apply(r, ds, &saved_env);
+            spawn_capture(argv, timeout, &comp);
+            env_restore(saved_env, saved_n);
+            pp_mode = true;
+            goto have_compile;
+        }
+    }
 
     /* `// TU-BREAK` splits a fixture into several TRANSLATION UNITS,
      * each compiled separately with the same FLAGS. Outputs are merged in

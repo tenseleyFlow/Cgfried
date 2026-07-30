@@ -28,6 +28,13 @@ emit() {
 }
 
 case $(basename "$src") in
+ir_check_pass.cgfir)
+    # .cgfir routing: the runner invokes `cc -emit-ir <src>` with no -o
+    # and matches IR_CHECK lines against the compiler's stdout.
+    printf 'func i32 @meta() {\n'
+    printf '    %%0 = iadd i32 1, 2\n'
+    exit 0
+    ;;
 check_pass.c | check_order.c)
     emit '#!/bin/sh
 echo one
