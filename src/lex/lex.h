@@ -131,11 +131,10 @@ void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
 /* True if the pp-number is a floating (not integer) constant. */
 bool lex_ppnum_is_float(const char *sp, u32 len);
 
-/* THE SEAM (debt XD-S08-FPHOST): host strtod stands in for correctly-
- * rounded, target-parameterized conversion. Sprint 15 DELETES this
- * function and replaces its callers with the softfloat engine. Nothing
- * but future sema may call it; tokens keep the exact spelling. */
-double lex_fp_interim(const char *spelling);
+/* The float VALUE is not computed by the lexer: the token carries the
+ * exact spelling and Sprint 15's src/util/softfp.c converts it in the
+ * TARGET's format. (The old host-strtod seam, debt XD-S08-FPHOST, is
+ * retired.) */
 
 /* Char/string constant analysis (strlit.c). */
 void lex_char_const(Preprocessor *pp, Token *t, const char *sp, u32 len,

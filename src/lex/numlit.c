@@ -277,13 +277,7 @@ void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
      * engine converts it. See lex_fp_interim's debt note. */
 }
 
-/* XD-S08-FPHOST — see .docs/audits/xfail-debt.md. Host strtod stands in
- * for correctly-rounded, target-parameterized conversion: its rounding is
- * the HOST's, which violates determinism invariant #3 for cross-target
- * constant folding. Sprint 15 deletes this function outright. It is the
- * only floating-point conversion in the compiler, and the ONLY strtod
- * call site (scripts/check_bans.sh enforces that). */
-double lex_fp_interim(const char *spelling)
-{
-    return strtod(spelling, NULL); /* check_bans allow: XD-S08-FPHOST */
-}
+/* XD-S08-FPHOST RETIRED (Sprint 15). The host-strtod seam that used to
+ * stand here is gone: src/util/softfp.c now converts float spellings
+ * correctly-rounded in the TARGET's format, with no host FPU involved.
+ * check_bans.sh enforces that no float conversion returned. */

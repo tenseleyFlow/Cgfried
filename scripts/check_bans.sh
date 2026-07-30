@@ -48,14 +48,16 @@ if [ -n "$hits" ]; then
 fi
 
 # Numeric CONVERSION is centralized: strtod/strtof/strtold live only in
-# numlit.c's lex_fp_interim (debt XD-S08-FPHOST, deleted by Sprint 15),
-# and nothing else may convert floating text. Host conversion leaking into
-# target constants would break determinism invariant #3.
+# Float conversion must go through src/util/softfp.c, never the host's.
+# A host strtod puts the host's rounding into our output, which breaks
+# both cross-compilation (folding an arm64 fp128 constant on an x86 host)
+# and the byte-identical bootstrap. The seam that used to be allowed here
+# (XD-S08-FPHOST) was retired in Sprint 15.
 hits=$(printf '%s\n' "$files" |
-    xargs grep -nE '(^|[^a-zA-Z0-9_])strto(d|f|ld)\(' 2>/dev/null |
+    xargs grep -nE '\b(strtod|strtof|strtold)\s*\(' 2>/dev/null |
     grep -v 'check_bans allow' || true)
 if [ -n "$hits" ]; then
-    echo "check_bans: float conversion outside lex_fp_interim:" >&2
+    echo "check_bans: host float conversion (use src/util/softfp.c):" >&2
     printf '%s\n' "$hits" >&2
     status=1
 fi

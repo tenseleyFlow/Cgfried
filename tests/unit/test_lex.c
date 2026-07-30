@@ -355,9 +355,10 @@ void test_lex_float_consts(TestCtx *t)
     T_ASSERT_EQ_INT(t, tl.toks[4].float_type, FTY_LDOUBLE);
     lfix_free(&f);
 
-    /* The interim seam converts the spelling (XD-S08-FPHOST). */
-    T_ASSERT(t, lex_fp_interim("0x1.8p3") == 12.0);
-    T_ASSERT(t, lex_fp_interim("1.5") == 1.5);
+    /* The lexer carries the exact SPELLING and computes no value: the
+     * host-strtod seam that used to be asserted here (XD-S08-FPHOST) was
+     * retired in Sprint 15, and src/util/softfp.c now converts in the
+     * TARGET's format. test_softfp.c owns the value assertions. */
 
     /* A hex float REQUIRES its binary exponent. */
     lex_err(t, "0x1.8\n", STD_C17);

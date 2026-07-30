@@ -8,6 +8,7 @@
 #include "util/arena.h"
 #include "util/base.h"
 #include "util/intern.h"
+#include "util/softfp.h"
 
 /* The semantic core: the Type graph, the scope stack over C's four
  * namespaces, linkage, and redeclaration merging.
@@ -213,6 +214,19 @@ char *type_to_str(Arena *ar, const Type *t);
 /* Cross-TU struct compatibility is member-wise (6.2.7p1) and only
  * observable at link time; Sprint 57 owns it. */
 bool type_compatible_cross_tu(Sema *s, const Type *a, const Type *b);
+
+/* --- constant expressions (Sprint 15) ------------------------------------ */
+
+/* Which softfloat format the target uses for a floating type. `long
+ * double` is the cross-target trap: x87 80-bit on x86-64, IEEE binary128
+ * on arm64-linux, plain double on arm64-macos. */
+SfFormat constexpr_format_of(Sema *s, const Type *t);
+/* Parses a C floating-constant SPELLING correctly-rounded into `f`. The
+ * literal grammar lives on this side because softfp.c must stay
+ * library-clean for Sprint 49's runtime. */
+Sf constexpr_parse_float(const char *spelling, SfFormat f, SfStatus *st);
+/* The value of a float literal token, with gcc's range diagnostics. */
+Sf constexpr_float_literal(Sema *s, AstNode *e);
 
 /* --- layout (Sprint 14) -------------------------------------------------- */
 
