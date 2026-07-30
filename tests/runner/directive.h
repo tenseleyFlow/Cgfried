@@ -27,13 +27,16 @@ typedef enum {
     DIR_XFAIL,
     DIR_SKIP,
     DIR_TIMEOUT,
-    DIR_FLAGS,     /* extra compiler argv (space-separated); -E switches the
-                      pipeline to compiler-output checking */
-    DIR_ENV,       /* NAME=VALUE for the compile step; repeatable */
-    DIR_OPT_EQ,    /* reserved: hard-errors naming Sprint 30 */
-    DIR_ASM_CHECK, /* reserved: hard-errors naming Sprint 24 */
-    DIR_IR_CHECK,  /* CHECK semantics against `cgf -emit-ir` output
-                      (.cgfir fixtures; live since Sprint 17) */
+    DIR_FLAGS,        /* extra compiler argv (space-separated); -E switches the
+                         pipeline to compiler-output checking */
+    DIR_ENV,          /* NAME=VALUE for the compile step; repeatable */
+    DIR_OPT_EQ,       /* reserved: hard-errors naming Sprint 30 */
+    DIR_ASM_CHECK,    /* reserved: hard-errors naming Sprint 24 */
+    DIR_IR_CHECK,     /* CHECK semantics against `cgf -emit-ir` output
+                         (.cgfir fixtures; live since Sprint 17) */
+    DIR_IR_CHECK_NOT, /* negative form: the text must appear on NO output
+                         line — how a golden proves an ABSENCE (Sprint
+                         18's "short-circuit emits zero allocas") */
 } DirectiveKind;
 
 typedef struct {

@@ -266,7 +266,7 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
         bool matched = false;
 
         if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK)
-            continue;
+            continue; /* IR_CHECK-NOT is judged by find_forbidden */
         while (cursor < out->len && !matched) {
             size_t eol = cursor;
             while (eol < out->len && out->data[eol] != '\n')
@@ -304,6 +304,24 @@ static bool buf_contains(const Buf *b, const char *needle)
         if (memcmp(b->data + i, needle, nlen) == 0)
             return true;
     return false;
+}
+
+/* IR_CHECK-NOT: the text must appear NOWHERE in the output. Returns the
+ * first violated directive, or NULL. Order-independent by design —
+ * an absence has no position. */
+static const Directive *find_forbidden(const DirectiveSet *ds, const Buf *out)
+{
+    size_t d;
+
+    for (d = 0; d < ds->ndirs; d++) {
+        const Directive *dir = &ds->dirs[d];
+
+        if (dir->kind != DIR_IR_CHECK_NOT)
+            continue;
+        if (buf_contains(out, dir->value))
+            return dir;
+    }
+    return NULL;
 }
 
 static void mkdir_p2(const char *a, const char *b)
@@ -497,7 +515,8 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                         strcmp(piece, "-fdump-sema") == 0 ||
                         strcmp(piece, "-fdump-layout") == 0 ||
                         strcmp(piece, "-fdump-init") == 0 ||
-                        strcmp(piece, "-fsyntax-only") == 0)
+                        strcmp(piece, "-fsyntax-only") == 0 ||
+                        strcmp(piece, "-emit-ir") == 0)
                         pp_mode = true;
                     if (n >= 28) {
                         if (!quiet)
@@ -602,11 +621,19 @@ have_compile:
             }
         } else {
             const Directive *miss = match_checks(ds, &comp.out);
+            const Directive *hit = find_forbidden(ds, &comp.out);
             if (miss) {
                 if (!quiet) {
                     printf("FAIL %s: CHECK not matched in order (line %u): "
                            "%s\n",
                            id, (unsigned)miss->line, miss->value);
+                    print_detail("compiler stdout", &comp.out);
+                }
+            } else if (hit) {
+                if (!quiet) {
+                    printf("FAIL %s: IR_CHECK-NOT text present (line %u): "
+                           "%s\n",
+                           id, (unsigned)hit->line, hit->value);
                     print_detail("compiler stdout", &comp.out);
                 }
             } else {
@@ -657,11 +684,19 @@ have_compile:
             }
         } else {
             const Directive *miss = match_checks(ds, &run.out);
+            const Directive *hit = find_forbidden(ds, &run.out);
             if (miss) {
                 if (!quiet) {
                     printf("FAIL %s: CHECK not matched in order (line %u): "
                            "%s\n",
                            id, (unsigned)miss->line, miss->value);
+                    print_detail("stdout", &run.out);
+                }
+            } else if (hit) {
+                if (!quiet) {
+                    printf("FAIL %s: IR_CHECK-NOT text present (line %u): "
+                           "%s\n",
+                           id, (unsigned)hit->line, hit->value);
                     print_detail("stdout", &run.out);
                 }
             } else {

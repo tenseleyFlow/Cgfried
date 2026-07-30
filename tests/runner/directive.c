@@ -22,6 +22,7 @@ static const DirectiveName directive_table[] = {
     {"OPT_EQ", DIR_OPT_EQ},
     {"ASM_CHECK", DIR_ASM_CHECK},
     {"IR_CHECK", DIR_IR_CHECK},
+    {"IR_CHECK-NOT", DIR_IR_CHECK_NOT},
 };
 
 typedef struct {
@@ -85,7 +86,9 @@ static void add_dir(Parser *p, Directive d)
 
 static bool is_upper_or_underscore(char c)
 {
-    return (c >= 'A' && c <= 'Z') || c == '_';
+    /* '-' joined the set with IR_CHECK-NOT (Sprint 18); a hyphenated
+     * ALL-CAPS typo now errors loudly instead of matching nothing. */
+    return (c >= 'A' && c <= 'Z') || c == '_' || c == '-';
 }
 
 static bool selector_valid(const char *sel)
@@ -269,8 +272,9 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
 
         switch (hit->kind) {
         case DIR_CHECK:
-        case DIR_IR_CHECK: /* Sprint 17: CHECK semantics against the
-                              -emit-ir reprint of a .cgfir fixture */
+        case DIR_IR_CHECK:     /* Sprint 17: CHECK semantics against the
+                                  -emit-ir reprint of a fixture */
+        case DIR_IR_CHECK_NOT: /* Sprint 18: the text must NOT appear */
         case DIR_ERROR_EXPECTED:
         case DIR_WARNING_EXPECTED:
             if (value_len == 0) {
@@ -374,7 +378,7 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         if (hit->kind == DIR_WARNING_EXPECTED)
             p->set->has_warning_expected = true;
         if (hit->kind == DIR_CHECK || hit->kind == DIR_IR_CHECK ||
-            hit->kind == DIR_ERROR_EXPECTED ||
+            hit->kind == DIR_IR_CHECK_NOT || hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
             hit->kind == DIR_SKIP || hit->kind == DIR_ENV)
             add_dir(p, d);
@@ -412,7 +416,8 @@ void directive_parse(Arena *a, const char *src, size_t len, DirectiveSet *out)
         size_t i;
         for (i = 0; i < out->ndirs; i++) {
             if (out->dirs[i].kind == DIR_CHECK ||
-                out->dirs[i].kind == DIR_IR_CHECK) {
+                out->dirs[i].kind == DIR_IR_CHECK ||
+                out->dirs[i].kind == DIR_IR_CHECK_NOT) {
                 err(&p, out->dirs[i].line,
                     "CHECK is meaningless with ERROR_EXPECTED (the compile "
                     "step stops before running anything)");
