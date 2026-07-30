@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=meta test=skip_all count=1 reason="meta skip fixture"
