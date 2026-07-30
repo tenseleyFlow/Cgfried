@@ -78,18 +78,10 @@ static const char *tok_desc(const Token *t)
 
 void parse_expect_punct(Parser *p, PpPunct punct, const char *what)
 {
-    static const char *const names[] = {
-        "[",   "]",   "(",  ")",   "{",  "}",  ".",  "->", "++", "--",
-        "&",   "*",   "+",  "-",   "~",  "!",  "/",  "%",  "<<", ">>",
-        "<",   ">",   "<=", ">=",  "==", "!=", "^",  "|",  "&&", "||",
-        "?",   ":",   ";",  "...", "=",  "*=", "/=", "%=", "+=", "-=",
-        "<<=", ">>=", "&=", "^=",  "|=", ",",  "#",  "##",
-    };
-
     if (parse_eat_punct(p, punct))
         return;
     parse_error(p, parse_peek(p), "expected '%s'%s%s but found '%s'",
-                names[punct], what ? " " : "", what ? what : "",
+                ast_punct_name((u16)punct), what ? " " : "", what ? what : "",
                 tok_desc(parse_peek(p)));
 }
 
