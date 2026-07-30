@@ -1,0 +1,3 @@
+HARNESS_SKIP suite=lower-exec test=exec_bitfield_loop count=1 reason="staged for execution at Sprint 25 (no backend yet)"
+HARNESS_SKIP suite=lower-exec test=exec_duff_memcmp count=1 reason="staged for execution at Sprint 25 (no backend yet)"
+HARNESS_SKIP suite=lower-exec test=exec_eval_order count=1 reason="staged for execution at Sprint 25 (no backend yet)"
