@@ -46,7 +46,8 @@ u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
         size_t cap = dc->files_cap ? dc->files_cap * 2 : 8;
         DiagFile *grown =
             arena_alloc(dc->arena, cap * sizeof(DiagFile), _Alignof(DiagFile));
-        memcpy(grown, dc->files, dc->files_len * sizeof(DiagFile));
+        if (dc->files_len) /* memcpy from NULL is UB even for 0 */
+            memcpy(grown, dc->files, dc->files_len * sizeof(DiagFile));
         dc->files = grown;
         dc->files_cap = cap;
     }

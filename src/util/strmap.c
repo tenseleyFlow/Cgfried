@@ -81,7 +81,8 @@ void *strmap_put(Strmap *m, const char *key, size_t key_len, void *val)
     {
         StrmapEntry *e = &m->entries[m->len];
         e->key = cgf_xmalloc(key_len + 1);
-        memcpy(e->key, key, key_len);
+        if (key_len) /* memcpy from NULL is UB even for 0 bytes */
+            memcpy(e->key, key, key_len);
         e->key[key_len] = '\0';
         e->key_len = key_len;
         e->val = val;

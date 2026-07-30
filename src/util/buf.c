@@ -35,6 +35,8 @@ void buf_reserve(Buf *b, size_t need)
 
 void buf_append(Buf *b, const void *data, size_t len)
 {
+    if (len == 0)
+        return; /* also dodges memcpy-from-NULL UB */
     buf_reserve(b, b->len + len);
     memcpy(b->data + b->len, data, len);
     b->len += len;

@@ -68,7 +68,8 @@ char *arena_strndup(Arena *a, const char *s, size_t n)
 {
     char *p = arena_alloc(a, n + 1, 1);
 
-    memcpy(p, s, n);
+    if (n) /* memcpy from NULL is UB even for 0 bytes */
+        memcpy(p, s, n);
     p[n] = '\0';
     return p;
 }
