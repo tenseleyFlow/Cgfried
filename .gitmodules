@@ -1,0 +1,6 @@
+[submodule "afs-as"]
+	path = afs-as
+	url = git@github.com:FortranGoingOnForty/afs-as.git
+[submodule "afs-ld"]
+	path = afs-ld
+	url = git@github.com:FortranGoingOnForty/afs-ld.git
