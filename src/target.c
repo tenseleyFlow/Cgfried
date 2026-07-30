@@ -2,6 +2,11 @@
 
 #include "diag.h"
 
+const char *const cgf_target_names[CGF_TARGET_COUNT] = {
+    "x86_64-linux-gnu",  "arm64-linux",    "arm64-macos",
+    "x86_64-linux-musl", "x86_64-freebsd",
+};
+
 TargetSpec cgf_target_host(void)
 {
     TargetSpec t;

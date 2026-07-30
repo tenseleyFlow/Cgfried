@@ -1,0 +1,36 @@
+# Test-program corpus
+
+Directive-annotated C programs driven by `build/cgf-test`. Empty until
+Sprint 3 starts feeding it; the compile-and-run flow goes live in Sprint 25.
+
+Directives are `// NAME: value` comments at the start of a line, scanned from
+the whole file. Any `// ALL_CAPS:` comment that is not a known directive is a
+hard configuration error (so a typo'd directive can never silently become a
+plain comment — and consequently `// TODO:`-style comments are not allowed in
+test sources). Examples:
+
+```c
+// CHECK: hello
+// EXIT_CODE: 0
+```
+
+```c
+// ERROR_EXPECTED: expected ';'
+```
+
+```c
+// XFAIL(x86_64-freebsd): XF-0001 kqueue fixture flake
+```
+
+```c
+// SKIP(arm64-macos): needs codesigning fixture
+// TIMEOUT: 30
+```
+
+Target selectors are the closed target-name set (`x86_64-linux-gnu`,
+`arm64-linux`, `arm64-macos`, `x86_64-linux-musl`, `x86_64-freebsd`) plus
+`*`. Unknown selectors are configuration errors. Every `XFAIL` cites an
+`XF-NNNN` id from `.docs/audits/xfail-debt.md`; XPASS is a hard failure.
+
+Reserved (parse but hard-error until their sprint): `// OPT_EQ:` (Sprint 30),
+`// ASM_CHECK(<arch>):` (Sprint 24), `// IR_CHECK:` (Sprint 17).

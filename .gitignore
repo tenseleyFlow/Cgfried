@@ -1,5 +1,11 @@
 .fac/
-.docs/
+# .docs/ is local-only working material (sprints, refs, notes) — except the
+# XFAIL debt ledger, which CI cross-checks against // XFAIL directives, so it
+# must exist in checkouts. The `/*` form (not `/`) lets the negation work.
+.docs/*
+!.docs/audits
+.docs/audits/*
+!.docs/audits/xfail-debt.md
 CLAUDE.md
 AGENTS.md
 build/
