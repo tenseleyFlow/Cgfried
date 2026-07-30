@@ -17,16 +17,33 @@ enum {
     CGF_EXIT_ICE = 4,     /* internal compiler error, via cgf_ice */
 };
 
-/* Parsed command line. Parsing does no I/O so it unit-tests pure. */
+/* Parsed command line. Parsing does no I/O so it unit-tests pure. Fixed
+ * caps until Sprint 26's table-driven parser; overflow is a loud error. */
+#define DRIVER_MAX_DIRS 32
+#define DRIVER_MAX_DEFS 64
+
 typedef struct {
     bool show_version;
     bool show_dumpversion;
     bool show_help;
     bool mode_E;             /* -E: stop after preprocessing */
     bool trigraphs;          /* -trigraphs (default off, gcc parity) */
+    bool nostdinc;           /* -nostdinc: no system include dirs */
+    bool verbose;            /* -v: print include search lists */
     const char *unknown_opt; /* first unrecognized option, or NULL */
+    const char *missing_arg; /* option lacking its argument, or NULL */
+    const char *too_many;    /* which fixed cap overflowed, or NULL */
     const char *input;       /* first input-file argument, or NULL */
     const char *extra_input; /* second input file (unsupported), or NULL */
+
+    const char *include_dirs[DRIVER_MAX_DIRS]; /* -I, in order */
+    int n_include;
+    const char *iquote_dirs[DRIVER_MAX_DIRS]; /* -iquote, in order */
+    int n_iquote;
+    /* -D name[=val] / -U name, strictly in command-line order. */
+    const char *defs[DRIVER_MAX_DEFS];
+    bool def_is_undef[DRIVER_MAX_DEFS];
+    int n_defs;
 } DriverArgs;
 
 DriverArgs args_parse(int argc, char **argv);

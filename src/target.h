@@ -1,6 +1,8 @@
 #ifndef CGF_TARGET_H
 #define CGF_TARGET_H
 
+#include <stddef.h>
+
 /* Closed target set — no triple parser (locked decision). Adding a target is
  * an enum variant plus the exhaustive-switch fallout, on purpose. */
 typedef enum {
@@ -27,5 +29,11 @@ extern const char *const cgf_target_names[CGF_TARGET_COUNT];
 TargetSpec cgf_target_host(void);
 
 const char *cgf_target_name(TargetSpec t);
+
+/* Default system include directories for the target, in search order.
+ * Returns the count written (<= max). Host-native only until sysroots
+ * arrive (Sprint 51); macOS SDK discovery arrives with Sprint 50. */
+size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
+                                      size_t max);
 
 #endif

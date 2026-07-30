@@ -29,6 +29,28 @@ TargetSpec cgf_target_host(void)
     return t;
 }
 
+size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
+                                      size_t max)
+{
+    /* One POSIX-shaped default list for every current target: real per-
+     * target divergence (sysroots, macOS SDK paths) arrives with Sprints
+     * 50/51; keeping the switch exhaustive means those sprints cannot
+     * forget a target. */
+    switch (t.kind) {
+    case CGF_TARGET_X86_64_LINUX_GNU:
+    case CGF_TARGET_ARM64_LINUX:
+    case CGF_TARGET_ARM64_MACOS:
+    case CGF_TARGET_X86_64_LINUX_MUSL:
+    case CGF_TARGET_X86_64_FREEBSD:
+        if (max < 2)
+            return 0;
+        out[0] = "/usr/local/include";
+        out[1] = "/usr/include";
+        return 2;
+    }
+    CGF_ICE("cgf_target_system_include_dirs: bad target kind %d", (int)t.kind);
+}
+
 const char *cgf_target_name(TargetSpec t)
 {
     switch (t.kind) {
