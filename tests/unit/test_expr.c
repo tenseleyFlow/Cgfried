@@ -347,6 +347,16 @@ void test_expr_deferrals_and_errors(TestCtx *t)
     expr_bad(t, "int a; int f(void){ return _Generic(a); }\n");
 }
 
+/* Every `__builtin_*` name defers to Sprint 28 — in BOTH positions.
+ * `__builtin_va_list` lexes as a keyword and the rest as identifiers, so
+ * the two paths are genuinely separate code. */
+void test_expr_builtins_defer(TestCtx *t)
+{
+    expr_bad(t, "typedef __builtin_va_list va_list;\n");
+    expr_bad(t, "int f(void){ return __builtin_expect(1, 1); }\n");
+    expr_bad(t, "void f(void){ __builtin_va_list ap; (void)ap; }\n");
+}
+
 void test_stmt_control_flow_constraints(TestCtx *t)
 {
     /* `case`/`default` need an enclosing switch; `continue` needs a LOOP,

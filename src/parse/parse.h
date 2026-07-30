@@ -108,5 +108,8 @@ void parse_error(Parser *p, const Token *at, const char *fmt, ...);
 /* True if the current token can begin a declaration specifier list (the
  * decision that separates declarations from expression statements). */
 bool parse_at_decl_specs(Parser *p);
+/* True for the `__builtin_` reserved prefix: those names are the
+ * compiler's own, and every one of them defers to Sprint 28. */
+bool parse_is_builtin_name(const char *name);
 
 #endif

@@ -424,6 +424,15 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                             "supported (lands in Sprint 55)");
                 s->bad = true;
                 goto consumed;
+            case KW_ALT_BUILTIN_VA_LIST:
+                /* Lexed as a KEYWORD by the Sprint 8 table, so it never
+                 * reaches the identifier path below — and our own shipped
+                 * <stdarg.h> is the first thing that lands here. */
+                parse_error(p, t,
+                            "'__builtin_va_list' is not yet supported (the "
+                            "compiler builtins land in Sprint 28)");
+                s->bad = true;
+                goto consumed;
             case KW_ATTRIBUTE:
             case KW_ATTRIBUTE2:
                 /* The spelling below NAMES the extension in a diagnostic; it
@@ -454,8 +463,24 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 s->n_int || s->n_long || s->n_float || s->n_double ||
                 s->n_signed || s->n_unsigned || s->n_bool)
                 goto done;
-            if (!parse_is_typedef_name(p, t->spelling))
+            if (!parse_is_typedef_name(p, t->spelling)) {
+                /* `__builtin_va_list` and friends are compiler-provided
+                 * TYPES, not typedefs anyone declared, so they reach here
+                 * as plain identifiers. Name the sprint that makes them
+                 * real rather than emitting a generic "expected a
+                 * declarator" — our own <stdarg.h> lands on this path. */
+                if (parse_is_builtin_name(t->spelling)) {
+                    parse_error(p, t,
+                                "'%s' is not yet supported (the compiler "
+                                "builtins land in Sprint 28)",
+                                t->spelling);
+                    s->bad = true;
+                    s->saw_any = true;
+                    p->pos++;
+                    goto done;
+                }
                 goto done;
+            }
             s->n_other++;
             s->other_base = ABT_TYPEDEF;
             s->typedef_name = t->spelling;
@@ -470,12 +495,22 @@ done:
     return s->saw_any;
 }
 
+/* `__builtin_` is a reserved prefix the compiler owns. Recognizing it by
+ * spelling — rather than by a table of the ones we implement — is what
+ * lets EVERY builtin, type or function, report the same honest deferral
+ * instead of decaying into a syntax error or an implicit declaration. */
+bool parse_is_builtin_name(const char *name)
+{
+    return name && strncmp(name, "__builtin_", 10) == 0;
+}
+
 bool parse_at_decl_specs(Parser *p)
 {
     const Token *t = parse_peek(p);
 
     if (t->kind == TOK_IDENT)
-        return parse_is_typedef_name(p, t->spelling);
+        return parse_is_typedef_name(p, t->spelling) ||
+               parse_is_builtin_name(t->spelling);
     if (t->kind != TOK_KEYWORD)
         return false;
     switch ((Keyword)t->kw) {
@@ -518,6 +553,7 @@ bool parse_at_decl_specs(Parser *p)
     case KW_TYPEOF:
     case KW_ALT_TYPEOF:
     case KW_ALT_TYPEOF2:
+    case KW_ALT_BUILTIN_VA_LIST:
     case KW_ATTRIBUTE:
     case KW_ATTRIBUTE2:
     case KW_EXTENSION:

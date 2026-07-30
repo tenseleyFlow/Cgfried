@@ -116,6 +116,18 @@ static AstNode *parse_primary_expr(Parser *p)
         p->pos++;
         return n;
     case TOK_IDENT:
+        /* A `__builtin_*` name in expression position is compiler magic
+         * we have not implemented; letting it become an ordinary
+         * identifier would turn a missing feature into a link error much
+         * later. Defer loudly, naming the sprint. */
+        if (parse_is_builtin_name(t->spelling)) {
+            parse_error(p, t,
+                        "'%s' is not yet supported (the compiler builtins "
+                        "land in Sprint 28)",
+                        t->spelling);
+            p->pos++;
+            return expr_new(p, AST_ERROR, t->span);
+        }
         n = expr_new(p, AST_EXPR_IDENT, t->span);
         n->tok = t;
         n->name = t->spelling;
