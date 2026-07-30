@@ -145,7 +145,11 @@ static Sf round_pack(uint8_t sign, uint64_t hi, uint64_t lo, int32_t exp,
     r.sign = sign;
 
     if (hi == 0 && lo == 0 && !sticky) {
+        /* An exact cancellation gives +0 under round-to-nearest, whichever
+         * way the operands were signed. sf_add handles -0 + -0 before it
+         * ever reaches here. */
         r.cls = SF_ZERO;
+        r.sign = 0;
         return r;
     }
 
@@ -207,6 +211,12 @@ static Sf round_pack(uint8_t sign, uint64_t hi, uint64_t lo, int32_t exp,
     }
     if (round_bit || sticky)
         st->inexact = true;
+
+    /* An exact cancellation gives +0 under round-to-nearest, whichever
+     * way the operands were signed — only -0 + -0 stays negative, and
+     * that case never reaches here. */
+    if (hi == 0 && lo == 0)
+        r.sign = 0;
 
     /* Overflow to infinity. */
     if (exp + (prec - 1) > emax) {
@@ -469,12 +479,53 @@ Sf sf_sub(Sf a, Sf b, SfFormat f, SfStatus *st)
     return sf_add(a, sf_neg(b), f, st);
 }
 
+/* An exact 128x128 -> 256 bit product, in 32-bit limbs. Exactness is the
+ * requirement: a shift-and-add loop that squeezes the running product
+ * back into 128 bits has to guess when to shift, and the first version of
+ * this function guessed wrong — every product came out 2^52 too small. */
+static void mul_256(uint64_t ahi, uint64_t alo, uint64_t bhi, uint64_t blo,
+                    uint64_t out[4])
+{
+    uint32_t x[4], y[4];
+    uint64_t acc[8];
+    int i, j;
+
+    x[0] = (uint32_t)alo;
+    x[1] = (uint32_t)(alo >> 32);
+    x[2] = (uint32_t)ahi;
+    x[3] = (uint32_t)(ahi >> 32);
+    y[0] = (uint32_t)blo;
+    y[1] = (uint32_t)(blo >> 32);
+    y[2] = (uint32_t)bhi;
+    y[3] = (uint32_t)(bhi >> 32);
+    memset(acc, 0, sizeof(acc));
+
+    for (i = 0; i < 4; i++) {
+        uint64_t carry = 0;
+
+        for (j = 0; j < 4; j++) {
+            uint64_t cur = acc[i + j] + (uint64_t)x[i] * y[j] + carry;
+
+            acc[i + j] = cur & 0xffffffffull;
+            carry = cur >> 32;
+        }
+        acc[i + 4] += carry;
+    }
+    out[0] = acc[0] | (acc[1] << 32);
+    out[1] = acc[2] | (acc[3] << 32);
+    out[2] = acc[4] | (acc[5] << 32);
+    out[3] = acc[6] | (acc[7] << 32);
+}
+
 Sf sf_mul(Sf a, Sf b, SfFormat f, SfStatus *st)
 {
     uint8_t sign = a.sign ^ b.sign;
-    uint64_t phi = 0, plo = 0;
-    int i;
+    uint64_t p[4];
+    uint64_t hi, lo;
+    bool sticky = false;
+    int32_t pexp;
     Sf r;
+    int top;
 
     if (a.cls == SF_NAN || b.cls == SF_NAN) {
         memset(&r, 0, sizeof(r));
@@ -496,37 +547,54 @@ Sf sf_mul(Sf a, Sf b, SfFormat f, SfStatus *st)
         return r;
     }
 
-    /* Shift-and-add over b's bits: the product of two <=113-bit
-     * significands needs 226 bits, so the low half is folded into a
-     * sticky flag as it falls off. */
-    {
-        bool sticky = false;
-        int nb = u128_bitlen(b.hi, b.lo);
+    /* The significands are integers, so the product's exponent is simply
+     * the sum — no correction term. */
+    mul_256(a.hi, a.lo, b.hi, b.lo, p);
+    pexp = a.exp + b.exp;
 
-        for (i = nb - 1; i >= 0; i--) {
-            bool bit = i >= 64 ? ((b.hi >> (i - 64)) & 1) != 0
-                               : ((b.lo >> i) & 1) != 0;
+    /* Fold the product down to 128 bits, keeping everything shifted out
+     * as sticky so round_pack still rounds exactly once. */
+    if (p[3] || p[2]) {
+        int shift = 0;
+        uint64_t t3 = p[3], t2 = p[2];
 
-            if (u128_bitlen(phi, plo) >= 126) {
-                if (u128_shr_sticky(&phi, &plo, 1))
-                    sticky = true;
-                /* Compensate by raising the exponent. */
-                a.exp++;
-            }
-            u128_shl(&phi, &plo, 1);
-            if (bit) {
-                uint64_t ahi = a.hi, alo = a.lo;
-
-                if (u128_bitlen(phi, plo) + u128_bitlen(ahi, alo) > 250) {
-                    if (u128_shr_sticky(&ahi, &alo, 1))
-                        sticky = true;
-                }
-                u128_add(&phi, &plo, ahi, alo);
-            }
+        while (t3 || t2) {
+            t2 = (t2 >> 1) | (t3 << 63);
+            t3 >>= 1;
+            shift++;
         }
-        return round_pack(sign, phi, plo, a.exp + b.exp - (nb - 1), sticky, f,
-                          st);
+        /* Anything below the retained 128 bits is sticky. */
+        {
+            int k;
+
+            for (k = 0; k < shift; k++)
+                if ((p[0] >> k) & 1) {
+                    sticky = true;
+                    break;
+                }
+        }
+        hi = (p[2] >> shift) | (shift ? (p[3] << (64 - shift)) : 0);
+        lo = (p[1] >> shift) | (shift ? (p[2] << (64 - shift)) : 0);
+        if (shift) {
+            uint64_t dropped = p[0] >> shift;
+
+            (void)dropped;
+            if (p[0] & ((shift >= 64) ? ~0ull : ((1ull << shift) - 1)))
+                sticky = true;
+        }
+        /* Recombine: the retained window is bits [shift, shift+128). */
+        hi = (p[2] >> shift) | (shift ? (p[3] << (64 - shift)) : 0);
+        lo = (p[1] >> shift) | (shift ? (p[2] << (64 - shift)) : 0);
+        if (p[0])
+            sticky = true;
+        pexp += 64 + shift;
+    } else {
+        hi = p[1];
+        lo = p[0];
     }
+    top = u128_bitlen(hi, lo);
+    (void)top;
+    return round_pack(sign, hi, lo, pexp, sticky, f, st);
 }
 
 Sf sf_div(Sf a, Sf b, SfFormat f, SfStatus *st)
@@ -589,10 +657,9 @@ Sf sf_div(Sf a, Sf b, SfFormat f, SfStatus *st)
             u128_shl(&rhi, &rlo, 1);
         }
     }
-    return round_pack(sign, qhi, qlo,
-                      a.exp - b.exp - (qbits - 1) +
-                          (u128_bitlen(a.hi, a.lo) - u128_bitlen(b.hi, b.lo)) -
-                          (u128_bitlen(a.hi, a.lo) - u128_bitlen(b.hi, b.lo)),
+    /* The loop produced qbits bits of (sig_a / sig_b) scaled up by
+     * 2^(qbits-1), so that scaling comes back out of the exponent. */
+    return round_pack(sign, qhi, qlo, a.exp - b.exp - (qbits - 1),
                       (rhi | rlo) != 0, f, st);
 }
 
