@@ -48,6 +48,8 @@ DriverArgs args_parse(int argc, char **argv)
             a.dump_init = true;
         } else if (strcmp(s, "-fsyntax-only") == 0) {
             a.syntax_only = true;
+        } else if (strcmp(s, "-emit-ir") == 0) {
+            a.emit_ir = true;
         } else if (strcmp(s, "-pedantic") == 0) {
             a.pedantic = true;
         } else if (strcmp(s, "-fcommon") == 0) {

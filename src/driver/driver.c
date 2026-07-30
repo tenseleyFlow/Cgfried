@@ -5,6 +5,7 @@
 
 #include "diag.h"
 #include "driver/toolchain.h"
+#include "ir/ir.h"
 #include "lex/lex.h"
 #include "parse/parse.h"
 #include "pp/pp.h"
@@ -26,6 +27,8 @@ static const char help_text[] =
     "  -fdump-layout     dump record layout (offsets, sizes, alignment)\n"
     "  -fdump-init       dump static initializer images as hex bytes\n"
     "  -fsyntax-only     parse and report diagnostics; produce no output\n"
+    "  -emit-ir          parse, verify and reprint a .cgfir module\n"
+    "                    (lowering C to IR lands in Sprint 18)\n"
     "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
     "  construction sprint by sprint)\n"
@@ -362,6 +365,84 @@ static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
     return sf;
 }
 
+/* -emit-ir on a .cgfir file: parse -> verify -> print. The path does more
+ * than print, deliberately: it re-parses its own output, demands
+ * structural equality, prints AGAIN and demands byte equality — so every
+ * .cgfir fixture that runs through the driver proves the round-trip AND
+ * print-determinism invariants for free. A failure in either is an ICE
+ * (our printer/parser disagree = our bug, never the user's). */
+static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
+{
+    FILE *f = fopen(a->input, "rb");
+    char *src;
+    long len;
+    size_t rd;
+    IrModule *m, *m2;
+    Buf b1, b2;
+
+    if (!f) {
+        fprintf(stderr, "cgfried: error: cannot open '%s'\n", a->input);
+        return CGF_EXIT_IO;
+    }
+    if (fseek(f, 0, SEEK_END) != 0 || (len = ftell(f)) < 0 ||
+        fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        fprintf(stderr, "cgfried: error: cannot read '%s'\n", a->input);
+        return CGF_EXIT_IO;
+    }
+    src = arena_alloc(arena, (size_t)len + 1, 1);
+    rd = fread(src, 1, (size_t)len, f);
+    fclose(f);
+    if (rd != (size_t)len) {
+        fprintf(stderr, "cgfried: error: cannot read '%s'\n", a->input);
+        return CGF_EXIT_IO;
+    }
+    src[len] = '\0';
+    if (memchr(src, '\0', (size_t)len) != NULL) {
+        fprintf(stderr, "cgfried: error: '%s' contains a NUL byte\n", a->input);
+        return CGF_EXIT_COMPILE;
+    }
+
+    m = ir_parse_module(arena, dc, src, a->input);
+    if (!m)
+        return CGF_EXIT_COMPILE;
+    /* Hand-written IR that fails the verifier is a USER error (exit 1);
+     * only generated IR failing it is an ICE (Sprint 18 wires that). Either
+     * way CGF_DUMP_BAD_IR=path captures the offending module — and the dump
+     * is itself parseable .cgfir, pinned by test. */
+    if (!ir_verify(dc, m)) {
+        const char *dump = cgf_env("CGF_DUMP_BAD_IR");
+
+        if (dump) {
+            FILE *df = fopen(dump, "wb");
+
+            if (df) {
+                ir_print_module(df, m);
+                fclose(df);
+            }
+        }
+        return CGF_EXIT_COMPILE;
+    }
+
+    buf_init(&b1);
+    ir_print_module_buf(&b1, m);
+    buf_push_u8(&b1, 0); /* the parser wants a C string */
+    m2 = ir_parse_module(arena, dc, (const char *)b1.data, "<reprint>");
+    b1.len--; /* drop the NUL again for the byte-compare and the output */
+    if (!m2 || !ir_module_struct_eq(m, m2))
+        CGF_ICE("-emit-ir round-trip broke: parse(print(M)) != M for '%s'",
+                a->input);
+    buf_init(&b2);
+    ir_print_module_buf(&b2, m2);
+    if (b1.len != b2.len || memcmp(b1.data, b2.data, b1.len) != 0)
+        CGF_ICE("-emit-ir determinism broke: two prints differ for '%s'",
+                a->input);
+    fwrite(b1.data, 1, b1.len, stdout);
+    buf_free(&b1);
+    buf_free(&b2);
+    return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
+}
+
 /* -E: preprocess through the directive engine, printed with SPACE/BOL-
  * faithful spacing (exact line-count fidelity is Sprint 6's problem). */
 static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
@@ -575,9 +656,20 @@ int driver_main(int argc, char **argv)
                   a.input, a.extra_input);
         status = CGF_EXIT_COMPILE;
     } else if (a.input) {
+        size_t ilen = strlen(a.input);
+
         cgf_ice_set_input(a.input);
-        if (a.mode_E || a.dump_tokens || a.dump_ast || a.dump_sema ||
-            a.dump_layout || a.dump_init || a.syntax_only) {
+        if (a.emit_ir) {
+            if (ilen >= 6 && strcmp(a.input + ilen - 6, ".cgfir") == 0) {
+                status = run_emit_ir(&arena, dc, &a);
+            } else {
+                diag_emit(dc, DIAG_ERROR, no_span,
+                          "-emit-ir takes a .cgfir file for now; lowering "
+                          "C to IR lands in Sprint 18");
+                status = CGF_EXIT_COMPILE;
+            }
+        } else if (a.mode_E || a.dump_tokens || a.dump_ast || a.dump_sema ||
+                   a.dump_layout || a.dump_init || a.syntax_only) {
             status = run_preprocess(&arena, dc, &a);
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,

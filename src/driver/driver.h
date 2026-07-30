@@ -37,6 +37,8 @@ typedef struct {
     bool dump_layout;    /* -fdump-layout (record offsets/sizes) */
     bool dump_init;      /* -fdump-init (static initializer images) */
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
+    bool emit_ir;        /* -emit-ir: .cgfir parse->verify->print;
+                            .c lowering lands in Sprint 18 */
     bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
     u32 max_errors;      /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
     bool fno_common;     /* -fno-common; the default matches gcc 8 (-fcommon) */
