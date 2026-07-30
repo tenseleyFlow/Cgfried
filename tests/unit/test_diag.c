@@ -27,7 +27,7 @@ void test_diag_sink_structural(TestCtx *t)
     DiagCtx *dc;
     Capture cap;
     DiagSink sink;
-    Span sp = {0, 0, 0, 0};
+    Span sp = {0};
 
     memset(&cap, 0, sizeof(cap));
     arena_init(&a);
@@ -85,6 +85,7 @@ void test_diag_render_caret_tabs(TestCtx *t)
     fid = diag_add_file(dc, "t.c", src, sizeof(src) - 1);
     T_ASSERT_EQ_INT(t, fid, 1);
 
+    memset(&d, 0, sizeof(d)); /* Span contract: zero-init (presumed_*) */
     d.level = DIAG_ERROR;
     d.span.file_id = fid;
     d.span.line = 2;

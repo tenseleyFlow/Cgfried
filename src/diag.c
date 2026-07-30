@@ -184,8 +184,13 @@ void diag_render(FILE *f, const Diag *d, const DiagCtx *dc, bool color)
         return;
     }
 
+    /* #line presumed path/line override the HEADER; the caret snippet
+     * below always comes from the physical location. */
     fprintf(f, "%s%s:%u:%u:%s %s%s:%s %s\n", bold,
-            dc->files[d->span.file_id - 1].path, (unsigned)d->span.line,
+            d->span.presumed_path ? d->span.presumed_path
+                                  : dc->files[d->span.file_id - 1].path,
+            (unsigned)(d->span.presumed_line ? d->span.presumed_line
+                                             : d->span.line),
             (unsigned)d->span.col, reset, lvl_col, level_str(d->level), reset,
             d->message);
 

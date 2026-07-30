@@ -1,6 +1,7 @@
 #include "driver/driver.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "diag.h"
 #include "driver/toolchain.h"
@@ -21,6 +22,14 @@ static const char help_text[] =
     "\n"
     "Language:\n"
     "  -trigraphs        enable trigraph translation (default off)\n"
+    "  -D name[=value]   predefine a macro (value defaults to 1)\n"
+    "  -U name           undefine a macro (processed in -D/-U order)\n"
+    "\n"
+    "Directories:\n"
+    "  -I dir            add dir to the include search path\n"
+    "  -iquote dir       add dir to the \"...\"-form-only search path\n"
+    "  -nostdinc         do not search the system include directories\n"
+    "  -v                print the include search list to stderr\n"
     "\n"
     "Output:\n"
     "  --help            print this help and exit\n"
@@ -45,38 +54,70 @@ static const char help_text[] =
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  Empty-string values are treated as unset.\n";
 
-/* -E: translation phases 1-3, printed with SPACE/BOL-faithful spacing
- * (exact line-count fidelity is Sprint 6's problem). A directive `#`
- * hard-errors: directive processing lands in Sprint 4. */
+/* Builds the "<command-line>" pseudo-file from -D/-U flags, in order.
+ * -D name means 1; -D name=val splits at the first '='. */
+static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
+{
+    Buf b;
+    SourceFile *sf;
+    int i;
+
+    if (a->n_defs == 0)
+        return NULL;
+    buf_init(&b);
+    for (i = 0; i < a->n_defs; i++) {
+        const char *d = a->defs[i];
+        const char *eq = strchr(d, '=');
+
+        if (a->def_is_undef[i]) {
+            buf_printf(&b, "#undef %s\n", d);
+        } else if (eq) {
+            buf_printf(&b, "#define %.*s %s\n", (int)(eq - d), d, eq + 1);
+        } else {
+            buf_printf(&b, "#define %s 1\n", d);
+        }
+    }
+    sf =
+        pp_source_add_buffer(pp, "<command-line>", (const char *)b.data, b.len);
+    buf_free(&b);
+    return sf;
+}
+
+/* -E: preprocess through the directive engine, printed with SPACE/BOL-
+ * faithful spacing (exact line-count fidelity is Sprint 6's problem). */
 static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 {
     Interner interner;
     Preprocessor pp;
-    SourceFile *sf;
-    PpLexer lx;
+    SourceFile *sf, *cmdline;
     PpToken t;
     bool dump = cgf_env("CGF_PP_DUMP_TOKENS") != NULL;
     bool first = true;
+    int i;
 
     intern_init(&interner, arena);
     pp_init(&pp, arena, dc, &interner);
     pp.trigraphs = a->trigraphs;
+    pp.verbose = a->verbose;
+    for (i = 0; i < a->n_include; i++)
+        pp.include_dirs[pp.n_include++] = a->include_dirs[i];
+    for (i = 0; i < a->n_iquote; i++)
+        pp.iquote_dirs[pp.n_iquote++] = a->iquote_dirs[i];
+    if (!a->nostdinc)
+        pp.n_system = cgf_target_system_include_dirs(
+            cgf_target_host(), pp.system_dirs, PP_MAX_DIRS);
 
     sf = pp_source_load(&pp, a->input);
     if (!sf) {
         intern_free(&interner);
         pp_loc_free(&pp.loc);
+        strmap_free(&pp.macros);
         return CGF_EXIT_IO;
     }
-    pp_lexer_init(&lx, &pp, sf);
+    cmdline = build_cmdline_file(&pp, a);
+    pp_begin(&pp, sf, cmdline);
 
-    while (pp_lex_token(&lx, &t)) {
-        if (t.kind == PPTOK_PUNCT && t.punct == PUNCT_HASH &&
-            (t.flags & PPTOK_F_BOL)) {
-            pp_diag_at(&pp, DIAG_ERROR, t.loc, t.len,
-                       "preprocessor directives land in Sprint 4");
-            break;
-        }
+    while (pp_next(&pp, &t)) {
         if (dump) {
             FileId f;
             u32 line, col;
@@ -98,15 +139,16 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     if (!dump && !first)
         putchar('\n');
 
-    buf_free(&lx.scratch);
+    pp_end(&pp);
     intern_free(&interner);
     pp_loc_free(&pp.loc);
+    strmap_free(&pp.macros);
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
 int driver_main(int argc, char **argv)
 {
-    static const Span no_span = {0, 0, 0, 0};
+    static const Span no_span = {0};
     Arena arena;
     DiagCtx *dc;
     DriverArgs a;
@@ -125,6 +167,15 @@ int driver_main(int argc, char **argv)
     if (a.unknown_opt) {
         diag_emit(dc, DIAG_ERROR, no_span, "unknown option '%s'",
                   a.unknown_opt);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.missing_arg) {
+        diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",
+                  a.missing_arg);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.too_many) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "too many '%s' options (fixed cap until Sprint 26)",
+                  a.too_many);
         status = CGF_EXIT_COMPILE;
     } else if (a.show_help) {
         fputs(help_text, stdout);
@@ -146,8 +197,8 @@ int driver_main(int argc, char **argv)
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,
                       "only -E (preprocessing) is supported so far: full "
-                      "compilation lands sprint by sprint (next: Sprint 4, "
-                      "directives)");
+                      "compilation lands sprint by sprint (next: Sprint 5, "
+                      "macro expansion)");
             status = CGF_EXIT_COMPILE;
         }
     } else {

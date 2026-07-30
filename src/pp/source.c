@@ -11,6 +11,7 @@ void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
     pp->diag = diag;
     pp->interner = interner;
     pp_loc_init(&pp->loc);
+    strmap_init(&pp->macros);
 }
 
 /* Phase 1 normalization, in dependency order:
@@ -104,6 +105,7 @@ static SourceFile *add_normalized(Preprocessor *pp, const char *path,
     if (pp->nfiles >= 0xFFFF)
         CGF_ICE("too many source files (FileId is 16-bit)");
 
+    memset(sf, 0, sizeof(*sf)); /* arena memory is never pre-zeroed */
     sf->id = (FileId)(pp->nfiles + 1);
     sf->path = arena_strdup(pp->arena, path);
     sf->contents = contents;
@@ -144,7 +146,7 @@ SourceFile *pp_source_load(Preprocessor *pp, const char *path)
     FILE *f = fopen(path, "rb");
     char *raw;
     long sz;
-    Span no_span = {0, 0, 0, 0};
+    Span no_span = {0};
     SourceFile *sf;
 
     if (!f) {

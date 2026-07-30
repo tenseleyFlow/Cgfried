@@ -9,12 +9,16 @@
 #include "util/base.h"
 
 /* 1-based line/col; col counts bytes. file_id 0 = no source location (driver-
- * level diagnostics render as "cgfried: error: ..."). */
+ * level diagnostics render as "cgfried: error: ..."). presumed_* (from
+ * #line) override the DISPLAYED path/line only; the caret snippet always
+ * comes from the physical file_id/line. Initialize with {0}. */
 typedef struct {
     u32 file_id;
     u32 line;
     u32 col;
     u32 len;
+    const char *presumed_path; /* NULL = use the file's real path */
+    u32 presumed_line;         /* 0 = use the physical line */
 } Span;
 
 typedef enum {
