@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "pp/pp.h"
 
@@ -148,7 +149,11 @@ SourceFile *pp_source_load(Preprocessor *pp, const char *path)
     long sz;
     Span no_span = {0};
     SourceFile *sf;
+    struct stat st;
+    bool have_st = false;
 
+    if (f && fstat(fileno(f), &st) == 0)
+        have_st = true; /* identity captured while OPEN (#pragma once) */
     if (!f) {
         diag_emit(pp->diag, DIAG_ERROR, no_span, "cannot open '%s': %s", path,
                   strerror(errno));
@@ -171,5 +176,9 @@ SourceFile *pp_source_load(Preprocessor *pp, const char *path)
     fclose(f);
 
     sf = pp_source_add_buffer(pp, path, raw, (size_t)sz);
+    if (sf && have_st) {
+        sf->st_dev = (u64)st.st_dev;
+        sf->st_ino = (u64)st.st_ino;
+    }
     return sf;
 }

@@ -23,8 +23,12 @@ OBJ := $(SRC:%.c=$(BUILD)/%.o)
 LIB_OBJ := $(filter-out $(BUILD)/src/main.o,$(OBJ))
 
 # cgf-test runner: consumer of src/util, never a fork of it.
-RUNNER_SRC := $(sort $(wildcard tests/runner/*.c))
+RUNNER_SRC := $(filter-out tests/runner/ppdiff.c,$(sort $(wildcard tests/runner/*.c)))
 RUNNER_OBJ := $(RUNNER_SRC:%.c=$(BUILD)/%.o) $(LIB_OBJ)
+
+# The differential harness shares the runner's spawn layer and the
+# compiler's own pp lexer (it tokenizes -E output, never text-diffs).
+PPDIFF_OBJ := $(BUILD)/tests/runner/ppdiff.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
 
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
@@ -36,9 +40,9 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(BUILD)/tests/runner/directive.o \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san clean tools bootstrap install
+.PHONY: all test test-san test-ppdiff clean tools bootstrap install
 
 all: $(BUILD)/cgfried $(BUILD)/cgf
 
@@ -51,6 +55,9 @@ $(BUILD)/cgf: $(BUILD)/cgfried
 
 $(BUILD)/cgf-test: $(sort $(RUNNER_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(RUNNER_OBJ))
+
+$(BUILD)/cgf-ppdiff: $(sort $(PPDIFF_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(PPDIFF_OBJ))
 
 $(BUILD)/unit_tests: $(sort $(UNIT_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(UNIT_OBJ))
@@ -82,7 +89,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    cat $(BUILD)/programs.log; exit $$s
 	sh ci/check_skips.sh linux-x86_64 $(BUILD)/programs.log
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
-	sh scripts/pp_diff.sh $(BUILD)/cgfried tests/ppdiff
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
 	sh scripts/tinycc_pp_smoke.sh $(BUILD)/cgfried
 	sh scripts/toolchain_smoke.sh > $(BUILD)/toolchain.log 2>&1; s=$$?; \
@@ -92,6 +99,15 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    sh ci/check_skips.sh $$p $(BUILD)/toolchain.log
 	sh scripts/check_bans.sh
 	sh scripts/check_format.sh
+
+# Preprocessor differential: token-level vs gcc AND clang over fixtures
+# and imported corpora, at both std flavors.
+PPDIFF_FILES := $(sort $(wildcard tests/ppdiff/*.c) $(wildcard tests/fixtures/imported/tinycc-pp/*.c) $(wildcard tests/fixtures/imported/chibicc/*.c))
+
+test-ppdiff: $(BUILD)/cgfried $(BUILD)/cgf-ppdiff
+	$(BUILD)/cgf-ppdiff --std -std=c17 -I tests/fixtures/imported/chibicc --xfail tests/fixtures/imported/ppdiff-xfail.txt $(BUILD)/cgfried $(PPDIFF_FILES) > $(BUILD)/ppdiff.log 2>&1; s=$$?; cat $(BUILD)/ppdiff.log; [ $$s -eq 0 ]
+	$(BUILD)/cgf-ppdiff --std -std=gnu17 -I tests/fixtures/imported/chibicc --xfail tests/fixtures/imported/ppdiff-xfail.txt $(BUILD)/cgfried $(PPDIFF_FILES) >> $(BUILD)/ppdiff.log 2>&1; s=$$?; tail -1 $(BUILD)/ppdiff.log; [ $$s -eq 0 ]
+	sh ci/check_skips.sh ppdiff $(BUILD)/ppdiff.log
 
 # The whole suite under ASan+UBSan (host sanitizers are dev tooling, never a
 # dependency). Separate build tree so it composes with the normal one.

@@ -17,6 +17,7 @@ static const char help_text[] =
     "\n"
     "Modes:\n"
     "  -E                preprocess only, print tokens to stdout\n"
+    "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
     "  construction sprint by sprint)\n"
     "\n"
@@ -52,6 +53,7 @@ static const char help_text[] =
     "  CGF_CRT_DIR       crt object discovery override (used from Sprint "
     "27)\n"
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
+    "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
     "  Empty-string values are treated as unset.\n";
 
 /* Builds the "<command-line>" pseudo-file from -D/-U flags, in order.
@@ -93,6 +95,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     PpToken t;
     PpToken prev_tok;
     bool dump = cgf_env("CGF_PP_DUMP_TOKENS") != NULL;
+    bool dump_guard = cgf_env("CGF_PP_DUMP_GUARD") != NULL;
     bool first = true;
 
     memset(&prev_tok, 0, sizeof(prev_tok));
@@ -103,6 +106,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     pp.trigraphs = a->trigraphs;
     pp.verbose = a->verbose;
     pp.std = (CStd)a->std;
+    (void)a->no_linemarkers; /* -P: we never emit linemarkers (Sprint 7
+                                owns line fidelity); accepted so oracle
+                                command lines stay symmetric */
     pp.gnu_mode = pp.std >= STD_GNU89;
     for (i = 0; i < a->n_include; i++)
         pp.include_dirs[pp.n_include++] = a->include_dirs[i];
@@ -160,6 +166,14 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
         putchar('\n');
     if (a->dump_macros)
         pp_dump_macros(&pp);
+    if (dump_guard) {
+        /* Include-guard shape probe (Sprint 6 detector; Sprint 7 fast
+         * path consumes guard_macro). One line per file, in load order. */
+        size_t fi;
+        for (fi = 0; fi < pp.nfiles; fi++)
+            printf("GUARD %s %s\n", pp.files[fi]->path,
+                   pp.files[fi]->guard_macro ? pp.files[fi]->guard_macro : "-");
+    }
 
     pp_end(&pp);
     intern_free(&interner);

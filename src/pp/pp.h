@@ -42,6 +42,14 @@ typedef struct SourceFile {
     PresumedRemap *remaps; /* #line events, ascending from_line */
     u32 nremaps;
     u32 remaps_cap;
+    /* File identity for #pragma once: (st_dev, st_ino) captured by fstat
+     * while the file was OPEN (pathnames lie: symlinks/hardlinks must
+     * dedupe, same names in different dirs must not). 0/0 for buffers. */
+    u64 st_dev;
+    u64 st_ino;
+    /* Include-guard shape (Sprint 6 detector; Sprint 7 fast path):
+     * non-NULL iff the whole file is #ifndef X/#define X ... #endif. */
+    const char *guard_macro;
 } SourceFile;
 
 /* --- Location table ---------------------------------------------------
@@ -227,12 +235,24 @@ typedef struct PpLexer {
 
 #define PP_INCLUDE_DEPTH_MAX 200
 
+/* Guard-shape detector states (deliverable 6; no behavior change yet). */
+typedef enum {
+    GUARD_EXPECT_IFNDEF, /* nothing seen yet */
+    GUARD_EXPECT_DEFINE, /* #ifndef X seen; next directive must define X */
+    GUARD_IN_BODY,       /* guard open; anything inside is fine */
+    GUARD_AFTER_ENDIF,   /* guard closed; ANY further token disqualifies */
+    GUARD_DISQUALIFIED,
+} GuardState;
+
 typedef struct PpFrame {
     PpLexer lx;
     size_t cond_base; /* conditional-stack depth on entry: conditionals may
                          not straddle include boundaries */
     int found_dir;    /* search-chain index this file was found at
                          (#include_next resumes after it); -1 = main file */
+    GuardState guard_state;
+    const char *guard_macro; /* candidate (interned) */
+    size_t guard_cond;       /* cond-stack index of the guard conditional */
 } PpFrame;
 
 /* --- STDC pragma state (recorded now; consumed Sprints 15/36) ----------- */
@@ -304,6 +324,13 @@ typedef struct Preprocessor {
 
     PpStdcPragmaState stdc;
     bool fatal; /* missing include etc.: drain to EOF immediately */
+
+    /* #pragma once identities (dev,ino pairs), linear (includes are few). */
+    struct {
+        u64 dev, ino;
+    } *once;
+    size_t nonce;
+    size_t once_cap;
 
     /* Pending -E passthrough tokens (#pragma lines). */
     PpToken *pass;

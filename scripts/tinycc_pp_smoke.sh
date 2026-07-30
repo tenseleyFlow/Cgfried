@@ -7,7 +7,7 @@ set -eu
 LC_ALL=C
 export LC_ALL
 CGF=${1:?usage: tinycc_pp_smoke.sh path/to/cgfried}
-DIR=tests/tinycc-pp
+DIR=tests/fixtures/imported/tinycc-pp
 norm() { printf '%s' "$1" | tr -s ' \t\n' ' ' | sed 's/^ //;s/ $//'; }
 pass=0; fail=0; xfail=0; xpass=0; failed=""
 for f in "$DIR"/*.c; do

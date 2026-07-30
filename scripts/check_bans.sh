@@ -14,7 +14,7 @@ export LC_ALL
 # tests/tinycc-pp is imported third-party test DATA (attribution in its
 # README) — exempt from our source bans, like the meta fixtures.
 files=$(find src tests \( -name '*.c' -o -name '*.h' \) \
-    ! -path 'tests/tinycc-pp/*' | sort)
+    ! -path 'tests/fixtures/imported/*' | sort)
 status=0
 
 hits=$(printf '%s\n' "$files" |

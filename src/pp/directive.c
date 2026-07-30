@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "pp/pp.h"
 
@@ -46,6 +47,10 @@ static void pop_frame(Preprocessor *pp)
                    "unterminated #if at end of file");
         pp->nconds--;
     }
+    /* Finalize include-guard shape (no behavior change this sprint:
+     * Sprint 7's fast path is the consumer). */
+    if (f->guard_state == GUARD_AFTER_ENDIF && f->guard_macro)
+        f->lx.sf->guard_macro = f->guard_macro;
     buf_free(&f->lx.scratch);
     pp->nframes--;
 }
@@ -75,6 +80,39 @@ static void push_cond(Preprocessor *pp, SrcLoc loc, bool parent_live,
 static bool in_live_region(const Preprocessor *pp)
 {
     return pp->nconds == 0 || pp->conds[pp->nconds - 1].live;
+}
+
+/* --- include-guard shape detection (Sprint 7 consumes guard_macro) ------
+ * Qualifying shape: the file's FIRST directive is #ifndef X (or
+ * #if !defined X / #if !defined(X)), immediately followed by #define X,
+ * whose matching #endif is the last token-producing thing in the file, and
+ * no tokens live outside that conditional. Note for Sprint 7: a body that
+ * does #undef X still QUALIFIES for shape, so the fast path must re-check
+ * that X is still defined at reuse time. */
+
+static void guard_saw_text(PpFrame *f)
+{
+    /* Any text token outside the guard conditional disqualifies. */
+    if (f->guard_state == GUARD_EXPECT_IFNDEF ||
+        f->guard_state == GUARD_EXPECT_DEFINE ||
+        f->guard_state == GUARD_AFTER_ENDIF)
+        f->guard_state = GUARD_DISQUALIFIED;
+}
+
+/* Recognizes `!defined X` / `!defined ( X )`; returns the interned name. */
+static const char *guard_not_defined_name(const PpToken *toks, u32 n)
+{
+    if (n >= 3 && toks[0].kind == PPTOK_PUNCT && toks[0].punct == PUNCT_BANG &&
+        toks[1].kind == PPTOK_IDENT &&
+        strcmp(toks[1].spelling, "defined") == 0) {
+        if (n == 3 && toks[2].kind == PPTOK_IDENT)
+            return toks[2].spelling;
+        if (n == 5 && toks[2].kind == PPTOK_PUNCT &&
+            toks[2].punct == PUNCT_LPAREN && toks[3].kind == PPTOK_IDENT &&
+            toks[4].kind == PPTOK_PUNCT && toks[4].punct == PUNCT_RPAREN)
+            return toks[3].spelling;
+    }
+    return NULL;
 }
 
 /* --- raw token flow ----------------------------------------------------- */
@@ -346,6 +384,38 @@ static u32 read_line(Preprocessor *pp, PpToken **out)
     return n;
 }
 
+/* --- #pragma once identity set ------------------------------------------ */
+
+static bool once_seen(const Preprocessor *pp, u64 dev, u64 ino)
+{
+    size_t i;
+
+    if (dev == 0 && ino == 0)
+        return false; /* buffers have no identity */
+    for (i = 0; i < pp->nonce; i++)
+        if (pp->once[i].dev == dev && pp->once[i].ino == ino)
+            return true;
+    return false;
+}
+
+static void once_record(Preprocessor *pp, u64 dev, u64 ino)
+{
+    if ((dev == 0 && ino == 0) || once_seen(pp, dev, ino))
+        return;
+    if (pp->nonce == pp->once_cap) {
+        size_t cap = pp->once_cap ? pp->once_cap * 2 : 16;
+        void *grown =
+            arena_alloc(pp->arena, cap * sizeof(pp->once[0]), _Alignof(u64));
+        if (pp->nonce)
+            memcpy(grown, pp->once, pp->nonce * sizeof(pp->once[0]));
+        pp->once = grown;
+        pp->once_cap = cap;
+    }
+    pp->once[pp->nonce].dev = dev;
+    pp->once[pp->nonce].ino = ino;
+    pp->nonce++;
+}
+
 /* --- #include resolution ------------------------------------------------ */
 
 static const char *dir_of(Preprocessor *pp, const char *path)
@@ -376,11 +446,13 @@ static size_t build_chain(Preprocessor *pp, bool angled, const char **chain,
     return n;
 }
 
-static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name)
+static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name,
+                            bool *once_skipped)
 {
     size_t dlen = strlen(dir), nlen = strlen(name);
     char *path = arena_alloc(pp->arena, dlen + nlen + 2, 1);
     FILE *probe;
+    struct stat st;
 
     memcpy(path, dir, dlen);
     path[dlen] = '/';
@@ -388,6 +460,16 @@ static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name)
     probe = fopen(path, "rb");
     if (!probe)
         return NULL;
+    /* #pragma once identity is (st_dev, st_ino) of the OPEN file, never
+     * the pathname: symlinked/hardlinked includes dedupe, same-named files
+     * in different dirs do not. Known hole (gcc shares it; findings
+     * table): bind mounts/overlayfs can show one file as two identities. */
+    if (fstat(fileno(probe), &st) == 0 &&
+        once_seen(pp, (u64)st.st_dev, (u64)st.st_ino)) {
+        fclose(probe);
+        *once_skipped = true;
+        return NULL;
+    }
     fclose(probe);
     return pp_source_load(pp, path);
 }
@@ -399,6 +481,7 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
     size_t n, start = 0, i;
     SourceFile *sf = NULL;
     int found = -1;
+    bool once_skipped = false;
 
     if (pp->nframes >= PP_INCLUDE_DEPTH_MAX) {
         pp_diag_at(pp, DIAG_FATAL, loc, 1,
@@ -419,21 +502,28 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
     }
 
     for (i = start; i < n; i++) {
-        sf = try_open(pp, chain[i], name);
-        if (sf) {
+        sf = try_open(pp, chain[i], name, &once_skipped);
+        if (sf || once_skipped) {
             found = (int)i;
             break;
         }
     }
     /* Absolute paths bypass the chain. */
-    if (!sf && name[0] == '/') {
+    if (!sf && !once_skipped && name[0] == '/') {
+        struct stat st;
         FILE *probe = fopen(name, "rb");
         if (probe) {
+            if (fstat(fileno(probe), &st) == 0 &&
+                once_seen(pp, (u64)st.st_dev, (u64)st.st_ino))
+                once_skipped = true;
             fclose(probe);
-            sf = pp_source_load(pp, name);
+            if (!once_skipped)
+                sf = pp_source_load(pp, name);
             found = -1;
         }
     }
+    if (once_skipped)
+        return; /* #pragma once: silently not re-entered */
 
     if (pp->verbose) {
         fprintf(stderr, "#include %c%s%c search starts here:\n",
@@ -514,6 +604,38 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
                 do_include(pp, name, false, is_next, dloc);
             }
             return;
+        }
+        /* < h-chars > assembled from several expanded tokens: rebuild the
+         * header name from their spellings, preserving single spaces where
+         * PPTOK_F_SPACE says there was whitespace (6.10.2p4). */
+        if (toks[0].kind == PPTOK_PUNCT && toks[0].punct == PUNCT_LT) {
+            Buf b;
+            u32 k;
+            bool closed = false;
+
+            buf_init(&b);
+            for (k = 1; k < n; k++) {
+                if (toks[k].kind == PPTOK_PUNCT && toks[k].punct == PUNCT_GT) {
+                    closed = true;
+                    if (k + 1 < n)
+                        pp_diag_at(pp, DIAG_WARNING, toks[k + 1].loc,
+                                   toks[k + 1].len,
+                                   "extra tokens at end of #include "
+                                   "directive");
+                    break;
+                }
+                if (b.len && (toks[k].flags & PPTOK_F_SPACE))
+                    buf_push_u8(&b, ' ');
+                buf_append(&b, toks[k].spelling, toks[k].len);
+            }
+            if (closed && b.len) {
+                char *name =
+                    arena_strndup(pp->arena, (const char *)b.data, b.len);
+                buf_free(&b);
+                do_include(pp, name, true, is_next, dloc);
+                return;
+            }
+            buf_free(&b);
         }
         pp_diag_at(pp, DIAG_ERROR, toks[0].loc, toks[0].len,
                    "#include expects <FILENAME> or \"FILENAME\"");
@@ -609,8 +731,14 @@ static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n)
 {
     if (n >= 1 && toks[0].kind == PPTOK_IDENT &&
         strcmp(toks[0].spelling, "once") == 0) {
-        pp_diag_at(pp, DIAG_ERROR, toks[0].loc, toks[0].len,
-                   "#pragma once is not yet supported" LANDS_IN_SPRINT(6));
+        /* Record the CURRENT file's identity; later includes of the same
+         * (dev,ino) are skipped before entry. In the main file: legal,
+         * pointless, works. Consumed (gcc -E emits nothing for it). */
+        const SourceFile *sf = cur_frame(pp)->lx.sf;
+        once_record(pp, sf->st_dev, sf->st_ino);
+        if (n > 1)
+            pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
+                       "extra tokens at end of #pragma once");
         return false;
     }
     if (n >= 3 && toks[0].kind == PPTOK_IDENT &&
@@ -746,6 +874,20 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
         PpToken *toks;
         u32 n = read_line(pp, &toks);
         bool taken = false;
+        if (f->guard_state == GUARD_EXPECT_IFNDEF) {
+            /* gcc recognizes `#if !defined X` as a guard too. */
+            const char *g = guard_not_defined_name(toks, n);
+            if (g) {
+                f->guard_state = GUARD_EXPECT_DEFINE;
+                f->guard_macro = g;
+                f->guard_cond = pp->nconds;
+            } else {
+                f->guard_state = GUARD_DISQUALIFIED;
+            }
+        } else if (f->guard_state == GUARD_EXPECT_DEFINE ||
+                   f->guard_state == GUARD_AFTER_ENDIF) {
+            f->guard_state = GUARD_DISQUALIFIED;
+        }
         if (live)
             taken = pp_eval_condition(pp, toks, n, name.loc);
         push_cond(pp, name.loc, live, taken);
@@ -756,6 +898,18 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
         PpToken *toks;
         u32 n = read_line(pp, &toks);
         bool taken = false;
+        if (f->guard_state == GUARD_EXPECT_IFNDEF) {
+            if (k == DK_IFNDEF && n == 1 && toks[0].kind == PPTOK_IDENT) {
+                f->guard_state = GUARD_EXPECT_DEFINE;
+                f->guard_macro = toks[0].spelling;
+                f->guard_cond = pp->nconds;
+            } else {
+                f->guard_state = GUARD_DISQUALIFIED;
+            }
+        } else if (f->guard_state == GUARD_EXPECT_DEFINE ||
+                   f->guard_state == GUARD_AFTER_ENDIF) {
+            f->guard_state = GUARD_DISQUALIFIED;
+        }
         if (n == 0 || toks[0].kind != PPTOK_IDENT) {
             if (live)
                 pp_diag_at(pp, DIAG_ERROR, name.loc, name.len,
@@ -780,6 +934,8 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
             return false;
         }
         c = &pp->conds[pp->nconds - 1];
+        if (f->guard_macro && pp->nconds - 1 == f->guard_cond)
+            f->guard_state = GUARD_DISQUALIFIED; /* on the guard */
         if (c->seen_else) {
             pp_diag_at(pp, DIAG_ERROR, name.loc, name.len, "#elif after #else");
             pp_diag_at(pp, DIAG_NOTE, c->loc, 1, "conditional started here");
@@ -803,6 +959,8 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
             return false;
         }
         c = &pp->conds[pp->nconds - 1];
+        if (f->guard_macro && pp->nconds - 1 == f->guard_cond)
+            f->guard_state = GUARD_DISQUALIFIED; /* on the guard */
         if (c->seen_else) {
             pp_diag_at(pp, DIAG_ERROR, name.loc, name.len, "#else after #else");
             pp_diag_at(pp, DIAG_NOTE, c->loc, 1, "conditional started here");
@@ -825,6 +983,8 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
             return false;
         }
         pp->nconds--;
+        if (f->guard_state == GUARD_IN_BODY && pp->nconds == f->guard_cond)
+            f->guard_state = GUARD_AFTER_ENDIF;
         if (n != 0 && in_live_region(pp))
             pp_diag_at(pp, DIAG_WARNING, toks[0].loc, toks[0].len,
                        "extra tokens at end of #endif directive");
@@ -837,6 +997,14 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
     case DK_DEFINE: {
         PpToken *toks;
         u32 n = read_line(pp, &toks);
+        if (f->guard_state == GUARD_EXPECT_DEFINE) {
+            f->guard_state = (n >= 1 && toks[0].kind == PPTOK_IDENT &&
+                              toks[0].spelling == f->guard_macro)
+                                 ? GUARD_IN_BODY
+                                 : GUARD_DISQUALIFIED;
+        } else if (f->guard_state == GUARD_AFTER_ENDIF) {
+            f->guard_state = GUARD_DISQUALIFIED;
+        }
         pp_macro_define_line(pp, toks, n);
         return false;
     }
@@ -929,6 +1097,110 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
 
 /* --- engine ------------------------------------------------------------- */
 
+/* The _Pragma operator (6.10.9): a preprocessing OPERATOR, legal anywhere
+ * a pp-token is — crucially inside macro replacement lists (the reason it
+ * exists: #pragma cannot be produced by a macro). Destringize the operand
+ * (\\" -> \", \\\\ -> \\, exactly those two per ISO), re-lex, process as a
+ * #pragma line at the operator's location. Under -E a surviving pragma
+ * re-emits as a `# pragma ...` line (gcc parity). */
+static void pragma_operator(Preprocessor *pp, const PpToken *op)
+{
+    PpToken t;
+    bool ff;
+    const char *body;
+    u32 blen;
+
+    if (!raw_next(pp, &t, &ff) || t.kind != PPTOK_PUNCT ||
+        t.punct != PUNCT_LPAREN) {
+        pp_diag_at(pp, DIAG_ERROR, op->loc, op->len,
+                   "_Pragma takes a parenthesized string literal");
+        return;
+    }
+    if (!raw_next(pp, &t, &ff) || t.kind != PPTOK_STRLIT) {
+        pp_diag_at(pp, DIAG_ERROR, op->loc, op->len,
+                   "_Pragma takes a parenthesized string literal");
+        return;
+    }
+    {
+        /* Destringize: strip encoding prefix + quotes, undo \" and \\. */
+        const char *sp = t.spelling;
+        u32 len = t.len, i = 0;
+        Buf b;
+
+        while (i < len && sp[i] != '"')
+            i++; /* skip L / u / U / u8 prefix */
+        i++;     /* opening quote */
+        buf_init(&b);
+        while (i + 1 < len) { /* stop before the closing quote */
+            if (sp[i] == '\\' && i + 2 < len &&
+                (sp[i + 1] == '"' || sp[i + 1] == '\\')) {
+                buf_push_u8(&b, (u8)sp[i + 1]);
+                i += 2;
+            } else {
+                buf_push_u8(&b, (u8)sp[i]);
+                i++;
+            }
+        }
+        body = arena_strndup(pp->arena, (const char *)b.data, b.len);
+        blen = (u32)b.len;
+        buf_free(&b);
+    }
+    if (!raw_next(pp, &t, &ff) || t.kind != PPTOK_PUNCT ||
+        t.punct != PUNCT_RPAREN) {
+        pp_diag_at(pp, DIAG_ERROR, op->loc, op->len,
+                   "_Pragma takes a parenthesized string literal");
+        return;
+    }
+
+    {
+        /* Re-lex the destringized text and process like a #pragma line.
+         * An empty operand is a null pragma: no-op, no error (gcc). */
+        SourceFile *sf = pp_source_add_buffer(pp, "<_Pragma>", body, blen);
+        PpLexer lx;
+        PpToken toks[64];
+        u32 n = 0;
+
+        pp_lexer_init(&lx, pp, sf);
+        while (n < 64 && pp_lex_token(&lx, &toks[n]))
+            n++;
+        buf_free(&lx.scratch);
+
+        if (directive_pragma(pp, toks, n)) {
+            /* Re-emit as a directive line for -E. */
+            PpToken *out = arena_alloc(pp->arena, (n + 2) * sizeof(PpToken),
+                                       _Alignof(PpToken));
+            u32 k;
+            PpToken hash;
+            memset(&hash, 0, sizeof(hash));
+            hash.kind = PPTOK_PUNCT;
+            hash.punct = PUNCT_HASH;
+            hash.spelling =
+                intern_str(pp->interner, intern(pp->interner, "#", 1));
+            hash.len = 1;
+            hash.loc = op->loc;
+            hash.flags = PPTOK_F_BOL;
+            out[0] = hash;
+            memset(&out[1], 0, sizeof(PpToken));
+            out[1].kind = PPTOK_IDENT;
+            out[1].spelling =
+                intern_str(pp->interner, intern(pp->interner, "pragma", 6));
+            out[1].len = 6;
+            out[1].loc = op->loc;
+            out[1].flags = PPTOK_F_SPACE;
+            for (k = 0; k < n; k++) {
+                out[2 + k] = toks[k];
+                out[2 + k].flags &= (u8)~PPTOK_F_BOL;
+                if (k == 0) /* separate from "pragma"; rest keep their own */
+                    out[2 + k].flags |= PPTOK_F_SPACE;
+            }
+            /* Ensure the NEXT text token starts a fresh line under -E. */
+            pp->pass = out;
+            pp->npass = n + 2;
+            pp->pass_pos = 0;
+        }
+    }
+}
+
 void pp_begin(Preprocessor *pp, SourceFile *main_file, SourceFile *cmdline)
 {
     SourceFile *builtin;
@@ -993,13 +1265,14 @@ bool pp_next(Preprocessor *pp, PpToken *out)
             continue;
         }
 
+        if (from_file)
+            guard_saw_text(cur_frame(pp));
         if (!in_live_region(pp))
             continue; /* skipped group: discard text tokens */
 
         if (t.kind == PPTOK_IDENT) {
             if (strcmp(t.spelling, "_Pragma") == 0) {
-                pp_diag_at(pp, DIAG_ERROR, t.loc, t.len,
-                           "_Pragma is not yet supported" LANDS_IN_SPRINT(6));
+                pragma_operator(pp, &t);
                 continue;
             }
             if (pp_try_expand(pp, &t))

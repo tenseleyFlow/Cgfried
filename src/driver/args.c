@@ -34,6 +34,8 @@ DriverArgs args_parse(int argc, char **argv)
             a.mode_E = true;
         } else if (strcmp(s, "-dM") == 0) {
             a.dump_macros = true;
+        } else if (strcmp(s, "-P") == 0) {
+            a.no_linemarkers = true;
         } else if (strncmp(s, "-std=", 5) == 0) {
             const char *v = s + 5;
             if (strcmp(v, "c89") == 0 || strcmp(v, "c90") == 0 ||

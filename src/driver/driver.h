@@ -28,6 +28,7 @@ typedef struct {
     bool show_help;
     bool mode_E;             /* -E: stop after preprocessing */
     bool dump_macros;        /* -dM (requires -E) */
+    bool no_linemarkers;     /* -P */
     int std;                 /* CStd value; default C17 */
     bool trigraphs;          /* -trigraphs (default off, gcc parity) */
     bool nostdinc;           /* -nostdinc: no system include dirs */

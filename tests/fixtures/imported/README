@@ -1,0 +1,12 @@
+Imported test corpora — verbatim, never edited locally (fix cgfried
+instead). Attribution:
+
+  tinycc-pp/   from TinyCC tests/pp/ — https://repo.or.cz/tinycc.git
+               LGPL-2.1. Their *.expect files are a THIRD oracle; our gate
+               is gcc. The .S (asm-mode preprocessing) cases are out of
+               v0.1.0 scope and are not imported.
+  chibicc/     from chibicc test/macro.c — https://github.com/rui314/chibicc
+               MIT. -E differential input now; an executable test in
+               Sprint 25.
+
+Used as test INPUTS only; no upstream code is linked into cgfried.

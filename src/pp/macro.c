@@ -145,6 +145,15 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
                 break;
             }
             if (!first) {
+                if (toks[i].kind == PPTOK_PUNCT &&
+                    toks[i].punct == PUNCT_ELLIPSIS && i > 0 &&
+                    toks[i - 1].kind == PPTOK_IDENT) {
+                    /* `#define M(a, rest...)`: GNU named variadics. */
+                    pp_diag_at(pp, DIAG_ERROR, toks[i].loc, toks[i].len,
+                               "GNU named variadic macro parameters are not "
+                               "yet supported" LANDS_IN_SPRINT(55));
+                    return;
+                }
                 if (toks[i].kind != PPTOK_PUNCT ||
                     toks[i].punct != PUNCT_COMMA) {
                     pp_diag_at(pp, DIAG_ERROR, toks[i].loc, toks[i].len,
