@@ -1,0 +1,1275 @@
+#include <stdarg.h>
+#include <string.h>
+
+#include "parse/parse.h"
+
+/* Declarations: specifier soup, the recursive declarator grammar,
+ * struct/union/enum, and initializer SYNTAX. Nothing here type-checks —
+ * Sprint 12 onward owns meaning. */
+
+VEC_DECL(NodeVec, AstNode *);
+VEC_DECL(ParamVec, AstParam);
+
+/* --- token helpers ------------------------------------------------------ */
+
+const Token *parse_peek(Parser *p)
+{
+    return &p->toks[p->pos < p->ntoks ? p->pos : p->ntoks - 1];
+}
+
+const Token *parse_peek_n(Parser *p, u32 n)
+{
+    u32 i = p->pos + n;
+
+    return &p->toks[i < p->ntoks ? i : p->ntoks - 1];
+}
+
+bool parse_at_punct(Parser *p, PpPunct punct)
+{
+    const Token *t = parse_peek(p);
+
+    return t->kind == TOK_PUNCT && t->punct == punct;
+}
+
+bool parse_at_kw(Parser *p, Keyword kw)
+{
+    const Token *t = parse_peek(p);
+
+    return t->kind == TOK_KEYWORD && t->kw == kw;
+}
+
+bool parse_eat_punct(Parser *p, PpPunct punct)
+{
+    if (!parse_at_punct(p, punct))
+        return false;
+    p->pos++;
+    return true;
+}
+
+bool parse_eat_kw(Parser *p, Keyword kw)
+{
+    if (!parse_at_kw(p, kw))
+        return false;
+    p->pos++;
+    return true;
+}
+
+void parse_error(Parser *p, const Token *at, const char *fmt, ...)
+{
+    va_list ap;
+    char msg[512];
+
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    p->nerrors++;
+    diag_emit(p->dc, DIAG_ERROR, at->span, "%s", msg);
+}
+
+static const char *tok_desc(const Token *t)
+{
+    switch ((TokenKind)t->kind) {
+    case TOK_EOF:
+        return "end of file";
+    default:
+        return t->spelling;
+    }
+}
+
+void parse_expect_punct(Parser *p, PpPunct punct, const char *what)
+{
+    static const char *const names[] = {
+        "[",   "]",   "(",  ")",   "{",  "}",  ".",  "->", "++", "--",
+        "&",   "*",   "+",  "-",   "~",  "!",  "/",  "%",  "<<", ">>",
+        "<",   ">",   "<=", ">=",  "==", "!=", "^",  "|",  "&&", "||",
+        "?",   ":",   ";",  "...", "=",  "*=", "/=", "%=", "+=", "-=",
+        "<<=", ">>=", "&=", "^=",  "|=", ",",  "#",  "##",
+    };
+
+    if (parse_eat_punct(p, punct))
+        return;
+    parse_error(p, parse_peek(p), "expected '%s'%s%s but found '%s'",
+                names[punct], what ? " " : "", what ? what : "",
+                tok_desc(parse_peek(p)));
+}
+
+/* --- scope stack -------------------------------------------------------- */
+
+void parse_scope_enter(Parser *p)
+{
+    ParseScope *s =
+        arena_alloc(p->arena, sizeof(ParseScope), _Alignof(ParseScope));
+
+    memset(s, 0, sizeof(*s));
+    s->parent = p->scope;
+    p->scope = s;
+}
+
+void parse_scope_leave(Parser *p)
+{
+    if (!p->scope)
+        CGF_ICE("parse_scope_leave: scope underflow");
+    p->scope = p->scope->parent;
+}
+
+void parse_scope_declare(Parser *p, const char *name, bool is_typedef)
+{
+    ScopeEntry *e;
+
+    if (!name || !p->scope)
+        return;
+    e = arena_alloc(p->arena, sizeof(ScopeEntry), _Alignof(ScopeEntry));
+    e->name = name;
+    e->is_typedef = is_typedef;
+    /* Prepended, so a redeclaration in the SAME scope shadows the earlier
+     * one — which is what makes `typedef int T; { T T; }` work. */
+    e->next = p->scope->ordinary;
+    p->scope->ordinary = e;
+}
+
+bool parse_is_typedef_name(Parser *p, const char *name)
+{
+    ParseScope *s;
+
+    for (s = p->scope; s; s = s->parent) {
+        ScopeEntry *e;
+        for (e = s->ordinary; e; e = e->next)
+            if (e->name == name) /* interned: pointer compare */
+                return e->is_typedef;
+    }
+    return false;
+}
+
+static void scope_declare_tag(Parser *p, const char *name)
+{
+    ScopeEntry *e;
+
+    if (!name || !p->scope)
+        return;
+    e = arena_alloc(p->arena, sizeof(ScopeEntry), _Alignof(ScopeEntry));
+    e->name = name;
+    e->is_typedef = false;
+    e->next = p->scope->tags;
+    p->scope->tags = e;
+}
+
+/* --- declaration specifiers -------------------------------------------- */
+
+typedef struct {
+    int n_void, n_char, n_short, n_int, n_long, n_float, n_double;
+    int n_signed, n_unsigned, n_bool;
+    int n_other; /* struct/union/enum/typedef-name/_Atomic(T) */
+    u32 storage;
+    u32 quals;
+    u32 func_specs;
+    AstBaseType other_base;
+    const char *typedef_name;
+    AstNode *record;
+    bool saw_any;
+    bool bad;
+} SpecSoup;
+
+static bool kw_is_qualifier(Keyword kw)
+{
+    return kw == KW_CONST || kw == KW_ALT_CONST || kw == KW_ALT_CONST2 ||
+           kw == KW_VOLATILE || kw == KW_ALT_VOLATILE ||
+           kw == KW_ALT_VOLATILE2 || kw == KW_RESTRICT ||
+           kw == KW_ALT_RESTRICT || kw == KW_ALT_RESTRICT2;
+}
+
+static u32 qual_bit(Keyword kw)
+{
+    if (kw == KW_CONST || kw == KW_ALT_CONST || kw == KW_ALT_CONST2)
+        return AST_QUAL_CONST;
+    if (kw == KW_VOLATILE || kw == KW_ALT_VOLATILE || kw == KW_ALT_VOLATILE2)
+        return AST_QUAL_VOLATILE;
+    if (kw == KW_RESTRICT || kw == KW_ALT_RESTRICT || kw == KW_ALT_RESTRICT2)
+        return AST_QUAL_RESTRICT;
+    return 0;
+}
+
+static AstNode *parse_record_specifier(Parser *p, bool is_union);
+static AstNode *parse_enum_specifier(Parser *p);
+static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
+                                 bool abstract_ok);
+static AstNode *parse_initializer(Parser *p);
+
+/* Reduces the collected multiset to a canonical base type (C11 6.7.2p2).
+ * Order never matters; only the multiset does. */
+static AstBaseType soup_resolve(Parser *p, SpecSoup *s, const Token *at)
+{
+    int sign = s->n_signed - s->n_unsigned;
+
+    if (s->n_other) {
+        if (s->n_void || s->n_char || s->n_short || s->n_int || s->n_long ||
+            s->n_float || s->n_double || s->n_signed || s->n_unsigned ||
+            s->n_bool) {
+            parse_error(p, at,
+                        "cannot combine '%s' with another type "
+                        "specifier",
+                        s->other_base == ABT_TYPEDEF ? s->typedef_name
+                                                     : "type specifier");
+            s->bad = true;
+        }
+        return s->other_base;
+    }
+    if (s->n_signed && s->n_unsigned) {
+        parse_error(p, at, "cannot combine 'signed' with 'unsigned'");
+        s->bad = true;
+        return ABT_INT;
+    }
+    if (s->n_long > 2) {
+        parse_error(p, at, "'long long long' is too long for cgfried");
+        s->bad = true;
+        return ABT_LLONG;
+    }
+    if (s->n_void) {
+        if (s->n_void > 1 || s->n_char || s->n_short || s->n_int || s->n_long ||
+            s->n_float || s->n_double || sign)
+            goto conflict;
+        return ABT_VOID;
+    }
+    if (s->n_bool) {
+        if (s->n_bool > 1 || s->n_char || s->n_short || s->n_int || s->n_long ||
+            s->n_float || s->n_double || sign)
+            goto conflict;
+        return ABT_BOOL;
+    }
+    if (s->n_float) {
+        if (s->n_float > 1 || s->n_char || s->n_short || s->n_int ||
+            s->n_long || s->n_double || sign)
+            goto conflict;
+        return ABT_FLOAT;
+    }
+    if (s->n_double) {
+        if (s->n_double > 1 || s->n_char || s->n_short || s->n_int || sign)
+            goto conflict;
+        if (s->n_long == 1)
+            return ABT_LDOUBLE;
+        if (s->n_long)
+            goto conflict;
+        return ABT_DOUBLE;
+    }
+    if (s->n_char) {
+        if (s->n_char > 1 || s->n_short || s->n_int || s->n_long)
+            goto conflict;
+        /* PLAIN char is a THIRD type, distinct from signed/unsigned char. */
+        if (s->n_signed)
+            return ABT_SCHAR;
+        if (s->n_unsigned)
+            return ABT_UCHAR;
+        return ABT_CHAR;
+    }
+    if (s->n_short) {
+        if (s->n_short > 1 || s->n_long)
+            goto conflict;
+        return s->n_unsigned ? ABT_USHORT : ABT_SHORT;
+    }
+    if (s->n_long == 2)
+        return s->n_unsigned ? ABT_ULLONG : ABT_LLONG;
+    if (s->n_long == 1)
+        return s->n_unsigned ? ABT_ULONG : ABT_LONG;
+    if (s->n_int || s->n_signed || s->n_unsigned)
+        return s->n_unsigned ? ABT_UINT : ABT_INT;
+    return ABT_NONE; /* implicit int; the caller diagnoses */
+
+conflict:
+    parse_error(p, at, "conflicting or duplicate type specifiers");
+    s->bad = true;
+    return ABT_INT;
+}
+
+static void add_storage(Parser *p, SpecSoup *s, u32 bit, const Token *at,
+                        const char *name)
+{
+    u32 already = s->storage & ~(u32)AST_SC_THREAD_LOCAL;
+
+    /* At most one storage class, EXCEPT _Thread_local, which may pair
+     * with static or extern (6.7.1p2). */
+    if (bit == AST_SC_THREAD_LOCAL) {
+        s->storage |= bit;
+        return;
+    }
+    if (already) {
+        parse_error(p, at,
+                    "multiple storage classes in declaration "
+                    "specifiers ('%s')",
+                    name);
+        s->bad = true;
+    }
+    s->storage |= bit;
+}
+
+/* Returns false if no specifier was consumed. */
+static bool parse_decl_specs(Parser *p, SpecSoup *s)
+{
+    const Token *first = parse_peek(p);
+
+    memset(s, 0, sizeof(*s));
+    for (;;) {
+        const Token *t = parse_peek(p);
+
+        if (t->kind == TOK_KEYWORD) {
+            Keyword kw = (Keyword)t->kw;
+
+            if (kw_is_qualifier(kw)) {
+                u32 q = qual_bit(kw);
+                if ((s->quals & q) && !std_is_c99_or_later(p->lang->std))
+                    parse_error(p, t,
+                                "duplicate '%s' qualifier is a C99 "
+                                "feature",
+                                t->spelling);
+                s->quals |= q;
+                s->saw_any = true;
+                p->pos++;
+                continue;
+            }
+            switch (kw) {
+            case KW_TYPEDEF:
+                add_storage(p, s, AST_SC_TYPEDEF, t, "typedef");
+                goto consumed;
+            case KW_EXTERN:
+                add_storage(p, s, AST_SC_EXTERN, t, "extern");
+                goto consumed;
+            case KW_STATIC:
+                add_storage(p, s, AST_SC_STATIC, t, "static");
+                goto consumed;
+            case KW_AUTO:
+                add_storage(p, s, AST_SC_AUTO, t, "auto");
+                goto consumed;
+            case KW_REGISTER:
+                add_storage(p, s, AST_SC_REGISTER, t, "register");
+                goto consumed;
+            case KW_THREAD_LOCAL:
+                add_storage(p, s, AST_SC_THREAD_LOCAL, t, "_Thread_local");
+                goto consumed;
+            case KW_INLINE:
+            case KW_ALT_INLINE:
+            case KW_ALT_INLINE2:
+                s->func_specs |= AST_FS_INLINE;
+                goto consumed;
+            case KW_NORETURN:
+                s->func_specs |= AST_FS_NORETURN;
+                goto consumed;
+            case KW_VOID:
+                s->n_void++;
+                goto consumed;
+            case KW_CHAR:
+                s->n_char++;
+                goto consumed;
+            case KW_SHORT:
+                s->n_short++;
+                goto consumed;
+            case KW_INT:
+                s->n_int++;
+                goto consumed;
+            case KW_LONG:
+                s->n_long++;
+                goto consumed;
+            case KW_FLOAT:
+                s->n_float++;
+                goto consumed;
+            case KW_DOUBLE:
+                s->n_double++;
+                goto consumed;
+            case KW_SIGNED:
+            case KW_ALT_SIGNED:
+                s->n_signed++;
+                goto consumed;
+            case KW_UNSIGNED:
+                s->n_unsigned++;
+                goto consumed;
+            case KW_BOOL:
+                s->n_bool++;
+                goto consumed;
+            case KW_STRUCT:
+            case KW_UNION: {
+                bool is_union = kw == KW_UNION;
+                p->pos++;
+                s->n_other++;
+                s->other_base = ABT_RECORD;
+                s->record = parse_record_specifier(p, is_union);
+                s->saw_any = true;
+                continue;
+            }
+            case KW_ENUM:
+                p->pos++;
+                s->n_other++;
+                s->other_base = ABT_ENUM;
+                s->record = parse_enum_specifier(p);
+                s->saw_any = true;
+                continue;
+            case KW_ATOMIC:
+                /* _Atomic(T) is a specifier; bare _Atomic is a qualifier.
+                 * Semantics land in Sprint 16. */
+                p->pos++;
+                s->saw_any = true;
+                if (parse_at_punct(p, PUNCT_LPAREN)) {
+                    SpecSoup inner;
+                    p->pos++;
+                    parse_decl_specs(p, &inner);
+                    parse_expect_punct(p, PUNCT_RPAREN, "after _Atomic(type)");
+                    s->n_other++;
+                    s->other_base = soup_resolve(p, &inner, t);
+                    s->typedef_name = inner.typedef_name;
+                    s->record = inner.record;
+                }
+                s->quals |= AST_QUAL_ATOMIC;
+                continue;
+            case KW_COMPLEX:
+            case KW_IMAGINARY:
+                parse_error(p, t,
+                            "'%s' is out of scope for v0.1.0: cgfried "
+                            "defines __STDC_NO_COMPLEX__",
+                            t->spelling);
+                s->bad = true;
+                goto consumed;
+            case KW_TYPEOF:
+            case KW_ALT_TYPEOF:
+            case KW_ALT_TYPEOF2:
+                parse_error(p, t,
+                            "GNU extension 'typeof' is not yet "
+                            "supported (lands in Sprint 55)");
+                s->bad = true;
+                goto consumed;
+            case KW_ATTRIBUTE:
+            case KW_ATTRIBUTE2:
+                /* The spelling below NAMES the extension in a diagnostic; it
+                 * does not use it. */
+                parse_error(
+                    p, t,
+                    "GNU '__attribute__' is not yet " /* check_bans allow */
+                    "supported (lands in Sprint 55)");
+                s->bad = true;
+                goto consumed;
+            case KW_EXTENSION:
+                p->pos++; /* __extension__ just suppresses pedwarns */
+                continue;
+            default:
+                goto done;
+            }
+        consumed:
+            s->saw_any = true;
+            p->pos++;
+            continue;
+        }
+
+        if (t->kind == TOK_IDENT) {
+            /* A typedef name is a type specifier ONLY if no other type
+             * specifier was seen: in `unsigned T x;` the T is the
+             * DECLARATOR name, not a specifier. */
+            if (s->n_other || s->n_void || s->n_char || s->n_short ||
+                s->n_int || s->n_long || s->n_float || s->n_double ||
+                s->n_signed || s->n_unsigned || s->n_bool)
+                goto done;
+            if (!parse_is_typedef_name(p, t->spelling))
+                goto done;
+            s->n_other++;
+            s->other_base = ABT_TYPEDEF;
+            s->typedef_name = t->spelling;
+            s->saw_any = true;
+            p->pos++;
+            continue;
+        }
+        goto done;
+    }
+done:
+    (void)first;
+    return s->saw_any;
+}
+
+bool parse_at_decl_specs(Parser *p)
+{
+    const Token *t = parse_peek(p);
+
+    if (t->kind == TOK_IDENT)
+        return parse_is_typedef_name(p, t->spelling);
+    if (t->kind != TOK_KEYWORD)
+        return false;
+    switch ((Keyword)t->kw) {
+    case KW_TYPEDEF:
+    case KW_EXTERN:
+    case KW_STATIC:
+    case KW_AUTO:
+    case KW_REGISTER:
+    case KW_THREAD_LOCAL:
+    case KW_INLINE:
+    case KW_ALT_INLINE:
+    case KW_ALT_INLINE2:
+    case KW_NORETURN:
+    case KW_VOID:
+    case KW_CHAR:
+    case KW_SHORT:
+    case KW_INT:
+    case KW_LONG:
+    case KW_FLOAT:
+    case KW_DOUBLE:
+    case KW_SIGNED:
+    case KW_ALT_SIGNED:
+    case KW_UNSIGNED:
+    case KW_BOOL:
+    case KW_STRUCT:
+    case KW_UNION:
+    case KW_ENUM:
+    case KW_ATOMIC:
+    case KW_CONST:
+    case KW_ALT_CONST:
+    case KW_ALT_CONST2:
+    case KW_VOLATILE:
+    case KW_ALT_VOLATILE:
+    case KW_ALT_VOLATILE2:
+    case KW_RESTRICT:
+    case KW_ALT_RESTRICT:
+    case KW_ALT_RESTRICT2:
+    case KW_COMPLEX:
+    case KW_IMAGINARY:
+    case KW_TYPEOF:
+    case KW_ALT_TYPEOF:
+    case KW_ALT_TYPEOF2:
+    case KW_ATTRIBUTE:
+    case KW_ATTRIBUTE2:
+    case KW_EXTENSION:
+    case KW_STATIC_ASSERT:
+    case KW_ALIGNAS:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* --- declarators -------------------------------------------------------- */
+
+/* Parses `[...]` and `(...)` suffixes left to right, chaining each onto
+ * the front of `inner` — which is what makes `f[3](void)` read as "array
+ * of func" and not the reverse. */
+static AstType *parse_type_suffixes(Parser *p, AstType *inner);
+
+static AstType *parse_param_list(Parser *p, AstType *ret)
+{
+    AstType *fn = ast_type_new(p->arena, ATY_FUNC, parse_peek(p)->span);
+    ParamVec params = {NULL, 0, 0};
+
+    fn->next = ret;
+    /* Parameters get their own scope, SHARED with the body's outermost
+     * block (6.2.1p4) — the function-definition path deliberately does
+     * not push a second scope at `{`. */
+    parse_scope_enter(p);
+
+    if (parse_eat_punct(p, PUNCT_RPAREN)) {
+        /* `f()` is UNSPECIFIED parameters (K&R), never `(void)`. */
+        fn->has_no_params = true;
+        goto out;
+    }
+    /* `(void)` — exactly one `void` and nothing else — means NO params. */
+    if (parse_at_kw(p, KW_VOID) && parse_peek_n(p, 1)->kind == TOK_PUNCT &&
+        parse_peek_n(p, 1)->punct == PUNCT_RPAREN) {
+        p->pos += 2;
+        goto out;
+    }
+    /* A bare identifier that is NOT a typedef name starts a K&R list;
+     * `int f(x)` with x a typedef is a PROTOTYPE with an unnamed param. */
+    if (parse_peek(p)->kind == TOK_IDENT &&
+        !parse_is_typedef_name(p, parse_peek(p)->spelling)) {
+        fn->is_kr_list = true;
+        for (;;) {
+            const Token *id = parse_peek(p);
+            AstParam prm;
+
+            if (id->kind != TOK_IDENT) {
+                parse_error(p, id,
+                            "expected parameter name in identifier "
+                            "list");
+                break;
+            }
+            memset(&prm, 0, sizeof(prm));
+            prm.name = id->spelling;
+            prm.span = id->span;
+            prm.type = NULL; /* type comes from the K&R declaration list */
+            ParamVec_push(&params, prm);
+            parse_scope_declare(p, id->spelling, false);
+            p->pos++;
+            if (!parse_eat_punct(p, PUNCT_COMMA))
+                break;
+        }
+        parse_expect_punct(p, PUNCT_RPAREN, "after parameter list");
+        goto out;
+    }
+
+    for (;;) {
+        SpecSoup s;
+        AstType *base;
+        AstParam prm;
+        const Token *start = parse_peek(p);
+
+        if (parse_eat_punct(p, PUNCT_ELLIPSIS)) {
+            fn->is_variadic = true;
+            break;
+        }
+        if (!parse_decl_specs(p, &s)) {
+            parse_error(p, start,
+                        "expected a parameter declaration but "
+                        "found '%s'",
+                        tok_desc(start));
+            break;
+        }
+        base = ast_type_new(p->arena, ATY_BASE, start->span);
+        base->base = soup_resolve(p, &s, start);
+        base->typedef_name = s.typedef_name;
+        base->record = s.record;
+        base->quals = s.quals;
+
+        memset(&prm, 0, sizeof(prm));
+        prm.span = start->span;
+        prm.type = parse_declarator(p, base, &prm.name, true);
+        if (prm.name)
+            parse_scope_declare(p, prm.name, false);
+        ParamVec_push(&params, prm);
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+    }
+    parse_expect_punct(p, PUNCT_RPAREN, "after parameter list");
+
+out:
+    fn->nparams = (u32)params.len;
+    if (params.len) {
+        fn->params = arena_alloc(p->arena, params.len * sizeof(AstParam),
+                                 _Alignof(AstParam));
+        memcpy(fn->params, params.data, params.len * sizeof(AstParam));
+    }
+    ParamVec_free(&params);
+    parse_scope_leave(p);
+    return fn;
+}
+
+static AstType *parse_array_suffix(Parser *p, AstType *elem)
+{
+    AstType *arr = ast_type_new(p->arena, ATY_ARRAY, parse_peek(p)->span);
+
+    arr->next = elem;
+    /* Parameter-array forms: `static`, qualifiers, and `*` may appear
+     * inside the brackets. Constraints are Sprint 16's. */
+    for (;;) {
+        if (parse_eat_kw(p, KW_STATIC)) {
+            arr->array_static = true;
+            continue;
+        }
+        if (parse_peek(p)->kind == TOK_KEYWORD &&
+            kw_is_qualifier((Keyword)parse_peek(p)->kw)) {
+            arr->array_quals |= qual_bit((Keyword)parse_peek(p)->kw);
+            p->pos++;
+            continue;
+        }
+        break;
+    }
+    if (parse_at_punct(p, PUNCT_STAR) &&
+        parse_peek_n(p, 1)->kind == TOK_PUNCT &&
+        parse_peek_n(p, 1)->punct == PUNCT_RBRACKET) {
+        arr->array_star = true;
+        p->pos++;
+    } else if (!parse_at_punct(p, PUNCT_RBRACKET)) {
+        /* The SIZE EXPRESSION is stored verbatim — Sprint 15 evaluates
+         * it, and VLA-ness is Sprint 16's question. */
+        arr->array_size = parse_assign_expr(p);
+    }
+    parse_expect_punct(p, PUNCT_RBRACKET, "after array bound");
+    return arr;
+}
+
+static AstType *parse_type_suffixes(Parser *p, AstType *inner)
+{
+    AstType *result = inner;
+
+    for (;;) {
+        if (parse_at_punct(p, PUNCT_LBRACKET)) {
+            p->pos++;
+            result = parse_array_suffix(p, result);
+            continue;
+        }
+        if (parse_at_punct(p, PUNCT_LPAREN)) {
+            p->pos++;
+            result = parse_param_list(p, result);
+            continue;
+        }
+        break;
+    }
+    return result;
+}
+
+/* THE declarator recursion.
+ *
+ *   int (*(*f[3])(void))[5]
+ *     core: '(' -> recurse: core '(' -> recurse: core f; suffix [3]
+ *                                     => f: array 3 of <inner>
+ *           the '*' inside the first paren applies next
+ *                                     => ... of ptr to <...>
+ *           suffix (void)             => ... to func(void) ret <...>
+ *           the outer '*'             => ... ret ptr to <...>
+ *   outer suffix [5], base int        => ... to array 5 of int
+ *
+ * Implementation note: the parenthesized group is parsed with a PLACEHOLDER
+ * base, then the suffixes AFTER the group are parsed and spliced onto the
+ * placeholder's tail. That is one pass with a fixup, rather than chibicc's
+ * re-walk of the saved token cursor — same result, no rescanning, and the
+ * splice point is explicit. */
+static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
+                                 bool abstract_ok)
+{
+    AstType *ptrs = NULL;
+
+    if (name)
+        *name = NULL;
+
+    /* 1. Pointer prefix (with qualifier lists), innermost applied LAST. */
+    while (parse_at_punct(p, PUNCT_STAR)) {
+        AstType *ptr = ast_type_new(p->arena, ATY_PTR, parse_peek(p)->span);
+        p->pos++;
+        while (parse_peek(p)->kind == TOK_KEYWORD &&
+               (kw_is_qualifier((Keyword)parse_peek(p)->kw) ||
+                parse_peek(p)->kw == KW_ATOMIC)) {
+            if (parse_peek(p)->kw == KW_ATOMIC)
+                ptr->ptr_quals |= AST_QUAL_ATOMIC;
+            else
+                ptr->ptr_quals |= qual_bit((Keyword)parse_peek(p)->kw);
+            p->pos++;
+        }
+        /* Prepend: the LAST '*' parsed binds closest to the base. */
+        ptr->next = ptrs;
+        ptrs = ptr;
+    }
+
+    /* 2. Direct-declarator core. */
+    if (parse_at_punct(p, PUNCT_LPAREN)) {
+        /* '(' is GROUPING only if what follows cannot start a parameter
+         * list. `int (*)(void)` groups; `int (int)` and `int ()` are
+         * parameter lists of an id-less declarator. */
+        const Token *nx = parse_peek_n(p, 1);
+        bool is_group = !(nx->kind == TOK_PUNCT && nx->punct == PUNCT_RPAREN);
+
+        if (is_group && nx->kind == TOK_IDENT &&
+            parse_is_typedef_name(p, nx->spelling))
+            is_group = false; /* (T) is a parameter list */
+        if (is_group && nx->kind == TOK_KEYWORD) {
+            /* A specifier keyword after '(' means parameters — unless it
+             * is a qualifier applying to a pointer inside the group. */
+            u32 save = p->pos;
+            p->pos++;
+            is_group = !parse_at_decl_specs(p);
+            p->pos = save;
+        }
+
+        if (is_group) {
+            AstType *placeholder;
+            AstType *group;
+            AstType *after;
+
+            p->pos++; /* '(' */
+            placeholder = ast_type_new(p->arena, ATY_BASE, parse_peek(p)->span);
+            placeholder->base = ABT_NONE;
+            group = parse_declarator(p, placeholder, name, abstract_ok);
+            parse_expect_punct(p, PUNCT_RPAREN, "after declarator group");
+
+            /* Suffixes AFTER the group derive the type the group points
+             * at; splice them in place of the placeholder. */
+            after = parse_type_suffixes(p, ast_type_chain(ptrs, base));
+            {
+                AstType *q = group;
+                AstType *prev = NULL;
+                while (q && q != placeholder) {
+                    prev = q;
+                    q = q->next;
+                }
+                if (prev)
+                    prev->next = after;
+                else
+                    group = after;
+            }
+            return group;
+        }
+    }
+
+    if (parse_peek(p)->kind == TOK_IDENT) {
+        if (name)
+            *name = parse_peek(p)->spelling;
+        p->pos++;
+    } else if (!abstract_ok) {
+        parse_error(p, parse_peek(p), "expected a declarator but found '%s'",
+                    tok_desc(parse_peek(p)));
+    }
+
+    /* 3. Suffixes, then the pointer prefix, then the base. */
+    return parse_type_suffixes(p, ast_type_chain(ptrs, base));
+}
+
+/* --- struct / union / enum ---------------------------------------------- */
+
+static AstNode *parse_member_decl(Parser *p);
+
+static AstNode *parse_record_specifier(Parser *p, bool is_union)
+{
+    AstNode *rec = ast_new(p->arena, AST_RECORD_DECL, parse_peek(p)->span);
+    NodeVec members = {NULL, 0, 0};
+
+    rec->is_union = is_union;
+    if (parse_peek(p)->kind == TOK_IDENT ||
+        (parse_peek(p)->kind == TOK_KEYWORD &&
+         !parse_at_punct(p, PUNCT_LBRACE) && false)) {
+        rec->tag = parse_peek(p)->spelling;
+        scope_declare_tag(p, rec->tag);
+        p->pos++;
+    }
+    if (!parse_eat_punct(p, PUNCT_LBRACE)) {
+        if (!rec->tag)
+            parse_error(p, parse_peek(p), "expected a tag or '{' after '%s'",
+                        is_union ? "union" : "struct");
+        return rec; /* forward reference: `struct S;` / `struct S *p;` */
+    }
+    rec->is_definition = true;
+    parse_scope_enter(p);
+    while (!parse_at_punct(p, PUNCT_RBRACE) && parse_peek(p)->kind != TOK_EOF) {
+        AstNode *m = parse_member_decl(p);
+        if (m)
+            NodeVec_push(&members, m);
+        else
+            break;
+    }
+    parse_scope_leave(p);
+    parse_expect_punct(p, PUNCT_RBRACE, "at end of member list");
+    rec->nmembers = (u32)members.len;
+    if (members.len) {
+        rec->members = arena_alloc(p->arena, members.len * sizeof(AstNode *),
+                                   _Alignof(AstNode *));
+        memcpy(rec->members, members.data, members.len * sizeof(AstNode *));
+    }
+    NodeVec_free(&members);
+    return rec;
+}
+
+static AstNode *parse_static_assert(Parser *p)
+{
+    AstNode *n = ast_new(p->arena, AST_STATIC_ASSERT, parse_peek(p)->span);
+
+    p->pos++; /* _Static_assert */
+    parse_expect_punct(p, PUNCT_LPAREN, "after '_Static_assert'");
+    n->assert_expr = parse_cond_expr(p);
+    if (parse_eat_punct(p, PUNCT_COMMA)) {
+        if (parse_peek(p)->kind != TOK_STRING) {
+            parse_error(p, parse_peek(p), "expected a string literal message");
+        } else {
+            n->assert_msg = parse_peek(p);
+            p->pos++;
+        }
+    } else {
+        /* The message-less form is C23. */
+        parse_error(p, parse_peek(p),
+                    "_Static_assert without a message is a C23 feature");
+    }
+    parse_expect_punct(p, PUNCT_RPAREN, "after _Static_assert");
+    parse_expect_punct(p, PUNCT_SEMI, "after _Static_assert");
+    return n;
+}
+
+/* One member declaration: specifiers + declarator list with bitfields,
+ * or a C11 anonymous struct/union member. */
+static AstNode *parse_member_decl(Parser *p)
+{
+    SpecSoup s;
+    AstNode *first = NULL;
+    const Token *start = parse_peek(p);
+    AstBaseType base_kind;
+
+    if (parse_at_kw(p, KW_STATIC_ASSERT))
+        return parse_static_assert(p);
+
+    if (!parse_decl_specs(p, &s)) {
+        parse_error(p, start, "expected a member declaration but found '%s'",
+                    tok_desc(start));
+        p->pos++;
+        return NULL;
+    }
+    base_kind = soup_resolve(p, &s, start);
+
+    if (parse_eat_punct(p, PUNCT_SEMI)) {
+        /* No declarator. An UNTAGGED struct/union specifier here is a C11
+         * anonymous member; a TAGGED one is the MS/Plan9 extension. */
+        AstNode *n = ast_new(p->arena, AST_DECL, start->span);
+        AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
+
+        bt->base = base_kind;
+        bt->typedef_name = s.typedef_name;
+        bt->record = s.record;
+        bt->quals = s.quals;
+        n->type = bt;
+        if (base_kind == ABT_RECORD && s.record && !s.record->tag) {
+            n->is_anon_member = true;
+            if (!std_is_c11_or_later(p->lang->std))
+                diag_emit(p->dc, DIAG_WARNING, start->span,
+                          "anonymous struct/union members are a C11 feature");
+        } else if (base_kind == ABT_RECORD && s.record && s.record->tag &&
+                   s.record->is_definition) {
+            parse_error(p, start,
+                        "a tagged struct/union member without a declarator "
+                        "is a Microsoft extension (lands in Sprint 55)");
+        } else {
+            diag_emit(p->dc, DIAG_WARNING, start->span,
+                      "declaration does not declare anything");
+        }
+        return n;
+    }
+
+    for (;;) {
+        AstNode *n = ast_new(p->arena, AST_DECL, parse_peek(p)->span);
+        AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
+
+        bt->base = base_kind;
+        bt->typedef_name = s.typedef_name;
+        bt->record = s.record;
+        bt->quals = s.quals;
+
+        if (!parse_at_punct(p, PUNCT_COLON))
+            n->type = parse_declarator(p, bt, &n->name, true);
+        else
+            n->type = bt; /* unnamed bitfield */
+
+        if (parse_eat_punct(p, PUNCT_COLON)) {
+            /* The WIDTH is an expression; Sprint 14/15 check it. */
+            n->is_bitfield = true;
+            n->bitfield_width = parse_cond_expr(p);
+        }
+        if (!first)
+            first = n;
+        else {
+            /* Sibling declarators chain through `items` so the caller sees
+             * them all. */
+            AstNode **grown =
+                arena_alloc(p->arena, (first->nitems + 1) * sizeof(AstNode *),
+                            _Alignof(AstNode *));
+            if (first->nitems)
+                memcpy(grown, first->items, first->nitems * sizeof(AstNode *));
+            grown[first->nitems] = n;
+            first->items = grown;
+            first->nitems++;
+        }
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+    }
+    parse_expect_punct(p, PUNCT_SEMI, "after member declaration");
+    return first;
+}
+
+static AstNode *parse_enum_specifier(Parser *p)
+{
+    AstNode *en = ast_new(p->arena, AST_ENUM_DECL, parse_peek(p)->span);
+    NodeVec items = {NULL, 0, 0};
+
+    if (parse_peek(p)->kind == TOK_IDENT) {
+        en->tag = parse_peek(p)->spelling;
+        scope_declare_tag(p, en->tag);
+        p->pos++;
+    }
+    if (!parse_eat_punct(p, PUNCT_LBRACE)) {
+        if (!en->tag)
+            parse_error(p, parse_peek(p), "expected a tag or '{' after 'enum'");
+        return en;
+    }
+    en->is_definition = true;
+    for (;;) {
+        AstNode *item;
+        const Token *id = parse_peek(p);
+
+        if (parse_at_punct(p, PUNCT_RBRACE))
+            break;
+        if (id->kind != TOK_IDENT) {
+            parse_error(p, id, "expected an enumerator name");
+            break;
+        }
+        item = ast_new(p->arena, AST_ENUMERATOR, id->span);
+        item->name = id->spelling;
+        p->pos++;
+        if (parse_eat_punct(p, PUNCT_ASSIGN))
+            item->init = parse_cond_expr(p); /* the VALUE EXPRESSION */
+        /* Enumerators enter the ORDINARY namespace — which is how they
+         * un-typedef a name for later lookups. */
+        parse_scope_declare(p, item->name, false);
+        NodeVec_push(&items, item);
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+        /* A trailing comma before '}' is legal in c99+. */
+        if (parse_at_punct(p, PUNCT_RBRACE)) {
+            if (!std_is_c99_or_later(p->lang->std))
+                diag_emit(p->dc, DIAG_WARNING, parse_peek(p)->span,
+                          "a trailing comma in an enumerator list is a C99 "
+                          "feature");
+            break;
+        }
+    }
+    parse_expect_punct(p, PUNCT_RBRACE, "at end of enumerator list");
+    en->nmembers = (u32)items.len;
+    if (items.len) {
+        en->members = arena_alloc(p->arena, items.len * sizeof(AstNode *),
+                                  _Alignof(AstNode *));
+        memcpy(en->members, items.data, items.len * sizeof(AstNode *));
+    }
+    NodeVec_free(&items);
+    return en;
+}
+
+/* --- initializers (syntax only) ----------------------------------------- */
+
+static AstNode *parse_initializer(Parser *p)
+{
+    AstNode *n;
+    NodeVec items = {NULL, 0, 0};
+
+    if (!parse_at_punct(p, PUNCT_LBRACE))
+        return parse_assign_expr(p);
+
+    n = ast_new(p->arena, AST_INIT_LIST, parse_peek(p)->span);
+    p->pos++;
+    if (parse_at_punct(p, PUNCT_RBRACE)) {
+        /* Empty braces are C23. gcc accepts them as an extension and only
+         * errors under -pedantic-errors, so we PEDWARN and accept —
+         * verified against gcc -std=c17 (Sprint 37 makes the flag real). */
+        diag_emit(p->dc, DIAG_WARNING, parse_peek(p)->span,
+                  "ISO C forbids empty initializer braces before C23");
+        p->pos++;
+        return n;
+    }
+    for (;;) {
+        AstNode *item;
+        NodeVec desigs = {NULL, 0, 0};
+
+        /* Designator chain: [expr] and .field, repeatable ([2].x[1]). */
+        while (parse_at_punct(p, PUNCT_LBRACKET) ||
+               parse_at_punct(p, PUNCT_DOT)) {
+            AstNode *d = ast_new(p->arena, AST_DESIGNATOR, parse_peek(p)->span);
+            if (parse_eat_punct(p, PUNCT_LBRACKET)) {
+                d->desig_index = parse_cond_expr(p);
+                if (parse_at_punct(p, PUNCT_ELLIPSIS)) {
+                    parse_error(p, parse_peek(p),
+                                "GNU range designators are not yet supported "
+                                "(land in Sprint 55)");
+                    p->pos++;
+                    (void)parse_cond_expr(p);
+                }
+                parse_expect_punct(p, PUNCT_RBRACKET, "after designator");
+            } else {
+                p->pos++; /* '.' */
+                if (parse_peek(p)->kind != TOK_IDENT) {
+                    parse_error(p, parse_peek(p),
+                                "expected a field name after '.'");
+                } else {
+                    d->desig_is_field = true;
+                    d->desig_field = parse_peek(p)->spelling;
+                    p->pos++;
+                }
+            }
+            NodeVec_push(&desigs, d);
+        }
+        if (desigs.len)
+            parse_expect_punct(p, PUNCT_ASSIGN, "after designator list");
+
+        item = parse_initializer(p);
+        if (item && desigs.len) {
+            item->ndesignators = (u32)desigs.len;
+            item->designators = arena_alloc(
+                p->arena, desigs.len * sizeof(AstNode *), _Alignof(AstNode *));
+            memcpy(item->designators, desigs.data,
+                   desigs.len * sizeof(AstNode *));
+        }
+        NodeVec_free(&desigs);
+        if (item)
+            NodeVec_push(&items, item);
+
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+        if (parse_at_punct(p, PUNCT_RBRACE))
+            break; /* trailing comma */
+    }
+    parse_expect_punct(p, PUNCT_RBRACE, "at end of initializer list");
+    n->nitems = (u32)items.len;
+    if (items.len) {
+        n->items = arena_alloc(p->arena, items.len * sizeof(AstNode *),
+                               _Alignof(AstNode *));
+        memcpy(n->items, items.data, items.len * sizeof(AstNode *));
+    }
+    NodeVec_free(&items);
+    return n;
+}
+
+/* --- declarations ------------------------------------------------------- */
+
+static bool type_is_function(const AstType *t)
+{
+    return t && t->kind == ATY_FUNC;
+}
+
+AstNode *parse_declaration(Parser *p, bool allow_func_def)
+{
+    SpecSoup s;
+    const Token *start = parse_peek(p);
+    AstBaseType base_kind;
+    AstNode *first = NULL;
+    NodeVec siblings = {NULL, 0, 0};
+
+    if (parse_at_kw(p, KW_STATIC_ASSERT))
+        return parse_static_assert(p);
+    if (parse_eat_punct(p, PUNCT_SEMI))
+        return ast_new(p->arena, AST_EMPTY_DECL, start->span);
+
+    if (!parse_decl_specs(p, &s)) {
+        parse_error(p, start, "expected a declaration but found '%s'",
+                    tok_desc(start));
+        p->pos++;
+        return NULL;
+    }
+    base_kind = soup_resolve(p, &s, start);
+    if (base_kind == ABT_NONE) {
+        /* Implicit int: gcc 8 warns by default in c99+ (error only under
+         * -pedantic-errors), so we warn and continue. */
+        diag_emit(p->dc, DIAG_WARNING, start->span,
+                  "type defaults to 'int' in declaration");
+        base_kind = ABT_INT;
+    }
+
+    if (parse_eat_punct(p, PUNCT_SEMI)) {
+        AstNode *n = ast_new(p->arena, AST_EMPTY_DECL, start->span);
+        n->type = ast_type_new(p->arena, ATY_BASE, start->span);
+        n->type->base = base_kind;
+        n->type->record = s.record;
+        n->type->typedef_name = s.typedef_name;
+        if (base_kind != ABT_RECORD && base_kind != ABT_ENUM)
+            diag_emit(p->dc, DIAG_WARNING, start->span,
+                      "declaration does not declare anything");
+        return n;
+    }
+
+    for (;;) {
+        AstNode *n = ast_new(p->arena, AST_DECL, parse_peek(p)->span);
+        AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
+
+        bt->base = base_kind;
+        bt->typedef_name = s.typedef_name;
+        bt->record = s.record;
+        bt->quals = s.quals;
+        n->storage = s.storage;
+        n->func_specs = s.func_specs;
+        n->type = parse_declarator(p, bt, &n->name, false);
+
+        /* DECLARATION POINT (6.2.1p7): the name enters scope as soon as
+         * ITS declarator completes — before any initializer, and before
+         * the next declarator. This is what makes `typedef int T; T T;`
+         * declare a variable T while the specifier still meant the
+         * typedef, and what makes the following `T x;` an error. */
+        parse_scope_declare(p, n->name, (s.storage & AST_SC_TYPEDEF) != 0);
+
+        /* A function DEFINITION: `{` (or a K&R declaration list) follows. */
+        if (allow_func_def && !first && type_is_function(n->type) &&
+            (parse_at_punct(p, PUNCT_LBRACE) || parse_at_decl_specs(p))) {
+            NodeVec krs = {NULL, 0, 0};
+
+            n->kind = AST_FUNC_DEF;
+            /* K&R declaration list, before the body. */
+            while (!parse_at_punct(p, PUNCT_LBRACE) &&
+                   parse_peek(p)->kind != TOK_EOF) {
+                AstNode *kd = parse_declaration(p, false);
+                if (!kd)
+                    break;
+                NodeVec_push(&krs, kd);
+            }
+            n->nkr_decls = (u32)krs.len;
+            if (krs.len) {
+                if (!n->type->is_kr_list)
+                    parse_error(p, start,
+                                "declaration list is only allowed with a "
+                                "K&R identifier list");
+                n->kr_decls = arena_alloc(p->arena, krs.len * sizeof(AstNode *),
+                                          _Alignof(AstNode *));
+                memcpy(n->kr_decls, krs.data, krs.len * sizeof(AstNode *));
+            }
+            NodeVec_free(&krs);
+            /* The body is Sprint 10's; today we consume it as a balanced
+             * brace group so declarations after it still parse. */
+            {
+                u32 depth = 0;
+                if (parse_at_punct(p, PUNCT_LBRACE)) {
+                    do {
+                        if (parse_at_punct(p, PUNCT_LBRACE))
+                            depth++;
+                        else if (parse_at_punct(p, PUNCT_RBRACE))
+                            depth--;
+                        p->pos++;
+                    } while (depth && parse_peek(p)->kind != TOK_EOF);
+                } else {
+                    parse_error(p, parse_peek(p), "expected a function body");
+                }
+            }
+            return n;
+        }
+
+        if (n->type && n->type->is_kr_list) {
+            /* An identifier list is only legal in a DEFINITION. */
+            parse_error(p, start,
+                        "parameter names (without types) are only allowed "
+                        "in a function definition");
+        }
+        if (parse_eat_punct(p, PUNCT_ASSIGN))
+            n->init = parse_initializer(p);
+
+        if (!first)
+            first = n;
+        else
+            NodeVec_push(&siblings, n);
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+    }
+    parse_expect_punct(p, PUNCT_SEMI, "after declaration");
+
+    if (first && siblings.len) {
+        first->nitems = (u32)siblings.len;
+        first->items = arena_alloc(p->arena, siblings.len * sizeof(AstNode *),
+                                   _Alignof(AstNode *));
+        memcpy(first->items, siblings.data, siblings.len * sizeof(AstNode *));
+    }
+    NodeVec_free(&siblings);
+    return first;
+}
+
+void parse_init(Parser *p, const TokenList *tl, Preprocessor *pp, DiagCtx *dc,
+                Arena *arena, const LangOpts *lang)
+{
+    memset(p, 0, sizeof(*p));
+    p->toks = tl->toks;
+    p->ntoks = tl->n;
+    p->pp = pp;
+    p->dc = dc;
+    p->arena = arena;
+    p->lang = lang;
+    parse_scope_enter(p); /* file scope */
+}
+
+AstNode *parse_translation_unit(Parser *p)
+{
+    AstNode *tu = ast_new(p->arena, AST_TRANSLATION_UNIT, parse_peek(p)->span);
+    NodeVec decls = {NULL, 0, 0};
+
+    while (parse_peek(p)->kind != TOK_EOF) {
+        u32 before = p->pos;
+        AstNode *d = parse_declaration(p, true);
+
+        if (d)
+            NodeVec_push(&decls, d);
+        if (p->pos == before) {
+            /* No progress: skip a token so a malformed input cannot spin.
+             * Real recovery is Sprint 11's. */
+            p->pos++;
+        }
+    }
+    tu->ndecls = (u32)decls.len;
+    if (decls.len) {
+        tu->decls = arena_alloc(p->arena, decls.len * sizeof(AstNode *),
+                                _Alignof(AstNode *));
+        memcpy(tu->decls, decls.data, decls.len * sizeof(AstNode *));
+    }
+    NodeVec_free(&decls);
+    return tu;
+}
