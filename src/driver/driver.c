@@ -30,6 +30,8 @@ static const char help_text[] =
     "  -trigraphs        enable trigraph translation (default off)\n"
     "  -std=<std>        c89/gnu89/c99/c11/c17/gnu17 (default c17)\n"
     "  -pedantic         warn about non-ISO constructs\n"
+    "  -fmax-errors=N    stop after N errors (0 = unlimited, the default);\n"
+    "                    -ferror-limit=N is accepted as an alias\n"
     "  -D name[=value]   predefine a macro (value defaults to 1)\n"
     "  -U name           undefine a macro (processed in -D/-U order)\n"
     "\n"
@@ -492,6 +494,7 @@ int driver_main(int argc, char **argv)
     arena_init(&arena);
     dc = diag_ctx_new(&arena);
     a = args_parse(argc, argv);
+    diag_set_max_errors(dc, a.max_errors);
 
     if (a.unknown_opt) {
         diag_emit(dc, DIAG_ERROR, no_span, "unknown option '%s'",
@@ -500,6 +503,10 @@ int driver_main(int argc, char **argv)
     } else if (a.missing_arg) {
         diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",
                   a.missing_arg);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.bad_value) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "option '%s' needs a non-negative integer", a.bad_value);
         status = CGF_EXIT_COMPILE;
     } else if (a.too_many) {
         diag_emit(dc, DIAG_ERROR, no_span,

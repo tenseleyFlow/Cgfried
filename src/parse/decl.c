@@ -59,11 +59,57 @@ void parse_error(Parser *p, const Token *at, const char *fmt, ...)
     va_list ap;
     char msg[512];
 
+    /* Panic mode: between poisoning a construct and synchronizing, every
+     * further complaint is a consequence of the one already reported.
+     * Counting instead of emitting is what makes "one mistake, one
+     * diagnostic" true, and diag_suppressed_count is how tests tell that
+     * apart from an error that never happened. */
+    if (p->recovering) {
+        p->nerrors++;
+        diag_note_suppressed(p->dc);
+        return;
+    }
+
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
     p->nerrors++;
     diag_emit(p->dc, DIAG_ERROR, at->span, "%s", msg);
+}
+
+/* The span just PAST the previous token: where a missing ';' or ')' should
+ * be inserted. clang points here; gcc 8 points at the following token and
+ * says "before '}' token", which sends the reader to the wrong line when
+ * the next token is on the next line. We follow clang deliberately. */
+static Span span_after_prev(Parser *p)
+{
+    const Token *prev;
+    Span sp;
+
+    if (p->pos == 0)
+        return parse_peek(p)->span;
+    prev = &p->toks[p->pos - 1];
+    sp = prev->span;
+    sp.col += sp.len;
+    sp.len = 1;
+    return sp;
+}
+
+void parse_error_after_prev(Parser *p, PpPunct expected, const char *what)
+{
+    Span sp = span_after_prev(p);
+    const char *name = ast_punct_name((u16)expected);
+
+    if (p->recovering) {
+        p->nerrors++;
+        diag_note_suppressed(p->dc);
+        return;
+    }
+    p->nerrors++;
+    /* The fix-it is RECORDED, not rendered — Sprint 37 owns the output
+     * format. Storing it now means the repair is testable today. */
+    diag_emit_fixit(p->dc, DIAG_ERROR, sp, sp, name, "expected '%s'%s%s", name,
+                    what ? " " : "", what ? what : "");
 }
 
 static const char *tok_desc(const Token *t)
@@ -80,6 +126,14 @@ void parse_expect_punct(Parser *p, PpPunct punct, const char *what)
 {
     if (parse_eat_punct(p, punct))
         return;
+    /* Closers and ';' are MISSING-token errors: the useful position is
+     * where the token belongs, not where the parser noticed. Everything
+     * else names what was actually found, which is the useful half there. */
+    if (punct == PUNCT_SEMI || punct == PUNCT_RPAREN ||
+        punct == PUNCT_RBRACKET || punct == PUNCT_RBRACE) {
+        parse_error_after_prev(p, punct, what);
+        return;
+    }
     parse_error(p, parse_peek(p), "expected '%s'%s%s but found '%s'",
                 ast_punct_name((u16)punct), what ? " " : "", what ? what : "",
                 tok_desc(parse_peek(p)));
@@ -1178,6 +1232,85 @@ static bool type_is_function(const AstType *t)
     return t && t->kind == ATY_FUNC;
 }
 
+/* THE unknown-type heuristic — the single biggest source of cascade in a C
+ * parser. One missing header turns `u32 x;` into "expected a declaration",
+ * then the declarator, the initializer, and every later use of `u32` all
+ * report too. gcc and clang both special-case it and so do we: diagnose
+ * ONCE, then treat the name as a typedef for an error type so the rest of
+ * the file parses normally.
+ *
+ * The name is recorded in TWO places on purpose: `unknown_types` so it is
+ * never diagnosed twice, and the FILE scope as a typedef so every later
+ * use — including inside functions declared earlier — simply resolves. */
+static bool is_known_unknown_type(Parser *p, const char *name)
+{
+    ScopeEntry *e;
+
+    for (e = p->unknown_types; e; e = e->next)
+        if (e->name == name) /* interned: pointer compare */
+            return true;
+    return false;
+}
+
+static void declare_unknown_type(Parser *p, const Token *id)
+{
+    ScopeEntry *e;
+    ParseScope *file_scope;
+
+    e = arena_alloc(p->arena, sizeof(ScopeEntry), _Alignof(ScopeEntry));
+    e->name = id->spelling;
+    e->is_typedef = true;
+    e->next = p->unknown_types;
+    p->unknown_types = e;
+
+    /* Register in FILE scope, not the current one: the error type must
+     * outlive the block that first mentioned it, or a second function
+     * using the same name re-diagnoses. */
+    for (file_scope = p->scope; file_scope->parent;
+         file_scope = file_scope->parent)
+        ;
+    e = arena_alloc(p->arena, sizeof(ScopeEntry), _Alignof(ScopeEntry));
+    e->name = id->spelling;
+    e->is_typedef = true;
+    e->next = file_scope->ordinary;
+    file_scope->ordinary = e;
+}
+
+/* Does an identifier here start a declaration whose type name we do not
+ * know? At FILE scope everything is a declaration, so any identifier in
+ * specifier position qualifies. At BLOCK scope it must be the unambiguous
+ * `ident ident` shape: `x * y;` is multiplication when x is a variable,
+ * and guessing otherwise would break valid code — sema diagnoses the
+ * undeclared `x` there instead. */
+bool parse_at_unknown_type(Parser *p)
+{
+    const Token *t = parse_peek(p);
+
+    if (t->kind != TOK_IDENT || parse_is_typedef_name(p, t->spelling))
+        return false;
+    if (p->scope_depth == 0)
+        return true;
+    return parse_peek_n(p, 1)->kind == TOK_IDENT;
+}
+
+/* Diagnoses (once) and registers. Returns the token consumed. */
+static void take_unknown_type(Parser *p, SpecSoup *s)
+{
+    const Token *id = parse_peek(p);
+
+    if (!is_known_unknown_type(p, id->spelling)) {
+        parse_error(p, id, "unknown type name '%s'", id->spelling);
+        declare_unknown_type(p, id);
+    }
+    /* Recover AS IF it were a typedef: the declarator, the initializer and
+     * every later use then parse normally, which is the entire payoff. */
+    s->n_other++;
+    s->other_base = ABT_TYPEDEF;
+    s->typedef_name = id->spelling;
+    s->saw_any = true;
+    p->pos++;
+}
+
 AstNode *parse_declaration(Parser *p, bool allow_func_def)
 {
     SpecSoup s;
@@ -1192,10 +1325,18 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         return ast_new(p->arena, AST_EMPTY_DECL, start->span);
 
     if (!parse_decl_specs(p, &s)) {
-        parse_error(p, start, "expected a declaration but found '%s'",
-                    tok_desc(start));
-        p->pos++;
-        return NULL;
+        if (parse_at_unknown_type(p)) {
+            memset(&s, 0, sizeof(s));
+            take_unknown_type(p, &s);
+        } else {
+            AstNode *bad;
+
+            parse_error(p, start, "expected a declaration but found '%s'",
+                        tok_desc(start));
+            bad = parse_error_node(p, start->span);
+            parse_sync(p, SYNC_DECL);
+            return bad;
+        }
     }
     base_kind = soup_resolve(p, &s, start);
     if (base_kind == ABT_NONE) {
@@ -1333,7 +1474,13 @@ AstNode *parse_translation_unit(Parser *p)
 
     while (parse_peek(p)->kind != TOK_EOF) {
         u32 before = p->pos;
-        AstNode *d = parse_declaration(p, true);
+        AstNode *d;
+
+        /* The cap latched: stop producing work nobody will read. The
+         * driver turns the latch into exit 1, so nothing here exits. */
+        if (diag_error_limit_reached(p->dc))
+            break;
+        d = parse_declaration(p, true);
 
         if (d)
             NodeVec_push(&decls, d);

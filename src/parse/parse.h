@@ -51,7 +51,16 @@ typedef struct Parser {
     const LangOpts *lang;
     u32 nerrors;
 
-    u32 scope_depth;    /* 0 = file scope; drives compound-literal storage */
+    u32 scope_depth;   /* 0 = file scope; drives compound-literal storage */
+    u32 bracket_depth; /* against CGF_MAX_BRACKET_DEPTH */
+    /* Panic mode: set when a construct is poisoned, cleared by parse_sync.
+     * While set, parse_error counts instead of emitting — everything in the
+     * window is a consequence of the error already reported. */
+    bool recovering;
+    /* Names diagnosed once by the unknown-type heuristic. They are also
+     * declared as typedefs in FILE scope, so later uses simply parse; this
+     * set exists so the same name is never diagnosed twice. */
+    ScopeEntry *unknown_types;
     u32 unevaluated;    /* >0 inside sizeof/_Alignof/_Generic controllers */
     u32 switch_depth;   /* `case`/`default` outside a switch is an error */
     u32 loop_depth;     /* `continue` outside a loop is an error */
@@ -67,6 +76,35 @@ void parse_scope_enter(Parser *p);
 void parse_scope_leave(Parser *p);
 void parse_scope_declare(Parser *p, const char *name, bool is_typedef);
 bool parse_is_typedef_name(Parser *p, const char *name);
+
+/* C11 5.2.4.1 requires 63 levels of parenthesized expressions; this bound
+ * exists only so pathological input reports an error instead of running
+ * recursive descent out of stack. */
+#define CGF_MAX_BRACKET_DEPTH 256
+
+/* Panic-mode recovery (src/parse/recover.c). See that file for the
+ * PROGRESS and SCOPE BALANCE invariants — both are load-bearing. */
+typedef enum SyncSet {
+    SYNC_DECL,   /* restart at a declaration */
+    SYNC_STMT,   /* restart at a statement or declaration */
+    SYNC_MEMBER, /* inside a struct/union body */
+    SYNC_PAREN   /* stop at the closer of the enclosing bracket */
+} SyncSet;
+
+void parse_sync(Parser *p, SyncSet set);
+AstNode *parse_error_node(Parser *p, Span sp);
+/* Propagates poison from a child at CONSTRUCTION time, so no pass ever has
+ * to re-walk looking for AST_ERROR. Returns `n`. */
+AstNode *parse_poison_from(AstNode *n, const AstNode *child);
+bool parse_depth_enter(Parser *p, const Token *at);
+void parse_depth_leave(Parser *p);
+/* Expects a closing bracket, attaching a "to match this '('" note at the
+ * opener when it is missing. */
+void parse_expect_close(Parser *p, PpPunct closer, Span opener,
+                        const char *what);
+/* Reports a missing token at the position just PAST the previous token —
+ * where the fix belongs — rather than at the unexpected one. */
+void parse_error_after_prev(Parser *p, PpPunct expected, const char *what);
 
 AstNode *parse_translation_unit(Parser *p);
 AstNode *parse_declaration(Parser *p, bool allow_func_def);
@@ -111,5 +149,8 @@ bool parse_at_decl_specs(Parser *p);
 /* True for the `__builtin_` reserved prefix: those names are the
  * compiler's own, and every one of them defers to Sprint 28. */
 bool parse_is_builtin_name(const char *name);
+/* True if the current identifier should be treated as an unknown TYPE name
+ * rather than an expression — see the heuristic's comment in decl.c. */
+bool parse_at_unknown_type(Parser *p);
 
 #endif

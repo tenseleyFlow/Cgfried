@@ -28,10 +28,20 @@ typedef enum {
     DIAG_FATAL,
 } DiagLevel;
 
+/* A machine-applicable edit. RECORDED here, RENDERED in Sprint 37 (which
+ * owns -fdiagnostics-*): a fix-it that is stored but not printed still lets
+ * tests assert the compiler knew the repair, without committing to an
+ * output format we have not designed yet. `insert == NULL` means absent. */
+typedef struct DiagFixit {
+    Span where;         /* the point (len 0) or range to replace */
+    const char *insert; /* text to insert there; NULL = no fix-it */
+} DiagFixit;
+
 typedef struct {
     DiagLevel level;
     Span span;
     const char *message; /* formatted, arena-owned */
+    DiagFixit fixit;
 } Diag;
 
 typedef struct DiagCtx DiagCtx;
@@ -55,8 +65,38 @@ DiagSink diag_swap_sink(DiagCtx *dc, DiagSink sink);
  * src is borrowed and must outlive the context. */
 u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len);
 void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...);
+/* Same, carrying a fix-it. `insert` is borrowed and must outlive the sink
+ * call (string literals and interned names qualify). */
+void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
+                     const char *insert, const char *fmt, ...);
 bool diag_had_error(const DiagCtx *dc);
 u32 diag_error_count(const DiagCtx *dc);
+
+/* Error cap (-fmax-errors=N, alias -ferror-limit=N). 0 = unlimited, which
+ * is gcc's default. Counts ERRORS only — warnings and notes never move it.
+ *
+ * Reaching the cap does NOT exit here: cgf_ice is the only process-exit in
+ * src/ besides main returning, and that invariant is what keeps the
+ * exit-code contract auditable. Instead the cap latches a flag, emits the
+ * final message once, and every subsequent diagnostic is dropped; the
+ * parser's loops poll diag_error_limit_reached() and unwind, and the
+ * driver turns it into exit 1. */
+void diag_set_max_errors(DiagCtx *dc, u32 max_errors);
+bool diag_error_limit_reached(const DiagCtx *dc);
+
+/* Diagnostics the front end deliberately did NOT emit because they would
+ * have been about a poisoned (already-diagnosed) construct. Tests assert
+ * this moved, which is the only way to tell real suppression apart from
+ * an error that never happened. */
+u32 diag_suppressed_count(const DiagCtx *dc);
+void diag_note_suppressed(DiagCtx *dc);
+
+/* "did you mean 'uint32_t'?" — needs symbol tables, so Sprint 12 owns it.
+ * Declared and NOT defined on purpose: a stub that silently emitted
+ * nothing would be indistinguishable from a working implementation with no
+ * candidates, and calling this today is a link error rather than a lie. */
+void diag_note_suggest(DiagCtx *dc, Span sp, const char *unknown,
+                       const char *const *candidates, size_t ncandidates);
 
 /* Default sink; renders per the format contract (path:line:col, source line,
  * caret line mirroring pre-caret tabs). Color per diag_use_color(). */

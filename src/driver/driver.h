@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#include "util/base.h"
+
 /* Single source of truth for the version; Sprint 62 audits every copy. */
 #define CGF_VERSION "0.1.0"
 
@@ -33,6 +35,7 @@ typedef struct {
     bool dump_ast;       /* --dump-ast (declarator round-trip goldens) */
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
     bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
+    u32 max_errors;      /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
     int std;             /* CStd value; default C17 */
     bool trigraphs;      /* -trigraphs (default off, gcc parity) */
     bool nostdinc;       /* -nostdinc: no system include dirs */
@@ -40,6 +43,7 @@ typedef struct {
     const char *unknown_opt; /* first unrecognized option, or NULL */
     const char *missing_arg; /* option lacking its argument, or NULL */
     const char *too_many;    /* which fixed cap overflowed, or NULL */
+    const char *bad_value;   /* option whose value did not parse, or NULL */
     const char *input;       /* first input-file argument, or NULL */
     const char *extra_input; /* second input file (unsupported), or NULL */
 

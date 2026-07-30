@@ -165,10 +165,14 @@ static AstNode *parse_primary_expr(Parser *p)
             return expr_new(p, AST_ERROR, t->span);
         }
         p->pos++;
+        if (!parse_depth_enter(p, t))
+            return parse_error_node(p, t->span);
         n = expr_new(p, AST_EXPR_PAREN, t->span);
         n->lhs = parse_expr(p);
-        parse_expect_punct(p, PUNCT_RPAREN, "after parenthesized expression");
-        return n;
+        parse_depth_leave(p);
+        parse_expect_close(p, PUNCT_RPAREN, t->span,
+                           "after parenthesized expression");
+        return parse_poison_from(n, n->lhs);
     }
     return expr_error(p, t, "an expression");
 }
@@ -197,10 +201,16 @@ static AstNode *parse_postfix_ops(Parser *p, AstNode *base)
 
         if (parse_eat_punct(p, PUNCT_LBRACKET)) {
             AstNode *n = expr_new(p, AST_EXPR_INDEX, t->span);
+
+            if (!parse_depth_enter(p, t))
+                return parse_error_node(p, t->span);
             n->lhs = base;
             n->rhs = parse_expr(p);
-            parse_expect_punct(p, PUNCT_RBRACKET, "after array subscript");
-            base = n;
+            parse_depth_leave(p);
+            parse_expect_close(p, PUNCT_RBRACKET, t->span,
+                               "after array subscript");
+            parse_poison_from(n, base);
+            base = parse_poison_from(n, n->rhs);
         } else if (parse_eat_punct(p, PUNCT_LPAREN)) {
             AstNode *n = expr_new(p, AST_EXPR_CALL, t->span);
             ExprVec args = {NULL, 0, 0};
@@ -216,7 +226,8 @@ static AstNode *parse_postfix_ops(Parser *p, AstNode *base)
                         break;
                 }
             }
-            parse_expect_punct(p, PUNCT_RPAREN, "after argument list");
+            parse_expect_close(p, PUNCT_RPAREN, t->span,
+                               "after the argument list");
             n->nargs = (u32)args.len;
             if (args.len) {
                 n->args = arena_alloc(p->arena, args.len * sizeof(AstNode *),
@@ -406,7 +417,7 @@ static AstNode *parse_cast_expr(Parser *p)
             AstType *ty = parse_type_name(p);
             AstNode *n;
 
-            parse_expect_punct(p, PUNCT_RPAREN, "after the type name");
+            parse_expect_close(p, PUNCT_RPAREN, t->span, "after the type name");
             /* `(T){...}` is a compound literal — a POSTFIX expression that
              * can take further postfix operators, as in `(int[]){1,2}[0]`
              * and `&(struct S){0}`. */

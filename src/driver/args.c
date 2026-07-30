@@ -44,6 +44,32 @@ DriverArgs args_parse(int argc, char **argv)
             a.syntax_only = true;
         } else if (strcmp(s, "-pedantic") == 0) {
             a.pedantic = true;
+        } else if (strncmp(s, "-fmax-errors=", 13) == 0 ||
+                   strncmp(s, "-ferror-limit=", 14) == 0) {
+            /* gcc spells it -fmax-errors=, clang -ferror-limit=; accept
+             * both so neither muscle memory is wrong. 0 = unlimited, which
+             * is gcc's default. */
+            const char *v = s + (s[2] == 'm' ? 13 : 14);
+            unsigned long n = 0;
+            const char *q = v;
+
+            if (!*q) {
+                a.bad_value = s;
+            } else {
+                for (; *q; q++) {
+                    if (*q < '0' || *q > '9') {
+                        a.bad_value = s;
+                        break;
+                    }
+                    n = n * 10 + (unsigned long)(*q - '0');
+                    if (n > 0xffffffffUL) {
+                        n = 0xffffffffUL;
+                        break;
+                    }
+                }
+            }
+            if (!a.bad_value)
+                a.max_errors = (u32)n;
         } else if (strncmp(s, "-std=", 5) == 0) {
             const char *v = s + 5;
             if (strcmp(v, "c89") == 0 || strcmp(v, "c90") == 0 ||

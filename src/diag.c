@@ -20,6 +20,9 @@ struct DiagCtx {
     DiagSink sink;
     u32 error_count;
     u32 warning_count;
+    u32 max_errors;       /* 0 = unlimited (gcc's default) */
+    u32 suppressed_count; /* diagnostics deliberately not emitted */
+    bool limit_reached;
 };
 
 static const char *ice_input; /* set once by the driver; read only by cgf_ice */
@@ -66,17 +69,23 @@ u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
     return (u32)dc->files_len; /* ids are 1-based; 0 = no location */
 }
 
-void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...)
+/* The single emission path. `fix_where`/`insert` may be a zero Span and
+ * NULL for the (usual) no-fix-it case. */
+static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
+                   const char *insert, const char *fmt, va_list ap)
 {
-    va_list ap, ap2;
+    va_list ap2;
     int need;
     char *msg;
     Diag d;
 
-    va_start(ap, fmt);
+    /* Once the cap has latched, everything after it is noise: the whole
+     * point of the cap is to bound output volume. */
+    if (dc->limit_reached)
+        return;
+
     va_copy(ap2, ap);
     need = vsnprintf(NULL, 0, fmt, ap);
-    va_end(ap);
     if (need < 0)
         CGF_ICE("diag_emit: vsnprintf failed on format \"%s\"", fmt);
     msg = arena_alloc(dc->arena, (size_t)need + 1, 1);
@@ -88,10 +97,67 @@ void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...)
     else if (lvl == DIAG_WARNING)
         dc->warning_count++;
 
+    memset(&d, 0, sizeof(d));
     d.level = lvl;
     d.span = sp;
     d.message = msg;
+    d.fixit.where = fix_where;
+    d.fixit.insert = insert;
     dc->sink.handle(dc->sink.user, &d, dc);
+
+    /* The cap message is itself a diagnostic, so latch AFTER emitting the
+     * one that hit the limit and emit the notice through the same sink —
+     * a capturing sink in a test sees it exactly as stderr would. */
+    if (dc->max_errors && dc->error_count >= dc->max_errors &&
+        (lvl == DIAG_ERROR || lvl == DIAG_FATAL)) {
+        Diag stop;
+
+        memset(&stop, 0, sizeof(stop));
+        stop.level = DIAG_FATAL;
+        stop.message = "too many errors, stopping";
+        dc->sink.handle(dc->sink.user, &stop, dc);
+        dc->limit_reached = true;
+    }
+}
+
+void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...)
+{
+    va_list ap;
+    Span nofix = {0};
+
+    va_start(ap, fmt);
+    emit_v(dc, lvl, sp, nofix, NULL, fmt, ap);
+    va_end(ap);
+}
+
+void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
+                     const char *insert, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    emit_v(dc, lvl, sp, fix_where, insert, fmt, ap);
+    va_end(ap);
+}
+
+void diag_set_max_errors(DiagCtx *dc, u32 max_errors)
+{
+    dc->max_errors = max_errors;
+}
+
+bool diag_error_limit_reached(const DiagCtx *dc)
+{
+    return dc->limit_reached;
+}
+
+u32 diag_suppressed_count(const DiagCtx *dc)
+{
+    return dc->suppressed_count;
+}
+
+void diag_note_suppressed(DiagCtx *dc)
+{
+    dc->suppressed_count++;
 }
 
 bool diag_had_error(const DiagCtx *dc)

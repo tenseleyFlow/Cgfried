@@ -50,7 +50,10 @@ static LabelEntry *label_intern(Parser *p, const char *name, Span sp)
  * declaration iff T is a visible typedef, and multiplication otherwise. */
 static AstNode *parse_block_item(Parser *p, bool *saw_stmt)
 {
-    if (parse_at_decl_specs(p)) {
+    /* `ident ident` at block scope is the one shape that cannot be an
+     * expression, so it is the only one the unknown-type heuristic may
+     * claim here — see parse_at_unknown_type. */
+    if (parse_at_decl_specs(p) || parse_at_unknown_type(p)) {
         const Token *start = parse_peek(p);
         AstNode *d;
         AstNode *n;
@@ -83,7 +86,13 @@ AstNode *parse_compound_stmt(Parser *p)
     parse_expect_punct(p, PUNCT_LBRACE, "to open a block");
     while (!parse_at_punct(p, PUNCT_RBRACE) && parse_peek(p)->kind != TOK_EOF) {
         u32 before = p->pos;
-        AstNode *it = parse_block_item(p, &saw_stmt);
+        AstNode *it;
+
+        /* The cap latched: stop producing work nobody will read. Nothing
+         * exits here — the driver turns the latch into exit 1. */
+        if (diag_error_limit_reached(p->dc))
+            break;
+        it = parse_block_item(p, &saw_stmt);
 
         if (it)
             StmtVec_push(&items, it);
@@ -390,7 +399,15 @@ AstNode *parse_stmt(Parser *p)
         AstNode *n = stmt_new(p, AST_STMT_EXPR, t->span);
 
         n->lhs = parse_expr(p);
-        parse_expect_punct(p, PUNCT_SEMI, "after an expression statement");
+        parse_poison_from(n, n->lhs);
+        if (!parse_eat_punct(p, PUNCT_SEMI)) {
+            parse_error_after_prev(p, PUNCT_SEMI, "after an expression");
+            n->poisoned = true;
+            /* Synchronize: one missing ';' should cost one diagnostic, not
+             * one per statement for the rest of the function. */
+            p->recovering = true;
+            parse_sync(p, SYNC_STMT);
+        }
         return n;
     }
 }
