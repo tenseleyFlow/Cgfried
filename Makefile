@@ -76,7 +76,8 @@ $(DIRS):
 # skip must appear exactly (never silent either way).
 test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(BUILD)/unit_tests
-	$(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
+	CGF_TEST_CC=$(BUILD)/cgfried \
+	    $(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
 	    > $(BUILD)/programs.log 2>&1; s=$$?; \
 	    cat $(BUILD)/programs.log; exit $$s
 	sh ci/check_skips.sh linux-x86_64 $(BUILD)/programs.log
