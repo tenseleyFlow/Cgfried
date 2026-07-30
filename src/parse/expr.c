@@ -140,6 +140,18 @@ static AstNode *parse_primary_expr(Parser *p)
     if (parse_at_kw(p, KW_GENERIC))
         return parse_generic(p);
 
+    /* GNU address-of-label: `&&lab`. It reaches primary rather than the
+     * unary path because `&&` lexes as one token, so without this it
+     * would report a bare "expected an expression". */
+    if (parse_at_punct(p, PUNCT_AMPAMP) &&
+        parse_peek_n(p, 1)->kind == TOK_IDENT) {
+        parse_error(p, t,
+                    "the GNU address-of-label operator '&&' is not yet "
+                    "supported (lands in Sprint 55)");
+        p->pos += 2;
+        return expr_new(p, AST_ERROR, t->span);
+    }
+
     if (parse_at_punct(p, PUNCT_LPAREN)) {
         /* A GNU statement expression `({ ... })` is a paren immediately
          * followed by a brace. Diagnose it here rather than letting the

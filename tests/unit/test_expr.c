@@ -334,6 +334,10 @@ void test_expr_deferrals_and_errors(TestCtx *t)
     expr_bad(t, "int f(void) { return ({ 1; }); }\n");    /* stmt expr */
     expr_bad(t, "int f(int a) { return _Alignof a; }\n"); /* GNU alignof */
     expr_bad(t, "void f(void *p) { goto *p; }\n");        /* computed goto */
+    /* `&&lab` — the address-of-label operator. `&&` is a single token, so
+     * it reaches primary rather than the unary path, and without an
+     * explicit case it reports only "expected an expression". */
+    expr_bad(t, "void f(void){ void *p = &&lab; lab: ; (void)p; }\n");
 
     /* `sizeof (T)(x)` — a cast-expression is not a unary-expression, so
      * sizeof stops at the type and the `(x)` is stray. gcc agrees. */
