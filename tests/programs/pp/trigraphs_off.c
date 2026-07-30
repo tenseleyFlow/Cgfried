@@ -1,0 +1,3 @@
+// FLAGS: -E
+// CHECK: x ??= y
+x ??= y

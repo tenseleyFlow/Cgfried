@@ -27,6 +27,17 @@ test sources). Examples:
 // TIMEOUT: 30
 ```
 
+```c
+// FLAGS: -E -trigraphs
+// ENV: CGF_PP_DUMP_TOKENS=1
+```
+
+`FLAGS` adds space-separated arguments to the compile step (one FLAGS line
+per test). When it contains `-E` the pipeline stops at the compiler:
+`CHECK`/`EXIT_CODE` then apply to the *compiler's* stdout and exit code —
+that is how preprocessor fixtures assert on token dumps. `ENV` (repeatable)
+sets `NAME=VALUE` in the compile step's environment.
+
 Target selectors are the closed target-name set (`x86_64-linux-gnu`,
 `arm64-linux`, `arm64-macos`, `x86_64-linux-musl`, `x86_64-freebsd`) plus
 `*`. Unknown selectors are configuration errors. Every `XFAIL` cites an

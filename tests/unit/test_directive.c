@@ -184,3 +184,29 @@ void test_directive_cross_constraints(TestCtx *t)
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     arena_free_all(&a);
 }
+
+void test_directive_flags_env(TestCtx *t)
+{
+    Arena a;
+    DirectiveSet ds;
+
+    arena_init(&a);
+    ds = parse(&a, "// FLAGS: -E -trigraphs\n// ENV: A=1\n// ENV: B=x=y\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_STR(t, ds.flags, "-E -trigraphs");
+    T_ASSERT_EQ_INT(t, ds.ndirs, 2); /* the two ENV entries */
+    T_ASSERT(t, ds.dirs[0].kind == DIR_ENV);
+    T_ASSERT_EQ_STR(t, ds.dirs[0].value, "A=1");
+    T_ASSERT_EQ_STR(t, ds.dirs[1].value, "B=x=y"); /* first '=' splits */
+
+    /* Duplicate FLAGS is a config error; malformed ENV likewise. */
+    ds = parse(&a, "// FLAGS: -E\n// FLAGS: -E\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// ENV: NOVALUE\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// ENV: =x\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// FLAGS: \n"); /* trailing space, empty value */
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    arena_free_all(&a);
+}
