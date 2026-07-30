@@ -26,7 +26,16 @@ static const char help_text[] =
     "\n"
     "Environment:\n"
     "  NO_COLOR          disable diagnostic colors (any non-empty value)\n"
-    "  CLICOLOR_FORCE    force diagnostic colors even when piped\n";
+    "  CLICOLOR_FORCE    force diagnostic colors even when piped\n"
+    "  CGF_AS            unset/1: use bundled afs-as (default); 0: system "
+    "'as'\n"
+    "  CGF_AS_PATH       use exactly this assembler (wins over CGF_AS)\n"
+    "  CGF_LD            unset/0: use system 'ld' (default); 1: afs-ld "
+    "(Sprint 27)\n"
+    "  CGF_LD_PATH       use exactly this linker (wins over CGF_LD)\n"
+    "  CGF_CRT_DIR       crt object discovery override (used from Sprint "
+    "27)\n"
+    "  Empty-string values are treated as unset.\n";
 
 int driver_main(int argc, char **argv)
 {
