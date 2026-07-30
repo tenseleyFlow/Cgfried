@@ -21,6 +21,9 @@ typedef enum {
     DIR_XFAIL,
     DIR_SKIP,
     DIR_TIMEOUT,
+    DIR_FLAGS,     /* extra compiler argv (space-separated); -E switches the
+                      pipeline to compiler-output checking */
+    DIR_ENV,       /* NAME=VALUE for the compile step; repeatable */
     DIR_OPT_EQ,    /* reserved: hard-errors naming Sprint 30 */
     DIR_ASM_CHECK, /* reserved: hard-errors naming Sprint 24 */
     DIR_IR_CHECK,  /* reserved: hard-errors naming Sprint 17 */
@@ -44,8 +47,9 @@ typedef struct {
     size_t ndirs;
     DirectiveError *errs; /* configuration errors; any => CONFIG ERROR */
     size_t nerrs;
-    int exit_code; /* EXIT_CODE value, default 0 */
-    int timeout;   /* TIMEOUT value in seconds, 0 = none given */
+    int exit_code;     /* EXIT_CODE value, default 0 */
+    int timeout;       /* TIMEOUT value in seconds, 0 = none given */
+    const char *flags; /* FLAGS value (raw, space-separated), or NULL */
     bool has_error_expected;
 } DirectiveSet;
 

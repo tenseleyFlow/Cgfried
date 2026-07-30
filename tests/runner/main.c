@@ -315,7 +315,64 @@ static void mkdir_p2(const char *a, const char *b)
 
 typedef enum { OUT_PASS, OUT_FAIL } Outcome;
 
-/* Compile-and-run pipeline; on failure, failure text has been printed. */
+/* Applies // ENV: NAME=VALUE pairs around the compile spawn, restoring the
+ * previous environment afterwards (single-threaded; setenv is safe here). */
+typedef struct {
+    char *name;
+    char *old; /* NULL = was unset */
+    bool had_old;
+} SavedEnv;
+
+static size_t env_apply(Runner *r, const DirectiveSet *ds, SavedEnv **out)
+{
+    size_t n = 0, i;
+    SavedEnv *saved;
+
+    for (i = 0; i < ds->ndirs; i++)
+        if (ds->dirs[i].kind == DIR_ENV)
+            n++;
+    if (n == 0) {
+        *out = NULL;
+        return 0;
+    }
+    saved = arena_alloc(&r->arena, n * sizeof(SavedEnv), _Alignof(SavedEnv));
+    n = 0;
+    for (i = 0; i < ds->ndirs; i++) {
+        const char *v;
+        size_t eq;
+
+        if (ds->dirs[i].kind != DIR_ENV)
+            continue;
+        v = ds->dirs[i].value;
+        eq = strcspn(v, "=");
+        saved[n].name = arena_strndup(&r->arena, v, eq);
+        {
+            const char *old = getenv(saved[n].name);
+            saved[n].had_old = old != NULL;
+            saved[n].old = old ? arena_strdup(&r->arena, old) : NULL;
+        }
+        setenv(saved[n].name, v + eq + 1, 1);
+        n++;
+    }
+    *out = saved;
+    return n;
+}
+
+static void env_restore(SavedEnv *saved, size_t n)
+{
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        if (saved[i].had_old)
+            setenv(saved[i].name, saved[i].old, 1);
+        else
+            unsetenv(saved[i].name);
+    }
+}
+
+/* Compile(+run) pipeline; on failure, failure text has been printed.
+ * With // FLAGS: containing -E the pipeline stops at the compile step and
+ * CHECK/EXIT_CODE apply to the COMPILER's stdout/exit (pp fixtures). */
 static Outcome run_pipeline(Runner *r, const TestFile *t,
                             const DirectiveSet *ds, const char *id, int timeout,
                             bool quiet)
@@ -323,18 +380,48 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
     char *binpath;
     SpawnResult comp;
     Outcome out = OUT_FAIL;
+    bool pp_mode = false;
+    SavedEnv *saved_env;
+    size_t saved_n;
 
     binpath =
         aprintf(&r->arena, "build/test-work/%s_%s.bin", t->suite, t->name);
 
     {
-        char *argv[5];
-        argv[0] = (char *)r->cc;
-        argv[1] = t->path;
-        argv[2] = (char *)"-o";
-        argv[3] = binpath;
-        argv[4] = NULL;
+        char *argv[32];
+        int n = 0;
+
+        argv[n++] = (char *)r->cc;
+        if (ds->flags) {
+            char *fl = arena_strdup(&r->arena, ds->flags);
+            char *piece = fl;
+            while (*piece) {
+                char *end = piece + strcspn(piece, " ");
+                if (*end)
+                    *end++ = '\0';
+                if (*piece) {
+                    if (strcmp(piece, "-E") == 0)
+                        pp_mode = true;
+                    if (n >= 28) {
+                        if (!quiet)
+                            printf("FAIL %s: too many FLAGS\n", id);
+                        return OUT_FAIL;
+                    }
+                    argv[n++] = piece;
+                }
+                piece = end;
+            }
+        }
+        argv[n++] = t->path;
+        if (!pp_mode) {
+            argv[n++] = (char *)"-o";
+            argv[n++] = binpath;
+        }
+        argv[n] = NULL;
+
+        saved_n = env_apply(r, ds, &saved_env);
         spawn_capture(argv, timeout, &comp);
+        env_restore(saved_env, saved_n);
     }
 
     if (!comp.spawned) {
@@ -370,6 +457,35 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
             else
                 printf("signal %d)\n", comp.term_signal);
             print_detail("compiler stderr", &comp.err);
+        }
+        spawn_result_free(&comp);
+        return out;
+    }
+
+    if (pp_mode) {
+        /* The compiler's own output IS the result under test. */
+        if (!comp.exited) {
+            if (!quiet)
+                printf("FAIL %s: compiler killed by signal %d\n", id,
+                       comp.term_signal);
+        } else if (comp.exit_code != ds->exit_code) {
+            if (!quiet) {
+                printf("FAIL %s: compiler exit code %d, expected %d\n", id,
+                       comp.exit_code, ds->exit_code);
+                print_detail("compiler stderr", &comp.err);
+            }
+        } else {
+            const Directive *miss = match_checks(ds, &comp.out);
+            if (miss) {
+                if (!quiet) {
+                    printf("FAIL %s: CHECK not matched in order (line %u): "
+                           "%s\n",
+                           id, (unsigned)miss->line, miss->value);
+                    print_detail("compiler stdout", &comp.out);
+                }
+            } else {
+                out = OUT_PASS;
+            }
         }
         spawn_result_free(&comp);
         return out;

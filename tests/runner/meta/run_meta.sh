@@ -46,13 +46,15 @@ expect config_unknown_selector.c 1 "unknown target selector"
 expect config_reserved.c 1 "Sprint 17"
 expect config_bad_xfid.c 1 "XF-NNNN"
 expect config_unknown_xfid.c 1 "not in the ledger"
+expect flags_env_pp.c 0 "pass=1"
+expect flags_dup_config.c 1 "duplicate FLAGS"
 
 # Full-directory sweep: exact summary counts and cross-run determinism.
 out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=18 pass=5 fail=5 xfail=1 xpass=1 skip=1 config=5"*) ;;
+*"total=20 pass=6 fail=5 xfail=1 xpass=1 skip=1 config=6"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)
@@ -60,7 +62,8 @@ out2=$("$RUNNER" --profile meta "$here" 2>&1)
 
 # Skip discipline end-to-end: the correct set passes; an injected extra
 # skip, a changed count, and a missing skip must each fail check_skips.
-log=build/meta.log
+# Log lives next to the runner so BUILD=build-san runs stay independent.
+log="$(dirname "$RUNNER")/meta.log"
 printf '%s\n' "$out1" >"$log"
 sh ci/check_skips.sh meta "$log" >/dev/null ||
     fail "check_skips rejected the correct skip set"

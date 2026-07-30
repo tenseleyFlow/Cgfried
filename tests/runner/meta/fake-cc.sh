@@ -4,8 +4,9 @@
 # on the test source's basename; the "binary" it produces is a shell script.
 set -eu
 
-src=$1
-shift
+# argv shape mirrors the real driver: [flags...] <src> [-o <out>]. The
+# source is the first non-option argument.
+src=""
 out=""
 while [ $# -gt 0 ]; do
     case $1 in
@@ -13,7 +14,11 @@ while [ $# -gt 0 ]; do
         out=$2
         shift 2
         ;;
-    *) shift ;;
+    -*) shift ;;
+    *)
+        [ -n "$src" ] || src=$1
+        shift
+        ;;
     esac
 done
 
@@ -37,6 +42,15 @@ exit 3
 err_expected_pass.c)
     echo "error: expected ';'" >&2
     exit 1
+    ;;
+flags_env_pp.c)
+    # Exercises FLAGS -E (compiler stdout is the result) + ENV injection.
+    if [ "${CGF_META_MODE:-}" != "ppcheck" ]; then
+        echo "fake-cc: CGF_META_MODE not injected" >&2
+        exit 1
+    fi
+    printf 'alpha\nbeta\n'
+    exit 0
     ;;
 err_expected_fail.c)
     echo "error: unrelated diagnostic" >&2

@@ -16,6 +16,8 @@ static const DirectiveName directive_table[] = {
     {"XFAIL", DIR_XFAIL},
     {"SKIP", DIR_SKIP},
     {"TIMEOUT", DIR_TIMEOUT},
+    {"FLAGS", DIR_FLAGS},
+    {"ENV", DIR_ENV},
     {"OPT_EQ", DIR_OPT_EQ},
     {"ASM_CHECK", DIR_ASM_CHECK},
     {"IR_CHECK", DIR_IR_CHECK},
@@ -28,6 +30,7 @@ typedef struct {
     size_t errs_cap;
     bool seen_exit_code;
     bool seen_timeout;
+    bool seen_flags;
 } Parser;
 
 static void err(Parser *p, u32 line, const char *msg)
@@ -38,7 +41,8 @@ static void err(Parser *p, u32 line, const char *msg)
         size_t cap = p->errs_cap ? p->errs_cap * 2 : 8;
         DirectiveError *grown = arena_alloc(
             p->arena, cap * sizeof(DirectiveError), _Alignof(DirectiveError));
-        memcpy(grown, s->errs, s->nerrs * sizeof(DirectiveError));
+        if (s->nerrs) /* memcpy from NULL is UB even for 0 */
+            memcpy(grown, s->errs, s->nerrs * sizeof(DirectiveError));
         s->errs = grown;
         p->errs_cap = cap;
     }
@@ -70,7 +74,8 @@ static void add_dir(Parser *p, Directive d)
         size_t cap = p->dirs_cap ? p->dirs_cap * 2 : 8;
         Directive *grown =
             arena_alloc(p->arena, cap * sizeof(Directive), _Alignof(Directive));
-        memcpy(grown, s->dirs, s->ndirs * sizeof(Directive));
+        if (s->ndirs) /* memcpy from NULL is UB even for 0 */
+            memcpy(grown, s->dirs, s->ndirs * sizeof(Directive));
         s->dirs = grown;
         p->dirs_cap = cap;
     }
@@ -333,6 +338,31 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             }
             d.value = arena_strndup(p->arena, value, value_len);
             break;
+        case DIR_FLAGS:
+            /* Extra compiler argv pieces (space-separated), e.g. -E. */
+            if (value_len == 0) {
+                err(p, line_no, "FLAGS needs at least one flag");
+                return;
+            }
+            if (p->seen_flags) {
+                err(p, line_no, "duplicate FLAGS directive");
+                return;
+            }
+            p->seen_flags = true;
+            p->set->flags = arena_strndup(p->arena, value, value_len);
+            break;
+        case DIR_ENV: {
+            /* NAME=VALUE for the compile step; repeatable. */
+            size_t eq = 0;
+            while (eq < value_len && value[eq] != '=')
+                eq++;
+            if (eq == 0 || eq == value_len) {
+                err(p, line_no, "ENV must be NAME=VALUE");
+                return;
+            }
+            d.value = arena_strndup(p->arena, value, value_len);
+            break;
+        }
         case DIR_OPT_EQ:
         case DIR_ASM_CHECK:
         case DIR_IR_CHECK:
@@ -344,7 +374,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         if (hit->kind == DIR_ERROR_EXPECTED)
             p->set->has_error_expected = true;
         if (hit->kind == DIR_CHECK || hit->kind == DIR_ERROR_EXPECTED ||
-            hit->kind == DIR_XFAIL || hit->kind == DIR_SKIP)
+            hit->kind == DIR_XFAIL || hit->kind == DIR_SKIP ||
+            hit->kind == DIR_ENV)
             add_dir(p, d);
     }
 }
