@@ -524,7 +524,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         memset(&v, 0, sizeof(v));
         v.kind = CV_ADDR;
         v.type = e->sem_type;
-        v.sym = NULL; /* Sprint 19 assigns the anonymous symbol */
+        v.sym = NULL;
+        v.anon = e; /* lowering materializes the .rodata object */
         return v;
     }
     case AST_EXPR_PAREN:
@@ -620,7 +621,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                              "storage duration");
                     return cv_error();
                 }
-                v.sym = NULL; /* Sprint 19 assigns the anonymous symbol */
+                v.sym = NULL;
+                v.anon = inner; /* lowering materializes the object */
                 return v;
             }
             if (inner && inner->kind == AST_EXPR_INDEX) {
@@ -871,7 +873,8 @@ static void img_put_int(InitCtx *c, u64 off, u64 value, u64 width)
         c->img->bytes[off + i] = (u8)(value >> (i * 8));
 }
 
-static void img_reloc(InitCtx *c, u64 off, Symbol *sym, i64 addend)
+static void img_reloc(InitCtx *c, u64 off, Symbol *sym, i64 addend,
+                      const AstNode *anon)
 {
     InitReloc *grown;
 
@@ -882,6 +885,7 @@ static void img_reloc(InitCtx *c, u64 off, Symbol *sym, i64 addend)
     grown[c->img->nrelocs].offset = off;
     grown[c->img->nrelocs].sym = sym;
     grown[c->img->nrelocs].addend = addend;
+    grown[c->img->nrelocs].anon = anon;
     c->img->relocs = grown;
     c->img->nrelocs++;
 }
@@ -916,7 +920,7 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
     case CV_ADDR:
         /* The bytes stay zero; the relocation carries the address, which
          * only the linker can supply. */
-        img_reloc(c, off, v.sym, v.addend);
+        img_reloc(c, off, v.sym, v.addend, v.anon);
         return;
     default:
         c->ok = false;

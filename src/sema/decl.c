@@ -552,14 +552,26 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
         TypeKind kind = at->base == ABT_ENUM                   ? TY_ENUM
                         : (at->record && at->record->is_union) ? TY_UNION
                                                                : TY_STRUCT;
-        TagDecl *tag = resolve_tag(s, at->record, kind, span);
+        TagDecl *tag;
 
+        /* Sibling declarators share ONE specifier: `struct S {...} a, b;`
+         * walks this AstType once per declarator, and reprocessing a
+         * DEFINITION would either report a bogus redefinition (named) or
+         * mint two incompatible types (anonymous). The first walk memoizes
+         * its answer on the definition node. Found by the Sprint 18
+         * lowering corpus; latent since Sprint 12. */
+        if (at->record && at->record->is_definition && at->record->sem_type)
+            return at->record->sem_type;
+
+        tag = resolve_tag(s, at->record, kind, span);
         if (at->record && at->record->is_definition && !tag->complete) {
             if (kind == TY_ENUM)
                 complete_enum(s, tag, at->record);
             else
                 complete_struct(s, tag, at->record);
         }
+        if (at->record && at->record->is_definition)
+            at->record->sem_type = tag->type;
         return tag->type;
     }
     case ABT_TYPEDEF: {
@@ -1319,6 +1331,7 @@ static void declare_one(Sema *s, AstNode *d)
         if (d->storage & AST_SC_THREAD_LOCAL)
             prev->tls = true;
         merge_redeclaration(s, prev, sym, d->storage);
+        d->sym = prev; /* lowering resolves the DECL to its symbol */
         /* The initializer still has to be TYPED even when the declaration
          * merged into an earlier one, or its expressions never get
          * checked at all. */
@@ -1326,6 +1339,7 @@ static void declare_one(Sema *s, AstNode *d)
         return;
     }
     scope_declare(s, sym);
+    d->sym = sym; /* lowering resolves the DECL to its symbol */
     sema_init_expr(s, sym->type, d, static_init);
 }
 
@@ -1443,6 +1457,8 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
                       "redefinition of parameter '%s'", pname);
         } else {
             scope_declare(s, ps);
+            if (d->param_syms && pi < d->nparam_syms)
+                d->param_syms[pi] = ps;
         }
     }
 }
@@ -1568,6 +1584,16 @@ static void sema_decl(Sema *s, AstNode *d)
             u32 pi;
             const AstType *ft = d->type;
 
+            /* Record parameter SYMBOLS on the definition node: the scope
+             * they live in is popped when the body ends, and Sprint 18's
+             * lowering needs them to bind IR parameters. */
+            if (ft && ft->kind == ATY_FUNC && ft->nparams) {
+                d->param_syms =
+                    arena_alloc(s->arena, ft->nparams * sizeof(Symbol *),
+                                _Alignof(Symbol *));
+                memset(d->param_syms, 0, ft->nparams * sizeof(Symbol *));
+                d->nparam_syms = ft->nparams;
+            }
             if (ft && ft->kind == ATY_FUNC && ft->is_kr_list) {
                 /* A K&R definition: parameter TYPES come from the
                  * declaration list between ')' and '{'; a parameter with
@@ -1599,6 +1625,8 @@ static void sema_decl(Sema *s, AstNode *d)
                                   "redefinition of parameter '%s'", ps->name);
                     } else {
                         scope_declare(s, ps);
+                        if (d->param_syms && pi < d->nparam_syms)
+                            d->param_syms[pi] = ps;
                     }
                 }
             }

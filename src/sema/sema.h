@@ -325,6 +325,11 @@ typedef struct {
     Sf f;        /* CV_FLOAT: in the format its type calls for */
     Symbol *sym; /* CV_ADDR: the symbol, for Sprint 19's relocation */
     i64 addend;
+    /* CV_ADDR with sym == NULL: the ANONYMOUS object the address names —
+     * an AST_EXPR_STRING or a file-scope AST_EXPR_COMPOUND_LIT. Sprint
+     * 18's lowering materializes it as an internal global; carrying the
+     * node is what lets it know WHICH one. */
+    const AstNode *anon;
 } ConstValue;
 
 ConstValue constexpr_eval(Sema *s, AstNode *e, CeMode mode);
@@ -336,8 +341,11 @@ bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what);
 
 typedef struct {
     u64 offset;  /* byte offset within the image */
-    Symbol *sym; /* the symbol whose address goes here */
+    Symbol *sym; /* the symbol whose address goes here; NULL when the
+                    address names an anonymous object (see `anon`) */
     i64 addend;
+    const AstNode *anon; /* sym == NULL: the string literal / file-scope
+                            compound literal to materialize (Sprint 18) */
 } InitReloc;
 
 typedef struct {
