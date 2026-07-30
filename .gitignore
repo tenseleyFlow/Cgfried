@@ -9,5 +9,6 @@
 CLAUDE.md
 AGENTS.md
 build/
+build-san/
 *.o
 *.a
