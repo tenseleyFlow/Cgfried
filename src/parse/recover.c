@@ -119,8 +119,16 @@ void parse_sync(Parser *p, SyncSet set)
     }
 
     /* PROGRESS: a caller that called us because it could not proceed must
-     * not find the cursor where it left it. */
-    if (p->pos == start && parse_peek(p)->kind != TOK_EOF)
+     * not find the cursor where it left it.
+     *
+     * EXCEPT on '}', where PROGRESS and SCOPE BALANCE collide: forcing an
+     * advance there would consume the brace the caller still needs to
+     * close its block, unbalancing the scope stack for the rest of the
+     * file. Standing still is safe because '}' terminates the block loop
+     * anyway — progress happens one level up. (The unit test that walks
+     * parse_sync from every position is what surfaced this.) */
+    if (p->pos == start && parse_peek(p)->kind != TOK_EOF &&
+        !parse_at_punct(p, PUNCT_RBRACE))
         p->pos++;
 
     /* Recovery complete: diagnostics are meaningful again. */

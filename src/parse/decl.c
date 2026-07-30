@@ -1402,10 +1402,20 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
 
             while (!parse_at_punct(p, PUNCT_LBRACE) &&
                    parse_peek(p)->kind != TOK_EOF) {
+                u32 kr_before = p->pos;
                 AstNode *kd = parse_declaration(p, false);
-                if (!kd)
+
+                if (kd)
+                    NodeVec_push(&krs, kd);
+                /* Terminate on lack of PROGRESS, never on a NULL return:
+                 * parse_declaration now yields a poisoned error node where
+                 * it used to yield NULL, and a loop that trusted NULL span
+                 * forever on a GNU-attribute pair that consumed nothing
+                 * (see tests/programs/parse/err_attr_hang.c). Every loop
+                 * over a recovering production needs its own cursor
+                 * guard. */
+                if (p->pos == kr_before)
                     break;
-                NodeVec_push(&krs, kd);
             }
             n->nkr_decls = (u32)krs.len;
             if (krs.len) {
@@ -1481,6 +1491,8 @@ AstNode *parse_translation_unit(Parser *p)
          * driver turns the latch into exit 1, so nothing here exits. */
         if (diag_error_limit_reached(p->dc))
             break;
+        /* Bound the panic window to one top-level declaration. */
+        p->recovering = false;
         d = parse_declaration(p, true);
 
         if (d)

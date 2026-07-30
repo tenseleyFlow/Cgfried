@@ -34,8 +34,10 @@ static AstNode *expr_error(Parser *p, const Token *t, const char *what)
 
     parse_error(p, t, "expected %s but found '%s'", what,
                 t->kind == TOK_EOF ? "end of file" : t->spelling);
-    n = expr_new(p, AST_ERROR, t->span);
-    n->poisoned = true;
+    /* Enter panic mode: whatever the enclosing production says next is a
+     * consequence of this. The window closes at the next parse_sync, or at
+     * the next block item / top-level declaration, whichever comes first. */
+    n = parse_error_node(p, t->span);
     return n;
 }
 
@@ -382,7 +384,7 @@ static AstNode *parse_unary_expr(Parser *p)
         /* A unary operator's operand is a CAST-expression, so `-(int)x`
          * and `!(char)c` parse. */
         n->lhs = parse_cast_expr(p);
-        return n;
+        return parse_poison_from(n, n->lhs);
     }
     if (parse_at_punct(p, PUNCT_PLUSPLUS) ||
         parse_at_punct(p, PUNCT_MINUSMINUS)) {
@@ -393,7 +395,7 @@ static AstNode *parse_unary_expr(Parser *p)
         /* Prefix ++ takes a UNARY-expression, so `++(int)x` is a syntax
          * error rather than a cast; sema rejects non-lvalues separately. */
         n->lhs = parse_unary_expr(p);
-        return n;
+        return parse_poison_from(n, n->lhs);
     }
     if (parse_at_kw(p, KW_SIZEOF))
         return parse_sizeof(p);
@@ -427,7 +429,7 @@ static AstNode *parse_cast_expr(Parser *p)
             n = expr_new(p, AST_EXPR_CAST, t->span);
             n->type = ty;
             n->lhs = parse_cast_expr(p); /* right-associative */
-            return n;
+            return parse_poison_from(n, n->lhs);
         }
         /* Not a type-name after all: `(x)(y)` is a CALL when x is an
          * ordinary identifier. Rewind and let the unary/postfix path take
@@ -498,7 +500,8 @@ static AstNode *parse_binary_expr(Parser *p, int min_prec)
         n->op = t->punct;
         n->lhs = lhs;
         n->rhs = parse_binary_expr(p, prec + 1); /* +1 => left-assoc */
-        lhs = n;
+        parse_poison_from(n, n->lhs);
+        lhs = parse_poison_from(n, n->rhs);
     }
 }
 
@@ -525,7 +528,9 @@ AstNode *parse_cond_expr(Parser *p)
         parse_expect_punct(p, PUNCT_COLON, "in a conditional expression");
         /* Right-associative: a?b:c?d:e is a?b:(c?d:e). */
         n->rhs = parse_cond_expr(p);
-        return n;
+        parse_poison_from(n, n->lhs);
+        parse_poison_from(n, n->mid);
+        return parse_poison_from(n, n->rhs);
     }
     return cond;
 }
@@ -566,7 +571,8 @@ AstNode *parse_assign_expr(Parser *p)
         n->lhs = lhs;
         p->pos++;
         n->rhs = parse_assign_expr(p); /* right-associative */
-        return n;
+        parse_poison_from(n, n->lhs);
+        return parse_poison_from(n, n->rhs);
     }
     return lhs;
 }
@@ -584,7 +590,8 @@ AstNode *parse_expr(Parser *p)
         n->op = PUNCT_COMMA;
         n->lhs = lhs;
         n->rhs = parse_assign_expr(p); /* left-associative */
-        lhs = n;
+        parse_poison_from(n, n->lhs);
+        lhs = parse_poison_from(n, n->rhs);
     }
     return lhs;
 }
