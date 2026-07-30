@@ -48,7 +48,12 @@ mkdir -p "$WORK"
         # the same rounding the suffix would have given.
         echo "  { volatile float f = (float)(${lit}); volatile double d = ${lit};"
         echo "    memcpy(&u32,(void*)&f,4); memcpy(&u64,(void*)&d,8);"
-        echo "    printf(\"%s %08X %016llX\\n\", \"${lit}\", u32, u64); }"
+        # printf, not echo: dash's builtin echo interprets backslash
+        # escapes, so the `\n` inside this C string literal became a real
+        # newline on CI and the generated file would not compile. Local
+        # bash does not, which is exactly why it passed here first.
+        printf '    printf("%%s %%08X %%016llX\\n", "%s", u32, u64); }\n' \
+            "$lit"
         n=$((n + 1))
     done < "$CORPUS"
     echo '  return 0; }'
