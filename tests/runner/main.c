@@ -387,6 +387,70 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
     binpath =
         aprintf(&r->arena, "build/test-work/%s_%s.bin", t->suite, t->name);
 
+    /* `// TU-BREAK` splits a fixture into several TRANSLATION UNITS,
+     * each compiled separately with the same FLAGS. Outputs are merged in
+     * order, so CHECK/ERROR_EXPECTED apply across the whole set; the
+     * compile "exit code" is the first nonzero one. With no linker yet
+     * this asserts per-TU behavior only — cross-TU questions (does the
+     * external inline definition exist SOMEWHERE?) wait for Sprint 26,
+     * which is why the directive lands with multi-TU sema fixtures rather
+     * than later, mid-linker. */
+    {
+        size_t src_len;
+        char *src = read_file(&r->arena, t->path, &src_len);
+
+        if (src && strstr(src, "// TU-BREAK")) {
+            SpawnResult merged;
+            char *cursor = src;
+            int tu = 0;
+            int first_bad = 0;
+            bool spawn_ok = true;
+
+            memset(&merged, 0, sizeof(merged));
+            merged.spawned = true;
+            merged.exited = true;
+            buf_init(&merged.out);
+            buf_init(&merged.err);
+            while (cursor && spawn_ok) {
+                char *brk = strstr(cursor, "// TU-BREAK");
+                size_t piece_len =
+                    brk ? (size_t)(brk - cursor) : strlen(cursor);
+                char *tupath =
+                    aprintf(&r->arena, "build/test-work/%s_%s.tu%d.c", t->suite,
+                            t->name, tu);
+                FILE *tf = fopen(tupath, "wb");
+                SpawnResult one;
+                char *targv[8];
+                int tn = 0;
+
+                if (!tf)
+                    break;
+                fwrite(cursor, 1, piece_len, tf);
+                fclose(tf);
+                targv[tn++] = (char *)r->cc;
+                targv[tn++] = (char *)"-fsyntax-only";
+                targv[tn++] = tupath;
+                targv[tn] = NULL;
+                spawn_capture(targv, timeout, &one);
+                spawn_ok = one.spawned;
+                buf_append(&merged.out, one.out.data, one.out.len);
+                buf_append(&merged.err, one.err.data, one.err.len);
+                if (one.exited && one.exit_code != 0 && first_bad == 0)
+                    first_bad = one.exit_code;
+                spawn_result_free(&one);
+                cursor = brk ? brk + strlen("// TU-BREAK") : NULL;
+                tu++;
+            }
+            merged.spawned = spawn_ok;
+            merged.exit_code = first_bad;
+            comp = merged;
+            /* The split TUs were compiled -fsyntax-only: there is no
+             * binary to run, exactly like the dump modes. */
+            pp_mode = true;
+            goto have_compile;
+        }
+    }
+
     {
         char *argv[32];
         int n = 0;
@@ -434,6 +498,7 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
         env_restore(saved_env, saved_n);
     }
 
+have_compile:
     if (!comp.spawned) {
         if (!quiet)
             printf("FAIL %s: could not spawn compiler '%s'\n", id, r->cc);

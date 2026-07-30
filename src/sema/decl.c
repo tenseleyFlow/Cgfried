@@ -62,6 +62,16 @@ static TagDecl *resolve_tag(Sema *s, const AstNode *rec, TypeKind kind,
          * a fresh one in an inner scope — that is what makes an inner
          * `struct S { ... }` a different type from the outer S. */
         found = scope_lookup_local(s->scope, name, NS_TAG);
+        if (found && found->tag && found->tag->defining) {
+            /* `struct T { struct T { ... } ... }`: the inner definition
+             * must NOT complete the tag whose completion is underway —
+             * that makes the struct a member of itself and every member
+             * walk a cycle. */
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, span, "nested redefinition of '%s %s'",
+                      tag_kw(kind), name);
+            return tag_new(s, name, kind, span);
+        }
         if (found && found->tag && found->tag->kind == kind &&
             !found->tag->complete)
             return found->tag;
@@ -138,6 +148,8 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     Member *last = NULL;
     u32 i;
 
+    tag->defining = true;
+
     for (i = 0; i < rec->nmembers; i++) {
         const AstNode *m = rec->members[i];
         u32 j;
@@ -153,6 +165,7 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
                        i + 1 == rec->nmembers && j + 1 == m->nitems);
     }
     tag->complete = true;
+    tag->defining = false;
     {
         Member *mm;
         bool any_named = false;
@@ -206,10 +219,52 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
          * layout — an _Alignas on a member raises the record's alignment
          * too, so it cannot just be validated and dropped. */
         member_align = check_alignas(s, (AstNode *)m, mt);
+
+        /* Flexible array members (6.7.2.1p18). The standard form — an
+         * incomplete array as the LAST member of a STRUCT that has other
+         * named members — is legal and marks the tag. Every GNU variation
+         * is an extension whose LOWERING we have not built, so each
+         * hard-errors naming Sprint 55 rather than silently accepting
+         * semantics Sprint 19 could not emit. (gcc accepts them quietly
+         * and pedwarns; that is an extension-scope choice, documented.) */
+        if (mt && mt->kind == TY_ARRAY && !mt->has_size && !mt->is_vla) {
+            if (tag->kind == TY_UNION) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "a flexible array member in a union is a GNU "
+                          "extension (lands in Sprint 55)");
+                mt = type_basic(TY_ERROR);
+            } else if (!is_last_decl) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "flexible array member not at end of struct");
+                mt = type_basic(TY_ERROR);
+            } else if (!tag->members) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "a flexible array member in a struct with no other "
+                          "named members is a GNU extension (lands in "
+                          "Sprint 55)");
+                mt = type_basic(TY_ERROR);
+            } else {
+                tag->has_fam = true;
+            }
+        }
+        /* A struct that ends in a FAM cannot itself be a member: the FAM
+         * would be buried mid-object. A POINTER to one is fine. */
+        if (mt && (mt->kind == TY_STRUCT || mt->kind == TY_UNION) && mt->tag &&
+            mt->tag->has_fam) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, m->span,
+                      "a struct with a flexible array member cannot be a "
+                      "member of another struct (the GNU form lands in "
+                      "Sprint 55)");
+            mt = type_basic(TY_ERROR);
+        }
+
         /* A member of incomplete type has no size, so the struct could
          * never be laid out — catchable now, without knowing any size.
-         * The one exception is a flexible array member, which must be
-         * LAST (its own constraints are Sprint 16's). */
+         * The one exception is the flexible array member handled above. */
         if (mt && mt->kind != TY_ERROR && !type_is_complete(mt) &&
             !(mt->kind == TY_ARRAY && is_last_decl)) {
             s->nerrors++;
@@ -432,6 +487,32 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
 
 static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
 {
+    if (at->atomic_inner) {
+        /* `_Atomic(type-name)`: the named type becomes atomic-qualified.
+         * 6.7.2.4p3 forbids an array, function, atomic or qualified type
+         * INSIDE the parentheses — note that `_Atomic(int) a[3]` is fine
+         * (an ARRAY OF atomic int); only `_Atomic(int[3])` is not. */
+        Type *inner = type_from_ast(s, at->atomic_inner, span);
+
+        if (inner && inner->kind == TY_ARRAY) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, span,
+                      "'_Atomic'-qualified array "
+                      "type");
+            return type_basic(TY_ERROR);
+        }
+        if (inner && inner->kind == TY_FUNC) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, span,
+                      "'_Atomic'-qualified function type");
+            return type_basic(TY_ERROR);
+        }
+        if (inner && (inner->quals & CGF_QUAL_ATOMIC))
+            diag_emit(s->dc, DIAG_WARNING, span,
+                      "'_Atomic' applied to an already-atomic type");
+        return inner; /* the ATOMIC qual is applied by the caller's
+                         quals_from_ast, since the spelling set it */
+    }
     switch (at->base) {
     case ABT_NONE:
     case ABT_INT:
@@ -546,17 +627,48 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                       type_to_str(s->arena, inner));
             inner = type_basic(TY_ERROR);
         }
+        if (inner && (inner->kind == TY_STRUCT || inner->kind == TY_UNION) &&
+            inner->tag && inner->tag->has_fam) {
+            /* An ARRAY of FAM-bearing structs has no meaningful stride —
+             * where would each element's flexible tail go? */
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, span,
+                      "an array of structs with a flexible array member is "
+                      "a GNU extension (lands in Sprint 55)");
+            inner = type_basic(TY_ERROR);
+        }
         arr = type_array(s->arena, inner);
         arr->size_expr = at->array_size;
-        if (at->array_star)
+        if (at->array_star) {
+            /* `[*]` is legal only in a prototype: it promises "a VLA of
+             * some size" where no size expression could be written. */
             arr->is_vla = true;
+            if (s->scope->kind != SCOPE_PROTO) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, span,
+                          "'[*]' is only allowed in a function prototype");
+            }
+        }
         if (at->array_size) {
-            i64 n;
+            ConstValue cv;
+            AstNode *bound = sema_expr(s, at->array_size);
 
-            /* Reuse the enumerator folder: a literal bound is by far the
-             * common case, and anything richer defers to Sprint 15 rather
-             * than inventing a size. */
-            if (enum_fold(s, at->array_size, &n)) {
+            arr->size_expr = bound;
+            if (bound->sem_type && bound->sem_type->kind != TY_ERROR &&
+                !type_is_integer(bound->sem_type)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, span,
+                          "the size of an array has non-integer type '%s'",
+                          type_to_str(s->arena, bound->sem_type));
+            }
+            /* CE_FOLD, deliberately: failing to fold is not an error here —
+             * it is what MAKES this a VLA. The constraints on where a VLA
+             * may live are checked at the declaration, where the storage
+             * class is known. */
+            cv = constexpr_eval(s, bound, CE_FOLD);
+            if (cv.kind == CV_INT) {
+                i64 n = (i64)cv.i;
+
                 if (n < 0) {
                     s->nerrors++;
                     diag_emit(s->dc, DIAG_ERROR, span,
@@ -570,6 +682,10 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                     arr->has_size = true;
                     arr->size = (u64)n;
                 }
+            } else if (!bound->poisoned &&
+                       (!bound->sem_type ||
+                        bound->sem_type->kind != TY_ERROR)) {
+                arr->is_vla = true;
             }
         }
         return type_qualify(s->arena, arr, quals_from_ast(at->array_quals));
@@ -614,6 +730,19 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                 else if (pt && pt->kind == TY_FUNC)
                     pt = type_ptr(s->arena, pt);
                 fn->params[i] = pt;
+
+                /* The name enters scope NOW, not after the list: `int m[n]`
+                 * needs the earlier parameter n visible while m's bound is
+                 * typed (6.7.6.2p5's whole point). Declared with the
+                 * ADJUSTED type, since that is the type the body sees. */
+                if (at->params[i].name) {
+                    Symbol *ps = sym_new(s, at->params[i].name, SYM_VAR,
+                                         NS_ORDINARY, pt, at->params[i].span);
+
+                    ps->is_param = true;
+                    ps->defined = true;
+                    scope_declare(s, ps);
+                }
             }
             scope_pop(s);
         }
@@ -845,6 +974,20 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
     if (d->init->kind == AST_INIT_LIST) {
         u32 i;
 
+        /* Initializing the FLEXIBLE MEMBER is GNU's static-init extension:
+         * the image would need a size the type does not have. Counting
+         * items against named members catches the positional form; the
+         * designated form is caught by the same count once designators
+         * reposition (kept simple deliberately — the corpus shapes are
+         * positional). */
+        if (target && (target->kind == TY_STRUCT) && target->tag &&
+            target->tag->has_fam && d->init->nitems >= target->tag->nmembers) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->init->span,
+                      "initialization of a flexible array member is a GNU "
+                      "extension (lands in Sprint 55)");
+        }
+
         for (i = 0; i < d->init->nitems; i++) {
             AstNode *item = d->init->items[i];
 
@@ -953,6 +1096,21 @@ static u64 check_alignas(Sema *s, AstNode *d, Type *type)
     return (u64)want;
 }
 
+/* True if the type is VARIABLY MODIFIED: a VLA anywhere in the chain —
+ * pointer to VLA, array of VLA, function returning pointer-to-VLA. The
+ * distinction matters because most constraints (storage, linkage, the
+ * jump checker) apply to VM types generally, not just to VLAs proper. */
+static bool type_is_vm(const Type *t)
+{
+    for (; t; t = t->base) {
+        if (t->kind == TY_ARRAY && t->is_vla)
+            return true;
+        if (t->kind != TY_PTR && t->kind != TY_ARRAY && t->kind != TY_FUNC)
+            return false;
+    }
+    return false;
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
@@ -975,7 +1133,8 @@ static void declare_one(Sema *s, AstNode *d)
     /* Completion event: an unsized array with an initializer takes its
      * size from that initializer. Doing it before the incomplete-type
      * check below is what makes `int a[] = {1,2,3};` legal. */
-    if (type && type->kind == TY_ARRAY && !type->has_size && d->init) {
+    if (type && type->kind == TY_ARRAY && !type->has_size && !type->is_vla &&
+        d->init) {
         u64 n;
 
         if (array_size_from_init(s, d->init, &n)) {
@@ -1008,6 +1167,119 @@ static void declare_one(Sema *s, AstNode *d)
             sym->tentative = true;
     }
 
+    /* --- Sprint 16 constraints, all needing the storage class ---------- */
+
+    if (type_is_vm(type) && sym->kind != SYM_TYPEDEF) {
+        /* 6.7.6.2p2: a VM type has automatic storage or is a parameter —
+         * nothing with linkage, nothing static, nothing at file scope,
+         * and never an initializer (there is no time to evaluate one). */
+        if (file_scope) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "variably modified type at file scope");
+        } else if (d->storage & (AST_SC_STATIC | AST_SC_EXTERN)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "a variably modified type must have automatic "
+                      "storage duration");
+        }
+        if (d->init && type->kind == TY_ARRAY && type->is_vla) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "a variable-length array may not be initialized");
+        }
+        if (d->storage & AST_SC_THREAD_LOCAL) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "a variably modified type cannot have thread storage "
+                      "duration");
+        }
+    } else if (type_is_vm(type) && sym->kind == SYM_TYPEDEF && file_scope) {
+        /* A VM typedef is legal at BLOCK scope only (6.7.6.2p2). */
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "a variably modified typedef is only allowed at block "
+                  "scope");
+    }
+
+    if (d->storage & AST_SC_THREAD_LOCAL) {
+        sym->tls = true;
+        if (is_func) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "'_Thread_local' cannot appear on a function");
+        } else if (!file_scope &&
+                   !(d->storage & (AST_SC_STATIC | AST_SC_EXTERN))) {
+            /* 6.7.1p3: at block scope, _Thread_local MUST be accompanied
+             * by static or extern — a bare one has no storage duration to
+             * name. */
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "'_Thread_local' at block scope requires 'static' or "
+                      "'extern'");
+        }
+    }
+
+    /* _Atomic on an array — either spelling — qualifies the ELEMENT, so
+     * the checks below look at the bottom of the chain. (The illegal
+     * `_Atomic(int[3])` form was already rejected while resolving the
+     * specifier's inner type-name.) */
+    {
+        Type *elem = type;
+
+        while (elem && (elem->kind == TY_ARRAY || elem->kind == TY_PTR))
+            elem = elem->base;
+        if (elem && (elem->quals & CGF_QUAL_ATOMIC)) {
+            if (is_func && type && type->kind == TY_FUNC &&
+                (type->quals & CGF_QUAL_ATOMIC)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, d->span,
+                          "'_Atomic' cannot qualify a function");
+            } else if (elem->kind == TY_STRUCT || elem->kind == TY_UNION) {
+                /* An honest scope cut, not a stub: atomic aggregates need
+                 * libatomic-shaped lowering that v0.1.0 does not take on. */
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, d->span,
+                          "atomic struct/union types are outside v0.1.0 "
+                          "scope");
+            } else if (type_is_vm(type)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, d->span,
+                          "an atomic type cannot be variably modified");
+            }
+        }
+    }
+
+    if (is_func) {
+        if ((d->func_specs & AST_FS_INLINE) &&
+            d->name ==
+                intern_str(s->interner, intern_cstr(s->interner, "main"))) {
+            /* 6.7.4p4 is a constraint, but gcc WARNS by default and errors
+             * only under -pedantic-errors; real code (test harnesses,
+             * mostly) relies on the warning. */
+            diag_emit(s->dc, DIAG_WARNING, d->span,
+                      "cannot inline function 'main'");
+        }
+    } else if (d->func_specs) {
+        /* 6.7.4p2: function specifiers appear only on functions. gcc
+         * warns rather than errors here too. */
+        diag_emit(s->dc, DIAG_WARNING, d->span, "%s '%s' declared '%s'",
+                  sym->kind == SYM_TYPEDEF ? "typedef" : "variable", d->name,
+                  (d->func_specs & AST_FS_INLINE) ? "inline" : "_Noreturn");
+    }
+
+    /* 6.7.4p3: an inline definition may not define a MODIFIABLE object
+     * with static storage duration. gcc warns (const-qualified statics
+     * are exempt); matched by observation. */
+    if (s->cur_inline_candidate && !file_scope && !is_func &&
+        sym->kind != SYM_TYPEDEF &&
+        (d->storage & (AST_SC_STATIC | AST_SC_THREAD_LOCAL)) && type &&
+        !(type->quals & CGF_QUAL_CONST))
+        diag_emit(s->dc, DIAG_WARNING, d->span,
+                  "'%s' is static but declared in inline function '%s' "
+                  "which is not static",
+                  d->name, s->cur_fname ? s->cur_fname : "?");
+
     /* An object of incomplete type cannot be defined — but `extern int
      * a[];` and a tentative `int a[];` are both fine, so the check is on
      * definitions only. */
@@ -1029,8 +1301,23 @@ static void declare_one(Sema *s, AstNode *d)
     static_init = !is_func && sym->kind != SYM_TYPEDEF &&
                   (file_scope || (d->storage & AST_SC_STATIC));
 
+    d->sem_type = type; /* the jump checker reads VM-ness off the node */
+
+    sym->func_specs = d->func_specs;
+    sym->all_decls_inline = (d->func_specs & AST_FS_INLINE) != 0;
+    sym->any_decl_extern = (d->storage & AST_SC_EXTERN) != 0;
+
     prev = scope_lookup_local(s->scope, d->name, NS_ORDINARY);
     if (prev) {
+        /* The inline decision needs EVERY declaration (6.7.4p7), so the
+         * surviving symbol accumulates across the merge. */
+        prev->func_specs |= d->func_specs;
+        prev->all_decls_inline =
+            prev->all_decls_inline && (d->func_specs & AST_FS_INLINE) != 0;
+        prev->any_decl_extern =
+            prev->any_decl_extern || (d->storage & AST_SC_EXTERN) != 0;
+        if (d->storage & AST_SC_THREAD_LOCAL)
+            prev->tls = true;
         merge_redeclaration(s, prev, sym, d->storage);
         /* The initializer still has to be TYPED even when the declaration
          * merged into an earlier one, or its expressions never get
@@ -1043,6 +1330,174 @@ static void declare_one(Sema *s, AstNode *d)
 }
 
 static void sema_stmt(Sema *s, AstNode *st);
+
+/* main's accepted shapes: `int main(void)`, `int main()` and
+ * `int main(int, char **)` (or char *argv[], which adjusts to the same).
+ * Everything else gets gcc's warnings, not errors — freestanding code
+ * defines weird mains on purpose. */
+static void check_main_signature(Sema *s, AstNode *d, Type *ftype)
+{
+    Type *cc;
+
+    if (!ftype || ftype->kind != TY_FUNC)
+        return;
+    if (!ftype->base || ftype->base->kind != TY_INT)
+        diag_emit(s->dc, DIAG_WARNING, d->span,
+                  "return type of 'main' is not 'int'");
+    if (!ftype->has_proto || ftype->nparams == 0)
+        return;
+    if (ftype->nparams != 2) {
+        diag_emit(s->dc, DIAG_WARNING, d->span,
+                  "'main' takes only zero or two arguments");
+        return;
+    }
+    if (!type_is_integer(ftype->params[0]))
+        diag_emit(s->dc, DIAG_WARNING, d->span,
+                  "first argument of 'main' should be 'int'");
+    cc = ftype->params[1];
+    if (!(cc && cc->kind == TY_PTR && cc->base && cc->base->kind == TY_PTR &&
+          cc->base->base && cc->base->base->kind == TY_CHAR))
+        diag_emit(s->dc, DIAG_WARNING, d->span,
+                  "second argument of 'main' should be 'char **'");
+}
+
+/* K&R parameter resolution (the definition's declaration list), plus the
+ * 6.7.6.3p15 promoted-parameter compatibility check against any earlier
+ * prototype. THE trap: `void f(x) float x; {}` against `void f(float);`
+ * is INCOMPATIBLE, because default promotion carries the K&R float to
+ * double — same story for char and short against themselves. */
+static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
+{
+    const AstType *ft = d->type;
+    Type *proto = NULL;
+    u32 pi;
+
+    /* An earlier PROTOTYPE to check against: the merged symbol type keeps
+     * it (the composite of prototype and K&R list is the prototype). */
+    if (fsym && fsym->type && fsym->type->kind == TY_FUNC &&
+        fsym->type->has_proto)
+        proto = fsym->type;
+
+    if (proto && proto->nparams != ft->nparams) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "the definition of '%s' has %u parameters where the "
+                  "prototype has %u",
+                  d->name, (unsigned)ft->nparams, (unsigned)proto->nparams);
+        proto = NULL;
+    }
+
+    for (pi = 0; pi < ft->nparams; pi++) {
+        const char *pname = ft->params[pi].name;
+        Type *pt = NULL;
+        Symbol *ps;
+        u32 ki;
+
+        if (!pname)
+            continue;
+        /* Find this name in the K&R declaration list. */
+        for (ki = 0; ki < d->nkr_decls && !pt; ki++) {
+            AstNode *kd = d->kr_decls[ki];
+            AstNode *one = kd;
+            u32 sib = 0;
+
+            while (one) {
+                if (one->name == pname) {
+                    pt = type_from_ast(s, one->type, one->span);
+                    break;
+                }
+                one = sib < kd->nitems ? kd->items[sib++] : NULL;
+            }
+        }
+        if (!pt) {
+            /* No declaration: implicitly int, gcc-quietly. */
+            pt = type_basic(TY_INT);
+        }
+        if (pt->kind == TY_ARRAY)
+            pt = type_ptr(s->arena, pt->base);
+        else if (pt->kind == TY_FUNC)
+            pt = type_ptr(s->arena, pt);
+
+        if (proto && pi < proto->nparams) {
+            /* Compatibility is judged on the PROMOTED K&R type. */
+            Type *promoted = conv_promote_type(s, pt);
+            Type *want = conv_strip_quals(s, proto->params[pi]);
+
+            if (pt->kind == TY_FLOAT)
+                promoted = type_basic(TY_DOUBLE);
+            if (!type_compatible(conv_strip_quals(s, promoted), want))
+                diag_emit(s->dc, DIAG_WARNING, ft->params[pi].span,
+                          "promoted argument '%s' doesn't match prototype "
+                          "('%s' promotes to '%s', prototype says '%s')",
+                          pname, type_to_str(s->arena, pt),
+                          type_to_str(s->arena, promoted),
+                          type_to_str(s->arena, proto->params[pi]));
+        }
+
+        ps = sym_new(s, pname, SYM_VAR, NS_ORDINARY, pt, ft->params[pi].span);
+        ps->is_param = true;
+        ps->defined = true;
+        if (scope_lookup_local(s->scope, pname, NS_ORDINARY)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, ft->params[pi].span,
+                      "redefinition of parameter '%s'", pname);
+        } else {
+            scope_declare(s, ps);
+        }
+    }
+}
+
+/* True iff every VM declaration in scope at `target` is also in scope at
+ * `source` — the condition that makes the jump legal. Chains share stack
+ * structure, so pointer identity is the membership test. */
+static bool vm_chain_subset(VmDecl *target, VmDecl *source)
+{
+    VmDecl *t;
+
+    for (t = target; t; t = t->parent) {
+        VmDecl *u;
+        bool found = false;
+
+        for (u = source; u; u = u->parent)
+            if (u == t) {
+                found = true;
+                break;
+            }
+        if (!found)
+            return false;
+    }
+    return true;
+}
+
+static void resolve_vm_jumps(Sema *s)
+{
+    VmGoto *g;
+
+    for (g = s->vm_gotos; g; g = g->next) {
+        VmLabel *l;
+
+        for (l = s->vm_labels; l; l = l->next)
+            if (l->name == g->label)
+                break;
+        if (!l)
+            continue; /* undefined labels were the parser's diagnostic */
+        if (!vm_chain_subset(l->chain, g->chain)) {
+            VmDecl *t = l->chain;
+
+            /* Name the specific object whose scope the jump enters. */
+            while (t && vm_chain_subset(t, g->chain))
+                t = t->parent;
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, g->span,
+                      "jump into scope of identifier '%s' with variably "
+                      "modified type",
+                      t && t->name ? t->name : "?");
+        }
+    }
+    s->vm_gotos = NULL;
+    s->vm_labels = NULL;
+    s->vm_chain = NULL;
+}
 
 static void sema_decl(Sema *s, AstNode *d)
 {
@@ -1074,28 +1529,68 @@ static void sema_decl(Sema *s, AstNode *d)
         }
         return;
     }
-    case AST_FUNC_DEF:
+    case AST_FUNC_DEF: {
+        Symbol *fsym;
+        Type *ftype;
+
         declare_one(s, d);
-        /* The body's declarations are ours; its STATEMENTS are typechecked
-         * in Sprint 16, so we walk only far enough to exercise block
-         * scope, shadowing, and the block-scope linkage rules. */
+        fsym = scope_lookup_local(s->scope->kind == SCOPE_FILE ? s->scope
+                                                               : s->file_scope,
+                                  d->name, NS_ORDINARY);
+        ftype = fsym ? fsym->type : NULL;
+
+        /* main gets its signature checked once, at the definition. */
+        if (d->name &&
+            d->name ==
+                intern_str(s->interner, intern_cstr(s->interner, "main"))) {
+            if (fsym)
+                fsym->is_main = true;
+            check_main_signature(s, d, ftype);
+        }
+
+        /* Function-body state for the return checker. */
+        s->cur_ret = ftype && ftype->kind == TY_FUNC ? ftype->base : NULL;
+        s->cur_fname = d->name;
+        s->cur_func_specs = fsym ? fsym->func_specs : d->func_specs;
+        /* An inline-definition candidate, judged on declarations seen SO
+         * FAR — which is when gcc judges it too. */
+        s->cur_inline_candidate = fsym && (fsym->func_specs & AST_FS_INLINE) &&
+                                  fsym->linkage == LINK_EXTERNAL &&
+                                  fsym->all_decls_inline &&
+                                  !fsym->any_decl_extern;
+        s->vm_chain = NULL;
+        s->vm_labels = NULL;
+        s->vm_gotos = NULL;
+        s->vm_switch_chain = NULL;
+
         scope_push(s, SCOPE_FUNC);
         {
             u32 pi;
             const AstType *ft = d->type;
 
-            /* Parameters live in the same scope as the body's outermost
-             * block (6.2.1p4). */
-            if (ft && ft->kind == ATY_FUNC) {
+            if (ft && ft->kind == ATY_FUNC && ft->is_kr_list) {
+                /* A K&R definition: parameter TYPES come from the
+                 * declaration list between ')' and '{'; a parameter with
+                 * no declaration there is implicitly int. Resolved here —
+                 * nothing earlier had both the names and the list. */
+                declare_kr_params(s, d, fsym);
+            } else if (ft && ft->kind == ATY_FUNC) {
                 for (pi = 0; pi < ft->nparams; pi++) {
                     Symbol *ps;
+                    Type *pt;
 
                     if (!ft->params[pi].name)
                         continue;
+                    pt = type_from_ast(s, ft->params[pi].type,
+                                       ft->params[pi].span);
+                    /* The same 6.7.6.3p7/p8 adjustment the prototype path
+                     * applies: the BODY sees the pointer, not the array. */
+                    if (pt && pt->kind == TY_ARRAY)
+                        pt = type_ptr(s->arena, pt->base);
+                    else if (pt && pt->kind == TY_FUNC)
+                        pt = type_ptr(s->arena, pt);
                     ps = sym_new(s, ft->params[pi].name, SYM_VAR, NS_ORDINARY,
-                                 type_from_ast(s, ft->params[pi].type,
-                                               ft->params[pi].span),
-                                 ft->params[pi].span);
+                                 pt, ft->params[pi].span);
                     ps->is_param = true;
                     ps->defined = true;
                     if (scope_lookup_local(s->scope, ps->name, NS_ORDINARY)) {
@@ -1120,7 +1615,18 @@ static void sema_decl(Sema *s, AstNode *d)
             }
         }
         scope_pop(s);
+
+        /* Resolve the collected gotos against their labels: a jump whose
+         * TARGET scope contains a VM declaration not in scope at the
+         * SOURCE would enter the object's lifetime without ever running
+         * its size expression (6.8.6.1p1). */
+        resolve_vm_jumps(s);
+        s->cur_inline_candidate = false;
+        s->cur_ret = NULL;
+        s->cur_fname = NULL;
+        s->cur_func_specs = 0;
         return;
+    }
     case AST_DECL:
         declare_one(s, d);
         for (i = 0; i < d->nitems; i++)
@@ -1142,20 +1648,50 @@ static void sema_stmt(Sema *s, AstNode *st)
     if (!st || st->poisoned)
         return;
     switch (st->kind) {
-    case AST_STMT_COMPOUND:
+    case AST_STMT_COMPOUND: {
         /* Every compound statement is a scope. The function body's
          * outermost block is the exception — it SHARES the parameter
          * scope (6.2.1p4) — and the FUNC_DEF path handles that by calling
          * sema_block_items directly. Missing this made an inner
          * `struct T { ... }` a redefinition of an outer one, and made
-         * `int s;` inside a nested block collide with an outer `s`. */
+         * `int s;` inside a nested block collide with an outer `s`.
+         *
+         * The VM chain is saved and restored with the scope: a VM object
+         * dies with its block, and a label AFTER the block is a legal
+         * jump target again. */
+        VmDecl *saved = s->vm_chain;
+
         scope_push(s, SCOPE_BLOCK);
         for (i = 0; i < st->nitems; i++)
             sema_stmt(s, st->items[i]);
         scope_pop(s);
+        s->vm_chain = saved;
         return;
+    }
     case AST_STMT_DECL:
         sema_decl(s, st->lhs);
+        /* A VM declaration extends the chain the jump checker snapshots:
+         * every label and goto from here to the end of the block carries
+         * it. Sibling declarators ride the same statement node. */
+        {
+            AstNode *one = st->lhs;
+            u32 sib = 0;
+
+            while (one) {
+                if (one->sem_type && type_is_vm(one->sem_type) &&
+                    !(one->storage & AST_SC_TYPEDEF)) {
+                    VmDecl *vd =
+                        arena_alloc(s->arena, sizeof(VmDecl), _Alignof(VmDecl));
+
+                    vd->name = one->name;
+                    vd->span = one->span;
+                    vd->parent = s->vm_chain;
+                    s->vm_chain = vd;
+                }
+                one = st->lhs && sib < st->lhs->nitems ? st->lhs->items[sib++]
+                                                       : NULL;
+            }
+        }
         return;
     case AST_STMT_EXPR:
         st->lhs = sema_expr(s, st->lhs);
@@ -1163,6 +1699,31 @@ static void sema_stmt(Sema *s, AstNode *st)
     case AST_STMT_RETURN:
         if (st->lhs)
             st->lhs = sema_expr(s, st->lhs);
+        /* A `return` inside a _Noreturn function is gcc's warning, not an
+         * error — the promise is broken but the code is well-defined. The
+         * flow-sensitive falls-off-the-end half joins Sprint 40's CFG. */
+        if (s->cur_func_specs & AST_FS_NORETURN)
+            diag_emit(s->dc, DIAG_WARNING, st->span,
+                      "function declared 'noreturn' has a 'return' "
+                      "statement");
+        if (s->cur_ret && s->cur_ret->kind == TY_VOID) {
+            if (st->lhs)
+                diag_emit(s->dc, DIAG_WARNING, st->span,
+                          "'return' with a value, in function returning "
+                          "void");
+        } else if (s->cur_ret) {
+            if (!st->lhs) {
+                diag_emit(s->dc, DIAG_WARNING, st->span,
+                          "'return' with no value, in function returning "
+                          "non-void");
+            } else if (!st->lhs->poisoned) {
+                AssignCtx ctx;
+
+                memset(&ctx, 0, sizeof(ctx));
+                ctx.kind = ACTX_RETURN;
+                conv_assignable(s, s->cur_ret, &st->lhs, ctx);
+            }
+        }
         return;
     case AST_STMT_IF:
     case AST_STMT_SWITCH:
@@ -1170,6 +1731,14 @@ static void sema_stmt(Sema *s, AstNode *st)
     case AST_STMT_DO:
         if (st->lhs)
             st->lhs = sema_expr(s, st->lhs);
+        if (st->kind == AST_STMT_SWITCH) {
+            VmDecl *saved_sw = s->vm_switch_chain;
+
+            s->vm_switch_chain = s->vm_chain;
+            sema_stmt(s, st->body);
+            s->vm_switch_chain = saved_sw;
+            return;
+        }
         sema_stmt(s, st->body);
         if (st->kind == AST_STMT_IF)
             sema_stmt(s, st->rhs);
@@ -1198,17 +1767,129 @@ static void sema_stmt(Sema *s, AstNode *st)
         scope_pop(s);
         return;
     case AST_STMT_CASE:
-        if (st->lhs)
-            st->lhs = sema_expr(s, st->lhs);
-        sema_stmt(s, st->body);
-        return;
-    case AST_STMT_LABEL:
     case AST_STMT_DEFAULT:
+        if (st->kind == AST_STMT_CASE && st->lhs) {
+            i64 cv;
+
+            st->lhs = sema_expr(s, st->lhs);
+            /* Case labels are integer constant expressions; Sprint 15
+             * gave us the evaluator, so duplicate checking is possible
+             * now — but the VALUE check that matters here is the VM one. */
+            (void)sema_require_ice(s, st->lhs, &cv, "a case label");
+        }
+        /* A switch jumps from its controlling expression to each label:
+         * a case inside a VM scope the switch itself is outside of would
+         * enter the object without sizing it (6.8.4.2p2). */
+        if (!vm_chain_subset(s->vm_chain, s->vm_switch_chain)) {
+            VmDecl *t = s->vm_chain;
+
+            while (t && vm_chain_subset(t, s->vm_switch_chain))
+                t = t->parent;
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, st->span,
+                      "switch jumps into scope of identifier '%s' with "
+                      "variably modified type",
+                      t && t->name ? t->name : "?");
+        }
         sema_stmt(s, st->body);
         return;
+    case AST_STMT_LABEL: {
+        VmLabel *l = arena_alloc(s->arena, sizeof(VmLabel), _Alignof(VmLabel));
+
+        l->name = st->name;
+        l->chain = s->vm_chain;
+        l->next = s->vm_labels;
+        s->vm_labels = l;
+        sema_stmt(s, st->body);
+        return;
+    }
+    case AST_STMT_GOTO: {
+        VmGoto *g = arena_alloc(s->arena, sizeof(VmGoto), _Alignof(VmGoto));
+
+        g->label = st->name;
+        g->span = st->span;
+        g->chain = s->vm_chain;
+        g->next = s->vm_gotos;
+        s->vm_gotos = g;
+        return;
+    }
     default:
         return;
     }
+}
+
+static void finish_symbol(Sema *s, Symbol *sym)
+{
+    if (!sym)
+        return;
+    finish_symbol(s, sym->next); /* declaration order */
+
+    if (sym->kind == SYM_FUNC) {
+        /* THE inline matrix (6.7.4p7). The decision needs every
+         * declaration in the TU, which is why it lives here and nowhere
+         * earlier: `inline` definition + a later plain `int f(void);`
+         * flips the answer to "emit". */
+        if (!(sym->func_specs & AST_FS_INLINE))
+            sym->inline_kind = INL_NONE;
+        else if (sym->linkage == LINK_INTERNAL)
+            sym->inline_kind = INL_STATIC;
+        else if (sym->all_decls_inline && !sym->any_decl_extern)
+            sym->inline_kind = INL_INLINE_DEF; /* do NOT emit here */
+        else
+            sym->inline_kind = INL_EXTERN_INLINE; /* THE external def */
+        if (sym->inline_kind == INL_INLINE_DEF && !sym->defined) {
+            /* Declared inline everywhere, never defined, possibly called:
+             * fine — calls bind to the external definition elsewhere. */
+            sym->inline_kind = INL_NONE;
+        }
+        return;
+    }
+    if (sym->kind != SYM_VAR)
+        return;
+
+    /* Tentative resolution (6.9.2p2): at end of TU a tentative becomes a
+     * definition with zero initializer. Under -fcommon (gcc 8's default)
+     * an EXTERNAL tentative becomes a COMMON symbol instead, so multiple
+     * TUs each saying `int x;` still link. */
+    if (sym->defined) {
+        sym->def_kind = DEF_INIT;
+        return;
+    }
+    if (!sym->tentative) {
+        sym->def_kind = DEF_NONE; /* a plain extern declaration */
+        return;
+    }
+    if (sym->type && !type_is_complete(sym->type)) {
+        if (sym->type->kind == TY_ARRAY && !sym->type->has_size &&
+            sym->linkage == LINK_EXTERNAL) {
+            /* `int a[];` at end of TU completes to one element — gcc's
+             * behavior, warning included. */
+            Type *one = type_array(s->arena, sym->type->base);
+
+            one->quals = sym->type->quals;
+            one->has_size = true;
+            one->size = 1;
+            sym->type = one;
+            diag_emit(s->dc, DIAG_WARNING, sym->span,
+                      "array '%s' assumed to have one element", sym->name);
+        } else {
+            /* 6.9.2p3: an internal-linkage tentative must have a complete
+             * type by end of TU — nothing can complete it later. */
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, sym->span,
+                      "storage size of '%s' isn't known", sym->name);
+            return;
+        }
+    }
+    sym->def_kind = (sym->linkage == LINK_EXTERNAL && s->fcommon)
+                        ? DEF_COMMON
+                        : DEF_ZERO_INIT;
+}
+
+void sema_finish(Sema *s)
+{
+    if (s->file_scope)
+        finish_symbol(s, s->file_scope->ordinary);
 }
 
 void sema_run(Sema *s, AstNode *tu)
@@ -1219,4 +1900,5 @@ void sema_run(Sema *s, AstNode *tu)
         return;
     for (i = 0; i < tu->ndecls; i++)
         sema_decl(s, tu->decls[i]);
+    sema_finish(s);
 }

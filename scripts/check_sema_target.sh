@@ -22,11 +22,21 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
-# The same reasoning bans asking the host's own types for a size.
-hits=$(grep -rnE '\bsizeof[[:space:]]*\([[:space:]]*(int|long|short|char|float|double|void[[:space:]]*\*)' src/sema/ || true)
+# The same reasoning bans asking the host's own types for a size. Comments
+# are stripped first — `sizeof(int[f()])` legitimately appears in PROSE
+# about C semantics, and the gate is after code, not documentation.
+hits=""
+for f in src/sema/*.c src/sema/*.h; do
+    h=$(sed 's://.*::' "$f" |
+        awk '/\/\*/{inc=1} {if(!inc) print NR": "$0} /\*\//{inc=0}' |
+        grep -E '\bsizeof[[:space:]]*\([[:space:]]*(int|long|short|char|float|double|void[[:space:]]*\*)' |
+        sed "s:^:$f\::" || true)
+    [ -n "$h" ] && hits="$hits$h
+"
+done
 if [ -n "$hits" ]; then
     echo "check_sema_target: host sizeof() in src/sema/:" >&2
-    printf '%s\n' "$hits" >&2
+    printf '%s' "$hits" >&2
     status=1
 fi
 

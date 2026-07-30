@@ -152,6 +152,36 @@ static void dump_chain(Sema *s, const Symbol *sym, FILE *f)
         fprintf(f, " [tentative]");
     if (sym->defined)
         fprintf(f, " [defined]");
+    if (sym->tls)
+        fprintf(f, " [tls]");
+    /* The Sprint 16 decisions, in greppable form. The inline line answers
+     * exactly the question Sprint 19 will ask: does THIS TU emit the
+     * external definition? */
+    switch ((InlineKind)sym->inline_kind) {
+    case INL_NONE:
+        break;
+    case INL_STATIC:
+        fprintf(f, " [static-inline]");
+        break;
+    case INL_INLINE_DEF:
+        fprintf(f, " [inline-def emit-external=no]");
+        break;
+    case INL_EXTERN_INLINE:
+        fprintf(f, " [extern-inline emit-external=yes]");
+        break;
+    }
+    switch ((DefKind)sym->def_kind) {
+    case DEF_NONE:
+        break;
+    case DEF_COMMON:
+        fprintf(f, " [common]");
+        break;
+    case DEF_ZERO_INIT:
+        fprintf(f, " [zero-init]");
+        break;
+    case DEF_INIT:
+        break; /* [defined] already says it */
+    }
     fprintf(f, "\n");
 }
 

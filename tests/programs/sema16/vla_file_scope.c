@@ -1,4 +1,3 @@
 // FLAGS: -fsyntax-only
 // ERROR_EXPECTED: variably modified type at file scope
-// x++ as a bound classifies the array as a VLA.
-int x; int a[x++];
+int n; int a[n];

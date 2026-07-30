@@ -213,6 +213,8 @@ typedef struct {
     AstBaseType other_base;
     const char *typedef_name;
     AstNode *record;
+    AstType *atomic_inner; /* `_Atomic(type-name)`: the full inner chain */
+    bool atomic_specifier; /* `_Atomic(T)` rather than bare `_Atomic` */
     /* _Alignas, as written; sema checks the constraints. */
     AstNode *alignas_expr;
     AstType *alignas_type;
@@ -457,14 +459,18 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 p->pos++;
                 s->saw_any = true;
                 if (parse_at_punct(p, PUNCT_LPAREN)) {
-                    SpecSoup inner;
+                    /* The operand is a full TYPE-NAME: `_Atomic(int *)` is
+                     * legal, so the abstract-declarator machinery applies,
+                     * not just the specifier soup. Whether the named type
+                     * is allowed (no arrays, no functions, 6.7.2.4p3) is
+                     * sema's question — it needs the resolved chain. */
                     p->pos++;
-                    parse_decl_specs(p, &inner);
+                    s->atomic_inner = parse_type_name(p);
                     parse_expect_punct(p, PUNCT_RPAREN, "after _Atomic(type)");
                     s->n_other++;
-                    s->other_base = soup_resolve(p, &inner, t);
-                    s->typedef_name = inner.typedef_name;
-                    s->record = inner.record;
+                    s->other_base = ABT_INT; /* replaced by sema via
+                                                atomic_inner */
+                    s->atomic_specifier = true;
                 }
                 s->quals |= AST_QUAL_ATOMIC;
                 continue;
@@ -724,6 +730,8 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         base->typedef_name = s.typedef_name;
         base->record = s.record;
         base->quals = s.quals;
+        base->atomic_specifier = s.atomic_specifier;
+        base->atomic_inner = s.atomic_inner;
         /* 6.7.5p2: an alignment specifier may not appear on a parameter.
          * Checked HERE rather than in sema because a parameter is an
          * AstParam, not an AstNode, so there is nowhere to carry the
@@ -1030,6 +1038,8 @@ static AstNode *parse_member_decl(Parser *p)
         bt->typedef_name = s.typedef_name;
         bt->record = s.record;
         bt->quals = s.quals;
+        bt->atomic_specifier = s.atomic_specifier;
+        bt->atomic_inner = s.atomic_inner;
         n->type = bt;
         if (base_kind == ABT_RECORD && s.record && !s.record->tag) {
             n->is_anon_member = true;
@@ -1056,6 +1066,8 @@ static AstNode *parse_member_decl(Parser *p)
         bt->typedef_name = s.typedef_name;
         bt->record = s.record;
         bt->quals = s.quals;
+        bt->atomic_specifier = s.atomic_specifier;
+        bt->atomic_inner = s.atomic_inner;
 
         n->has_alignas = s.has_alignas;
         n->alignas_expr = s.alignas_expr;
@@ -1268,6 +1280,8 @@ AstType *parse_type_name(Parser *p)
     base->typedef_name = s.typedef_name;
     base->record = s.record;
     base->quals = s.quals;
+    base->atomic_specifier = s.atomic_specifier;
+    base->atomic_inner = s.atomic_inner;
     if (s.storage)
         parse_error(p, start, "a type name cannot have a storage class");
     /* Abstract declarator: the name is optional, and a type-name that DOES
@@ -1468,6 +1482,8 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         bt->typedef_name = s.typedef_name;
         bt->record = s.record;
         bt->quals = s.quals;
+        bt->atomic_specifier = s.atomic_specifier;
+        bt->atomic_inner = s.atomic_inner;
         n->storage = s.storage;
         n->func_specs = s.func_specs;
         n->has_alignas = s.has_alignas;

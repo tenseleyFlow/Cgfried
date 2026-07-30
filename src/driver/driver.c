@@ -35,6 +35,9 @@ static const char help_text[] =
     "  -std=<std>        c89/gnu89/c99/c11/c17/gnu17 (default c17)\n"
     "  -pedantic         warn about non-ISO constructs\n"
     "  -fmax-errors=N    stop after N errors (0 = unlimited, the default);\n"
+    "  -fcommon          tentative definitions become COMMON symbols\n"
+    "                    (the default, matching gcc 8); -fno-common gives\n"
+    "                    them zero-initialized definitions instead\n"
     "                    -ferror-limit=N is accepted as an alias\n"
     "  -D name[=value]   predefine a macro (value defaults to 1)\n"
     "  -U name           undefine a macro (processed in -D/-U order)\n"
@@ -450,6 +453,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                 sema_install_renderer();
                 sema_init(&sema, arena, dc, &interner, &lang,
                           cgf_target_host());
+                /* gcc 8's default is -fcommon; gcc 10 flipped it. We
+                 * follow the 2018 parity baseline. */
+                sema.fcommon = !a->fno_common;
                 sema_run(&sema, tu);
                 if (a->dump_layout)
                     layout_dump(&sema, stdout);

@@ -137,6 +137,10 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	CGF_INIT_WORK=$(BUILD)/init-diff sh scripts/init_diff.sh $(BUILD)/cgfried \
 	    > $(BUILD)/init.log 2>&1; s=$$?; cat $(BUILD)/init.log; exit $$s
 	sh ci/check_skips.sh initdiff $(BUILD)/init.log
+	CGF_INLINE_WORK=$(BUILD)/inline-diff sh scripts/inline_diff.sh \
+	    $(BUILD)/cgfried > $(BUILD)/inline.log 2>&1; s=$$?; \
+	    cat $(BUILD)/inline.log; exit $$s
+	sh ci/check_skips.sh inlinediff $(BUILD)/inline.log
 	sh scripts/ctestsuite_diff.sh $(BUILD)/cgfried > $(BUILD)/ctestsuite.log 2>&1; s=$$?; \
 	    cat $(BUILD)/ctestsuite.log; exit $$s
 	@if [ -d .docs/refs/c-testsuite/tests/single-exec ]; then p=ctestsuite; \

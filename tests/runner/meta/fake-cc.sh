@@ -67,6 +67,14 @@ warn_expected_errored.c)
     echo "warning: unused variable 'x'" >&2
     exit 1
     ;;
+*tu_break.tu0.c)
+    # TU 0 is fine on its own — the point of the split.
+    exit 0
+    ;;
+*tu_break.tu1.c)
+    echo "error: redefinition of 'shared_name'" >&2
+    exit 1
+    ;;
 err_expected_fail.c)
     echo "error: unrelated diagnostic" >&2
     exit 1

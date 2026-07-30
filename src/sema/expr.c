@@ -106,6 +106,13 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     }
     e->sym = sym;
     e->sem_type = sym->type;
+    /* 6.7.4p3: an inline definition may not reference an identifier with
+     * internal linkage. gcc warns; matched by observation. */
+    if (s->cur_inline_candidate && sym->linkage == LINK_INTERNAL)
+        diag_emit(s->dc, DIAG_WARNING, e->span,
+                  "'%s' is static but used in inline function '%s' which "
+                  "is not static",
+                  e->name, s->cur_fname ? s->cur_fname : "?");
     /* An enum CONSTANT is a value, not an object — assigning to one is a
      * different error than assigning to a const object, so the lvalue bit
      * has to distinguish them here. Functions ARE lvalues (of function
@@ -752,6 +759,19 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
         Type *operand = e->type ? sema_type_from_ast(s, e->type, e->span)
                                 : (e->lhs ? e->lhs->sem_type : NULL);
 
+        /* A VLA operand is COMPLETE — its size just is not a constant.
+         * sizeof evaluates it at runtime, and 6.5.3.4p2 makes the operand
+         * itself EVALUATED (sizeof(int[f()]) calls f), so the unevaluated
+         * flag the parser set comes OFF; Sprint 18 lowers the side
+         * effects, Sprint 15's folder already refuses to fold it. */
+        if (operand && operand->kind == TY_ARRAY && operand->is_vla) {
+            if (e->lhs)
+                e->lhs->unevaluated = false;
+            e->unevaluated = false;
+            e->sem_type = type_basic(TY_ULONG);
+            e->is_lvalue = false;
+            return e;
+        }
         /* An incomplete operand has no size — an error at the point that
          * demanded it, never a silent zero. */
         if (operand && !layout_is_complete_for_size(operand)) {

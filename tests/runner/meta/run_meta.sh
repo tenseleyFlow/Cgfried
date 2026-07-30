@@ -36,6 +36,9 @@ expect err_expected_fail.c 1 "ERROR_EXPECTED not satisfied"
 expect warn_expected_pass.c 0 "pass=1"
 expect warn_expected_fail.c 1 "WARNING_EXPECTED not satisfied"
 expect warn_expected_errored.c 1 "WARNING_EXPECTED not satisfied"
+# TU-BREAK: the fixture splits into two TUs; TU0 compiles clean, TU1 fails
+# with the expected text — the merged output satisfies ERROR_EXPECTED.
+expect tu_break.c 0 "pass=1"
 expect xfail_fail.c 0 "xfail=1"
 expect xfail_pass.c 1 "XPASS"
 expect skip_all.c 0 \
@@ -57,7 +60,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=23 pass=7 fail=7 xfail=1 xpass=1 skip=1 config=6"*) ;;
+*"total=24 pass=8 fail=7 xfail=1 xpass=1 skip=1 config=6"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)

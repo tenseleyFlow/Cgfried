@@ -134,6 +134,13 @@ struct AstType {
 
     /* ATY_BASE */
     AstBaseType base;
+    /* `_Atomic(type-name)` — the SPECIFIER form. The inner type-name is a
+     * full abstract declarator (`_Atomic(int *)` is legal), and 6.7.2.4p3
+     * forbids an array or function type INSIDE it — which only sema can
+     * check, after the chain is resolved. Bare `_Atomic` (the qualifier
+     * form) leaves this NULL and just sets AST_QUAL_ATOMIC. */
+    AstType *atomic_inner;
+    bool atomic_specifier;
     const char *typedef_name; /* ABT_TYPEDEF */
     AstNode *record;          /* ABT_RECORD / ABT_ENUM */
     u32 quals;

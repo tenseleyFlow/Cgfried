@@ -50,6 +50,10 @@ DriverArgs args_parse(int argc, char **argv)
             a.syntax_only = true;
         } else if (strcmp(s, "-pedantic") == 0) {
             a.pedantic = true;
+        } else if (strcmp(s, "-fcommon") == 0) {
+            a.fno_common = false;
+        } else if (strcmp(s, "-fno-common") == 0) {
+            a.fno_common = true;
         } else if (strncmp(s, "-fmax-errors=", 13) == 0 ||
                    strncmp(s, "-ferror-limit=", 14) == 0) {
             /* gcc spells it -fmax-errors=, clang -ferror-limit=; accept

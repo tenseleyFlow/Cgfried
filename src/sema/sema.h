@@ -91,6 +91,13 @@ struct TagDecl {
     Member *members;
     u32 nmembers;
     Type *enum_underlying; /* TY_ENUM only, chosen per gcc's ladder */
+    bool has_fam;          /* last member is a flexible array (6.7.2.1p18) */
+    bool defining;         /* completion in progress: a nested definition of
+                              the same tag is a "nested redefinition", not a
+                              completion of OURSELVES — without this check a
+                              self-referential member cycle forms and every
+                              later member walk recurses forever (found by
+                              the fuzzer, seed 1773) */
     u64 align_override;    /* _Alignas on the record, 0 = none */
     Span span;
     Type *type; /* the one Type node that names this tag */
@@ -127,6 +134,27 @@ typedef enum { NS_ORDINARY, NS_TAG, NS_LABEL } Namespace;
 
 typedef enum { LINK_NONE, LINK_INTERNAL, LINK_EXTERNAL } Linkage;
 
+/* The C99 inline decision, computed at END of translation unit from every
+ * declaration of the function (6.7.4p7). Sprint 19 reads it to decide
+ * whether this TU emits the external definition; Sprint 33 reads it only
+ * as an inliner hint, because `inline` is a hint and not a command. */
+typedef enum {
+    INL_NONE,         /* not inline */
+    INL_STATIC,       /* static inline: internal, emit if referenced */
+    INL_INLINE_DEF,   /* inline definition: do NOT emit externally */
+    INL_EXTERN_INLINE /* THIS TU provides the external definition */
+} InlineKind;
+
+/* How a file-scope object resolves at end of TU, for Sprint 19/24 symbol
+ * emission. gcc 8's default is -fcommon, so external tentatives become
+ * COMMON symbols and multiple TUs each saying `int x;` link. */
+typedef enum {
+    DEF_NONE,      /* declaration only (extern, no definition here) */
+    DEF_COMMON,    /* external tentative under -fcommon */
+    DEF_ZERO_INIT, /* tentative resolved to a zero-initialized definition */
+    DEF_INIT       /* an explicit initializer */
+} DefKind;
+
 typedef enum {
     SYM_VAR,
     SYM_FUNC,
@@ -146,8 +174,17 @@ struct Symbol {
     bool tentative; /* file-scope object, no initializer (6.9.2p2) */
     bool defined;   /* has an initializer, or is a function definition */
     bool is_param;
-    i64 enum_value; /* SYM_ENUM_CONST */
-    TagDecl *tag;   /* SYM_TAG */
+    bool tls; /* _Thread_local */
+    bool is_main;
+    u32 func_specs; /* AST_FS_*, ORed across declarations */
+    /* Inline bookkeeping (6.7.4p7): the decision needs EVERY declaration,
+     * so these accumulate and sema_finish computes inline_kind. */
+    bool all_decls_inline; /* every declaration so far had `inline` */
+    bool any_decl_extern;  /* any declaration had `extern` */
+    u8 inline_kind;        /* InlineKind, valid after sema_finish */
+    u8 def_kind;           /* DefKind, valid after sema_finish */
+    i64 enum_value;        /* SYM_ENUM_CONST */
+    TagDecl *tag;          /* SYM_TAG */
 
     Symbol *next; /* intrusive chain within one scope, newest first */
 };
@@ -180,8 +217,47 @@ typedef struct Sema {
     Scope *scope;
     Scope *file_scope;
     u32 nerrors;
-    bool dump; /* -fdump-sema */
+    bool dump;    /* -fdump-sema */
+    bool fcommon; /* -fcommon (gcc-8's default) vs -fno-common */
+    /* Function-body state: the return checks need to know whose body this
+     * is; reset per definition. */
+    Type *cur_ret;
+    const char *cur_fname;
+    u32 cur_func_specs;
+    /* The VM-scope jump checker (6.8.6.1p1): a goto or switch may not
+     * jump INTO the scope of a variably modified object, bypassing its
+     * size evaluation. The chain mirrors the lexical scope stack; labels
+     * and gotos snapshot it, and jumps resolve at end of function. */
+    struct VmDecl *vm_chain;
+    struct VmLabel *vm_labels;
+    struct VmGoto *vm_gotos;
+    struct VmDecl *vm_switch_chain;
+    bool in_switch;
+    /* True while walking the body of a candidate INLINE DEFINITION (all
+     * declarations so far inline, none extern, external linkage): 6.7.4p3
+     * forbids it defining modifiable static objects or referencing
+     * internal linkage — gcc warns; observed and matched. */
+    bool cur_inline_candidate;
 } Sema;
+
+typedef struct VmDecl {
+    const char *name;
+    Span span;
+    struct VmDecl *parent;
+} VmDecl;
+
+typedef struct VmLabel {
+    const char *name;
+    VmDecl *chain;
+    struct VmLabel *next;
+} VmLabel;
+
+typedef struct VmGoto {
+    const char *label;
+    Span span;
+    VmDecl *chain;
+    struct VmGoto *next;
+} VmGoto;
 
 /* --- types --------------------------------------------------------------- */
 
@@ -382,6 +458,9 @@ Symbol *sym_new(Sema *s, const char *name, SymKind kind, Namespace ns,
 /* --- the pass ------------------------------------------------------------ */
 
 void sema_run(Sema *s, AstNode *tu);
+/* End-of-TU resolution: the inline matrix and tentative definitions.
+ * Called by sema_run; exposed for the unit suite. */
+void sema_finish(Sema *s);
 /* -fdump-sema: file-scope symbols with their resolved types and linkage,
  * in DECLARATION order. */
 void sema_dump(Sema *s, FILE *f);

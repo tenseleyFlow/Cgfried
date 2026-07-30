@@ -39,6 +39,7 @@ typedef struct {
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
     bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
     u32 max_errors;      /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
+    bool fno_common;     /* -fno-common; the default matches gcc 8 (-fcommon) */
     int std;             /* CStd value; default C17 */
     bool trigraphs;      /* -trigraphs (default off, gcc parity) */
     bool nostdinc;       /* -nostdinc: no system include dirs */
