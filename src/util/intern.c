@@ -1,5 +1,6 @@
 #include "util/intern.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "diag.h"

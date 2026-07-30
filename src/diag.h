@@ -62,8 +62,9 @@ void diag_render(FILE *f, const Diag *d, const DiagCtx *dc, bool color);
  * without a tty. Computed once. */
 bool diag_use_color(void);
 
-/* ICE: structured report to stderr, then exit 4 — the only exit() call in
- * src/ (the exit-code contract stays auditable). Never a bare crash. */
+/* ICE: structured report to stderr, then terminates with code 4 — the one
+ * place in src/ allowed to end the process besides main returning (the
+ * exit-code contract stays auditable). Never a bare crash. */
 _Noreturn void cgf_ice(const char *src_file, int src_line, const char *fmt,
                        ...);
 #define CGF_ICE(...) cgf_ice(__FILE__, __LINE__, __VA_ARGS__)
