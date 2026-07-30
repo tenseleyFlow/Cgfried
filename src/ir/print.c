@@ -1,0 +1,447 @@
+#include "ir/ir.h"
+
+#include <string.h>
+
+/* The deterministic printer. Two prints of one module are byte-identical:
+ * everything is emitted from module arrays in index order and values are
+ * RENUMBERED %0.. in document order (function params, then per block in
+ * layout order: its params, then its instruction results). Document order
+ * is exactly the order the parser creates values in, which is what makes
+ * parse(print(parse(text))) structurally identical — the ids line up.
+ *
+ * The grammar (parse.c accepts precisely this; the two files are a pair):
+ *
+ *   module  := (sym | global | func)*
+ *   sym     := "sym" @name                      ; full table, index order
+ *   global  := "global" @name "size" INT "align" INT linkage ["tentative"]
+ *              ["init" HEX*] ("reloc" INT @name INT)*
+ *   func    := "func" type @name "(" [type %name ,...] ")" "{" block+ "}"
+ *   block   := name "(" [type %name ,...] "):" inst*
+ *
+ * Per-op instruction shapes are in print_inst below; operand atoms are
+ * %value, signed decimal (iconst), 0xHEX[:0xHEX] (fconst exact bits,
+ * hi:lo for f80/f128), @name[+addend], or undef. */
+
+static const char *const type_names[] = {
+    "i8", "i16", "i32", "i64", "f32", "f64", "f80", "f128", "ptr", "void",
+};
+
+static const char *const op_names[] = {
+    "iadd",        "isub",    "imul",   "sdiv",    "udiv",   "srem",   "urem",
+    "and",         "or",      "xor",    "shl",     "lshr",   "ashr",   "icmp",
+    "fcmp",        "fadd",    "fsub",   "fmul",    "fdiv",   "fneg",   "sext",
+    "zext",        "trunc",   "fpext",  "fptrunc", "fptosi", "fptoui", "sitofp",
+    "uitofp",      "bitcast", "alloca", "load",    "store",  "ptradd", "memcpy",
+    "memset",      "call",    "select", "ret",     "br",     "condbr", "switch",
+    "unreachable",
+};
+
+static const char *const icmp_names[] = {
+    "eq", "ne", "slt", "sle", "sgt", "sge", "ult", "ule", "ugt", "uge",
+};
+
+static const char *const fcmp_names[] = {
+    "oeq", "one", "olt", "ole", "ogt", "oge", "ord",
+    "ueq", "une", "ult", "ule", "ugt", "uge", "uno",
+};
+
+const char *ir_type_name(IrType t)
+{
+    if ((unsigned)t > IRT_VOID)
+        CGF_ICE("ir printer: bad type %d", (int)t);
+    return type_names[t];
+}
+
+const char *ir_op_name(IrOp op)
+{
+    if ((unsigned)op > IR_UNREACHABLE)
+        CGF_ICE("ir printer: bad opcode %d", (int)op);
+    return op_names[op];
+}
+
+const char *ir_icmp_name(IrIcmp p)
+{
+    if ((unsigned)p > ICMP_UGE)
+        CGF_ICE("ir printer: bad icmp pred %d", (int)p);
+    return icmp_names[p];
+}
+
+const char *ir_fcmp_name(IrFcmp p)
+{
+    if ((unsigned)p > FCMP_UNO)
+        CGF_ICE("ir printer: bad fcmp pred %d", (int)p);
+    return fcmp_names[p];
+}
+
+/* Value renumbering table: id -> printed number, built in document order. */
+typedef struct {
+    u32 *num; /* indexed by ValueId.v; u32-max = unnumbered */
+    u32 nvals;
+} ValNames;
+
+#define VN_NONE 0xFFFFFFFFu
+
+static ValNames vn_build(Arena *a, const IrFunc *f)
+{
+    ValNames vn;
+    u32 next = 0;
+    u32 i;
+    const IrBlock *blk;
+    const IrInst *in;
+
+    vn.nvals = f->nvals;
+    vn.num = arena_alloc(a, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
+    memset(vn.num, 0xFF, (f->nvals + 1) * sizeof(u32));
+    for (i = 0; i < f->nparams; i++)
+        vn.num[f->param_vals[i].v] = next++;
+    for (i = 0; i < f->nblocks; i++) {
+        u32 j;
+
+        blk = &f->blocks[i];
+        for (j = 0; j < blk->nparams; j++)
+            vn.num[blk->params[j].v] = next++;
+        for (in = blk->first; in; in = in->next)
+            if (in->result.v)
+                vn.num[in->result.v] = next++;
+    }
+    return vn;
+}
+
+static void print_val(Buf *out, const ValNames *vn, u32 id)
+{
+    if (id == 0 || id > vn->nvals || vn->num[id] == VN_NONE)
+        buf_printf(out, "%%bad%u", id); /* dump-only; parser rejects */
+    else
+        buf_printf(out, "%%%u", vn->num[id]);
+}
+
+/* An atom: the operand payload WITHOUT its type. */
+static void print_atom(Buf *out, const IrModule *m, const ValNames *vn,
+                       const IrOperand *o)
+{
+    switch (o->kind) {
+    case IROP_VALUE:
+        print_val(out, vn, (u32)o->a);
+        break;
+    case IROP_ICONST:
+        buf_printf(out, "%lld", (long long)(i64)o->a);
+        break;
+    case IROP_FCONST:
+        switch (o->type) {
+        case IRT_F32:
+            buf_printf(out, "0x%08llX",
+                       (unsigned long long)(o->a & 0xFFFFFFFFu));
+            break;
+        case IRT_F64:
+            buf_printf(out, "0x%016llX", (unsigned long long)o->a);
+            break;
+        case IRT_F80:
+            buf_printf(out, "0x%04llX:0x%016llX", (unsigned long long)o->b,
+                       (unsigned long long)o->a);
+            break;
+        default: /* f128 */
+            buf_printf(out, "0x%016llX:0x%016llX", (unsigned long long)o->b,
+                       (unsigned long long)o->a);
+            break;
+        }
+        break;
+    case IROP_SYMBOL:
+        buf_printf(out, "@%s", o->sym < m->nsyms ? m->syms[o->sym] : "?");
+        if ((i64)o->a > 0)
+            buf_printf(out, "+%lld", (long long)(i64)o->a);
+        else if ((i64)o->a < 0)
+            buf_printf(out, "%lld", (long long)(i64)o->a);
+        break;
+    case IROP_UNDEF:
+        buf_printf(out, "undef");
+        break;
+    default:
+        buf_printf(out, "?");
+        break;
+    }
+}
+
+/* A typed operand: "i32 %4", "ptr @g+8", "f64 0x...". */
+static void print_typed(Buf *out, const IrModule *m, const ValNames *vn,
+                        const IrOperand *o)
+{
+    buf_printf(out, "%s ", type_names[o->type]);
+    print_atom(out, m, vn, o);
+}
+
+static void print_edge(Buf *out, const IrModule *m, const IrFunc *f,
+                       const ValNames *vn, const IrEdge *e)
+{
+    const IrBlock *t = ir_block((IrFunc *)f, e->target);
+    u32 i;
+
+    buf_printf(out, "%s(", t && t->name ? t->name : "?");
+    for (i = 0; i < e->nargs; i++) {
+        if (i)
+            buf_printf(out, ", ");
+        print_typed(out, m, vn, &e->args[i]);
+    }
+    buf_printf(out, ")");
+}
+
+static void print_memflags(Buf *out, u8 flags)
+{
+    if (flags & IRF_VOLATILE)
+        buf_printf(out, ", volatile");
+    if (flags & IRF_SEQ_CST)
+        buf_printf(out, ", seq_cst");
+}
+
+static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
+                       const ValNames *vn, const IrInst *in)
+{
+    u32 i;
+
+    buf_printf(out, "    ");
+    if (in->result.v) {
+        print_val(out, vn, in->result.v);
+        buf_printf(out, " = ");
+    }
+    switch (in->op) {
+    case IR_IADD:
+    case IR_ISUB:
+    case IR_IMUL:
+    case IR_SDIV:
+    case IR_UDIV:
+    case IR_SREM:
+    case IR_UREM:
+    case IR_AND:
+    case IR_OR:
+    case IR_XOR:
+    case IR_SHL:
+    case IR_LSHR:
+    case IR_ASHR:
+    case IR_FADD:
+    case IR_FSUB:
+    case IR_FMUL:
+    case IR_FDIV:
+        /* %r = iadd i32 %a, %b — one type covers operands and result */
+        buf_printf(out, "%s %s ", op_names[in->op], type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        break;
+    case IR_ICMP:
+        buf_printf(out, "icmp %s %s ", icmp_names[in->subop],
+                   type_names[in->ops[0].type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        break;
+    case IR_FCMP:
+        buf_printf(out, "fcmp %s %s ", fcmp_names[in->subop],
+                   type_names[in->ops[0].type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        break;
+    case IR_FNEG:
+        buf_printf(out, "fneg %s ", type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        break;
+    case IR_SEXT:
+    case IR_ZEXT:
+    case IR_TRUNC:
+    case IR_FPEXT:
+    case IR_FPTRUNC:
+    case IR_FPTOSI:
+    case IR_FPTOUI:
+    case IR_SITOFP:
+    case IR_UITOFP:
+    case IR_BITCAST:
+        /* %r = sext i32 %a to i64 */
+        buf_printf(out, "%s ", op_names[in->op]);
+        print_typed(out, m, vn, &in->ops[0]);
+        buf_printf(out, " to %s", type_names[in->type]);
+        break;
+    case IR_ALLOCA:
+        buf_printf(out, "alloca ");
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", align %u", in->align);
+        break;
+    case IR_LOAD:
+        buf_printf(out, "load %s, ", type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", align %u", in->align);
+        print_memflags(out, in->flags);
+        break;
+    case IR_STORE:
+        buf_printf(out, "store ");
+        print_typed(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        buf_printf(out, ", align %u", in->align);
+        print_memflags(out, in->flags);
+        break;
+    case IR_PTRADD:
+        buf_printf(out, "ptradd ");
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        break;
+    case IR_MEMCPY:
+    case IR_MEMSET:
+        buf_printf(out, "%s ", op_names[in->op]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[2]);
+        buf_printf(out, ", align %u", in->align);
+        print_memflags(out, in->flags);
+        break;
+    case IR_SELECT:
+        buf_printf(out, "select ");
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", %s ", type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[1]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[2]);
+        break;
+    case IR_CALL: {
+        u32 first = 0;
+
+        buf_printf(out, "call %s ", type_names[in->type]);
+        if (in->subop == FUNCREF_INTERNAL)
+            buf_printf(out, "@%s",
+                       in->callee < m->nfuncs ? m->funcs[in->callee].name
+                                              : "?");
+        else if (in->subop == FUNCREF_EXTERNAL)
+            buf_printf(out, "@%s",
+                       in->callee < m->nsyms ? m->syms[in->callee] : "?");
+        else {
+            print_atom(out, m, vn, &in->ops[0]);
+            first = 1;
+        }
+        buf_printf(out, "(");
+        for (i = first; i < in->nops; i++) {
+            if (i > first)
+                buf_printf(out, ", ");
+            print_typed(out, m, vn, &in->ops[i]);
+        }
+        buf_printf(out, ")");
+        break;
+    }
+    case IR_RET:
+        buf_printf(out, "ret");
+        if (in->nops) {
+            buf_printf(out, " ");
+            print_typed(out, m, vn, &in->ops[0]);
+        }
+        break;
+    case IR_BR:
+        buf_printf(out, "br ");
+        print_edge(out, m, f, vn, &in->edges[0]);
+        break;
+    case IR_CONDBR:
+        buf_printf(out, "condbr ");
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_edge(out, m, f, vn, &in->edges[0]);
+        buf_printf(out, ", ");
+        print_edge(out, m, f, vn, &in->edges[1]);
+        break;
+    case IR_SWITCH:
+        buf_printf(out, "switch %s ", type_names[in->ops[0].type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_edge(out, m, f, vn, &in->edges[0]);
+        for (i = 1; i < in->nedges; i++) {
+            buf_printf(out, ", %lld: ", (long long)in->edges[i].case_val);
+            print_edge(out, m, f, vn, &in->edges[i]);
+        }
+        break;
+    case IR_UNREACHABLE:
+        buf_printf(out, "unreachable");
+        break;
+    default:
+        /* Reserved opcodes never reach the printer (builder ICEs), but a
+         * corrupt module dumped via CGF_DUMP_BAD_IR might. */
+        buf_printf(out, "<op %u>", in->op);
+        break;
+    }
+    buf_printf(out, "\n");
+}
+
+static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
+{
+    ValNames vn = vn_build(m->arena, f);
+    u32 i;
+
+    buf_printf(out, "func %s @%s(", type_names[f->ret], f->name);
+    for (i = 0; i < f->nparams; i++) {
+        if (i)
+            buf_printf(out, ", ");
+        buf_printf(out, "%s ", type_names[f->param_types[i]]);
+        print_val(out, &vn, f->param_vals[i].v);
+    }
+    buf_printf(out, ") {\n");
+    for (i = 0; i < f->nblocks; i++) {
+        const IrBlock *blk = &f->blocks[i];
+        const IrInst *in;
+        u32 j;
+
+        buf_printf(out, "%s(", blk->name ? blk->name : "?");
+        for (j = 0; j < blk->nparams; j++) {
+            if (j)
+                buf_printf(out, ", ");
+            buf_printf(out, "%s ",
+                       type_names[f->vals[blk->params[j].v - 1].type]);
+            print_val(out, &vn, blk->params[j].v);
+        }
+        buf_printf(out, "):\n");
+        for (in = blk->first; in; in = in->next)
+            print_inst(out, m, f, &vn, in);
+    }
+    buf_printf(out, "}\n");
+}
+
+void ir_print_module_buf(Buf *out, const IrModule *m)
+{
+    u32 i, j;
+
+    for (i = 0; i < m->nsyms; i++)
+        buf_printf(out, "sym @%s\n", m->syms[i]);
+    for (i = 0; i < m->nglobals; i++) {
+        const IrGlobal *g = &m->globals[i];
+        static const char *const link_names[] = {"internal", "external",
+                                                 "common"};
+
+        buf_printf(out, "global @%s size %llu align %u %s", g->name,
+                   (unsigned long long)g->size, g->align,
+                   link_names[g->linkage]);
+        if (g->is_tentative)
+            buf_printf(out, " tentative");
+        if (g->init) {
+            /* x-prefixed so a digit-leading image lexes as one ident */
+            buf_printf(out, " init x");
+            for (j = 0; j < g->size; j++)
+                buf_printf(out, "%02x", g->init[j]);
+        }
+        for (j = 0; j < g->nrelocs; j++)
+            buf_printf(out, " reloc %llu @%s %lld",
+                       (unsigned long long)g->relocs[j].offset,
+                       m->syms[g->relocs[j].symbol],
+                       (long long)g->relocs[j].addend);
+        buf_printf(out, "\n");
+    }
+    for (i = 0; i < m->nfuncs; i++) {
+        buf_printf(out, "\n");
+        print_func(out, m, &m->funcs[i]);
+    }
+}
+
+void ir_print_module(FILE *out, const IrModule *m)
+{
+    Buf b;
+
+    buf_init(&b);
+    ir_print_module_buf(&b, m);
+    fwrite(b.data, 1, b.len, out);
+    buf_free(&b);
+}
