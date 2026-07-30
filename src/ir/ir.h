@@ -114,7 +114,10 @@ typedef enum IrOp {
     IR_FPTOUI,
     IR_SITOFP,
     IR_UITOFP,
-    IR_BITCAST, /* same-width int<->float only */
+    IR_BITCAST, /* same-width reinterpret: int<->float, and i64<->ptr
+                   (Sprint 18: C's pointer<->integer casts need it; all
+                   five targets have 64-bit pointers, so i64 is THE
+                   integer side — narrower casts go through trunc/ext) */
     /* memory */
     IR_ALLOCA,
     IR_LOAD,
@@ -382,6 +385,24 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
 /* Structural equality — the round-trip invariant's judge. Compares
  * everything except interned pointer identities (names by content). */
 bool ir_module_struct_eq(const IrModule *a, const IrModule *b);
+
+/* Deletes blocks unreachable from the entry, compacting the block array
+ * and remapping every edge target. The verifier REJECTS orphans (check
+ * 6), and C legally puts statements after `return` — so producers run
+ * this instead of abandoning dead blocks. Values defined in deleted
+ * blocks stay in the vals table (ids must remain stable) but lose their
+ * def_block; lowering never lets an SSA value cross from dead code into
+ * live code (locals travel through allocas), so no live use can see one. */
+void ir_func_remove_unreachable(IrFunc *f);
+
+/* Renumbers every value into DOCUMENT order (fparams, then per block in
+ * layout order: params, then instruction results) and rebuilds the vals
+ * table. Producers whose creation order differs from layout order — any
+ * lowering that fills a join block after a later-created block — run
+ * this so parse(print(M)) == M holds; parser-built modules are already
+ * canonical. Uses of values with no surviving definition renumber to 0,
+ * which verifier check 1 rejects loudly. */
+void ir_func_renumber(Arena *arena, IrFunc *f);
 
 /* --- dominance (src/ir/dom.c) -------------------------------------------- */
 

@@ -226,6 +226,174 @@ IrOperand ir_op_undef(IrType t)
     return o;
 }
 
+/* --- unreachable-block cleanup ------------------------------------------- */
+
+void ir_func_remove_unreachable(IrFunc *f)
+{
+    /* Fixed-size worklist on the C stack would overflow; reuse the block
+     * array bound. Small functions dominate, so a simple mark + compact
+     * beats anything clever. */
+    bool reach[4096];
+    u32 work[4096];
+    u32 remap[4096];
+    u32 nwork = 0;
+    u32 i, j;
+    u32 next = 0;
+    bool any_dead = false;
+
+    if (f->nblocks == 0 || f->nblocks > 4096)
+        return; /* degenerate or absurd; the verifier will speak to it */
+    memset(reach, 0, f->nblocks * sizeof(bool));
+    reach[0] = true;
+    work[nwork++] = 0;
+    while (nwork) {
+        u32 b = work[--nwork];
+        const IrInst *in;
+
+        for (in = f->blocks[b].first; in; in = in->next)
+            for (i = 0; i < in->nedges; i++) {
+                u32 t = in->edges[i].target.v;
+
+                if (t >= 1 && t <= f->nblocks && !reach[t - 1]) {
+                    reach[t - 1] = true;
+                    work[nwork++] = t - 1;
+                }
+            }
+    }
+    for (i = 0; i < f->nblocks; i++) {
+        if (reach[i])
+            remap[i] = next++;
+        else
+            any_dead = true;
+    }
+    if (!any_dead)
+        return;
+    /* Values defined in dying blocks lose their def coordinates; their
+     * ids stay allocated so every surviving operand id is untouched. */
+    for (i = 0; i < f->nvals; i++) {
+        u32 db = f->vals[i].def_block.v;
+
+        if (db >= 1 && db <= f->nblocks) {
+            if (!reach[db - 1]) {
+                f->vals[i].def_block.v = 0;
+                f->vals[i].def_kind = VDEF_NONE;
+            } else {
+                f->vals[i].def_block.v = remap[db - 1] + 1;
+            }
+        }
+    }
+    for (i = 0; i < f->nblocks; i++) {
+        IrInst *in;
+
+        if (!reach[i])
+            continue;
+        for (in = f->blocks[i].first; in; in = in->next)
+            for (j = 0; j < in->nedges; j++) {
+                u32 t = in->edges[j].target.v;
+
+                if (t >= 1 && t <= f->nblocks)
+                    in->edges[j].target.v = remap[t - 1] + 1;
+            }
+        f->blocks[remap[i]] = f->blocks[i];
+    }
+    f->nblocks = next;
+}
+
+/* --- canonical value renumbering ------------------------------------------ */
+
+static void renumber_operand(IrOperand *o, const u32 *map, u32 nold)
+{
+    if (o->kind == IROP_VALUE) {
+        u32 id = (u32)o->a;
+
+        o->a = (id >= 1 && id <= nold) ? map[id] : 0;
+    }
+}
+
+void ir_func_renumber(Arena *arena, IrFunc *f)
+{
+    u32 nold = f->nvals;
+    u32 *map = arena_alloc(arena, (nold + 1) * sizeof(u32), _Alignof(u32));
+    IrValInfo *nv;
+    u32 next = 0;
+    u32 bi, i;
+    IrInst *in;
+
+    memset(map, 0, (nold + 1) * sizeof(u32));
+    /* Pass 1: assign new ids in document order. */
+    for (i = 0; i < f->nparams; i++)
+        if (f->param_vals[i].v)
+            map[f->param_vals[i].v] = ++next;
+    for (bi = 0; bi < f->nblocks; bi++) {
+        IrBlock *blk = &f->blocks[bi];
+
+        for (i = 0; i < blk->nparams; i++)
+            if (blk->params[i].v)
+                map[blk->params[i].v] = ++next;
+        for (in = blk->first; in; in = in->next)
+            if (in->result.v)
+                map[in->result.v] = ++next;
+    }
+    /* Pass 2: rebuild the vals table with fresh def coordinates. */
+    nv = arena_alloc(arena, (next ? next : 1) * sizeof(IrValInfo),
+                     _Alignof(IrValInfo));
+    memset(nv, 0, (next ? next : 1) * sizeof(IrValInfo));
+    for (i = 0; i < f->nparams; i++) {
+        u32 nid = map[f->param_vals[i].v];
+
+        if (!nid)
+            continue;
+        nv[nid - 1].type = f->vals[f->param_vals[i].v - 1].type;
+        nv[nid - 1].def_kind = VDEF_FPARAM;
+        nv[nid - 1].def_block.v = 1;
+        f->param_vals[i].v = nid;
+    }
+    for (bi = 0; bi < f->nblocks; bi++) {
+        IrBlock *blk = &f->blocks[bi];
+        u32 pos = 0;
+
+        for (i = 0; i < blk->nparams; i++) {
+            u32 old = blk->params[i].v;
+            u32 nid = old ? map[old] : 0;
+
+            if (!nid)
+                continue;
+            nv[nid - 1].type = f->vals[old - 1].type;
+            nv[nid - 1].def_kind = VDEF_BPARAM;
+            nv[nid - 1].def_block.v = bi + 1;
+            blk->params[i].v = nid;
+        }
+        for (in = blk->first; in; in = in->next, pos++) {
+            if (in->result.v) {
+                u32 old = in->result.v;
+                u32 nid = map[old];
+
+                if (nid) {
+                    nv[nid - 1].type = f->vals[old - 1].type;
+                    nv[nid - 1].def_kind = VDEF_INST;
+                    nv[nid - 1].def_block.v = bi + 1;
+                    nv[nid - 1].def_pos = pos;
+                    in->result.v = nid;
+                }
+            }
+        }
+    }
+    /* Pass 3: rewrite every use. */
+    for (bi = 0; bi < f->nblocks; bi++)
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            u32 j;
+
+            for (i = 0; i < in->nops; i++)
+                renumber_operand(&in->ops[i], map, nold);
+            for (i = 0; i < in->nedges; i++)
+                for (j = 0; j < in->edges[i].nargs; j++)
+                    renumber_operand(&in->edges[i].args[j], map, nold);
+        }
+    f->vals = nv;
+    f->nvals = next;
+    f->cap_vals = next;
+}
+
 /* --- structural equality ------------------------------------------------- */
 
 static bool str_eq(const char *a, const char *b)

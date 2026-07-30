@@ -247,11 +247,13 @@ static void check_inst_types(V *v, const IrInst *in)
         bool i2d = in->ops[0].type == IRT_I64 && in->type == IRT_F64;
         bool f2i = in->ops[0].type == IRT_F32 && in->type == IRT_I32;
         bool d2i = in->ops[0].type == IRT_F64 && in->type == IRT_I64;
+        bool i2p = in->ops[0].type == IRT_I64 && in->type == IRT_PTR;
+        bool p2i = in->ops[0].type == IRT_PTR && in->type == IRT_I64;
 
-        if (!i2f && !i2d && !f2i && !d2i)
+        if (!i2f && !i2d && !f2i && !d2i && !i2p && !p2i)
             verr(v, 4,
                  "'bitcast' is only defined between same-width "
-                 "int and float (i32<->f32, i64<->f64)");
+                 "types (i32<->f32, i64<->f64, i64<->ptr)");
         break;
     }
     case IR_ALLOCA:
