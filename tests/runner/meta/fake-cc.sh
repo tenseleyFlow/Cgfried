@@ -52,6 +52,21 @@ flags_env_pp.c)
     printf 'alpha\nbeta\n'
     exit 0
     ;;
+warn_expected_pass.c)
+    # A warning: text on stderr, exit 0. WARNING_EXPECTED asserts BOTH.
+    echo "warning: unused variable 'x'" >&2
+    exit 0
+    ;;
+warn_expected_fail.c)
+    # Right exit code, wrong (missing) text.
+    exit 0
+    ;;
+warn_expected_errored.c)
+    # Right text, but it FAILED the compile — a warning that quietly
+    # became an error is as much a regression as one that stopped firing.
+    echo "warning: unused variable 'x'" >&2
+    exit 1
+    ;;
 err_expected_fail.c)
     echo "error: unrelated diagnostic" >&2
     exit 1

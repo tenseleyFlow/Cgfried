@@ -13,6 +13,7 @@ static const DirectiveName directive_table[] = {
     {"CHECK", DIR_CHECK},
     {"EXIT_CODE", DIR_EXIT_CODE},
     {"ERROR_EXPECTED", DIR_ERROR_EXPECTED},
+    {"WARNING_EXPECTED", DIR_WARNING_EXPECTED},
     {"XFAIL", DIR_XFAIL},
     {"SKIP", DIR_SKIP},
     {"TIMEOUT", DIR_TIMEOUT},
@@ -274,6 +275,7 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         switch (hit->kind) {
         case DIR_CHECK:
         case DIR_ERROR_EXPECTED:
+        case DIR_WARNING_EXPECTED:
             if (value_len == 0) {
                 err(p, line_no, "empty directive value");
                 return;
@@ -373,9 +375,11 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
 
         if (hit->kind == DIR_ERROR_EXPECTED)
             p->set->has_error_expected = true;
+        if (hit->kind == DIR_WARNING_EXPECTED)
+            p->set->has_warning_expected = true;
         if (hit->kind == DIR_CHECK || hit->kind == DIR_ERROR_EXPECTED ||
-            hit->kind == DIR_XFAIL || hit->kind == DIR_SKIP ||
-            hit->kind == DIR_ENV)
+            hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
+            hit->kind == DIR_SKIP || hit->kind == DIR_ENV)
             add_dir(p, d);
     }
 }

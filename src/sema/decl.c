@@ -705,6 +705,18 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
 {
     Type *composite;
 
+    if (prev->kind != cur->kind &&
+        (prev->kind == SYM_ENUM_CONST || cur->kind == SYM_ENUM_CONST)) {
+        /* Enum constants share the ORDINARY namespace with objects and
+         * typedefs and have NO linkage, so nothing may redeclare one. */
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, cur->span,
+                  "redefinition of '%s' as a different kind of symbol",
+                  cur->name);
+        diag_emit(s->dc, DIAG_NOTE, prev->span, "previous declaration is here");
+        return;
+    }
+
     if (prev->kind == SYM_TYPEDEF || cur->kind == SYM_TYPEDEF) {
         if (prev->kind != cur->kind) {
             s->nerrors++;
@@ -808,10 +820,12 @@ static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
     if (!init)
         return false;
     if (init->kind == AST_EXPR_STRING) {
-        /* `char s[] = "abc"` is char[4]: the terminator counts. */
+        /* `char s[] = "abc"` is char[4]. The lexer's nbytes is the
+         * ENCODED CONTENT and excludes the terminator (verified against
+         * --dump-tokens), so the +1 is the terminator the array must hold. */
         if (!init->tok)
             return false;
-        *out = init->tok->str.nbytes;
+        *out = (u64)init->tok->str.nbytes + 1;
         return true;
     }
     if (init->kind != AST_INIT_LIST)

@@ -407,6 +407,7 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                     if (strcmp(piece, "-E") == 0 ||
                         strcmp(piece, "--dump-tokens") == 0 ||
                         strcmp(piece, "--dump-ast") == 0 ||
+                        strcmp(piece, "-fdump-sema") == 0 ||
                         strcmp(piece, "-fsyntax-only") == 0)
                         pp_mode = true;
                     if (n >= 28) {
@@ -442,6 +443,34 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
             printf("FAIL %s: TIMEOUT after %ds (compile)\n", id, timeout);
         spawn_result_free(&comp);
         return OUT_FAIL;
+    }
+
+    if (ds->has_warning_expected) {
+        /* A warning must appear on stderr AND leave the exit code at 0 —
+         * asserting both is the point, since a diagnostic that quietly
+         * became an error is as much a regression as one that stopped
+         * firing. */
+        bool ok = comp.exited && comp.exit_code == 0;
+        size_t d;
+
+        for (d = 0; d < ds->ndirs && ok; d++) {
+            if (ds->dirs[d].kind == DIR_WARNING_EXPECTED &&
+                !buf_contains(&comp.err, ds->dirs[d].value))
+                ok = false;
+        }
+        if (ok) {
+            out = OUT_PASS;
+        } else if (!quiet) {
+            printf("FAIL %s: WARNING_EXPECTED not satisfied (compile exit ",
+                   id);
+            if (comp.exited)
+                printf("%d)\n", comp.exit_code);
+            else
+                printf("signal %d)\n", comp.term_signal);
+            print_detail("compiler stderr", &comp.err);
+        }
+        spawn_result_free(&comp);
+        return out;
     }
 
     if (ds->has_error_expected) {

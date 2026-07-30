@@ -18,6 +18,12 @@ typedef enum {
     DIR_CHECK,
     DIR_EXIT_CODE,
     DIR_ERROR_EXPECTED,
+    /* Like ERROR_EXPECTED but for a diagnostic that must NOT fail the
+     * compile: the text must appear on stderr AND the exit code must stay
+     * 0. Without this there is no way to pin warning behavior, and a
+     * warning that silently stops firing is exactly the regression a
+     * corpus is supposed to catch. */
+    DIR_WARNING_EXPECTED,
     DIR_XFAIL,
     DIR_SKIP,
     DIR_TIMEOUT,
@@ -51,6 +57,7 @@ typedef struct {
     int timeout;       /* TIMEOUT value in seconds, 0 = none given */
     const char *flags; /* FLAGS value (raw, space-separated), or NULL */
     bool has_error_expected;
+    bool has_warning_expected;
 } DirectiveSet;
 
 /* Parses directives out of a test source. All strings are arena-copies. */

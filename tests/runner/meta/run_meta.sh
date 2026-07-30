@@ -33,6 +33,9 @@ expect exit_code_pass.c 0 "pass=1"
 expect exit_code_fail.c 1 "exit code 3, expected 0"
 expect err_expected_pass.c 0 "pass=1"
 expect err_expected_fail.c 1 "ERROR_EXPECTED not satisfied"
+expect warn_expected_pass.c 0 "pass=1"
+expect warn_expected_fail.c 1 "WARNING_EXPECTED not satisfied"
+expect warn_expected_errored.c 1 "WARNING_EXPECTED not satisfied"
 expect xfail_fail.c 0 "xfail=1"
 expect xfail_pass.c 1 "XPASS"
 expect skip_all.c 0 \
@@ -54,7 +57,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=20 pass=6 fail=5 xfail=1 xpass=1 skip=1 config=6"*) ;;
+*"total=23 pass=7 fail=7 xfail=1 xpass=1 skip=1 config=6"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)
