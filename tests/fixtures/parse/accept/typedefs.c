@@ -1,0 +1,12 @@
+typedef int T;
+T x;
+T *tp;
+T (*fp)(T);
+typedef T *TP;
+TP tpv;
+int f(T);
+int g(T t);
+T(paren_decl);
+int(int_paren);
+typedef unsigned long size_type;
+size_type sz;

@@ -1,0 +1,13 @@
+struct S { int a; char b; };
+struct T;
+struct T *tp;
+union U { int i; float f; };
+struct Bits { unsigned a : 3; unsigned : 0; unsigned b : 1; };
+struct Nested { struct Inner { int x; } in; };
+struct Anon { struct { int hidden; }; int visible; };
+enum E { A, B = 5, C };
+enum F { X = 1, Y, };
+struct Flex { int n; char data[]; };
+struct SelfRef { struct SelfRef *next; };
+typedef struct S SAlias;
+SAlias sa;

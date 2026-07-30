@@ -405,7 +405,9 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                      * the pipeline stops after the compile step and
                      * CHECK/EXIT_CODE apply to the compiler itself. */
                     if (strcmp(piece, "-E") == 0 ||
-                        strcmp(piece, "--dump-tokens") == 0)
+                        strcmp(piece, "--dump-tokens") == 0 ||
+                        strcmp(piece, "--dump-ast") == 0 ||
+                        strcmp(piece, "-fsyntax-only") == 0)
                         pp_mode = true;
                     if (n >= 28) {
                         if (!quiet)

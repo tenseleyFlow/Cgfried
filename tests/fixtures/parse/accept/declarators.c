@@ -1,0 +1,12 @@
+int (*(*f[3])(void))[5];
+int *p, **pp, ***ppp;
+char *argv[10];
+int (*fp)(int, char *);
+int (*const cfp)(void);
+void (*signal(int, void (*)(int)))(int);
+int *(*(*x)(void))[4];
+int (*(*y)(int (*)(void)))[2];
+const char *const *ccp;
+volatile int * restrict vip;
+int a[3][4][5];
+int (*b[2])[3];

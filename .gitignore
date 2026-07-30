@@ -10,5 +10,6 @@ CLAUDE.md
 AGENTS.md
 build/
 build-san/
+build-clang/
 *.o
 *.a
