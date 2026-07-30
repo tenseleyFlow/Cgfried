@@ -20,9 +20,9 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span);
  * actually contain: literals, character constants, other enum constants,
  * and the arithmetic between them. Anything richer hard-errors naming
  * Sprint 15 rather than guessing a value. */
-static bool enum_fold(Sema *s, const AstNode *e, i64 *out);
+static bool enum_fold(Sema *s, AstNode *e, i64 *out);
 
-static bool enum_fold_binary(Sema *s, const AstNode *e, i64 *out)
+static bool enum_fold_binary(Sema *s, AstNode *e, i64 *out)
 {
     i64 l, r;
 
@@ -94,7 +94,7 @@ static bool enum_fold_binary(Sema *s, const AstNode *e, i64 *out)
     }
 }
 
-static bool enum_fold(Sema *s, const AstNode *e, i64 *out)
+static bool enum_fold(Sema *s, AstNode *e, i64 *out)
 {
     if (!e)
         return false;
@@ -153,15 +153,33 @@ static bool enum_fold(Sema *s, const AstNode *e, i64 *out)
         return enum_fold(s, c ? e->mid : e->rhs, out);
     }
     case AST_EXPR_SIZEOF:
-    case AST_EXPR_ALIGNOF:
-        /* These HAVE a type (size_t) but not yet a VALUE — the value needs
-         * object layout, which is Sprint 14's. So an expression merely
-         * mentioning sizeof types fine; only FOLDING one defers. */
-        sema_unimplemented(s, e->span,
-                           "the VALUE of 'sizeof'/'_Alignof' in a constant "
-                           "expression (its type is already known)",
-                           14);
-        return false;
+    case AST_EXPR_ALIGNOF: {
+        /* Sprint 14 landed layout, so these fold. The operand type is
+         * whichever of the two forms was written: a type-name, or the
+         * type of an unevaluated expression. */
+        Type *t = e->type ? sema_type_from_ast(s, e->type, e->span)
+                          : (e->lhs ? e->lhs->sem_type : NULL);
+
+        if (!t && e->lhs) {
+            /* The operand was not typed yet (a constant context reached
+             * before expression sema); type it now. */
+            e->lhs = sema_expr(s, e->lhs);
+            t = e->lhs->sem_type;
+        }
+        if (!t)
+            return false;
+        if (!layout_is_complete_for_size(t)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, e->span,
+                      "invalid application of '%s' to incomplete type '%s'",
+                      e->kind == AST_EXPR_SIZEOF ? "sizeof" : "_Alignof",
+                      type_to_str(s->arena, t));
+            return false;
+        }
+        *out = e->kind == AST_EXPR_SIZEOF ? (i64)layout_of(s, t).size
+                                          : (i64)layout_of(s, t).align;
+        return true;
+    }
     default:
         sema_unimplemented(s, e->span, "this form of constant expression", 15);
         return false;
@@ -297,6 +315,30 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
                        i + 1 == rec->nmembers && j + 1 == m->nitems);
     }
     tag->complete = true;
+    {
+        Member *mm;
+        bool any_named = false;
+
+        for (mm = tag->members; mm; mm = mm->next)
+            if (mm->name) {
+                any_named = true;
+                break;
+            }
+        /* 6.7.2.1 requires a non-empty member list, and an unnamed
+         * bitfield does not make one: `struct { int :0; }` has no named
+         * member and gcc gives it size ZERO as a GNU extension. Sizes of
+         * zero break the "distinct objects have distinct addresses"
+         * property that later passes assume, so this errors and names the
+         * sprint that would relax it rather than inventing a size.
+         * (`struct { int :5; }` is the same case — gcc's size 1 there is
+         * incidental; both are the no-named-member extension.) */
+        if (!any_named) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, rec->span,
+                      "a struct or union must have at least one named member "
+                      "(the GNU no-named-member extension lands in Sprint 55)");
+        }
+    }
 }
 
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
@@ -353,6 +395,46 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         mem->type = mt;
         mem->is_bitfield = m->is_bitfield;
         mem->bitfield_width = m->bitfield_width;
+        if (m->is_bitfield) {
+            i64 wv = 0;
+
+            if (m->bitfield_width && enum_fold(s, m->bitfield_width, &wv)) {
+                u64 type_bits = layout_of(s, mt).size * 8;
+
+                if (wv < 0) {
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, m->span,
+                              "bit-field '%s' has a negative width",
+                              m->name ? m->name : "<anonymous>");
+                    wv = 0;
+                } else if ((u64)wv > type_bits) {
+                    /* A width wider than the DECLARED TYPE is a constraint
+                     * violation; a width merely wider than the value range
+                     * (int : 31) is fine. */
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, m->span,
+                              "width of bit-field '%s' (%lld bits) exceeds "
+                              "the width of its type (%llu bits)",
+                              m->name ? m->name : "<anonymous>", (long long)wv,
+                              (unsigned long long)type_bits);
+                    wv = (i64)type_bits;
+                }
+                if (wv == 0 && m->name) {
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, m->span,
+                              "named bit-field '%s' has zero width", m->name);
+                    wv = 1;
+                }
+            }
+            mem->bit_width = (u32)wv;
+            if (!type_is_integer(mt) && mt->kind != TY_ERROR) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "bit-field '%s' has non-integral type '%s'",
+                          m->name ? m->name : "<anonymous>",
+                          type_to_str(s->arena, mt));
+            }
+        }
         mem->span = m->span;
         if (*last)
             (*last)->next = mem;

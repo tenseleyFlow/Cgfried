@@ -138,3 +138,39 @@ const char *cgf_target_name(TargetSpec t)
     }
     CGF_ICE("cgf_target_name: bad target kind %d", (int)t.kind);
 }
+
+/* The §7 long-double table, plus pointer facts. Apple's arm64 makes long
+ * double the SAME as double, which is a real divergence from AAPCS64 and
+ * the reason this cannot be keyed on architecture alone. */
+TargetLayout cgf_target_layout(TargetSpec t)
+{
+    TargetLayout l;
+
+    l.ptr_size = 8;
+    l.ptr_align = 8;
+    l.max_align = 16;
+    switch (t.kind) {
+    case CGF_TARGET_X86_64_LINUX_GNU:
+    case CGF_TARGET_X86_64_LINUX_MUSL:
+    case CGF_TARGET_X86_64_FREEBSD:
+        /* x87 80-bit extended: 10 value bytes, 6 of padding, 16 stored. */
+        l.ldbl_kind = CGF_LDBL_X87_80;
+        l.ldbl_size = 16;
+        l.ldbl_align = 16;
+        break;
+    case CGF_TARGET_ARM64_LINUX:
+        /* IEEE binary128, software-emulated — Sprint 49 reuses Sprint 15's
+         * softfloat as the runtime. */
+        l.ldbl_kind = CGF_LDBL_IEEE128;
+        l.ldbl_size = 16;
+        l.ldbl_align = 16;
+        break;
+    case CGF_TARGET_ARM64_MACOS:
+        /* Apple diverges: long double IS double. */
+        l.ldbl_kind = CGF_LDBL_IS_DOUBLE;
+        l.ldbl_size = 8;
+        l.ldbl_align = 8;
+        break;
+    }
+    return l;
+}

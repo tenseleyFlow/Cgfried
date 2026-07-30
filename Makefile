@@ -32,6 +32,10 @@ PPDIFF_OBJ := $(BUILD)/tests/runner/ppdiff.o $(BUILD)/tests/runner/spawn.o $(LIB
 
 # The PP fuzzer: zero deps, deterministic seeds, forks the real binary.
 FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
+# The layout differential's generator: emits random structs whose layout
+# gcc then certifies via _Static_assert built from OUR numbers.
+GENLAYOUT_OBJ := $(BUILD)/tests/tools/gen_layout.o $(LIB_OBJ)
+
 # The frontend fuzzer: same shape, drives -fsyntax-only over pp+lex+parse.
 FEFUZZ_OBJ := $(BUILD)/tests/fuzz/fuzz_frontend.o \
               $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
@@ -46,7 +50,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(BUILD)/tests/runner/directive.o \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff fuzz-smoke fuzz-frontend-smoke fuzz \
         pp-bench clean tools bootstrap install asan ubsan
@@ -74,6 +78,9 @@ $(BUILD)/tests/fuzz/fuzz_frontend.o: tests/fuzz/fuzz_frontend.c | $(DIRS)
 
 $(BUILD)/fuzz_frontend: $(sort $(FEFUZZ_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(FEFUZZ_OBJ))
+
+$(BUILD)/gen_layout: $(sort $(GENLAYOUT_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(GENLAYOUT_OBJ))
 
 $(BUILD)/ppfuzz: $(sort $(FUZZ_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(FUZZ_OBJ))
@@ -112,6 +119,11 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
 	sh scripts/lex_diff.sh $(BUILD)/cgfried
 	sh scripts/parse_diff.sh $(BUILD)/cgfried
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' $(BUILD)/gen_layout
+	CGF_LAYOUT_GEN=$(BUILD)/gen_layout CGF_LAYOUT_WORK=$(BUILD)/layout-diff \
+	    sh scripts/layout_diff.sh $(BUILD)/cgfried > $(BUILD)/layout.log 2>&1; \
+	    s=$$?; cat $(BUILD)/layout.log; exit $$s
+	sh ci/check_skips.sh layout $(BUILD)/layout.log
 	sh scripts/ctestsuite_diff.sh $(BUILD)/cgfried > $(BUILD)/ctestsuite.log 2>&1; s=$$?; \
 	    cat $(BUILD)/ctestsuite.log; exit $$s
 	@if [ -d .docs/refs/c-testsuite/tests/single-exec ]; then p=ctestsuite; \

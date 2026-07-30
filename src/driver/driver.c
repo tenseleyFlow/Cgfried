@@ -23,6 +23,7 @@ static const char help_text[] =
     "  --dump-tokens     run the lexer and dump one token per line\n"
     "  --dump-ast        parse and dump declarations (declarator shapes)\n"
     "  -fdump-sema       run semantic analysis and dump file-scope symbols\n"
+    "  -fdump-layout     dump record layout (offsets, sizes, alignment)\n"
     "  -fsyntax-only     parse and report diagnostics; produce no output\n"
     "  -P                omit linemarkers from -E output\n"
     "  (full compilation is not yet supported; the pipeline is under\n"
@@ -409,7 +410,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     cmdline = build_cmdline_file(&pp, a);
     pp_begin(&pp, sf, cmdline);
 
-    if (a->dump_tokens || a->dump_ast || a->dump_sema || a->syntax_only) {
+    if (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
+        a->syntax_only) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -427,7 +429,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
         if (a->dump_tokens)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
-        if (a->dump_ast || a->dump_sema || a->syntax_only) {
+        if (a->dump_ast || a->dump_sema || a->dump_layout || a->syntax_only) {
             Parser ps;
             AstNode *tu;
 
@@ -439,13 +441,15 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             /* Sema runs for -fsyntax-only too: a declaration that parses
              * but is semantically wrong must still be reported, and that
              * is what -fsyntax-only means. */
-            if (a->dump_sema || a->syntax_only) {
+            if (a->dump_sema || a->dump_layout || a->syntax_only) {
                 Sema sema;
 
                 sema_install_renderer();
                 sema_init(&sema, arena, dc, &interner, &lang,
                           cgf_target_host());
                 sema_run(&sema, tu);
+                if (a->dump_layout)
+                    layout_dump(&sema, stdout);
                 if (a->dump_sema) {
                     sema_dump(&sema, stdout);
                     /* Function bodies too, so the goldens can assert that
@@ -562,7 +566,7 @@ int driver_main(int argc, char **argv)
     } else if (a.input) {
         cgf_ice_set_input(a.input);
         if (a.mode_E || a.dump_tokens || a.dump_ast || a.dump_sema ||
-            a.syntax_only) {
+            a.dump_layout || a.syntax_only) {
             status = run_preprocess(&arena, dc, &a);
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,

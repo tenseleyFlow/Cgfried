@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "util/base.h"
 #include "util/buf.h"
 
 /* Closed target set — no triple parser (locked decision). Adding a target is
@@ -21,6 +22,33 @@ typedef struct {
 } TargetSpec;
 
 enum { CGF_TARGET_COUNT = 5 };
+
+/* How the target spells `long double` — the single biggest cross-target
+ * layout trap, and the reason this is a table rather than a constant.
+ * Sprint 15's float engine folds in the TARGET's format, and Sprint 28's
+ * <float.h> is emitted from it. */
+typedef enum {
+    CGF_LDBL_X87_80,   /* 80-bit x87 extended: 10 value bytes, 16 stored */
+    CGF_LDBL_IEEE128,  /* IEEE binary128; soft-float on arm64-linux */
+    CGF_LDBL_IS_DOUBLE /* Apple: long double IS double (LDBL_MANT_DIG 53) */
+} LongDoubleKind;
+
+/* Everything layout needs from a target, in one place. Pure data: a
+ * function of TargetKind alone, so `sizeof` folds identically whichever
+ * host is doing the cross-compile. */
+typedef struct {
+    u64 ptr_size;
+    u64 ptr_align;
+    u64 ldbl_size;
+    u64 ldbl_align;
+    LongDoubleKind ldbl_kind;
+    /* max_align_t's alignment: 16 on x86-64 AND arm64 (all five targets).
+     * alignof(long long) is 8 here; it is 4 on i386, which we have no
+     * target for — noted so the next data model does not surprise. */
+    u64 max_align;
+} TargetLayout;
+
+TargetLayout cgf_target_layout(TargetSpec t);
 
 /* The closed name set, indexed by TargetKind — the single source the test
  * runner's target selectors validate against. */

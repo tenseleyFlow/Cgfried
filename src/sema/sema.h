@@ -58,16 +58,38 @@ struct Member {
     AstNode *bitfield_width; /* the EXPRESSION; Sprint 15 evaluates it */
     bool is_bitfield;
     Span span;
+
+    /* Filled by layout_record (Sprint 14). `offset` is in BYTES from the
+     * start of the record; for a bitfield, `bit_offset` is the bit
+     * position within the whole record and `bit_width` its declared
+     * width. `container_size` is the declared type's size — AAPCS64
+     * mandates that a volatile bitfield access use exactly the container
+     * width, so Sprints 20 and 48 read it rather than re-deriving it. */
+    u64 offset;
+    u64 bit_offset;
+    u32 bit_width;
+    u64 container_size;
+    bool laid_out;
+
     Member *next;
 };
 
 struct TagDecl {
     const char *name; /* interned; NULL when anonymous */
-    TypeKind kind;    /* TY_STRUCT / TY_UNION / TY_ENUM */
+    /* Layout is memoized per tag: it is a pure function of the members
+     * and the target, and a deep struct tree would otherwise be walked
+     * once per sizeof. `laid_out_for` guards against a memo computed for
+     * a DIFFERENT target leaking into a cross-compile. */
+    bool laid_out;
+    TargetKind laid_out_for;
+    u64 size;
+    u64 align;
+    TypeKind kind; /* TY_STRUCT / TY_UNION / TY_ENUM */
     bool complete;
     Member *members;
     u32 nmembers;
     Type *enum_underlying; /* TY_ENUM only, chosen per gcc's ladder */
+    u64 align_override;    /* _Alignas on the record, 0 = none */
     Span span;
     Type *type; /* the one Type node that names this tag */
 };
@@ -190,6 +212,49 @@ char *type_to_str(Arena *ar, const Type *t);
 /* Cross-TU struct compatibility is member-wise (6.2.7p1) and only
  * observable at link time; Sprint 57 owns it. */
 bool type_compatible_cross_tu(Sema *s, const Type *a, const Type *b);
+
+/* --- layout (Sprint 14) -------------------------------------------------- */
+
+typedef struct {
+    u64 size;
+    u64 align;
+} TypeLayout;
+
+/* Size and alignment of a COMPLETE type. On an incomplete one this is a
+ * programming error rather than a 0 size — callers check completeness and
+ * diagnose at their own site, where they can say which construct demanded
+ * the size. */
+TypeLayout layout_of(Sema *s, Type *t);
+bool layout_is_complete_for_size(const Type *t);
+/* Lays out a record, filling every Member's offset/bit_offset/bit_width.
+ * Idempotent and memoized on the TagDecl. */
+void layout_record(Sema *s, Type *rec);
+u64 layout_offsetof(Sema *s, Type *rec, const Member *m);
+
+/* SysV x86-64 parameter classification (psABI 3.2.3). Consumed by Sprint
+ * 19's call lowering and Sprint 23's x86 calls. */
+typedef enum {
+    ABI_NO_CLASS,
+    ABI_INTEGER,
+    ABI_SSE,
+    ABI_SSEUP,
+    ABI_X87,
+    ABI_X87UP,
+    ABI_COMPLEX_X87,
+    ABI_MEMORY
+} AbiClass;
+
+/* Returns the eightbyte count (1 or 2), or -1 for MEMORY. */
+int layout_classify_sysv(Sema *s, Type *t, AbiClass out[2]);
+
+/* AAPCS64 homogeneous float aggregate: up to 4 members, all the same
+ * floating type. The PREDICATE lands now so Sprint 19 can shape calls
+ * target-parameterized once; the codegen that consumes it is Sprint 48. */
+bool layout_is_hfa(Sema *s, Type *t, Type **base, int *count);
+
+/* -fdump-layout: one line per record and member (offset, bit offset,
+ * width, size, align). Sprint 19 reuses this format. */
+void layout_dump(Sema *s, FILE *f);
 
 /* --- conversions (6.3) --------------------------------------------------- */
 
