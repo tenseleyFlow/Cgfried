@@ -86,6 +86,16 @@ int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input);
 ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
                              u32 *diag_line);
 
+/* Sprint 25: crt1.o directory probe (CGF_CRT_DIR override, then the
+ * Arch and Debian layouts); NULL = miss, with the probed paths written
+ * to diag for the exit-2 link error. */
+const char *cgf_probe_crt_dir(char *diag, size_t diag_sz);
+
+/* Sprint 25: link obj -> executable against system crt/libc (dynamic
+ * non-PIE). CGF_LD_PATH picks the linker; CGF_LD=1 errors naming
+ * Sprint 27. Linker stdio is inherited. */
+ToolResult cgf_run_linker(const char *obj_path, const char *out_path);
+
 /* The guidance string for a missing tool (exit-3 diagnostics). */
 const char *cgf_tool_missing_hint(ToolKind which);
 

@@ -361,3 +361,94 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
     }
     return res;
 }
+
+/* --- Sprint 25: the link recipe ---------------------------------------------
+ *
+ * Dynamic non-PIE ELF executable against system crt/libc. crtbegin.o /
+ * crtend.o are GCC-installation files needed only for ctors/dtors/C++ —
+ * plain C links fine without them (do NOT "add them for correctness":
+ * that drags in a GCC-version-specific path). The crt probe covers the
+ * two big layouts now; the full -B discovery matrix is Sprint 27. */
+
+static const char *const crt_dirs[] = {
+    "/usr/lib",                 /* Arch */
+    "/usr/lib/x86_64-linux-gnu" /* Debian/Ubuntu */
+};
+
+/* Locates crt1.o's directory (CGF_CRT_DIR override first). Returns NULL
+ * with all probed paths written into diag when nothing has crt1.o. */
+const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
+{
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    char path[512];
+    size_t i, used = 0;
+
+    if (tc.crt_dir) {
+        snprintf(path, sizeof(path), "%s/crt1.o", tc.crt_dir);
+        if (access(path, R_OK) == 0)
+            return tc.crt_dir;
+        snprintf(diag, diag_sz, "%s (CGF_CRT_DIR)", tc.crt_dir);
+        return NULL;
+    }
+    diag[0] = '\0';
+    for (i = 0; i < sizeof(crt_dirs) / sizeof(crt_dirs[0]); i++) {
+        snprintf(path, sizeof(path), "%s/crt1.o", crt_dirs[i]);
+        if (access(path, R_OK) == 0)
+            return crt_dirs[i];
+        used += (size_t)snprintf(diag + used, diag_sz - used, "%s%s",
+                                 used ? ", " : "", crt_dirs[i]);
+        if (used >= diag_sz)
+            break;
+    }
+    return NULL;
+}
+
+/* ld -o out crt1.o crti.o obj -lc crtn.o -dynamic-linker ... -L<dir>.
+ * Linker stdio is INHERITED (its diagnostics are already good); failure
+ * maps to exit 2 at the driver. CGF_LD=1 (afs-ld) still hard-errors
+ * naming Sprint 27; CGF_LD_PATH picks the binary. */
+ToolResult cgf_run_linker(const char *obj_path, const char *out_path)
+{
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    char crt1[512], crti[512], crtn[512], ldir[520], diag[256];
+    const char *crtdir;
+    const char *argv[12];
+    int n = 0;
+    ToolResult res;
+
+    memset(&res, 0, sizeof(res));
+    if (tc.use_afs_ld) {
+        fprintf(stderr, "cgfried: error: CGF_LD=1 (afs-ld) lands in "
+                        "Sprint 27; unset it or use CGF_LD_PATH\n");
+        res.kind = TOOL_SPAWN_FAILED;
+        res.spawn_errno = EINVAL;
+        return res;
+    }
+    crtdir = cgf_probe_crt_dir(diag, sizeof(diag));
+    if (!crtdir) {
+        fprintf(stderr,
+                "cgfried: error: cannot find crt1.o (probed: %s); "
+                "set CGF_CRT_DIR\n",
+                diag);
+        res.kind = TOOL_SPAWN_FAILED;
+        res.spawn_errno = ENOENT;
+        return res;
+    }
+    snprintf(crt1, sizeof(crt1), "%s/crt1.o", crtdir);
+    snprintf(crti, sizeof(crti), "%s/crti.o", crtdir);
+    snprintf(crtn, sizeof(crtn), "%s/crtn.o", crtdir);
+    snprintf(ldir, sizeof(ldir), "-L%s", crtdir);
+    argv[n++] = tc.ld_path;
+    argv[n++] = "-o";
+    argv[n++] = out_path;
+    argv[n++] = crt1;
+    argv[n++] = crti;
+    argv[n++] = obj_path;
+    argv[n++] = "-lc";
+    argv[n++] = crtn;
+    argv[n++] = "-dynamic-linker";
+    argv[n++] = "/lib64/ld-linux-x86-64.so.2";
+    argv[n++] = ldir;
+    argv[n] = NULL;
+    return cgf_run_tool(argv);
+}

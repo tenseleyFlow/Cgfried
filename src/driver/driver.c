@@ -405,8 +405,7 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
  * through the routed assembler, and an assembler rejection of OUR text
  * is an ICE quoting the offending line — a cgf bug by definition. */
 
-static void asm_output_paths(const DriverArgs *a, bool want_obj, char *out,
-                             size_t out_sz)
+static void asm_output_paths(const DriverArgs *a, char *out, size_t out_sz)
 {
     const char *base;
     size_t n;
@@ -415,12 +414,16 @@ static void asm_output_paths(const DriverArgs *a, bool want_obj, char *out,
         snprintf(out, out_sz, "%s", a->output);
         return;
     }
+    if (a->link_exe) {
+        snprintf(out, out_sz, "a.out");
+        return;
+    }
     base = strrchr(a->input, '/');
     base = base ? base + 1 : a->input;
     n = strlen(base);
     if (n > 2 && base[n - 2] == '.' && base[n - 1] == 'c')
         n -= 2;
-    snprintf(out, out_sz, "%.*s.%c", (int)n, base, want_obj ? 'o' : 's');
+    snprintf(out, out_sz, "%.*s.%c", (int)n, base, a->compile_obj ? 'o' : 's');
 }
 
 static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
@@ -429,7 +432,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     Buf b;
     u32 i;
     char out_path[512];
-    char s_path[520];
+    char obj_path[520];
+    char s_path[528];
     FILE *f;
 
     buf_init(&b);
@@ -451,7 +455,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         buf_free(&b);
         return CGF_EXIT_COMPILE;
     }
-    asm_output_paths(a, a->compile_obj, out_path, sizeof(out_path));
+    asm_output_paths(a, out_path, sizeof(out_path));
     if (a->emit_asm && !a->compile_obj) {
         f = fopen(out_path, "wb");
         if (!f) {
@@ -464,8 +468,13 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         buf_free(&b);
         return CGF_EXIT_OK;
     }
-    /* -c: write the .s beside the object (deterministic name; kept on
-     * failure so the ICE is reproducible), assemble, unlink. */
+    /* -c / link: write the .s beside the output (deterministic name;
+     * kept on failure so the ICE is reproducible), assemble, then for
+     * the milestone mode link against system crt/libc and clean up. */
+    if (a->link_exe)
+        snprintf(obj_path, sizeof(obj_path), "%s.cgf.o", out_path);
+    else
+        snprintf(obj_path, sizeof(obj_path), "%s", out_path);
     snprintf(s_path, sizeof(s_path), "%s.cgf.s", out_path);
     f = fopen(s_path, "wb");
     if (!f) {
@@ -477,7 +486,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     fclose(f);
     {
         u32 bad_line = 0;
-        ToolResult res = cgf_run_assembler(s_path, out_path, &bad_line);
+        ToolResult res = cgf_run_assembler(s_path, obj_path, &bad_line);
 
         if (res.kind == TOOL_SPAWN_FAILED) {
             fprintf(stderr, "cgfried: error: %s\n",
@@ -510,6 +519,16 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         }
     }
     unlink(s_path);
+    if (a->link_exe) {
+        ToolResult lres = cgf_run_linker(obj_path, out_path);
+        int rc = cgf_tool_exit_code(TOOL_LD, &lres, false);
+
+        unlink(obj_path);
+        if (rc != CGF_EXIT_OK) {
+            buf_free(&b);
+            return rc;
+        }
+    }
     buf_free(&b);
     return CGF_EXIT_OK;
 }
@@ -658,7 +677,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 
     if (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
         a->dump_init || a->syntax_only || a->emit_ir || a->emit_mir ||
-        a->emit_asm || a->compile_obj) {
+        a->emit_asm || a->compile_obj || a->link_exe) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -678,7 +697,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                 dump_token(&tl.toks[k]);
         if (a->dump_ast || a->dump_sema || a->dump_layout || a->dump_init ||
             a->syntax_only || a->emit_ir || a->emit_mir || a->emit_asm ||
-            a->compile_obj) {
+            a->compile_obj || a->link_exe) {
             Parser ps;
             AstNode *tu;
 
@@ -692,7 +711,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
              * is what -fsyntax-only means. */
             if (a->dump_sema || a->dump_layout || a->dump_init ||
                 a->syntax_only || a->emit_ir || a->emit_mir || a->emit_asm ||
-                a->compile_obj) {
+                a->compile_obj || a->link_exe) {
                 Sema sema;
 
                 sema_install_renderer();
@@ -716,7 +735,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                             dump_decl(tu->decls[k], 0);
                 }
                 if ((a->emit_ir || a->emit_mir || a->emit_asm ||
-                     a->compile_obj) &&
+                     a->compile_obj || a->link_exe) &&
                     !diag_had_error(dc)) {
                     /* AST -> IR. This module is GENERATED: a verifier
                      * failure here is an ICE, never a user error — the
@@ -747,7 +766,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                         int rc = emit_mir_print(arena, dc, m);
 
                         (void)rc;
-                    } else if (m && (a->emit_asm || a->compile_obj)) {
+                    } else if (m &&
+                               (a->emit_asm || a->compile_obj || a->link_exe)) {
                         int rc = run_emit_asm(arena, dc, m, a);
 
                         if (rc != CGF_EXIT_OK) {
@@ -884,11 +904,9 @@ int driver_main(int argc, char **argv)
                    a.dump_layout || a.dump_init || a.syntax_only) {
             status = run_preprocess(&arena, dc, &a);
         } else {
-            diag_emit(dc, DIAG_ERROR, no_span,
-                      "linking is not wired yet: use -S (assembly), -c "
-                      "(object), or a dump flag — `cgf t.c` producing a "
-                      "runnable binary lands in Sprint 25");
-            status = CGF_EXIT_COMPILE;
+            /* THE milestone mode (Sprint 25): compile, assemble, link. */
+            a.link_exe = true;
+            status = run_preprocess(&arena, dc, &a);
         }
     } else {
         /* Options only, none of them info options, nothing to do. */
