@@ -1,4 +1,5 @@
-// FLAGS: -fdump-sema
+// FLAGS: -fdump-sema -fcommon
+// (explicit -fcommon: the Sprint 26 default is -fno-common)
 // CHECK: var a: int [external] [tentative] [tls] [common]
 // CHECK: var b: int [internal] [defined] [tls]
 // CHECK: var c: int [external] [defined] [tls]

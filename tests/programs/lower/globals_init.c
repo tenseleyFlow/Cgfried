@@ -1,6 +1,8 @@
 // File-scope images come from the Sprint 15 evaluator byte-for-byte;
 // address constants become relocs, string literals materialize.
-// FLAGS: -emit-ir
+// -fcommon spelled explicitly: Sprint 26 flipped the default to
+// -fno-common (gcc 10 semantics), and this fixture pins the COMMON path.
+// FLAGS: -emit-ir -fcommon
 // ENV: CGF_VERIFY_AFTER_EACH=1
 // IR_CHECK: global @x size 4 align 4 external init x2a000000
 // IR_CHECK: reloc 0 @x 0
