@@ -4,9 +4,9 @@
 
 /* x86_64 instruction selection (Sprint 21): all INTEGER IR selects into
  * three-address MIR over vregs. FP and calls ICE naming Sprint 23; the
- * stack/atomic/vararg ops ICE naming Sprint 24 (they need frame and
- * emission context). Register allocation and the two-address fixup are
- * Sprint 22's; no text leaves the process until Sprint 24. */
+ * atomic/vararg/memcpy ops ICE naming Sprint 24 (they need emission
+ * context). Stack ops (dynamic alloca, stacksave/restore) emit Sprint 22
+ * markers regalloc expands; no text leaves the process until Sprint 24. */
 
 bool x64_imm_fits_simm32(i64 v)
 {
@@ -100,6 +100,14 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
     case X64_OP_CQO:
     case X64_OP_IDIV:
     case X64_OP_DIV:
+        in->flags = X64IF_DEFS_FLAGS;
+        is->last_flags_inst = b->n;
+        is->last_flags_val = 0;
+        break;
+    case X64_OP_ALLOCA_DYN:
+        /* The Sprint 22 expansion (add/and/sub) clobbers flags, so the
+         * marker must too — otherwise a cmp/jcc fusion could legally
+         * span it pre-RA and break post-expansion. */
         in->flags = X64IF_DEFS_FLAGS;
         is->last_flags_inst = b->n;
         is->last_flags_val = 0;
@@ -510,6 +518,11 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a = ovreg(lo);
             x->a.fixed = X64_RAX + 1;
             x->b = ovreg(dvs);
+            /* idiv reads rdx:rax; rdx has no operand slot, so without
+             * this the hi interval dies at the cqo and the allocator
+             * would hand rdx to someone else across the divide. */
+            x->xuse = hi;
+            x->xuse_fixed = X64_RDX + 1;
         }
         is->vals[in->result.v].vr = d;
         break;
@@ -590,18 +603,40 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_ALLOCA: {
-        /* Frame layout is Sprint 22's; the MIR carries a lea off a
-         * frame pseudo-symbol resolved there. For now: a fresh vreg
-         * defined by LEA of a per-alloca slot symbol is deferred — keep
-         * the alloca as an opaque LEA-from-frame marker. */
-        X64VReg d = newv(is);
-        X64Inst *x = emit(is, X64_OP_LEA, X64_Q);
+        if (in->ops[0].kind == IROP_ICONST) {
+            /* Static: an opaque LEA-from-frame marker (base 0, no
+             * symbol). Size rides in b.imm and align in table — b.kind
+             * stays NONE so nothing downstream prints or verifies it —
+             * and x64_frame_finalize turns the marker into rbp-disp. */
+            X64VReg d = newv(is);
+            X64Inst *x = emit(is, X64_OP_LEA, X64_Q);
 
-        x->def = d;
-        x->a.kind = X64O_MEM;
-        x->a.mem.base.v = 0; /* frame-relative; Sprint 22 rewrites */
-        x->a.mem.disp = 0;
-        is->vals[in->result.v].vr = d;
+            x->def = d;
+            x->a.kind = X64O_MEM;
+            x->a.mem.base.v = 0;
+            x->a.mem.disp = 0;
+            x->b.imm = (i64)in->ops[0].a;
+            x->table = in->align;
+            is->vals[in->result.v].vr = d;
+        } else {
+            /* Dynamic (VLA): a marker regalloc expands post-RA into the
+             * round-to-16 rsp bump (mov r10,size; add 15; and -16;
+             * sub rsp,r10; def = rsp). rsp stays 16-aligned, which
+             * covers every align <= 16; more needs pointer masking. */
+            X64VReg s = to_vreg(is, &in->ops[0]);
+            X64VReg d = newv(is);
+            X64Inst *x;
+
+            if (in->align > 16)
+                CGF_ICE("x86_64 isel: over-aligned dynamic alloca "
+                        "(align %u) lands in Sprint 53",
+                        in->align);
+            x = emit(is, X64_OP_ALLOCA_DYN, X64_Q);
+            x->def = d;
+            x->a = ovreg(s);
+            x->table = in->align;
+            is->vals[in->result.v].vr = d;
+        }
         break;
     }
     case IR_LOAD: {
@@ -876,9 +911,24 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_SITOFP:
     case IR_UITOFP:
         CGF_ICE("x86_64 isel: f32/f64/f80/f128 isel lands in Sprint 23");
+    case IR_STACKSAVE: {
+        /* A marker: regalloc rewrites it to `mov def, rsp` once operands
+         * are physical (rsp has no pre-RA spelling on purpose). */
+        X64VReg d = newv(is);
+        X64Inst *x = emit(is, X64_OP_STACKSAVE, X64_Q);
+
+        x->def = d;
+        is->vals[in->result.v].vr = d;
+        break;
+    }
+    case IR_STACKRESTORE: {
+        X64VReg s = to_vreg(is, &in->ops[0]);
+        X64Inst *x = emit(is, X64_OP_STACKRESTORE, X64_Q);
+
+        x->a = ovreg(s);
+        break;
+    }
     case IR_VA_START:
-    case IR_STACKSAVE:
-    case IR_STACKRESTORE:
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
     case IR_MEMCPY:

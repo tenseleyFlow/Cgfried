@@ -86,7 +86,14 @@ typedef enum X64Op {
     X64_OP_JCC,    /* cc + target/target2(fallthrough) */
     X64_OP_JMPTBL, /* indirect jump through a rodata label table */
     X64_OP_RET,
-    X64_OP_UD2, /* IR unreachable */
+    X64_OP_UD2,  /* IR unreachable */
+    X64_OP_PUSH, /* Sprint 22 frame code (phys regs only) */
+    X64_OP_POP,
+    /* Pre-RA markers regalloc expands and frame-finalize consumes; the
+     * post-RA verifier rejects any that survive. */
+    X64_OP_ALLOCA_DYN,   /* def <- rsp after `sub rsp, round16(a)` */
+    X64_OP_STACKSAVE,    /* def <- rsp */
+    X64_OP_STACKRESTORE, /* rsp <- a */
     X64_OP_COUNT
 } X64Op;
 
@@ -127,9 +134,13 @@ typedef struct X64Inst {
     u8 def_fixed; /* X64Reg + 1 pre-color on the def; 0 = none */
     X64VReg def;  /* 0 = defines nothing */
     X64Operand a, b;
+    X64VReg xuse;        /* implicit extra use (idiv/div read rdx:rax; rdx has
+                            no operand slot). 0 = none. Liveness includes it. */
+    u8 xuse_fixed;       /* X64Reg + 1 pre-color on xuse; 0 = none */
     u32 target, target2; /* MIR block ids (1-based) for jmp/jcc */
     u32 flags_src;       /* USES_FLAGS: producer's index in this block */
-    u32 table;           /* JMPTBL: index into X64Func.tables */
+    u32 table;           /* JMPTBL: table index; ALLOCA static lea marker
+                            + ALLOCA_DYN: the alloca's align */
 } X64Inst;
 
 typedef struct X64Block {
@@ -145,6 +156,9 @@ typedef struct X64Table { /* one switch jump table, emitted to .rodata */
 
 typedef struct X64Func {
     const char *name;
+    bool allocated;  /* post-RA: X64VReg.v is X64Reg + 1 */
+    u32 frame_size;  /* finalized rbp-relative bytes (spills + locals) */
+    u32 spill_slots; /* count, for the printer's accounting line */
     Arena *arena;
     X64Block *blocks; /* [0] mirrors IR block 1; splits appended */
     u32 nblocks, cap_blocks;
@@ -169,5 +183,43 @@ bool x64_imm_fits_simm32(i64 v);
 /* Addressing-fold legality (the folder consults this; unit-tabled). */
 bool x64_fold_ok(u8 scale, bool index_is_rsp, i64 disp);
 const char *x64_cc_name(u8 cc);
+const char *x64_reg_name(u8 reg);
+
+/* --- Sprint 22: allocation -------------------------------------------------
+ */
+
+/* ONE allocator at every opt level — the golden invariant. The enum
+ * exists so the invariant is testable: x64_regalloc_entry returns the
+ * SAME function pointer for every level, asserted by unit test. */
+typedef enum CgOptLevel { CG_O0, CG_O1, CG_O2 } CgOptLevel;
+
+typedef void (*X64RegallocFn)(X64Func *f);
+X64RegallocFn x64_regalloc_entry(CgOptLevel level);
+
+/* Liveness + linear scan + spill + two-address fixup + frame layout.
+ * After this: f->allocated, every operand physical, prologue/epilogue
+ * in place, allocas rbp-relative. CGF_SPILL_ALL=1 forces every interval
+ * to spill (the -O0-quality baseline through the SAME code path — the
+ * most effective allocator-correctness weapon we have). */
+void x64_regalloc(X64Func *f);
+
+/* Exposed pieces, unit-driven directly (the two-address hazard table and
+ * the alignment law are exhaustively tabled in tests/unit). */
+
+/* Block-level live-in/out bitsets to fixpoint. words = ceil((nvregs+1)/64);
+ * in/out are [nblocks * words], caller-zeroed. */
+u32 x64_liveness_words(const X64Func *f);
+void x64_liveness(const X64Func *f, u64 *live_in, u64 *live_out);
+
+/* Two-address fixup on ALLOCATED MIR: every X64IF_TWO_ADDR inst becomes
+ * the x86 form def == a, with the dst==src2 hazard resolved (swap when
+ * commutative, reserved-scratch rescue when not). */
+void x64_twoaddr_fixup(X64Func *f);
+
+/* The alignment LAW: rsp must be 0 mod 16 at every call. Entry is 8 mod
+ * 16; push rbp restores 0; each callee-saved push flips by 8. Returns
+ * the `sub rsp, N` with N >= raw_bytes making the running total 0 again:
+ * N = 8 * (pushes_after_rbp mod 2) (mod 16). */
+u32 x64_frame_align_pad(u32 pushes_after_rbp, u32 raw_bytes);
 
 #endif
