@@ -16,7 +16,11 @@ CFLAGS := -std=c11 -pedantic -Wall -Wextra -Werror -g -O2 \
 
 # Sorted: raw find order varies by filesystem and would leak into link order,
 # making binaries nondeterministic.
-SRC := $(shell find src -name '*.c' | sort)
+# src/rt/ is the RUNTIME, not the compiler: it ships as libcgf_rt.a,
+# builds with its own flags (it must stay buildable by a plain
+# toolchain, and it needs __int128 which -pedantic rejects), and must
+# never be linked into cgfried.
+SRC := $(shell find src -name '*.c' -not -path 'src/rt/*' | sort)
 OBJ := $(SRC:%.c=$(BUILD)/%.o)
 
 # Everything but the driver entry point, shared by test binaries.
@@ -60,7 +64,35 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 .PHONY: all test test-san test-ppdiff fuzz-smoke fuzz-frontend-smoke fuzz \
         pp-bench clean tools bootstrap install asan ubsan
 
-all: $(BUILD)/cgfried $(BUILD)/cgf
+# libcgf_rt.a: the runtime the Sprint 27 link line reserves a slot for.
+# Built by the HOST cc (RT_CC) until Sprint 58 flips it to cgf — the
+# flip is part of the self-host DoD. Its own flags are separate from
+# CFLAGS: the runtime is not the compiler and must stay buildable with
+# a plain toolchain. `ar rcsD` for a DETERMINISTIC archive (no
+# timestamps, uids or modes) — two clean builds must be byte-equal.
+RT_CC ?= $(CC)
+RT_CFLAGS ?= -std=c11 -Wall -Wextra -O2 -fno-strict-aliasing
+RT_TARGET := $(shell $(BUILD)/cgfried -dumpmachine 2>/dev/null || \
+                     echo x86_64-linux-gnu)
+RT_SRC := $(sort $(wildcard src/rt/*.c))
+RT_OBJ := $(patsubst src/rt/%.c,$(BUILD)/rt/%.o,$(RT_SRC))
+RT_LIB := $(BUILD)/$(RT_TARGET)/libcgf_rt.a
+
+all: $(BUILD)/cgfried $(BUILD)/cgf rt
+
+.PHONY: rt
+rt: $(RT_LIB)
+
+$(BUILD)/rt/%.o: src/rt/%.c | $(BUILD)/rt/
+	$(RT_CC) $(RT_CFLAGS) -c -o $@ $<
+
+$(RT_LIB): $(RT_OBJ)
+	@mkdir -p $(dir $@)
+	rm -f $@
+	ar rcsD $@ $(RT_OBJ)
+
+$(BUILD)/rt/:
+	mkdir -p $@
 
 $(BUILD)/cgfried: $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
@@ -168,6 +200,11 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    > $(BUILD)/header.log 2>&1; s=$$?; \
 	    cat $(BUILD)/header.log; exit $$s
 	sh ci/check_skips.sh headerdiff $(BUILD)/header.log
+	CGF_RT_WORK=$(BUILD)/rt-diff BUILD=$(BUILD) \
+	    sh scripts/rt_diff.sh $(BUILD)/cgfried \
+	    > $(BUILD)/rt.log 2>&1; s=$$?; \
+	    cat $(BUILD)/rt.log; exit $$s
+	sh ci/check_skips.sh rtdiff $(BUILD)/rt.log
 	$(AS_LANE) CGF_AFSLD_WORK=$(BUILD)/afsld-lane \
 	    sh scripts/afsld_lane.sh $(BUILD)/cgfried \
 	    > $(BUILD)/afsld.log 2>&1; s=$$?; \
