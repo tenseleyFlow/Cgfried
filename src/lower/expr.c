@@ -755,19 +755,246 @@ static Symbol *direct_callee(AstNode *fn)
     }
 }
 
+/* --- varargs (SysV x86-64, Sprint 19) -------------------------------------
+ *
+ * The va_list record is OURS (sema synthesized it), so the field offsets
+ * are constants here: gp_offset +0, fp_offset +4, overflow_arg_area +8,
+ * reg_save_area +16. va_start stores the two offsets (compile-time
+ * constants of the CURRENT function's named-register consumption) and
+ * leaves the two pointers to the IR-level `va_start` op — only codegen
+ * knows where the register save area and the first stack argument live.
+ * va_arg expands to the classification-driven branch diamond right here;
+ * there is no va_arg instruction, and Sprint 50's Apple-arm64 divergence
+ * will be a different EXPANSION, not a different op. */
+
+static IrOperand va_field_addr(Lower *lo, IrOperand ap, i64 off)
+{
+    ValueId p;
+
+    if (off == 0)
+        return ap;
+    p = ir_build_ptradd(&lo->b, ap, lower_i64(off));
+    return ir_op_value(lo->fn, p);
+}
+
+static void va_store_u32(Lower *lo, IrOperand ap, i64 off, IrOperand v)
+{
+    Lvalue lv;
+
+    memset(&lv, 0, sizeof(lv));
+    lv.addr = va_field_addr(lo, ap, off);
+    lv.unit = IRT_I32;
+    lv.align = 4;
+    lower_store(lo, lv, v);
+}
+
+static IrOperand lower_va_arg(Lower *lo, AstNode *e)
+{
+    Type *t = sem(e);
+    IrOperand ap = lower_rvalue(lo, e->lhs);
+    AbiArg plan;
+    TypeLayout l = layout_of(lo->sema, t);
+    bool is_agg = lower_is_aggregate(t);
+    bool fp_path = false;
+    u32 n = 1;
+    bool reg_ok = true;
+
+    abi_classify_arg(lo, t, &plan);
+    if (plan.kind == ABI_ARG_SCALAR) {
+        IrType st = lower_irtype(lo, t);
+
+        if (st == IRT_F32 || st == IRT_F64)
+            fp_path = true;
+        else if (st == IRT_F80 || st == IRT_F128)
+            reg_ok = false; /* long double: always the overflow area */
+    } else if (plan.kind == ABI_ARG_EIGHTBYTES) {
+        bool all_int = true;
+        bool all_sse = true;
+        u32 k;
+
+        n = plan.n;
+        for (k = 0; k < plan.n; k++) {
+            if (plan.t[k] == IRT_F64)
+                all_int = false;
+            else
+                all_sse = false;
+        }
+        if (all_sse)
+            fp_path = true;
+        else if (!all_int)
+            reg_ok = false; /* mixed eightbytes: overflow (corner —
+                               noted for Sprint 50's revisit) */
+    } else {
+        reg_ok = false; /* MEMORY class: no register branch at all */
+    }
+
+    {
+        BlockId join = lower_new_block(lo, "va.join");
+        ValueId addr = ir_block_param(lo->m, lo->fn, join, IRT_PTR);
+        i64 field = fp_path ? 4 : 0;
+        i64 bump = fp_path ? 16 * (i64)n : 8 * (i64)n;
+        i64 limit = fp_path ? 176 - 16 * (i64)n : 48 - 8 * (i64)n;
+        u64 slot = l.size <= 8 ? 8 : (l.size + 15) & ~15ull;
+
+        if (reg_ok) {
+            BlockId reg = lower_new_block(lo, "va.reg");
+            BlockId mem = lower_new_block(lo, "va.mem");
+            Lvalue offlv;
+            IrOperand off;
+
+            memset(&offlv, 0, sizeof(offlv));
+            offlv.addr = va_field_addr(lo, ap, field);
+            offlv.unit = IRT_I32;
+            offlv.align = 4;
+            off = lower_load(lo, offlv);
+            {
+                ValueId c = ir_build_icmp(&lo->b, ICMP_ULE, off,
+                                          ir_op_iconst(IRT_I32, limit));
+
+                ir_build_condbr(&lo->b, ir_op_value(lo->fn, c), reg, NULL, 0,
+                                mem, NULL, 0);
+            }
+            lower_at(lo, reg);
+            {
+                Lvalue rsalv;
+                IrOperand rsa;
+                ValueId wide, sum, bumped;
+                IrOperand from_reg;
+
+                memset(&rsalv, 0, sizeof(rsalv));
+                rsalv.addr = va_field_addr(lo, ap, 16);
+                rsalv.unit = IRT_PTR;
+                rsalv.align = 8;
+                rsa = lower_load(lo, rsalv);
+                wide = ir_build1(&lo->b, IR_ZEXT, IRT_I64, off);
+                sum = ir_build_ptradd(&lo->b, rsa, ir_op_value(lo->fn, wide));
+                bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, off,
+                                   ir_op_iconst(IRT_I32, bump));
+                va_store_u32(lo, ap, field, ir_op_value(lo->fn, bumped));
+                from_reg = ir_op_value(lo->fn, sum);
+                ir_build_br(&lo->b, join, &from_reg, 1);
+            }
+            lower_at(lo, mem);
+        }
+        /* The overflow path (straight-line when no register branch). */
+        {
+            Lvalue ovlv;
+            IrOperand ov;
+            ValueId nov;
+            IrOperand from_mem;
+
+            memset(&ovlv, 0, sizeof(ovlv));
+            ovlv.addr = va_field_addr(lo, ap, 8);
+            ovlv.unit = IRT_PTR;
+            ovlv.align = 8;
+            ov = lower_load(lo, ovlv);
+            if (l.align > 8) {
+                /* Align the cursor up before reading (16-aligned types:
+                 * long double and 16-aligned aggregates). */
+                ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, ov);
+                ValueId up = ir_build2(&lo->b, IR_IADD, IRT_I64,
+                                       ir_op_value(lo->fn, as_i),
+                                       lower_i64((i64)l.align - 1));
+                ValueId masked =
+                    ir_build2(&lo->b, IR_AND, IRT_I64, ir_op_value(lo->fn, up),
+                              lower_i64(-(i64)l.align));
+                ValueId back = ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                         ir_op_value(lo->fn, masked));
+
+                ov = ir_op_value(lo->fn, back);
+            }
+            nov = ir_build_ptradd(&lo->b, ov, lower_i64((i64)slot));
+            {
+                Lvalue novlv;
+
+                memset(&novlv, 0, sizeof(novlv));
+                novlv.addr = va_field_addr(lo, ap, 8);
+                novlv.unit = IRT_PTR;
+                novlv.align = 8;
+                lower_store(lo, novlv, ir_op_value(lo->fn, nov));
+            }
+            from_mem = ov;
+            ir_build_br(&lo->b, join, &from_mem, 1);
+        }
+        lower_at(lo, join);
+        if (is_agg) {
+            ValueId tmp = lower_temp(lo, t);
+
+            ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp),
+                            ir_op_value(lo->fn, addr), lower_i64((i64)l.size),
+                            (u32)(l.align > 8 ? 8 : l.align), 0);
+            return ir_op_value(lo->fn, tmp);
+        }
+        {
+            Lvalue lv;
+
+            memset(&lv, 0, sizeof(lv));
+            lv.addr = ir_op_value(lo->fn, addr);
+            lv.unit = lower_irtype(lo, t);
+            lv.align = (u32)(l.align > 8 ? 8 : l.align);
+            lv.is_signed = type_is_integer(t) && is_signed_ty(lo, t);
+            return lower_load(lo, lv);
+        }
+    }
+}
+
+static void lower_va_builtin(Lower *lo, AstNode *e)
+{
+    IrOperand ap = lower_rvalue(lo, e->args[0]);
+
+    switch (e->op) {
+    case SEMA_BUILTIN_VA_START:
+        if (!lo->cur_functype || !lo->cur_functype->variadic) {
+            if (!lo->failed)
+                diag_emit(lo->dc, DIAG_ERROR, e->span,
+                          "'va_start' used in a function with a fixed "
+                          "argument list");
+            lo->failed = true;
+            return;
+        }
+        va_store_u32(
+            lo, ap, 0,
+            ir_op_iconst(IRT_I32,
+                         8 * (i64)(lo->named_gp > 6 ? 6 : lo->named_gp)));
+        va_store_u32(
+            lo, ap, 4,
+            ir_op_iconst(IRT_I32,
+                         48 + 16 * (i64)(lo->named_fp > 8 ? 8 : lo->named_fp)));
+        ir_build_va_start(&lo->b, ap);
+        return;
+    case SEMA_BUILTIN_VA_COPY: {
+        IrOperand src = lower_rvalue(lo, e->args[1]);
+
+        /* The whole 24-byte record; the register save area is shared. */
+        ir_build_memcpy(&lo->b, ap, src, lower_i64(24), 8, 0);
+        return;
+    }
+    default: /* va_end: the SysV va_end is a no-op — nothing at all */
+        return;
+    }
+}
+
 static IrOperand lower_call(Lower *lo, AstNode *e)
 {
-    Symbol *callee = direct_callee(e->lhs);
+    Symbol *callee;
     Type *fty = NULL;
     Type *ret;
-    bool agg_ret;
+    AbiRet aret;
+    bool hidden;
     IrOperand fp;
-    IrOperand args[66];
+    IrOperand args[130];
     u32 nargs = 0;
     ValueId sret_tmp = VALUE_INVALID;
     ValueId rv;
     u32 i;
 
+    /* The va_* builtins carry sema's marker instead of a callee. */
+    if (e->op >= SEMA_BUILTIN_VA_START && e->op <= SEMA_BUILTIN_VA_COPY) {
+        lower_va_builtin(lo, e);
+        return ir_op_undef(IRT_I32); /* void; no one may look */
+    }
+
+    callee = direct_callee(e->lhs);
     /* The callee's function type: through the symbol, or through the
      * called pointer's pointee. */
     if (callee)
@@ -775,7 +1002,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     else if (sem(e->lhs) && sem(e->lhs)->kind == TY_PTR)
         fty = sem(e->lhs)->base;
     ret = fty ? fty->base : sem(e);
-    agg_ret = lower_is_aggregate(ret);
+    abi_classify_ret(lo, ret, &aret);
+    hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
 
     /* Left-to-right: the callee expression evaluates before any
      * argument (only observable for indirect calls). */
@@ -783,43 +1011,78 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     if (!callee)
         fp = lower_rvalue(lo, e->lhs);
 
-    if (agg_ret) {
+    if (hidden) {
         sret_tmp = lower_temp(lo, ret);
-        args[nargs++] = ir_op_value(lo->fn, sret_tmp);
+        args[nargs] = ir_op_value(lo->fn, sret_tmp);
+        args[nargs].b = ir_arg_annot(aret.arg_annot, aret.size);
+        nargs++;
     }
-    for (i = 0; i < e->nargs && nargs < 66; i++) {
+    for (i = 0; i < e->nargs && nargs + 2 <= 130; i++) {
         AstNode *a = e->args[i];
+        AbiArg plan;
         IrOperand av = lower_rvalue(lo, a);
 
-        if (lower_is_aggregate(sem(a))) {
-            /* THE mandatory call-site copy: the callee may scribble on
-             * its parameter, and without a fresh temporary that scribble
-             * lands on the caller's object. */
-            ValueId tmp = lower_temp(lo, sem(a));
-            TypeLayout l = layout_of(lo->sema, sem(a));
+        abi_classify_arg(lo, sem(a), &plan);
+        switch (plan.kind) {
+        case ABI_ARG_EIGHTBYTES: {
+            /* The value travels as 1-2 bit-carrying scalars. Stage
+             * through an eightbyte-rounded temp so the second load never
+             * reads past the object. */
+            u64 rounded = (u64)plan.n * 8;
+            ValueId tmp = ir_build_alloca(&lo->b, lower_i64((i64)rounded),
+                                          plan.align > 8 ? plan.align : 8);
+            u32 k;
 
             ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), av,
-                            lower_i64((i64)l.size), (u32)l.align, 0);
-            args[nargs++] = ir_op_value(lo->fn, tmp);
-        } else {
+                            lower_i64((i64)plan.size), plan.align, 0);
+            for (k = 0; k < plan.n; k++) {
+                Lvalue lv;
+                IrOperand addr = ir_op_value(lo->fn, tmp);
+
+                if (k) {
+                    ValueId p2 = ir_build_ptradd(
+                        &lo->b, ir_op_value(lo->fn, tmp), lower_i64(8));
+
+                    addr = ir_op_value(lo->fn, p2);
+                }
+                memset(&lv, 0, sizeof(lv));
+                lv.addr = addr;
+                lv.unit = plan.t[k];
+                lv.align = 8;
+                args[nargs++] = lower_load(lo, lv);
+            }
+            break;
+        }
+        case ABI_ARG_BYVAL: {
+            /* THE mandatory call-site copy: the callee may scribble on
+             * its parameter, and without a fresh temporary that scribble
+             * lands on the caller's object. The pointer is IR-level
+             * bookkeeping; byval(N) tells codegen to copy the pointee
+             * onto the stack. */
+            ValueId tmp = lower_temp(lo, sem(a));
+
+            ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), av,
+                            lower_i64((i64)plan.size), plan.align, 0);
+            args[nargs] = ir_op_value(lo->fn, tmp);
+            args[nargs].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
+            nargs++;
+            break;
+        }
+        default:
             args[nargs++] = av;
+            break;
         }
     }
 
     {
-        IrType irret = agg_ret || !ret || ret->kind == TY_VOID
-                           ? IRT_VOID
-                           : lower_irtype(lo, ret);
+        IrType irret = aret.kind == ABI_RET_SCALAR  ? lower_irtype(lo, ret)
+                       : aret.kind == ABI_RET_SMALL ? aret.small_t
+                                                    : IRT_VOID;
 
         if (callee) {
             u32 fidx;
 
-            /* A variadic INTERNAL callee is still called through its
-             * SYMBOL: the verifier's internal-call arity check has no
-             * notion of "at least N", and the fixed-vs-variadic split is
-             * Sprint 19's ABI business anyway. */
-            if (lower_internal_func(lo, callee, &fidx) &&
-                !(fty && fty->variadic)) {
+            if (lower_internal_func(lo, callee, &fidx)) {
                 rv = ir_build_call(&lo->b, irret, FUNCREF_INTERNAL, fidx, args,
                                    nargs);
             } else {
@@ -831,8 +1094,21 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         }
     }
 
-    if (agg_ret)
+    if (hidden)
         return ir_op_value(lo->fn, sret_tmp);
+    if (aret.kind == ABI_RET_SMALL) {
+        /* The eightbyte came back as a scalar; give the expression layer
+         * the ADDRESS it expects for an aggregate value. */
+        ValueId tmp = ir_build_alloca(&lo->b, lower_i64(8), 8);
+        Lvalue lv;
+
+        memset(&lv, 0, sizeof(lv));
+        lv.addr = ir_op_value(lo->fn, tmp);
+        lv.unit = aret.small_t;
+        lv.align = 8;
+        lower_store(lo, lv, ir_op_value(lo->fn, rv));
+        return ir_op_value(lo->fn, tmp);
+    }
     if (!ret || ret->kind == TY_VOID)
         return ir_op_undef(IRT_I32);
     return ir_op_value(lo->fn, rv);
@@ -1056,6 +1332,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
     case AST_EXPR_GENERIC:
         /* Sema selected the arm and parked it in `mid`. */
         return lower_rvalue(lo, e->mid);
+    case AST_EXPR_VA_ARG:
+        return lower_va_arg(lo, e);
     default:
         CGF_ICE("lower_rvalue: unhandled expr kind %d", (int)e->kind);
     }

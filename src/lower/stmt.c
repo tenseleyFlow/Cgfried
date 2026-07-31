@@ -73,7 +73,7 @@ static void lower_local_static(Lower *lo, Symbol *sym, AstNode *init)
                     g->relocs[i].symbol =
                         img.relocs[i].sym
                             ? lower_global_sym(lo, img.relocs[i].sym)
-                            : lower_string_lit(lo, img.relocs[i].anon);
+                            : lower_anon_sym(lo, img.relocs[i].anon);
                 }
             }
         }
@@ -130,219 +130,6 @@ static void lower_local_decl(Lower *lo, AstNode *d)
     for (i = 0; i < d->nitems; i++)
         if (d->items[i])
             lower_one_decl(lo, d->items[i]);
-}
-
-/* --- the runtime initializer walk (mirrors constexpr.c's fill()) ---------- */
-
-static void init_store_scalar(Lower *lo, IrOperand base, i64 off, Type *t,
-                              AstNode *e)
-{
-    IrOperand addr = base;
-    IrOperand v;
-    Lvalue lv;
-
-    if (!e)
-        return;
-    v = lower_rvalue(lo, e);
-    v = lower_scalar_convert(lo, v, e->sem_type, t);
-    if (off != 0) {
-        ValueId p = ir_build_ptradd(&lo->b, base, lower_i64(off));
-
-        addr = ir_op_value(lo->fn, p);
-    }
-    memset(&lv, 0, sizeof(lv));
-    lv.addr = addr;
-    lv.unit = lower_irtype(lo, t);
-    {
-        TypeLayout l = layout_of(lo->sema, t);
-
-        lv.align = (u32)(l.align ? l.align : 1);
-    }
-    lower_store(lo, lv, v);
-}
-
-static void init_walk(Lower *lo, IrOperand base, i64 off, Type *t,
-                      AstNode *init);
-
-static void init_walk_array(Lower *lo, IrOperand base, i64 off, Type *t,
-                            AstNode *init)
-{
-    TypeLayout el = layout_of(lo->sema, t->base);
-    u64 idx = 0;
-    u32 k;
-
-    if (init->kind == AST_EXPR_STRING) {
-        /* Copy the bytes from the string's .rodata object; the zero-fill
-         * already supplied the terminator and the tail. */
-        u64 cap = t->has_size ? t->size : 0;
-        u64 n = init->tok ? init->tok->str.nbytes : 0;
-        u32 s = lower_string_lit(lo, init);
-
-        if (n > cap)
-            n = cap;
-        if (n)
-            ir_build_memcpy(&lo->b, base, ir_op_symbol(IRT_PTR, s, 0),
-                            lower_i64((i64)n), 1, 0);
-        return;
-    }
-    if (init->kind != AST_INIT_LIST) {
-        init_walk(lo, base, off, t->base, init);
-        return;
-    }
-    for (k = 0; k < init->nitems; k++) {
-        AstNode *item = init->items[k];
-
-        if (!item)
-            continue;
-        if (item->ndesignators > 0 && item->designators[0] &&
-            !item->designators[0]->desig_is_field &&
-            item->designators[0]->desig_index) {
-            ConstValue cv = constexpr_eval(
-                lo->sema, item->designators[0]->desig_index, CE_FOLD);
-
-            if (cv.kind == CV_INT)
-                idx = cv.i;
-        }
-        if (!t->has_size || idx < t->size)
-            init_walk(lo, base, off + (i64)(idx * el.size), t->base, item);
-        idx++;
-    }
-}
-
-static void init_walk_record(Lower *lo, IrOperand base, i64 off, Type *t,
-                             AstNode *init)
-{
-    Member *m;
-    u32 k;
-
-    if (!t->tag)
-        return;
-    layout_record(lo->sema, t);
-    if (init->kind != AST_INIT_LIST) {
-        /* struct x = expr: one memcpy (the §8 law). */
-        IrOperand src = lower_rvalue(lo, init);
-        TypeLayout l = layout_of(lo->sema, t);
-        IrOperand dst = base;
-
-        if (off) {
-            ValueId p = ir_build_ptradd(&lo->b, base, lower_i64(off));
-
-            dst = ir_op_value(lo->fn, p);
-        }
-        ir_build_memcpy(&lo->b, dst, src, lower_i64((i64)l.size), (u32)l.align,
-                        0);
-        return;
-    }
-    m = t->tag->members;
-    while (m && m->is_bitfield && !m->name)
-        m = m->next;
-    for (k = 0; k < init->nitems && m; k++) {
-        AstNode *item = init->items[k];
-
-        if (!item)
-            continue;
-        if (item->ndesignators > 0 && item->designators[0] &&
-            item->designators[0]->desig_is_field) {
-            Member *it;
-
-            for (it = t->tag->members; it; it = it->next)
-                if (it->name == item->designators[0]->desig_field) {
-                    m = it;
-                    break;
-                }
-        }
-        if (m->is_bitfield) {
-            Lvalue lv;
-            u64 cbits = m->container_size * 8;
-            u64 unit_byte = (m->bit_offset / cbits) * m->container_size;
-            IrOperand v = lower_rvalue(lo, item);
-
-            v = lower_scalar_convert(lo, v, item->sem_type, m->type);
-            memset(&lv, 0, sizeof(lv));
-            {
-                ValueId p = ir_build_ptradd(&lo->b, base,
-                                            lower_i64(off + (i64)unit_byte));
-
-                lv.addr = ir_op_value(lo->fn, p);
-            }
-            switch (m->container_size) {
-            case 1:
-                lv.unit = IRT_I8;
-                break;
-            case 2:
-                lv.unit = IRT_I16;
-                break;
-            case 4:
-                lv.unit = IRT_I32;
-                break;
-            default:
-                lv.unit = IRT_I64;
-                break;
-            }
-            lv.align = (u32)m->container_size;
-            lv.is_bitfield = true;
-            lv.bit_shift = (u8)(m->bit_offset - unit_byte * 8);
-            lv.bit_width = (u8)m->bit_width;
-            lv.is_signed = conv_is_signed(lo->sema, m->type);
-            lower_store(lo, lv, v);
-        } else {
-            init_walk(lo, base, off + (i64)m->offset, m->type, item);
-        }
-        if (t->kind == TY_UNION)
-            break;
-        m = m->next;
-        while (m && m->is_bitfield && !m->name)
-            m = m->next;
-    }
-}
-
-static void init_walk(Lower *lo, IrOperand base, i64 off, Type *t,
-                      AstNode *init)
-{
-    if (!t || !init)
-        return;
-    switch (t->kind) {
-    case TY_ARRAY:
-        init_walk_array(lo, base, off, t, init);
-        return;
-    case TY_STRUCT:
-    case TY_UNION:
-        init_walk_record(lo, base, off, t, init);
-        return;
-    default:
-        if (init->kind == AST_INIT_LIST) {
-            if (init->nitems > 0)
-                init_store_scalar(lo, base, off, t, init->items[0]);
-            return;
-        }
-        init_store_scalar(lo, base, off, t, init);
-        return;
-    }
-}
-
-void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
-{
-    if (!init)
-        return;
-    /* Aggregates initialized by a LIST are zero-filled first, so every
-     * unmentioned element and every padding byte is deterministic — the
-     * same contract as the static images. */
-    if (lower_is_aggregate(t) && init->kind == AST_INIT_LIST) {
-        TypeLayout l = layout_of(lo->sema, t);
-
-        ir_build_memset(&lo->b, base, ir_op_iconst(IRT_I32, 0),
-                        lower_i64((i64)l.size), (u32)(l.align ? l.align : 1),
-                        0);
-    }
-    if (lower_is_aggregate(t) && t->kind == TY_ARRAY &&
-        init->kind == AST_EXPR_STRING) {
-        TypeLayout l = layout_of(lo->sema, t);
-
-        ir_build_memset(&lo->b, base, ir_op_iconst(IRT_I32, 0),
-                        lower_i64((i64)l.size), (u32)(l.align ? l.align : 1),
-                        0);
-    }
-    init_walk(lo, base, 0, t, init);
 }
 
 /* --- switch: the case-collecting pre-pass ----------------------------------
@@ -702,14 +489,39 @@ void lower_stmt(Lower *lo, AstNode *s)
     case AST_STMT_RETURN:
         ensure_open_block(lo, "dead");
         if (s->lhs && lo->sret.v) {
-            /* Aggregate return: memcpy into the hidden result pointer,
-             * then ret void. */
+            /* SRET/PAIR aggregate return: memcpy into the hidden result
+             * pointer, then ret void (the register story is the
+             * IrAbiRet annotation's — see ir.h). */
             IrOperand src = lower_rvalue(lo, s->lhs);
             TypeLayout l = layout_of(lo->sema, s->lhs->sem_type);
 
             ir_build_memcpy(&lo->b, ir_op_value(lo->fn, lo->sret), src,
                             lower_i64((i64)l.size), (u32)l.align, 0);
             ir_build_ret(&lo->b, NULL);
+        } else if (s->lhs && lo->cur_abi_ret &&
+                   lo->cur_abi_ret->kind == ABI_RET_SMALL) {
+            /* One-eightbyte aggregate: the VALUE travels as a
+             * bit-carrying i64/f64. Load through an 8-byte staging slot
+             * when the object is shorter than the load. */
+            IrOperand src = lower_rvalue(lo, s->lhs);
+            AbiRet *ar = lo->cur_abi_ret;
+            IrOperand from = src;
+            Lvalue lv;
+            IrOperand v;
+
+            if (ar->size < 8) {
+                ValueId tmp = ir_build_alloca(&lo->b, lower_i64(8), 8);
+
+                ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), src,
+                                lower_i64((i64)ar->size), ar->align, 0);
+                from = ir_op_value(lo->fn, tmp);
+            }
+            memset(&lv, 0, sizeof(lv));
+            lv.addr = from;
+            lv.unit = ar->small_t;
+            lv.align = 8;
+            v = lower_load(lo, lv);
+            ir_build_ret(&lo->b, &v);
         } else if (s->lhs) {
             IrOperand v = lower_rvalue(lo, s->lhs);
 

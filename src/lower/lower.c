@@ -184,36 +184,12 @@ ValueId lower_temp(Lower *lo, Type *t)
 
 /* --- anonymous globals: strings and file-scope compound literals ---------- */
 
-u32 lower_string_lit(Lower *lo, const AstNode *e)
-{
-    /* One global per OCCURRENCE (no dedup — gcc dedups identical strings,
-     * but correctness never depends on it and determinism is easier to
-     * audit this way; Sprint 34 can merge). Name: .Lstr.N in encounter
-     * order, internal linkage, exact bytes + one NUL terminator. */
-    void *hit = ptrmap_get(&lo->globals, e);
-    char buf[32];
-    IrGlobal *g;
-    u64 n;
-    u32 idx;
-
-    if (hit)
-        return (u32)(uintptr_t)hit - 1;
-    n = e->tok ? e->tok->str.nbytes : 0;
-    snprintf(buf, sizeof(buf), ".Lstr.%u", lo->nstrings++);
-    g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
-    g->size = n + 1; /* the terminator the source spelling implies */
-    g->align = 1;
-    g->linkage = IRLINK_INTERNAL;
-    g->init = arena_alloc(lo->arena, (size_t)g->size, 1);
-    memset(g->init, 0, (size_t)g->size);
-    if (n && e->tok)
-        memcpy(g->init, e->tok->str.bytes, (size_t)n);
-    idx = ir_sym(lo->m, g->name);
-    ptrmap_put(&lo->globals, e, (void *)(uintptr_t)(idx + 1));
-    return idx;
-}
-
 static u32 lower_anon_global(Lower *lo, const AstNode *e);
+
+u32 lower_anon_sym(Lower *lo, const AstNode *e)
+{
+    return lower_anon_global(lo, e);
+}
 
 /* Copies an InitImage into a fresh IrGlobal, resolving each reloc's
  * target (named symbol or nested anonymous object). */
@@ -363,9 +339,12 @@ static void lower_function(Lower *lo, AstNode *def)
 {
     Symbol *sym = scope_lookup(lo->sema->file_scope, def->name, NS_ORDINARY);
     Type *ft;
-    IrType ptypes[64];
+    IrType ptypes[130];
+    AbiArg plans[64];
+    u32 nplans = 0;
     u32 nir_params = 0;
-    bool sret;
+    static AbiRet aret;
+    bool hidden;
     u32 i;
     BlockId entry;
 
@@ -379,29 +358,59 @@ static void lower_function(Lower *lo, AstNode *def)
         return;
     ft = sym->type;
 
-    sret = lower_is_aggregate(ft->base);
-    if (sret)
-        ptypes[nir_params++] = IRT_PTR; /* hidden result pointer first */
-    for (i = 0; i < ft->nparams && ft->params; i++) {
-        Type *pt = ft->params[i];
+    /* The SysV plan: return first (a hidden pointer goes in slot 0),
+     * then each parameter expands per its classification. */
+    abi_classify_ret(lo, ft->base, &aret);
+    hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
+    if (hidden)
+        ptypes[nir_params++] = IRT_PTR;
+    lo->named_gp = 0;
+    lo->named_fp = 0;
+    for (i = 0; i < ft->nparams && ft->params && i < 64; i++) {
+        AbiArg *a = &plans[nplans++];
 
-        if (nir_params == 64)
+        abi_classify_arg(lo, ft->params[i], a);
+        switch (a->kind) {
+        case ABI_ARG_SCALAR: {
+            IrType st = lower_irtype(lo, ft->params[i]);
+
+            ptypes[nir_params++] = st;
+            if (st == IRT_F32 || st == IRT_F64)
+                lo->named_fp++;
+            else if (st != IRT_F80 && st != IRT_F128)
+                lo->named_gp++;
             break;
-        ptypes[nir_params++] =
-            lower_is_aggregate(pt) ? IRT_PTR : lower_irtype(lo, pt);
+        }
+        case ABI_ARG_EIGHTBYTES: {
+            u32 k;
+
+            for (k = 0; k < a->n; k++)
+                ptypes[nir_params++] = a->t[k];
+            abi_arg_regs(a, &lo->named_gp, &lo->named_fp);
+            break;
+        }
+        default: /* BYVAL */
+            ptypes[nir_params++] = IRT_PTR;
+            break;
+        }
     }
 
-    lo->fn = ir_func_new(lo->m, sym->name,
-                         ft->base->kind == TY_VOID || sret
-                             ? IRT_VOID
-                             : lower_irtype(lo, ft->base),
-                         ptypes, nir_params);
+    lo->fn =
+        ir_func_new(lo->m, sym->name,
+                    aret.kind == ABI_RET_SCALAR  ? lower_irtype(lo, ft->base)
+                    : aret.kind == ABI_RET_SMALL ? aret.small_t
+                                                 : IRT_VOID,
+                    ptypes, nir_params);
+    lo->fn->variadic = ft->variadic;
+    lo->fn->abi_ret = aret.ir_abi;
     strmap_init(&lo->locals);
     strmap_init(&lo->labels);
     lo->loops = NULL;
     lo->switches = NULL;
     lo->fname = sym->name;
-    lo->sret = sret ? lo->fn->param_vals[0] : VALUE_INVALID;
+    lo->sret = hidden ? lo->fn->param_vals[0] : VALUE_INVALID;
+    lo->cur_abi_ret = &aret;
+    lo->cur_functype = ft;
 
     entry = ir_block_new(lo->m, lo->fn, "entry");
     collect_labels(lo, def->body);
@@ -410,19 +419,48 @@ static void lower_function(Lower *lo, AstNode *def)
     /* Bind parameters through the symbols sema recorded on the def node
      * (their scope is long popped). A scalar parameter is spilled to an
      * alloca so `&p` and assignment work uniformly (mem2reg undoes this
-     * in Sprint 30); an aggregate parameter IS the caller-made copy, so
-     * its incoming ptr is the object's address directly. */
+     * in Sprint 30); an eightbyte-class aggregate is REASSEMBLED into a
+     * local temp (the body addresses the aggregate; the wire form was
+     * scalars); a byval aggregate IS the caller-made copy, so its
+     * incoming ptr is the object's address directly. */
     {
-        u32 pi = sret ? 1 : 0;
+        u32 pi = hidden ? 1 : 0;
+        u32 plan_i = 0;
 
         for (i = 0; i < def->nparam_syms && pi < lo->fn->nparams; i++) {
             Symbol *psym = def->param_syms[i];
+            AbiArg *a = plan_i < nplans ? &plans[plan_i++] : NULL;
 
-            if (!psym)
+            if (!psym) {
+                /* Unnamed slot: still consumes its IR params. */
+                pi += a && a->kind == ABI_ARG_EIGHTBYTES ? a->n : 1;
                 continue;
-            if (lower_is_aggregate(psym->type)) {
+            }
+            if (a && a->kind == ABI_ARG_EIGHTBYTES) {
+                u64 rounded = (u64)a->n * 8;
+                ValueId slot = ir_build_alloca(&lo->b, lower_i64((i64)rounded),
+                                               a->align > 8 ? a->align : 8);
+                u32 k;
+
+                for (k = 0; k < a->n; k++) {
+                    IrOperand dst = ir_op_value(lo->fn, slot);
+
+                    if (k) {
+                        ValueId p2 = ir_build_ptradd(
+                            &lo->b, ir_op_value(lo->fn, slot), lower_i64(8));
+
+                        dst = ir_op_value(lo->fn, p2);
+                    }
+                    ir_build_store(
+                        &lo->b, ir_op_value(lo->fn, lo->fn->param_vals[pi + k]),
+                        dst, 8, 0);
+                }
+                ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
+                pi += a->n;
+            } else if (a && a->kind == ABI_ARG_BYVAL) {
                 ptrmap_put(&lo->locals, psym,
                            (void *)(uintptr_t)lo->fn->param_vals[pi].v);
+                pi++;
             } else {
                 TypeLayout l = layout_of(lo->sema, psym->type);
                 ValueId slot = ir_build_alloca(&lo->b, lower_i64((i64)l.size),
@@ -432,8 +470,8 @@ static void lower_function(Lower *lo, AstNode *def)
                                ir_op_value(lo->fn, lo->fn->param_vals[pi]),
                                ir_op_value(lo->fn, slot), (u32)l.align, 0);
                 ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
+                pi++;
             }
-            pi++;
         }
     }
 
@@ -488,6 +526,7 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
     lo.m = ir_module_new(arena, dc);
     strmap_init(&lo.globals);
     strmap_init(&lo.func_ids);
+    strmap_init(&lo.string_pool);
     ve = cgf_env("CGF_VERIFY_AFTER_EACH");
     lo.verify_each = ve && strcmp(ve, "1") == 0;
 
@@ -556,5 +595,6 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
 
     strmap_free(&lo.globals);
     strmap_free(&lo.func_ids);
+    strmap_free(&lo.string_pool);
     return lo.failed ? NULL : lo.m;
 }

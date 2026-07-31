@@ -92,16 +92,22 @@ typedef struct Lower {
     SwitchCtx *switches;
     ValueId sret; /* hidden aggregate-return pointer, or 0 */
     const char *fname;
+    /* Sprint 19 ABI state for the CURRENT function. */
+    struct AbiRet *cur_abi_ret; /* how `return e` leaves the function */
+    u32 named_gp;               /* gp registers consumed by named params */
+    u32 named_fp;               /* fp registers consumed by named params */
+    Type *cur_functype;         /* the C function type being lowered */
 
     /* module-wide */
-    Strmap globals;    /* Symbol* -> (uintptr_t)(module sym index + 1) */
-    Strmap func_ids;   /* Symbol* -> (uintptr_t)(IrFunc index + 1), for
-                          the functions THIS module emits */
-    u32 nstrings;      /* string-literal globals emitted, for naming */
-    u32 nlocal_static; /* block-scope statics, for name mangling */
-    u32 ntemps;        /* aggregate temporaries (naming only) */
-    bool verify_each;  /* CGF_VERIFY_AFTER_EACH=1: verify per function */
-    bool failed;       /* a deferral hard-error fired */
+    Strmap globals;     /* Symbol* -> (uintptr_t)(module sym index + 1) */
+    Strmap func_ids;    /* Symbol* -> (uintptr_t)(IrFunc index + 1), for
+                           the functions THIS module emits */
+    Strmap string_pool; /* content -> sym index + 1 (init.c's dedup) */
+    u32 nstrings;       /* string-literal globals emitted, for naming */
+    u32 nlocal_static;  /* block-scope statics, for name mangling */
+    u32 ntemps;         /* aggregate temporaries (naming only) */
+    bool verify_each;   /* CGF_VERIFY_AFTER_EACH=1: verify per function */
+    bool failed;        /* a deferral hard-error fired */
 } Lower;
 
 /* Lowers a whole translation unit. Returns NULL after reporting if a
@@ -159,12 +165,53 @@ void lower_bind_local(Lower *lo, Symbol *sym, ValueId slot);
 void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index);
 /* An i64 constant operand (offsets, sizes). */
 IrOperand lower_i64(i64 v);
-/* String literal -> internal global; returns the module symbol index. */
+/* String literal -> pooled internal global (content-deduped); returns
+ * the module symbol index. */
 u32 lower_string_lit(Lower *lo, const AstNode *e);
+/* Anonymous object (string or file-scope compound literal) -> symbol. */
+u32 lower_anon_sym(Lower *lo, const AstNode *e);
 /* Aggregate temporary: entry-independent alloca in the CURRENT block
  * (legal anywhere per Sprint 17). */
 ValueId lower_temp(Lower *lo, Type *t);
 /* Every deferred path routes through here; the message NAMES the sprint. */
 void lower_unimplemented(Lower *lo, Span span, const char *what, int sprint);
+
+/* --- SysV ABI plans (src/lower/abi.c) ------------------------------------- */
+
+/* How one C argument travels. EIGHTBYTES replaces the Sprint 18 abstract
+ * ptr-to-copy with 1-2 bit-carrying scalars; BYVAL keeps the pointer but
+ * annotates it (codegen copies the pointee onto the stack). */
+typedef enum { ABI_ARG_SCALAR, ABI_ARG_EIGHTBYTES, ABI_ARG_BYVAL } AbiArgKind;
+
+typedef struct AbiArg {
+    u8 kind;     /* AbiArgKind */
+    u8 n;        /* EIGHTBYTES: 1 or 2 */
+    IrType t[2]; /* eightbyte IR types (i64 / f64) */
+    u32 size;
+    u32 align;
+} AbiArg;
+
+typedef enum {
+    ABI_RET_VOID,
+    ABI_RET_SCALAR, /* the IR return type says it all (incl. f80/x87) */
+    ABI_RET_SMALL,  /* one eightbyte: bit-carrying i64 or f64 return */
+    ABI_RET_PAIR,   /* two eightbytes: sret-shaped IR + register truth */
+    ABI_RET_SRET    /* MEMORY: hidden pointer + rax echo */
+} AbiRetKind;
+
+typedef struct AbiRet {
+    u8 kind;        /* AbiRetKind */
+    IrType small_t; /* SMALL: i64 or f64 */
+    u8 ir_abi;      /* IrAbiRet for PAIR/SRET (goes on IrFunc.abi_ret) */
+    u8 arg_annot;   /* IR_ARG_* kind for the hidden pointer argument */
+    u32 size;
+    u32 align;
+} AbiRet;
+
+void abi_classify_arg(Lower *lo, Type *t, AbiArg *out);
+void abi_classify_ret(Lower *lo, Type *t, AbiRet *out);
+/* gp/fp register consumption of one classified argument (for va_start's
+ * gp_offset/fp_offset constants and the 6/8 register caps). */
+void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp);
 
 #endif
