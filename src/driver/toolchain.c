@@ -210,7 +210,13 @@ ToolchainConfig cgf_toolchain_resolve(TargetSpec t)
     if (have_cached)
         return cached;
     cached = cgf_toolchain_resolve_from(real_getenv, NULL, t);
-    if (!cached.error && cached.use_afs_as) {
+    /* The two tools resolve INDEPENDENTLY: a missing bundled assembler
+     * must not make the link path unusable (F-S27-ASERRLINK — CI's
+     * Rust-free jobs have no afs-as, and the link-argv builder bailed
+     * on `error` regardless of which tool it described). Each consumer
+     * checks the path it actually needs; `error` carries the first
+     * problem for the diagnostics that want one string. */
+    if (cached.use_afs_as) {
         cached.as_path = locate_bundled_as();
         if (!cached.as_path) {
             cached.error = "bundled afs-as not built; run 'make tools' or "
@@ -218,9 +224,9 @@ ToolchainConfig cgf_toolchain_resolve(TargetSpec t)
             cached.error_is_io = true;
         }
     }
-    if (!cached.error && cached.use_afs_ld) {
+    if (cached.use_afs_ld) {
         cached.ld_path = locate_bundled_ld();
-        if (!cached.ld_path) {
+        if (!cached.ld_path && !cached.error) {
             cached.error = "bundled afs-ld not built; run 'make tools' or "
                            "unset CGF_LD to use the system linker";
             cached.error_is_io = true;
@@ -342,7 +348,9 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
     memset(&res, 0, sizeof(res));
     if (diag_line)
         *diag_line = 0;
-    if (tc.error) {
+    if (!tc.as_path) {
+        /* Only the ASSEMBLER's resolution matters here (F-S27-ASERRLINK
+         * in reverse: a missing bundled afs-ld must not break -c). */
         res.kind = TOOL_SPAWN_FAILED;
         res.spawn_errno = ENOENT;
         return res;
@@ -617,9 +625,13 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     bool want_libs = !da->nostdlib && !da->nodefaultlibs;
     size_t i;
 
-    if (tc.error) {
-        /* Bundled-tool discovery failed (afs-ld unbuilt, etc). */
-        fprintf(stderr, "cgfried: error: %s\n", tc.error);
+    if (!tc.ld_path) {
+        /* Only the LINKER's own resolution matters here; a missing
+         * bundled assembler is the compile step's problem
+         * (F-S27-ASERRLINK). */
+        fprintf(stderr,
+                "cgfried: error: bundled afs-ld not built; run 'make "
+                "tools' or unset CGF_LD to use the system linker\n");
         return false;
     }
     if (want_crts || want_libs) {
@@ -713,8 +725,8 @@ void cgf_echo_as_plan(const char *s_path, const char *o_path)
     const char *argv[6];
     int n = 0;
 
-    argv[n++] = tc.error ? "as" : tc.as_path;
-    if (!tc.error && tc.use_afs_as)
+    argv[n++] = tc.as_path ? tc.as_path : "as";
+    if (tc.as_path && tc.use_afs_as)
         argv[n++] = "--64";
     argv[n++] = s_path;
     argv[n++] = "-o";

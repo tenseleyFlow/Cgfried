@@ -961,7 +961,7 @@ static int print_prog_name(const DriverArgs *a)
 
     /* as/ld go through the CGF_* routing first — the answer is the tool
      * the driver would actually exec. */
-    if (strcmp(name, "as") == 0 && !tc.error && tc.as_path)
+    if (strcmp(name, "as") == 0 && tc.as_path)
         name = tc.as_path;
     else if (strcmp(name, "ld") == 0 && tc.ld_path)
         name = tc.ld_path;
