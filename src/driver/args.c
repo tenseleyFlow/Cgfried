@@ -48,6 +48,16 @@ DriverArgs args_parse(int argc, char **argv)
             a.dump_init = true;
         } else if (strcmp(s, "-fsyntax-only") == 0) {
             a.syntax_only = true;
+        } else if (strcmp(s, "-S") == 0) {
+            a.emit_asm = true;
+        } else if (strcmp(s, "-c") == 0) {
+            a.compile_obj = true;
+        } else if (strcmp(s, "-o") == 0 || strncmp(s, "-o", 2) == 0) {
+            const char *v = opt_value(s, 2, argc, argv, &i);
+            if (!v)
+                a.missing_arg = "-o";
+            else
+                a.output = v;
         } else if (strcmp(s, "-emit-ir") == 0) {
             a.emit_ir = true;
         } else if (strcmp(s, "-emit-mir") == 0) {

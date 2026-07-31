@@ -39,6 +39,9 @@ typedef struct {
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
     bool emit_ir;
     bool emit_mir;
+    bool emit_asm;      /* -S: AT&T assembly (Sprint 24; gas-assemblable) */
+    bool compile_obj;   /* -c: assemble to .o via the toolchain routing */
+    const char *output; /* -o (minimal; the full surface is Sprint 26) */
     /* -emit-mir: x86_64 MIR dump after isel (Sprint 21) */ /* -emit-ir:
       .cgfir parse->verify->print; .c lowering lands in Sprint 18 */
     bool pedantic;   /* -pedantic (hook; Sprint 37 makes it real) */

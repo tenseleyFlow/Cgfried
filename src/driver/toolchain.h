@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "util/base.h"
+
 #include "target.h"
 
 /* Toolchain routing + subprocess layer. All CGF_* toolchain variables are
@@ -76,6 +78,13 @@ typedef enum {
  * (our emission was invalid — Sprint 24 owns that path); linker failure -> 2.
  * Success maps to 0. */
 int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input);
+
+/* Sprint 24: run the resolved assembler on s_path -> o_path with
+ * stdout/stderr CAPTURED, echoed line-by-line as "[as] ...". On
+ * failure, *diag_line holds the first ".s:<line>:" the assembler
+ * reported (0 if none) so the driver can quote the offending line. */
+ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
+                             u32 *diag_line);
 
 /* The guidance string for a missing tool (exit-3 diagnostics). */
 const char *cgf_tool_missing_hint(ToolKind which);

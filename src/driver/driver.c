@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "cg/cg.h"
 #include "diag.h"
@@ -399,6 +400,120 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
 
 /* -emit-mir: isel every function and print the MIR (Sprint 21). The
  * MIR verifier runs unconditionally — generated MIR failing it is ours. */
+/* -S / -c (Sprint 24): the full backend per function, then AT&T text.
+ * The .s is a USER-FACING CONTRACT (gas-assemblable); -c assembles it
+ * through the routed assembler, and an assembler rejection of OUR text
+ * is an ICE quoting the offending line — a cgf bug by definition. */
+
+static void asm_output_paths(const DriverArgs *a, bool want_obj, char *out,
+                             size_t out_sz)
+{
+    const char *base;
+    size_t n;
+
+    if (a->output) {
+        snprintf(out, out_sz, "%s", a->output);
+        return;
+    }
+    base = strrchr(a->input, '/');
+    base = base ? base + 1 : a->input;
+    n = strlen(base);
+    if (n > 2 && base[n - 2] == '.' && base[n - 1] == 'c')
+        n -= 2;
+    snprintf(out, out_sz, "%.*s.%c", (int)n, base, want_obj ? 'o' : 's');
+}
+
+static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
+                        const DriverArgs *a)
+{
+    Buf b;
+    u32 i;
+    char out_path[512];
+    char s_path[520];
+    FILE *f;
+
+    buf_init(&b);
+    for (i = 0; i < m->nfuncs; i++) {
+        X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
+
+        if (x64_mir_verify(xf, dc))
+            CGF_ICE("isel produced MIR the verifier rejects for '@%s'",
+                    m->funcs[i].name);
+        x64_regalloc_entry(CG_O0)(xf);
+        if (x64_mir_verify(xf, dc))
+            CGF_ICE("regalloc produced MIR the verifier rejects for '@%s'",
+                    m->funcs[i].name);
+        x64_emit_function(xf, m, i, m->funcs[i].linkage, &b);
+    }
+    x64_emit_globals(m, &b);
+
+    if (diag_had_error(dc)) {
+        buf_free(&b);
+        return CGF_EXIT_COMPILE;
+    }
+    asm_output_paths(a, a->compile_obj, out_path, sizeof(out_path));
+    if (a->emit_asm && !a->compile_obj) {
+        f = fopen(out_path, "wb");
+        if (!f) {
+            fprintf(stderr, "cgfried: error: cannot write '%s'\n", out_path);
+            buf_free(&b);
+            return CGF_EXIT_IO;
+        }
+        fwrite(b.data, 1, b.len, f);
+        fclose(f);
+        buf_free(&b);
+        return CGF_EXIT_OK;
+    }
+    /* -c: write the .s beside the object (deterministic name; kept on
+     * failure so the ICE is reproducible), assemble, unlink. */
+    snprintf(s_path, sizeof(s_path), "%s.cgf.s", out_path);
+    f = fopen(s_path, "wb");
+    if (!f) {
+        fprintf(stderr, "cgfried: error: cannot write '%s'\n", s_path);
+        buf_free(&b);
+        return CGF_EXIT_IO;
+    }
+    fwrite(b.data, 1, b.len, f);
+    fclose(f);
+    {
+        u32 bad_line = 0;
+        ToolResult res = cgf_run_assembler(s_path, out_path, &bad_line);
+
+        if (res.kind == TOOL_SPAWN_FAILED) {
+            fprintf(stderr, "cgfried: error: %s\n",
+                    cgf_tool_missing_hint(TOOL_AS));
+            buf_free(&b);
+            return CGF_EXIT_IO;
+        }
+        if (res.kind != TOOL_EXITED || res.exit_code != 0) {
+            /* Quote the offending line from the buffer we just wrote. */
+            char quoted[256];
+            u32 ln = 1;
+            size_t p = 0, q;
+
+            quoted[0] = '\0';
+            if (bad_line) {
+                while (p < b.len && ln < bad_line) {
+                    if (b.data[p] == '\n')
+                        ln++;
+                    p++;
+                }
+                q = 0;
+                while (p < b.len && b.data[p] != '\n' && q + 1 < sizeof(quoted))
+                    quoted[q++] = b.data[p++];
+                quoted[q] = '\0';
+            }
+            CGF_ICE("the assembler rejected cgfried-generated assembly "
+                    "(kept at '%s', line %u: \"%s\") — this is a cgf "
+                    "emission bug",
+                    s_path, bad_line, quoted);
+        }
+    }
+    unlink(s_path);
+    buf_free(&b);
+    return CGF_EXIT_OK;
+}
+
 static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
 {
     u32 i;
@@ -542,7 +657,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     pp_begin(&pp, sf, cmdline);
 
     if (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
-        a->dump_init || a->syntax_only || a->emit_ir || a->emit_mir) {
+        a->dump_init || a->syntax_only || a->emit_ir || a->emit_mir ||
+        a->emit_asm || a->compile_obj) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -561,7 +677,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
         if (a->dump_ast || a->dump_sema || a->dump_layout || a->dump_init ||
-            a->syntax_only || a->emit_ir || a->emit_mir) {
+            a->syntax_only || a->emit_ir || a->emit_mir || a->emit_asm ||
+            a->compile_obj) {
             Parser ps;
             AstNode *tu;
 
@@ -574,7 +691,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
              * but is semantically wrong must still be reported, and that
              * is what -fsyntax-only means. */
             if (a->dump_sema || a->dump_layout || a->dump_init ||
-                a->syntax_only || a->emit_ir || a->emit_mir) {
+                a->syntax_only || a->emit_ir || a->emit_mir || a->emit_asm ||
+                a->compile_obj) {
                 Sema sema;
 
                 sema_install_renderer();
@@ -597,7 +715,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                         if (tu->decls[k] && tu->decls[k]->kind == AST_FUNC_DEF)
                             dump_decl(tu->decls[k], 0);
                 }
-                if ((a->emit_ir || a->emit_mir) && !diag_had_error(dc)) {
+                if ((a->emit_ir || a->emit_mir || a->emit_asm ||
+                     a->compile_obj) &&
+                    !diag_had_error(dc)) {
                     /* AST -> IR. This module is GENERATED: a verifier
                      * failure here is an ICE, never a user error — the
                      * user's errors all ended in sema. CGF_DUMP_BAD_IR
@@ -627,6 +747,17 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                         int rc = emit_mir_print(arena, dc, m);
 
                         (void)rc;
+                    } else if (m && (a->emit_asm || a->compile_obj)) {
+                        int rc = run_emit_asm(arena, dc, m, a);
+
+                        if (rc != CGF_EXIT_OK) {
+                            PpTokVecD_free(&collected);
+                            pp_end(&pp);
+                            intern_free(&interner);
+                            pp_loc_free(&pp.loc);
+                            strmap_free(&pp.macros);
+                            return rc;
+                        }
                     } else if (m) {
                         int rc = emit_ir_print(arena, dc, m, a->input);
 
@@ -741,9 +872,10 @@ int driver_main(int argc, char **argv)
         size_t ilen = strlen(a.input);
 
         cgf_ice_set_input(a.input);
-        if (a.emit_ir || a.emit_mir) {
+        if (a.emit_ir || a.emit_mir || a.emit_asm || a.compile_obj) {
             /* .cgfir goes straight to the IR parser; anything else runs
-             * the whole C pipeline and lowers (Sprint 18). */
+             * the whole C pipeline and lowers (Sprint 18). -S / -c
+             * continue through emission (Sprint 24). */
             if (ilen >= 6 && strcmp(a.input + ilen - 6, ".cgfir") == 0)
                 status = run_emit_ir(&arena, dc, &a);
             else
@@ -753,10 +885,9 @@ int driver_main(int argc, char **argv)
             status = run_preprocess(&arena, dc, &a);
         } else {
             diag_emit(dc, DIAG_ERROR, no_span,
-                      "only -E, --dump-tokens, --dump-ast and "
-                      "-fsyntax-only are supported so far: full "
-                      "compilation lands sprint by sprint (next: Sprint "
-                      "10, statements and expressions)");
+                      "linking is not wired yet: use -S (assembly), -c "
+                      "(object), or a dump flag — `cgf t.c` producing a "
+                      "runnable binary lands in Sprint 25");
             status = CGF_EXIT_COMPILE;
         }
     } else {

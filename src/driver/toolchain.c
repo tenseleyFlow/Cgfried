@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <spawn.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -241,4 +242,122 @@ const char *cgf_tool_missing_hint(ToolKind which)
         return "linker not found; install binutils or set CGF_LD_PATH";
     }
     CGF_ICE("cgf_tool_missing_hint: bad tool kind %d", (int)which);
+}
+
+/* --- Sprint 24: the assembler subprocess ------------------------------------
+ *
+ * Unlike cgf_run_tool, the assembler's stderr is CAPTURED: every line
+ * is echoed to our stderr prefixed "[as] ", and on failure the first
+ * "<file>:<line>:" diagnostic is parsed so the driver can quote the
+ * offending .s line in its ICE (our emitter produced text our
+ * assembler rejects — a cgf bug by definition). One pipe carries both
+ * stdout and stderr; the read loop drains to EOF before waitpid, so a
+ * chatty assembler cannot deadlock us. */
+
+ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
+                             u32 *diag_line)
+{
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    const char *argv[6];
+    int an = 0;
+    ToolResult res;
+    pid_t pid;
+    int rc, status;
+    int pipefd[2];
+    posix_spawn_file_actions_t fa;
+    char buf[4096];
+    char pending[512];
+    size_t npend = 0;
+    bool line_found = false;
+
+    memset(&res, 0, sizeof(res));
+    if (diag_line)
+        *diag_line = 0;
+    if (tc.error) {
+        res.kind = TOOL_SPAWN_FAILED;
+        res.spawn_errno = ENOENT;
+        return res;
+    }
+    argv[an++] = tc.as_path;
+    /* afs-as defaults to its ARM64 Mach-O arm; --64 selects x86_64 AT&T
+     * (exactly how the Sprint 2 toolchain smoke invokes it). The system
+     * assembler needs no selector. */
+    if (tc.use_afs_as)
+        argv[an++] = "--64";
+    argv[an++] = s_path;
+    argv[an++] = "-o";
+    argv[an++] = o_path;
+    argv[an] = NULL;
+
+    if (pipe(pipefd) != 0)
+        CGF_ICE("pipe for assembler capture failed: %s", strerror(errno));
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 1);
+    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 2);
+    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
+    posix_spawn_file_actions_addclose(&fa, pipefd[1]);
+    rc = posix_spawnp(&pid, argv[0], &fa, NULL, (char *const *)argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(pipefd[1]);
+    if (rc != 0) {
+        close(pipefd[0]);
+        res.kind = TOOL_SPAWN_FAILED;
+        res.spawn_errno = rc;
+        return res;
+    }
+    for (;;) {
+        ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        ssize_t i;
+
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            break;
+        for (i = 0; i < n; i++) {
+            char c = buf[i];
+
+            if (c == '\n' || npend + 1 >= sizeof(pending)) {
+                pending[npend] = '\0';
+                fprintf(stderr, "[as] %s\n", pending);
+                /* first "<file>:<line>:" wins */
+                if (!line_found && diag_line) {
+                    const char *p = strstr(pending, ".s:");
+
+                    if (p) {
+                        unsigned long v = strtoul(p + 3, NULL, 10);
+
+                        if (v > 0) {
+                            *diag_line = (u32)v;
+                            line_found = true;
+                        }
+                    }
+                }
+                npend = 0;
+            } else {
+                pending[npend++] = c;
+            }
+        }
+    }
+    close(pipefd[0]);
+    if (npend) {
+        pending[npend] = '\0';
+        fprintf(stderr, "[as] %s\n", pending);
+    }
+    for (;;) {
+        if (waitpid(pid, &status, 0) >= 0)
+            break;
+        if (errno != EINTR)
+            CGF_ICE("waitpid on assembler failed: %s", strerror(errno));
+    }
+    if (WIFEXITED(status)) {
+        res.kind = TOOL_EXITED;
+        res.exit_code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        res.kind = TOOL_SIGNALED;
+        res.term_signal = WTERMSIG(status);
+    } else {
+        CGF_ICE("waitpid on assembler: unexpected status 0x%x",
+                (unsigned)status);
+    }
+    return res;
 }
