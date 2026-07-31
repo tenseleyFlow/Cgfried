@@ -85,5 +85,15 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
+# Sprint 27 (DoD 8): NO code path reorders link_inputs — archive
+# extraction is position-dependent, and a drop-in driver must reproduce
+# gcc's order-sensitive failures, never "helpfully" fix them.
+hits=$(grep -rn 'link_inputs' src | grep -iE 'sort' || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: link_inputs must NEVER be reordered (Sprint 27):" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
 [ "$status" -eq 0 ] && echo "check_bans: clean"
 exit "$status"

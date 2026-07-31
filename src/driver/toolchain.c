@@ -1,5 +1,6 @@
 #include "driver/toolchain.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -483,6 +484,52 @@ const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
     return dir;
 }
 
+/* F-S27-STATICLIBGCC: the sprint file claimed --start-group rt -lc
+ * --end-group suffices for static glibc; empirically its libc.a .cold
+ * paths reference _Unwind_Resume/__gcc_personality_v0 (libgcc_eh), so
+ * gcc's real static line adds -lgcc -lgcc_eh from its PRIVATE dir.
+ * Probe the filesystem for it (highest version wins) — never spawn gcc,
+ * never bake a version path. Absent (musl, freestanding): proceed
+ * without; ld's error stays visible. */
+static const char *locate_libgcc_dir(void)
+{
+    static char best[1024];
+    DIR *top = opendir("/usr/lib/gcc");
+    struct dirent *tri;
+
+    best[0] = '\0';
+    if (!top)
+        return NULL;
+    while ((tri = readdir(top)) != NULL) {
+        char tridir[512];
+        DIR *vers;
+        struct dirent *ver;
+
+        if (tri->d_name[0] == '.')
+            continue;
+        snprintf(tridir, sizeof(tridir), "/usr/lib/gcc/%s", tri->d_name);
+        vers = opendir(tridir);
+        if (!vers)
+            continue;
+        while ((ver = readdir(vers)) != NULL) {
+            char probe[1024];
+
+            if (ver->d_name[0] == '.')
+                continue;
+            snprintf(probe, sizeof(probe), "%s/%s/libgcc.a", tridir,
+                     ver->d_name);
+            if (access(probe, R_OK) != 0)
+                continue;
+            snprintf(probe, sizeof(probe), "%s/%s", tridir, ver->d_name);
+            if (best[0] == '\0' || strcmp(probe, best) > 0)
+                snprintf(best, sizeof(best), "%s", probe);
+        }
+        closedir(vers);
+    }
+    closedir(top);
+    return best[0] ? best : NULL;
+}
+
 /* The libcgf_rt.a slot (content is Sprint 28; this sprint reserves its
  * place in the canonical sequence). Dev tree: build/<target>/ beside
  * the compiler; installed: <prefix>/lib/cgfried/<target>/. Absent file
@@ -591,13 +638,28 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     }
     if (want_libs) {
         rt = locate_rt_archive(t);
-        if (da->static_link)
+        if (da->static_link) {
+            /* F-S27-STATICLIBGCC: glibc's libc.a needs libgcc_eh's
+             * unwind symbols; mirror gcc's static group when the
+             * private libgcc dir exists. */
+            const char *gccdir = locate_libgcc_dir();
+
+            if (gccdir)
+                VecStr_push(out, joined2(ar, "-L", gccdir));
             VecStr_push(out, "--start-group");
-        if (rt)
-            VecStr_push(out, rt);
-        VecStr_push(out, "-lc");
-        if (da->static_link)
+            if (rt)
+                VecStr_push(out, rt);
+            if (gccdir) {
+                VecStr_push(out, "-lgcc");
+                VecStr_push(out, "-lgcc_eh");
+            }
+            VecStr_push(out, "-lc");
             VecStr_push(out, "--end-group");
+        } else {
+            if (rt)
+                VecStr_push(out, rt);
+            VecStr_push(out, "-lc");
+        }
     }
     if (want_crts)
         VecStr_push(out, joined2(ar, crtdir, "/crtn.o"));

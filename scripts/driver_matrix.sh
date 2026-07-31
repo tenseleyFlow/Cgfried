@@ -46,8 +46,22 @@ make_srcdir() {
     printf -- '-c main.c\n' > "$dir/rsp_c.txt"
     printf -- '@rsp_inner.txt -o prog\n' > "$dir/rsp_outer.txt"
     printf -- "'-DX=42' xmain.c\n" > "$dir/rsp_inner.txt"
-    # aux.o for the link-order row, built by gcc (a plain ELF object).
-    (cd "$dir" && gcc -c aux.c -o aux.o 2>/dev/null)
+    # Sprint 27 archive-order fixtures: a STATIC archive (shared libs
+    # resolve regardless of position; only .a extraction is positional).
+    printf 'int zzfn(void) { return 7; }\n' > "$dir/zz.c"
+    printf 'int zzfn(void);\nint main(void) { return zzfn(); }\n' \
+        > "$dir/zmain.c"
+    # NSS-class symbol for the static-glibc warning row (manual proto:
+    # pulling in netdb.h is a Sprint 28+ header concern, not a link
+    # one). A static function-pointer initializer keeps the reference
+    # unfoldable — gcc folds `&f ? a : b` away and never emits it.
+    printf 'extern int getaddrinfo();\nint (*volatile nss_ref)() = getaddrinfo;\nint main(void) { return 0; }\n' \
+        > "$dir/nss.c"
+    # Pre-built objects/archives via gcc (plain ELF inputs; the LINK is
+    # what each row exercises).
+    (cd "$dir" && gcc -c aux.c -o aux.o 2>/dev/null &&
+        gcc -c zz.c -o zz.o && ar rcs libzz.a zz.o && rm zz.o &&
+        gcc -c zmain.c -o zmain.o)
 }
 
 # Unfold continuations, squeeze spaces, drop stdc-predef and each
@@ -101,7 +115,7 @@ norm_plan() {
 files_after() {
     dir=$1
     (cd "$dir" && ls -1 2>/dev/null) | grep -vE \
-        '^(main\.c|hdr\.h|aux\.c|dep\.c|sp ace\.h|pre\.h|imain\.c|xmain\.c|weird\.txt|rsp_c\.txt|rsp_outer\.txt|rsp_inner\.txt|aux\.o)$' |
+        '^(main\.c|hdr\.h|aux\.c|dep\.c|sp ace\.h|pre\.h|imain\.c|xmain\.c|weird\.txt|rsp_c\.txt|rsp_outer\.txt|rsp_inner\.txt|aux\.o|zz\.c|zmain\.c|zmain\.o|libzz\.a|nss\.c)$' |
         sort
 }
 
@@ -158,6 +172,28 @@ while IFS='|' read -r tags args; do
     *E*)
         if [ "$gst" -eq 0 ] || [ "$cst" -eq 0 ]; then
             row_fail "expected both to fail (gcc=$gst cgf=$cst)"
+        fi
+        continue
+        ;;
+    *U*)
+        # Archive-position failure (Sprint 27): both drivers fail AND
+        # both name the undefined symbol.
+        if [ "$gst" -eq 0 ] || [ "$cst" -eq 0 ]; then
+            row_fail "expected archive-order failure (gcc=$gst cgf=$cst)"
+        elif ! grep -q zzfn "$gdir/err.log" ||
+            ! grep -q zzfn "$cdir/err.log"; then
+            row_fail "undefined-symbol text missing from stderr"
+        fi
+        continue
+        ;;
+    *N*)
+        # Static NSS-class link: both succeed AND both surface the
+        # .gnu.warning text verbatim.
+        if [ "$gst" -ne 0 ] || [ "$cst" -ne 0 ]; then
+            row_fail "expected both static links ok (gcc=$gst cgf=$cst)"
+        elif ! grep -qi getaddrinfo "$gdir/err.log" ||
+            ! grep -qi getaddrinfo "$cdir/err.log"; then
+            row_fail "NSS static-link warning missing from stderr"
         fi
         continue
         ;;

@@ -9,6 +9,9 @@
 #   P  append -### and compare the subcommand-class sequence
 #      (compile/assemble/link) plus the link-input order tokens
 #   E  both drivers must FAIL (nonzero exit); nothing else compared
+#   U  archive-position row: both fail AND both stderr name 'zzfn'
+#   N  static-NSS row: both succeed AND both stderr carry the
+#      .gnu.warning getaddrinfo text verbatim
 #   C  cgf-only row (documented gcc divergence or no oracle): assert
 #      cgf's own contract — exit 0 unless E
 #
@@ -48,3 +51,7 @@ P|-S main.c
 E|-std=bogus main.c
 F|-E main.c -o out.i
 CR|-x c weird.txt -o prog
+FR|zmain.o -L. -lzz -o prog
+U|-L. -lzz zmain.o -o prog
+FR|-static main.c -o prog
+N|-static nss.c -o prog
