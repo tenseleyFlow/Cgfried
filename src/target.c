@@ -345,15 +345,41 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
 size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
                                       size_t max)
 {
-    /* One POSIX-shaped default list for every current target: real per-
-     * target divergence (sysroots, macOS SDK paths) arrives with Sprints
-     * 50/51; keeping the switch exhaustive means those sprints cannot
-     * forget a target. */
+    /* /usr/local/include, then the DEBIAN MULTIARCH dir, then
+     * /usr/include — gcc's order on a multiarch host.
+     *
+     * The multiarch entry is not optional politeness: on Debian/Ubuntu
+     * glibc's `bits/` headers live ONLY there, so `#include <stdio.h>`
+     * fails outright without it (found by the Sprint 28 header lane on
+     * CI; Arch keeps everything under /usr/include, which is why the
+     * Sprint 5 acid test never noticed). A dir that does not exist
+     * simply never matches, so listing it costs nothing elsewhere.
+     * Real sysroot/SDK divergence arrives with Sprints 50/51; keeping
+     * the switch exhaustive means those sprints cannot forget a
+     * target. */
     switch (t.kind) {
     case CGF_TARGET_X86_64_LINUX_GNU:
+        if (max < 3)
+            return 0;
+        out[0] = "/usr/local/include";
+        out[1] = "/usr/include/x86_64-linux-gnu";
+        out[2] = "/usr/include";
+        return 3;
     case CGF_TARGET_ARM64_LINUX:
-    case CGF_TARGET_ARM64_MACOS:
+        if (max < 3)
+            return 0;
+        out[0] = "/usr/local/include";
+        out[1] = "/usr/include/aarch64-linux-gnu";
+        out[2] = "/usr/include";
+        return 3;
     case CGF_TARGET_X86_64_LINUX_MUSL:
+        if (max < 3)
+            return 0;
+        out[0] = "/usr/local/include";
+        out[1] = "/usr/include/x86_64-linux-musl";
+        out[2] = "/usr/include";
+        return 3;
+    case CGF_TARGET_ARM64_MACOS:
     case CGF_TARGET_X86_64_FREEBSD:
         if (max < 2)
             return 0;
