@@ -9,6 +9,8 @@
 #   P  append -### and compare the subcommand-class sequence
 #      (compile/assemble/link) plus the link-input order tokens
 #   E  both drivers must FAIL (nonzero exit); nothing else compared
+#   A  agreement only: both succeed or both fail, no directional claim
+#      (for outcomes that depend on the host binutils version)
 #   U  archive-position row: both fail AND both stderr name 'zzfn'
 #   N  static-NSS row: both succeed AND both stderr carry the
 #      .gnu.warning getaddrinfo text verbatim
@@ -16,9 +18,10 @@
 #      cgf's own contract — exit 0 unless E
 #
 # A '~' inside an arg stands for a space (the file "sp ace.h" and quoted
-# -MQ targets). The no-index-archive row (-lnoidx) is an agreement-
-# SUCCESS row: modern GNU ld scans index-less archives instead of
-# erroring, and both drivers ride the same ld. Sources are created by driver_matrix.sh: main.c includes
+# -MQ targets). The no-index-archive row (-lnoidx) is an AGREEMENT row,
+# not a success row: GNU ld 2.44 scans index-less archives while 2.42
+# refuses them, so the only portable claim is that both drivers — which
+# ride the same ld — reach the same outcome. Sources are created by driver_matrix.sh: main.c includes
 # hdr.h; dep.c includes hdr.h and "sp ace.h"; pre.h defines PREV=13;
 # weird.txt is C text; rsp files per rows 23-24.
 F|-c main.c
@@ -59,4 +62,4 @@ FR|-static main.c -o prog
 N|-static nss.c -o prog
 FR|zmain.o -L. -lempty -lzz -o prog
 E|main.c dupmain.o -o prog
-FR|zmain.o -L. -lnoidx -o prog
+A|zmain.o -L. -lnoidx -o prog

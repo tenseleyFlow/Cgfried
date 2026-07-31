@@ -233,22 +233,43 @@ while IFS='|' read -r tags args; do
         ;;
     esac
     case "$tags" in
+    *A*)
+        # Agreement-only row: assert the two drivers reach the SAME
+        # outcome without claiming which. Used where the answer is
+        # binutils-version-dependent (both drivers ride the same ld).
+        gok=0; [ "$gst" -eq 0 ] || gok=1
+        cok=0; [ "$cst" -eq 0 ] || cok=1
+        [ "$gok" -eq "$cok" ] ||
+            row_fail "outcome disagreement (gcc=$gst cgf=$cst)"
+        ;;
+    esac
+    case "$tags" in
     *F*)
-        files_after "$gdir" | grep -v '\.log$' > "$gdir/files.txt"
-        files_after "$cdir" | grep -v '\.log$' > "$cdir/files.txt"
-        cmp -s "$gdir/files.txt" "$cdir/files.txt" || {
+        # The listing must NOT be written inside the directory being
+        # listed: the redirect creates the file concurrently with `ls`,
+        # so whether it appears is a race (green on one host, red on
+        # the next). Keep both listings outside the scratch dirs.
+        files_after "$gdir" | grep -v '\.log$' > "$WORK/r$rows.gfiles"
+        files_after "$cdir" | grep -v '\.log$' > "$WORK/r$rows.cfiles"
+        cmp -s "$WORK/r$rows.gfiles" "$WORK/r$rows.cfiles" || {
             row_fail "produced-file sets differ"
-            diff -u "$gdir/files.txt" "$cdir/files.txt" >&2 || true
+            diff -u "$WORK/r$rows.gfiles" "$WORK/r$rows.cfiles" >&2 || true
         }
         ;;
     esac
     case "$tags" in
     *R*)
-        (cd "$gdir" && ./prog)
-        grun=$?
-        (cd "$cdir" && ./prog)
-        crun=$?
-        [ "$grun" -eq "$crun" ] || row_fail "run exit gcc=$grun cgf=$crun"
+        # A missing binary on BOTH sides would compare 127 == 127 and
+        # pass while proving nothing — assert existence first.
+        if [ ! -x "$gdir/prog" ] || [ ! -x "$cdir/prog" ]; then
+            row_fail "R row produced no runnable prog (gcc=$([ -x "$gdir/prog" ] && echo yes || echo no) cgf=$([ -x "$cdir/prog" ] && echo yes || echo no))"
+        else
+            (cd "$gdir" && ./prog)
+            grun=$?
+            (cd "$cdir" && ./prog)
+            crun=$?
+            [ "$grun" -eq "$crun" ] || row_fail "run exit gcc=$grun cgf=$crun"
+        fi
         ;;
     esac
     case "$tags" in
