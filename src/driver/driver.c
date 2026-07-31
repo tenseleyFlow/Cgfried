@@ -986,17 +986,24 @@ static int print_file_name(const DriverArgs *a)
     return CGF_EXIT_OK;
 }
 
-static int print_search_dirs(void)
+static int print_search_dirs(const DriverArgs *a)
 {
     char dir[4096], crtdiag[256];
     const char *crtdir = cgf_probe_crt_dir(crtdiag, sizeof(crtdiag));
     bool have_exe = cgf_exe_relative("", dir, sizeof(dir));
+    size_t i;
 
-    /* Truthful, not gcc-shaped: these are the only places the driver
-     * actually looks today (Sprint 27 deepens the library side). */
+    /* Truthful, not gcc-shaped: exactly the resolved search order the
+     * link path uses — -L dirs in flag order, the crt probe hit, then
+     * the defaults (Sprint 27 section 6). */
     printf("install: %s/\n", have_exe ? dir : ".");
     printf("programs: %s\n", have_exe ? dir : ".");
-    printf("libraries: %s\n", crtdir ? crtdir : "");
+    printf("libraries: =");
+    for (i = 0; i < a->lib_dirs.len; i++)
+        printf("%s:", a->lib_dirs.data[i]);
+    if (crtdir)
+        printf("%s:", crtdir);
+    printf("/usr/lib:/lib\n");
     return CGF_EXIT_OK;
 }
 
@@ -1115,7 +1122,7 @@ int driver_main(int argc, char **argv)
     } else if (a.show_dumpmachine) {
         printf("%s\n", cgf_target_name(cgf_target_host()));
     } else if (a.print_search_dirs) {
-        status = print_search_dirs();
+        status = print_search_dirs(&a);
     } else if (a.print_prog) {
         status = print_prog_name(&a);
     } else if (a.print_file) {
@@ -1407,29 +1414,45 @@ int driver_main(int argc, char **argv)
             fclose(eout);
 
         if (a.link_exe && !any_fail && a.link_inputs.len > 0) {
-            LinkRequest lr;
-            ToolResult lres;
-            int rc;
+            VecStr ldargv = {0};
 
-            memset(&lr, 0, sizeof(lr));
-            lr.arena = &arena;
-            lr.out = final_out;
-            lr.inputs = a.link_inputs.data;
-            lr.n_inputs = a.link_inputs.len;
-            lr.lib_dirs = a.lib_dirs.data;
-            lr.n_lib_dirs = a.lib_dirs.len;
-            lr.static_link = a.static_link;
-            lr.nostdlib = a.nostdlib;
-            lr.nostartfiles = a.nostartfiles;
-            lr.nodefaultlibs = a.nodefaultlibs;
-            if (a.dry_run) {
-                cgf_echo_ld_plan(&lr);
+            /* final_out is what the builder reads via a.output. */
+            (void)final_out;
+            if (!toolchain_build_link_argv(&a, cgf_target_host(), &arena,
+                                           &ldargv)) {
+                /* crt/route failure: link-phase error, exit 2 (the
+                 * diagnostic named every probed path already). */
+                if (status == CGF_EXIT_OK)
+                    status = CGF_EXIT_LINK;
+            } else if (a.dry_run) {
+                cgf_toolchain_echo_argv((const char *const *)ldargv.data);
             } else {
-                lres = cgf_run_linker2(&lr);
-                rc = cgf_tool_exit_code(TOOL_LD, &lres, false);
+                ToolResult lres =
+                    cgf_run_tool((const char *const *)ldargv.data);
+                int rc = cgf_tool_exit_code(TOOL_LD, &lres, false);
+
+                if (lres.kind == TOOL_SPAWN_FAILED) {
+                    fprintf(stderr, "cgfried: error: %s\n",
+                            cgf_tool_missing_hint(TOOL_LD));
+                } else if (rc != CGF_EXIT_OK) {
+                    /* The linker's own stderr streamed through verbatim
+                     * above; ONE trailer, then the contract exit. */
+                    if (lres.kind == TOOL_EXITED)
+                        fprintf(stderr,
+                                "cgfried: error: linker command failed "
+                                "with exit code %d (use -v to see "
+                                "invocation)\n",
+                                lres.exit_code);
+                    else
+                        fprintf(stderr,
+                                "cgfried: error: linker command died with "
+                                "signal %d (use -v to see invocation)\n",
+                                lres.term_signal);
+                }
                 if (rc != CGF_EXIT_OK && status == CGF_EXIT_OK)
                     status = rc;
             }
+            VecStr_free(&ldargv);
         } else if (a.link_exe && a.link_inputs.len == 0 && !any_fail) {
             /* All inputs consumed by warnings (e.g. only unused .s). */
             fprintf(stderr, "cgfried: no input files\n");

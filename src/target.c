@@ -122,6 +122,25 @@ size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
     CGF_ICE("cgf_target_system_include_dirs: bad target kind %d", (int)t.kind);
 }
 
+/* Sprint 27: the ELF dynamic-linker table. arm64-macos is dyld's world
+ * (Sprint 50) — NULL here, and the link path must never ask. */
+const char *cgf_target_dynamic_linker(TargetSpec t)
+{
+    switch (t.kind) {
+    case CGF_TARGET_X86_64_LINUX_GNU:
+        return "/lib64/ld-linux-x86-64.so.2";
+    case CGF_TARGET_X86_64_LINUX_MUSL:
+        return "/lib/ld-musl-x86_64.so.1";
+    case CGF_TARGET_ARM64_LINUX:
+        return "/lib/ld-linux-aarch64.so.1";
+    case CGF_TARGET_X86_64_FREEBSD:
+        return "/libexec/ld-elf.so.1";
+    case CGF_TARGET_ARM64_MACOS:
+        return NULL;
+    }
+    CGF_ICE("cgf_target_dynamic_linker: bad target kind %d", (int)t.kind);
+}
+
 const char *cgf_target_name(TargetSpec t)
 {
     switch (t.kind) {

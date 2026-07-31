@@ -61,6 +61,10 @@ TargetSpec cgf_target_host(void);
 
 const char *cgf_target_name(TargetSpec t);
 
+/* ELF dynamic-linker path for the target; NULL for arm64-macos (dyld,
+ * Sprint 50). */
+const char *cgf_target_dynamic_linker(TargetSpec t);
+
 /* Appends the target's predefined-macro `#define` lines (the gcc -dM
  * core-integer subset: arch/OS/ABI ids, type sizes, limits, byte order,
  * __SIZE_TYPE__ family). NEVER __GNUC__ — see pp_predefine_all's policy. */

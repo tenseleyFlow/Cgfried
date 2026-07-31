@@ -402,44 +402,103 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
     return res;
 }
 
-/* --- Sprint 25: the link recipe ---------------------------------------------
+/* --- Sprints 25-27: the link recipe -----------------------------------------
  *
  * Dynamic non-PIE ELF executable against system crt/libc. crtbegin.o /
  * crtend.o are GCC-installation files needed only for ctors/dtors/C++ —
  * plain C links fine without them (do NOT "add them for correctness":
- * that drags in a GCC-version-specific path). The crt probe covers the
- * two big layouts now; the full -B discovery matrix is Sprint 27. */
+ * that drags in a GCC-version-specific path; if a link ever fails on
+ * __dso_handle, that is THIS gap — document, don't silently add).
+ * Non-PIE only in v0.1.0: always crt1.o, never Scrt1.o (Sprint 51). */
 
-static const char *const crt_dirs[] = {
-    "/usr/lib",                 /* Arch */
-    "/usr/lib/x86_64-linux-gnu" /* Debian/Ubuntu */
+/* Sprint 27 probe table, first stat() hit for crt1.o wins. Order is the
+ * distro-layout ladder from the sprint file; overrides (CGF_CRT_DIR,
+ * then each -B in flag order) probe first. */
+static const char *const crt_default_dirs[] = {
+    "/usr/lib/x86_64-linux-gnu", /* Debian/Ubuntu multiarch */
+    "/usr/lib64",                /* Fedora/RHEL */
+    "/usr/lib",                  /* Arch/generic */
+    "/lib",                      /* fallback */
 };
 
-/* Locates crt1.o's directory (CGF_CRT_DIR override first). Returns NULL
- * with all probed paths written into diag when nothing has crt1.o. */
+/* Injectable core (units point `table` at temp dirs): returns the first
+ * dir whose crt1.o exists; every probed path is appended to `searched`
+ * one per line — the failure diagnostic is a debuggability CONTRACT
+ * (name everything tried). */
+const char *cgf_probe_crt_dir_in(const char *override, const char *const *bdirs,
+                                 size_t nb, const char *const *table,
+                                 size_t ntable, Buf *searched)
+{
+    char path[1024];
+    size_t i;
+
+    if (override) {
+        snprintf(path, sizeof(path), "%s/crt1.o", override);
+        if (access(path, R_OK) == 0)
+            return override;
+        if (searched)
+            buf_printf(searched, "  %s (CGF_CRT_DIR)\n", path);
+        /* An explicit override that misses does NOT fall through: the
+         * user asked for exactly this dir, so failing loudly beats
+         * silently linking against some other libc's crt. */
+        return NULL;
+    }
+    for (i = 0; i < nb; i++) {
+        snprintf(path, sizeof(path), "%s/crt1.o", bdirs[i]);
+        if (access(path, R_OK) == 0)
+            return bdirs[i];
+        if (searched)
+            buf_printf(searched, "  %s (-B)\n", path);
+    }
+    for (i = 0; i < ntable; i++) {
+        snprintf(path, sizeof(path), "%s/crt1.o", table[i]);
+        if (access(path, R_OK) == 0)
+            return table[i];
+        if (searched)
+            buf_printf(searched, "  %s\n", path);
+    }
+    return NULL;
+}
+
+/* Compatibility probe (print-file-name/-search-dirs): no -B dirs, no
+ * search transcript. diag gets a comma-joined summary. */
 const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
 {
     ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
-    char path[512];
-    size_t i, used = 0;
+    const char *dir =
+        cgf_probe_crt_dir_in(tc.crt_dir, NULL, 0, crt_default_dirs,
+                             CGF_ARRAY_LEN(crt_default_dirs), NULL);
 
-    if (tc.crt_dir) {
-        snprintf(path, sizeof(path), "%s/crt1.o", tc.crt_dir);
-        if (access(path, R_OK) == 0)
-            return tc.crt_dir;
-        snprintf(diag, diag_sz, "%s (CGF_CRT_DIR)", tc.crt_dir);
-        return NULL;
+    if (!dir && diag_sz) {
+        size_t i, used = 0;
+
+        diag[0] = '\0';
+        for (i = 0; i < CGF_ARRAY_LEN(crt_default_dirs); i++) {
+            used += (size_t)snprintf(diag + used, diag_sz - used, "%s%s",
+                                     used ? ", " : "", crt_default_dirs[i]);
+            if (used >= diag_sz)
+                break;
+        }
     }
-    diag[0] = '\0';
-    for (i = 0; i < sizeof(crt_dirs) / sizeof(crt_dirs[0]); i++) {
-        snprintf(path, sizeof(path), "%s/crt1.o", crt_dirs[i]);
-        if (access(path, R_OK) == 0)
-            return crt_dirs[i];
-        used += (size_t)snprintf(diag + used, diag_sz - used, "%s%s",
-                                 used ? ", " : "", crt_dirs[i]);
-        if (used >= diag_sz)
-            break;
-    }
+    return dir;
+}
+
+/* The libcgf_rt.a slot (content is Sprint 28; this sprint reserves its
+ * place in the canonical sequence). Dev tree: build/<target>/ beside
+ * the compiler; installed: <prefix>/lib/cgfried/<target>/. Absent file
+ * = slot silently empty until Sprint 28 ships it. */
+static const char *locate_rt_archive(TargetSpec t)
+{
+    static char path[4096];
+    char suffix[256];
+
+    snprintf(suffix, sizeof(suffix), "/%s/libcgf_rt.a", cgf_target_name(t));
+    if (cgf_exe_relative(suffix, path, sizeof(path)) && access(path, R_OK) == 0)
+        return path;
+    snprintf(suffix, sizeof(suffix), "/../lib/cgfried/%s/libcgf_rt.a",
+             cgf_target_name(t));
+    if (cgf_exe_relative(suffix, path, sizeof(path)) && access(path, R_OK) == 0)
+        return path;
     return NULL;
 }
 
@@ -454,95 +513,101 @@ static const char *joined2(struct Arena *ar, const char *a, const char *b)
     return s;
 }
 
-/* Builds the full ld argv from a LinkRequest, in the Sprint 25 recipe
- * extended with the Sprint 26 stream: ld [-static] -o out [-L user...]
- * -L crtdir crt1 crti <inputs IN ORDER: objs / -lNAME / raw> -lc crtn
- * [-dynamic-linker ...]. -L is hoisted (GNU ld applies all -L to all -l
- * regardless of position); objects and libs are NOT — position is the
- * user's archive semantics. NULL-terminated; NULL return = resolution
- * failure already reported. */
-static const char **build_ld_argv(const LinkRequest *lr)
+/* Sprint 27, the canonical link line — verbatim from the sprint file:
+ *
+ *   ld -dynamic-linker <per-target> -o <out>
+ *      <crtdir>/crt1.o <crtdir>/crti.o
+ *      <user objects, -l libs, -Wl args IN COMMAND-LINE ORDER>
+ *      libcgf_rt.a -lc
+ *      <crtdir>/crtn.o
+ *
+ * -static drops -dynamic-linker and groups the tail
+ * (--start-group rt -lc --end-group: glibc's libc.a has internal
+ * cycles — the gcc-parity fix). Subtraction: -nostartfiles removes the
+ * crts, -nodefaultlibs removes rt/-lc, -nostdlib removes both;
+ * user -l flags ALWAYS survive. -L dirs hoist (GNU ld applies all -L
+ * to all -l regardless of position); objects/libs NEVER reorder.
+ * False = failure already reported on stderr (exit 2 at the driver). */
+bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
+                               struct Arena *ar, VecStr *out)
 {
-    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
-    char diag[256];
+    ToolchainConfig tc = cgf_toolchain_resolve(t);
     const char *crtdir = NULL;
-    const char **argv;
-    size_t cap, n = 0, i;
+    const char *dl = cgf_target_dynamic_linker(t);
+    const char *rt;
+    const char *outname = da->output ? da->output : "a.out";
+    bool want_crts = !da->nostdlib && !da->nostartfiles;
+    bool want_libs = !da->nostdlib && !da->nodefaultlibs;
+    size_t i;
 
     if (tc.use_afs_ld) {
-        fprintf(stderr, "cgfried: error: CGF_LD=1 (afs-ld) lands in "
-                        "Sprint 27; unset it or use CGF_LD_PATH\n");
-        return NULL;
+        fprintf(stderr, "cgfried: error: CGF_LD=1 (afs-ld) lands later "
+                        "in Sprint 27; unset it or use CGF_LD_PATH\n");
+        return false;
     }
-    if (!lr->nostdlib && !lr->nostartfiles) {
-        crtdir = cgf_probe_crt_dir(diag, sizeof(diag));
-        if (!crtdir) {
-            fprintf(stderr,
-                    "cgfried: error: cannot find crt1.o (probed: %s); "
-                    "set CGF_CRT_DIR\n",
-                    diag);
-            return NULL;
+    if (want_crts || want_libs) {
+        Buf searched;
+
+        buf_init(&searched);
+        crtdir = cgf_probe_crt_dir_in(
+            tc.crt_dir, da->prefix_dirs.data, da->prefix_dirs.len,
+            crt_default_dirs, CGF_ARRAY_LEN(crt_default_dirs), &searched);
+        if (!crtdir && want_crts) {
+            fprintf(stderr, "cgfried: error: cannot find crt1.o; searched:\n");
+            fwrite(searched.data, 1, searched.len, stderr);
+            fprintf(stderr, "set CGF_CRT_DIR or pass -B <dir>\n");
+            buf_free(&searched);
+            return false;
         }
-    } else if (!lr->nostdlib && !lr->nodefaultlibs) {
-        crtdir = cgf_probe_crt_dir(diag, sizeof(diag));
+        buf_free(&searched);
     }
-    cap = 16 + lr->n_inputs + lr->n_lib_dirs;
-    argv = arena_alloc(lr->arena, cap * sizeof(*argv), sizeof(void *));
-    argv[n++] = tc.ld_path;
-    if (lr->static_link)
-        argv[n++] = "-static";
-    argv[n++] = "-o";
-    argv[n++] = lr->out;
-    for (i = 0; i < lr->n_lib_dirs; i++)
-        argv[n++] = joined2(lr->arena, "-L", lr->lib_dirs[i]);
+
+    VecStr_push(out, tc.ld_path);
+    if (da->static_link)
+        VecStr_push(out, "-static");
+    else if (dl) {
+        VecStr_push(out, "-dynamic-linker");
+        VecStr_push(out, dl);
+    }
+    VecStr_push(out, "-o");
+    VecStr_push(out, outname);
+    for (i = 0; i < da->lib_dirs.len; i++)
+        VecStr_push(out, joined2(ar, "-L", da->lib_dirs.data[i]));
     if (crtdir)
-        argv[n++] = joined2(lr->arena, "-L", crtdir);
-    if (!lr->nostdlib && !lr->nostartfiles) {
-        argv[n++] = joined2(lr->arena, crtdir, "/crt1.o");
-        argv[n++] = joined2(lr->arena, crtdir, "/crti.o");
+        VecStr_push(out, joined2(ar, "-L", crtdir));
+    if (want_crts) {
+        VecStr_push(out, joined2(ar, crtdir, "/crt1.o"));
+        VecStr_push(out, joined2(ar, crtdir, "/crti.o"));
     }
-    for (i = 0; i < lr->n_inputs; i++) {
-        const struct LinkInput *li = &lr->inputs[i];
+    for (i = 0; i < da->link_inputs.len; i++) {
+        const LinkInput *li = &da->link_inputs.data[i];
 
         if (!li->val)
             continue; /* a TU that never produced its object */
         if (li->kind == LINK_LIB)
-            argv[n++] = joined2(lr->arena, "-l", li->val);
+            VecStr_push(out, joined2(ar, "-l", li->val));
         else
-            argv[n++] = li->val;
+            VecStr_push(out, li->val);
     }
-    if (!lr->nostdlib && !lr->nodefaultlibs)
-        argv[n++] = "-lc";
-    if (!lr->nostdlib && !lr->nostartfiles)
-        argv[n++] = joined2(lr->arena, crtdir, "/crtn.o");
-    if (!lr->static_link) {
-        argv[n++] = "-dynamic-linker";
-        argv[n++] = "/lib64/ld-linux-x86-64.so.2";
+    if (want_libs) {
+        rt = locate_rt_archive(t);
+        if (da->static_link)
+            VecStr_push(out, "--start-group");
+        if (rt)
+            VecStr_push(out, rt);
+        VecStr_push(out, "-lc");
+        if (da->static_link)
+            VecStr_push(out, "--end-group");
     }
-    argv[n] = NULL;
-    return argv;
+    if (want_crts)
+        VecStr_push(out, joined2(ar, crtdir, "/crtn.o"));
+    VecStr_push(out, NULL); /* argv terminator */
+    return true;
 }
 
-ToolResult cgf_run_linker2(const LinkRequest *lr)
+void cgf_toolchain_echo_argv(const char *const argv[])
 {
-    const char **argv = build_ld_argv(lr);
-    ToolResult res;
-
-    if (!argv) {
-        memset(&res, 0, sizeof(res));
-        res.kind = TOOL_SPAWN_FAILED;
-        res.spawn_errno = ENOENT;
-        return res;
-    }
-    return cgf_run_tool((const char *const *)argv);
-}
-
-void cgf_echo_ld_plan(const LinkRequest *lr)
-{
-    const char **argv = build_ld_argv(lr);
-
-    if (argv)
-        echo_argv_line((const char *const *)argv);
+    echo_argv_line(argv);
 }
 
 void cgf_echo_as_plan(const char *s_path, const char *o_path)

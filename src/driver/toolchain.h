@@ -4,9 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "util/base.h"
-
+#include "driver/args.h"
 #include "target.h"
+#include "util/base.h"
+#include "util/buf.h"
 
 struct Arena;
 
@@ -93,23 +94,21 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
  * to diag for the exit-2 link error. */
 const char *cgf_probe_crt_dir(char *diag, size_t diag_sz);
 
-/* Sprint 26: the full link request — objects, -l libs and raw args in
- * exact command-line order (the position-sensitive stream args.h
- * defines), -L dirs hoisted, and the subtraction flags. The recipe stays
- * Sprint 25's: dynamic non-PIE against system crt/libc; crtbegin/crtend
- * deliberately absent (plain C needs neither). */
-typedef struct {
-    struct Arena *arena; /* backs built argv strings */
-    const char *out;
-    const struct LinkInput *inputs; /* LinkInput[] from args.h */
-    size_t n_inputs;
-    const char *const *lib_dirs;
-    size_t n_lib_dirs;
-    bool static_link;
-    bool nostdlib, nostartfiles, nodefaultlibs;
-} LinkRequest;
+/* Sprint 27: the canonical link line, built straight from DriverArgs
+ * (position-preserving link_inputs, -L hoisted, -B feeding the crt
+ * probe, -static grouping, the subtraction flags). The out vec receives
+ * a NULL-terminated argv (VecStr from args.h); false = the failure
+ * diagnostic (every probed crt path named, one per line) already
+ * printed — exit 2 at the driver. */
+bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
+                               struct Arena *ar, VecStr *out);
 
-ToolResult cgf_run_linker2(const LinkRequest *lr);
+/* Injectable crt probe core (units point `table` at temp dirs): first
+ * dir whose crt1.o stats wins; every probed path appends to `searched`
+ * one per line. An explicit override that misses does NOT fall through. */
+const char *cgf_probe_crt_dir_in(const char *override, const char *const *bdirs,
+                                 size_t nb, const char *const *table,
+                                 size_t ntable, Buf *searched);
 
 /* -v/-### support: when echo is on, every subprocess argv prints
  * shell-quoted to stderr before running; the plan variants print WITHOUT
@@ -117,7 +116,7 @@ ToolResult cgf_run_linker2(const LinkRequest *lr);
 void cgf_toolchain_set_echo(bool verbose);
 const char *cgf_toolchain_argv0(void);
 void cgf_echo_as_plan(const char *s_path, const char *o_path);
-void cgf_echo_ld_plan(const LinkRequest *lr);
+void cgf_toolchain_echo_argv(const char *const argv[]);
 
 /* PATH resolution for -print-prog-name= (a name containing '/' probes
  * directly). False when not found; out untouched. */
