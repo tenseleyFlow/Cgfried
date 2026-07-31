@@ -62,5 +62,18 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
+# Sprint 22 golden invariant: ONE register allocator at every opt level.
+# The moment regalloc.c consults an opt level, a -O0-only (or -O2-only)
+# codepath exists and the spill-all lane stops proving anything.
+hits=$(grep -n 'opt_level\|OptLevel' src/cg/x86_64/regalloc.c |
+    grep -v 'CgOptLevel level' | grep -v '(void)level' |
+    grep -v 'check_bans allow' || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: regalloc.c conditioned on opt level (one allocator" >&2
+    echo "at every level is the Sprint 22 invariant):" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
 [ "$status" -eq 0 ] && echo "check_bans: clean"
 exit "$status"
