@@ -124,9 +124,21 @@ $(DIRS):
 # can assert the exact HARNESS_SKIP set. The toolchain profile is picked by
 # whether afs-as is built: with it, zero skips are tolerated; without it, the
 # skip must appear exactly (never silent either way).
+#
+# F-S25-RUSTFREE: compiler tests stay Rust-free (the Sprint 2 law). When
+# bundled afs-as is unbuilt, the lanes that assemble/link route to the
+# system assembler via CGF_AS=0 — loudly, never silently. Unskipping the
+# exec fixtures broke the CI test/test-san jobs (no Rust there) with
+# tool-not-found exit 3s until this fallback landed. The afs-as lane is still proven by the
+# objdiff toolchain profile and the CI toolchain job wherever the tool
+# exists. Recipe-expanded (=, not :=) so a same-invocation `make tools test`
+# sees the fresh binary.
+AS_LANE = $(shell test -x afs-as/target/release/afs-as || echo CGF_AS=0)
 test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
+	@if [ ! -x afs-as/target/release/afs-as ]; then \
+	    echo "test: afs-as unbuilt; exec lanes use system gas (CGF_AS=0)"; fi
 	$(BUILD)/unit_tests
-	CGF_TEST_CC=$(BUILD)/cgfried \
+	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
 	    > $(BUILD)/programs.log 2>&1; s=$$?; \
 	    cat $(BUILD)/programs.log; exit $$s
@@ -140,15 +152,15 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    else p=objdiff-gasonly; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/objdiff.log
 	sh scripts/check_as_fault.sh $(BUILD)/cgfried
-	CGF_TEST_CC=$(BUILD)/cgfried \
+	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
 	    > $(BUILD)/corpus.log 2>&1; s=$$?; \
 	    cat $(BUILD)/corpus.log; exit $$s
-	CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
+	$(AS_LANE) CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
 	    > $(BUILD)/corpus-spill.log 2>&1; s=$$?; \
 	    tail -1 $(BUILD)/corpus-spill.log; exit $$s
-	sh scripts/e2e_gcc_diff.sh $(BUILD)/cgfried
+	$(AS_LANE) sh scripts/e2e_gcc_diff.sh $(BUILD)/cgfried
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
