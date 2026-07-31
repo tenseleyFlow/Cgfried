@@ -138,26 +138,46 @@ typedef enum IrOp {
      * design — Sprint 50's Apple divergence rewrites the expansion, not
      * an instruction). va_end emits nothing; va_copy is a memcpy. */
     IR_VA_START,
+    /* VLA stack discipline (Sprint 20): `%tok = stacksave` captures the
+     * stack pointer; `stackrestore %tok` rewinds it. Lowering emits one
+     * save per VLA-bearing scope (lazily, at the first VLA) and restores
+     * the OUTERMOST live token on every scope-exit edge; `return` emits
+     * none (the epilogue's frame teardown subsumes it) and longjmp needs
+     * none (frames die wholesale, tokens with them). */
+    IR_STACKSAVE,
+    IR_STACKRESTORE,
+    /* seq_cst atomics (Sprint 20; v0.1.0 accepts every memory_order and
+     * honors it as seq_cst — stronger is conformant). atomicrmw's subop
+     * is IrAtomicRmw; cmpxchg returns the OLD memory value and SUCCESS
+     * is `icmp eq old, expected` — the classic single-result expansion,
+     * chosen over a two-result instruction the IR cannot express. */
+    IR_ATOMICRMW,
+    IR_CMPXCHG,
     /* terminators */
     IR_RET,
     IR_BR,
     IR_CONDBR,
     IR_SWITCH,
     IR_UNREACHABLE,
-    /* --- reserved: builder hard-errors naming the landing sprint.
-     * (Sprint 19 took va_start LIVE — see above — and decided the other
-     * three va ops never become instructions: va_arg expands at
-     * lowering, va_end is nothing, va_copy is a memcpy. Their slots stay
-     * reserved so the opcode space and this comment keep the story.) --- */
-    IR_STACKSAVE,    /* Sprint 20: VLA scope exit */
-    IR_STACKRESTORE, /* Sprint 20 */
-    IR_VA_ARG,       /* never an opcode; slot kept reserved */
-    IR_VA_END,       /* never an opcode; slot kept reserved */
-    IR_VA_COPY,      /* never an opcode; slot kept reserved */
-    IR_ATOMICRMW,    /* Sprint 20 */
-    IR_CMPXCHG,      /* Sprint 20 */
+    /* --- reserved: never instructions. va_arg expands at lowering,
+     * va_end is nothing, va_copy is a memcpy (Sprint 19); the slots stay
+     * so the opcode space and this comment keep the story. Sprint 20
+     * took the stack and atomic ops live above. --- */
+    IR_VA_ARG,
+    IR_VA_END,
+    IR_VA_COPY,
     IR_OP_COUNT
 } IrOp;
+
+/* atomicrmw's operation, in IrInst.subop. */
+typedef enum IrAtomicRmw {
+    RMW_ADD,
+    RMW_SUB,
+    RMW_AND,
+    RMW_OR,
+    RMW_XOR,
+    RMW_XCHG
+} IrAtomicRmw;
 
 typedef enum IrIcmp {
     ICMP_EQ,
@@ -313,6 +333,14 @@ typedef struct IrFunc {
     u8 ret;           /* IrType */
     u8 abi_ret;       /* IrAbiRet */
     bool variadic;    /* printed as ', ...' after the last parameter */
+    /* The blunt setjmp policy (Sprint 20): a function that CALLS
+     * setjmp/sigsetjmp/_setjmp compiles with every local memory-pinned
+     * (mem2reg skips the whole function) and every call as a full
+     * optimization barrier — Sprint 30's pass manager consults this one
+     * predicate. longjmp needs nothing: the danger lives entirely in the
+     * setjmp-calling frame, whose locals are already pinned. Printed as
+     * a `setjmp` marker after the parameter list. */
+    bool calls_setjmp;
     u8 *param_types;
     u32 nparams;
     ValueId *param_vals; /* function params are the entry block's defs */
@@ -422,6 +450,15 @@ void ir_build_switch(IrBuilder *b, IrOperand x, BlockId defblk,
 void ir_build_unreachable(IrBuilder *b);
 /* `va_start ptr` — see the IrOp comment for what codegen fills. */
 void ir_build_va_start(IrBuilder *b, IrOperand ap);
+ValueId ir_build_stacksave(IrBuilder *b);
+void ir_build_stackrestore(IrBuilder *b, IrOperand tok);
+/* seq_cst RMW: returns the OLD value; val/result type = t (int only). */
+ValueId ir_build_atomicrmw(IrBuilder *b, IrAtomicRmw op, IrType t,
+                           IrOperand ptr, IrOperand val);
+/* seq_cst compare-exchange: returns the OLD memory value; success is
+ * `icmp eq old, expected` at the call site. */
+ValueId ir_build_cmpxchg(IrBuilder *b, IrType t, IrOperand ptr,
+                         IrOperand expected, IrOperand desired);
 /* Every reserved opcode routes here and ICEs naming its sprint. */
 void ir_build_reserved(IrBuilder *b, IrOp op);
 
@@ -437,6 +474,7 @@ const char *ir_op_name(IrOp op);
 const char *ir_icmp_name(IrIcmp p);
 const char *ir_fcmp_name(IrFcmp p);
 const char *ir_abi_ret_name(u8 k);
+const char *ir_rmw_name(u8 k);
 IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
                           const char *path);
 
@@ -479,5 +517,25 @@ bool ir_dominates(const IrDomTree *t, BlockId a, BlockId b);
  * generated IR becomes an ICE (and CGF_DUMP_BAD_IR=path dumps the module
  * first). */
 bool ir_verify(DiagCtx *dc, const IrModule *m);
+/* Like ir_verify, and additionally writes a one-line summary of the
+ * FIRST failure ("check N in @func: ...") into `why` — the driver
+ * appends it to CGF_DUMP_BAD_IR dumps as a trailing comment. */
+bool ir_verify_report(DiagCtx *dc, const IrModule *m, char *why,
+                      size_t why_cap);
+
+/* --- the volatile law (Sprint 20) -----------------------------------------
+ * Each C-level volatile access is exactly one flagged load/store, and no
+ * pass may introduce, remove, merge, split, or reorder volatile ops
+ * relative to EACH OTHER. The count is the structural tripwire: Sprint
+ * 30's pass manager snapshots per-function counts before each pass and
+ * calls the check after — a mismatch under CGF_VERIFY_AFTER_EACH is an
+ * ICE naming the pass. */
+u32 ir_count_volatile_ops(const IrFunc *f);
+/* Snapshot every function's count into out[m->nfuncs]. */
+void ir_snapshot_volatile(const IrModule *m, u32 *out);
+/* True iff current counts match `before`; on false, *bad_func gets the
+ * first offending function index. */
+bool ir_volatile_counts_match(const IrModule *m, const u32 *before,
+                              u32 *bad_func);
 
 #endif

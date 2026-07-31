@@ -80,7 +80,7 @@ ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y)
     IrInst *in;
     IrOperand ops[2];
 
-    if (op >= IR_STACKSAVE) {
+    if (op >= IR_VA_ARG) {
         ir_build_reserved(b, op);
         return VALUE_INVALID;
     }
@@ -96,7 +96,7 @@ ValueId ir_build1(IrBuilder *b, IrOp op, IrType t, IrOperand x)
 {
     IrInst *in;
 
-    if (op >= IR_STACKSAVE) {
+    if (op >= IR_VA_ARG) {
         ir_build_reserved(b, op);
         return VALUE_INVALID;
     }
@@ -327,6 +327,59 @@ void ir_build_va_start(IrBuilder *b, IrOperand ap)
 
     in->ops = copy_ops(b->m, &ap, 1);
     in->nops = 1;
+}
+
+ValueId ir_build_stacksave(IrBuilder *b)
+{
+    IrInst *in = append(b, IR_STACKSAVE, IRT_PTR, true);
+
+    return in->result;
+}
+
+void ir_build_stackrestore(IrBuilder *b, IrOperand tok)
+{
+    IrInst *in = append(b, IR_STACKRESTORE, IRT_VOID, false);
+
+    in->ops = copy_ops(b->m, &tok, 1);
+    in->nops = 1;
+}
+
+ValueId ir_build_atomicrmw(IrBuilder *b, IrAtomicRmw op, IrType t,
+                           IrOperand ptr, IrOperand val)
+{
+    IrOperand ops[2];
+    IrInst *in;
+
+    if (t > IRT_I64)
+        CGF_ICE("atomicrmw on a non-integer type %d (belt and suspenders: "
+                "sema already rejected oversized/_Atomic-float RMW here)",
+                (int)t);
+    ops[0] = ptr;
+    ops[1] = val;
+    in = append(b, IR_ATOMICRMW, t, true);
+    in->subop = (u8)op;
+    in->flags = IRF_SEQ_CST;
+    in->ops = copy_ops(b->m, ops, 2);
+    in->nops = 2;
+    return in->result;
+}
+
+ValueId ir_build_cmpxchg(IrBuilder *b, IrType t, IrOperand ptr,
+                         IrOperand expected, IrOperand desired)
+{
+    IrOperand ops[3];
+    IrInst *in;
+
+    if (t > IRT_I64)
+        CGF_ICE("cmpxchg on a non-integer type %d", (int)t);
+    ops[0] = ptr;
+    ops[1] = expected;
+    ops[2] = desired;
+    in = append(b, IR_CMPXCHG, t, true);
+    in->flags = IRF_SEQ_CST;
+    in->ops = copy_ops(b->m, ops, 3);
+    in->nops = 3;
+    return in->result;
 }
 
 void ir_build_reserved(IrBuilder *b, IrOp op)

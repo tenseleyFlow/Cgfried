@@ -24,6 +24,8 @@
 
 typedef struct V {
     DiagCtx *dc;
+    char *why; /* first-failure summary sink, or NULL */
+    size_t why_cap;
     const IrModule *m;
     const IrFunc *f;
     const IrBlock *blk;
@@ -51,6 +53,9 @@ static void verr(V *v, int check, const char *fmt, ...)
                   v->f->name, msg);
     else
         diag_emit(v->dc, DIAG_ERROR, sp, "ir verify [%d]: %s", check, msg);
+    if (v->ok && v->why)
+        snprintf(v->why, v->why_cap, "check %d in @%s: %s", check,
+                 v->f ? v->f->name : "<module>", msg);
     v->ok = false;
 }
 
@@ -297,6 +302,62 @@ static void check_inst_types(V *v, const IrInst *in)
         else if (!v->f->variadic)
             verr(v, 4, "'va_start' in a non-variadic function");
         break;
+    case IR_STACKSAVE:
+        if (in->type != IRT_PTR || in->nops != 0)
+            verr(v, 4, "'stacksave' takes nothing and produces ptr");
+        break;
+    case IR_ATOMICRMW:
+        /* Check 13: atomic discipline. Integer types only (sizes are
+         * powers of two by construction); ptr + same-type value; the
+         * seq_cst flag is mandatory in v0.1.0. */
+        if (!type_is_int(in->type) || in->nops != 2 ||
+            in->ops[0].type != IRT_PTR || in->ops[1].type != in->type)
+            verr(v, 13, "'atomicrmw' is (ptr, T val) -> T with integer T");
+        else if (in->subop > RMW_XCHG)
+            verr(v, 13, "bad atomicrmw operation %u", in->subop);
+        else if (!(in->flags & IRF_SEQ_CST))
+            verr(v, 13, "'atomicrmw' must be seq_cst in v0.1.0");
+        break;
+    case IR_CMPXCHG:
+        if (!type_is_int(in->type) || in->nops != 3 ||
+            in->ops[0].type != IRT_PTR || in->ops[1].type != in->type ||
+            in->ops[2].type != in->type)
+            verr(v, 13,
+                 "'cmpxchg' is (ptr, T expected, T desired) -> T with "
+                 "integer T");
+        else if (!(in->flags & IRF_SEQ_CST))
+            verr(v, 13, "'cmpxchg' must be seq_cst in v0.1.0");
+        break;
+    case IR_STACKRESTORE: {
+        /* Check 12: the token must be a VALUE produced by a stacksave
+         * (dominance is check 1's job; the OPCODE of the def is ours). */
+        const IrOperand *tok = &in->ops[0];
+
+        if (in->nops != 1 || tok->type != IRT_PTR) {
+            verr(v, 12, "'stackrestore' takes one ptr token");
+            break;
+        }
+        if (tok->kind == IROP_VALUE) {
+            u32 id = (u32)tok->a;
+
+            if (id >= 1 && id <= v->f->nvals &&
+                v->f->vals[id - 1].def_kind == VDEF_INST) {
+                const IrValInfo *vi = &v->f->vals[id - 1];
+                const IrBlock *db = ir_block((IrFunc *)v->f, vi->def_block);
+                const IrInst *di = db ? db->first : NULL;
+                u32 pos = 0;
+
+                while (di && pos < vi->def_pos) {
+                    di = di->next;
+                    pos++;
+                }
+                if (di && di->result.v == id && di->op == IR_STACKSAVE)
+                    break; /* good token */
+            }
+        }
+        verr(v, 12, "'stackrestore' token is not a stacksave result");
+        break;
+    }
     case IR_RET:
         if (v->f->ret == IRT_VOID) {
             if (in->nops != 0)
@@ -335,8 +396,11 @@ static void check_inst_misc(V *v, const IrInst *in)
                  ir_op_name((IrOp)in->op));
     }
     if (in->flags & IRF_SEQ_CST) {
-        if (in->op != IR_LOAD && in->op != IR_STORE)
-            verr(v, 7, "'seq_cst' on '%s'; only load/store can be atomic",
+        if (in->op != IR_LOAD && in->op != IR_STORE && in->op != IR_ATOMICRMW &&
+            in->op != IR_CMPXCHG)
+            verr(v, 7,
+                 "'seq_cst' on '%s'; only load/store and the atomic ops "
+                 "carry an ordering",
                  ir_op_name((IrOp)in->op));
     }
     if (in->flags & (u8) ~(IRF_VOLATILE | IRF_SEQ_CST))
@@ -498,7 +562,7 @@ static void verify_func(V *v, const IrFunc *f)
 
         for (in = blk->first, pos = 0; in; in = in->next, pos++) {
             /* 10: reserved opcodes absent. */
-            if (in->op >= IR_STACKSAVE) {
+            if (in->op >= IR_VA_ARG) {
                 verr(v, 10,
                      "reserved opcode %u present; its sprint has "
                      "not landed",
@@ -556,7 +620,81 @@ static void verify_func(V *v, const IrFunc *f)
     v->f = NULL;
 }
 
+/* Check 11: calls_setjmp is set IFF a setjmp-family call exists. The
+ * name set matches lowering's recognizer. */
+static bool is_setjmp_name(const char *n)
+{
+    return n && (strcmp(n, "setjmp") == 0 || strcmp(n, "sigsetjmp") == 0 ||
+                 strcmp(n, "_setjmp") == 0);
+}
+
+static void check_setjmp_flag(V *v, const IrFunc *f)
+{
+    bool found = false;
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks && !found; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in && !found; in = in->next)
+            if (in->op == IR_CALL && in->subop == FUNCREF_EXTERNAL &&
+                in->callee < v->m->nsyms &&
+                is_setjmp_name(v->m->syms[in->callee]))
+                found = true;
+    }
+    if (found != f->calls_setjmp) {
+        v->f = (const IrFunc *)f;
+        v->blk_name = NULL;
+        verr(v, 11,
+             found ? "function calls setjmp but is not marked 'setjmp'"
+                   : "function is marked 'setjmp' but never calls it");
+        v->f = NULL;
+    }
+}
+
+u32 ir_count_volatile_ops(const IrFunc *f)
+{
+    u32 n = 0;
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next)
+            if (in->flags & IRF_VOLATILE)
+                n++;
+    }
+    return n;
+}
+
+void ir_snapshot_volatile(const IrModule *m, u32 *out)
+{
+    u32 i;
+
+    for (i = 0; i < m->nfuncs; i++)
+        out[i] = ir_count_volatile_ops(&m->funcs[i]);
+}
+
+bool ir_volatile_counts_match(const IrModule *m, const u32 *before,
+                              u32 *bad_func)
+{
+    u32 i;
+
+    for (i = 0; i < m->nfuncs; i++)
+        if (ir_count_volatile_ops(&m->funcs[i]) != before[i]) {
+            if (bad_func)
+                *bad_func = i;
+            return false;
+        }
+    return true;
+}
+
 bool ir_verify(DiagCtx *dc, const IrModule *m)
+{
+    return ir_verify_report(dc, m, NULL, 0);
+}
+
+bool ir_verify_report(DiagCtx *dc, const IrModule *m, char *why, size_t why_cap)
 {
     V v;
     u32 i;
@@ -565,6 +703,10 @@ bool ir_verify(DiagCtx *dc, const IrModule *m)
     v.dc = dc;
     v.m = m;
     v.ok = true;
+    v.why = why;
+    v.why_cap = why_cap;
+    if (why && why_cap)
+        why[0] = '\0';
 
     /* Module-level ranges (check 9) and global alignments (check 8). */
     for (i = 0; i < m->nglobals; i++) {
@@ -590,7 +732,9 @@ bool ir_verify(DiagCtx *dc, const IrModule *m)
                      (unsigned long long)g->size);
         }
     }
-    for (i = 0; i < m->nfuncs; i++)
+    for (i = 0; i < m->nfuncs; i++) {
         verify_func(&v, &m->funcs[i]);
+        check_setjmp_flag(&v, &m->funcs[i]);
+    }
     return v.ok;
 }

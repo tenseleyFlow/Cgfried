@@ -497,6 +497,15 @@ static bool parse_atom(P *p, IrType expected, IrOperand *slot)
                 }
                 lo = t2->ival;
             }
+            /* Bits must FIT the format: an f32 with 33+ bits would be
+             * silently masked by the printer and break the round-trip
+             * fixpoint (found by ir_fuzz iteration 13208). */
+            if ((expected == IRT_F32 && lo > 0xFFFFFFFFull) ||
+                (expected == IRT_F80 && hi > 0xFFFFull)) {
+                perr(p, t, "float constant bits exceed the %s format",
+                     ir_type_name(expected));
+                return false;
+            }
             *slot = ir_op_fconst(expected, lo, hi);
         } else {
             *slot = ir_op_iconst(expected, (i64)t->ival);
@@ -747,6 +756,7 @@ static bool parse_inst(P *p)
     case IR_MEMCPY:
     case IR_MEMSET:
     case IR_VA_START:
+    case IR_STACKRESTORE:
     case IR_RET:
     case IR_BR:
     case IR_CONDBR:
@@ -1020,6 +1030,62 @@ static bool parse_inst(P *p)
         in->ops = ops_alloc(p, 1);
         in->nops = 1;
         return parse_atom(p, IRT_PTR, &in->ops[0]);
+    case IR_STACKSAVE:
+        (void)inst_append(p, IR_STACKSAVE, IRT_PTR, res);
+        return true;
+    case IR_STACKRESTORE:
+        in = inst_append(p, IR_STACKRESTORE, IRT_VOID, NULL);
+        in->ops = ops_alloc(p, 1);
+        in->nops = 1;
+        return parse_atom(p, IRT_PTR, &in->ops[0]);
+    case IR_ATOMICRMW: {
+        Tok *kt = expect(p, T_IDENT, "an atomicrmw operation");
+        int rk = -1;
+        int i2;
+
+        if (!kt)
+            return false;
+        for (i2 = 0; i2 <= RMW_XCHG; i2++)
+            if (tok_is(kt, ir_rmw_name((u8)i2)))
+                rk = i2;
+        if (rk < 0) {
+            perr(p, kt, "unknown atomicrmw operation '%.*s'", (int)kt->len,
+                 kt->s);
+            return false;
+        }
+        if (!parse_type(p, &ty, "the value type"))
+            return false;
+        in = inst_append(p, IR_ATOMICRMW, ty, res);
+        in->subop = (u8)rk;
+        in->ops = ops_alloc(p, 2);
+        in->nops = 2;
+        if (!parse_atom(p, IRT_PTR, &in->ops[0]))
+            return false;
+        if (!expect(p, T_COMMA, "','"))
+            return false;
+        if (!parse_atom(p, ty, &in->ops[1]))
+            return false;
+        in->flags = parse_memflags(p);
+        return true;
+    }
+    case IR_CMPXCHG:
+        if (!parse_type(p, &ty, "the value type"))
+            return false;
+        in = inst_append(p, IR_CMPXCHG, ty, res);
+        in->ops = ops_alloc(p, 3);
+        in->nops = 3;
+        if (!parse_atom(p, IRT_PTR, &in->ops[0]))
+            return false;
+        if (!expect(p, T_COMMA, "','"))
+            return false;
+        if (!parse_atom(p, ty, &in->ops[1]))
+            return false;
+        if (!expect(p, T_COMMA, "','"))
+            return false;
+        if (!parse_atom(p, ty, &in->ops[2]))
+            return false;
+        in->flags = parse_memflags(p);
+        return true;
     case IR_RET:
         in = inst_append(p, IR_RET, IRT_VOID, NULL);
         if (peek(p)->kind == T_IDENT && lookup_type(peek(p)) >= 0) {
@@ -1198,6 +1264,7 @@ static bool parse_func(P *p)
     Tok *pnames[64];
     u32 nparams = 0;
     bool variadic = false;
+    bool setjmp_marker = false;
     u8 abi_ret = IR_ABIRET_NONE;
     IrFunc *f;
     u32 i;
@@ -1268,11 +1335,16 @@ static bool parse_func(P *p)
         if (!expect(p, T_RP, "')'"))
             return false;
     }
+    if (tok_is(peek(p), "setjmp")) {
+        next(p);
+        setjmp_marker = true;
+    }
     if (!expect(p, T_LB, "'{'"))
         return false;
     f = ir_func_new(p->m, tok_name(p, nm), ret, ptypes, nparams);
     f->variadic = variadic;
     f->abi_ret = abi_ret;
+    f->calls_setjmp = setjmp_marker;
     p->f = f;
     strmap_init(&p->vals);
     strmap_init(&p->blocks);

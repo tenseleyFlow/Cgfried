@@ -27,14 +27,26 @@ static const char *const type_names[] = {
 };
 
 static const char *const op_names[] = {
-    "iadd",   "isub",        "imul",   "sdiv",     "udiv",   "srem",   "urem",
-    "and",    "or",          "xor",    "shl",      "lshr",   "ashr",   "icmp",
-    "fcmp",   "fadd",        "fsub",   "fmul",     "fdiv",   "fneg",   "sext",
-    "zext",   "trunc",       "fpext",  "fptrunc",  "fptosi", "fptoui", "sitofp",
-    "uitofp", "bitcast",     "alloca", "load",     "store",  "ptradd", "memcpy",
-    "memset", "call",        "select", "va_start", "ret",    "br",     "condbr",
-    "switch", "unreachable",
+    "iadd",    "isub",   "imul",     "sdiv",      "udiv",         "srem",
+    "urem",    "and",    "or",       "xor",       "shl",          "lshr",
+    "ashr",    "icmp",   "fcmp",     "fadd",      "fsub",         "fmul",
+    "fdiv",    "fneg",   "sext",     "zext",      "trunc",        "fpext",
+    "fptrunc", "fptosi", "fptoui",   "sitofp",    "uitofp",       "bitcast",
+    "alloca",  "load",   "store",    "ptradd",    "memcpy",       "memset",
+    "call",    "select", "va_start", "stacksave", "stackrestore", "atomicrmw",
+    "cmpxchg", "ret",    "br",       "condbr",    "switch",       "unreachable",
 };
+
+static const char *const rmw_names[] = {
+    "add", "sub", "and", "or", "xor", "xchg",
+};
+
+const char *ir_rmw_name(u8 k)
+{
+    if (k > RMW_XCHG)
+        CGF_ICE("ir printer: bad rmw op %u", k);
+    return rmw_names[k];
+}
 
 /* IrAbiRet spellings for the func-header `abi(...)` marker and the pair
  * call-arg annotations; index = enum value. */
@@ -369,6 +381,30 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         buf_printf(out, "va_start ");
         print_atom(out, m, vn, &in->ops[0]);
         break;
+    case IR_STACKSAVE:
+        buf_printf(out, "stacksave");
+        break;
+    case IR_STACKRESTORE:
+        buf_printf(out, "stackrestore ");
+        print_atom(out, m, vn, &in->ops[0]);
+        break;
+    case IR_ATOMICRMW:
+        buf_printf(out, "atomicrmw %s %s ", rmw_names[in->subop],
+                   type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        print_memflags(out, in->flags);
+        break;
+    case IR_CMPXCHG:
+        buf_printf(out, "cmpxchg %s ", type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[1]);
+        buf_printf(out, ", ");
+        print_atom(out, m, vn, &in->ops[2]);
+        print_memflags(out, in->flags);
+        break;
     case IR_RET:
         buf_printf(out, "ret");
         if (in->nops) {
@@ -427,6 +463,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
     buf_printf(out, ")");
     if (f->abi_ret != IR_ABIRET_NONE)
         buf_printf(out, " abi(%s)", ir_abi_ret_name(f->abi_ret));
+    if (f->calls_setjmp)
+        buf_printf(out, " setjmp");
     buf_printf(out, " {\n");
     for (i = 0; i < f->nblocks; i++) {
         const IrBlock *blk = &f->blocks[i];
