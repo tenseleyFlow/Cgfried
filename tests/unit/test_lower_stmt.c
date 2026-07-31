@@ -275,24 +275,71 @@ void test_lower_dead_code_deleted(TestCtx *t)
     st_free(&f);
 }
 
-void test_lower_local_init_zero_fill_then_stores(TestCtx *t)
+void test_lower_local_init_copy_then_store(TestCtx *t)
 {
     StFix f;
 
-    /* An aggregate init list zero-fills FIRST (padding and unmentioned
-     * elements deterministic), then stores in source order. */
+    /* Sprint 19 thresholds: a 16-byte list with one runtime element gets
+     * inline CONSTANT stores first (runtime slot zeroed), then the
+     * runtime store AFTER — copy-then-store, never store-then-copy. */
     T_ASSERT(t, run_lower_s(&f, "int f(int v) {\n"
                                 "  int a[4] = {1, v};\n"
                                 "  return a[3];\n"
                                 "}\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
     {
-        const char *ms = strstr(stxt(&f), "memset %");
-        const char *s1 = strstr(stxt(&f), "store i32 1,");
+        const char *c1 = strstr(stxt(&f), "store i64 1,");
+        const char *rt = c1 ? strstr(c1, "store i32 %") : NULL;
 
-        T_ASSERT(t, ms != NULL && s1 != NULL);
-        T_ASSERT(t, ms < s1); /* zero-fill BEFORE the element stores */
+        /* the runtime store follows the constant part (searching FROM
+         * the constant store skips the entry-block parameter spill) */
+        T_ASSERT(t, c1 != NULL && rt != NULL);
     }
+    /* No memset, no template: 16 bytes is under the store threshold. */
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "memset"), 0);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "memcpy"), 0);
+    st_free(&f);
+}
+
+void test_lower_init_thresholds(TestCtx *t)
+{
+    StFix f;
+
+    /* DoD 5: {0} on a big array is EXACTLY one memset; a 48-byte
+     * constant list is a deduped .rodata template memcpy; a long zero
+     * tail splits into head stores + one tail memset. */
+    T_ASSERT(t, run_lower_s(&f, "int a(void) { int c[100] = {0};"
+                                " return c[9]; }\n"
+                                "int b(void) { int t[12] ="
+                                " {1,2,3,4,5,6,7,8,9,10,11,12};"
+                                " return t[0]; }\n"
+                                "int c(void) { int t[16] = {1,2};"
+                                " return t[0]; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "memset %0, 0, 400") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "global @.Lconst.0 size 48") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "memcpy %0, @.Lconst.0, 48") != NULL);
+    /* the zero-tail split: the run swallows 2's high bytes (59 = 64-5) */
+    T_ASSERT(t, strstr(stxt(&f), ", 0, 59") != NULL);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "memset"), 2);
+    st_free(&f);
+}
+
+void test_lower_string_pool_dedup(TestCtx *t)
+{
+    StFix f;
+
+    /* Content-keyed dedup: two occurrences of "hi" share ONE symbol;
+     * a different literal gets the next slot, in first-occurrence order. */
+    T_ASSERT(t, run_lower_s(&f, "const char *a(void) { return \"hi\"; }\n"
+                                "const char *b(void) { return \"hi\"; }\n"
+                                "const char *c(void) { return \"ho\"; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "global @.Lstr."), 2);
+    T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.0 size 3 align 1 internal "
+                                 "init x686900") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.1 size 3 align 1 internal "
+                                 "init x686f00") != NULL);
     st_free(&f);
 }
 
@@ -307,10 +354,12 @@ void test_lower_designators_and_union_init(TestCtx *t)
                                 "  return p.z + a[5];\n"
                                 "}\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
-    /* .z lands at offset 8; [4] at 16 and the follower 9 at 20. */
+    /* .z (runtime v) stores at offset 8 after the constant stores; the
+     * follower 9 after [4]=v sits at byte 20 INSIDE the constant image
+     * (chunk stores cover it). Both runtime stores land last. */
     T_ASSERT(t, strstr(stxt(&f), "ptradd %") != NULL);
     T_ASSERT(t, strstr(stxt(&f), ", 8") != NULL);
-    T_ASSERT(t, strstr(stxt(&f), ", 20") != NULL);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "memset"), 0);
     st_free(&f);
 }
 
@@ -323,9 +372,12 @@ void test_lower_string_init_memcpy(TestCtx *t)
                                 "  return buf[0];\n"
                                 "}\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
-    T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.0 size 3") != NULL);
-    T_ASSERT(t, strstr(stxt(&f), "memcpy %") != NULL);
-    T_ASSERT(t, strstr(stxt(&f), "memset %") != NULL);
+    /* Sprint 19: an 8-byte char array from a literal is ONE i64 store of
+     * the bytes ("hello\0\0\0" little-endian) — no .rodata object, no
+     * memcpy, no memset. */
+    T_ASSERT(t, strstr(stxt(&f), "store i64 26984,") != NULL);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "memcpy"), 0);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), ".Lstr."), 0);
     st_free(&f);
 }
 

@@ -281,9 +281,11 @@ void test_lower_call_site_copy(TestCtx *t)
                               "int use(struct S s);\n"
                               "int f(void) { return use(g); }\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
+    /* 16 bytes, two INTEGER eightbytes: ONE staging copy, then the value
+     * travels as two bit-carrying i64 scalars (Sprint 19). */
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "alloca"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "memcpy"), 1);
-    T_ASSERT(t, strstr(txt(&f), "call i32 @use(ptr %") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @use(i64 %") != NULL);
     low_free(&f);
 }
 

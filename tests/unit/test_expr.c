@@ -326,6 +326,17 @@ static void expr_bad(TestCtx *t, const char *src)
     efix_free(&f);
 }
 
+static void expr_ok(TestCtx *t, const char *src)
+{
+    ExprFix f;
+
+    (void)parse_src_e(&f, src, STD_C17);
+    if (f.errors != 0)
+        t_fail(t, __FILE__, __LINE__, "%s: should be accepted", src);
+    t->assertions++;
+    efix_free(&f);
+}
+
 void test_expr_deferrals_and_errors(TestCtx *t)
 {
     /* Deferred GNU forms must hard-error naming their sprint — never
@@ -356,9 +367,13 @@ void test_expr_deferrals_and_errors(TestCtx *t)
  * the two paths are genuinely separate code. */
 void test_expr_builtins_defer(TestCtx *t)
 {
-    expr_bad(t, "typedef __builtin_va_list va_list;\n");
+    /* __builtin_va_list went LIVE in Sprint 19 (the varargs sprint
+     * pulled it forward from the Sprint 28 builtin family); the rest of
+     * the builtins still defer. */
+    expr_ok(t, "typedef __builtin_va_list va_list;\n");
+    expr_ok(t, "void f(void){ __builtin_va_list ap; (void)ap; }\n");
     expr_bad(t, "int f(void){ return __builtin_expect(1, 1); }\n");
-    expr_bad(t, "void f(void){ __builtin_va_list ap; (void)ap; }\n");
+    expr_bad(t, "int f(void){ return __builtin_clz(8); }\n");
 }
 
 void test_stmt_control_flow_constraints(TestCtx *t)

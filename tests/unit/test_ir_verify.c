@@ -491,7 +491,7 @@ void test_ir_verify_check10_reserved(TestCtx *t)
     fn = scaffold(&f, &m, &b);
     ir_build2(&b, IR_IADD, IRT_I32, ir_op_iconst(IRT_I32, 1),
               ir_op_iconst(IRT_I32, 2));
-    fn->blocks[0].first->op = IR_VA_START;
+    fn->blocks[0].first->op = IR_ATOMICRMW;
     fn->blocks[0].first->nops = 0;
     ir_build_ret(&b, NULL);
     T_ASSERT(t, !ir_verify(f.dc, m));

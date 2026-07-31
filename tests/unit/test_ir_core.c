@@ -222,7 +222,7 @@ void test_ir_reserved_ops_named(TestCtx *t)
     /* The reserved band exists and sits after the terminators, so both
      * the builder trap and verifier check 10 key off IR_STACKSAVE. */
     T_ASSERT(t, IR_STACKSAVE > IR_UNREACHABLE);
-    T_ASSERT_EQ_INT(t, IR_OP_COUNT - IR_STACKSAVE, 8);
+    T_ASSERT_EQ_INT(t, IR_OP_COUNT - IR_STACKSAVE, 7);
 }
 
 /* --- printer/parser round-trip ------------------------------------------- */
