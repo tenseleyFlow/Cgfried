@@ -114,3 +114,11 @@ jobs:
           cat objdiff.log
           [ $s -eq 0 ]
           sh ci/check_skips.sh objdiff objdiff.log
+      - name: "afs-ld static lane (Sprint 27: CGF_LD=1 corpus + structure)"
+        run: |
+          make -j"$(nproc)" build/cgfried build/cgf-test
+          if sh scripts/afsld_lane.sh build/cgfried \
+              > afsld.log 2>&1; then s=0; else s=1; fi
+          cat afsld.log
+          [ $s -eq 0 ]
+          sh ci/check_skips.sh afsld afsld.log
