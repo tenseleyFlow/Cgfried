@@ -375,6 +375,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
             print_call_arg(out, m, vn, &in->ops[i]);
         }
         buf_printf(out, ")");
+        if (in->flags & IRF_CALL_VARIADIC)
+            buf_printf(out, " va");
         break;
     }
     case IR_VA_START:
@@ -456,6 +458,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         if (i)
             buf_printf(out, ", ");
         buf_printf(out, "%s ", type_names[f->param_types[i]]);
+        if (f->param_annots && ir_arg_kind(f->param_annots[i]) == IR_ARG_BYVAL)
+            buf_printf(out, "byval(%u) ", ir_arg_size(f->param_annots[i]));
         print_val(out, &vn, f->param_vals[i].v);
     }
     if (f->variadic)

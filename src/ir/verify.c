@@ -403,7 +403,12 @@ static void check_inst_misc(V *v, const IrInst *in)
                  "carry an ordering",
                  ir_op_name((IrOp)in->op));
     }
-    if (in->flags & (u8) ~(IRF_VOLATILE | IRF_SEQ_CST))
+    if (in->flags & IRF_CALL_VARIADIC) {
+        if (in->op != IR_CALL)
+            verr(v, 7, "'va' on '%s'; only calls carry the AL protocol",
+                 ir_op_name((IrOp)in->op));
+    }
+    if (in->flags & (u8) ~(IRF_VOLATILE | IRF_SEQ_CST | IRF_CALL_VARIADIC))
         verr(v, 7, "unknown flag bits 0x%x", in->flags);
 
     /* 8: alignment discipline. */

@@ -415,6 +415,8 @@ static void lower_function(Lower *lo, AstNode *def)
     Symbol *sym = scope_lookup(lo->sema->file_scope, def->name, NS_ORDINARY);
     Type *ft;
     IrType ptypes[130];
+    u64 pannots[130];
+    bool any_annot = false;
     AbiArg plans[64];
     u32 nplans = 0;
     u32 nir_params = 0;
@@ -437,6 +439,7 @@ static void lower_function(Lower *lo, AstNode *def)
      * then each parameter expands per its classification. */
     abi_classify_ret(lo, ft->base, &aret);
     hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
+    memset(pannots, 0, sizeof(pannots));
     if (hidden)
         ptypes[nir_params++] = IRT_PTR;
     lo->named_gp = 0;
@@ -465,6 +468,12 @@ static void lower_function(Lower *lo, AstNode *def)
             break;
         }
         default: /* BYVAL */
+            /* The annotation lands on IrFunc.param_annots after
+             * ir_func_new — a bare ptr param would look like a pointer
+             * in the GP queue to codegen, but this one is the ADDRESS
+             * OF THE INCOMING STACK COPY (Sprint 23). */
+            pannots[nir_params] = ir_arg_annot(IR_ARG_BYVAL, a->size);
+            any_annot = true;
             ptypes[nir_params++] = IRT_PTR;
             break;
         }
@@ -478,6 +487,11 @@ static void lower_function(Lower *lo, AstNode *def)
                     ptypes, nir_params);
     lo->fn->variadic = ft->variadic;
     lo->fn->abi_ret = aret.ir_abi;
+    if (any_annot) {
+        lo->fn->param_annots =
+            arena_alloc(lo->m->arena, nir_params * sizeof(u64), _Alignof(u64));
+        memcpy(lo->fn->param_annots, pannots, nir_params * sizeof(u64));
+    }
     strmap_init(&lo->locals);
     strmap_init(&lo->labels);
     lo->loops = NULL;

@@ -234,6 +234,17 @@ ValueId ir_build_call(IrBuilder *b, IrType ret, IrFuncRefKind kind, u32 callee,
     return in->result;
 }
 
+/* Mark the just-built call as targeting a VARIADIC C type (Sprint 23:
+ * the AL protocol). Must follow an ir_build_call* on the same block. */
+void ir_call_mark_variadic(IrBuilder *b)
+{
+    IrBlock *blk = &b->f->blocks[b->block.v - 1];
+
+    if (!blk->last || blk->last->op != IR_CALL)
+        CGF_ICE("ir_call_mark_variadic: last instruction is not a call");
+    blk->last->flags |= IRF_CALL_VARIADIC;
+}
+
 ValueId ir_build_call_indirect(IrBuilder *b, IrType ret, IrOperand fp,
                                const IrOperand *args, u32 nargs)
 {

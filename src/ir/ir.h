@@ -241,6 +241,11 @@ typedef struct IrEdge {
 /* Memory-op flags. */
 #define IRF_VOLATILE 0x1u
 #define IRF_SEQ_CST 0x2u /* the only atomic ordering in v0.1.0 */
+/* IR_CALL: the callee's C type is variadic. Codegen owes such a call the
+ * AL protocol (mov $n_xmm_args, %eax before the call) — a fact only the
+ * front end knows, so the call instruction carries it. Printed ` va`
+ * after the argument list (Sprint 23). */
+#define IRF_CALL_VARIADIC 0x4u
 
 /* Callee encoding for IR_CALL (the sister project's shape). */
 typedef enum IrFuncRefKind {
@@ -342,6 +347,14 @@ typedef struct IrFunc {
      * a `setjmp` marker after the parameter list. */
     bool calls_setjmp;
     u8 *param_types;
+    /* Per-parameter ABI annotation, same encoding as IrOperand.b call
+     * annotations (Sprint 23). Today only IR_ARG_BYVAL appears: a
+     * MEMORY-class aggregate param whose IR ptr is the ADDRESS OF THE
+     * INCOMING STACK COPY, consuming stack bytes and no register — a
+     * bare ptr param would be indistinguishable from a pointer in the
+     * GP queue. NULL = no annotations. Printed `byval(N)` after the
+     * parameter type. */
+    u64 *param_annots;
     u32 nparams;
     ValueId *param_vals; /* function params are the entry block's defs */
     IrBlock *blocks;     /* block N has BlockId N+1 */
@@ -435,6 +448,7 @@ void ir_build_memcpy(IrBuilder *b, IrOperand dst, IrOperand src, IrOperand size,
 void ir_build_memset(IrBuilder *b, IrOperand dst, IrOperand byte,
                      IrOperand size, u32 align, u8 flags);
 ValueId ir_build_select(IrBuilder *b, IrOperand c, IrOperand x, IrOperand y);
+void ir_call_mark_variadic(IrBuilder *b);
 ValueId ir_build_call(IrBuilder *b, IrType ret, IrFuncRefKind kind, u32 callee,
                       const IrOperand *args, u32 nargs);
 ValueId ir_build_call_indirect(IrBuilder *b, IrType ret, IrOperand fp,

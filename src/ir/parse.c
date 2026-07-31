@@ -1023,7 +1023,13 @@ static bool parse_inst(P *p)
             if (!parse_call_arg(p, &in->ops[i + (indirect ? 1u : 0u)]))
                 return false;
         }
-        return expect(p, T_RP, "')'") != NULL;
+        if (!expect(p, T_RP, "')'"))
+            return false;
+        if (tok_is(peek(p), "va")) {
+            next(p);
+            in->flags |= IRF_CALL_VARIADIC;
+        }
+        return true;
     }
     case IR_VA_START:
         in = inst_append(p, IR_VA_START, IRT_VOID, NULL);
@@ -1262,6 +1268,8 @@ static bool parse_func(P *p)
     Tok *nm;
     IrType ptypes[64];
     Tok *pnames[64];
+    u64 pannots[64];
+    bool any_annot = false;
     u32 nparams = 0;
     bool variadic = false;
     bool setjmp_marker = false;
@@ -1290,6 +1298,21 @@ static bool parse_func(P *p)
             }
             if (!parse_type(p, &ty, "a parameter type"))
                 return false;
+            pannots[nparams] = 0;
+            if (tok_is(peek(p), "byval")) {
+                Tok *sz;
+
+                next(p);
+                if (!expect(p, T_LP, "'(' after 'byval'"))
+                    return false;
+                sz = expect(p, T_INT, "the byval size");
+                if (!sz)
+                    return false;
+                if (!expect(p, T_RP, "')'"))
+                    return false;
+                pannots[nparams] = ir_arg_annot(IR_ARG_BYVAL, (u32)sz->ival);
+                any_annot = true;
+            }
             pn = expect(p, T_PIDENT, "a parameter name");
             if (!pn)
                 return false;
@@ -1345,6 +1368,11 @@ static bool parse_func(P *p)
     f->variadic = variadic;
     f->abi_ret = abi_ret;
     f->calls_setjmp = setjmp_marker;
+    if (any_annot) {
+        f->param_annots =
+            arena_alloc(p->m->arena, nparams * sizeof(u64), _Alignof(u64));
+        memcpy(f->param_annots, pannots, nparams * sizeof(u64));
+    }
     p->f = f;
     strmap_init(&p->vals);
     strmap_init(&p->blocks);

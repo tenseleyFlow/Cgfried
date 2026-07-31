@@ -471,9 +471,13 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->nvals != y->nvals || x->variadic != y->variadic ||
             x->abi_ret != y->abi_ret || x->calls_setjmp != y->calls_setjmp)
             return false;
-        for (j = 0; j < x->nparams; j++)
-            if (x->param_types[j] != y->param_types[j])
+        for (j = 0; j < x->nparams; j++) {
+            u64 xa = x->param_annots ? x->param_annots[j] : 0;
+            u64 ya = y->param_annots ? y->param_annots[j] : 0;
+
+            if (x->param_types[j] != y->param_types[j] || xa != ya)
                 return false;
+        }
         for (j = 0; j < x->nblocks; j++) {
             const IrBlock *p = &x->blocks[j];
             const IrBlock *q = &y->blocks[j];

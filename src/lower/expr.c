@@ -1246,6 +1246,10 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         } else {
             rv = ir_build_call_indirect(&lo->b, irret, fp, args, nargs);
         }
+        /* AL protocol (Sprint 23): only the front end knows the callee's
+         * C type is variadic; the call instruction carries the fact. */
+        if (fty && fty->variadic)
+            ir_call_mark_variadic(&lo->b);
     }
 
     if (hidden)
