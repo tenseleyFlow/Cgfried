@@ -6,6 +6,7 @@
 
 #include "cg/cg.h"
 #include "diag.h"
+#include "driver/deps.h"
 #include "driver/toolchain.h"
 #include "ir/ir.h"
 #include "lex/lex.h"
@@ -126,9 +127,11 @@ VEC_DECL(PpTokVecD, PpToken);
 typedef struct {
     const char *path; /* source path, or "-" for stdin */
     InputKind kind;
-    const char *out; /* product path (.s/.o) — NULL for stdout modes */
-    Buf *pp_text;    /* non-NULL: -E token text lands here */
-    bool pp_only;    /* preprocess only (mode -E or a .S first stage) */
+    const char *out;        /* product path (.s/.o) — NULL for stdout modes */
+    Buf *pp_text;           /* non-NULL: -E token text lands here */
+    bool pp_only;           /* preprocess only (mode -E or a .S first stage) */
+    Buf *dep_text;          /* non-NULL: the -M depfile lands here */
+    const char *dep_target; /* default depfile target (no -MT/-MQ given) */
 } CompileJob;
 
 /* One line per token, stable and greppable: golden --dump-tokens files
@@ -842,6 +845,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                 }
             }
         }
+        if (job->dep_text && !diag_had_error(dc))
+            cgf_deps_write(job->dep_text, a, arena, job->dep_target, &pp);
         PpTokVecD_free(&collected);
         pp_end(&pp);
         intern_free(&interner);
@@ -888,6 +893,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                    pp.files[fi]->guard_macro ? pp.files[fi]->guard_macro : "-");
     }
 
+    if (job->dep_text && !diag_had_error(dc))
+        cgf_deps_write(job->dep_text, a, arena, job->dep_target, &pp);
     pp_end(&pp);
     intern_free(&interner);
     pp_loc_free(&pp.loc);
@@ -909,6 +916,27 @@ static void product_path(const char *src, char ext, char *out, size_t sz)
     dot = strrchr(base, '.');
     n = dot && dot != base ? (size_t)(dot - base) : strlen(base);
     snprintf(out, sz, "%.*s.%c", (int)n, base, ext);
+}
+
+/* The -MD/-MMD side-depfile name: -MF wins; else the -o argument with
+ * its last suffix replaced by .d (gcc keeps the directory); else
+ * <src base>.d in the cwd. */
+static void dep_side_path(const DriverArgs *a, const char *src, char *out,
+                          size_t sz)
+{
+    if (a->dep_file) {
+        snprintf(out, sz, "%s", a->dep_file);
+        return;
+    }
+    if (a->output) {
+        const char *base = strrchr(a->output, '/');
+        const char *dot = strrchr(base ? base + 1 : a->output, '.');
+        size_t n = dot ? (size_t)(dot - a->output) : strlen(a->output);
+
+        snprintf(out, sz, "%.*s.d", (int)n, a->output);
+        return;
+    }
+    product_path(src, 'd', out, sz);
 }
 
 /* ---- introspection -------------------------------------------------- */
@@ -1232,15 +1260,42 @@ int driver_main(int argc, char **argv)
                 }
             } else if (in->kind == IN_ASM_PP || a.mode_E) {
                 /* Preprocess to text; .S then assembles it. */
-                Buf text;
+                Buf text, deps;
+                char tgt_buf[512];
 
                 buf_init(&text);
+                buf_init(&deps);
                 job.pp_text = &text;
                 job.pp_only = true;
+                if (a.dep_mode != DEP_OFF && a.mode_E &&
+                    in->kind != IN_ASM_PP) {
+                    /* -M/-MM: the depfile REPLACES the -E text. */
+                    product_path(in->path, 'o', tgt_buf, sizeof(tgt_buf));
+                    job.dep_text = &deps;
+                    job.dep_target = tgt_buf;
+                }
                 if (a.verbose)
                     echo_compile_step("-E", in->path, NULL);
                 rc = run_preprocess(&arena, dc, &a, &job);
-                if (rc == CGF_EXIT_OK && a.mode_E) {
+                if (rc == CGF_EXIT_OK && job.dep_text) {
+                    if (a.dep_file) {
+                        FILE *df = fopen(a.dep_file, "wb");
+
+                        if (!df) {
+                            fprintf(stderr,
+                                    "cgfried: error: cannot write '%s'\n",
+                                    a.dep_file);
+                            rc = CGF_EXIT_IO;
+                        } else {
+                            fwrite(deps.data, 1, deps.len, df);
+                            fclose(df);
+                        }
+                    } else {
+                        FILE *dst = eout ? eout : stdout;
+
+                        fwrite(deps.data, 1, deps.len, dst);
+                    }
+                } else if (rc == CGF_EXIT_OK && a.mode_E) {
                     FILE *dst = eout ? eout : stdout;
 
                     fwrite(text.data, 1, text.len, dst);
@@ -1284,7 +1339,24 @@ int driver_main(int argc, char **argv)
                     }
                 }
                 buf_free(&text);
+                buf_free(&deps);
             } else {
+                Buf deps;
+                char tgt_buf[512];
+
+                buf_init(&deps);
+                if (a.dep_side) {
+                    /* -MD/-MMD: depfile beside compiling. The target
+                     * derives from the OUTPUT object (gcc parity): the
+                     * -o argument, or the object this job produces. */
+                    if (a.link_exe)
+                        snprintf(tgt_buf, sizeof(tgt_buf), "%s",
+                                 a.output ? a.output : "a.out");
+                    else
+                        snprintf(tgt_buf, sizeof(tgt_buf), "%s", job.out);
+                    job.dep_text = &deps;
+                    job.dep_target = tgt_buf;
+                }
                 if (a.verbose && job.out) {
                     /* The internal step really is compile-to-.s; the
                      * assembler echoes its own line. */
@@ -1298,6 +1370,22 @@ int driver_main(int argc, char **argv)
                     }
                 }
                 rc = run_preprocess(&arena, dc, &a, &job);
+                if (rc == CGF_EXIT_OK && a.dep_side) {
+                    char dpath[512];
+                    FILE *df;
+
+                    dep_side_path(&a, in->path, dpath, sizeof(dpath));
+                    df = fopen(dpath, "wb");
+                    if (!df) {
+                        fprintf(stderr, "cgfried: error: cannot write '%s'\n",
+                                dpath);
+                        rc = CGF_EXIT_IO;
+                    } else {
+                        fwrite(deps.data, 1, deps.len, df);
+                        fclose(df);
+                    }
+                }
+                buf_free(&deps);
             }
 
             if (rc == CGF_EXIT_OK && a.link_exe && in->link_slot >= 0) {

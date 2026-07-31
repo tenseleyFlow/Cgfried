@@ -490,9 +490,11 @@ static const char *dir_of(Preprocessor *pp, const char *path)
 }
 
 /* Builds the search chain for one lookup. Chain entries are directories;
- * index 0 is the includer's own dir for the quote form. */
+ * index 0 is the includer's own dir for the quote form. *sys_start gets
+ * the index of the first SYSTEM dir (isystem + builtin) — a hit at or
+ * past it classifies the header as system (-MM, warning suppression). */
 static size_t build_chain(Preprocessor *pp, bool angled, const char **chain,
-                          size_t max)
+                          size_t max, size_t *sys_start)
 {
     size_t n = 0, i;
 
@@ -503,6 +505,7 @@ static size_t build_chain(Preprocessor *pp, bool angled, const char **chain,
     }
     for (i = 0; i < pp->n_include && n < max; i++)
         chain[n++] = pp->include_dirs[i];
+    *sys_start = n;
     for (i = 0; i < pp->n_system && n < max; i++)
         chain[n++] = pp->system_dirs[i];
     return n;
@@ -516,9 +519,15 @@ static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name,
     FILE *probe;
     struct stat st;
 
-    memcpy(path, dir, dlen);
-    path[dlen] = '/';
-    memcpy(path + dlen + 1, name, nlen + 1);
+    if (strcmp(dir, ".") == 0) {
+        /* A cwd includer: gcc spells the header bare ("h.h", never
+         * "./h.h") — depfiles and diagnostics must match. */
+        memcpy(path, name, nlen + 1);
+    } else {
+        memcpy(path, dir, dlen);
+        path[dlen] = '/';
+        memcpy(path + dlen + 1, name, nlen + 1);
+    }
     if (pp->guard_fastpath) {
         const char *g = fcache_guard_by_path(pp, path);
         if (g && pp_macro_lookup(pp, g)) {
@@ -578,7 +587,7 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
                        bool is_next, SrcLoc loc)
 {
     const char *chain[2 + 3 * PP_MAX_DIRS];
-    size_t n, start = 0, i;
+    size_t n, start = 0, i, sys_start;
     SourceFile *sf = NULL;
     int found = -1;
     bool once_skipped = false;
@@ -591,7 +600,7 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
         return;
     }
 
-    n = build_chain(pp, angled, chain, CGF_ARRAY_LEN(chain));
+    n = build_chain(pp, angled, chain, CGF_ARRAY_LEN(chain), &sys_start);
     if (is_next) {
         /* GNU #include_next: resume AFTER the dir the current file was
          * found in (glibc's own headers require this). Pedwarn hook is
@@ -639,6 +648,12 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
         pp->fatal = true; /* include errors are fatal (gcc parity) */
         return;
     }
+    /* System classification: resolved from a system dir, or included FROM
+     * a system header (transitivity is what makes -MM omit a system
+     * header's own quote-form includes). Absolute paths (found -1) only
+     * inherit. */
+    sf->is_system = (found >= 0 && (size_t)found >= sys_start) ||
+                    cur_frame(pp)->lx.sf->is_system;
     push_frame(pp, sf, found);
 }
 

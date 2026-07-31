@@ -54,6 +54,10 @@ typedef struct SourceFile {
     /* Include-guard shape (Sprint 6 detector; Sprint 7 fast path):
      * non-NULL iff the whole file is #ifndef X/#define X ... #endif. */
     const char *guard_macro;
+    /* Sprint 26: resolved from a system dir (-isystem or builtin), or
+     * included FROM a system header. -MM and (Sprint 37) warning
+     * suppression consume this. */
+    bool is_system;
 } SourceFile;
 
 /* --- Location table ---------------------------------------------------
