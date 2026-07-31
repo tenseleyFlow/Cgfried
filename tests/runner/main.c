@@ -265,7 +265,8 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
         const Directive *dir = &ds->dirs[d];
         bool matched = false;
 
-        if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK)
+        if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK &&
+            dir->kind != DIR_MIR_CHECK)
             continue; /* IR_CHECK-NOT is judged by find_forbidden */
         while (cursor < out->len && !matched) {
             size_t eol = cursor;
@@ -516,7 +517,8 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                         strcmp(piece, "-fdump-layout") == 0 ||
                         strcmp(piece, "-fdump-init") == 0 ||
                         strcmp(piece, "-fsyntax-only") == 0 ||
-                        strcmp(piece, "-emit-ir") == 0)
+                        strcmp(piece, "-emit-ir") == 0 ||
+                        strcmp(piece, "-emit-mir") == 0)
                         pp_mode = true;
                     if (n >= 28) {
                         if (!quiet)

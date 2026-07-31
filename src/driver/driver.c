@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cg/cg.h"
 #include "diag.h"
 #include "driver/toolchain.h"
 #include "ir/ir.h"
@@ -396,6 +397,27 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
+/* -emit-mir: isel every function and print the MIR (Sprint 21). The
+ * MIR verifier runs unconditionally — generated MIR failing it is ours. */
+static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
+{
+    u32 i;
+    Buf b;
+
+    buf_init(&b);
+    for (i = 0; i < m->nfuncs; i++) {
+        X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
+
+        if (x64_mir_verify(xf, dc))
+            CGF_ICE("isel produced MIR the verifier rejects for '@%s'",
+                    m->funcs[i].name);
+        x64_mir_print(xf, &b);
+    }
+    fwrite(b.data, 1, b.len, stdout);
+    buf_free(&b);
+    return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
+}
+
 /* -emit-ir on a .cgfir file: parse -> verify -> print. */
 static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 {
@@ -455,6 +477,8 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             return CGF_EXIT_COMPILE;
         }
     }
+    if (a->emit_mir)
+        return emit_mir_print(arena, dc, m);
     return emit_ir_print(arena, dc, m, a->input);
 }
 
@@ -511,7 +535,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     pp_begin(&pp, sf, cmdline);
 
     if (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
-        a->dump_init || a->syntax_only || a->emit_ir) {
+        a->dump_init || a->syntax_only || a->emit_ir || a->emit_mir) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -530,7 +554,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
         if (a->dump_ast || a->dump_sema || a->dump_layout || a->dump_init ||
-            a->syntax_only || a->emit_ir) {
+            a->syntax_only || a->emit_ir || a->emit_mir) {
             Parser ps;
             AstNode *tu;
 
@@ -543,7 +567,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
              * but is semantically wrong must still be reported, and that
              * is what -fsyntax-only means. */
             if (a->dump_sema || a->dump_layout || a->dump_init ||
-                a->syntax_only || a->emit_ir) {
+                a->syntax_only || a->emit_ir || a->emit_mir) {
                 Sema sema;
 
                 sema_install_renderer();
@@ -566,7 +590,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                         if (tu->decls[k] && tu->decls[k]->kind == AST_FUNC_DEF)
                             dump_decl(tu->decls[k], 0);
                 }
-                if (a->emit_ir && !diag_had_error(dc)) {
+                if ((a->emit_ir || a->emit_mir) && !diag_had_error(dc)) {
                     /* AST -> IR. This module is GENERATED: a verifier
                      * failure here is an ICE, never a user error — the
                      * user's errors all ended in sema. CGF_DUMP_BAD_IR
@@ -592,7 +616,11 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                                 "rejects for '%s' (%s)",
                                 a->input, why);
                     }
-                    if (m) {
+                    if (m && a->emit_mir) {
+                        int rc = emit_mir_print(arena, dc, m);
+
+                        (void)rc;
+                    } else if (m) {
                         int rc = emit_ir_print(arena, dc, m, a->input);
 
                         (void)rc;
@@ -706,7 +734,7 @@ int driver_main(int argc, char **argv)
         size_t ilen = strlen(a.input);
 
         cgf_ice_set_input(a.input);
-        if (a.emit_ir) {
+        if (a.emit_ir || a.emit_mir) {
             /* .cgfir goes straight to the IR parser; anything else runs
              * the whole C pipeline and lowers (Sprint 18). */
             if (ilen >= 6 && strcmp(a.input + ilen - 6, ".cgfir") == 0)

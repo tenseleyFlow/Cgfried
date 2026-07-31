@@ -37,15 +37,17 @@ typedef struct {
     bool dump_layout;    /* -fdump-layout (record offsets/sizes) */
     bool dump_init;      /* -fdump-init (static initializer images) */
     bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
-    bool emit_ir;        /* -emit-ir: .cgfir parse->verify->print;
-                            .c lowering lands in Sprint 18 */
-    bool pedantic;       /* -pedantic (hook; Sprint 37 makes it real) */
-    u32 max_errors;      /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
-    bool fno_common;     /* -fno-common; the default matches gcc 8 (-fcommon) */
-    int std;             /* CStd value; default C17 */
-    bool trigraphs;      /* -trigraphs (default off, gcc parity) */
-    bool nostdinc;       /* -nostdinc: no system include dirs */
-    bool verbose;        /* -v: print include search lists */
+    bool emit_ir;
+    bool emit_mir;
+    /* -emit-mir: x86_64 MIR dump after isel (Sprint 21) */ /* -emit-ir:
+      .cgfir parse->verify->print; .c lowering lands in Sprint 18 */
+    bool pedantic;   /* -pedantic (hook; Sprint 37 makes it real) */
+    u32 max_errors;  /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
+    bool fno_common; /* -fno-common; the default matches gcc 8 (-fcommon) */
+    int std;         /* CStd value; default C17 */
+    bool trigraphs;  /* -trigraphs (default off, gcc parity) */
+    bool nostdinc;   /* -nostdinc: no system include dirs */
+    bool verbose;    /* -v: print include search lists */
     const char *unknown_opt; /* first unrecognized option, or NULL */
     const char *missing_arg; /* option lacking its argument, or NULL */
     const char *too_many;    /* which fixed cap overflowed, or NULL */

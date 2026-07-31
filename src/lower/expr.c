@@ -646,8 +646,16 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
         IrOperand a = lower_rvalue(lo, e->lhs);
         IrOperand b = lower_rvalue(lo, e->rhs);
         IrType t = lower_irtype(lo, sem(e));
-        ValueId r = ir_build2(&lo->b, arith_op_for(lo, e->op, sem(e)), t, a, b);
+        ValueId r;
 
+        /* Shift counts promote INDEPENDENTLY of the left operand (the
+         * 6.5.7 rule sema encoded); the IR wants one width — convert
+         * the count to the result type (the & 63/31 hardware mask makes
+         * the narrowing harmless; over-width shifts are C UB anyway).
+         * Found by the Sprint 21 MIR pipeline; latent since Sprint 18. */
+        if ((e->op == PUNCT_SHL || e->op == PUNCT_SHR) && sem(e->rhs) != sem(e))
+            b = lower_scalar_convert(lo, b, sem(e->rhs), sem(e));
+        r = ir_build2(&lo->b, arith_op_for(lo, e->op, sem(e)), t, a, b);
         return ir_op_value(lo->fn, r);
     }
 }

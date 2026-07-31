@@ -34,6 +34,7 @@ typedef enum {
     DIR_ASM_CHECK,    /* reserved: hard-errors naming Sprint 24 */
     DIR_IR_CHECK,     /* CHECK semantics against `cgf -emit-ir` output
                          (.cgfir fixtures; live since Sprint 17) */
+    DIR_MIR_CHECK,    /* CHECK semantics against `cgf -emit-mir` (Sprint 21) */
     DIR_IR_CHECK_NOT, /* negative form: the text must appear on NO output
                          line — how a golden proves an ABSENCE (Sprint
                          18's "short-circuit emits zero allocas") */

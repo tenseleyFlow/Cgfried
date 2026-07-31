@@ -23,6 +23,7 @@ static const DirectiveName directive_table[] = {
     {"ASM_CHECK", DIR_ASM_CHECK},
     {"IR_CHECK", DIR_IR_CHECK},
     {"IR_CHECK-NOT", DIR_IR_CHECK_NOT},
+    {"MIR_CHECK", DIR_MIR_CHECK},
 };
 
 typedef struct {
@@ -274,6 +275,7 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         case DIR_CHECK:
         case DIR_IR_CHECK:     /* Sprint 17: CHECK semantics against the
                                   -emit-ir reprint of a fixture */
+        case DIR_MIR_CHECK:    /* Sprint 21: vs -emit-mir stdout */
         case DIR_IR_CHECK_NOT: /* Sprint 18: the text must NOT appear */
         case DIR_ERROR_EXPECTED:
         case DIR_WARNING_EXPECTED:
