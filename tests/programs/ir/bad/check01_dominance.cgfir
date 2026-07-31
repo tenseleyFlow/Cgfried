@@ -1,0 +1,13 @@
+// ERROR_EXPECTED: ir verify [1]
+func void @f(i32 %c) {
+entry():
+    condbr %c, a(), b()
+a():
+    %x = iadd i32 1, 2
+    br j()
+b():
+    br j()
+j():
+    %y = iadd i32 %x, 1
+    ret
+}

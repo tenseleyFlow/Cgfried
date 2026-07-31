@@ -1,0 +1,6 @@
+// ERROR_EXPECTED: ir verify [8]
+func void @f() {
+entry():
+    %p = alloca 8, align 6
+    ret
+}

@@ -1,0 +1,7 @@
+// ERROR_EXPECTED: ir verify [2]
+func void @f() {
+entry():
+    br t(i32 1)
+t():
+    ret
+}

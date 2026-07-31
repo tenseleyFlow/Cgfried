@@ -1,0 +1,5 @@
+// ERROR_EXPECTED: ir verify [11]
+func void @f() setjmp {
+entry():
+    ret
+}

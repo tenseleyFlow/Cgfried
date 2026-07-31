@@ -1,0 +1,8 @@
+// The xchg RMW (atomic_flag's test-and-set shape) pinned at IR level —
+// no C spelling produces it until the stdatomic builtins land.
+// IR_CHECK: atomicrmw xchg i8 %0, 1, seq_cst
+func i8 @tas(ptr %p) {
+entry():
+    %old = atomicrmw xchg i8 %p, 1, seq_cst
+    ret i8 %old
+}

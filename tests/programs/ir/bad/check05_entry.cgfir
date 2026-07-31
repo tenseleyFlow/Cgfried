@@ -1,0 +1,5 @@
+// ERROR_EXPECTED: ir verify [5]
+func void @f() {
+entry(i32 %x):
+    ret
+}

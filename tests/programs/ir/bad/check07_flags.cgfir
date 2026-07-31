@@ -1,0 +1,7 @@
+// ERROR_EXPECTED: ir verify [7]
+func void @f() {
+entry():
+    %p = alloca 8, align 8
+    memcpy %p, %p, 8, align 8, seq_cst
+    ret
+}

@@ -42,6 +42,7 @@ FPDIFF_OBJ := $(BUILD)/tests/tools/fpdiff.o $(BUILD)/src/util/softfp.o \
 # The frontend fuzzer: same shape, drives -fsyntax-only over pp+lex+parse.
 FEFUZZ_OBJ := $(BUILD)/tests/fuzz/fuzz_frontend.o \
               $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
+IRFUZZ_OBJ := $(BUILD)/tests/fuzz/ir_fuzz.o $(LIB_OBJ)
 
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
@@ -78,6 +79,12 @@ $(BUILD)/tests/fuzz/ppfuzz.o: tests/fuzz/ppfuzz.c | $(DIRS)
 
 $(BUILD)/tests/fuzz/fuzz_frontend.o: tests/fuzz/fuzz_frontend.c | $(DIRS)
 	$(CC) $(CFLAGS) -Itests/runner -c -o $@ $<
+
+$(BUILD)/tests/fuzz/ir_fuzz.o: tests/fuzz/ir_fuzz.c | $(DIRS)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD)/ir_fuzz: $(sort $(IRFUZZ_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(IRFUZZ_OBJ))
 
 $(BUILD)/fuzz_frontend: $(sort $(FEFUZZ_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(FEFUZZ_OBJ))
@@ -154,10 +161,12 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    sh ci/check_skips.sh $$p $(BUILD)/toolchain.log
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-smoke
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-frontend-smoke
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-ir-smoke
 	sh scripts/check_fuzz_crashes.sh
 	sh scripts/check_bans.sh
 	sh scripts/check_pp_seams.sh
 	sh scripts/check_sema_target.sh
+	sh scripts/check_verify_coverage.sh
 	sh scripts/check_no_host_fpu.sh
 	sh scripts/check_format.sh
 
@@ -186,6 +195,12 @@ FE_FUZZ_CORPUS := tests/fixtures tests/programs
 # changes, the sequence a given seed produces changes, and a pinned digest
 # is the only way to notice that a "green" fuzz run is testing something
 # else than it used to.
+# The IR round-trip fuzzer is IN-PROCESS (no spawn per iteration), which
+# is what makes the 10^6-iteration local run honest. The smoke slice
+# rides `make test`; CI gets the same slice.
+fuzz-ir-smoke: $(BUILD)/ir_fuzz
+	$(BUILD)/ir_fuzz --iters=5000 tests/programs/ir tests/programs/ir/bad
+
 fuzz-frontend-smoke: $(BUILD)/cgfried $(BUILD)/fuzz_frontend
 	$(BUILD)/fuzz_frontend --iters 2000 $(BUILD)/cgfried $(FE_FUZZ_CORPUS)
 	@got=$$($(BUILD)/fuzz_frontend --hash --iters 5000 $(BUILD)/cgfried \

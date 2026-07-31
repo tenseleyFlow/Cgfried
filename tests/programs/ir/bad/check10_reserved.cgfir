@@ -1,0 +1,11 @@
+// The reserved band is unreachable from TEXT (no spelling exists), so
+// this fixture drives check 10's sibling: an unknown-instruction parse
+// error would hide the check — instead the harness pins it via the unit
+// suite; HERE we pin the closest text-reachable cousin: a stale opcode
+// name is a parse error, never a silent accept.
+// ERROR_EXPECTED: expected an instruction
+func void @f() {
+entry():
+    va_arg i32 1
+    ret
+}

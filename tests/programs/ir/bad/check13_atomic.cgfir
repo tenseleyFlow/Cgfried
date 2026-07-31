@@ -1,0 +1,6 @@
+// ERROR_EXPECTED: ir verify [13]
+func void @f(ptr %p) {
+entry():
+    %old = atomicrmw add f64 %p, 0x3FF0000000000000, seq_cst
+    ret
+}

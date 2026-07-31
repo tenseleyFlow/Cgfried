@@ -1,0 +1,7 @@
+// ERROR_EXPECTED: ir verify [6]
+func void @f() {
+entry():
+    ret
+island():
+    ret
+}

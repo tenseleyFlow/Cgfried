@@ -1,3 +1,8 @@
+// VLAs went LIVE in Sprint 20 (this fixture pinned the deferral until
+// then): dynamic alloca + lazy stacksave + fall-out restore.
 // FLAGS: -emit-ir
-// ERROR_EXPECTED: a variable-length array declaration is not lowered yet: lands in Sprint 20
-int f(int n) { int a[n]; return 0; }
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// IR_CHECK: imul i64
+// IR_CHECK: stacksave
+// IR_CHECK: alloca %
+int f(int n) { { int a[n]; a[0] = 1; } return 0; }

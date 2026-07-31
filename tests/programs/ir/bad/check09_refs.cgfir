@@ -1,0 +1,10 @@
+// ERROR_EXPECTED: ir verify [9]
+func void @callee(i64 %x) {
+entry():
+    ret
+}
+func void @caller() {
+entry():
+    call void @callee()
+    ret
+}

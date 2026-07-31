@@ -1,0 +1,6 @@
+// ERROR_EXPECTED: ir verify [3]
+func void @f() {
+entry():
+    ret
+    ret
+}

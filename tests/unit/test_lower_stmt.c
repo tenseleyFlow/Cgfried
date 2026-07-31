@@ -398,13 +398,15 @@ void test_lower_local_static_mangled(TestCtx *t)
     st_free(&f);
 }
 
-void test_lower_vla_defers_naming_sprint(TestCtx *t)
+void test_lower_vla_live(TestCtx *t)
 {
     StFix f;
-    bool ok = run_lower_s(&f, "int f(int n) { int a[n]; return 0; }\n");
 
-    T_ASSERT(t, !ok);
-    T_ASSERT(t, f.errors > 0);
+    /* Flipped in Sprint 20: dynamic alloca with the evaluated size. */
+    T_ASSERT(t, run_lower_s(&f, "int f(int n) { int a[n]; return 0; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "stacksave") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "imul i64") != NULL);
     st_free(&f);
 }
 

@@ -395,13 +395,14 @@ void test_lower_ternary_aggregate_one_temp(TestCtx *t)
     low_free(&f);
 }
 
-void test_lower_atomic_defers(TestCtx *t)
+void test_lower_atomic_live(TestCtx *t)
 {
     LowFix f;
-    bool ok = run_lower(&f, "_Atomic int a;\n"
-                            "int f(void) { return a; }\n");
 
-    T_ASSERT(t, !ok);
-    T_ASSERT(t, f.errors > 0);
+    /* Flipped in Sprint 20: the read is a seq_cst load now. */
+    T_ASSERT(t, run_lower(&f, "_Atomic int a;\n"
+                              "int f(void) { return a; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "load i32, @a, align 4, seq_cst") != NULL);
     low_free(&f);
 }
