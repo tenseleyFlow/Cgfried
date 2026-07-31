@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "driver/args.h"
 #include "util/base.h"
 
 /* Single source of truth for the version; Sprint 62 audits every copy. */
@@ -19,58 +20,6 @@ enum {
     CGF_EXIT_ICE = 4,     /* internal compiler error, via cgf_ice */
 };
 
-/* Parsed command line. Parsing does no I/O so it unit-tests pure. Fixed
- * caps until Sprint 26's table-driven parser; overflow is a loud error. */
-#define DRIVER_MAX_DIRS 32
-#define DRIVER_MAX_DEFS 64
-
-typedef struct {
-    bool show_version;
-    bool show_dumpversion;
-    bool show_help;
-    bool mode_E;         /* -E: stop after preprocessing */
-    bool dump_macros;    /* -dM (requires -E) */
-    bool no_linemarkers; /* -P */
-    bool dump_tokens;    /* --dump-tokens (phase 7 golden dumps) */
-    bool dump_ast;       /* --dump-ast (declarator round-trip goldens) */
-    bool dump_sema;      /* -fdump-sema (symbol/type goldens) */
-    bool dump_layout;    /* -fdump-layout (record offsets/sizes) */
-    bool dump_init;      /* -fdump-init (static initializer images) */
-    bool syntax_only;    /* -fsyntax-only (parse, report, produce nothing) */
-    bool emit_ir;
-    bool emit_mir;
-    bool emit_asm;      /* -S: AT&T assembly (Sprint 24; gas-assemblable) */
-    bool compile_obj;   /* -c: assemble to .o via the toolchain routing */
-    bool link_exe;      /* bare `cgf t.c`: compile+assemble+LINK (Sprint
-                           25; set by the driver, not a flag) */
-    const char *output; /* -o (minimal; the full surface is Sprint 26) */
-    /* -emit-mir: x86_64 MIR dump after isel (Sprint 21) */ /* -emit-ir:
-      .cgfir parse->verify->print; .c lowering lands in Sprint 18 */
-    bool pedantic;   /* -pedantic (hook; Sprint 37 makes it real) */
-    u32 max_errors;  /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
-    bool fno_common; /* -fno-common; the default matches gcc 8 (-fcommon) */
-    int std;         /* CStd value; default C17 */
-    bool trigraphs;  /* -trigraphs (default off, gcc parity) */
-    bool nostdinc;   /* -nostdinc: no system include dirs */
-    bool verbose;    /* -v: print include search lists */
-    const char *unknown_opt; /* first unrecognized option, or NULL */
-    const char *missing_arg; /* option lacking its argument, or NULL */
-    const char *too_many;    /* which fixed cap overflowed, or NULL */
-    const char *bad_value;   /* option whose value did not parse, or NULL */
-    const char *input;       /* first input-file argument, or NULL */
-    const char *extra_input; /* second input file (unsupported), or NULL */
-
-    const char *include_dirs[DRIVER_MAX_DIRS]; /* -I, in order */
-    int n_include;
-    const char *iquote_dirs[DRIVER_MAX_DIRS]; /* -iquote, in order */
-    int n_iquote;
-    /* -D name[=val] / -U name, strictly in command-line order. */
-    const char *defs[DRIVER_MAX_DEFS];
-    bool def_is_undef[DRIVER_MAX_DEFS];
-    int n_defs;
-} DriverArgs;
-
-DriverArgs args_parse(int argc, char **argv);
 int driver_main(int argc, char **argv);
 
 #endif

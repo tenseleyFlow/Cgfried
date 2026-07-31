@@ -8,6 +8,8 @@
 
 #include "target.h"
 
+struct Arena;
+
 /* Toolchain routing + subprocess layer. All CGF_* toolchain variables are
  * read in exactly one place (env_override in toolchain.c) — grep-enforced by
  * scripts/check_bans.sh — so the routing table in --help and README stays
@@ -91,10 +93,35 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
  * to diag for the exit-2 link error. */
 const char *cgf_probe_crt_dir(char *diag, size_t diag_sz);
 
-/* Sprint 25: link obj -> executable against system crt/libc (dynamic
- * non-PIE). CGF_LD_PATH picks the linker; CGF_LD=1 errors naming
- * Sprint 27. Linker stdio is inherited. */
-ToolResult cgf_run_linker(const char *obj_path, const char *out_path);
+/* Sprint 26: the full link request — objects, -l libs and raw args in
+ * exact command-line order (the position-sensitive stream args.h
+ * defines), -L dirs hoisted, and the subtraction flags. The recipe stays
+ * Sprint 25's: dynamic non-PIE against system crt/libc; crtbegin/crtend
+ * deliberately absent (plain C needs neither). */
+typedef struct {
+    struct Arena *arena; /* backs built argv strings */
+    const char *out;
+    const struct LinkInput *inputs; /* LinkInput[] from args.h */
+    size_t n_inputs;
+    const char *const *lib_dirs;
+    size_t n_lib_dirs;
+    bool static_link;
+    bool nostdlib, nostartfiles, nodefaultlibs;
+} LinkRequest;
+
+ToolResult cgf_run_linker2(const LinkRequest *lr);
+
+/* -v/-### support: when echo is on, every subprocess argv prints
+ * shell-quoted to stderr before running; the plan variants print WITHOUT
+ * running (the -### contract). */
+void cgf_toolchain_set_echo(bool verbose);
+const char *cgf_toolchain_argv0(void);
+void cgf_echo_as_plan(const char *s_path, const char *o_path);
+void cgf_echo_ld_plan(const LinkRequest *lr);
+
+/* PATH resolution for -print-prog-name= (a name containing '/' probes
+ * directly). False when not found; out untouched. */
+bool cgf_which(const char *name, char *out, size_t out_size);
 
 /* The guidance string for a missing tool (exit-3 diagnostics). */
 const char *cgf_tool_missing_hint(ToolKind which);

@@ -17,51 +17,91 @@
 #include "util/arena.h"
 #include "util/intern.h"
 
-/* One string, hand-organized — no generated help (locked style). Info-option
- * precedence as implemented: --help over --version over -dumpversion. */
-static const char help_text[] =
+/* Hand-organized, no generated help (locked style); an ARRAY of segments
+ * because ISO caps one string literal at 4095 bytes. Info-option
+ * precedence as implemented: --help over --version over -dumpversion over
+ * -dumpmachine over the -print-* family. "Last one wins" applies to -O and
+ * -std= (documented here because configure scripts pass both). */
+static const char *const help_text[] = {
     "Usage: cgfried [options] file...\n"
     "\n"
     "Modes:\n"
-    "  -E                preprocess only, print tokens to stdout\n"
-    "  --dump-tokens     run the lexer and dump one token per line\n"
-    "  --dump-ast        parse and dump declarations (declarator shapes)\n"
-    "  -fdump-sema       run semantic analysis and dump file-scope symbols\n"
-    "  -fdump-layout     dump record layout (offsets, sizes, alignment)\n"
-    "  -fdump-init       dump static initializer images as hex bytes\n"
+    "  -c                compile and assemble; one .o per input, in the\n"
+    "                    current directory\n"
+    "  -S                stop after codegen; <base>.s per input\n"
+    "  -E                preprocess only, to stdout (-o redirects)\n"
+    "  -o <file>         output name (forbidden with multiple inputs\n"
+    "                    under -c/-S/-E)\n"
+    "  -x <lang>         treat subsequent inputs as <lang>: 'c' or 'none'\n"
+    "                    (restore extension dispatch); '-' reads stdin and\n"
+    "                    requires an active -x c\n"
     "  -fsyntax-only     parse and report diagnostics; produce no output\n"
-    "  -emit-ir          emit the SSA IR: lowers a .c file through the\n"
-    "                    full front end, or reprints a .cgfir module\n"
-    "  -P                omit linemarkers from -E output\n"
-    "  (full compilation is not yet supported; the pipeline is under\n"
-    "  construction sprint by sprint)\n"
+    "  Extension dispatch: .c preprocess+compile+assemble; .i compile;\n"
+    "  .s assemble; .S preprocess then assemble; anything else is a\n"
+    "  linker input, kept in command-line position.\n"
     "\n"
-    "Language:\n"
-    "  -trigraphs        enable trigraph translation (default off)\n"
-    "  -std=<std>        c89/gnu89/c99/c11/c17/gnu17 (default c17)\n"
-    "  -pedantic         warn about non-ISO constructs\n"
-    "  -fmax-errors=N    stop after N errors (0 = unlimited, the default);\n"
-    "  -fcommon          tentative definitions become COMMON symbols\n"
-    "                    (the default, matching gcc 8); -fno-common gives\n"
-    "                    them zero-initialized definitions instead\n"
-    "                    -ferror-limit=N is accepted as an alias\n"
+    "Preprocessor:\n"
+    "  -I <dir>          include search dir (quote and angle forms)\n"
+    "  -iquote <dir>     include search dir (\"...\" form only)\n"
+    "  -isystem <dir>    system include dir (after -I, before builtin)\n"
+    "  -include <file>   include <file> before line 1 of each input\n"
     "  -D name[=value]   predefine a macro (value defaults to 1)\n"
-    "  -U name           undefine a macro (processed in -D/-U order)\n"
-    "\n"
-    "Directories:\n"
-    "  -I dir            add dir to the include search path\n"
-    "  -iquote dir       add dir to the \"...\"-form-only search path\n"
+    "  -U name           undefine (processed in -D/-U order, later wins)\n"
     "  -nostdinc         do not search the system include directories\n"
-    "  -v                print the include search list to stderr\n"
+    "  -trigraphs        enable trigraph translation (default off)\n"
+    "  -P                omit linemarkers from -E output\n"
+    "  -dM               with -E: dump macro definitions\n"
     "\n"
-    "Output:\n"
-    "  --help            print this help and exit\n"
-    "  --version         print version and host target, then exit\n"
-    "  -dumpversion      print the bare version number, then exit\n"
+    "Dependencies (for make):\n"
+    "  -M / -MM          write a depfile to stdout instead of compiling\n"
+    "                    (-MM omits system headers); imply -E\n"
+    "  -MD / -MMD        write <obj base>.d as a side effect of compiling\n"
+    "  -MF <file>        depfile name\n"
+    "  -MT <target>      dependency target, verbatim (repeatable)\n"
+    "  -MQ <target>      like -MT but Make-quoted ($ -> $$, etc.)\n"
+    "  -MP               emit a phony target per header\n"
+    "\n",
+    "Codegen / language:\n"
+    "  -O<n>             optimization level: 0 (default) 1 2 3 s fast;\n"
+    "                    -O means -O1; the LAST -O wins\n"
+    "  -std=<std>        c89/c90, c99, c11, c17/c18 (+iso9899 spellings)\n"
+    "                    and the gnu twins; the LAST -std= wins.\n"
+    "                    Default c17 (gcc defaults to gnu17 — divergence\n"
+    "                    is deliberate and documented here)\n"
+    "  -W<name>/-Wno-<name>  enable/disable a warning (stored; the full\n"
+    "                    machinery lands in a later sprint)\n"
+    "  -w                suppress all warnings\n"
+    "  -Werror[=name]    warnings become errors\n"
+    "  -pedantic[-errors] ISO conformance diagnostics\n"
+    "  -fmax-errors=N    stop after N errors (0 = unlimited, default);\n"
+    "                    -ferror-limit=N is accepted as an alias\n"
+    "  -fcommon          tentative definitions become COMMON symbols;\n"
+    "                    the DEFAULT is -fno-common (gcc 10 semantics;\n"
+    "                    gcc 8 defaulted to -fcommon — divergence is\n"
+    "                    deliberate and documented here)\n"
+    "  -ffreestanding    freestanding environment (-fhosted restores)\n"
+    "  -fwrapv           signed overflow wraps\n"
+    "  -fno-strict-aliasing  disable type-based aliasing (stored)\n"
+    "  Unknown -f/-W options warn and continue (configure-script parity);\n"
+    "  any other unknown option is an error.\n"
     "\n"
-    "Diagnostics:\n"
-    "  Diagnostics are colored when stderr is a terminal. If multiple info\n"
-    "  options are given, --help wins over --version over -dumpversion.\n"
+    "Link:\n"
+    "  -L <dir> / -l <name>  library search dir / library (position kept)\n"
+    "  -Wl,a,b           comma-split args passed to the linker in position\n"
+    "  -Xlinker <arg>    one raw linker arg in position\n"
+    "  -static           static link\n"
+    "  -nostdlib -nostartfiles -nodefaultlibs   omit default link inputs\n"
+    "\n",
+    "Introspection:\n"
+    "  --help --version -dumpversion -dumpmachine\n"
+    "  -print-prog-name=X -print-file-name=X -print-search-dirs\n"
+    "  -v                print each subcommand before running it\n"
+    "  -###              print subcommands, run nothing, exit 0\n"
+    "  @file             read options from file (recursive, depth 16)\n"
+    "\n"
+    "Dumps (compiler development):\n"
+    "  --dump-tokens --dump-ast -fdump-sema -fdump-layout -fdump-init\n"
+    "  -emit-ir -emit-mir\n"
     "\n"
     "Environment:\n"
     "  NO_COLOR          disable diagnostic colors (any non-empty value)\n"
@@ -72,13 +112,24 @@ static const char help_text[] =
     "  CGF_LD            unset/0: use system 'ld' (default); 1: afs-ld "
     "(Sprint 27)\n"
     "  CGF_LD_PATH       use exactly this linker (wins over CGF_LD)\n"
-    "  CGF_CRT_DIR       crt object discovery override (used from Sprint "
-    "27)\n"
+    "  CGF_CRT_DIR       crt object discovery override\n"
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
-    "  Empty-string values are treated as unset.\n";
+    "  Empty-string values are treated as unset.\n",
+};
 
 VEC_DECL(PpTokVecD, PpToken);
+
+/* Per-input work order: which pipeline slice runs and where the product
+ * lands. driver_main builds one per input; the compile functions never
+ * look at DriverArgs for paths again. */
+typedef struct {
+    const char *path; /* source path, or "-" for stdin */
+    InputKind kind;
+    const char *out; /* product path (.s/.o) — NULL for stdout modes */
+    Buf *pp_text;    /* non-NULL: -E token text lands here */
+    bool pp_only;    /* preprocess only (mode -E or a .S first stage) */
+} CompileJob;
 
 /* One line per token, stable and greppable: golden --dump-tokens files
  * assert on these. Constants print their CLASSIFIED type, which is the
@@ -340,21 +391,23 @@ static void dump_decl(const AstNode *n, int depth)
 }
 
 /* Builds the "<command-line>" pseudo-file from -D/-U flags, in order.
- * -D name means 1; -D name=val splits at the first '='. */
+ * -D name means 1; -D name=val splits at the first '='. -include files
+ * follow ALL the defines (gcc processes every -D/-U first), each as if
+ * `#include "F"` stood before line 1 of the main file. */
 static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
 {
     Buf b;
     SourceFile *sf;
-    int i;
+    size_t i;
 
-    if (a->n_defs == 0)
+    if (a->defs.len == 0 && a->pre_includes.len == 0)
         return NULL;
     buf_init(&b);
-    for (i = 0; i < a->n_defs; i++) {
-        const char *d = a->defs[i];
+    for (i = 0; i < a->defs.len; i++) {
+        const char *d = a->defs.data[i].val;
         const char *eq = strchr(d, '=');
 
-        if (a->def_is_undef[i]) {
+        if (a->defs.data[i].is_undef) {
             buf_printf(&b, "#undef %s\n", d);
         } else if (eq) {
             buf_printf(&b, "#define %.*s %s\n", (int)(eq - d), d, eq + 1);
@@ -362,6 +415,8 @@ static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
             buf_printf(&b, "#define %s 1\n", d);
         }
     }
+    for (i = 0; i < a->pre_includes.len; i++)
+        buf_printf(&b, "#include \"%s\"\n", a->pre_includes.data[i]);
     sf =
         pp_source_add_buffer(pp, "<command-line>", (const char *)b.data, b.len);
     buf_free(&b);
@@ -398,41 +453,16 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
-/* -emit-mir: isel every function and print the MIR (Sprint 21). The
- * MIR verifier runs unconditionally — generated MIR failing it is ours. */
-/* -S / -c (Sprint 24): the full backend per function, then AT&T text.
- * The .s is a USER-FACING CONTRACT (gas-assemblable); -c assembles it
- * through the routed assembler, and an assembler rejection of OUR text
- * is an ICE quoting the offending line — a cgf bug by definition. */
-
-static void asm_output_paths(const DriverArgs *a, char *out, size_t out_sz)
-{
-    const char *base;
-    size_t n;
-
-    if (a->output) {
-        snprintf(out, out_sz, "%s", a->output);
-        return;
-    }
-    if (a->link_exe) {
-        snprintf(out, out_sz, "a.out");
-        return;
-    }
-    base = strrchr(a->input, '/');
-    base = base ? base + 1 : a->input;
-    n = strlen(base);
-    if (n > 2 && base[n - 2] == '.' && base[n - 1] == 'c')
-        n -= 2;
-    snprintf(out, out_sz, "%.*s.%c", (int)n, base, a->compile_obj ? 'o' : 's');
-}
-
+/* -S / -c / link (Sprints 24-26): the full backend per function, then
+ * AT&T text. The .s is a USER-FACING CONTRACT (gas-assemblable); other
+ * modes assemble it through the routed assembler, and an assembler
+ * rejection of OUR text is an ICE quoting the offending line. Linking
+ * happens in driver_main AFTER every TU compiled — never here. */
 static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
-                        const DriverArgs *a)
+                        const DriverArgs *a, const CompileJob *job)
 {
     Buf b;
     u32 i;
-    char out_path[512];
-    char obj_path[520];
     char s_path[528];
     FILE *f;
 
@@ -455,11 +485,10 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         buf_free(&b);
         return CGF_EXIT_COMPILE;
     }
-    asm_output_paths(a, out_path, sizeof(out_path));
-    if (a->emit_asm && !a->compile_obj) {
-        f = fopen(out_path, "wb");
+    if (a->emit_asm) {
+        f = fopen(job->out, "wb");
         if (!f) {
-            fprintf(stderr, "cgfried: error: cannot write '%s'\n", out_path);
+            fprintf(stderr, "cgfried: error: cannot write '%s'\n", job->out);
             buf_free(&b);
             return CGF_EXIT_IO;
         }
@@ -468,14 +497,10 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         buf_free(&b);
         return CGF_EXIT_OK;
     }
-    /* -c / link: write the .s beside the output (deterministic name;
-     * kept on failure so the ICE is reproducible), assemble, then for
-     * the milestone mode link against system crt/libc and clean up. */
-    if (a->link_exe)
-        snprintf(obj_path, sizeof(obj_path), "%s.cgf.o", out_path);
-    else
-        snprintf(obj_path, sizeof(obj_path), "%s", out_path);
-    snprintf(s_path, sizeof(s_path), "%s.cgf.s", out_path);
+    /* -c / link-mode object: write the .s beside the output
+     * (deterministic name; kept on failure so the ICE is reproducible),
+     * assemble, clean up. */
+    snprintf(s_path, sizeof(s_path), "%s.cgf.s", job->out);
     f = fopen(s_path, "wb");
     if (!f) {
         fprintf(stderr, "cgfried: error: cannot write '%s'\n", s_path);
@@ -486,7 +511,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     fclose(f);
     {
         u32 bad_line = 0;
-        ToolResult res = cgf_run_assembler(s_path, obj_path, &bad_line);
+        ToolResult res = cgf_run_assembler(s_path, job->out, &bad_line);
 
         if (res.kind == TOOL_SPAWN_FAILED) {
             fprintf(stderr, "cgfried: error: %s\n",
@@ -519,16 +544,6 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         }
     }
     unlink(s_path);
-    if (a->link_exe) {
-        ToolResult lres = cgf_run_linker(obj_path, out_path);
-        int rc = cgf_tool_exit_code(TOOL_LD, &lres, false);
-
-        unlink(obj_path);
-        if (rc != CGF_EXIT_OK) {
-            buf_free(&b);
-            return rc;
-        }
-    }
     buf_free(&b);
     return CGF_EXIT_OK;
 }
@@ -560,38 +575,40 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
 }
 
 /* -emit-ir on a .cgfir file: parse -> verify -> print. */
-static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
+static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a,
+                       const CompileJob *job)
 {
-    FILE *f = fopen(a->input, "rb");
+    FILE *f = fopen(job->path, "rb");
     char *src;
     long len;
     size_t rd;
     IrModule *m;
 
     if (!f) {
-        fprintf(stderr, "cgfried: error: cannot open '%s'\n", a->input);
+        fprintf(stderr, "cgfried: error: cannot open '%s'\n", job->path);
         return CGF_EXIT_IO;
     }
     if (fseek(f, 0, SEEK_END) != 0 || (len = ftell(f)) < 0 ||
         fseek(f, 0, SEEK_SET) != 0) {
         fclose(f);
-        fprintf(stderr, "cgfried: error: cannot read '%s'\n", a->input);
+        fprintf(stderr, "cgfried: error: cannot read '%s'\n", job->path);
         return CGF_EXIT_IO;
     }
     src = arena_alloc(arena, (size_t)len + 1, 1);
     rd = fread(src, 1, (size_t)len, f);
     fclose(f);
     if (rd != (size_t)len) {
-        fprintf(stderr, "cgfried: error: cannot read '%s'\n", a->input);
+        fprintf(stderr, "cgfried: error: cannot read '%s'\n", job->path);
         return CGF_EXIT_IO;
     }
     src[len] = '\0';
     if (memchr(src, '\0', (size_t)len) != NULL) {
-        fprintf(stderr, "cgfried: error: '%s' contains a NUL byte\n", a->input);
+        fprintf(stderr, "cgfried: error: '%s' contains a NUL byte\n",
+                job->path);
         return CGF_EXIT_COMPILE;
     }
 
-    m = ir_parse_module(arena, dc, src, a->input);
+    m = ir_parse_module(arena, dc, src, job->path);
     if (!m)
         return CGF_EXIT_COMPILE;
     /* Hand-written IR that fails the verifier is a USER error (exit 1);
@@ -620,12 +637,29 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     }
     if (a->emit_mir)
         return emit_mir_print(arena, dc, m);
-    return emit_ir_print(arena, dc, m, a->input);
+    return emit_ir_print(arena, dc, m, job->path);
 }
 
-/* -E: preprocess through the directive engine, printed with SPACE/BOL-
- * faithful spacing (exact line-count fidelity is Sprint 6's problem). */
-static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
+/* Reads all of stdin (for `-` inputs; requires -x c, enforced at parse). */
+static bool read_stdin(Buf *b)
+{
+    char chunk[4096];
+    size_t n;
+
+    buf_init(b);
+    while ((n = fread(chunk, 1, sizeof(chunk), stdin)) > 0) {
+        size_t i;
+
+        for (i = 0; i < n; i++)
+            buf_push_u8(b, (u8)chunk[i]);
+    }
+    return !ferror(stdin);
+}
+
+/* The per-TU pipeline: preprocess, then as much of lex/parse/sema/lower/
+ * codegen as the mode asks for. -E text lands in job->pp_text. */
+static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
+                          const CompileJob *job)
 {
     Interner interner;
     Preprocessor pp;
@@ -635,9 +669,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     bool dump = cgf_env("CGF_PP_DUMP_TOKENS") != NULL;
     bool dump_guard = cgf_env("CGF_PP_DUMP_GUARD") != NULL;
     bool first = true;
+    size_t i;
 
     memset(&prev_tok, 0, sizeof(prev_tok));
-    int i;
 
     intern_init(&interner, arena);
     pp_init(&pp, arena, dc, &interner);
@@ -648,10 +682,15 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                                 owns line fidelity); accepted so oracle
                                 command lines stay symmetric */
     pp.gnu_mode = pp.std >= STD_GNU89;
-    for (i = 0; i < a->n_include; i++)
-        pp.include_dirs[pp.n_include++] = a->include_dirs[i];
-    for (i = 0; i < a->n_iquote; i++)
-        pp.iquote_dirs[pp.n_iquote++] = a->iquote_dirs[i];
+    for (i = 0; i < a->include_dirs.len; i++)
+        pp.include_dirs[pp.n_include++] = a->include_dirs.data[i];
+    for (i = 0; i < a->iquote_dirs.len; i++)
+        pp.iquote_dirs[pp.n_iquote++] = a->iquote_dirs.data[i];
+    /* -isystem dirs come AFTER -I and before the builtin chain; they
+     * live at the front of the system list so classification (system
+     * headers, -MM, warning suppression) sees them as system dirs. */
+    for (i = 0; i < a->isystem_dirs.len; i++)
+        pp.system_dirs[pp.n_system++] = a->isystem_dirs.data[i];
     if (!a->nostdinc) {
         /* Our shipped freestanding headers (stddef.h et al.) come FIRST —
          * glibc's own headers include them and gcc likewise places its own
@@ -665,7 +704,22 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
             PP_MAX_DIRS - pp.n_system);
     }
 
-    sf = pp_source_load(&pp, a->input);
+    if (strcmp(job->path, "-") == 0) {
+        Buf sb;
+
+        if (!read_stdin(&sb)) {
+            fprintf(stderr, "cgfried: error: cannot read stdin\n");
+            intern_free(&interner);
+            pp_loc_free(&pp.loc);
+            strmap_free(&pp.macros);
+            return CGF_EXIT_IO;
+        }
+        sf =
+            pp_source_add_buffer(&pp, "<stdin>", (const char *)sb.data, sb.len);
+        buf_free(&sb);
+    } else {
+        sf = pp_source_load(&pp, job->path);
+    }
     if (!sf) {
         intern_free(&interner);
         pp_loc_free(&pp.loc);
@@ -675,9 +729,10 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     cmdline = build_cmdline_file(&pp, a);
     pp_begin(&pp, sf, cmdline);
 
-    if (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
-        a->dump_init || a->syntax_only || a->emit_ir || a->emit_mir ||
-        a->emit_asm || a->compile_obj || a->link_exe) {
+    if (!job->pp_only &&
+        (a->dump_tokens || a->dump_ast || a->dump_sema || a->dump_layout ||
+         a->dump_init || a->syntax_only || a->emit_ir || a->emit_mir ||
+         a->emit_asm || a->compile_obj || a->link_exe)) {
         /* Phase 5-7: collect the pp-token stream, convert, dump. */
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
@@ -717,8 +772,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                 sema_install_renderer();
                 sema_init(&sema, arena, dc, &interner, &lang,
                           cgf_target_host());
-                /* gcc 8's default is -fcommon; gcc 10 flipped it. We
-                 * follow the 2018 parity baseline. */
+                /* -fno-common is the DEFAULT (gcc 10 semantics; the gcc 8
+                 * parity baseline defaulted to -fcommon — Sprint 26
+                 * locked the flip, documented in --help). */
                 sema.fcommon = !a->fno_common;
                 sema_run(&sema, tu);
                 if (a->dump_layout)
@@ -747,10 +803,10 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                     char why[256];
 
                     if (m && !ir_verify_report(dc, m, why, sizeof(why))) {
-                        const char *dump = cgf_env("CGF_DUMP_BAD_IR");
+                        const char *dump_path = cgf_env("CGF_DUMP_BAD_IR");
 
-                        if (dump) {
-                            FILE *df = fopen(dump, "wb");
+                        if (dump_path) {
+                            FILE *df = fopen(dump_path, "wb");
 
                             if (df) {
                                 ir_print_module(df, m);
@@ -760,7 +816,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                         }
                         CGF_ICE("lowering produced IR the verifier "
                                 "rejects for '%s' (%s)",
-                                a->input, why);
+                                job->path, why);
                     }
                     if (m && a->emit_mir) {
                         int rc = emit_mir_print(arena, dc, m);
@@ -768,7 +824,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                         (void)rc;
                     } else if (m &&
                                (a->emit_asm || a->compile_obj || a->link_exe)) {
-                        int rc = run_emit_asm(arena, dc, m, a);
+                        int rc = run_emit_asm(arena, dc, m, a, job);
 
                         if (rc != CGF_EXIT_OK) {
                             PpTokVecD_free(&collected);
@@ -779,7 +835,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                             return rc;
                         }
                     } else if (m) {
-                        int rc = emit_ir_print(arena, dc, m, a->input);
+                        int rc = emit_ir_print(arena, dc, m, job->path);
 
                         (void)rc;
                     }
@@ -796,31 +852,31 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 
     while (pp_next(&pp, &t)) {
         if (dump) {
-            FileId f;
+            FileId fid;
             u32 line, col;
 
-            pp_loc_resolve(&pp.loc, t.loc, &f, &line, &col);
+            pp_loc_resolve(&pp.loc, t.loc, &fid, &line, &col);
             printf("%s %s %s:%u:%u%s%s\n", pp_tok_kind_name((PpTokKind)t.kind),
-                   t.spelling, pp.files[f - 1]->path, (unsigned)line,
+                   t.spelling, pp.files[fid - 1]->path, (unsigned)line,
                    (unsigned)col, (t.flags & PPTOK_F_BOL) ? " BOL" : "",
                    (t.flags & PPTOK_F_SPACE) ? " SPACE" : "");
         } else {
             if (!first && (t.flags & PPTOK_F_BOL)) {
-                putchar('\n');
+                buf_push_u8(job->pp_text, '\n');
             } else if (!first) {
                 /* Explicit spacing, or gcc's avoid-paste rule: adjacent
                  * tokens that would re-lex as one must stay two. */
                 if ((t.flags & PPTOK_F_SPACE) ||
                     pp_tokens_would_merge(&pp, &prev_tok, &t))
-                    putchar(' ');
+                    buf_push_u8(job->pp_text, ' ');
             }
-            fputs(t.spelling, stdout);
+            buf_printf(job->pp_text, "%s", t.spelling);
             prev_tok = t;
             first = false;
         }
     }
     if (!dump && !first)
-        putchar('\n');
+        buf_push_u8(job->pp_text, '\n');
     if (a->dump_macros)
         pp_dump_macros(&pp);
     if (dump_guard) {
@@ -839,6 +895,126 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
+/* ---- product naming ------------------------------------------------- */
+
+/* <base>.<ext> in the CURRENT directory (gcc drops the source dir), from
+ * the input's basename with its last extension replaced. */
+static void product_path(const char *src, char ext, char *out, size_t sz)
+{
+    const char *base = strrchr(src, '/');
+    const char *dot;
+    size_t n;
+
+    base = base ? base + 1 : src;
+    dot = strrchr(base, '.');
+    n = dot && dot != base ? (size_t)(dot - base) : strlen(base);
+    snprintf(out, sz, "%.*s.%c", (int)n, base, ext);
+}
+
+/* ---- introspection -------------------------------------------------- */
+
+static int print_prog_name(const DriverArgs *a)
+{
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    const char *name = a->print_prog;
+    char resolved[4096];
+
+    /* as/ld go through the CGF_* routing first — the answer is the tool
+     * the driver would actually exec. */
+    if (strcmp(name, "as") == 0 && !tc.error && tc.as_path)
+        name = tc.as_path;
+    else if (strcmp(name, "ld") == 0 && tc.ld_path)
+        name = tc.ld_path;
+    if (cgf_which(name, resolved, sizeof(resolved)))
+        printf("%s\n", resolved);
+    else
+        printf("%s\n", a->print_prog); /* verbatim echo-back */
+    return CGF_EXIT_OK;
+}
+
+static int print_file_name(const DriverArgs *a)
+{
+    char probe[4096], crtdiag[256];
+    const char *crtdir;
+    size_t i;
+
+    for (i = 0; i < a->lib_dirs.len; i++) {
+        snprintf(probe, sizeof(probe), "%s/%s", a->lib_dirs.data[i],
+                 a->print_file);
+        if (access(probe, R_OK) == 0) {
+            printf("%s\n", probe);
+            return CGF_EXIT_OK;
+        }
+    }
+    crtdir = cgf_probe_crt_dir(crtdiag, sizeof(crtdiag));
+    if (crtdir) {
+        snprintf(probe, sizeof(probe), "%s/%s", crtdir, a->print_file);
+        if (access(probe, R_OK) == 0) {
+            printf("%s\n", probe);
+            return CGF_EXIT_OK;
+        }
+    }
+    printf("%s\n", a->print_file); /* autoconf relies on the echo-back */
+    return CGF_EXIT_OK;
+}
+
+static int print_search_dirs(void)
+{
+    char dir[4096], crtdiag[256];
+    const char *crtdir = cgf_probe_crt_dir(crtdiag, sizeof(crtdiag));
+    bool have_exe = cgf_exe_relative("", dir, sizeof(dir));
+
+    /* Truthful, not gcc-shaped: these are the only places the driver
+     * actually looks today (Sprint 27 deepens the library side). */
+    printf("install: %s/\n", have_exe ? dir : ".");
+    printf("programs: %s\n", have_exe ? dir : ".");
+    printf("libraries: %s\n", crtdir ? crtdir : "");
+    return CGF_EXIT_OK;
+}
+
+/* Shell-quoted argv on one line — the -v/-### contract. Every arg is
+ * double-quoted (gcc's -### shape); embedded quotes get backslashes. */
+static void echo_argv(const char *const argv[])
+{
+    int i;
+
+    for (i = 0; argv[i]; i++) {
+        const char *p = argv[i];
+
+        if (i)
+            fputc(' ', stderr);
+        fputc('"', stderr);
+        for (; *p; p++) {
+            if (*p == '"' || *p == '\\')
+                fputc('\\', stderr);
+            fputc(*p, stderr);
+        }
+        fputc('"', stderr);
+    }
+    fputc('\n', stderr);
+}
+
+/* The internal compile step printed as a REAL re-invocation: the line
+ * `"cgfried" "-S" "t.c" "-o" "t.s"` reproduces the step by itself. */
+static void echo_compile_step(const char *mode, const char *src,
+                              const char *out)
+{
+    const char *argv[6];
+    int n = 0;
+
+    argv[n++] = cgf_toolchain_argv0();
+    argv[n++] = mode;
+    argv[n++] = src;
+    if (out) {
+        argv[n++] = "-o";
+        argv[n++] = out;
+    }
+    argv[n] = NULL;
+    echo_argv(argv);
+}
+
+/* ---- driver_main ---------------------------------------------------- */
+
 int driver_main(int argc, char **argv)
 {
     static const Span no_span = {0};
@@ -846,6 +1022,7 @@ int driver_main(int argc, char **argv)
     DiagCtx *dc;
     DriverArgs a;
     int status = CGF_EXIT_OK;
+    size_t k;
 
     if (argc < 2) {
         fprintf(stderr, "usage: cgfried [options] file...\n");
@@ -855,65 +1032,327 @@ int driver_main(int argc, char **argv)
 
     arena_init(&arena);
     dc = diag_ctx_new(&arena);
-    a = args_parse(argc, argv);
+    a = args_parse(&arena, argc, argv);
     diag_set_max_errors(dc, a.max_errors);
 
+    /* Flag-parse warnings first (they never stop the build). */
+    if (!a.no_warnings)
+        for (k = 0; k < a.warn_unrecognized.len; k++)
+            fprintf(stderr,
+                    "cgfried: warning: unrecognized command-line option "
+                    "'%s'\n",
+                    a.warn_unrecognized.data[k]);
+
     if (a.unknown_opt) {
-        diag_emit(dc, DIAG_ERROR, no_span, "unknown option '%s'",
-                  a.unknown_opt);
+        if (a.suggest[0])
+            diag_emit(dc, DIAG_ERROR, no_span,
+                      "unrecognized command-line option '%s'; did you mean "
+                      "'%s'?",
+                      a.unknown_opt, a.suggest);
+        else
+            diag_emit(dc, DIAG_ERROR, no_span,
+                      "unrecognized command-line option '%s'", a.unknown_opt);
         status = CGF_EXIT_COMPILE;
     } else if (a.missing_arg) {
         diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",
                   a.missing_arg);
         status = CGF_EXIT_COMPILE;
     } else if (a.bad_value) {
-        diag_emit(dc, DIAG_ERROR, no_span,
-                  "option '%s' needs a non-negative integer", a.bad_value);
+        diag_emit(dc, DIAG_ERROR, no_span, "invalid value for option '%s'",
+                  a.bad_value);
         status = CGF_EXIT_COMPILE;
-    } else if (a.too_many) {
+    } else if (a.rsp_error) {
+        diag_emit(dc, DIAG_ERROR, no_span, "%s", a.rsp_error);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.deferred) {
+        diag_emit(dc, DIAG_ERROR, no_span, "option '%s' %s", a.deferred,
+                  a.deferred_sprint);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.stdin_no_x) {
         diag_emit(dc, DIAG_ERROR, no_span,
-                  "too many '%s' options (fixed cap until Sprint 26)",
-                  a.too_many);
+                  "reading from stdin ('-') requires -x c");
+        status = CGF_EXIT_COMPILE;
+    } else if (a.o_multi_conflict) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "cannot specify -o with -c, -S or -E with multiple files");
         status = CGF_EXIT_COMPILE;
     } else if (a.show_help) {
-        fputs(help_text, stdout);
+        for (k = 0; k < CGF_ARRAY_LEN(help_text); k++)
+            fputs(help_text[k], stdout);
     } else if (a.show_version) {
         printf("cgfried %s (%s)\n", CGF_VERSION,
                cgf_target_name(cgf_target_host()));
     } else if (a.show_dumpversion) {
         printf("%s\n", CGF_VERSION);
-    } else if (a.extra_input) {
-        diag_emit(dc, DIAG_ERROR, no_span,
-                  "only one input file is supported for now ('%s' and '%s' "
-                  "given)",
-                  a.input, a.extra_input);
-        status = CGF_EXIT_COMPILE;
-    } else if (a.input) {
-        size_t ilen = strlen(a.input);
-
-        cgf_ice_set_input(a.input);
-        if (a.emit_ir || a.emit_mir || a.emit_asm || a.compile_obj) {
-            /* .cgfir goes straight to the IR parser; anything else runs
-             * the whole C pipeline and lowers (Sprint 18). -S / -c
-             * continue through emission (Sprint 24). */
-            if (ilen >= 6 && strcmp(a.input + ilen - 6, ".cgfir") == 0)
-                status = run_emit_ir(&arena, dc, &a);
-            else
-                status = run_preprocess(&arena, dc, &a);
-        } else if (a.mode_E || a.dump_tokens || a.dump_ast || a.dump_sema ||
-                   a.dump_layout || a.dump_init || a.syntax_only) {
-            status = run_preprocess(&arena, dc, &a);
-        } else {
-            /* THE milestone mode (Sprint 25): compile, assemble, link. */
-            a.link_exe = true;
-            status = run_preprocess(&arena, dc, &a);
-        }
-    } else {
-        /* Options only, none of them info options, nothing to do. */
+    } else if (a.show_dumpmachine) {
+        printf("%s\n", cgf_target_name(cgf_target_host()));
+    } else if (a.print_search_dirs) {
+        status = print_search_dirs();
+    } else if (a.print_prog) {
+        status = print_prog_name(&a);
+    } else if (a.print_file) {
+        status = print_file_name(&a);
+    } else if (a.inputs.len == 0) {
         fprintf(stderr, "cgfried: no input files\n");
         status = CGF_EXIT_COMPILE;
-    }
+    } else {
+        bool stop_mode = a.mode_E || a.emit_asm || a.compile_obj ||
+                         a.syntax_only || a.dump_tokens || a.dump_ast ||
+                         a.dump_sema || a.dump_layout || a.dump_init ||
+                         a.emit_ir || a.emit_mir;
+        bool any_fail = false;
+        VecStr temp_objs = {0};
+        FILE *eout = NULL;
+        const char *final_out = a.output ? a.output : "a.out";
 
+        a.link_exe = !stop_mode;
+        cgf_toolchain_set_echo(a.verbose);
+
+        if (a.mode_E && a.output && !a.dry_run) {
+            eout = fopen(a.output, "wb");
+            if (!eout) {
+                fprintf(stderr, "cgfried: error: cannot write '%s'\n",
+                        a.output);
+                status = CGF_EXIT_IO;
+                goto done;
+            }
+        }
+
+        /* Every TU is attempted even after one errors (gcc parity: the
+         * user sees all their diagnostics); link is skipped if any
+         * failed. */
+        for (k = 0; k < a.inputs.len; k++) {
+            DriverInput *in = &a.inputs.data[k];
+            CompileJob job;
+            char out_buf[512];
+            int rc = CGF_EXIT_OK;
+
+            memset(&job, 0, sizeof(job));
+            job.path = in->path;
+            job.kind = (InputKind)in->kind;
+            cgf_ice_set_input(in->path);
+
+            if (in->kind == IN_LINK) {
+                if (!a.link_exe && !a.no_warnings)
+                    fprintf(stderr,
+                            "cgfried: warning: %s: linker input file unused "
+                            "because linking is not done\n",
+                            in->path);
+                continue;
+            }
+            if (in->kind == IN_CGFIR) {
+                if (a.emit_ir || a.emit_mir) {
+                    rc = a.dry_run ? CGF_EXIT_OK
+                                   : run_emit_ir(&arena, dc, &a, &job);
+                } else {
+                    fprintf(stderr,
+                            "cgfried: error: %s: .cgfir input needs -emit-ir "
+                            "or -emit-mir\n",
+                            in->path);
+                    rc = CGF_EXIT_COMPILE;
+                }
+                if (rc != CGF_EXIT_OK) {
+                    any_fail = true;
+                    if (status == CGF_EXIT_OK)
+                        status = rc;
+                }
+                continue;
+            }
+            if (in->kind == IN_ASM && (a.mode_E || a.emit_asm)) {
+                /* Nothing in this mode consumes a .s input. */
+                if (!a.no_warnings)
+                    fprintf(stderr, "cgfried: warning: %s: input file unused\n",
+                            in->path);
+                continue;
+            }
+
+            /* Where does this input's product land? */
+            if (a.mode_E || a.syntax_only || a.dump_tokens || a.dump_ast ||
+                a.dump_sema || a.dump_layout || a.dump_init || a.emit_ir ||
+                a.emit_mir) {
+                job.out = NULL;
+            } else if (a.emit_asm) {
+                if (a.output)
+                    snprintf(out_buf, sizeof(out_buf), "%s", a.output);
+                else
+                    product_path(in->path, 's', out_buf, sizeof(out_buf));
+                job.out = out_buf;
+            } else if (a.compile_obj) {
+                if (a.output)
+                    snprintf(out_buf, sizeof(out_buf), "%s", a.output);
+                else
+                    product_path(in->path, 'o', out_buf, sizeof(out_buf));
+                job.out = out_buf;
+            } else {
+                /* Link mode: a deterministic temp object per input. */
+                snprintf(out_buf, sizeof(out_buf), "%s.cgf.%zu.o", final_out,
+                         k);
+                job.out = out_buf;
+            }
+
+            if (a.dry_run) {
+                /* -###: print the plan, run nothing. */
+                if (a.mode_E) {
+                    echo_compile_step("-E", in->path, a.output);
+                } else if (job.out == NULL) {
+                    /* dump/-fsyntax-only shapes: one internal step. */
+                    echo_compile_step("-fsyntax-only", in->path, NULL);
+                } else if (in->kind == IN_ASM) {
+                    cgf_echo_as_plan(in->path, job.out);
+                } else if (a.emit_asm) {
+                    echo_compile_step("-S", in->path, job.out);
+                } else {
+                    char s_tmp[528];
+
+                    snprintf(s_tmp, sizeof(s_tmp), "%s.cgf.s", job.out);
+                    echo_compile_step("-S", in->path, s_tmp);
+                    cgf_echo_as_plan(s_tmp, job.out);
+                }
+                if (job.out && !a.emit_asm && !a.mode_E && a.link_exe &&
+                    in->link_slot >= 0) {
+                    size_t n = strlen(job.out);
+                    char *dup = arena_alloc(&arena, n + 1, 1);
+
+                    memcpy(dup, job.out, n + 1);
+                    a.link_inputs.data[in->link_slot].val = dup;
+                }
+                continue;
+            }
+
+            if (in->kind == IN_ASM) {
+                /* Assemble a user .s: assembler diagnostics are the
+                 * user's diagnostics (exit 1, never an ICE). */
+                ToolResult res = cgf_run_assembler(in->path, job.out, NULL);
+
+                rc = cgf_tool_exit_code(TOOL_AS, &res, true);
+                if (res.kind == TOOL_SPAWN_FAILED) {
+                    fprintf(stderr, "cgfried: error: %s\n",
+                            cgf_tool_missing_hint(TOOL_AS));
+                    rc = CGF_EXIT_IO;
+                }
+            } else if (in->kind == IN_ASM_PP || a.mode_E) {
+                /* Preprocess to text; .S then assembles it. */
+                Buf text;
+
+                buf_init(&text);
+                job.pp_text = &text;
+                job.pp_only = true;
+                if (a.verbose)
+                    echo_compile_step("-E", in->path, NULL);
+                rc = run_preprocess(&arena, dc, &a, &job);
+                if (rc == CGF_EXIT_OK && a.mode_E) {
+                    FILE *dst = eout ? eout : stdout;
+
+                    fwrite(text.data, 1, text.len, dst);
+                } else if (rc == CGF_EXIT_OK && in->kind == IN_ASM_PP &&
+                           a.emit_asm) {
+                    /* -S on a .S: the preprocessed text IS the product. */
+                    FILE *sf = fopen(job.out, "wb");
+
+                    if (!sf) {
+                        fprintf(stderr, "cgfried: error: cannot write '%s'\n",
+                                job.out);
+                        rc = CGF_EXIT_IO;
+                    } else {
+                        fwrite(text.data, 1, text.len, sf);
+                        fclose(sf);
+                    }
+                } else if (rc == CGF_EXIT_OK && in->kind == IN_ASM_PP) {
+                    char s_tmp[528];
+                    FILE *sf;
+
+                    snprintf(s_tmp, sizeof(s_tmp), "%s.cgf.s", job.out);
+                    sf = fopen(s_tmp, "wb");
+                    if (!sf) {
+                        fprintf(stderr, "cgfried: error: cannot write '%s'\n",
+                                s_tmp);
+                        rc = CGF_EXIT_IO;
+                    } else {
+                        ToolResult res;
+
+                        fwrite(text.data, 1, text.len, sf);
+                        fclose(sf);
+                        res = cgf_run_assembler(s_tmp, job.out, NULL);
+                        rc = cgf_tool_exit_code(TOOL_AS, &res, true);
+                        if (res.kind == TOOL_SPAWN_FAILED) {
+                            fprintf(stderr, "cgfried: error: %s\n",
+                                    cgf_tool_missing_hint(TOOL_AS));
+                            rc = CGF_EXIT_IO;
+                        }
+                        if (rc == CGF_EXIT_OK)
+                            unlink(s_tmp);
+                    }
+                }
+                buf_free(&text);
+            } else {
+                if (a.verbose && job.out) {
+                    /* The internal step really is compile-to-.s; the
+                     * assembler echoes its own line. */
+                    if (a.emit_asm) {
+                        echo_compile_step("-S", in->path, job.out);
+                    } else {
+                        char s_tmp[528];
+
+                        snprintf(s_tmp, sizeof(s_tmp), "%s.cgf.s", job.out);
+                        echo_compile_step("-S", in->path, s_tmp);
+                    }
+                }
+                rc = run_preprocess(&arena, dc, &a, &job);
+            }
+
+            if (rc == CGF_EXIT_OK && a.link_exe && in->link_slot >= 0) {
+                /* The object claims its argv position in the link line. */
+                size_t n = strlen(job.out);
+                char *dup = arena_alloc(&arena, n + 1, 1);
+
+                memcpy(dup, job.out, n + 1);
+                a.link_inputs.data[in->link_slot].val = dup;
+                VecStr_push(&temp_objs, dup);
+            }
+            if (rc != CGF_EXIT_OK) {
+                any_fail = true;
+                if (status == CGF_EXIT_OK)
+                    status = rc;
+            }
+        }
+        if (eout)
+            fclose(eout);
+
+        if (a.link_exe && !any_fail && a.link_inputs.len > 0) {
+            LinkRequest lr;
+            ToolResult lres;
+            int rc;
+
+            memset(&lr, 0, sizeof(lr));
+            lr.arena = &arena;
+            lr.out = final_out;
+            lr.inputs = a.link_inputs.data;
+            lr.n_inputs = a.link_inputs.len;
+            lr.lib_dirs = a.lib_dirs.data;
+            lr.n_lib_dirs = a.lib_dirs.len;
+            lr.static_link = a.static_link;
+            lr.nostdlib = a.nostdlib;
+            lr.nostartfiles = a.nostartfiles;
+            lr.nodefaultlibs = a.nodefaultlibs;
+            if (a.dry_run) {
+                cgf_echo_ld_plan(&lr);
+            } else {
+                lres = cgf_run_linker2(&lr);
+                rc = cgf_tool_exit_code(TOOL_LD, &lres, false);
+                if (rc != CGF_EXIT_OK && status == CGF_EXIT_OK)
+                    status = rc;
+            }
+        } else if (a.link_exe && a.link_inputs.len == 0 && !any_fail) {
+            /* All inputs consumed by warnings (e.g. only unused .s). */
+            fprintf(stderr, "cgfried: no input files\n");
+            status = CGF_EXIT_COMPILE;
+        }
+        for (k = 0; k < temp_objs.len; k++)
+            unlink(temp_objs.data[k]);
+        VecStr_free(&temp_objs);
+    }
+done:
+    args_free(&a);
     arena_free_all(&arena);
     return status;
 }

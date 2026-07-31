@@ -9,15 +9,51 @@
 #include <unistd.h>
 
 #include "diag.h"
+#include "driver/args.h"
 #include "driver/driver.h"
+
+#include "util/arena.h"
 
 extern char **environ;
 
 static const char *g_argv0;
+static bool g_echo; /* -v: print each subprocess argv before running */
 
 void cgf_toolchain_set_argv0(const char *argv0)
 {
     g_argv0 = argv0;
+}
+
+const char *cgf_toolchain_argv0(void)
+{
+    return g_argv0 ? g_argv0 : "cgfried";
+}
+
+void cgf_toolchain_set_echo(bool verbose)
+{
+    g_echo = verbose;
+}
+
+/* Shell-quoted argv on one line to stderr — the -v/-### contract shape
+ * (every arg double-quoted, embedded quotes/backslashes escaped). */
+static void echo_argv_line(const char *const argv[])
+{
+    int i;
+
+    for (i = 0; argv[i]; i++) {
+        const char *p = argv[i];
+
+        if (i)
+            fputc(' ', stderr);
+        fputc('"', stderr);
+        for (; *p; p++) {
+            if (*p == '"' || *p == '\\')
+                fputc('\\', stderr);
+            fputc(*p, stderr);
+        }
+        fputc('"', stderr);
+    }
+    fputc('\n', stderr);
 }
 
 /* The ONLY place any CGF_* toolchain variable is read (grep-enforced).
@@ -169,6 +205,8 @@ ToolResult cgf_run_tool(const char *const argv[])
     pid_t pid;
     int rc, status;
 
+    if (g_echo)
+        echo_argv_line(argv);
     memset(&res, 0, sizeof(res));
     /* No file actions: stdout/stderr inherited on purpose (see header). */
     rc = posix_spawnp(&pid, argv[0], NULL, NULL, (char *const *)argv, environ);
@@ -289,6 +327,8 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
     argv[an++] = o_path;
     argv[an] = NULL;
 
+    if (g_echo)
+        echo_argv_line(argv);
     if (pipe(pipefd) != 0)
         CGF_ICE("pipe for assembler capture failed: %s", strerror(errno));
     posix_spawn_file_actions_init(&fa);
@@ -403,52 +443,154 @@ const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
     return NULL;
 }
 
-/* ld -o out crt1.o crti.o obj -lc crtn.o -dynamic-linker ... -L<dir>.
- * Linker stdio is INHERITED (its diagnostics are already good); failure
- * maps to exit 2 at the driver. CGF_LD=1 (afs-ld) still hard-errors
- * naming Sprint 27; CGF_LD_PATH picks the binary. */
-ToolResult cgf_run_linker(const char *obj_path, const char *out_path)
+/* Builds one arena string "<a><b>". */
+static const char *joined2(struct Arena *ar, const char *a, const char *b)
+{
+    size_t la = strlen(a), lb = strlen(b);
+    char *s = arena_alloc(ar, la + lb + 1, 1);
+
+    memcpy(s, a, la);
+    memcpy(s + la, b, lb + 1);
+    return s;
+}
+
+/* Builds the full ld argv from a LinkRequest, in the Sprint 25 recipe
+ * extended with the Sprint 26 stream: ld [-static] -o out [-L user...]
+ * -L crtdir crt1 crti <inputs IN ORDER: objs / -lNAME / raw> -lc crtn
+ * [-dynamic-linker ...]. -L is hoisted (GNU ld applies all -L to all -l
+ * regardless of position); objects and libs are NOT — position is the
+ * user's archive semantics. NULL-terminated; NULL return = resolution
+ * failure already reported. */
+static const char **build_ld_argv(const LinkRequest *lr)
 {
     ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
-    char crt1[512], crti[512], crtn[512], ldir[520], diag[256];
-    const char *crtdir;
-    const char *argv[12];
-    int n = 0;
-    ToolResult res;
+    char diag[256];
+    const char *crtdir = NULL;
+    const char **argv;
+    size_t cap, n = 0, i;
 
-    memset(&res, 0, sizeof(res));
     if (tc.use_afs_ld) {
         fprintf(stderr, "cgfried: error: CGF_LD=1 (afs-ld) lands in "
                         "Sprint 27; unset it or use CGF_LD_PATH\n");
-        res.kind = TOOL_SPAWN_FAILED;
-        res.spawn_errno = EINVAL;
-        return res;
+        return NULL;
     }
-    crtdir = cgf_probe_crt_dir(diag, sizeof(diag));
-    if (!crtdir) {
-        fprintf(stderr,
-                "cgfried: error: cannot find crt1.o (probed: %s); "
-                "set CGF_CRT_DIR\n",
-                diag);
+    if (!lr->nostdlib && !lr->nostartfiles) {
+        crtdir = cgf_probe_crt_dir(diag, sizeof(diag));
+        if (!crtdir) {
+            fprintf(stderr,
+                    "cgfried: error: cannot find crt1.o (probed: %s); "
+                    "set CGF_CRT_DIR\n",
+                    diag);
+            return NULL;
+        }
+    } else if (!lr->nostdlib && !lr->nodefaultlibs) {
+        crtdir = cgf_probe_crt_dir(diag, sizeof(diag));
+    }
+    cap = 16 + lr->n_inputs + lr->n_lib_dirs;
+    argv = arena_alloc(lr->arena, cap * sizeof(*argv), sizeof(void *));
+    argv[n++] = tc.ld_path;
+    if (lr->static_link)
+        argv[n++] = "-static";
+    argv[n++] = "-o";
+    argv[n++] = lr->out;
+    for (i = 0; i < lr->n_lib_dirs; i++)
+        argv[n++] = joined2(lr->arena, "-L", lr->lib_dirs[i]);
+    if (crtdir)
+        argv[n++] = joined2(lr->arena, "-L", crtdir);
+    if (!lr->nostdlib && !lr->nostartfiles) {
+        argv[n++] = joined2(lr->arena, crtdir, "/crt1.o");
+        argv[n++] = joined2(lr->arena, crtdir, "/crti.o");
+    }
+    for (i = 0; i < lr->n_inputs; i++) {
+        const struct LinkInput *li = &lr->inputs[i];
+
+        if (!li->val)
+            continue; /* a TU that never produced its object */
+        if (li->kind == LINK_LIB)
+            argv[n++] = joined2(lr->arena, "-l", li->val);
+        else
+            argv[n++] = li->val;
+    }
+    if (!lr->nostdlib && !lr->nodefaultlibs)
+        argv[n++] = "-lc";
+    if (!lr->nostdlib && !lr->nostartfiles)
+        argv[n++] = joined2(lr->arena, crtdir, "/crtn.o");
+    if (!lr->static_link) {
+        argv[n++] = "-dynamic-linker";
+        argv[n++] = "/lib64/ld-linux-x86-64.so.2";
+    }
+    argv[n] = NULL;
+    return argv;
+}
+
+ToolResult cgf_run_linker2(const LinkRequest *lr)
+{
+    const char **argv = build_ld_argv(lr);
+    ToolResult res;
+
+    if (!argv) {
+        memset(&res, 0, sizeof(res));
         res.kind = TOOL_SPAWN_FAILED;
         res.spawn_errno = ENOENT;
         return res;
     }
-    snprintf(crt1, sizeof(crt1), "%s/crt1.o", crtdir);
-    snprintf(crti, sizeof(crti), "%s/crti.o", crtdir);
-    snprintf(crtn, sizeof(crtn), "%s/crtn.o", crtdir);
-    snprintf(ldir, sizeof(ldir), "-L%s", crtdir);
-    argv[n++] = tc.ld_path;
+    return cgf_run_tool((const char *const *)argv);
+}
+
+void cgf_echo_ld_plan(const LinkRequest *lr)
+{
+    const char **argv = build_ld_argv(lr);
+
+    if (argv)
+        echo_argv_line((const char *const *)argv);
+}
+
+void cgf_echo_as_plan(const char *s_path, const char *o_path)
+{
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    const char *argv[6];
+    int n = 0;
+
+    argv[n++] = tc.error ? "as" : tc.as_path;
+    if (!tc.error && tc.use_afs_as)
+        argv[n++] = "--64";
+    argv[n++] = s_path;
     argv[n++] = "-o";
-    argv[n++] = out_path;
-    argv[n++] = crt1;
-    argv[n++] = crti;
-    argv[n++] = obj_path;
-    argv[n++] = "-lc";
-    argv[n++] = crtn;
-    argv[n++] = "-dynamic-linker";
-    argv[n++] = "/lib64/ld-linux-x86-64.so.2";
-    argv[n++] = ldir;
+    argv[n++] = o_path;
     argv[n] = NULL;
-    return cgf_run_tool(argv);
+    echo_argv_line(argv);
+}
+
+/* PATH walk for -print-prog-name=; a name containing '/' probes
+ * directly. */
+bool cgf_which(const char *name, char *out, size_t out_size)
+{
+    const char *path, *p;
+
+    if (strchr(name, '/')) {
+        if (access(name, X_OK) != 0)
+            return false;
+        if ((size_t)snprintf(out, out_size, "%s", name) >= out_size)
+            return false;
+        return true;
+    }
+    path = getenv("PATH");
+    if (!path)
+        return false;
+    p = path;
+    for (;;) {
+        const char *colon = strchr(p, ':');
+        size_t len = colon ? (size_t)(colon - p) : strlen(p);
+        int n;
+
+        if (len == 0)
+            n = snprintf(out, out_size, "./%s", name);
+        else
+            n = snprintf(out, out_size, "%.*s/%s", (int)len, p, name);
+        if (n > 0 && (size_t)n < out_size && access(out, X_OK) == 0)
+            return true;
+        if (!colon)
+            return false;
+        p = colon + 1;
+    }
 }
