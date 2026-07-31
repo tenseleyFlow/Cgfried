@@ -1,0 +1,50 @@
+# Sprint 26 driver differential matrix: one row per flag soup, run
+# against BOTH gcc and cgf with identical argv in a fresh scratch dir.
+#
+# Format: TAGS|arg arg arg...
+#   F  compare exit status (zero/nonzero) and the SET of files created
+#   D  depfile-to-stdout row: compare normalized stdout bytes
+#   G  depfile-to-file row: compare the named/derived .d file normalized
+#   R  run the produced ./prog and compare its exit code
+#   P  append -### and compare the subcommand-class sequence
+#      (compile/assemble/link) plus the link-input order tokens
+#   E  both drivers must FAIL (nonzero exit); nothing else compared
+#   C  cgf-only row (documented gcc divergence or no oracle): assert
+#      cgf's own contract — exit 0 unless E
+#
+# A '~' inside an arg stands for a space (the file "sp ace.h" and quoted
+# -MQ targets). Sources are created by driver_matrix.sh: main.c includes
+# hdr.h; dep.c includes hdr.h and "sp ace.h"; pre.h defines PREV=13;
+# weird.txt is C text; rsp files per rows 23-24.
+F|-c main.c
+F|-c main.c aux.c
+F|-S main.c
+F|-c main.c -o custom.o
+E|-c main.c aux.c -o x.o
+F|main.c aux.c -o prog
+FR|main.c -o prog
+D|-M dep.c
+D|-MM dep.c
+D|-MM -MP dep.c
+D|-MM -MT a$b dep.c
+D|-MM -MQ a$b dep.c
+D|-MM -MQ sp~ace dep.c
+D|-MM -MT t1 -MT t2 dep.c
+G|-MMD -c dep.c
+G|-MMD -MP -c dep.c
+G|-MD -c dep.c -o out.o
+G|-MM -MF dep.out dep.c
+E|-bogus main.c
+C|-fbogus -c main.c
+F|-Wno-bogus -c main.c
+FR|-DX=41 -UX -DX=42 xmain.c -o prog
+FR|-include pre.h imain.c -o prog
+F|@rsp_c.txt
+FR|@rsp_outer.txt
+P|main.c aux.o -lm -o prog
+P|-c main.c
+P|-E main.c
+P|-S main.c
+E|-std=bogus main.c
+F|-E main.c -o out.i
+CR|-x c weird.txt -o prog

@@ -161,6 +161,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    > $(BUILD)/corpus-spill.log 2>&1; s=$$?; \
 	    tail -1 $(BUILD)/corpus-spill.log; exit $$s
 	$(AS_LANE) sh scripts/e2e_gcc_diff.sh $(BUILD)/cgfried
+	$(AS_LANE) CGF_DRIVER_MATRIX_WORK=$(BUILD)/driver-matrix \
+	    sh scripts/driver_matrix.sh $(BUILD)/cgfried
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried

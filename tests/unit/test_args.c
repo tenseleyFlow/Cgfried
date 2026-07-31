@@ -1,0 +1,456 @@
+#include <stdio.h>
+#include <string.h>
+
+#include "driver/driver.h"
+#include "unit.h"
+#include "util/arena.h"
+
+/* Sprint 26 args_parse units: pure except the response-file tests, which
+ * write their fixture files under build/. Every ARG_EITHER flag is
+ * exercised in both forms; the unknown-flag policy has one assertion per
+ * documented row. */
+
+#define PARSE(a, ar, ...)                                                      \
+    do {                                                                       \
+        static char *t_argv[] = {(char *)"cgf", __VA_ARGS__};                  \
+        a = args_parse(ar, (int)CGF_ARRAY_LEN(t_argv), t_argv);                \
+    } while (0)
+
+void test_args_joined_vs_separate(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-Idir1", (char *)"-I", (char *)"dir2",
+          (char *)"-DFOO=1", (char *)"-D", (char *)"BAR", (char *)"-Ldl",
+          (char *)"-L", (char *)"dl2", (char *)"-lm", (char *)"-l", (char *)"c",
+          (char *)"-ofile.o", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, (int)a.include_dirs.len, 2);
+    T_ASSERT_EQ_STR(t, a.include_dirs.data[0], "dir1");
+    T_ASSERT_EQ_STR(t, a.include_dirs.data[1], "dir2");
+    T_ASSERT_EQ_INT(t, (int)a.defs.len, 2);
+    T_ASSERT_EQ_STR(t, a.defs.data[0].val, "FOO=1");
+    T_ASSERT_EQ_STR(t, a.defs.data[1].val, "BAR");
+    T_ASSERT_EQ_INT(t, (int)a.lib_dirs.len, 2);
+    T_ASSERT_EQ_INT(t, (int)a.link_inputs.len, 3); /* -lm, -lc, t.c's slot */
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[0].kind, LINK_LIB);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[0].val, "m");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[1].kind, LINK_LIB);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[1].val, "c");
+    T_ASSERT_EQ_STR(t, a.output, "file.o");
+    T_ASSERT(t, !a.unknown_opt && !a.missing_arg);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_either_forms_mf_mt_mq_x_b(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-MFdep.d", (char *)"-MT", (char *)"tgt",
+          (char *)"-MQa$b", (char *)"-xc", (char *)"-Bpfx", (char *)"-B",
+          (char *)"pfx2", (char *)"-iquoteqd", (char *)"-isystem", (char *)"sd",
+          (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.dep_file, "dep.d");
+    T_ASSERT_EQ_INT(t, (int)a.dep_targets.len, 2);
+    T_ASSERT_EQ_STR(t, a.dep_targets.data[0], "tgt");
+    T_ASSERT_EQ_STR(t, a.dep_targets.data[1], "a$$b"); /* -MQ pre-quoted */
+    T_ASSERT_EQ_INT(t, (int)a.prefix_dirs.len, 2);
+    T_ASSERT_EQ_INT(t, (int)a.iquote_dirs.len, 1);
+    T_ASSERT_EQ_INT(t, (int)a.isystem_dirs.len, 1);
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 1);
+    T_ASSERT_EQ_INT(t, a.inputs.data[0].kind, IN_C);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+/* THE pitfall: -o consumes the next argv even if it looks like a flag. */
+void test_args_o_eats_flaglike(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-o", (char *)"-v", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.output, "-v");
+    T_ASSERT(t, !a.verbose);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_du_order_preserved(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-DX", (char *)"-UX", (char *)"-DX=2", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, (int)a.defs.len, 3);
+    T_ASSERT(t, !a.defs.data[0].is_undef);
+    T_ASSERT(t, a.defs.data[1].is_undef);
+    T_ASSERT(t, !a.defs.data[2].is_undef);
+    T_ASSERT_EQ_STR(t, a.defs.data[2].val, "X=2");
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+/* The four unknown-flag policy rows. */
+void test_args_unknown_policy(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    /* -Wno-<unknown>: silently accepted (recorded for Sprint 37). */
+    PARSE(a, &ar, (char *)"-Wno-bogus-thing", (char *)"t.c");
+    T_ASSERT(t, !a.unknown_opt);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 1);
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[0].name, "no-bogus-thing");
+    args_free(&a);
+
+    /* -W<unknown> and -f<unknown>: warning, continue. */
+    PARSE(a, &ar, (char *)"-Wbogus", (char *)"-fbogus", (char *)"t.c");
+    T_ASSERT(t, !a.unknown_opt);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 2);
+    T_ASSERT_EQ_STR(t, a.warn_unrecognized.data[0], "-Wbogus");
+    T_ASSERT_EQ_STR(t, a.warn_unrecognized.data[1], "-fbogus");
+    args_free(&a);
+
+    /* -W<known> stays silent. */
+    PARSE(a, &ar, (char *)"-Wall", (char *)"-Wextra", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 2);
+    args_free(&a);
+
+    /* Any other unknown: error, with a suggestion when close. */
+    PARSE(a, &ar, (char *)"-dumpversio", (char *)"t.c");
+    T_ASSERT(t, a.unknown_opt != NULL);
+    T_ASSERT_EQ_STR(t, a.unknown_opt, "-dumpversio");
+    T_ASSERT_EQ_STR(t, a.suggest, "-dumpversion");
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_o_multi_conflict(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-c", (char *)"-o", (char *)"x.o", (char *)"a.c",
+          (char *)"b.c");
+    T_ASSERT(t, a.o_multi_conflict);
+    args_free(&a);
+
+    /* Link inputs do not count: -c a.c b.o -o x.o is legal. */
+    PARSE(a, &ar, (char *)"-c", (char *)"-o", (char *)"x.o", (char *)"a.c",
+          (char *)"b.o");
+    T_ASSERT(t, !a.o_multi_conflict);
+    args_free(&a);
+
+    /* Linking with -o and many inputs is of course fine. */
+    PARSE(a, &ar, (char *)"-o", (char *)"p", (char *)"a.c", (char *)"b.c");
+    T_ASSERT(t, !a.o_multi_conflict);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_x_none_restores(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-x", (char *)"c", (char *)"weird.txt", (char *)"-x",
+          (char *)"none", (char *)"obj.whatever", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 3);
+    T_ASSERT_EQ_INT(t, a.inputs.data[0].kind, IN_C);    /* forced */
+    T_ASSERT_EQ_INT(t, a.inputs.data[1].kind, IN_LINK); /* restored */
+    T_ASSERT_EQ_INT(t, a.inputs.data[2].kind, IN_C);
+    args_free(&a);
+
+    /* Bad -x value errors; stdin without -x errors naming -x. */
+    PARSE(a, &ar, (char *)"-x", (char *)"fortran", (char *)"t.c");
+    T_ASSERT(t, a.bad_value != NULL);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-");
+    T_ASSERT(t, a.stdin_no_x != NULL);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-x", (char *)"c", (char *)"-");
+    T_ASSERT(t, !a.stdin_no_x);
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 1);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_extension_dispatch(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"a.c", (char *)"b.i", (char *)"c.s", (char *)"d.S",
+          (char *)"e.o", (char *)"f.a", (char *)"g.cgfir", (char *)"noext");
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 8);
+    T_ASSERT_EQ_INT(t, a.inputs.data[0].kind, IN_C);
+    T_ASSERT_EQ_INT(t, a.inputs.data[1].kind, IN_CPP_OUT);
+    T_ASSERT_EQ_INT(t, a.inputs.data[2].kind, IN_ASM);
+    T_ASSERT_EQ_INT(t, a.inputs.data[3].kind, IN_ASM_PP);
+    T_ASSERT_EQ_INT(t, a.inputs.data[4].kind, IN_LINK);
+    T_ASSERT_EQ_INT(t, a.inputs.data[5].kind, IN_LINK);
+    T_ASSERT_EQ_INT(t, a.inputs.data[6].kind, IN_CGFIR);
+    T_ASSERT_EQ_INT(t, a.inputs.data[7].kind, IN_LINK);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+/* Position-sensitive link stream: -Wl, comma splits (empty = zero args),
+ * -Xlinker single raw, objects and -l interleave in argv order. */
+void test_args_link_stream_order(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-lm", (char *)"main.o", (char *)"-Wl,-q,-r",
+          (char *)"-Wl,", (char *)"-Xlinker", (char *)"--trace", (char *)"b.c");
+    T_ASSERT_EQ_INT(t, (int)a.link_inputs.len, 6);
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[0].kind, LINK_LIB);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[0].val, "m");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[1].kind, LINK_OBJ);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[1].val, "main.o");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[2].kind, LINK_RAW);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[2].val, "-q");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[3].kind, LINK_RAW);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[3].val, "-r");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[4].kind, LINK_RAW);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[4].val, "--trace");
+    /* b.c's reserved slot is last, val NULL until compiled. */
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[5].kind, LINK_OBJ);
+    T_ASSERT(t, a.link_inputs.data[5].val == NULL);
+    T_ASSERT_EQ_INT(t, a.inputs.data[1].link_slot, 5);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_last_one_wins(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-O2", (char *)"-O", (char *)"-Os", (char *)"-O3",
+          (char *)"-std=c99", (char *)"-std=gnu11", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_O3);
+    T_ASSERT_EQ_INT(t, a.std, 6); /* STD_GNU11 */
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-O", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_O1);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-O7", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_O3); /* clamps, gcc parity */
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_deferred_flags(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-g", (char *)"t.c");
+    T_ASSERT(t, a.deferred && strcmp(a.deferred, "-g") == 0);
+    T_ASSERT(t, strstr(a.deferred_sprint, "Sprint 29") != NULL);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-shared", (char *)"t.c");
+    T_ASSERT(t, a.deferred && strcmp(a.deferred, "-shared") == 0);
+    T_ASSERT(t, strstr(a.deferred_sprint, "Sprint 51") != NULL);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-fPIC", (char *)"t.c");
+    T_ASSERT(t, a.deferred && strcmp(a.deferred, "-fPIC") == 0);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-flto", (char *)"t.c");
+    T_ASSERT(t, a.deferred && strstr(a.deferred_sprint, "v0.1.0") != NULL);
+    args_free(&a);
+    /* -fomit-frame-pointer: warn+ignore, never an error. */
+    PARSE(a, &ar, (char *)"-fomit-frame-pointer", (char *)"t.c");
+    T_ASSERT(t, !a.deferred);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 1);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_dep_family(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-M", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.dep_mode, DEP_M);
+    T_ASSERT(t, a.mode_E); /* -M implies -E */
+    T_ASSERT(t, !a.dep_side);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-MMD", (char *)"-MP", (char *)"-c", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.dep_mode, DEP_MM);
+    T_ASSERT(t, a.dep_side);
+    T_ASSERT(t, a.dep_phony);
+    T_ASSERT(t, !a.mode_E); /* -MD/-MMD do NOT imply -E */
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+/* The Make-quoting table rows from the sprint file. */
+void test_args_make_quote_table(TestCtx *t)
+{
+    Arena ar;
+
+    arena_init(&ar);
+    T_ASSERT_EQ_STR(t, cgf_make_quote(&ar, "a$b"), "a$$b");
+    T_ASSERT_EQ_STR(t, cgf_make_quote(&ar, "a b"), "a\\ b");
+    T_ASSERT_EQ_STR(t, cgf_make_quote(&ar, "a#b"), "a\\#b");
+    /* backslash-before-space doubles, then the space escapes. */
+    T_ASSERT_EQ_STR(t, cgf_make_quote(&ar, "a\\ b"), "a\\\\\\ b");
+    T_ASSERT_EQ_STR(t, cgf_make_quote(&ar, "plain"), "plain");
+    arena_free_all(&ar);
+}
+
+static void write_file(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "wb");
+
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+void test_args_response_files(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    write_file("build/t_args_rsp1.txt",
+               "-DRSP=1 'sp aced.c' -I \"quo ted\"\n@build/t_args_rsp2.txt");
+    write_file("build/t_args_rsp2.txt", "-O2 esc\\ aped.c");
+    PARSE(a, &ar, (char *)"@build/t_args_rsp1.txt", (char *)"t.c");
+    T_ASSERT(t, !a.rsp_error);
+    T_ASSERT_EQ_INT(t, (int)a.defs.len, 1);
+    T_ASSERT_EQ_STR(t, a.defs.data[0].val, "RSP=1");
+    T_ASSERT_EQ_INT(t, (int)a.include_dirs.len, 1);
+    T_ASSERT_EQ_STR(t, a.include_dirs.data[0], "quo ted");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_O2); /* from the nested file */
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 3);
+    T_ASSERT_EQ_STR(t, a.inputs.data[0].path, "sp aced.c");
+    T_ASSERT_EQ_STR(t, a.inputs.data[1].path, "esc aped.c");
+    T_ASSERT_EQ_STR(t, a.inputs.data[2].path, "t.c");
+    args_free(&a);
+
+    /* An unreadable @file is a LITERAL argument (gcc parity). */
+    PARSE(a, &ar, (char *)"@build/t_args_nonexistent.rsp", (char *)"t.c");
+    T_ASSERT(t, !a.rsp_error);
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 2);
+    T_ASSERT_EQ_STR(t, a.inputs.data[0].path, "@build/t_args_nonexistent.rsp");
+    args_free(&a);
+
+    /* Self-inclusion trips the depth cap, never an infinite loop. */
+    write_file("build/t_args_rsp_loop.txt", "@build/t_args_rsp_loop.txt");
+    PARSE(a, &ar, (char *)"@build/t_args_rsp_loop.txt");
+    T_ASSERT(t, a.rsp_error != NULL);
+    T_ASSERT_EQ_STR(t, a.rsp_error, "response files nested too deeply");
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_std_aliases(TestCtx *t)
+{
+    static const struct {
+        const char *v;
+        int std;
+    } rows[] = {
+        {"c89", 0},   {"c90", 0},   {"iso9899:1990", 0}, {"iso9899:199409", 0},
+        {"c99", 1},   {"c9x", 1},   {"c11", 2},          {"c1x", 2},
+        {"c17", 3},   {"c18", 3},   {"iso9899:2017", 3}, {"iso9899:2018", 3},
+        {"gnu89", 4}, {"gnu90", 4}, {"gnu99", 5},        {"gnu11", 6},
+        {"gnu17", 7}, {"gnu18", 7},
+    };
+    Arena ar;
+    size_t i;
+
+    arena_init(&ar);
+    for (i = 0; i < CGF_ARRAY_LEN(rows); i++) {
+        DriverArgs a;
+        char flag[64];
+        char *argv[3];
+
+        snprintf(flag, sizeof(flag), "-std=%s", rows[i].v);
+        argv[0] = (char *)"cgf";
+        argv[1] = flag;
+        argv[2] = (char *)"t.c";
+        a = args_parse(&ar, 3, argv);
+        T_ASSERT_EQ_INT(t, a.std, rows[i].std);
+        args_free(&a);
+    }
+    {
+        DriverArgs a;
+        char *argv[3] = {(char *)"cgf", (char *)"-std=c++17", (char *)"t.c"};
+
+        a = args_parse(&ar, 3, argv);
+        T_ASSERT(t, a.bad_value != NULL);
+        args_free(&a);
+    }
+    arena_free_all(&ar);
+}
+
+void test_args_separate_only_include(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    /* -include is SEPARATE-only: the joined spelling is unknown (with a
+     * suggestion), exactly as gcc treats it. */
+    PARSE(a, &ar, (char *)"-include", (char *)"pre.h", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, (int)a.pre_includes.len, 1);
+    T_ASSERT_EQ_STR(t, a.pre_includes.data[0], "pre.h");
+    T_ASSERT(t, !a.unknown_opt);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-includepre.h", (char *)"t.c");
+    T_ASSERT(t, a.unknown_opt != NULL);
+    args_free(&a);
+    /* -Xlinker likewise consumes exactly the next argv. */
+    PARSE(a, &ar, (char *)"-Xlinker", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, (int)a.link_inputs.len, 1);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[0].val, "t.c");
+    T_ASSERT_EQ_INT(t, (int)a.inputs.len, 0);
+    args_free(&a);
+    /* Missing value at argv end. */
+    PARSE(a, &ar, (char *)"-l");
+    T_ASSERT(t, a.missing_arg != NULL);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_warn_routing(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-w", (char *)"-Werror", (char *)"-Werror=shadow",
+          (char *)"-pedantic-errors", (char *)"t.c");
+    T_ASSERT(t, a.no_warnings);
+    T_ASSERT(t, a.werror);
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 1);
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[0].name, "error=shadow");
+    T_ASSERT(t, a.pedantic && a.pedantic_errors);
+    args_free(&a);
+    arena_free_all(&ar);
+}
