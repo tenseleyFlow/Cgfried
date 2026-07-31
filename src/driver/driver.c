@@ -110,8 +110,10 @@ static const char *const help_text[] = {
     "  CGF_AS            unset/1: use bundled afs-as (default); 0: system "
     "'as'\n"
     "  CGF_AS_PATH       use exactly this assembler (wins over CGF_AS)\n"
-    "  CGF_LD            unset/0: use system 'ld' (default); 1: afs-ld "
-    "(Sprint 27)\n"
+    "  CGF_LD            unset/0: use system 'ld' (default); 1: bundled\n"
+    "                    afs-ld (-static ELF links are the supported\n"
+    "                    lane; dynamic links are EXPERIMENTAL — data\n"
+    "                    imports need COPY relocations, a later rung)\n"
     "  CGF_LD_PATH       use exactly this linker (wins over CGF_LD)\n"
     "  CGF_CRT_DIR       crt object discovery override\n"
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
@@ -133,6 +135,16 @@ typedef struct {
     Buf *dep_text;          /* non-NULL: the -M depfile lands here */
     const char *dep_target; /* default depfile target (no -MT/-MQ given) */
 } CompileJob;
+
+/* fwrite of a possibly-empty Buf: glibc declares fwrite's first arg
+ * nonnull, so an empty Buf (data NULL, len 0) is UB — the recurring
+ * zero-length-UB family (F-S26-FWRITE0; UBSan on CI's glibc caught it
+ * on an empty -E output, the local glibc's headers did not). */
+static void buf_fwrite(const Buf *b, FILE *f)
+{
+    if (b->len)
+        fwrite(b->data, 1, b->len, f);
+}
 
 /* One line per token, stable and greppable: golden --dump-tokens files
  * assert on these. Constants print their CLASSIFIED type, which is the
@@ -1294,18 +1306,18 @@ int driver_main(int argc, char **argv)
                                     a.dep_file);
                             rc = CGF_EXIT_IO;
                         } else {
-                            fwrite(deps.data, 1, deps.len, df);
+                            buf_fwrite(&deps, df);
                             fclose(df);
                         }
                     } else {
                         FILE *dst = eout ? eout : stdout;
 
-                        fwrite(deps.data, 1, deps.len, dst);
+                        buf_fwrite(&deps, dst);
                     }
                 } else if (rc == CGF_EXIT_OK && a.mode_E) {
                     FILE *dst = eout ? eout : stdout;
 
-                    fwrite(text.data, 1, text.len, dst);
+                    buf_fwrite(&text, dst);
                 } else if (rc == CGF_EXIT_OK && in->kind == IN_ASM_PP &&
                            a.emit_asm) {
                     /* -S on a .S: the preprocessed text IS the product. */
@@ -1316,7 +1328,7 @@ int driver_main(int argc, char **argv)
                                 job.out);
                         rc = CGF_EXIT_IO;
                     } else {
-                        fwrite(text.data, 1, text.len, sf);
+                        buf_fwrite(&text, sf);
                         fclose(sf);
                     }
                 } else if (rc == CGF_EXIT_OK && in->kind == IN_ASM_PP) {
@@ -1332,7 +1344,7 @@ int driver_main(int argc, char **argv)
                     } else {
                         ToolResult res;
 
-                        fwrite(text.data, 1, text.len, sf);
+                        buf_fwrite(&text, sf);
                         fclose(sf);
                         res = cgf_run_assembler(s_tmp, job.out, NULL);
                         rc = cgf_tool_exit_code(TOOL_AS, &res, true);
@@ -1388,7 +1400,7 @@ int driver_main(int argc, char **argv)
                                 dpath);
                         rc = CGF_EXIT_IO;
                     } else {
-                        fwrite(deps.data, 1, deps.len, df);
+                        buf_fwrite(&deps, df);
                         fclose(df);
                     }
                 }
@@ -1448,6 +1460,14 @@ int driver_main(int argc, char **argv)
                                 "cgfried: error: linker command died with "
                                 "signal %d (use -v to see invocation)\n",
                                 lres.term_signal);
+                    /* Sprint 27: afs-ld's dynamic ELF lane is
+                     * experimental (data imports need COPY relocations,
+                     * a later upstream rung — LD-ELF-001). */
+                    if (!a.static_link &&
+                        cgf_toolchain_resolve(cgf_target_host()).use_afs_ld)
+                        fprintf(stderr, "cgfried: note: afs-ld's dynamic ELF "
+                                        "lane is experimental; retry with "
+                                        "-static or unset CGF_LD\n");
                 }
                 if (rc != CGF_EXIT_OK && status == CGF_EXIT_OK)
                     status = rc;
