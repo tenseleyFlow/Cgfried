@@ -163,6 +163,13 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(AS_LANE) sh scripts/e2e_gcc_diff.sh $(BUILD)/cgfried
 	$(AS_LANE) CGF_DRIVER_MATRIX_WORK=$(BUILD)/driver-matrix \
 	    sh scripts/driver_matrix.sh $(BUILD)/cgfried
+	$(AS_LANE) CGF_AFSLD_WORK=$(BUILD)/afsld-lane \
+	    sh scripts/afsld_lane.sh $(BUILD)/cgfried \
+	    > $(BUILD)/afsld.log 2>&1; s=$$?; \
+	    cat $(BUILD)/afsld.log; exit $$s
+	@if [ -x afs-ld/target/release/afs-ld ]; then p=afsld; \
+	    else p=afsld-notools; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/afsld.log
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried

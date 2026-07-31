@@ -16,7 +16,9 @@
 #      cgf's own contract — exit 0 unless E
 #
 # A '~' inside an arg stands for a space (the file "sp ace.h" and quoted
-# -MQ targets). Sources are created by driver_matrix.sh: main.c includes
+# -MQ targets). The no-index-archive row (-lnoidx) is an agreement-
+# SUCCESS row: modern GNU ld scans index-less archives instead of
+# erroring, and both drivers ride the same ld. Sources are created by driver_matrix.sh: main.c includes
 # hdr.h; dep.c includes hdr.h and "sp ace.h"; pre.h defines PREV=13;
 # weird.txt is C text; rsp files per rows 23-24.
 F|-c main.c
@@ -55,3 +57,6 @@ FR|zmain.o -L. -lzz -o prog
 U|-L. -lzz zmain.o -o prog
 FR|-static main.c -o prog
 N|-static nss.c -o prog
+FR|zmain.o -L. -lempty -lzz -o prog
+E|main.c dupmain.o -o prog
+FR|zmain.o -L. -lnoidx -o prog

@@ -59,9 +59,12 @@ make_srcdir() {
         > "$dir/nss.c"
     # Pre-built objects/archives via gcc (plain ELF inputs; the LINK is
     # what each row exercises).
+    printf 'int main(void) { return 9; }\n' > "$dir/dup.c"
     (cd "$dir" && gcc -c aux.c -o aux.o 2>/dev/null &&
-        gcc -c zz.c -o zz.o && ar rcs libzz.a zz.o && rm zz.o &&
-        gcc -c zmain.c -o zmain.o)
+        gcc -c zz.c -o zz.o && ar rcs libzz.a zz.o &&
+        ar rcS libnoidx.a zz.o && rm zz.o &&
+        ar rcs libempty.a &&
+        gcc -c zmain.c -o zmain.o && gcc -c dup.c -o dupmain.o)
 }
 
 # Unfold continuations, squeeze spaces, drop stdc-predef and each
@@ -115,7 +118,7 @@ norm_plan() {
 files_after() {
     dir=$1
     (cd "$dir" && ls -1 2>/dev/null) | grep -vE \
-        '^(main\.c|hdr\.h|aux\.c|dep\.c|sp ace\.h|pre\.h|imain\.c|xmain\.c|weird\.txt|rsp_c\.txt|rsp_outer\.txt|rsp_inner\.txt|aux\.o|zz\.c|zmain\.c|zmain\.o|libzz\.a|nss\.c)$' |
+        '^(main\.c|hdr\.h|aux\.c|dep\.c|sp ace\.h|pre\.h|imain\.c|xmain\.c|weird\.txt|rsp_c\.txt|rsp_outer\.txt|rsp_inner\.txt|aux\.o|zz\.c|zmain\.c|zmain\.o|libzz\.a|libnoidx\.a|libempty\.a|nss\.c|dup\.c|dupmain\.o)$' |
         sort
 }
 

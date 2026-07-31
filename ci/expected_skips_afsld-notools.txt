@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=afsld test=all count=1 reason="afs-ld not built (make tools); lane not exercised"

@@ -97,15 +97,17 @@ ToolchainConfig cgf_toolchain_resolve_from(ToolchainGetenv fn, void *ctx,
         c.as_path = NULL; /* located by cgf_toolchain_resolve */
     }
 
-    /* Linker: explicit path > mode > default (system ld). */
+    /* Linker: explicit path > mode > default (system ld). Sprint 27:
+     * CGF_LD=1 routes to bundled afs-ld (its supported ELF lane is
+     * -static x86_64; dynamic is experimental — see --help); location
+     * is layered on by cgf_toolchain_resolve, same as afs-as. */
     v = env_override(fn, ctx, "CGF_LD_PATH", NULL);
     if (v) {
         c.ld_path = v;
         c.use_afs_ld = false;
     } else if (strcmp(env_override(fn, ctx, "CGF_LD", "0"), "1") == 0) {
         c.use_afs_ld = true;
-        c.error = "afs-ld linking is not yet supported: Sprint 27";
-        c.error_is_io = false;
+        c.ld_path = NULL; /* located by cgf_toolchain_resolve */
     } else {
         c.ld_path = "ld";
         c.use_afs_ld = false;
@@ -157,7 +159,25 @@ static const char *exe_dir(void)
     return dir;
 }
 
-/* Bundled afs-as discovery: installed layout first, then the dev tree. */
+/* Bundled tool discovery: installed layout first, then the dev tree. */
+static const char *locate_bundled(char *path, size_t path_sz,
+                                  const char *const suffixes[], size_t nsuf)
+{
+    const char *dir = exe_dir();
+    size_t i;
+
+    if (!dir)
+        return NULL;
+    for (i = 0; i < nsuf; i++) {
+        int n = snprintf(path, path_sz, "%s%s", dir, suffixes[i]);
+        if (n < 0 || (size_t)n >= path_sz)
+            continue;
+        if (access(path, X_OK) == 0)
+            return path;
+    }
+    return NULL;
+}
+
 static const char *locate_bundled_as(void)
 {
     static char path[4096];
@@ -165,19 +185,21 @@ static const char *locate_bundled_as(void)
         "/afs-as",                          /* make install layout */
         "/../afs-as/target/release/afs-as", /* dev tree (build/cgfried) */
     };
-    const char *dir = exe_dir();
-    size_t i;
 
-    if (!dir)
-        return NULL;
-    for (i = 0; i < CGF_ARRAY_LEN(suffixes); i++) {
-        int n = snprintf(path, sizeof(path), "%s%s", dir, suffixes[i]);
-        if (n < 0 || (size_t)n >= sizeof(path))
-            continue;
-        if (access(path, X_OK) == 0)
-            return path;
-    }
-    return NULL;
+    return locate_bundled(path, sizeof(path), suffixes,
+                          CGF_ARRAY_LEN(suffixes));
+}
+
+static const char *locate_bundled_ld(void)
+{
+    static char path[4096];
+    static const char *const suffixes[] = {
+        "/afs-ld",                          /* make install layout */
+        "/../afs-ld/target/release/afs-ld", /* dev tree (build/cgfried) */
+    };
+
+    return locate_bundled(path, sizeof(path), suffixes,
+                          CGF_ARRAY_LEN(suffixes));
 }
 
 ToolchainConfig cgf_toolchain_resolve(TargetSpec t)
@@ -193,6 +215,14 @@ ToolchainConfig cgf_toolchain_resolve(TargetSpec t)
         if (!cached.as_path) {
             cached.error = "bundled afs-as not built; run 'make tools' or "
                            "set CGF_AS=0 to use the system assembler";
+            cached.error_is_io = true;
+        }
+    }
+    if (!cached.error && cached.use_afs_ld) {
+        cached.ld_path = locate_bundled_ld();
+        if (!cached.ld_path) {
+            cached.error = "bundled afs-ld not built; run 'make tools' or "
+                           "unset CGF_LD to use the system linker";
             cached.error_is_io = true;
         }
     }
@@ -587,9 +617,9 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     bool want_libs = !da->nostdlib && !da->nodefaultlibs;
     size_t i;
 
-    if (tc.use_afs_ld) {
-        fprintf(stderr, "cgfried: error: CGF_LD=1 (afs-ld) lands later "
-                        "in Sprint 27; unset it or use CGF_LD_PATH\n");
+    if (tc.error) {
+        /* Bundled-tool discovery failed (afs-ld unbuilt, etc). */
+        fprintf(stderr, "cgfried: error: %s\n", tc.error);
         return false;
     }
     if (want_crts || want_libs) {
@@ -610,6 +640,8 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     }
 
     VecStr_push(out, tc.ld_path);
+    if (tc.use_afs_ld)
+        VecStr_push(out, "-melf_x86_64"); /* select its ELF arm */
     if (da->static_link)
         VecStr_push(out, "-static");
     else if (dl) {
@@ -618,6 +650,9 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     }
     VecStr_push(out, "-o");
     VecStr_push(out, outname);
+    /* gcc always passes --eh-frame-hdr; the unwind index costs nothing
+     * for plain C and readelf-structural parity wants it. */
+    VecStr_push(out, "--eh-frame-hdr");
     for (i = 0; i < da->lib_dirs.len; i++)
         VecStr_push(out, joined2(ar, "-L", da->lib_dirs.data[i]));
     if (crtdir)

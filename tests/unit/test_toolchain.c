@@ -85,11 +85,14 @@ void test_toolchain_routing_ld_gate(TestCtx *t)
     FakeEnv empty = {{"CGF_LD_PATH", "CGF_LD", NULL}, {"", "0", NULL}};
     ToolchainConfig c;
 
+    /* Sprint 27: CGF_LD=1 ROUTES now (afs-ld's ELF lane) — the pure
+     * resolver just records the mode; bundled discovery (and the
+     * unbuilt-tool error) layers on in cgf_toolchain_resolve, exactly
+     * like afs-as. */
     c = resolve(&e);
     T_ASSERT(t, c.use_afs_ld);
-    T_ASSERT(t, c.error != NULL);
-    T_ASSERT(t, strstr(c.error, "Sprint 27") != NULL);
-    T_ASSERT(t, !c.error_is_io); /* config gate: exit 1, not I/O */
+    T_ASSERT(t, c.error == NULL);
+    T_ASSERT(t, c.ld_path == NULL); /* located lazily */
 
     c = resolve(&empty);
     T_ASSERT(t, c.error == NULL);
