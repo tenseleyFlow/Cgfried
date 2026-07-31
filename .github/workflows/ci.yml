@@ -93,3 +93,11 @@ jobs:
           cat toolchain.log
           [ $s -eq 0 ]
           sh ci/check_skips.sh toolchain toolchain.log
+      - name: emission differential (Sprint 24, BOTH assembler lanes)
+        run: |
+          make -j"$(nproc)" build/cgfried build/cgf build/cgf-objdiff
+          sh scripts/objdiff_lane.sh build/cgfried build/cgf-objdiff \
+            > objdiff.log 2>&1; s=$?
+          cat objdiff.log
+          [ $s -eq 0 ]
+          sh ci/check_skips.sh objdiff objdiff.log

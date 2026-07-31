@@ -75,5 +75,15 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
+# Sprint 24: no silent assembler workarounds. A "workaround" in emit.c
+# must cite a findings-table row (F-<sprint>-<tag> id) so every gap has
+# an upstream disposition on record.
+hits=$(grep -n 'workaround' src/cg/x86_64/emit.c | grep -v 'F-S[0-9]' || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: emit.c workaround without a findings-table ID:" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
 [ "$status" -eq 0 ] && echo "check_bans: clean"
 exit "$status"

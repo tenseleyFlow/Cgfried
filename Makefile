@@ -35,6 +35,7 @@ FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ
 # The layout differential's generator: emits random structs whose layout
 # gcc then certifies via _Static_assert built from OUR numbers.
 GENLAYOUT_OBJ := $(BUILD)/tests/tools/gen_layout.o $(LIB_OBJ)
+OBJDIFF_OBJ := $(BUILD)/tests/tools/objdiff.o
 # The float differential's printer: softfp only, no compiler, no host FPU.
 FPDIFF_OBJ := $(BUILD)/tests/tools/fpdiff.o $(BUILD)/src/util/softfp.o \
               $(BUILD)/src/util/bigint.o
@@ -92,6 +93,9 @@ $(BUILD)/fuzz_frontend: $(sort $(FEFUZZ_OBJ))
 $(BUILD)/gen_layout: $(sort $(GENLAYOUT_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(GENLAYOUT_OBJ))
 
+$(BUILD)/cgf-objdiff: $(sort $(OBJDIFF_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(OBJDIFF_OBJ))
+
 $(BUILD)/fpdiff: $(sort $(FPDIFF_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(FPDIFF_OBJ))
 
@@ -128,6 +132,14 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    cat $(BUILD)/programs.log; exit $$s
 	sh ci/check_skips.sh linux-x86_64 $(BUILD)/programs.log
 	sh scripts/spill_all_lane.sh $(BUILD)/cgfried
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' $(BUILD)/cgf-objdiff
+	CGF_OBJDIFF_WORK=$(BUILD)/objdiff-work sh scripts/objdiff_lane.sh \
+	    $(BUILD)/cgfried $(BUILD)/cgf-objdiff > $(BUILD)/objdiff.log 2>&1; \
+	    s=$$?; cat $(BUILD)/objdiff.log; exit $$s
+	@if [ -x afs-as/target/release/afs-as ]; then p=objdiff; \
+	    else p=objdiff-gasonly; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/objdiff.log
+	sh scripts/check_as_fault.sh $(BUILD)/cgfried
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried

@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=objdiff test=afs-lane count=1 reason="afs-as not built (make tools); gas contract still ran"
