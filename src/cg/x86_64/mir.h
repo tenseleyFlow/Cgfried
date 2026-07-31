@@ -353,4 +353,14 @@ void x64_twoaddr_fixup(X64Func *f);
  * N = 8 * (pushes_after_rbp mod 2) (mod 16). */
 u32 x64_frame_align_pad(u32 pushes_after_rbp, u32 raw_bytes);
 
+/* --- Sprint 24: AT&T emission ----------------------------------------------
+ */
+
+/* Post-RA MIR -> gas-assemblable text. fidx namespaces the .Lf<i>_<n>
+ * local labels (determinism across runs); linkage picks .globl/.local. */
+void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
+                       u8 linkage, Buf *out);
+/* Globals: Sprint 19 byte images + reloc lists, emitted numerically. */
+void x64_emit_globals(const IrModule *m, Buf *out);
+
 #endif
