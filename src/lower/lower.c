@@ -487,6 +487,8 @@ static void lower_function(Lower *lo, AstNode *def)
                     ptypes, nir_params);
     lo->fn->variadic = ft->variadic;
     lo->fn->abi_ret = aret.ir_abi;
+    if (sym->linkage == LINK_INTERNAL)
+        lo->fn->linkage = IRLINK_INTERNAL;
     if (any_annot) {
         lo->fn->param_annots =
             arena_alloc(lo->m->arena, nir_params * sizeof(u64), _Alignof(u64));

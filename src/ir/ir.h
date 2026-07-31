@@ -337,6 +337,8 @@ typedef struct IrFunc {
     const char *name; /* interned */
     u8 ret;           /* IrType */
     u8 abi_ret;       /* IrAbiRet */
+    u8 linkage;       /* IrLinkage (Sprint 24: .globl vs .local emission);
+                         defaults EXTERNAL, printed ` internal` otherwise */
     bool variadic;    /* printed as ', ...' after the last parameter */
     /* The blunt setjmp policy (Sprint 20): a function that CALLS
      * setjmp/sigsetjmp/_setjmp compiles with every local memory-pinned

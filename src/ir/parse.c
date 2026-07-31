@@ -1272,6 +1272,7 @@ static bool parse_func(P *p)
     bool any_annot = false;
     u32 nparams = 0;
     bool variadic = false;
+    bool internal_marker = false;
     bool setjmp_marker = false;
     u8 abi_ret = IR_ABIRET_NONE;
     IrFunc *f;
@@ -1331,6 +1332,10 @@ static bool parse_func(P *p)
     }
     if (!expect(p, T_RP, "')'"))
         return false;
+    if (tok_is(peek(p), "internal")) {
+        next(p);
+        internal_marker = true;
+    }
     if (tok_is(peek(p), "abi")) {
         Tok *an;
 
@@ -1367,6 +1372,8 @@ static bool parse_func(P *p)
     f = ir_func_new(p->m, tok_name(p, nm), ret, ptypes, nparams);
     f->variadic = variadic;
     f->abi_ret = abi_ret;
+    if (internal_marker)
+        f->linkage = IRLINK_INTERNAL;
     f->calls_setjmp = setjmp_marker;
     if (any_annot) {
         f->param_annots =
