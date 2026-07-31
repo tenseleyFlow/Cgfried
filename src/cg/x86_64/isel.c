@@ -778,9 +778,16 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a = ovreg(a);
             x->b = ovreg(a);
         } else {
+            /* operands BEFORE the consumer emits (the Sprint 21 law,
+             * third strike): an imm64 rhs materializes via movabs, and
+             * emitted after the cmp it lands BETWEEN cmp and its
+             * consumer reading a garbage register. Found by the first
+             * e2e imm64 comparison. */
+            X64Operand rhs = to_src(is, &in->ops[1], w);
+
             x = emit(is, X64_OP_CMP, w);
             x->a = ovreg(a);
-            x->b = to_src(is, &in->ops[1], w);
+            x->b = rhs;
         }
         is->vals[in->result.v].cc_plus1 = (u8)(cc_of((IrIcmp)in->subop) + 1);
         is->vals[in->result.v].flags_ins = blk(is)->n - 1;
