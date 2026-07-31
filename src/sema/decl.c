@@ -38,6 +38,44 @@ static TagDecl *tag_new(Sema *s, const char *name, TypeKind kind, Span span)
     return tag;
 }
 
+/* The synthesized SysV va_list (see sema.h for the shape's why). Member
+ * names are interned so lowering's pointer-compare member lookup works. */
+Type *sema_va_list_type(Sema *s)
+{
+    static const char *const names[] = {"gp_offset", "fp_offset",
+                                        "overflow_arg_area", "reg_save_area"};
+    Span sp = {0};
+    TagDecl *tag;
+    Member *prev = NULL;
+    Type *arr;
+    int i;
+
+    if (s->va_list_type)
+        return s->va_list_type;
+    tag = tag_new(
+        s,
+        intern_str(s->interner, intern_cstr(s->interner, "__cgf_va_list_rec")),
+        TY_STRUCT, sp);
+    for (i = 3; i >= 0; i--) {
+        Member *m = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
+
+        memset(m, 0, sizeof(*m));
+        m->name = intern_str(s->interner, intern_cstr(s->interner, names[i]));
+        m->type = i < 2 ? type_basic(TY_UINT)
+                        : type_ptr(s->arena, type_basic(TY_VOID));
+        m->next = prev;
+        prev = m;
+    }
+    tag->members = prev;
+    tag->nmembers = 4;
+    tag->complete = true;
+    arr = type_array(s->arena, tag->type);
+    arr->has_size = true;
+    arr->size = 1;
+    s->va_list_type = arr;
+    return arr;
+}
+
 static const char *tag_kw(TypeKind k)
 {
     return k == TY_STRUCT ? "struct" : k == TY_UNION ? "union" : "enum";
@@ -547,6 +585,8 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
         return type_basic(TY_LDOUBLE);
     case ABT_BOOL:
         return type_basic(TY_BOOL);
+    case ABT_VA_LIST:
+        return sema_va_list_type(s);
     case ABT_RECORD:
     case ABT_ENUM: {
         TypeKind kind = at->base == ABT_ENUM                   ? TY_ENUM

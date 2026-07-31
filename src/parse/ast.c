@@ -56,6 +56,8 @@ const char *ast_base_type_name(AstBaseType b)
     switch (b) {
     case ABT_NONE:
         return "int"; /* implicit int */
+    case ABT_VA_LIST:
+        return "__builtin_va_list";
     case ABT_VOID:
         return "void";
     case ABT_CHAR:

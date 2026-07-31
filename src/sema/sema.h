@@ -238,6 +238,9 @@ typedef struct Sema {
      * forbids it defining modifiable static objects or referencing
      * internal linkage — gcc warns; observed and matched. */
     bool cur_inline_candidate;
+    /* The synthesized __builtin_va_list type (Sprint 19): array[1] of
+     * the SysV record — built on first use, one per TU. */
+    Type *va_list_type;
 } Sema;
 
 typedef struct VmDecl {
@@ -476,6 +479,18 @@ void sema_dump(Sema *s, FILE *f);
 void sema_install_renderer(void);
 /* Converts an AST type chain to a semantic Type. Exposed for unit tests. */
 Type *sema_type_from_ast(Sema *s, const AstType *at, Span span);
+
+/* The __builtin_va_list type: `struct { unsigned gp_offset, fp_offset;
+ * void *overflow_arg_area, *reg_save_area; }[1]` — an ARRAY type, so it
+ * decays when passed (the classic va_list portability trap, on purpose:
+ * matching the psABI exactly is what makes our va_list interoperable). */
+Type *sema_va_list_type(Sema *s);
+
+/* Builtin markers sema leaves on an AST_EXPR_CALL's `op` field for
+ * lowering (ordinary calls leave op zero). */
+#define SEMA_BUILTIN_VA_START 0x7001
+#define SEMA_BUILTIN_VA_END 0x7002
+#define SEMA_BUILTIN_VA_COPY 0x7003
 
 /* Every deferred path routes through here so the grep in the sprint's DoD
  * finds them all: the message ALWAYS names the sprint that lands it. */

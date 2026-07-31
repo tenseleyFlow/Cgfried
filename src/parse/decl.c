@@ -492,12 +492,12 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 goto consumed;
             case KW_ALT_BUILTIN_VA_LIST:
                 /* Lexed as a KEYWORD by the Sprint 8 table, so it never
-                 * reaches the identifier path below — and our own shipped
-                 * <stdarg.h> is the first thing that lands here. */
-                parse_error(p, t,
-                            "'__builtin_va_list' is not yet supported (the "
-                            "compiler builtins land in Sprint 28)");
-                s->bad = true;
+                 * reaches the identifier path below — our own shipped
+                 * <stdarg.h> lands here. A compiler-provided type
+                 * specifier since Sprint 19 (pulled forward from the
+                 * Sprint 28 builtin family: varargs lowering needed it). */
+                s->n_other++;
+                s->other_base = ABT_VA_LIST;
                 goto consumed;
             case KW_ATTRIBUTE:
             case KW_ATTRIBUTE2:
@@ -593,9 +593,19 @@ bool parse_at_decl_specs(Parser *p)
 {
     const Token *t = parse_peek(p);
 
-    if (t->kind == TOK_IDENT)
+    if (t->kind == TOK_IDENT) {
+        /* The va_* builtins are FUNCTIONS in expression position, not
+         * types (Sprint 19) — every other __builtin_ name still routes
+         * to the declaration path for its honest deferral. */
+        if (parse_is_builtin_name(t->spelling) &&
+            (strcmp(t->spelling, "__builtin_va_start") == 0 ||
+             strcmp(t->spelling, "__builtin_va_arg") == 0 ||
+             strcmp(t->spelling, "__builtin_va_end") == 0 ||
+             strcmp(t->spelling, "__builtin_va_copy") == 0))
+            return false;
         return parse_is_typedef_name(p, t->spelling) ||
                parse_is_builtin_name(t->spelling);
+    }
     if (t->kind != TOK_KEYWORD)
         return false;
     switch ((Keyword)t->kw) {

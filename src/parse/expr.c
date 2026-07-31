@@ -118,11 +118,28 @@ static AstNode *parse_primary_expr(Parser *p)
         p->pos++;
         return n;
     case TOK_IDENT:
-        /* A `__builtin_*` name in expression position is compiler magic
-         * we have not implemented; letting it become an ordinary
-         * identifier would turn a missing feature into a link error much
-         * later. Defer loudly, naming the sprint. */
-        if (parse_is_builtin_name(t->spelling)) {
+        /* `__builtin_va_arg(ap, type)` needs its own form: the second
+         * "argument" is a TYPE NAME, which no ordinary call can carry.
+         * (Sprint 19 — the rest of the va_* family parses as normal
+         * calls and sema recognizes the names.) */
+        if (strcmp(t->spelling, "__builtin_va_arg") == 0) {
+            n = expr_new(p, AST_EXPR_VA_ARG, t->span);
+            p->pos++;
+            parse_expect_punct(p, PUNCT_LPAREN, "after '__builtin_va_arg'");
+            n->lhs = parse_assign_expr(p);
+            parse_expect_punct(p, PUNCT_COMMA,
+                               "between va_arg's list and type");
+            n->type = parse_type_name(p);
+            parse_expect_punct(p, PUNCT_RPAREN, "after the va_arg type");
+            return n;
+        }
+        /* The other va builtins are ordinary call syntax; every OTHER
+         * `__builtin_*` name is compiler magic we have not implemented —
+         * defer loudly, naming the sprint. */
+        if (parse_is_builtin_name(t->spelling) &&
+            strcmp(t->spelling, "__builtin_va_start") != 0 &&
+            strcmp(t->spelling, "__builtin_va_end") != 0 &&
+            strcmp(t->spelling, "__builtin_va_copy") != 0) {
             parse_error(p, t,
                         "'%s' is not yet supported (the compiler builtins "
                         "land in Sprint 28)",

@@ -672,10 +672,46 @@ static AstNode *expr_index(Sema *s, AstNode *e)
 
 static AstNode *expr_call(Sema *s, AstNode *e)
 {
-    AstNode *callee = conv_decay(s, expr(s, e->lhs));
+    AstNode *callee;
     Type *ft;
     u32 i;
     const char *callee_name = NULL;
+
+    /* The va_* builtins are not declared functions — recognize the names
+     * BEFORE ordinary resolution would call them undeclared. Arguments
+     * are typed and decayed (a va_list is an ARRAY and decays to the
+     * record pointer, which is exactly what lowering wants); the marker
+     * on `op` is what lowering dispatches on. */
+    if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name) {
+        u16 b = 0;
+        u32 want = 0;
+
+        if (strcmp(e->lhs->name, "__builtin_va_start") == 0) {
+            b = SEMA_BUILTIN_VA_START;
+            want = 2;
+        } else if (strcmp(e->lhs->name, "__builtin_va_end") == 0) {
+            b = SEMA_BUILTIN_VA_END;
+            want = 1;
+        } else if (strcmp(e->lhs->name, "__builtin_va_copy") == 0) {
+            b = SEMA_BUILTIN_VA_COPY;
+            want = 2;
+        }
+        if (b) {
+            if (e->nargs != want) {
+                err(s, e->span, "'%s' takes exactly %u argument%s",
+                    e->lhs->name, want, want == 1 ? "" : "s");
+                return poison(s, e);
+            }
+            for (i = 0; i < e->nargs; i++)
+                e->args[i] = conv_decay(s, expr(s, e->args[i]));
+            e->op = b;
+            e->sem_type = type_basic(TY_VOID);
+            e->is_lvalue = false;
+            return e;
+        }
+    }
+
+    callee = conv_decay(s, expr(s, e->lhs));
 
     e->lhs = callee;
     if (quiet(callee, NULL)) {
@@ -945,6 +981,17 @@ static AstNode *expr(Sema *s, AstNode *e)
     }
     case AST_EXPR_GENERIC:
         return expr_generic(s, e);
+    case AST_EXPR_VA_ARG: {
+        /* __builtin_va_arg(ap, T): the value is a T rvalue; ap types and
+         * decays (array va_list -> record pointer). Checking that ap
+         * really is a va_list is deliberately loose — glibc's macros
+         * pass both the array and its decayed pointer, and the SysV
+         * record address is the same either way. */
+        e->lhs = conv_decay(s, expr(s, e->lhs));
+        e->sem_type = sema_type_from_ast(s, e->type, e->span);
+        e->is_lvalue = false;
+        return e;
+    }
     case AST_EXPR_COMPOUND_LIT: {
         Type *t = sema_type_from_ast(s, e->type, e->span);
 

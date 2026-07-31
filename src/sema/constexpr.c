@@ -1012,12 +1012,16 @@ static void fill_record(InitCtx *c, Type *t, AstNode *init, u64 off)
      * dropping the last initializer. */
     while (m && m->is_bitfield && !m->name)
         m = m->next;
-    for (k = 0; k < init->nitems && m; k++) {
+    for (k = 0; k < init->nitems; k++) {
         AstNode *item = init->items[k];
 
         if (!item)
             continue;
-        /* A field designator repositions to that member. */
+        /* A field designator repositions to that member — INCLUDING when
+         * the running cursor already walked off the end: `{.z = a,
+         * .x = b}` re-aims at x after z exhausted the list. (The cursor
+         * used to gate the loop, silently dropping the re-aimed item;
+         * found by Sprint 19's init planner sharing this shape.) */
         if (item->ndesignators > 0 && item->designators[0] &&
             item->designators[0]->desig_is_field) {
             Member *it;
@@ -1028,6 +1032,8 @@ static void fill_record(InitCtx *c, Type *t, AstNode *init, u64 off)
                     break;
                 }
         }
+        if (!m)
+            break; /* excess undesignated initializers: sema warned */
         if (m->is_bitfield) {
             i64 bv;
 

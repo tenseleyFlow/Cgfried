@@ -52,6 +52,8 @@ typedef enum AstKind {
     AST_GENERIC_ASSOC,
     AST_EXPR_COMPOUND_LIT, /* (type){ init } */
     AST_EXPR_PAREN,
+    AST_EXPR_VA_ARG, /* __builtin_va_arg(lhs, type) — the one call-like
+                        form whose second argument is a TYPE (Sprint 19) */
 
     /* Statements (C11 6.8). */
     AST_STMT_COMPOUND, /* { items... } */
@@ -92,7 +94,9 @@ typedef enum AstKind {
 
 /* The canonical type named by a specifier multiset (C11 6.7.2p2). */
 typedef enum AstBaseType {
-    ABT_NONE, /* no type specifier: implicit int */
+    ABT_NONE,    /* no type specifier: implicit int */
+    ABT_VA_LIST, /* __builtin_va_list — sema synthesizes the SysV record
+                    array type (Sprint 19) */
     ABT_VOID,
     ABT_CHAR,
     ABT_SCHAR,
