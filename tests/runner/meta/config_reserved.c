@@ -1,4 +1,4 @@
-// ASM_CHECK(x86_64-linux-gnu): mov
+// OPT_EQ: -O0 -O1
 int main(void)
 {
     return 0;

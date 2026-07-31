@@ -266,7 +266,7 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
         bool matched = false;
 
         if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK &&
-            dir->kind != DIR_MIR_CHECK)
+            dir->kind != DIR_MIR_CHECK && dir->kind != DIR_ASM_CHECK)
             continue; /* IR_CHECK-NOT is judged by find_forbidden */
         while (cursor < out->len && !matched) {
             size_t eol = cursor;
@@ -398,14 +398,17 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                             bool quiet)
 {
     char *binpath;
+    char *spath;
     SpawnResult comp;
     Outcome out = OUT_FAIL;
     bool pp_mode = false;
+    bool s_mode = false;
     SavedEnv *saved_env;
     size_t saved_n;
 
     binpath =
         aprintf(&r->arena, "build/test-work/%s_%s.bin", t->suite, t->name);
+    spath = aprintf(&r->arena, "build/test-work/%s_%s.s", t->suite, t->name);
 
     /* .cgfir fixtures go through `cgf -emit-ir` (parse -> verify ->
      * reprint); the compiler's stdout is the result under test, matched
@@ -520,6 +523,12 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                         strcmp(piece, "-emit-ir") == 0 ||
                         strcmp(piece, "-emit-mir") == 0)
                         pp_mode = true;
+                    /* -S writes a FILE; the runner reads it back as
+                     * the result under test (ASM_CHECK matches it). */
+                    if (strcmp(piece, "-S") == 0) {
+                        pp_mode = true;
+                        s_mode = true;
+                    }
                     if (n >= 28) {
                         if (!quiet)
                             printf("FAIL %s: too many FLAGS\n", id);
@@ -531,7 +540,10 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
             }
         }
         argv[n++] = t->path;
-        if (!pp_mode) {
+        if (s_mode) {
+            argv[n++] = (char *)"-o";
+            argv[n++] = spath;
+        } else if (!pp_mode) {
             argv[n++] = (char *)"-o";
             argv[n++] = binpath;
         }
@@ -622,8 +634,26 @@ have_compile:
                 print_detail("compiler stderr", &comp.err);
             }
         } else {
-            const Directive *miss = match_checks(ds, &comp.out);
-            const Directive *hit = find_forbidden(ds, &comp.out);
+            const Directive *miss;
+            const Directive *hit;
+
+            if (s_mode) {
+                /* -S wrote a file: THAT text is the result under test. */
+                size_t alen = 0;
+                char *atext = read_file(&r->arena, spath, &alen);
+
+                if (!atext) {
+                    if (!quiet)
+                        printf("FAIL %s: -S produced no output file\n", id);
+                    spawn_result_free(&comp);
+                    return OUT_FAIL;
+                }
+                buf_free(&comp.out);
+                buf_init(&comp.out);
+                buf_append(&comp.out, atext, alen);
+            }
+            miss = match_checks(ds, &comp.out);
+            hit = find_forbidden(ds, &comp.out);
             if (miss) {
                 if (!quiet) {
                     printf("FAIL %s: CHECK not matched in order (line %u): "

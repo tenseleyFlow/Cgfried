@@ -49,7 +49,7 @@ expect big_stderr.c 0 "pass=1"
 expect binary_out.c 0 "pass=1"
 expect config_unknown_directive.c 1 "CONFIG ERROR"
 expect config_unknown_selector.c 1 "unknown target selector"
-expect config_reserved.c 1 "Sprint 24"
+expect config_reserved.c 1 "Sprint 30"
 expect ir_check_pass.cgfir 0 "pass=1"
 expect mir_check_pass.c 0 "pass=1"
 # F-S22-MIRCHECK: MIR_CHECK was parsed and silently dropped through all

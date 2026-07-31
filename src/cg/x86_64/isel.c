@@ -2216,7 +2216,10 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     }
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
-        CGF_ICE("x86_64 isel: '%s' isel lands in Sprint 24",
+        /* lock-prefixed forms; retargeted from the old Sprint 24 guess
+         * when emission landed there without them (the staged atomic
+         * exec fixtures unskip at Sprint 25, which owns this). */
+        CGF_ICE("x86_64 isel: '%s' isel lands in Sprint 25",
                 ir_op_name((IrOp)in->op));
     default:
         CGF_ICE("x86_64 isel: unhandled IR op %u", in->op);
