@@ -8,15 +8,83 @@
 
 static char wname(u8 w)
 {
-    return w == 1 ? 'b' : w == 2 ? 'w' : w == 4 ? 'l' : 'q';
+    return w == 1 ? 'b' : w == 2 ? 'w' : w == 4 ? 'l' : w == 10 ? 't' : 'q';
 }
 
 static const char *const op_names[] = {
-    "mov", "movabs", "movzx", "movsx",      "lea",       "add",          "sub",
-    "and", "or",     "xor",   "imul",       "neg",       "not",          "shl",
-    "shr", "sar",    "cmp",   "test",       "setcc",     "cqo",          "idiv",
-    "div", "load",   "store", "jmp",        "jcc",       "jmptbl",       "ret",
-    "ud2", "push",   "pop",   "alloca_dyn", "stacksave", "stackrestore",
+    "mov",
+    "movabs",
+    "movzx",
+    "movsx",
+    "lea",
+    "add",
+    "sub",
+    "and",
+    "or",
+    "xor",
+    "imul",
+    "neg",
+    "not",
+    "shl",
+    "shr",
+    "sar",
+    "cmp",
+    "test",
+    "setcc",
+    "cqo",
+    "idiv",
+    "div",
+    "load",
+    "store",
+    "jmp",
+    "jcc",
+    "jmptbl",
+    "ret",
+    "ud2",
+    "push",
+    "pop",
+    "alloca_dyn",
+    "stacksave",
+    "stackrestore",
+    /* Sprint 23: SSE2 scalar FP */
+    "fmov",
+    "fload",
+    "fstore",
+    "fadd",
+    "fsub",
+    "fmul",
+    "fdiv",
+    "ucomi",
+    "cvtf2i",
+    "cvti2f",
+    "cvtf2f",
+    "fxorm",
+    "fandm",
+    "movqxr",
+    "movqrx",
+    /* calls + arg/varargs markers */
+    "call",
+    "readreg",
+    "argld",
+    "arglea",
+    "vastart",
+    /* x87 (f80 only; load-op-store, locally balanced) */
+    "fld",
+    "fstp",
+    "fild",
+    "fistp",
+    "faddp",
+    "fsubp",
+    "fsubrp",
+    "fmulp",
+    "fdivp",
+    "fdivrp",
+    "fchs",
+    "fabs",
+    "fucomip",
+    "fpop",
+    "fnstcw",
+    "fldcw",
 };
 
 _Static_assert(sizeof(op_names) / sizeof(op_names[0]) == X64_OP_COUNT,
@@ -24,8 +92,10 @@ _Static_assert(sizeof(op_names) / sizeof(op_names[0]) == X64_OP_COUNT,
 
 /* Encoding-order names; post-RA operands print as registers. */
 static const char *const reg_names[X64_REG_COUNT] = {
-    "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-    "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",
+    "rax",  "rcx",  "rdx",   "rbx",   "rsp",   "rbp",   "rsi",   "rdi",
+    "r8",   "r9",   "r10",   "r11",   "r12",   "r13",   "r14",   "r15",
+    "xmm0", "xmm1", "xmm2",  "xmm3",  "xmm4",  "xmm5",  "xmm6",  "xmm7",
+    "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
 };
 
 const char *x64_reg_name(u8 reg)
@@ -51,8 +121,14 @@ static void pmem(Buf *out, const X64Func *f, const X64Mem *m)
         buf_printf(out, "]");
         return;
     }
+    if (m->cpool) {
+        buf_printf(out, "const%u]", m->cpool - 1);
+        return;
+    }
     if (m->base.v)
         preg(out, f, m->base);
+    else if (m->rsp_rel)
+        buf_printf(out, "out");
     else
         buf_printf(out, "frame");
     if (m->index.v) {
@@ -113,9 +189,12 @@ void x64_mir_print(const X64Func *f, Buf *out)
                 buf_printf(out, ".%s", x64_cc_name(in->cc));
             if (in->op != X64_OP_JMP && in->op != X64_OP_JCC &&
                 in->op != X64_OP_RET && in->op != X64_OP_UD2 &&
-                in->op != X64_OP_JMPTBL)
+                in->op != X64_OP_JMPTBL && in->op != X64_OP_CALL &&
+                in->op != X64_OP_VASTART)
                 buf_printf(out, ".%c", wname(in->width));
-            if (in->op == X64_OP_MOVZX || in->op == X64_OP_MOVSX)
+            if (in->op == X64_OP_MOVZX || in->op == X64_OP_MOVSX ||
+                in->op == X64_OP_CVTF2I || in->op == X64_OP_CVTI2F ||
+                in->op == X64_OP_CVTF2F)
                 buf_printf(out, "%c", wname(in->src_width));
             if (in->a.kind) {
                 buf_printf(out, " ");
@@ -143,15 +222,62 @@ void x64_mir_print(const X64Func *f, Buf *out)
             buf_printf(out, " bb%u", f->tables[bi].targets[i]);
         buf_printf(out, "\n");
     }
+    for (bi = 0; bi < f->nconsts; bi++) {
+        const X64Const *c = &f->consts[bi];
+
+        buf_printf(out, "const%u: x%016llx", bi, (unsigned long long)c->lo);
+        if (c->size > 8)
+            buf_printf(out, "_%016llx", (unsigned long long)c->hi);
+        buf_printf(out, " size=%u align=%u\n", c->size, c->align);
+    }
 }
 
 /* --- the MIR verifier ------------------------------------------------------
  */
 
 static const u16 two_addr_ops[] = {
-    X64_OP_ADD, X64_OP_SUB, X64_OP_AND, X64_OP_OR,  X64_OP_XOR, X64_OP_IMUL,
-    X64_OP_NEG, X64_OP_NOT, X64_OP_SHL, X64_OP_SHR, X64_OP_SAR,
+    X64_OP_ADD,   X64_OP_SUB,   X64_OP_AND,  X64_OP_OR,   X64_OP_XOR,
+    X64_OP_IMUL,  X64_OP_NEG,   X64_OP_NOT,  X64_OP_SHL,  X64_OP_SHR,
+    X64_OP_SAR,   X64_OP_FADD,  X64_OP_FSUB, X64_OP_FMUL, X64_OP_FDIV,
+    X64_OP_FXORM, X64_OP_FANDM,
 };
+
+/* Per-operand register-bank expectations for the FP family: an integer
+ * register in an xmm slot (or vice versa) is an isel class bug that
+ * would otherwise surface as an encoding error three sprints later.
+ * Checked via vclass pre-RA and the physical bank post-RA. */
+static bool reg_is_xmm_like(const X64Func *f, X64VReg r)
+{
+    if (f->allocated)
+        return r.v >= (u32)X64_XMM0 + 1 && r.v <= (u32)X64_REG_COUNT;
+    return x64_vclass(f, r.v) == X64RC_XMM;
+}
+
+/* The x87 stack discipline: every load-op-store sequence is locally
+ * balanced, so depth returns to zero before anything that could move
+ * control or spill state — block ends, branches, calls. An f80-returning
+ * function legitimately holds st0 = 1 at ret. */
+static int x87_delta(u16 op)
+{
+    switch (op) {
+    case X64_OP_X87_FLD:
+    case X64_OP_X87_FILD:
+        return 1;
+    case X64_OP_X87_FSTP:
+    case X64_OP_X87_FISTP:
+    case X64_OP_X87_FADDP:
+    case X64_OP_X87_FSUBP:
+    case X64_OP_X87_FSUBRP:
+    case X64_OP_X87_FMULP:
+    case X64_OP_X87_FDIVP:
+    case X64_OP_X87_FDIVRP:
+    case X64_OP_X87_FUCOMIP:
+    case X64_OP_X87_FPOP:
+        return -1;
+    default:
+        return 0;
+    }
+}
 
 int x64_mir_verify(const X64Func *f, DiagCtx *dc)
 {
@@ -287,8 +413,7 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                                   f->name, bi + 1, i, regs[ri].v);
                         bad++;
                     }
-                if (in->def_fixed || in->a.fixed || in->b.fixed || in->xuse.v ||
-                    in->xuse_fixed) {
+                if (in->def_fixed || in->a.fixed || in->b.fixed || in->nxuses) {
                     diag_emit(dc, DIAG_ERROR, sp,
                               "mir verify @%s bb%u:%u: constraint "
                               "annotation survived allocation",
@@ -296,7 +421,9 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                     bad++;
                 }
                 if (in->op == X64_OP_ALLOCA_DYN || in->op == X64_OP_STACKSAVE ||
-                    in->op == X64_OP_STACKRESTORE) {
+                    in->op == X64_OP_STACKRESTORE || in->op == X64_OP_READREG ||
+                    in->op == X64_OP_ARGLD || in->op == X64_OP_ARGLEA ||
+                    in->op == X64_OP_VASTART) {
                     diag_emit(dc, DIAG_ERROR, sp,
                               "mir verify @%s bb%u:%u: '%s' marker "
                               "survived allocation",
@@ -311,6 +438,135 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                               f->name, bi + 1, i, op_names[in->op]);
                     bad++;
                 }
+                if ((in->a.kind == X64O_MEM && in->a.mem.rsp_rel) ||
+                    (in->b.kind == X64O_MEM && in->b.mem.rsp_rel)) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: rsp-relative "
+                              "operand survived allocation",
+                              f->name, bi + 1, i);
+                    bad++;
+                }
+            }
+            /* Register-bank discipline for the FP family (both sides of
+             * allocation; reg_is_xmm_like adapts). */
+            {
+                bool bank_bad = false;
+
+                switch (in->op) {
+                case X64_OP_FMOV:
+                case X64_OP_FADD:
+                case X64_OP_FSUB:
+                case X64_OP_FMUL:
+                case X64_OP_FDIV:
+                case X64_OP_UCOMI:
+                case X64_OP_CVTF2F:
+                case X64_OP_FXORM:
+                case X64_OP_FANDM:
+                    if (in->def.v && !reg_is_xmm_like(f, in->def))
+                        bank_bad = true;
+                    if (in->a.kind == X64O_VREG && !reg_is_xmm_like(f, in->a.r))
+                        bank_bad = true;
+                    if (in->b.kind == X64O_VREG && !reg_is_xmm_like(f, in->b.r))
+                        bank_bad = true;
+                    break;
+                case X64_OP_FLOAD:
+                case X64_OP_CVTI2F:
+                case X64_OP_MOVQXR:
+                    if (in->def.v && !reg_is_xmm_like(f, in->def))
+                        bank_bad = true;
+                    break;
+                case X64_OP_FSTORE:
+                    if (in->a.kind == X64O_VREG && !reg_is_xmm_like(f, in->a.r))
+                        bank_bad = true;
+                    break;
+                case X64_OP_CVTF2I:
+                case X64_OP_MOVQRX:
+                    if (in->def.v && reg_is_xmm_like(f, in->def))
+                        bank_bad = true;
+                    if (in->a.kind == X64O_VREG && !reg_is_xmm_like(f, in->a.r))
+                        bank_bad = true;
+                    break;
+                default:
+                    break;
+                }
+                if (bank_bad) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: '%s' register-"
+                              "bank mismatch (gp value in an xmm slot "
+                              "or vice versa)",
+                              f->name, bi + 1, i, op_names[in->op]);
+                    bad++;
+                }
+            }
+        }
+        /* The x87 stack LAW: locally balanced everywhere. Depth must be
+         * zero at every branch, call, and block end (an f80-returning
+         * function holds st0 = 1 exactly at ret); it must never go
+         * negative or past the 8-deep hardware stack. */
+        {
+            int depth = 0;
+
+            for (i = 0; i < b->n; i++) {
+                const X64Inst *in = &b->insts[i];
+
+                depth += x87_delta((u16)in->op);
+                if (depth < 0 || depth > 8) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: x87 stack depth "
+                              "%d out of range",
+                              f->name, bi + 1, i, depth);
+                    bad++;
+                    depth = 0;
+                }
+                /* fchs/fabs read st0 (depth >= 1); fucomip reads st0 vs
+                 * st1 (depth >= 2 before its pop => >= 1 after). */
+                if ((in->op == X64_OP_X87_FCHS || in->op == X64_OP_X87_FABS ||
+                     in->op == X64_OP_X87_FUCOMIP) &&
+                    depth < 1) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: x87 op on an "
+                              "empty stack",
+                              f->name, bi + 1, i);
+                    bad++;
+                }
+                if (in->op == X64_OP_CALL) {
+                    if (depth != 0) {
+                        diag_emit(dc, DIAG_ERROR, sp,
+                                  "mir verify @%s bb%u:%u: x87 value "
+                                  "LIVE across a call (load-op-store "
+                                  "law)",
+                                  f->name, bi + 1, i);
+                        bad++;
+                    }
+                    /* width T marks an f80-returning callee: st0 is
+                     * loaded when the call comes back. */
+                    if (in->width == X64_T)
+                        depth = 1;
+                }
+                if ((in->op == X64_OP_JMP || in->op == X64_OP_JCC ||
+                     in->op == X64_OP_JMPTBL) &&
+                    depth != 0) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: x87 value live "
+                              "across a branch",
+                              f->name, bi + 1, i);
+                    bad++;
+                }
+                if (in->op == X64_OP_RET && depth != (f->ret_f80 ? 1 : 0)) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: x87 depth %d at "
+                              "ret (want %d)",
+                              f->name, bi + 1, i, depth, f->ret_f80 ? 1 : 0);
+                    bad++;
+                }
+            }
+            if (depth != 0 &&
+                !(f->ret_f80 && b->n && b->insts[b->n - 1].op == X64_OP_RET)) {
+                diag_emit(dc, DIAG_ERROR, sp,
+                          "mir verify @%s bb%u: x87 stack depth %d at "
+                          "block end",
+                          f->name, bi + 1, depth);
+                bad++;
             }
         }
     }

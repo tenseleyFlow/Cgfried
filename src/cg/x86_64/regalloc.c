@@ -38,12 +38,25 @@
 
 #define SCRATCH_A X64_R11
 #define SCRATCH_B X64_R10
+/* xmm mirrors the GP scratch discipline (Sprint 23): xmm15 = a-side
+ * reload + spilled-def home, xmm14 = b-side reload. 14 allocatable. */
+#define SCRATCH_XA X64_XMM15
+#define SCRATCH_XB X64_XMM14
 
 static const u8 alloc_order[] = {
     X64_RAX, X64_RCX, X64_RDX, X64_RSI, X64_RDI, X64_R8,
     X64_R9,  X64_RBX, X64_R12, X64_R13, X64_R14, X64_R15,
 };
 #define NALLOC ((u32)(sizeof(alloc_order) / sizeof(alloc_order[0])))
+
+/* Arg registers first (free coalescing-by-luck at call sites), the rest
+ * after. ALL xmm are caller-saved, so a call-crossing xmm interval never
+ * gets a register at all — it spills (the SysV surprise). */
+static const u8 xmm_order[] = {
+    X64_XMM0, X64_XMM1, X64_XMM2, X64_XMM3,  X64_XMM4,  X64_XMM5,  X64_XMM6,
+    X64_XMM7, X64_XMM8, X64_XMM9, X64_XMM10, X64_XMM11, X64_XMM12, X64_XMM13,
+};
+#define NXMM ((u32)(sizeof(xmm_order) / sizeof(xmm_order[0])))
 
 static bool is_callee_saved(u8 reg)
 {
@@ -68,7 +81,22 @@ typedef struct Ra {
     u64 *live_out;
     u32 words;
     i32 next_slot; /* grows downward; slots at -8, -16, ... */
+    u32 *call_pts; /* sorted global points of CALL instructions */
+    u32 ncalls;
 } Ra;
+
+/* An interval STRICTLY spanning a call keeps its value live across the
+ * clobber: caller-saved is off the table. Defs at the call (results) and
+ * uses ending at it (arguments) do not span. */
+static bool crosses_call(const Ra *ra, u32 start, u32 end)
+{
+    u32 i;
+
+    for (i = 0; i < ra->ncalls; i++)
+        if (start < ra->call_pts[i] && ra->call_pts[i] < end)
+            return true;
+    return false;
+}
 
 /* --- small vector for rebuilding instruction streams ----------------------
  *
@@ -122,9 +150,13 @@ static void rb_commit(Rb *rb, X64Block *b)
 /* --- operand walking -------------------------------------------------------
  */
 
-static u32 inst_uses(const X64Inst *in, X64VReg out[6])
+/* A call can carry 6 GP + 8 xmm arg uses plus AL on top of its operands,
+ * so the walk buffer is sized for the worst case. */
+#define MAX_USES 24
+
+static u32 inst_uses(const X64Inst *in, X64VReg out[MAX_USES])
 {
-    u32 n = 0;
+    u32 n = 0, k;
 
     if (in->a.kind == X64O_VREG && in->a.r.v)
         out[n++] = in->a.r;
@@ -142,8 +174,9 @@ static u32 inst_uses(const X64Inst *in, X64VReg out[6])
         if (in->b.mem.index.v)
             out[n++] = in->b.mem.index;
     }
-    if (in->xuse.v)
-        out[n++] = in->xuse;
+    for (k = 0; k < in->nxuses && n < MAX_USES; k++)
+        if (in->xuses[k].r.v)
+            out[n++] = in->xuses[k].r;
     return n;
 }
 
@@ -214,7 +247,7 @@ void x64_liveness(const X64Func *f, u64 *live_in, u64 *live_out)
             memset(tmp, 0, words * 8);
             for (ii = (i64)b->n - 1; ii >= 0; ii--) {
                 const X64Inst *x = &b->insts[ii];
-                X64VReg uses[6];
+                X64VReg uses[MAX_USES];
                 u32 nu, k;
 
                 if (inst_is_branch(x)) {
@@ -275,6 +308,7 @@ static void build_intervals(Ra *ra)
     ra->live_out = arena_alloc(ra->arena, f->nblocks * ra->words * 8, 8);
     memset(ra->live_in, 0, f->nblocks * ra->words * 8);
     memset(ra->live_out, 0, f->nblocks * ra->words * 8);
+    ra->ncalls = 0; /* rebuilt every repair iteration */
     x64_liveness(f, ra->live_in, ra->live_out);
 
     ra->iv = arena_alloc(ra->arena, (f->nvregs + 1) * sizeof(Interval),
@@ -293,9 +327,18 @@ static void build_intervals(Ra *ra)
         }
         for (i = 0; i < b->n; i++) {
             const X64Inst *in = &b->insts[i];
-            X64VReg uses[6];
+            X64VReg uses[MAX_USES];
             u32 nu, k;
 
+            if (in->op == X64_OP_CALL) {
+                if (!ra->call_pts)
+                    ra->call_pts =
+                        arena_alloc(ra->arena, 1024 * sizeof(u32), 4);
+                if (ra->ncalls < 1024)
+                    ra->call_pts[ra->ncalls++] = bstart + i;
+                else
+                    CGF_ICE("regalloc: >1024 call sites in one function");
+            }
             if (in->def.v)
                 iv_extend(ra, in->def.v, bstart + i);
             nu = inst_uses(in, uses);
@@ -332,10 +375,6 @@ static void collect_fixed(Ra *ra)
                 site[ns].v = in->b.r.v;
                 site[ns++].c = in->b.fixed;
             }
-            if (in->xuse.v && in->xuse_fixed) {
-                site[ns].v = in->xuse.v;
-                site[ns++].c = in->xuse_fixed;
-            }
             if (in->def.v && in->def_fixed) {
                 site[ns].v = in->def.v;
                 site[ns++].c = in->def_fixed;
@@ -347,6 +386,17 @@ static void collect_fixed(Ra *ra)
                     CGF_ICE("regalloc: v%u constrained to two registers",
                             site[k].v);
                 it->fixed = site[k].c;
+            }
+            for (k = 0; k < in->nxuses; k++) {
+                Interval *it;
+
+                if (!in->xuses[k].r.v || !in->xuses[k].fixed)
+                    continue;
+                it = &ra->iv[in->xuses[k].r.v];
+                if (it->fixed && it->fixed != in->xuses[k].fixed)
+                    CGF_ICE("regalloc: v%u constrained to two registers",
+                            in->xuses[k].r.v);
+                it->fixed = in->xuses[k].fixed;
             }
         }
     }
@@ -372,9 +422,22 @@ static X64Inst mk_mov(X64VReg def, X64VReg src)
     return mv;
 }
 
+/* Class-aware register-register copy: xmm values move with FMOV (movsd);
+ * a GP mov of an xmm vreg is not a thing. */
+static X64Inst mk_copy(const X64Func *f, X64VReg def, X64VReg src, u8 rc)
+{
+    X64Inst mv = mk_mov(def, src);
+
+    (void)f;
+    if (rc == X64RC_XMM)
+        mv.op = X64_OP_FMOV;
+    return mv;
+}
+
 static void repair_vreg(X64Func *f, u32 v)
 {
-    u32 bi, i;
+    u8 rc = x64_vclass(f, v);
+    u32 bi, i, k;
 
     for (bi = 0; bi < f->nblocks; bi++) {
         X64Block *b = &f->blocks[bi];
@@ -385,30 +448,39 @@ static void repair_vreg(X64Func *f, u32 v)
             X64Inst in = b->insts[i];
 
             if (in.a.kind == X64O_VREG && in.a.fixed && in.a.r.v == v) {
-                X64VReg t = {++f->nvregs};
-                X64Inst mv = mk_mov(t, in.a.r);
+                X64VReg t = x64_newv(f, rc);
+                X64Inst mv = mk_copy(f, t, in.a.r, rc);
 
                 rb_put(&rb, &mv);
                 in.a.r = t;
             }
             if (in.b.kind == X64O_VREG && in.b.fixed && in.b.r.v == v) {
-                X64VReg t = {++f->nvregs};
-                X64Inst mv = mk_mov(t, in.b.r);
+                X64VReg t = x64_newv(f, rc);
+                X64Inst mv = mk_copy(f, t, in.b.r, rc);
 
                 rb_put(&rb, &mv);
                 in.b.r = t;
             }
-            if (in.xuse.v == v && in.xuse_fixed) {
-                X64VReg t = {++f->nvregs};
-                X64Inst mv = mk_mov(t, in.xuse);
+            for (k = 0; k < in.nxuses; k++) {
+                if (in.xuses[k].r.v == v && in.xuses[k].fixed) {
+                    X64VReg t = x64_newv(f, rc);
+                    X64Inst mv = mk_copy(f, t, in.xuses[k].r, rc);
+                    X64XUse *nx =
+                        arena_alloc(f->arena, in.nxuses * sizeof(X64XUse),
+                                    _Alignof(X64XUse));
 
-                rb_put(&rb, &mv);
-                in.xuse = t;
+                    rb_put(&rb, &mv);
+                    /* xuses is shared with the original inst; copy
+                     * before retargeting. */
+                    memcpy(nx, in.xuses, in.nxuses * sizeof(X64XUse));
+                    nx[k].r = t;
+                    in.xuses = nx;
+                }
             }
             if (in.def.v == v && in.def_fixed) {
-                X64VReg t = {++f->nvregs};
+                X64VReg t = x64_newv(f, rc);
                 X64VReg vv = {v};
-                X64Inst mv = mk_mov(vv, t);
+                X64Inst mv = mk_copy(f, vv, t, rc);
 
                 in.def = t;
                 rb.map[i] = rb.n;
@@ -538,50 +610,72 @@ static void linear_scan(Ra *ra)
             assign_slot(ra, cur);
             continue;
         }
-        memset(used, 0, sizeof(used));
-        for (k = 0; k < nactive; k++)
-            if (active[k]->phys)
-                used[active[k]->phys - 1] = true;
-        cur->phys = 0;
-        for (k = 0; k < NALLOC; k++) {
-            u8 r = alloc_order[k];
+        {
+            u8 rc = x64_vclass(f, cur->vreg);
+            bool crossing = crosses_call(ra, cur->start, cur->end);
+            const u8 *pool = rc == X64RC_XMM ? xmm_order : alloc_order;
+            u32 npool = rc == X64RC_XMM ? NXMM : NALLOC;
 
-            if (!used[r] && !fixed_clash(ra, r, cur->start, cur->end)) {
-                cur->phys = (u8)(r + 1);
-                break;
-            }
-        }
-        if (!cur->phys) {
-            /* Pressure: spill the active interval with the furthest end
-             * (the no-holes proxy for furthest next use) — if it ends
-             * later than cur and its register is legal for cur. */
-            Interval *far = NULL;
-
-            for (k = 0; k < nactive; k++) {
-                Interval *cand = active[k];
-
-                if (cand->fixed || !cand->phys)
-                    continue;
-                if (fixed_clash(ra, (u8)(cand->phys - 1), cur->start, cur->end))
-                    continue;
-                if (!far || cand->end > far->end)
-                    far = cand;
-            }
-            if (far && far->end > cur->end) {
-                cur->phys = far->phys;
-                far->phys = 0;
-                assign_slot(ra, far);
-                for (k = 0; k < nactive; k++)
-                    if (active[k] == far) {
-                        active[k] = cur;
-                        break;
-                    }
-            } else {
+            /* Call-crossing xmm ALWAYS spills — no callee-saved xmm
+             * exists, so there is no register that survives. */
+            if (crossing && rc == X64RC_XMM) {
                 assign_slot(ra, cur);
+                continue;
             }
-            continue;
+            memset(used, 0, sizeof(used));
+            for (k = 0; k < nactive; k++)
+                if (active[k]->phys)
+                    used[active[k]->phys - 1] = true;
+            cur->phys = 0;
+            for (k = 0; k < npool; k++) {
+                u8 r = pool[k];
+
+                if (crossing && rc == X64RC_GP && !is_callee_saved(r))
+                    continue;
+                if (!used[r] && !fixed_clash(ra, r, cur->start, cur->end)) {
+                    cur->phys = (u8)(r + 1);
+                    break;
+                }
+            }
+            if (!cur->phys) {
+                /* Pressure: spill the active interval with the furthest
+                 * end (the no-holes proxy for furthest next use) — if it
+                 * ends later than cur and its register is legal for cur
+                 * (same class, callee-saved when cur crosses a call). */
+                Interval *far = NULL;
+
+                for (k = 0; k < nactive; k++) {
+                    Interval *cand = active[k];
+
+                    if (cand->fixed || !cand->phys)
+                        continue;
+                    if (x64_vclass(f, cand->vreg) != rc)
+                        continue;
+                    if (crossing && rc == X64RC_GP &&
+                        !is_callee_saved((u8)(cand->phys - 1)))
+                        continue;
+                    if (fixed_clash(ra, (u8)(cand->phys - 1), cur->start,
+                                    cur->end))
+                        continue;
+                    if (!far || cand->end > far->end)
+                        far = cand;
+                }
+                if (far && far->end > cur->end) {
+                    cur->phys = far->phys;
+                    far->phys = 0;
+                    assign_slot(ra, far);
+                    for (k = 0; k < nactive; k++)
+                        if (active[k] == far) {
+                            active[k] = cur;
+                            break;
+                        }
+                } else {
+                    assign_slot(ra, cur);
+                }
+                continue;
+            }
+            active[nactive++] = cur;
         }
-        active[nactive++] = cur;
     }
 }
 
@@ -603,12 +697,12 @@ static X64VReg physreg(u8 reg)
     return r;
 }
 
-static X64Inst mk_reload(u8 reg, i32 slot)
+static X64Inst mk_reload(u8 reg, i32 slot, bool xmm)
 {
     X64Inst m;
 
     memset(&m, 0, sizeof(m));
-    m.op = X64_OP_LOAD;
+    m.op = xmm ? X64_OP_FLOAD : X64_OP_LOAD;
     m.width = X64_Q;
     m.def = physreg(reg);
     m.a.kind = X64O_MEM;
@@ -618,12 +712,12 @@ static X64Inst mk_reload(u8 reg, i32 slot)
     return m;
 }
 
-static X64Inst mk_spill(u8 reg, i32 slot)
+static X64Inst mk_spill(u8 reg, i32 slot, bool xmm)
 {
     X64Inst m;
 
     memset(&m, 0, sizeof(m));
-    m.op = X64_OP_STORE;
+    m.op = xmm ? X64_OP_FSTORE : X64_OP_STORE;
     m.width = X64_Q;
     m.a.kind = X64O_VREG;
     m.a.r = physreg(reg);
@@ -634,23 +728,29 @@ static X64Inst mk_spill(u8 reg, i32 slot)
     return m;
 }
 
-/* Substitute one use; emits a reload into `scratch` first if spilled. */
-static void sub_use(Ra *ra, Rb *rb, X64VReg *r, u8 scratch)
+/* Substitute one use; emits a reload into the class's scratch first if
+ * spilled. `side` 0 = a-side (r11/xmm15), 1 = b-side (r10/xmm14). Mem
+ * base/index registers are always GP regardless of side value class. */
+static void sub_use(Ra *ra, Rb *rb, X64VReg *r, int side)
 {
     Interval *it;
+    u8 rc;
 
     if (!r->v)
         return;
+    rc = x64_vclass(ra->f, r->v);
     it = &ra->iv[r->v];
     if (it->phys) {
         r->v = it->phys;
         return;
     }
     {
-        X64Inst ld = mk_reload(scratch, it->slot);
+        u8 s = rc == X64RC_XMM ? (side ? SCRATCH_XB : SCRATCH_XA)
+                               : (side ? SCRATCH_B : SCRATCH_A);
+        X64Inst ld = mk_reload(s, it->slot, rc == X64RC_XMM);
 
         rb_put(rb, &ld);
-        r->v = (u32)scratch + 1;
+        r->v = (u32)s + 1;
     }
 }
 
@@ -670,12 +770,18 @@ static void rewrite(Ra *ra)
 
             /* uses first: reloads sit before the instruction */
             if (in.a.kind == X64O_VREG)
-                sub_use(ra, &rb, &in.a.r, SCRATCH_A);
+                sub_use(ra, &rb, &in.a.r, 0);
             if (in.b.kind == X64O_VREG)
-                sub_use(ra, &rb, &in.b.r, SCRATCH_B);
+                sub_use(ra, &rb, &in.b.r, 1);
             if (in.a.kind == X64O_MEM) {
-                sub_use(ra, &rb, &in.a.mem.base, SCRATCH_A);
-                sub_use(ra, &rb, &in.a.mem.index, SCRATCH_B);
+                sub_use(ra, &rb, &in.a.mem.base, 0);
+                sub_use(ra, &rb, &in.a.mem.index, 1);
+                if (in.a.mem.rsp_rel) {
+                    /* outgoing-arg slot: the base IS rsp (post-RA it has
+                     * a spelling; substitution above saw base 0). */
+                    in.a.mem.base = physreg(X64_RSP);
+                    in.a.mem.rsp_rel = 0;
+                }
             }
             if (in.b.kind == X64O_MEM) {
                 /* Both b-mem components share r10 (r11 is the a-side's),
@@ -689,13 +795,17 @@ static void rewrite(Ra *ra)
                 if (base_sp && idx_sp)
                     CGF_ICE("regalloc: spilled base + spilled index in "
                             "one b-side mem operand");
-                sub_use(ra, &rb, &in.b.mem.base, SCRATCH_B);
-                sub_use(ra, &rb, &in.b.mem.index, SCRATCH_B);
+                sub_use(ra, &rb, &in.b.mem.base, 1);
+                sub_use(ra, &rb, &in.b.mem.index, 1);
+                if (in.b.mem.rsp_rel) {
+                    in.b.mem.base = physreg(X64_RSP);
+                    in.b.mem.rsp_rel = 0;
+                }
             }
             in.a.fixed = 0;
             in.b.fixed = 0;
-            in.xuse.v = 0; /* implicit in the encoding post-RA */
-            in.xuse_fixed = 0;
+            in.xuses = NULL; /* implicit in the encoding post-RA */
+            in.nxuses = 0;
 
             /* marker expansion (operands above are already physical) */
             if (in.op == X64_OP_STACKSAVE) {
@@ -706,8 +816,63 @@ static void rewrite(Ra *ra)
 
                     rb_put(&rb, &mv);
                 } else {
-                    X64Inst st = mk_spill(X64_RSP, dit->slot);
+                    X64Inst st = mk_spill(X64_RSP, dit->slot, false);
 
+                    rb_put(&rb, &st);
+                }
+                continue;
+            }
+            if (in.op == X64_OP_READREG) {
+                /* def <- current content of the def_fixed register:
+                 * incoming argument or post-call second result. When
+                 * allocation landed the def right there, nothing moves. */
+                u8 src = (u8)(in.def_fixed - 1);
+                bool xmm = src >= X64_XMM0;
+
+                rb.map[i] = rb.n;
+                if (dit->phys && dit->phys == in.def_fixed) {
+                    /* already home: no instruction at all */
+                } else if (dit->phys) {
+                    X64Inst mv =
+                        mk_mov(physreg((u8)(dit->phys - 1)), physreg(src));
+
+                    if (xmm)
+                        mv.op = X64_OP_FMOV;
+                    rb_put(&rb, &mv);
+                } else {
+                    X64Inst st = mk_spill(src, dit->slot, xmm);
+
+                    rb_put(&rb, &st);
+                }
+                continue;
+            }
+            if (in.op == X64_OP_ARGLD || in.op == X64_OP_ARGLEA) {
+                /* incoming stack argument at [rbp + 16 + b.imm] — load
+                 * its value (ARGLD, class-typed) or its address
+                 * (ARGLEA: byval aggregates and f80s live in caller
+                 * frame; the param IS that address). */
+                bool xmm = dit && x64_vclass(f, b->insts[i].def.v) == X64RC_XMM;
+                X64Inst x;
+
+                memset(&x, 0, sizeof(x));
+                x.op = in.op == X64_OP_ARGLEA ? X64_OP_LEA
+                       : xmm                  ? X64_OP_FLOAD
+                                              : X64_OP_LOAD;
+                x.width = in.width ? in.width : X64_Q;
+                x.a.kind = X64O_MEM;
+                x.a.mem.base = physreg(X64_RBP);
+                x.a.mem.scale = 1;
+                x.a.mem.disp = (i32)(16 + in.b.imm);
+                rb.map[i] = rb.n;
+                if (dit->phys) {
+                    x.def.v = dit->phys;
+                    rb_put(&rb, &x);
+                } else {
+                    u8 s = xmm ? SCRATCH_XA : SCRATCH_A;
+                    X64Inst st = mk_spill(s, dit->slot, xmm);
+
+                    x.def = physreg(s);
+                    rb_put(&rb, &x);
                     rb_put(&rb, &st);
                 }
                 continue;
@@ -766,7 +931,7 @@ static void rewrite(Ra *ra)
 
                     rb_put(&rb, &mv);
                 } else {
-                    X64Inst st = mk_spill(X64_RSP, dit->slot);
+                    X64Inst st = mk_spill(X64_RSP, dit->slot, false);
 
                     rb_put(&rb, &st);
                 }
@@ -780,9 +945,11 @@ static void rewrite(Ra *ra)
                 in.def_fixed = 0;
                 rb_put(&rb, &in);
             } else if (dit) {
-                X64Inst st = mk_spill(SCRATCH_A, dit->slot);
+                bool xmm = x64_vclass(f, in.def.v) == X64RC_XMM;
+                u8 s = xmm ? SCRATCH_XA : SCRATCH_A;
+                X64Inst st = mk_spill(s, dit->slot, xmm);
 
-                in.def = physreg(SCRATCH_A);
+                in.def = physreg(s);
                 in.def_fixed = 0;
                 rb_put(&rb, &in);
                 rb_put(&rb, &st);
@@ -808,8 +975,23 @@ static void rewrite(Ra *ra)
 
 static bool op_commutative(u16 op)
 {
+    /* IEEE addition and multiplication commute (addsd/mulsd included);
+     * FP subtraction and division do not. */
     return op == X64_OP_ADD || op == X64_OP_AND || op == X64_OP_OR ||
-           op == X64_OP_XOR || op == X64_OP_IMUL;
+           op == X64_OP_XOR || op == X64_OP_IMUL || op == X64_OP_FADD ||
+           op == X64_OP_FMUL;
+}
+
+/* Copy between two PHYSICAL ids, picking mov vs movsd by bank. */
+static X64Inst mk_pcopy(u32 dst, u32 src)
+{
+    X64VReg d = {dst};
+    X64VReg s = {src};
+    X64Inst mv = mk_mov(d, s);
+
+    if (dst - 1 >= X64_XMM0)
+        mv.op = X64_OP_FMOV;
+    return mv;
 }
 
 void x64_twoaddr_fixup(X64Func *f)
@@ -824,6 +1006,7 @@ void x64_twoaddr_fixup(X64Func *f)
         for (i = 0; i < b->n; i++) {
             X64Inst in = b->insts[i];
             u32 dst, src1, src2;
+            bool xmm;
 
             rb.map[i] = rb.n;
             if (!(in.flags & X64IF_TWO_ADDR) || !in.def.v ||
@@ -834,6 +1017,7 @@ void x64_twoaddr_fixup(X64Func *f)
             dst = in.def.v;
             src1 = in.a.r.v;
             src2 = in.b.kind == X64O_VREG ? in.b.r.v : 0;
+            xmm = dst - 1 >= X64_XMM0;
             if (dst == src1) {
                 rb_put(&rb, &in);
                 continue;
@@ -845,23 +1029,19 @@ void x64_twoaddr_fixup(X64Func *f)
                 continue;
             }
             if (src2 == dst) {
-                X64VReg s2 = {src2};
-                X64VReg d = {dst};
-                X64VReg s1 = {src1};
-                X64Inst mv = mk_mov(physreg(SCRATCH_B), s2);
+                u8 s = xmm ? SCRATCH_XB : SCRATCH_B;
+                X64Inst mv = mk_pcopy((u32)s + 1, src2);
 
                 rb_put(&rb, &mv);
-                mv = mk_mov(d, s1);
+                mv = mk_pcopy(dst, src1);
                 rb_put(&rb, &mv);
                 in.a.r.v = dst;
-                in.b.r = physreg(SCRATCH_B);
+                in.b.r = physreg(s);
                 rb_put(&rb, &in);
                 continue;
             }
             {
-                X64VReg d = {dst};
-                X64VReg s1 = {src1};
-                X64Inst mv = mk_mov(d, s1);
+                X64Inst mv = mk_pcopy(dst, src1);
 
                 rb_put(&rb, &mv);
                 in.a.r.v = dst;
@@ -901,6 +1081,7 @@ static void frame_finalize(Ra *ra)
     u8 push_order[8];
     u32 npush = 0, bi, i, k;
     u32 raw = (u32)(-ra->next_slot);
+    u32 save_off = 0; /* variadic reg-save area rbp-offset */
 
     memset(touched, 0, sizeof(touched));
     for (bi = 0; bi < f->nblocks; bi++) {
@@ -925,7 +1106,8 @@ static void frame_finalize(Ra *ra)
             X64Inst *in = &b->insts[i];
 
             if (in->op == X64_OP_LEA && in->a.kind == X64O_MEM &&
-                !in->a.mem.base.v && !in->a.mem.index.v && !in->a.mem.rip_sym) {
+                !in->a.mem.base.v && !in->a.mem.index.v && !in->a.mem.rip_sym &&
+                !in->a.mem.cpool) {
                 u32 size = in->b.imm > 0 ? (u32)in->b.imm : 1;
                 u32 align = in->table ? in->table : 1;
 
@@ -937,7 +1119,94 @@ static void frame_finalize(Ra *ra)
             }
         }
     }
-    f->frame_size = x64_frame_align_pad(npush, raw);
+
+    /* Variadic: the psABI register save area (176 bytes, 16-aligned)
+     * sits below the locals; va_start's reg_save_area points at its
+     * base. The prologue stores rdi..r9 at +0..40 and xmm0-7 at
+     * +48..160. We store the xmm slots UNCONDITIONALLY (movsd) rather
+     * than gating on AL like gcc: the va_arg expansion never reads a
+     * slot whose argument was not passed, so the gate is a skipped-work
+     * optimization, not correctness — call sites still SET AL for
+     * external callees that do consult it. */
+    if (f->variadic) {
+        raw = ((raw + 15) & ~15u) + 176;
+        save_off = raw;
+    }
+    /* Outgoing call arguments live at the stack bottom, [rsp+0 ..
+     * rsp+out_args); rsp-relative operands were rewritten to rsp, so a
+     * dynamic alloca between frame setup and a call re-establishes the
+     * area below itself automatically. */
+    f->frame_size = x64_frame_align_pad(npush, raw + f->out_args);
+
+    /* va_start expansion: only frame-finalize knows the two addresses
+     * the IR op owes the va_list (overflow_arg_area = first UNNAMED
+     * stack argument; reg_save_area = the base laid out above). */
+    for (bi = 0; bi < f->nblocks; bi++) {
+        X64Block *b = &f->blocks[bi];
+        Rb rb;
+        bool any = false;
+
+        for (i = 0; i < b->n; i++)
+            if (b->insts[i].op == X64_OP_VASTART)
+                any = true;
+        if (!any)
+            continue;
+        rb_init(&rb, f->arena, b->n);
+        for (i = 0; i < b->n; i++) {
+            X64Inst in = b->insts[i];
+            X64Inst x;
+            X64Operand ap;
+
+            if (in.op != X64_OP_VASTART) {
+                rb.map[i] = rb.n;
+                rb_put(&rb, &in);
+                continue;
+            }
+            ap = in.a;
+            rb.map[i] = rb.n;
+            /* lea r10, [rbp + 16 + named]; mov [ap+8], r10 */
+            memset(&x, 0, sizeof(x));
+            x.op = X64_OP_LEA;
+            x.width = X64_Q;
+            x.def = physreg(SCRATCH_B);
+            x.a.kind = X64O_MEM;
+            x.a.mem.base = physreg(X64_RBP);
+            x.a.mem.scale = 1;
+            x.a.mem.disp = (i32)(16 + f->named_stack_bytes);
+            rb_put(&rb, &x);
+            memset(&x, 0, sizeof(x));
+            x.op = X64_OP_STORE;
+            x.width = X64_Q;
+            x.a.kind = X64O_VREG;
+            x.a.r = physreg(SCRATCH_B);
+            x.b.kind = X64O_MEM;
+            x.b.mem.base = ap.r;
+            x.b.mem.scale = 1;
+            x.b.mem.disp = 8;
+            rb_put(&rb, &x);
+            /* lea r10, [rbp - save_off]; mov [ap+16], r10 */
+            memset(&x, 0, sizeof(x));
+            x.op = X64_OP_LEA;
+            x.width = X64_Q;
+            x.def = physreg(SCRATCH_B);
+            x.a.kind = X64O_MEM;
+            x.a.mem.base = physreg(X64_RBP);
+            x.a.mem.scale = 1;
+            x.a.mem.disp = -(i32)save_off;
+            rb_put(&rb, &x);
+            memset(&x, 0, sizeof(x));
+            x.op = X64_OP_STORE;
+            x.width = X64_Q;
+            x.a.kind = X64O_VREG;
+            x.a.r = physreg(SCRATCH_B);
+            x.b.kind = X64O_MEM;
+            x.b.mem.base = ap.r;
+            x.b.mem.scale = 1;
+            x.b.mem.disp = 16;
+            rb_put(&rb, &x);
+        }
+        rb_commit(&rb, b);
+    }
 
     /* Prologue: prepended to block 0. flags_src offsets in block 0 shift
      * for producer and consumer equally, so the map keeps them honest. */
@@ -974,6 +1243,20 @@ static void frame_finalize(Ra *ra)
             p.b.kind = X64O_IMM;
             p.b.imm = f->frame_size;
             rb_put(&rb, &p);
+        }
+        if (f->variadic) {
+            static const u8 gpargs[6] = {X64_RDI, X64_RSI, X64_RDX,
+                                         X64_RCX, X64_R8,  X64_R9};
+
+            for (k = 0; k < 6; k++) {
+                p = mk_spill(gpargs[k], -(i32)save_off + (i32)(8 * k), false);
+                rb_put(&rb, &p);
+            }
+            for (k = 0; k < 8; k++) {
+                p = mk_spill((u8)(X64_XMM0 + k),
+                             -(i32)save_off + (i32)(48 + 16 * k), true);
+                rb_put(&rb, &p);
+            }
         }
         for (i = 0; i < b->n; i++) {
             rb.map[i] = rb.n;
