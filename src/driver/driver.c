@@ -691,6 +691,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
     intern_init(&interner, arena);
     pp_init(&pp, arena, dc, &interner);
     pp.trigraphs = a->trigraphs;
+    pp.freestanding = a->freestanding;
     pp.verbose = a->verbose;
     pp.std = (CStd)a->std;
     (void)a->no_linemarkers; /* -P: we never emit linemarkers (Sprint 7

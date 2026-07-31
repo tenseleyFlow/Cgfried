@@ -1002,7 +1002,9 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
 
     buf_init(&b);
     buf_printf(&b, "#define __STDC__ 1\n");
-    buf_printf(&b, "#define __STDC_HOSTED__ 1\n");
+    /* C17 4p6: a freestanding implementation says 0 here, and the
+     * library subset it promises is exactly the headers we ship. */
+    buf_printf(&b, "#define __STDC_HOSTED__ %d\n", pp->freestanding ? 0 : 1);
     switch (pp->std) {
     case STD_C99:
     case STD_GNU99:

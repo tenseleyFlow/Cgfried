@@ -319,8 +319,11 @@ typedef struct Preprocessor {
     SourceFile **files; /* index = FileId - 1 */
     size_t nfiles;
     size_t files_cap;
-    bool trigraphs; /* -trigraphs (gcc parity: default off) */
-    bool verbose;   /* -v: print the include search list */
+    bool trigraphs;
+    /* -ffreestanding: __STDC_HOSTED__ becomes 0 (C17 4p6). The driver
+        sets it; the predefine block is the only consumer. */
+    bool freestanding; /* -trigraphs (gcc parity: default off) */
+    bool verbose;      /* -v: print the include search list */
 
     /* Include search chains (set up by the driver before pp_begin). */
     const char *iquote_dirs[PP_MAX_DIRS];
