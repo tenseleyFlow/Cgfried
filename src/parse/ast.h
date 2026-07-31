@@ -52,8 +52,13 @@ typedef enum AstKind {
     AST_GENERIC_ASSOC,
     AST_EXPR_COMPOUND_LIT, /* (type){ init } */
     AST_EXPR_PAREN,
-    AST_EXPR_VA_ARG, /* __builtin_va_arg(lhs, type) — the one call-like
-                        form whose second argument is a TYPE (Sprint 19) */
+    AST_EXPR_VA_ARG,        /* __builtin_va_arg(lhs, type) — the one call-like
+                               form whose second argument is a TYPE (Sprint 19) */
+    AST_EXPR_OFFSETOF,      /* __builtin_offsetof(type, designator): `lhs` is
+                               the designator chain built over an
+                               AST_EXPR_OFFSETOF_BASE placeholder (Sprint 28) */
+    AST_EXPR_OFFSETOF_BASE, /* the anchor a designator chain bottoms out
+                               on; never evaluated, never typed */
 
     /* Statements (C11 6.8). */
     AST_STMT_COMPOUND, /* { items... } */

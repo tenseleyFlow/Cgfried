@@ -367,13 +367,28 @@ void test_expr_deferrals_and_errors(TestCtx *t)
  * the two paths are genuinely separate code. */
 void test_expr_builtins_defer(TestCtx *t)
 {
-    /* __builtin_va_list went LIVE in Sprint 19 (the varargs sprint
-     * pulled it forward from the Sprint 28 builtin family); the rest of
-     * the builtins still defer. */
+    /* __builtin_va_list went LIVE in Sprint 19; Sprint 28 landed the
+     * table in src/builtins.def. A name with a table row parses and
+     * types; a name WITHOUT one still defers loudly — that split is the
+     * contract (there is deliberately no accept-anything fallback). */
     expr_ok(t, "typedef __builtin_va_list va_list;\n");
     expr_ok(t, "void f(void){ __builtin_va_list ap; (void)ap; }\n");
-    expr_bad(t, "int f(void){ return __builtin_expect(1, 1); }\n");
+    expr_ok(t, "int f(void){ return __builtin_expect(1, 1); }\n");
+    expr_ok(t, "void f(void){ __builtin_trap(); }\n");
+    expr_ok(t, "double f(void){ return __builtin_inf(); }\n");
+    expr_ok(t, "struct S { int a; double b; };\n"
+               "unsigned long f(void){ "
+               "return __builtin_offsetof(struct S, b); }\n");
+    /* No row: still deferred, and the GNU type queries name Sprint 55.
+     * (Arity and offsetof member checks are SEMA's — this fixture only
+     * parses — so they live in tests/programs/builtins/.) */
     expr_bad(t, "int f(void){ return __builtin_clz(8); }\n");
+    expr_bad(t,
+             "int f(void){ return __builtin_types_compatible_p(int, int); }\n");
+    /* A designator is required, not an arbitrary expression. */
+    expr_bad(t, "struct S { int a; };\n"
+                "unsigned long f(void){ "
+                "return __builtin_offsetof(struct S, 1 + 1); }\n");
 }
 
 void test_stmt_control_flow_constraints(TestCtx *t)

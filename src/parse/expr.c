@@ -18,6 +18,7 @@
 VEC_DECL(ExprVec, AstNode *);
 
 static AstNode *parse_cast_expr(Parser *p);
+static AstNode *parse_offsetof_designator(Parser *p);
 static AstNode *parse_unary_expr(Parser *p);
 
 static AstNode *expr_new(Parser *p, AstKind k, Span sp)
@@ -145,17 +146,42 @@ static AstNode *parse_primary_expr(Parser *p)
             p->pos++;
             return expr_new(p, AST_ERROR, t->span);
         }
-        /* The other va builtins are ordinary call syntax; every OTHER
-         * `__builtin_*` name is compiler magic we have not implemented —
-         * defer loudly, naming the sprint. */
+        /* __builtin_offsetof(T, member-designator): like va_arg, the
+         * operands are a TYPE NAME and a DESIGNATOR, neither of which
+         * an ordinary call can carry. The designator is parsed as a
+         * postfix chain of .member and [expr] against a placeholder,
+         * exactly the shape the constant folder walks. */
+        if (strcmp(t->spelling, "__builtin_offsetof") == 0) {
+            n = expr_new(p, AST_EXPR_OFFSETOF, t->span);
+            p->pos++;
+            parse_expect_punct(p, PUNCT_LPAREN, "after '__builtin_offsetof'");
+            n->type = parse_type_name(p);
+            parse_expect_punct(p, PUNCT_COMMA,
+                               "between offsetof's type and member");
+            n->lhs = parse_offsetof_designator(p);
+            parse_expect_punct(p, PUNCT_RPAREN, "after the offsetof member");
+            return n;
+        }
+        /* Builtins with a table row parse as ordinary calls (sema
+         * recognizes the name); every OTHER `__builtin_*` spelling is
+         * compiler magic we have not implemented — defer loudly, naming
+         * the sprint that lands it. */
         if (parse_is_builtin_name(t->spelling) &&
-            strcmp(t->spelling, "__builtin_va_start") != 0 &&
-            strcmp(t->spelling, "__builtin_va_end") != 0 &&
-            strcmp(t->spelling, "__builtin_va_copy") != 0) {
-            parse_error(p, t,
-                        "'%s' is not yet supported (the compiler builtins "
-                        "land in Sprint 28)",
-                        t->spelling);
+            !parse_is_known_builtin(t->spelling)) {
+            int sprint = 55;
+
+            /* The GNU type-query extensions are Sprint 55's; anything
+             * else has no home yet and says so. */
+            if (strcmp(t->spelling, "__builtin_types_compatible_p") == 0 ||
+                strcmp(t->spelling, "__builtin_choose_expr") == 0)
+                parse_error(p, t,
+                            "'%s' is a GNU type-query extension and lands "
+                            "in Sprint %d",
+                            t->spelling, sprint);
+            else
+                parse_error(p, t,
+                            "'%s' is not a builtin this compiler implements",
+                            t->spelling);
             p->pos++;
             return expr_new(p, AST_ERROR, t->span);
         }
@@ -223,6 +249,33 @@ static AstNode *finish_compound_literal(Parser *p, AstType *ty, Span sp)
     n->is_static_storage = p->scope_depth == 0;
     n->init = parse_braced_initializer(p);
     return n;
+}
+
+static AstNode *parse_postfix_ops(Parser *p, AstNode *base);
+
+/* offsetof's member designator: `m`, `m.n`, `m[3].n`, … Parsed as an
+ * ordinary postfix chain over a placeholder base so the constant folder
+ * walks exactly the same shape it walks for real member accesses. A
+ * leading `[` is rejected — the designator must start at a member. */
+static AstNode *parse_offsetof_designator(Parser *p)
+{
+    const Token *t = parse_peek(p);
+    AstNode *base;
+
+    if (t->kind != TOK_IDENT) {
+        parse_error(p, t, "expected a member name in '__builtin_offsetof'");
+        return parse_error_node(p, t->span);
+    }
+    base = expr_new(p, AST_EXPR_OFFSETOF_BASE, t->span);
+    {
+        AstNode *m = expr_new(p, AST_EXPR_MEMBER, t->span);
+
+        m->lhs = base;
+        m->name = t->spelling;
+        m->is_arrow = false;
+        p->pos++;
+        return parse_postfix_ops(p, m);
+    }
 }
 
 static AstNode *parse_postfix_ops(Parser *p, AstNode *base)

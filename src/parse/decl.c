@@ -589,19 +589,42 @@ bool parse_is_builtin_name(const char *name)
     return name && strncmp(name, "__builtin_", 10) == 0;
 }
 
+/* True for the builtins we actually IMPLEMENT (src/builtins.def, the
+ * same table sema types them from). The parser needs the question
+ * without depending on sema — the include arrow runs parse <- sema —
+ * so both layers read the .def rather than sharing a function. */
+bool parse_is_known_builtin(const char *name)
+{
+    static const char *const known[] = {
+#define B(sfx, NAME, n, k) "__builtin_" #sfx,
+#include "builtins.def"
+#undef B
+    };
+    size_t i;
+
+    if (!name)
+        return false;
+    for (i = 0; i < CGF_ARRAY_LEN(known); i++)
+        if (strcmp(known[i], name) == 0)
+            return true;
+    return false;
+}
+
 bool parse_at_decl_specs(Parser *p)
 {
     const Token *t = parse_peek(p);
 
     if (t->kind == TOK_IDENT) {
-        /* The va_* builtins are FUNCTIONS in expression position, not
-         * types (Sprint 19) — every other __builtin_ name still routes
-         * to the declaration path for its honest deferral. */
+        /* The builtins we IMPLEMENT are expressions, not types, so a
+         * statement starting with one must not be read as a declaration
+         * (Sprint 28: before the table existed, `__builtin_memset(p, 0,
+         * n);` parsed as a declaration of `p`). Unimplemented
+         * __builtin_ names still route to the declaration path, where
+         * the honest deferral lives. */
         if (parse_is_builtin_name(t->spelling) &&
-            (strcmp(t->spelling, "__builtin_va_start") == 0 ||
+            (parse_is_known_builtin(t->spelling) ||
              strcmp(t->spelling, "__builtin_va_arg") == 0 ||
-             strcmp(t->spelling, "__builtin_va_end") == 0 ||
-             strcmp(t->spelling, "__builtin_va_copy") == 0))
+             strcmp(t->spelling, "__builtin_offsetof") == 0))
             return false;
         return parse_is_typedef_name(p, t->spelling) ||
                parse_is_builtin_name(t->spelling);

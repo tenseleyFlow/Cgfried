@@ -682,33 +682,86 @@ static AstNode *expr_call(Sema *s, AstNode *e)
      * are typed and decayed (a va_list is an ARRAY and decays to the
      * record pointer, which is exactly what lowering wants); the marker
      * on `op` is what lowering dispatches on. */
-    if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name) {
-        u16 b = 0;
-        u32 want = 0;
+    if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name &&
+        strncmp(e->lhs->name, "__builtin_", 10) == 0) {
+        int want = 0, kind = 0;
+        u16 b = sema_builtin_lookup(e->lhs->name + 10, &want, &kind);
 
-        if (strcmp(e->lhs->name, "__builtin_va_start") == 0) {
-            b = SEMA_BUILTIN_VA_START;
-            want = 2;
-        } else if (strcmp(e->lhs->name, "__builtin_va_end") == 0) {
-            b = SEMA_BUILTIN_VA_END;
-            want = 1;
-        } else if (strcmp(e->lhs->name, "__builtin_va_copy") == 0) {
-            b = SEMA_BUILTIN_VA_COPY;
-            want = 2;
-        }
         if (b) {
-            if (e->nargs != want) {
-                err(s, e->span, "'%s' takes exactly %u argument%s",
+            if (want >= 0 && (int)e->nargs != want) {
+                err(s, e->span, "'%s' takes exactly %d argument%s",
                     e->lhs->name, want, want == 1 ? "" : "s");
                 return poison(s, e);
             }
             for (i = 0; i < e->nargs; i++)
                 e->args[i] = conv_decay(s, expr(s, e->args[i]));
+            /* The mem/str builtins take the LIBC signatures: sizes are
+             * size_t, so promote the counted argument rather than
+             * passing whatever width the user wrote (v0.1.0 lowers
+             * these to real libc calls — inlining is Phase 7/11). */
+            {
+                AssignCtx bctx;
+                int size_arg = -1;
+
+                memset(&bctx, 0, sizeof(bctx));
+                bctx.kind = ACTX_ARG;
+                bctx.callee = e->lhs->name;
+                switch (b) {
+                case SEMA_BUILTIN_MEMCPY:
+                case SEMA_BUILTIN_MEMMOVE:
+                case SEMA_BUILTIN_MEMSET:
+                case SEMA_BUILTIN_MEMCMP:
+                    size_arg = 2;
+                    break;
+                case SEMA_BUILTIN_ALLOCA:
+                    size_arg = 0;
+                    break;
+                }
+                if (size_arg >= 0 && (int)e->nargs > size_arg) {
+                    bctx.arg_index = (u32)size_arg + 1;
+                    conv_assignable(s, type_basic(TY_ULONG), &e->args[size_arg],
+                                    bctx);
+                }
+            }
             e->op = b;
-            e->sem_type = type_basic(TY_VOID);
             e->is_lvalue = false;
+            switch ((BuiltinKind)kind) {
+            case BK_VOID:
+                e->sem_type = type_basic(TY_VOID);
+                break;
+            case BK_INT:
+                e->sem_type = type_basic(TY_INT);
+                break;
+            case BK_LONG:
+                e->sem_type = type_basic(TY_LONG);
+                break;
+            case BK_SIZE:
+                e->sem_type = type_basic(TY_ULONG);
+                break;
+            case BK_VOIDP:
+                e->sem_type = type_ptr(s->arena, type_basic(TY_VOID));
+                break;
+            case BK_DOUBLE:
+                e->sem_type = type_basic(TY_DOUBLE);
+                break;
+            case BK_FLOAT:
+                e->sem_type = type_basic(TY_FLOAT);
+                break;
+            case BK_ARG0:
+                /* __builtin_expect(e, c): the result IS the first
+                 * argument, promoted (gcc types it long). */
+                e->sem_type =
+                    e->nargs ? e->args[0]->sem_type : type_basic(TY_LONG);
+                break;
+            case BK_SPECIAL:
+                e->sem_type = type_basic(TY_INT);
+                break;
+            }
             return e;
         }
+        /* A __builtin_ name with no table row: the parser already
+         * deferred it loudly, so reaching here means a new row was
+         * added without teaching sema. */
     }
 
     callee = conv_decay(s, expr(s, e->lhs));
@@ -992,6 +1045,47 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = false;
         return e;
     }
+    case AST_EXPR_OFFSETOF: {
+        /* __builtin_offsetof(T, designator): the designator chain is
+         * typed against a synthetic lvalue of T, so every ordinary
+         * member/index rule (anonymous members, array bounds, the
+         * not-a-member diagnostic) applies unchanged. The result is a
+         * size_t ICE that Sprint 15's engine folds. */
+        Type *rec = sema_type_from_ast(s, e->type, e->span);
+        AstNode *base = e->lhs;
+
+        while (base && base->kind != AST_EXPR_OFFSETOF_BASE)
+            base = base->lhs;
+        if (base) {
+            base->sem_type = rec;
+            base->is_lvalue = true;
+        }
+        if (rec->kind != TY_STRUCT && rec->kind != TY_UNION) {
+            err(s, e->span,
+                "'__builtin_offsetof' requires a struct or union type, "
+                "not '%s'",
+                type_to_str(s->arena, rec));
+            return poison(s, e);
+        }
+        e->lhs = expr(s, e->lhs);
+        e->sem_type = type_basic(TY_ULONG);
+        e->is_lvalue = false;
+        if (quiet(e->lhs, NULL))
+            return poison(s, e);
+        /* Fold HERE, not at lowering: offsetof is an ICE by definition,
+         * so a bad designator must be a sema error at its own location
+         * rather than an ICE from a fold that "cannot fail". */
+        {
+            ConstValue cv = constexpr_eval(s, e, CE_ICE);
+
+            if (cv.kind != CV_INT)
+                return poison(s, e);
+        }
+        return e;
+    }
+    case AST_EXPR_OFFSETOF_BASE:
+        /* Already typed by the OFFSETOF case above; never evaluated. */
+        return e;
     case AST_EXPR_COMPOUND_LIT: {
         Type *t = sema_type_from_ast(s, e->type, e->span);
 

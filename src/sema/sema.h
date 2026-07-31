@@ -487,10 +487,39 @@ Type *sema_type_from_ast(Sema *s, const AstType *at, Span span);
 Type *sema_va_list_type(Sema *s);
 
 /* Builtin markers sema leaves on an AST_EXPR_CALL's `op` field for
- * lowering (ordinary calls leave op zero). */
-#define SEMA_BUILTIN_VA_START 0x7001
-#define SEMA_BUILTIN_VA_END 0x7002
-#define SEMA_BUILTIN_VA_COPY 0x7003
+ * lowering (ordinary calls leave op zero). Numbered from the table in
+ * builtins.def so adding a row cannot collide or leave a hole. */
+enum {
+    SEMA_BUILTIN_NONE = 0,
+    SEMA_BUILTIN_PAD = 0x7000, /* so the first table row lands on 0x7001 */
+#define B(sfx, NAME, nargs, kind) SEMA_BUILTIN_##NAME,
+#include "builtins.def"
+#undef B
+    SEMA_BUILTIN_LAST
+};
+#define SEMA_BUILTIN_FIRST 0x7001
+
+/* Result-type rules (see builtins.def's header comment). */
+typedef enum {
+    BK_VOID,
+    BK_INT,
+    BK_LONG,
+    BK_SIZE,
+    BK_VOIDP,
+    BK_DOUBLE,
+    BK_FLOAT,
+    BK_ARG0,
+    BK_SPECIAL
+} BuiltinKind;
+
+/* Table lookup by spelling AFTER the "__builtin_" prefix. Returns the
+ * marker (0 when the name is not a builtin we implement) and fills the
+ * expected argument count and result rule. */
+u16 sema_builtin_lookup(const char *suffix, int *nargs, int *kind);
+
+/* True when `name` is reachable as a member of `t`, traversing
+ * anonymous struct/union members (6.7.2.1p13). */
+bool find_member_named(const Type *t, const char *name);
 
 /* Every deferred path routes through here so the grep in the sprint's DoD
  * finds them all: the message ALWAYS names the sprint that lands it. */

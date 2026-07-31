@@ -1122,6 +1122,117 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
     }
 }
 
+/* The Sprint 28 builtins that are NOT calls: each lowers to IR we
+ * already have. The mem/str family deliberately does NOT appear here —
+ * v0.1.0 lowers those to real libc calls (inline expansion is a
+ * Phase 7/11 optimization, and pre-optimizing it here would make the
+ * -O0 output untrue to the source). */
+static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
+{
+    switch (e->op) {
+    case SEMA_BUILTIN_UNREACHABLE:
+        ir_build_unreachable(&lo->b);
+        /* unreachable TERMINATES the block, but the C statement it came
+         * from can be followed by more (dead) code — open a fresh block
+         * so lowering has somewhere to put it; ir_func_remove_unreachable
+         * drops it before the verifier ever sees it. */
+        lower_at(lo, lower_new_block(lo, "dead"));
+        *out = ir_op_undef(IRT_I32);
+        return true;
+    case SEMA_BUILTIN_TRAP:
+        /* Both trap and unreachable emit ud2 today (gcc emits ud2 for
+         * __builtin_trap too), so they share the IR opcode. They are NOT
+         * the same concept — unreachable is UB-if-reached and an
+         * optimizer may delete code around it, while trap is a DEFINED
+         * stop — so when Phase 7 starts reasoning about unreachable,
+         * trap needs its own opcode. Recorded rather than pre-built:
+         * the emitted code is correct today. */
+        ir_build_unreachable(&lo->b);
+        lower_at(lo, lower_new_block(lo, "dead"));
+        *out = ir_op_undef(IRT_I32);
+        return true;
+    case SEMA_BUILTIN_EXPECT:
+        /* Honest no-op in v0.1.0 (documented): the value IS the first
+         * argument. Branch weights arrive with the optimizer, and a
+         * fake metadata bit now would be a claim we cannot honor. */
+        *out = lower_rvalue(lo, e->args[0]);
+        return true;
+    case SEMA_BUILTIN_ALLOCA: {
+        /* 16-byte alignment: max_align_t's, so the block is usable for
+         * any object the caller puts there. Sprint 20's dynamic alloca
+         * machinery (stacksave/restore tokens) handles the frame. */
+        IrOperand n = lower_rvalue(lo, e->args[0]);
+
+        *out = ir_op_value(lo->b.f, ir_build_alloca(&lo->b, n, 16));
+        return true;
+    }
+    case SEMA_BUILTIN_CONSTANT_P:
+        /* gcc's contract: 0 when the answer is not known. We answer
+         * from the constant engine at THIS point in compilation, so a
+         * value that only becomes constant after inlining reads 0 —
+         * documented, and the same answer gcc gives at -O0. */
+        {
+            ConstValue cv = constexpr_eval(lo->sema, e->args[0], CE_FOLD);
+
+            *out = ir_op_iconst(
+                IRT_I32, (cv.kind == CV_INT || cv.kind == CV_FLOAT) ? 1 : 0);
+        }
+        return true;
+    /* IEEE bit patterns, written as bits — never as a host double
+     * (the no-host-FPU law: these are the same values Sprint 15's
+     * softfloat produces, and a host literal would be a second source
+     * of truth). __builtin_nan("") is the default quiet NaN; a
+     * non-empty payload string is not supported and sema rejects it. */
+    case SEMA_BUILTIN_HUGE_VAL:
+    case SEMA_BUILTIN_INF:
+        *out = ir_op_fconst(IRT_F64, 0x7ff0000000000000ULL, 0);
+        return true;
+    case SEMA_BUILTIN_HUGE_VALF:
+    case SEMA_BUILTIN_INFF:
+        *out = ir_op_fconst(IRT_F32, 0x7f800000ULL, 0);
+        return true;
+    case SEMA_BUILTIN_NAN:
+        *out = ir_op_fconst(IRT_F64, 0x7ff8000000000000ULL, 0);
+        return true;
+    case SEMA_BUILTIN_NANF:
+        *out = ir_op_fconst(IRT_F32, 0x7fc00000ULL, 0);
+        return true;
+    }
+    return false;
+}
+
+/* memcpy/memmove/memset/memcmp/strlen: a direct external call by name.
+ * All five take and return only scalars, so the abstract-call machinery
+ * (aggregate copies, sret) is not needed here. */
+static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
+{
+    static const struct {
+        u16 marker;
+        const char *name;
+        IrType ret;
+    } libc[] = {
+        {SEMA_BUILTIN_MEMCPY, "memcpy", IRT_PTR},
+        {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR},
+        {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR},
+        {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32},
+        {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64},
+    };
+    IrOperand args[3];
+    u32 i, n = 0;
+    size_t k;
+
+    for (k = 0; k < CGF_ARRAY_LEN(libc); k++) {
+        if (libc[k].marker != e->op)
+            continue;
+        for (i = 0; i < e->nargs && i < 3; i++)
+            args[n++] = lower_rvalue(lo, e->args[i]);
+        return ir_op_value(lo->fn,
+                           ir_build_call(&lo->b, libc[k].ret, FUNCREF_EXTERNAL,
+                                         ir_sym(lo->m, libc[k].name), args, n));
+    }
+    CGF_ICE("builtin %#x has no lowering", (unsigned)e->op);
+}
+
 static IrOperand lower_call(Lower *lo, AstNode *e)
 {
     Symbol *callee;
@@ -1140,6 +1251,17 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     if (e->op >= SEMA_BUILTIN_VA_START && e->op <= SEMA_BUILTIN_VA_COPY) {
         lower_va_builtin(lo, e);
         return ir_op_undef(IRT_I32); /* void; no one may look */
+    }
+    if (e->op >= SEMA_BUILTIN_FIRST) {
+        IrOperand bo;
+
+        if (lower_simple_builtin(lo, e, &bo))
+            return bo;
+        /* The mem/str builtins ARE their libc functions in v0.1.0
+         * (inline expansion is Phase 7/11). They have no Symbol — sema
+         * recognized the name without declaring anything — so the call
+         * is built directly against the libc symbol NAME. */
+        return lower_libc_builtin(lo, e);
     }
 
     callee = direct_callee(e->lhs);
@@ -1508,6 +1630,15 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         return lower_rvalue(lo, e->mid);
     case AST_EXPR_VA_ARG:
         return lower_va_arg(lo, e);
+    case AST_EXPR_OFFSETOF: {
+        /* Always an ICE — sema typed it and the folder computed the
+         * byte offset, so there is nothing to evaluate at run time. */
+        ConstValue cv = constexpr_eval(lo->sema, e, CE_ICE);
+
+        if (cv.kind != CV_INT)
+            CGF_ICE("offsetof did not fold at lowering");
+        return ir_op_iconst(lower_irtype(lo, sem(e)), (i64)cv.i);
+    }
     default:
         CGF_ICE("lower_rvalue: unhandled expr kind %d", (int)e->kind);
     }

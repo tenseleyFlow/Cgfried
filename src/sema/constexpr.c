@@ -482,6 +482,97 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
     return cv_int(s, t, fit(s, t, res));
 }
 
+/* __builtin_offsetof's designator chain -> byte offset.
+ *
+ * Walks the same .member / [index] shape the parser built over the
+ * placeholder base. Anonymous members are traversed with their offsets
+ * ACCUMULATED (find_member alone returns the innermost member, whose
+ * `offset` is relative to its own enclosing record). A bitfield has no
+ * address, so offsetof of one is an error rather than a rounded-down
+ * byte — gcc says the same. */
+static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out)
+{
+    if (!e)
+        return false;
+    /* Sema materializes the array->pointer decay as an implicit cast
+     * node, so `offsetof(S, arr[2])` reaches here as INDEX(CAST(MEMBER)).
+     * Step through those: they change the TYPE, never the address. */
+    while (e->kind == AST_EXPR_CAST && e->implicit && e->lhs)
+        e = e->lhs;
+    switch (e->kind) {
+    case AST_EXPR_OFFSETOF_BASE:
+        *out = 0;
+        return true;
+    case AST_EXPR_MEMBER: {
+        const Type *rec = e->lhs ? e->lhs->sem_type : NULL;
+        u64 base_off = 0;
+
+        if (!offsetof_walk(s, m, e->lhs, &base_off))
+            return false;
+        if (!rec || !rec->tag) {
+            ce_error(s, m, e->span, "this is not a constant expression");
+            return false;
+        }
+        layout_record(s, (Type *)rec);
+        /* Descend named-or-anonymous, accumulating as we go. */
+        for (;;) {
+            Member *it;
+            bool stepped = false;
+
+            for (it = rec->tag->members; it; it = it->next) {
+                if (it->name == e->name) {
+                    if (it->is_bitfield) {
+                        ce_error(s, m, e->span,
+                                 "'__builtin_offsetof' applied to a "
+                                 "bit-field member");
+                        return false;
+                    }
+                    *out = base_off + it->offset;
+                    return true;
+                }
+                if (!it->name && it->type &&
+                    (it->type->kind == TY_STRUCT ||
+                     it->type->kind == TY_UNION) &&
+                    find_member_named(it->type, e->name)) {
+                    layout_record(s, it->type);
+                    base_off += it->offset;
+                    rec = it->type;
+                    stepped = true;
+                    break;
+                }
+            }
+            if (!stepped) {
+                ce_error(s, m, e->span, "this is not a constant expression");
+                return false;
+            }
+        }
+    }
+    case AST_EXPR_INDEX: {
+        u64 base_off = 0;
+        ConstValue idx;
+        const Type *arr = e->lhs ? e->lhs->sem_type : NULL;
+
+        if (!offsetof_walk(s, m, e->lhs, &base_off))
+            return false;
+        idx = eval(s, e->rhs, m);
+        /* `arr->base` is the element type whether arr is still an array
+         * type or the decayed pointer — both spell the same element. */
+        if (idx.kind != CV_INT || !arr || !arr->base) {
+            ce_error(s, m, e->span,
+                     "'__builtin_offsetof' array index must be an integer "
+                     "constant expression");
+            return false;
+        }
+        *out = base_off + (u64)(i64)idx.i * layout_of(s, arr->base).size;
+        return true;
+    }
+    default:
+        ce_error(s, m, e->span,
+                 "'__builtin_offsetof' expects a member designator");
+        return false;
+    }
+}
+
 static ConstValue eval(Sema *s, AstNode *e, CeMode m)
 {
     if (!e)
@@ -800,6 +891,13 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         return cv_int(s, e->sem_type,
                       e->kind == AST_EXPR_SIZEOF ? layout_of(s, t).size
                                                  : layout_of(s, t).align);
+    }
+    case AST_EXPR_OFFSETOF: {
+        u64 off = 0;
+
+        if (!offsetof_walk(s, m, e->lhs, &off))
+            return cv_error();
+        return cv_int(s, e->sem_type, off);
     }
     case AST_EXPR_INDEX:
     case AST_EXPR_MEMBER:

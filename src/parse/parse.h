@@ -149,6 +149,10 @@ bool parse_at_decl_specs(Parser *p);
 /* True for the `__builtin_` reserved prefix: those names are the
  * compiler's own, and every one of them defers to Sprint 28. */
 bool parse_is_builtin_name(const char *name);
+
+/* True for the builtins src/builtins.def actually implements (as opposed
+ * to any __builtin_ spelling). */
+bool parse_is_known_builtin(const char *name);
 /* True if the current identifier should be treated as an unknown TYPE name
  * rather than an expression — see the heuristic's comment in decl.c. */
 bool parse_at_unknown_type(Parser *p);

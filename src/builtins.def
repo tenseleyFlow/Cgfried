@@ -1,0 +1,57 @@
+/* The compiler-owned __builtin_* set (Sprint 28).
+ *
+ * B(suffix, NAME, nargs, kind) — `suffix` is the spelling after
+ * "__builtin_", NAME the SEMA_BUILTIN_* marker suffix, `nargs` the
+ * required argument count (-1 = variadic/checked by hand), and `kind`
+ * the result-type rule sema applies:
+ *
+ *   BK_VOID     void result
+ *   BK_INT      int result
+ *   BK_LONG     long result
+ *   BK_SIZE     size_t result
+ *   BK_VOIDP    void * result
+ *   BK_DOUBLE   double result
+ *   BK_FLOAT    float result
+ *   BK_ARG0     same type as argument 0 (after promotion)
+ *   BK_SPECIAL  sema types it by hand
+ *
+ * Names NOT in this table keep the parser's honest deferral. Adding a
+ * row is the only way to make a builtin real — there is deliberately no
+ * "accept anything __builtin_" fallback, because a silently-accepted
+ * builtin that lowers to nothing is worse than a clean error. */
+
+/* varargs (Sprint 19; the markers predate this table) */
+B(va_start, VA_START, 2, BK_VOID)
+B(va_end, VA_END, 1, BK_VOID)
+B(va_copy, VA_COPY, 2, BK_VOID)
+
+/* control flow / traps */
+B(unreachable, UNREACHABLE, 0, BK_VOID)
+B(trap, TRAP, 0, BK_VOID)
+
+/* optimizer hints — honest no-ops in v0.1.0 (documented in the sprint
+ * file and in --help's absence of any claim to the contrary) */
+B(expect, EXPECT, 2, BK_ARG0)
+
+/* memory */
+B(alloca, ALLOCA, 1, BK_VOIDP)
+B(memcpy, MEMCPY, 3, BK_VOIDP)
+B(memmove, MEMMOVE, 3, BK_VOIDP)
+B(memset, MEMSET, 3, BK_VOIDP)
+B(memcmp, MEMCMP, 3, BK_INT)
+B(strlen, STRLEN, 1, BK_SIZE)
+
+/* floating-point constants (Sprint 15 softfloat values, never host FP) */
+B(huge_val, HUGE_VAL, 0, BK_DOUBLE)
+B(huge_valf, HUGE_VALF, 0, BK_FLOAT)
+B(inf, INF, 0, BK_DOUBLE)
+B(inff, INFF, 0, BK_FLOAT)
+B(nan, NAN, 1, BK_DOUBLE)
+B(nanf, NANF, 1, BK_FLOAT)
+
+/* constant-expression queries */
+B(constant_p, CONSTANT_P, 1, BK_INT)
+
+/* __builtin_offsetof has its own AST form (its second operand is a
+ * member DESIGNATOR, not an expression), so it is not in this table —
+ * see AST_EXPR_OFFSETOF. */

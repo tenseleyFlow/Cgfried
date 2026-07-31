@@ -469,3 +469,54 @@ void sema_install_renderer(void)
 {
     ast_set_sem_type_renderer(sem_type_render_cb);
 }
+
+/* --- the builtin table (Sprint 28) --------------------------------------- */
+
+/* One row per compiler-owned __builtin_*, generated from builtins.def so
+ * the marker enum, the arity check and the result rule can never drift
+ * apart. Lookup is by the spelling AFTER the "__builtin_" prefix. */
+u16 sema_builtin_lookup(const char *suffix, int *nargs, int *kind)
+{
+    static const struct {
+        const char *name;
+        u16 marker;
+        int nargs;
+        int kind;
+    } table[] = {
+#define B(sfx, NAME, n, k) {#sfx, (u16)SEMA_BUILTIN_##NAME, (n), (k)},
+#include "builtins.def"
+#undef B
+    };
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(table); i++) {
+        if (strcmp(table[i].name, suffix) == 0) {
+            if (nargs)
+                *nargs = table[i].nargs;
+            if (kind)
+                *kind = table[i].kind;
+            return table[i].marker;
+        }
+    }
+    return 0;
+}
+
+/* Anonymous-member-transparent lookup used by the offsetof folder (the
+ * one in sema/expr.c is file-static and returns the innermost Member;
+ * this only answers "is the name reachable from here"). */
+bool find_member_named(const Type *t, const char *name)
+{
+    Member *m;
+
+    if (!t || !t->tag)
+        return false;
+    for (m = t->tag->members; m; m = m->next) {
+        if (m->name == name)
+            return true;
+        if (!m->name && m->type &&
+            (m->type->kind == TY_STRUCT || m->type->kind == TY_UNION) &&
+            find_member_named(m->type, name))
+            return true;
+    }
+    return false;
+}

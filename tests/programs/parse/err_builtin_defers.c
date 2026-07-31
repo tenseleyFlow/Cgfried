@@ -1,6 +1,8 @@
 // FLAGS: --dump-ast
-// ERROR_EXPECTED: Sprint 28
-// `__builtin_va_list` and the va_* function builtins went live in Sprint
-// 19; every OTHER __builtin_ name still defers loudly, naming the sprint
-// that makes the builtin family real.
-int f(void) { return __builtin_expect(1, 1); }
+// ERROR_EXPECTED: is not a builtin this compiler implements
+// Sprint 28 made the table in src/builtins.def the whole contract: a
+// name WITH a row parses and types, a name without one still defers
+// loudly. There is deliberately no accept-anything-__builtin_ fallback —
+// a silently accepted builtin that lowers to nothing is worse than a
+// clean rejection.
+int f(void) { return __builtin_clz(8u); }
