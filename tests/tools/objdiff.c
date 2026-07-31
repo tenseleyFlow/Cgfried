@@ -152,12 +152,42 @@ static void bad(const char *fmt, ...)
     fails++;
 }
 
-/* progbits byte compare */
+/* progbits byte compare. For .text the compare is FUNCTION-GRANULAR:
+ * bytes inside every FUNC symbol's [value, value+size) are strict, but
+ * inter-function alignment padding is skipped — gas's own multi-NOP
+ * fill decomposition varies BETWEEN BINUTILS VERSIONS (2.44 pads
+ * remainder-first; older releases differ), so byte-comparing filler
+ * that is never executed pins a version, not a behavior. Section sizes
+ * and symbol offsets still compare exactly, so a real layout divergence
+ * cannot hide in the gaps. */
+static void mark_func_bytes(const Obj *o, const char *sec, u8 *mask, u64 cap)
+{
+    const Sec *st = find(o, ".symtab", 2);
+    u32 i, count;
+
+    if (!st)
+        return;
+    count = (u32)(st->size / 24);
+    for (i = 1; i < count; i++) {
+        const u8 *e = st->data + (u64)i * 24;
+        u16 shndx = rd16(e + 6);
+        u64 v = rd64(e + 8), sz = rd64(e + 16), k;
+
+        if ((e[4] & 0xf) != 2 /* STT_FUNC */)
+            continue;
+        if (shndx >= o->nsecs || strcmp(o->secs[shndx].name, sec) != 0)
+            continue;
+        for (k = v; k < v + sz && k < cap; k++)
+            mask[k] = 1;
+    }
+}
+
 static void cmp_section(const Obj *a, const Obj *b, const char *name)
 {
     const Sec *sa = find(a, name, 0);
     const Sec *sb = find(b, name, 0);
     u64 i;
+    u8 *mask = NULL;
 
     if (!sa && !sb)
         return;
@@ -176,12 +206,21 @@ static void cmp_section(const Obj *a, const Obj *b, const char *name)
             (unsigned long long)sb->size);
         return;
     }
-    for (i = 0; i < sa->size; i++)
+    if (strcmp(name, ".text") == 0 && sa->size) {
+        mask = calloc(1, sa->size);
+        mark_func_bytes(a, name, mask, sa->size);
+    }
+    for (i = 0; i < sa->size; i++) {
+        if (mask && !mask[i])
+            continue; /* inter-function alignment fill */
         if (sa->data[i] != sb->data[i]) {
             bad("%s byte %llu: 0x%02x vs 0x%02x", name, (unsigned long long)i,
                 sa->data[i], sb->data[i]);
+            free(mask);
             return;
         }
+    }
+    free(mask);
 }
 
 static void cmp_bss(const Obj *a, const Obj *b)

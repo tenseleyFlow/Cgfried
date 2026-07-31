@@ -96,8 +96,9 @@ jobs:
       - name: emission differential (Sprint 24, BOTH assembler lanes)
         run: |
           make -j"$(nproc)" build/cgfried build/cgf build/cgf-objdiff
-          sh scripts/objdiff_lane.sh build/cgfried build/cgf-objdiff \
-            > objdiff.log 2>&1; s=$?
+          # -e-safe capture: the log must PRINT even when the lane fails
+          if sh scripts/objdiff_lane.sh build/cgfried build/cgf-objdiff \
+              > objdiff.log 2>&1; then s=0; else s=1; fi
           cat objdiff.log
           [ $s -eq 0 ]
           sh ci/check_skips.sh objdiff objdiff.log
