@@ -35,6 +35,15 @@ ir_check_pass.cgfir)
     printf '    %%0 = iadd i32 1, 2\n'
     exit 0
     ;;
+mir_check_pass.c | mir_check_fail.c)
+    # -emit-mir routing: compiler stdout is the result under test;
+    # mir_check_fail expects text this never prints (F-S22-MIRCHECK).
+    printf 'mir @f (frame=0 spills=0)\n'
+    printf 'bb1:\n'
+    printf '    rax = mov.l $1\n'
+    printf '    ret\n'
+    exit 0
+    ;;
 check_pass.c | check_order.c)
     emit '#!/bin/sh
 echo one

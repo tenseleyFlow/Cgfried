@@ -379,8 +379,14 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             p->set->has_error_expected = true;
         if (hit->kind == DIR_WARNING_EXPECTED)
             p->set->has_warning_expected = true;
+        /* F-S22-MIRCHECK: DIR_MIR_CHECK was missing from this list for
+         * all of Sprint 21 — MIR_CHECK directives parsed, validated, and
+         * were then silently DROPPED, so the nine MIR goldens asserted
+         * nothing. A meta fixture now pins that an unmatched MIR_CHECK
+         * fails. */
         if (hit->kind == DIR_CHECK || hit->kind == DIR_IR_CHECK ||
-            hit->kind == DIR_IR_CHECK_NOT || hit->kind == DIR_ERROR_EXPECTED ||
+            hit->kind == DIR_MIR_CHECK || hit->kind == DIR_IR_CHECK_NOT ||
+            hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
             hit->kind == DIR_SKIP || hit->kind == DIR_ENV)
             add_dir(p, d);

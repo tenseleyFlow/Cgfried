@@ -51,6 +51,10 @@ expect config_unknown_directive.c 1 "CONFIG ERROR"
 expect config_unknown_selector.c 1 "unknown target selector"
 expect config_reserved.c 1 "Sprint 24"
 expect ir_check_pass.cgfir 0 "pass=1"
+expect mir_check_pass.c 0 "pass=1"
+# F-S22-MIRCHECK: MIR_CHECK was parsed and silently dropped through all
+# of Sprint 21 — an unmatched MIR_CHECK must FAIL, forever.
+expect mir_check_fail.c 1 "CHECK not matched"
 expect config_bad_xfid.c 1 "XF-NNNN"
 expect config_unknown_xfid.c 1 "not in the ledger"
 expect flags_env_pp.c 0 "pass=1"
@@ -61,7 +65,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=25 pass=9 fail=7 xfail=1 xpass=1 skip=1 config=6"*) ;;
+*"total=27 pass=10 fail=8 xfail=1 xpass=1 skip=1 config=6"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)
