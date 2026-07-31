@@ -707,12 +707,15 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
     for (i = 0; i < a->isystem_dirs.len; i++)
         pp.system_dirs[pp.n_system++] = a->isystem_dirs.data[i];
     if (!a->nostdinc) {
-        /* Our shipped freestanding headers (stddef.h et al.) come FIRST —
-         * glibc's own headers include them and gcc likewise places its own
-         * include dir ahead of /usr/include. Dev tree: build/../include;
-         * installed: <prefix>/bin/../include. */
-        static char shipped[4096];
-        if (cgf_exe_relative("/../include", shipped, sizeof(shipped)))
+        /* Our shipped freestanding headers come FIRST among the system
+         * dirs (after any -isystem): glibc's own headers include them,
+         * and gcc likewise places its include dir ahead of /usr/include.
+         * The dir holds EXACTLY the nine headers the standard makes the
+         * compiler's, so it can never shadow libc's stdio.h et al.
+         * Probe order: CGF_INCLUDE_DIR > installed layout > dev tree. */
+        const char *shipped = cgf_shipped_include_dir();
+
+        if (shipped)
             pp.system_dirs[pp.n_system++] = shipped;
         pp.n_system += cgf_target_system_include_dirs(
             cgf_target_host(), pp.system_dirs + pp.n_system,

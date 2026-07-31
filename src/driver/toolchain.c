@@ -308,6 +308,44 @@ const char *cgf_env(const char *name)
     return env_override(real_getenv, NULL, name, NULL);
 }
 
+/* Sprint 28: the shipped freestanding-header dir. CGF_INCLUDE_DIR wins
+ * (a miss there is honored, not silently ignored: the user named it);
+ * then the installed layout, then the dev tree. Probed for stddef.h so
+ * a stale empty dir cannot win. */
+const char *cgf_shipped_include_dir(void)
+{
+    static char path[4096];
+    static bool computed;
+    static const char *result;
+    static const char *const suffixes[] = {
+        "/../lib/cgfried/include", /* make install layout */
+        "/../include",             /* dev tree (build/cgfried) */
+    };
+    const char *override;
+    char probe[4200];
+    size_t i;
+
+    if (computed)
+        return result;
+    computed = true;
+    override = cgf_env("CGF_INCLUDE_DIR");
+    if (override) {
+        result = override;
+        return result;
+    }
+    for (i = 0; i < CGF_ARRAY_LEN(suffixes); i++) {
+        if (!cgf_exe_relative(suffixes[i], path, sizeof(path)))
+            continue;
+        snprintf(probe, sizeof(probe), "%s/stddef.h", path);
+        if (access(probe, R_OK) == 0) {
+            result = path;
+            return result;
+        }
+    }
+    result = NULL;
+    return result;
+}
+
 const char *cgf_tool_missing_hint(ToolKind which)
 {
     switch (which) {

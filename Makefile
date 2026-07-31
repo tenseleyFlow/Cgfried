@@ -163,6 +163,11 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(AS_LANE) sh scripts/e2e_gcc_diff.sh $(BUILD)/cgfried
 	$(AS_LANE) CGF_DRIVER_MATRIX_WORK=$(BUILD)/driver-matrix \
 	    sh scripts/driver_matrix.sh $(BUILD)/cgfried
+	$(AS_LANE) CGF_HEADER_WORK=$(BUILD)/header-diff \
+	    sh scripts/header_diff.sh $(BUILD)/cgfried \
+	    > $(BUILD)/header.log 2>&1; s=$$?; \
+	    cat $(BUILD)/header.log; exit $$s
+	sh ci/check_skips.sh headerdiff $(BUILD)/header.log
 	$(AS_LANE) CGF_AFSLD_WORK=$(BUILD)/afsld-lane \
 	    sh scripts/afsld_lane.sh $(BUILD)/cgfried \
 	    > $(BUILD)/afsld.log 2>&1; s=$$?; \

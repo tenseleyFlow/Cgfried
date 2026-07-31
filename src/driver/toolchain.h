@@ -130,6 +130,12 @@ const char *cgf_tool_missing_hint(ToolKind which);
  * the result would not fit. */
 bool cgf_exe_relative(const char *suffix, char *out, size_t out_size);
 
+/* Sprint 28: the shipped freestanding-header directory (exactly the
+ * nine compiler-owned headers). CGF_INCLUDE_DIR overrides; otherwise
+ * the installed layout then the dev tree, probed for stddef.h. NULL
+ * when none exists. */
+const char *cgf_shipped_include_dir(void);
+
 /* Non-toolchain CGF_* variables (debug/testing knobs like
  * CGF_PP_DUMP_TOKENS) ALSO route through this translation unit, so the
  * single-getenv-site ban stays absolute. NULL when unset or empty. */

@@ -98,6 +98,248 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
                "#define __UINTPTR_TYPE__ long unsigned int\n"
                "#define __CHAR16_TYPE__ short unsigned int\n"
                "#define __CHAR32_TYPE__ unsigned int\n");
+
+    /* Sprint 28: the exact-width / least / fast families and the
+     * floating-point limits our freestanding <stdint.h>, <limits.h> and
+     * <float.h> are written in terms of. This is the gcc technique —
+     * one header per macro set, all target truth HERE (the sole target
+     * site). Values verified against gcc -dM on x86_64-linux-gnu. */
+    {
+        /* int64_t is `long` on the LP64 ELF targets and `long long` on
+         * Darwin; the literal suffix follows the type. */
+        bool darwin = t.kind == CGF_TARGET_ARM64_MACOS;
+        const char *i64 = darwin ? "long long int" : "long int";
+        const char *u64 =
+            darwin ? "long long unsigned int" : "long unsigned int";
+        const char *sfx = darwin ? "LL" : "L";
+        const char *usfx = darwin ? "ULL" : "UL";
+        /* int_fastN_t: glibc/musl/FreeBSD widen 16/32/64 to `long`;
+         * Darwin keeps the natural widths. The sprint file flags this
+         * as the row most likely to be hardcoded wrong. */
+        const char *f16 = darwin ? "short int" : "long int";
+        const char *f32 = darwin ? "int" : "long int";
+        const char *f16m = darwin ? "0x7fff" : "0x7fffffffffffffffL";
+        const char *f32m = darwin ? "0x7fffffff" : "0x7fffffffffffffffL";
+        unsigned f16w = darwin ? 16u : 64u, f32w = darwin ? 32u : 64u;
+
+        buf_printf(out,
+                   "#define __INT8_TYPE__ signed char\n"
+                   "#define __INT16_TYPE__ short int\n"
+                   "#define __INT32_TYPE__ int\n"
+                   "#define __INT64_TYPE__ %s\n"
+                   "#define __UINT8_TYPE__ unsigned char\n"
+                   "#define __UINT16_TYPE__ short unsigned int\n"
+                   "#define __UINT32_TYPE__ unsigned int\n"
+                   "#define __UINT64_TYPE__ %s\n"
+                   "#define __INT8_MAX__ 0x7f\n"
+                   "#define __INT16_MAX__ 0x7fff\n"
+                   "#define __INT32_MAX__ 0x7fffffff\n"
+                   "#define __INT64_MAX__ 0x7fffffffffffffff%s\n"
+                   "#define __UINT8_MAX__ 0xff\n"
+                   "#define __UINT16_MAX__ 0xffff\n"
+                   "#define __UINT32_MAX__ 0xffffffffU\n"
+                   "#define __UINT64_MAX__ 0xffffffffffffffff%s\n"
+                   "#define __INT8_C(c) c\n"
+                   "#define __INT16_C(c) c\n"
+                   "#define __INT32_C(c) c\n"
+                   "#define __INT64_C(c) c ## %s\n"
+                   "#define __UINT8_C(c) c\n"
+                   "#define __UINT16_C(c) c\n"
+                   "#define __UINT32_C(c) c ## U\n"
+                   "#define __UINT64_C(c) c ## %s\n"
+                   "#define __INTMAX_C(c) c ## L\n"
+                   "#define __UINTMAX_C(c) c ## UL\n",
+                   i64, u64, sfx, usfx, sfx, usfx);
+        buf_printf(out,
+                   "#define __INT_LEAST8_TYPE__ signed char\n"
+                   "#define __INT_LEAST16_TYPE__ short int\n"
+                   "#define __INT_LEAST32_TYPE__ int\n"
+                   "#define __INT_LEAST64_TYPE__ %s\n"
+                   "#define __UINT_LEAST8_TYPE__ unsigned char\n"
+                   "#define __UINT_LEAST16_TYPE__ short unsigned int\n"
+                   "#define __UINT_LEAST32_TYPE__ unsigned int\n"
+                   "#define __UINT_LEAST64_TYPE__ %s\n"
+                   "#define __INT_LEAST8_MAX__ 0x7f\n"
+                   "#define __INT_LEAST16_MAX__ 0x7fff\n"
+                   "#define __INT_LEAST32_MAX__ 0x7fffffff\n"
+                   "#define __INT_LEAST64_MAX__ 0x7fffffffffffffff%s\n"
+                   "#define __UINT_LEAST8_MAX__ 0xff\n"
+                   "#define __UINT_LEAST16_MAX__ 0xffff\n"
+                   "#define __UINT_LEAST32_MAX__ 0xffffffffU\n"
+                   "#define __UINT_LEAST64_MAX__ 0xffffffffffffffff%s\n"
+                   "#define __INT_LEAST8_WIDTH__ 8\n"
+                   "#define __INT_LEAST16_WIDTH__ 16\n"
+                   "#define __INT_LEAST32_WIDTH__ 32\n"
+                   "#define __INT_LEAST64_WIDTH__ 64\n",
+                   i64, u64, sfx, usfx);
+        buf_printf(
+            out,
+            "#define __INT_FAST8_TYPE__ signed char\n"
+            "#define __INT_FAST16_TYPE__ %s\n"
+            "#define __INT_FAST32_TYPE__ %s\n"
+            "#define __INT_FAST64_TYPE__ %s\n"
+            "#define __UINT_FAST8_TYPE__ unsigned char\n"
+            "#define __UINT_FAST16_TYPE__ %s unsigned int\n"
+            "#define __UINT_FAST32_TYPE__ %s unsigned int\n"
+            "#define __UINT_FAST64_TYPE__ %s\n"
+            "#define __INT_FAST8_MAX__ 0x7f\n"
+            "#define __INT_FAST16_MAX__ %s\n"
+            "#define __INT_FAST32_MAX__ %s\n"
+            "#define __INT_FAST64_MAX__ 0x7fffffffffffffff%s\n"
+            "#define __UINT_FAST8_MAX__ 0xff\n"
+            "#define __UINT_FAST16_MAX__ %s\n"
+            "#define __UINT_FAST32_MAX__ %s\n"
+            "#define __UINT_FAST64_MAX__ 0xffffffffffffffff%s\n"
+            "#define __INT_FAST8_WIDTH__ 8\n"
+            "#define __INT_FAST16_WIDTH__ %u\n"
+            "#define __INT_FAST32_WIDTH__ %u\n"
+            "#define __INT_FAST64_WIDTH__ 64\n",
+            f16, f32, i64, darwin ? "short" : "long", darwin ? "" : "long", u64,
+            f16m, f32m, sfx, darwin ? "0xffff" : "0xffffffffffffffffUL",
+            darwin ? "0xffffffffU" : "0xffffffffffffffffUL", usfx, f16w, f32w);
+        /* Plain char signedness: AAPCS64 Linux makes it UNSIGNED. */
+        if (t.kind == CGF_TARGET_ARM64_LINUX)
+            buf_printf(out, "#define __CHAR_UNSIGNED__ 1\n");
+        /* wchar_t is unsigned int on arm64-linux, int elsewhere; the
+         * shared block above spelled the common case, so correct it. */
+        if (t.kind == CGF_TARGET_ARM64_LINUX)
+            buf_printf(out, "#undef __WCHAR_TYPE__\n"
+                            "#define __WCHAR_TYPE__ unsigned int\n"
+                            "#undef __WCHAR_MAX__\n"
+                            "#define __WCHAR_MAX__ 0xffffffffU\n"
+                            "#define __WCHAR_MIN__ 0U\n");
+        else
+            buf_printf(out, "#define __WCHAR_MIN__ (-__WCHAR_MAX__ - 1)\n");
+        /* Spelled exactly as gcc does (pp_dm_check compares the -dM
+         * TEXT, so a numerically-equal respelling is still a diff). */
+        buf_printf(out, "#define __SIG_ATOMIC_TYPE__ int\n"
+                        "#define __SIG_ATOMIC_MAX__ 0x7fffffff\n"
+                        "#define __SIG_ATOMIC_MIN__ (-__SIG_ATOMIC_MAX__ - 1)\n"
+                        "#define __WINT_MIN__ 0U\n");
+
+        /* FLT/DBL are IEEE binary32/64 on every v0.1.0 target; LDBL is
+         * the three-column table (x87 80-bit, fp128, Apple's double).
+         * Digits come from the Sprint 15 softfloat parameters — the
+         * host FPU never produced any of these. */
+        buf_printf(
+            out,
+            "#define __FLT_RADIX__ 2\n"
+            "#define __FLT_MANT_DIG__ 24\n"
+            "#define __FLT_DIG__ 6\n"
+            "#define __FLT_DECIMAL_DIG__ 9\n"
+            "#define __FLT_MIN_EXP__ (-125)\n"
+            "#define __FLT_MAX_EXP__ 128\n"
+            "#define __FLT_MIN_10_EXP__ (-37)\n"
+            "#define __FLT_MAX_10_EXP__ 38\n"
+            "#define __FLT_EPSILON__ "
+            "1.19209289550781250000000000000000000e-7F\n"
+            "#define __FLT_MIN__ 1.17549435082228750796873653722224568e-38F\n"
+            "#define __FLT_MAX__ 3.40282346638528859811704183484516925e+38F\n"
+            "#define __FLT_DENORM_MIN__ "
+            "1.40129846432481707092372958328991613e-45F\n"
+            "#define __FLT_HAS_DENORM__ 1\n"
+            "#define __FLT_HAS_INFINITY__ 1\n"
+            "#define __FLT_HAS_QUIET_NAN__ 1\n"
+            "#define __FLT_EVAL_METHOD__ 0\n"
+            "#define __DBL_MANT_DIG__ 53\n"
+            "#define __DBL_DIG__ 15\n"
+            "#define __DBL_DECIMAL_DIG__ 17\n"
+            "#define __DBL_MIN_EXP__ (-1021)\n"
+            "#define __DBL_MAX_EXP__ 1024\n"
+            "#define __DBL_MIN_10_EXP__ (-307)\n"
+            "#define __DBL_MAX_10_EXP__ 308\n"
+            "#define __DBL_EPSILON__ "
+            "((double)2.22044604925031308084726333618164062e-16L)\n"
+            "#define __DBL_MIN__ "
+            "((double)2.22507385850720138309023271733240406e-308L)\n"
+            "#define __DBL_MAX__ "
+            "((double)1.79769313486231570814527423731704357e+308L)\n"
+            "#define __DBL_DENORM_MIN__ "
+            "((double)4.94065645841246544176568792868221372e-324L)\n"
+            "#define __DBL_HAS_DENORM__ 1\n"
+            "#define __DBL_HAS_INFINITY__ 1\n"
+            "#define __DBL_HAS_QUIET_NAN__ 1\n");
+        switch (t.kind) {
+        case CGF_TARGET_X86_64_LINUX_GNU:
+        case CGF_TARGET_X86_64_LINUX_MUSL:
+        case CGF_TARGET_X86_64_FREEBSD:
+            buf_printf(out, "#define __LDBL_MANT_DIG__ 64\n"
+                            "#define __LDBL_DIG__ 18\n"
+                            "#define __LDBL_DECIMAL_DIG__ 21\n"
+                            "#define __LDBL_MIN_EXP__ (-16381)\n"
+                            "#define __LDBL_MAX_EXP__ 16384\n"
+                            "#define __LDBL_MIN_10_EXP__ (-4931)\n"
+                            "#define __LDBL_MAX_10_EXP__ 4932\n"
+                            "#define __LDBL_EPSILON__ "
+                            "1.08420217248550443400745280086994171e-19L\n"
+                            "#define __LDBL_MIN__ "
+                            "3.36210314311209350626267781732175260e-4932L\n"
+                            "#define __LDBL_MAX__ "
+                            "1.18973149535723176502126385303097021e+4932L\n"
+                            "#define __LDBL_DENORM_MIN__ "
+                            "3.64519953188247460252840593361941982e-4951L\n"
+                            "#define __LDBL_NORM_MAX__ "
+                            "1.18973149535723176502126385303097021e+4932L\n");
+            break;
+        case CGF_TARGET_ARM64_LINUX:
+            buf_printf(out, "#define __LDBL_MANT_DIG__ 113\n"
+                            "#define __LDBL_DIG__ 33\n"
+                            "#define __LDBL_DECIMAL_DIG__ 36\n"
+                            "#define __LDBL_MIN_EXP__ (-16381)\n"
+                            "#define __LDBL_MAX_EXP__ 16384\n"
+                            "#define __LDBL_MIN_10_EXP__ (-4931)\n"
+                            "#define __LDBL_MAX_10_EXP__ 4932\n"
+                            "#define __LDBL_EPSILON__ "
+                            "1.92592994438723585305597794258492732e-34L\n"
+                            "#define __LDBL_MIN__ "
+                            "3.36210314311209350626267781732175260e-4932L\n"
+                            "#define __LDBL_MAX__ "
+                            "1.18973149535723176508575932662800702e+4932L\n"
+                            "#define __LDBL_DENORM_MIN__ "
+                            "6.47517511943802511092443895822764655e-4966L\n"
+                            "#define __LDBL_NORM_MAX__ "
+                            "1.18973149535723176508575932662800702e+4932L\n");
+            break;
+        case CGF_TARGET_ARM64_MACOS:
+            /* Apple makes long double the SAME as double (Sprint 14's
+             * TargetLayout row; the reason this cannot key on arch). */
+            buf_printf(out, "#define __LDBL_MANT_DIG__ 53\n"
+                            "#define __LDBL_DIG__ 15\n"
+                            "#define __LDBL_DECIMAL_DIG__ 17\n"
+                            "#define __LDBL_MIN_EXP__ (-1021)\n"
+                            "#define __LDBL_MAX_EXP__ 1024\n"
+                            "#define __LDBL_MIN_10_EXP__ (-307)\n"
+                            "#define __LDBL_MAX_10_EXP__ 308\n"
+                            "#define __LDBL_EPSILON__ "
+                            "2.22044604925031308084726333618164062e-16L\n"
+                            "#define __LDBL_MIN__ "
+                            "2.22507385850720138309023271733240406e-308L\n"
+                            "#define __LDBL_MAX__ "
+                            "1.79769313486231570814527423731704357e+308L\n"
+                            "#define __LDBL_DENORM_MIN__ "
+                            "4.94065645841246544176568792868221372e-324L\n"
+                            "#define __LDBL_NORM_MAX__ "
+                            "1.79769313486231570814527423731704357e+308L\n");
+            break;
+        }
+        buf_printf(out, "#define __LDBL_HAS_DENORM__ 1\n"
+                        "#define __LDBL_HAS_INFINITY__ 1\n"
+                        "#define __LDBL_HAS_QUIET_NAN__ 1\n");
+        /* gcc also publishes NORM_MAX (== MAX, no subnormals involved)
+         * and the IEC-60559 conformance flags. NORM_MAX must be the
+         * LITERAL, not `__FLT_MAX__`: scripts/pp_dm_check.sh compares
+         * -dM values against gcc's textually, and an alias is not the
+         * same string (it caught exactly that here). */
+        buf_printf(out,
+                   "#define __FLT_NORM_MAX__ "
+                   "3.40282346638528859811704183484516925e+38F\n"
+                   "#define __DBL_NORM_MAX__ "
+                   "((double)1.79769313486231570814527423731704357e+308L)\n"
+                   "#define __FLT_IS_IEC_60559__ 1\n"
+                   "#define __DBL_IS_IEC_60559__ 1\n"
+                   "#define __LDBL_IS_IEC_60559__ 1\n"
+                   "#define __FLT_EVAL_METHOD_TS_18661_3__ 0\n");
+    }
 }
 
 size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
