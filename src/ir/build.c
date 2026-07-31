@@ -321,6 +321,14 @@ void ir_build_unreachable(IrBuilder *b)
     append(b, IR_UNREACHABLE, IRT_VOID, false);
 }
 
+void ir_build_va_start(IrBuilder *b, IrOperand ap)
+{
+    IrInst *in = append(b, IR_VA_START, IRT_VOID, false);
+
+    in->ops = copy_ops(b->m, &ap, 1);
+    in->nops = 1;
+}
+
 void ir_build_reserved(IrBuilder *b, IrOp op)
 {
     static const struct {
@@ -328,10 +336,13 @@ void ir_build_reserved(IrBuilder *b, IrOp op)
         const char *name;
         int sprint;
     } table[] = {
-        {IR_STACKSAVE, "stacksave", 20}, {IR_STACKRESTORE, "stackrestore", 20},
-        {IR_VA_START, "va_start", 19},   {IR_VA_ARG, "va_arg", 19},
-        {IR_VA_END, "va_end", 19},       {IR_VA_COPY, "va_copy", 19},
-        {IR_ATOMICRMW, "atomicrmw", 20}, {IR_CMPXCHG, "cmpxchg", 20},
+        {IR_STACKSAVE, "stacksave", 20},
+        {IR_STACKRESTORE, "stackrestore", 20},
+        {IR_ATOMICRMW, "atomicrmw", 20},
+        {IR_CMPXCHG, "cmpxchg", 20},
+        /* IR_VA_ARG/VA_END/VA_COPY never become instructions (Sprint 19
+         * expands them at lowering); reaching one here is a plain ICE
+         * via the fallthrough below. */
     };
     u32 i;
 

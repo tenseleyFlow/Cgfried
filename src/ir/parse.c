@@ -40,6 +40,7 @@ typedef enum TokKind {
     T_COMMA,
     T_COLON,
     T_EQ,
+    T_ELLIPSIS, /* '...' — variadic marker in func headers */
 } TokKind;
 
 typedef struct Tok {
@@ -249,6 +250,11 @@ static bool lex_all(P *p, const char *src)
             t.kind = T_INT;
             t.ival = neg ? (u64) - (i64)v : v;
             t.len = (u32)(c - s);
+        } else if (c[0] == '.' && c[1] == '.' && c[2] == '.') {
+            t.kind = T_ELLIPSIS;
+            t.len = 3;
+            c += 3;
+            col += 3;
         } else {
             char ch = *c;
 
@@ -527,26 +533,71 @@ static bool parse_typed(P *p, IrOperand *slot)
     return parse_atom(p, ty, slot);
 }
 
-/* Count the comma-separated items between the current '(' and its ')'.
- * Atoms contain no parens or commas, so a flat scan is exact — this is
- * what lets operand arrays be arena-allocated at FINAL size before
- * parsing, which is what makes fixup pointers stable. */
+/* A call argument: typed operand plus an optional ABI annotation
+ * (`byval(N)`, `sret(N)`, `pair_xy(N)`), stored in operand.b. */
+static bool parse_call_arg(P *p, IrOperand *slot)
+{
+    u32 kind = 0;
+
+    if (!parse_typed(p, slot))
+        return false;
+    if (peek(p)->kind != T_IDENT)
+        return true;
+    if (tok_is(peek(p), "byval"))
+        kind = IR_ARG_BYVAL;
+    else if (tok_is(peek(p), "sret"))
+        kind = IR_ARG_SRET;
+    else if (tok_is(peek(p), "pair_ii"))
+        kind = IR_ARG_PAIR_II;
+    else if (tok_is(peek(p), "pair_is"))
+        kind = IR_ARG_PAIR_IS;
+    else if (tok_is(peek(p), "pair_si"))
+        kind = IR_ARG_PAIR_SI;
+    else if (tok_is(peek(p), "pair_ss"))
+        kind = IR_ARG_PAIR_SS;
+    else
+        return true;
+    next(p);
+    if (!expect(p, T_LP, "'(' after the argument annotation"))
+        return false;
+    {
+        Tok *sz = expect(p, T_INT, "the annotated byte size");
+
+        if (!sz)
+            return false;
+        slot->b = ir_arg_annot(kind, (u32)sz->ival);
+    }
+    return expect(p, T_RP, "')'") != NULL;
+}
+
+/* Count the comma-separated items between the current '(' and its
+ * MATCHING ')'. Depth-aware since Sprint 19: call-arg annotations like
+ * `byval(24)` nest one paren level. The count still lets operand arrays
+ * be arena-allocated at FINAL size before parsing, which is what makes
+ * fixup pointers stable. */
 static bool count_args(P *p, u32 *out)
 {
     u32 i = p->pos;
     u32 n = 0;
+    u32 depth = 0;
 
     if (p->toks[i].kind == T_RP) {
         *out = 0;
         return true;
     }
     n = 1;
-    for (; p->toks[i].kind != T_RP; i++) {
+    for (;; i++) {
         if (p->toks[i].kind == T_EOF || p->toks[i].kind == T_RB) {
             perr(p, &p->toks[i], "unclosed '(' in argument list");
             return false;
         }
-        if (p->toks[i].kind == T_COMMA)
+        if (p->toks[i].kind == T_LP)
+            depth++;
+        else if (p->toks[i].kind == T_RP) {
+            if (depth == 0)
+                break;
+            depth--;
+        } else if (p->toks[i].kind == T_COMMA && depth == 0)
             n++;
     }
     *out = n;
@@ -695,6 +746,7 @@ static bool parse_inst(P *p)
     case IR_STORE:
     case IR_MEMCPY:
     case IR_MEMSET:
+    case IR_VA_START:
     case IR_RET:
     case IR_BR:
     case IR_CONDBR:
@@ -958,11 +1010,16 @@ static bool parse_inst(P *p)
         for (i = 0; i < nargs; i++) {
             if (i && !expect(p, T_COMMA, "','"))
                 return false;
-            if (!parse_typed(p, &in->ops[i + (indirect ? 1u : 0u)]))
+            if (!parse_call_arg(p, &in->ops[i + (indirect ? 1u : 0u)]))
                 return false;
         }
         return expect(p, T_RP, "')'") != NULL;
     }
+    case IR_VA_START:
+        in = inst_append(p, IR_VA_START, IRT_VOID, NULL);
+        in->ops = ops_alloc(p, 1);
+        in->nops = 1;
+        return parse_atom(p, IRT_PTR, &in->ops[0]);
     case IR_RET:
         in = inst_append(p, IR_RET, IRT_VOID, NULL);
         if (peek(p)->kind == T_IDENT && lookup_type(peek(p)) >= 0) {
@@ -1140,6 +1197,8 @@ static bool parse_func(P *p)
     IrType ptypes[64];
     Tok *pnames[64];
     u32 nparams = 0;
+    bool variadic = false;
+    u8 abi_ret = IR_ABIRET_NONE;
     IrFunc *f;
     u32 i;
 
@@ -1150,7 +1209,10 @@ static bool parse_func(P *p)
         return false;
     if (!expect(p, T_LP, "'('"))
         return false;
-    if (peek(p)->kind != T_RP) {
+    if (peek(p)->kind == T_ELLIPSIS) {
+        next(p);
+        variadic = true;
+    } else if (peek(p)->kind != T_RP) {
         for (;;) {
             IrType ty;
             Tok *pn;
@@ -1170,13 +1232,47 @@ static bool parse_func(P *p)
             if (peek(p)->kind != T_COMMA)
                 break;
             next(p);
+            if (peek(p)->kind == T_ELLIPSIS) {
+                next(p);
+                variadic = true;
+                break;
+            }
         }
     }
     if (!expect(p, T_RP, "')'"))
         return false;
+    if (tok_is(peek(p), "abi")) {
+        Tok *an;
+
+        next(p);
+        if (!expect(p, T_LP, "'(' after 'abi'"))
+            return false;
+        an = expect(p, T_IDENT, "an abi-return name");
+        if (!an)
+            return false;
+        {
+            u8 k;
+            bool found = false;
+
+            for (k = IR_ABIRET_SRET; k <= IR_ABIRET_PAIR_SS; k++)
+                if (tok_is(an, ir_abi_ret_name(k))) {
+                    abi_ret = k;
+                    found = true;
+                }
+            if (!found) {
+                perr(p, an, "unknown abi-return kind '%.*s'", (int)an->len,
+                     an->s);
+                return false;
+            }
+        }
+        if (!expect(p, T_RP, "')'"))
+            return false;
+    }
     if (!expect(p, T_LB, "'{'"))
         return false;
     f = ir_func_new(p->m, tok_name(p, nm), ret, ptypes, nparams);
+    f->variadic = variadic;
+    f->abi_ret = abi_ret;
     p->f = f;
     strmap_init(&p->vals);
     strmap_init(&p->blocks);
@@ -1226,8 +1322,10 @@ static bool parse_func(P *p)
         }
         {
             ValueId v = {(u32)(uintptr_t)hit};
+            u64 annot = fx->slot->b; /* keep any call-arg annotation */
 
             *fx->slot = ir_op_value(f, v);
+            fx->slot->b = annot;
         }
     }
 out:

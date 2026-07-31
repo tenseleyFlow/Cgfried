@@ -27,14 +27,27 @@ static const char *const type_names[] = {
 };
 
 static const char *const op_names[] = {
-    "iadd",        "isub",    "imul",   "sdiv",    "udiv",   "srem",   "urem",
-    "and",         "or",      "xor",    "shl",     "lshr",   "ashr",   "icmp",
-    "fcmp",        "fadd",    "fsub",   "fmul",    "fdiv",   "fneg",   "sext",
-    "zext",        "trunc",   "fpext",  "fptrunc", "fptosi", "fptoui", "sitofp",
-    "uitofp",      "bitcast", "alloca", "load",    "store",  "ptradd", "memcpy",
-    "memset",      "call",    "select", "ret",     "br",     "condbr", "switch",
-    "unreachable",
+    "iadd",   "isub",        "imul",   "sdiv",     "udiv",   "srem",   "urem",
+    "and",    "or",          "xor",    "shl",      "lshr",   "ashr",   "icmp",
+    "fcmp",   "fadd",        "fsub",   "fmul",     "fdiv",   "fneg",   "sext",
+    "zext",   "trunc",       "fpext",  "fptrunc",  "fptosi", "fptoui", "sitofp",
+    "uitofp", "bitcast",     "alloca", "load",     "store",  "ptradd", "memcpy",
+    "memset", "call",        "select", "va_start", "ret",    "br",     "condbr",
+    "switch", "unreachable",
 };
+
+/* IrAbiRet spellings for the func-header `abi(...)` marker and the pair
+ * call-arg annotations; index = enum value. */
+static const char *const abi_ret_names[] = {
+    "none", "sret", "pair_ii", "pair_is", "pair_si", "pair_ss",
+};
+
+const char *ir_abi_ret_name(u8 k)
+{
+    if (k > IR_ABIRET_PAIR_SS)
+        CGF_ICE("ir printer: bad abi_ret %u", k);
+    return abi_ret_names[k];
+}
 
 static const char *const icmp_names[] = {
     "eq", "ne", "slt", "sle", "sgt", "sge", "ult", "ule", "ugt", "uge",
@@ -167,6 +180,31 @@ static void print_typed(Buf *out, const IrModule *m, const ValNames *vn,
 {
     buf_printf(out, "%s ", type_names[o->type]);
     print_atom(out, m, vn, o);
+}
+
+/* A call argument: typed operand plus its ABI annotation, if any. */
+static void print_call_arg(Buf *out, const IrModule *m, const ValNames *vn,
+                           const IrOperand *o)
+{
+    u32 kind =
+        o->kind == IROP_VALUE || o->kind == IROP_SYMBOL ? ir_arg_kind(o->b) : 0;
+
+    print_typed(out, m, vn, o);
+    switch (kind) {
+    case IR_ARG_BYVAL:
+        buf_printf(out, " byval(%u)", ir_arg_size(o->b));
+        break;
+    case IR_ARG_SRET:
+    case IR_ARG_PAIR_II:
+    case IR_ARG_PAIR_IS:
+    case IR_ARG_PAIR_SI:
+    case IR_ARG_PAIR_SS:
+        buf_printf(out, " %s(%u)", ir_abi_ret_name((u8)(kind - 1)),
+                   ir_arg_size(o->b));
+        break;
+    default:
+        break;
+    }
 }
 
 static void print_edge(Buf *out, const IrModule *m, const IrFunc *f,
@@ -322,11 +360,15 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         for (i = first; i < in->nops; i++) {
             if (i > first)
                 buf_printf(out, ", ");
-            print_typed(out, m, vn, &in->ops[i]);
+            print_call_arg(out, m, vn, &in->ops[i]);
         }
         buf_printf(out, ")");
         break;
     }
+    case IR_VA_START:
+        buf_printf(out, "va_start ");
+        print_atom(out, m, vn, &in->ops[0]);
+        break;
     case IR_RET:
         buf_printf(out, "ret");
         if (in->nops) {
@@ -380,7 +422,12 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, "%s ", type_names[f->param_types[i]]);
         print_val(out, &vn, f->param_vals[i].v);
     }
-    buf_printf(out, ") {\n");
+    if (f->variadic)
+        buf_printf(out, "%s...", f->nparams ? ", " : "");
+    buf_printf(out, ")");
+    if (f->abi_ret != IR_ABIRET_NONE)
+        buf_printf(out, " abi(%s)", ir_abi_ret_name(f->abi_ret));
+    buf_printf(out, " {\n");
     for (i = 0; i < f->nblocks; i++) {
         const IrBlock *blk = &f->blocks[i];
         const IrInst *in;

@@ -128,19 +128,32 @@ typedef enum IrOp {
     /* calls and misc */
     IR_CALL,
     IR_SELECT,
+    /* varargs (Sprint 19). ONE live opcode: `va_start ptr` fills the two
+     * POINTER fields of a va_list (overflow_arg_area, reg_save_area) —
+     * only codegen knows those addresses (Sprint 23 emits the register
+     * save area and the AL-driven xmm skip). The gp_offset/fp_offset
+     * fields are compile-time constants and lowering stores them as
+     * plain i32 stores BEFORE this op. va_arg is never an opcode: it
+     * expands to an ordinary branch diamond at lowering (per-target by
+     * design — Sprint 50's Apple divergence rewrites the expansion, not
+     * an instruction). va_end emits nothing; va_copy is a memcpy. */
+    IR_VA_START,
     /* terminators */
     IR_RET,
     IR_BR,
     IR_CONDBR,
     IR_SWITCH,
     IR_UNREACHABLE,
-    /* --- reserved: builder hard-errors naming the landing sprint --- */
+    /* --- reserved: builder hard-errors naming the landing sprint.
+     * (Sprint 19 took va_start LIVE — see above — and decided the other
+     * three va ops never become instructions: va_arg expands at
+     * lowering, va_end is nothing, va_copy is a memcpy. Their slots stay
+     * reserved so the opcode space and this comment keep the story.) --- */
     IR_STACKSAVE,    /* Sprint 20: VLA scope exit */
     IR_STACKRESTORE, /* Sprint 20 */
-    IR_VA_START,     /* Sprint 19: varargs */
-    IR_VA_ARG,       /* Sprint 19 */
-    IR_VA_END,       /* Sprint 19 */
-    IR_VA_COPY,      /* Sprint 19 */
+    IR_VA_ARG,       /* never an opcode; slot kept reserved */
+    IR_VA_END,       /* never an opcode; slot kept reserved */
+    IR_VA_COPY,      /* never an opcode; slot kept reserved */
     IR_ATOMICRMW,    /* Sprint 20 */
     IR_CMPXCHG,      /* Sprint 20 */
     IR_OP_COUNT
@@ -255,9 +268,51 @@ typedef struct IrValInfo {
     u32 def_pos; /* instruction index within the block, 0 for params */
 } IrValInfo;
 
+/* The ABI-return contract (Sprint 19; Sprint 23 implements the moves).
+ * The IR stays single-result, so multi-register returns keep the
+ * sret-shaped hidden pointer and this annotation carries the truth:
+ *   NONE     — the IR return type says it all (scalars, true void).
+ *   SRET     — MEMORY-class aggregate: callee stores through the hidden
+ *              ptr param 0 AND echoes that pointer in rax (psABI §3.2.3
+ *              — one store path plus a register echo callers may ignore).
+ *   PAIR_xy  — two-eightbyte aggregate: the VALUE travels in registers
+ *              (rax/rdx for INTEGER, xmm0/xmm1 for SSE, mixed in class
+ *              order). The IR still writes through the hidden pointer;
+ *              codegen loads the eightbytes from it before `ret` and the
+ *              CALLER stores them back after `call`. The hidden pointer
+ *              itself is NOT passed at runtime for PAIR — it is IR
+ *              bookkeeping only, which is why the annotation matters. */
+typedef enum IrAbiRet {
+    IR_ABIRET_NONE,
+    IR_ABIRET_SRET,
+    IR_ABIRET_PAIR_II,
+    IR_ABIRET_PAIR_IS,
+    IR_ABIRET_PAIR_SI,
+    IR_ABIRET_PAIR_SS,
+} IrAbiRet;
+
+/* Per-call-argument ABI annotation, carried in IrOperand.b (VALUE and
+ * SYMBOL operands leave b zero otherwise). Low 32 bits: the byte size;
+ * bits 32..34: the kind. byval = MEMORY-class aggregate passed by
+ * copying the POINTEE onto the stack (the ptr is IR-level only); sret /
+ * pair_* mark the hidden return pointer per IrAbiRet. Printed as
+ * `byval(N)` etc. after the argument. */
+#define IR_ARG_NONE 0u
+#define IR_ARG_BYVAL 1u
+#define IR_ARG_SRET 2u
+#define IR_ARG_PAIR_II 3u
+#define IR_ARG_PAIR_IS 4u
+#define IR_ARG_PAIR_SI 5u
+#define IR_ARG_PAIR_SS 6u
+#define ir_arg_annot(kind, size) (((u64)(kind) << 32) | (u64)(u32)(size))
+#define ir_arg_kind(b) ((u32)((b) >> 32) & 0x7u)
+#define ir_arg_size(b) ((u32)(b))
+
 typedef struct IrFunc {
     const char *name; /* interned */
     u8 ret;           /* IrType */
+    u8 abi_ret;       /* IrAbiRet */
+    bool variadic;    /* printed as ', ...' after the last parameter */
     u8 *param_types;
     u32 nparams;
     ValueId *param_vals; /* function params are the entry block's defs */
@@ -365,6 +420,8 @@ void ir_build_condbr(IrBuilder *b, IrOperand c, BlockId t,
 void ir_build_switch(IrBuilder *b, IrOperand x, BlockId defblk,
                      const i64 *case_vals, const BlockId *case_blks, u32 n);
 void ir_build_unreachable(IrBuilder *b);
+/* `va_start ptr` — see the IrOp comment for what codegen fills. */
+void ir_build_va_start(IrBuilder *b, IrOperand ap);
 /* Every reserved opcode routes here and ICEs naming its sprint. */
 void ir_build_reserved(IrBuilder *b, IrOp op);
 
@@ -379,6 +436,7 @@ const char *ir_type_name(IrType t);
 const char *ir_op_name(IrOp op);
 const char *ir_icmp_name(IrIcmp p);
 const char *ir_fcmp_name(IrFcmp p);
+const char *ir_abi_ret_name(u8 k);
 IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
                           const char *path);
 

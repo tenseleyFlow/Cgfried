@@ -291,6 +291,12 @@ static void check_inst_types(V *v, const IrInst *in)
         else if (in->ops[1].type != in->type || in->ops[2].type != in->type)
             verr(v, 4, "'select' arm types must match the result type");
         break;
+    case IR_VA_START:
+        if (in->nops != 1 || in->ops[0].type != IRT_PTR)
+            verr(v, 4, "'va_start' takes one ptr operand");
+        else if (!v->f->variadic)
+            verr(v, 4, "'va_start' in a non-variadic function");
+        break;
     case IR_RET:
         if (v->f->ret == IRT_VOID) {
             if (in->nops != 0)
@@ -368,11 +374,15 @@ static void check_inst_misc(V *v, const IrInst *in)
             } else {
                 const IrFunc *cf = &v->m->funcs[in->callee];
 
-                if (in->nops != cf->nparams)
-                    verr(v, 9, "call to @%s passes %u args; it takes %u",
-                         cf->name, in->nops, cf->nparams);
+                /* Variadic callees: at LEAST the named parameters, typed;
+                 * the tail is the va machinery's business. */
+                if (cf->variadic ? in->nops < cf->nparams
+                                 : in->nops != cf->nparams)
+                    verr(v, 9, "call to @%s passes %u args; it takes %s%u",
+                         cf->name, in->nops, cf->variadic ? "at least " : "",
+                         cf->nparams);
                 else {
-                    for (i = 0; i < in->nops; i++)
+                    for (i = 0; i < cf->nparams; i++)
                         if (in->ops[i].type != cf->param_types[i])
                             verr(v, 9,
                                  "call to @%s: arg %u is %s, "
