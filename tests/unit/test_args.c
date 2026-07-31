@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "driver/driver.h"
 #include "unit.h"
@@ -336,11 +337,18 @@ void test_args_response_files(TestCtx *t)
     Arena ar;
     DriverArgs a;
 
+    /* Fixture files go in the CURRENT directory, not under build/ — the
+     * sanitizer lane builds into build-san/ and a clean CI checkout has
+     * no build/ at all, so a build/-relative fopen fails and the @file
+     * silently degrades to a literal arg (F-S26-RSPCWD). Unlinked
+     * before the asserts so a failure never litters the tree. */
     arena_init(&ar);
-    write_file("build/t_args_rsp1.txt",
-               "-DRSP=1 'sp aced.c' -I \"quo ted\"\n@build/t_args_rsp2.txt");
-    write_file("build/t_args_rsp2.txt", "-O2 esc\\ aped.c");
-    PARSE(a, &ar, (char *)"@build/t_args_rsp1.txt", (char *)"t.c");
+    write_file("t_args_rsp1.tmp",
+               "-DRSP=1 'sp aced.c' -I \"quo ted\"\n@t_args_rsp2.tmp");
+    write_file("t_args_rsp2.tmp", "-O2 esc\\ aped.c");
+    PARSE(a, &ar, (char *)"@t_args_rsp1.tmp", (char *)"t.c");
+    unlink("t_args_rsp1.tmp");
+    unlink("t_args_rsp2.tmp");
     T_ASSERT(t, !a.rsp_error);
     T_ASSERT_EQ_INT(t, (int)a.defs.len, 1);
     T_ASSERT_EQ_STR(t, a.defs.data[0].val, "RSP=1");
@@ -354,15 +362,16 @@ void test_args_response_files(TestCtx *t)
     args_free(&a);
 
     /* An unreadable @file is a LITERAL argument (gcc parity). */
-    PARSE(a, &ar, (char *)"@build/t_args_nonexistent.rsp", (char *)"t.c");
+    PARSE(a, &ar, (char *)"@t_args_nonexistent.rsp", (char *)"t.c");
     T_ASSERT(t, !a.rsp_error);
     T_ASSERT_EQ_INT(t, (int)a.inputs.len, 2);
-    T_ASSERT_EQ_STR(t, a.inputs.data[0].path, "@build/t_args_nonexistent.rsp");
+    T_ASSERT_EQ_STR(t, a.inputs.data[0].path, "@t_args_nonexistent.rsp");
     args_free(&a);
 
     /* Self-inclusion trips the depth cap, never an infinite loop. */
-    write_file("build/t_args_rsp_loop.txt", "@build/t_args_rsp_loop.txt");
-    PARSE(a, &ar, (char *)"@build/t_args_rsp_loop.txt");
+    write_file("t_args_rsp_loop.tmp", "@t_args_rsp_loop.tmp");
+    PARSE(a, &ar, (char *)"@t_args_rsp_loop.tmp");
+    unlink("t_args_rsp_loop.tmp");
     T_ASSERT(t, a.rsp_error != NULL);
     T_ASSERT_EQ_STR(t, a.rsp_error, "response files nested too deeply");
     args_free(&a);
