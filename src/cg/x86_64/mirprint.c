@@ -12,11 +12,34 @@ static char wname(u8 w)
 }
 
 static const char *const op_names[] = {
-    "mov", "movabs", "movzx",  "movsx", "lea",  "add", "sub",  "and",
-    "or",  "xor",    "imul",   "neg",   "not",  "shl", "shr",  "sar",
-    "cmp", "test",   "setcc",  "cqo",   "idiv", "div", "load", "store",
-    "jmp", "jcc",    "jmptbl", "ret",   "ud2",
+    "mov", "movabs", "movzx", "movsx",      "lea",       "add",          "sub",
+    "and", "or",     "xor",   "imul",       "neg",       "not",          "shl",
+    "shr", "sar",    "cmp",   "test",       "setcc",     "cqo",          "idiv",
+    "div", "load",   "store", "jmp",        "jcc",       "jmptbl",       "ret",
+    "ud2", "push",   "pop",   "alloca_dyn", "stacksave", "stackrestore",
 };
+
+_Static_assert(sizeof(op_names) / sizeof(op_names[0]) == X64_OP_COUNT,
+               "op_names covers every X64Op");
+
+/* Encoding-order names; post-RA operands print as registers. */
+static const char *const reg_names[X64_REG_COUNT] = {
+    "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
+    "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",
+};
+
+const char *x64_reg_name(u8 reg)
+{
+    return reg < X64_REG_COUNT ? reg_names[reg] : "r?";
+}
+
+static void preg(Buf *out, const X64Func *f, X64VReg r)
+{
+    if (f->allocated && r.v >= 1 && r.v <= X64_REG_COUNT)
+        buf_printf(out, "%s", reg_names[r.v - 1]);
+    else
+        buf_printf(out, "v%u", r.v);
+}
 
 static void pmem(Buf *out, const X64Func *f, const X64Mem *m)
 {
@@ -29,11 +52,14 @@ static void pmem(Buf *out, const X64Func *f, const X64Mem *m)
         return;
     }
     if (m->base.v)
-        buf_printf(out, "v%u", m->base.v);
+        preg(out, f, m->base);
     else
         buf_printf(out, "frame");
-    if (m->index.v)
-        buf_printf(out, "+v%u*%u", m->index.v, m->scale);
+    if (m->index.v) {
+        buf_printf(out, "+");
+        preg(out, f, m->index);
+        buf_printf(out, "*%u", m->scale);
+    }
     if (m->disp)
         buf_printf(out, "%+d", m->disp);
     buf_printf(out, "]");
@@ -43,7 +69,7 @@ static void poper(Buf *out, const X64Func *f, const X64Operand *o)
 {
     switch (o->kind) {
     case X64O_VREG:
-        buf_printf(out, "v%u", o->r.v);
+        preg(out, f, o->r);
         break;
     case X64O_IMM:
         buf_printf(out, "$%lld", (long long)o->imm);
@@ -63,7 +89,11 @@ void x64_mir_print(const X64Func *f, Buf *out)
 {
     u32 bi, i;
 
-    buf_printf(out, "mir @%s (vregs=%u)\n", f->name, f->nvregs);
+    if (f->allocated)
+        buf_printf(out, "mir @%s (frame=%u spills=%u)\n", f->name,
+                   f->frame_size, f->spill_slots);
+    else
+        buf_printf(out, "mir @%s (vregs=%u)\n", f->name, f->nvregs);
     for (bi = 0; bi < f->nblocks; bi++) {
         const X64Block *b = &f->blocks[bi];
 
@@ -73,7 +103,7 @@ void x64_mir_print(const X64Func *f, Buf *out)
 
             buf_printf(out, "    ");
             if (in->def.v) {
-                buf_printf(out, "v%u", in->def.v);
+                preg(out, f, in->def);
                 if (in->def_fixed)
                     buf_printf(out, ":%u", in->def_fixed - 1);
                 buf_printf(out, " = ");
@@ -214,6 +244,73 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                           "mir verify @%s bb%u:%u: imm64 outside movabs",
                           f->name, bi + 1, i);
                 bad++;
+            }
+            /* Allocation-state discipline. Pre-RA: frame code (push/pop)
+             * cannot exist yet. Post-RA: no vreg survives (every id is a
+             * register), no constraint annotation survives, no marker op
+             * survives, and every TWO_ADDR inst is in the x86 canonical
+             * form def == a. */
+            if (!f->allocated &&
+                (in->op == X64_OP_PUSH || in->op == X64_OP_POP)) {
+                diag_emit(dc, DIAG_ERROR, sp,
+                          "mir verify @%s bb%u:%u: '%s' before allocation",
+                          f->name, bi + 1, i, op_names[in->op]);
+                bad++;
+            }
+            if (f->allocated) {
+                X64VReg regs[6];
+                u32 nr = 0, ri;
+
+                if (in->def.v)
+                    regs[nr++] = in->def;
+                if (in->a.kind == X64O_VREG)
+                    regs[nr++] = in->a.r;
+                if (in->b.kind == X64O_VREG)
+                    regs[nr++] = in->b.r;
+                if (in->a.kind == X64O_MEM) {
+                    if (in->a.mem.base.v)
+                        regs[nr++] = in->a.mem.base;
+                    if (in->a.mem.index.v)
+                        regs[nr++] = in->a.mem.index;
+                }
+                if (in->b.kind == X64O_MEM) {
+                    if (in->b.mem.base.v)
+                        regs[nr++] = in->b.mem.base;
+                    if (in->b.mem.index.v)
+                        regs[nr++] = in->b.mem.index;
+                }
+                for (ri = 0; ri < nr; ri++)
+                    if (regs[ri].v < 1 || regs[ri].v > X64_REG_COUNT) {
+                        diag_emit(dc, DIAG_ERROR, sp,
+                                  "mir verify @%s bb%u:%u: virtual "
+                                  "register v%u survived allocation",
+                                  f->name, bi + 1, i, regs[ri].v);
+                        bad++;
+                    }
+                if (in->def_fixed || in->a.fixed || in->b.fixed || in->xuse.v ||
+                    in->xuse_fixed) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: constraint "
+                              "annotation survived allocation",
+                              f->name, bi + 1, i);
+                    bad++;
+                }
+                if (in->op == X64_OP_ALLOCA_DYN || in->op == X64_OP_STACKSAVE ||
+                    in->op == X64_OP_STACKRESTORE) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: '%s' marker "
+                              "survived allocation",
+                              f->name, bi + 1, i, op_names[in->op]);
+                    bad++;
+                }
+                if ((in->flags & X64IF_TWO_ADDR) &&
+                    (in->a.kind != X64O_VREG || in->def.v != in->a.r.v)) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: two-address '%s' "
+                              "not in def == src1 form",
+                              f->name, bi + 1, i, op_names[in->op]);
+                    bad++;
+                }
             }
         }
     }

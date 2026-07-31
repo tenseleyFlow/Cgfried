@@ -411,6 +411,13 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
         if (x64_mir_verify(xf, dc))
             CGF_ICE("isel produced MIR the verifier rejects for '@%s'",
                     m->funcs[i].name);
+        /* Sprint 22: -emit-mir shows the ALLOCATED form — physical
+         * registers, spill code, prologue/epilogue — verified again
+         * post-RA (vreg survival, canonical two-address, markers gone). */
+        x64_regalloc_entry(CG_O0)(xf);
+        if (x64_mir_verify(xf, dc))
+            CGF_ICE("regalloc produced MIR the verifier rejects for '@%s'",
+                    m->funcs[i].name);
         x64_mir_print(xf, &b);
     }
     fwrite(b.data, 1, b.len, stdout);
