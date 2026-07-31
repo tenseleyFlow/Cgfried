@@ -50,9 +50,12 @@ typedef struct Isel {
 
 static X64VReg newv(Isel *is)
 {
-    X64VReg r = {++is->xf->nvregs};
+    return x64_newv(is->xf, X64RC_GP);
+}
 
-    return r;
+static X64VReg newvf(Isel *is)
+{
+    return x64_newv(is->xf, X64RC_XMM);
 }
 
 static X64Block *blk(Isel *is)
@@ -95,11 +98,29 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
         is->last_flags_inst = b->n; /* index+1 */
         is->last_flags_val = 0;
         break;
+    case X64_OP_FADD:
+    case X64_OP_FSUB:
+    case X64_OP_FMUL:
+    case X64_OP_FDIV:
+    case X64_OP_FXORM:
+    case X64_OP_FANDM:
+        /* SSE arithmetic is two-address but does NOT touch EFLAGS. */
+        in->flags = X64IF_TWO_ADDR;
+        break;
     case X64_OP_CMP:
     case X64_OP_TEST:
     case X64_OP_CQO:
     case X64_OP_IDIV:
     case X64_OP_DIV:
+    case X64_OP_UCOMI:
+    case X64_OP_X87_FUCOMIP:
+        in->flags = X64IF_DEFS_FLAGS;
+        is->last_flags_inst = b->n;
+        is->last_flags_val = 0;
+        break;
+    case X64_OP_CALL:
+        /* Calls clobber EFLAGS along with everything else; carrying
+         * DEFS_FLAGS makes the verifier reject any fusion across one. */
         in->flags = X64IF_DEFS_FLAGS;
         is->last_flags_inst = b->n;
         is->last_flags_val = 0;
@@ -285,12 +306,216 @@ static X64Cc cc_of(IrIcmp p)
     }
 }
 
-static const char *const cc_names_[10] = {"e",  "ne", "l",  "le", "g",
-                                          "ge", "b",  "be", "a",  "ae"};
+static const char *const cc_names_[12] = {"e", "ne", "l", "le", "g", "ge",
+                                          "b", "be", "a", "ae", "p", "np"};
 
 const char *x64_cc_name(u8 cc)
 {
-    return cc < 10 ? cc_names_[cc] : "?";
+    return cc < 12 ? cc_names_[cc] : "?";
+}
+
+/* --- Sprint 23: FP helpers -------------------------------------------------
+ */
+
+static X64Width fpw(u8 t)
+{
+    return t == IRT_F32 ? X64_L : X64_Q;
+}
+
+static bool irt_sse(u8 t)
+{
+    return t == IRT_F32 || t == IRT_F64;
+}
+
+static u32 cpool_fconst(Isel *is, const IrOperand *o)
+{
+    if (o->type == IRT_F32)
+        return x64_cpool_intern(is->xf, o->a & 0xffffffffull, 0, 4, 4);
+    if (o->type == IRT_F64)
+        return x64_cpool_intern(is->xf, o->a, 0, 8, 8);
+    /* f80: 10 data bytes in a 16-byte 16-aligned slot */
+    return x64_cpool_intern(is->xf, o->a, o->b, 10, 16);
+}
+
+/* Materialize an f32/f64 operand into an xmm vreg. Constants load from
+ * the rodata pool — there is no FP immediate form on x86. */
+static X64VReg to_fvreg(Isel *is, const IrOperand *o)
+{
+    switch (o->kind) {
+    case IROP_VALUE:
+        return is->vals[(u32)o->a].vr;
+    case IROP_FCONST: {
+        X64VReg r = newvf(is);
+        X64Inst *x = emit(is, X64_OP_FLOAD, fpw(o->type));
+
+        x->def = r;
+        x->a.kind = X64O_MEM;
+        x->a.mem.cpool = cpool_fconst(is, o);
+        return r;
+    }
+    case IROP_UNDEF:
+        return newvf(is); /* per-read freedom */
+    default:
+        CGF_ICE("x86_64 isel: bad FP operand kind %u", o->kind);
+    }
+}
+
+/* f80 values live in MEMORY (the load-op-store law): an f80 IR value is
+ * represented by a GP vreg holding the ADDRESS of its 16-byte slot
+ * (10 data + 6 pad, 16-aligned like the psABI stack form). */
+static X64VReg f80_slot(Isel *is)
+{
+    X64VReg d = newv(is);
+    X64Inst *x = emit(is, X64_OP_LEA, X64_Q);
+
+    x->def = d;
+    x->a.kind = X64O_MEM; /* frame marker: base 0 */
+    x->b.imm = 16;
+    x->table = 16;
+    return d;
+}
+
+static X64VReg f80_addr(Isel *is, const IrOperand *o)
+{
+    switch (o->kind) {
+    case IROP_VALUE:
+        return is->vals[(u32)o->a].vr;
+    case IROP_FCONST: {
+        X64VReg r = newv(is);
+        X64Inst *x = emit(is, X64_OP_LEA, X64_Q);
+
+        x->def = r;
+        x->a.kind = X64O_MEM;
+        x->a.mem.cpool = cpool_fconst(is, o);
+        return r;
+    }
+    case IROP_UNDEF:
+        return f80_slot(is);
+    default:
+        CGF_ICE("x86_64 isel: bad f80 operand kind %u", o->kind);
+    }
+}
+
+/* One x87 memory op: fld/fstp/fild/fistp/fnstcw/fldcw at [addr+disp]. */
+static void x87_mem(Isel *is, X64Op op, X64Width w, X64VReg addr, i32 disp)
+{
+    X64Inst *x = emit(is, op, w);
+
+    x->a.kind = X64O_MEM;
+    x->a.mem.base = addr;
+    x->a.mem.scale = 1;
+    x->a.mem.disp = disp;
+}
+
+static void x87_op0(Isel *is, X64Op op)
+{
+    (void)emit(is, op, X64_T);
+}
+
+/* The FP compare recipe table (THE anti-NaN table). ucomi sets ZF/PF/CF
+ * like an unsigned compare with unordered => ZF=PF=CF=1; PF is the
+ * unordered flag. The swaps turn < into > so the unordered case falls
+ * on the correct side without touching PF; the cc pairs handle ==/!=
+ * where ZF alone lies on NaN. comb: 0 = cc1 alone, 1 = AND, 2 = OR. */
+typedef struct FcmpRecipe {
+    u8 swap;
+    u8 cc1;
+    u8 cc2;
+    u8 comb;
+} FcmpRecipe;
+
+static const FcmpRecipe fcmp_recipes[14] = {
+    [FCMP_OEQ] = {0, X64_CC_E, X64_CC_NP, 1},
+    [FCMP_ONE] = {0, X64_CC_NE, X64_CC_NP, 1},
+    [FCMP_OLT] = {1, X64_CC_A, 0, 0},
+    [FCMP_OLE] = {1, X64_CC_AE, 0, 0},
+    [FCMP_OGT] = {0, X64_CC_A, 0, 0},
+    [FCMP_OGE] = {0, X64_CC_AE, 0, 0},
+    [FCMP_ORD] = {0, X64_CC_NP, 0, 0},
+    [FCMP_UEQ] = {0, X64_CC_E, 0, 0}, /* unordered => ZF=1 => true */
+    [FCMP_UNE] = {0, X64_CC_NE, X64_CC_P, 2},
+    [FCMP_ULT] = {0, X64_CC_B, 0, 0}, /* CF set by unordered: correct */
+    [FCMP_ULE] = {0, X64_CC_BE, 0, 0},
+    [FCMP_UGT] = {1, X64_CC_B, 0, 0},
+    [FCMP_UGE] = {1, X64_CC_BE, 0, 0},
+    [FCMP_UNO] = {0, X64_CC_P, 0, 0},
+};
+
+/* Materialize the 0/1 value of an fcmp whose flags are current (the
+ * producer sits at flags_ins). Single-cc recipes leave the flags intact
+ * (setcc does not write them), so condbr fusion off the SAME compare
+ * still works; pair recipes end in and/or, which clobbers — those
+ * branch through the materialized value instead. */
+static X64VReg fcmp_value(Isel *is, const FcmpRecipe *rc, u32 flags_ins)
+{
+    X64VReg s1 = newv(is);
+    X64VReg z = newv(is);
+    X64Inst *x;
+
+    x = emit(is, X64_OP_SETCC, X64_B);
+    x->def = s1;
+    x->cc = rc->cc1;
+    x->flags = X64IF_USES_FLAGS;
+    x->flags_src = flags_ins;
+    if (rc->comb) {
+        X64VReg s2 = newv(is);
+        X64VReg s3 = newv(is);
+
+        x = emit(is, X64_OP_SETCC, X64_B);
+        x->def = s2;
+        x->cc = rc->cc2;
+        x->flags = X64IF_USES_FLAGS;
+        x->flags_src = flags_ins;
+        x = emit(is, rc->comb == 1 ? X64_OP_AND : X64_OP_OR, X64_B);
+        x->def = s3;
+        x->a = ovreg(s1);
+        x->b = ovreg(s2);
+        s1 = s3;
+    }
+    x = emit(is, X64_OP_MOVZX, X64_L);
+    x->src_width = X64_B;
+    x->def = z;
+    x->a = ovreg(s1);
+    return z;
+}
+
+/* Truncate an 8-byte repeated-byte pattern to a narrower store width. */
+static u64 sim_pattern_narrow(u64 pat, u32 step)
+{
+    return step >= 8 ? pat : pat & ((1ull << (step * 8)) - 1);
+}
+
+/* st0 is loaded; truncate-store it as i64 into [tmp+0] with the RC
+ * dance (x87 default rounds to nearest, C wants truncation): save the
+ * control word at [tmp+8], set RC=11 via [tmp+10], fistpq, restore.
+ * Pops st0 — the sequence stays locally balanced. */
+static void x87_trunc_store(Isel *is, X64VReg tmp)
+{
+    X64VReg t = newv(is);
+    X64VReg t2 = newv(is);
+    X64Inst *x;
+
+    x87_mem(is, X64_OP_X87_FNSTCW, X64_W, tmp, 8);
+    x = emit(is, X64_OP_MOVZX, X64_L);
+    x->src_width = X64_W;
+    x->def = t;
+    x->a.kind = X64O_MEM;
+    x->a.mem.base = tmp;
+    x->a.mem.scale = 1;
+    x->a.mem.disp = 8;
+    x = emit(is, X64_OP_OR, X64_L);
+    x->def = t2;
+    x->a = ovreg(t);
+    x->b = oimm(0xC00);
+    x = emit(is, X64_OP_STORE, X64_W);
+    x->a = ovreg(t2);
+    x->b.kind = X64O_MEM;
+    x->b.mem.base = tmp;
+    x->b.mem.scale = 1;
+    x->b.mem.disp = 10;
+    x87_mem(is, X64_OP_X87_FLDCW, X64_W, tmp, 10);
+    x87_mem(is, X64_OP_X87_FISTP, X64_Q, tmp, 0);
+    x87_mem(is, X64_OP_X87_FLDCW, X64_W, tmp, 8);
 }
 
 /* --- block-parameter moves (parallel-copy semantics) ---------------------- */
@@ -298,6 +523,7 @@ const char *x64_cc_name(u8 cc)
 typedef struct PMove {
     X64VReg dst;
     X64Operand src;
+    bool fp; /* xmm class: copies are FMOV, the cycle scratch is xmm */
     bool done;
 } PMove;
 
@@ -325,7 +551,8 @@ static void emit_parallel_copy(Isel *is, PMove *mv, u32 n, X64Width *widths)
             if (is_src)
                 continue;
             {
-                X64Inst *in = emit(is, X64_OP_MOV, widths[i]);
+                X64Inst *in =
+                    emit(is, mv[i].fp ? X64_OP_FMOV : X64_OP_MOV, widths[i]);
 
                 in->def = mv[i].dst;
                 in->a = mv[i].src;
@@ -339,8 +566,9 @@ static void emit_parallel_copy(Isel *is, PMove *mv, u32 n, X64Width *widths)
             for (i = 0; i < n && mv[i].done; i++)
                 ;
             {
-                X64VReg scratch = newv(is);
-                X64Inst *in = emit(is, X64_OP_MOV, widths[i]);
+                X64VReg scratch = mv[i].fp ? newvf(is) : newv(is);
+                X64Inst *in =
+                    emit(is, mv[i].fp ? X64_OP_FMOV : X64_OP_MOV, widths[i]);
 
                 in->def = scratch;
                 in->a = ovreg(mv[i].dst);
@@ -364,10 +592,23 @@ static void edge_moves(Isel *is, const IrEdge *e)
     if (!tb || !e->nargs)
         return;
     for (i = 0; i < e->nargs && i < tb->nparams && n < 32; i++) {
+        u8 at = e->args[i].type;
+
+        if (at == IRT_F80 || at == IRT_F128)
+            CGF_ICE("x86_64 isel: f80/f128 block parameters violate "
+                    "the memory law");
+        if (irt_sse(at)) {
+            mv[n].src = ovreg(to_fvreg(is, &e->args[i]));
+            mv[n].fp = true;
+            widths[n] = fpw(at);
+        } else {
+            mv[n].src =
+                to_src(is, &e->args[i], width_of((IrType)e->args[i].type));
+            mv[n].fp = false;
+            widths[n] = width_of((IrType)e->args[i].type);
+        }
         mv[n].dst = is->vals[tb->params[i].v].vr;
-        mv[n].src = to_src(is, &e->args[i], width_of((IrType)e->args[i].type));
         mv[n].done = false;
-        widths[n] = width_of((IrType)e->args[i].type);
         n++;
     }
     emit_parallel_copy(is, mv, n, widths);
@@ -521,8 +762,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             /* idiv reads rdx:rax; rdx has no operand slot, so without
              * this the hi interval dies at the cqo and the allocator
              * would hand rdx to someone else across the divide. */
-            x->xuse = hi;
-            x->xuse_fixed = X64_RDX + 1;
+            x64_add_xuse(is->xf, x, hi, X64_RDX + 1);
         }
         is->vals[in->result.v].vr = d;
         break;
@@ -594,11 +834,34 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_BITCAST: {
         /* Renames: a trunc is a width relabel (callers use the narrow
          * width; upper bits stale by contract); ptr<->i64 bitcast is
-         * free. Float bitcasts land in Sprint 23. */
-        if (in->op == IR_BITCAST &&
-            (in->type == IRT_F32 || in->type == IRT_F64 ||
-             in->ops[0].type == IRT_F32 || in->ops[0].type == IRT_F64))
-            CGF_ICE("x86_64 isel: f32/f64/f80/f128 isel lands in Sprint 23");
+         * free. FP<->int bitcasts are real movq/movd (Sprint 23). */
+        bool dst_sse = irt_sse(in->type);
+        bool src_sse = irt_sse(in->ops[0].type);
+
+        if (in->op == IR_BITCAST && dst_sse && !src_sse) {
+            X64VReg d = newvf(is);
+            X64VReg s = to_vreg(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_MOVQXR, fpw(in->type));
+
+            x->def = d;
+            x->a = ovreg(s);
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        if (in->op == IR_BITCAST && !dst_sse && src_sse) {
+            X64VReg d = newv(is);
+            X64VReg s = to_fvreg(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_MOVQRX, fpw(in->ops[0].type));
+
+            x->def = d;
+            x->a = ovreg(s);
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        if (in->op == IR_BITCAST && dst_sse && src_sse) {
+            is->vals[in->result.v].vr = to_fvreg(is, &in->ops[0]);
+            break;
+        }
         is->vals[in->result.v].vr = to_vreg(is, &in->ops[0]);
         break;
     }
@@ -640,26 +903,76 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_LOAD: {
-        X64Width w = width_of((IrType)in->type);
-        X64VReg d = newv(is);
-        X64Mem mem = fold_addr(is, &in->ops[0]);
-        X64Inst *x = emit(is, X64_OP_LOAD, w);
+        if (irt_sse(in->type)) {
+            X64VReg d = newvf(is);
+            X64Mem mem = fold_addr(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_FLOAD, fpw(in->type));
 
-        x->def = d;
-        x->a.kind = X64O_MEM;
-        x->a.mem = mem;
-        is->vals[in->result.v].vr = d;
+            x->def = d;
+            x->a.kind = X64O_MEM;
+            x->a.mem = mem;
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        if (in->type == IRT_F80) {
+            /* A load PRODUCES A VALUE: copy the 10 bytes into a fresh
+             * slot so later stores through the pointer cannot alias it
+             * (fldt/fstpt, locally balanced). */
+            X64Mem mem = fold_addr(is, &in->ops[0]);
+            X64VReg slot = f80_slot(is);
+            X64Inst *x = emit(is, X64_OP_X87_FLD, X64_T);
+
+            x->a.kind = X64O_MEM;
+            x->a.mem = mem;
+            x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+            is->vals[in->result.v].vr = slot;
+            break;
+        }
+        {
+            X64Width w = width_of((IrType)in->type);
+            X64VReg d = newv(is);
+            X64Mem mem = fold_addr(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_LOAD, w);
+
+            x->def = d;
+            x->a.kind = X64O_MEM;
+            x->a.mem = mem;
+            is->vals[in->result.v].vr = d;
+        }
         break;
     }
     case IR_STORE: {
-        X64Width w = width_of((IrType)in->ops[0].type);
-        X64Operand v = to_src(is, &in->ops[0], w);
-        X64Mem mem = fold_addr(is, &in->ops[1]);
-        X64Inst *x = emit(is, X64_OP_STORE, w);
+        if (irt_sse(in->ops[0].type)) {
+            X64VReg v = to_fvreg(is, &in->ops[0]);
+            X64Mem mem = fold_addr(is, &in->ops[1]);
+            X64Inst *x = emit(is, X64_OP_FSTORE, fpw(in->ops[0].type));
 
-        x->a = v;
-        x->b.kind = X64O_MEM;
-        x->b.mem = mem;
+            x->a = ovreg(v);
+            x->b.kind = X64O_MEM;
+            x->b.mem = mem;
+            break;
+        }
+        if (in->ops[0].type == IRT_F80) {
+            X64VReg src = f80_addr(is, &in->ops[0]);
+            X64Mem mem = fold_addr(is, &in->ops[1]);
+            X64Inst *x;
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, src, 0);
+            x = emit(is, X64_OP_X87_FSTP, X64_T);
+            x->a.kind = X64O_MEM;
+            x->a.mem = mem;
+            break;
+        }
+        {
+            X64Width w = width_of((IrType)in->ops[0].type);
+            X64Operand v = to_src(is, &in->ops[0], w);
+            X64Mem mem = fold_addr(is, &in->ops[1]);
+            X64Inst *x = emit(is, X64_OP_STORE, w);
+
+            x->a = v;
+            x->b.kind = X64O_MEM;
+            x->b.mem = mem;
+        }
         break;
     }
     case IR_PTRADD: {
@@ -703,15 +1016,35 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_SELECT: {
         /* v0: the branch diamond. cmovcc is upgrade-safe (operands are
          * computed IR values, no speculation hazard) but afs-as has no
-         * cmovcc arm yet — Sprint 24 files the upstream extension. */
-        X64Width w = width_of((IrType)in->type);
-        X64VReg d = newv(is);
+         * cmovcc arm yet — Sprint 24 files the upstream extension.
+         * FP selects ride the same diamond with fmov (Sprint 23); f80
+         * copies its 10 bytes per arm, each arm locally balanced. */
+        bool sse = irt_sse(in->type);
+        bool f80 = in->type == IRT_F80;
+        X64VReg d;
         u32 tb = new_block(is, "sel.t");
         u32 jb = new_block(is, "sel.j");
-        X64VReg c = to_vreg(is, &in->ops[0]);
+        X64VReg c;
         X64Inst *x;
 
-        {
+        if (f80)
+            d = f80_slot(is);
+        else
+            d = sse ? newvf(is) : newv(is);
+        c = to_vreg(is, &in->ops[0]);
+        if (f80) {
+            X64VReg ea = f80_addr(is, &in->ops[2]);
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, ea, 0);
+            x87_mem(is, X64_OP_X87_FSTP, X64_T, d, 0);
+        } else if (sse) {
+            X64VReg ev = to_fvreg(is, &in->ops[2]);
+
+            x = emit(is, X64_OP_FMOV, fpw(in->type));
+            x->def = d;
+            x->a = ovreg(ev);
+        } else {
+            X64Width w = width_of((IrType)in->type);
             X64Operand ev = to_src(is, &in->ops[2], w);
 
             x = emit(is, X64_OP_MOV, w); /* else value first */
@@ -728,7 +1061,19 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         x->target = tb;
         x->target2 = jb;
         is->cur = tb - 1;
-        {
+        if (f80) {
+            X64VReg ta = f80_addr(is, &in->ops[1]);
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, ta, 0);
+            x87_mem(is, X64_OP_X87_FSTP, X64_T, d, 0);
+        } else if (sse) {
+            X64VReg tv = to_fvreg(is, &in->ops[1]);
+
+            x = emit(is, X64_OP_FMOV, fpw(in->type));
+            x->def = d;
+            x->a = ovreg(tv);
+        } else {
+            X64Width w = width_of((IrType)in->type);
             X64Operand tv = to_src(is, &in->ops[1], w);
 
             x = emit(is, X64_OP_MOV, w);
@@ -742,17 +1087,88 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_RET: {
-        if (in->nops) {
-            X64Width w = width_of((IrType)in->ops[0].type);
-            X64VReg r = newv(is);
-            X64Operand rv = to_src(is, &in->ops[0], w);
-            X64Inst *x = emit(is, X64_OP_MOV, w);
+        const IrFunc *irf = is->f;
+        X64VReg retregs[2];
+        u8 retfix[2];
+        u32 nret = 0, k;
+        X64Inst *x;
 
+        if (irf->abi_ret == IR_ABIRET_SRET) {
+            /* psABI: the sret pointer comes BACK in rax too. */
+            X64VReg r = newv(is);
+
+            x = emit(is, X64_OP_MOV, X64_Q);
             x->def = r;
             x->def_fixed = X64_RAX + 1;
-            x->a = rv;
+            x->a = ovreg(is->vals[irf->param_vals[0].v].vr);
+            retregs[nret] = r;
+            retfix[nret++] = X64_RAX + 1;
+        } else if (irf->abi_ret != IR_ABIRET_NONE) {
+            /* PAIR: the VALUE travels in registers; load the eightbytes
+             * back from the sret-shaped pointer per class order. */
+            X64VReg p = is->vals[irf->param_vals[0].v].vr;
+            bool sse0 = irf->abi_ret == IR_ABIRET_PAIR_SI ||
+                        irf->abi_ret == IR_ABIRET_PAIR_SS;
+            bool sse1 = irf->abi_ret == IR_ABIRET_PAIR_IS ||
+                        irf->abi_ret == IR_ABIRET_PAIR_SS;
+            u8 gp_next = X64_RAX;
+
+            for (k = 0; k < 2; k++) {
+                bool sse = k ? sse1 : sse0;
+                X64VReg r = sse ? newvf(is) : newv(is);
+                u8 fix;
+
+                if (sse) {
+                    fix = (u8)(X64_XMM0 + (k && sse0 ? 1 : 0) + 1);
+                    x = emit(is, X64_OP_FLOAD, X64_Q);
+                } else {
+                    fix = (u8)(gp_next + 1);
+                    gp_next = X64_RDX;
+                    x = emit(is, X64_OP_LOAD, X64_Q);
+                }
+                x->def = r;
+                x->def_fixed = fix;
+                x->a.kind = X64O_MEM;
+                x->a.mem.base = p;
+                x->a.mem.scale = 1;
+                x->a.mem.disp = (i32)(8 * k);
+                retregs[nret] = r;
+                retfix[nret++] = fix;
+            }
+        } else if (in->nops) {
+            u8 rt = in->ops[0].type;
+
+            if (rt == IRT_F80) {
+                /* st0 is the one legitimate x87 value at ret. */
+                X64VReg a = f80_addr(is, &in->ops[0]);
+
+                x87_mem(is, X64_OP_X87_FLD, X64_T, a, 0);
+            } else if (irt_sse(rt)) {
+                X64VReg r = newvf(is);
+                X64VReg sv = to_fvreg(is, &in->ops[0]);
+
+                x = emit(is, X64_OP_FMOV, fpw(rt));
+                x->def = r;
+                x->def_fixed = X64_XMM0 + 1;
+                x->a = ovreg(sv);
+                retregs[nret] = r;
+                retfix[nret++] = X64_XMM0 + 1;
+            } else {
+                X64Width w = width_of((IrType)rt);
+                X64VReg r = newv(is);
+                X64Operand rv = to_src(is, &in->ops[0], w);
+
+                x = emit(is, X64_OP_MOV, w);
+                x->def = r;
+                x->def_fixed = X64_RAX + 1;
+                x->a = rv;
+                retregs[nret] = r;
+                retfix[nret++] = X64_RAX + 1;
+            }
         }
-        emit(is, X64_OP_RET, X64_Q);
+        x = emit(is, X64_OP_RET, X64_Q);
+        for (k = 0; k < nret; k++)
+            x64_add_xuse(is->xf, x, retregs[k], retfix[k]);
         break;
     }
     case IR_BR: {
@@ -896,21 +1312,811 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_UNREACHABLE:
         emit(is, X64_OP_UD2, X64_Q);
         break;
-    case IR_CALL:
-        CGF_ICE("x86_64 isel: call isel lands in Sprint 23");
+    case IR_CALL: {
+        /* The SysV call sequence. Both register queues advance
+         * INDEPENDENTLY (rdi..r9 and xmm0..7); exhausted queues spill
+         * to the outgoing area at [rsp+0..) — 8-byte slots, f80 in
+         * 16-aligned 16-byte slots, byval aggregates copied inline.
+         * Stack traffic is emitted FIRST so the fixed-register arg
+         * intervals stay tiny (mov -> call). AL carries the xmm-arg
+         * count for variadic callees — forgetting it corrupts the
+         * callee's va_arg, and only when it reads FP. */
+        static const u8 gpq[6] = {X64_RDI, X64_RSI, X64_RDX,
+                                  X64_RCX, X64_R8,  X64_R9};
+        u32 first = in->subop == FUNCREF_INDIRECT ? 1 : 0;
+        u32 gp = 0, fp = 0, off = 0;
+        u32 stk_off[64];
+        u8 in_reg[64]; /* 0 stack, 1 gp, 2 xmm, 3 skipped-pair-ptr */
+        u8 reg_slot[64];
+        const IrOperand *pairp = NULL;
+        u64 pair_ann = 0;
+        X64XUse argx[16];
+        u32 nargx = 0;
+        X64VReg fnv = {0};
+        X64Inst *x;
+        u32 i2;
+
+        if (in->nops - first > 64)
+            CGF_ICE("x86_64 isel: more than 64 call arguments");
+        /* Pass 1: queue walk + stack layout. */
+        for (i2 = first; i2 < in->nops; i2++) {
+            const IrOperand *o = &in->ops[i2];
+            u64 ann =
+                (o->kind == IROP_VALUE || o->kind == IROP_SYMBOL) ? o->b : 0;
+            u32 kind = ir_arg_kind(ann);
+            u32 idx = i2 - first;
+
+            if (kind >= IR_ARG_PAIR_II && kind <= IR_ARG_PAIR_SS) {
+                /* The pair hidden pointer is IR bookkeeping only — it
+                 * is NOT passed at runtime; the caller stores the
+                 * register pair through it after the call. */
+                in_reg[idx] = 3;
+                pairp = o;
+                pair_ann = ann;
+                continue;
+            }
+            if (kind == IR_ARG_BYVAL) {
+                u32 sz = (ir_arg_size(ann) + 7) & ~7u;
+
+                in_reg[idx] = 0;
+                stk_off[idx] = off;
+                off += sz;
+                continue;
+            }
+            if (o->type == IRT_F80) {
+                off = (off + 15) & ~15u;
+                in_reg[idx] = 0;
+                stk_off[idx] = off;
+                off += 16;
+                continue;
+            }
+            if (irt_sse(o->type) ||
+                (o->kind == IROP_FCONST && irt_sse(o->type))) {
+                if (fp < 8) {
+                    in_reg[idx] = 2;
+                    reg_slot[idx] = (u8)fp++;
+                } else {
+                    in_reg[idx] = 0;
+                    stk_off[idx] = off;
+                    off += 8;
+                }
+                continue;
+            }
+            if (gp < 6) {
+                in_reg[idx] = 1;
+                reg_slot[idx] = (u8)gp++;
+            } else {
+                in_reg[idx] = 0;
+                stk_off[idx] = off;
+                off += 8;
+            }
+        }
+        if (off > is->xf->out_args)
+            is->xf->out_args = off;
+
+        if (in->subop == FUNCREF_INDIRECT)
+            fnv = to_vreg(is, &in->ops[0]);
+
+        /* Pass 2a: stack traffic. */
+        for (i2 = first; i2 < in->nops; i2++) {
+            const IrOperand *o = &in->ops[i2];
+            u32 idx = i2 - first;
+            u64 ann =
+                (o->kind == IROP_VALUE || o->kind == IROP_SYMBOL) ? o->b : 0;
+
+            if (in_reg[idx] != 0)
+                continue;
+            if (ir_arg_kind(ann) == IR_ARG_BYVAL) {
+                /* Inline word copy of the pointee onto the stack (the
+                 * memcpy intrinsic is Sprint 24's; correctness first). */
+                u32 sz = ir_arg_size(ann);
+                X64VReg p = to_vreg(is, o);
+                u32 c = 0;
+
+                while (c < sz) {
+                    u32 step = sz - c >= 8   ? 8
+                               : sz - c >= 4 ? 4
+                               : sz - c >= 2 ? 2
+                                             : 1;
+                    X64VReg t = newv(is);
+
+                    x = emit(is, X64_OP_LOAD, (X64Width)step);
+                    x->def = t;
+                    x->a.kind = X64O_MEM;
+                    x->a.mem.base = p;
+                    x->a.mem.scale = 1;
+                    x->a.mem.disp = (i32)c;
+                    x = emit(is, X64_OP_STORE, (X64Width)step);
+                    x->a = ovreg(t);
+                    x->b.kind = X64O_MEM;
+                    x->b.mem.rsp_rel = 1;
+                    x->b.mem.scale = 1;
+                    x->b.mem.disp = (i32)(stk_off[idx] + c);
+                    c += step;
+                }
+                continue;
+            }
+            if (o->type == IRT_F80) {
+                X64VReg a80 = f80_addr(is, o);
+
+                x87_mem(is, X64_OP_X87_FLD, X64_T, a80, 0);
+                x = emit(is, X64_OP_X87_FSTP, X64_T);
+                x->a.kind = X64O_MEM;
+                x->a.mem.rsp_rel = 1;
+                x->a.mem.scale = 1;
+                x->a.mem.disp = (i32)stk_off[idx];
+                continue;
+            }
+            if (irt_sse(o->type)) {
+                X64VReg fv = to_fvreg(is, o);
+
+                x = emit(is, X64_OP_FSTORE, fpw(o->type));
+                x->a = ovreg(fv);
+                x->b.kind = X64O_MEM;
+                x->b.mem.rsp_rel = 1;
+                x->b.mem.scale = 1;
+                x->b.mem.disp = (i32)stk_off[idx];
+                continue;
+            }
+            {
+                X64Operand v = to_src(is, o, X64_Q);
+
+                x = emit(is, X64_OP_STORE, X64_Q);
+                x->a = v;
+                x->b.kind = X64O_MEM;
+                x->b.mem.rsp_rel = 1;
+                x->b.mem.scale = 1;
+                x->b.mem.disp = (i32)stk_off[idx];
+            }
+        }
+        /* Pass 2b: register args (tiny fixed intervals next to the
+         * call), then AL, then the call itself carrying every implicit
+         * register use. */
+        for (i2 = first; i2 < in->nops; i2++) {
+            const IrOperand *o = &in->ops[i2];
+            u32 idx = i2 - first;
+
+            if (in_reg[idx] == 1) {
+                X64VReg t = newv(is);
+                u8 fix = (u8)(gpq[reg_slot[idx]] + 1);
+                /* operands BEFORE their consumer emits — the Sprint 21
+                 * ordering law (a symbol arg materializes via lea). */
+                X64Operand av = to_src(is, o, X64_Q);
+
+                x = emit(is, X64_OP_MOV, X64_Q);
+                x->def = t;
+                x->def_fixed = fix;
+                x->a = av;
+                argx[nargx].r = t;
+                argx[nargx++].fixed = fix;
+            } else if (in_reg[idx] == 2) {
+                X64VReg t = newvf(is);
+                u8 fix = (u8)(X64_XMM0 + reg_slot[idx] + 1);
+                X64VReg sv = to_fvreg(is, o);
+
+                x = emit(is, X64_OP_FMOV, fpw(o->type));
+                x->def = t;
+                x->def_fixed = fix;
+                x->a = ovreg(sv);
+                argx[nargx].r = t;
+                argx[nargx++].fixed = fix;
+            }
+        }
+        if (in->flags & IRF_CALL_VARIADIC) {
+            X64VReg t = newv(is);
+
+            x = emit(is, X64_OP_MOV, X64_L);
+            x->def = t;
+            x->def_fixed = X64_RAX + 1;
+            x->a = oimm((i64)fp);
+            argx[nargx].r = t;
+            argx[nargx++].fixed = X64_RAX + 1;
+        }
+        {
+            u8 retty = in->type;
+            bool ret80 = retty == IRT_F80;
+            u32 k;
+
+            x = emit(is, X64_OP_CALL, ret80 ? X64_T : X64_Q);
+            if (in->subop == FUNCREF_INDIRECT) {
+                x->a = ovreg(fnv);
+            } else if (in->subop == FUNCREF_EXTERNAL) {
+                x->a.kind = X64O_MEM;
+                x->a.mem.rip_sym = in->callee + 1;
+            } else {
+                x->table = in->callee + 1; /* internal func index */
+            }
+            for (k = 0; k < nargx; k++)
+                x64_add_xuse(is->xf, x, argx[k].r, argx[k].fixed);
+            if (pairp) {
+                /* PAIR return: read the register pair, store through
+                 * the hidden pointer (which was never passed). */
+                u32 kind = ir_arg_kind(pair_ann);
+                bool sse0 = kind == IR_ARG_PAIR_SI || kind == IR_ARG_PAIR_SS;
+                bool sse1 = kind == IR_ARG_PAIR_IS || kind == IR_ARG_PAIR_SS;
+                u32 psz = ir_arg_size(pair_ann);
+                X64VReg pv = to_vreg(is, pairp);
+                u8 gp_next = X64_RAX;
+
+                for (k = 0; k < 2 && 8 * k < psz; k++) {
+                    bool sse = k ? sse1 : sse0;
+                    X64VReg r = sse ? newvf(is) : newv(is);
+
+                    x = emit(is, X64_OP_READREG, X64_Q);
+                    x->def = r;
+                    if (sse) {
+                        x->def_fixed = (u8)(X64_XMM0 + (k && sse0 ? 1 : 0) + 1);
+                    } else {
+                        x->def_fixed = (u8)(gp_next + 1);
+                        gp_next = X64_RDX;
+                    }
+                    if (sse) {
+                        x = emit(is, X64_OP_FSTORE, X64_Q);
+                        x->a = ovreg(r);
+                    } else {
+                        x = emit(is, X64_OP_STORE, X64_Q);
+                        x->a = ovreg(r);
+                    }
+                    x->b.kind = X64O_MEM;
+                    x->b.mem.base = pv;
+                    x->b.mem.scale = 1;
+                    x->b.mem.disp = (i32)(8 * k);
+                }
+            } else if (ret80) {
+                X64VReg slot = f80_slot(is);
+
+                x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+                if (in->result.v)
+                    is->vals[in->result.v].vr = slot;
+            } else if (in->result.v && irt_sse(retty)) {
+                X64VReg d = newvf(is);
+                X64Inst *rr = emit(is, X64_OP_READREG, fpw(retty));
+
+                rr->def = d;
+                rr->def_fixed = X64_XMM0 + 1;
+                is->vals[in->result.v].vr = d;
+            } else if (in->result.v) {
+                X64VReg d = newv(is);
+                X64Inst *rr = emit(is, X64_OP_READREG, X64_Q);
+
+                rr->def = d;
+                rr->def_fixed = X64_RAX + 1;
+                is->vals[in->result.v].vr = d;
+            }
+        }
+        break;
+    }
     case IR_FADD:
     case IR_FSUB:
     case IR_FMUL:
-    case IR_FDIV:
-    case IR_FNEG:
-    case IR_FCMP:
+    case IR_FDIV: {
+        if (in->type == IRT_F128)
+            CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
+                    "contract");
+        if (in->type == IRT_F80) {
+            /* load-op-store, locally balanced: fld a; fld b; op-p;
+             * fstpt dst. faddp/fsubp/fmulp/fdivp compute st1 OP st0
+             * with a in st1 — exactly a OP b. */
+            X64VReg av = f80_addr(is, &in->ops[0]);
+            X64VReg bv = f80_addr(is, &in->ops[1]);
+            X64VReg slot = f80_slot(is);
+            X64Op op = in->op == IR_FADD   ? X64_OP_X87_FADDP
+                       : in->op == IR_FSUB ? X64_OP_X87_FSUBP
+                       : in->op == IR_FMUL ? X64_OP_X87_FMULP
+                                           : X64_OP_X87_FDIVP;
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, av, 0);
+            x87_mem(is, X64_OP_X87_FLD, X64_T, bv, 0);
+            x87_op0(is, op);
+            x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+            is->vals[in->result.v].vr = slot;
+            break;
+        }
+        {
+            X64Width w = fpw(in->type);
+            X64VReg d = newvf(is);
+            X64VReg av = to_fvreg(is, &in->ops[0]);
+            X64VReg bv = to_fvreg(is, &in->ops[1]);
+            X64Op op = in->op == IR_FADD   ? X64_OP_FADD
+                       : in->op == IR_FSUB ? X64_OP_FSUB
+                       : in->op == IR_FMUL ? X64_OP_FMUL
+                                           : X64_OP_FDIV;
+            X64Inst *x = emit(is, op, w);
+
+            x->def = d;
+            x->a = ovreg(av);
+            x->b = ovreg(bv);
+            is->vals[in->result.v].vr = d;
+        }
+        break;
+    }
+    case IR_FNEG: {
+        if (in->type == IRT_F80) {
+            X64VReg av = f80_addr(is, &in->ops[0]);
+            X64VReg slot = f80_slot(is);
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, av, 0);
+            x87_op0(is, X64_OP_X87_FCHS);
+            x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+            is->vals[in->result.v].vr = slot;
+            break;
+        }
+        {
+            /* No FP neg instruction: xorp{s,d} with the sign mask from
+             * .rodata (only the low lane matters; the full-width xor is
+             * harmless on our scalar discipline). */
+            X64Width w = fpw(in->type);
+            X64VReg d = newvf(is);
+            X64VReg av = to_fvreg(is, &in->ops[0]);
+            u32 cp = in->type == IRT_F32
+                         ? x64_cpool_intern(is->xf, 0x80000000ull, 0, 16, 16)
+                         : x64_cpool_intern(is->xf, 0x8000000000000000ull, 0,
+                                            16, 16);
+            X64Inst *x = emit(is, X64_OP_FXORM, w);
+
+            x->def = d;
+            x->a = ovreg(av);
+            x->b.kind = X64O_MEM;
+            x->b.mem.cpool = cp;
+            is->vals[in->result.v].vr = d;
+        }
+        break;
+    }
+    case IR_FCMP: {
+        const FcmpRecipe *rc = &fcmp_recipes[in->subop];
+        u8 st = in->ops[0].type;
+
+        if (st == IRT_F128)
+            CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
+                    "contract");
+        if (st == IRT_F80) {
+            /* fucomip compares st0 vs st1 (then pops); loading b first
+             * and a second puts a in st0 — flags read a ? b. A swapped
+             * recipe just reverses the load order. */
+            X64VReg av = f80_addr(is, &in->ops[rc->swap ? 1 : 0]);
+            X64VReg bv = f80_addr(is, &in->ops[rc->swap ? 0 : 1]);
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, bv, 0);
+            x87_mem(is, X64_OP_X87_FLD, X64_T, av, 0);
+            x87_op0(is, X64_OP_X87_FUCOMIP);
+            x87_op0(is, X64_OP_X87_FPOP);
+        } else {
+            X64Width w = fpw(st);
+            X64VReg av = to_fvreg(is, &in->ops[rc->swap ? 1 : 0]);
+            X64VReg bv = to_fvreg(is, &in->ops[rc->swap ? 0 : 1]);
+            X64Inst *x = emit(is, X64_OP_UCOMI, w);
+
+            x->a = ovreg(av);
+            x->b = ovreg(bv);
+        }
+        /* Single-cc recipes fuse into condbr exactly like icmp (setcc
+         * leaves the flags intact); pair recipes end in and/or, which
+         * clobbers flags, so their branches test the materialized
+         * value. The materialized form itself IS the recipe table. */
+        is->vals[in->result.v].cc_plus1 = rc->comb ? 0 : (u8)(rc->cc1 + 1);
+        is->vals[in->result.v].flags_ins = blk(is)->n - 1;
+        is->vals[in->result.v].flags_blk = is->cur;
+        is->last_flags_val = rc->comb ? 0 : in->result.v;
+        if (rc->comb || is->use_count[in->result.v] > 1 ||
+            !(irb->last && irb->last->op == IR_CONDBR &&
+              irb->last->ops[0].kind == IROP_VALUE &&
+              (u32)irb->last->ops[0].a == in->result.v))
+            is->vals[in->result.v].vr =
+                fcmp_value(is, rc, is->vals[in->result.v].flags_ins);
+        break;
+    }
     case IR_FPEXT:
-    case IR_FPTRUNC:
+    case IR_FPTRUNC: {
+        u8 st = in->ops[0].type;
+        u8 dt = in->type;
+
+        if (st == IRT_F128 || dt == IRT_F128)
+            CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
+                    "contract");
+        if (irt_sse(st) && irt_sse(dt)) {
+            X64VReg d = newvf(is);
+            X64VReg sv = to_fvreg(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_CVTF2F, fpw(dt));
+
+            x->src_width = (u8)fpw(st);
+            x->def = d;
+            x->a = ovreg(sv);
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        if (irt_sse(st) && dt == IRT_F80) {
+            /* xmm -> memory -> x87 -> f80 slot (fldl/flds converts). */
+            X64VReg tmp = f80_slot(is);
+            X64VReg slot = f80_slot(is);
+            X64VReg sv = to_fvreg(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_FSTORE, fpw(st));
+
+            x->a = ovreg(sv);
+            x->b.kind = X64O_MEM;
+            x->b.mem.base = tmp;
+            x->b.mem.scale = 1;
+            x87_mem(is, X64_OP_X87_FLD, fpw(st), tmp, 0);
+            x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+            is->vals[in->result.v].vr = slot;
+            break;
+        }
+        if (st == IRT_F80 && irt_sse(dt)) {
+            /* f80 -> x87 store-convert -> xmm (fstpl/fstps rounds). */
+            X64VReg sv = f80_addr(is, &in->ops[0]);
+            X64VReg tmp = f80_slot(is);
+            X64VReg d = newvf(is);
+            X64Inst *x;
+
+            x87_mem(is, X64_OP_X87_FLD, X64_T, sv, 0);
+            x87_mem(is, X64_OP_X87_FSTP, fpw(dt), tmp, 0);
+            x = emit(is, X64_OP_FLOAD, fpw(dt));
+            x->def = d;
+            x->a.kind = X64O_MEM;
+            x->a.mem.base = tmp;
+            x->a.mem.scale = 1;
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        CGF_ICE("x86_64 isel: bad fpext/fptrunc %u -> %u", st, dt);
+    }
     case IR_FPTOSI:
-    case IR_FPTOUI:
+    case IR_FPTOUI: {
+        u8 st = in->ops[0].type;
+        u8 dt = in->type;
+        bool uns = in->op == IR_FPTOUI;
+
+        if (st == IRT_F128)
+            CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
+                    "contract");
+        if (st == IRT_F80) {
+            /* Truncation needs the RC dance (x87 default rounds to
+             * nearest, C wants truncation); f80 -> u64 additionally
+             * subtracts 2^63 above the signed range, arms balanced. */
+            X64VReg sv = f80_addr(is, &in->ops[0]);
+
+            if (uns && dt == IRT_I64) {
+                u32 c63 = x64_cpool_intern(is->xf, 0x8000000000000000ull,
+                                           0x403e, 10, 16); /* 2^63 f80 */
+                X64VReg c63a = newv(is);
+                X64VReg d = newv(is);
+                u32 bsmall = new_block(is, "f2u.s");
+                u32 bbig = new_block(is, "f2u.b");
+                u32 bjoin = new_block(is, "f2u.j");
+                X64VReg tmp;
+                X64Inst *x;
+
+                x = emit(is, X64_OP_LEA, X64_Q);
+                x->def = c63a;
+                x->a.kind = X64O_MEM;
+                x->a.mem.cpool = c63;
+                x87_mem(is, X64_OP_X87_FLD, X64_T, c63a, 0);
+                x87_mem(is, X64_OP_X87_FLD, X64_T, sv, 0);
+                x87_op0(is, X64_OP_X87_FUCOMIP); /* src ? 2^63 */
+                x87_op0(is, X64_OP_X87_FPOP);
+                x = emit(is, X64_OP_JCC, X64_Q);
+                x->cc = X64_CC_B;
+                x->flags = X64IF_USES_FLAGS;
+                x->flags_src = blk(is)->n - 3;
+                x->target = bsmall;
+                x->target2 = bbig;
+                is->cur = bsmall - 1;
+                tmp = f80_slot(is);
+                x87_mem(is, X64_OP_X87_FLD, X64_T, sv, 0);
+                x87_trunc_store(is, tmp);
+                x = emit(is, X64_OP_LOAD, X64_Q);
+                x->def = d;
+                x->a.kind = X64O_MEM;
+                x->a.mem.base = tmp;
+                x->a.mem.scale = 1;
+                x = emit(is, X64_OP_JMP, X64_Q);
+                x->target = bjoin;
+                is->cur = bbig - 1;
+                tmp = f80_slot(is);
+                x87_mem(is, X64_OP_X87_FLD, X64_T, sv, 0);
+                x87_mem(is, X64_OP_X87_FLD, X64_T, c63a, 0);
+                x87_op0(is, X64_OP_X87_FSUBP); /* src - 2^63 */
+                x87_trunc_store(is, tmp);
+                {
+                    X64VReg t1 = newv(is);
+                    X64VReg m = newv(is);
+                    X64VReg t2 = newv(is);
+
+                    x = emit(is, X64_OP_LOAD, X64_Q);
+                    x->def = t1;
+                    x->a.kind = X64O_MEM;
+                    x->a.mem.base = tmp;
+                    x->a.mem.scale = 1;
+                    x = emit(is, X64_OP_MOVABS, X64_Q);
+                    x->def = m;
+                    x->a = oimm((i64)0x8000000000000000ull);
+                    x = emit(is, X64_OP_XOR, X64_Q);
+                    x->def = t2;
+                    x->a = ovreg(t1);
+                    x->b = ovreg(m);
+                    x = emit(is, X64_OP_MOV, X64_Q);
+                    x->def = d;
+                    x->a = ovreg(t2);
+                }
+                x = emit(is, X64_OP_JMP, X64_Q);
+                x->target = bjoin;
+                is->cur = bjoin - 1;
+                is->vals[in->result.v].vr = d;
+                break;
+            }
+            {
+                X64VReg tmp = f80_slot(is);
+                X64VReg d = newv(is);
+                X64Inst *x;
+
+                x87_mem(is, X64_OP_X87_FLD, X64_T, sv, 0);
+                x87_trunc_store(is, tmp);
+                x = emit(is, X64_OP_LOAD, dt == IRT_I64 || uns ? X64_Q : X64_L);
+                x->def = d;
+                x->a.kind = X64O_MEM;
+                x->a.mem.base = tmp;
+                x->a.mem.scale = 1;
+                is->vals[in->result.v].vr = d;
+            }
+            break;
+        }
+        /* SSE sources: cvtts{s,d}2si — the TRUNCATING form (the missing
+         * 't' rounds in the current mode: silent wrong answers). */
+        if (uns && dt == IRT_I64) {
+            /* f -> u64: no instruction. Below 2^63 the signed convert
+             * is exact; above, subtract 2^63, convert, put the top bit
+             * back. Out of range is C UB — matches gcc. */
+            u32 climit =
+                st == IRT_F32
+                    ? x64_cpool_intern(is->xf, 0x5f000000ull, 0, 4, 4)
+                    : x64_cpool_intern(is->xf, 0x43e0000000000000ull, 0, 8, 8);
+            X64VReg sv = to_fvreg(is, &in->ops[0]);
+            X64VReg lim = newvf(is);
+            X64VReg d = newv(is);
+            u32 bsmall = new_block(is, "f2u.s");
+            u32 bbig = new_block(is, "f2u.b");
+            u32 bjoin = new_block(is, "f2u.j");
+            X64Inst *x;
+
+            x = emit(is, X64_OP_FLOAD, fpw(st));
+            x->def = lim;
+            x->a.kind = X64O_MEM;
+            x->a.mem.cpool = climit;
+            x = emit(is, X64_OP_UCOMI, fpw(st));
+            x->a = ovreg(sv);
+            x->b = ovreg(lim);
+            x = emit(is, X64_OP_JCC, X64_Q);
+            x->cc = X64_CC_B; /* src < 2^63 (CF; NaN lands small = UB) */
+            x->flags = X64IF_USES_FLAGS;
+            x->flags_src = blk(is)->n - 2;
+            x->target = bsmall;
+            x->target2 = bbig;
+            is->cur = bsmall - 1;
+            x = emit(is, X64_OP_CVTF2I, X64_Q);
+            x->src_width = (u8)fpw(st);
+            x->def = d;
+            x->a = ovreg(sv);
+            x = emit(is, X64_OP_JMP, X64_Q);
+            x->target = bjoin;
+            is->cur = bbig - 1;
+            {
+                X64VReg t = newvf(is);
+                X64VReg ti = newv(is);
+                X64VReg m = newv(is);
+                X64VReg t2 = newv(is);
+
+                x = emit(is, X64_OP_FSUB, fpw(st));
+                x->def = t;
+                x->a = ovreg(sv);
+                x->b = ovreg(lim);
+                x = emit(is, X64_OP_CVTF2I, X64_Q);
+                x->src_width = (u8)fpw(st);
+                x->def = ti;
+                x->a = ovreg(t);
+                x = emit(is, X64_OP_MOVABS, X64_Q);
+                x->def = m;
+                x->a = oimm((i64)0x8000000000000000ull);
+                x = emit(is, X64_OP_XOR, X64_Q);
+                x->def = t2;
+                x->a = ovreg(ti);
+                x->b = ovreg(m);
+                x = emit(is, X64_OP_MOV, X64_Q);
+                x->def = d;
+                x->a = ovreg(t2);
+            }
+            x = emit(is, X64_OP_JMP, X64_Q);
+            x->target = bjoin;
+            is->cur = bjoin - 1;
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        {
+            /* Signed converts; f -> u32 rides the 64-bit convert (the
+             * value fits, the low half is the answer). */
+            X64VReg sv = to_fvreg(is, &in->ops[0]);
+            X64VReg d = newv(is);
+            X64Inst *x =
+                emit(is, X64_OP_CVTF2I, (dt == IRT_I64 || uns) ? X64_Q : X64_L);
+
+            x->src_width = (u8)fpw(st);
+            x->def = d;
+            x->a = ovreg(sv);
+            is->vals[in->result.v].vr = d;
+        }
+        break;
+    }
     case IR_SITOFP:
-    case IR_UITOFP:
-        CGF_ICE("x86_64 isel: f32/f64/f80/f128 isel lands in Sprint 23");
+    case IR_UITOFP: {
+        u8 st = in->ops[0].type;
+        u8 dt = in->type;
+        bool uns = in->op == IR_UITOFP;
+
+        if (dt == IRT_F128)
+            CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
+                    "contract");
+        if (dt == IRT_F80) {
+            /* Integers reach x87 through memory (fildq); u64 above the
+             * signed range adds 2^64 back in a balanced arm. */
+            X64VReg sv = to_vreg(is, &in->ops[0]);
+            X64VReg wide = sv;
+            X64VReg tmp = f80_slot(is);
+            X64VReg slot = f80_slot(is);
+            X64Inst *x;
+
+            if (st == IRT_I8 || st == IRT_I16 || st == IRT_I32) {
+                wide = newv(is);
+                if (uns) {
+                    x = emit(is, st == IRT_I32 ? X64_OP_MOV : X64_OP_MOVZX,
+                             X64_L);
+                    if (st != IRT_I32)
+                        x->src_width = (u8)width_of((IrType)st);
+                } else {
+                    x = emit(is, X64_OP_MOVSX, X64_Q);
+                    x->src_width = (u8)width_of((IrType)st);
+                }
+                x->def = wide;
+                x->a = ovreg(sv);
+            }
+            x = emit(is, X64_OP_STORE, X64_Q);
+            x->a = ovreg(wide);
+            x->b.kind = X64O_MEM;
+            x->b.mem.base = tmp;
+            x->b.mem.scale = 1;
+            if (uns && st == IRT_I64) {
+                u32 c64 = x64_cpool_intern(is->xf, 0x8000000000000000ull,
+                                           0x403f, 10, 16); /* 2^64 f80 */
+                u32 bpos = new_block(is, "u2f.p");
+                u32 bneg = new_block(is, "u2f.n");
+                u32 bjoin = new_block(is, "u2f.j");
+
+                x = emit(is, X64_OP_CMP, X64_Q);
+                x->a = ovreg(wide);
+                x->b = oimm(0);
+                x = emit(is, X64_OP_JCC, X64_Q);
+                x->cc = X64_CC_L; /* sign set: 2^63 <= v */
+                x->flags = X64IF_USES_FLAGS;
+                x->flags_src = blk(is)->n - 2;
+                x->target = bneg;
+                x->target2 = bpos;
+                is->cur = bpos - 1;
+                x87_mem(is, X64_OP_X87_FILD, X64_Q, tmp, 0);
+                x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+                x = emit(is, X64_OP_JMP, X64_Q);
+                x->target = bjoin;
+                is->cur = bneg - 1;
+                {
+                    X64VReg ca = newv(is);
+
+                    x87_mem(is, X64_OP_X87_FILD, X64_Q, tmp, 0);
+                    x = emit(is, X64_OP_LEA, X64_Q);
+                    x->def = ca;
+                    x->a.kind = X64O_MEM;
+                    x->a.mem.cpool = c64;
+                    x87_mem(is, X64_OP_X87_FLD, X64_T, ca, 0);
+                    x87_op0(is, X64_OP_X87_FADDP);
+                    x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+                }
+                x = emit(is, X64_OP_JMP, X64_Q);
+                x->target = bjoin;
+                is->cur = bjoin - 1;
+            } else {
+                x87_mem(is, X64_OP_X87_FILD, X64_Q, tmp, 0);
+                x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
+            }
+            is->vals[in->result.v].vr = slot;
+            break;
+        }
+        if (uns && st == IRT_I64) {
+            /* u64 -> f: halve with a sticky low bit, convert, double —
+             * ONE rounding total (the sprint's verbatim sequence). */
+            X64VReg sv = to_vreg(is, &in->ops[0]);
+            X64VReg d = newvf(is);
+            u32 bpos = new_block(is, "u2f.p");
+            u32 bneg = new_block(is, "u2f.n");
+            u32 bjoin = new_block(is, "u2f.j");
+            X64Inst *x;
+
+            x = emit(is, X64_OP_CMP, X64_Q);
+            x->a = ovreg(sv);
+            x->b = oimm(0);
+            x = emit(is, X64_OP_JCC, X64_Q);
+            x->cc = X64_CC_L;
+            x->flags = X64IF_USES_FLAGS;
+            x->flags_src = blk(is)->n - 2;
+            x->target = bneg;
+            x->target2 = bpos;
+            is->cur = bpos - 1;
+            x = emit(is, X64_OP_CVTI2F, fpw(dt));
+            x->src_width = X64_Q;
+            x->def = d;
+            x->a = ovreg(sv);
+            x = emit(is, X64_OP_JMP, X64_Q);
+            x->target = bjoin;
+            is->cur = bneg - 1;
+            {
+                X64VReg h = newv(is);
+                X64VReg lo = newv(is);
+                X64VReg t = newv(is);
+                X64VReg dt2 = newvf(is);
+
+                x = emit(is, X64_OP_SHR, X64_Q);
+                x->def = h;
+                x->a = ovreg(sv);
+                x->b = oimm(1);
+                x = emit(is, X64_OP_AND, X64_Q);
+                x->def = lo;
+                x->a = ovreg(sv);
+                x->b = oimm(1);
+                x = emit(is, X64_OP_OR, X64_Q);
+                x->def = t;
+                x->a = ovreg(h);
+                x->b = ovreg(lo);
+                x = emit(is, X64_OP_CVTI2F, fpw(dt));
+                x->src_width = X64_Q;
+                x->def = dt2;
+                x->a = ovreg(t);
+                x = emit(is, X64_OP_FADD, fpw(dt));
+                x->def = d;
+                x->a = ovreg(dt2);
+                x->b = ovreg(dt2);
+            }
+            x = emit(is, X64_OP_JMP, X64_Q);
+            x->target = bjoin;
+            is->cur = bjoin - 1;
+            is->vals[in->result.v].vr = d;
+            break;
+        }
+        {
+            /* i8/i16 sign/zero-extend to 32; u32 rides the free zext
+             * and converts as i64 (exact). */
+            X64VReg sv = to_vreg(is, &in->ops[0]);
+            X64VReg wide = sv;
+            X64VReg d = newvf(is);
+            u8 srcw = X64_L;
+            X64Inst *x;
+
+            if (st == IRT_I8 || st == IRT_I16) {
+                wide = newv(is);
+                x = emit(is, uns ? X64_OP_MOVZX : X64_OP_MOVSX, X64_L);
+                x->src_width = (u8)width_of((IrType)st);
+                x->def = wide;
+                x->a = ovreg(sv);
+            } else if (st == IRT_I32 && uns) {
+                wide = newv(is);
+                x = emit(is, X64_OP_MOV, X64_L); /* free zext */
+                x->def = wide;
+                x->a = ovreg(sv);
+                srcw = X64_Q;
+            } else if (st == IRT_I64) {
+                srcw = X64_Q;
+            }
+            x = emit(is, X64_OP_CVTI2F, fpw(dt));
+            x->src_width = srcw;
+            x->def = d;
+            x->a = ovreg(wide);
+            is->vals[in->result.v].vr = d;
+        }
+        break;
+    }
     case IR_STACKSAVE: {
         /* A marker: regalloc rewrites it to `mov def, rsp` once operands
          * are physical (rsp has no pre-RA spelling on purpose). */
@@ -928,11 +2134,88 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         x->a = ovreg(s);
         break;
     }
-    case IR_VA_START:
+    case IR_VA_START: {
+        /* Marker: only frame-finalize knows where the register save
+         * area and the first unnamed stack argument live. */
+        X64VReg ap = to_vreg(is, &in->ops[0]);
+        X64Inst *x = emit(is, X64_OP_VASTART, X64_Q);
+
+        x->a = ovreg(ap);
+        break;
+    }
+    case IR_MEMCPY: {
+        /* Constant sizes inline as word copies (aggregate assignment,
+         * sret temps — Sprint 23 calls need them); dynamic sizes wait
+         * for Sprint 24's rep movs. */
+        X64VReg dst, src;
+        u64 sz;
+        u32 c = 0;
+        X64Inst *x;
+
+        if (in->ops[2].kind != IROP_ICONST)
+            CGF_ICE("x86_64 isel: dynamic-size memcpy lands in Sprint 24");
+        dst = to_vreg(is, &in->ops[0]);
+        src = to_vreg(is, &in->ops[1]);
+        sz = in->ops[2].a;
+        while (c < sz) {
+            u32 step = sz - c >= 8 ? 8 : sz - c >= 4 ? 4 : sz - c >= 2 ? 2 : 1;
+            X64VReg tv = newv(is);
+
+            x = emit(is, X64_OP_LOAD, (X64Width)step);
+            x->def = tv;
+            x->a.kind = X64O_MEM;
+            x->a.mem.base = src;
+            x->a.mem.scale = 1;
+            x->a.mem.disp = (i32)c;
+            x = emit(is, X64_OP_STORE, (X64Width)step);
+            x->a = ovreg(tv);
+            x->b.kind = X64O_MEM;
+            x->b.mem.base = dst;
+            x->b.mem.scale = 1;
+            x->b.mem.disp = (i32)c;
+            c += step;
+        }
+        break;
+    }
+    case IR_MEMSET: {
+        X64VReg dst;
+        u64 sz, byte, pat;
+        u32 c = 0;
+        X64Inst *x;
+
+        if (in->ops[2].kind != IROP_ICONST || in->ops[1].kind != IROP_ICONST)
+            CGF_ICE("x86_64 isel: dynamic memset lands in Sprint 24");
+        dst = to_vreg(is, &in->ops[0]);
+        byte = in->ops[1].a & 0xff;
+        pat = byte * 0x0101010101010101ull;
+        sz = in->ops[2].a;
+        while (c < sz) {
+            u32 step = sz - c >= 8 ? 8 : sz - c >= 4 ? 4 : sz - c >= 2 ? 2 : 1;
+
+            /* an 8-byte pattern store needs simm32: all-zero and
+             * all-one bytes fit; anything else goes through a vreg */
+            if (step == 8 && !x64_imm_fits_simm32((i64)pat)) {
+                X64VReg tv = newv(is);
+
+                x = emit(is, X64_OP_MOVABS, X64_Q);
+                x->def = tv;
+                x->a = oimm((i64)pat);
+                x = emit(is, X64_OP_STORE, X64_Q);
+                x->a = ovreg(tv);
+            } else {
+                x = emit(is, X64_OP_STORE, (X64Width)step);
+                x->a = oimm((i64)sim_pattern_narrow(pat, step));
+            }
+            x->b.kind = X64O_MEM;
+            x->b.mem.base = dst;
+            x->b.mem.scale = 1;
+            x->b.mem.disp = (i32)c;
+            c += step;
+        }
+        break;
+    }
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
-    case IR_MEMCPY:
-    case IR_MEMSET:
         CGF_ICE("x86_64 isel: '%s' isel lands in Sprint 24",
                 ir_op_name((IrOp)in->op));
     default:
@@ -961,18 +2244,29 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
     is.use_count = arena_alloc(a, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
     memset(is.use_count, 0, (f->nvals + 1) * sizeof(u32));
 
-    /* Pre-pass: MIR block per IR block; vregs for every param; USE
-     * counts (branch fusion needs them). */
+    xf->variadic = f->variadic;
+    xf->ret_f80 = f->ret == IRT_F80;
+
+    /* Pre-pass: MIR block per IR block; vregs for every param (class by
+     * IR type: f32/f64 are xmm; f80 values are ADDRESSES, hence GP);
+     * USE counts (branch fusion needs them). */
     for (bi = 0; bi < f->nblocks; bi++)
         new_block(&is, f->blocks[bi].name);
     for (i = 0; i < f->nparams; i++)
-        is.vals[f->param_vals[i].v].vr = newv(&is);
+        is.vals[f->param_vals[i].v].vr =
+            irt_sse(f->param_types[i]) ? newvf(&is) : newv(&is);
     for (bi = 0; bi < f->nblocks; bi++) {
         const IrBlock *b = &f->blocks[bi];
         const IrInst *in;
 
-        for (i = 0; i < b->nparams; i++)
-            is.vals[b->params[i].v].vr = newv(&is);
+        for (i = 0; i < b->nparams; i++) {
+            u8 pt = f->vals[b->params[i].v - 1].type;
+
+            if (pt == IRT_F80)
+                CGF_ICE("x86_64 isel: f80 block parameters violate the "
+                        "memory law (lowering never emits them)");
+            is.vals[b->params[i].v].vr = irt_sse(pt) ? newvf(&is) : newv(&is);
+        }
         for (in = b->first; in; in = in->next) {
             u32 k, j;
 
@@ -984,6 +2278,78 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
                     if (in->edges[k].args[j].kind == IROP_VALUE)
                         is.use_count[(u32)in->edges[k].args[j].a]++;
         }
+    }
+
+    /* Callee-side parameter binding (Sprint 23): the same queue walk as
+     * the caller, into the ENTRY block ahead of the body. Register args
+     * arrive via READREG (rewrite copies or elides); stack args load or
+     * take their address at [rbp+16+off]. A PAIR-returning function's
+     * hidden pointer was never passed — it binds to a fresh local slot
+     * the ret sequence reads back. */
+    {
+        static const u8 gpq[6] = {X64_RDI, X64_RSI, X64_RDX,
+                                  X64_RCX, X64_R8,  X64_R9};
+        u32 gp = 0, fpq = 0, stack_off = 0;
+        bool pair_hidden =
+            f->abi_ret != IR_ABIRET_NONE && f->abi_ret != IR_ABIRET_SRET;
+        X64Inst *x;
+
+        is.cur = 0;
+        for (i = 0; i < f->nparams; i++) {
+            u8 pt = f->param_types[i];
+            X64VReg pv = is.vals[f->param_vals[i].v].vr;
+            u64 ann = f->param_annots ? f->param_annots[i] : 0;
+
+            if (i == 0 && pair_hidden) {
+                x = emit(&is, X64_OP_LEA, X64_Q);
+                x->def = pv;
+                x->a.kind = X64O_MEM; /* frame marker */
+                x->b.imm = 16;
+                x->table = 16;
+                continue;
+            }
+            if (ir_arg_kind(ann) == IR_ARG_BYVAL) {
+                u32 sz = (ir_arg_size(ann) + 7) & ~7u;
+
+                x = emit(&is, X64_OP_ARGLEA, X64_Q);
+                x->def = pv;
+                x->b.imm = (i64)stack_off;
+                stack_off += sz;
+                continue;
+            }
+            if (pt == IRT_F80) {
+                stack_off = (stack_off + 15) & ~15u;
+                x = emit(&is, X64_OP_ARGLEA, X64_Q);
+                x->def = pv;
+                x->b.imm = (i64)stack_off;
+                stack_off += 16;
+                continue;
+            }
+            if (irt_sse(pt)) {
+                if (fpq < 8) {
+                    x = emit(&is, X64_OP_READREG, fpw(pt));
+                    x->def = pv;
+                    x->def_fixed = (u8)(X64_XMM0 + fpq++ + 1);
+                } else {
+                    x = emit(&is, X64_OP_ARGLD, fpw(pt));
+                    x->def = pv;
+                    x->b.imm = (i64)stack_off;
+                    stack_off += 8;
+                }
+                continue;
+            }
+            if (gp < 6) {
+                x = emit(&is, X64_OP_READREG, X64_Q);
+                x->def = pv;
+                x->def_fixed = (u8)(gpq[gp++] + 1);
+            } else {
+                x = emit(&is, X64_OP_ARGLD, X64_Q);
+                x->def = pv;
+                x->b.imm = (i64)stack_off;
+                stack_off += 8;
+            }
+        }
+        xf->named_stack_bytes = stack_off;
     }
 
     for (bi = 0; bi < f->nblocks; bi++) {
