@@ -4,6 +4,7 @@
  *      CGF_TEST_TIMEOUT (seconds), CGF_TEST_XFAIL_LEDGER (ledger path). */
 #include <dirent.h>
 #include <errno.h>
+#include <regex.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -266,7 +267,7 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
         bool matched = false;
 
         if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK &&
-            dir->kind != DIR_MIR_CHECK && dir->kind != DIR_ASM_CHECK)
+            dir->kind != DIR_MIR_CHECK)
             continue; /* IR_CHECK-NOT is judged by find_forbidden */
         while (cursor < out->len && !matched) {
             size_t eol = cursor;
@@ -288,6 +289,101 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
             }
             cursor = eol + 1;
         }
+        if (!matched)
+            return dir;
+    }
+    return NULL;
+}
+
+/* ASM_CHECK matcher (Sprint 25 rules): per-line substring after
+ * whitespace normalization (runs of blanks -> one space), `{{...}}`
+ * embedding POSIX ERE fragments, ordered (each check matches at or
+ * after the previous match's line). Selector-carrying checks apply only
+ * when the selector names the current target. */
+static void norm_ws(const char *src, size_t len, char *dst, size_t cap)
+{
+    size_t i, o = 0;
+    bool blank = false;
+
+    for (i = 0; i < len && o + 1 < cap; i++) {
+        char c = src[i];
+
+        if (c == ' ' || c == '\t') {
+            blank = true;
+            continue;
+        }
+        if (blank && o)
+            dst[o++] = ' ';
+        blank = false;
+        dst[o++] = c;
+    }
+    dst[o] = '\0';
+}
+
+/* Build an anchored-nowhere ERE from a normalized pattern: literal
+ * segments escaped, {{...}} spliced verbatim. */
+static bool asm_pattern_to_ere(const char *pat, char *ere, size_t cap)
+{
+    size_t o = 0;
+    const char *p = pat;
+
+    while (*p && o + 3 < cap) {
+        if (p[0] == '{' && p[1] == '{') {
+            const char *end = strstr(p + 2, "}}");
+
+            if (!end)
+                return false;
+            if (o + (size_t)(end - p - 2) + 1 >= cap)
+                return false;
+            memcpy(ere + o, p + 2, (size_t)(end - p - 2));
+            o += (size_t)(end - p - 2);
+            p = end + 2;
+            continue;
+        }
+        if (strchr("^.[$()|*+?{\\", *p))
+            ere[o++] = '\\';
+        ere[o++] = *p++;
+    }
+    if (*p)
+        return false;
+    ere[o] = '\0';
+    return true;
+}
+
+static const Directive *match_asm_checks(const DirectiveSet *ds,
+                                         const Buf *text, const char *target)
+{
+    size_t cursor = 0;
+    size_t d;
+
+    for (d = 0; d < ds->ndirs; d++) {
+        const Directive *dir = &ds->dirs[d];
+        bool matched = false;
+        char pat[512], ere[1024];
+        regex_t rx;
+
+        if (dir->kind != DIR_ASM_CHECK)
+            continue;
+        if (dir->selector && !directive_selector_matches(dir->selector, target))
+            continue;
+        norm_ws(dir->value, strlen(dir->value), pat, sizeof(pat));
+        if (!asm_pattern_to_ere(pat, ere, sizeof(ere)))
+            return dir; /* malformed {{...}} reads as unmatched */
+        if (regcomp(&rx, ere, REG_EXTENDED | REG_NOSUB) != 0)
+            return dir;
+        while (cursor < text->len && !matched) {
+            size_t eol = cursor;
+            char line[512];
+
+            while (eol < text->len && text->data[eol] != '\n')
+                eol++;
+            norm_ws((const char *)text->data + cursor, eol - cursor, line,
+                    sizeof(line));
+            if (regexec(&rx, line, 0, NULL, 0) == 0)
+                matched = true;
+            cursor = eol + 1;
+        }
+        regfree(&rx);
         if (!matched)
             return dir;
     }
@@ -653,6 +749,8 @@ have_compile:
                 buf_append(&comp.out, atext, alen);
             }
             miss = match_checks(ds, &comp.out);
+            if (!miss && s_mode)
+                miss = match_asm_checks(ds, &comp.out, r->target);
             hit = find_forbidden(ds, &comp.out);
             if (miss) {
                 if (!quiet) {
@@ -689,6 +787,56 @@ have_compile:
         return OUT_FAIL;
     }
     spawn_result_free(&comp);
+
+    /* ASM_CHECK on an e2e fixture: a side-band `cc -S` supplies the
+     * text (the binary run below still owns CHECK/EXIT_CODE). */
+    {
+        bool any_asm = false;
+        size_t d;
+
+        for (d = 0; d < ds->ndirs; d++)
+            if (ds->dirs[d].kind == DIR_ASM_CHECK)
+                any_asm = true;
+        if (any_asm) {
+            char *argv[6];
+            SpawnResult sres;
+            size_t alen = 0;
+            char *atext;
+            Buf abuf;
+
+            argv[0] = (char *)r->cc;
+            argv[1] = (char *)"-S";
+            argv[2] = t->path;
+            argv[3] = (char *)"-o";
+            argv[4] = spath;
+            argv[5] = NULL;
+            spawn_capture(argv, timeout, &sres);
+            atext = read_file(&r->arena, spath, &alen);
+            spawn_result_free(&sres);
+            if (!atext) {
+                if (!quiet)
+                    printf("FAIL %s: -S side-band produced no output\n", id);
+                return OUT_FAIL;
+            }
+            buf_init(&abuf);
+            buf_append(&abuf, atext, alen);
+            {
+                const Directive *amiss = match_asm_checks(ds, &abuf, r->target);
+
+                if (amiss) {
+                    if (!quiet) {
+                        printf("FAIL %s: ASM_CHECK not matched (line "
+                               "%u): %s\n",
+                               id, (unsigned)amiss->line, amiss->value);
+                        print_detail("assembly", &abuf);
+                    }
+                    buf_free(&abuf);
+                    return OUT_FAIL;
+                }
+            }
+            buf_free(&abuf);
+        }
+    }
 
     /* Run the produced binary. */
     {

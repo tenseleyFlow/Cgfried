@@ -111,13 +111,20 @@ void test_directive_reserved(TestCtx *t)
     ds = parse(&a, "// OPT_EQ: O0,O2 => stdout\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     T_ASSERT(t, strstr(ds.errs[0].msg, "Sprint 30") != NULL);
-    /* ASM_CHECK went live in Sprint 24 (a value directive matched
-     * against the produced .s); target-qualified CHECKs stay Sprint 49. */
+    /* ASM_CHECK went live in Sprint 24; Sprint 25 gave it a target
+     * selector (asm is inherently per-target). The OTHER CHECKs stay
+     * selector-free until Sprint 49. */
     ds = parse(&a, "// ASM_CHECK: movq\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 0);
     T_ASSERT_EQ_INT(t, ds.ndirs, 1);
     T_ASSERT(t, ds.dirs[0].kind == DIR_ASM_CHECK);
     ds = parse(&a, "// ASM_CHECK(x86_64-linux-gnu): mov\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.ndirs, 1);
+    T_ASSERT_EQ_STR(t, ds.dirs[0].selector, "x86_64-linux-gnu");
+    ds = parse(&a, "// ASM_CHECK(bogus-target): mov\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// CHECK(x86_64-linux-gnu): out\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     T_ASSERT(t, strstr(ds.errs[0].msg, "Sprint 49") != NULL);
     /* IR_CHECK was reserved here until Sprint 17 landed it; it now

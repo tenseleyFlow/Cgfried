@@ -170,3 +170,24 @@ void test_toolchain_exit_mapping(TestCtx *t)
     T_ASSERT(t, strstr(cgf_tool_missing_hint(TOOL_AS), "CGF_AS_PATH") != NULL);
     T_ASSERT(t, strstr(cgf_tool_missing_hint(TOOL_LD), "CGF_LD_PATH") != NULL);
 }
+
+/* Sprint 25: the crt probe. The pure resolver carries CGF_CRT_DIR; the
+ * live probe must find crt1.o on any host that can link (CI has gcc),
+ * and the directory it names must actually contain crt1.o. */
+void test_toolchain_crt_probe(TestCtx *t)
+{
+    char diag[256];
+    const char *dir = cgf_probe_crt_dir(diag, sizeof(diag));
+
+    T_ASSERT(t, dir != NULL);
+    if (dir) {
+        char path[512];
+        FILE *f;
+
+        snprintf(path, sizeof(path), "%s/crt1.o", dir);
+        f = fopen(path, "rb");
+        T_ASSERT(t, f != NULL);
+        if (f)
+            fclose(f);
+    }
+}

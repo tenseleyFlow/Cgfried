@@ -260,6 +260,16 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
                 }
                 d.selector = sel;
             }
+        } else if (sel_len != 0 && hit->kind == DIR_ASM_CHECK) {
+            /* Sprint 25: ASM_CHECK takes a target selector (asm text is
+             * inherently per-target); the other CHECKs stay Sprint 49. */
+            char *sel = arena_strndup(p->arena, line + sel_start, sel_len);
+
+            if (!selector_valid(sel)) {
+                errf(p, line_no, "unknown target selector ", sel, strlen(sel));
+                return;
+            }
+            d.selector = sel;
         } else if (sel_len != 0) {
             err(p, line_no,
                 "this directive does not take a (selector) yet (target-"
