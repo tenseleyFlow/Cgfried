@@ -140,6 +140,15 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    else p=objdiff-gasonly; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/objdiff.log
 	sh scripts/check_as_fault.sh $(BUILD)/cgfried
+	CGF_TEST_CC=$(BUILD)/cgfried \
+	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
+	    > $(BUILD)/corpus.log 2>&1; s=$$?; \
+	    cat $(BUILD)/corpus.log; exit $$s
+	CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
+	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
+	    > $(BUILD)/corpus-spill.log 2>&1; s=$$?; \
+	    tail -1 $(BUILD)/corpus-spill.log; exit $$s
+	sh scripts/e2e_gcc_diff.sh $(BUILD)/cgfried
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
