@@ -629,9 +629,8 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
         /* Only the LINKER's own resolution matters here; a missing
          * bundled assembler is the compile step's problem
          * (F-S27-ASERRLINK). */
-        fprintf(stderr,
-                "cgfried: error: bundled afs-ld not built; run 'make "
-                "tools' or unset CGF_LD to use the system linker\n");
+        fprintf(stderr, "cgfried: error: bundled afs-ld not built; run 'make "
+                        "tools' or unset CGF_LD to use the system linker\n");
         return false;
     }
     if (want_crts || want_libs) {

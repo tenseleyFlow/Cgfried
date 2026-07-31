@@ -15,3 +15,19 @@ upstream rung lands and the submodule bump retires it.
 
 Status 2026-07-31: IDs reserved; upstream issues to be filed on the
 FortranGoingOnForty/afs-ld tracker with these IDs in the titles.
+
+## Fixed upstream instead of filed (Sprint 27)
+
+Two gaps surfaced by the CGF_LD=1 static lane were small enough to fix
+at the source rather than work around — the standing rule. Both are
+merged; the submodule pin carries them.
+
+| Gap | Where it bit | Upstream |
+|---|---|---|
+| `.eh_frame` CIE augmentation `'S'` (signal frame) rejected | glibc's `libc.a` ships one `"zRS"` CIE — EVERY static link died at the merge | PR #17, merged |
+| `R_X86_64_GOTTPOFF` against an undefined WEAK symbol hard-errored | Ubuntu's `libc.a(setlocale.o)` takes the IE path where Arch's does not; the local-exec path already resolved the same case to zero | PR #18, merged |
+
+The second is why this lane is distro-differential in nature: Arch and
+Ubuntu glibc take different paths through the same archive. Podman
+verification (ubuntu:24.04, glibc 2.39) is the cheap way to check a
+static-link change before CI does.
