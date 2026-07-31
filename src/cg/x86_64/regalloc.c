@@ -1095,6 +1095,32 @@ static void frame_finalize(Ra *ra)
         if (touched[k] && is_callee_saved((u8)k))
             push_order[npush++] = (u8)k;
 
+    /* THE PUSH-SLOT COLLISION (found by the FIRST e2e run): callee-saved
+     * pushes live at rbp-8..rbp-8*npush, and the rewrite assigned spill
+     * slots from rbp-8 DOWN — a callee's alloca store overwrote the
+     * caller's saved rbx, and the pop restored a double's bit pattern
+     * into it. Every frame-owned slot (negative rbp disp) shifts below
+     * the push area; the markers and save area assigned after this take
+     * the bias directly. */
+    if (npush) {
+        u32 bias = 8 * npush;
+
+        for (bi = 0; bi < f->nblocks; bi++) {
+            X64Block *b = &f->blocks[bi];
+
+            for (i = 0; i < b->n; i++) {
+                X64Inst *in = &b->insts[i];
+
+                if (in->a.kind == X64O_MEM &&
+                    in->a.mem.base.v == (u32)X64_RBP + 1 && in->a.mem.disp < 0)
+                    in->a.mem.disp -= (i32)bias;
+                if (in->b.kind == X64O_MEM &&
+                    in->b.mem.base.v == (u32)X64_RBP + 1 && in->b.mem.disp < 0)
+                    in->b.mem.disp -= (i32)bias;
+            }
+        }
+    }
+
     /* Static alloca markers -> rbp-relative slots below the spills. rbp
      * itself is 16-aligned (entry rsp = 8 mod 16, push rbp lands on 0),
      * so rounding the running total to the alloca's align aligns the
@@ -1113,7 +1139,7 @@ static void frame_finalize(Ra *ra)
 
                 raw = (raw + size + align - 1) & ~(align - 1);
                 in->a.mem.base = physreg(X64_RBP);
-                in->a.mem.disp = -(i32)raw;
+                in->a.mem.disp = -(i32)(8 * npush + raw);
                 in->b.imm = 0;
                 in->table = 0;
             }
@@ -1130,7 +1156,7 @@ static void frame_finalize(Ra *ra)
      * external callees that do consult it. */
     if (f->variadic) {
         raw = ((raw + 15) & ~15u) + 176;
-        save_off = raw;
+        save_off = 8 * npush + raw;
     }
     /* Outgoing call arguments live at the stack bottom, [rsp+0 ..
      * rsp+out_args); rsp-relative operands were rewritten to rsp, so a
@@ -1338,6 +1364,21 @@ void x64_regalloc(X64Func *f)
         build_intervals(&ra);
         collect_fixed(&ra);
         nc = find_conflicts(&ra, conflicts, 64);
+        /* A FIXED interval crossing a call is a conflict with the call
+         * itself: every fixed color is an ABI register and every ABI
+         * register is caller-saved, so the value cannot survive there.
+         * Localize it exactly like a color collision — the home vreg
+         * then goes through the ordinary call-crossing rule (callee-
+         * saved or spill). Found by the FIRST e2e run: a call result
+         * READ from rax stayed in rax across the next call. */
+        {
+            u32 v;
+
+            for (v = 1; v <= f->nvregs && nc < 63; v++)
+                if (ra.iv[v].live && ra.iv[v].fixed &&
+                    crosses_call(&ra, ra.iv[v].start, ra.iv[v].end))
+                    conflicts[nc++] = v;
+        }
         if (!nc)
             break;
         for (j = 0; j < nc; j++) {
