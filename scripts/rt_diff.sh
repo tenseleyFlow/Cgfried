@@ -18,7 +18,11 @@ export LC_ALL
 
 CGF=${1:-build/cgfried}
 WORK=${CGF_RT_WORK:-build/rt-diff}
-RT=$(ls build*/x86_64-linux-gnu/libcgf_rt.a 2>/dev/null | head -1)
+# The archive under test is THIS tree's, never whichever one a glob
+# happens to find first: with build/ and build-san/ both present, a
+# glob made the sanitizer lane test (and rebuild) the wrong file.
+BUILD=${BUILD:-build}
+RT="$BUILD/$("$CGF" -dumpmachine)/libcgf_rt.a"
 
 if ! command -v gcc >/dev/null 2>&1; then
     echo "HARNESS_SKIP suite=rtdiff test=all count=1" \
@@ -227,7 +231,7 @@ rm -f "$RT"
 # BUILD must be threaded through: `make test` may be running in a
 # different tree (build-san), and rebuilding into build/ would compare
 # an archive that is not the one under test.
-make -s BUILD="${BUILD:-build}" rt > /dev/null 2>&1
+make -s BUILD="$BUILD" rt > /dev/null 2>&1
 if ! cmp -s "$WORK/first.a" "$RT"; then
     echo "rt_diff: libcgf_rt.a is not byte-reproducible across builds" >&2
     fails=$((fails + 1))
