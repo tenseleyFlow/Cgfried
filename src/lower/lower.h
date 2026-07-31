@@ -49,13 +49,27 @@ typedef struct Lvalue {
     u8 bit_width;   /* bitfield only: 0 means "not a bitfield" */
     bool is_bitfield;
     bool is_volatile;
+    bool is_atomic; /* _Atomic: loads/stores carry seq_cst (Sprint 20) */
     bool is_signed; /* of the FIELD type: drives the re-narrowing */
     u32 align;
 } Lvalue;
 
+/* One VLA-bearing lexical scope: the stacksave token (0 until the first
+ * VLA declares) and the compound it belongs to. Exits restore the
+ * OUTERMOST live token among the scopes they leave — restoring the
+ * outermost subsumes every inner one. `return` restores nothing (the
+ * epilogue's frame teardown subsumes it) and longjmp needs nothing (the
+ * stack unwinds wholesale; tokens die with the frames). */
+typedef struct VlaScope {
+    ValueId token;
+    const AstNode *compound;
+    struct VlaScope *prev;
+} VlaScope;
+
 typedef struct LoopCtx {
     BlockId break_target;
-    BlockId continue_target; /* BLOCK_INVALID in a switch entry */
+    BlockId continue_target;   /* BLOCK_INVALID in a switch entry */
+    struct VlaScope *vla_mark; /* scopes above this survive break/continue */
     struct LoopCtx *prev;
 } LoopCtx;
 
@@ -90,7 +104,10 @@ typedef struct Lower {
     Strmap labels;   /* label name -> BlockId (function scope, pre-pass) */
     LoopCtx *loops;
     SwitchCtx *switches;
-    ValueId sret; /* hidden aggregate-return pointer, or 0 */
+    VlaScope *vla_scopes; /* innermost first */
+    Strmap vla_sizes;     /* Type* -> ValueId of the cached byte size */
+    Strmap label_vla;     /* label name -> innermost VLA compound (AST) */
+    ValueId sret;         /* hidden aggregate-return pointer, or 0 */
     const char *fname;
     /* Sprint 19 ABI state for the CURRENT function. */
     struct AbiRet *cur_abi_ret; /* how `return e` leaves the function */
@@ -175,6 +192,11 @@ u32 lower_anon_sym(Lower *lo, const AstNode *e);
 ValueId lower_temp(Lower *lo, Type *t);
 /* Every deferred path routes through here; the message NAMES the sprint. */
 void lower_unimplemented(Lower *lo, Span span, const char *what, int sprint);
+/* The byte size of a type as an i64 operand: a constant for complete
+ * types, the cached (evaluated-once) value for a declared VLA, or a
+ * fresh computation for an undeclared VLA type (sizeof(int[n]) — C17
+ * says the size expression evaluates there). */
+IrOperand lower_type_size(Lower *lo, Type *t);
 
 /* --- SysV ABI plans (src/lower/abi.c) ------------------------------------- */
 

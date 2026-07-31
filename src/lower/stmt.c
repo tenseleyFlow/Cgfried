@@ -35,6 +35,52 @@ static void ensure_open_block(Lower *lo, const char *why)
         lower_at(lo, lower_new_block(lo, why));
 }
 
+/* --- VLA scope machinery (Sprint 20) ---------------------------------------
+ */
+
+static bool type_is_vla_chain(const Type *t)
+{
+    for (; t; t = t->base)
+        if (t->kind == TY_ARRAY && t->is_vla)
+            return true;
+        else if (t->kind != TY_ARRAY)
+            break;
+    return false;
+}
+
+/* Restores the OUTERMOST live token among the scopes from the innermost
+ * up to (but excluding) `stop` — one restore subsumes the inner ones. */
+static void vla_restore_until(Lower *lo, VlaScope *stop)
+{
+    VlaScope *sc;
+    ValueId outer = VALUE_INVALID;
+
+    for (sc = lo->vla_scopes; sc && sc != stop; sc = sc->prev)
+        if (sc->token.v)
+            outer = sc->token;
+    if (outer.v)
+        ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, outer));
+}
+
+/* goto: restore down to the label's innermost VLA compound (sema already
+ * proved the label's chain is a subset of ours). */
+static void vla_restore_for_goto(Lower *lo, const char *label)
+{
+    void *hit = strmap_get(&lo->label_vla, label, strlen(label));
+    const AstNode *target = hit; /* innermost VLA compound at the label */
+    VlaScope *sc;
+    ValueId outer = VALUE_INVALID;
+
+    for (sc = lo->vla_scopes; sc; sc = sc->prev) {
+        if (sc->compound == target)
+            break;
+        if (sc->token.v)
+            outer = sc->token;
+    }
+    if (outer.v)
+        ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, outer));
+}
+
 /* --- local declarations --------------------------------------------------- */
 
 static void lower_local_static(Lower *lo, Symbol *sym, AstNode *init)
@@ -93,11 +139,22 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         return;
     if (!sym || sym->kind != SYM_VAR)
         return; /* typedef/tag/enum-only declarations */
-    if (sym->type && sym->type->is_vla) {
-        lower_unimplemented(lo, d->span,
-                            "a variable-length array "
-                            "declaration",
-                            20);
+    if (sym->type && type_is_vla_chain(sym->type)) {
+        /* VLA: the size expressions evaluate exactly ONCE, here, in
+         * declaration order (lower_type_size caches per Type node — a
+         * later sizeof READS the cache). The scope's stacksave is lazy:
+         * emitted at its first VLA. */
+        IrOperand bytes = lower_type_size(lo, sym->type);
+        Type *elem = sym->type;
+        TypeLayout el;
+
+        while (elem->kind == TY_ARRAY)
+            elem = elem->base;
+        el = layout_of(lo->sema, elem);
+        if (lo->vla_scopes && !lo->vla_scopes->token.v)
+            lo->vla_scopes->token = ir_build_stacksave(&lo->b);
+        slot = ir_build_alloca(&lo->b, bytes, (u32)(el.align ? el.align : 1));
+        lower_bind_local(lo, sym, slot);
         return;
     }
     if (d->storage & AST_SC_STATIC) {
@@ -250,6 +307,7 @@ static void lower_switch(Lower *lo, AstNode *s)
      * case label, which opens its block. */
     brk.break_target = join;
     brk.continue_target = BLOCK_INVALID; /* continue skips switch entries */
+    brk.vla_mark = lo->vla_scopes;
     brk.prev = lo->loops;
     lo->loops = &brk;
     ctx.prev = lo->switches;
@@ -295,10 +353,21 @@ void lower_stmt(Lower *lo, AstNode *s)
     if (!s || lo->failed)
         return;
     switch (s->kind) {
-    case AST_STMT_COMPOUND:
+    case AST_STMT_COMPOUND: {
+        VlaScope scope;
+
+        scope.token = VALUE_INVALID;
+        scope.compound = s;
+        scope.prev = lo->vla_scopes;
+        lo->vla_scopes = &scope;
         for (i = 0; i < s->nitems; i++)
             lower_stmt(lo, s->items[i]);
+        /* Normal fall-out: rewind this scope's VLAs (if any). */
+        if (scope.token.v && !lo->terminated)
+            ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, scope.token));
+        lo->vla_scopes = scope.prev;
         return;
+    }
     case AST_STMT_DECL:
         ensure_open_block(lo, "dead");
         lower_local_decl(lo, s->lhs);
@@ -345,6 +414,7 @@ void lower_stmt(Lower *lo, AstNode *s)
         ir_build_condbr(&lo->b, c, body, NULL, 0, exit_, NULL, 0);
         lc.break_target = exit_;
         lc.continue_target = header;
+        lc.vla_mark = lo->vla_scopes;
         lc.prev = lo->loops;
         lo->loops = &lc;
         lower_at(lo, body);
@@ -366,6 +436,7 @@ void lower_stmt(Lower *lo, AstNode *s)
         lower_branch_to(lo, body);
         lc.break_target = exit_;
         lc.continue_target = cond; /* continue re-tests, per 6.8.6.2 */
+        lc.vla_mark = lo->vla_scopes;
         lc.prev = lo->loops;
         lo->loops = &lc;
         lower_at(lo, body);
@@ -409,6 +480,7 @@ void lower_stmt(Lower *lo, AstNode *s)
         }
         lc.break_target = exit_;
         lc.continue_target = step; /* the STEP block, not the header */
+        lc.vla_mark = lo->vla_scopes;
         lc.prev = lo->loops;
         lo->loops = &lc;
         lower_at(lo, body);
@@ -459,6 +531,7 @@ void lower_stmt(Lower *lo, AstNode *s)
         if (hit) {
             BlockId b = {(u32)(uintptr_t)hit};
 
+            vla_restore_for_goto(lo, s->name);
             ir_build_br(&lo->b, b, NULL, 0);
             lo->terminated = true;
         }
@@ -469,6 +542,7 @@ void lower_stmt(Lower *lo, AstNode *s)
 
         ensure_open_block(lo, "dead");
         if (lc) {
+            vla_restore_until(lo, lc->vla_mark);
             ir_build_br(&lo->b, lc->break_target, NULL, 0);
             lo->terminated = true;
         }
@@ -481,12 +555,16 @@ void lower_stmt(Lower *lo, AstNode *s)
         while (lc && lc->continue_target.v == 0)
             lc = lc->prev; /* skip switch entries */
         if (lc) {
+            vla_restore_until(lo, lc->vla_mark);
             ir_build_br(&lo->b, lc->continue_target, NULL, 0);
             lo->terminated = true;
         }
         return;
     }
     case AST_STMT_RETURN:
+        /* No stackrestore on return: the epilogue's frame teardown
+         * subsumes every live VLA token (and longjmp likewise unwinds
+         * frames wholesale — tokens die with them). */
         ensure_open_block(lo, "dead");
         if (s->lhs && lo->sret.v) {
             /* SRET/PAIR aggregate return: memcpy into the hidden result

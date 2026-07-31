@@ -52,7 +52,8 @@ static IrOperand truth_ne(Lower *lo, IrOperand v, Type *t)
 
 static u8 lv_flags(const Lvalue *lv)
 {
-    return lv->is_volatile ? IRF_VOLATILE : 0;
+    return (u8)((lv->is_volatile ? IRF_VOLATILE : 0) |
+                (lv->is_atomic ? IRF_SEQ_CST : 0));
 }
 
 IrOperand lower_load(Lower *lo, Lvalue lv)
@@ -233,6 +234,8 @@ static Lvalue lv_of(Lower *lo, IrOperand addr, Type *t)
     lv.addr = addr;
     if (t && (t->quals & CGF_QUAL_VOLATILE))
         lv.is_volatile = true;
+    if (t && (t->quals & CGF_QUAL_ATOMIC))
+        lv.is_atomic = true;
     if (t && lower_is_aggregate(t)) {
         TypeLayout l = layout_of(lo->sema, t);
 
@@ -280,8 +283,6 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             lv = lv_of(lo, ir_op_undef(IRT_PTR), sem(e));
             return lv;
         }
-        if (sem(e) && (sem(e)->quals & CGF_QUAL_ATOMIC))
-            lower_unimplemented(lo, e->span, "an _Atomic object access", 20);
         lv = lv_of(lo, lower_sym_addr(lo, e->sym), sem(e));
         return lv;
     }
@@ -556,10 +557,9 @@ static IrOp arith_op_for(Lower *lo, u16 op, Type *t)
 static IrOperand ptr_index(Lower *lo, IrOperand p, IrOperand n, Type *ptr_ty,
                            Type *idx_ty, bool neg)
 {
-    TypeLayout el = layout_of(lo->sema, ptr_ty->base);
+    IrOperand esz = lower_type_size(lo, ptr_ty->base);
     IrOperand wide = lower_scalar_convert(lo, n, idx_ty, type_basic(TY_LONG));
-    ValueId scaled =
-        ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, lower_i64((i64)el.size));
+    ValueId scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, esz);
     IrOperand off = ir_op_value(lo->fn, scaled);
     ValueId r;
 
@@ -652,6 +652,139 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
     }
 }
 
+/* --- atomic read-modify-write (Sprint 20, seq_cst only) --------------------
+ *
+ * add/sub/and/or/xor on integer _Atomic lvalues map to `atomicrmw`; every
+ * other compound op (mul/div/mod/shifts, and all float arithmetic) takes
+ * the cmpxchg retry loop. cmpxchg returns the OLD memory value; success
+ * is `icmp eq old, expected`. Floats ride an integer container through
+ * bitcasts. The result of the C expression is the NEW value (old for
+ * postfix ++/--, which is exactly what atomicrmw hands back). */
+
+static IrOp rmw_compute_op(Lower *lo, u16 op, Type *t)
+{
+    return arith_op_for(lo, op, t);
+}
+
+static bool rmw_direct(u16 op)
+{
+    return op == PUNCT_PLUS || op == PUNCT_MINUS || op == PUNCT_AMP ||
+           op == PUNCT_PIPE || op == PUNCT_CARET;
+}
+
+static IrAtomicRmw rmw_kind(u16 op)
+{
+    switch (op) {
+    case PUNCT_PLUS:
+        return RMW_ADD;
+    case PUNCT_MINUS:
+        return RMW_SUB;
+    case PUNCT_AMP:
+        return RMW_AND;
+    case PUNCT_PIPE:
+        return RMW_OR;
+    default:
+        return RMW_XOR;
+    }
+}
+
+/* new = old <op> rhs, computed in the lvalue's own type (for the RMW-able
+ * ops the mod-2^w homomorphism makes wide-then-narrow equal to
+ * narrow-then-op; for the loop ops we compute in the C-correct common
+ * type and convert back). Returns the expression's RESULT value:
+ * `want_old` picks the pre-value (postfix ++/--). */
+static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
+                                     IrOperand rhs, Type *rt, bool want_old)
+{
+    bool is_int = type_is_integer(lt);
+
+    if (is_int && rmw_direct(op)) {
+        IrOperand v = lower_scalar_convert(lo, rhs, rt, lt);
+        ValueId old =
+            ir_build_atomicrmw(&lo->b, rmw_kind(op), lv.unit, lv.addr, v);
+
+        if (want_old)
+            return ir_op_value(lo->fn, old);
+        {
+            ValueId nv = ir_build2(&lo->b, rmw_compute_op(lo, op, lt), lv.unit,
+                                   ir_op_value(lo->fn, old), v);
+
+            return ir_op_value(lo->fn, nv);
+        }
+    }
+    {
+        /* The cmpxchg retry loop, on the value's integer container. */
+        IrType ct = lv.unit <= IRT_I64   ? lv.unit
+                    : lv.unit == IRT_F32 ? IRT_I32
+                                         : IRT_I64; /* f64; f80+ rejected */
+        Lvalue clv = lv;
+        IrOperand init;
+        BlockId retry = lower_new_block(lo, "rmw.retry");
+        BlockId done = lower_new_block(lo, "rmw.done");
+        ValueId oldp = ir_block_param(lo->m, lo->fn, retry, ct);
+        ValueId resp = ir_block_param(lo->m, lo->fn, done, ct);
+        IrOperand oldo, newo;
+
+        clv.unit = ct;
+        clv.is_bitfield = false;
+        init = lower_load(lo, clv);
+        ir_build_br(&lo->b, retry, &init, 1);
+        lower_at(lo, retry);
+        oldo = ir_op_value(lo->fn, oldp);
+        {
+            /* container -> C value -> common type, op, and back */
+            IrOperand oldv = oldo;
+            Type *common;
+            IrOperand a, b2, backc;
+            ValueId r;
+
+            if (!is_int) {
+                ValueId f = ir_build1(&lo->b, IR_BITCAST, lv.unit, oldo);
+
+                oldv = ir_op_value(lo->fn, f);
+            }
+            if (op == PUNCT_SHL || op == PUNCT_SHR)
+                common = conv_promote_type(lo->sema, lt);
+            else
+                common = conv_uac_type(lo->sema, lt, rt);
+            a = lower_scalar_convert(lo, oldv, lt, common);
+            b2 = lower_scalar_convert(lo, rhs, rt, common);
+            r = ir_build2(&lo->b, arith_op_for(lo, op, common),
+                          lower_irtype(lo, common), a, b2);
+            backc =
+                lower_scalar_convert(lo, ir_op_value(lo->fn, r), common, lt);
+            if (!is_int) {
+                ValueId bi = ir_build1(&lo->b, IR_BITCAST, ct, backc);
+
+                newo = ir_op_value(lo->fn, bi);
+            } else {
+                newo = backc;
+            }
+        }
+        {
+            ValueId got = ir_build_cmpxchg(&lo->b, ct, lv.addr, oldo, newo);
+            ValueId ok =
+                ir_build_icmp(&lo->b, ICMP_EQ, ir_op_value(lo->fn, got), oldo);
+            IrOperand res_arg = want_old ? oldo : newo;
+            IrOperand retry_arg = ir_op_value(lo->fn, got);
+
+            ir_build_condbr(&lo->b, ir_op_value(lo->fn, ok), done, &res_arg, 1,
+                            retry, &retry_arg, 1);
+        }
+        lower_at(lo, done);
+        {
+            IrOperand res = ir_op_value(lo->fn, resp);
+
+            if (!is_int) {
+                ValueId f = ir_build1(&lo->b, IR_BITCAST, lv.unit, res);
+
+                return ir_op_value(lo->fn, f);
+            }
+            return res;
+        }
+    }
+}
+
 /* --- assignment ----------------------------------------------------------- */
 
 static IrOperand lower_assign(Lower *lo, AstNode *e)
@@ -697,8 +830,15 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
         Type *lt = sem(e->lhs);
         Type *rt = sem(e->rhs);
         Lvalue lv = lower_lvalue(lo, e->lhs);
-        IrOperand old = lower_load(lo, lv);
-        IrOperand rhs = lower_rvalue(lo, e->rhs);
+        IrOperand old;
+        IrOperand rhs;
+
+        if (lv.is_atomic) {
+            rhs = lower_rvalue(lo, e->rhs);
+            return lower_atomic_update(lo, lv, lt, op, rhs, rt, false);
+        }
+        old = lower_load(lo, lv);
+        rhs = lower_rvalue(lo, e->rhs);
 
         if (lt->kind == TY_PTR) {
             /* p += n / p -= n. */
@@ -1086,6 +1226,12 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 rv = ir_build_call(&lo->b, irret, FUNCREF_INTERNAL, fidx, args,
                                    nargs);
             } else {
+                /* The blunt setjmp policy: calling any of the family
+                 * marks the whole function (see IrFunc.calls_setjmp). */
+                if (strcmp(callee->name, "setjmp") == 0 ||
+                    strcmp(callee->name, "sigsetjmp") == 0 ||
+                    strcmp(callee->name, "_setjmp") == 0)
+                    lo->fn->calls_setjmp = true;
                 rv = ir_build_call(&lo->b, irret, FUNCREF_EXTERNAL,
                                    lower_global_sym(lo, callee), args, nargs);
             }
@@ -1121,7 +1267,19 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
 {
     Lvalue lv = lower_lvalue(lo, e->lhs);
     Type *t = sem(e->lhs);
-    IrOperand old = lower_load(lo, lv);
+    IrOperand old;
+
+    if (lv.is_atomic && t->kind != TY_PTR) {
+        u16 op = e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS;
+        IrOperand one = type_is_fp(t)
+                            ? ir_op_iconst(IRT_I32, 1) /* converted below */
+                            : ir_op_iconst(lower_irtype(lo, t), 1);
+
+        return lower_atomic_update(lo, lv, t, op, one,
+                                   type_is_fp(t) ? type_basic(TY_INT) : t,
+                                   e->is_postfix);
+    }
+    old = lower_load(lo, lv);
     IrOperand nv;
     bool inc = e->op == PUNCT_PLUSPLUS;
 
@@ -1320,11 +1478,15 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         ConstValue cv = constexpr_eval(lo->sema, e, CE_FOLD);
 
         if (cv.kind != CV_INT) {
-            /* sizeof(VLA) is a runtime value — Sprint 20's. */
-            lower_unimplemented(lo, e->span,
-                                "sizeof of a variable-length "
-                                "array",
-                                20);
+            /* sizeof(VLA): the DECLARED vla's size was evaluated once at
+             * declaration and cached (never re-evaluated — the fixture
+             * with a side-effecting bound pins it); a bare VLA type-name
+             * evaluates here, which is C17's rule. */
+            Type *vt = e->lhs ? sem(e->lhs)
+                              : sema_type_from_ast(lo->sema, e->type, e->span);
+
+            if (vt && vt->is_vla)
+                return lower_type_size(lo, vt);
             return ir_op_undef(IRT_I64);
         }
         return ir_op_iconst(lower_irtype(lo, sem(e)), (i64)cv.i);

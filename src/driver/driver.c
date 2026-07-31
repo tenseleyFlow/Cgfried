@@ -435,18 +435,25 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a)
      * generated IR failing it is an ICE (see run_preprocess). Either way
      * CGF_DUMP_BAD_IR=path captures the offending module — and the dump
      * is itself parseable .cgfir, pinned by test. */
-    if (!ir_verify(dc, m)) {
-        const char *dump = cgf_env("CGF_DUMP_BAD_IR");
+    {
+        char why[256];
 
-        if (dump) {
-            FILE *df = fopen(dump, "wb");
+        if (!ir_verify_report(dc, m, why, sizeof(why))) {
+            const char *dump = cgf_env("CGF_DUMP_BAD_IR");
 
-            if (df) {
-                ir_print_module(df, m);
-                fclose(df);
+            if (dump) {
+                FILE *df = fopen(dump, "wb");
+
+                if (df) {
+                    ir_print_module(df, m);
+                    /* Trailing comment: which check, which function —
+                     * and the dump still re-parses (comments drop). */
+                    fprintf(df, "// verify failed: %s\n", why);
+                    fclose(df);
+                }
             }
+            return CGF_EXIT_COMPILE;
         }
-        return CGF_EXIT_COMPILE;
     }
     return emit_ir_print(arena, dc, m, a->input);
 }
@@ -567,7 +574,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
                      * reportable. */
                     IrModule *m = lower_translation_unit(arena, dc, &sema, tu);
 
-                    if (m && !ir_verify(dc, m)) {
+                    char why[256];
+
+                    if (m && !ir_verify_report(dc, m, why, sizeof(why))) {
                         const char *dump = cgf_env("CGF_DUMP_BAD_IR");
 
                         if (dump) {
@@ -575,12 +584,13 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 
                             if (df) {
                                 ir_print_module(df, m);
+                                fprintf(df, "// verify failed: %s\n", why);
                                 fclose(df);
                             }
                         }
                         CGF_ICE("lowering produced IR the verifier "
-                                "rejects for '%s'",
-                                a->input);
+                                "rejects for '%s' (%s)",
+                                a->input, why);
                     }
                     if (m) {
                         int rc = emit_ir_print(arena, dc, m, a->input);

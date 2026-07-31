@@ -133,6 +133,18 @@ static AstNode *parse_primary_expr(Parser *p)
             parse_expect_punct(p, PUNCT_RPAREN, "after the va_arg type");
             return n;
         }
+        if (strcmp(t->spelling, "__builtin_setjmp") == 0) {
+            /* Declined FOREVER, not deferred: gcc's __builtin_setjmp is
+             * the builtin-jmpbuf variant with its own 5-word buffer
+             * contract, and we do not implement it. <setjmp.h>'s setjmp
+             * gets the blunt Sprint 20 policy instead. */
+            parse_error(p, t,
+                        "'__builtin_setjmp' is gcc's builtin-jmpbuf "
+                        "variant and is not supported; use setjmp from "
+                        "<setjmp.h>");
+            p->pos++;
+            return expr_new(p, AST_ERROR, t->span);
+        }
         /* The other va builtins are ordinary call syntax; every OTHER
          * `__builtin_*` name is compiler magic we have not implemented —
          * defer loudly, naming the sprint. */

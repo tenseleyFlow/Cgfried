@@ -173,6 +173,39 @@ void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)
     ptrmap_put(&lo->globals, sym, (void *)(uintptr_t)(sym_index + 1));
 }
 
+/* VLA byte sizes are evaluated ONCE at declaration and cached by Type
+ * node identity (sizeof reads the cache — fixture-pinned with a
+ * side-effecting bound). An UNDECLARED VLA type computes fresh, which is
+ * exactly C17's rule for sizeof(int[n]). */
+IrOperand lower_type_size(Lower *lo, Type *t)
+{
+    void *hit;
+    IrOperand n, inner;
+    ValueId prod;
+
+    if (!t)
+        return lower_i64(0);
+    if (!t->is_vla) {
+        TypeLayout l = layout_of(lo->sema, t);
+
+        return lower_i64((i64)l.size);
+    }
+    hit = strmap_get(&lo->vla_sizes, (const char *)&t, sizeof(t));
+    if (hit) {
+        ValueId v = {(u32)(uintptr_t)hit};
+
+        return ir_op_value(lo->fn, v);
+    }
+    n = lower_rvalue(lo, t->size_expr);
+    n = lower_scalar_convert(lo, n, t->size_expr->sem_type,
+                             type_basic(TY_LONG));
+    inner = lower_type_size(lo, t->base);
+    prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
+    strmap_put(&lo->vla_sizes, (const char *)&t, sizeof(t),
+               (void *)(uintptr_t)prod.v);
+    return ir_op_value(lo->fn, prod);
+}
+
 ValueId lower_temp(Lower *lo, Type *t)
 {
     TypeLayout l = layout_of(lo->sema, t);
@@ -296,7 +329,45 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
  * statement lowers. (The same two-pass idea reappears per switch for
  * case labels — see stmt.c — because Duff's device falls into cases from
  * inside statements lowered before the case is reached textually.) */
-static void collect_labels(Lower *lo, AstNode *s)
+static bool decl_group_has_vla(const AstNode *d)
+{
+    u32 i;
+
+    if (!d)
+        return false;
+    if (d->sem_type) {
+        const Type *t = d->sem_type;
+
+        for (; t; t = t->base)
+            if (t->kind == TY_ARRAY && t->is_vla)
+                return true;
+            else if (t->kind != TY_ARRAY)
+                break;
+    }
+    for (i = 0; i < d->nitems; i++)
+        if (decl_group_has_vla(d->items[i]))
+            return true;
+    return false;
+}
+
+static bool compound_has_vla(const AstNode *s)
+{
+    u32 i;
+
+    for (i = 0; i < s->nitems; i++) {
+        const AstNode *it = s->items[i];
+
+        if (it && it->kind == AST_STMT_DECL && decl_group_has_vla(it->lhs))
+            return true;
+    }
+    return false;
+}
+
+/* The label pre-pass also records, per label, the innermost enclosing
+ * VLA-bearing compound — the goto restore walks the runtime scope stack
+ * down to exactly that compound (sema's VM jump rules already proved the
+ * label's chain is a subset of every goto's chain). */
+static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain)
 {
     u32 i;
 
@@ -311,16 +382,20 @@ static void collect_labels(Lower *lo, AstNode *s)
         b = ir_block_new(lo->m, lo->fn, arena_strdup(lo->arena, buf));
         strmap_put(&lo->labels, s->name, strlen(s->name),
                    (void *)(uintptr_t)b.v);
-        collect_labels(lo, s->body);
+        strmap_put(&lo->label_vla, s->name, strlen(s->name), (void *)vla_chain);
+        collect_labels(lo, s->body, vla_chain);
         return;
     }
-    case AST_STMT_COMPOUND:
+    case AST_STMT_COMPOUND: {
+        const AstNode *inner = compound_has_vla(s) ? s : vla_chain;
+
         for (i = 0; i < s->nitems; i++)
-            collect_labels(lo, s->items[i]);
+            collect_labels(lo, s->items[i], inner);
         return;
+    }
     case AST_STMT_IF:
-        collect_labels(lo, s->body);
-        collect_labels(lo, s->rhs);
+        collect_labels(lo, s->body, vla_chain);
+        collect_labels(lo, s->rhs, vla_chain);
         return;
     case AST_STMT_SWITCH:
     case AST_STMT_WHILE:
@@ -328,7 +403,7 @@ static void collect_labels(Lower *lo, AstNode *s)
     case AST_STMT_FOR:
     case AST_STMT_CASE:
     case AST_STMT_DEFAULT:
-        collect_labels(lo, s->body);
+        collect_labels(lo, s->body, vla_chain);
         return;
     default:
         return;
@@ -407,13 +482,14 @@ static void lower_function(Lower *lo, AstNode *def)
     strmap_init(&lo->labels);
     lo->loops = NULL;
     lo->switches = NULL;
+    lo->vla_scopes = NULL;
     lo->fname = sym->name;
     lo->sret = hidden ? lo->fn->param_vals[0] : VALUE_INVALID;
     lo->cur_abi_ret = &aret;
     lo->cur_functype = ft;
 
     entry = ir_block_new(lo->m, lo->fn, "entry");
-    collect_labels(lo, def->body);
+    collect_labels(lo, def->body, NULL);
     lower_at(lo, entry);
 
     /* Bind parameters through the symbols sema recorded on the def node
@@ -527,6 +603,8 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
     strmap_init(&lo.globals);
     strmap_init(&lo.func_ids);
     strmap_init(&lo.string_pool);
+    strmap_init(&lo.vla_sizes);
+    strmap_init(&lo.label_vla);
     ve = cgf_env("CGF_VERIFY_AFTER_EACH");
     lo.verify_each = ve && strcmp(ve, "1") == 0;
 
@@ -596,5 +674,7 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
     strmap_free(&lo.globals);
     strmap_free(&lo.func_ids);
     strmap_free(&lo.string_pool);
+    strmap_free(&lo.vla_sizes);
+    strmap_free(&lo.label_vla);
     return lo.failed ? NULL : lo.m;
 }
