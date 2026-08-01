@@ -74,6 +74,19 @@ bool opt_sccp(IrModule *m, const OptConfig *cfg);
 bool opt_simplify(IrModule *m, const OptConfig *cfg);
 bool opt_cse(IrModule *m, const OptConfig *cfg);
 
+/* Sprint 32 memory/global workhorses.  DCE and CFG cleanup join O1; GVN,
+ * DSE, and jump threading are O2 rows. */
+extern const Pass OPT_PASS_GVN;
+extern const Pass OPT_PASS_DCE;
+extern const Pass OPT_PASS_DSE;
+extern const Pass OPT_PASS_SIMPLIFY_CFG;
+extern const Pass OPT_PASS_JUMP_THREAD;
+bool opt_gvn(IrModule *m, const OptConfig *cfg);
+bool opt_dce(IrModule *m, const OptConfig *cfg);
+bool opt_dse(IrModule *m, const OptConfig *cfg);
+bool opt_simplify_cfg(IrModule *m, const OptConfig *cfg);
+bool opt_jump_thread(IrModule *m, const OptConfig *cfg);
+
 /* An IR location is represented by its resolved Span rather than the PP
  * table-local SrcLoc id. This keeps the record queryable after PP teardown. */
 typedef struct UndefUse {
@@ -85,5 +98,14 @@ typedef struct UndefUse {
 } UndefUse;
 
 const UndefUse *opt_mem2reg_undef_log(const IrFunc *f, u32 *n);
+
+/* Unreachable-code provenance retained before simplify_cfg deletes blocks.
+ * Sprint 40 consumes these resolved Spans after PP state has gone away. */
+typedef struct CfgRemoved {
+    BlockId block;
+    Span loc;
+} CfgRemoved;
+
+const CfgRemoved *opt_cfg_removed_log(const IrFunc *f, u32 *n);
 
 #endif

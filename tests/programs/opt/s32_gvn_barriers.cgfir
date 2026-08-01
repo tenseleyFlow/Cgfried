@@ -1,0 +1,16 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// Volatile and atomic operations are unique memory barriers.
+// IR_CHECK: load i32, %0, align 4, volatile, etype i32
+// IR_CHECK: store i32 2, %0, align 4, seq_cst, etype i32
+// IR_CHECK: atomicrmw add i32 %0, 1, seq_cst
+// IR_CHECK: cmpxchg i32 %0, 1, 2, seq_cst
+func i32 @f(ptr %p) {
+entry():
+    %a = load i32, %p, align 4, volatile, etype i32
+    store i32 2, %p, align 4, seq_cst, etype i32
+    %b = atomicrmw add i32 %p, 1, seq_cst
+    %c = cmpxchg i32 %p, 1, 2, seq_cst
+    %r = iadd i32 %a, %b
+    ret i32 %r
+}

@@ -1,0 +1,20 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// Threading entry->header would create a second loop entry.
+// IR_CHECK: condbr %0, header(), other()
+// IR_CHECK: other():
+// IR_CHECK: br header()
+// IR_CHECK: header():
+// IR_CHECK: condbr %0, body(), exit()
+func i32 @f(i32 %c) {
+entry():
+    condbr %c, header(), other()
+other():
+    br header()
+header():
+    condbr %c, body(), exit()
+body():
+    br header()
+exit():
+    ret i32 0
+}

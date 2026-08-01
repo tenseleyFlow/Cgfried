@@ -39,4 +39,45 @@ check_bail tests/programs/opt/bail_nonscalar.cgfir nonscalar
 check_bail tests/programs/opt/bail_mixed_access_type.cgfir mixed_access_type
 check_bail tests/programs/opt/regress_setjmp_pins_locals.cgfir setjmp_caller
 
-echo "opt_driver: timing leaves IR/assembly byte-identical; 5 bails logged"
+check_s32_ir()
+{
+    fixture=$1
+    name=$2
+    CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1 \
+        "$cc" -emit-ir -O2 "$fixture" >"$work/$name.ir" \
+        2>"$work/$name.err"
+}
+
+check_s32_ir tests/programs/opt/s32_gvn_noalias.cgfir gvn_noalias
+test "$(grep -Fc 'load i32' "$work/gvn_noalias.ir")" -eq 1
+
+check_s32_ir tests/programs/opt/s32_gvn_mayalias.cgfir gvn_mayalias
+test "$(grep -Fc 'load i32' "$work/gvn_mayalias.ir")" -eq 2
+test "$(grep -Fxc \
+    'bail: gvn gvn_load_intervening_may_store func=@f' \
+    "$work/gvn_mayalias.err")" -eq 1
+
+check_s32_ir tests/programs/opt/s32_gvn_barriers.cgfir gvn_barriers
+test "$(grep -Fc 'load i32' "$work/gvn_barriers.ir")" -eq 1
+test "$(grep -Fc 'volatile' "$work/gvn_barriers.ir")" -eq 1
+test "$(grep -Fc 'atomicrmw' "$work/gvn_barriers.ir")" -eq 1
+test "$(grep -Fc 'cmpxchg' "$work/gvn_barriers.ir")" -eq 1
+
+check_s32_ir tests/programs/opt/s32_dse_full.cgfir dse_full
+! grep -q 'memset' "$work/dse_full.ir"
+
+check_s32_ir tests/programs/opt/s32_dse_partial.cgfir dse_partial
+test "$(grep -Fc 'memset' "$work/dse_partial.ir")" -eq 1
+test "$(grep -Fxc 'bail: dse dse_partial_overwrite func=@f' \
+    "$work/dse_partial.err")" -eq 1
+
+CGF_VERIFY_AFTER_EACH=1 "$cc" -emit-ir -O0 \
+    tests/programs/opt/s32_jump_irreducible.cgfir \
+    >"$work/jt-before.ir" 2>"$work/jt-before.err"
+check_s32_ir tests/programs/opt/s32_jump_irreducible.cgfir jt_after
+cmp "$work/jt-before.ir" "$work/jt_after.ir"
+test "$(grep -Fxc \
+    'bail: jump_thread jt_would_create_irreducible func=@f' \
+    "$work/jt_after.err")" -eq 1
+
+echo "opt_driver: timing stable; 5 mem2reg bails; Sprint 32 exact IR/count/bail checks green"

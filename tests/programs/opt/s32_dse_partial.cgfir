@@ -1,0 +1,15 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// Partial shrinking is deliberately unsupported in v0.1.0.
+// IR_CHECK: memset %0, 0, 16, align 1
+// IR_CHECK: store i32 1
+// IR_CHECK: store i32 2
+func ptr @f() {
+entry():
+    %p = alloca 16, align 8
+    memset %p, 0, 16, align 1
+    store i32 1, %p, align 4, etype i32
+    %p4 = ptradd %p, 4
+    store i32 2, %p4, align 4, etype i32
+    ret ptr %p
+}

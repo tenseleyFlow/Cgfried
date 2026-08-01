@@ -26,6 +26,11 @@ static const char *const type_names[] = {
     "i8", "i16", "i32", "i64", "f32", "f64", "f80", "f128", "ptr", "void",
 };
 
+static const char *const etype_names[] = {
+    "unknown", "char", "i8",   "i16", "i32",       "i64",   "f32",
+    "f64",     "f80",  "f128", "ptr", "aggregate", "union",
+};
+
 static const char *const op_names[] = {
     "iadd",    "isub",   "imul",     "sdiv",      "udiv",         "srem",
     "urem",    "and",    "or",       "xor",       "shl",          "lshr",
@@ -75,6 +80,13 @@ const char *ir_type_name(IrType t)
     if ((unsigned)t > IRT_VOID)
         CGF_ICE("ir printer: bad type %d", (int)t);
     return type_names[t];
+}
+
+const char *ir_etype_name(EffTypeId t)
+{
+    if ((unsigned)t >= ETYPE_COUNT)
+        CGF_ICE("ir printer: bad effective type %d", (int)t);
+    return etype_names[t];
 }
 
 const char *ir_op_name(IrOp op)
@@ -242,6 +254,12 @@ static void print_memflags(Buf *out, u8 flags)
         buf_printf(out, ", seq_cst");
 }
 
+static void print_etype(Buf *out, const IrInst *in)
+{
+    if (in->subop != ETYPE_UNKNOWN)
+        buf_printf(out, ", etype %s", ir_etype_name((EffTypeId)in->subop));
+}
+
 static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
                        const ValNames *vn, const IrInst *in)
 {
@@ -313,12 +331,14 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         buf_printf(out, "alloca ");
         print_atom(out, m, vn, &in->ops[0]);
         buf_printf(out, ", align %u", in->align);
+        print_etype(out, in);
         break;
     case IR_LOAD:
         buf_printf(out, "load %s, ", type_names[in->type]);
         print_atom(out, m, vn, &in->ops[0]);
         buf_printf(out, ", align %u", in->align);
         print_memflags(out, in->flags);
+        print_etype(out, in);
         break;
     case IR_STORE:
         buf_printf(out, "store ");
@@ -327,6 +347,7 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         print_atom(out, m, vn, &in->ops[1]);
         buf_printf(out, ", align %u", in->align);
         print_memflags(out, in->flags);
+        print_etype(out, in);
         break;
     case IR_PTRADD:
         buf_printf(out, "ptradd ");
@@ -343,6 +364,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         buf_printf(out, ", ");
         print_atom(out, m, vn, &in->ops[2]);
         buf_printf(out, ", align %u", in->align);
+        /* bytewise operations imply ETYPE_CHAR, so the spelling stays
+         * compact while parse(print(M)) retains the metadata. */
         print_memflags(out, in->flags);
         break;
     case IR_SELECT:
@@ -464,6 +487,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, "%s ", type_names[f->param_types[i]]);
         if (f->param_annots && ir_arg_kind(f->param_annots[i]) == IR_ARG_BYVAL)
             buf_printf(out, "byval(%u) ", ir_arg_size(f->param_annots[i]));
+        if (f->param_annots && ir_param_is_restrict(f->param_annots[i]))
+            buf_printf(out, "restrict ");
         print_val(out, &vn, f->param_vals[i].v);
     }
     if (f->variadic)

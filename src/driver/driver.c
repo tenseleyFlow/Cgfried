@@ -89,7 +89,7 @@ static const char *const help_text[] = {
     "                    deliberate and documented here)\n"
     "  -ffreestanding    freestanding environment (-fhosted restores)\n"
     "  -fwrapv           signed overflow wraps\n"
-    "  -fno-strict-aliasing  disable type-based aliasing (stored)\n"
+    "  -fno-strict-aliasing  disable type-based aliasing\n"
     "  Unknown -f/-W options warn and continue (configure-script parity);\n"
     "  any other unknown option is an error.\n"
     "\n"

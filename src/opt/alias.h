@@ -1,0 +1,84 @@
+#ifndef CGF_OPT_ALIAS_H
+#define CGF_OPT_ALIAS_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "ir/ir.h"
+
+/* Shared alias-analysis service: one points-to engine, two clients.
+ *
+ * Sprint 32's optimizer and Sprint 41's memory-safety analysis consume this
+ * exact service.  New memsafe facts are upstreamed here; duplicating
+ * points-to or byte-offset logic under src/memsafe/ is an architecture-review
+ * rejection criterion.
+ * Phase 9 sign-off (Sprint 32): this contract was reviewed against
+ * .docs/sprints/09-memory-safety/s41-analysis-foundation.md.  The result is
+ * one points-to engine with two clients; a duplicate memsafe analysis is
+ * explicitly rejected.
+ *
+ * Soundness contract:
+ * - ALIAS_NO is a proof.  ALIAS_MAY is the only honest fallback.
+ * - ALIAS_MUST requires one identical abstract object and an identical,
+ *   fully-known byte range.  Partial overlap is never MUST.
+ * - ETYPE_CHAR and ETYPE_UNION are wildcards and never justify a type-based
+ *   ALIAS_NO.  Proven distinct objects and disjoint byte ranges remain NO.
+ *   Equal-width signed and unsigned integer accesses share one EffTypeId.
+ * - Disabling strict aliasing removes only effective-type NoAlias results;
+ *   distinct-object and disjoint-byte-range proofs remain valid.
+ * - Queries are pure.  Any CFG or instruction mutation invalidates AliasCtx;
+ *   a mutating pass must free and rebuild it.
+ *
+ * The classic strict-aliasing case is intentionally mode-dependent:
+ *
+ *   int f(float *fp, int *ip) { *fp = 1; *ip = 2; return (int)*fp; }
+ *
+ * With strict aliasing, float and i32 accesses prove ALIAS_NO.  With
+ * -fno-strict-aliasing they are ALIAS_MAY.  Passing the same object to both
+ * parameters in strict mode is user undefined behavior, not compiler license
+ * to weaken the no-strict mode.
+ */
+
+typedef enum AliasResult { ALIAS_NO, ALIAS_MAY, ALIAS_MUST } AliasResult;
+
+typedef struct MemLoc {
+    IrOperand base;
+    int64_t off_lo;
+    int64_t off_hi;
+    uint64_t size;
+    EffTypeId etype;
+} MemLoc;
+
+typedef struct AliasConfig {
+    /* ValueIds are function-local, so each context deliberately analyzes one
+     * function even though symbols live at module scope. */
+    IrFunc *func;
+    bool no_strict_aliasing;
+} AliasConfig;
+
+typedef struct AliasCtx AliasCtx;
+
+/* Read-only bitset view.  Object ids are service-private and stable only for
+ * the lifetime of c.  Sprint 41 consumes set membership, never id meaning. */
+typedef struct PtsSet {
+    const uint64_t *words;
+    uint32_t nwords;
+    bool has_unknown;
+} PtsSet;
+
+AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg);
+void alias_free(AliasCtx *c);
+AliasResult alias_query(AliasCtx *c, MemLoc a, MemLoc b);
+bool alias_escapes(AliasCtx *c, IrOperand base);
+
+PtsSet alias_points_to(AliasCtx *c, IrOperand ptr);
+bool alias_offset_range(AliasCtx *c, IrOperand ptr, int64_t *lo, int64_t *hi);
+
+/* Helpers used by optimizer clients.  alias_memloc starts at the pointer's
+ * own tracked byte offset; explicit subranges may be added in MemLoc before a
+ * query.  alias_covers is directional: outer must overwrite every byte inner
+ * may access, and both must name one identical abstract object. */
+MemLoc alias_memloc(AliasCtx *c, IrOperand ptr, uint64_t size, EffTypeId etype);
+bool alias_covers(AliasCtx *c, MemLoc outer, MemLoc inner);
+
+#endif

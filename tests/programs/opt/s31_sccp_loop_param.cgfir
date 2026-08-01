@@ -2,7 +2,7 @@
 // IR_CHECK-NOT: condbr
 // IR_CHECK-NOT: dead(
 // IR_CHECK: loop(i32
-// IR_CHECK: br body()
+// IR_CHECK: br loop(i32 7)
 func void @f() {
 entry():
     br loop(i32 7)

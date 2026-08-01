@@ -72,6 +72,56 @@ IrType lower_irtype(Lower *lo, const Type *t)
     }
 }
 
+EffTypeId lower_efftype(Lower *lo, const Type *t)
+{
+    if (!t)
+        return ETYPE_UNKNOWN;
+    switch (t->kind) {
+    case TY_VOID:
+    case TY_CHAR:
+    case TY_SCHAR:
+    case TY_UCHAR:
+        return ETYPE_CHAR;
+    case TY_BOOL:
+        return ETYPE_I8;
+    case TY_SHORT:
+    case TY_USHORT:
+        return ETYPE_I16;
+    case TY_INT:
+    case TY_UINT:
+        return ETYPE_I32;
+    case TY_LONG:
+    case TY_ULONG:
+    case TY_LLONG:
+    case TY_ULLONG:
+        return ETYPE_I64;
+    case TY_FLOAT:
+        return ETYPE_F32;
+    case TY_DOUBLE:
+        return ETYPE_F64;
+    case TY_LDOUBLE:
+        switch (lower_irtype(lo, t)) {
+        case IRT_F64:
+            return ETYPE_F64;
+        case IRT_F80:
+            return ETYPE_F80;
+        default:
+            return ETYPE_F128;
+        }
+    case TY_PTR:
+        return ETYPE_PTR;
+    case TY_UNION:
+        return ETYPE_UNION;
+    case TY_STRUCT:
+    case TY_ARRAY:
+        return ETYPE_AGGREGATE;
+    case TY_ENUM:
+        return lower_irtype(lo, t) == IRT_I64 ? ETYPE_I64 : ETYPE_I32;
+    default:
+        return ETYPE_UNKNOWN;
+    }
+}
+
 BlockId lower_new_block(Lower *lo, const char *prefix)
 {
     char buf[64];
@@ -230,8 +280,9 @@ ValueId lower_temp(Lower *lo, Type *t)
     TypeLayout l = layout_of(lo->sema, t);
 
     lo->ntemps++;
-    return ir_build_alloca(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-                           (u32)(l.align ? l.align : 1));
+    return ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
+                                 (u32)(l.align ? l.align : 1),
+                                 lower_efftype(lo, t));
 }
 
 /* --- anonymous globals: strings and file-scope compound literals ---------- */
@@ -471,6 +522,11 @@ static void lower_function(Lower *lo, AstNode *def)
         case ABI_ARG_SCALAR: {
             IrType st = lower_irtype(lo, ft->params[i]);
 
+            if (ft->params[i]->kind == TY_PTR &&
+                (ft->params[i]->quals & CGF_QUAL_RESTRICT)) {
+                pannots[nir_params] |= IR_PARAM_RESTRICT;
+                any_annot = true;
+            }
             ptypes[nir_params++] = st;
             if (st == IRT_F32 || st == IRT_F64)
                 lo->named_fp++;
@@ -551,8 +607,9 @@ static void lower_function(Lower *lo, AstNode *def)
             }
             if (a && a->kind == ABI_ARG_EIGHTBYTES) {
                 u64 rounded = (u64)a->n * 8;
-                ValueId slot = ir_build_alloca(&lo->b, lower_i64((i64)rounded),
-                                               a->align > 8 ? a->align : 8);
+                ValueId slot = ir_build_alloca_typed(
+                    &lo->b, lower_i64((i64)rounded),
+                    a->align > 8 ? a->align : 8, lower_efftype(lo, psym->type));
                 u32 k;
 
                 for (k = 0; k < a->n; k++) {
@@ -564,9 +621,9 @@ static void lower_function(Lower *lo, AstNode *def)
 
                         dst = ir_op_value(lo->fn, p2);
                     }
-                    ir_build_store(
+                    ir_build_store_typed(
                         &lo->b, ir_op_value(lo->fn, lo->fn->param_vals[pi + k]),
-                        dst, 8, 0);
+                        dst, 8, 0, lower_efftype(lo, psym->type));
                 }
                 ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
                 pi += a->n;
@@ -576,12 +633,14 @@ static void lower_function(Lower *lo, AstNode *def)
                 pi++;
             } else {
                 TypeLayout l = layout_of(lo->sema, psym->type);
-                ValueId slot = ir_build_alloca(&lo->b, lower_i64((i64)l.size),
-                                               (u32)l.align);
+                ValueId slot = ir_build_alloca_typed(
+                    &lo->b, lower_i64((i64)l.size), (u32)l.align,
+                    lower_efftype(lo, psym->type));
 
-                ir_build_store(&lo->b,
-                               ir_op_value(lo->fn, lo->fn->param_vals[pi]),
-                               ir_op_value(lo->fn, slot), (u32)l.align, 0);
+                ir_build_store_typed(
+                    &lo->b, ir_op_value(lo->fn, lo->fn->param_vals[pi]),
+                    ir_op_value(lo->fn, slot), (u32)l.align, 0,
+                    lower_efftype(lo, psym->type));
                 ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
                 pi++;
             }

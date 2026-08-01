@@ -160,6 +160,13 @@ static void check_binop_types(V *v, const IrInst *in, bool want_float)
 
 static void check_inst_types(V *v, const IrInst *in)
 {
+    if ((in->op == IR_ALLOCA || in->op == IR_LOAD || in->op == IR_STORE ||
+         in->op == IR_MEMCPY || in->op == IR_MEMSET) &&
+        in->subop >= ETYPE_COUNT) {
+        verr(v, 4, "'%s' has bad effective type %u", ir_op_name((IrOp)in->op),
+             in->subop);
+        return;
+    }
     switch (in->op) {
     case IR_IADD:
     case IR_ISUB:
@@ -285,11 +292,15 @@ static void check_inst_types(V *v, const IrInst *in)
         if (in->ops[0].type != IRT_PTR || in->ops[1].type != IRT_PTR ||
             in->ops[2].type != IRT_I64)
             verr(v, 4, "'memcpy' is (ptr dst, ptr src, i64 size)");
+        else if (in->subop != ETYPE_CHAR)
+            verr(v, 4, "'memcpy' must have char effective type");
         break;
     case IR_MEMSET:
         if (in->ops[0].type != IRT_PTR || in->ops[1].type != IRT_I32 ||
             in->ops[2].type != IRT_I64)
             verr(v, 4, "'memset' is (ptr dst, i32 byte, i64 size)");
+        else if (in->subop != ETYPE_CHAR)
+            verr(v, 4, "'memset' must have char effective type");
         break;
     case IR_SELECT:
         if (in->ops[0].type != IRT_I32)
@@ -508,6 +519,12 @@ static void verify_func(V *v, const IrFunc *f)
         verr(v, 3, "function has no blocks");
         v->f = NULL;
         return;
+    }
+    for (i = 0; i < f->nparams; i++) {
+        u64 annot = f->param_annots ? f->param_annots[i] : 0;
+
+        if (ir_param_is_restrict(annot) && f->param_types[i] != IRT_PTR)
+            verr(v, 4, "parameter %u is marked restrict but is not ptr", i);
     }
 
     /* 5: entry shape. */

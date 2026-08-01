@@ -1,5 +1,5 @@
 // FLAGS: -O1
-// IR_CHECK: br join(i32 5)
+// IR_CHECK-NOT: switch
 // IR_CHECK: ret i32 5
 func i32 @f() {
 entry():

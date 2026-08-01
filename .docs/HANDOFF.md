@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–31
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–32
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -44,18 +44,19 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `prologue_end` on the first executable row.
 - Phase 7 is open: every `-O` level reaches a real pass manager. O1 now runs
   mem2reg → sparse conditional constant propagation → exact simplify →
-  block-local CSE; O2+ iterates the inherited four-row pipeline to a named
+  block-local CSE → DCE → general CFG cleanup. O2+ adds GVN, DSE and bounded
+  jump threading, iterating the inherited nine-row pipeline to a named
   fixpoint. The 50-program corpus remains behaviorally equal across
   O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 32** —
-  `.docs/sprints/07-optimizations/s32-memory-and-gvn.md`, adding the shared alias
-  service, GVN, DCE/DSE, and general CFG simplification.
+- **Next action: Sprint 33** —
+  `.docs/sprints/07-optimizations/s33-inlining-ipo.md`, adding inlining and
+  interprocedural optimization.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 312 tests, 92062 assertions, 0 failures
-cgf-test: total=434 pass=434 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 359 tests, 92362 assertions, 0 failures
+cgf-test: total=442 pass=442 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
@@ -202,6 +203,18 @@ because each one was learned the hard way.
 - **Local CSE is not load CSE.** Sprint 31's table is block-scoped and pure-op
   only. Loads remain distinct across every store until Sprint 32's shared alias
   service can prove otherwise.
+- **One alias service, two clients.** `src/opt/alias.{c,h}` owns points-to,
+  offset and escape facts for both optimization and Sprint 41 memory safety.
+  Queries are pure and any IR mutation invalidates the context; rebuild it.
+  Character/union effective types suppress only type-based NoAlias — proven
+  distinct objects and disjoint byte ranges remain structurally NoAlias.
+- **GVN inherits the undef law.** May-undef is transitive through operands,
+  and an undef-tainted stored value cannot be forwarded to a load. Treating
+  either as a reusable congruence class silently correlates independent reads.
+- **Jump-thread caps include terminators.** Both the 12-instruction clone cap
+  and 1.15x growth accounting charge the replacement branch. Generated clone
+  names are source-independent and collision-checked so long labels cannot
+  make printed IR unparsable.
 - **No host `sizeof` / conditional compilation in `src/sema/`.**
   `char` is unsigned on arm64-linux; a host assumption there
   miscompiles every cross build with no diagnostic
