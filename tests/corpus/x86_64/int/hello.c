@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // THE milestone: compiled by cgfried, assembled by afs-as, linked
 // against system crt/libc, executed.
 // CHECK: hello, world

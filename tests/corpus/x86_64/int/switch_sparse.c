@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Sparse cases: the compare tree, executed.
 // EXIT_CODE: 30
 static int pick(int n)

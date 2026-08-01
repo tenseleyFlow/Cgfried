@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Recursion + stack discipline: fib(10) = 55.
 // EXIT_CODE: 55
 static int fib(int n)

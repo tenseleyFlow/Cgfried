@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // The PF recipes at runtime: NaN through every relational; -0.0 == 0.0
 // while its sign survives negation.
 // EXIT_CODE: 0

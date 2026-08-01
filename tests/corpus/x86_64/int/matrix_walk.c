@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // 2-D indexing: the lea scale fold on the inner subscript.
 // EXIT_CODE: 66
 // ASM_CHECK(x86_64-linux-gnu): leaq ({{%r[a-z0-9]+}},{{%r[a-z0-9]+}},4)

@@ -1,0 +1,23 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: alloca
+// IR_CHECK-NOT: load
+// IR_CHECK-NOT: store
+// IR_CHECK: loop(i32
+func i32 @f(i32 %n) {
+entry():
+    %p = alloca 4, align 4
+    store i32 0, %p, align 4
+    br loop()
+loop():
+    %v = load i32, %p, align 4
+    %c = icmp slt i32 %v, %n
+    condbr %c, body(), done()
+body():
+    %old = load i32, %p, align 4
+    %next = iadd i32 %old, 1
+    store i32 %next, %p, align 4
+    br loop()
+done():
+    %r = load i32, %p, align 4
+    ret i32 %r
+}

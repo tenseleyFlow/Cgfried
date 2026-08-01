@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // while/branch shapes: 27 takes 111 steps to reach 1.
 // EXIT_CODE: 111
 int main(void)

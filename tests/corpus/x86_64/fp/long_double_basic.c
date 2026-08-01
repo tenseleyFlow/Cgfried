@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // f80 load-op-store end-to-end, and %Lf through the varargs MEMORY
 // path (f80 never rides a register).
 // CHECK: x=3.375000

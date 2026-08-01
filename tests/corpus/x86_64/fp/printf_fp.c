@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // %f through varargs: THE AL canary — a wrong xmm count corrupts the
 // callee's register save spills.
 // CHECK: pi=3.140625 half=0.500000

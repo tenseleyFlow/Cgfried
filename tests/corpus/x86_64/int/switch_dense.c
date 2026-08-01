@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // 6 dense cases: the jump table, executed.
 // EXIT_CODE: 21
 // ASM_CHECK(x86_64-linux-gnu): jmp *(

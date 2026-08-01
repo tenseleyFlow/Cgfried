@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Byte store loop + compare loop.
 // EXIT_CODE: 0
 static void cpy(char *d, const char *s)

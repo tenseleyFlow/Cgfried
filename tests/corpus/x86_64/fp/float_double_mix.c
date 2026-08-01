@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // f32<->f64 conversions in expressions; float promotes through
 // varargs as double.
 // CHECK: f=0.250000

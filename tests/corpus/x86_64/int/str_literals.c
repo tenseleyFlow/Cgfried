@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Literal edge bytes survive the numeric emission: \n(10) "(34) \\(92)
 // \377(255).
 // EXIT_CODE: 0

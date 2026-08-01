@@ -1,0 +1,21 @@
+// F-S30-FWDSSA: def dominates use in the CFG but follows it in block layout.
+// fold_addr must reserve %q's vreg; vreg 0 means [frame], not this pointer.
+// FLAGS: -O1 -emit-mir
+// MIR_CHECK: bb2:
+// MIR_CHECK: = load.l [
+// MIR_CHECK: bb3:
+// MIR_CHECK: = lea.q [
+// IR_CHECK-NOT: [frame]
+func i32 @f(ptr %base) {
+entry():
+    %slot = alloca 8, align 8
+    br def()
+use():
+    %p = load ptr, %slot, align 8
+    %v = load i32, %p, align 4
+    ret i32 %v
+def():
+    %q = ptradd %base, 4
+    store ptr %q, %slot, align 8
+    br use()
+}

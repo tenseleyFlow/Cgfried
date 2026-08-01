@@ -1,0 +1,19 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: alloca
+// IR_CHECK-NOT: load
+// IR_CHECK-NOT: store
+// IR_CHECK: join(i32
+// One incoming edge supplies undef; the other supplies 9.
+func i32 @f(i32 %c) {
+entry():
+    %p = alloca 4, align 4
+    condbr %c, set(), skip()
+set():
+    store i32 9, %p, align 4
+    br join()
+skip():
+    br join()
+join():
+    %v = load i32, %p, align 4
+    ret i32 %v
+}

@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // FP globals: rodata constants and data images with double bit
 // patterns, read back at runtime.
 // EXIT_CODE: 0

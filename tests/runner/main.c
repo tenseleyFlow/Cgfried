@@ -431,6 +431,12 @@ static void mkdir_p2(const char *a, const char *b)
 
 typedef enum { OUT_PASS, OUT_FAIL } Outcome;
 
+typedef struct {
+    bool valid;
+    int exit_status;
+    Buf stdout_buf;
+} RuntimeObservation;
+
 /* Applies // ENV: NAME=VALUE pairs around the compile spawn, restoring the
  * previous environment afterwards (single-threaded; setenv is safe here). */
 typedef struct {
@@ -491,7 +497,8 @@ static void env_restore(SavedEnv *saved, size_t n)
  * CHECK/EXIT_CODE apply to the COMPILER's stdout/exit (pp fixtures). */
 static Outcome run_pipeline(Runner *r, const TestFile *t,
                             const DirectiveSet *ds, const char *id, int timeout,
-                            bool quiet)
+                            const char *opt_level, bool quiet,
+                            RuntimeObservation *observation)
 {
     char *binpath;
     char *spath;
@@ -501,6 +508,12 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
     bool s_mode = false;
     SavedEnv *saved_env;
     size_t saved_n;
+
+    if (observation) {
+        observation->valid = false;
+        observation->exit_status = 0;
+        buf_init(&observation->stdout_buf);
+    }
 
     binpath =
         aprintf(&r->arena, "build/test-work/%s_%s.bin", t->suite, t->name);
@@ -514,12 +527,35 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
         const char *dot = strrchr(t->path, '.');
 
         if (dot && strcmp(dot, ".cgfir") == 0) {
-            char *argv[4];
+            char *argv[32];
+            int n = 0;
 
-            argv[0] = (char *)r->cc;
-            argv[1] = (char *)"-emit-ir";
-            argv[2] = (char *)t->path;
-            argv[3] = NULL;
+            argv[n++] = (char *)r->cc;
+            argv[n++] = (char *)"-emit-ir";
+            if (ds->flags) {
+                char *fl = arena_strdup(&r->arena, ds->flags);
+                char *piece = fl;
+
+                while (*piece) {
+                    char *end = piece + strcspn(piece, " ");
+
+                    if (*end)
+                        *end++ = '\0';
+                    if (*piece) {
+                        if (n >= (opt_level ? 29 : 30)) {
+                            if (!quiet)
+                                printf("FAIL %s: too many FLAGS\n", id);
+                            return OUT_FAIL;
+                        }
+                        argv[n++] = piece;
+                    }
+                    piece = end;
+                }
+            }
+            if (opt_level)
+                argv[n++] = (char *)opt_level;
+            argv[n++] = (char *)t->path;
+            argv[n] = NULL;
             saved_n = env_apply(r, ds, &saved_env);
             spawn_capture(argv, timeout, &comp);
             env_restore(saved_env, saved_n);
@@ -625,7 +661,7 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                         pp_mode = true;
                         s_mode = true;
                     }
-                    if (n >= 28) {
+                    if (n >= (opt_level ? 27 : 28)) {
                         if (!quiet)
                             printf("FAIL %s: too many FLAGS\n", id);
                         return OUT_FAIL;
@@ -635,6 +671,8 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                 piece = end;
             }
         }
+        if (opt_level)
+            argv[n++] = (char *)opt_level;
         argv[n++] = t->path;
         if (s_mode) {
             argv[n++] = (char *)"-o";
@@ -798,18 +836,21 @@ have_compile:
             if (ds->dirs[d].kind == DIR_ASM_CHECK)
                 any_asm = true;
         if (any_asm) {
-            char *argv[6];
+            char *argv[7];
+            int n = 0;
             SpawnResult sres;
             size_t alen = 0;
             char *atext;
             Buf abuf;
 
-            argv[0] = (char *)r->cc;
-            argv[1] = (char *)"-S";
-            argv[2] = t->path;
-            argv[3] = (char *)"-o";
-            argv[4] = spath;
-            argv[5] = NULL;
+            argv[n++] = (char *)r->cc;
+            argv[n++] = (char *)"-S";
+            if (opt_level)
+                argv[n++] = (char *)opt_level;
+            argv[n++] = t->path;
+            argv[n++] = (char *)"-o";
+            argv[n++] = spath;
+            argv[n] = NULL;
             spawn_capture(argv, timeout, &sres);
             atext = read_file(&r->arena, spath, &alen);
             spawn_result_free(&sres);
@@ -881,6 +922,12 @@ have_compile:
                 }
             } else {
                 out = OUT_PASS;
+                if (observation) {
+                    observation->valid = true;
+                    observation->exit_status = run.exit_code;
+                    buf_append(&observation->stdout_buf, run.out.data,
+                               run.out.len);
+                }
             }
         }
         spawn_result_free(&run);
@@ -938,15 +985,17 @@ static void run_test(Runner *r, const TestFile *t)
     }
 
     /* SKIP: never silent — the HARNESS_SKIP line is the record, and CI
-     * asserts the exact expected set. count is computed (planned executions
-     * skipped; exactly 1 per file until multi-opt-level runs in Sprint 25). */
+     * asserts the exact expected set. count is the planned executions skipped,
+     * so an OPT_EQ test contributes one per listed level. */
     {
         size_t d;
         for (d = 0; d < ds.ndirs; d++) {
             if (ds.dirs[d].kind == DIR_SKIP &&
                 directive_selector_matches(ds.dirs[d].selector, r->target)) {
-                printf("HARNESS_SKIP suite=%s test=%s count=1 reason=\"%s\"\n",
-                       t->suite, t->name, ds.dirs[d].value);
+                printf(
+                    "HARNESS_SKIP suite=%s test=%s count=%zu reason=\"%s\"\n",
+                    t->suite, t->name, ds.nopt_levels ? ds.nopt_levels : 1,
+                    ds.dirs[d].value);
                 r->counts.skip++;
                 return;
             }
@@ -964,7 +1013,70 @@ static void run_test(Runner *r, const TestFile *t)
 
     {
         /* Under XFAIL, failure detail is noise — suppress it (quiet). */
-        Outcome out = run_pipeline(r, t, &ds, id, timeout, xfail_id != NULL);
+        Outcome out;
+
+        if (ds.nopt_levels == 0) {
+            out = run_pipeline(r, t, &ds, id, timeout, NULL, xfail_id != NULL,
+                               NULL);
+        } else {
+            RuntimeObservation baseline;
+            size_t level;
+
+            memset(&baseline, 0, sizeof(baseline));
+            out = OUT_PASS;
+            for (level = 0; level < ds.nopt_levels; level++) {
+                RuntimeObservation current;
+                const char *opt = ds.opt_levels[level];
+                char *level_id = aprintf(&r->arena, "%s [%s]", id, opt);
+                Outcome level_out =
+                    run_pipeline(r, t, &ds, level_id, timeout, opt,
+                                 xfail_id != NULL, &current);
+
+                if (level_out == OUT_FAIL) {
+                    out = OUT_FAIL;
+                    buf_free(&current.stdout_buf);
+                    break;
+                }
+                if (!current.valid) {
+                    if (!xfail_id)
+                        printf("FAIL %s: OPT_EQ requires an end-to-end "
+                               "executable C test\n",
+                               id);
+                    out = OUT_FAIL;
+                    buf_free(&current.stdout_buf);
+                    break;
+                }
+                if (level == 0) {
+                    baseline = current;
+                    continue;
+                }
+                if (baseline.exit_status != current.exit_status) {
+                    if (!xfail_id)
+                        printf("FAIL %s: OPT_EQ exit status mismatch: %s=%d "
+                               "vs %s=%d\n",
+                               id, ds.opt_levels[0], baseline.exit_status, opt,
+                               current.exit_status);
+                    out = OUT_FAIL;
+                } else if (baseline.stdout_buf.len != current.stdout_buf.len ||
+                           (baseline.stdout_buf.len != 0 &&
+                            memcmp(baseline.stdout_buf.data,
+                                   current.stdout_buf.data,
+                                   baseline.stdout_buf.len) != 0)) {
+                    if (!xfail_id) {
+                        printf("FAIL %s: OPT_EQ stdout mismatch: %s vs %s\n",
+                               id, ds.opt_levels[0], opt);
+                        print_detail(ds.opt_levels[0], &baseline.stdout_buf);
+                        print_detail(opt, &current.stdout_buf);
+                    }
+                    out = OUT_FAIL;
+                }
+                buf_free(&current.stdout_buf);
+                if (out == OUT_FAIL)
+                    break;
+            }
+            if (baseline.valid)
+                buf_free(&baseline.stdout_buf);
+        }
 
         if (xfail_id) {
             if (out == OUT_FAIL) {

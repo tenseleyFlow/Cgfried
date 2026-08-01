@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Duff's device at runtime: the interleaved switch/loop copies exactly.
 // EXIT_CODE: 0
 static void duffcpy(char *to, const char *from, int count)

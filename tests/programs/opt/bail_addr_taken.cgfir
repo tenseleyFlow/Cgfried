@@ -1,0 +1,11 @@
+// FLAGS: -O1
+// ENV: CGF_OPT_BAIL_LOG=1
+// mem2reg bail reason: addr_taken
+// IR_CHECK: alloca 8
+func ptr @f() {
+entry():
+    %p = alloca 8, align 8
+    store ptr %p, @escaped, align 8
+    %v = load ptr, %p, align 8
+    ret ptr %v
+}

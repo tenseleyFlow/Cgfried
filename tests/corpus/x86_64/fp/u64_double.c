@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // u64<->f64 branch sequences with the edge set (sticky bit included).
 // EXIT_CODE: 0
 int main(void)

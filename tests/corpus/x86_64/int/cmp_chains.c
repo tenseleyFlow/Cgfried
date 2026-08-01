@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // setcc+movzx materialization: comparisons AS VALUES.
 // EXIT_CODE: 0
 // ASM_CHECK(x86_64-linux-gnu): sete

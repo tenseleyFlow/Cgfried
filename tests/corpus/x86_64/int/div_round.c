@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // C99 division truncates toward zero — both sign mixes.
 // EXIT_CODE: 0
 // ASM_CHECK(x86_64-linux-gnu): idivl

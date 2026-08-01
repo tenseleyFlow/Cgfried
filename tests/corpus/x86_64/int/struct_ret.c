@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Aggregate returns: two-eightbyte pair AND memory-class sret.
 // EXIT_CODE: 0
 struct P {
