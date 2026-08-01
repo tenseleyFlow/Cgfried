@@ -221,6 +221,55 @@ void test_opt_unswitch_guarded_division_is_not_speculated(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_opt_unswitch_zero_trip_nsw_dag_is_not_speculated(TestCtx *t)
+{
+    UnswitchFix fix;
+    IrModule *m;
+    OptConfig cfg;
+    FILE *report = tmpfile();
+    char text[512];
+
+    fix_init(&fix);
+    m = parse(&fix, "func i32 @f(i32 %x) {\n"
+                    "entry():\n"
+                    "    br head(i32 0)\n"
+                    "head(i32 %i):\n"
+                    "    %more = icmp ult i32 %i, 0\n"
+                    "    condbr %more, body(), exit()\n"
+                    "body():\n"
+                    "    %sum = iadd nsw i32 %x, 1\n"
+                    "    %stable = icmp ne i32 %sum, 0\n"
+                    "    condbr %stable, yes(), no()\n"
+                    "yes():\n"
+                    "    br latch()\n"
+                    "no():\n"
+                    "    br latch()\n"
+                    "latch():\n"
+                    "    %next = iadd i32 %i, 1\n"
+                    "    br head(i32 %next)\n"
+                    "exit():\n"
+                    "    ret i32 %i\n"
+                    "}\n");
+    T_ASSERT(t, report != NULL && m && ir_verify(fix.dc, m));
+    opt_config_init(&cfg, OPT_O3);
+    cfg.bail_log = true;
+    cfg.report = report;
+    if (m)
+        (void)opt_unswitch(m, &cfg);
+    if (report) {
+        read_report(report, text, sizeof(text));
+        T_ASSERT(t, strstr(text, "unswitch_unspeculatable") != NULL);
+        fclose(report);
+    }
+    if (m) {
+        T_ASSERT(t, ir_verify(fix.dc, m));
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_IADD), 2);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&m->funcs[0], 0), 0);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&m->funcs[0], 1), 0);
+    }
+    arena_free_all(&fix.arena);
+}
+
 void test_opt_unswitch_volatile_clone_fidelity(TestCtx *t)
 {
     UnswitchFix fix;
@@ -307,5 +356,57 @@ void test_opt_unswitch_respects_level_and_disable_toggle(TestCtx *t)
     T_ASSERT(t, m && !opt_unswitch(m, &cfg));
     if (m)
         T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_IADD), 1);
+    arena_free_all(&fix.arena);
+}
+
+void test_opt_unswitch_one_transform_per_function_cap(TestCtx *t)
+{
+    UnswitchFix fix;
+    IrModule *m;
+    OptConfig cfg;
+
+    fix_init(&fix);
+    m = parse(&fix, "func i32 @f(i32 %a, i32 %b) {\n"
+                    "entry():\n"
+                    "    br h1(i32 0)\n"
+                    "h1(i32 %i):\n"
+                    "    %m1 = icmp ult i32 %i, 2\n"
+                    "    condbr %m1, body1(), after1()\n"
+                    "body1():\n"
+                    "    condbr %a, yes1(), no1()\n"
+                    "yes1():\n"
+                    "    br latch1()\n"
+                    "no1():\n"
+                    "    br latch1()\n"
+                    "latch1():\n"
+                    "    %n1 = iadd i32 %i, 1\n"
+                    "    br h1(i32 %n1)\n"
+                    "after1():\n"
+                    "    br h2(i32 0)\n"
+                    "h2(i32 %j):\n"
+                    "    %m2 = icmp ult i32 %j, 2\n"
+                    "    condbr %m2, body2(), exit()\n"
+                    "body2():\n"
+                    "    condbr %b, yes2(), no2()\n"
+                    "yes2():\n"
+                    "    br latch2()\n"
+                    "no2():\n"
+                    "    br latch2()\n"
+                    "latch2():\n"
+                    "    %n2 = iadd i32 %j, 1\n"
+                    "    br h2(i32 %n2)\n"
+                    "exit():\n"
+                    "    ret i32 %j\n"
+                    "}\n");
+    T_ASSERT(t, m && ir_verify(fix.dc, m));
+    opt_config_init(&cfg, OPT_O3);
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && opt_unswitch(m, &cfg));
+    if (m) {
+        T_ASSERT(t, ir_verify(fix.dc, m));
+        T_ASSERT_EQ_INT(t, count_literal_cond(&m->funcs[0], 0), 1);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&m->funcs[0], 1), 1);
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_IADD), 3);
+    }
     arena_free_all(&fix.arena);
 }

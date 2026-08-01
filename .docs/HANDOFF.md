@@ -60,7 +60,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 432 tests, 92957 assertions, 0 failures
+unit: 437 tests, 92984 assertions, 0 failures
 cgf-test: total=469 pass=469 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
@@ -270,15 +270,18 @@ because each one was learned the hard way.
   explicit `unroll_runtime_unsupported` bail.
 - **Unswitch clones static effects but preserves dynamic effects.** Exactly one
   specialized loop executes per invocation, so cloning volatile operations is
-  legal when the invariant condition DAG is speculation-safe. The shipped cap
-  is deliberately stronger than the roadmap: at most one unswitch per
-  function and at most 2× function growth.
+  legal when the invariant condition DAG is speculation-safe. `IRF_NSW`
+  arithmetic is not hoisted without a non-overflow proof. The shipped cap is
+  deliberately stronger than the roadmap: at most one unswitch per function
+  and at most 2× function growth.
 - **Dependence unknown always forbids restructuring.** Exact affine distances
   use the sign `iteration_b - iteration_a`; distinct pointer expressions prove
   independence only through non-unknown, disjoint points-to object sets. Byte
   offsets/types alone cannot prove different bases. Fusion additionally
   requires exact constant trips because syntactically equal runtime guards do
-  not prove both loops terminate.
+  not prove both loops terminate. A second-loop external operand must dominate
+  the first loop's preheader, and any direct second-loop live-out forbids the
+  rewrite.
 - **BCE facts are edge-sensitive and proof-only.** Ranges are keyed by value
   and incoming edge, step overshoot is retained, and `-fwrapv`/subword modular
   crossings bail. `IRF_BOUNDS_CHECK` is the Sprint 44 provenance bridge: only

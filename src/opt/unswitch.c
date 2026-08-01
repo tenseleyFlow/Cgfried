@@ -74,6 +74,11 @@ static u64 type_mask(IrType type)
 
 static bool speculatable_op(const IrInst *in)
 {
+    /* NSW makes overflow poison-like optimization provenance: evaluating it
+     * on a newly introduced zero-trip path is not semantics-preserving unless
+     * the arithmetic range is proved.  This pass has no such range proof. */
+    if (in->flags & IRF_NSW)
+        return false;
     switch (in->op) {
     case IR_IADD:
     case IR_ISUB:

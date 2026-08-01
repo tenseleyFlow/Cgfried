@@ -275,7 +275,9 @@ static bool supported_body_op(const IrInst *in)
 }
 
 static bool clone_operand_available(const IrFunc *f, const Loop *loop,
-                                    BlockId preheader, BlockId body, ValueId iv,
+                                    const IrDomTree *dom,
+                                    BlockId source_preheader, BlockId body,
+                                    BlockId destination_preheader, ValueId iv,
                                     IrOperand op)
 {
     const IrValInfo *vi;
@@ -291,8 +293,43 @@ static bool clone_operand_available(const IrFunc *f, const Loop *loop,
         return true; /* verifier guarantees definition-before-use */
     /* The old header and dedicated preheader become unreachable.  Only the
      * induction parameter has an explicit replacement in the fused loop. */
-    return vi->def_block.v != preheader.v &&
-           !loop_contains(loop, vi->def_block);
+    return vi->def_block.v != source_preheader.v &&
+           !loop_contains(loop, vi->def_block) &&
+           ir_dominates(dom, vi->def_block, destination_preheader);
+}
+
+static bool operand_defined_in_loop(const IrFunc *f, const Loop *loop,
+                                    IrOperand op)
+{
+    const IrValInfo *vi;
+
+    if (op.kind != IROP_VALUE || !op.a || op.a > f->nvals)
+        return false;
+    vi = &f->vals[op.a - 1];
+    return vi->def_block.v && loop_contains(loop, vi->def_block);
+}
+
+static bool loop_has_direct_liveout(const IrFunc *f, const Loop *loop)
+{
+    u32 bi, oi, ei, ai;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        if (loop_contains(loop, (BlockId){bi + 1}))
+            continue;
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            for (oi = 0; oi < in->nops; oi++)
+                if (operand_defined_in_loop(f, loop, in->ops[oi]))
+                    return true;
+            for (ei = 0; ei < in->nedges; ei++)
+                for (ai = 0; ai < in->edges[ei].nargs; ai++)
+                    if (operand_defined_in_loop(f, loop,
+                                                in->edges[ei].args[ai]))
+                        return true;
+        }
+    }
+    return false;
 }
 
 static const IrInst *terminator(const IrBlock *b)
@@ -447,8 +484,8 @@ static bool clone_inst(IrBuilder *b, const IrInst *in, IrOperand *map, u32 nmap)
     return true;
 }
 
-static bool fuse_pair(IrModule *m, IrFunc *f, const Loop *a, const Loop *b,
-                      const OptConfig *cfg)
+static bool fuse_pair(IrModule *m, IrFunc *f, const IrDomTree *dom,
+                      const Loop *a, const Loop *b, const OptConfig *cfg)
 {
     TripInfo ta, tb;
     const char *reason;
@@ -501,6 +538,10 @@ static bool fuse_pair(IrModule *m, IrFunc *f, const Loop *a, const Loop *b,
         OPT_BAIL(cfg, "fusion", "fuse_intervening");
         return false;
     }
+    if (loop_has_direct_liveout(f, b)) {
+        OPT_BAIL(cfg, "fusion", "fuse_intervening");
+        return false;
+    }
     for (in = abody->first; in && !in->nedges; in = in->next)
         if (!supported_body_op(in)) {
             OPT_BAIL(cfg, "fusion", "fuse_intervening");
@@ -512,7 +553,8 @@ static bool fuse_pair(IrModule *m, IrFunc *f, const Loop *a, const Loop *b,
             return false;
         } else
             for (i = 0; i < in->nops; i++)
-                if (!clone_operand_available(f, b, loop_preheader(b), bbody_id,
+                if (!clone_operand_available(f, b, dom, loop_preheader(b),
+                                             bbody_id, loop_preheader(a),
                                              tb.induction.iv, in->ops[i])) {
                     OPT_BAIL(cfg, "fusion", "fuse_intervening");
                     return false;
@@ -592,7 +634,7 @@ bool opt_fusion(IrModule *m, const OptConfig *cfg)
 
                         if (a == b || loop_parent(a) != loop_parent(b))
                             continue;
-                        if (fuse_pair(m, f, a, b, &fc)) {
+                        if (fuse_pair(m, f, dom, a, b, &fc)) {
                             changed = again = true;
                             break;
                         }

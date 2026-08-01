@@ -519,3 +519,104 @@ void test_fusion_rejects_runtime_trip_without_termination_proof(TestCtx *t)
     fclose(report);
     arena_free_all(&fix.arena);
 }
+
+void test_fusion_rejects_b_use_of_a_final_induction_value(TestCtx *t)
+{
+    DepFix fix;
+    IrModule *m;
+    OptConfig cfg;
+    FILE *report;
+    char text[1024];
+    size_t n;
+
+    dep_fix_init(&fix);
+    m = dep_parse(&fix, "func void @f() {\n"
+                        "entry():\n"
+                        "    br a.h(i64 0)\n"
+                        "a.h(i64 %i):\n"
+                        "    %ac = icmp ult i64 %i, 4\n"
+                        "    condbr %ac, a.body(), middle()\n"
+                        "a.body():\n"
+                        "    %an = iadd i64 %i, 1\n"
+                        "    br a.h(i64 %an)\n"
+                        "middle():\n"
+                        "    br b.h(i64 0)\n"
+                        "b.h(i64 %j):\n"
+                        "    %bc = icmp ult i64 %j, 4\n"
+                        "    condbr %bc, b.body(), exit()\n"
+                        "b.body():\n"
+                        "    %uses.final.a = iadd i64 %j, %i\n"
+                        "    %bn = iadd i64 %j, 1\n"
+                        "    br b.h(i64 %bn)\n"
+                        "exit():\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    report = tmpfile();
+    T_ASSERT(t, report != NULL);
+    opt_config_init(&cfg, OPT_O3);
+    cfg.bail_log = true;
+    cfg.report = report;
+    T_ASSERT(t, m && !opt_fusion(m, &cfg));
+    fflush(report);
+    rewind(report);
+    n = fread(text, 1, sizeof(text) - 1, report);
+    text[n] = '\0';
+    T_ASSERT(t, strstr(text, "fuse_intervening") != NULL);
+    if (m) {
+        T_ASSERT(t, ir_verify(fix.dc, m));
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR), 2);
+    }
+    fclose(report);
+    arena_free_all(&fix.arena);
+}
+
+void test_fusion_rejects_direct_b_loop_liveout_use(TestCtx *t)
+{
+    DepFix fix;
+    IrModule *m;
+    OptConfig cfg;
+    FILE *report;
+    char text[1024];
+    size_t n;
+
+    dep_fix_init(&fix);
+    m = dep_parse(&fix, "func i64 @f() {\n"
+                        "entry():\n"
+                        "    br a.h(i64 0)\n"
+                        "a.h(i64 %i):\n"
+                        "    %ac = icmp ult i64 %i, 4\n"
+                        "    condbr %ac, a.body(), middle()\n"
+                        "a.body():\n"
+                        "    %an = iadd i64 %i, 1\n"
+                        "    br a.h(i64 %an)\n"
+                        "middle():\n"
+                        "    br b.h(i64 0)\n"
+                        "b.h(i64 %j):\n"
+                        "    %bc = icmp ult i64 %j, 4\n"
+                        "    condbr %bc, b.body(), exit()\n"
+                        "b.body():\n"
+                        "    %bn = iadd i64 %j, 1\n"
+                        "    br b.h(i64 %bn)\n"
+                        "exit():\n"
+                        "    ret i64 %j\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    report = tmpfile();
+    T_ASSERT(t, report != NULL);
+    opt_config_init(&cfg, OPT_O3);
+    cfg.bail_log = true;
+    cfg.report = report;
+    T_ASSERT(t, m && !opt_fusion(m, &cfg));
+    fflush(report);
+    rewind(report);
+    n = fread(text, 1, sizeof(text) - 1, report);
+    text[n] = '\0';
+    T_ASSERT(t, strstr(text, "fuse_intervening") != NULL);
+    if (m) {
+        T_ASSERT(t, ir_verify(fix.dc, m));
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR), 2);
+    }
+    fclose(report);
+    arena_free_all(&fix.arena);
+}

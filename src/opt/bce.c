@@ -361,6 +361,13 @@ static bool edge_target_has_unique_predecessor(const IrFunc *f, BlockId target,
 {
     u32 bi, count = 0;
 
+    /* Block 1 also has the function invocation as an implicit predecessor.
+     * A CFG self-edge is therefore never its unique predecessor, even when
+     * it is the only explicit edge targeting entry.  Treating that backedge
+     * as an entry fact folds comparisons on the first execution using a
+     * condition that has not executed yet. */
+    if (target.v == 1)
+        return false;
     for (bi = 0; bi < f->nblocks; bi++) {
         const IrInst *in;
 

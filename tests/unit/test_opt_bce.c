@@ -343,6 +343,35 @@ void test_opt_bce_does_not_treat_loop_backedge_as_entry_fact(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_opt_bce_entry_self_loop_has_implicit_predecessor(TestCtx *t)
+{
+    BceFix fix;
+    IrModule *m;
+    OptConfig cfg;
+
+    bce_fix_init(&fix);
+    m = bce_parse(&fix, "func i32 @f(i32 %n) {\n"
+                        "entry():\n"
+                        "    %candidate = icmp ult i32 %n, 10, bounds\n"
+                        "    %gate = icmp ult i32 %n, 10\n"
+                        "    condbr %gate, body(), exit()\n"
+                        "body():\n"
+                        "    br exit()\n"
+                        "exit():\n"
+                        "    ret i32 0\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(fix.dc, m));
+    /* The verifier normally rejects entry predecessors.  Mutate only after
+     * establishing that the fixture was valid so this directly exercises
+     * BCE's defensive treatment of an implicit invocation predecessor. */
+    if (m)
+        m->funcs[0].blocks[0].last->edges[0].target = (BlockId){1};
+    T_ASSERT(t, m && !bce_run(m, &cfg, false, NULL));
+    if (m)
+        T_ASSERT_EQ_INT(t, bce_count_op(&m->funcs[0], IR_ICMP), 2);
+    arena_free_all(&fix.arena);
+}
+
 void test_opt_bce_descriptor(TestCtx *t)
 {
     T_ASSERT_EQ_STR(t, OPT_PASS_BCE.name, "bce");
