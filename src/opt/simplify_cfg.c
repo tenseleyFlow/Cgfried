@@ -10,7 +10,8 @@ struct OptCfgInfo {
     u32 cap_removed;
 };
 
-const Pass OPT_PASS_SIMPLIFY_CFG = {"simplify_cfg", opt_simplify_cfg};
+const Pass OPT_PASS_SIMPLIFY_CFG = {"simplify_cfg", opt_simplify_cfg,
+                                    PASS_PINNED_EXACT};
 
 const CfgRemoved *opt_cfg_removed_log(const IrFunc *f, u32 *n)
 {

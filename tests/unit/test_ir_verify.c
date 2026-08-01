@@ -469,6 +469,49 @@ void test_ir_verify_check9_refs(TestCtx *t)
     T_ASSERT(t, fired(&f, 9));
     arena_free_all(&f.arena);
 
+    /* Wide floating constants use operand.b for their high bits. Those bits
+     * are not a call-ABI annotation (only values and symbols carry one). */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @callee(f128 %x) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n"
+                        "func void @caller() {\n"
+                        "entry():\n"
+                        "    call void @callee(f128 "
+                        "0x3FFF000700000000:0x0000000000000001)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, ir_verify(f.dc, m));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+    }
+    arena_free_all(&f.arena);
+
+    /* A direct call's ABI annotation is part of its signature, not optional
+     * decoration.  The inliner and IPO both rely on this boundary check. */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @callee(ptr byval(16) %p) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n"
+                        "func void @caller(ptr %p) {\n"
+                        "entry():\n"
+                        "    call void @callee(ptr %p)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 9));
+    }
+    arena_free_all(&f.arena);
+
     /* Symbol operand out of range. */
     vfix_init(&f);
     fn = scaffold(&f, &m, &b);

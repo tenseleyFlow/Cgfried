@@ -15,7 +15,8 @@ static const PipelineEntry pipeline[] = {
     {&OPT_PASS_SIMPLIFY, STAGE_O1},    {&OPT_PASS_CSE, STAGE_O1},
     {&OPT_PASS_DCE, STAGE_O1},         {&OPT_PASS_SIMPLIFY_CFG, STAGE_O1},
     {&OPT_PASS_GVN, STAGE_O2},         {&OPT_PASS_DSE, STAGE_O2},
-    {&OPT_PASS_JUMP_THREAD, STAGE_O2},
+    {&OPT_PASS_JUMP_THREAD, STAGE_O2}, {&OPT_PASS_IPO, STAGE_O2},
+    {&OPT_PASS_INLINE, STAGE_O2},
 };
 
 static bool level_stage(OptLevel level, PipelineStage *out)

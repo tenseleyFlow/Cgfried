@@ -463,7 +463,13 @@ static void check_inst_misc(V *v, const IrInst *in)
                          cf->name, in->nops, cf->variadic ? "at least " : "",
                          cf->nparams);
                 else {
-                    for (i = 0; i < cf->nparams; i++)
+                    for (i = 0; i < cf->nparams; i++) {
+                        u32 got_kind = in->ops[i].kind == IROP_VALUE ||
+                                               in->ops[i].kind == IROP_SYMBOL
+                                           ? ir_arg_kind(in->ops[i].b)
+                                           : IR_ARG_NONE;
+                        u32 want_kind = IR_ARG_NONE;
+
                         if (in->ops[i].type != cf->param_types[i])
                             verr(v, 9,
                                  "call to @%s: arg %u is %s, "
@@ -471,6 +477,25 @@ static void check_inst_misc(V *v, const IrInst *in)
                                  cf->name, i,
                                  ir_type_name((IrType)in->ops[i].type),
                                  ir_type_name((IrType)cf->param_types[i]));
+                        if (i == 0 && cf->abi_ret != IR_ABIRET_NONE)
+                            want_kind =
+                                IR_ARG_SRET + (cf->abi_ret - IR_ABIRET_SRET);
+                        else if (cf->param_annots)
+                            want_kind = ir_arg_kind(cf->param_annots[i]);
+                        if (got_kind != want_kind)
+                            verr(v, 9,
+                                 "call to @%s: arg %u ABI annotation kind "
+                                 "%u does not match %u",
+                                 cf->name, i, got_kind, want_kind);
+                        else if (want_kind == IR_ARG_BYVAL &&
+                                 ir_arg_size(in->ops[i].b) !=
+                                     ir_arg_size(cf->param_annots[i]))
+                            verr(v, 9,
+                                 "call to @%s: arg %u byval size %u does "
+                                 "not match %u",
+                                 cf->name, i, ir_arg_size(in->ops[i].b),
+                                 ir_arg_size(cf->param_annots[i]));
+                    }
                 }
                 if (in->type != cf->ret)
                     verr(v, 9,
@@ -525,6 +550,14 @@ static void verify_func(V *v, const IrFunc *f)
 
         if (ir_param_is_restrict(annot) && f->param_types[i] != IRT_PTR)
             verr(v, 4, "parameter %u is marked restrict but is not ptr", i);
+    }
+    if (f->abi_ret != IR_ABIRET_NONE &&
+        (f->nparams == 0 || f->param_types[0] != IRT_PTR ||
+         f->ret != IRT_VOID)) {
+        v->blk_name = NULL;
+        verr(v, 4,
+             "aggregate ABI return requires void IR return and hidden ptr "
+             "parameter 0");
     }
 
     /* 5: entry shape. */
@@ -718,51 +751,208 @@ void ir_snapshot_volatile_order(Arena *arena, const IrModule *m,
 
     for (fi = 0; fi < m->nfuncs; fi++) {
         const IrFunc *f = &m->funcs[fi];
-        u32 n = ir_count_volatile_ops(f);
+        u32 n = 0;
         const IrInst **ops = NULL;
         u32 bi, at = 0;
 
+        for (bi = 0; bi < f->nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next)
+                if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST))
+                    n++;
+        }
+        out[fi].func_name = f->name;
         if (n)
             ops = arena_alloc(arena, n * sizeof(*ops), _Alignof(IrInst *));
         for (bi = 0; bi < f->nblocks; bi++) {
             const IrInst *in;
 
             for (in = f->blocks[bi].first; in; in = in->next)
-                if (in->flags & IRF_VOLATILE)
+                if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST))
                     ops[at++] = in;
         }
         out[fi].ops = ops;
         out[fi].nops = n;
     }
+    out[m->nfuncs].func_name = NULL;
+    out[m->nfuncs].ops = NULL;
+    out[m->nfuncs].nops = 0;
 }
 
-bool ir_volatile_order_matches(const IrModule *m,
-                               const IrVolatileSnapshot *before, u32 *bad_func)
+static u32 pinned_count(const IrFunc *f)
+{
+    u32 bi, n = 0;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next)
+            n += !!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST));
+    }
+    return n;
+}
+
+static const IrFunc *find_func_named(const IrModule *m, const char *name,
+                                     u32 *index)
 {
     u32 fi;
 
-    for (fi = 0; fi < m->nfuncs; fi++) {
-        const IrFunc *f = &m->funcs[fi];
+    for (fi = 0; fi < m->nfuncs; fi++)
+        if (strcmp(m->funcs[fi].name, name) == 0) {
+            if (index)
+                *index = fi;
+            return &m->funcs[fi];
+        }
+    if (index)
+        *index = m->nfuncs;
+    return NULL;
+}
+
+static const IrVolatileSnapshot *find_snapshot(const IrVolatileSnapshot *before,
+                                               const char *name)
+{
+    u32 si;
+
+    for (si = 0; before[si].func_name; si++)
+        if (strcmp(before[si].func_name, name) == 0)
+            return &before[si];
+    return NULL;
+}
+
+static bool pinned_order_matches(const IrModule *m,
+                                 const IrVolatileSnapshot *before,
+                                 bool allow_removed_funcs, u32 *bad_func)
+{
+    u32 fi, si;
+
+    for (si = 0; before[si].func_name; si++) {
+        const IrFunc *f;
         u32 bi, at = 0;
 
-        if (ir_count_volatile_ops(f) != before[fi].nops)
+        if (!before[si].nops)
+            continue;
+        f = find_func_named(m, before[si].func_name, &fi);
+        if (!f && allow_removed_funcs)
+            continue;
+        if (!f || pinned_count(f) != before[si].nops)
             goto mismatch;
         for (bi = 0; bi < f->nblocks; bi++) {
             const IrInst *in;
 
             for (in = f->blocks[bi].first; in; in = in->next) {
-                if (!(in->flags & IRF_VOLATILE))
+                if (!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST)))
                     continue;
-                if (before[fi].ops[at++] != in)
+                if (before[si].ops[at++] != in)
                     goto mismatch;
             }
         }
+    }
+    /* A newly introduced volatile-bearing function has no snapshot row. */
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        if (!pinned_count(&m->funcs[fi]))
+            continue;
+        if (!find_snapshot(before, m->funcs[fi].name))
+            goto mismatch;
     }
     return true;
 
 mismatch:
     if (bad_func)
-        *bad_func = fi;
+        *bad_func = fi < m->nfuncs ? fi : m->nfuncs;
+    return false;
+}
+
+bool ir_volatile_order_matches(const IrModule *m,
+                               const IrVolatileSnapshot *before, u32 *bad_func)
+{
+    return pinned_order_matches(m, before, false, bad_func);
+}
+
+bool ir_pinned_delete_funcs_matches(const IrModule *m,
+                                    const IrVolatileSnapshot *before,
+                                    u32 *bad_func)
+{
+    return pinned_order_matches(m, before, true, bad_func);
+}
+
+static bool pinned_metadata_eq(const IrInst *a, const IrInst *b)
+{
+    return a->op == b->op && a->type == b->type && a->subop == b->subop &&
+           a->flags == b->flags && a->align == b->align && a->loc == b->loc &&
+           a->nops == b->nops && a->nedges == b->nedges;
+}
+
+static bool snapshot_has_pointer(const IrVolatileSnapshot *before,
+                                 const IrInst *needle)
+{
+    u32 si, oi;
+
+    for (si = 0; before[si].func_name; si++)
+        for (oi = 0; oi < before[si].nops; oi++)
+            if (before[si].ops[oi] == needle)
+                return true;
+    return false;
+}
+
+static bool snapshot_has_metadata(const IrVolatileSnapshot *before,
+                                  const IrInst *needle)
+{
+    u32 si, oi;
+
+    for (si = 0; before[si].func_name; si++)
+        for (oi = 0; oi < before[si].nops; oi++)
+            if (pinned_metadata_eq(before[si].ops[oi], needle))
+                return true;
+    return false;
+}
+
+bool ir_pinned_inline_matches(const IrModule *m,
+                              const IrVolatileSnapshot *before, u32 *bad_func)
+{
+    u32 si, fi, bi;
+
+    /* Every original pinned instruction remains in its original function and
+     * in the original order. New clones may appear between those originals,
+     * but cannot make a moved original look legitimate. */
+    for (si = 0; before[si].func_name; si++) {
+        const IrFunc *f = find_func_named(m, before[si].func_name, &fi);
+        u32 at = 0;
+
+        if (!f)
+            goto mismatch;
+        for (bi = 0; bi < f->nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next) {
+                if (!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) ||
+                    !snapshot_has_pointer(before, in))
+                    continue;
+                if (at >= before[si].nops || before[si].ops[at++] != in)
+                    goto mismatch;
+            }
+        }
+        if (at != before[si].nops)
+            goto mismatch;
+    }
+    /* New pinned instructions must be faithful clones of a pre-pass source. */
+    for (fi = 0; fi < m->nfuncs; fi++)
+        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next) {
+                if (!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) ||
+                    snapshot_has_pointer(before, in))
+                    continue;
+                if (!snapshot_has_metadata(before, in))
+                    goto mismatch;
+            }
+        }
+    return true;
+
+mismatch:
+    if (bad_func)
+        *bad_func = fi < m->nfuncs ? fi : m->nfuncs;
     return false;
 }
 

@@ -20,7 +20,7 @@ typedef struct {
     CseEntry entry;
 } CseSlot;
 
-const Pass OPT_PASS_CSE = {"cse", opt_cse};
+const Pass OPT_PASS_CSE = {"cse", opt_cse, PASS_PINNED_EXACT};
 
 static bool operand_may_undef(IrOperand op, const bool *may_undef, u32 nvals)
 {

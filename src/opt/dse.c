@@ -373,4 +373,4 @@ bool opt_dse(IrModule *m, const OptConfig *cfg)
     return changed;
 }
 
-const Pass OPT_PASS_DSE = {"dse", opt_dse};
+const Pass OPT_PASS_DSE = {"dse", opt_dse, PASS_PINNED_EXACT};

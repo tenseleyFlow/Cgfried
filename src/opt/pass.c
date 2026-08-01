@@ -28,7 +28,24 @@ void opt_config_init(OptConfig *cfg, OptLevel level)
 {
     memset(cfg, 0, sizeof(*cfg));
     cfg->level = level;
-    cfg->inline_threshold = level == OPT_OS ? 20 : 80;
+    switch (level) {
+    case OPT_O0:
+    case OPT_O1:
+        cfg->inline_threshold = 0;
+        break;
+    case OPT_OS:
+        cfg->inline_threshold = 20;
+        break;
+    case OPT_O2:
+        cfg->inline_threshold = 40;
+        break;
+    case OPT_O3:
+    case OPT_OFAST:
+        cfg->inline_threshold = 80;
+        break;
+    default:
+        CGF_ICE("opt: unknown optimization level %d", (int)level);
+    }
     cfg->unroll_threshold = level == OPT_OS ? 8 : 32;
     cfg->report = stderr;
     if (level == OPT_OFAST) {
@@ -111,10 +128,9 @@ static bool run_one(RunCtx *r, IrModule *m, const OptConfig *cfg,
         arena_init(&verify_scratch);
         buf_init(&before);
         ir_print_module_buf(&before, m);
-        volatile_before =
-            arena_alloc(&verify_scratch,
-                        (m->nfuncs ? m->nfuncs : 1) * sizeof(*volatile_before),
-                        _Alignof(IrVolatileSnapshot));
+        volatile_before = arena_alloc(
+            &verify_scratch, ((size_t)m->nfuncs + 1) * sizeof(*volatile_before),
+            _Alignof(IrVolatileSnapshot));
         ir_snapshot_volatile_order(&verify_scratch, m, volatile_before);
     }
     if (cfg->time_report) {
@@ -143,8 +159,26 @@ static bool run_one(RunCtx *r, IrModule *m, const OptConfig *cfg,
                     pass->name, changed ? "true" : "false",
                     different ? "mutated" : "unchanged");
         }
-        if (!ir_volatile_order_matches(m, volatile_before, &bad_func))
-            CGF_ICE("opt: pass '%s' changed volatile operations in '@%s'",
+        bool pinned_ok;
+
+        switch (pass->pinned_policy) {
+        case PASS_PINNED_EXACT:
+            pinned_ok =
+                ir_volatile_order_matches(m, volatile_before, &bad_func);
+            break;
+        case PASS_PINNED_INLINE_CLONES:
+            pinned_ok = ir_pinned_inline_matches(m, volatile_before, &bad_func);
+            break;
+        case PASS_PINNED_DELETE_FUNCS:
+            pinned_ok =
+                ir_pinned_delete_funcs_matches(m, volatile_before, &bad_func);
+            break;
+        default:
+            CGF_ICE("opt: pass '%s' has unknown pinned policy %d", pass->name,
+                    (int)pass->pinned_policy);
+        }
+        if (!pinned_ok)
+            CGF_ICE("opt: pass '%s' changed pinned operations in '@%s'",
                     pass->name,
                     bad_func < m->nfuncs ? m->funcs[bad_func].name : "?");
         if (!ir_verify_report(m->dc, m, why, sizeof(why))) {

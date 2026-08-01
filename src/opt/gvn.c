@@ -38,7 +38,7 @@ typedef struct {
 typedef enum { MEM_NONE, MEM_FOUND, MEM_BLOCKED } MemResult;
 
 bool opt_gvn(IrModule *m, const OptConfig *cfg);
-const Pass OPT_PASS_GVN = {"gvn", opt_gvn};
+const Pass OPT_PASS_GVN = {"gvn", opt_gvn, PASS_PINNED_EXACT};
 
 static IrOperand resolve_operand(IrOperand op, const IrOperand *replacement,
                                  u32 nold)

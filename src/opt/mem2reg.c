@@ -36,7 +36,7 @@ struct OptMem2RegInfo {
     u32 cap_uses;
 };
 
-const Pass OPT_PASS_MEM2REG = {"mem2reg", opt_mem2reg};
+const Pass OPT_PASS_MEM2REG = {"mem2reg", opt_mem2reg, PASS_PINNED_EXACT};
 
 const UndefUse *opt_mem2reg_undef_log(const IrFunc *f, u32 *n)
 {

@@ -620,15 +620,26 @@ void ir_snapshot_volatile(const IrModule *m, u32 *out);
  * first offending function index. */
 bool ir_volatile_counts_match(const IrModule *m, const u32 *before,
                               u32 *bad_func);
-/* Strong form used by the pass manager: arena-stable instruction identities
- * in program order catch reorder and remove+replace, not only count drift. */
+/* Strong form used by the pass manager: arena-stable identities for volatile
+ * and seq_cst instructions catch reorder and remove+replace, not only count
+ * drift.  Interprocedural passes use the two explicit topology policies below
+ * rather than silently disabling the tripwire. */
 typedef struct IrVolatileSnapshot {
+    const char *func_name;
     const IrInst **ops;
     u32 nops;
 } IrVolatileSnapshot;
+/* `out` has m->nfuncs + 1 entries; the final func_name is NULL.  Stable
+ * function identity lets an interprocedural pass compact nonvolatile dead
+ * functions without comparing a shifted survivor against the wrong row. */
 void ir_snapshot_volatile_order(Arena *arena, const IrModule *m,
                                 IrVolatileSnapshot *out);
 bool ir_volatile_order_matches(const IrModule *m,
                                const IrVolatileSnapshot *before, u32 *bad_func);
+bool ir_pinned_delete_funcs_matches(const IrModule *m,
+                                    const IrVolatileSnapshot *before,
+                                    u32 *bad_func);
+bool ir_pinned_inline_matches(const IrModule *m,
+                              const IrVolatileSnapshot *before, u32 *bad_func);
 
 #endif
