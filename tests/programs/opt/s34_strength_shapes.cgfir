@@ -1,0 +1,44 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+
+func i32 @strength_affine(i32 %n, i32 %scale) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    %scaled = imul i32 %i, %scale
+    %sum2 = iadd i32 %sum, %scaled
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @strength_wrap(i8 %n) {
+entry():
+    br loop(i8 0)
+loop(i8 %i):
+    %wide = zext i8 %i to i32
+    %scaled = imul i32 %wide, 7
+    %next = iadd i8 %i, 1
+    %more = icmp ult i8 %next, %n
+    condbr %more, loop(i8 %next), done(i32 %scaled)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @strength_nonaffine(i32 %n, i32 %step) {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %i)
+body():
+    %square = imul i32 %i, %i
+    %next = iadd i32 %square, %step
+    br loop(i32 %next)
+done(i32 %result):
+    ret i32 %result
+}

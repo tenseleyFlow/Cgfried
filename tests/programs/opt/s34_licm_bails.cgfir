@@ -1,0 +1,102 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+
+func i32 @licm_div_guard(i32 %n, i32 %d) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    %q = sdiv i32 120, %d
+    %sum2 = iadd i32 %sum, %q
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @licm_guarded_load(ptr %p, i32 %n, i32 %take) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    condbr %take, read(), skip()
+read():
+    %value = load i32, %p, align 4, etype i32
+    br latch(i32 %value)
+skip():
+    br latch(i32 0)
+latch(i32 %addend):
+    %sum2 = iadd i32 %sum, %addend
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @licm_clobbered_load(ptr %p, i32 %n) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %value = load i32, %p, align 4, etype i32
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    store i32 %i, %p, align 4, etype i32
+    %sum2 = iadd i32 %sum, %value
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @licm_volatile_loop(ptr %p, i32 %n) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %value = load i32, %p, align 4, volatile, etype i32
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    %sum2 = iadd i32 %sum, %value
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @licm_call_loop(i32 %n) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %value = call i32 @observe()
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    %sum2 = iadd i32 %sum, %value
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func void @licm_conditional_store(ptr %p, i32 %n, i32 %take) {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done()
+body():
+    condbr %take, write(), latch()
+write():
+    store i32 %i, %p, align 4, etype i32
+    br latch()
+latch():
+    %next = iadd i32 %i, 1
+    br loop(i32 %next)
+done():
+    ret
+}

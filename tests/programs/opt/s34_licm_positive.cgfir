@@ -1,0 +1,18 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// The header load executes on every path to the sole loop exit and no write
+// aliases it, so LICM may move it to the preheader.
+func i32 @licm_positive(ptr %p, i32 %n) {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %invariant = load i32, %p, align 4, etype i32
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), done(i32 %sum)
+body():
+    %sum2 = iadd i32 %sum, %invariant
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
