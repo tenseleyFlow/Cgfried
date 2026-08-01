@@ -305,24 +305,44 @@ run_gdb_checks()
     opt=$3
     main_log="$WORK/gdb-$tag-O$opt-main.log"
     leaf_log="$WORK/gdb-$tag-O$opt-leaf.log"
+    gdb_loc='python sal=gdb.selected_frame().find_sal(); print("S29_LOC=%s:%d" % (((sal.symtab.filename if sal.symtab else "<none>").rsplit("/", 1)[-1]), sal.line))'
     gdb -q -batch -ex 'set debuginfod enabled off' \
-        -ex 'set pagination off' -ex 'break main' -ex run -ex next \
-        -ex next -ex bt --args "$exe" > "$main_log" 2>&1
+        -ex 'set pagination off' -ex 'break main' -ex run \
+        -ex "$gdb_loc" -ex next -ex "$gdb_loc" -ex next \
+        -ex "$gdb_loc" -ex bt --args "$exe" > "$main_log" 2>&1
     gdb -q -batch -ex 'set debuginfod enabled off' \
         -ex 'set pagination off' -ex 'break s29_leaf' -ex run -ex bt \
         --args "$exe" > "$leaf_log" 2>&1
 
     checks=$((checks + 1))
-    grep -Eq "dwarf_lines.c[:,] line $main_first|dwarf_lines.c:$main_first" \
-        "$main_log" || fail "$tag -O$opt did not break main at line $main_first"
-    grep -Eq "^[[:space:]]*$main_next[[:space:]]" "$main_log" ||
+    main_failed=0
+    grep -Fq "S29_LOC=dwarf_lines.c:$main_first" "$main_log" || {
+        fail "$tag -O$opt did not break main at line $main_first"
+        main_failed=1
+    }
+    grep -Fq "S29_LOC=dwarf_lines.c:$main_next" "$main_log" || {
         fail "$tag -O$opt next missed line $main_next"
-    grep -Eq "^[[:space:]]*$main_return[[:space:]]" "$main_log" ||
+        main_failed=1
+    }
+    grep -Fq "S29_LOC=dwarf_lines.c:$main_return" "$main_log" || {
         fail "$tag -O$opt next missed line $main_return"
+        main_failed=1
+    }
+    if [ "$main_failed" -ne 0 ]; then
+        echo "debug_info lane: $tag -O$opt gdb main transcript:" >&2
+        sed -n '1,160p' "$main_log" >&2
+    fi
+    leaf_failed=0
     for frame in s29_leaf s29_middle s29_top main; do
-        grep -Eq "#[0-9]+[[:space:]].*$frame" "$leaf_log" ||
+        grep -Eq "#[0-9]+[[:space:]].*$frame" "$leaf_log" || {
             fail "$tag -O$opt backtrace missing $frame"
+            leaf_failed=1
+        }
     done
+    if [ "$leaf_failed" -ne 0 ]; then
+        echo "debug_info lane: $tag -O$opt gdb leaf transcript:" >&2
+        sed -n '1,160p' "$leaf_log" >&2
+    fi
 }
 
 if command -v gdb >/dev/null 2>&1; then
