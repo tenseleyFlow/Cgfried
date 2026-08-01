@@ -427,8 +427,13 @@ static void check_inst_misc(V *v, const IrInst *in)
                  "overflow provenance",
                  ir_op_name((IrOp)in->op));
     }
-    if (in->flags &
-        (u8) ~(IRF_VOLATILE | IRF_SEQ_CST | IRF_CALL_VARIADIC | IRF_NSW))
+    if ((in->flags & IRF_BOUNDS_CHECK) && in->op != IR_ICMP)
+        verr(v, 7,
+             "'bounds' on '%s'; only integer comparisons carry "
+             "bounds-check provenance",
+             ir_op_name((IrOp)in->op));
+    if (in->flags & (u8) ~(IRF_VOLATILE | IRF_SEQ_CST | IRF_CALL_VARIADIC |
+                           IRF_NSW | IRF_BOUNDS_CHECK))
         verr(v, 7, "unknown flag bits 0x%x", in->flags);
 
     /* 8: alignment discipline. */

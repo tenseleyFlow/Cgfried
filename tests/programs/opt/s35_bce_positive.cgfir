@@ -1,0 +1,19 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// IR_CHECK-NOT: bounds
+
+func i32 @bce_positive() {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp ult i32 %i, 12
+    condbr %more, body(), exit()
+body():
+    %next = iadd i32 %i, 3
+    %safe = icmp ule i32 %next, 12, bounds
+    condbr %safe, loop(i32 %next), trap()
+trap():
+    ret i32 99
+exit():
+    ret i32 0
+}

@@ -272,6 +272,10 @@ typedef struct IrEdge {
  * overflow is undefined.  The IR remains signless; this provenance is the
  * optimizer's explicit license to use no-signed-wrap reasoning. */
 #define IRF_NSW 0x8u
+/* IR_ICMP: comparison is a compiler-inserted bounds-safety predicate.
+ * Provenance never substitutes for proof: range/BCE clients may fold it only
+ * when the comparison is established constant.  Sprint 44 is the producer. */
+#define IRF_BOUNDS_CHECK 0x10u
 
 /* Callee encoding for IR_CALL (the sister project's shape). */
 typedef enum IrFuncRefKind {

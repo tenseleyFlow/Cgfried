@@ -1,0 +1,17 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// IR_CHECK: bounds
+
+func i32 @bce_overshoot() {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp ult i32 %i, 10
+    condbr %more, body(), exit()
+body():
+    %next = iadd i32 %i, 3
+    %safe = icmp ult i32 %next, 10, bounds
+    condbr %safe, loop(i32 %next), exit()
+exit():
+    ret i32 0
+}

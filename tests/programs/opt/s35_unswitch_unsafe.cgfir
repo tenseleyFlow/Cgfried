@@ -1,0 +1,23 @@
+// FLAGS: -O3
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+
+func i32 @unswitch_unsafe(i32 %x, i32 %d, i32 %n) {
+entry():
+    br head(i32 0)
+head(i32 %i):
+    %more = icmp ult i32 %i, %n
+    condbr %more, body(), exit()
+body():
+    %q = udiv i32 %x, %d
+    %stable = icmp ne i32 %q, 0
+    condbr %stable, yes(), no()
+yes():
+    br latch()
+no():
+    br latch()
+latch():
+    %next = iadd i32 %i, 1
+    br head(i32 %next)
+exit():
+    ret i32 %i
+}

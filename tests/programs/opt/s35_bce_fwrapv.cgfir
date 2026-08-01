@@ -1,0 +1,19 @@
+// FLAGS: -O2 -fwrapv
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// IR_CHECK: bounds
+
+func i32 @bce_fwrapv() {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp slt i32 %i, 4
+    condbr %more, body(), exit()
+body():
+    %next = iadd nsw i32 %i, 1
+    %safe = icmp sle i32 %next, 4, bounds
+    condbr %safe, loop(i32 %next), trap()
+trap():
+    ret i32 99
+exit():
+    ret i32 0
+}

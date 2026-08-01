@@ -97,8 +97,9 @@ emit_ir -O0 tests/programs/opt/s34_licm_runtime.c wrap_nsw -fwrapv
 grep -q ', nsw' "$work/strict_nsw.ir"
 ! grep -q ', nsw' "$work/wrap_nsw.ir"
 
-# O3 must positively full-unroll the four-trip single-latch loop. The two
-# unsupported legality shapes must remain loops and log their exact reasons.
+# O3 must positively full-unroll the four-trip loop. Sprint 35 upgrades the
+# nine-trip case to a serial factor-four partial loop; runtime and short
+# pinned shapes remain explicit conservative exits.
 emit_ir -O2 tests/programs/opt/s34_unroll_shapes.cgfir unroll_o2
 emit_ir -O3 tests/programs/opt/s34_unroll_shapes.cgfir unroll_o3
 sed -n '/^func i32 @unroll_full/,/^}/p' "$work/unroll_o2.ir" \
@@ -110,13 +111,14 @@ test "$(grep -Fc 'iadd i32' "$work/unroll_full_o3.ir")" -ge 4
 ! grep -q '^loop(' "$work/unroll_full_o3.ir"
 expect_bail "$work/unroll_o3.err" unroll unroll_multi_exit unroll_multi_exit
 expect_bail "$work/unroll_o3.err" unroll unroll_trip_wrap unroll_trip_wrap
-expect_bail "$work/unroll_o3.err" unroll unroll_partial_unsupported \
-    unroll_partial_unsupported
 expect_bail "$work/unroll_o3.err" unroll unroll_runtime_unsupported \
     unroll_runtime_unsupported
 expect_bail "$work/unroll_o3.err" unroll unroll_pinned unroll_pinned
+sed -n '/^func i32 @unroll_partial_unsupported/,/^}/p' \
+    "$work/unroll_o3.ir" >"$work/unroll_partial.ir"
+test "$(grep -Fc 'iadd i32' "$work/unroll_partial.ir")" -eq 10
+grep -q '^loop(' "$work/unroll_partial.ir"
 for func in \
-    unroll_partial_unsupported \
     unroll_runtime_unsupported \
     unroll_pinned
 do

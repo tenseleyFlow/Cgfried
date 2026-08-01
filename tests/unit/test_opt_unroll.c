@@ -236,7 +236,6 @@ void test_unroll_deferred_shapes_are_preserved_with_exact_bails(TestCtx *t)
         (void)opt_unroll(m, &cfg);
     if (report) {
         read_report(report, text, sizeof(text));
-        T_ASSERT(t, strstr(text, "unroll_partial_unsupported") != NULL);
         T_ASSERT(t, strstr(text, "unroll_runtime_unsupported") != NULL);
         T_ASSERT(t, strstr(text, "unroll_pinned") != NULL);
         fclose(report);

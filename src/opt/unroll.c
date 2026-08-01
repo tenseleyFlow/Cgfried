@@ -474,6 +474,42 @@ static void clone_nonterms(IrModule *m, IrFunc *f, BlockId destination,
     }
 }
 
+/* Clone the closed instruction range [first,last].  Unlike clone_nonterms,
+ * this is safe after the source terminator has been detached: `last` is an
+ * arena-stable instruction identity captured before appending any clones. */
+static void clone_range(IrModule *m, IrFunc *f, BlockId destination,
+                        const IrInst *first, const IrInst *last, IrOperand *map,
+                        u32 nmap)
+{
+    IrBlock *dst = &f->blocks[destination.v - 1];
+    const IrInst *old;
+
+    for (old = first; old; old = old->next) {
+        IrInst *copy = arena_alloc(m->arena, sizeof(*copy), _Alignof(IrInst));
+        u32 i;
+
+        memcpy(copy, old, sizeof(*copy));
+        copy->ops = NULL;
+        copy->edges = NULL;
+        copy->nedges = 0;
+        if (old->nops) {
+            copy->ops = arena_alloc(m->arena, old->nops * sizeof(*copy->ops),
+                                    _Alignof(IrOperand));
+            for (i = 0; i < old->nops; i++)
+                copy->ops[i] = substitute(old->ops[i], map, nmap);
+        }
+        if (old->result.v) {
+            copy->result = new_inst_value(m, f, (IrType)old->type, destination,
+                                          dst->ninsts);
+            if (old->result.v < nmap)
+                map[old->result.v] = ir_op_value(f, copy->result);
+        }
+        append_inst(dst, copy);
+        if (old == last)
+            break;
+    }
+}
+
 typedef struct {
     const Loop *loop;
     IrBlock *header;
@@ -492,6 +528,8 @@ typedef struct {
 static bool analyze_full(IrFunc *f, const Loop *loop, const OptConfig *cfg,
                          FullPlan *plan)
 {
+    TripInfo shared_trip;
+    const char *trip_reason = NULL;
     BlockId header_id = loop_header(loop);
     BlockId latch_id;
     BlockId preheader_id = loop_preheader(loop);
@@ -506,7 +544,9 @@ static bool analyze_full(IrFunc *f, const Loop *loop, const OptConfig *cfg,
     bool modular;
     bool direct_iv;
     bool direct_update;
+    bool have_shared_trip;
     u32 i;
+    u64 static_copies;
 
     memset(plan, 0, sizeof(*plan));
     plan->loop = loop;
@@ -553,6 +593,24 @@ static bool analyze_full(IrFunc *f, const Loop *loop, const OptConfig *cfg,
      * they can use that proof; keep them intact until that transform exists. */
     if (plan->exitedge == &term->edges[0])
         goto unsupported;
+    /* Share the canonical induction recognizer with the other loop passes.
+     * The local checks below intentionally remain stricter: this transform
+     * only accepts a direct two-block recurrence whose cloned instruction
+     * order is mechanically evident.  A forwarding preheader can make the
+     * shared result runtime-shaped; resolve_preheader_constant() below is
+     * the narrow additional proof for that case. */
+    have_shared_trip =
+        loop_trip_analyze(f, loop, cfg->fwrapv, &shared_trip, &trip_reason);
+    if (!have_shared_trip) {
+        if (trip_reason && strcmp(trip_reason, "trip_wrap") == 0) {
+            OPT_BAIL(cfg, "unroll", "unroll_trip_wrap");
+            return false;
+        }
+        /* The shared service intentionally accepts only a direct header IV.
+         * Keep the older transform-local trace below for trunc/zext lowered
+         * subword recurrences; it is what proves exact modular nontermination
+         * instead of weakening that case to an unsupported-shape bail. */
+    }
     plan->compare = find_value_inst(f, (ValueId){(u32)term->ops[0].a});
     if (!plan->compare || plan->compare->op != IR_ICMP ||
         plan->compare->nops != 2)
@@ -596,18 +654,26 @@ static bool analyze_full(IrFunc *f, const Loop *loop, const OptConfig *cfg,
         OPT_BAIL(cfg, "unroll", "unroll_trip_wrap");
         return false;
     }
+    if (have_shared_trip && shared_trip.kind == LOOP_TRIP_CONSTANT &&
+        shared_trip.constant != plan->trip)
+        CGF_ICE("unroll: shared and local trip proofs disagree");
     if (!direct_iv || !direct_update || plan->header->ninsts != 2)
         goto unsupported;
     plan->cost = plan->header->ninsts + plan->latch->ninsts - 2;
-    if (plan->trip > 8 || plan->trip * plan->cost > cfg->unroll_threshold) {
+    if (plan->trip > 12) {
         OPT_BAIL(cfg, "unroll", "unroll_partial_unsupported");
+        return false;
+    }
+    static_copies = plan->trip <= 8 ? plan->trip : 4 + plan->trip % 4;
+    if (static_copies * plan->cost > cfg->unroll_threshold) {
+        OPT_BAIL(cfg, "unroll", "unroll_size");
         return false;
     }
     if (cfg->level == OPT_OS && plan->trip > 1) {
         OPT_BAIL(cfg, "unroll", "unroll_size");
         return false;
     }
-    if (loop_has_pinned(f, loop)) {
+    if (loop_has_pinned(f, loop) && !(plan->trip >= 9 && plan->trip <= 12)) {
         OPT_BAIL(cfg, "unroll", "unroll_pinned");
         return false;
     }
@@ -686,6 +752,92 @@ static void commit_full(IrModule *m, IrFunc *f, const FullPlan *plan)
     ir_func_renumber(m->arena, f);
 }
 
+/* Constant partial unroll for the deliberately narrow canonical shape
+ * accepted by analyze_full().  Peel trip%4 iterations into the preheader,
+ * then serialize four copies of the original latch body in each remaining
+ * iteration.  Prefix peeling is equivalent to a suffix remainder for a
+ * constant trip count and avoids manufacturing a second live-out merge:
+ * the original header/exit LCSSA edge remains the sole final-state path.
+ *
+ * No block is appended here.  IrInst identities and numeric IDs are stable
+ * while value storage grows; all edge operands are resolved again at the
+ * commit point rather than retained in a cross-mutation plan. */
+static void commit_partial_four(IrModule *m, IrFunc *f, const FullPlan *plan)
+{
+    BlockId preheader_id = loop_preheader(plan->loop);
+    BlockId latch_id = loop_latch(plan->loop, 0);
+    IrBlock *preheader = &f->blocks[preheader_id.v - 1];
+    IrBlock *latch = &f->blocks[latch_id.v - 1];
+    IrInst *preterm = preheader->last;
+    IrInst *latchterm = latch->last;
+    IrInst *body_first = latch->first;
+    IrInst *body_last = NULL;
+    IrOperand *map;
+    IrOperand *state;
+    u32 nmap = f->nvals + 1;
+    u32 nparams = plan->header->nparams;
+    u32 i;
+    u32 copy;
+    u64 peel = plan->trip % 4;
+
+    for (body_last = latch->first; body_last && body_last->next != latchterm;
+         body_last = body_last->next)
+        ;
+    if (!body_first || !body_last || !preterm || !latchterm)
+        CGF_ICE("unroll: partial plan lost its canonical terminators");
+    map = arena_alloc(m->arena, nmap * sizeof(*map), _Alignof(IrOperand));
+    state = arena_alloc(m->arena, (nparams ? nparams : 1) * sizeof(*state),
+                        _Alignof(IrOperand));
+    memset(map, 0, nmap * sizeof(*map));
+
+    /* Peel the constant remainder, preserving the exact serial operation
+     * order (including floating-point and pinned memory operations). */
+    for (i = 0; i < nparams; i++)
+        map[plan->header->params[i].v] = plan->preedge->args[i];
+    /* Every peeled iteration is reached through the compare's continue edge.
+     * A legal latch instruction may consume that header-defined predicate;
+     * remap it explicitly so the peeled clone never references a definition
+     * that still lives in the not-yet-executed loop header. */
+    map[plan->compare->result.v] = ir_op_iconst((IrType)plan->compare->type, 1);
+    detach_terminator(preheader, preterm);
+    for (copy = 0; copy < peel; copy++) {
+        clone_range(m, f, preheader_id, body_first, body_last, map, nmap);
+        for (i = 0; i < nparams; i++)
+            state[i] = substitute(plan->backedge->args[i], map, nmap);
+        for (i = 0; i < nparams; i++)
+            map[plan->header->params[i].v] = state[i];
+    }
+    preterm->edges[0].args = arena_alloc(
+        m->arena, (nparams ? nparams : 1) * sizeof(*preterm->edges[0].args),
+        _Alignof(IrOperand));
+    preterm->edges[0].nargs = nparams;
+    for (i = 0; i < nparams; i++)
+        preterm->edges[0].args[i] = map[plan->header->params[i].v];
+    append_inst(preheader, preterm);
+
+    /* The original body is lane zero.  Each subsequent clone consumes the
+     * prior lane's complete state, so FP reductions remain one serial chain. */
+    memset(map, 0, nmap * sizeof(*map));
+    for (i = 0; i < nparams; i++)
+        map[plan->header->params[i].v] = plan->backedge->args[i];
+    detach_terminator(latch, latchterm);
+    for (copy = 1; copy < 4; copy++) {
+        clone_range(m, f, latch_id, body_first, body_last, map, nmap);
+        for (i = 0; i < nparams; i++)
+            state[i] = substitute(plan->backedge->args[i], map, nmap);
+        for (i = 0; i < nparams; i++)
+            map[plan->header->params[i].v] = state[i];
+    }
+    latchterm->edges[0].args = arena_alloc(
+        m->arena, (nparams ? nparams : 1) * sizeof(*latchterm->edges[0].args),
+        _Alignof(IrOperand));
+    latchterm->edges[0].nargs = nparams;
+    for (i = 0; i < nparams; i++)
+        latchterm->edges[0].args[i] = map[plan->header->params[i].v];
+    append_inst(latch, latchterm);
+    ir_func_renumber(m->arena, f);
+}
+
 static bool unroll_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     OptConfig fc = *cfg;
@@ -735,7 +887,10 @@ static bool unroll_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
                     if (loop_depth(loop) != max_depth ||
                         !analyze_full(f, loop, &fc, &plan))
                         continue;
-                    commit_full(m, f, &plan);
+                    if (plan.trip <= 8)
+                        commit_full(m, f, &plan);
+                    else
+                        commit_partial_four(m, f, &plan);
                     changed = true;
                     committed = true;
                     break;
@@ -763,4 +918,5 @@ bool opt_unroll(IrModule *m, const OptConfig *cfg)
     return changed;
 }
 
-const Pass OPT_PASS_UNROLL = {"unroll", opt_unroll, PASS_PINNED_EXACT};
+const Pass OPT_PASS_UNROLL = {"unroll", opt_unroll,
+                              PASS_PINNED_METADATA_CLONES};

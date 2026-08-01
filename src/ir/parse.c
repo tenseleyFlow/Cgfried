@@ -875,7 +875,15 @@ static bool parse_inst(P *p)
             return false;
         if (!expect(p, T_COMMA, "','"))
             return false;
-        return parse_atom(p, ty, &in->ops[1]);
+        if (!parse_atom(p, ty, &in->ops[1]))
+            return false;
+        if ((IrOp)op == IR_ICMP && peek(p)->kind == T_COMMA &&
+            tok_is(peek2(p), "bounds")) {
+            next(p);
+            next(p);
+            in->flags |= IRF_BOUNDS_CHECK;
+        }
+        return true;
     }
     case IR_FNEG:
         if (!parse_type(p, &ty, "the operand type"))

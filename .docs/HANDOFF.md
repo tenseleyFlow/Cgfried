@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–34
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–35
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -47,19 +47,21 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   block-local CSE → DCE → general CFG cleanup. O2+ adds GVN, DSE and bounded
   jump threading, then internal-only IPO and a bottom-up SCC inliner. O2 adds
   canonical natural-loop analysis, LICM and affine-IV strength reduction; O3
-  adds exact bounded full unroll. Scalar, loop and unroll groups are separate
-  fixpoints so CFG cleanup cannot oscillate with canonicalization. The
+  adds exact bounded full unroll. O2 now adds edge-sensitive BCE; O3 adds
+  factor-four constant partial unroll, loop unswitching, and conservative
+  adjacent-loop fusion behind a shared region cloner and affine dependence
+  service. Scalar, loop and unroll groups are separate fixpoints so CFG
+  cleanup cannot oscillate with canonicalization. The
   50-program corpus remains behaviorally equal across O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 35** —
-  `.docs/sprints/07-optimizations/s35-loops-2.md`, first landing the shared
-  ID-based loop-region cloner/runtime `TripInfo` foundation, then unswitch,
-  BCE, dependence analysis and fusion.
+- **Next action: Sprint 36** —
+  `.docs/sprints/07-optimizations/s36-vectorize-fastmath.md`, consuming the
+  loop/dependence foundation for vectorization and explicit fast-math rules.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 402 tests, 92702 assertions, 0 failures
-cgf-test: total=458 pass=458 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 437 tests, 92984 assertions, 0 failures
+cgf-test: total=469 pass=469 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
@@ -69,6 +71,12 @@ objdiff: 38/38 · e2ediff: 10/10 · afsld lane: 12 fixtures
 debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 181 predefines match gcc; __GNUC__ absent
 ```
+
+Local Sprint 35 validation note: GCC, Clang, and the full ASan+UBSan suite are
+green. The installed Valgrind cannot start on this machine because the stripped
+`ld-linux-x86-64.so.2` lacks the mandatory `memcmp` redirection symbol and no
+matching glibc debuginfo is installed; it exits before loading the test binary.
+Do not misreport that environment failure as a completed Valgrind run.
 
 ---
 
@@ -249,11 +257,38 @@ because each one was learned the hard way.
 - **Signed no-wrap is explicit IR provenance.** `IRF_NSW` comes only from
   signed source arithmetic when `-fwrapv` is off. Opcode-changing rewrites
   clear it; unsigned and `-fwrapv` arithmetic never acquire it.
-- **Sprint 34 unroll is bounded full only.** It proves exact constant modular
-  trips and serially expands direct two-block loops. Partial/runtime/peel and
-  pinned-body cloning are named bails until Sprint 35 lands stable-ID
-  `TripInfo` plus a complete loop-region cloner. Do not treat a straight-line
-  copier as that shared infrastructure.
+- **Loop IDs are transaction-stable, not eternal.** `LoopInduction` and
+  `TripInfo` keep block/value IDs only across a planned mutation. Any
+  renumber/compaction invalidates them; rebuild dominance and the loop tree.
+  `loop_clone_region` preallocates blocks/values, remaps block params, results,
+  internal edges and LCSSA exits, and preserves flags/locations/pinned
+  metadata without retaining raw block pointers across array growth.
+- **Sprint 35 partial unroll is constant-trip only.** Exact trips 9–12 use a
+  serial remainder peel plus a factor-four loop, preserving FP order and
+  pinned-operation metadata. Runtime `TripInfo` currently recognizes syntax
+  but does not prove modular termination, so runtime-bound unroll remains the
+  explicit `unroll_runtime_unsupported` bail.
+- **Unswitch clones static effects but preserves dynamic effects.** Exactly one
+  specialized loop executes per invocation, so cloning volatile operations is
+  legal when the invariant condition DAG is speculation-safe. `IRF_NSW`
+  arithmetic is not hoisted without a non-overflow proof. The shipped cap is
+  deliberately stronger than the roadmap: at most one unswitch per function
+  and at most 2× function growth.
+- **Dependence unknown always forbids restructuring.** Exact affine distances
+  use the sign `iteration_b - iteration_a`; distinct pointer expressions prove
+  independence only through non-unknown, disjoint points-to object sets. Byte
+  offsets/types alone cannot prove different bases. Fusion additionally
+  requires exact constant trips because syntactically equal runtime guards do
+  not prove both loops terminate. A second-loop external operand must dominate
+  the first loop's preheader, and any direct second-loop live-out forbids the
+  rewrite.
+- **BCE facts are edge-sensitive and proof-only.** Ranges are keyed by value
+  and incoming edge, step overshoot is retained, and `-fwrapv`/subword modular
+  crossings bail. `IRF_BOUNDS_CHECK` is the Sprint 44 provenance bridge: only
+  marked or ordinary user comparisons proven constant may be folded.
+- **Fission/interchange are deferred, not stubbed.** There is no aggressive
+  loop flag or no-op CI lane. Their whole-iteration reordering needs a broader
+  dependence proof and the later torture/self-host evidence base.
 - **No host `sizeof` / conditional compilation in `src/sema/`.**
   `char` is unsigned on arm64-linux; a host assumption there
   miscompiles every cross build with no diagnostic
@@ -387,6 +422,7 @@ sh scripts/rt_diff.sh build/cgfried
 sh scripts/driver_matrix.sh build/cgfried
 sh scripts/debug_info_lane.sh build/cgfried
 sh scripts/opt_driver.sh build/cgfried
+sh scripts/s35_loop_driver.sh build/cgfried build/cgf-test
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
 # CI:
@@ -400,6 +436,9 @@ Useful env knobs (all read in `toolchain.c`, the single `getenv` site):
 `CGF_CRT_DIR`, `CGF_INCLUDE_DIR`, `CGF_SPILL_ALL=1`,
 `CGF_DUMP_BAD_IR=path`, `CGF_VERIFY_AFTER_EACH=1`,
 `CGF_OPT_BAIL_LOG=1`. `-ftime-report` is a driver flag, not an env knob.
+Sprint 35 adds independent bisection toggles:
+`CGF_OPT_DISABLE_UNSWITCH=1`, `CGF_OPT_DISABLE_BCE=1`, and
+`CGF_OPT_DISABLE_FUSION=1`.
 
 ---
 

@@ -302,6 +302,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         print_atom(out, m, vn, &in->ops[0]);
         buf_printf(out, ", ");
         print_atom(out, m, vn, &in->ops[1]);
+        if (in->flags & IRF_BOUNDS_CHECK)
+            buf_printf(out, ", bounds");
         break;
     case IR_FCMP:
         buf_printf(out, "fcmp %s %s ", fcmp_names[in->subop],

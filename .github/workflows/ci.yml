@@ -11,25 +11,25 @@ jobs:
   build-gcc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: make CC=gcc
 
   build-clang:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: make CC=clang
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: make CC=gcc test
 
   test-san:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: make CC=gcc test-san
 
   # 100k fixed-seed iterations under ASan+UBSan. Fixed seed, not random:
@@ -38,7 +38,7 @@ jobs:
   fuzz-frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: build with sanitizers
         run: |
           make BUILD=build-san \
@@ -54,7 +54,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Pinned major from scripts/check_format.sh, installed via apt.llvm.org
       # (ubuntu's own repos lag behind the pin).
       - name: install pinned clang-format
@@ -68,14 +68,14 @@ jobs:
   toolchain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: submodules (https mirror of the SSH URLs)
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --depth 1
       - uses: dtolnay/rust-toolchain@stable
       - name: cache cargo + tool targets
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
