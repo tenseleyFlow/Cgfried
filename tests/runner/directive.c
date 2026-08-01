@@ -20,6 +20,7 @@ static const DirectiveName directive_table[] = {
     {"FLAGS", DIR_FLAGS},
     {"ENV", DIR_ENV},
     {"OPT_EQ", DIR_OPT_EQ},
+    {"OFAST_DIVERGENCE_OK", DIR_OFAST_DIVERGENCE_OK},
     {"ASM_CHECK", DIR_ASM_CHECK},
     {"IR_CHECK", DIR_IR_CHECK},
     {"IR_CHECK-NOT", DIR_IR_CHECK_NOT},
@@ -35,6 +36,8 @@ typedef struct {
     bool seen_timeout;
     bool seen_flags;
     bool seen_opt_eq;
+    bool seen_ofast_divergence_ok;
+    u32 ofast_divergence_line;
 } Parser;
 
 static const char *const opt_levels[] = {
@@ -446,6 +449,28 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
                 p->set->nopt_levels = 0;
             }
             break;
+        case DIR_OFAST_DIVERGENCE_OK:
+            if (p->seen_ofast_divergence_ok) {
+                err(p, line_no, "duplicate OFAST_DIVERGENCE_OK directive");
+                return;
+            }
+            p->seen_ofast_divergence_ok = true;
+            if (value_len == 0) {
+                err(p, line_no, "OFAST_DIVERGENCE_OK needs a reason");
+                return;
+            }
+            if (!((value_len == strlen("fp-reduction-reassoc") &&
+                   memcmp(value, "fp-reduction-reassoc", value_len) == 0) ||
+                  (value_len == strlen("finite-math-fold") &&
+                   memcmp(value, "finite-math-fold", value_len) == 0))) {
+                errf(p, line_no, "unknown OFAST_DIVERGENCE_OK reason ", value,
+                     value_len);
+                return;
+            }
+            d.value = arena_strndup(p->arena, value, value_len);
+            p->set->ofast_divergence_reason = d.value;
+            p->ofast_divergence_line = line_no;
+            break;
         }
 
         if (hit->kind == DIR_ERROR_EXPECTED)
@@ -461,7 +486,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             hit->kind == DIR_MIR_CHECK || hit->kind == DIR_ASM_CHECK ||
             hit->kind == DIR_IR_CHECK_NOT || hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
-            hit->kind == DIR_SKIP || hit->kind == DIR_ENV)
+            hit->kind == DIR_SKIP || hit->kind == DIR_ENV ||
+            hit->kind == DIR_OFAST_DIVERGENCE_OK)
             add_dir(p, d);
     }
 }
@@ -505,5 +531,16 @@ void directive_parse(Arena *a, const char *src, size_t len, DirectiveSet *out)
                 break;
             }
         }
+    }
+    if (out->ofast_divergence_reason) {
+        size_t i;
+        bool has_ofast = false;
+
+        for (i = 0; i < out->nopt_levels; i++)
+            if (strcmp(out->opt_levels[i], "-Ofast") == 0)
+                has_ofast = true;
+        if (!has_ofast)
+            err(&p, p.ofast_divergence_line,
+                "OFAST_DIVERGENCE_OK requires OPT_EQ containing -Ofast");
     }
 }

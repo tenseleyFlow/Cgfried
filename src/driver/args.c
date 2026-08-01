@@ -81,6 +81,19 @@ enum {
     F_FNO_STRICT_ALIAS,
     F_FOMIT_FP,
     F_FNO_OMIT_FP,
+    F_FFAST_MATH,
+    F_FNO_FAST_MATH,
+    F_FASSOCIATIVE_MATH,
+    F_FNO_ASSOCIATIVE_MATH,
+    F_FSIGNED_ZEROS,
+    F_FNO_SIGNED_ZEROS,
+    F_FFINITE_MATH,
+    F_FNO_FINITE_MATH,
+    F_FRECIPROCAL_MATH,
+    F_FNO_RECIPROCAL_MATH,
+    F_FMATH_ERRNO,
+    F_FNO_MATH_ERRNO,
+    F_FFP_CONTRACT,
     F_FGENERAL,
     F_DEBUG_G,
     F_SHARED,
@@ -419,6 +432,8 @@ static bool h_dep(DriverArgs *da, const FlagSpec *fs, const char *val)
 
 static bool h_opt(DriverArgs *da, const FlagSpec *fs, const char *val)
 {
+    bool valid = true;
+
     (void)fs;
     if (val[0] == '\0') {
         da->opt_level = OPT_O1;
@@ -434,9 +449,13 @@ static bool h_opt(DriverArgs *da, const FlagSpec *fs, const char *val)
         da->opt_level = OPT_O1; /* gcc's -Og; our nearest stored level */
     } else if (val[0] >= '0' && val[0] <= '9') {
         da->opt_level = OPT_O3; /* -O7: gcc clamps, so do we */
-    } else if (!da->bad_value) {
-        da->bad_value = "-O";
+    } else {
+        if (!da->bad_value)
+            da->bad_value = "-O";
+        valid = false;
     }
+    if (valid)
+        da->fast_math = da->opt_level == OPT_OFAST;
     return true;
 }
 
@@ -558,6 +577,42 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
         break;
     case F_FNO_OMIT_FP:
         break; /* already the only behavior */
+    case F_FFAST_MATH:
+        da->fast_math = true;
+        break;
+    case F_FNO_FAST_MATH:
+        da->fast_math = false;
+        break;
+    case F_FASSOCIATIVE_MATH:
+    case F_FNO_ASSOCIATIVE_MATH:
+    case F_FSIGNED_ZEROS:
+    case F_FNO_SIGNED_ZEROS:
+    case F_FFINITE_MATH:
+    case F_FNO_FINITE_MATH:
+    case F_FRECIPROCAL_MATH:
+    case F_FNO_RECIPROCAL_MATH:
+    case F_FMATH_ERRNO:
+    case F_FNO_MATH_ERRNO:
+        VecStr_push(&da->warn_fast_math, fs->name);
+        break;
+    case F_FFP_CONTRACT: {
+        size_t n;
+        char *spelling;
+
+        if (strcmp(val, "off") != 0 && strcmp(val, "on") != 0 &&
+            strcmp(val, "fast") != 0 &&
+            strcmp(val, "fast-honor-pragmas") != 0) {
+            if (!da->bad_value)
+                da->bad_value = "-ffp-contract=";
+            break;
+        }
+        n = strlen(fs->name) + strlen(val);
+        spelling = arena_alloc(g_ps->arena, n + 1, 1);
+        memcpy(spelling, fs->name, strlen(fs->name));
+        memcpy(spelling + strlen(fs->name), val, strlen(val) + 1);
+        VecStr_push(&da->warn_fast_math, spelling);
+        break;
+    }
     case F_FGENERAL: {
         /* Unknown -f<x>: warning, continue — hard-erroring breaks
          * flag-probing configure scripts. -flto/-fprofile-* are named
@@ -723,6 +778,19 @@ static const FlagSpec args_flag_table[] = {
     {"-fno-strict-aliasing", ARG_NONE, h_fflag, F_FNO_STRICT_ALIAS},
     {"-fomit-frame-pointer", ARG_NONE, h_fflag, F_FOMIT_FP},
     {"-fno-omit-frame-pointer", ARG_NONE, h_fflag, F_FNO_OMIT_FP},
+    {"-ffast-math", ARG_NONE, h_fflag, F_FFAST_MATH},
+    {"-fno-fast-math", ARG_NONE, h_fflag, F_FNO_FAST_MATH},
+    {"-fassociative-math", ARG_NONE, h_fflag, F_FASSOCIATIVE_MATH},
+    {"-fno-associative-math", ARG_NONE, h_fflag, F_FNO_ASSOCIATIVE_MATH},
+    {"-fsigned-zeros", ARG_NONE, h_fflag, F_FSIGNED_ZEROS},
+    {"-fno-signed-zeros", ARG_NONE, h_fflag, F_FNO_SIGNED_ZEROS},
+    {"-ffinite-math-only", ARG_NONE, h_fflag, F_FFINITE_MATH},
+    {"-fno-finite-math-only", ARG_NONE, h_fflag, F_FNO_FINITE_MATH},
+    {"-freciprocal-math", ARG_NONE, h_fflag, F_FRECIPROCAL_MATH},
+    {"-fno-reciprocal-math", ARG_NONE, h_fflag, F_FNO_RECIPROCAL_MATH},
+    {"-fmath-errno", ARG_NONE, h_fflag, F_FMATH_ERRNO},
+    {"-fno-math-errno", ARG_NONE, h_fflag, F_FNO_MATH_ERRNO},
+    {"-ffp-contract=", ARG_JOINED, h_fflag, F_FFP_CONTRACT},
     {"-f", ARG_JOINED, h_fflag, F_FGENERAL},
     /* debug / deferred */
     {"-g", ARG_JOINED, h_debug, F_DEBUG_G},
@@ -1060,4 +1128,5 @@ void args_free(DriverArgs *a)
     VecLink_free(&a->link_inputs);
     VecInput_free(&a->inputs);
     VecStr_free(&a->warn_unrecognized);
+    VecStr_free(&a->warn_fast_math);
 }

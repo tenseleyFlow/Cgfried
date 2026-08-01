@@ -1,0 +1,8 @@
+// FLAGS: -Ofast -fno-signed-zeros
+// WARNING_EXPECTED: option '-fno-signed-zeros' is bundled-only in v0.1.0; see docs/fast-math.md
+// IR_CHECK: ret f64 0x0000000000000000
+func f64 @f(f64 %x) {
+entry():
+    %a = fmul f64 %x, 0x0000000000000000
+    ret f64 %a
+}

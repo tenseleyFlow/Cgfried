@@ -60,6 +60,73 @@ void test_args_optimization_controls(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_fast_math_bundle_and_order(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-Ofast", (char *)"-O3", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_O3);
+    T_ASSERT(t, !a.fast_math);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-O3", (char *)"-Ofast", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_OFAST);
+    T_ASSERT(t, a.fast_math);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-O2", (char *)"-ffast-math", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_O2);
+    T_ASSERT(t, a.fast_math);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-Ofast", (char *)"-fno-fast-math", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_OFAST);
+    T_ASSERT(t, !a.fast_math);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_fast_math_components_are_recognized_bundled_only(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-fassociative-math", (char *)"-fno-signed-zeros",
+          (char *)"-ffinite-math-only", (char *)"-freciprocal-math",
+          (char *)"-fno-math-errno", (char *)"-ffp-contract=off",
+          (char *)"t.c");
+    T_ASSERT(t, !a.fast_math);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    T_ASSERT_EQ_INT(t, (int)a.warn_fast_math.len, 6);
+    T_ASSERT_EQ_STR(t, a.warn_fast_math.data[0], "-fassociative-math");
+    T_ASSERT_EQ_STR(t, a.warn_fast_math.data[1], "-fno-signed-zeros");
+    T_ASSERT_EQ_STR(t, a.warn_fast_math.data[2], "-ffinite-math-only");
+    T_ASSERT_EQ_STR(t, a.warn_fast_math.data[3], "-freciprocal-math");
+    T_ASSERT_EQ_STR(t, a.warn_fast_math.data[4], "-fno-math-errno");
+    T_ASSERT_EQ_STR(t, a.warn_fast_math.data[5], "-ffp-contract=off");
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-ffast-math", (char *)"-fno-associative-math",
+          (char *)"-fsigned-zeros", (char *)"-fno-finite-math-only",
+          (char *)"-fno-reciprocal-math", (char *)"-fmath-errno",
+          (char *)"-ffp-contract=on", (char *)"-ffp-contract=fast",
+          (char *)"-ffp-contract=fast-honor-pragmas", (char *)"t.c");
+    T_ASSERT(t, a.fast_math); /* components warn; they do not split it */
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    T_ASSERT_EQ_INT(t, (int)a.warn_fast_math.len, 8);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-ffp-contract=surprise", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-ffp-contract=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_fast_math.len, 0);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_either_forms_mf_mt_mq_x_b(TestCtx *t)
 {
     Arena ar;

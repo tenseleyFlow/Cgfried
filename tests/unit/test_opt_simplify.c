@@ -405,6 +405,39 @@ void test_opt_simplify_fp_exact_and_forbidden_identities(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_simplify_fast_math_relicenses_fp_identities(TestCtx *t)
+{
+    SimplifyFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Buf text;
+    char *s;
+
+    simplify_fix_init(&f);
+    m = simplify_parse(&f, "func f64 @f(f64 %x) {\n"
+                           "entry():\n"
+                           "    %a = fadd f64 %x, 0x0000000000000000\n"
+                           "    %b = fmul f64 %a, 0x3FF0000000000000\n"
+                           "    %c = fmul f64 %b, 0x0000000000000000\n"
+                           "    %d = fsub f64 %x, %x\n"
+                           "    %r = fadd f64 %c, %d\n"
+                           "    ret f64 %r\n"
+                           "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_OFAST);
+    T_ASSERT(t, m && opt_simplify(m, &cfg));
+    if (m) {
+        s = simplify_print(m, &text);
+        T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FADD), 0);
+        T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FMUL), 0);
+        T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FSUB), 0);
+        T_ASSERT(t, strstr(s, "ret f64 0x0000000000000000") != NULL);
+        T_ASSERT(t, ir_verify(f.dc, m));
+        buf_free(&text);
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_simplify_preserves_undef_derived_reflexive_and_div(TestCtx *t)
 {
     SimplifyFix f;

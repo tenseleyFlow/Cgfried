@@ -68,7 +68,8 @@ static const char *const help_text[] = {
     "\n",
     "Codegen / language:\n"
     "  -O<n>             optimization level: 0 (default) 1 2 3 s fast;\n"
-    "                    -O means -O1; the LAST -O wins\n"
+    "                    -O means -O1; the LAST -O wins. -Ofast is -O3\n"
+    "                    plus the bundle documented in docs/fast-math.md\n"
     "  -ftime-report     print per-pass invocation counts and wall time\n"
     "  -g[-level]        emit DWARF v4 line tables (-g1/-g2/-g3 all\n"
     "                    mean line-level debug info; -g0 disables)\n"
@@ -90,6 +91,9 @@ static const char *const help_text[] = {
     "  -ffreestanding    freestanding environment (-fhosted restores)\n"
     "  -fwrapv           signed overflow wraps\n"
     "  -fno-strict-aliasing  disable type-based aliasing\n"
+    "  -ffast-math       enable the complete fast-math bundle\n"
+    "  -fno-fast-math    disable it; component flags are accepted but\n"
+    "                    bundled-only and warn (docs/fast-math.md)\n"
     "  Unknown -f/-W options warn and continue (configure-script parity);\n"
     "  any other unknown option is an error.\n"
     "\n"
@@ -491,6 +495,11 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
     char why[256];
 
     opt_config_init(&cfg, (OptLevel)a->opt_level);
+    cfg.fast_math.reassoc = a->fast_math;
+    cfg.fast_math.no_nans = a->fast_math;
+    cfg.fast_math.no_infs = a->fast_math;
+    cfg.fast_math.no_signed_zeros = a->fast_math;
+    cfg.fast_math.reciprocal_math = a->fast_math;
     cfg.no_strict_aliasing = a->fno_strict_aliasing;
     cfg.fwrapv = a->fwrapv;
     cfg.debug_info = a->debug_level != 0;
@@ -499,6 +508,7 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
     cfg.disable_unswitch = env_is_one("CGF_OPT_DISABLE_UNSWITCH");
     cfg.disable_bce = env_is_one("CGF_OPT_DISABLE_BCE");
     cfg.disable_fusion = env_is_one("CGF_OPT_DISABLE_FUSION");
+    cfg.disable_vectorize = env_is_one("CGF_OPT_DISABLE_VECTORIZE");
     cfg.time_report = a->time_report;
     cfg.dump_bad_ir = cgf_env("CGF_DUMP_BAD_IR");
     (void)opt_run_pipeline(m, &cfg);
@@ -1168,6 +1178,7 @@ int driver_main(int argc, char **argv)
     DriverArgs a;
     int status = CGF_EXIT_OK;
     size_t k;
+    bool command_line_warning_error;
 
     if (argc < 2) {
         fprintf(stderr, "usage: cgfried [options] file...\n");
@@ -1180,13 +1191,25 @@ int driver_main(int argc, char **argv)
     a = args_parse(&arena, argc, argv);
     diag_set_max_errors(dc, a.max_errors);
 
-    /* Flag-parse warnings first (they never stop the build). */
-    if (!a.no_warnings)
+    command_line_warning_error =
+        a.werror && !a.no_warnings &&
+        (a.warn_unrecognized.len != 0 || a.warn_fast_math.len != 0);
+
+    /* Flag-parse warnings are subject to the already-live bare -Werror
+     * contract.  Named warning policy remains Sprint 37 territory. */
+    if (!a.no_warnings) {
         for (k = 0; k < a.warn_unrecognized.len; k++)
             fprintf(stderr,
-                    "cgfried: warning: unrecognized command-line option "
+                    "cgfried: %s: unrecognized command-line option "
                     "'%s'\n",
+                    a.werror ? "error" : "warning",
                     a.warn_unrecognized.data[k]);
+        for (k = 0; k < a.warn_fast_math.len; k++)
+            fprintf(stderr,
+                    "cgfried: %s: option '%s' is bundled-only in "
+                    "v0.1.0; see docs/fast-math.md\n",
+                    a.werror ? "error" : "warning", a.warn_fast_math.data[k]);
+    }
 
     if (a.unknown_opt) {
         if (a.suggest[0])
@@ -1220,6 +1243,9 @@ int driver_main(int argc, char **argv)
     } else if (a.o_multi_conflict) {
         diag_emit(dc, DIAG_ERROR, no_span,
                   "cannot specify -o with -c, -S or -E with multiple files");
+        status = CGF_EXIT_COMPILE;
+    } else if (command_line_warning_error) {
+        /* The promoted diagnostics were rendered above; do not compile. */
         status = CGF_EXIT_COMPILE;
     } else if (a.show_help) {
         for (k = 0; k < CGF_ARRAY_LEN(help_text); k++)

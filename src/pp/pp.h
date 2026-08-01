@@ -274,7 +274,9 @@ typedef struct PpFrame {
     size_t guard_cond;       /* cond-stack index of the guard conditional */
 } PpFrame;
 
-/* --- STDC pragma state (recorded now; consumed Sprints 15/36) ----------- */
+/* --- STDC pragma state --------------------------------------------------
+ * Recorded for diagnostics and -E fidelity. FENV_ACCESS is not transported
+ * into IR yet; consequently __STDC_IEC_559__ remains undefined. */
 
 typedef enum { PP_STDC_DEFAULT, PP_STDC_ON, PP_STDC_OFF } PpStdcSwitch;
 

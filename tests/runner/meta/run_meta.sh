@@ -54,6 +54,21 @@ expect opt_eq_pass.c 0 "pass=1"
 # Anti-vacuity: both level-specific runs satisfy CHECK/EXIT_CODE, but their
 # full stdout differs, so OPT_EQ itself must fail and name both levels.
 expect opt_eq_fail.c 1 "OPT_EQ stdout mismatch: -O0 vs -O1"
+expect ofast_tagged_diverge.c 0 "pass=1"
+expect ofast_tagged_nondiverge.c 0 "pass=1"
+# The first listed level may be -Ofast: comparison still anchors on the first
+# strict baseline, never on the licensed result.
+expect ofast_tagged_order.c 0 "pass=1"
+expect ofast_untagged_diverge.c 1 "OPT_EQ stdout mismatch: -O0 vs -Ofast"
+# A tag licenses only -Ofast stdout bytes. Strict-level divergence, compiler
+# failure, and runtime failure remain hard failures.
+expect ofast_tagged_o3_diverge.c 1 "OPT_EQ stdout mismatch: -O0 vs -O3"
+expect ofast_tagged_compile_fail.c 1 "compile exited 1"
+expect ofast_tagged_exit_fail.c 1 "exit code 3, expected 0"
+expect ofast_config_unknown.c 1 "unknown OFAST_DIVERGENCE_OK reason"
+expect ofast_config_duplicate.c 1 "duplicate OFAST_DIVERGENCE_OK directive"
+expect ofast_config_without_ofast.c 1 \
+    "OFAST_DIVERGENCE_OK requires OPT_EQ containing -Ofast"
 expect ir_check_pass.cgfir 0 "pass=1"
 expect mir_check_pass.c 0 "pass=1"
 # F-S22-MIRCHECK: MIR_CHECK was parsed and silently dropped through all
@@ -69,7 +84,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=29 pass=11 fail=9 xfail=1 xpass=1 skip=1 config=6"*) ;;
+*"total=39 pass=14 fail=13 xfail=1 xpass=1 skip=1 config=9"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)

@@ -1019,63 +1019,81 @@ static void run_test(Runner *r, const TestFile *t)
             out = run_pipeline(r, t, &ds, id, timeout, NULL, xfail_id != NULL,
                                NULL);
         } else {
-            RuntimeObservation baseline;
+            RuntimeObservation observations[6];
+            size_t baseline_index = (size_t)-1;
+            size_t nrun = 0;
             size_t level;
 
-            memset(&baseline, 0, sizeof(baseline));
+            memset(observations, 0, sizeof(observations));
             out = OUT_PASS;
             for (level = 0; level < ds.nopt_levels; level++) {
-                RuntimeObservation current;
                 const char *opt = ds.opt_levels[level];
                 char *level_id = aprintf(&r->arena, "%s [%s]", id, opt);
                 Outcome level_out =
                     run_pipeline(r, t, &ds, level_id, timeout, opt,
-                                 xfail_id != NULL, &current);
+                                 xfail_id != NULL, &observations[level]);
+
+                nrun = level + 1;
 
                 if (level_out == OUT_FAIL) {
                     out = OUT_FAIL;
-                    buf_free(&current.stdout_buf);
                     break;
                 }
-                if (!current.valid) {
+                if (!observations[level].valid) {
                     if (!xfail_id)
                         printf("FAIL %s: OPT_EQ requires an end-to-end "
                                "executable C test\n",
                                id);
                     out = OUT_FAIL;
-                    buf_free(&current.stdout_buf);
                     break;
                 }
-                if (level == 0) {
-                    baseline = current;
-                    continue;
-                }
-                if (baseline.exit_status != current.exit_status) {
-                    if (!xfail_id)
-                        printf("FAIL %s: OPT_EQ exit status mismatch: %s=%d "
-                               "vs %s=%d\n",
-                               id, ds.opt_levels[0], baseline.exit_status, opt,
-                               current.exit_status);
-                    out = OUT_FAIL;
-                } else if (baseline.stdout_buf.len != current.stdout_buf.len ||
-                           (baseline.stdout_buf.len != 0 &&
-                            memcmp(baseline.stdout_buf.data,
-                                   current.stdout_buf.data,
-                                   baseline.stdout_buf.len) != 0)) {
-                    if (!xfail_id) {
-                        printf("FAIL %s: OPT_EQ stdout mismatch: %s vs %s\n",
-                               id, ds.opt_levels[0], opt);
-                        print_detail(ds.opt_levels[0], &baseline.stdout_buf);
-                        print_detail(opt, &current.stdout_buf);
-                    }
-                    out = OUT_FAIL;
-                }
-                buf_free(&current.stdout_buf);
-                if (out == OUT_FAIL)
-                    break;
+                if (strcmp(opt, "-Ofast") != 0 && baseline_index == (size_t)-1)
+                    baseline_index = level;
             }
-            if (baseline.valid)
-                buf_free(&baseline.stdout_buf);
+            if (out == OUT_PASS) {
+                const RuntimeObservation *baseline =
+                    &observations[baseline_index];
+                const char *baseline_opt = ds.opt_levels[baseline_index];
+
+                for (level = 0; level < ds.nopt_levels; level++) {
+                    const RuntimeObservation *current = &observations[level];
+                    const char *opt = ds.opt_levels[level];
+                    bool ofast_stdout_licensed =
+                        strcmp(opt, "-Ofast") == 0 &&
+                        ds.ofast_divergence_reason != NULL;
+
+                    if (level == baseline_index)
+                        continue;
+                    if (baseline->exit_status != current->exit_status) {
+                        if (!xfail_id)
+                            printf("FAIL %s: OPT_EQ exit status mismatch: "
+                                   "%s=%d vs %s=%d\n",
+                                   id, baseline_opt, baseline->exit_status, opt,
+                                   current->exit_status);
+                        out = OUT_FAIL;
+                    } else if (baseline->stdout_buf.len !=
+                                   current->stdout_buf.len ||
+                               (baseline->stdout_buf.len != 0 &&
+                                memcmp(baseline->stdout_buf.data,
+                                       current->stdout_buf.data,
+                                       baseline->stdout_buf.len) != 0)) {
+                        if (ofast_stdout_licensed)
+                            continue;
+                        if (!xfail_id) {
+                            printf("FAIL %s: OPT_EQ stdout mismatch: %s vs "
+                                   "%s\n",
+                                   id, baseline_opt, opt);
+                            print_detail(baseline_opt, &baseline->stdout_buf);
+                            print_detail(opt, &current->stdout_buf);
+                        }
+                        out = OUT_FAIL;
+                    }
+                    if (out == OUT_FAIL)
+                        break;
+                }
+            }
+            for (level = 0; level < nrun; level++)
+                buf_free(&observations[level].stdout_buf);
         }
 
         if (xfail_id) {
