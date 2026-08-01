@@ -301,25 +301,11 @@ static u64 key_hash(const GvnKey *key)
 
 static u64 scalar_size(IrType type)
 {
-    switch (type) {
-    case IRT_I8:
-        return 1;
-    case IRT_I16:
-        return 2;
-    case IRT_I32:
-    case IRT_F32:
-        return 4;
-    case IRT_I64:
-    case IRT_F64:
-    case IRT_PTR:
-        return 8;
-    case IRT_F80:
-    case IRT_F128:
-        return 16;
-    case IRT_VOID:
-        break;
-    }
-    CGF_ICE("gvn: memory access has void type");
+    u64 size = ir_type_size(type);
+
+    if (!size)
+        CGF_ICE("gvn: memory access has void type");
+    return size;
 }
 
 static bool is_barrier(const IrInst *in)

@@ -397,6 +397,8 @@ bool opt_strength(IrModule *m, const OptConfig *cfg)
         OptConfig local = *cfg;
         bool reduced_in_func = false;
 
+        if (opt_func_has_vector_ir(f))
+            continue;
         local.current_func = f->name;
         for (;;) {
             Arena scratch;

@@ -30,6 +30,12 @@ static u64 type_size(IrType type)
     case IRT_PTR:
         return 8;
     case IRT_F128:
+    case IRT_V16I8:
+    case IRT_V8I16:
+    case IRT_V4I32:
+    case IRT_V2I64:
+    case IRT_V4F32:
+    case IRT_V2F64:
         return 16;
     case IRT_F80:
         /* The IR has no TargetSpec: x87 object size and payload width differ.
