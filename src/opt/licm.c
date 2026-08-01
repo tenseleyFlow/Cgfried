@@ -36,25 +36,11 @@ const Pass OPT_PASS_LICM = {"licm", opt_licm, PASS_PINNED_EXACT};
 
 static u64 scalar_size(IrType type)
 {
-    switch (type) {
-    case IRT_I8:
-        return 1;
-    case IRT_I16:
-        return 2;
-    case IRT_I32:
-    case IRT_F32:
-        return 4;
-    case IRT_I64:
-    case IRT_F64:
-    case IRT_PTR:
-        return 8;
-    case IRT_F80:
-    case IRT_F128:
-        return 16;
-    case IRT_VOID:
-        break;
-    }
-    CGF_ICE("licm: memory access has void type");
+    u64 size = ir_type_size(type);
+
+    if (!size)
+        CGF_ICE("licm: memory access has void type");
+    return size;
 }
 
 static IrInst *value_inst(IrFunc *f, ValueId value)
@@ -657,6 +643,8 @@ bool opt_licm(IrModule *m, const OptConfig *cfg)
     for (fi = 0; fi < m->nfuncs; fi++) {
         OptConfig fc = *cfg;
 
+        if (opt_func_has_vector_ir(&m->funcs[fi]))
+            continue;
         fc.current_func = m->funcs[fi].name;
         changed |= run_func(m, &m->funcs[fi], &fc);
     }

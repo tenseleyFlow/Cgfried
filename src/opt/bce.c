@@ -585,6 +585,8 @@ bool opt_bce(IrModule *m, const OptConfig *cfg)
     for (fi = 0; fi < m->nfuncs; fi++) {
         OptConfig local = *cfg;
 
+        if (opt_func_has_vector_ir(&m->funcs[fi]))
+            continue;
         local.current_func = m->funcs[fi].name;
         changed |= run_function(m, &m->funcs[fi], &local);
     }

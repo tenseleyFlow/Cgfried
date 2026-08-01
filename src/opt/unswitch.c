@@ -492,6 +492,8 @@ bool opt_unswitch(IrModule *m, const OptConfig *cfg)
     for (fi = 0; fi < m->nfuncs; fi++) {
         OptConfig fc = *cfg;
 
+        if (opt_func_has_vector_ir(&m->funcs[fi]))
+            continue;
         fc.current_func = m->funcs[fi].name;
         changed |= run_func(m, &m->funcs[fi], &fc);
     }

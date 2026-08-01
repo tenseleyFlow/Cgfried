@@ -105,6 +105,17 @@ void test_pp_macro_table(TestCtx *t)
     mfix_free(&f);
 }
 
+void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
+{
+    MacFix f;
+
+    mfix_init(&f);
+    run_pp(&f, "", NULL, 0);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__STDC__") != NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__STDC_IEC_559__") == NULL);
+    mfix_free(&f);
+}
+
 void test_pp_macro_redefinition(TestCtx *t)
 {
     MacFix f;

@@ -615,6 +615,8 @@ bool opt_fusion(IrModule *m, const OptConfig *cfg)
         OptConfig fc = *cfg;
         bool again = true;
 
+        if (opt_func_has_vector_ir(f))
+            continue;
         fc.current_func = f->name;
         while (again) {
             Arena scratch;

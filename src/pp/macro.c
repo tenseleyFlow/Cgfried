@@ -1026,6 +1026,10 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
      * deliberately absent: we ship _Atomic. */
     buf_printf(&b, "#define __STDC_NO_COMPLEX__ 1\n");
     buf_printf(&b, "#define __STDC_NO_THREADS__ 1\n");
+    /* Deliberately no __STDC_IEC_559__. The optimizer does not yet carry
+     * #pragma STDC FENV_ACCESS into IR, so claiming Annex F conformance
+     * would be false even in the default strict-math mode. Fast math does
+     * not change this: the macro is undefined in every mode. */
 
     /* __DATE__/__TIME__: frozen once per run; SOURCE_DATE_EPOCH (UTC) wins
      * for reproducible builds — determinism invariant. */

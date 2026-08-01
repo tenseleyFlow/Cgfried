@@ -1,7 +1,13 @@
 #include "opt/opt.h"
 
 typedef enum { STAGE_O1, STAGE_O2, STAGE_O3 } PipelineStage;
-typedef enum { GROUP_SCALAR, GROUP_LOOP, GROUP_UNROLL } PipelineGroup;
+typedef enum {
+    GROUP_SCALAR,
+    GROUP_FUSION,
+    GROUP_VECTOR,
+    GROUP_LOOP,
+    GROUP_UNROLL
+} PipelineGroup;
 
 typedef struct {
     const Pass *pass;
@@ -29,7 +35,8 @@ static const PipelineEntry pipeline[] = {
     {&OPT_PASS_INLINE, STAGE_O2, GROUP_SCALAR, true},
     /* Fusion must see source affine addresses before strength reduction
      * rewrites them into accumulator block parameters. */
-    {&OPT_PASS_FUSION, STAGE_O3, GROUP_LOOP, false},
+    {&OPT_PASS_FUSION, STAGE_O3, GROUP_FUSION, false},
+    {&OPT_PASS_VECTORIZE, STAGE_O3, GROUP_VECTOR, false},
     {&OPT_PASS_LICM, STAGE_O2, GROUP_LOOP, true},
     {&OPT_PASS_STRENGTH, STAGE_O2, GROUP_LOOP, true},
     {&OPT_PASS_BCE, STAGE_O2, GROUP_LOOP, true},
@@ -60,10 +67,12 @@ static bool level_stage(OptLevel level, PipelineStage *out)
 bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
 {
     const Pass *scalar[CGF_ARRAY_LEN(pipeline)];
+    const Pass *fusion[CGF_ARRAY_LEN(pipeline)];
+    const Pass *vector[CGF_ARRAY_LEN(pipeline)];
     const Pass *loops[CGF_ARRAY_LEN(pipeline)];
     const Pass *unroll[CGF_ARRAY_LEN(pipeline)];
     PipelineStage stage = STAGE_O1;
-    u32 nscalar = 0, nloops = 0, nunroll = 0;
+    u32 nscalar = 0, nfusion = 0, nvector = 0, nloops = 0, nunroll = 0;
     u32 i;
     bool changed = false;
 
@@ -77,6 +86,7 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
             selected = e->at_os;
         if ((e->pass == &OPT_PASS_BCE && cfg->disable_bce) ||
             (e->pass == &OPT_PASS_FUSION && cfg->disable_fusion) ||
+            (e->pass == &OPT_PASS_VECTORIZE && cfg->disable_vectorize) ||
             (e->pass == &OPT_PASS_UNSWITCH && cfg->disable_unswitch))
             selected = false;
         if (!selected)
@@ -84,6 +94,12 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
         switch (e->group) {
         case GROUP_SCALAR:
             scalar[nscalar++] = e->pass;
+            break;
+        case GROUP_FUSION:
+            fusion[nfusion++] = e->pass;
+            break;
+        case GROUP_VECTOR:
+            vector[nvector++] = e->pass;
             break;
         case GROUP_LOOP:
             loops[nloops++] = e->pass;
@@ -97,6 +113,10 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
         return opt_run_pass_sequence(m, cfg, scalar, nscalar);
 
     changed |= opt_run_fixpoint(m, cfg, scalar, nscalar, 10);
+    changed |= opt_run_fixpoint(m, cfg, fusion, nfusion, 10);
+    changed |= opt_run_pass_sequence(m, cfg, vector, nvector);
+    /* Each later loop transform explicitly skips vector-containing
+     * functions.  Non-vector siblings still receive their normal O3 work. */
     changed |= opt_run_fixpoint(m, cfg, loops, nloops, 10);
     if (nunroll) {
         bool unrolled = opt_run_pass_sequence(m, cfg, unroll, nunroll);

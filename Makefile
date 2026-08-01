@@ -193,6 +193,9 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(AS_LANE) sh scripts/s34_loop_driver.sh $(BUILD)/cgfried
 	$(AS_LANE) sh scripts/s35_loop_driver.sh $(BUILD)/cgfried \
 	    $(BUILD)/cgf-test
+	$(AS_LANE) sh scripts/s36_vector_driver.sh $(BUILD)/cgfried \
+	    $(BUILD)/cgf-test
+	sh scripts/s36_isa_driver.sh $(BUILD)/cgfried ci/check_isa.sh
 	$(AS_LANE) sh scripts/strict_alias_diff.sh $(BUILD)/cgfried
 	$(AS_LANE) CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \

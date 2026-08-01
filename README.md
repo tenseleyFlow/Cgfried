@@ -15,6 +15,10 @@ make test       # unit tests + driver smoke checks
 make install    # PREFIX=/usr/local by default
 ```
 
+`-Ofast` and `-ffast-math` use one deliberately bundled policy. Its exact
+licenses, compatibility warnings, and IEC 60559 macro contract are documented
+in [docs/fast-math.md](docs/fast-math.md).
+
 ## Toolchain
 
 The bundled assembler ([afs-as](https://github.com/FortranGoingOnForty/afs-as))

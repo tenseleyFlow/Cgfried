@@ -100,6 +100,26 @@ static IrOperand operand_of_sf(IrType type, Sf value)
     return ir_op_fconst(type, lo, hi);
 }
 
+static bool fp_const_is_zero(IrOperand op)
+{
+    return op.kind == IROP_FCONST && format_of((IrType)op.type) &&
+           sf_is_zero(sf_of_operand(op));
+}
+
+static bool fp_const_is_one(IrOperand op)
+{
+    const SfFormat *format;
+    SfStatus status;
+    Sf one;
+    bool unordered;
+
+    if (op.kind != IROP_FCONST || !(format = format_of((IrType)op.type)))
+        return false;
+    memset(&status, 0, sizeof(status));
+    one = sf_from_int(1, false, *format, &status);
+    return sf_cmp(sf_of_operand(op), one, &unordered) == 0 && !unordered;
+}
+
 static bool fold_undef(const IrInst *in, IrOperand *out)
 {
     IrOperand other;
@@ -792,6 +812,44 @@ static bool simplify_one(IrModule *m, IrFunc *f, IrBlock *block,
         in->ops[1] = x;
         in->subop = (u8)swapped_predicate((IrIcmp)in->subop);
         return true;
+    }
+
+    if (format_of((IrType)in->type) && in->nops == 2) {
+        bool x_zero = fp_const_is_zero(x);
+        bool y_zero = fp_const_is_zero(y);
+        bool x_one = fp_const_is_one(x);
+        bool y_one = fp_const_is_one(y);
+        bool no_nans = cfg && cfg->fast_math.no_nans;
+        bool finite = no_nans && cfg->fast_math.no_infs;
+        bool zero_sign_free = cfg && cfg->fast_math.no_signed_zeros;
+
+        /* These are the Sprint 31 FP-NO identities, relicensed only by
+         * the precise assumptions that disarm their NaN/Inf/signed-zero
+         * counterexamples. The CLI exposes those assumptions as one
+         * bundle, but keeping the checks explicit prevents config drift. */
+        if (in->op == IR_FADD && no_nans && zero_sign_free &&
+            (x_zero || y_zero)) {
+            *remove = true;
+            *replacement_value = x_zero ? y : x;
+            return true;
+        }
+        if (in->op == IR_FMUL && no_nans && (x_one || y_one)) {
+            *remove = true;
+            *replacement_value = x_one ? y : x;
+            return true;
+        }
+        if (in->op == IR_FMUL && finite && zero_sign_free &&
+            (x_zero || y_zero)) {
+            *remove = true;
+            *replacement_value = ir_op_fconst((IrType)in->type, 0, 0);
+            return true;
+        }
+        if (in->op == IR_FSUB && finite && zero_sign_free &&
+            operand_equal(x, y) && !operand_may_undef(x, may_undef, nold)) {
+            *remove = true;
+            *replacement_value = ir_op_fconst((IrType)in->type, 0, 0);
+            return true;
+        }
     }
 
     if (width && in->nops == 2) {

@@ -97,9 +97,7 @@ static bool operand_is_value(IrOperand op, ValueId v)
 
 static u64 scalar_size(IrType t)
 {
-    static const u8 sizes[] = {1, 2, 4, 8, 4, 8, 16, 16, 8, 0};
-
-    return t < IRT_VOID ? sizes[t] : 0;
+    return ir_type_size(t);
 }
 
 static void note_access(AllocaInfo *a, IrType t, bool *have_type, bool *mixed)

@@ -23,7 +23,8 @@
  * hi:lo for f80/f128), @name[+addend], or undef. */
 
 static const char *const type_names[] = {
-    "i8", "i16", "i32", "i64", "f32", "f64", "f80", "f128", "ptr", "void",
+    "i8",  "i16",   "i32",   "i64",   "f32",   "f64",   "f80",   "f128",
+    "ptr", "v16i8", "v8i16", "v4i32", "v2i64", "v4f32", "v2f64", "void",
 };
 
 static const char *const etype_names[] = {
@@ -32,14 +33,17 @@ static const char *const etype_names[] = {
 };
 
 static const char *const op_names[] = {
-    "iadd",    "isub",   "imul",     "sdiv",      "udiv",         "srem",
-    "urem",    "and",    "or",       "xor",       "shl",          "lshr",
-    "ashr",    "icmp",   "fcmp",     "fadd",      "fsub",         "fmul",
-    "fdiv",    "fneg",   "sext",     "zext",      "trunc",        "fpext",
-    "fptrunc", "fptosi", "fptoui",   "sitofp",    "uitofp",       "bitcast",
-    "alloca",  "load",   "store",    "ptradd",    "memcpy",       "memset",
-    "call",    "select", "va_start", "stacksave", "stackrestore", "atomicrmw",
-    "cmpxchg", "ret",    "br",       "condbr",    "switch",       "unreachable",
+    "iadd",        "isub",        "imul",         "sdiv",       "udiv",
+    "srem",        "urem",        "and",          "or",         "xor",
+    "shl",         "lshr",        "ashr",         "icmp",       "fcmp",
+    "fadd",        "fsub",        "fmul",         "fdiv",       "fneg",
+    "sext",        "zext",        "trunc",        "fpext",      "fptrunc",
+    "fptosi",      "fptoui",      "sitofp",       "uitofp",     "bitcast",
+    "alloca",      "load",        "store",        "ptradd",     "memcpy",
+    "memset",      "call",        "select",       "vsplat",     "vextract",
+    "vreduce_add", "vreduce_mul", "vreduce_and",  "vreduce_or", "vreduce_xor",
+    "va_start",    "stacksave",   "stackrestore", "atomicrmw",  "cmpxchg",
+    "ret",         "br",          "condbr",       "switch",     "unreachable",
 };
 
 static const char *const rmw_names[] = {
@@ -314,6 +318,24 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         break;
     case IR_FNEG:
         buf_printf(out, "fneg %s ", type_names[in->type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        break;
+    case IR_VSPLAT:
+        buf_printf(out, "vsplat %s ", type_names[in->type]);
+        print_typed(out, m, vn, &in->ops[0]);
+        break;
+    case IR_VEXTRACT:
+        buf_printf(out, "vextract %s ", type_names[in->ops[0].type]);
+        print_atom(out, m, vn, &in->ops[0]);
+        buf_printf(out, ", %u", in->subop);
+        break;
+    case IR_VREDUCE_ADD:
+    case IR_VREDUCE_MUL:
+    case IR_VREDUCE_AND:
+    case IR_VREDUCE_OR:
+    case IR_VREDUCE_XOR:
+        buf_printf(out, "%s %s ", op_names[in->op],
+                   type_names[in->ops[0].type]);
         print_atom(out, m, vn, &in->ops[0]);
         break;
     case IR_SEXT:

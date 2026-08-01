@@ -106,6 +106,7 @@ typedef struct {
     bool freestanding; /* -ffreestanding (__STDC_HOSTED__, main rules) */
     bool fwrapv;
     bool fno_strict_aliasing; /* Sprint 32 consumes */
+    bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
 
     /* --- warnings: parsed/stored now, interpreted in Sprint 37 --- */
     VecWarn warn_opts;
@@ -146,9 +147,13 @@ typedef struct {
     const char *rsp_error;       /* response-file nesting error, or NULL */
     const char *stdin_no_x;      /* "-" was given without an active -x c */
     bool o_multi_conflict;       /* -o with -c/-S/-E and multiple inputs */
-    /* -f<unknown>/-fomit-frame-pointer: warn and continue (gcc parity —
-     * hard-erroring breaks flag-probing configure scripts). */
+    /* -f<unknown>/-fomit-frame-pointer: warn and continue by default (gcc
+     * parity — hard-erroring breaks flag-probing configure scripts); bare
+     * -Werror promotes the emitted command-line warning. */
     VecStr warn_unrecognized;
+    /* Recognized fast-math component options that v0.1.0 deliberately
+     * accepts but only honors through the complete bundle. */
+    VecStr warn_fast_math;
 } DriverArgs;
 
 /* Pure except @file reads. The arena backs response-file contents and any

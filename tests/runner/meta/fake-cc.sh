@@ -43,6 +43,53 @@ opt_eq_fail.c)
 echo value $opt
 "
     ;;
+ofast_tagged_diverge.c | ofast_tagged_order.c | ofast_untagged_diverge.c)
+    if [ "$opt" = "-Ofast" ]; then
+        value=fast
+    else
+        value=strict
+    fi
+    emit "#!/bin/sh
+echo $value
+"
+    ;;
+ofast_tagged_nondiverge.c)
+    emit '#!/bin/sh
+echo same
+'
+    ;;
+ofast_tagged_o3_diverge.c)
+    if [ "$opt" = "-O3" ]; then
+        value=o3
+    elif [ "$opt" = "-Ofast" ]; then
+        value=fast
+    else
+        value=strict
+    fi
+    emit "#!/bin/sh
+echo $value
+"
+    ;;
+ofast_tagged_compile_fail.c)
+    if [ "$opt" = "-Ofast" ]; then
+        echo "error: planted Ofast compile failure" >&2
+        exit 1
+    fi
+    emit '#!/bin/sh
+echo strict
+'
+    ;;
+ofast_tagged_exit_fail.c)
+    if [ "$opt" = "-Ofast" ]; then
+        status=3
+    else
+        status=0
+    fi
+    emit "#!/bin/sh
+echo same
+exit $status
+"
+    ;;
 ir_check_pass.cgfir)
     # .cgfir routing: the runner invokes `cc -emit-ir <src>` with no -o
     # and matches IR_CHECK lines against the compiler's stdout.

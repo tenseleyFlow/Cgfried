@@ -1,0 +1,7 @@
+// FLAGS: -ffast-math -O3
+// IR_CHECK: %1 = fadd f64 %0, 0x0000000000000000
+func f64 @f(f64 %x) {
+entry():
+    %a = fadd f64 %x, 0x0000000000000000
+    ret f64 %a
+}

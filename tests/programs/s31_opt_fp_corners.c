@@ -1,5 +1,8 @@
-// OPT_EQ: all
+// OPT_EQ: -O0 -O1 -O2 -O3 -Os
 // EXIT_CODE: 0
+
+/* -Ofast deliberately excludes NaNs from its supported input domain; this
+ * fixture is the strict-mode corner oracle, not an Ofast divergence test. */
 
 typedef unsigned long long u64;
 

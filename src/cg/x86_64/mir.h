@@ -72,7 +72,8 @@ typedef enum X64Width {
     X64_W = 2,
     X64_L = 4,
     X64_Q = 8,
-    X64_T = 10
+    X64_T = 10,
+    X64_X = 16
 } X64Width;
 
 /* Condition codes, one per icmp predicate (signed/unsigned split), plus
@@ -149,6 +150,23 @@ typedef enum X64Op {
     X64_OP_FANDM,  /* andp{s,d} with a cpool mask (b): fabs */
     X64_OP_MOVQXR, /* def(xmm) <- gp reg bits (movq xmm, r64) */
     X64_OP_MOVQRX, /* def(gp) <- xmm bits (movq r64, xmm) */
+    /* --- Sprint 36: SSE2 packed vectors (width X = 128 bits). -------- */
+    X64_OP_VMOV,
+    X64_OP_VLOAD,
+    X64_OP_VSTORE,
+    X64_OP_VADD,
+    X64_OP_VSUB,
+    X64_OP_VMUL,
+    X64_OP_VDIV,
+    X64_OP_VAND,
+    X64_OP_VOR,
+    X64_OP_VXOR,
+    X64_OP_VSHUF32,   /* b.imm = pshufd control */
+    X64_OP_VSHUFLO16, /* b.imm = pshuflw control */
+    X64_OP_VUNPCKLBW,
+    X64_OP_VUNPCKLWD,
+    X64_OP_VUNPCKLQ,
+    X64_OP_VSRLDQ, /* b.imm = byte count */
     /* --- Sprint 23: calls ------------------------------------------------ */
     X64_OP_CALL,    /* a = MEM(rip_sym) direct | VREG indirect. Arg regs
                        ride in xuses (pre-colored, so their intervals
@@ -284,6 +302,7 @@ typedef struct X64Func {
     u32 nblocks, cap_blocks;
     u32 nvregs; /* vreg ids are 1..nvregs */
     u8 *vclass; /* [nvregs+1] X64RegClass per vreg (Sprint 23) */
+    u8 *vwidth; /* [nvregs+1] full value width; vector XMM values are 16 */
     u32 cap_vclass;
     X64Table *tables;
     u32 ntables, cap_tables;
@@ -295,7 +314,9 @@ typedef struct X64Func {
 /* Mint a vreg of the given class (grows vclass). regalloc's repair
  * copies inherit the class of the vreg they localize. */
 X64VReg x64_newv(X64Func *f, X64RegClass rc);
+X64VReg x64_newv_width(X64Func *f, X64RegClass rc, X64Width width);
 u8 x64_vclass(const X64Func *f, u32 v);
+u8 x64_vwidth(const X64Func *f, u32 v);
 /* Intern a constant into the pool (dedup by bits+size); returns index+1
  * for X64Mem.cpool. */
 u32 x64_cpool_intern(X64Func *f, u64 lo, u64 hi, u8 size, u8 align);

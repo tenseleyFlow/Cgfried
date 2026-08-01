@@ -1,0 +1,22 @@
+// FLAGS: -Ofast
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// IR_CHECK: load v4f32
+// IR_CHECK: vreduce_add v4f32
+// IR_CHECK: fadd f32
+
+func f32 @vector_reduce(ptr %a) {
+entry():
+    br loop(i64 0, f32 0x00000000)
+loop(i64 %i, f32 %sum):
+    %c = icmp ult i64 %i, 9
+    condbr %c, body(), exit(f32 %sum)
+body():
+    %off = imul i64 %i, 4
+    %ap = ptradd %a, %off
+    %x = load f32, %ap, align 4, etype f32
+    %sum.next = fadd f32 %sum, %x
+    %next = iadd i64 %i, 1
+    br loop(i64 %next, f32 %sum.next)
+exit(f32 %result):
+    ret f32 %result
+}

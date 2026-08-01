@@ -175,6 +175,48 @@ void test_directive_opt_eq_validation(TestCtx *t)
     arena_free_all(&a);
 }
 
+void test_directive_ofast_divergence_validation(TestCtx *t)
+{
+    Arena a;
+    DirectiveSet ds;
+
+    arena_init(&a);
+    ds = parse(&a, "// OPT_EQ: -O0 -Ofast\n"
+                   "// OFAST_DIVERGENCE_OK: fp-reduction-reassoc\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_STR(t, ds.ofast_divergence_reason, "fp-reduction-reassoc");
+    T_ASSERT_EQ_INT(t, ds.ndirs, 1);
+    T_ASSERT(t, ds.dirs[0].kind == DIR_OFAST_DIVERGENCE_OK);
+
+    ds = parse(&a, "// OPT_EQ: -Ofast -O3\n"
+                   "// OFAST_DIVERGENCE_OK: finite-math-fold\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_STR(t, ds.ofast_divergence_reason, "finite-math-fold");
+
+    ds = parse(&a, "// OPT_EQ: -O0 -O3\n"
+                   "// OFAST_DIVERGENCE_OK: fp-reduction-reassoc\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "requires OPT_EQ containing -Ofast") !=
+                    NULL);
+    ds = parse(&a, "// OPT_EQ: -O0 -Ofast\n// OFAST_DIVERGENCE_OK:\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// OPT_EQ: -O0 -Ofast\n"
+                   "// OFAST_DIVERGENCE_OK: typo\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg,
+                       "unknown OFAST_DIVERGENCE_OK reason 'typo'") != NULL);
+    ds = parse(&a, "// OPT_EQ: -O0 -Ofast\n"
+                   "// OFAST_DIVERGENCE_OK: finite-math-fold extra\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// OPT_EQ: -O0 -Ofast\n"
+                   "// OFAST_DIVERGENCE_OK: finite-math-fold\n"
+                   "// OFAST_DIVERGENCE_OK: finite-math-fold\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg,
+                       "duplicate OFAST_DIVERGENCE_OK directive") != NULL);
+    arena_free_all(&a);
+}
+
 void test_directive_placement_and_spacing(TestCtx *t)
 {
     Arena a;

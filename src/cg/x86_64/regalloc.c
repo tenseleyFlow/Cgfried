@@ -433,15 +433,17 @@ static X64Inst mk_copy(const X64Func *f, X64VReg def, X64VReg src, u8 rc)
 {
     X64Inst mv = mk_mov(def, src);
 
-    (void)f;
-    if (rc == X64RC_XMM)
-        mv.op = X64_OP_FMOV;
+    if (rc == X64RC_XMM) {
+        mv.width = x64_vwidth(f, def.v);
+        mv.op = mv.width == X64_X ? X64_OP_VMOV : X64_OP_FMOV;
+    }
     return mv;
 }
 
 static void repair_vreg(X64Func *f, u32 v)
 {
     u8 rc = x64_vclass(f, v);
+    X64Width width = (X64Width)x64_vwidth(f, v);
     u32 bi, i, k;
 
     for (bi = 0; bi < f->nblocks; bi++) {
@@ -455,14 +457,14 @@ static void repair_vreg(X64Func *f, u32 v)
             rb.source_loc = in.loc;
 
             if (in.a.kind == X64O_VREG && in.a.fixed && in.a.r.v == v) {
-                X64VReg t = x64_newv(f, rc);
+                X64VReg t = x64_newv_width(f, rc, width);
                 X64Inst mv = mk_copy(f, t, in.a.r, rc);
 
                 rb_put(&rb, &mv);
                 in.a.r = t;
             }
             if (in.b.kind == X64O_VREG && in.b.fixed && in.b.r.v == v) {
-                X64VReg t = x64_newv(f, rc);
+                X64VReg t = x64_newv_width(f, rc, width);
                 X64Inst mv = mk_copy(f, t, in.b.r, rc);
 
                 rb_put(&rb, &mv);
@@ -470,7 +472,7 @@ static void repair_vreg(X64Func *f, u32 v)
             }
             for (k = 0; k < in.nxuses; k++) {
                 if (in.xuses[k].r.v == v && in.xuses[k].fixed) {
-                    X64VReg t = x64_newv(f, rc);
+                    X64VReg t = x64_newv_width(f, rc, width);
                     X64Inst mv = mk_copy(f, t, in.xuses[k].r, rc);
                     X64XUse *nx =
                         arena_alloc(f->arena, in.nxuses * sizeof(X64XUse),
@@ -485,7 +487,7 @@ static void repair_vreg(X64Func *f, u32 v)
                 }
             }
             if (in.def.v == v && in.def_fixed) {
-                X64VReg t = x64_newv(f, rc);
+                X64VReg t = x64_newv_width(f, rc, width);
                 X64VReg vv = {v};
                 X64Inst mv = mk_copy(f, vv, t, rc);
 
@@ -547,7 +549,11 @@ static int iv_cmp_start(const void *pa, const void *pb, void *ctx)
 static void assign_slot(Ra *ra, Interval *it)
 {
     if (!it->slot) {
-        ra->next_slot -= 8; /* 8-byte GP slots; 16-byte xmm in Sprint 23 */
+        u32 width = x64_vwidth(ra->f, it->vreg) == X64_X ? 16 : 8;
+        u32 raw = (u32)(-ra->next_slot) + width;
+
+        raw = (raw + width - 1) & ~(width - 1);
+        ra->next_slot = -(i32)raw;
         it->slot = ra->next_slot;
         ra->f->spill_slots++;
     }
@@ -704,13 +710,13 @@ static X64VReg physreg(u8 reg)
     return r;
 }
 
-static X64Inst mk_reload(u8 reg, i32 slot, bool xmm)
+static X64Inst mk_reload(u8 reg, i32 slot, bool xmm, X64Width width)
 {
     X64Inst m;
 
     memset(&m, 0, sizeof(m));
-    m.op = xmm ? X64_OP_FLOAD : X64_OP_LOAD;
-    m.width = X64_Q;
+    m.op = xmm ? (width == X64_X ? X64_OP_VLOAD : X64_OP_FLOAD) : X64_OP_LOAD;
+    m.width = (u8)width;
     m.def = physreg(reg);
     m.a.kind = X64O_MEM;
     m.a.mem.base = physreg(X64_RBP);
@@ -719,13 +725,14 @@ static X64Inst mk_reload(u8 reg, i32 slot, bool xmm)
     return m;
 }
 
-static X64Inst mk_spill(u8 reg, i32 slot, bool xmm)
+static X64Inst mk_spill(u8 reg, i32 slot, bool xmm, X64Width width)
 {
     X64Inst m;
 
     memset(&m, 0, sizeof(m));
-    m.op = xmm ? X64_OP_FSTORE : X64_OP_STORE;
-    m.width = X64_Q;
+    m.op =
+        xmm ? (width == X64_X ? X64_OP_VSTORE : X64_OP_FSTORE) : X64_OP_STORE;
+    m.width = (u8)width;
     m.a.kind = X64O_VREG;
     m.a.r = physreg(reg);
     m.b.kind = X64O_MEM;
@@ -754,7 +761,8 @@ static void sub_use(Ra *ra, Rb *rb, X64VReg *r, int side)
     {
         u8 s = rc == X64RC_XMM ? (side ? SCRATCH_XB : SCRATCH_XA)
                                : (side ? SCRATCH_B : SCRATCH_A);
-        X64Inst ld = mk_reload(s, it->slot, rc == X64RC_XMM);
+        X64Inst ld = mk_reload(s, it->slot, rc == X64RC_XMM,
+                               (X64Width)x64_vwidth(ra->f, r->v));
 
         rb_put(rb, &ld);
         r->v = (u32)s + 1;
@@ -825,7 +833,7 @@ static void rewrite(Ra *ra)
 
                     rb_put(&rb, &mv);
                 } else {
-                    X64Inst st = mk_spill(X64_RSP, dit->slot, false);
+                    X64Inst st = mk_spill(X64_RSP, dit->slot, false, X64_Q);
 
                     rb_put(&rb, &st);
                 }
@@ -849,7 +857,8 @@ static void rewrite(Ra *ra)
                         mv.op = X64_OP_FMOV;
                     rb_put(&rb, &mv);
                 } else {
-                    X64Inst st = mk_spill(src, dit->slot, xmm);
+                    X64Width vw = (X64Width)x64_vwidth(f, b->insts[i].def.v);
+                    X64Inst st = mk_spill(src, dit->slot, xmm, vw);
 
                     rb_put(&rb, &st);
                 }
@@ -878,7 +887,9 @@ static void rewrite(Ra *ra)
                     rb_put(&rb, &x);
                 } else {
                     u8 s = xmm ? SCRATCH_XA : SCRATCH_A;
-                    X64Inst st = mk_spill(s, dit->slot, xmm);
+                    X64Inst st =
+                        mk_spill(s, dit->slot, xmm,
+                                 (X64Width)x64_vwidth(f, b->insts[i].def.v));
 
                     x.def = physreg(s);
                     rb_put(&rb, &x);
@@ -940,7 +951,7 @@ static void rewrite(Ra *ra)
 
                     rb_put(&rb, &mv);
                 } else {
-                    X64Inst st = mk_spill(X64_RSP, dit->slot, false);
+                    X64Inst st = mk_spill(X64_RSP, dit->slot, false, X64_Q);
 
                     rb_put(&rb, &st);
                 }
@@ -956,7 +967,9 @@ static void rewrite(Ra *ra)
             } else if (dit) {
                 bool xmm = x64_vclass(f, in.def.v) == X64RC_XMM;
                 u8 s = xmm ? SCRATCH_XA : SCRATCH_A;
-                X64Inst st = mk_spill(s, dit->slot, xmm);
+                X64Inst st =
+                    mk_spill(s, dit->slot, xmm,
+                             (X64Width)x64_vwidth(f, b->insts[i].def.v));
 
                 in.def = physreg(s);
                 in.def_fixed = 0;
@@ -988,18 +1001,20 @@ static bool op_commutative(u16 op)
      * FP subtraction and division do not. */
     return op == X64_OP_ADD || op == X64_OP_AND || op == X64_OP_OR ||
            op == X64_OP_XOR || op == X64_OP_IMUL || op == X64_OP_FADD ||
-           op == X64_OP_FMUL;
+           op == X64_OP_FMUL || op == X64_OP_VADD || op == X64_OP_VMUL ||
+           op == X64_OP_VAND || op == X64_OP_VOR || op == X64_OP_VXOR;
 }
 
 /* Copy between two PHYSICAL ids, picking mov vs movsd by bank. */
-static X64Inst mk_pcopy(u32 dst, u32 src)
+static X64Inst mk_pcopy(u32 dst, u32 src, u8 width)
 {
     X64VReg d = {dst};
     X64VReg s = {src};
     X64Inst mv = mk_mov(d, s);
 
     if (dst - 1 >= X64_XMM0)
-        mv.op = X64_OP_FMOV;
+        mv.op = width == X64_X ? X64_OP_VMOV : X64_OP_FMOV;
+    mv.width = width;
     return mv;
 }
 
@@ -1041,10 +1056,10 @@ void x64_twoaddr_fixup(X64Func *f)
             }
             if (src2 == dst) {
                 u8 s = xmm ? SCRATCH_XB : SCRATCH_B;
-                X64Inst mv = mk_pcopy((u32)s + 1, src2);
+                X64Inst mv = mk_pcopy((u32)s + 1, src2, in.width);
 
                 rb_put(&rb, &mv);
-                mv = mk_pcopy(dst, src1);
+                mv = mk_pcopy(dst, src1, in.width);
                 rb_put(&rb, &mv);
                 in.a.r.v = dst;
                 in.b.r = physreg(s);
@@ -1052,7 +1067,7 @@ void x64_twoaddr_fixup(X64Func *f)
                 continue;
             }
             {
-                X64Inst mv = mk_pcopy(dst, src1);
+                X64Inst mv = mk_pcopy(dst, src1, in.width);
 
                 rb_put(&rb, &mv);
                 in.a.r.v = dst;
@@ -1092,6 +1107,8 @@ static void frame_finalize(Ra *ra)
     u8 push_order[8];
     u32 npush = 0, bi, i, k;
     u32 raw = (u32)(-ra->next_slot);
+    u32 slot_pad = 0;
+    u32 frame_bias;
     u32 save_off = 0; /* variadic reg-save area rbp-offset */
 
     memset(touched, 0, sizeof(touched));
@@ -1106,16 +1123,20 @@ static void frame_finalize(Ra *ra)
         if (touched[k] && is_callee_saved((u8)k))
             push_order[npush++] = (u8)k;
 
+    if (npush & 1u)
+        slot_pad = 8;
+    frame_bias = 8 * npush + slot_pad;
+
     /* THE PUSH-SLOT COLLISION (found by the FIRST e2e run): callee-saved
      * pushes live at rbp-8..rbp-8*npush, and the rewrite assigned spill
      * slots from rbp-8 DOWN — a callee's alloca store overwrote the
      * caller's saved rbx, and the pop restored a double's bit pattern
      * into it. Every frame-owned slot (negative rbp disp) shifts below
-     * the push area; the markers and save area assigned after this take
-     * the bias directly. */
-    if (npush) {
-        u32 bias = 8 * npush;
-
+     * the push area; an odd push count also gets an 8-byte gap, preserving
+     * 16-byte rbp alignment for vector homes, static allocas, and the
+     * variadic register-save area. Markers and the save area assigned
+     * after this take the bias directly. */
+    if (frame_bias) {
         for (bi = 0; bi < f->nblocks; bi++) {
             X64Block *b = &f->blocks[bi];
 
@@ -1124,10 +1145,10 @@ static void frame_finalize(Ra *ra)
 
                 if (in->a.kind == X64O_MEM &&
                     in->a.mem.base.v == (u32)X64_RBP + 1 && in->a.mem.disp < 0)
-                    in->a.mem.disp -= (i32)bias;
+                    in->a.mem.disp -= (i32)frame_bias;
                 if (in->b.kind == X64O_MEM &&
                     in->b.mem.base.v == (u32)X64_RBP + 1 && in->b.mem.disp < 0)
-                    in->b.mem.disp -= (i32)bias;
+                    in->b.mem.disp -= (i32)frame_bias;
             }
         }
     }
@@ -1150,7 +1171,7 @@ static void frame_finalize(Ra *ra)
 
                 raw = (raw + size + align - 1) & ~(align - 1);
                 in->a.mem.base = physreg(X64_RBP);
-                in->a.mem.disp = -(i32)(8 * npush + raw);
+                in->a.mem.disp = -(i32)(frame_bias + raw);
                 in->b.imm = 0;
                 in->table = 0;
             }
@@ -1167,13 +1188,13 @@ static void frame_finalize(Ra *ra)
      * external callees that do consult it. */
     if (f->variadic) {
         raw = ((raw + 15) & ~15u) + 176;
-        save_off = 8 * npush + raw;
+        save_off = frame_bias + raw;
     }
     /* Outgoing call arguments live at the stack bottom, [rsp+0 ..
      * rsp+out_args); rsp-relative operands were rewritten to rsp, so a
      * dynamic alloca between frame setup and a call re-establishes the
      * area below itself automatically. */
-    f->frame_size = x64_frame_align_pad(npush, raw + f->out_args);
+    f->frame_size = x64_frame_align_pad(npush, slot_pad + raw + f->out_args);
 
     /* va_start expansion: only frame-finalize knows the two addresses
      * the IR op owes the va_list (overflow_arg_area = first UNNAMED
@@ -1288,12 +1309,13 @@ static void frame_finalize(Ra *ra)
                                          X64_RCX, X64_R8,  X64_R9};
 
             for (k = 0; k < 6; k++) {
-                p = mk_spill(gpargs[k], -(i32)save_off + (i32)(8 * k), false);
+                p = mk_spill(gpargs[k], -(i32)save_off + (i32)(8 * k), false,
+                             X64_Q);
                 rb_put(&rb, &p);
             }
             for (k = 0; k < 8; k++) {
                 p = mk_spill((u8)(X64_XMM0 + k),
-                             -(i32)save_off + (i32)(48 + 16 * k), true);
+                             -(i32)save_off + (i32)(48 + 16 * k), true, X64_Q);
                 rb_put(&rb, &p);
             }
         }

@@ -359,6 +359,76 @@ static void emit_inst(Emit *e, const X64Inst *in, u32 bi, u32 next_bb)
         /* GP<->xmm bit bridges: movq (64) / movd (32). */
         emit2(e, w == X64_L ? "movd" : "movq", &in->a, w, &d, w);
         break;
+    /* --- SSE2 packed vectors ---------------------------------------- */
+    case X64_OP_VMOV:
+    case X64_OP_VLOAD:
+        emit2(e, "movdqu", &in->a, X64_X, &d, X64_X);
+        break;
+    case X64_OP_VSTORE:
+        emit2(e, "movdqu", &in->a, X64_X, &in->b, X64_X);
+        break;
+    case X64_OP_VADD:
+    case X64_OP_VSUB: {
+        static const char *const addi[] = {"paddb", "paddw", "paddd", "paddq"};
+        static const char *const subi[] = {"psubb", "psubw", "psubd", "psubq"};
+        const char *mn;
+
+        if (in->src_width >= IRT_V16I8 && in->src_width <= IRT_V2I64)
+            mn = (in->op == X64_OP_VADD ? addi
+                                        : subi)[in->src_width - IRT_V16I8];
+        else if (in->src_width == IRT_V4F32)
+            mn = in->op == X64_OP_VADD ? "addps" : "subps";
+        else
+            mn = in->op == X64_OP_VADD ? "addpd" : "subpd";
+        emit2(e, mn, &in->b, X64_X, &d, X64_X);
+        break;
+    }
+    case X64_OP_VMUL:
+        emit2(e,
+              in->src_width == IRT_V8I16   ? "pmullw"
+              : in->src_width == IRT_V4F32 ? "mulps"
+                                           : "mulpd",
+              &in->b, X64_X, &d, X64_X);
+        break;
+    case X64_OP_VDIV:
+        emit2(e, in->src_width == IRT_V4F32 ? "divps" : "divpd", &in->b, X64_X,
+              &d, X64_X);
+        break;
+    case X64_OP_VAND:
+    case X64_OP_VOR:
+    case X64_OP_VXOR:
+        emit2(e,
+              in->op == X64_OP_VAND  ? "pand"
+              : in->op == X64_OP_VOR ? "por"
+                                     : "pxor",
+              &in->b, X64_X, &d, X64_X);
+        break;
+    case X64_OP_VSHUF32:
+        buf_printf(e->out, "\tpshufd\t$%lld, ", (long long)in->b.imm);
+        poper_att(e, &in->a, X64_X);
+        buf_printf(e->out, ", ");
+        poper_att(e, &d, X64_X);
+        buf_printf(e->out, "\n");
+        break;
+    case X64_OP_VSHUFLO16:
+        buf_printf(e->out, "\tpshuflw\t$%lld, ", (long long)in->b.imm);
+        poper_att(e, &in->a, X64_X);
+        buf_printf(e->out, ", ");
+        poper_att(e, &d, X64_X);
+        buf_printf(e->out, "\n");
+        break;
+    case X64_OP_VUNPCKLBW:
+        emit2(e, "punpcklbw", &in->b, X64_X, &d, X64_X);
+        break;
+    case X64_OP_VUNPCKLWD:
+        emit2(e, "punpcklwd", &in->b, X64_X, &d, X64_X);
+        break;
+    case X64_OP_VUNPCKLQ:
+        emit2(e, "punpcklqdq", &in->b, X64_X, &d, X64_X);
+        break;
+    case X64_OP_VSRLDQ:
+        emit2(e, "psrldq", &in->b, X64_B, &d, X64_X);
+        break;
     /* --- x87 (F-S23-ATTX87SWAP applied) -------------------------------- */
     case X64_OP_X87_FLD:
         snprintf(op, sizeof(op), "fld%c",

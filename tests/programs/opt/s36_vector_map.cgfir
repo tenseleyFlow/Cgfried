@@ -1,0 +1,25 @@
+// FLAGS: -O3
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// IR_CHECK: load v4i32
+// IR_CHECK: iadd v4i32
+// IR_CHECK: store v4i32
+// IR_CHECK: iadd i64 %
+
+func void @vector_map(ptr restrict %a, ptr restrict %b) {
+entry():
+    br loop(i64 0)
+loop(i64 %i):
+    %c = icmp ult i64 %i, 1000
+    condbr %c, body(), exit()
+body():
+    %off = imul i64 %i, 4
+    %ap = ptradd %a, %off
+    %bp = ptradd %b, %off
+    %x = load i32, %ap, align 4, etype i32
+    %y = iadd i32 %x, 7
+    store i32 %y, %bp, align 4, etype i32
+    %next = iadd i64 %i, 1
+    br loop(i64 %next)
+exit():
+    ret
+}

@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–35
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–36
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,15 +34,15 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Phases 1–6 closed** (preprocessor, frontend, sema, IR, x86_64
-  backend, driver).
+- **Phases 1–7 closed** (preprocessor, frontend, sema, IR, x86_64
+  backend, driver, optimizations).
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
 - `-g` emits DWARF v4 line tables and every object carries `.eh_frame`;
   gdb break/next/four-frame backtraces work at `-O0` and `-O2`, including
   GDB 15's shorter x86 prologue scanner via an entry definition row plus
   `prologue_end` on the first executable row.
-- Phase 7 is open: every `-O` level reaches a real pass manager. O1 now runs
+- Phase 7 is closed: every `-O` level reaches a real pass manager. O1 runs
   mem2reg → sparse conditional constant propagation → exact simplify →
   block-local CSE → DCE → general CFG cleanup. O2+ adds GVN, DSE and bounded
   jump threading, then internal-only IPO and a bottom-up SCC inliner. O2 adds
@@ -50,18 +50,20 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   adds exact bounded full unroll. O2 now adds edge-sensitive BCE; O3 adds
   factor-four constant partial unroll, loop unswitching, and conservative
   adjacent-loop fusion behind a shared region cloner and affine dependence
-  service. Scalar, loop and unroll groups are separate fixpoints so CFG
+  service. O3/Ofast now add a constant-trip, statically proven SSE2 loop
+  vectorizer; Ofast additionally licenses FP reductions through one documented
+  fast-math bundle. Scalar, loop and unroll groups are separate fixpoints so CFG
   cleanup cannot oscillate with canonicalization. The
   50-program corpus remains behaviorally equal across O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 36** —
-  `.docs/sprints/07-optimizations/s36-vectorize-fastmath.md`, consuming the
-  loop/dependence foundation for vectorization and explicit fast-math rules.
+- **Next action: Sprint 37** —
+  `.docs/sprints/08-warnings/s37-warning-infra.md`, opening Phase 8
+  with the warning engine and diagnostic policy.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 437 tests, 92984 assertions, 0 failures
-cgf-test: total=469 pass=469 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 464 tests, 93672 assertions, 0 failures
+cgf-test: total=488 pass=488 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
@@ -72,8 +74,11 @@ debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 181 predefines match gcc; __GNUC__ absent
 ```
 
-Local Sprint 35 validation note: GCC, Clang, and the full ASan+UBSan suite are
-green. The installed Valgrind cannot start on this machine because the stripped
+Local Sprint 36 validation note: GCC, Clang, the Rust-free lane, and the full
+ASan+UBSan suite are green. LeakSanitizer itself cannot initialize under this
+environment's ptrace policy, so the sanitizer proof used
+`ASAN_OPTIONS=detect_leaks=0`; no ASan or UBSan diagnostic occurred. The
+installed Valgrind cannot start on this machine because the stripped
 `ld-linux-x86-64.so.2` lacks the mandatory `memcmp` redirection symbol and no
 matching glibc debuginfo is installed; it exits before loading the test binary.
 Do not misreport that environment failure as a completed Valgrind run.
@@ -289,6 +294,31 @@ because each one was learned the hard way.
 - **Fission/interchange are deferred, not stubbed.** There is no aggressive
   loop flag or no-op CI lane. Their whole-iteration reordering needs a broader
   dependence proof and the later torture/self-host evidence base.
+- **Sprint 36 vectorization is exact-constant-prefix only.** A nonmultiple trip
+  executes `trip % VF` scalar iterations first, then the vector loop. Runtime
+  trips, runtime alias versioning, if-conversion, SLP and min/max reductions are
+  hard bails/deferrals. The first successful source-loop rewrite canonicalizes
+  and rebuilds LCSSA before looking for reductions; otherwise the reduction's
+  live-out is not in the form the vectorizer proves.
+- **Do not splat loop-varying values.** Only invariants may become `vsplat`.
+  The induction variable needs a lane sequence, and a scalar recurrence read by
+  its own update is a prefix scan, not a reassociable reduction. Both mistakes
+  survived ordinary positive cases and now have dedicated negative fixtures.
+- **Vector IR has a deliberately closed ABI.** Exactly six 128-bit types exist;
+  calls, parameters and returns reject them. Vector loads/stores reuse ordinary
+  memory opcodes, supported arithmetic is an explicit verifier matrix, and
+  vector spill/edge homes are 16 bytes. An odd callee-save count reserves an
+  eight-byte frame gap so those homes, align-16 allocas and vararg save areas
+  remain aligned.
+- **Fast math is one argv-ordered bundle, not independent half-policies.**
+  `-Ofast` selects O3 plus the bundle; `-ffast-math`/`-fno-fast-math` toggle it;
+  a later `-O` resets to that level's default. Component spellings warn and are
+  inert. `__STDC_IEC_559__` stays undefined in every mode because dynamic fenv
+  semantics are not implemented.
+- **The ISA ceiling is a closed allow table.** Unknown objdump mnemonics fail;
+  checking only a denylist cannot prove SSE2. The 50-file corpus at six levels
+  must produce exactly 300 audited objects. afs-as PR #21 added the nine packed
+  instructions newly emitted here, with gas-parity immediate ranges.
 - **No host `sizeof` / conditional compilation in `src/sema/`.**
   `char` is unsigned on arm64-linux; a host assumption there
   miscompiles every cross build with no diagnostic
@@ -373,8 +403,8 @@ compatibility at once, since the link wouldn't resolve otherwise).
 ## 7. Submodule ritual (afs-as, afs-ld)
 
 Both are separate repos under `FortranGoingOnForty/`. **Fix gaps
-upstream; never work around them locally.** Five PRs merged so far
-(afs-as #18/#19/#20, afs-ld #17/#18).
+upstream; never work around them locally.** Six PRs merged so far
+(afs-as #18/#19/#20/#21, afs-ld #17/#18).
 
 Three steps, and stopping after step one is the classic mistake:
 
@@ -423,6 +453,8 @@ sh scripts/driver_matrix.sh build/cgfried
 sh scripts/debug_info_lane.sh build/cgfried
 sh scripts/opt_driver.sh build/cgfried
 sh scripts/s35_loop_driver.sh build/cgfried build/cgf-test
+sh scripts/s36_vector_driver.sh build/cgfried build/cgf-test
+sh scripts/s36_isa_driver.sh build/cgfried
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
 # CI:
@@ -438,7 +470,8 @@ Useful env knobs (all read in `toolchain.c`, the single `getenv` site):
 `CGF_OPT_BAIL_LOG=1`. `-ftime-report` is a driver flag, not an env knob.
 Sprint 35 adds independent bisection toggles:
 `CGF_OPT_DISABLE_UNSWITCH=1`, `CGF_OPT_DISABLE_BCE=1`, and
-`CGF_OPT_DISABLE_FUSION=1`.
+`CGF_OPT_DISABLE_FUSION=1`. Sprint 36 adds
+`CGF_OPT_DISABLE_VECTORIZE=1`.
 
 ---
 

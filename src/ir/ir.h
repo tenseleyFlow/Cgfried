@@ -72,6 +72,12 @@ typedef enum IrType {
     IRT_F80,
     IRT_F128,
     IRT_PTR,
+    IRT_V16I8,
+    IRT_V8I16,
+    IRT_V4I32,
+    IRT_V2I64,
+    IRT_V4F32,
+    IRT_V2F64,
     IRT_VOID /* call results only; never a value type anywhere else */
 } IrType;
 
@@ -150,6 +156,14 @@ typedef enum IrOp {
     /* calls and misc */
     IR_CALL,
     IR_SELECT,
+    /* 128-bit vectors (Sprint 36). Arithmetic reuses the scalar opcodes. */
+    IR_VSPLAT,
+    IR_VEXTRACT,
+    IR_VREDUCE_ADD,
+    IR_VREDUCE_MUL,
+    IR_VREDUCE_AND,
+    IR_VREDUCE_OR,
+    IR_VREDUCE_XOR,
     /* varargs (Sprint 19). ONE live opcode: `va_start ptr` fills the two
      * POINTER fields of a va_list (overflow_arg_area, reg_save_area) —
      * only codegen knows those addresses (Sprint 23 emits the register
@@ -479,6 +493,12 @@ BlockId ir_block_new(IrModule *m, IrFunc *f, const char *name);
 ValueId ir_block_param(IrModule *m, IrFunc *f, BlockId b, IrType t);
 IrBlock *ir_block(IrFunc *f, BlockId b);
 IrType ir_value_type(const IrFunc *f, ValueId v);
+bool ir_type_is_vector(IrType t);
+bool ir_type_is_vector_int(IrType t);
+bool ir_type_is_vector_float(IrType t);
+IrType ir_vector_elem_type(IrType t);
+u32 ir_vector_lanes(IrType t);
+u32 ir_type_size(IrType t); /* 0 for void/unknown; vectors are 16 */
 
 /* Operand constructors. */
 IrOperand ir_op_value(const IrFunc *f, ValueId v);
@@ -508,6 +528,9 @@ ValueId ir_build2_flags(IrBuilder *b, IrOp op, IrType t, IrOperand x,
 ValueId ir_build1(IrBuilder *b, IrOp op, IrType t, IrOperand x);
 ValueId ir_build_icmp(IrBuilder *b, IrIcmp p, IrOperand x, IrOperand y);
 ValueId ir_build_fcmp(IrBuilder *b, IrFcmp p, IrOperand x, IrOperand y);
+ValueId ir_build_vsplat(IrBuilder *b, IrType vector_type, IrOperand scalar);
+ValueId ir_build_vextract(IrBuilder *b, IrOperand vector, u32 lane);
+ValueId ir_build_vreduce(IrBuilder *b, IrOp op, IrOperand vector);
 ValueId ir_build_alloca(IrBuilder *b, IrOperand size, u32 align);
 ValueId ir_build_alloca_typed(IrBuilder *b, IrOperand size, u32 align,
                               EffTypeId etype);

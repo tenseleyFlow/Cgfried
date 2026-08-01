@@ -5,10 +5,10 @@
 // through lea'd pointers), and the callee-saved push parity is odd
 // (5 pushes), so the pad lands frame on 8 mod 16.
 // FLAGS: -emit-mir
-// MIR_CHECK: (frame=56 spills=6)
+// MIR_CHECK: (frame=72 spills=6)
 // MIR_CHECK: push.q rbx
-// MIR_CHECK: = sub.q rsp, $56
-// MIR_CHECK: store.q r11, [rbp-48]
+// MIR_CHECK: = sub.q rsp, $72
+// MIR_CHECK: store.q r11, [rbp-56]
 // MIR_CHECK: load.q [rbp-
 int f(int a) {
     return (a+1) - ((a+2) - ((a+3) - ((a+4) - ((a+5) - ((a+6) - ((a+7) -

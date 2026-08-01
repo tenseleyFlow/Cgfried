@@ -843,6 +843,8 @@ static bool unroll_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
     OptConfig fc = *cfg;
     bool changed = false;
 
+    if (opt_func_has_vector_ir(f))
+        return false;
     fc.current_func = f->name;
     for (;;) {
         Arena scratch;

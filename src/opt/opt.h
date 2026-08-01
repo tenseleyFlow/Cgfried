@@ -30,6 +30,7 @@ typedef struct OptConfig {
     bool disable_unswitch;
     bool disable_bce;
     bool disable_fusion;
+    bool disable_vectorize;
 
     /* Runtime controls are resolved once by the driver. Tests may set
      * these directly without mutating the process environment. */
@@ -228,12 +229,16 @@ extern const Pass OPT_PASS_UNROLL;
 extern const Pass OPT_PASS_UNSWITCH;
 extern const Pass OPT_PASS_BCE;
 extern const Pass OPT_PASS_FUSION;
+extern const Pass OPT_PASS_VECTORIZE;
 bool opt_licm(IrModule *m, const OptConfig *cfg);
 bool opt_strength(IrModule *m, const OptConfig *cfg);
 bool opt_unroll(IrModule *m, const OptConfig *cfg);
 bool opt_unswitch(IrModule *m, const OptConfig *cfg);
 bool opt_bce(IrModule *m, const OptConfig *cfg);
 bool opt_fusion(IrModule *m, const OptConfig *cfg);
+bool opt_vectorize(IrModule *m, const OptConfig *cfg);
+bool opt_func_has_vector_ir(const IrFunc *f);
+bool opt_module_has_vector_ir(const IrModule *m);
 bool opt_unroll_trip_count(IrType type, IrIcmp pred, u64 start, u64 step,
                            u64 end, bool modular, u64 *trip);
 

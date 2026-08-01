@@ -169,6 +169,45 @@ IrType ir_value_type(const IrFunc *f, ValueId v)
     return (IrType)f->vals[v.v - 1].type;
 }
 
+bool ir_type_is_vector(IrType t)
+{
+    return t >= IRT_V16I8 && t <= IRT_V2F64;
+}
+
+bool ir_type_is_vector_int(IrType t)
+{
+    return t >= IRT_V16I8 && t <= IRT_V2I64;
+}
+
+bool ir_type_is_vector_float(IrType t)
+{
+    return t == IRT_V4F32 || t == IRT_V2F64;
+}
+
+IrType ir_vector_elem_type(IrType t)
+{
+    static const u8 elems[] = {IRT_I8,  IRT_I16, IRT_I32,
+                               IRT_I64, IRT_F32, IRT_F64};
+
+    return ir_type_is_vector(t) ? (IrType)elems[t - IRT_V16I8] : IRT_VOID;
+}
+
+u32 ir_vector_lanes(IrType t)
+{
+    static const u8 lanes[] = {16, 8, 4, 2, 4, 2};
+
+    return ir_type_is_vector(t) ? lanes[t - IRT_V16I8] : 0;
+}
+
+u32 ir_type_size(IrType t)
+{
+    static const u8 sizes[] = {1, 2, 4, 8, 4, 8, 16, 16, 8};
+
+    if (ir_type_is_vector(t))
+        return 16;
+    return t <= IRT_PTR ? sizes[t] : 0;
+}
+
 /* --- operands ------------------------------------------------------------ */
 
 IrOperand ir_op_value(const IrFunc *f, ValueId v)

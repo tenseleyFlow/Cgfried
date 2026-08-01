@@ -59,6 +59,11 @@ static X64VReg newvf(Isel *is)
     return x64_newv(is->xf, X64RC_XMM);
 }
 
+static X64VReg newvv(Isel *is)
+{
+    return x64_newv_width(is->xf, X64RC_XMM, X64_X);
+}
+
 static X64Block *blk(Isel *is)
 {
     return &is->xf->blocks[is->cur];
@@ -106,6 +111,17 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
     case X64_OP_FDIV:
     case X64_OP_FXORM:
     case X64_OP_FANDM:
+    case X64_OP_VADD:
+    case X64_OP_VSUB:
+    case X64_OP_VMUL:
+    case X64_OP_VDIV:
+    case X64_OP_VAND:
+    case X64_OP_VOR:
+    case X64_OP_VXOR:
+    case X64_OP_VUNPCKLBW:
+    case X64_OP_VUNPCKLWD:
+    case X64_OP_VUNPCKLQ:
+    case X64_OP_VSRLDQ:
         /* SSE arithmetic is two-address but does NOT touch EFLAGS. */
         in->flags = X64IF_TWO_ADDR;
         break;
@@ -338,6 +354,53 @@ static bool irt_sse(u8 t)
     return t == IRT_F32 || t == IRT_F64;
 }
 
+static bool irt_vector(u8 t)
+{
+    return ir_type_is_vector((IrType)t);
+}
+
+static X64VReg to_vvreg(Isel *is, const IrOperand *o)
+{
+    switch (o->kind) {
+    case IROP_VALUE:
+        if (!is->vals[(u32)o->a].vr.v)
+            is->vals[(u32)o->a].vr = newvv(is);
+        return is->vals[(u32)o->a].vr;
+    case IROP_UNDEF:
+        return newvv(is);
+    default:
+        CGF_ICE("x86_64 isel: vector constants require vsplat/load");
+    }
+}
+
+static X64VReg vector_extract_low(Isel *is, X64VReg v, IrType elem)
+{
+    X64VReg d;
+    X64Inst *x;
+
+    if (elem == IRT_F32 || elem == IRT_F64) {
+        d = newvf(is);
+        x = emit(is, X64_OP_FMOV, fpw((u8)elem));
+    } else {
+        d = newv(is);
+        x = emit(is, X64_OP_MOVQRX, elem == IRT_I64 ? X64_Q : X64_L);
+    }
+    x->def = d;
+    x->a = ovreg(v);
+    return d;
+}
+
+static X64VReg vector_shift_bytes(Isel *is, X64VReg v, u8 bytes)
+{
+    X64VReg d = newvv(is);
+    X64Inst *x = emit(is, X64_OP_VSRLDQ, X64_X);
+
+    x->def = d;
+    x->a = ovreg(v);
+    x->b = oimm(bytes);
+    return d;
+}
+
 static u32 cpool_fconst(Isel *is, const IrOperand *o)
 {
     if (o->type == IRT_F32)
@@ -566,8 +629,11 @@ static void emit_parallel_copy(Isel *is, PMove *mv, u32 n, X64Width *widths)
             if (is_src)
                 continue;
             {
-                X64Inst *in =
-                    emit(is, mv[i].fp ? X64_OP_FMOV : X64_OP_MOV, widths[i]);
+                X64Inst *in = emit(
+                    is,
+                    mv[i].fp ? (widths[i] == X64_X ? X64_OP_VMOV : X64_OP_FMOV)
+                             : X64_OP_MOV,
+                    widths[i]);
 
                 in->def = mv[i].dst;
                 in->a = mv[i].src;
@@ -581,9 +647,14 @@ static void emit_parallel_copy(Isel *is, PMove *mv, u32 n, X64Width *widths)
             for (i = 0; i < n && mv[i].done; i++)
                 ;
             {
-                X64VReg scratch = mv[i].fp ? newvf(is) : newv(is);
-                X64Inst *in =
-                    emit(is, mv[i].fp ? X64_OP_FMOV : X64_OP_MOV, widths[i]);
+                X64VReg scratch =
+                    mv[i].fp ? (widths[i] == X64_X ? newvv(is) : newvf(is))
+                             : newv(is);
+                X64Inst *in = emit(
+                    is,
+                    mv[i].fp ? (widths[i] == X64_X ? X64_OP_VMOV : X64_OP_FMOV)
+                             : X64_OP_MOV,
+                    widths[i]);
 
                 in->def = scratch;
                 in->a = ovreg(mv[i].dst);
@@ -612,7 +683,11 @@ static void edge_moves(Isel *is, const IrEdge *e)
         if (at == IRT_F80 || at == IRT_F128)
             CGF_ICE("x86_64 isel: f80/f128 block parameters violate "
                     "the memory law");
-        if (irt_sse(at)) {
+        if (irt_vector(at)) {
+            mv[n].src = ovreg(to_vvreg(is, &e->args[i]));
+            mv[n].fp = true;
+            widths[n] = X64_X;
+        } else if (irt_sse(at)) {
             mv[n].src = ovreg(to_fvreg(is, &e->args[i]));
             mv[n].fp = true;
             widths[n] = fpw(at);
@@ -686,6 +761,25 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_OR:
     case IR_XOR:
     case IR_IMUL: {
+        if (irt_vector(in->type)) {
+            X64VReg d = newvv(is);
+            X64VReg a = to_vvreg(is, &in->ops[0]);
+            X64VReg b = to_vvreg(is, &in->ops[1]);
+            X64Op op = in->op == IR_IADD   ? X64_OP_VADD
+                       : in->op == IR_ISUB ? X64_OP_VSUB
+                       : in->op == IR_IMUL ? X64_OP_VMUL
+                       : in->op == IR_AND  ? X64_OP_VAND
+                       : in->op == IR_OR   ? X64_OP_VOR
+                                           : X64_OP_VXOR;
+            X64Inst *x = emit(is, op, X64_X);
+
+            x->src_width = in->type;
+            x->def = d;
+            x->a = ovreg(a);
+            x->b = ovreg(b);
+            is->vals[in->result.v].vr = d;
+            break;
+        }
         X64Width w = width_of((IrType)in->type);
         X64VReg d = newv(is);
         X64Inst *x;
@@ -934,6 +1028,17 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_LOAD: {
+        if (irt_vector(in->type)) {
+            X64VReg d = newvv(is);
+            X64Mem mem = fold_addr(is, &in->ops[0]);
+            X64Inst *x = emit(is, X64_OP_VLOAD, X64_X);
+
+            x->def = d;
+            x->a.kind = X64O_MEM;
+            x->a.mem = mem;
+            is->vals[in->result.v].vr = d;
+            break;
+        }
         if (irt_sse(in->type)) {
             X64VReg d = newvf(is);
             X64Mem mem = fold_addr(is, &in->ops[0]);
@@ -973,6 +1078,16 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_STORE: {
+        if (irt_vector(in->ops[0].type)) {
+            X64VReg v = to_vvreg(is, &in->ops[0]);
+            X64Mem mem = fold_addr(is, &in->ops[1]);
+            X64Inst *x = emit(is, X64_OP_VSTORE, X64_X);
+
+            x->a = ovreg(v);
+            x->b.kind = X64O_MEM;
+            x->b.mem = mem;
+            break;
+        }
         if (irt_sse(in->ops[0].type)) {
             X64VReg v = to_fvreg(is, &in->ops[0]);
             X64Mem mem = fold_addr(is, &in->ops[1]);
@@ -1621,6 +1736,23 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_FSUB:
     case IR_FMUL:
     case IR_FDIV: {
+        if (irt_vector(in->type)) {
+            X64VReg d = newvv(is);
+            X64VReg a = to_vvreg(is, &in->ops[0]);
+            X64VReg b = to_vvreg(is, &in->ops[1]);
+            X64Op op = in->op == IR_FADD   ? X64_OP_VADD
+                       : in->op == IR_FSUB ? X64_OP_VSUB
+                       : in->op == IR_FMUL ? X64_OP_VMUL
+                                           : X64_OP_VDIV;
+            X64Inst *x = emit(is, op, X64_X);
+
+            x->src_width = in->type;
+            x->def = d;
+            x->a = ovreg(a);
+            x->b = ovreg(b);
+            is->vals[in->result.v].vr = d;
+            break;
+        }
         if (in->type == IRT_F128)
             CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
                     "contract");
@@ -1691,6 +1823,112 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->b.mem.cpool = cp;
             is->vals[in->result.v].vr = d;
         }
+        break;
+    }
+    case IR_VSPLAT: {
+        IrType vt = (IrType)in->type;
+        IrType et = ir_vector_elem_type(vt);
+        X64VReg d = newvv(is);
+        X64Inst *x;
+
+        if (et == IRT_F32 || et == IRT_F64) {
+            X64VReg s = to_fvreg(is, &in->ops[0]);
+
+            if (et == IRT_F32) {
+                x = emit(is, X64_OP_VSHUF32, X64_X);
+                x->def = d;
+                x->a = ovreg(s);
+                x->b = oimm(0);
+            } else {
+                x = emit(is, X64_OP_VUNPCKLQ, X64_X);
+                x->def = d;
+                x->a = ovreg(s);
+                x->b = ovreg(s);
+            }
+        } else {
+            X64VReg s = to_vreg(is, &in->ops[0]);
+            X64VReg bits = newvv(is);
+
+            x = emit(is, X64_OP_MOVQXR, et == IRT_I64 ? X64_Q : X64_L);
+            x->def = bits;
+            x->a = ovreg(s);
+            if (et == IRT_I8) {
+                X64VReg t = newvv(is);
+
+                x = emit(is, X64_OP_VUNPCKLBW, X64_X);
+                x->def = t;
+                x->a = ovreg(bits);
+                x->b = ovreg(bits);
+                bits = t;
+                t = newvv(is);
+                x = emit(is, X64_OP_VUNPCKLWD, X64_X);
+                x->def = t;
+                x->a = ovreg(bits);
+                x->b = ovreg(bits);
+                bits = t;
+            }
+            if (et == IRT_I16) {
+                x = emit(is, X64_OP_VSHUFLO16, X64_X);
+                x->def = d;
+                x->a = ovreg(bits);
+                x->b = oimm(0);
+                bits = d;
+            }
+            if (et == IRT_I64) {
+                x = emit(is, X64_OP_VUNPCKLQ, X64_X);
+                x->def = d;
+                x->a = ovreg(bits);
+                x->b = ovreg(bits);
+            } else {
+                x = emit(is, X64_OP_VSHUF32, X64_X);
+                x->def = d;
+                x->a = ovreg(bits);
+                x->b = oimm(0);
+            }
+        }
+        is->vals[in->result.v].vr = d;
+        break;
+    }
+    case IR_VEXTRACT: {
+        IrType vt = (IrType)in->ops[0].type;
+        IrType et = ir_vector_elem_type(vt);
+        X64VReg v = to_vvreg(is, &in->ops[0]);
+
+        if (in->subop)
+            v = vector_shift_bytes(is, v, (u8)(in->subop * ir_type_size(et)));
+        is->vals[in->result.v].vr = vector_extract_low(is, v, et);
+        break;
+    }
+    case IR_VREDUCE_ADD:
+    case IR_VREDUCE_MUL:
+    case IR_VREDUCE_AND:
+    case IR_VREDUCE_OR:
+    case IR_VREDUCE_XOR: {
+        IrType vt = (IrType)in->ops[0].type;
+        IrType et = ir_vector_elem_type(vt);
+        X64VReg acc = to_vvreg(is, &in->ops[0]);
+        u32 lanes = ir_vector_lanes(vt);
+        u32 span = 8;
+        X64Op op = in->op == IR_VREDUCE_ADD   ? X64_OP_VADD
+                   : in->op == IR_VREDUCE_MUL ? X64_OP_VMUL
+                   : in->op == IR_VREDUCE_AND ? X64_OP_VAND
+                   : in->op == IR_VREDUCE_OR  ? X64_OP_VOR
+                                              : X64_OP_VXOR;
+
+        while (lanes > 1) {
+            X64VReg hi = vector_shift_bytes(is, acc, (u8)span);
+            X64VReg d = newvv(is);
+            X64Inst *x = emit(is, op, X64_X);
+
+            x->src_width = (u8)vt;
+            x->def = d;
+            x->a = ovreg(acc);
+            x->b = ovreg(hi);
+            acc = d;
+            lanes >>= 1;
+            span >>= 1;
+        }
+        is->vals[in->result.v].vr = vector_extract_low(is, acc, et);
         break;
     }
     case IR_FCMP: {
@@ -2263,6 +2501,13 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
     X64Func *xf = arena_alloc(a, sizeof(X64Func), _Alignof(X64Func));
     u32 bi, i;
 
+    if (ir_type_is_vector((IrType)f->ret))
+        CGF_ICE("x86_64 isel: vector function return has no Sprint 36 ABI");
+    for (i = 0; i < f->nparams; i++)
+        if (ir_type_is_vector((IrType)f->param_types[i]))
+            CGF_ICE(
+                "x86_64 isel: vector function parameter has no Sprint 36 ABI");
+
     memset(xf, 0, sizeof(*xf));
     xf->name = f->name;
     xf->arena = a;
@@ -2288,7 +2533,9 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
         new_block(&is, f->blocks[bi].name);
     for (i = 0; i < f->nparams; i++)
         is.vals[f->param_vals[i].v].vr =
-            irt_sse(f->param_types[i]) ? newvf(&is) : newv(&is);
+            irt_vector(f->param_types[i]) ? newvv(&is)
+            : irt_sse(f->param_types[i])  ? newvf(&is)
+                                          : newv(&is);
     for (bi = 0; bi < f->nblocks; bi++) {
         const IrBlock *b = &f->blocks[bi];
         const IrInst *in;
@@ -2299,7 +2546,9 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
             if (pt == IRT_F80)
                 CGF_ICE("x86_64 isel: f80 block parameters violate the "
                         "memory law (lowering never emits them)");
-            is.vals[b->params[i].v].vr = irt_sse(pt) ? newvf(&is) : newv(&is);
+            is.vals[b->params[i].v].vr = irt_vector(pt) ? newvv(&is)
+                                         : irt_sse(pt)  ? newvf(&is)
+                                                        : newv(&is);
         }
         for (in = b->first; in; in = in->next) {
             u32 k, j;
@@ -2409,7 +2658,9 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
                 if (actual.v != forward.v) {
                     X64Inst *copy;
 
-                    if (irt_sse(in->type)) {
+                    if (irt_vector(in->type)) {
+                        copy = emit(&is, X64_OP_VMOV, X64_X);
+                    } else if (irt_sse(in->type)) {
                         copy = emit(&is, X64_OP_FMOV, fpw(in->type));
                     } else {
                         X64Width w = in->type == IRT_F80

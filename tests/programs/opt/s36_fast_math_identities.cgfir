@@ -1,0 +1,11 @@
+// FLAGS: -Ofast
+// IR_CHECK: ret f64 0x0000000000000000
+func f64 @f(f64 %x) {
+entry():
+    %a = fadd f64 %x, 0x0000000000000000
+    %b = fmul f64 %a, 0x3FF0000000000000
+    %c = fmul f64 %b, 0x0000000000000000
+    %d = fsub f64 %x, %x
+    %r = fadd f64 %c, %d
+    ret f64 %r
+}

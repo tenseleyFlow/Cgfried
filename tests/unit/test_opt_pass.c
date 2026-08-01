@@ -39,6 +39,25 @@ static IrModule *minimal_module(Arena *arena)
     return m;
 }
 
+void test_opt_config_fast_math_is_ofast_only(TestCtx *t)
+{
+    OptConfig cfg;
+
+    opt_config_init(&cfg, OPT_O3);
+    T_ASSERT(t, !cfg.fast_math.reassoc);
+    T_ASSERT(t, !cfg.fast_math.no_nans);
+    T_ASSERT(t, !cfg.fast_math.no_infs);
+    T_ASSERT(t, !cfg.fast_math.no_signed_zeros);
+    T_ASSERT(t, !cfg.fast_math.reciprocal_math);
+
+    opt_config_init(&cfg, OPT_OFAST);
+    T_ASSERT(t, cfg.fast_math.reassoc);
+    T_ASSERT(t, cfg.fast_math.no_nans);
+    T_ASSERT(t, cfg.fast_math.no_infs);
+    T_ASSERT(t, cfg.fast_math.no_signed_zeros);
+    T_ASSERT(t, cfg.fast_math.reciprocal_math);
+}
+
 static bool dishonest_mutation(IrModule *m, const OptConfig *cfg)
 {
     (void)cfg;
