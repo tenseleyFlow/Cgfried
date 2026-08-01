@@ -184,7 +184,11 @@ gcc -std=c11 -w -c "$WORK/mix.c" -o "$WORK/mix.o"
 if gcc -nodefaultlibs "$WORK/mix.o" "$RT" -lc -o "$WORK/mix_ours" \
     2> "$WORK/mix.err"; then
     gcc "$WORK/mix.o" -o "$WORK/mix_theirs"
-    if ! cmp -s <("$WORK/mix_ours") <("$WORK/mix_theirs"); then
+    # Temp files, NOT process substitution: <(...) is a bashism and CI
+    # runs /bin/sh = dash (the Sprint 15 lesson, relearned here).
+    "$WORK/mix_ours" > "$WORK/mix_ours.out" 2>&1
+    "$WORK/mix_theirs" > "$WORK/mix_theirs.out" 2>&1
+    if ! cmp -s "$WORK/mix_ours.out" "$WORK/mix_theirs.out"; then
         echo "rt_diff: mixing law: gcc object + libcgf_rt.a gives a" \
             "different answer than gcc's own runtime" >&2
         fails=$((fails + 1))
