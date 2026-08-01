@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–29
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–31
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -42,18 +42,20 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   gdb break/next/four-frame backtraces work at `-O0` and `-O2`, including
   GDB 15's shorter x86 prologue scanner via an entry definition row plus
   `prologue_end` on the first executable row.
-- Phase 7 is open: every `-O` level now reaches a real pass manager, mem2reg
-  promotes eligible locals, and the 50-program corpus is behaviorally equal
-  across O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 31** —
-  `.docs/sprints/07-optimizations/s31-local-opts.md`, adding SCCP and local
-  simplification to the one-row-per-pass pipeline table.
+- Phase 7 is open: every `-O` level reaches a real pass manager. O1 now runs
+  mem2reg → sparse conditional constant propagation → exact simplify →
+  block-local CSE; O2+ iterates the inherited four-row pipeline to a named
+  fixpoint. The 50-program corpus remains behaviorally equal across
+  O0/O1/O2/O3/Os/Ofast.
+- **Next action: Sprint 32** —
+  `.docs/sprints/07-optimizations/s32-memory-and-gvn.md`, adding the shared alias
+  service, GVN, DCE/DSE, and general CFG simplification.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 290 tests, 91894 assertions, 0 failures
-cgf-test: total=419 pass=419 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 312 tests, 92062 assertions, 0 failures
+cgf-test: total=434 pass=434 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
@@ -184,7 +186,22 @@ because each one was learned the hard way.
 - **No host FPU in the constant engine.** All float math goes through
   `src/util/softfp.c`. `scripts/check_no_host_fpu.sh` enforces it.
   Rounding happens in exactly one place (`round_pack`) so no value is
-  ever rounded twice.
+  ever rounded twice. The current `SoftFloat` does not retain NaN payload or
+  signaling state, so the optimizer must not fold an operation or conversion
+  whose result is NaN: those bits are observable through IR bitcasts.
+- **`undef` is per-read freedom, not a reusable unknown value.** Simplify and
+  CSE must not merge or reflexively cancel expressions whose operands can be
+  undef or whose operation can produce undef (div/rem/shift). SCCP treats an
+  undef branch as overdefined and keeps every successor executable.
+- **SCCP stays sparse and verifier-clean.** Value changes visit real use lists,
+  executable edges are indexed directly, and block parameters meet executable
+  incoming edges only. Rewriting a constant terminator must immediately prune
+  its now-orphaned blocks; CFG cleanup scratch is exact-sized, never capped at
+  a guessed function size. When `switch` becomes `br`, clear `case_val` so the
+  printer/parser structural law still holds.
+- **Local CSE is not load CSE.** Sprint 31's table is block-scoped and pure-op
+  only. Loads remain distinct across every store until Sprint 32's shared alias
+  service can prove otherwise.
 - **No host `sizeof` / conditional compilation in `src/sema/`.**
   `char` is unsigned on arm64-linux; a host assumption there
   miscompiles every cross build with no diagnostic
