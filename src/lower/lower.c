@@ -490,6 +490,7 @@ static void lower_function(Lower *lo, AstNode *def)
                     ptypes, nir_params);
     lo->fn->variadic = ft->variadic;
     lo->fn->abi_ret = aret.ir_abi;
+    lo->fn->loc = ir_intern_span(lo->m, def->span);
     if (sym->linkage == LINK_INTERNAL)
         lo->fn->linkage = IRLINK_INTERNAL;
     if (any_annot) {

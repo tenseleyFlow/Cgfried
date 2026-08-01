@@ -39,7 +39,9 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
 - `-g` emits DWARF v4 line tables and every object carries `.eh_frame`;
-  gdb break/next/four-frame backtraces work at `-O0` and `-O2`.
+  gdb break/next/four-frame backtraces work at `-O0` and `-O2`, including
+  GDB 15's shorter x86 prologue scanner via an entry definition row plus
+  `prologue_end` on the first executable row.
 - **Next action: Sprint 30** —
   `.docs/sprints/07-optimizations/s30-pass-manager-mem2reg.md`, opening
   Phase 7 with the pass manager and mem2reg.
@@ -47,7 +49,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 275 tests, 91790 assertions, 0 failures
+unit: 275 tests, 91792 assertions, 0 failures
 cgf-test: total=396 pass=396 fail=0 xfail=0 xpass=0 skip=0 config=0
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc

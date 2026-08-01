@@ -197,7 +197,12 @@ static void collect_files(DebugFiles *d, const IrModule *m,
     u32 fi, bi, i;
 
     (void)add_file(d, input);
-    for (fi = 0; fi < nfuncs; fi++)
+    for (fi = 0; fi < nfuncs; fi++) {
+        Span function_span =
+            diag_span_for_debug(m->dc, ir_debug_loc(m, m->funcs[fi].loc));
+
+        if (function_span.file_id)
+            (void)add_file(d, diag_span_path(m->dc, function_span));
         for (bi = 0; bi < funcs[fi]->nblocks; bi++) {
             const X64Block *b = &funcs[fi]->blocks[bi];
 
@@ -205,6 +210,7 @@ static void collect_files(DebugFiles *d, const IrModule *m,
                 if (b->insts[i].debug_label && b->insts[i].loc)
                     (void)row_file(d, m, b->insts[i].loc, input);
         }
+    }
 }
 
 static void emit_line_header(Buf *out, const DebugFiles *d)
@@ -250,13 +256,28 @@ static void emit_debug_line(Buf *out, DebugFiles *files, const IrModule *m,
     emit_line_header(out, files);
     buf_printf(out, ".Ldebug_line_header_end:\n");
     for (fi = 0; fi < nfuncs; fi++) {
+        bool prologue_end = false;
+        Span function_span =
+            diag_span_for_debug(m->dc, ir_debug_loc(m, m->funcs[fi].loc));
         u32 current_file = 1;
-        i64 current_line = 0;
+        i64 current_line = function_span.presumed_line
+                               ? function_span.presumed_line
+                               : function_span.line;
 
         emit_set_address(out, ".Lloc_", fi, 0);
-        buf_printf(out, "\t.byte\t3\n");
-        emit_sleb(out, -1);
-        buf_printf(out, "\t.byte\t1\n"); /* function entry: line 0 */
+        if (function_span.file_id) {
+            current_file =
+                add_file(files, diag_span_path(m->dc, function_span));
+            if (current_file != 1) {
+                buf_printf(out, "\t.byte\t4\n");
+                emit_uleb(out, current_file);
+            }
+        }
+        if (current_line != 1) {
+            buf_printf(out, "\t.byte\t3\n");
+            emit_sleb(out, current_line - 1);
+        }
+        buf_printf(out, "\t.byte\t1\n"); /* function definition row */
 
         for (bi = 0; bi < funcs[fi]->nblocks; bi++) {
             const X64Block *b = &funcs[fi]->blocks[bi];
@@ -287,6 +308,10 @@ static void emit_debug_line(Buf *out, DebugFiles *files, const IrModule *m,
                     buf_printf(out, "\t.byte\t3\n");
                     emit_sleb(out, line - current_line);
                     current_line = line;
+                }
+                if (!prologue_end && line) {
+                    buf_printf(out, "\t.byte\t10\n"); /* prologue_end */
+                    prologue_end = true;
                 }
                 buf_printf(out, "\t.byte\t1\n"); /* DW_LNS_copy */
             }

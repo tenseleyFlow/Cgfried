@@ -128,6 +128,7 @@ void test_ir_builder_source_locations(TestCtx *t)
     a.len = 1;
     a.presumed_path = "logical.c";
     a.presumed_line = 40;
+    fn->loc = ir_intern_span(m, a);
     ir_builder_set_span(&b, a);
     ir_build_store(&b, ir_op_iconst(IRT_I32, 1),
                    ir_op_symbol(IRT_PTR, ir_sym(m, "x"), 0), 4, 0);
@@ -135,6 +136,7 @@ void test_ir_builder_source_locations(TestCtx *t)
 
     first = fn->blocks[0].first;
     T_ASSERT(t, first->loc != 0);
+    T_ASSERT_EQ_INT(t, fn->loc, first->loc); /* function/inst table dedup */
     T_ASSERT_EQ_INT(t, first->loc, first->next->loc); /* table dedup */
     got = ir_debug_loc(m, first->loc);
     T_ASSERT_EQ_INT(t, got.file_id, a.file_id);

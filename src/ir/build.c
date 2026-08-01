@@ -8,6 +8,37 @@
  * appending past one is a builder bug and ICEs immediately rather than
  * producing IR the verifier would reject later with less context. */
 
+u32 ir_intern_span(IrModule *m, Span span)
+{
+    u32 i;
+
+    if (!span.file_id)
+        return 0;
+    for (i = 0; i < m->nlocs; i++) {
+        Span old = m->locs[i];
+        bool same_path = old.presumed_path == span.presumed_path;
+
+        if (!same_path && old.presumed_path && span.presumed_path)
+            same_path = strcmp(old.presumed_path, span.presumed_path) == 0;
+        if (old.file_id == span.file_id && old.line == span.line &&
+            old.col == span.col && old.len == span.len &&
+            old.presumed_line == span.presumed_line &&
+            old.debug_loc == span.debug_loc && same_path)
+            return i + 1;
+    }
+    if (m->nlocs == m->cap_locs) {
+        u32 nc = m->cap_locs ? m->cap_locs * 2 : 16;
+        Span *nl = arena_alloc(m->arena, nc * sizeof(Span), _Alignof(Span));
+
+        if (m->nlocs)
+            memcpy(nl, m->locs, m->nlocs * sizeof(Span));
+        m->locs = nl;
+        m->cap_locs = nc;
+    }
+    m->locs[m->nlocs] = span;
+    return ++m->nlocs;
+}
+
 static IrInst *append(IrBuilder *b, IrOp op, IrType t, bool defines)
 {
     IrBlock *blk = ir_block(b->f, b->block);
@@ -23,39 +54,7 @@ static IrInst *append(IrBuilder *b, IrOp op, IrType t, bool defines)
     memset(in, 0, sizeof(*in));
     in->op = (u8)op;
     in->type = (u8)t;
-    if (b->loc.file_id) {
-        u32 i;
-
-        for (i = 0; i < b->m->nlocs; i++) {
-            Span old = b->m->locs[i];
-            bool same_path = old.presumed_path == b->loc.presumed_path;
-
-            if (!same_path && old.presumed_path && b->loc.presumed_path)
-                same_path =
-                    strcmp(old.presumed_path, b->loc.presumed_path) == 0;
-            if (old.file_id == b->loc.file_id && old.line == b->loc.line &&
-                old.col == b->loc.col && old.len == b->loc.len &&
-                old.presumed_line == b->loc.presumed_line &&
-                old.debug_loc == b->loc.debug_loc && same_path) {
-                in->loc = i + 1;
-                break;
-            }
-        }
-        if (!in->loc) {
-            if (b->m->nlocs == b->m->cap_locs) {
-                u32 nc = b->m->cap_locs ? b->m->cap_locs * 2 : 16;
-                Span *nl =
-                    arena_alloc(b->m->arena, nc * sizeof(Span), _Alignof(Span));
-
-                if (b->m->nlocs)
-                    memcpy(nl, b->m->locs, b->m->nlocs * sizeof(Span));
-                b->m->locs = nl;
-                b->m->cap_locs = nc;
-            }
-            b->m->locs[b->m->nlocs] = b->loc;
-            in->loc = ++b->m->nlocs;
-        }
-    }
+    in->loc = ir_intern_span(b->m, b->loc);
     if (defines) {
         ValueId v;
         /* new_value lives in ir.c; recreate the minimal path here via the

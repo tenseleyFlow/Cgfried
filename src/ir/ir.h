@@ -339,6 +339,7 @@ typedef enum IrAbiRet {
 
 typedef struct IrFunc {
     const char *name; /* interned */
+    u32 loc;          /* function definition location; 0 when unavailable */
     u8 ret;           /* IrType */
     u8 abi_ret;       /* IrAbiRet */
     u8 linkage;       /* IrLinkage (Sprint 24: .globl vs .local emission);
@@ -445,6 +446,7 @@ typedef struct IrBuilder {
 void ir_builder_at(IrBuilder *b, IrModule *m, IrFunc *f, BlockId blk);
 void ir_builder_set_span(IrBuilder *b, Span span);
 Span ir_builder_span(const IrBuilder *b);
+u32 ir_intern_span(IrModule *m, Span span);
 Span ir_debug_loc(const IrModule *m, u32 loc);
 Span ir_inst_span(const IrModule *m, const IrInst *in);
 ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y);

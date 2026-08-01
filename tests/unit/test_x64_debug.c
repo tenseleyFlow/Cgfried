@@ -100,7 +100,7 @@ void test_x64_debug_section_bytes(TestCtx *t)
     arena_init(&arena);
     dc = diag_ctx_new(&arena);
     m = ir_module_new(&arena, dc);
-    (void)ir_func_new(m, "probe", IRT_VOID, NULL, 0);
+    IrFunc *irf = ir_func_new(m, "probe", IRT_VOID, NULL, 0);
     span.file_id = diag_add_file(dc, "tests/debug/probe.c", "return;\n", 8);
     span.line = 1;
     span.col = 1;
@@ -109,6 +109,7 @@ void test_x64_debug_section_bytes(TestCtx *t)
     m->locs[0] = span;
     m->nlocs = 1;
     m->cap_locs = 1;
+    irf->loc = 1;
 
     memset(&f, 0, sizeof(f));
     memset(&block, 0, sizeof(block));
@@ -150,8 +151,9 @@ void test_x64_debug_section_bytes(TestCtx *t)
     T_ASSERT(t, debug_has(&debug, "\t.section\t.debug_line,\"\""));
     T_ASSERT(t, debug_has(&debug, "\t.section\t.debug_abbrev,\"\""));
     T_ASSERT(t, debug_has(&debug, "\t.section\t.debug_info,\"\""));
-    T_ASSERT(t, debug_has(&debug, "\t.byte\t3\n\t.byte\t127\n\t.byte\t1\n"));
+    T_ASSERT(t, debug_has(&debug, "\t.byte\t1\n\t.byte\t0,9,2\n"));
     T_ASSERT(t, debug_has(&debug, "\t.quad\t.Lloc_0_1\n"));
+    T_ASSERT(t, debug_has(&debug, "\t.byte\t10\n\t.byte\t1\n"));
     T_ASSERT(t, debug_has(&debug, "\t.quad\t.Lfe0_0\n"));
     buf_free(&no_debug);
     buf_free(&debug);
