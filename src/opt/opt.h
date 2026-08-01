@@ -27,6 +27,10 @@ typedef struct OptConfig {
     bool no_strict_aliasing;
     bool fwrapv;
     bool debug_info;
+    bool disable_unswitch;
+    bool disable_bce;
+    bool disable_fusion;
+    bool aggressive_loops;
 
     /* Runtime controls are resolved once by the driver. Tests may set
      * these directly without mutating the process environment. */
@@ -44,6 +48,10 @@ typedef struct OptConfig {
 typedef enum PassPinnedPolicy {
     PASS_PINNED_EXACT,
     PASS_PINNED_INLINE_CLONES,
+    /* The pass keeps every original pinned operation in order and may add
+     * metadata-identical clones on mutually-exclusive CFG paths.  The pass
+     * owns the path-exclusivity proof; the manager audits clone fidelity. */
+    PASS_PINNED_PATH_CLONES,
     PASS_PINNED_DELETE_FUNCS,
 } PassPinnedPolicy;
 
@@ -147,14 +155,86 @@ bool loop_canonicalize(IrModule *m, IrFunc *f, const LoopTree *lt);
 bool loop_tree_verify_canonical(const LoopTree *lt, const IrFunc *f, char *why,
                                 size_t why_cap);
 
+/* IDs in loop plans are transaction-stable: appending blocks/values may move
+ * the arena-backed arrays but leaves the numeric IDs valid.  Block compaction
+ * or ir_func_renumber invalidates every plan and requires all analyses to be
+ * rebuilt.  No loop plan may retain an IrBlock/IrInst/IrEdge pointer. */
+typedef struct LoopInduction {
+    BlockId header;
+    BlockId preheader;
+    BlockId latch;
+    ValueId iv;
+    ValueId update;
+    ValueId compare;
+    u32 param_index;
+    IrType type;
+    IrIcmp pred;
+    IrOperand start;
+    IrOperand step;
+    IrOperand bound;
+    u8 continue_edge;
+    bool subtract_step;
+    bool signed_no_wrap;
+    bool modular;
+} LoopInduction;
+
+typedef enum LoopTripKind {
+    LOOP_TRIP_UNKNOWN,
+    LOOP_TRIP_CONSTANT,
+    LOOP_TRIP_RUNTIME,
+} LoopTripKind;
+
+typedef struct TripInfo {
+    LoopTripKind kind;
+    LoopInduction induction;
+    u64 constant;
+} TripInfo;
+
+/* The returned analysis is valid only until the next CFG/value mutation. */
+bool loop_trip_analyze(const IrFunc *f, const Loop *loop, bool fwrapv,
+                       TripInfo *out, const char **reason);
+bool loop_operand_invariant(const IrFunc *f, const Loop *loop, IrOperand op);
+
+typedef enum LoopClonePinnedPolicy {
+    LOOP_CLONE_REJECT_PINNED,
+    LOOP_CLONE_PATH_EXCLUSIVE,
+} LoopClonePinnedPolicy;
+
+typedef struct LoopCloneMap {
+    /* Old numeric IDs index these maps.  Non-region entries are zero/none. */
+    BlockId *blocks;
+    u32 nblocks;
+    IrOperand *values;
+    u32 nvalues;
+    BlockId entry;
+    bool cloned_pinned;
+} LoopCloneMap;
+
+/* Clone a complete region without compacting or renumbering the function.
+ * Internal targets and all value uses are remapped; external exit targets
+ * stay shared and their LCSSA argument lists are deep-copied/remapped. */
+bool loop_clone_region(IrModule *m, IrFunc *f, const BlockId *region,
+                       u32 nregion, BlockId entry,
+                       LoopClonePinnedPolicy pinned_policy,
+                       const char *name_prefix, LoopCloneMap *out,
+                       const char **reason);
+BlockId loop_clone_block(const LoopCloneMap *map, BlockId old);
+IrOperand loop_clone_operand(const LoopCloneMap *map, IrOperand old);
+
 /* Sprint 34 loop transforms run only after the scalar/IPO fixpoint, so CFG
  * cleanup cannot tear down their dedicated preheaders and exits. */
 extern const Pass OPT_PASS_LICM;
 extern const Pass OPT_PASS_STRENGTH;
 extern const Pass OPT_PASS_UNROLL;
+extern const Pass OPT_PASS_UNSWITCH;
+extern const Pass OPT_PASS_BCE;
+extern const Pass OPT_PASS_FUSION;
 bool opt_licm(IrModule *m, const OptConfig *cfg);
 bool opt_strength(IrModule *m, const OptConfig *cfg);
 bool opt_unroll(IrModule *m, const OptConfig *cfg);
+bool opt_unswitch(IrModule *m, const OptConfig *cfg);
+bool opt_bce(IrModule *m, const OptConfig *cfg);
+bool opt_fusion(IrModule *m, const OptConfig *cfg);
 bool opt_unroll_trip_count(IrType type, IrIcmp pred, u64 start, u64 step,
                            u64 end, bool modular, u64 *trip);
 

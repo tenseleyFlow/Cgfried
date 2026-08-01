@@ -496,6 +496,10 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
     cfg.debug_info = a->debug_level != 0;
     cfg.verify_after_each = env_is_one("CGF_VERIFY_AFTER_EACH");
     cfg.bail_log = env_is_one("CGF_OPT_BAIL_LOG");
+    cfg.disable_unswitch = env_is_one("CGF_OPT_DISABLE_UNSWITCH");
+    cfg.disable_bce = env_is_one("CGF_OPT_DISABLE_BCE");
+    cfg.disable_fusion = env_is_one("CGF_OPT_DISABLE_FUSION");
+    cfg.aggressive_loops = env_is_one("CGF_OPT_AGGRESSIVE_LOOPS");
     cfg.time_report = a->time_report;
     cfg.dump_bad_ir = cgf_env("CGF_DUMP_BAD_IR");
     (void)opt_run_pipeline(m, &cfg);
