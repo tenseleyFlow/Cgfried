@@ -134,6 +134,12 @@ Span ir_inst_span(const IrModule *m, const IrInst *in)
 
 ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y)
 {
+    return ir_build2_flags(b, op, t, x, y, 0);
+}
+
+ValueId ir_build2_flags(IrBuilder *b, IrOp op, IrType t, IrOperand x,
+                        IrOperand y, u8 flags)
+{
     IrInst *in;
     IrOperand ops[2];
 
@@ -144,6 +150,7 @@ ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y)
     ops[0] = x;
     ops[1] = y;
     in = append(b, op, t, true);
+    in->flags = flags;
     in->ops = copy_ops(b->m, ops, 2);
     in->nops = 2;
     return in->result;

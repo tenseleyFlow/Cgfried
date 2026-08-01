@@ -89,6 +89,7 @@ typedef struct LangOpts {
     bool gnu_mode;
     bool pedantic; /* -pedantic: pedwarns become visible (Sprint 37 wires
                       the real flag machinery; the hook is here) */
+    bool fwrapv;   /* signed arithmetic wraps: suppress IR no-wrap provenance */
 } LangOpts;
 
 /* --- target type widths (the ONLY source; never host sizeof) ---------- */

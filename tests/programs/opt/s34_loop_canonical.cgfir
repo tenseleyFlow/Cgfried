@@ -1,0 +1,17 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// The entry has another successor and the join has another predecessor.
+// Loop canonicalization must therefore split both loop boundaries.
+func i32 @canonical(i32 %enter, i32 %n) {
+entry():
+    condbr %enter, loop(i32 0, i32 0), join(i32 99)
+loop(i32 %i, i32 %sum):
+    %more = icmp slt i32 %i, %n
+    condbr %more, body(), join(i32 %sum)
+body():
+    %sum2 = iadd i32 %sum, %i
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+join(i32 %result):
+    ret i32 %result
+}

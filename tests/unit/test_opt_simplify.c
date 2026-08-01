@@ -186,7 +186,7 @@ void test_opt_simplify_integer_catalog(TestCtx *t)
                               "    %a = iadd i32 %x, 0\n"
                               "    %b = isub i32 %a, 0\n"
                               "    %c = imul i32 %b, 1\n"
-                              "    %d = imul i32 %c, 8\n"
+                              "    %d = imul i32 %c, 8, nsw\n"
                               "    %e = and i32 %d, 4294967295\n"
                               "    %f = or i32 %e, 0\n"
                               "    %g = xor i32 %f, 0\n"
@@ -218,6 +218,7 @@ void test_opt_simplify_integer_catalog(TestCtx *t)
     if (m) {
         s = simplify_print(m, &text);
         T_ASSERT(t, strstr(s, "shl i32 %0, 3") != NULL);
+        T_ASSERT(t, strstr(s, ", nsw") == NULL);
         T_ASSERT(t, strstr(s, "ret i32 0") != NULL);
         T_ASSERT(t, strstr(s, "icmp sgt i32 %0, 7") != NULL);
         T_ASSERT(t, ir_verify(f.dc, m));

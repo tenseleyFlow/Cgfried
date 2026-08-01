@@ -1,0 +1,13 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+// left/right form one SCC with two entries; neither dominates the other.
+func i32 @irreducible(i32 %choose, i32 %again) {
+entry():
+    condbr %choose, left(), right()
+left():
+    br right()
+right():
+    condbr %again, left(), done()
+done():
+    ret i32 0
+}

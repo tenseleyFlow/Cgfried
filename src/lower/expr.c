@@ -30,6 +30,16 @@ static bool is_signed_ty(Lower *lo, Type *t)
     return conv_is_signed(lo->sema, t);
 }
 
+static ValueId build_source_arith(Lower *lo, IrOp op, IrType irty, IrOperand x,
+                                  IrOperand y, Type *source_ty)
+{
+    bool nsw = (op == IR_IADD || op == IR_ISUB || op == IR_IMUL) &&
+               type_is_integer(source_ty) && is_signed_ty(lo, source_ty) &&
+               !lo->sema->lang->fwrapv;
+
+    return ir_build2_flags(&lo->b, op, irty, x, y, nsw ? IRF_NSW : 0);
+}
+
 static IrOperand fp_zero(Lower *lo, Type *t)
 {
     return ir_op_fconst(lower_irtype(lo, t), 0, 0);
@@ -662,7 +672,8 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
          * Found by the Sprint 21 MIR pipeline; latent since Sprint 18. */
         if ((e->op == PUNCT_SHL || e->op == PUNCT_SHR) && sem(e->rhs) != sem(e))
             b = lower_scalar_convert(lo, b, sem(e->rhs), sem(e));
-        r = ir_build2(&lo->b, arith_op_for(lo, e->op, sem(e)), t, a, b);
+        r = build_source_arith(lo, arith_op_for(lo, e->op, sem(e)), t, a, b,
+                               sem(e));
         return ir_op_value(lo->fn, r);
     }
 }
@@ -721,6 +732,9 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
         if (want_old)
             return ir_op_value(lo->fn, old);
         {
+            /* atomicrmw defines signed add/sub modulo 2^N; this expression
+             * result merely reconstructs the new value and therefore must
+             * not claim the ordinary signed-overflow license. */
             ValueId nv = ir_build2(&lo->b, rmw_compute_op(lo, op, lt), lv.unit,
                                    ir_op_value(lo->fn, old), v);
 
@@ -764,8 +778,8 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
                 common = conv_uac_type(lo->sema, lt, rt);
             a = lower_scalar_convert(lo, oldv, lt, common);
             b2 = lower_scalar_convert(lo, rhs, rt, common);
-            r = ir_build2(&lo->b, arith_op_for(lo, op, common),
-                          lower_irtype(lo, common), a, b2);
+            r = build_source_arith(lo, arith_op_for(lo, op, common),
+                                   lower_irtype(lo, common), a, b2, common);
             backc =
                 lower_scalar_convert(lo, ir_op_value(lo->fn, r), common, lt);
             if (!is_int) {
@@ -873,8 +887,8 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
                 common = conv_uac_type(lo->sema, lt, rt);
             a = lower_scalar_convert(lo, old, lt, common);
             b2 = lower_scalar_convert(lo, rhs, rt, common);
-            r = ir_build2(&lo->b, arith_op_for(lo, op, common),
-                          lower_irtype(lo, common), a, b2);
+            r = build_source_arith(lo, arith_op_for(lo, op, common),
+                                   lower_irtype(lo, common), a, b2, common);
             back = lower_scalar_convert(lo, ir_op_value(lo->fn, r), common, lt);
             return lower_store(lo, lv, back);
         }
@@ -1457,8 +1471,8 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
         }
     } else {
         ValueId r =
-            ir_build2(&lo->b, inc ? IR_IADD : IR_ISUB, lower_irtype(lo, t), old,
-                      ir_op_iconst(lower_irtype(lo, t), 1));
+            build_source_arith(lo, inc ? IR_IADD : IR_ISUB, lower_irtype(lo, t),
+                               old, ir_op_iconst(lower_irtype(lo, t), 1), t);
 
         nv = ir_op_value(lo->fn, r);
     }
@@ -1498,8 +1512,8 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
         if (type_is_fp(t))
             r = ir_build1(&lo->b, IR_FNEG, lower_irtype(lo, t), v);
         else
-            r = ir_build2(&lo->b, IR_ISUB, lower_irtype(lo, t),
-                          ir_op_iconst(lower_irtype(lo, t), 0), v);
+            r = build_source_arith(lo, IR_ISUB, lower_irtype(lo, t),
+                                   ir_op_iconst(lower_irtype(lo, t), 0), v, t);
         return ir_op_value(lo->fn, r);
     }
     case PUNCT_TILDE: {

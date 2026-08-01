@@ -1,0 +1,90 @@
+// FLAGS: -O3
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+
+func i32 @unroll_full(i32 %seed) {
+entry():
+    br loop(i32 0, i32 %seed)
+loop(i32 %i, i32 %sum):
+    %more = icmp ult i32 %i, 4
+    condbr %more, body(), done(i32 %sum)
+body():
+    %sum2 = iadd i32 %sum, %i
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func void @unroll_multi_exit(ptr %p, i32 %stop) {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp slt i32 %i, 8
+    condbr %more, body(), done()
+body():
+    %leave = icmp eq i32 %i, %stop
+    condbr %leave, early(), latch()
+early():
+    store i32 %i, %p, align 4, volatile, etype i32
+    br done()
+latch():
+    %next = iadd i32 %i, 1
+    br loop(i32 %next)
+done():
+    ret
+}
+
+func void @unroll_trip_wrap(ptr %p) {
+entry():
+    br loop(i8 0)
+loop(i8 %i):
+    %keep = icmp ne i8 %i, 255
+    condbr %keep, body(), done()
+body():
+    store i8 %i, %p, align 1, volatile, etype i8
+    %next = iadd i8 %i, 2
+    br loop(i8 %next)
+done():
+    ret
+}
+
+func i32 @unroll_partial_unsupported() {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %more = icmp ult i32 %i, 9
+    condbr %more, body(), done(i32 %sum)
+body():
+    %sum2 = iadd i32 %sum, %i
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @unroll_runtime_unsupported(i32 %n) {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp ult i32 %i, %n
+    condbr %more, body(), done()
+body():
+    %next = iadd i32 %i, 1
+    br loop(i32 %next)
+done():
+    ret i32 %i
+}
+
+func void @unroll_pinned(ptr %p) {
+entry():
+    br loop(i32 0)
+loop(i32 %i):
+    %more = icmp ult i32 %i, 4
+    condbr %more, body(), done()
+body():
+    %value = load i32, %p, align 4, volatile, etype i32
+    %next = iadd i32 %i, 1
+    br loop(i32 %next)
+done():
+    ret
+}

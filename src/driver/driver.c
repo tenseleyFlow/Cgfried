@@ -850,6 +850,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         lang.std = (CStd)a->std;
         lang.gnu_mode = lang.std >= STD_GNU89;
         lang.pedantic = a->pedantic;
+        lang.fwrapv = a->fwrapv;
         while (pp_next(&pp, &t))
             PpTokVecD_push(&collected, t);
         tl = lex_convert(&pp, collected.data, (u32)collected.len, &lang,

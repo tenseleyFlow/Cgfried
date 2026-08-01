@@ -71,11 +71,10 @@ test "$(grep -Fc 'memset' "$work/dse_partial.ir")" -eq 1
 test "$(grep -Fxc 'bail: dse dse_partial_overwrite func=@f' \
     "$work/dse_partial.err")" -eq 1
 
-CGF_VERIFY_AFTER_EACH=1 "$cc" -emit-ir -O0 \
-    tests/programs/opt/s32_jump_irreducible.cgfir \
-    >"$work/jt-before.ir" 2>"$work/jt-before.err"
 check_s32_ir tests/programs/opt/s32_jump_irreducible.cgfir jt_after
-cmp "$work/jt-before.ir" "$work/jt_after.ir"
+grep -Fq 'condbr %0, header.preheader(), other()' "$work/jt_after.ir"
+grep -Fq '    br header.preheader()' "$work/jt_after.ir"
+grep -Fq '    br header()' "$work/jt_after.ir"
 test "$(grep -Fxc \
     'bail: jump_thread jt_would_create_irreducible func=@f' \
     "$work/jt_after.err")" -eq 1

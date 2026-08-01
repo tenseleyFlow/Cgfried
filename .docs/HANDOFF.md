@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–33
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–34
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -45,18 +45,21 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - Phase 7 is open: every `-O` level reaches a real pass manager. O1 now runs
   mem2reg → sparse conditional constant propagation → exact simplify →
   block-local CSE → DCE → general CFG cleanup. O2+ adds GVN, DSE and bounded
-  jump threading, then internal-only IPO and a bottom-up SCC inliner,
-  iterating the inherited eleven-row pipeline to a named fixpoint. The
+  jump threading, then internal-only IPO and a bottom-up SCC inliner. O2 adds
+  canonical natural-loop analysis, LICM and affine-IV strength reduction; O3
+  adds exact bounded full unroll. Scalar, loop and unroll groups are separate
+  fixpoints so CFG cleanup cannot oscillate with canonicalization. The
   50-program corpus remains behaviorally equal across O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 34** —
-  `.docs/sprints/07-optimizations/s34-loops-1.md`, adding the loop tree, LICM,
-  strength reduction, and bounded unroll/peel.
+- **Next action: Sprint 35** —
+  `.docs/sprints/07-optimizations/s35-loops-2.md`, first landing the shared
+  ID-based loop-region cloner/runtime `TripInfo` foundation, then unswitch,
+  BCE, dependence analysis and fusion.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 374 tests, 92543 assertions, 0 failures
-cgf-test: total=447 pass=447 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 402 tests, 92702 assertions, 0 failures
+cgf-test: total=458 pass=458 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
@@ -230,6 +233,27 @@ because each one was learned the hard way.
   abstract-origin/inlined-subroutine records yet. `inl_debug_info` is the
   explicit boundary; removing it without richer DWARF silently destroys the
   debugger contract.
+- **Loop analysis is invalid after any IR mutation.** `loop_tree_build` is
+  pure scratch state. Canonicalization performs one boundary edit, renumbers,
+  then rebuilds dominators and the loop tree before touching another loop;
+  arena-backed block-array growth makes retained `IrBlock *` especially
+  dangerous.
+- **LCSSA is transitive through outside joins.** A loop-defined live-out must
+  cross an exit parameter and continue through outside block parameters until
+  every outside use names an outside definition. Fixing only direct exit uses
+  leaves later joins pointing back into the loop.
+- **LICM execution means exits and every backedge source.** Dominating every
+  exit is insufficient when an inner cycle can bypass the candidate forever.
+  Calls, atomics, cmpxchg, `va_start`, `stacksave`, and `stackrestore` are
+  memory-state barriers for both load hoisting and store sinking.
+- **Signed no-wrap is explicit IR provenance.** `IRF_NSW` comes only from
+  signed source arithmetic when `-fwrapv` is off. Opcode-changing rewrites
+  clear it; unsigned and `-fwrapv` arithmetic never acquire it.
+- **Sprint 34 unroll is bounded full only.** It proves exact constant modular
+  trips and serially expands direct two-block loops. Partial/runtime/peel and
+  pinned-body cloning are named bails until Sprint 35 lands stable-ID
+  `TripInfo` plus a complete loop-region cloner. Do not treat a straight-line
+  copier as that shared infrastructure.
 - **No host `sizeof` / conditional compilation in `src/sema/`.**
   `char` is unsigned on arm64-linux; a host assumption there
   miscompiles every cross build with no diagnostic
@@ -301,7 +325,7 @@ Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `rt_diff`, `driver_matrix`, `objdiff_lane`, `afsld_lane`,
 `debug_info_lane`, `e2e_gcc_diff`, `ctestsuite_diff`, `layout_diff`, `fp_diff`,
 `init_diff`, `inline_diff`, `lex_diff`, `parse_diff`, `spill_all_lane`,
-`opt_driver`, `s33_ipo_driver`.
+`opt_driver`, `s33_ipo_driver`, `s34_loop_driver`.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*

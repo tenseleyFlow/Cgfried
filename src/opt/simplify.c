@@ -760,6 +760,8 @@ static IrIcmp swapped_predicate(IrIcmp predicate)
 static void mutate_binary(IrInst *in, IrOp op, IrOperand x, IrOperand y)
 {
     in->op = (u8)op;
+    if (op != IR_IADD && op != IR_ISUB && op != IR_IMUL)
+        in->flags &= (u8)~IRF_NSW;
     in->ops[0] = x;
     in->ops[1] = y;
     in->nops = 2;
