@@ -42,15 +42,19 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   gdb break/next/four-frame backtraces work at `-O0` and `-O2`, including
   GDB 15's shorter x86 prologue scanner via an entry definition row plus
   `prologue_end` on the first executable row.
-- **Next action: Sprint 30** —
-  `.docs/sprints/07-optimizations/s30-pass-manager-mem2reg.md`, opening
-  Phase 7 with the pass manager and mem2reg.
+- Phase 7 is open: every `-O` level now reaches a real pass manager, mem2reg
+  promotes eligible locals, and the 50-program corpus is behaviorally equal
+  across O0/O1/O2/O3/Os/Ofast.
+- **Next action: Sprint 31** —
+  `.docs/sprints/07-optimizations/s31-local-opts.md`, adding SCCP and local
+  simplification to the one-row-per-pass pipeline table.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 275 tests, 91792 assertions, 0 failures
-cgf-test: total=396 pass=396 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 290 tests, 91894 assertions, 0 failures
+cgf-test: total=419 pass=419 fail=0 xfail=0 xpass=0 skip=0 config=0
+OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
 rt_diff: 2317 result lines identical to libgcc
@@ -167,6 +171,16 @@ because each one was learned the hard way.
   operands must *materialize before* their consumer emits. Every
   violation looked like a wrong answer far from the cause
   (F-S25-ICMPIMM64 was the third).
+- **Dominance is not block-layout order** (F-S30-FWDSSA). mem2reg can expose
+  a value whose dominating definition is visited later by isel around a
+  backedge. Operand materialization reserves the value's vreg first; the later
+  definition bridges into that stable identity. Never restore the assumption
+  that a layout-order use already has a selected definition.
+- **Optimizer scratch is phase-local.** Printer/verifier/dominance/pass
+  analysis state must use short-lived arenas; verify-after-each fixpoints must
+  not grow the module arena per invocation. Persistent mem2reg undef records
+  are the exception, and they record consuming `Span`s plus declaration/name
+  provenance for Sprint 40.
 - **No host FPU in the constant engine.** All float math goes through
   `src/util/softfp.c`. `scripts/check_no_host_fpu.sh` enforces it.
   Rounding happens in exactly one place (`round_pack`) so no value is
@@ -202,6 +216,10 @@ because each one was learned the hard way.
   dispatch table, so *nine goldens passed vacuously* for a whole
   sprint. When adding a directive, add it to `add_dir` **explicitly**
   and write a meta-fixture that proves it can FAIL.
+- **OPT_EQ must have an anti-vacuity fixture.** It runs every listed level
+  through the normal compile/run contract and compares runtime stdout+exit;
+  `tests/runner/meta/opt_eq_fail.c` deliberately differs by level and must
+  report both names.
 - **Never write a listing into the directory being listed** — the
   redirect races the command (green here, red on CI).
 - **Assert the artifact exists before comparing behavior.** Two
@@ -237,7 +255,8 @@ because each one was learned the hard way.
 Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `rt_diff`, `driver_matrix`, `objdiff_lane`, `afsld_lane`,
 `debug_info_lane`, `e2e_gcc_diff`, `ctestsuite_diff`, `layout_diff`, `fp_diff`,
-`init_diff`, `inline_diff`, `lex_diff`, `parse_diff`, `spill_all_lane`.
+`init_diff`, `inline_diff`, `lex_diff`, `parse_diff`, `spill_all_lane`,
+`opt_driver`.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -298,6 +317,7 @@ sh scripts/header_diff.sh build/cgfried
 sh scripts/rt_diff.sh build/cgfried
 sh scripts/driver_matrix.sh build/cgfried
 sh scripts/debug_info_lane.sh build/cgfried
+sh scripts/opt_driver.sh build/cgfried
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
 # CI:
@@ -309,7 +329,8 @@ gh api repos/tenseleyFlow/Cgfried/actions/jobs/<job-id>/logs   # failed-job deta
 Useful env knobs (all read in `toolchain.c`, the single `getenv` site):
 `CGF_AS=0` (system gas), `CGF_LD=1` (bundled afs-ld, `-static` lane),
 `CGF_CRT_DIR`, `CGF_INCLUDE_DIR`, `CGF_SPILL_ALL=1`,
-`CGF_DUMP_BAD_IR=path`, `CGF_VERIFY_AFTER_EACH=1`.
+`CGF_DUMP_BAD_IR=path`, `CGF_VERIFY_AFTER_EACH=1`,
+`CGF_OPT_BAIL_LOG=1`. `-ftime-report` is a driver flag, not an env knob.
 
 ---
 
