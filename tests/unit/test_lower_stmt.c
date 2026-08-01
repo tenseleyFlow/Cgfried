@@ -153,6 +153,90 @@ void test_lower_continue_targets_step(TestCtx *t)
     st_free(&f);
 }
 
+void test_lower_statement_source_locations(TestCtx *t)
+{
+    StFix f;
+    IrFunc *fn;
+    u32 bi;
+    bool saw_if = false, saw_body_store = false, saw_parent_br = false;
+    bool saw_return = false, saw_locless_prologue = false;
+
+    T_ASSERT(t, run_lower_s(&f, "int f(int n) {\n"
+                                "  int x = n;\n"
+                                "  if (x) {\n"
+                                "    x = 2;\n"
+                                "  }\n"
+                                "  return x;\n"
+                                "}\n"));
+    fn = &f.m->funcs[0];
+    for (bi = 0; bi < fn->nblocks; bi++) {
+        IrInst *in;
+
+        for (in = fn->blocks[bi].first; in; in = in->next) {
+            Span sp = ir_inst_span(f.m, in);
+
+            if (!in->loc) {
+                saw_locless_prologue = true;
+                continue;
+            }
+            T_ASSERT_EQ_STR(t, diag_span_path(f.dc, sp), "t.c");
+            if (in->op == IR_CONDBR && sp.line == 3)
+                saw_if = true;
+            if (in->op == IR_STORE && sp.line == 4)
+                saw_body_store = true;
+            if (in->op == IR_BR && sp.line == 3)
+                saw_parent_br = true;
+            if (in->op == IR_RET && sp.line == 6)
+                saw_return = true;
+        }
+    }
+    T_ASSERT(t, saw_locless_prologue);
+    T_ASSERT(t, saw_if);
+    T_ASSERT(t, saw_body_store);
+    T_ASSERT(t, saw_parent_br); /* nested body restored the if's span */
+    T_ASSERT(t, saw_return);
+    st_free(&f);
+}
+
+void test_lower_loop_condition_step_locations(TestCtx *t)
+{
+    StFix f;
+    IrFunc *fn;
+    u32 bi;
+    bool saw_while_cond = false, saw_do_cond = false, saw_for_cond = false;
+    bool saw_for_step = false;
+
+    T_ASSERT(t, run_lower_s(&f, "int f(int n) {\n"
+                                "  int x = 0;\n"
+                                "  while (x < n) x++;\n"
+                                "  do x--; while (x);\n"
+                                "  for (x = 0; x < n; x++) n--;\n"
+                                "  return x;\n"
+                                "}\n"));
+    fn = &f.m->funcs[0];
+    for (bi = 0; bi < fn->nblocks; bi++) {
+        IrInst *in;
+
+        for (in = fn->blocks[bi].first; in; in = in->next) {
+            Span sp = ir_inst_span(f.m, in);
+
+            if (in->op == IR_CONDBR && sp.line == 3)
+                saw_while_cond = true;
+            if (in->op == IR_CONDBR && sp.line == 4)
+                saw_do_cond = true;
+            if (in->op == IR_CONDBR && sp.line == 5)
+                saw_for_cond = true;
+            if (in->op == IR_IADD && sp.line == 5)
+                saw_for_step = true;
+        }
+    }
+    T_ASSERT(t, saw_while_cond);
+    T_ASSERT(t, saw_do_cond);
+    T_ASSERT(t, saw_for_cond);
+    T_ASSERT(t, saw_for_step);
+    st_free(&f);
+}
+
 void test_lower_switch_in_loop_ctx_stack(TestCtx *t)
 {
     StFix f;

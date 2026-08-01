@@ -106,6 +106,64 @@ void test_ir_inst_budget(TestCtx *t)
     T_ASSERT(t, sizeof(IrOperand) <= 24);
 }
 
+void test_ir_builder_source_locations(TestCtx *t)
+{
+    IrFix f;
+    IrModule *m;
+    IrFunc *fn;
+    BlockId entry;
+    IrBuilder b;
+    Span a = {0}, z = {0}, got;
+    IrInst *first;
+
+    fix_init(&f);
+    m = ir_module_new(&f.arena, f.dc);
+    fn = ir_func_new(m, "located", IRT_VOID, NULL, 0);
+    entry = ir_block_new(m, fn, "entry");
+    ir_builder_at(&b, m, fn, entry);
+
+    a.file_id = diag_add_file(f.dc, "physical.c", "x\n", 2);
+    a.line = 1;
+    a.col = 1;
+    a.len = 1;
+    a.presumed_path = "logical.c";
+    a.presumed_line = 40;
+    ir_builder_set_span(&b, a);
+    ir_build_store(&b, ir_op_iconst(IRT_I32, 1),
+                   ir_op_symbol(IRT_PTR, ir_sym(m, "x"), 0), 4, 0);
+    ir_build_ret(&b, NULL);
+
+    first = fn->blocks[0].first;
+    T_ASSERT(t, first->loc != 0);
+    T_ASSERT_EQ_INT(t, first->loc, first->next->loc); /* table dedup */
+    got = ir_debug_loc(m, first->loc);
+    T_ASSERT_EQ_INT(t, got.file_id, a.file_id);
+    T_ASSERT_EQ_INT(t, got.line, 1);
+    T_ASSERT_EQ_INT(t, got.presumed_line, 40);
+    T_ASSERT_EQ_STR(t, diag_span_path(f.dc, got), "logical.c");
+    T_ASSERT_EQ_INT(t, ir_inst_span(m, first).col, 1);
+    T_ASSERT_EQ_INT(t, ir_debug_loc(m, 0).file_id, z.file_id);
+    T_ASSERT_EQ_INT(t, sizeof(IrInst), 48);
+    {
+        Buf text;
+        IrModule *parsed;
+
+        buf_init(&text);
+        ir_print_module_buf(&text, m);
+        buf_push_u8(&text, 0);
+        parsed = ir_parse_module(&f.arena, f.dc, (const char *)text.data,
+                                 "<locless>");
+        T_ASSERT(t, parsed != NULL);
+        if (parsed) {
+            T_ASSERT(t, ir_module_struct_eq(m, parsed));
+            T_ASSERT_EQ_INT(t, parsed->nlocs, 0);
+            T_ASSERT_EQ_INT(t, parsed->funcs[0].blocks[0].first->loc, 0);
+        }
+        buf_free(&text);
+    }
+    fix_free(&f);
+}
+
 void test_ir_builder_loop_structure(TestCtx *t)
 {
     IrFix f;

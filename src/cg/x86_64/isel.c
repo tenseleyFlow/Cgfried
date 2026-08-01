@@ -42,7 +42,8 @@ typedef struct Isel {
     X64Func *xf;
     ValInfo *vals; /* [nvals+1] */
     u32 *use_count;
-    u32 cur; /* current MIR block index (0-based) */
+    u32 cur;     /* current MIR block index (0-based) */
+    u32 cur_loc; /* source attribution inherited by every selected MIR op */
     /* flags tracking within the current block */
     u32 last_flags_inst; /* index+1 of last DEFS_FLAGS inst; 0 = none */
     u32 last_flags_val;  /* the icmp ValueId it computed for, or 0 */
@@ -82,6 +83,7 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
     memset(in, 0, sizeof(*in));
     in->op = (u16)op;
     in->width = (u8)w;
+    in->loc = is->cur_loc;
     switch (op) {
     case X64_OP_ADD:
     case X64_OP_SUB:
@@ -2368,8 +2370,10 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
         is.cur = bi;
         is.last_flags_inst = 0;
         is.last_flags_val = 0;
-        for (in = f->blocks[bi].first; in; in = in->next)
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            is.cur_loc = in->loc;
             sel_inst(&is, in, &f->blocks[bi]);
+        }
     }
     return xf;
 }

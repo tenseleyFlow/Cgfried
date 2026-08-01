@@ -11,7 +11,10 @@
 /* 1-based line/col; col counts bytes. file_id 0 = no source location (driver-
  * level diagnostics render as "cgfried: error: ..."). presumed_* (from
  * #line) override the DISPLAYED path/line only; the caret snippet always
- * comes from the physical file_id/line. Initialize with {0}. */
+ * comes from the physical file_id/line. debug_loc is an optional DiagCtx
+ * registry id for the user-visible execution location (notably the outermost
+ * macro invocation rather than the macro body spelling). Initialize with
+ * {0}. */
 typedef struct {
     u32 file_id;
     u32 line;
@@ -19,6 +22,7 @@ typedef struct {
     u32 len;
     const char *presumed_path; /* NULL = use the file's real path */
     u32 presumed_line;         /* 0 = use the physical line */
+    u32 debug_loc;             /* 0 = this span; otherwise DiagCtx id */
 } Span;
 
 typedef enum {
@@ -64,6 +68,15 @@ DiagSink diag_swap_sink(DiagCtx *dc, DiagSink sink);
 /* Registers a source buffer; returns its file_id (>= 1). The path is copied;
  * src is borrowed and must outlive the context. */
 u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len);
+/* Resolve a registered physical file id, or NULL for id 0/out of range. */
+const char *diag_file_path(const DiagCtx *dc, u32 file_id);
+/* The displayed path for a span: its #line name when present, otherwise
+ * the registered physical path. NULL means the span has no resolvable file. */
+const char *diag_span_path(const DiagCtx *dc, Span sp);
+/* Intern and resolve execution-attribution spans. Diagnostics continue to
+ * use the original Span; DWARF consumers opt into the debug location. */
+u32 diag_add_debug_span(DiagCtx *dc, Span sp);
+Span diag_span_for_debug(const DiagCtx *dc, Span sp);
 void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...);
 /* Same, carrying a fix-it. `insert` is borrowed and must outlive the sink
  * call (string literals and interned names qualify). */

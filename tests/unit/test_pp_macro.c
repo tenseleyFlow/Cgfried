@@ -363,5 +363,14 @@ void test_pp_expansion_loc_chain(TestCtx *t)
     /* And the spelling side resolves to the definition of INNER (line 1). */
     pp_loc_resolve(&f.pp.loc, toks[0].loc, &fid, &line, &col);
     T_ASSERT_EQ_INT(t, line, 1);
+    {
+        Span spelling = pp_span(&f.pp, toks[0].loc, toks[0].len);
+        Span debug = diag_span_for_debug(f.pp.diag, spelling);
+
+        T_ASSERT_EQ_INT(t, spelling.line, 1);
+        T_ASSERT(t, spelling.debug_loc != 0);
+        T_ASSERT_EQ_INT(t, debug.line, 4);
+        T_ASSERT_EQ_STR(t, diag_span_path(f.pp.diag, debug), "t.c");
+    }
     mfix_free(&f);
 }

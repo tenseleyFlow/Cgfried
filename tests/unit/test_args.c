@@ -265,10 +265,6 @@ void test_args_deferred_flags(TestCtx *t)
     DriverArgs a;
 
     arena_init(&ar);
-    PARSE(a, &ar, (char *)"-g", (char *)"t.c");
-    T_ASSERT(t, a.deferred && strcmp(a.deferred, "-g") == 0);
-    T_ASSERT(t, strstr(a.deferred_sprint, "Sprint 29") != NULL);
-    args_free(&a);
     PARSE(a, &ar, (char *)"-shared", (char *)"t.c");
     T_ASSERT(t, a.deferred && strcmp(a.deferred, "-shared") == 0);
     T_ASSERT(t, strstr(a.deferred_sprint, "Sprint 51") != NULL);
@@ -283,6 +279,28 @@ void test_args_deferred_flags(TestCtx *t)
     PARSE(a, &ar, (char *)"-fomit-frame-pointer", (char *)"t.c");
     T_ASSERT(t, !a.deferred);
     T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 1);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_debug_levels(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-g", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.debug_level, 2);
+    T_ASSERT(t, !a.deferred);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-g1", (char *)"-g3", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.debug_level, 3);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-g3", (char *)"-g0", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.debug_level, 0);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-ggdb", (char *)"t.c");
+    T_ASSERT(t, a.bad_value && strcmp(a.bad_value, "-g") == 0);
     args_free(&a);
     arena_free_all(&ar);
 }

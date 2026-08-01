@@ -23,6 +23,39 @@ static IrInst *append(IrBuilder *b, IrOp op, IrType t, bool defines)
     memset(in, 0, sizeof(*in));
     in->op = (u8)op;
     in->type = (u8)t;
+    if (b->loc.file_id) {
+        u32 i;
+
+        for (i = 0; i < b->m->nlocs; i++) {
+            Span old = b->m->locs[i];
+            bool same_path = old.presumed_path == b->loc.presumed_path;
+
+            if (!same_path && old.presumed_path && b->loc.presumed_path)
+                same_path =
+                    strcmp(old.presumed_path, b->loc.presumed_path) == 0;
+            if (old.file_id == b->loc.file_id && old.line == b->loc.line &&
+                old.col == b->loc.col && old.len == b->loc.len &&
+                old.presumed_line == b->loc.presumed_line &&
+                old.debug_loc == b->loc.debug_loc && same_path) {
+                in->loc = i + 1;
+                break;
+            }
+        }
+        if (!in->loc) {
+            if (b->m->nlocs == b->m->cap_locs) {
+                u32 nc = b->m->cap_locs ? b->m->cap_locs * 2 : 16;
+                Span *nl =
+                    arena_alloc(b->m->arena, nc * sizeof(Span), _Alignof(Span));
+
+                if (b->m->nlocs)
+                    memcpy(nl, b->m->locs, b->m->nlocs * sizeof(Span));
+                b->m->locs = nl;
+                b->m->cap_locs = nc;
+            }
+            b->m->locs[b->m->nlocs] = b->loc;
+            in->loc = ++b->m->nlocs;
+        }
+    }
     if (defines) {
         ValueId v;
         /* new_value lives in ir.c; recreate the minimal path here via the
@@ -73,6 +106,31 @@ void ir_builder_at(IrBuilder *b, IrModule *m, IrFunc *f, BlockId blk)
     b->m = m;
     b->f = f;
     b->block = blk;
+    memset(&b->loc, 0, sizeof(b->loc));
+}
+
+void ir_builder_set_span(IrBuilder *b, Span span)
+{
+    b->loc = span;
+}
+
+Span ir_builder_span(const IrBuilder *b)
+{
+    return b->loc;
+}
+
+Span ir_debug_loc(const IrModule *m, u32 loc)
+{
+    Span none = {0};
+
+    if (!m || loc == 0 || loc > m->nlocs)
+        return none;
+    return m->locs[loc - 1];
+}
+
+Span ir_inst_span(const IrModule *m, const IrInst *in)
+{
+    return ir_debug_loc(m, in ? in->loc : 0);
 }
 
 ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y)

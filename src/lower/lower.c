@@ -84,7 +84,10 @@ BlockId lower_new_block(Lower *lo, const char *prefix)
 
 void lower_at(Lower *lo, BlockId b)
 {
+    Span loc = ir_builder_span(&lo->b);
+
     ir_builder_at(&lo->b, lo->m, lo->fn, b);
+    ir_builder_set_span(&lo->b, loc);
     lo->terminated = false;
 }
 
@@ -506,6 +509,7 @@ static void lower_function(Lower *lo, AstNode *def)
 
     entry = ir_block_new(lo->m, lo->fn, "entry");
     collect_labels(lo, def->body, NULL);
+    ir_builder_set_span(&lo->b, (Span){0});
     lower_at(lo, entry);
 
     /* Bind parameters through the symbols sema recorded on the def node

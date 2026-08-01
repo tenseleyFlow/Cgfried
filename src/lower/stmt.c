@@ -346,7 +346,7 @@ static void lower_branch_to(Lower *lo, BlockId b)
     }
 }
 
-void lower_stmt(Lower *lo, AstNode *s)
+static void lower_stmt_impl(Lower *lo, AstNode *s)
 {
     u32 i;
 
@@ -612,4 +612,16 @@ void lower_stmt(Lower *lo, AstNode *s)
     default:
         return;
     }
+}
+
+void lower_stmt(Lower *lo, AstNode *s)
+{
+    Span saved;
+
+    if (!s || lo->failed)
+        return;
+    saved = ir_builder_span(&lo->b);
+    ir_builder_set_span(&lo->b, s->span);
+    lower_stmt_impl(lo, s);
+    ir_builder_set_span(&lo->b, saved);
 }

@@ -109,7 +109,8 @@ typedef struct Rb {
     Arena *arena;
     X64Inst *v;
     u32 n, cap;
-    u32 *map; /* [old_n] old inst index -> new index */
+    u32 *map;       /* [old_n] old inst index -> new index */
+    u32 source_loc; /* synthetic rewrites inherit their logical instruction */
 } Rb;
 
 static void rb_init(Rb *rb, Arena *a, u32 old_n)
@@ -121,6 +122,8 @@ static void rb_init(Rb *rb, Arena *a, u32 old_n)
 
 static void rb_put(Rb *rb, const X64Inst *in)
 {
+    X64Inst copy = *in;
+
     if (rb->n == rb->cap) {
         u32 nc = rb->cap ? rb->cap * 2 : 16;
         X64Inst *nv =
@@ -131,7 +134,9 @@ static void rb_put(Rb *rb, const X64Inst *in)
         rb->v = nv;
         rb->cap = nc;
     }
-    rb->v[rb->n++] = *in;
+    if (!copy.loc)
+        copy.loc = rb->source_loc;
+    rb->v[rb->n++] = copy;
 }
 
 /* Install the rebuilt stream and remap every flags_src through map. */
@@ -446,6 +451,8 @@ static void repair_vreg(X64Func *f, u32 v)
         rb_init(&rb, f->arena, b->n);
         for (i = 0; i < b->n; i++) {
             X64Inst in = b->insts[i];
+
+            rb.source_loc = in.loc;
 
             if (in.a.kind == X64O_VREG && in.a.fixed && in.a.r.v == v) {
                 X64VReg t = x64_newv(f, rc);
@@ -768,6 +775,8 @@ static void rewrite(Ra *ra)
             X64Inst in = b->insts[i];
             Interval *dit = in.def.v ? &ra->iv[in.def.v] : NULL;
 
+            rb.source_loc = in.loc;
+
             /* uses first: reloads sit before the instruction */
             if (in.a.kind == X64O_VREG)
                 sub_use(ra, &rb, &in.a.r, 0);
@@ -1008,6 +1017,8 @@ void x64_twoaddr_fixup(X64Func *f)
             u32 dst, src1, src2;
             bool xmm;
 
+            rb.source_loc = in.loc;
+
             rb.map[i] = rb.n;
             if (!(in.flags & X64IF_TWO_ADDR) || !in.def.v ||
                 in.a.kind != X64O_VREG) {
@@ -1183,6 +1194,8 @@ static void frame_finalize(Ra *ra)
             X64Inst x;
             X64Operand ap;
 
+            rb.source_loc = in.loc;
+
             if (in.op != X64_OP_VASTART) {
                 rb.map[i] = rb.n;
                 rb_put(&rb, &in);
@@ -1285,6 +1298,7 @@ static void frame_finalize(Ra *ra)
             }
         }
         for (i = 0; i < b->n; i++) {
+            rb.source_loc = b->insts[i].loc;
             rb.map[i] = rb.n;
             rb_put(&rb, &b->insts[i]);
         }
@@ -1307,6 +1321,8 @@ static void frame_finalize(Ra *ra)
         rb_init(&rb, f->arena, b->n);
         for (i = 0; i < b->n; i++) {
             X64Inst p;
+
+            rb.source_loc = b->insts[i].loc;
 
             if (b->insts[i].op != X64_OP_RET) {
                 rb.map[i] = rb.n;

@@ -1,10 +1,13 @@
 #include "driver/driver.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "cg/cg.h"
+#include "cg/x86_64/debug.h"
 #include "diag.h"
 #include "driver/deps.h"
 #include "driver/toolchain.h"
@@ -65,6 +68,8 @@ static const char *const help_text[] = {
     "Codegen / language:\n"
     "  -O<n>             optimization level: 0 (default) 1 2 3 s fast;\n"
     "                    -O means -O1; the LAST -O wins\n"
+    "  -g[-level]        emit DWARF v4 line tables (-g1/-g2/-g3 all\n"
+    "                    mean line-level debug info; -g0 disables)\n"
     "  -std=<std>        c89/c90, c99, c11, c17/c18 (+iso9899 spellings)\n"
     "                    and the gnu twins; the LAST -std= wins.\n"
     "                    Default c17 (gcc defaults to gnu17 — divergence\n"
@@ -468,6 +473,28 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
+/* Preserve the shell's logical, as-given cwd (including symlink components)
+ * when it honestly names '.'. PWD is untrusted process input, so validate
+ * identity before emitting it into DW_AT_comp_dir; otherwise use getcwd's
+ * physical path. Failure is an I/O error, never fabricated debug metadata. */
+static bool debug_comp_dir(char *out, size_t cap)
+{
+    const char *logical = cgf_env("PWD");
+    struct stat logical_st, dot_st;
+    int n;
+
+    if (logical && logical[0] == '/' && stat(logical, &logical_st) == 0 &&
+        stat(".", &dot_st) == 0 && logical_st.st_dev == dot_st.st_dev &&
+        logical_st.st_ino == dot_st.st_ino) {
+        n = snprintf(out, cap, "%s", logical);
+        if (n >= 0 && (size_t)n < cap)
+            return true;
+        errno = ERANGE;
+        return false;
+    }
+    return getcwd(out, cap) != NULL;
+}
+
 /* -S / -c / link (Sprints 24-26): the full backend per function, then
  * AT&T text. The .s is a USER-FACING CONTRACT (gas-assemblable); other
  * modes assemble it through the routed assembler, and an assembler
@@ -478,10 +505,15 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
 {
     Buf b;
     u32 i;
+    X64Func **xfuncs = NULL;
     char s_path[528];
+    char comp_dir[4096];
     FILE *f;
 
     buf_init(&b);
+    if (m->nfuncs)
+        xfuncs = arena_alloc(arena, m->nfuncs * sizeof(X64Func *),
+                             _Alignof(X64Func *));
     for (i = 0; i < m->nfuncs; i++) {
         X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
 
@@ -492,9 +524,22 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         if (x64_mir_verify(xf, dc))
             CGF_ICE("regalloc produced MIR the verifier rejects for '@%s'",
                     m->funcs[i].name);
+        if (a->debug_level)
+            x64_debug_prepare(xf);
+        xfuncs[i] = xf;
         x64_emit_function(xf, m, i, m->funcs[i].linkage, &b);
     }
     x64_emit_globals(m, &b);
+    comp_dir[0] = '\0';
+    if (a->debug_level && !debug_comp_dir(comp_dir, sizeof(comp_dir))) {
+        fprintf(stderr,
+                "cgfried: error: cannot determine current directory: %s\n",
+                strerror(errno));
+        buf_free(&b);
+        return CGF_EXIT_IO;
+    }
+    x64_emit_debug_sections(cgf_target_host(), arena, m, xfuncs, m->nfuncs,
+                            job->path, comp_dir, a->debug_level != 0, &b);
 
     if (diag_had_error(dc)) {
         buf_free(&b);

@@ -436,6 +436,19 @@ static bool h_opt(DriverArgs *da, const FlagSpec *fs, const char *val)
     return true;
 }
 
+static bool h_debug(DriverArgs *da, const FlagSpec *fs, const char *val)
+{
+    (void)fs;
+    if (val[0] == '\0') {
+        da->debug_level = 2;
+    } else if (val[1] == '\0' && val[0] >= '0' && val[0] <= '3') {
+        da->debug_level = (u8)(val[0] - '0');
+    } else if (!da->bad_value) {
+        da->bad_value = "-g";
+    }
+    return true;
+}
+
 static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
 {
     WarnOpt w;
@@ -579,10 +592,6 @@ static bool h_deferred(DriverArgs *da, const FlagSpec *fs, const char *val)
     if (da->deferred)
         return true;
     switch (fs->code) {
-    case F_DEBUG_G:
-        da->deferred = "-g";
-        da->deferred_sprint = "lands in Sprint 29";
-        break;
     case F_SHARED:
         da->deferred = "-shared";
         da->deferred_sprint = "lands in Sprint 51";
@@ -710,8 +719,8 @@ static const FlagSpec args_flag_table[] = {
     {"-fomit-frame-pointer", ARG_NONE, h_fflag, F_FOMIT_FP},
     {"-fno-omit-frame-pointer", ARG_NONE, h_fflag, F_FNO_OMIT_FP},
     {"-f", ARG_JOINED, h_fflag, F_FGENERAL},
-    /* deferred, loudly */
-    {"-g", ARG_JOINED, h_deferred, F_DEBUG_G},
+    /* debug / deferred */
+    {"-g", ARG_JOINED, h_debug, F_DEBUG_G},
     {"-shared", ARG_NONE, h_deferred, F_SHARED},
     /* link */
     {"-L", ARG_EITHER, h_dir, F_DIR_L},
