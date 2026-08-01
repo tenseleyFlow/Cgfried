@@ -75,6 +75,28 @@ typedef enum IrType {
     IRT_VOID /* call results only; never a value type anywhere else */
 } IrType;
 
+/* C effective-type classes carried by memory instructions.  Signed and
+ * unsigned integer types deliberately share a width class; character and
+ * void-byte accesses use ETYPE_CHAR, the strict-aliasing wildcard.  The
+ * value lives in IrInst.subop for ALLOCA/LOAD/STORE/MEMCPY/MEMSET, so this
+ * provenance costs no instruction bytes. */
+typedef enum EffTypeId {
+    ETYPE_UNKNOWN,
+    ETYPE_CHAR,
+    ETYPE_I8,
+    ETYPE_I16,
+    ETYPE_I32,
+    ETYPE_I64,
+    ETYPE_F32,
+    ETYPE_F64,
+    ETYPE_F80,
+    ETYPE_F128,
+    ETYPE_PTR,
+    ETYPE_AGGREGATE,
+    ETYPE_UNION,
+    ETYPE_COUNT
+} EffTypeId;
+
 /* ~40 live opcodes plus a RESERVED band. The reserved ones exist so their
  * opcode space is stable from day one; the builder hard-errors on each,
  * naming the sprint that lands it (19: ABI/varargs; 20: VLA stack ops and
@@ -298,6 +320,7 @@ typedef struct IrValInfo {
 } IrValInfo;
 
 struct OptMem2RegInfo;
+struct OptCfgInfo;
 
 /* Front-end provenance for local slots. The textual IR intentionally omits
  * this optional metadata, but flow diagnostics retain it while compiling C. */
@@ -346,6 +369,11 @@ typedef enum IrAbiRet {
 #define ir_arg_annot(kind, size) (((u64)(kind) << 32) | (u64)(u32)(size))
 #define ir_arg_kind(b) ((u32)((b) >> 32) & 0x7u)
 #define ir_arg_size(b) ((u32)(b))
+/* High-bit parameter-only C provenance.  It composes with the low ABI
+ * annotation fields and is compared by structural equality as part of the
+ * full annotation word. */
+#define IR_PARAM_RESTRICT (1ull << 63)
+#define ir_param_is_restrict(b) (((b) & IR_PARAM_RESTRICT) != 0)
 
 typedef struct IrFunc {
     const char *name; /* interned */
@@ -386,6 +414,7 @@ typedef struct IrFunc {
     /* Arena-owned analysis provenance retained for Sprint 40's flow
      * warnings. Opaque here so the IR does not depend on optimization. */
     struct OptMem2RegInfo *opt_mem2reg_info;
+    struct OptCfgInfo *opt_cfg_info;
 } IrFunc;
 
 typedef enum IrLinkage {
@@ -470,10 +499,16 @@ ValueId ir_build1(IrBuilder *b, IrOp op, IrType t, IrOperand x);
 ValueId ir_build_icmp(IrBuilder *b, IrIcmp p, IrOperand x, IrOperand y);
 ValueId ir_build_fcmp(IrBuilder *b, IrFcmp p, IrOperand x, IrOperand y);
 ValueId ir_build_alloca(IrBuilder *b, IrOperand size, u32 align);
+ValueId ir_build_alloca_typed(IrBuilder *b, IrOperand size, u32 align,
+                              EffTypeId etype);
 ValueId ir_build_load(IrBuilder *b, IrType t, IrOperand ptr, u32 align,
                       u8 flags);
+ValueId ir_build_load_typed(IrBuilder *b, IrType t, IrOperand ptr, u32 align,
+                            u8 flags, EffTypeId etype);
 void ir_build_store(IrBuilder *b, IrOperand val, IrOperand ptr, u32 align,
                     u8 flags);
+void ir_build_store_typed(IrBuilder *b, IrOperand val, IrOperand ptr, u32 align,
+                          u8 flags, EffTypeId etype);
 ValueId ir_build_ptradd(IrBuilder *b, IrOperand ptr, IrOperand off);
 void ir_build_memcpy(IrBuilder *b, IrOperand dst, IrOperand src, IrOperand size,
                      u32 align, u8 flags);
@@ -516,6 +551,7 @@ void ir_build_reserved(IrBuilder *b, IrOp op);
 void ir_print_module(FILE *out, const IrModule *m);
 void ir_print_module_buf(Buf *out, const IrModule *m);
 const char *ir_type_name(IrType t);
+const char *ir_etype_name(EffTypeId t);
 const char *ir_op_name(IrOp op);
 const char *ir_icmp_name(IrIcmp p);
 const char *ir_fcmp_name(IrFcmp p);

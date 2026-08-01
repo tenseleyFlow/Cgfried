@@ -193,16 +193,29 @@ ValueId ir_build_fcmp(IrBuilder *b, IrFcmp p, IrOperand x, IrOperand y)
 
 ValueId ir_build_alloca(IrBuilder *b, IrOperand size, u32 align)
 {
+    return ir_build_alloca_typed(b, size, align, ETYPE_UNKNOWN);
+}
+
+ValueId ir_build_alloca_typed(IrBuilder *b, IrOperand size, u32 align,
+                              EffTypeId etype)
+{
     IrInst *in = append(b, IR_ALLOCA, IRT_PTR, true);
 
     in->ops = copy_ops(b->m, &size, 1);
     in->nops = 1;
     in->align = align;
+    in->subop = (u8)etype;
     return in->result;
 }
 
 ValueId ir_build_load(IrBuilder *b, IrType t, IrOperand ptr, u32 align,
                       u8 flags)
+{
+    return ir_build_load_typed(b, t, ptr, align, flags, ETYPE_UNKNOWN);
+}
+
+ValueId ir_build_load_typed(IrBuilder *b, IrType t, IrOperand ptr, u32 align,
+                            u8 flags, EffTypeId etype)
 {
     IrInst *in = append(b, IR_LOAD, t, true);
 
@@ -210,11 +223,18 @@ ValueId ir_build_load(IrBuilder *b, IrType t, IrOperand ptr, u32 align,
     in->nops = 1;
     in->align = align;
     in->flags = flags;
+    in->subop = (u8)etype;
     return in->result;
 }
 
 void ir_build_store(IrBuilder *b, IrOperand val, IrOperand ptr, u32 align,
                     u8 flags)
+{
+    ir_build_store_typed(b, val, ptr, align, flags, ETYPE_UNKNOWN);
+}
+
+void ir_build_store_typed(IrBuilder *b, IrOperand val, IrOperand ptr, u32 align,
+                          u8 flags, EffTypeId etype)
 {
     IrOperand ops[2];
     IrInst *in;
@@ -226,6 +246,7 @@ void ir_build_store(IrBuilder *b, IrOperand val, IrOperand ptr, u32 align,
     in->nops = 2;
     in->align = align;
     in->flags = flags;
+    in->subop = (u8)etype;
 }
 
 ValueId ir_build_ptradd(IrBuilder *b, IrOperand ptr, IrOperand off)
@@ -247,6 +268,7 @@ void ir_build_memcpy(IrBuilder *b, IrOperand dst, IrOperand src, IrOperand size,
     in->nops = 3;
     in->align = align;
     in->flags = flags;
+    in->subop = ETYPE_CHAR;
 }
 
 void ir_build_memset(IrBuilder *b, IrOperand dst, IrOperand byte,
@@ -263,6 +285,7 @@ void ir_build_memset(IrBuilder *b, IrOperand dst, IrOperand byte,
     in->nops = 3;
     in->align = align;
     in->flags = flags;
+    in->subop = ETYPE_CHAR;
 }
 
 ValueId ir_build_select(IrBuilder *b, IrOperand c, IrOperand x, IrOperand y)

@@ -43,10 +43,11 @@
  * directly. The address is an OPERAND, not a ValueId: a global's address
  * is an IROP_SYMBOL and never becomes an instruction. */
 typedef struct Lvalue {
-    IrOperand addr; /* always ptr-typed */
-    IrType unit;    /* type of the underlying load/store unit */
-    u8 bit_shift;   /* bitfield only: bit position within the unit */
-    u8 bit_width;   /* bitfield only: 0 means "not a bitfield" */
+    IrOperand addr;  /* always ptr-typed */
+    IrType unit;     /* type of the underlying load/store unit */
+    EffTypeId etype; /* C effective type for alias analysis */
+    u8 bit_shift;    /* bitfield only: bit position within the unit */
+    u8 bit_width;    /* bitfield only: 0 means "not a bitfield" */
     bool is_bitfield;
     bool is_volatile;
     bool is_atomic; /* _Atomic: loads/stores carry seq_cst (Sprint 20) */
@@ -164,6 +165,7 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init);
 /* --- shared helpers (src/lower/lower.c) ----------------------------------- */
 
 IrType lower_irtype(Lower *lo, const Type *t); /* scalars only */
+EffTypeId lower_efftype(Lower *lo, const Type *t);
 bool lower_is_aggregate(const Type *t);
 /* Fresh block; the label is arena-formatted for deterministic names. */
 BlockId lower_new_block(Lower *lo, const char *prefix);

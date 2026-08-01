@@ -153,7 +153,9 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         el = layout_of(lo->sema, elem);
         if (lo->vla_scopes && !lo->vla_scopes->token.v)
             lo->vla_scopes->token = ir_build_stacksave(&lo->b);
-        slot = ir_build_alloca(&lo->b, bytes, (u32)(el.align ? el.align : 1));
+        slot =
+            ir_build_alloca_typed(&lo->b, bytes, (u32)(el.align ? el.align : 1),
+                                  lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
         return;
     }
@@ -167,8 +169,9 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         return;
 
     l = layout_of(lo->sema, sym->type);
-    slot = ir_build_alloca(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-                           (u32)(l.align ? l.align : 1));
+    slot = ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
+                                 (u32)(l.align ? l.align : 1),
+                                 lower_efftype(lo, sym->type));
     lower_bind_local(lo, sym, slot);
     if (d->init)
         lower_local_init(lo, ir_op_value(lo->fn, slot), sym->type, d->init);

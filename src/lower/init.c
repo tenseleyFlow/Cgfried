@@ -326,6 +326,7 @@ static void store_chunk(Lower *lo, IrOperand base, i64 off, IrType t, u64 bits,
     memset(&lv, 0, sizeof(lv));
     lv.addr = off_addr(lo, base, off);
     lv.unit = t;
+    lv.etype = ETYPE_CHAR; /* constant image bytes, not a typed C access */
     lv.align = align;
     lower_store(lo, lv, ir_op_iconst(t, (i64)bits));
 }
@@ -360,6 +361,7 @@ static void emit_stores(Lower *lo, InitPlan *p, IrOperand base, u32 align)
             memset(&lv, 0, sizeof(lv));
             lv.addr = off_addr(lo, base, (i64)off);
             lv.unit = IRT_PTR;
+            lv.etype = ETYPE_PTR;
             lv.align = align < 8 ? align : 8;
             lower_store(lo, lv, sv);
             off += 8;
@@ -492,6 +494,7 @@ static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
             break;
         }
         lv.align = (u32)m->container_size;
+        lv.etype = lower_efftype(lo, m->type);
         lv.is_bitfield = true;
         lv.bit_shift = (u8)(m->bit_offset - unit_byte * 8);
         lv.bit_width = (u8)m->bit_width;
@@ -516,6 +519,7 @@ static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
         memset(&lv, 0, sizeof(lv));
         lv.addr = off_addr(lo, base, r->off);
         lv.unit = lower_irtype(lo, r->t);
+        lv.etype = lower_efftype(lo, r->t);
         lv.align = (u32)(l.align ? l.align : 1);
         lower_store(lo, lv, v);
     }
@@ -543,6 +547,7 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
         memset(&lv, 0, sizeof(lv));
         lv.addr = base;
         lv.unit = lower_irtype(lo, t);
+        lv.etype = lower_efftype(lo, t);
         l = layout_of(lo->sema, t);
         lv.align = (u32)(l.align ? l.align : 1);
         if (t->quals & CGF_QUAL_VOLATILE)

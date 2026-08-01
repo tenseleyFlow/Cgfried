@@ -60,7 +60,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 {
     ValueId raw;
 
-    raw = ir_build_load(&lo->b, lv.unit, lv.addr, lv.align, lv_flags(&lv));
+    raw = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv.align, lv_flags(&lv),
+                              lv.etype);
     if (!lv.is_bitfield)
         return ir_op_value(lo->fn, raw);
     {
@@ -84,7 +85,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 {
     if (!lv.is_bitfield) {
-        ir_build_store(&lo->b, v, lv.addr, lv.align, lv_flags(&lv));
+        ir_build_store_typed(&lo->b, v, lv.addr, lv.align, lv_flags(&lv),
+                             lv.etype);
         return v;
     }
     {
@@ -92,8 +94,8 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
          * re-narrowed stored value, not the incoming RHS. */
         u32 unit_bits = 8u << (lv.unit - IRT_I8);
         u64 mask = lv.bit_width >= 64 ? ~0ull : ((1ull << lv.bit_width) - 1);
-        ValueId old =
-            ir_build_load(&lo->b, lv.unit, lv.addr, lv.align, lv_flags(&lv));
+        ValueId old = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv.align,
+                                          lv_flags(&lv), lv.etype);
         ValueId clr =
             ir_build2(&lo->b, IR_AND, lv.unit, ir_op_value(lo->fn, old),
                       ir_op_iconst(lv.unit, (i64) ~(mask << lv.bit_shift)));
@@ -106,8 +108,8 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
             ir_build2(&lo->b, IR_OR, lv.unit, ir_op_value(lo->fn, clr),
                       ir_op_value(lo->fn, shifted));
 
-        ir_build_store(&lo->b, ir_op_value(lo->fn, ins), lv.addr, lv.align,
-                       lv_flags(&lv));
+        ir_build_store_typed(&lo->b, ir_op_value(lo->fn, ins), lv.addr,
+                             lv.align, lv_flags(&lv), lv.etype);
         /* Re-narrow for the result: shl/shr pair, signedness-aware. */
         {
             u32 up = unit_bits - lv.bit_width;
@@ -232,6 +234,7 @@ static Lvalue lv_of(Lower *lo, IrOperand addr, Type *t)
 
     memset(&lv, 0, sizeof(lv));
     lv.addr = addr;
+    lv.etype = lower_efftype(lo, t);
     if (t && (t->quals & CGF_QUAL_VOLATILE))
         lv.is_volatile = true;
     if (t && (t->quals & CGF_QUAL_ATOMIC))
@@ -336,6 +339,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         }
         if (!m->is_bitfield) {
             lv = lv_of(lo, addr_plus(lo, base, (i64)off), sem(e));
+            if (rec->kind == TY_UNION)
+                lv.etype = ETYPE_UNION;
             return lv;
         }
         {
@@ -368,6 +373,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 break;
             }
             lv.align = (u32)m->container_size;
+            lv.etype = rec->kind == TY_UNION ? ETYPE_UNION
+                                             : lower_efftype(lo, m->type);
             lv.is_bitfield = true;
             lv.bit_shift = (u8)shift;
             lv.bit_width = (u8)m->bit_width;
@@ -1299,8 +1306,9 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
              * through an eightbyte-rounded temp so the second load never
              * reads past the object. */
             u64 rounded = (u64)plan.n * 8;
-            ValueId tmp = ir_build_alloca(&lo->b, lower_i64((i64)rounded),
-                                          plan.align > 8 ? plan.align : 8);
+            ValueId tmp = ir_build_alloca_typed(&lo->b, lower_i64((i64)rounded),
+                                                plan.align > 8 ? plan.align : 8,
+                                                lower_efftype(lo, sem(a)));
             u32 k;
 
             ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), av,
@@ -1318,6 +1326,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 memset(&lv, 0, sizeof(lv));
                 lv.addr = addr;
                 lv.unit = plan.t[k];
+                lv.etype = lower_efftype(lo, sem(a));
                 lv.align = 8;
                 args[nargs++] = lower_load(lo, lv);
             }
@@ -1379,12 +1388,14 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     if (aret.kind == ABI_RET_SMALL) {
         /* The eightbyte came back as a scalar; give the expression layer
          * the ADDRESS it expects for an aggregate value. */
-        ValueId tmp = ir_build_alloca(&lo->b, lower_i64(8), 8);
+        ValueId tmp = ir_build_alloca_typed(&lo->b, lower_i64(8), 8,
+                                            lower_efftype(lo, ret));
         Lvalue lv;
 
         memset(&lv, 0, sizeof(lv));
         lv.addr = ir_op_value(lo->fn, tmp);
         lv.unit = aret.small_t;
+        lv.etype = lower_efftype(lo, ret);
         lv.align = 8;
         lower_store(lo, lv, ir_op_value(lo->fn, rv));
         return ir_op_value(lo->fn, tmp);

@@ -732,6 +732,28 @@ static u8 parse_memflags(P *p)
     return flags;
 }
 
+static bool parse_etype(P *p, u8 *out)
+{
+    Tok *name;
+    int i;
+
+    if (peek(p)->kind != T_COMMA || !tok_is(peek2(p), "etype"))
+        return true;
+    next(p);
+    next(p);
+    name = expect(p, T_IDENT, "an effective-type name");
+    if (!name)
+        return false;
+    for (i = 0; i < ETYPE_COUNT; i++) {
+        if (tok_is(name, ir_etype_name((EffTypeId)i))) {
+            *out = (u8)i;
+            return true;
+        }
+    }
+    perr(p, name, "unknown effective type '%.*s'", (int)name->len, name->s);
+    return false;
+}
+
 static bool parse_inst(P *p)
 {
     Tok *res = NULL;
@@ -883,7 +905,9 @@ static bool parse_inst(P *p)
         in->nops = 1;
         if (!parse_atom(p, IRT_I64, &in->ops[0]))
             return false;
-        return parse_align(p, &in->align);
+        if (!parse_align(p, &in->align))
+            return false;
+        return parse_etype(p, &in->subop);
     case IR_LOAD:
         if (!parse_type(p, &ty, "the loaded type"))
             return false;
@@ -897,7 +921,7 @@ static bool parse_inst(P *p)
         if (!parse_align(p, &in->align))
             return false;
         in->flags = parse_memflags(p);
-        return true;
+        return parse_etype(p, &in->subop);
     case IR_STORE:
         in = inst_append(p, IR_STORE, IRT_VOID, NULL);
         in->ops = ops_alloc(p, 2);
@@ -911,7 +935,7 @@ static bool parse_inst(P *p)
         if (!parse_align(p, &in->align))
             return false;
         in->flags = parse_memflags(p);
-        return true;
+        return parse_etype(p, &in->subop);
     case IR_PTRADD:
         in = inst_append(p, IR_PTRADD, IRT_PTR, res);
         in->ops = ops_alloc(p, 2);
@@ -924,6 +948,7 @@ static bool parse_inst(P *p)
     case IR_MEMCPY:
     case IR_MEMSET:
         in = inst_append(p, (IrOp)op, IRT_VOID, NULL);
+        in->subop = ETYPE_CHAR;
         in->ops = ops_alloc(p, 3);
         in->nops = 3;
         if (!parse_atom(p, IRT_PTR, &in->ops[0]))
@@ -938,6 +963,8 @@ static bool parse_inst(P *p)
         if (!parse_atom(p, IRT_I64, &in->ops[2]))
             return false;
         if (!parse_align(p, &in->align))
+            return false;
+        if (!parse_etype(p, &in->subop))
             return false;
         in->flags = parse_memflags(p);
         return true;
@@ -1312,6 +1339,11 @@ static bool parse_func(P *p)
                 if (!expect(p, T_RP, "')'"))
                     return false;
                 pannots[nparams] = ir_arg_annot(IR_ARG_BYVAL, (u32)sz->ival);
+                any_annot = true;
+            }
+            if (tok_is(peek(p), "restrict")) {
+                next(p);
+                pannots[nparams] |= IR_PARAM_RESTRICT;
                 any_annot = true;
             }
             pn = expect(p, T_PIDENT, "a parameter name");
