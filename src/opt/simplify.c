@@ -5,7 +5,7 @@
 #include "util/arena.h"
 #include "util/softfp.h"
 
-const Pass OPT_PASS_SIMPLIFY = {"simplify", opt_simplify};
+const Pass OPT_PASS_SIMPLIFY = {"simplify", opt_simplify, PASS_PINNED_EXACT};
 
 /* Integer IR values are bit patterns, never host signed arithmetic.  All
  * operations below use u64 modulo arithmetic and explicitly trim to the IR

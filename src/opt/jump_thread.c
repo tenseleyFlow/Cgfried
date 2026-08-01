@@ -531,4 +531,5 @@ bool opt_jump_thread(IrModule *m, const OptConfig *cfg)
     return changed;
 }
 
-const Pass OPT_PASS_JUMP_THREAD = {"jump_thread", opt_jump_thread};
+const Pass OPT_PASS_JUMP_THREAD = {"jump_thread", opt_jump_thread,
+                                   PASS_PINNED_EXACT};

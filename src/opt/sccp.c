@@ -59,7 +59,7 @@ typedef struct {
     bool logged_undef_branch;
 } Sccp;
 
-const Pass OPT_PASS_SCCP = {"sccp", opt_sccp};
+const Pass OPT_PASS_SCCP = {"sccp", opt_sccp, PASS_PINNED_EXACT};
 
 static bool operand_eq(IrOperand a, IrOperand b)
 {

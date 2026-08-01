@@ -26,6 +26,7 @@ typedef struct OptConfig {
     OptFastMath fast_math;
     bool no_strict_aliasing;
     bool fwrapv;
+    bool debug_info;
 
     /* Runtime controls are resolved once by the driver. Tests may set
      * these directly without mutating the process environment. */
@@ -40,9 +41,16 @@ typedef struct OptConfig {
     const char *current_func;
 } OptConfig;
 
+typedef enum PassPinnedPolicy {
+    PASS_PINNED_EXACT,
+    PASS_PINNED_INLINE_CLONES,
+    PASS_PINNED_DELETE_FUNCS,
+} PassPinnedPolicy;
+
 typedef struct Pass {
     const char *name;
     bool (*run)(IrModule *m, const OptConfig *cfg);
+    PassPinnedPolicy pinned_policy;
 } Pass;
 
 void opt_config_init(OptConfig *cfg, OptLevel level);
@@ -86,6 +94,29 @@ bool opt_dce(IrModule *m, const OptConfig *cfg);
 bool opt_dse(IrModule *m, const OptConfig *cfg);
 bool opt_simplify_cfg(IrModule *m, const OptConfig *cfg);
 bool opt_jump_thread(IrModule *m, const OptConfig *cfg);
+
+/* Sprint 33 interprocedural work.  The callgraph owns heap-backed analysis
+ * storage and indexes nodes by IrModule function index.  SCC enumeration is
+ * deterministic; ipo_callgraph_bottom_up_scc() maps bottom-up ordinals to
+ * Tarjan component ids so clients process callees before callers. */
+typedef struct Callgraph Callgraph;
+Callgraph *ipo_callgraph_build(IrModule *m);
+void ipo_callgraph_free(Callgraph *cg);
+u32 ipo_callgraph_node_count(const Callgraph *cg);
+u32 ipo_callgraph_edge_count(const Callgraph *cg, u32 caller);
+u32 ipo_callgraph_edge(const Callgraph *cg, u32 caller, u32 ordinal);
+bool ipo_callgraph_has_unknown_callees(const Callgraph *cg, u32 caller);
+bool ipo_callgraph_address_taken(const Callgraph *cg, u32 func);
+u32 ipo_callgraph_scc_count(const Callgraph *cg);
+u32 ipo_callgraph_scc_of(const Callgraph *cg, u32 func);
+u32 ipo_callgraph_scc_size(const Callgraph *cg, u32 scc);
+u32 ipo_callgraph_scc_member(const Callgraph *cg, u32 scc, u32 ordinal);
+u32 ipo_callgraph_bottom_up_scc(const Callgraph *cg, u32 ordinal);
+
+extern const Pass OPT_PASS_IPO;
+extern const Pass OPT_PASS_INLINE;
+bool opt_ipo(IrModule *m, const OptConfig *cfg);
+bool opt_inline(IrModule *m, const OptConfig *cfg);
 
 /* An IR location is represented by its resolved Span rather than the PP
  * table-local SrcLoc id. This keeps the record queryable after PP teardown. */
