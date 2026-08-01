@@ -73,7 +73,8 @@ static void child_dishonest_pass(void)
     Arena arena;
     IrModule *m;
     OptConfig cfg;
-    static const Pass pass = {"dishonest-test-pass", dishonest_mutation};
+    static const Pass pass = {"dishonest-test-pass", dishonest_mutation,
+                              PASS_PINNED_EXACT};
     static const Pass *const passes[] = {&pass};
 
     arena_init(&arena);
@@ -89,7 +90,8 @@ static void child_oscillating_pass(void)
     Arena arena;
     IrModule *m;
     OptConfig cfg;
-    static const Pass pass = {"always-true-test-pass", never_converges};
+    static const Pass pass = {"always-true-test-pass", never_converges,
+                              PASS_PINNED_EXACT};
     static const Pass *const passes[] = {&pass};
 
     arena_init(&arena);
@@ -111,7 +113,8 @@ static void child_volatile_reorder(void)
     IrOperand ptr;
     IrGlobal *g;
     OptConfig cfg;
-    static const Pass pass = {"volatile-reorder-test-pass", reorder_volatile};
+    static const Pass pass = {"volatile-reorder-test-pass", reorder_volatile,
+                              PASS_PINNED_EXACT};
     static const Pass *const passes[] = {&pass};
 
     arena_init(&arena);
@@ -128,6 +131,40 @@ static void child_volatile_reorder(void)
     ir_build_store(&b, ir_op_iconst(IRT_I32, 2), ptr, 4, IRF_VOLATILE);
     ir_build_ret(&b, NULL);
     opt_config_init(&cfg, OPT_O1);
+    cfg.verify_after_each = true;
+    (void)opt_run_pass_sequence(m, &cfg, passes, 1);
+    arena_free_all(&arena);
+}
+
+static void child_inline_policy_reorder(void)
+{
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    BlockId entry;
+    IrOperand ptr;
+    IrGlobal *g;
+    OptConfig cfg;
+    static const Pass pass = {"inline-policy-reorder-test-pass",
+                              reorder_volatile, PASS_PINNED_INLINE_CLONES};
+    static const Pass *const passes[] = {&pass};
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    m = ir_module_new(&arena, dc);
+    g = ir_global_new(m, "g");
+    g->size = 4;
+    g->align = 4;
+    f = ir_func_new(m, "f", IRT_VOID, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    ir_builder_at(&b, m, f, entry);
+    ptr = ir_op_symbol(IRT_PTR, ir_sym(m, "g"), 0);
+    ir_build_store(&b, ir_op_iconst(IRT_I32, 1), ptr, 4, IRF_VOLATILE);
+    ir_build_store(&b, ir_op_iconst(IRT_I32, 2), ptr, 4, IRF_VOLATILE);
+    ir_build_ret(&b, NULL);
+    opt_config_init(&cfg, OPT_O2);
     cfg.verify_after_each = true;
     (void)opt_run_pass_sequence(m, &cfg, passes, 1);
     arena_free_all(&arena);
@@ -205,13 +242,22 @@ void test_opt_fixpoint_cap_names_still_changing_pass(TestCtx *t)
 void test_opt_pass_rejects_volatile_reordering(TestCtx *t)
 {
     char err[1024];
-    int status = run_child(child_volatile_reorder, err, sizeof(err));
+    int status;
+
+    status = run_child(child_volatile_reorder, err, sizeof(err));
 
     T_ASSERT(t, status >= 0 && WIFEXITED(status));
     if (status >= 0 && WIFEXITED(status))
         T_ASSERT_EQ_INT(t, WEXITSTATUS(status), 4);
     T_ASSERT(t, strstr(err, "volatile-reorder-test-pass") != NULL);
-    T_ASSERT(t, strstr(err, "changed volatile operations") != NULL);
+    T_ASSERT(t, strstr(err, "changed pinned operations") != NULL);
+
+    status = run_child(child_inline_policy_reorder, err, sizeof(err));
+    T_ASSERT(t, status >= 0 && WIFEXITED(status));
+    if (status >= 0 && WIFEXITED(status))
+        T_ASSERT_EQ_INT(t, WEXITSTATUS(status), 4);
+    T_ASSERT(t, strstr(err, "inline-policy-reorder-test-pass") != NULL);
+    T_ASSERT(t, strstr(err, "changed pinned operations") != NULL);
 }
 
 void test_opt_time_report_is_stderr_only_and_ir_stable(TestCtx *t)
