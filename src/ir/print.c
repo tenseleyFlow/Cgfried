@@ -293,6 +293,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         print_atom(out, m, vn, &in->ops[0]);
         buf_printf(out, ", ");
         print_atom(out, m, vn, &in->ops[1]);
+        if (in->flags & IRF_NSW)
+            buf_printf(out, ", nsw");
         break;
     case IR_ICMP:
         buf_printf(out, "icmp %s %s ", icmp_names[in->subop],

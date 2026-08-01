@@ -268,6 +268,10 @@ typedef struct IrEdge {
  * front end knows, so the call instruction carries it. Printed ` va`
  * after the argument list (Sprint 23). */
 #define IRF_CALL_VARIADIC 0x4u
+/* Integer add/sub/mul: the operation came from signed C arithmetic whose
+ * overflow is undefined.  The IR remains signless; this provenance is the
+ * optimizer's explicit license to use no-signed-wrap reasoning. */
+#define IRF_NSW 0x8u
 
 /* Callee encoding for IR_CALL (the sister project's shape). */
 typedef enum IrFuncRefKind {
@@ -495,6 +499,8 @@ u32 ir_intern_span(IrModule *m, Span span);
 Span ir_debug_loc(const IrModule *m, u32 loc);
 Span ir_inst_span(const IrModule *m, const IrInst *in);
 ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y);
+ValueId ir_build2_flags(IrBuilder *b, IrOp op, IrType t, IrOperand x,
+                        IrOperand y, u8 flags);
 ValueId ir_build1(IrBuilder *b, IrOp op, IrType t, IrOperand x);
 ValueId ir_build_icmp(IrBuilder *b, IrIcmp p, IrOperand x, IrOperand y);
 ValueId ir_build_fcmp(IrBuilder *b, IrFcmp p, IrOperand x, IrOperand y);

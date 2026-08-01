@@ -761,6 +761,7 @@ static bool parse_inst(P *p)
     int op;
     IrInst *in;
     IrType ty;
+    bool has_nsw = false;
 
     if (peek(p)->kind == T_PIDENT) {
         res = next(p);
@@ -815,16 +816,33 @@ static bool parse_inst(P *p)
     case IR_FSUB:
     case IR_FMUL:
     case IR_FDIV:
+        if (((IrOp)op == IR_IADD || (IrOp)op == IR_ISUB ||
+             (IrOp)op == IR_IMUL) &&
+            tok_is(peek(p), "nsw")) {
+            next(p);
+            has_nsw = true;
+        }
         if (!parse_type(p, &ty, "the operand type"))
             return false;
         in = inst_append(p, (IrOp)op, ty, res);
+        if (has_nsw)
+            in->flags |= IRF_NSW;
         in->ops = ops_alloc(p, 2);
         in->nops = 2;
         if (!parse_atom(p, ty, &in->ops[0]))
             return false;
         if (!expect(p, T_COMMA, "','"))
             return false;
-        return parse_atom(p, ty, &in->ops[1]);
+        if (!parse_atom(p, ty, &in->ops[1]))
+            return false;
+        if (((IrOp)op == IR_IADD || (IrOp)op == IR_ISUB ||
+             (IrOp)op == IR_IMUL) &&
+            peek(p)->kind == T_COMMA && tok_is(peek2(p), "nsw")) {
+            next(p);
+            next(p);
+            in->flags |= IRF_NSW;
+        }
+        return true;
     case IR_ICMP:
     case IR_FCMP: {
         Tok *pt = expect(p, T_IDENT, "a comparison predicate");

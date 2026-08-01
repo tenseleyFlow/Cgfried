@@ -17,7 +17,7 @@
  *   4  per-op type discipline
  *   5  entry block has no params and no predecessors
  *   6  no orphan blocks — unreachable-from-entry is REJECTED
- *   7  volatile/seq_cst flags only on ops that can carry them
+ *   7  instruction flags only on ops that can carry their semantics
  *   8  alignments nonzero powers of two; load/store never over-aligned
  *   9  FuncRef/symbol indices in range; internal call arity/types match
  *   10 reserved opcodes absent */
@@ -420,7 +420,15 @@ static void check_inst_misc(V *v, const IrInst *in)
             verr(v, 7, "'va' on '%s'; only calls carry the AL protocol",
                  ir_op_name((IrOp)in->op));
     }
-    if (in->flags & (u8) ~(IRF_VOLATILE | IRF_SEQ_CST | IRF_CALL_VARIADIC))
+    if (in->flags & IRF_NSW) {
+        if (in->op != IR_IADD && in->op != IR_ISUB && in->op != IR_IMUL)
+            verr(v, 7,
+                 "'nsw' on '%s'; only integer add/sub/mul carry signed "
+                 "overflow provenance",
+                 ir_op_name((IrOp)in->op));
+    }
+    if (in->flags &
+        (u8) ~(IRF_VOLATILE | IRF_SEQ_CST | IRF_CALL_VARIADIC | IRF_NSW))
         verr(v, 7, "unknown flag bits 0x%x", in->flags);
 
     /* 8: alignment discipline. */
