@@ -231,19 +231,24 @@ IrOperand ir_op_undef(IrType t)
 
 void ir_func_remove_unreachable(IrFunc *f)
 {
-    /* Fixed-size worklist on the C stack would overflow; reuse the block
-     * array bound. Small functions dominate, so a simple mark + compact
-     * beats anything clever. */
-    bool reach[4096];
-    u32 work[4096];
-    u32 remap[4096];
+    Arena scratch;
+    bool *reach;
+    u32 *work;
+    u32 *remap;
     u32 nwork = 0;
     u32 i, j;
     u32 next = 0;
     bool any_dead = false;
 
-    if (f->nblocks == 0 || f->nblocks > 4096)
-        return; /* degenerate or absurd; the verifier will speak to it */
+    if (f->nblocks == 0)
+        return;
+    /* The IR has no semantic block-count ceiling.  Keep the work arrays
+     * off the C stack, but size them to the actual function so cleanup
+     * remains valid for every representable CFG. */
+    arena_init(&scratch);
+    reach = arena_alloc(&scratch, f->nblocks * sizeof(bool), _Alignof(bool));
+    work = arena_alloc(&scratch, f->nblocks * sizeof(u32), _Alignof(u32));
+    remap = arena_alloc(&scratch, f->nblocks * sizeof(u32), _Alignof(u32));
     memset(reach, 0, f->nblocks * sizeof(bool));
     reach[0] = true;
     work[nwork++] = 0;
@@ -267,8 +272,10 @@ void ir_func_remove_unreachable(IrFunc *f)
         else
             any_dead = true;
     }
-    if (!any_dead)
+    if (!any_dead) {
+        arena_free_all(&scratch);
         return;
+    }
     /* Values defined in dying blocks lose their def coordinates; their
      * ids stay allocated so every surviving operand id is untouched. */
     for (i = 0; i < f->nvals; i++) {
@@ -298,6 +305,7 @@ void ir_func_remove_unreachable(IrFunc *f)
         f->blocks[remap[i]] = f->blocks[i];
     }
     f->nblocks = next;
+    arena_free_all(&scratch);
 }
 
 /* --- canonical value renumbering ------------------------------------------ */

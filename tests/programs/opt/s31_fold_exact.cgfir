@@ -1,0 +1,16 @@
+// FLAGS: -O1
+// Cross-fold determinism: these bits must not depend on host long double.
+// These increments are below binary64 and x87 precision respectively, so a
+// host-FPU implementation loses them before reaching the destination format.
+// IR_CHECK: ret f80 0x3FFF:0x8000000000000001
+// IR_CHECK: ret f128 0x3FFF000000000000:0x0000000000001000
+func f80 @add80() {
+entry():
+    %r = fadd f80 0x3FFF:0x8000000000000000, 0x3FC0:0x8000000000000000
+    ret f80 %r
+}
+func f128 @add128() {
+entry():
+    %r = fadd f128 0x3FFF000000000000:0x0000000000000000, 0x3F9B000000000000:0x0000000000000000
+    ret f128 %r
+}

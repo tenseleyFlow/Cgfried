@@ -1,0 +1,10 @@
+// FLAGS: -O1
+// IR_CHECK: %2 = iadd i32 %0, %1
+// IR_CHECK-NOT: iadd i32 %1, %0
+// IR_CHECK: ret i32 %2
+func i32 @same_block(i32 %x, i32 %y) {
+entry():
+    %a = iadd i32 %x, %y
+    %b = iadd i32 %y, %x
+    ret i32 %b
+}

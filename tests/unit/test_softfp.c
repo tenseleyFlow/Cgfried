@@ -451,6 +451,62 @@ void test_softfp_int_conversions(TestCtx *t)
     T_ASSERT(t, st.invalid);
 }
 
+void test_softfp_int_conversion_ranges(TestCtx *t)
+{
+    static const struct {
+        uint64_t magnitude;
+        int width;
+        bool negative;
+        bool is_unsigned;
+        bool invalid;
+        uint64_t result;
+    } cases[] = {
+        {127, 8, false, false, false, 127},
+        {128, 8, false, false, true, 0},
+        {128, 8, true, false, false, 128},
+        {129, 8, true, false, true, 0},
+        {255, 8, false, true, false, 255},
+        {256, 8, false, true, true, 0},
+        {1, 8, true, true, true, 0},
+        {UINT64_C(1) << 63, 64, false, false, true, 0},
+        {UINT64_C(1) << 63, 64, true, false, false, UINT64_C(1) << 63},
+        {UINT64_MAX, 64, false, true, false, UINT64_MAX},
+        {UINT64_MAX, 64, true, true, true, 0},
+    };
+    size_t i;
+
+    /* binary128 represents every u64 exactly, so these exercise only the
+     * conversion range law rather than source-format rounding. */
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        SfStatus st;
+        Sf v;
+        uint64_t got;
+
+        memset(&st, 0, sizeof(st));
+        v = sf_from_int(cases[i].magnitude, cases[i].negative, SF_BINARY128,
+                        &st);
+        T_ASSERT(t, !st.invalid);
+        memset(&st, 0, sizeof(st));
+        got = sf_to_int(v, cases[i].width, cases[i].is_unsigned, &st);
+        T_ASSERT_EQ_INT(t, st.invalid, cases[i].invalid);
+        if (!st.invalid)
+            T_ASSERT(t, got == cases[i].result);
+    }
+
+    /* Fractional truncation happens before the range check: -0.5 becomes
+     * the representable unsigned value zero, while -1.5 becomes invalid. */
+    {
+        SfStatus st;
+
+        memset(&st, 0, sizeof(st));
+        T_ASSERT(t, sf_to_int(sf_neg(d64("5", -1)), 8, true, &st) == 0);
+        T_ASSERT(t, !st.invalid);
+        memset(&st, 0, sizeof(st));
+        (void)sf_to_int(sf_neg(d64("15", -1)), 8, true, &st);
+        T_ASSERT(t, st.invalid);
+    }
+}
+
 /* Converting between formats must round ONCE. Widening is exact;
  * narrowing rounds, and narrowing a value that was already narrow is the
  * identity — which is the property double rounding breaks. */

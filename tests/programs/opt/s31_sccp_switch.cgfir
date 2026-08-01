@@ -1,0 +1,9 @@
+// FLAGS: -O1
+// IR_CHECK: br join(i32 5)
+// IR_CHECK: ret i32 5
+func i32 @f() {
+entry():
+    switch i32 1, join(i32 0), 1: join(i32 5), 2: join(i32 7)
+join(i32 %x):
+    ret i32 %x
+}

@@ -1,0 +1,12 @@
+// FLAGS: -O1
+// IR_CHECK: condbr %0, yes(), no()
+// IR_CHECK: yes():
+// IR_CHECK: no():
+func i32 @f(i32 %c) {
+entry():
+    condbr %c, yes(), no()
+yes():
+    ret i32 1
+no():
+    ret i32 0
+}

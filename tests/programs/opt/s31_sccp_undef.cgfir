@@ -1,0 +1,14 @@
+// FLAGS: -O1
+// ENV: CGF_OPT_BAIL_LOG=1
+// sccp bail reason: undef_branch
+// IR_CHECK: condbr undef, yes(), no()
+// IR_CHECK: yes():
+// IR_CHECK: no():
+func i32 @f() {
+entry():
+    condbr undef, yes(), no()
+yes():
+    ret i32 1
+no():
+    ret i32 0
+}

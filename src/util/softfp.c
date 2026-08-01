@@ -717,9 +717,13 @@ int sf_cmp(Sf a, Sf b, bool *unordered)
 uint64_t sf_to_int(Sf a, int width, bool is_unsigned, SfStatus *st)
 {
     uint64_t hi, lo;
+    uint64_t limit;
     int shift;
 
-    (void)is_unsigned;
+    if (width < 1 || width > 64) {
+        st->invalid = true;
+        return 0;
+    }
     if (a.cls == SF_ZERO)
         return 0;
     if (a.cls != SF_NORMAL) {
@@ -745,12 +749,30 @@ uint64_t sf_to_int(Sf a, int width, bool is_unsigned, SfStatus *st)
         st->invalid = true;
         return 0;
     }
-    if (width < 64) {
-        uint64_t mask = (1ull << width) - 1;
 
-        lo &= mask;
+    /* 6.3.1.4 discards the fractional part first, then requires the
+     * remaining integral value to fit the destination type.  Checking
+     * before masking is load-bearing: the old code silently turned 128.0
+     * into signed i8 -128 and -1.0 into UINT_MAX.  A negative value whose
+     * truncated magnitude is zero is representable as either signed or
+     * unsigned zero. */
+    if (is_unsigned) {
+        limit = width == 64 ? UINT64_MAX : (1ull << width) - 1;
+        if ((a.sign && lo != 0) || lo > limit) {
+            st->invalid = true;
+            return 0;
+        }
+    } else {
+        limit = 1ull << (width - 1);
+        if ((!a.sign && lo >= limit) || (a.sign && lo > limit)) {
+            st->invalid = true;
+            return 0;
+        }
     }
-    return a.sign ? (uint64_t)(0 - lo) : lo;
+    if (!a.sign)
+        return lo;
+    lo = (uint64_t)(0 - lo);
+    return width == 64 ? lo : lo & ((1ull << width) - 1);
 }
 
 /* --- bit images ---------------------------------------------------------- */

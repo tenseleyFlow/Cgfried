@@ -1,0 +1,15 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: condbr
+// IR_CHECK-NOT: no(
+// IR_CHECK: ret i32 11
+func i32 @f() {
+entry():
+    %c = icmp eq i32 4, 4
+    condbr %c, yes(), no()
+yes():
+    br join(i32 11)
+no():
+    br join(i32 22)
+join(i32 %x):
+    ret i32 %x
+}

@@ -15,7 +15,7 @@ export LC_ALL
 
 status=0
 for f in src/util/softfp.c src/util/softfp.h src/util/bigint.c \
-         src/util/bigint.h src/sema/constexpr.c; do
+         src/util/bigint.h src/sema/constexpr.c src/opt/simplify.c; do
     [ -f "$f" ] || continue
     # Strip block and line comments, then look for the type keywords.
     hits=$(sed 's://.*::' "$f" |

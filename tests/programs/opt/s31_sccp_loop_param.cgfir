@@ -1,0 +1,16 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: condbr
+// IR_CHECK-NOT: dead(
+// IR_CHECK: loop(i32
+// IR_CHECK: br body()
+func void @f() {
+entry():
+    br loop(i32 7)
+loop(i32 %x):
+    %c = icmp eq i32 %x, 7
+    condbr %c, body(), dead()
+body():
+    br loop(i32 7)
+dead():
+    ret
+}
