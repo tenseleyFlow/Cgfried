@@ -118,6 +118,46 @@ extern const Pass OPT_PASS_INLINE;
 bool opt_ipo(IrModule *m, const OptConfig *cfg);
 bool opt_inline(IrModule *m, const OptConfig *cfg);
 
+/* Sprint 34 loop infrastructure.  Analysis is scratch-arena-owned and pure;
+ * canonicalization is a separate mutation because adding block parameters,
+ * edges, preheaders, and exits requires the module arena.  Rebuild dominance
+ * and the loop tree after loop_canonicalize() reports a change. */
+typedef struct Loop Loop;
+typedef struct LoopTree LoopTree;
+
+LoopTree *loop_tree_build(Arena *arena, const IrFunc *f, const IrDomTree *dt);
+u32 loop_tree_count(const LoopTree *lt);
+const Loop *loop_tree_at(const LoopTree *lt, u32 ordinal);
+bool loop_tree_irreducible(const LoopTree *lt);
+const Loop *loop_tree_innermost(const LoopTree *lt, BlockId block);
+BlockId loop_header(const Loop *loop);
+BlockId loop_preheader(const Loop *loop);
+const Loop *loop_parent(const Loop *loop);
+u32 loop_depth(const Loop *loop);
+u32 loop_block_count(const Loop *loop);
+BlockId loop_block(const Loop *loop, u32 ordinal);
+bool loop_contains(const Loop *loop, BlockId block);
+u32 loop_latch_count(const Loop *loop);
+BlockId loop_latch(const Loop *loop, u32 ordinal);
+u32 loop_exit_count(const Loop *loop);
+BlockId loop_exit_source(const Loop *loop, u32 ordinal);
+BlockId loop_exit_target(const Loop *loop, u32 ordinal);
+
+bool loop_canonicalize(IrModule *m, IrFunc *f, const LoopTree *lt);
+bool loop_tree_verify_canonical(const LoopTree *lt, const IrFunc *f, char *why,
+                                size_t why_cap);
+
+/* Sprint 34 loop transforms run only after the scalar/IPO fixpoint, so CFG
+ * cleanup cannot tear down their dedicated preheaders and exits. */
+extern const Pass OPT_PASS_LICM;
+extern const Pass OPT_PASS_STRENGTH;
+extern const Pass OPT_PASS_UNROLL;
+bool opt_licm(IrModule *m, const OptConfig *cfg);
+bool opt_strength(IrModule *m, const OptConfig *cfg);
+bool opt_unroll(IrModule *m, const OptConfig *cfg);
+bool opt_unroll_trip_count(IrType type, IrIcmp pred, u64 start, u64 step,
+                           u64 end, bool modular, u64 *trip);
+
 /* An IR location is represented by its resolved Span rather than the PP
  * table-local SrcLoc id. This keeps the record queryable after PP teardown. */
 typedef struct UndefUse {
