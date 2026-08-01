@@ -1,8 +1,10 @@
 .fac/
 # .docs/ is local-only working material (sprints, refs, notes) — except the
 # XFAIL debt ledger, which CI cross-checks against // XFAIL directives, so it
-# must exist in checkouts. The `/*` form (not `/`) lets the negation work.
+# must exist in checkouts, and HANDOFF.md, which is worthless if it does not
+# survive a fresh clone. The `/*` form (not `/`) lets the negation work.
 .docs/*
+!.docs/HANDOFF.md
 !.docs/audits
 .docs/audits/*
 !.docs/audits/xfail-debt.md
