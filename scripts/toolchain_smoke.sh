@@ -40,6 +40,20 @@ for sec in .text .data .rodata; do
     }
 done
 
+# Sprint 36 widened the compiler-emitted SSE2 surface. Keep the pinned
+# assembler honest with a parent-repo differential too: otherwise afs-as can
+# pass its own tests while an old submodule pin breaks Cgfried's vector code.
+"$AS_BUNDLED" --64 "$FIX/s36_sse2.s" -o "$WORK/s36-afs.o"
+as --64 -o "$WORK/s36-gas.o" "$FIX/s36_sse2.s"
+objcopy -O binary --only-section=.text "$WORK/s36-afs.o" \
+    "$WORK/s36-afs.text.bin"
+objcopy -O binary --only-section=.text "$WORK/s36-gas.o" \
+    "$WORK/s36-gas.text.bin"
+cmp "$WORK/s36-afs.text.bin" "$WORK/s36-gas.text.bin" || {
+    echo "toolchain_smoke: Sprint 36 SSE2 bytes differ (afs-as vs gas)" >&2
+    exit 1
+}
+
 # Failure parity on a broken fixture: both must reject (diagnostics parity
 # is NOT asserted — only that neither silently accepts).
 if "$AS_BUNDLED" --64 "$FIX/broken.s" -o "$WORK/broken-afs.o" 2>/dev/null; then
@@ -51,4 +65,4 @@ if as --64 -o "$WORK/broken-gas.o" "$FIX/broken.s" 2>/dev/null; then
     exit 1
 fi
 
-echo "toolchain_smoke: .text/.data/.rodata identical; broken fixture fails both"
+echo "toolchain_smoke: base sections and Sprint 36 SSE2 bytes identical; broken fixture fails both"
