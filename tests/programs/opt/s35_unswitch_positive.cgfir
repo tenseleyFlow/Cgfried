@@ -1,0 +1,21 @@
+// FLAGS: -O3
+// ENV: CGF_VERIFY_AFTER_EACH=1
+
+func i32 @unswitch_positive(i32 %flag) {
+entry():
+    br head(i32 0)
+head(i32 %i):
+    %more = icmp ult i32 %i, 4
+    condbr %more, body(), exit()
+body():
+    condbr %flag, yes(), no()
+yes():
+    br latch()
+no():
+    br latch()
+latch():
+    %next = iadd i32 %i, 1
+    br head(i32 %next)
+exit():
+    ret i32 %i
+}

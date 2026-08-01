@@ -1,0 +1,30 @@
+// FLAGS: -O3
+// ENV: CGF_VERIFY_AFTER_EACH=1 CGF_OPT_BAIL_LOG=1
+
+func void @fusion_negative(ptr %a) {
+entry():
+    br a.h(i64 0)
+a.h(i64 %i):
+    %ac = icmp ult i64 %i, 20
+    condbr %ac, a.body(), middle()
+a.body():
+    %ao = imul i64 %i, 4
+    %ap = ptradd %a, %ao
+    store i32 1, %ap, align 4, etype i32
+    %an = iadd i64 %i, 1
+    br a.h(i64 %an)
+middle():
+    br b.h(i64 0)
+b.h(i64 %j):
+    %bc = icmp ult i64 %j, 20
+    condbr %bc, b.body(), exit()
+b.body():
+    %bo = imul i64 %j, 4
+    %boff = iadd i64 %bo, 4
+    %bp = ptradd %a, %boff
+    store i32 2, %bp, align 4, etype i32
+    %bn = iadd i64 %j, 1
+    br b.h(i64 %bn)
+exit():
+    ret
+}

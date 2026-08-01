@@ -30,7 +30,6 @@ typedef struct OptConfig {
     bool disable_unswitch;
     bool disable_bce;
     bool disable_fusion;
-    bool aggressive_loops;
 
     /* Runtime controls are resolved once by the driver. Tests may set
      * these directly without mutating the process environment. */
@@ -49,9 +48,9 @@ typedef enum PassPinnedPolicy {
     PASS_PINNED_EXACT,
     PASS_PINNED_INLINE_CLONES,
     /* The pass keeps every original pinned operation in order and may add
-     * metadata-identical clones on mutually-exclusive CFG paths.  The pass
-     * owns the path-exclusivity proof; the manager audits clone fidelity. */
-    PASS_PINNED_PATH_CLONES,
+     * metadata-identical clones. The transform owns the dynamic-count/order
+     * proof; the manager audits the static clone fidelity. */
+    PASS_PINNED_METADATA_CLONES,
     PASS_PINNED_DELETE_FUNCS,
 } PassPinnedPolicy;
 

@@ -27,8 +27,13 @@ static const PipelineEntry pipeline[] = {
     {&OPT_PASS_JUMP_THREAD, STAGE_O2, GROUP_SCALAR, true},
     {&OPT_PASS_IPO, STAGE_O2, GROUP_SCALAR, true},
     {&OPT_PASS_INLINE, STAGE_O2, GROUP_SCALAR, true},
+    /* Fusion must see source affine addresses before strength reduction
+     * rewrites them into accumulator block parameters. */
+    {&OPT_PASS_FUSION, STAGE_O3, GROUP_LOOP, false},
     {&OPT_PASS_LICM, STAGE_O2, GROUP_LOOP, true},
     {&OPT_PASS_STRENGTH, STAGE_O2, GROUP_LOOP, true},
+    {&OPT_PASS_BCE, STAGE_O2, GROUP_LOOP, true},
+    {&OPT_PASS_UNSWITCH, STAGE_O3, GROUP_UNROLL, false},
     {&OPT_PASS_UNROLL, STAGE_O3, GROUP_UNROLL, true},
 };
 
@@ -70,6 +75,10 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
 
         if (cfg->level == OPT_OS)
             selected = e->at_os;
+        if ((e->pass == &OPT_PASS_BCE && cfg->disable_bce) ||
+            (e->pass == &OPT_PASS_FUSION && cfg->disable_fusion) ||
+            (e->pass == &OPT_PASS_UNSWITCH && cfg->disable_unswitch))
+            selected = false;
         if (!selected)
             continue;
         switch (e->group) {

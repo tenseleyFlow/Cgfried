@@ -33,12 +33,11 @@ static void bounds_init(BoundsFix *f)
 
 void test_ir_bounds_marker_roundtrip(TestCtx *t)
 {
-    static const char source[] =
-        "func i32 @f(i32 %i, i32 %n) {\n"
-        "entry():\n"
-        "    %ok = icmp ult i32 %i, %n, bounds\n"
-        "    ret i32 %ok\n"
-        "}\n";
+    static const char source[] = "func i32 @f(i32 %i, i32 %n) {\n"
+                                 "entry():\n"
+                                 "    %ok = icmp ult i32 %i, %n, bounds\n"
+                                 "    ret i32 %ok\n"
+                                 "}\n";
     BoundsFix f;
     IrModule *m, *round;
     Buf text;
@@ -48,8 +47,7 @@ void test_ir_bounds_marker_roundtrip(TestCtx *t)
     T_ASSERT(t, m != NULL);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, m && ir_verify(f.dc, m));
-    T_ASSERT(t, m && (m->funcs[0].blocks[0].first->flags &
-                      IRF_BOUNDS_CHECK));
+    T_ASSERT(t, m && (m->funcs[0].blocks[0].first->flags & IRF_BOUNDS_CHECK));
     buf_init(&text);
     if (m)
         ir_print_module_buf(&text, m);
