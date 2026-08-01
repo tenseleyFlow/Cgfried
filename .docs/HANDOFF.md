@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–32
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–33
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -45,18 +45,18 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - Phase 7 is open: every `-O` level reaches a real pass manager. O1 now runs
   mem2reg → sparse conditional constant propagation → exact simplify →
   block-local CSE → DCE → general CFG cleanup. O2+ adds GVN, DSE and bounded
-  jump threading, iterating the inherited nine-row pipeline to a named
-  fixpoint. The 50-program corpus remains behaviorally equal across
-  O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 33** —
-  `.docs/sprints/07-optimizations/s33-inlining-ipo.md`, adding inlining and
-  interprocedural optimization.
+  jump threading, then internal-only IPO and a bottom-up SCC inliner,
+  iterating the inherited eleven-row pipeline to a named fixpoint. The
+  50-program corpus remains behaviorally equal across O0/O1/O2/O3/Os/Ofast.
+- **Next action: Sprint 34** —
+  `.docs/sprints/07-optimizations/s34-loops-1.md`, adding the loop tree, LICM,
+  strength reduction, and bounded unroll/peel.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 359 tests, 92362 assertions, 0 failures
-cgf-test: total=442 pass=442 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 374 tests, 92543 assertions, 0 failures
+cgf-test: total=447 pass=447 fail=0 xfail=0 xpass=0 skip=0 config=0
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
@@ -215,6 +215,21 @@ because each one was learned the hard way.
   and 1.15x growth accounting charge the replacement branch. Generated clone
   names are source-independent and collision-checked so long labels cannot
   make printed IR unparsable.
+- **One interprocedural callgraph, two clients.** `src/opt/ipo.c` owns direct
+  and unknown callees, address-taken facts, and deterministic Tarjan SCCs for
+  both IPO and inlining. Never fork the analysis. A recursive callee is never
+  inlined even from outside its SCC: cloning its recursive edge creates a
+  fresh eligible site and otherwise expands without bound.
+- **Pinned effects have explicit pass policies.** Ordinary passes preserve
+  the exact volatile/seq_cst sequence; the inliner may add only metadata-equal
+  clones while leaving originals ordered; IPO may delete whole functions but
+  must preserve every surviving function's pinned sequence. New mutating
+  passes must choose a policy deliberately.
+- **`-g` currently disables inlining.** Sprint 29 promises concrete function
+  breakpoints and backtrace frames at O0 and O2, while the DWARF backend has no
+  abstract-origin/inlined-subroutine records yet. `inl_debug_info` is the
+  explicit boundary; removing it without richer DWARF silently destroys the
+  debugger contract.
 - **No host `sizeof` / conditional compilation in `src/sema/`.**
   `char` is unsigned on arm64-linux; a host assumption there
   miscompiles every cross build with no diagnostic
@@ -286,7 +301,7 @@ Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `rt_diff`, `driver_matrix`, `objdiff_lane`, `afsld_lane`,
 `debug_info_lane`, `e2e_gcc_diff`, `ctestsuite_diff`, `layout_diff`, `fp_diff`,
 `init_diff`, `inline_diff`, `lex_diff`, `parse_diff`, `spill_all_lane`,
-`opt_driver`.
+`opt_driver`, `s33_ipo_driver`.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
