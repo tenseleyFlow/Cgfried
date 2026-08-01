@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=debug-info test=gdb count=1 reason="gdb unavailable or ptrace denied"

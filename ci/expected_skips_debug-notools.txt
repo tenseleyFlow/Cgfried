@@ -1,0 +1,2 @@
+HARNESS_SKIP suite=debug-info test=afs-as count=1 reason="afs-as not built (make tools)"
+HARNESS_SKIP suite=debug-info test=afs-ld count=1 reason="afs-ld not built (make tools)"
