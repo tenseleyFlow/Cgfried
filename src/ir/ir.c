@@ -349,6 +349,11 @@ void ir_func_renumber(Arena *arena, IrFunc *f)
         nv[nid - 1].def_block.v = 1;
         f->param_vals[i].v = nid;
     }
+    for (i = 0; i < f->nlocal_slots; i++) {
+        u32 old = f->local_slots[i].addr.v;
+
+        f->local_slots[i].addr.v = old >= 1 && old <= nold ? map[old] : 0;
+    }
     for (bi = 0; bi < f->nblocks; bi++) {
         IrBlock *blk = &f->blocks[bi];
         u32 pos = 0;

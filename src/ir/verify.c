@@ -32,6 +32,7 @@ typedef struct V {
     const char *blk_name;
     IrDomTree *dom;
     bool *reach; /* by block index */
+    Arena *scratch;
     bool ok;
 } V;
 
@@ -490,10 +491,9 @@ static void verify_func(V *v, const IrFunc *f)
     u32 i;
 
     v->f = f;
-    v->dom = ir_domtree_build(v->m->arena, f);
-    v->reach =
-        arena_alloc(v->m->arena, f->nblocks ? f->nblocks * sizeof(bool) : 1,
-                    _Alignof(bool));
+    v->dom = ir_domtree_build(v->scratch, f);
+    v->reach = arena_alloc(
+        v->scratch, f->nblocks ? f->nblocks * sizeof(bool) : 1, _Alignof(bool));
     for (bi = 0; bi < f->nblocks; bi++) {
         BlockId b = {bi + 1};
 
@@ -694,6 +694,61 @@ bool ir_volatile_counts_match(const IrModule *m, const u32 *before,
     return true;
 }
 
+void ir_snapshot_volatile_order(Arena *arena, const IrModule *m,
+                                IrVolatileSnapshot *out)
+{
+    u32 fi;
+
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        const IrFunc *f = &m->funcs[fi];
+        u32 n = ir_count_volatile_ops(f);
+        const IrInst **ops = NULL;
+        u32 bi, at = 0;
+
+        if (n)
+            ops = arena_alloc(arena, n * sizeof(*ops), _Alignof(IrInst *));
+        for (bi = 0; bi < f->nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next)
+                if (in->flags & IRF_VOLATILE)
+                    ops[at++] = in;
+        }
+        out[fi].ops = ops;
+        out[fi].nops = n;
+    }
+}
+
+bool ir_volatile_order_matches(const IrModule *m,
+                               const IrVolatileSnapshot *before, u32 *bad_func)
+{
+    u32 fi;
+
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        const IrFunc *f = &m->funcs[fi];
+        u32 bi, at = 0;
+
+        if (ir_count_volatile_ops(f) != before[fi].nops)
+            goto mismatch;
+        for (bi = 0; bi < f->nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next) {
+                if (!(in->flags & IRF_VOLATILE))
+                    continue;
+                if (before[fi].ops[at++] != in)
+                    goto mismatch;
+            }
+        }
+    }
+    return true;
+
+mismatch:
+    if (bad_func)
+        *bad_func = fi;
+    return false;
+}
+
 bool ir_verify(DiagCtx *dc, const IrModule *m)
 {
     return ir_verify_report(dc, m, NULL, 0);
@@ -702,11 +757,14 @@ bool ir_verify(DiagCtx *dc, const IrModule *m)
 bool ir_verify_report(DiagCtx *dc, const IrModule *m, char *why, size_t why_cap)
 {
     V v;
+    Arena scratch;
     u32 i;
 
     memset(&v, 0, sizeof(v));
+    arena_init(&scratch);
     v.dc = dc;
     v.m = m;
+    v.scratch = &scratch;
     v.ok = true;
     v.why = why;
     v.why_cap = why_cap;
@@ -741,5 +799,6 @@ bool ir_verify_report(DiagCtx *dc, const IrModule *m, char *why, size_t why_cap)
         verify_func(&v, &m->funcs[i]);
         check_setjmp_flag(&v, &m->funcs[i]);
     }
+    arena_free_all(&scratch);
     return v.ok;
 }

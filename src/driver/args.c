@@ -63,6 +63,7 @@ enum {
     F_DEP_MQ,
     F_DEP_MP,
     F_OPT_O,
+    F_TIME_REPORT,
     F_WSUPPRESS,
     F_WERROR,
     F_WERROR_EQ,
@@ -270,6 +271,9 @@ static bool h_mode(DriverArgs *da, const FlagSpec *fs, const char *val)
         break;
     case F_TRIGRAPHS:
         da->trigraphs = true;
+        break;
+    case F_TIME_REPORT:
+        da->time_report = true;
         break;
     case F_NOSTDINC:
         da->nostdinc = true;
@@ -704,6 +708,7 @@ static const FlagSpec args_flag_table[] = {
     {"-MP", ARG_NONE, h_dep, F_DEP_MP},
     /* optimization / warnings */
     {"-O", ARG_JOINED, h_opt, F_OPT_O},
+    {"-ftime-report", ARG_NONE, h_mode, F_TIME_REPORT},
     {"-w", ARG_NONE, h_warn, F_WSUPPRESS},
     {"-Werror", ARG_NONE, h_warn, F_WERROR},
     {"-Werror=", ARG_JOINED, h_warn, F_WERROR_EQ},
