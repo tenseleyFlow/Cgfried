@@ -1,0 +1,29 @@
+// FLAGS: -O1
+// NaN payload and signaling bits remain observable through bitcast.  softfp
+// does not retain them yet, so constant arithmetic/conversion must survive.
+// IR_CHECK: fadd f32 0x7F800001, 0x3F800000
+// IR_CHECK: fadd f64 0x7FF0000000000001, 0x3FF0000000000000
+// IR_CHECK: fpext f32 0x7F800001 to f64
+// IR_CHECK: fdiv f64 0x0000000000000000, 0x0000000000000000
+func i32 @nan32() {
+entry():
+    %value = fadd f32 0x7F800001, 0x3F800000
+    %bits = bitcast f32 %value to i32
+    ret i32 %bits
+}
+func i64 @nan64() {
+entry():
+    %value = fadd f64 0x7FF0000000000001, 0x3FF0000000000000
+    %bits = bitcast f64 %value to i64
+    ret i64 %bits
+}
+func f64 @convert_nan() {
+entry():
+    %value = fpext f32 0x7F800001 to f64
+    ret f64 %value
+}
+func f64 @invalid_nan() {
+entry():
+    %value = fdiv f64 0x0000000000000000, 0x0000000000000000
+    ret f64 %value
+}

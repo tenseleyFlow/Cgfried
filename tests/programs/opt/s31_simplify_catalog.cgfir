@@ -1,0 +1,53 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: sdiv
+// IR_CHECK-NOT: srem
+// IR_CHECK-NOT: udiv
+// IR_CHECK-NOT: urem
+// IR_CHECK: ashr i32 %0, 31
+// IR_CHECK: lshr i32
+// IR_CHECK: and i32 %0, 134217727
+// IR_CHECK: sext i8 %0 to i32
+// IR_CHECK: icmp ult i8 %0, 200
+// IR_CHECK: ret i32 1
+func i32 @signed_div(i32 %x) {
+entry():
+    %q = sdiv i32 %x, 8
+    ret i32 %q
+}
+func i32 @signed_rem(i32 %x) {
+entry():
+    %r = srem i32 %x, 8
+    ret i32 %r
+}
+func i32 @unsigned(i32 %x) {
+entry():
+    %q = udiv i32 %x, 8
+    %r = urem i32 %x, 8
+    %z = or i32 %q, %r
+    ret i32 %z
+}
+func i32 @logical_pair(i32 %x) {
+entry():
+    %l = shl i32 %x, 5
+    %r = lshr i32 %l, 5
+    ret i32 %r
+}
+func i32 @real_sext(i8 %x) {
+entry():
+    %z = zext i8 %x to i32
+    %l = shl i32 %z, 24
+    %r = ashr i32 %l, 24
+    ret i32 %r
+}
+func i32 @narrow_cmp(i8 %x) {
+entry():
+    %z = zext i8 %x to i32
+    %r = icmp ult i32 %z, 200
+    ret i32 %r
+}
+func i32 @wide_cmp(i8 %x) {
+entry():
+    %z = zext i8 %x to i32
+    %r = icmp ult i32 %z, 300
+    ret i32 %r
+}

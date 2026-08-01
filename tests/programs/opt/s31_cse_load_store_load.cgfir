@@ -1,0 +1,14 @@
+// FLAGS: -O2
+// ENV: CGF_OPT_BAIL_LOG=1
+// cse bail reason: load_requires_alias
+// IR_CHECK: %2 = load i32, %0, align 4
+// IR_CHECK: store i32 9, %1, align 4
+// IR_CHECK: %3 = load i32, %0, align 4
+func i32 @f(ptr %p, ptr %q) {
+entry():
+    %a = load i32, %p, align 4
+    store i32 9, %q, align 4
+    %b = load i32, %p, align 4
+    %r = iadd i32 %a, %b
+    ret i32 %r
+}
