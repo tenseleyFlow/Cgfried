@@ -11,10 +11,11 @@ typedef struct {
  * selects the rows introduced at or below its stage, so inherited pipelines
  * cannot drift and a new O2/O3 pass needs no orchestration plumbing. */
 static const PipelineEntry pipeline[] = {
-    {&OPT_PASS_MEM2REG, STAGE_O1},
-    {&OPT_PASS_SCCP, STAGE_O1},
-    {&OPT_PASS_SIMPLIFY, STAGE_O1},
-    {&OPT_PASS_CSE, STAGE_O1},
+    {&OPT_PASS_MEM2REG, STAGE_O1},     {&OPT_PASS_SCCP, STAGE_O1},
+    {&OPT_PASS_SIMPLIFY, STAGE_O1},    {&OPT_PASS_CSE, STAGE_O1},
+    {&OPT_PASS_DCE, STAGE_O1},         {&OPT_PASS_SIMPLIFY_CFG, STAGE_O1},
+    {&OPT_PASS_GVN, STAGE_O2},         {&OPT_PASS_DSE, STAGE_O2},
+    {&OPT_PASS_JUMP_THREAD, STAGE_O2},
 };
 
 static bool level_stage(OptLevel level, PipelineStage *out)
