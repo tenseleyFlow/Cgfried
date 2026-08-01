@@ -82,9 +82,9 @@ static u32 int_width(u8 t)
 
 static u32 natural_align(u8 t)
 {
-    static const u32 tab[] = {1, 2, 4, 8, 4, 8, 16, 16, 8};
+    u32 size = ir_type_size((IrType)t);
 
-    return t <= IRT_PTR ? tab[t] : 1;
+    return size ? size : 1;
 }
 
 static bool pow2_nonzero(u32 a)
@@ -143,6 +143,30 @@ static void check_use(V *v, const IrOperand *o, BlockId use_blk, u32 use_pos)
 
 static void check_binop_types(V *v, const IrInst *in, bool want_float)
 {
+    IrType t = (IrType)in->type;
+
+    if (ir_type_is_vector(t)) {
+        bool legal = false;
+
+        if (want_float) {
+            legal = ir_type_is_vector_float(t) &&
+                    (in->op == IR_FADD || in->op == IR_FSUB ||
+                     in->op == IR_FMUL || in->op == IR_FDIV);
+        } else if (ir_type_is_vector_int(t)) {
+            legal = in->op == IR_IADD || in->op == IR_ISUB ||
+                    in->op == IR_AND || in->op == IR_OR || in->op == IR_XOR ||
+                    (in->op == IR_IMUL && t == IRT_V8I16);
+        }
+        if (!legal) {
+            verr(v, 4, "'%s' is not supported for vector type %s under SSE2",
+                 ir_op_name((IrOp)in->op), ir_type_name(t));
+            return;
+        }
+        if (in->ops[0].type != in->type || in->ops[1].type != in->type)
+            verr(v, 4, "'%s' vector operands must match result type %s",
+                 ir_op_name((IrOp)in->op), ir_type_name(t));
+        return;
+    }
     if (want_float ? !type_is_float(in->type) : !type_is_int(in->type)) {
         verr(v, 4, "'%s' requires %s result type, got %s",
              ir_op_name((IrOp)in->op), want_float ? "a float" : "an integer",
@@ -195,6 +219,46 @@ static void check_inst_types(V *v, const IrInst *in)
                  "'fneg' wants one float operand matching its "
                  "result type");
         break;
+    case IR_VSPLAT: {
+        IrType vt = (IrType)in->type;
+
+        if (!ir_type_is_vector(vt) || in->nops != 1 ||
+            in->ops[0].type != ir_vector_elem_type(vt))
+            verr(v, 4, "'vsplat' takes one scalar matching its vector lanes");
+        break;
+    }
+    case IR_VEXTRACT: {
+        IrType vt = (IrType)in->ops[0].type;
+
+        if (in->nops != 1 || !ir_type_is_vector(vt) ||
+            in->type != ir_vector_elem_type(vt) ||
+            in->subop >= ir_vector_lanes(vt))
+            verr(v, 4,
+                 "'vextract' needs a vector, its scalar result type, and an "
+                 "in-range lane");
+        break;
+    }
+    case IR_VREDUCE_ADD:
+    case IR_VREDUCE_MUL:
+    case IR_VREDUCE_AND:
+    case IR_VREDUCE_OR:
+    case IR_VREDUCE_XOR: {
+        IrType vt = (IrType)in->ops[0].type;
+        bool int_ok = ir_type_is_vector_int(vt);
+        bool fp_ok = ir_type_is_vector_float(vt);
+        bool legal = false;
+
+        if (in->op == IR_VREDUCE_ADD)
+            legal = int_ok || fp_ok;
+        else if (in->op == IR_VREDUCE_MUL)
+            legal = fp_ok || vt == IRT_V8I16;
+        else
+            legal = int_ok;
+        if (in->nops != 1 || !legal || in->type != ir_vector_elem_type(vt))
+            verr(v, 4, "'%s' has an unsupported vector/result type pair",
+                 ir_op_name((IrOp)in->op));
+        break;
+    }
     case IR_ICMP:
         if (in->type != IRT_I32)
             verr(v, 4, "'icmp' produces i32");
@@ -303,7 +367,10 @@ static void check_inst_types(V *v, const IrInst *in)
             verr(v, 4, "'memset' must have char effective type");
         break;
     case IR_SELECT:
-        if (in->ops[0].type != IRT_I32)
+        if (ir_type_is_vector((IrType)in->type))
+            verr(v, 4,
+                 "vector 'select' is not supported by the Sprint 36 backend");
+        else if (in->ops[0].type != IRT_I32)
             verr(v, 4, "'select' tests an i32 condition");
         else if (in->ops[1].type != in->type || in->ops[2].type != in->type)
             verr(v, 4, "'select' arm types must match the result type");
@@ -427,6 +494,13 @@ static void check_inst_misc(V *v, const IrInst *in)
                  "overflow provenance",
                  ir_op_name((IrOp)in->op));
     }
+    if (ir_type_is_vector((IrType)in->type) && (in->flags & IRF_NSW))
+        verr(v, 7, "'nsw' is not defined on vector arithmetic");
+    if ((in->op == IR_LOAD && ir_type_is_vector((IrType)in->type)) ||
+        (in->op == IR_STORE && ir_type_is_vector((IrType)in->ops[0].type))) {
+        if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST))
+            verr(v, 7, "vector load/store cannot be volatile or atomic");
+    }
     if ((in->flags & IRF_BOUNDS_CHECK) && in->op != IR_ICMP)
         verr(v, 7,
              "'bounds' on '%s'; only integer comparisons carry "
@@ -456,11 +530,20 @@ static void check_inst_misc(V *v, const IrInst *in)
     }
 
     /* 9: reference ranges; internal call arity and types. */
-    for (i = 0; i < in->nops; i++)
+    for (i = 0; i < in->nops; i++) {
+        if (ir_type_is_vector((IrType)in->ops[i].type) &&
+            in->ops[i].kind != IROP_VALUE && in->ops[i].kind != IROP_UNDEF)
+            verr(v, 4, "vector operands must be SSA values or undef");
         if (in->ops[i].kind == IROP_SYMBOL && in->ops[i].sym >= v->m->nsyms)
             verr(v, 9, "operand references symbol %u; module has %u",
                  in->ops[i].sym, v->m->nsyms);
+    }
     if (in->op == IR_CALL) {
+        if (ir_type_is_vector((IrType)in->type))
+            verr(v, 4, "vector call results have no Sprint 36 ABI");
+        for (i = in->subop == FUNCREF_INDIRECT ? 1u : 0u; i < in->nops; i++)
+            if (ir_type_is_vector((IrType)in->ops[i].type))
+                verr(v, 4, "vector call arguments have no Sprint 36 ABI");
         if (in->subop == FUNCREF_INTERNAL) {
             if (in->callee >= v->m->nfuncs) {
                 verr(v, 9, "call to internal function %u; module has %u",
@@ -563,7 +646,11 @@ static void verify_func(V *v, const IrFunc *f)
 
         if (ir_param_is_restrict(annot) && f->param_types[i] != IRT_PTR)
             verr(v, 4, "parameter %u is marked restrict but is not ptr", i);
+        if (ir_type_is_vector((IrType)f->param_types[i]))
+            verr(v, 4, "vector function parameters have no Sprint 36 ABI");
     }
+    if (ir_type_is_vector((IrType)f->ret))
+        verr(v, 4, "vector function returns have no Sprint 36 ABI");
     if (f->abi_ret != IR_ABIRET_NONE &&
         (f->nparams == 0 || f->param_types[0] != IRT_PTR ||
          f->ret != IRT_VOID)) {
@@ -669,6 +756,12 @@ static void verify_func(V *v, const IrFunc *f)
                 for (j = 0; j < e->nargs; j++) {
                     u8 want = f->vals[tgt->params[j].v - 1].type;
 
+                    if (ir_type_is_vector((IrType)e->args[j].type) &&
+                        e->args[j].kind != IROP_VALUE &&
+                        e->args[j].kind != IROP_UNDEF)
+                        verr(v, 4,
+                             "vector edge arguments must be SSA values or "
+                             "undef");
                     if (e->args[j].type != want)
                         verr(v, 2,
                              "edge to '%s': arg %u is %s, param "

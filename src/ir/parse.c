@@ -468,6 +468,10 @@ static bool parse_atom(P *p, IrType expected, IrOperand *slot)
         return true;
     }
     case T_INT:
+        if (ir_type_is_vector(expected)) {
+            perr(p, t, "vector constants require 'vsplat' or 'load'");
+            return false;
+        }
         if (type_is_float(expected)) {
             perr(p, t,
                  "float constants are written as exact bits "
@@ -478,6 +482,10 @@ static bool parse_atom(P *p, IrType expected, IrOperand *slot)
         *slot = ir_op_iconst(expected, (i64)t->ival);
         return true;
     case T_HEX:
+        if (ir_type_is_vector(expected)) {
+            perr(p, t, "vector constants require 'vsplat' or 'load'");
+            return false;
+        }
         if (type_is_float(expected)) {
             u64 lo = t->ival;
             u64 hi = 0;
@@ -515,6 +523,10 @@ static bool parse_atom(P *p, IrType expected, IrOperand *slot)
         const char *nm = tok_name(p, t);
         i64 addend = 0;
 
+        if (ir_type_is_vector(expected)) {
+            perr(p, t, "vector operands must be SSA values or undef");
+            return false;
+        }
         if (peek(p)->kind == T_INT)
             addend = (i64)next(p)->ival;
         *slot = ir_op_symbol(expected, ir_sym(p->m, nm), addend);
@@ -889,6 +901,53 @@ static bool parse_inst(P *p)
         if (!parse_type(p, &ty, "the operand type"))
             return false;
         in = inst_append(p, IR_FNEG, ty, res);
+        in->ops = ops_alloc(p, 1);
+        in->nops = 1;
+        return parse_atom(p, ty, &in->ops[0]);
+    case IR_VSPLAT: {
+        IrType et;
+
+        if (!parse_type(p, &ty, "the vector result type"))
+            return false;
+        et = ir_vector_elem_type(ty);
+        in = inst_append(p, IR_VSPLAT, ty, res);
+        in->ops = ops_alloc(p, 1);
+        in->nops = 1;
+        if (!parse_type(p, &ty, "the scalar element type"))
+            return false;
+        if (ty != et) {
+            perr(p, peek(p), "vsplat scalar type does not match vector lanes");
+            return false;
+        }
+        return parse_atom(p, et, &in->ops[0]);
+    }
+    case IR_VEXTRACT: {
+        Tok *lane;
+
+        if (!parse_type(p, &ty, "the vector operand type"))
+            return false;
+        in = inst_append(p, IR_VEXTRACT, ir_vector_elem_type(ty), res);
+        in->ops = ops_alloc(p, 1);
+        in->nops = 1;
+        if (!parse_atom(p, ty, &in->ops[0]) ||
+            !expect(p, T_COMMA, "',' before the lane index"))
+            return false;
+        lane = next(p);
+        if (lane->kind != T_INT || lane->ival > 255) {
+            perr(p, lane, "expected a compile-time vector lane index");
+            return false;
+        }
+        in->subop = (u8)lane->ival;
+        return true;
+    }
+    case IR_VREDUCE_ADD:
+    case IR_VREDUCE_MUL:
+    case IR_VREDUCE_AND:
+    case IR_VREDUCE_OR:
+    case IR_VREDUCE_XOR:
+        if (!parse_type(p, &ty, "the vector operand type"))
+            return false;
+        in = inst_append(p, (IrOp)op, ir_vector_elem_type(ty), res);
         in->ops = ops_alloc(p, 1);
         in->nops = 1;
         return parse_atom(p, ty, &in->ops[0]);

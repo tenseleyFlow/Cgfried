@@ -8,7 +8,12 @@
 
 static char wname(u8 w)
 {
-    return w == 1 ? 'b' : w == 2 ? 'w' : w == 4 ? 'l' : w == 10 ? 't' : 'q';
+    return w == 1    ? 'b'
+           : w == 2  ? 'w'
+           : w == 4  ? 'l'
+           : w == 10 ? 't'
+           : w == 16 ? 'x'
+                     : 'q';
 }
 
 static const char *const op_names[] = {
@@ -62,6 +67,23 @@ static const char *const op_names[] = {
     "fandm",
     "movqxr",
     "movqrx",
+    /* Sprint 36: packed SSE2 */
+    "vmov",
+    "vload",
+    "vstore",
+    "vadd",
+    "vsub",
+    "vmul",
+    "vdiv",
+    "vand",
+    "vor",
+    "vxor",
+    "vshuf32",
+    "vshuflo16",
+    "vunpcklbw",
+    "vunpcklwd",
+    "vunpcklq",
+    "vsrldq",
     /* calls + arg/varargs markers */
     "call",
     "readreg",
@@ -236,10 +258,13 @@ void x64_mir_print(const X64Func *f, Buf *out)
  */
 
 static const u16 two_addr_ops[] = {
-    X64_OP_ADD,   X64_OP_SUB,   X64_OP_AND,  X64_OP_OR,   X64_OP_XOR,
-    X64_OP_IMUL,  X64_OP_NEG,   X64_OP_NOT,  X64_OP_SHL,  X64_OP_SHR,
-    X64_OP_SAR,   X64_OP_FADD,  X64_OP_FSUB, X64_OP_FMUL, X64_OP_FDIV,
-    X64_OP_FXORM, X64_OP_FANDM,
+    X64_OP_ADD,       X64_OP_SUB,       X64_OP_AND,      X64_OP_OR,
+    X64_OP_XOR,       X64_OP_IMUL,      X64_OP_NEG,      X64_OP_NOT,
+    X64_OP_SHL,       X64_OP_SHR,       X64_OP_SAR,      X64_OP_FADD,
+    X64_OP_FSUB,      X64_OP_FMUL,      X64_OP_FDIV,     X64_OP_FXORM,
+    X64_OP_FANDM,     X64_OP_VADD,      X64_OP_VSUB,     X64_OP_VMUL,
+    X64_OP_VDIV,      X64_OP_VAND,      X64_OP_VOR,      X64_OP_VXOR,
+    X64_OP_VUNPCKLBW, X64_OP_VUNPCKLWD, X64_OP_VUNPCKLQ, X64_OP_VSRLDQ,
 };
 
 /* Per-operand register-bank expectations for the FP family: an integer
@@ -451,6 +476,7 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
              * allocation; reg_is_xmm_like adapts). */
             {
                 bool bank_bad = false;
+                bool vector_op = false;
 
                 switch (in->op) {
                 case X64_OP_FMOV:
@@ -469,13 +495,45 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                     if (in->b.kind == X64O_VREG && !reg_is_xmm_like(f, in->b.r))
                         bank_bad = true;
                     break;
+                case X64_OP_VMOV:
+                case X64_OP_VADD:
+                case X64_OP_VSUB:
+                case X64_OP_VMUL:
+                case X64_OP_VDIV:
+                case X64_OP_VAND:
+                case X64_OP_VOR:
+                case X64_OP_VXOR:
+                case X64_OP_VSHUF32:
+                case X64_OP_VSHUFLO16:
+                case X64_OP_VUNPCKLBW:
+                case X64_OP_VUNPCKLWD:
+                case X64_OP_VUNPCKLQ:
+                case X64_OP_VSRLDQ:
+                    vector_op = true;
+                    if (in->def.v && !reg_is_xmm_like(f, in->def))
+                        bank_bad = true;
+                    if (in->a.kind == X64O_VREG && !reg_is_xmm_like(f, in->a.r))
+                        bank_bad = true;
+                    if (in->b.kind == X64O_VREG && !reg_is_xmm_like(f, in->b.r))
+                        bank_bad = true;
+                    break;
                 case X64_OP_FLOAD:
                 case X64_OP_CVTI2F:
                 case X64_OP_MOVQXR:
                     if (in->def.v && !reg_is_xmm_like(f, in->def))
                         bank_bad = true;
                     break;
+                case X64_OP_VLOAD:
+                    vector_op = true;
+                    if (in->def.v && !reg_is_xmm_like(f, in->def))
+                        bank_bad = true;
+                    break;
                 case X64_OP_FSTORE:
+                    if (in->a.kind == X64O_VREG && !reg_is_xmm_like(f, in->a.r))
+                        bank_bad = true;
+                    break;
+                case X64_OP_VSTORE:
+                    vector_op = true;
                     if (in->a.kind == X64O_VREG && !reg_is_xmm_like(f, in->a.r))
                         bank_bad = true;
                     break;
@@ -496,6 +554,23 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                               "or vice versa)",
                               f->name, bi + 1, i, op_names[in->op]);
                     bad++;
+                }
+                if (vector_op && in->width != X64_X) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: vector op '%s' "
+                              "does not carry width 16",
+                              f->name, bi + 1, i, op_names[in->op]);
+                    bad++;
+                }
+                if (vector_op && !f->allocated) {
+                    if (in->def.v && x64_vwidth(f, in->def.v) != X64_X) {
+                        diag_emit(dc, DIAG_ERROR, sp,
+                                  "mir verify @%s bb%u:%u: vector op '%s' "
+                                  "defines non-128-bit v%u",
+                                  f->name, bi + 1, i, op_names[in->op],
+                                  in->def.v);
+                        bad++;
+                    }
                 }
             }
         }

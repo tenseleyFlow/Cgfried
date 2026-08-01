@@ -8,23 +8,41 @@
 
 X64VReg x64_newv(X64Func *f, X64RegClass rc)
 {
+    return x64_newv_width(f, rc, X64_Q);
+}
+
+X64VReg x64_newv_width(X64Func *f, X64RegClass rc, X64Width width)
+{
     X64VReg r = {++f->nvregs};
 
     if (f->nvregs + 1 > f->cap_vclass) {
         u32 nc = f->cap_vclass ? f->cap_vclass * 2 : 64;
-        u8 *nv;
+        u8 *nv, *nw;
 
         while (nc < f->nvregs + 1)
             nc *= 2;
         nv = arena_alloc(f->arena, nc, 1);
+        nw = arena_alloc(f->arena, nc, 1);
         if (f->cap_vclass)
             memcpy(nv, f->vclass, f->cap_vclass);
+        if (f->cap_vclass)
+            memcpy(nw, f->vwidth, f->cap_vclass);
         memset(nv + f->cap_vclass, 0, nc - f->cap_vclass);
+        memset(nw + f->cap_vclass, 0, nc - f->cap_vclass);
         f->vclass = nv;
+        f->vwidth = nw;
         f->cap_vclass = nc;
     }
     f->vclass[f->nvregs] = (u8)rc;
+    f->vwidth[f->nvregs] = (u8)width;
     return r;
+}
+
+u8 x64_vwidth(const X64Func *f, u32 v)
+{
+    if (!v || v > f->nvregs || !f->vwidth)
+        return X64_Q;
+    return f->vwidth[v] ? f->vwidth[v] : X64_Q;
 }
 
 u8 x64_vclass(const X64Func *f, u32 v)

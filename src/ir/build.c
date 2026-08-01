@@ -198,6 +198,35 @@ ValueId ir_build_fcmp(IrBuilder *b, IrFcmp p, IrOperand x, IrOperand y)
     return in->result;
 }
 
+ValueId ir_build_vsplat(IrBuilder *b, IrType vector_type, IrOperand scalar)
+{
+    return ir_build1(b, IR_VSPLAT, vector_type, scalar);
+}
+
+ValueId ir_build_vextract(IrBuilder *b, IrOperand vector, u32 lane)
+{
+    u32 lanes = ir_vector_lanes((IrType)vector.type);
+    IrInst *in;
+
+    if (!lanes || lane >= lanes || lane > UINT8_MAX)
+        CGF_ICE("ir_build_vextract: lane %u is out of range for %s", lane,
+                ir_type_name((IrType)vector.type));
+    in = append(b, IR_VEXTRACT, ir_vector_elem_type((IrType)vector.type), true);
+    in->ops = copy_ops(b->m, &vector, 1);
+    in->nops = 1;
+    in->subop = (u8)lane;
+    return in->result;
+}
+
+ValueId ir_build_vreduce(IrBuilder *b, IrOp op, IrOperand vector)
+{
+    IrInst *in = append(b, op, ir_vector_elem_type((IrType)vector.type), true);
+
+    in->ops = copy_ops(b->m, &vector, 1);
+    in->nops = 1;
+    return in->result;
+}
+
 ValueId ir_build_alloca(IrBuilder *b, IrOperand size, u32 align)
 {
     return ir_build_alloca_typed(b, size, align, ETYPE_UNKNOWN);
