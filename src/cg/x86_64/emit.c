@@ -446,15 +446,21 @@ void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
     buf_printf(out, "\t.p2align\t4\n");
     buf_printf(out, "\t.type\t%s, @function\n", f->name);
     buf_printf(out, "%s:\n", f->name);
+    if (f->debug_lines)
+        buf_printf(out, ".Lloc_%u_0:\n", fidx);
     for (bi = 0; bi < f->nblocks; bi++) {
         const X64Block *b = &f->blocks[bi];
 
         if (bi)
             buf_printf(out, ".Lf%u_%u:\n", fidx, bi + 1);
-        for (i = 0; i < b->n; i++)
+        for (i = 0; i < b->n; i++) {
+            if (f->debug_lines && b->insts[i].debug_label)
+                buf_printf(out, ".Lloc_%u_%u:\n", fidx,
+                           b->insts[i].debug_label);
             emit_inst(&e, &b->insts[i], bi, bi + 2);
+        }
     }
-    buf_printf(out, "\t.size\t%s, .-%s\n", f->name, f->name);
+    buf_printf(out, ".Lfe%u_0:\n\t.size\t%s, .-%s\n", fidx, f->name, f->name);
 
     /* Per-function .rodata: jump tables (8-aligned) and the constant
      * pool (each entry at its own alignment), all fidx-namespaced. */

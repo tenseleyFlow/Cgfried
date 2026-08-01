@@ -395,10 +395,14 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
     }
     argv[an++] = tc.as_path;
     /* afs-as defaults to its ARM64 Mach-O arm; --64 selects x86_64 AT&T
-     * (exactly how the Sprint 2 toolchain smoke invokes it). The system
-     * assembler needs no selector. */
+     * (exactly how the Sprint 2 toolchain smoke invokes it). GNU as may be
+     * configured to compress .debug_* by default. afs-ld deliberately does
+     * not decode SHF_COMPRESSED inputs, and reloc offsets name the
+     * uncompressed image, so keep compiler-produced debug sections plain. */
     if (tc.use_afs_as)
         argv[an++] = "--64";
+    else
+        argv[an++] = "--nocompress-debug-sections";
     argv[an++] = s_path;
     argv[an++] = "-o";
     argv[an++] = o_path;
@@ -765,6 +769,8 @@ void cgf_echo_as_plan(const char *s_path, const char *o_path)
     argv[n++] = tc.as_path ? tc.as_path : "as";
     if (tc.as_path && tc.use_afs_as)
         argv[n++] = "--64";
+    else
+        argv[n++] = "--nocompress-debug-sections";
     argv[n++] = s_path;
     argv[n++] = "-o";
     argv[n++] = o_path;

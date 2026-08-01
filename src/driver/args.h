@@ -12,7 +12,7 @@ struct Arena;
  * (FlagSpec in args.c — zero strcmp dispatch chains outside it) and does
  * no I/O except response-file reads, so it unit-tests pure. Everything
  * here is parsed and STORED this sprint; some semantics route elsewhere:
- * -W machinery is Sprint 37, -g is Sprint 29, -shared/-fPIC Sprint 51,
+ * -W machinery is Sprint 37, -shared/-fPIC Sprint 51,
  * crt/archive link depth Sprint 27. */
 
 /* Input dispatch: extension decides unless an active -x overrides. */
@@ -93,9 +93,10 @@ typedef struct {
     const char *output; /* -o; consumes the next argv even if flag-like */
 
     /* --- language / optimization --- */
-    int opt_level; /* OptLevel; -O last-one-wins; pipelines are Phase 7 */
-    int std;       /* CStd value; default C17 (locked; gcc defaults gnu17
-                      — the divergence is documented in --help) */
+    int opt_level;  /* OptLevel; -O last-one-wins; pipelines are Phase 7 */
+    u8 debug_level; /* -g0..3; nonzero levels all mean DWARF line tables */
+    int std;        /* CStd value; default C17 (locked; gcc defaults gnu17
+                       — the divergence is documented in --help) */
     bool trigraphs;
     bool pedantic, pedantic_errors;
     u32 max_errors; /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */

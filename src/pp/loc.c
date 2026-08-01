@@ -104,8 +104,8 @@ SrcLoc pp_loc_expansion_parent(const LocTable *t, SrcLoc loc)
     return (e->w2 & 1u) ? (SrcLoc)e->w1 : SRCLOC_INVALID;
 }
 
-/* Fills a Span for `loc` (physical + #line presumed display info). */
-Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len)
+/* Fills a Span for one resolved location (physical + #line display info). */
+static Span span_at(Preprocessor *pp, SrcLoc loc, u32 len)
 {
     Span sp;
     FileId f = 0;
@@ -136,6 +136,24 @@ Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len)
             sp.presumed_path = r->path;
         }
     }
+    return sp;
+}
+
+/* Diagnostics point at the token spelling and render the macro backtrace.
+ * Debuggers instead need the executable statement's user-visible origin:
+ * walk expansion parents through nested macros to the outermost invocation
+ * and preserve that second location in the DiagCtx registry. */
+Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len)
+{
+    Span sp = span_at(pp, loc, len);
+    SrcLoc invocation = loc;
+
+    while (invocation != SRCLOC_INVALID &&
+           pp_loc_is_expansion(&pp->loc, invocation))
+        invocation = pp_loc_expansion_parent(&pp->loc, invocation);
+    if (invocation != loc && invocation != SRCLOC_INVALID)
+        sp.debug_loc =
+            diag_add_debug_span(pp->diag, span_at(pp, invocation, len));
     return sp;
 }
 

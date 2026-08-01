@@ -1,7 +1,6 @@
-// -g (all spellings: the joined family covers -ggdb/-g3 too) hard-errors
-// until Sprint 29 lands line tables.
+// Sprint 29: bare -g is accepted and emits line-level debug information.
+// Section contents are checked structurally by scripts/debug_info_lane.sh.
 // FLAGS: -g
-// ERROR_EXPECTED: option '-g' lands in Sprint 29
 int main(void)
 {
     return 0;

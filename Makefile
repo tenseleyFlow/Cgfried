@@ -212,6 +212,16 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	@if [ -x afs-ld/target/release/afs-ld ]; then p=afsld; \
 	    else p=afsld-notools; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/afsld.log
+	CGF_DEBUG_WORK=$(BUILD)/debug-info-lane \
+	    sh scripts/debug_info_lane.sh $(BUILD)/cgfried \
+	    > $(BUILD)/debug-info.log 2>&1; s=$$?; \
+	    cat $(BUILD)/debug-info.log; exit $$s
+	@p=debug; \
+	    if grep -q 'suite=debug-info test=afs-' $(BUILD)/debug-info.log; then \
+	        p=debug-notools; fi; \
+	    if grep -q 'suite=debug-info test=gdb ' $(BUILD)/debug-info.log; then \
+	        p=$$p-nogdb; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/debug-info.log
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried

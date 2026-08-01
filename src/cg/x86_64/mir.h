@@ -245,6 +245,8 @@ typedef struct X64Inst {
     u32 flags_src;       /* USES_FLAGS: producer's index in this block */
     u32 table;           /* JMPTBL: table index; ALLOCA static lea marker
                             + ALLOCA_DYN: the alloca's align */
+    u32 loc;             /* IrModule debug-location id; 0 = no attribution */
+    u32 debug_label;     /* prepared post-RA: .Lloc_<func>_<id>, 0 = none */
 } X64Inst;
 
 typedef struct X64Block {
@@ -268,12 +270,13 @@ typedef struct X64Const {
 
 typedef struct X64Func {
     const char *name;
-    bool allocated;  /* post-RA: X64VReg.v is X64Reg + 1 */
-    bool variadic;   /* Sprint 23: frame gets the 176-byte reg save area */
-    bool ret_f80;    /* f80 return: st0 is legitimately loaded at ret */
-    u32 frame_size;  /* finalized rbp-relative bytes (spills + locals) */
-    u32 spill_slots; /* count, for the printer's accounting line */
-    u32 out_args;    /* max outgoing-arg bytes over all call sites */
+    bool allocated;   /* post-RA: X64VReg.v is X64Reg + 1 */
+    bool variadic;    /* Sprint 23: frame gets the 176-byte reg save area */
+    bool ret_f80;     /* f80 return: st0 is legitimately loaded at ret */
+    bool debug_lines; /* emit prepared line labels for this function */
+    u32 frame_size;   /* finalized rbp-relative bytes (spills + locals) */
+    u32 spill_slots;  /* count, for the printer's accounting line */
+    u32 out_args;     /* max outgoing-arg bytes over all call sites */
     u32 named_stack_bytes; /* incoming stack bytes used by NAMED params
                               (va_start's overflow_arg_area starts after) */
     Arena *arena;

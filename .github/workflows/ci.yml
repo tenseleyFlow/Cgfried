@@ -122,3 +122,14 @@ jobs:
           cat afsld.log
           [ $s -eq 0 ]
           sh ci/check_skips.sh afsld afsld.log
+      - name: "DWARF v4 + CFI debugger lane (Sprint 29)"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdb
+          make -j"$(nproc)" build/cgfried
+          if CGF_DEBUG_WORK=build/debug-info-toolchain \
+              sh scripts/debug_info_lane.sh build/cgfried \
+              > debug-info.log 2>&1; then s=0; else s=1; fi
+          cat debug-info.log
+          [ $s -eq 0 ]
+          sh ci/check_skips.sh debug debug-info.log

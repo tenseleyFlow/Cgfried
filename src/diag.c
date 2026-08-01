@@ -18,6 +18,11 @@ struct DiagCtx {
     DiagFile *files;
     size_t files_len;
     size_t files_cap;
+    Span *debug_spans;
+    size_t debug_spans_len;
+    size_t debug_spans_cap;
+    u32 *debug_span_slots;
+    size_t debug_span_slot_count;
     DiagSink sink;
     u32 error_count;
     u32 warning_count;
@@ -68,6 +73,117 @@ u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
     dc->files[dc->files_len].len = len;
     dc->files_len++;
     return (u32)dc->files_len; /* ids are 1-based; 0 = no location */
+}
+
+const char *diag_file_path(const DiagCtx *dc, u32 file_id)
+{
+    if (!dc || file_id == 0 || file_id > dc->files_len)
+        return NULL;
+    return dc->files[file_id - 1].path;
+}
+
+const char *diag_span_path(const DiagCtx *dc, Span sp)
+{
+    if (sp.presumed_path)
+        return sp.presumed_path;
+    return diag_file_path(dc, sp.file_id);
+}
+
+static bool same_path(const char *a, const char *b)
+{
+    return a == b || (a && b && strcmp(a, b) == 0);
+}
+
+static bool same_debug_span(Span a, Span b)
+{
+    return a.file_id == b.file_id && a.line == b.line && a.col == b.col &&
+           a.len == b.len && a.presumed_line == b.presumed_line &&
+           same_path(a.presumed_path, b.presumed_path);
+}
+
+static u64 debug_span_hash(Span sp)
+{
+    const unsigned char *p = (const unsigned char *)sp.presumed_path;
+    const u32 fields[] = {sp.file_id, sp.line, sp.col, sp.len,
+                          sp.presumed_line};
+    u64 h = 1469598103934665603ULL;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(fields); i++) {
+        h ^= fields[i];
+        h *= 1099511628211ULL;
+    }
+    while (p && *p) {
+        h ^= *p++;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/* Find the slot holding sp, or the empty slot where it belongs. */
+static size_t debug_span_probe(const DiagCtx *dc, Span sp)
+{
+    size_t mask = dc->debug_span_slot_count - 1;
+    size_t slot = (size_t)debug_span_hash(sp) & mask;
+
+    for (;;) {
+        u32 idx = dc->debug_span_slots[slot];
+
+        if (!idx || same_debug_span(dc->debug_spans[idx - 1], sp))
+            return slot;
+        slot = (slot + 1) & mask;
+    }
+}
+
+static void debug_span_grow_slots(DiagCtx *dc)
+{
+    size_t count =
+        dc->debug_span_slot_count ? dc->debug_span_slot_count * 2 : 64;
+    size_t i;
+
+    dc->debug_span_slots =
+        arena_alloc(dc->arena, count * sizeof(u32), _Alignof(u32));
+    memset(dc->debug_span_slots, 0, count * sizeof(u32));
+    dc->debug_span_slot_count = count;
+    for (i = 0; i < dc->debug_spans_len; i++)
+        dc->debug_span_slots[debug_span_probe(dc, dc->debug_spans[i])] =
+            (u32)i + 1;
+}
+
+u32 diag_add_debug_span(DiagCtx *dc, Span sp)
+{
+    size_t slot;
+
+    sp.debug_loc = 0;
+    if (!sp.file_id)
+        return 0;
+    if (!dc->debug_span_slot_count ||
+        (dc->debug_spans_len + 1) * 10 >= dc->debug_span_slot_count * 7)
+        debug_span_grow_slots(dc);
+    slot = debug_span_probe(dc, sp);
+    if (dc->debug_span_slots[slot])
+        return dc->debug_span_slots[slot];
+    if (dc->debug_spans_len == dc->debug_spans_cap) {
+        size_t cap = dc->debug_spans_cap ? dc->debug_spans_cap * 2 : 16;
+        Span *grown =
+            arena_alloc(dc->arena, cap * sizeof(Span), _Alignof(Span));
+
+        if (dc->debug_spans_len)
+            memcpy(grown, dc->debug_spans, dc->debug_spans_len * sizeof(Span));
+        dc->debug_spans = grown;
+        dc->debug_spans_cap = cap;
+    }
+    dc->debug_spans[dc->debug_spans_len] = sp;
+    dc->debug_spans_len++;
+    dc->debug_span_slots[slot] = (u32)dc->debug_spans_len;
+    return (u32)dc->debug_spans_len;
+}
+
+Span diag_span_for_debug(const DiagCtx *dc, Span sp)
+{
+    if (!dc || sp.debug_loc == 0 || sp.debug_loc > dc->debug_spans_len)
+        return sp;
+    return dc->debug_spans[sp.debug_loc - 1];
 }
 
 /* Span validation, on only under CGF_FUZZ=1. A diagnostic whose Span

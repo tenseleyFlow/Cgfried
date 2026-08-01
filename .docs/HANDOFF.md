@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–28
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–29
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,24 +34,29 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Phases 1–5 closed** (preprocessor, frontend, sema, IR, x86_64
-  backend). **Phase 6 (driver) is closed through Sprint 28.**
+- **Phases 1–6 closed** (preprocessor, frontend, sema, IR, x86_64
+  backend, driver).
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
-- **Next action: Sprint 29** — `.docs/sprints/06-driver/s29-dwarf-lines.md`
-  (DWARF line tables; makes `gdb` usable on cgf-built binaries). After
-  that Phase 7 opens with `s30-pass-manager-mem2reg.md`.
+- `-g` emits DWARF v4 line tables and every object carries `.eh_frame`;
+  gdb break/next/four-frame backtraces work at `-O0` and `-O2`, including
+  GDB 15's shorter x86 prologue scanner via an entry definition row plus
+  `prologue_end` on the first executable row.
+- **Next action: Sprint 30** —
+  `.docs/sprints/07-optimizations/s30-pass-manager-mem2reg.md`, opening
+  Phase 7 with the pass manager and mem2reg.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 265 tests, 87602 assertions, 0 failures
+unit: 275 tests, 91792 assertions, 0 failures
 cgf-test: total=396 pass=396 fail=0 xfail=0 xpass=0 skip=0 config=0
 ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
 rt_diff: 2317 result lines identical to libgcc
 driver_matrix: 39/39 rows agree with gcc
 objdiff: 38/38 · e2ediff: 10/10 · afsld lane: 12 fixtures
+debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 181 predefines match gcc; __GNUC__ absent
 ```
 
@@ -231,7 +236,7 @@ because each one was learned the hard way.
 
 Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `rt_diff`, `driver_matrix`, `objdiff_lane`, `afsld_lane`,
-`e2e_gcc_diff`, `ctestsuite_diff`, `layout_diff`, `fp_diff`,
+`debug_info_lane`, `e2e_gcc_diff`, `ctestsuite_diff`, `layout_diff`, `fp_diff`,
 `init_diff`, `inline_diff`, `lex_diff`, `parse_diff`, `spill_all_lane`.
 
 **Design differentials so the oracle can't be faked.** The best ones in
@@ -245,8 +250,8 @@ compatibility at once, since the link wouldn't resolve otherwise).
 ## 7. Submodule ritual (afs-as, afs-ld)
 
 Both are separate repos under `FortranGoingOnForty/`. **Fix gaps
-upstream; never work around them locally.** Four PRs merged so far
-(afs-as #18/#19, afs-ld #17/#18).
+upstream; never work around them locally.** Five PRs merged so far
+(afs-as #18/#19/#20, afs-ld #17/#18).
 
 Three steps, and stopping after step one is the classic mistake:
 
@@ -292,6 +297,7 @@ make tools                # cargo-build afs-as/afs-ld (Rust; tools only)
 sh scripts/header_diff.sh build/cgfried
 sh scripts/rt_diff.sh build/cgfried
 sh scripts/driver_matrix.sh build/cgfried
+sh scripts/debug_info_lane.sh build/cgfried
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
 # CI:
@@ -312,8 +318,8 @@ Useful env knobs (all read in `toolchain.c`, the single `getenv` site):
 They are relearning C from K&R in `~/scratch/C/ch{1-5}` and want `cgf`
 as their daily compiler for it. That is the acceptance test that
 actually matters to them — hosted programs, real headers, readable
-diagnostics. Sprint 29 (DWARF lines) would make `gdb` work on
-cgf-built binaries, which is the natural next thing for that use.
+diagnostics, and now source-level gdb stepping/backtraces on cgf-built
+binaries.
 
 They care about: honest reporting (say what failed and show the
 output), no silent shortcuts, tests and CI as first-class, and

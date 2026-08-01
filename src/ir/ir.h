@@ -255,15 +255,19 @@ typedef enum IrFuncRefKind {
 } IrFuncRefKind;
 
 typedef struct IrInst {
-    u8 op;    /* IrOp */
-    u8 type;  /* result IrType (IRT_VOID when none) */
-    u8 subop; /* IrIcmp / IrFcmp / IrFuncRefKind */
-    u8 flags; /* IRF_* */
-    u32 align;
+    u8 op;          /* IrOp */
+    u8 type;        /* result IrType (IRT_VOID when none) */
+    u8 subop;       /* IrIcmp / IrFcmp / IrFuncRefKind */
+    u8 flags;       /* IRF_* */
     ValueId result; /* 0 when the op defines nothing */
+    u32 loc; /* 1-based index into IrModule.locs; 0 = no source location */
+    /* Memory ops use align; IR_CALL uses callee. No opcode uses both. */
+    union {
+        u32 align;
+        u32 callee; /* func index or symbol index, per subop */
+    };
     u32 nops;
     u32 nedges;
-    u32 callee; /* IR_CALL: func index or symbol index, per subop */
     IrOperand *ops;
     IrEdge *edges;
     struct IrInst *next;
@@ -335,6 +339,7 @@ typedef enum IrAbiRet {
 
 typedef struct IrFunc {
     const char *name; /* interned */
+    u32 loc;          /* function definition location; 0 when unavailable */
     u8 ret;           /* IrType */
     u8 abi_ret;       /* IrAbiRet */
     u8 linkage;       /* IrLinkage (Sprint 24: .globl vs .local emission);
@@ -405,6 +410,9 @@ typedef struct IrModule {
     const char **syms;
     u32 nsyms;
     u32 cap_syms;
+    Span *locs; /* instruction source locations; ids are 1-based */
+    u32 nlocs;
+    u32 cap_locs;
 } IrModule;
 
 /* --- construction (src/ir/ir.c, src/ir/build.c) -------------------------- */
@@ -432,9 +440,15 @@ typedef struct IrBuilder {
     IrModule *m;
     IrFunc *f;
     BlockId block;
+    Span loc; /* copied into each subsequently appended instruction */
 } IrBuilder;
 
 void ir_builder_at(IrBuilder *b, IrModule *m, IrFunc *f, BlockId blk);
+void ir_builder_set_span(IrBuilder *b, Span span);
+Span ir_builder_span(const IrBuilder *b);
+u32 ir_intern_span(IrModule *m, Span span);
+Span ir_debug_loc(const IrModule *m, u32 loc);
+Span ir_inst_span(const IrModule *m, const IrInst *in);
 ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y);
 ValueId ir_build1(IrBuilder *b, IrOp op, IrType t, IrOperand x);
 ValueId ir_build_icmp(IrBuilder *b, IrIcmp p, IrOperand x, IrOperand y);
@@ -495,7 +509,8 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
                           const char *path);
 
 /* Structural equality — the round-trip invariant's judge. Compares
- * everything except interned pointer identities (names by content). */
+ * everything except interned pointer identities (names by content) and
+ * optional debug locations, which the textual .cgfir format does not carry. */
 bool ir_module_struct_eq(const IrModule *a, const IrModule *b);
 
 /* Deletes blocks unreachable from the entry, compacting the block array
