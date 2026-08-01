@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // sizeof/_Alignof through printf: the layout suite's runtime echo.
 // CHECK: int=4 long=8 ptr=8
 // CHECK: s=16 a=8

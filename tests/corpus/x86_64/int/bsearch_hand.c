@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Hand-rolled binary search over a sorted array.
 // EXIT_CODE: 0
 static int find(const int *v, int n, int key)

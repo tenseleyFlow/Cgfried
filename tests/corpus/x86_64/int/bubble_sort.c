@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Composite integer workload: sort + verify.
 // EXIT_CODE: 0
 int main(void)

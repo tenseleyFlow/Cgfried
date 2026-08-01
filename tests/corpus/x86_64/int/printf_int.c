@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // printf integer conversions end-to-end.
 // CHECK: d=-42 u=42 x=2a c=Z s=cgf
 // CHECK: big=9223372036854775807

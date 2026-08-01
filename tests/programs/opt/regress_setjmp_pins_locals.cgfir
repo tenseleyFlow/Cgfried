@@ -1,0 +1,12 @@
+// FLAGS: -O1
+// ENV: CGF_OPT_BAIL_LOG=1
+// IR_CHECK: func i32 @f(ptr %0) setjmp
+// IR_CHECK: alloca 4
+func i32 @f(ptr %b) setjmp {
+entry():
+    %p = alloca 4, align 4
+    store i32 9, %p, align 4
+    %r = call i32 @setjmp(ptr %b)
+    %v = load i32, %p, align 4
+    ret i32 %v
+}

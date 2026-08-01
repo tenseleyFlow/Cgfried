@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Pointer loads through a hand-built list in an array.
 // EXIT_CODE: 15
 struct Node {

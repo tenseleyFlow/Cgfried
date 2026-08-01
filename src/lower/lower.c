@@ -163,7 +163,23 @@ bool lower_internal_func(Lower *lo, Symbol *sym, u32 *index)
 
 void lower_bind_local(Lower *lo, Symbol *sym, ValueId slot)
 {
+    IrFunc *f = lo->fn;
+
     ptrmap_put(&lo->locals, sym, (void *)(uintptr_t)slot.v);
+    if (f->nlocal_slots == f->cap_local_slots) {
+        u32 nc = f->cap_local_slots ? f->cap_local_slots * 2 : 8;
+        IrLocalSlot *ns =
+            arena_alloc(lo->arena, nc * sizeof(*ns), _Alignof(IrLocalSlot));
+
+        if (f->nlocal_slots)
+            memcpy(ns, f->local_slots, f->nlocal_slots * sizeof(*ns));
+        f->local_slots = ns;
+        f->cap_local_slots = nc;
+    }
+    f->local_slots[f->nlocal_slots].addr = slot;
+    f->local_slots[f->nlocal_slots].name = sym->name;
+    f->local_slots[f->nlocal_slots].decl_span = sym->span;
+    f->nlocal_slots++;
 }
 
 void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)

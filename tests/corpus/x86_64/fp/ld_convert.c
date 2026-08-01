@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // long double conversions: the RC dance (truncation) and int paths.
 // EXIT_CODE: 0
 int main(void)

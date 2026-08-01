@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // SSE scalar arithmetic: precision-exact expectations only.
 // EXIT_CODE: 0
 int main(void)

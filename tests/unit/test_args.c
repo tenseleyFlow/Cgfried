@@ -45,6 +45,21 @@ void test_args_joined_vs_separate(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_optimization_controls(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-O1", (char *)"-ftime-report", (char *)"-Os",
+          (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.opt_level, OPT_OS);
+    T_ASSERT(t, a.time_report);
+    T_ASSERT(t, !a.unknown_opt && !a.bad_value);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_either_forms_mf_mt_mq_x_b(TestCtx *t)
 {
     Arena ar;

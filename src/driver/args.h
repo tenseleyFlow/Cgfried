@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "opt/opt.h"
 #include "util/base.h"
 #include "util/vec.h"
 
@@ -53,10 +54,6 @@ typedef struct {
 
 typedef enum { DEP_OFF, DEP_M, DEP_MM } DepMode;
 
-/* Optimization levels, last one wins. Pipelines are Phase 7; only the
- * stored level exists this sprint. */
-typedef enum { OPT_O0, OPT_O1, OPT_O2, OPT_O3, OPT_OS, OPT_OFAST } OptLevel;
-
 typedef struct {
     const char *val; /* "NAME", "NAME=VAL" (-D) or "NAME" (-U) */
     bool is_undef;
@@ -93,10 +90,11 @@ typedef struct {
     const char *output; /* -o; consumes the next argv even if flag-like */
 
     /* --- language / optimization --- */
-    int opt_level;  /* OptLevel; -O last-one-wins; pipelines are Phase 7 */
-    u8 debug_level; /* -g0..3; nonzero levels all mean DWARF line tables */
-    int std;        /* CStd value; default C17 (locked; gcc defaults gnu17
-                       — the divergence is documented in --help) */
+    int opt_level;    /* OptLevel; -O last-one-wins */
+    bool time_report; /* -ftime-report: pass timings on stderr only */
+    u8 debug_level;   /* -g0..3; nonzero levels all mean DWARF line tables */
+    int std;          /* CStd value; default C17 (locked; gcc defaults gnu17
+                         — the divergence is documented in --help) */
     bool trigraphs;
     bool pedantic, pedantic_errors;
     u32 max_errors; /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */

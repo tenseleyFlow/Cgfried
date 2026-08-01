@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Mixed int/double varargs crossing BOTH register limits into the
 // overflow area.
 // EXIT_CODE: 210

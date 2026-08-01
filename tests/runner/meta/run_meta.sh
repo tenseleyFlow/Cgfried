@@ -49,7 +49,11 @@ expect big_stderr.c 0 "pass=1"
 expect binary_out.c 0 "pass=1"
 expect config_unknown_directive.c 1 "CONFIG ERROR"
 expect config_unknown_selector.c 1 "unknown target selector"
-expect config_reserved.c 1 "Sprint 30"
+expect config_reserved.c 1 "unknown OPT_EQ level '-Og'"
+expect opt_eq_pass.c 0 "pass=1"
+# Anti-vacuity: both level-specific runs satisfy CHECK/EXIT_CODE, but their
+# full stdout differs, so OPT_EQ itself must fail and name both levels.
+expect opt_eq_fail.c 1 "OPT_EQ stdout mismatch: -O0 vs -O1"
 expect ir_check_pass.cgfir 0 "pass=1"
 expect mir_check_pass.c 0 "pass=1"
 # F-S22-MIRCHECK: MIR_CHECK was parsed and silently dropped through all
@@ -65,7 +69,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=27 pass=10 fail=8 xfail=1 xpass=1 skip=1 config=6"*) ;;
+*"total=29 pass=11 fail=9 xfail=1 xpass=1 skip=1 config=6"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)

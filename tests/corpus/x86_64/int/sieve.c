@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Array writes + reads: primes below 100 = 25.
 // EXIT_CODE: 25
 int main(void)

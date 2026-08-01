@@ -1,3 +1,4 @@
+// FLAGS: -O1
 // IR_CHECK: func i32 @meta
 // IR_CHECK: iadd
 func i32 @meta() {

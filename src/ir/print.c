@@ -450,8 +450,12 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
 
 static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
 {
-    ValNames vn = vn_build(m->arena, f);
+    Arena scratch;
+    ValNames vn;
     u32 i;
+
+    arena_init(&scratch);
+    vn = vn_build(&scratch, f);
 
     buf_printf(out, "func %s @%s(", type_names[f->ret], f->name);
     for (i = 0; i < f->nparams; i++) {
@@ -490,6 +494,7 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
             print_inst(out, m, f, &vn, in);
     }
     buf_printf(out, "}\n");
+    arena_free_all(&scratch);
 }
 
 void ir_print_module_buf(Buf *out, const IrModule *m)

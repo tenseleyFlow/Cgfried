@@ -297,6 +297,16 @@ typedef struct IrValInfo {
     u32 def_pos; /* instruction index within the block, 0 for params */
 } IrValInfo;
 
+struct OptMem2RegInfo;
+
+/* Front-end provenance for local slots. The textual IR intentionally omits
+ * this optional metadata, but flow diagnostics retain it while compiling C. */
+typedef struct IrLocalSlot {
+    ValueId addr;
+    const char *name;
+    Span decl_span;
+} IrLocalSlot;
+
 /* The ABI-return contract (Sprint 19; Sprint 23 implements the moves).
  * The IR stays single-result, so multi-register returns keep the
  * sret-shaped hidden pointer and this annotation carries the truth:
@@ -370,6 +380,12 @@ typedef struct IrFunc {
     IrValInfo *vals; /* value N at vals[N-1] */
     u32 nvals;
     u32 cap_vals;
+    IrLocalSlot *local_slots;
+    u32 nlocal_slots;
+    u32 cap_local_slots;
+    /* Arena-owned analysis provenance retained for Sprint 40's flow
+     * warnings. Opaque here so the IR does not depend on optimization. */
+    struct OptMem2RegInfo *opt_mem2reg_info;
 } IrFunc;
 
 typedef enum IrLinkage {
@@ -568,5 +584,15 @@ void ir_snapshot_volatile(const IrModule *m, u32 *out);
  * first offending function index. */
 bool ir_volatile_counts_match(const IrModule *m, const u32 *before,
                               u32 *bad_func);
+/* Strong form used by the pass manager: arena-stable instruction identities
+ * in program order catch reorder and remove+replace, not only count drift. */
+typedef struct IrVolatileSnapshot {
+    const IrInst **ops;
+    u32 nops;
+} IrVolatileSnapshot;
+void ir_snapshot_volatile_order(Arena *arena, const IrModule *m,
+                                IrVolatileSnapshot *out);
+bool ir_volatile_order_matches(const IrModule *m,
+                               const IrVolatileSnapshot *before, u32 *bad_func);
 
 #endif

@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Deep recursion: ackermann(2,3) = 9 — frame correctness under real
 // call depth.
 // EXIT_CODE: 9

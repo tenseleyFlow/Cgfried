@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // 3-deep loop nest: register pressure across loop-carried counters.
 // EXIT_CODE: 60
 int main(void)

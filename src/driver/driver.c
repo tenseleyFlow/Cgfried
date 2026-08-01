@@ -14,6 +14,7 @@
 #include "ir/ir.h"
 #include "lex/lex.h"
 #include "lower/lower.h"
+#include "opt/opt.h"
 #include "parse/parse.h"
 #include "pp/pp.h"
 #include "sema/sema.h"
@@ -68,6 +69,7 @@ static const char *const help_text[] = {
     "Codegen / language:\n"
     "  -O<n>             optimization level: 0 (default) 1 2 3 s fast;\n"
     "                    -O means -O1; the LAST -O wins\n"
+    "  -ftime-report     print per-pass invocation counts and wall time\n"
     "  -g[-level]        emit DWARF v4 line tables (-g1/-g2/-g3 all\n"
     "                    mean line-level debug info; -g0 disables)\n"
     "  -std=<std>        c89/c90, c99, c11, c17/c18 (+iso9899 spellings)\n"
@@ -473,6 +475,45 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
+static bool env_is_one(const char *name)
+{
+    const char *value = cgf_env(name);
+
+    return value && strcmp(value, "1") == 0;
+}
+
+/* The same optimization boundary serves generated C IR and verified textual
+ * IR. A bad input module is a user error before this call; any invalidity
+ * after a pass is our bug and therefore an ICE. */
+static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
+{
+    OptConfig cfg;
+    char why[256];
+
+    opt_config_init(&cfg, (OptLevel)a->opt_level);
+    cfg.no_strict_aliasing = a->fno_strict_aliasing;
+    cfg.fwrapv = a->fwrapv;
+    cfg.verify_after_each = env_is_one("CGF_VERIFY_AFTER_EACH");
+    cfg.bail_log = env_is_one("CGF_OPT_BAIL_LOG");
+    cfg.time_report = a->time_report;
+    cfg.dump_bad_ir = cgf_env("CGF_DUMP_BAD_IR");
+    (void)opt_run_pipeline(m, &cfg);
+    if (!ir_verify_report(m->dc, m, why, sizeof(why))) {
+        if (cfg.dump_bad_ir) {
+            FILE *df = fopen(cfg.dump_bad_ir, "wb");
+
+            if (df) {
+                ir_print_module(df, m);
+                fprintf(df, "// verify failed after optimization: %s\n", why);
+                fclose(df);
+            }
+        }
+        CGF_ICE("optimization produced IR the verifier rejects for '%s' "
+                "(%s)",
+                input, why);
+    }
+}
+
 /* Preserve the shell's logical, as-given cwd (including symlink components)
  * when it honestly names '.'. PWD is untrusted process input, so validate
  * identity before emitting it into DW_AT_comp_dir; otherwise use getcwd's
@@ -695,6 +736,7 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a,
             return CGF_EXIT_COMPILE;
         }
     }
+    optimize_module(m, a, job->path);
     if (a->emit_mir)
         return emit_mir_print(arena, dc, m);
     return emit_ir_print(arena, dc, m, job->path);
@@ -882,6 +924,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                                 "rejects for '%s' (%s)",
                                 job->path, why);
                     }
+                    if (m)
+                        optimize_module(m, a, job->path);
                     if (m && a->emit_mir) {
                         int rc = emit_mir_print(arena, dc, m);
 

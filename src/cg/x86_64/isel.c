@@ -203,6 +203,12 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
 {
     switch (o->kind) {
     case IROP_VALUE:
+        /* SSA permits a dominating definition to appear later in layout
+         * order (mem2reg exposes this around loop backedges). Reserve its
+         * vreg now; the definition walk bridges its selected result into
+         * this stable identity. */
+        if (!is->vals[(u32)o->a].vr.v)
+            is->vals[(u32)o->a].vr = newv(is);
         return is->vals[(u32)o->a].vr;
     case IROP_ICONST: {
         X64Width w = width_of((IrType)o->type);
@@ -275,7 +281,10 @@ static X64Mem fold_addr(Isel *is, const IrOperand *addr)
             mem.disp = (i32)vi->pat_disp;
             return mem;
         }
-        mem.base = vi->vr;
+        /* A dominating address definition may appear later in block layout.
+         * Reserve its stable identity exactly as every other value use does;
+         * vreg 0 means the frame base and would silently miscompile here. */
+        mem.base = to_vreg(is, addr);
         return mem;
     }
     mem.base = to_vreg(is, addr);
@@ -345,6 +354,8 @@ static X64VReg to_fvreg(Isel *is, const IrOperand *o)
 {
     switch (o->kind) {
     case IROP_VALUE:
+        if (!is->vals[(u32)o->a].vr.v)
+            is->vals[(u32)o->a].vr = newvf(is);
         return is->vals[(u32)o->a].vr;
     case IROP_FCONST: {
         X64VReg r = newvf(is);
@@ -381,6 +392,8 @@ static X64VReg f80_addr(Isel *is, const IrOperand *o)
 {
     switch (o->kind) {
     case IROP_VALUE:
+        if (!is->vals[(u32)o->a].vr.v)
+            is->vals[(u32)o->a].vr = newv(is);
         return is->vals[(u32)o->a].vr;
     case IROP_FCONST: {
         X64VReg r = newv(is);
@@ -2371,8 +2384,36 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
         is.last_flags_inst = 0;
         is.last_flags_val = 0;
         for (in = f->blocks[bi].first; in; in = in->next) {
+            X64VReg forward = {0};
+
+            if (in->result.v)
+                forward = is.vals[in->result.v].vr;
             is.cur_loc = in->loc;
             sel_inst(&is, in, &f->blocks[bi]);
+            if (forward.v) {
+                X64VReg actual = is.vals[in->result.v].vr;
+
+                if (!actual.v)
+                    CGF_ICE("x86_64 isel: forward value %%%u was not "
+                            "materialized",
+                            in->result.v - 1);
+                if (actual.v != forward.v) {
+                    X64Inst *copy;
+
+                    if (irt_sse(in->type)) {
+                        copy = emit(&is, X64_OP_FMOV, fpw(in->type));
+                    } else {
+                        X64Width w = in->type == IRT_F80
+                                         ? X64_Q
+                                         : width_of((IrType)in->type);
+
+                        copy = emit(&is, X64_OP_MOV, w);
+                    }
+                    copy->def = forward;
+                    copy->a = ovreg(actual);
+                    is.vals[in->result.v].vr = forward;
+                }
+            }
         }
     }
     return xf;

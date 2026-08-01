@@ -8,11 +8,16 @@ set -eu
 # source is the first non-option argument.
 src=""
 out=""
+opt=""
 while [ $# -gt 0 ]; do
     case $1 in
     -o)
         out=$2
         shift 2
+        ;;
+    -O0 | -O1 | -O2 | -O3 | -Os | -Ofast)
+        opt=$1
+        shift
         ;;
     -*) shift ;;
     *)
@@ -28,9 +33,23 @@ emit() {
 }
 
 case $(basename "$src") in
+opt_eq_pass.c)
+    emit '#!/bin/sh
+echo value
+'
+    ;;
+opt_eq_fail.c)
+    emit "#!/bin/sh
+echo value $opt
+"
+    ;;
 ir_check_pass.cgfir)
     # .cgfir routing: the runner invokes `cc -emit-ir <src>` with no -o
     # and matches IR_CHECK lines against the compiler's stdout.
+    if [ "$opt" != "-O1" ]; then
+        echo "fake-cc: .cgfir FLAGS were not forwarded" >&2
+        exit 1
+    fi
     printf 'func i32 @meta() {\n'
     printf '    %%0 = iadd i32 1, 2\n'
     exit 0

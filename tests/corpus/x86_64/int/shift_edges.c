@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Shifts at 0/31/63 (UB widths avoided by masking in source).
 // EXIT_CODE: 0
 int main(void)

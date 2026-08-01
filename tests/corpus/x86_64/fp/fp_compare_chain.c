@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // FP comparisons as VALUES (the setcc recipes) and as branches.
 // EXIT_CODE: 0
 int main(void)

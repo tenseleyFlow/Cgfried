@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Hand-rolled va_arg sum crossing the gp register limit.
 // EXIT_CODE: 45
 #include <stdarg.h>

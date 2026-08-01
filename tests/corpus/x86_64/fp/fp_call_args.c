@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // 9 double args (8 xmm + 1 stack) and a mixed signature, executed.
 // EXIT_CODE: 0
 static double s9(double a, double b, double c, double d, double e, double f,

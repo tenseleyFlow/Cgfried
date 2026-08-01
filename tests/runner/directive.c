@@ -34,7 +34,12 @@ typedef struct {
     bool seen_exit_code;
     bool seen_timeout;
     bool seen_flags;
+    bool seen_opt_eq;
 } Parser;
+
+static const char *const opt_levels[] = {
+    "-O0", "-O1", "-O2", "-O3", "-Os", "-Ofast",
+};
 
 static void err(Parser *p, u32 line, const char *msg)
 {
@@ -235,11 +240,6 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         d.kind = hit->kind;
         d.line = line_no;
 
-        /* Reserved directives: parse, then hard-error naming their sprint. */
-        if (hit->kind == DIR_OPT_EQ) {
-            err(p, line_no, "OPT_EQ is not yet supported: Sprint 30");
-            return;
-        }
         /* Selector legality per directive. */
         if (hit->kind == DIR_XFAIL || hit->kind == DIR_SKIP) {
             if (sel_len == 0) {
@@ -376,8 +376,75 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             break;
         }
         case DIR_OPT_EQ:
-            /* Unreachable: reserved directives returned above. Exhaustive
-             * switch, no default — adding a directive must break here. */
+            if (p->seen_opt_eq) {
+                err(p, line_no, "duplicate OPT_EQ directive");
+                return;
+            }
+            p->seen_opt_eq = true;
+            if (value_len == 3 && memcmp(value, "all", 3) == 0) {
+                size_t level;
+
+                for (level = 0; level < CGF_ARRAY_LEN(opt_levels); level++)
+                    p->set->opt_levels[p->set->nopt_levels++] =
+                        opt_levels[level];
+                break;
+            }
+            {
+                size_t pos = 0;
+
+                while (pos < value_len) {
+                    size_t end = pos;
+                    size_t level;
+                    bool found = false;
+
+                    while (end < value_len && value[end] != ' ')
+                        end++;
+                    if (end == pos) {
+                        err(p, line_no,
+                            "OPT_EQ levels must be separated by one space");
+                        return;
+                    }
+                    for (level = 0; level < CGF_ARRAY_LEN(opt_levels);
+                         level++) {
+                        if (strlen(opt_levels[level]) == end - pos &&
+                            memcmp(value + pos, opt_levels[level], end - pos) ==
+                                0) {
+                            size_t prior;
+
+                            found = true;
+                            for (prior = 0; prior < p->set->nopt_levels;
+                                 prior++) {
+                                if (strcmp(p->set->opt_levels[prior],
+                                           opt_levels[level]) == 0) {
+                                    errf(p, line_no, "duplicate OPT_EQ level ",
+                                         value + pos, end - pos);
+                                    return;
+                                }
+                            }
+                            p->set->opt_levels[p->set->nopt_levels++] =
+                                opt_levels[level];
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        errf(p, line_no, "unknown OPT_EQ level ", value + pos,
+                             end - pos);
+                        return;
+                    }
+                    if (end == value_len)
+                        break;
+                    pos = end + 1;
+                    if (pos == value_len) {
+                        err(p, line_no,
+                            "OPT_EQ levels must be separated by one space");
+                        return;
+                    }
+                }
+            }
+            if (p->set->nopt_levels < 2) {
+                err(p, line_no, "OPT_EQ requires at least two levels");
+                p->set->nopt_levels = 0;
+            }
             break;
         }
 

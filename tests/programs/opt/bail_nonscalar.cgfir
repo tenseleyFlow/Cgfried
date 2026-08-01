@@ -1,0 +1,11 @@
+// FLAGS: -O1
+// ENV: CGF_OPT_BAIL_LOG=1
+// mem2reg bail reason: nonscalar
+// IR_CHECK: alloca %0
+func i32 @f(i64 %n) {
+entry():
+    %p = alloca %n, align 8
+    store i32 1, %p, align 4
+    %v = load i32, %p, align 4
+    ret i32 %v
+}

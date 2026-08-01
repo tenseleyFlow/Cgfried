@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Loop-carried pair: fib(11) = 89.
 // EXIT_CODE: 89
 int main(void)

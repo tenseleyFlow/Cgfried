@@ -1,4 +1,4 @@
-// OPT_EQ: -O0 -O1
+// OPT_EQ: -O0 -Og
 int main(void)
 {
     return 0;

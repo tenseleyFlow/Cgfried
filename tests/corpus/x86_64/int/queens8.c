@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // 8-queens counts 92 solutions: deep recursion + bit fiddling.
 // EXIT_CODE: 92
 static int count(int row, unsigned cols, unsigned d1, unsigned d2)

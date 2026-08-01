@@ -1,5 +1,6 @@
 // Returning through setjmp three times; the memory-pinned locals keep
 // their values across the longjmps.
+// OPT_EQ: all
 // EXIT_CODE: 3
 typedef char jbuf[256];
 int setjmp(char *);

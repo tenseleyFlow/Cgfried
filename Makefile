@@ -188,6 +188,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
 	    > $(BUILD)/corpus.log 2>&1; s=$$?; \
 	    cat $(BUILD)/corpus.log; exit $$s
+	sh scripts/opt_driver.sh $(BUILD)/cgfried
 	$(AS_LANE) CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
 	    > $(BUILD)/corpus-spill.log 2>&1; s=$$?; \

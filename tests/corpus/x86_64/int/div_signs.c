@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Division sign matrix (INT_MIN/-1 is UB and deliberately absent).
 // EXIT_CODE: 0
 int main(void)

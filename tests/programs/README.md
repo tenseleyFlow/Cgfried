@@ -38,10 +38,21 @@ per test). When it contains `-E` the pipeline stops at the compiler:
 that is how preprocessor fixtures assert on token dumps. `ENV` (repeatable)
 sets `NAME=VALUE` in the compile step's environment.
 
+`OPT_EQ` repeats an end-to-end C test at two or more optimization levels and
+requires every run to satisfy its normal `CHECK`/`EXIT_CODE` contract. Runtime
+stdout must also be byte-identical, and exit status identical, across all
+levels. The allowed levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and
+`-Ofast`; duplicates are configuration errors. `all` expands to that canonical
+list.
+
+```c
+// OPT_EQ: -O0 -O1
+// CHECK: result=42
+```
+
 Target selectors are the closed target-name set (`x86_64-linux-gnu`,
 `arm64-linux`, `arm64-macos`, `x86_64-linux-musl`, `x86_64-freebsd`) plus
 `*`. Unknown selectors are configuration errors. Every `XFAIL` cites an
 `XF-NNNN` id from `.docs/audits/xfail-debt.md`; XPASS is a hard failure.
 
-Reserved (parse but hard-error until their sprint): `// OPT_EQ:` (Sprint 30),
-`// ASM_CHECK(<arch>):` (Sprint 24), `// IR_CHECK:` (Sprint 17).
+`ASM_CHECK(<arch>)` checks assembly text, and `IR_CHECK` checks textual IR.

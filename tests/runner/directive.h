@@ -27,14 +27,14 @@ typedef enum {
     DIR_XFAIL,
     DIR_SKIP,
     DIR_TIMEOUT,
-    DIR_FLAGS,        /* extra compiler argv (space-separated); -E switches the
-                         pipeline to compiler-output checking */
-    DIR_ENV,          /* NAME=VALUE for the compile step; repeatable */
-    DIR_OPT_EQ,       /* reserved: hard-errors naming Sprint 30 */
-    DIR_ASM_CHECK,    /* reserved: hard-errors naming Sprint 24 */
-    DIR_IR_CHECK,     /* CHECK semantics against `cgf -emit-ir` output
-                         (.cgfir fixtures; live since Sprint 17) */
-    DIR_MIR_CHECK,    /* CHECK semantics against `cgf -emit-mir` (Sprint 21) */
+    DIR_FLAGS,     /* extra compiler argv (space-separated); -E switches the
+                      pipeline to compiler-output checking */
+    DIR_ENV,       /* NAME=VALUE for the compile step; repeatable */
+    DIR_OPT_EQ,    /* repeat the e2e pipeline at listed optimization levels */
+    DIR_ASM_CHECK, /* reserved: hard-errors naming Sprint 24 */
+    DIR_IR_CHECK,  /* CHECK semantics against `cgf -emit-ir` output
+                      (.cgfir fixtures; live since Sprint 17) */
+    DIR_MIR_CHECK, /* CHECK semantics against `cgf -emit-mir` (Sprint 21) */
     DIR_IR_CHECK_NOT, /* negative form: the text must appear on NO output
                          line — how a golden proves an ABSENCE (Sprint
                          18's "short-circuit emits zero allocas") */
@@ -58,9 +58,11 @@ typedef struct {
     size_t ndirs;
     DirectiveError *errs; /* configuration errors; any => CONFIG ERROR */
     size_t nerrs;
-    int exit_code;     /* EXIT_CODE value, default 0 */
-    int timeout;       /* TIMEOUT value in seconds, 0 = none given */
-    const char *flags; /* FLAGS value (raw, space-separated), or NULL */
+    int exit_code;             /* EXIT_CODE value, default 0 */
+    int timeout;               /* TIMEOUT value in seconds, 0 = none given */
+    const char *flags;         /* FLAGS value (raw, space-separated), or NULL */
+    const char *opt_levels[6]; /* canonical -O0/-O1/-O2/-O3/-Os/-Ofast */
+    size_t nopt_levels;
     bool has_error_expected;
     bool has_warning_expected;
 } DirectiveSet;

@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // main is callable in C (unlike C++): recursion through main links.
 // EXIT_CODE: 10
 int main(int argc, char **argv)

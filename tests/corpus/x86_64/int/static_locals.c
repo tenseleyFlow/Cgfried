@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Local statics persist across calls; internal linkage lands in bss.
 // EXIT_CODE: 6
 static int bump(void)

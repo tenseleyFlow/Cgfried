@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // data/rodata emission + an addend reloc, read back at runtime.
 // EXIT_CODE: 0
 // ASM_CHECK(x86_64-linux-gnu): .quad table+8

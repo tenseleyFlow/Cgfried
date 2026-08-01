@@ -1,0 +1,25 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: alloca
+// IR_CHECK-NOT: load
+// IR_CHECK-NOT: store
+func i32 @f(i32 %a, i32 %b) {
+entry():
+    %p = alloca 4, align 4
+    condbr %a, outer(), zero()
+outer():
+    condbr %b, one(), two()
+one():
+    store i32 1, %p, align 4
+    br inner_join()
+two():
+    store i32 2, %p, align 4
+    br inner_join()
+inner_join():
+    br final()
+zero():
+    store i32 0, %p, align 4
+    br final()
+final():
+    %v = load i32, %p, align 4
+    ret i32 %v
+}

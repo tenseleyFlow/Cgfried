@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Byte loop over a literal.
 // EXIT_CODE: 12
 static int len(const char *s)

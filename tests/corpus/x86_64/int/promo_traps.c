@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Integer promotions: the sign surprises.
 // EXIT_CODE: 0
 int main(void)

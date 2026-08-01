@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // The Sprint 23 conversion matrix at runtime: trunc-toward-zero,
 // widths, and the free-zext u32 path.
 // EXIT_CODE: 0

@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Binary bytes on stdout: the runner must not assume text.
 // EXIT_CODE: 3
 int printf(const char *fmt, ...);

@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // MEMORY-class aggregate BY VALUE: the callee's scribbles stay local.
 // EXIT_CODE: 0
 struct Big {

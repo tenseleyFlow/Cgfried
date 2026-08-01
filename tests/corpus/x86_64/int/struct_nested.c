@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Nested aggregates: member paths through two levels + array of struct.
 // EXIT_CODE: 0
 struct In {

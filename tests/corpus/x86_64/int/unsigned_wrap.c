@@ -1,3 +1,4 @@
+// OPT_EQ: all
 // Wraparound is DEFINED for unsigned; the 0x80000000 imm trap rides
 // along as a regression.
 // EXIT_CODE: 0

@@ -1,0 +1,11 @@
+// FLAGS: -O1
+// IR_CHECK-NOT: alloca
+// IR_CHECK-NOT: load
+// IR_CHECK-NOT: store
+func f32 @f(f32 %x) {
+entry():
+    %p = alloca 4, align 4
+    store f32 %x, %p, align 4
+    %v = load f32, %p, align 4
+    ret f32 %v
+}

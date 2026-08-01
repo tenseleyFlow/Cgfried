@@ -108,9 +108,13 @@ void test_directive_reserved(TestCtx *t)
     DirectiveSet ds;
 
     arena_init(&a);
-    ds = parse(&a, "// OPT_EQ: O0,O2 => stdout\n");
-    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
-    T_ASSERT(t, strstr(ds.errs[0].msg, "Sprint 30") != NULL);
+    ds = parse(&a, "// OPT_EQ: -O0 -O1 -Os -Ofast\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.nopt_levels, 4);
+    T_ASSERT_EQ_STR(t, ds.opt_levels[0], "-O0");
+    T_ASSERT_EQ_STR(t, ds.opt_levels[1], "-O1");
+    T_ASSERT_EQ_STR(t, ds.opt_levels[2], "-Os");
+    T_ASSERT_EQ_STR(t, ds.opt_levels[3], "-Ofast");
     /* ASM_CHECK went live in Sprint 24; Sprint 25 gave it a target
      * selector (asm is inherently per-target). The OTHER CHECKs stay
      * selector-free until Sprint 49. */
@@ -139,6 +143,35 @@ void test_directive_reserved(TestCtx *t)
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     ds = parse(&a, "// ERROR_EXPECTED: bad\n// IR_CHECK: iadd\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    arena_free_all(&a);
+}
+
+void test_directive_opt_eq_validation(TestCtx *t)
+{
+    Arena a;
+    DirectiveSet ds;
+
+    arena_init(&a);
+    ds = parse(&a, "// OPT_EQ: all\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.nopt_levels, 6);
+    T_ASSERT_EQ_STR(t, ds.opt_levels[0], "-O0");
+    T_ASSERT_EQ_STR(t, ds.opt_levels[5], "-Ofast");
+
+    ds = parse(&a, "// OPT_EQ: -O0\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "at least two") != NULL);
+    ds = parse(&a, "// OPT_EQ: -O0 -Og\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "unknown OPT_EQ level '-Og'") != NULL);
+    ds = parse(&a, "// OPT_EQ: -O0 -O0\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "duplicate OPT_EQ level '-O0'") != NULL);
+    ds = parse(&a, "// OPT_EQ: -O0  -O1\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// OPT_EQ: -O0 -O1\n// OPT_EQ: -O2 -O3\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "duplicate OPT_EQ directive") != NULL);
     arena_free_all(&a);
 }
 
