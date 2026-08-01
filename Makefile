@@ -248,6 +248,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-frontend-smoke
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-ir-smoke
 	sh scripts/check_fuzz_crashes.sh
+	sh scripts/check_posix_sh.sh
 	sh scripts/check_bans.sh
 	sh scripts/check_pp_seams.sh
 	sh scripts/check_sema_target.sh
