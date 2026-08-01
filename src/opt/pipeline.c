@@ -12,6 +12,9 @@ typedef struct {
  * cannot drift and a new O2/O3 pass needs no orchestration plumbing. */
 static const PipelineEntry pipeline[] = {
     {&OPT_PASS_MEM2REG, STAGE_O1},
+    {&OPT_PASS_SCCP, STAGE_O1},
+    {&OPT_PASS_SIMPLIFY, STAGE_O1},
+    {&OPT_PASS_CSE, STAGE_O1},
 };
 
 static bool level_stage(OptLevel level, PipelineStage *out)

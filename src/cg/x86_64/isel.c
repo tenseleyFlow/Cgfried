@@ -728,6 +728,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->b.fixed = X64_RCX + 1;
         }
         is->vals[in->result.v].vr = d;
+        /* Sprint 31 canonicalizes multiply-by-{2,4,8} to a shift.  Keep
+         * the address-folding promise by recording the equivalent scaled
+         * index shape here as well as in the IMUL case above. */
+        if (in->op == IR_SHL && in->ops[1].kind == IROP_ICONST &&
+            in->ops[1].a >= 1 && in->ops[1].a <= 3) {
+            is->vals[in->result.v].pat = 1;
+            is->vals[in->result.v].pat_base = a0;
+            is->vals[in->result.v].pat_scale = (u8)(1u << in->ops[1].a);
+        }
         break;
     }
     case IR_SDIV:

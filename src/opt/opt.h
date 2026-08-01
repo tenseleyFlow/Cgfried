@@ -64,6 +64,16 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg);
 extern const Pass OPT_PASS_MEM2REG;
 bool opt_mem2reg(IrModule *m, const OptConfig *cfg);
 
+/* Sprint 31 local workhorses. Folding is shared by SCCP and simplify so
+ * target arithmetic and undef handling cannot drift between passes. */
+extern const Pass OPT_PASS_SCCP;
+extern const Pass OPT_PASS_SIMPLIFY;
+extern const Pass OPT_PASS_CSE;
+bool opt_fold_inst(const IrInst *in, IrOperand *out, const OptConfig *cfg);
+bool opt_sccp(IrModule *m, const OptConfig *cfg);
+bool opt_simplify(IrModule *m, const OptConfig *cfg);
+bool opt_cse(IrModule *m, const OptConfig *cfg);
+
 /* An IR location is represented by its resolved Span rather than the PP
  * table-local SrcLoc id. This keeps the record queryable after PP teardown. */
 typedef struct UndefUse {
