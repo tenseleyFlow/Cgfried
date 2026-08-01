@@ -1,0 +1,21 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// Four adjacent field stores cover the full memset range.
+// IR_CHECK-NOT: memset
+// IR_CHECK: store i32 1
+// IR_CHECK: store i32 2
+// IR_CHECK: store i32 3
+// IR_CHECK: store i32 4
+func ptr @f() {
+entry():
+    %p = alloca 16, align 8
+    memset %p, 0, 16, align 1
+    store i32 1, %p, align 4, etype i32
+    %p4 = ptradd %p, 4
+    store i32 2, %p4, align 4, etype i32
+    %p8 = ptradd %p, 8
+    store i32 3, %p8, align 4, etype i32
+    %p12 = ptradd %p, 12
+    store i32 4, %p12, align 4, etype i32
+    ret ptr %p
+}

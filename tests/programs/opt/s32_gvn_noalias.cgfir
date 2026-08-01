@@ -1,0 +1,15 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// Distinct restrict parameters make the intervening store NoAlias.
+// IR_CHECK: %2 = load i32, %0, align 4, etype i32
+// IR_CHECK: store i32 9, %1, align 4, etype i32
+// IR_CHECK-NOT: %3 = load i32
+// IR_CHECK: iadd i32 %2, %2
+func i32 @f(ptr restrict %p, ptr restrict %q) {
+entry():
+    %a = load i32, %p, align 4, etype i32
+    store i32 9, %q, align 4, etype i32
+    %b = load i32, %p, align 4, etype i32
+    %r = iadd i32 %a, %b
+    ret i32 %r
+}

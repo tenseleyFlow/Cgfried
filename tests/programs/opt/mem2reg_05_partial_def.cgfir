@@ -2,7 +2,7 @@
 // IR_CHECK-NOT: alloca
 // IR_CHECK-NOT: load
 // IR_CHECK-NOT: store
-// IR_CHECK: join(i32
+// IR_CHECK: = select %0, i32 9, undef
 // One incoming edge supplies undef; the other supplies 9.
 func i32 @f(i32 %c) {
 entry():

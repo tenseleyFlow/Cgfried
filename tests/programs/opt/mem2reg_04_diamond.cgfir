@@ -2,7 +2,7 @@
 // IR_CHECK-NOT: alloca
 // IR_CHECK-NOT: load
 // IR_CHECK-NOT: store
-// IR_CHECK: join(i32
+// IR_CHECK: = select %0, i32 11, 22
 func i32 @f(i32 %c) {
 entry():
     %p = alloca 4, align 4
