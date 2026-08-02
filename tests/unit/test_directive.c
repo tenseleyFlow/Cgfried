@@ -349,3 +349,23 @@ void test_directive_warn_assertions(TestCtx *t)
     T_ASSERT(t, strstr(ds.errs[0].msg, "duplicate WARN_COUNT") != NULL);
     arena_free_all(&a);
 }
+
+void test_directive_gcc8_divergence_metadata(TestCtx *t)
+{
+    Arena a;
+    DirectiveSet ds;
+
+    arena_init(&a);
+    ds = parse(&a, "// DIVERGES(gcc-8): GCC omits the warning group\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.ndirs, 1);
+    T_ASSERT(t, ds.dirs[0].kind == DIR_DIVERGES_GCC8);
+    T_ASSERT_EQ_STR(t, ds.dirs[0].selector, "gcc-8");
+    T_ASSERT_EQ_STR(t, ds.dirs[0].value, "GCC omits the warning group");
+
+    ds = parse(&a, "// DIVERGES(clang-7): wrong oracle\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// DIVERGES: missing selector\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    arena_free_all(&a);
+}

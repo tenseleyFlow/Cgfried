@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "sema/sema.h"
+#include "warn/warn.h"
 
 /* Scopes and the four namespaces (6.2.3).
  *
@@ -44,8 +45,47 @@ Scope *scope_push(Sema *s, ScopeKind k)
 
 void scope_pop(Sema *s)
 {
+    Scope *sc;
+
     if (!s->scope)
         CGF_ICE("scope_pop: scope stack underflow");
+    sc = s->scope;
+    if (sc->kind != SCOPE_FILE && sc->kind != SCOPE_PROTO) {
+        Symbol *sym;
+        u32 n = 0, i;
+
+        for (sym = sc->ordinary; sym; sym = sym->next)
+            n++;
+        if (n) {
+            Symbol **ordered =
+                arena_alloc(s->arena, n * sizeof(*ordered), _Alignof(Symbol *));
+
+            for (sym = sc->ordinary, i = n; sym; sym = sym->next)
+                ordered[--i] = sym;
+            for (i = 0; i < n; i++) {
+                WarnId id;
+                const char *what;
+
+                sym = ordered[i];
+                if (sym->kind != SYM_VAR || sym->linkage != LINK_NONE ||
+                    sym->reads)
+                    continue;
+                if (sym->is_param) {
+                    id = sym->writes ? WARN_UNUSED_BUT_SET_PARAMETER
+                                     : WARN_UNUSED_PARAMETER;
+                    what = sym->writes ? "parameter '%s' set but not used"
+                                       : "unused parameter '%s'";
+                } else {
+                    id = sym->writes ? WARN_UNUSED_BUT_SET_VARIABLE
+                                     : WARN_UNUSED_VARIABLE;
+                    what = sym->writes ? "variable '%s' set but not used"
+                                       : "unused variable '%s'";
+                }
+                warn_at_ex(s->lang->warnings, id, sym->span,
+                           WARN_SUPPRESS_IN_MACRO, what, sym->name);
+            }
+        }
+    }
     s->scope = s->scope->parent;
 }
 
@@ -95,9 +135,22 @@ Symbol *sym_new(Sema *s, const char *name, SymKind kind, Namespace ns,
 Symbol *scope_declare(Sema *s, Symbol *sym)
 {
     Scope *sc = s->scope;
+    Symbol *outer = NULL;
 
     if (!sc)
         CGF_ICE("scope_declare: no scope");
+    if (sc->kind != SCOPE_FILE && sc->kind != SCOPE_PROTO &&
+        (sym->kind == SYM_VAR || sym->kind == SYM_FUNC))
+        outer = scope_lookup(sc->parent, sym->name, sym->ns);
+    if (outer && (outer->kind == SYM_VAR || outer->kind == SYM_FUNC) &&
+        !(sym->span.origin & SPAN_ORIGIN_ANY_MACRO) &&
+        warn_enabled(s->lang->warnings, WARN_SHADOW, sym->span)) {
+        warn_at_ex(
+            s->lang->warnings, WARN_SHADOW, sym->span, WARN_SUPPRESS_IN_MACRO,
+            "declaration of '%s' shadows a previous declaration", sym->name);
+        diag_emit(s->dc, DIAG_NOTE, outer->span,
+                  "shadowed declaration is here");
+    }
     if (sym->ns == NS_TAG) {
         sym->next = sc->tags;
         sc->tags = sym;

@@ -32,6 +32,15 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test-san
 
+  # Sprint 38's compatibility gate uses the actual GCC 8 diagnostic oracle.
+  # Local runs may skip when gcc-8 is unavailable; CI may not.
+  warn-diff-gcc8:
+    runs-on: ubuntu-latest
+    container: gcc:8
+    steps:
+      - uses: actions/checkout@v5
+      - run: make BUILD=build-gcc8-diff test-warndiff
+
   # 100k fixed-seed iterations under ASan+UBSan. Fixed seed, not random:
   # a red CI run must be reproducible from the log alone, and a nightly
   # job (Sprint 37 adds it) is the right place for wider seeds.

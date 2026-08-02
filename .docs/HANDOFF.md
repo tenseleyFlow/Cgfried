@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–37
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–38
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–37 complete; Phases 1–7 closed.** Phase 8 (warnings) is
+- **Sprints 0–38 complete; Phases 1–7 closed.** Phase 8 (warnings) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -63,16 +63,27 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   migrated onto the same policy engine. Warning-option classification and
   pragma-name validation are centralized in `src/warn/warn.c` and protected by
   `scripts/check_warn_seams.sh`; the manual is `docs/warnings.md`.
-- **Next action: Sprint 38** —
-  `.docs/sprints/08-warnings/s38-frontend-warnings.md`, adding frontend
-  checkers over the completed warning infrastructure.
+- Sprint 38 implements the AST/sema warning set: unused/shadow/conversion,
+  prototype/K&R/VLA, switch/return, expression-shape, range and indentation
+  diagnostics. PP comment metadata drives the exact GCC 8 fallthrough levels;
+  conversion proofs reuse target widths and `softfp`. The suite has 166
+  frontend fixtures and 197 warning fixtures overall. A real GCC 8 container
+  lane reports 179 exact matches, 18 documented divergences and zero
+  unannotated differences. The strict same-mode musl pass compiles 706/1,361
+  sources, explicitly defers 655, finds 181 oracle-backed warnings and zero
+  false positives.
+- **Next action: Sprint 39** —
+  `.docs/sprints/08-warnings/s39-format-checking.md`, adding format and
+  security-oriented warning checks over the shared policy engine.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 470 tests, 94238 assertions, 0 failures
+unit: 480 tests, 94590 assertions, 0 failures
 cgf-test: total=496 pass=496 fail=0 xfail=0 xpass=0 skip=0 config=0
-warning pragmas: 31/31; warning differential: 21/21 with a GCC oracle
+warning pragmas: 31/31; warning fixtures: 197/197
+GCC 8 warning differential: 179 exact + 18 annotated, 0 unannotated
+musl warning dry-run: 706 parsed, 655 deferred, 181 genuine, 0 false positives
 warning matrix: 222/222 raw GCC 8 C rows accounted for
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 215 agree, 5 known-deferred, 0 new, 0 xpass
@@ -84,17 +95,22 @@ debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 181 predefines match gcc; __GNUC__ absent
 ```
 
-Local Sprint 37 validation note (2026-08-01): fresh full suites are green with
-GCC 16.1.1 and Clang 22.1.8. GCC 8 itself is unavailable, so the exact expected
-skip remains the default warning-differential result; a configured host-GCC
-substitute matched all 21 exit/count cases. The complete ASan+UBSan suite is
-green. LeakSanitizer itself cannot initialize under this environment's ptrace
-policy, so the sanitizer proof used `ASAN_OPTIONS=detect_leaks=0`; no ASan or
-UBSan diagnostic occurred. Valgrind 3.25.1 cannot start on this machine because
-the stripped `ld-linux-x86-64.so.2` lacks the mandatory `memcmp` redirection
-symbol and no matching glibc debuginfo is installed; it exits before loading
-the test binary. Do not misreport that environment failure as a completed
-Valgrind run.
+Local Sprint 38 validation note (2026-08-01): fresh GCC and Clang full suites
+pass with 480 unit tests / 94,590 assertions and 496/496 program fixtures. The
+complete ASan+UBSan suite passes with leak detection disabled for the host
+ptrace policy. The real GCC 8 container reports 179 exact + 18 documented / 0
+unannotated warning differences; the musl lane reports 706 parsed, 655
+deferred, 181 oracle-backed warnings and zero false positives. Frontend fuzzing
+reproduces digest `428755e13c99b029` with zero findings. Valgrind 3.25.1 still
+cannot start on this machine because the stripped `ld-linux-x86-64.so.2` lacks
+the mandatory `memcmp` redirection symbol and no matching glibc debuginfo is
+installed; it exits before loading the test binary. Do not misreport that
+environment failure as a completed Valgrind run.
+
+The closing review also pinned nested brace-elision with a persistent
+current-object cursor, rejects an unbraced scalar initializer for an aggregate,
+and makes oversized initializer-image integer writes fail before any invalid
+shift. The independent re-review found no remaining blockers.
 
 ---
 
@@ -351,6 +367,19 @@ because each one was learned the hard way.
   `.byte` emission, `ar rcsD`. Do not "simplify" them away.
 - **`__GNUC__` stays undefined until Sprint 55** — glibc headers
   neutralize `__attribute__` themselves because of it. Load-bearing.
+- **Warning checkers consume existing semantic truth.** Conversion checkers
+  inspect materialized implicit casts and target widths; float proofs use
+  `softfp`. Statement/switch/fallthrough checks run only after ordinary sema.
+  Do not re-derive conversions or introduce checker-local option state.
+- **Unused bookkeeping follows the root object, not just the leaf lvalue.**
+  `s.member` and true array-decay subscripts write the declared aggregate or
+  array; `p[i]` reads the pointer and writes an untracked pointed-to object.
+  Preserve this distinction when adding new lvalue forms.
+- **Warning oracles run in the same compile mode.** GCC 8 emits some warnings
+  only during `-S`, so those fixtures say `-S`; the harness never silently
+  broadens only the oracle. Strict-C89 oracle copies blank runner metadata
+  line-preservingly. The musl oracle must exit successfully before any of its
+  warnings can certify a CGF result.
 - **No silent stubs.** A placeholder that returns a plausible value is
   worse than one that aborts. Every deferral names its sprint in the
   diagnostic; `src/rt/fp128.c` aborts rather than computing wrong math.
@@ -404,6 +433,8 @@ Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `debug_info_lane`, `e2e_gcc_diff`, `ctestsuite_diff`, `layout_diff`, `fp_diff`,
 `init_diff`, `inline_diff`, `lex_diff`, `parse_diff`, `spill_all_lane`,
 `opt_driver`, `s33_ipo_driver`, `s34_loop_driver`.
+Sprint 38 adds `warn_diff` (real GCC 8 in CI) and `musl_warn_dryrun`; both use
+the same compile mode on both sides, and the latter rejects oracle failures.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -468,6 +499,8 @@ sh scripts/opt_driver.sh build/cgfried
 sh scripts/s35_loop_driver.sh build/cgfried build/cgf-test
 sh scripts/s36_vector_driver.sh build/cgfried build/cgf-test
 sh scripts/s36_isa_driver.sh build/cgfried
+CGF_DIFF_GCC8=gcc-8 sh scripts/warn_diff.sh build/cgfried
+sh scripts/musl_warn_dryrun.sh build/cgfried
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
 # CI:

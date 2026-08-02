@@ -1,0 +1,4 @@
+# The same overflowing INFINITY macro expansion is diagnosed by both
+# compilers.  GCC attributes it to the immediate asuint64 macro definition at
+# src/internal/libm.h:192; CGF retains the inner spelling location here.
+include/math.h:19 overflow

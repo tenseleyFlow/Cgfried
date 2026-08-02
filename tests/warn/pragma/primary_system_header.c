@@ -1,4 +1,5 @@
 // FLAGS: -fsyntax-only -Wall
+// DIVERGES(gcc-8): CGF diagnoses primary-file system_header and its following pragma.
 // WARN_COUNT: 2
 // WARN_CHECK: pragmas #pragma GCC system_header ignored outside include file
 #pragma GCC system_header

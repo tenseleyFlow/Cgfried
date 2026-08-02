@@ -515,8 +515,10 @@ void test_layout_incomplete_and_errors(TestCtx *t)
     T_ASSERT(t, f.errors >= 1);
     lay_free(&f);
 
+    /* GNU gives void a size of one.  Sprint 38 accepts that extension and
+     * diagnoses it only when -Wpointer-arith/-pedantic requests a warning. */
     (void)run_lay(&f, "int n = sizeof(void);\n", CGF_TARGET_X86_64_LINUX_GNU);
-    T_ASSERT(t, f.errors >= 1);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
     lay_free(&f);
 
     /* A bitfield wider than its declared type is a constraint violation;

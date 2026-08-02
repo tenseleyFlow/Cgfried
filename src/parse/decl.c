@@ -221,6 +221,7 @@ typedef struct {
     AstType *alignas_type;
     bool has_alignas;
     bool saw_any;
+    bool saw_non_storage;
     bool bad;
 } SpecSoup;
 
@@ -339,6 +340,11 @@ static void add_storage(Parser *p, SpecSoup *s, u32 bit, const Token *at,
 {
     u32 already = s->storage & ~(u32)AST_SC_THREAD_LOCAL;
 
+    if (s->saw_non_storage)
+        warn_at_ex(p->lang->warnings, WARN_OLD_STYLE_DECLARATION, at->span,
+                   WARN_SUPPRESS_IN_MACRO,
+                   "'%s' is not at beginning of declaration", name);
+
     /* At most one storage class, EXCEPT _Thread_local, which may pair
      * with static or extern (6.7.1p2). */
     if (bit == AST_SC_THREAD_LOCAL) {
@@ -376,9 +382,13 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                                 t->spelling);
                 s->quals |= q;
                 s->saw_any = true;
+                s->saw_non_storage = true;
                 p->pos++;
                 continue;
             }
+            if (kw != KW_TYPEDEF && kw != KW_EXTERN && kw != KW_STATIC &&
+                kw != KW_AUTO && kw != KW_REGISTER && kw != KW_THREAD_LOCAL)
+                s->saw_non_storage = true;
             switch (kw) {
             case KW_TYPEDEF:
                 add_storage(p, s, AST_SC_TYPEDEF, t, "typedef");
@@ -1457,6 +1467,33 @@ static void take_unknown_type(Parser *p, SpecSoup *s)
     p->pos++;
 }
 
+static bool looks_like_implicit_int_decl(Parser *p)
+{
+    const Token *t = parse_peek(p);
+    const Token *n = parse_peek_n(p, 1);
+
+    if (t->kind == TOK_PUNCT &&
+        (t->punct == PUNCT_STAR || t->punct == PUNCT_LPAREN))
+        return true;
+    if (t->kind != TOK_IDENT || n->kind != TOK_PUNCT)
+        return false;
+    return n->punct == PUNCT_LPAREN || n->punct == PUNCT_LBRACKET ||
+           n->punct == PUNCT_ASSIGN || n->punct == PUNCT_COMMA ||
+           n->punct == PUNCT_SEMI;
+}
+
+static void warn_implicit_int(Parser *p, Span sp, const char *name)
+{
+    if (std_is_c99_or_later(p->lang->std))
+        warn_pedwarn_at(p->lang->warnings, WARN_IMPLICIT_INT, sp,
+                        "type defaults to 'int' in declaration of '%s'",
+                        name ? name : "<anonymous>");
+    else if (warn_explicitly_enabled(p->lang->warnings, WARN_IMPLICIT_INT, sp))
+        warn_at(p->lang->warnings, WARN_IMPLICIT_INT, sp,
+                "type defaults to 'int' in declaration of '%s'",
+                name ? name : "<anonymous>");
+}
+
 AstNode *parse_declaration(Parser *p, bool allow_func_def)
 {
     SpecSoup s;
@@ -1464,6 +1501,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
     AstBaseType base_kind;
     AstNode *first = NULL;
     NodeVec siblings = {NULL, 0, 0};
+    bool implicit_int = false;
 
     if (parse_at_kw(p, KW_STATIC_ASSERT))
         return parse_static_assert(p);
@@ -1471,7 +1509,9 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         return ast_new(p->arena, AST_EMPTY_DECL, start->span);
 
     if (!parse_decl_specs(p, &s)) {
-        if (parse_at_unknown_type(p)) {
+        if (looks_like_implicit_int_decl(p)) {
+            memset(&s, 0, sizeof(s));
+        } else if (parse_at_unknown_type(p)) {
             memset(&s, 0, sizeof(s));
             take_unknown_type(p, &s);
         } else {
@@ -1486,10 +1526,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
     }
     base_kind = soup_resolve(p, &s, start);
     if (base_kind == ABT_NONE) {
-        /* Implicit int: gcc 8 warns by default in c99+ (error only under
-         * -pedantic-errors), so we warn and continue. */
-        warn_at(p->lang->warnings, WARN_IMPLICIT_INT, start->span,
-                "type defaults to 'int' in declaration");
+        implicit_int = true;
         base_kind = ABT_INT;
     }
 
@@ -1526,6 +1563,8 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->alignas_expr = s.alignas_expr;
         n->alignas_type = s.alignas_type;
         n->type = parse_declarator(p, bt, &n->name, false);
+        if (implicit_int)
+            warn_implicit_int(p, n->span, n->name);
 
         /* DECLARATION POINT (6.2.1p7): the name enters scope as soon as
          * ITS declarator completes — before any initializer, and before

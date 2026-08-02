@@ -16,6 +16,7 @@ static const DirectiveName directive_table[] = {
     {"WARNING_EXPECTED", DIR_WARNING_EXPECTED},
     {"WARN_CHECK", DIR_WARN_CHECK},
     {"WARN_COUNT", DIR_WARN_COUNT},
+    {"DIVERGES", DIR_DIVERGES_GCC8},
     {"XFAIL", DIR_XFAIL},
     {"SKIP", DIR_SKIP},
     {"TIMEOUT", DIR_TIMEOUT},
@@ -283,6 +284,20 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
                 }
                 d.selector = sel;
             }
+        } else if (hit->kind == DIR_DIVERGES_GCC8) {
+            char *sel;
+
+            if (sel_len == 0) {
+                err(p, line_no, "DIVERGES requires the gcc-8 selector");
+                return;
+            }
+            sel = arena_strndup(p->arena, line + sel_start, sel_len);
+            if (strcmp(sel, "gcc-8") != 0) {
+                errf(p, line_no, "unknown differential oracle ", sel,
+                     strlen(sel));
+                return;
+            }
+            d.selector = sel;
         } else if (sel_len != 0 && hit->kind == DIR_ASM_CHECK) {
             /* Sprint 25: ASM_CHECK takes a target selector (asm text is
              * inherently per-target); the other CHECKs stay Sprint 49. */
@@ -309,6 +324,7 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
         case DIR_IR_CHECK_NOT: /* Sprint 18: the text must NOT appear */
         case DIR_ERROR_EXPECTED:
         case DIR_WARNING_EXPECTED:
+        case DIR_DIVERGES_GCC8:
             if (value_len == 0) {
                 err(p, line_no, "empty directive value");
                 return;
@@ -548,8 +564,9 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             hit->kind == DIR_MIR_CHECK || hit->kind == DIR_ASM_CHECK ||
             hit->kind == DIR_IR_CHECK_NOT || hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
-            hit->kind == DIR_WARN_CHECK || hit->kind == DIR_SKIP ||
-            hit->kind == DIR_ENV || hit->kind == DIR_OFAST_DIVERGENCE_OK)
+            hit->kind == DIR_WARN_CHECK || hit->kind == DIR_DIVERGES_GCC8 ||
+            hit->kind == DIR_SKIP || hit->kind == DIR_ENV ||
+            hit->kind == DIR_OFAST_DIVERGENCE_OK)
             add_dir(p, d);
     }
 }
