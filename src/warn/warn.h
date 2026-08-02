@@ -55,7 +55,8 @@ typedef enum WarnOptionDisposition {
     WARN_OPTION_UNKNOWN_POSITIVE,
     WARN_OPTION_UNKNOWN_NEGATIVE,
     WARN_OPTION_UNKNOWN_PROMOTION,
-    WARN_OPTION_BAD_FORMAT_LEVEL
+    WARN_OPTION_BAD_FORMAT_LEVEL,
+    WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL
 } WarnOptionDisposition;
 
 typedef struct WarnCtx WarnCtx;
@@ -78,6 +79,8 @@ void warn_print_help(FILE *out);
 /* Accepts command-line spelling with or without the leading '-W'. */
 bool warn_flag(WarnCtx *w, const char *arg);
 bool warn_enabled(const WarnCtx *w, WarnId id, Span sp);
+bool warn_explicitly_enabled(const WarnCtx *w, WarnId id, Span sp);
+unsigned warn_implicit_fallthrough_level(const WarnCtx *w);
 
 void warn_at(WarnCtx *w, WarnId id, Span sp, const char *fmt, ...);
 /* Emits one occurrence as a pedwarn even when its registry row is also used

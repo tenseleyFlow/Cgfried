@@ -18,6 +18,7 @@
 #include "parse/parse.h"
 #include "pp/pp.h"
 #include "sema/sema.h"
+#include "sema/warn_stmt.h"
 #include "target.h"
 #include "util/arena.h"
 #include "util/intern.h"
@@ -915,6 +916,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                  * locked the flip, documented in --help). */
                 sema.fcommon = !a->fno_common;
                 sema_run(&sema, tu);
+                sema_warn_translation_unit(&sema, tu, &pp);
                 if (a->dump_layout)
                     layout_dump(&sema, stdout);
                 if (a->dump_init)

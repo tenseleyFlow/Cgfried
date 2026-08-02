@@ -855,8 +855,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             v.type = to;
             if (o.kind == CV_INT) {
                 bool neg = conv_is_signed(s, o.type) && (i64)o.i < 0;
+                u64 magnitude = neg ? 0 - o.i : o.i;
 
-                v.f = sf_from_int(neg ? (u64)(0 - (i64)o.i) : o.i, neg, f, &st);
+                v.f = sf_from_int(magnitude, neg, f, &st);
             } else {
                 v.f = sf_convert(o.f, constexpr_format_of(s, o.type), f, &st);
             }
@@ -876,7 +877,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         Type *t = e->type ? sema_type_from_ast(s, e->type, e->span)
                           : (e->lhs ? e->lhs->sem_type : NULL);
 
-        if (!t || !layout_is_complete_for_size(t)) {
+        if (!t || (!layout_is_complete_for_size(t) &&
+                   !(e->kind == AST_EXPR_SIZEOF &&
+                     (t->kind == TY_VOID || t->kind == TY_FUNC)))) {
             ce_error(s, m, e->span,
                      "invalid application of '%s' to an incomplete type",
                      e->kind == AST_EXPR_SIZEOF ? "sizeof" : "_Alignof");
@@ -968,6 +971,10 @@ static void img_put_int(InitCtx *c, u64 off, u64 value, u64 width)
 {
     u64 i;
 
+    if (width > sizeof(value)) {
+        c->ok = false;
+        return;
+    }
     /* Little-endian: all five targets are. */
     for (i = 0; i < width && off + i < c->img->size; i++)
         c->img->bytes[off + i] = (u8)(value >> (i * 8));
@@ -998,21 +1005,58 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
 {
     Sema *s = c->s;
     ConstValue v;
-    TypeLayout l = layout_of(s, t);
+    TypeLayout l;
 
     if (!init)
         return; /* already zeroed */
+    if (!t || (!type_is_arithmetic(t) && t->kind != TY_PTR)) {
+        c->ok = false;
+        return;
+    }
+    l = layout_of(s, t);
     v = constexpr_eval(s, init, t->kind == TY_PTR ? CE_ADDR : CE_ARITH);
     switch (v.kind) {
     case CV_INT:
+        if (type_is_arithmetic(t) && !type_is_integer(t)) {
+            uint8_t b[16];
+            SfStatus st;
+            SfFormat f = constexpr_format_of(s, t);
+            bool neg = conv_is_signed(s, v.type) && (i64)v.i < 0;
+            u64 magnitude = neg ? 0 - v.i : v.i;
+            Sf converted;
+            u64 i;
+
+            memset(&st, 0, sizeof(st));
+            converted = sf_from_int(magnitude, neg, f, &st);
+            sf_to_bits(converted, f, b);
+            for (i = 0; i < l.size && off + i < c->img->size; i++)
+                c->img->bytes[off + i] = b[i];
+            return;
+        }
         img_put_int(c, off, v.i, l.size);
         return;
     case CV_FLOAT: {
         uint8_t b[16];
-        SfFormat f = constexpr_format_of(s, t);
+        SfStatus st;
+        SfFormat f;
+        Sf converted;
         u64 i;
 
-        sf_to_bits(v.f, f, b);
+        memset(&st, 0, sizeof(st));
+        if (type_is_integer(t)) {
+            u64 iv = sf_to_int(v.f, (int)conv_int_bits(s, t),
+                               !conv_is_signed(s, t), &st);
+
+            if (st.invalid) {
+                c->ok = false;
+                return;
+            }
+            img_put_int(c, off, iv, l.size);
+            return;
+        }
+        f = constexpr_format_of(s, t);
+        converted = sf_convert(v.f, constexpr_format_of(s, v.type), f, &st);
+        sf_to_bits(converted, f, b);
         for (i = 0; i < l.size && off + i < c->img->size; i++)
             c->img->bytes[off + i] = b[i];
         return;
@@ -1053,118 +1097,277 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
      * terminator when there is room for one. */
 }
 
-static void fill_array(InitCtx *c, Type *t, AstNode *init, u64 off)
+#define FILL_CURSOR_MAX 256u
+
+typedef struct {
+    Type *aggregate;
+    u64 off;
+    u64 pos;
+} FillCursorFrame;
+
+typedef struct {
+    FillCursorFrame frames[FILL_CURSOR_MAX];
+    u32 depth;
+    Type *current;
+    u64 off;
+    Member *member;
+} FillCursor;
+
+static bool fill_is_aggregate(const Type *t)
 {
-    TypeLayout el;
-    u64 idx = 0;
+    return t &&
+           (t->kind == TY_ARRAY || t->kind == TY_STRUCT || t->kind == TY_UNION);
+}
+
+static bool fill_cursor_select(InitCtx *c, FillCursor *cursor)
+{
+    FillCursorFrame *f;
+    Member *m;
+    u64 at = 0;
+
+    cursor->current = NULL;
+    cursor->member = NULL;
+    if (cursor->depth == 0)
+        return false;
+    f = &cursor->frames[cursor->depth - 1];
+    if (f->aggregate->kind == TY_ARRAY) {
+        TypeLayout el;
+
+        if (!f->aggregate->base ||
+            (f->aggregate->has_size && f->pos >= f->aggregate->size))
+            return false;
+        el = layout_of(c->s, f->aggregate->base);
+        cursor->current = f->aggregate->base;
+        cursor->off = f->off + f->pos * el.size;
+        return true;
+    }
+    if ((f->aggregate->kind != TY_STRUCT && f->aggregate->kind != TY_UNION) ||
+        !f->aggregate->tag)
+        return false;
+    layout_record(c->s, f->aggregate);
+    for (m = f->aggregate->tag->members; m; m = m->next) {
+        if (m->is_bitfield && !m->name)
+            continue;
+        if (at++ != f->pos)
+            continue;
+        cursor->current = m->type;
+        cursor->member = m;
+        cursor->off = m->is_bitfield ? f->off : f->off + m->offset;
+        return true;
+    }
+    return false;
+}
+
+static void fill_cursor_start(InitCtx *c, FillCursor *cursor, Type *root,
+                              u64 off)
+{
+    memset(cursor, 0, sizeof(*cursor));
+    cursor->frames[0].aggregate = root;
+    cursor->frames[0].off = off;
+    cursor->depth = 1;
+    (void)fill_cursor_select(c, cursor);
+}
+
+static bool fill_cursor_descend(InitCtx *c, FillCursor *cursor)
+{
+    Type *aggregate = cursor->current;
+    u64 off = cursor->off;
+
+    if (!fill_is_aggregate(aggregate) || cursor->depth >= FILL_CURSOR_MAX)
+        return false;
+    cursor->frames[cursor->depth].aggregate = aggregate;
+    cursor->frames[cursor->depth].off = off;
+    cursor->frames[cursor->depth].pos = 0;
+    cursor->depth++;
+    return fill_cursor_select(c, cursor);
+}
+
+static void fill_cursor_advance(InitCtx *c, FillCursor *cursor)
+{
+    while (cursor->depth) {
+        FillCursorFrame *f = &cursor->frames[cursor->depth - 1];
+
+        if (f->aggregate->kind != TY_UNION) {
+            f->pos++;
+            if (fill_cursor_select(c, cursor))
+                return;
+        }
+        cursor->depth--;
+    }
+    cursor->current = NULL;
+    cursor->member = NULL;
+}
+
+static bool fill_member_position(Type *aggregate, const char *name, u64 *out)
+{
+    Member *m;
+    u64 at = 0;
+
+    if (!aggregate || !aggregate->tag || !name)
+        return false;
+    for (m = aggregate->tag->members; m; m = m->next) {
+        if (m->is_bitfield && !m->name)
+            continue;
+        if (m->name == name) {
+            *out = at;
+            return true;
+        }
+        at++;
+    }
+    return false;
+}
+
+static bool fill_cursor_designate(InitCtx *c, FillCursor *cursor, Type *root,
+                                  u64 off, const AstNode *item)
+{
+    u32 i;
+
+    fill_cursor_start(c, cursor, root, off);
+    for (i = 0; item && i < item->ndesignators; i++) {
+        const AstNode *desig = item->designators[i];
+        FillCursorFrame *f;
+        u64 pos;
+
+        if (!desig || cursor->depth == 0)
+            return false;
+        f = &cursor->frames[cursor->depth - 1];
+        if (desig->desig_is_field) {
+            if ((f->aggregate->kind != TY_STRUCT &&
+                 f->aggregate->kind != TY_UNION) ||
+                !fill_member_position(f->aggregate, desig->desig_field, &pos))
+                return false;
+        } else {
+            i64 idx;
+
+            if (f->aggregate->kind != TY_ARRAY || !desig->desig_index ||
+                !sema_require_ice(c->s, desig->desig_index, &idx,
+                                  "an array designator") ||
+                idx < 0)
+                return false;
+            pos = (u64)idx;
+        }
+        f->pos = pos;
+        if (!fill_cursor_select(c, cursor))
+            return false;
+        if (i + 1 < item->ndesignators) {
+            if (!fill_is_aggregate(cursor->current) ||
+                cursor->depth >= FILL_CURSOR_MAX)
+                return false;
+            cursor->frames[cursor->depth].aggregate = cursor->current;
+            cursor->frames[cursor->depth].off = cursor->off;
+            cursor->frames[cursor->depth].pos = 0;
+            cursor->depth++;
+        }
+    }
+    return true;
+}
+
+static bool fill_expr_initializes_whole(Type *target, const AstNode *init)
+{
+    if (!target || !init)
+        return false;
+    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
+        return true;
+    return init->sem_type && type_compatible(target, init->sem_type);
+}
+
+static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
+{
+    Member *m = cursor->member;
+    i64 value;
+    u32 b;
+
+    if (!m || !m->is_bitfield ||
+        !sema_require_ice(c->s, item, &value, "a bit-field initializer"))
+        return;
+    for (b = 0; b < m->bit_width; b++) {
+        u64 abs_bit = cursor->off * 8 + m->bit_offset + b;
+        u64 byte = abs_bit / 8;
+
+        if (byte >= c->img->size)
+            break;
+        if (((u64)value >> b) & 1)
+            c->img->bytes[byte] |= (u8)(1u << (abs_bit % 8));
+    }
+}
+
+static void fill_cursor_value(InitCtx *c, const FillCursor *cursor,
+                              AstNode *item)
+{
+    if (!cursor->current) {
+        c->ok = false;
+        return;
+    }
+    if (cursor->member && cursor->member->is_bitfield)
+        fill_bitfield(c, cursor, item);
+    else
+        fill(c, cursor->current, item, cursor->off);
+}
+
+static void fill_aggregate_list(InitCtx *c, Type *t, AstNode *init, u64 off)
+{
+    FillCursor cursor;
     u32 k;
 
+    fill_cursor_start(c, &cursor, t, off);
+    for (k = 0; k < init->nitems; k++) {
+        AstNode *item = init->items[k];
+
+        if (!item)
+            continue;
+        if (item->ndesignators &&
+            !fill_cursor_designate(c, &cursor, t, off, item)) {
+            c->ok = false;
+            continue;
+        }
+        if (!cursor.current) {
+            c->ok = false;
+            continue;
+        }
+        if (item->kind == AST_INIT_LIST) {
+            fill_cursor_value(c, &cursor, item);
+            fill_cursor_advance(c, &cursor);
+            continue;
+        }
+        while (fill_is_aggregate(cursor.current) &&
+               !fill_expr_initializes_whole(cursor.current, item)) {
+            if (!fill_cursor_descend(c, &cursor)) {
+                c->ok = false;
+                break;
+            }
+        }
+        fill_cursor_value(c, &cursor, item);
+        fill_cursor_advance(c, &cursor);
+    }
+}
+
+static void fill_array(InitCtx *c, Type *t, AstNode *init, u64 off)
+{
     if (!t->base)
         return;
-    el = layout_of(c->s, t->base);
     if (init->kind == AST_EXPR_STRING) {
         fill_string(c, t, init, off);
         return;
     }
     if (init->kind != AST_INIT_LIST) {
-        fill(c, t->base, init, off);
+        c->ok = false;
         return;
     }
-    for (k = 0; k < init->nitems; k++) {
-        AstNode *item = init->items[k];
-        i64 di;
-
-        if (!item)
-            continue;
-        /* A designator MOVES the cursor; the next bare initializer
-         * continues from there + 1, which is what makes
-         * `int a[4] = {[1]=1, 2}` set a[2]. */
-        if (item->ndesignators > 0 && item->designators[0] &&
-            !item->designators[0]->desig_is_field &&
-            item->designators[0]->desig_index &&
-            sema_require_ice(c->s, item->designators[0]->desig_index, &di,
-                             "an array designator") &&
-            di >= 0)
-            idx = (u64)di;
-        if (!t->has_size || idx < t->size)
-            fill(c, t->base, item, off + idx * el.size);
-        idx++;
-    }
+    fill_aggregate_list(c, t, init, off);
 }
 
 static void fill_record(InitCtx *c, Type *t, AstNode *init, u64 off)
 {
-    Member *m;
-    u32 k;
-
     if (!t->tag)
         return;
     layout_record(c->s, t);
     if (init->kind != AST_INIT_LIST) {
         /* `struct S a = b;` copies a whole object, which is not a
          * constant unless b is — and b being an object makes it not one. */
-        fill_scalar(c, t, init, off);
+        c->ok = false;
         return;
     }
-    m = t->tag->members;
-    /* An UNNAMED bitfield is not initializable — it exists only to pad or
-     * to force alignment — so it must not consume an initializer slot.
-     * Letting it do so shifted every following member by one, silently
-     * dropping the last initializer. */
-    while (m && m->is_bitfield && !m->name)
-        m = m->next;
-    for (k = 0; k < init->nitems; k++) {
-        AstNode *item = init->items[k];
-
-        if (!item)
-            continue;
-        /* A field designator repositions to that member — INCLUDING when
-         * the running cursor already walked off the end: `{.z = a,
-         * .x = b}` re-aims at x after z exhausted the list. (The cursor
-         * used to gate the loop, silently dropping the re-aimed item;
-         * found by Sprint 19's init planner sharing this shape.) */
-        if (item->ndesignators > 0 && item->designators[0] &&
-            item->designators[0]->desig_is_field) {
-            Member *it;
-
-            for (it = t->tag->members; it; it = it->next)
-                if (it->name == item->designators[0]->desig_field) {
-                    m = it;
-                    break;
-                }
-        }
-        if (!m)
-            break; /* excess undesignated initializers: sema warned */
-        if (m->is_bitfield) {
-            i64 bv;
-
-            if (sema_require_ice(c->s, item, &bv, "a bit-field initializer")) {
-                /* Bitfields are packed at the BIT positions Sprint 14
-                 * computed, so the image never re-derives them. */
-                u64 bit = m->bit_offset;
-                u32 w = m->bit_width;
-                u32 b;
-
-                for (b = 0; b < w; b++) {
-                    u64 abs_bit = off * 8 + bit + b;
-                    u64 byte = abs_bit / 8;
-
-                    if (byte >= c->img->size)
-                        break;
-                    if ((bv >> b) & 1)
-                        c->img->bytes[byte] |= (u8)(1u << (abs_bit % 8));
-                }
-            }
-        } else {
-            fill(c, m->type, item, off + m->offset);
-        }
-        /* A UNION takes only its first (or designated) member. */
-        if (t->kind == TY_UNION)
-            break;
-        m = m->next;
-        while (m && m->is_bitfield && !m->name)
-            m = m->next;
-    }
+    fill_aggregate_list(c, t, init, off);
 }
 
 static void fill(InitCtx *c, Type *t, AstNode *init, u64 off)

@@ -183,6 +183,48 @@ void test_pp_lex_flags(TestCtx *t)
     fix_free(&f);
 }
 
+void test_pp_lex_comment_metadata(TestCtx *t)
+{
+    LexFix f;
+    PpToken a, b;
+    const PpComment *c;
+    Span sp;
+
+    fix_init(&f, "a /* same */ // fall\\\nthrough\n /* same */ b", false);
+    a = next(&f);
+    b = next(&f);
+    T_ASSERT_EQ_STR(t, a.spelling, "a");
+    T_ASSERT_EQ_STR(t, b.spelling, "b");
+    T_ASSERT_EQ_INT(t, f.pp.ncomments, 3);
+    T_ASSERT_EQ_STR(t, f.pp.comments[0].body, " same ");
+    T_ASSERT_EQ_STR(t, f.pp.comments[1].body, " fallthrough");
+    T_ASSERT_EQ_STR(t, f.pp.comments[2].body, " same ");
+    T_ASSERT(t, f.pp.comments[0].body == f.pp.comments[2].body);
+
+    sp = pp_span(&f.pp, b.loc, b.len);
+    c = pp_comment_before(&f.pp, sp);
+    T_ASSERT(t, c != NULL);
+    T_ASSERT_EQ_STR(t, c->body, " same ");
+    sp = pp_span(&f.pp, a.loc, a.len);
+    T_ASSERT(t, pp_comment_before(&f.pp, sp) == NULL);
+    fix_free(&f);
+
+    /* The end-of-directive probe may scan comments, but it must not create
+     * semantic records; the real scan records each physical comment once. */
+    fix_init(&f, "x /* probe */\ny", false);
+    a = next(&f);
+    T_ASSERT(t, pp_lex_at_line_end(&f.lx));
+    T_ASSERT_EQ_INT(t, f.pp.ncomments, 0);
+    b = next(&f);
+    T_ASSERT_EQ_STR(t, b.spelling, "y");
+    T_ASSERT_EQ_INT(t, f.pp.ncomments, 1);
+    T_ASSERT_EQ_STR(t, f.pp.comments[0].body, " probe ");
+    c = pp_comment_before(&f.pp, pp_span(&f.pp, b.loc, b.len));
+    T_ASSERT(t, c != NULL);
+    T_ASSERT_EQ_STR(t, c->body, " probe ");
+    fix_free(&f);
+}
+
 void test_pp_lex_literals(TestCtx *t)
 {
     LexFix f;

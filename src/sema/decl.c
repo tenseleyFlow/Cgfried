@@ -432,6 +432,8 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
     Symbol *sym_it;
     u32 i;
 
+    tag->enum_ast = (AstNode *)rec;
+
     for (i = 0; i < rec->nmembers; i++) {
         const AstNode *m = rec->members[i];
         Symbol *prev;
@@ -475,6 +477,7 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
         sym->enum_value = value;
         sym->defined = true;
         scope_declare(s, sym);
+        ((AstNode *)m)->sym = sym;
 
         if (!have_any) {
             lo = hi = value;
@@ -992,40 +995,297 @@ static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
     return true;
 }
 
-static void sema_init_expr_list(Sema *s, AstNode *list)
+static Member *init_find_member(Type *t, const char *name)
+{
+    Member *m;
+
+    if (!t || !t->tag || !name)
+        return NULL;
+    for (m = t->tag->members; m; m = m->next)
+        if (m->name == name)
+            return m;
+    return NULL;
+}
+
+/* Follow an initializer item's designator chain from the declared object.
+ * The parser preserves `[2].x[1]` as three nodes; every array designator
+ * selects the element type and every field designator selects that member.
+ * Bounds and existence diagnostics stay with the constant/current-object
+ * validation paths -- this helper answers only the type question needed to
+ * materialize the assignment conversion. */
+static Type *init_designated_type(Type *root, const AstNode *item)
+{
+    Type *t = root;
+    u32 i;
+
+    for (i = 0; item && i < item->ndesignators && t; i++) {
+        const AstNode *desig = item->designators[i];
+
+        if (!desig)
+            return NULL;
+        if (desig->desig_is_field) {
+            Member *m = init_find_member(t, desig->desig_field);
+
+            if (!m)
+                return NULL;
+            t = m->type;
+        } else {
+            if (t->kind != TY_ARRAY)
+                return NULL;
+            t = t->base;
+        }
+    }
+    return t;
+}
+
+#define INIT_CURSOR_MAX 256u
+
+typedef struct {
+    Type *aggregate;
+    u64 pos;
+} InitCursorFrame;
+
+typedef struct {
+    InitCursorFrame frames[INIT_CURSOR_MAX];
+    u32 depth;
+    Type *current;
+} InitCursor;
+
+static bool init_is_aggregate(const Type *t)
+{
+    return t &&
+           (t->kind == TY_ARRAY || t->kind == TY_STRUCT || t->kind == TY_UNION);
+}
+
+static Type *init_child_type(Type *aggregate, u64 pos)
+{
+    Member *m;
+    u64 at = 0;
+
+    if (!aggregate)
+        return NULL;
+    if (aggregate->kind == TY_ARRAY) {
+        if (aggregate->has_size && pos >= aggregate->size)
+            return NULL;
+        return aggregate->base;
+    }
+    if ((aggregate->kind != TY_STRUCT && aggregate->kind != TY_UNION) ||
+        !aggregate->tag)
+        return NULL;
+    for (m = aggregate->tag->members; m; m = m->next) {
+        if (m->is_bitfield && !m->name)
+            continue;
+        if (at++ == pos)
+            return m->type;
+    }
+    return NULL;
+}
+
+static bool init_member_position(Type *aggregate, const char *name, u64 *out)
+{
+    Member *m;
+    u64 at = 0;
+
+    if (!aggregate || !aggregate->tag || !name)
+        return false;
+    for (m = aggregate->tag->members; m; m = m->next) {
+        if (m->is_bitfield && !m->name)
+            continue;
+        if (m->name == name) {
+            *out = at;
+            return true;
+        }
+        at++;
+    }
+    return false;
+}
+
+static void init_cursor_start(InitCursor *c, Type *root)
+{
+    memset(c, 0, sizeof(*c));
+    if (!init_is_aggregate(root)) {
+        c->current = root;
+        return;
+    }
+    c->frames[0].aggregate = root;
+    c->depth = 1;
+    c->current = init_child_type(root, 0);
+}
+
+static bool init_cursor_descend(InitCursor *c)
+{
+    Type *aggregate = c->current;
+
+    if (!init_is_aggregate(aggregate) || c->depth >= INIT_CURSOR_MAX)
+        return false;
+    c->frames[c->depth].aggregate = aggregate;
+    c->frames[c->depth].pos = 0;
+    c->depth++;
+    c->current = init_child_type(aggregate, 0);
+    return c->current != NULL;
+}
+
+static void init_cursor_advance(InitCursor *c)
+{
+    while (c->depth) {
+        InitCursorFrame *f = &c->frames[c->depth - 1];
+
+        /* A union consumes exactly one selected member. */
+        if (f->aggregate->kind != TY_UNION) {
+            Type *next;
+
+            f->pos++;
+            next = init_child_type(f->aggregate, f->pos);
+            if (next) {
+                c->current = next;
+                return;
+            }
+        }
+        c->depth--;
+    }
+    c->current = NULL;
+}
+
+static bool init_cursor_designate(Sema *s, InitCursor *c, Type *root,
+                                  const AstNode *item)
 {
     u32 i;
 
-    if (!list || list->kind != AST_INIT_LIST)
-        return;
-    for (i = 0; i < list->nitems; i++) {
-        AstNode *item = list->items[i];
+    init_cursor_start(c, root);
+    for (i = 0; item && i < item->ndesignators; i++) {
+        const AstNode *desig = item->designators[i];
+        InitCursorFrame *f;
+        u64 pos;
 
-        if (!item)
-            continue;
-        if (item->kind == AST_INIT_LIST)
-            sema_init_expr_list(s, item);
-        else
-            list->items[i] = sema_expr(s, item);
+        if (!desig || c->depth == 0)
+            return false;
+        f = &c->frames[c->depth - 1];
+        if (desig->desig_is_field) {
+            if ((f->aggregate->kind != TY_STRUCT &&
+                 f->aggregate->kind != TY_UNION) ||
+                !init_member_position(f->aggregate, desig->desig_field, &pos))
+                return false;
+        } else {
+            i64 idx;
+
+            if (f->aggregate->kind != TY_ARRAY || !desig->desig_index ||
+                !enum_fold(s, desig->desig_index, &idx) || idx < 0)
+                return false;
+            pos = (u64)idx;
+        }
+        f->pos = pos;
+        c->current = init_child_type(f->aggregate, pos);
+        if (!c->current)
+            return false;
+        if (i + 1 < item->ndesignators) {
+            if (!init_is_aggregate(c->current) || c->depth >= INIT_CURSOR_MAX)
+                return false;
+            c->frames[c->depth].aggregate = c->current;
+            c->frames[c->depth].pos = 0;
+            c->depth++;
+        }
     }
+    return true;
 }
 
-/* Types an initializer and checks it against the declared type. A BRACED
- * initializer needs the current-object algorithm to match elements to
- * subobjects, which is Sprint 15/16's; here its expressions are typed so
- * errors inside them still surface, and the element-by-element
- * compatibility check waits. A scalar initializer goes through the full
- * assignment constraints with ACTX_INIT so the wording is gcc's. */
+static bool init_expr_initializes_whole(Type *target, const AstNode *init)
+{
+    if (!target || !init)
+        return false;
+    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
+        return true;
+    return init->sem_type && type_compatible(target, init->sem_type);
+}
+
+static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
+{
+    AstNode *init = slot ? *slot : NULL;
+    AssignCtx ctx;
+
+    if (!target || !init)
+        return;
+    /* A string literal initializes an array directly; it is not an
+     * assignment to the array object. */
+    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
+        return;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.kind = ACTX_INIT;
+    conv_assignable(s, target, slot, ctx);
+}
+
+static void sema_init_value(Sema *s, Type *target, AstNode **slot)
+{
+    AstNode *init = slot ? *slot : NULL;
+    u32 i;
+
+    if (!init)
+        return;
+    if (init->kind != AST_INIT_LIST) {
+        *slot = init = sema_expr(s, init);
+        sema_init_assign_typed(s, target, slot);
+        return;
+    }
+
+    if (!target) {
+        for (i = 0; i < init->nitems; i++)
+            sema_init_value(s, NULL, &init->items[i]);
+        return;
+    }
+
+    if (init_is_aggregate(target)) {
+        InitCursor cursor;
+
+        init_cursor_start(&cursor, target);
+        for (i = 0; i < init->nitems; i++) {
+            AstNode *item = init->items[i];
+            Type *item_type;
+
+            if (!item)
+                continue;
+            if (item->ndesignators &&
+                !init_cursor_designate(s, &cursor, target, item)) {
+                sema_init_value(s, init_designated_type(target, item),
+                                &init->items[i]);
+                continue;
+            }
+            item_type = cursor.current;
+            if (!item_type) {
+                sema_init_value(s, NULL, &init->items[i]);
+                continue;
+            }
+            if (item->kind == AST_INIT_LIST) {
+                sema_init_value(s, item_type, &init->items[i]);
+                init_cursor_advance(&cursor);
+                continue;
+            }
+
+            init->items[i] = item = sema_expr(s, item);
+            while (init_is_aggregate(cursor.current) &&
+                   !init_expr_initializes_whole(cursor.current, item)) {
+                if (!init_cursor_descend(&cursor))
+                    break;
+            }
+            sema_init_assign_typed(s, cursor.current, &init->items[i]);
+            init_cursor_advance(&cursor);
+        }
+        return;
+    }
+
+    /* C permits one level of braces around a scalar initializer. Type all
+     * entries for recovery, but only the first initializes the object. */
+    for (i = 0; i < init->nitems; i++)
+        sema_init_value(s, i == 0 ? target : NULL, &init->items[i]);
+}
+
+/* Types an initializer and checks each scalar element against its current
+ * object. Materializing these conversions is load-bearing for both static
+ * initializer bytes and the Sprint 38 conversion-warning postpass. */
 static void sema_init_expr(Sema *s, Type *target, AstNode *d,
                            bool is_static_init)
 {
-    AssignCtx ctx;
-
     if (!d->init)
         return;
     if (d->init->kind == AST_INIT_LIST) {
-        u32 i;
-
         /* Initializing the FLEXIBLE MEMBER is GNU's static-init extension:
          * the image would need a size the type does not have. Counting
          * items against named members catches the positional form; the
@@ -1039,30 +1299,16 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
                       "initialization of a flexible array member is a GNU "
                       "extension (lands in Sprint 55)");
         }
-
-        for (i = 0; i < d->init->nitems; i++) {
-            AstNode *item = d->init->items[i];
-
-            if (item && item->kind != AST_INIT_LIST)
-                d->init->items[i] = sema_expr(s, item);
-            else if (item)
-                sema_init_expr_list(s, item);
-        }
-        return;
     }
-    d->init = sema_expr(s, d->init);
-    if (!target || target->kind == TY_ARRAY)
-        return; /* `char s[] = "abc"` was handled by array completion */
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.kind = ACTX_INIT;
-    conv_assignable(s, target, &d->init, ctx);
+    sema_init_value(s, target, &d->init);
 
     /* An object with STATIC storage duration is initialized before any
      * code runs, so its initializer must be a CONSTANT — and an address
      * constant may not name an automatic object, which is the check that
      * keeps a stack address out of .data. This runs after typing because
      * an address constant needs its identifiers resolved first. */
-    if (is_static_init && target->kind != TY_ERROR) {
+    if (is_static_init && d->init->kind != AST_INIT_LIST && target &&
+        target->kind != TY_ERROR && target->kind != TY_ARRAY) {
         ConstValue cv = constexpr_eval(
             s, d->init, target->kind == TY_PTR ? CE_ADDR : CE_ARITH);
         (void)cv; /* constexpr_eval reports the specific reason itself */
@@ -1163,6 +1409,14 @@ static bool type_is_vm(const Type *t)
     return false;
 }
 
+static bool type_contains_vla(const Type *t)
+{
+    for (; t; t = t->base)
+        if (t->kind == TY_ARRAY && t->is_vla)
+            return true;
+    return false;
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
@@ -1172,6 +1426,7 @@ static void declare_one(Sema *s, AstNode *d)
     bool is_func;
     bool static_init;
     bool file_scope = s->scope->kind == SCOPE_FILE;
+    bool had_prior_prototype = false;
 
     if (!d || !d->name)
         return;
@@ -1209,6 +1464,9 @@ static void declare_one(Sema *s, AstNode *d)
         /* The prior declaration that p4 consults must be a VISIBLE one,
          * which for a block-scope extern means walking outward. */
         visible = scope_lookup(s->scope, d->name, NS_ORDINARY);
+        had_prior_prototype = visible && visible->kind == SYM_FUNC &&
+                              visible->type && visible->type->kind == TY_FUNC &&
+                              visible->type->has_proto;
         sym->linkage = linkage_for(s, visible, d->storage, is_func);
         sym->defined = d->init != NULL || d->kind == AST_FUNC_DEF;
         /* A file-scope object with no initializer and no `extern` is a
@@ -1253,6 +1511,10 @@ static void declare_one(Sema *s, AstNode *d)
                   "a variably modified typedef is only allowed at block "
                   "scope");
     }
+
+    if (sym->kind == SYM_VAR && type_contains_vla(type))
+        warn_at_ex(s->lang->warnings, WARN_VLA, d->span, WARN_SUPPRESS_IN_MACRO,
+                   "variable length array '%s' is used", d->name);
 
     if (d->storage & AST_SC_THREAD_LOCAL) {
         sym->tls = true;
@@ -1303,9 +1565,25 @@ static void declare_one(Sema *s, AstNode *d)
     }
 
     if (is_func) {
-        if ((d->func_specs & AST_FS_INLINE) &&
-            d->name ==
-                intern_str(s->interner, intern_cstr(s->interner, "main"))) {
+        const AstType *ft = d->type;
+        bool is_main = d->name == intern_str(s->interner,
+                                             intern_cstr(s->interner, "main"));
+
+        if (ft && ft->kind == ATY_FUNC && !type->has_proto)
+            warn_at_ex(s->lang->warnings, WARN_STRICT_PROTOTYPES, d->span,
+                       WARN_SUPPRESS_IN_MACRO,
+                       "function declaration isn't a prototype");
+        if (d->kind == AST_FUNC_DEF && ft && ft->kind == ATY_FUNC &&
+            ft->is_kr_list)
+            warn_at_ex(s->lang->warnings, WARN_OLD_STYLE_DEFINITION, d->span,
+                       WARN_SUPPRESS_IN_MACRO,
+                       "old-style function definition of '%s'", d->name);
+        if (d->kind == AST_FUNC_DEF && sym->linkage == LINK_EXTERNAL &&
+            !had_prior_prototype && !is_main)
+            warn_at_ex(s->lang->warnings, WARN_MISSING_PROTOTYPES, d->span,
+                       WARN_SUPPRESS_IN_MACRO, "no previous prototype for '%s'",
+                       d->name);
+        if ((d->func_specs & AST_FS_INLINE) && is_main) {
             /* 6.7.4p4 is a constraint, but gcc WARNS by default and errors
              * only under -pedantic-errors; real code (test harnesses,
              * mostly) relies on the warning. */
@@ -1465,7 +1743,10 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
             }
         }
         if (!pt) {
-            /* No declaration: implicitly int, gcc-quietly. */
+            /* No declaration: implicitly int, with gcc's Wextra warning. */
+            warn_at_ex(s->lang->warnings, WARN_MISSING_PARAMETER_TYPE,
+                       ft->params[pi].span, WARN_SUPPRESS_IN_MACRO,
+                       "type of '%s' defaults to 'int'", pname);
             pt = type_basic(TY_INT);
         }
         if (pt->kind == TY_ARRAY)
@@ -1707,6 +1988,44 @@ static void sema_decl(Sema *s, AstNode *d)
     }
 }
 
+static AstNode *discarded_update_core(AstNode *e)
+{
+    while (e && ((e->kind == AST_EXPR_CAST && e->implicit) ||
+                 e->kind == AST_EXPR_PAREN))
+        e = e->lhs;
+    return e;
+}
+
+/* A self-update whose result is discarded does not make a variable
+ * meaningfully used for GCC's unused-but-set diagnostics.  Expression
+ * typing necessarily reads the old value; remove precisely that bookkeeping
+ * read once the statement context is known. */
+static void sema_mark_discarded_update(AstNode *e)
+{
+    AstNode *target;
+    AstNode *ident;
+
+    e = discarded_update_core(e);
+    if (!e)
+        return;
+    if (e->kind == AST_EXPR_BINARY && e->op == PUNCT_COMMA) {
+        sema_mark_discarded_update(e->lhs);
+        sema_mark_discarded_update(e->rhs);
+        return;
+    }
+    if (e->kind == AST_EXPR_BINARY && e->op >= PUNCT_STAR_ASSIGN &&
+        e->op <= PUNCT_PIPE_ASSIGN)
+        target = discarded_update_core(e->lhs);
+    else if (e->kind == AST_EXPR_UNARY &&
+             (e->op == PUNCT_PLUSPLUS || e->op == PUNCT_MINUSMINUS))
+        target = discarded_update_core(e->lhs);
+    else
+        return;
+    ident = sema_lvalue_root_ident(target);
+    if (ident && ident->sym && ident->sym->reads)
+        ident->sym->reads--;
+}
+
 /* Statement WALK, not statement sema: we descend only to reach the
  * declarations inside, because block scope and the 6.2.2p4 linkage rule
  * are this sprint's business. Expression typing is Sprint 13 and
@@ -1765,6 +2084,7 @@ static void sema_stmt(Sema *s, AstNode *st)
         return;
     case AST_STMT_EXPR:
         st->lhs = sema_expr(s, st->lhs);
+        sema_mark_discarded_update(st->lhs);
         return;
     case AST_STMT_RETURN:
         if (st->lhs)
@@ -1832,6 +2152,7 @@ static void sema_stmt(Sema *s, AstNode *st)
             st->mid = sema_expr(s, st->mid);
         if (st->rhs)
             st->rhs = sema_expr(s, st->rhs);
+        sema_mark_discarded_update(st->rhs);
         sema_stmt(s, st->body);
         scope_pop(s);
         return;
@@ -1911,10 +2232,21 @@ static void finish_symbol(Sema *s, Symbol *sym)
              * fine — calls bind to the external definition elsewhere. */
             sym->inline_kind = INL_NONE;
         }
+        if (sym->defined && sym->linkage == LINK_INTERNAL && !sym->reads &&
+            !(sym->func_specs & AST_FS_INLINE))
+            warn_at_ex(s->lang->warnings, WARN_UNUSED_FUNCTION, sym->span,
+                       WARN_SUPPRESS_IN_MACRO, "'%s' defined but not used",
+                       sym->name);
         return;
     }
     if (sym->kind != SYM_VAR)
         return;
+
+    if (sym->linkage == LINK_INTERNAL && (sym->defined || sym->tentative) &&
+        !sym->reads)
+        warn_at_ex(s->lang->warnings, WARN_UNUSED_VARIABLE, sym->span,
+                   WARN_SUPPRESS_IN_MACRO, "'%s' defined but not used",
+                   sym->name);
 
     /* Tentative resolution (6.9.2p2): at end of TU a tentative becomes a
      * definition with zero initializer. Under -fcommon (gcc 8's default)

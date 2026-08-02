@@ -286,6 +286,92 @@ void test_warn_flag_order_table(TestCtx *t)
     }
 }
 
+void test_warn_implicit_fallthrough_levels(TestCtx *t)
+{
+    static const struct {
+        const char *opts[4];
+        unsigned level;
+        bool enabled;
+    } cases[] = {
+        {{NULL}, 0, false},
+        {{"-Wextra"}, 3, true},
+        {{"-Wextra", "-Wno-extra"}, 0, false},
+        {{"-Wimplicit-fallthrough"}, 3, true},
+        {{"-Wno-implicit-fallthrough"}, 0, false},
+        {{"-Wimplicit-fallthrough=0"}, 0, false},
+        {{"-Wimplicit-fallthrough=1"}, 1, true},
+        {{"-Wimplicit-fallthrough=2"}, 2, true},
+        {{"-Wimplicit-fallthrough=3"}, 3, true},
+        {{"-Wimplicit-fallthrough=4"}, 4, true},
+        {{"-Wimplicit-fallthrough=5"}, 5, true},
+        {{"-Wimplicit-fallthrough=4", "-Wno-extra"}, 4, true},
+        {{"-Wno-extra", "-Wimplicit-fallthrough=2"}, 2, true},
+        {{"-Wno-implicit-fallthrough", "-Wextra"}, 0, false},
+        {{"-Werror=implicit-fallthrough=5"}, 5, true},
+        {{"-Werror=implicit-fallthrough=0"}, 0, false},
+    };
+    size_t i, j;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        Arena a;
+        WarnCapture cap;
+        WarnCtx *w;
+
+        arena_init(&a);
+        w = new_warn(&a, &cap);
+        for (j = 0; j < sizeof(cases[i].opts) / sizeof(cases[i].opts[0]) &&
+                    cases[i].opts[j];
+             j++)
+            T_ASSERT(t, warn_flag(w, cases[i].opts[j]));
+        T_ASSERT_EQ_INT(t, warn_implicit_fallthrough_level(w), cases[i].level);
+        T_ASSERT_EQ_INT(t,
+                        warn_enabled(w, WARN_IMPLICIT_FALLTHROUGH, (Span){0}),
+                        cases[i].enabled);
+        arena_free_all(&a);
+    }
+
+    T_ASSERT_EQ_INT(t, warn_implicit_fallthrough_level(NULL), 0);
+}
+
+void test_warn_explicit_activation(TestCtx *t)
+{
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    Span sp = {0};
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_enabled(w, WARN_IMPLICIT_INT, sp));
+    T_ASSERT(t, !warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    T_ASSERT(t, warn_flag(w, "-Wall"));
+    T_ASSERT(t, warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    T_ASSERT(t, warn_flag(w, "-Wno-implicit-int"));
+    T_ASSERT(t, !warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    T_ASSERT(t, warn_flag(w, "-Wimplicit-int"));
+    T_ASSERT(t, warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    warn_pragma_set(w, 10, WARN_IMPLICIT_INT, WARN_PRAGMA_WARNING);
+    warn_pragma_set(w, 20, WARN_IMPLICIT_INT, WARN_PRAGMA_IGNORED);
+    warn_pragma_set(w, 30, WARN_IMPLICIT_INT, WARN_PRAGMA_ERROR);
+    sp.seq = 5;
+    T_ASSERT(t, !warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    sp.seq = 15;
+    T_ASSERT(t, warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    sp.seq = 25;
+    T_ASSERT(t, !warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    sp.seq = 35;
+    T_ASSERT(t, warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    sp.origin = SPAN_ORIGIN_SYSTEM_SPELLING;
+    T_ASSERT(t, !warn_explicitly_enabled(w, WARN_IMPLICIT_INT, sp));
+    arena_free_all(&a);
+
+    T_ASSERT(t, !warn_explicitly_enabled(NULL, WARN_IMPLICIT_INT, (Span){0}));
+}
+
 void test_warn_pedwarn_exhaustive(TestCtx *t)
 {
     static const char *const configs[] = {NULL, "-pedantic",
@@ -449,6 +535,20 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
     T_ASSERT_EQ_STR(t,
                     warn_option_bad_value_label(WARN_OPTION_BAD_FORMAT_LEVEL),
                     "-Wformat=");
+    T_ASSERT(t, warn_option_known("-Wimplicit-fallthrough=0"));
+    T_ASSERT(t, warn_option_known("-Wimplicit-fallthrough=5"));
+    T_ASSERT(t, warn_option_known("-Werror=implicit-fallthrough=4"));
+    T_ASSERT(t, warn_option_known("-Wno-error=implicit-fallthrough=4"));
+    T_ASSERT(t, !warn_option_known("-Wimplicit-fallthrough=6"));
+    T_ASSERT(t, !warn_option_known("-Wno-implicit-fallthrough=4"));
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wimplicit-fallthrough=6"),
+                    WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wno-implicit-fallthrough=4"),
+                    WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL);
+    T_ASSERT_EQ_STR(
+        t,
+        warn_option_bad_value_label(WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL),
+        "-Wimplicit-fallthrough=");
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wnot-a-real-warning"),
                     WARN_OPTION_UNKNOWN_POSITIVE);
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wno-not-a-real-warning"),

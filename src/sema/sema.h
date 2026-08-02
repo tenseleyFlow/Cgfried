@@ -91,6 +91,8 @@ struct TagDecl {
     Member *members;
     u32 nmembers;
     Type *enum_underlying; /* TY_ENUM only, chosen per gcc's ladder */
+    AstNode *enum_ast;     /* originating AST_ENUM_DECL; switch warnings use
+                              its declaration-ordered enumerator list */
     bool has_fam;          /* last member is a flexible array (6.7.2.1p18) */
     bool defining;         /* completion in progress: a nested definition of
                               the same tag is a "nested redefinition", not a
@@ -174,7 +176,9 @@ struct Symbol {
     bool tentative; /* file-scope object, no initializer (6.9.2p2) */
     bool defined;   /* has an initializer, or is a function definition */
     bool is_param;
-    bool tls; /* _Thread_local */
+    u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
+    u32 writes; /* assignments after declaration; initializer is not one */
+    bool tls;   /* _Thread_local */
     bool is_main;
     u32 func_specs; /* AST_FS_*, ORed across declarations */
     /* Inline bookkeeping (6.7.4p7): the decision needs EVERY declaration,
@@ -451,6 +455,9 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx);
  * children with the implicit conversions the operator demands. Returns
  * the (possibly wrapped) node. */
 AstNode *sema_expr(Sema *s, AstNode *e);
+/* Return the declared object at the root of a direct/member/array lvalue;
+ * pointer dereferences and pointer-based subscripts deliberately have none. */
+AstNode *sema_lvalue_root_ident(AstNode *e);
 
 /* --- scopes -------------------------------------------------------------- */
 

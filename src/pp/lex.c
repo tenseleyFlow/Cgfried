@@ -127,6 +127,53 @@ static void drop(PpLexer *lx) /* consume without spelling (whitespace) */
         lx->pos++;
 }
 
+static void comment_take(PpLexer *lx, Buf *body)
+{
+    char c;
+
+    lx->pos = skip_spl(lx, lx->pos);
+    c = lx->sf->contents[lx->pos];
+    if (c != '\0') {
+        buf_push_u8(body, (u8)c);
+        lx->pos++;
+    }
+}
+
+static void record_comment(PpLexer *lx, size_t start, size_t end,
+                           const Buf *body)
+{
+    Preprocessor *pp = lx->pp;
+    PpComment *c;
+    u32 id;
+
+    /* A physical file may be lexed more than once after #undef'ing its
+     * include guard. Its comment metadata remains one immutable record. */
+    for (size_t i = pp->ncomments; i > 0; i--) {
+        c = &pp->comments[i - 1];
+        if (c->file == lx->sf->id && c->start_offset == (u32)start)
+            return;
+    }
+    if (pp->ncomments == pp->comments_cap) {
+        size_t cap = pp->comments_cap ? pp->comments_cap * 2 : 16;
+        PpComment *nv =
+            arena_alloc(pp->arena, cap * sizeof(*nv), _Alignof(PpComment));
+
+        if (pp->ncomments)
+            memcpy(nv, pp->comments, pp->ncomments * sizeof(*nv));
+        pp->comments = nv;
+        pp->comments_cap = cap;
+    }
+    id = intern(pp->interner, (const char *)body->data, body->len);
+    c = &pp->comments[pp->ncomments++];
+    c->body = intern_str(pp->interner, id);
+    c->loc = loc_at(lx, start);
+    c->body_len = (u32)body->len;
+    c->start_offset = (u32)start;
+    c->end_offset = (u32)end;
+    c->before_offset = UINT32_MAX;
+    c->file = lx->sf->id;
+}
+
 static bool is_ident_start(char c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
@@ -175,7 +222,7 @@ static bool take_ucn(PpLexer *lx)
 /* Whitespace and comments; maintains BOL/SPACE state. Comments count as one
  * space. Splices happen first, so a // comment ending in backslash swallows
  * the next physical line — that is ISO semantics and bites real code. */
-static void skip_ws_and_comments(PpLexer *lx)
+static void skip_ws_and_comments(PpLexer *lx, bool record)
 {
     for (;;) {
         char c = peekc(lx);
@@ -189,11 +236,17 @@ static void skip_ws_and_comments(PpLexer *lx)
             lx->pending_space = false;
         } else if (c == '/' && peekc2(lx) == '*') {
             size_t start = skip_spl(lx, lx->pos);
+            Buf body;
+
+            buf_init(&body);
             drop(lx);
             drop(lx);
             for (;;) {
                 char d = peekc(lx);
                 if (d == '\0') {
+                    if (record)
+                        record_comment(lx, start, lx->pos, &body);
+                    buf_free(&body);
                     pp_diag_at(lx->pp, DIAG_ERROR, loc_at(lx, start), 2,
                                "unterminated /* comment");
                     lx->had_error = true;
@@ -204,12 +257,24 @@ static void skip_ws_and_comments(PpLexer *lx)
                     drop(lx);
                     break;
                 }
-                drop(lx);
+                comment_take(lx, &body);
             }
+            if (record)
+                record_comment(lx, start, lx->pos, &body);
+            buf_free(&body);
             lx->pending_space = true;
         } else if (c == '/' && peekc2(lx) == '/') {
+            size_t start = skip_spl(lx, lx->pos);
+            Buf body;
+
+            buf_init(&body);
+            drop(lx);
+            drop(lx);
             while (peekc(lx) != '\n' && peekc(lx) != '\0')
-                drop(lx);
+                comment_take(lx, &body);
+            if (record)
+                record_comment(lx, start, lx->pos, &body);
+            buf_free(&body);
             lx->pending_space = true;
         } else {
             return;
@@ -582,13 +647,16 @@ static char prefix_quote(PpLexer *lx)
 bool pp_lex_token(PpLexer *lx, PpToken *out)
 {
     size_t start;
+    size_t comment_base = lx->pp->ncomments;
     SrcLoc loc;
     char c;
 
-    skip_ws_and_comments(lx);
+    skip_ws_and_comments(lx, true);
     lx->scratch.len = 0;
 
     start = skip_spl(lx, lx->pos);
+    for (size_t i = comment_base; i < lx->pp->ncomments; i++)
+        lx->pp->comments[i].before_offset = (u32)start;
     lx->pos = start;
     loc = loc_at(lx, start);
     c = peekc(lx);
@@ -683,7 +751,7 @@ bool pp_lex_at_line_end(PpLexer *lx)
     bool save_space = lx->pending_space;
     bool r;
 
-    skip_ws_and_comments(lx);
+    skip_ws_and_comments(lx, false);
     r = lx->at_bol || peekc(lx) == '\0';
     lx->pos = save_pos;
     lx->at_bol = save_bol;
@@ -694,12 +762,15 @@ bool pp_lex_at_line_end(PpLexer *lx)
 bool pp_lex_header_name(PpLexer *lx, PpToken *out)
 {
     size_t start;
+    size_t comment_base = lx->pp->ncomments;
     SrcLoc loc;
     char c, close;
 
-    skip_ws_and_comments(lx);
+    skip_ws_and_comments(lx, true);
     lx->scratch.len = 0;
     start = skip_spl(lx, lx->pos);
+    for (size_t i = comment_base; i < lx->pp->ncomments; i++)
+        lx->pp->comments[i].before_offset = (u32)start;
     lx->pos = start;
     loc = loc_at(lx, start);
     c = peekc(lx);
@@ -722,6 +793,42 @@ bool pp_lex_header_name(PpLexer *lx, PpToken *out)
     }
     finish_token(lx, out, PPTOK_HEADER_NAME, 0, loc);
     return true;
+}
+
+const PpComment *pp_comment_before_n(const Preprocessor *pp, Span target,
+                                     size_t index)
+{
+    const SourceFile *sf = NULL;
+    u32 off;
+
+    if (!target.file_id || !target.line || !target.col)
+        return NULL;
+    for (size_t i = 0; i < pp->nfiles; i++) {
+        if (pp->files[i]->diag_file_id == target.file_id) {
+            sf = pp->files[i];
+            break;
+        }
+    }
+    if (!sf || target.line > sf->nlines)
+        return NULL;
+    off = sf->line_offsets[target.line - 1] + target.col - 1;
+    if (off > sf->size)
+        return NULL;
+    for (size_t i = pp->ncomments; i > 0; i--) {
+        const PpComment *c = &pp->comments[i - 1];
+
+        if (c->file == sf->id && c->before_offset == off) {
+            if (index == 0)
+                return c;
+            index--;
+        }
+    }
+    return NULL;
+}
+
+const PpComment *pp_comment_before(const Preprocessor *pp, Span target)
+{
+    return pp_comment_before_n(pp, target, 0);
 }
 
 const char *pp_tok_kind_name(PpTokKind k)

@@ -35,6 +35,8 @@ struct WarnCtx {
     bool global_error;
     bool inhibit;
     bool system_headers;
+    unsigned char implicit_fallthrough_level;
+    bool implicit_fallthrough_explicit;
 };
 
 static const WarnInfo infos[] = {
@@ -155,6 +157,23 @@ static int format_option_level(const char *p)
     return -1;
 }
 
+/* Returns the requested GCC implicit-fallthrough level, -1 for an invalid
+ * level option, or -2 when `p` is not an implicit-fallthrough option. */
+static int implicit_fallthrough_option_level(const char *p)
+{
+    if (strcmp(p, "implicit-fallthrough") == 0)
+        return 3;
+    if (strcmp(p, "no-implicit-fallthrough") == 0)
+        return 0;
+    if (strncmp(p, "no-implicit-fallthrough=", 24) == 0)
+        return -1;
+    if (strncmp(p, "implicit-fallthrough=", 21) != 0)
+        return -2;
+    if (p[21] >= '0' && p[21] <= '5' && p[22] == '\0')
+        return p[21] - '0';
+    return -1;
+}
+
 WarnOptionDisposition warn_option_classify(const char *arg)
 {
     char name[128];
@@ -176,16 +195,34 @@ WarnOptionDisposition warn_option_classify(const char *arg)
             return format_level >= 0 ? WARN_OPTION_KNOWN
                                      : WARN_OPTION_BAD_FORMAT_LEVEL;
     }
-    if (strncmp(p, "error=", 6) == 0)
+    {
+        int fallthrough_level = implicit_fallthrough_option_level(p);
+
+        if (fallthrough_level != -2)
+            return fallthrough_level >= 0
+                       ? WARN_OPTION_KNOWN
+                       : WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL;
+    }
+    if (strncmp(p, "error=", 6) == 0) {
+        int fallthrough_level = implicit_fallthrough_option_level(p + 6);
+
+        if (fallthrough_level == -1)
+            return WARN_OPTION_UNKNOWN_PROMOTION;
         return group_for_name(p + 6) != WG_NONE ||
                        warn_info_for_flag(p + 6) != NULL
                    ? WARN_OPTION_KNOWN
                    : WARN_OPTION_UNKNOWN_PROMOTION;
-    if (strncmp(p, "no-error=", 9) == 0)
+    }
+    if (strncmp(p, "no-error=", 9) == 0) {
+        int fallthrough_level = implicit_fallthrough_option_level(p + 9);
+
+        if (fallthrough_level == -1)
+            return WARN_OPTION_UNKNOWN_PROMOTION;
         return group_for_name(p + 9) != WG_NONE ||
                        warn_info_for_flag(p + 9) != NULL
                    ? WARN_OPTION_KNOWN
                    : WARN_OPTION_UNKNOWN_PROMOTION;
+    }
     if (!normalized_name(arg, name, sizeof(name), &negative))
         return WARN_OPTION_UNKNOWN_POSITIVE;
     if (strcmp(name, "error") == 0 || strcmp(name, "fatal-errors") == 0 ||
@@ -204,7 +241,11 @@ bool warn_option_known(const char *arg)
 
 const char *warn_option_bad_value_label(WarnOptionDisposition disposition)
 {
-    return disposition == WARN_OPTION_BAD_FORMAT_LEVEL ? "-Wformat=" : NULL;
+    if (disposition == WARN_OPTION_BAD_FORMAT_LEVEL)
+        return "-Wformat=";
+    if (disposition == WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL)
+        return "-Wimplicit-fallthrough=";
+    return NULL;
 }
 
 WarnId warn_pragma_option_id(const char *option)
@@ -272,6 +313,8 @@ static void apply_group(WarnCtx *w, unsigned group, bool on)
     unsigned char priority = (group == WG_ALL || group == WG_EXTRA) ? 1u : 2u;
 
     w->group_enabled[group_index(group)] = on ? WS_ON : WS_OFF;
+    if (group == WG_EXTRA && !w->implicit_fallthrough_explicit)
+        w->implicit_fallthrough_level = on ? 3u : 0u;
     for (i = 1; i < WARN_COUNT; i++) {
         unsigned groups = infos[i].groups;
 
@@ -315,6 +358,7 @@ static void apply_promotion_group(WarnCtx *w, unsigned group, bool demote)
 static bool parse_named_error(WarnCtx *w, const char *p, bool demote)
 {
     const WarnInfo *info = warn_info_for_flag(p);
+    int fallthrough_level = implicit_fallthrough_option_level(p);
     char name[128];
     bool negative;
     unsigned group;
@@ -332,11 +376,19 @@ static bool parse_named_error(WarnCtx *w, const char *p, bool demote)
 
     if (!info)
         return false;
+    if (info->id == WARN_IMPLICIT_FALLTHROUGH && fallthrough_level < 0)
+        return false;
     w->promoted[info->id] = demote ? WS_OFF : WS_ON;
     w->promoted_priority[info->id] = 3;
     if (!demote) {
         w->enabled[info->id] = WS_ON; /* GCC: -Werror=foo implies -Wfoo */
         w->enabled_priority[info->id] = 3;
+        if (info->id == WARN_IMPLICIT_FALLTHROUGH) {
+            w->implicit_fallthrough_level = (unsigned char)fallthrough_level;
+            w->implicit_fallthrough_explicit = true;
+            if (fallthrough_level == 0)
+                w->enabled[info->id] = WS_OFF;
+        }
     }
     return true;
 }
@@ -372,6 +424,20 @@ bool warn_flag(WarnCtx *w, const char *arg)
             return false;
         if (format_level >= 0) {
             apply_format_level(w, (unsigned)format_level);
+            return true;
+        }
+    }
+    {
+        int fallthrough_level = implicit_fallthrough_option_level(p);
+
+        if (fallthrough_level == -1)
+            return false;
+        if (fallthrough_level >= 0) {
+            w->implicit_fallthrough_level = (unsigned char)fallthrough_level;
+            w->implicit_fallthrough_explicit = true;
+            w->enabled[WARN_IMPLICIT_FALLTHROUGH] =
+                fallthrough_level == 0 ? WS_OFF : WS_ON;
+            w->enabled_priority[WARN_IMPLICIT_FALLTHROUGH] = 3;
             return true;
         }
     }
@@ -466,25 +532,33 @@ static size_t event_limit(const WarnCtx *w, u32 seq)
     return lo;
 }
 
-static int effective_class(const WarnCtx *w, WarnId id, Span sp,
-                           bool emission_pedwarn)
+static int pragma_class_at(const WarnCtx *w, WarnId id, u32 seq)
 {
     signed char state[WARN_COUNT];
-    size_t i, end = event_limit(w, sp.seq);
+    size_t i, end = event_limit(w, seq);
 
     memset(state, -1, sizeof(state));
     for (i = 0; i < end; i++) {
         const WarnEvent *ev = &w->events[i];
+
         if (ev->kind == EV_SET)
             state[ev->id] = (signed char)ev->classification;
         else if (ev->kind == EV_POP)
             memcpy(state, ev->snapshot, sizeof(state));
     }
-    if (state[id] == WARN_PRAGMA_IGNORED)
+    return state[id];
+}
+
+static int effective_class(const WarnCtx *w, WarnId id, Span sp,
+                           bool emission_pedwarn)
+{
+    int pragma_class = pragma_class_at(w, id, sp.seq);
+
+    if (pragma_class == WARN_PRAGMA_IGNORED)
         return -1;
-    if (state[id] == WARN_PRAGMA_WARNING)
+    if (pragma_class == WARN_PRAGMA_WARNING)
         return DIAG_WARNING;
-    if (state[id] == WARN_PRAGMA_ERROR)
+    if (pragma_class == WARN_PRAGMA_ERROR)
         return DIAG_ERROR;
     return base_class(w, id, emission_pedwarn);
 }
@@ -508,6 +582,43 @@ bool warn_enabled(const WarnCtx *w, WarnId id, Span sp)
     if (cls < 0 || w->inhibit)
         return false;
     return !suppressed_by_origin(w, sp, WARN_EMIT_NONE);
+}
+
+bool warn_explicitly_enabled(const WarnCtx *w, WarnId id, Span sp)
+{
+    const WarnInfo *info;
+    int pragma_class;
+    bool on;
+
+    if (!w || id <= WARN_NONE || id >= WARN_COUNT || w->inhibit ||
+        suppressed_by_origin(w, sp, WARN_EMIT_NONE))
+        return false;
+    pragma_class = pragma_class_at(w, id, sp.seq);
+    if (pragma_class == WARN_PRAGMA_IGNORED)
+        return false;
+    if (pragma_class == WARN_PRAGMA_WARNING ||
+        pragma_class == WARN_PRAGMA_ERROR)
+        return true;
+    info = warn_info_for_id(id);
+    if ((info->groups & (WG_EXTRA | WG_UNUSED)) == (WG_EXTRA | WG_UNUSED) &&
+        w->enabled_priority[id] < 3) {
+        WarnSetting unused = w->group_enabled[group_index(WG_UNUSED)];
+
+        if (unused == WS_UNSET)
+            unused = w->group_enabled[group_index(WG_ALL)];
+        on =
+            w->group_enabled[group_index(WG_EXTRA)] == WS_ON && unused == WS_ON;
+    } else {
+        on = w->enabled[id] == WS_ON;
+    }
+    if (info->level == WL_PEDWARN && w->enabled[id] == WS_UNSET && w->pedantic)
+        on = true;
+    return on;
+}
+
+unsigned warn_implicit_fallthrough_level(const WarnCtx *w)
+{
+    return w ? w->implicit_fallthrough_level : 0;
 }
 
 static void emit_warning_v(WarnCtx *w, WarnId id, Span sp, unsigned emit_flags,

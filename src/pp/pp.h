@@ -324,6 +324,22 @@ typedef struct PpTokBuf {
     u32 pos;
 } PpTokBuf;
 
+/* Comments disappear from the pp-token stream, but warning passes still need
+ * their logical bodies (notably -Wimplicit-fallthrough). Bodies have phase-2
+ * splices removed and are interned, so repeated text shares storage. The
+ * offsets are physical offsets in `file`; `before_offset` names the next
+ * non-whitespace/comment pp-token and makes the lookup independent of later
+ * source re-lexing. */
+typedef struct PpComment {
+    const char *body;
+    SrcLoc loc; /* physical location of the opening delimiter */
+    u32 body_len;
+    u32 start_offset;
+    u32 end_offset;
+    u32 before_offset;
+    FileId file;
+} PpComment;
+
 /* --- Preprocessor state ------------------------------------------------ */
 
 #define PP_MAX_DIRS 32
@@ -337,6 +353,9 @@ typedef struct Preprocessor {
     SourceFile **files; /* index = FileId - 1 */
     size_t nfiles;
     size_t files_cap;
+    PpComment *comments; /* arena-owned, unique by (file,start_offset) */
+    size_t ncomments;
+    size_t comments_cap;
     bool trigraphs;
     /* -ffreestanding: __STDC_HOSTED__ becomes 0 (C17 4p6). The driver
         sets it; the predefine block is the only consumer. */
@@ -430,6 +449,12 @@ void pp_source_finalize(Preprocessor *pp, SourceFile *sf);
  * this so they never synthesize locations. */
 Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len);
 bool pp_loc_is_system(Preprocessor *pp, SrcLoc loc);
+/* Last comment whose closing delimiter is followed only by whitespace and
+ * comments before `target`'s physical location; NULL when none. */
+const PpComment *pp_comment_before(const Preprocessor *pp, Span target);
+/* The Nth comment in that adjacent run, newest first. */
+const PpComment *pp_comment_before_n(const Preprocessor *pp, Span target,
+                                     size_t index);
 
 /* Diagnostic at a SrcLoc; anything inside a macro expansion automatically
  * gets its expansion backtrace (Sprint 7). Front-end phases route their

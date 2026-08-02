@@ -15,6 +15,24 @@
 
 static AstNode *expr(Sema *s, AstNode *e);
 
+static void expr_init_list(Sema *s, AstNode *list)
+{
+    u32 i;
+
+    if (!list || list->kind != AST_INIT_LIST)
+        return;
+    for (i = 0; i < list->nitems; i++) {
+        AstNode *item = list->items[i];
+
+        if (!item)
+            continue;
+        if (item->kind == AST_INIT_LIST)
+            expr_init_list(s, item);
+        else
+            list->items[i] = expr(s, item);
+    }
+}
+
 static AstNode *poison(Sema *s, AstNode *e)
 {
     if (e) {
@@ -107,6 +125,9 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     }
     e->sym = sym;
     e->sem_type = sym->type;
+    if (sym->kind == SYM_VAR ||
+        (sym->kind == SYM_FUNC && sym->name != s->cur_fname))
+        sym->reads++;
     /* 6.7.4p3: an inline definition may not reference an identifier with
      * internal linkage. gcc warns; matched by observation. */
     if (s->cur_inline_candidate && sym->linkage == LINK_INTERNAL)
@@ -149,6 +170,50 @@ static Type *int_literal_type(Sema *s, const Token *t)
 static bool is_ptr(const Type *t)
 {
     return t && t->kind == TY_PTR;
+}
+
+AstNode *sema_lvalue_root_ident(AstNode *e)
+{
+    AstNode *root;
+
+    while (e && e->kind == AST_EXPR_PAREN)
+        e = e->lhs;
+    if (!e)
+        return NULL;
+    if (e->kind == AST_EXPR_IDENT)
+        return e;
+    if (e->kind == AST_EXPR_MEMBER)
+        return e->is_arrow ? NULL : sema_lvalue_root_ident(e->lhs);
+    if (e->kind != AST_EXPR_INDEX)
+        return NULL;
+
+    /* A subscript writes the declared array object only when its pointer
+     * operand came from array-to-pointer decay.  `p[i]` reads `p` and writes
+     * the pointed-to object, never the pointer variable itself. */
+    root = e->lhs;
+    while (root && root->kind == AST_EXPR_PAREN)
+        root = root->lhs;
+    if (root && root->kind == AST_EXPR_CAST && root->implicit && root->lhs &&
+        root->lhs->sem_type && root->lhs->sem_type->kind == TY_ARRAY)
+        return sema_lvalue_root_ident(root->lhs);
+    root = e->rhs;
+    while (root && root->kind == AST_EXPR_PAREN)
+        root = root->lhs;
+    if (root && root->kind == AST_EXPR_CAST && root->implicit && root->lhs &&
+        root->lhs->sem_type && root->lhs->sem_type->kind == TY_ARRAY)
+        return sema_lvalue_root_ident(root->lhs);
+    return NULL;
+}
+
+static void mark_lvalue_write(AstNode *e, bool plain_assignment)
+{
+    AstNode *ident = sema_lvalue_root_ident(e);
+
+    if (!ident || !ident->sym || ident->sym->kind != SYM_VAR)
+        return;
+    ident->sym->writes++;
+    if (plain_assignment && ident->sym->reads)
+        ident->sym->reads--;
 }
 
 static AstNode *expr_unary(Sema *s, AstNode *e)
@@ -237,6 +302,7 @@ static AstNode *expr_unary(Sema *s, AstNode *e)
                 type_to_str(s->arena, op->sem_type), ast_punct_name(e->op));
             return poison(s, e);
         }
+        mark_lvalue_write(op, false);
         e->lhs = op;
         e->sem_type = conv_strip_quals(s, op->sem_type);
         e->is_lvalue = false;
@@ -279,6 +345,12 @@ static AstNode *expr_assign(Sema *s, AstNode *e)
     e->rhs = rhs;
     if (quiet(lhs, rhs))
         return poison(s, e);
+
+    /* Typing the lvalue resolves its root declaration and records a read.
+     * A plain assignment only writes that object; compound assignment also
+     * reads its old value.  Member/array lvalues keep the same root object,
+     * while `p[i]` correctly leaves the pointer variable as a read. */
+    mark_lvalue_write(lhs, e->op == PUNCT_ASSIGN);
 
     /* The lhs of an assignment is NOT lvalue-converted: it names the
      * object being written. Everything that makes it unwritable is an
@@ -678,6 +750,34 @@ static AstNode *expr_call(Sema *s, AstNode *e)
     u32 i;
     const char *callee_name = NULL;
 
+    /* C89 implicit-function recovery: introduce one file-scope `int f()`
+     * symbol before ordinary identifier typing. Later calls find it, so
+     * the diagnostic is first-use-only and a later declaration follows the
+     * normal redeclaration path. */
+    if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name &&
+        strncmp(e->lhs->name, "__builtin_", 10) != 0 &&
+        !scope_lookup(s->scope, e->lhs->name, NS_ORDINARY)) {
+        Type *fn = type_func(s->arena, type_basic(TY_INT));
+        Symbol *implicit =
+            sym_new(s, e->lhs->name, SYM_FUNC, NS_ORDINARY, fn, e->lhs->span);
+
+        fn->has_proto = false;
+        implicit->linkage = LINK_EXTERNAL;
+        implicit->next = s->file_scope->ordinary;
+        s->file_scope->ordinary = implicit;
+        if (std_is_c99_or_later(s->lang->std))
+            warn_pedwarn_at(s->lang->warnings,
+                            WARN_IMPLICIT_FUNCTION_DECLARATION, e->lhs->span,
+                            "implicit declaration of function '%s'",
+                            e->lhs->name);
+        else if (warn_explicitly_enabled(s->lang->warnings,
+                                         WARN_IMPLICIT_FUNCTION_DECLARATION,
+                                         e->lhs->span))
+            warn_at(s->lang->warnings, WARN_IMPLICIT_FUNCTION_DECLARATION,
+                    e->lhs->span, "implicit declaration of function '%s'",
+                    e->lhs->name);
+    }
+
     /* The va_* builtins are not declared functions — recognize the names
      * BEFORE ordinary resolution would call them undeclared. Arguments
      * are typed and decayed (a va_list is an ARRAY and decays to the
@@ -862,6 +962,15 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
             e->is_lvalue = false;
             return e;
         }
+        if (e->kind == AST_EXPR_SIZEOF && operand &&
+            (operand->kind == TY_VOID || operand->kind == TY_FUNC)) {
+            warn_pedwarn_at(s->lang->warnings, WARN_POINTER_ARITH, e->span,
+                            "invalid application of 'sizeof' to type '%s'",
+                            type_to_str(s->arena, operand));
+            e->sem_type = type_basic(TY_ULONG);
+            e->is_lvalue = false;
+            return e;
+        }
         /* An incomplete operand has no size — an error at the point that
          * demanded it, never a silent zero. */
         if (operand && !layout_is_complete_for_size(operand)) {
@@ -998,6 +1107,7 @@ static AstNode *expr(Sema *s, AstNode *e)
                     type_to_str(s->arena, op->sem_type));
                 return poison(s, e);
             }
+            mark_lvalue_write(op, false);
             e->sem_type = conv_strip_quals(s, op->sem_type);
             e->is_lvalue = false;
             return e;
@@ -1090,6 +1200,13 @@ static AstNode *expr(Sema *s, AstNode *e)
     case AST_EXPR_COMPOUND_LIT: {
         Type *t = sema_type_from_ast(s, e->type, e->span);
 
+        /* Initializer expressions are part of the compound literal's
+         * evaluation.  Type them before leaving the enclosing scope so
+         * identifier reads count for the unused-* family. */
+        if (e->init && e->init->kind == AST_INIT_LIST)
+            expr_init_list(s, e->init);
+        else if (e->init)
+            e->init = expr(s, e->init);
         /* A compound literal IS an lvalue — `(int[]){1,2}[0]` and
          * `&(struct S){0}` both depend on that. Its storage duration was
          * decided by the parser from the scope it appeared in (Sprint 10);
