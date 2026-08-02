@@ -61,8 +61,11 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings test-musl-warnings test-tinycc-warnings check-warn-matrix check-format-matrix fuzz-smoke \
-        fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install asan ubsan
+.PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
+        test-memsafe-foundation test-musl-warnings test-tinycc-warnings \
+        check-warn-matrix check-format-matrix fuzz-smoke \
+        fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
+        asan ubsan
 
 # libcgf_rt.a: the runtime the Sprint 27 link line reserves a slot for.
 # Built by the HOST cc (RT_CC) until Sprint 58 flips it to cgf — the
@@ -235,6 +238,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/warn
 	$(MAKE) BUILD=$(BUILD) test-flow-warnings
+	$(MAKE) BUILD=$(BUILD) test-memsafe-foundation
 	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
 	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
@@ -307,6 +311,11 @@ test-warndiff: $(BUILD)/cgfried
 test-flow-warnings: $(BUILD)/cgfried
 	CGF_FLOW_LEVEL_WORK=$(BUILD)/flow-levels \
 	    sh scripts/warn_flow_levels.sh $(BUILD)/cgfried
+
+test-memsafe-foundation: $(BUILD)/cgfried
+	CGF_MEMSAFE_WORK=$(BUILD)/memsafe-foundation \
+	    sh scripts/memsafe_foundation.sh $(BUILD)/cgfried \
+	    tests/memsafe/foundation
 
 test-musl-warnings: $(BUILD)/cgfried
 	CGF_MUSL_WARN_WORK=$(BUILD)/musl-warn sh scripts/musl_warn_dryrun.sh \

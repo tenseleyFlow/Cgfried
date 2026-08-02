@@ -32,6 +32,12 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test-san
 
+  memsafe-foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: make CC=gcc test-memsafe-foundation
+
   # Sprint 38's compatibility gate uses the actual GCC 8 diagnostic oracle.
   # Local runs may skip when gcc-8 is unavailable; CI may not.
   warn-diff-gcc8:
