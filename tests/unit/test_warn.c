@@ -48,6 +48,9 @@ void test_warn_metadata_groups(TestCtx *t)
                                        "duplicate-decl-specifier",
                                        "enum-compare",
                                        "format",
+                                       "format-contains-nul",
+                                       "format-extra-args",
+                                       "format-zero-length",
                                        "int-in-bool-context",
                                        "implicit",
                                        "implicit-function-declaration",
@@ -104,7 +107,7 @@ void test_warn_metadata_groups(TestCtx *t)
     size_t i, nwall = 0, nextra = 0;
     const char *prev = "";
 
-    T_ASSERT_EQ_INT(t, sizeof(wall) / sizeof(wall[0]), 45);
+    T_ASSERT_EQ_INT(t, sizeof(wall) / sizeof(wall[0]), 48);
     T_ASSERT_EQ_INT(t, sizeof(extra) / sizeof(extra[0]), 16);
     for (i = 0; i < warn_info_count(); i++) {
         const WarnInfo *info = warn_info_at(i);
@@ -221,10 +224,22 @@ void test_warn_flag_order_table(TestCtx *t)
          0,
          DIAG_WARNING},
         {{"-Wformat"}, WARN_FORMAT, 1, DIAG_WARNING},
+        {{"-Wformat"}, WARN_FORMAT_EXTRA_ARGS, 1, DIAG_WARNING},
+        {{"-Wformat"}, WARN_NONNULL, 1, DIAG_WARNING},
+        {{"-Wno-format", "-Wall"}, WARN_NONNULL, 1, DIAG_WARNING},
+        {{"-Wall", "-Wno-format"}, WARN_NONNULL, 0, DIAG_WARNING},
+        {{"-Wformat", "-Wno-format"}, WARN_NONNULL, 0, DIAG_WARNING},
         {{"-Wformat"}, WARN_FORMAT_SECURITY, 0, DIAG_WARNING},
         {{"-Wformat=0"}, WARN_FORMAT, 0, DIAG_WARNING},
         {{"-Wformat=1"}, WARN_FORMAT_SECURITY, 0, DIAG_WARNING},
         {{"-Wformat=2"}, WARN_FORMAT_SECURITY, 1, DIAG_WARNING},
+        {{"-Wformat=2"}, WARN_FORMAT_SIGNEDNESS, 0, DIAG_WARNING},
+        {{"-Wformat=2", "-Wno-format-extra-args"},
+         WARN_FORMAT_EXTRA_ARGS,
+         0,
+         DIAG_WARNING},
+        {{"-Werror=format=2"}, WARN_FORMAT_SECURITY, 1, DIAG_ERROR},
+        {{"-Werror=format=2"}, WARN_FORMAT_EXTRA_ARGS, 1, DIAG_ERROR},
         {{"-Wformat=2", "-Wformat=1"}, WARN_FORMAT_SECURITY, 0, DIAG_WARNING},
         {{"-Wno-format-security", "-Wformat=2"},
          WARN_FORMAT_SECURITY,
@@ -522,16 +537,26 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
 
     T_ASSERT(t, warn_option_known("-Wall"));
     T_ASSERT(t, warn_option_known("-Wformat=2"));
+    T_ASSERT(t, warn_option_known("-Werror=format=2"));
     T_ASSERT(t, !warn_option_known("-Wformat=3"));
     T_ASSERT(t, !warn_option_known("-Wno-format=2"));
+    T_ASSERT(t, !warn_option_known("-Wformat-security=2"));
+    T_ASSERT(t, !warn_option_known("-Werror=format-security=2"));
     T_ASSERT(t, !warn_flag(w, "-Wformat=3"));
     T_ASSERT(t, !warn_flag(w, "-Wno-format=2"));
+    T_ASSERT(t, !warn_flag(w, "-Wformat-security=2"));
     T_ASSERT(t, warn_option_known("-Werror=unused-variable"));
     T_ASSERT(t, warn_option_known("-Wno-error=unused-variable"));
     T_ASSERT(t, !warn_option_known("-Wnot-a-real-warning"));
     T_ASSERT(t, !warn_option_known("-Werror=not-a-real-warning"));
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wformat=3"),
                     WARN_OPTION_BAD_FORMAT_LEVEL);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wformat-security=2"),
+                    WARN_OPTION_UNKNOWN_POSITIVE);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Werror=format-security=2"),
+                    WARN_OPTION_UNKNOWN_PROMOTION);
+    T_ASSERT_EQ_STR(t, warn_flag_name(WARN_FORMAT), "format=");
+    T_ASSERT_EQ_STR(t, warn_flag_name(WARN_FORMAT_SIGNEDNESS), "format=");
     T_ASSERT_EQ_STR(t,
                     warn_option_bad_value_label(WARN_OPTION_BAD_FORMAT_LEVEL),
                     "-Wformat=");

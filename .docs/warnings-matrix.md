@@ -60,19 +60,19 @@ half, “control reaches end of non-void function.”
 | -Wextra | — | done | tests/unit/test_s38_warn_defaults.c |
 | -Wfloat-conversion | — | planned-s39 | — |
 | -Wfloat-equal | — | planned-s39 | — |
-| -Wformat | — | planned-s39 | — |
-| -Wformat-contains-nul | — | planned-s39 | — |
-| -Wformat-extra-args | — | planned-s39 | — |
-| -Wformat-nonliteral | — | planned-s39 | — |
-| -Wformat-overflow | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39) | — |
-| -Wformat-security | — | planned-s39 | — |
-| -Wformat-signedness | — | planned-s39 | — |
-| -Wformat-truncation | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39) | — |
-| -Wformat-y2k | — | planned-s39 | — |
-| -Wformat-zero-length | — | planned-s39 | — |
-| -Wformat= | — | planned-s39 | — |
-| -Wformat-overflow= | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39) | — |
-| -Wformat-truncation= | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39) | — |
+| -Wformat | — | done | tests/warn/format/grammar/printf_mismatch.c |
+| -Wformat-contains-nul | — | done | tests/warn/format/levels/contains_nul.c |
+| -Wformat-extra-args | — | done | tests/warn/format/levels/extra_args.c |
+| -Wformat-nonliteral | — | done | tests/warn/format/levels/nonliteral_level2.c |
+| -Wformat-overflow | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39 §Defer) | — |
+| -Wformat-security | — | done | tests/warn/format/levels/security_level2.c |
+| -Wformat-signedness | — | done | tests/warn/format/levels/signedness_on.c |
+| -Wformat-truncation | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39 §Defer) | — |
+| -Wformat-y2k | — | done | tests/warn/format/levels/y2k_on.c |
+| -Wformat-zero-length | — | done | tests/warn/format/levels/zero_length.c |
+| -Wformat= | — | done | tests/warn/format/levels/security_level1.c |
+| -Wformat-overflow= | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39 §Defer) | — |
+| -Wformat-truncation= | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39 §Defer) | — |
 | -Wif-not-aligned | — | out-of-scope: attribute semantics land in Sprint 55 | — |
 | -Wignored-qualifiers | — | planned-s39 | — |
 | -Wignored-attributes | — | out-of-scope: attribute semantics land in Sprint 55 | — |
@@ -112,14 +112,14 @@ half, “control reaches end of non-void function.”
 | -Wswitch-enum | — | done | tests/warn/frontend/switch-enum/fire_default_does_not_suppress.c |
 | -Wswitch-bool | — | planned-s39 | — |
 | -Wmissing-attributes | — | out-of-scope: attribute semantics land in Sprint 55 | — |
-| -Wmissing-format-attribute | — | planned-s39 | — |
+| -Wmissing-format-attribute | — | out-of-scope: format attribute semantics land in Sprint 55 | — |
 | -Wmissing-include-dirs | — | planned-s39 | — |
 | -Wmissing-parameter-type | — | done | tests/warn/frontend/missing-parameter-type/fire_untyped_knr_parameter.c |
 | -Wmissing-prototypes | — | done | tests/warn/frontend/missing-prototypes/fire_external_definition.c |
 | -Wmultichar | — | planned-s39 | — |
 | -Wnarrowing | — | planned-s39 | — |
 | -Wnested-externs | — | planned-s39 | — |
-| -Wnonnull | — | planned-s39 | — |
+| -Wnonnull | — | done | tests/warn/format/levels/nonnull_implied.c |
 | -Wnormalized | — | out-of-scope: Unicode normalization diagnostics are post-v0.1.0 | — |
 | -Wnormalized= | — | out-of-scope: Unicode normalization diagnostics are post-v0.1.0 | — |
 | -Wold-style-declaration | — | done | tests/warn/frontend/old-style-declaration/fire_storage_class_order.c |
@@ -255,6 +255,7 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Wcompare-distinct-pointer-types | -Wcompare-distinct-pointer-types | planned-s39 | — |
 | -Wempty-declaration | -Wempty-declaration | done | tests/warn/pragma/migrated_policy.c |
 | -Wfatal-errors | -Wfatal-errors | out-of-scope: accepted for driver compatibility; early-stop policy is post-Sprint 37 | — |
+| -Wformat-unbounded-scanf | — | done | tests/warn/format/grammar/unbounded_scanf_on.c |
 | -Wframe-larger-than | — | out-of-scope: normalized parameter spelling; resource diagnostics are post-v0.1.0 | — |
 | -Winitializer-string-too-long | -Wexcess-initializers | done | tests/warn/pragma/initializer_string.c |
 | -Winvalid-function-specifier | -Wignored-attributes | done | tests/warn/pragma/migrated_policy.c |

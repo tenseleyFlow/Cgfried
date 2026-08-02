@@ -302,6 +302,7 @@ static bool rendered_warning_line(const char *line, size_t len,
     static const char severity[] = ": warning: ";
     const char *sev = NULL;
     const char *suffix = NULL;
+    bool base_format = false;
     size_t sev_pos = 0;
     size_t i;
 
@@ -347,8 +348,16 @@ static bool rendered_warning_line(const char *line, size_t len,
     *message_len = (size_t)(suffix - sev);
     *flag = suffix + 4;
     *flag_len = (size_t)((line + len - 1) - *flag);
+    /* GCC's base format checker is rendered as [-Wformat=].  Keep the
+     * directive vocabulary canonical (`format`) while rejecting every
+     * other malformed trailing '=' spelling. */
+    if (*flag_len == 7 && memcmp(*flag, "format=", 7) == 0) {
+        *flag_len = 6;
+        base_format = true;
+    }
     if ((*flag)[0] == '-' || (*flag)[0] == '=' ||
-        (*flag)[*flag_len - 1] == '-' || (*flag)[*flag_len - 1] == '=') {
+        (*flag)[*flag_len - 1] == '-' ||
+        ((*flag)[*flag_len - 1] == '=' && !base_format)) {
         *flag = NULL;
         *flag_len = 0;
         return true;

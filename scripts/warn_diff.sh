@@ -18,6 +18,7 @@ command -v "$GCC8" >/dev/null 2>&1 || {
 rm -rf "$WORK"
 mkdir -p "$WORK"
 agree=0
+normalized=0
 annotated=0
 disagree=0
 serial=0
@@ -49,6 +50,19 @@ check() {
     gcc_file=$file
     cgf_mode=
     gcc_mode=
+    gcc_flags=$flags
+    cgf_only=$(sed -n \
+        's@^// DIVERGES(gcc-8): cgf-only-warning=\([a-z0-9-][a-z0-9-]*\)$@\1@p' \
+        "$file")
+
+    if [ -n "$cgf_only" ]; then
+        gcc_flags=
+        for flag in $flags; do
+            if [ "$flag" != "-W$cgf_only" ]; then
+                gcc_flags="$gcc_flags $flag"
+            fi
+        done
+    fi
 
     # GCC rejects the runner's // metadata in strict C89 before reaching the
     # program.  Blank only those harness lines in a line-preserving oracle
@@ -73,13 +87,34 @@ check() {
     else
         cgf_status=$?
     fi
-    if "$GCC8" $flags $gcc_mode "$gcc_file" >/dev/null 2>"$gcc_err"; then
+    if "$GCC8" $gcc_flags $gcc_mode "$gcc_file" >/dev/null 2>"$gcc_err"; then
         gcc_status=0
     else
         gcc_status=$?
     fi
     warning_set "$cgf_err" "$cgf_set"
     warning_set "$gcc_err" "$gcc_set"
+
+    if [ -n "$cgf_only" ]; then
+        cgf_normalized="$WORK/$serial.cgf.normalized.set"
+        cgf_extension="$WORK/$serial.cgf.extension.set"
+        awk -v flag="$cgf_only" '$2 == flag { print }' "$cgf_set" \
+            > "$cgf_extension"
+        awk -v flag="$cgf_only" '$2 != flag { print }' "$cgf_set" \
+            > "$cgf_normalized"
+        extension_count=$(wc -l < "$cgf_extension" | tr -d ' ')
+        if [ "$extension_count" -eq 1 ] &&
+            [ "$cgf_status" -eq "$gcc_status" ] &&
+            cmp -s "$cgf_normalized" "$gcc_set"; then
+            normalized=$((normalized + 1))
+            return
+        fi
+        echo "warn_diff: DISAGREE $file: cgf-only $cgf_only contract failed" >&2
+        echo "warn_diff: ours-exit=$cgf_status gcc8-exit=$gcc_status extension-count=$extension_count" >&2
+        diff -u "$gcc_set" "$cgf_normalized" >&2 || true
+        disagree=$((disagree + 1))
+        return
+    fi
 
     if [ "$cgf_status" -eq "$gcc_status" ] && cmp -s "$cgf_set" "$gcc_set"; then
         agree=$((agree + 1))
@@ -100,6 +135,6 @@ for file in $(find tests/warn -type f -name '*.c' | sort); do
     check "$file"
 done
 
-total=$((agree + annotated + disagree))
-echo "warn_diff: $agree/$total exact warning sets match GCC 8; $annotated annotated; $disagree unannotated"
+total=$((agree + normalized + annotated + disagree))
+echo "warn_diff: $agree/$total exact warning sets match GCC 8; $normalized normalized CGF-only; $annotated annotated; $disagree unannotated"
 [ "$disagree" -eq 0 ]

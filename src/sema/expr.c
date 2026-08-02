@@ -2,6 +2,7 @@
 
 #include "sema/sema.h"
 #include "util/dlev.h"
+#include "warn/format.h"
 #include "warn/warn.h"
 
 /* Expression typing. Each node gets a sem_type and an is_lvalue bit, and
@@ -163,6 +164,25 @@ static Type *int_literal_type(Sema *s, const Token *t)
         return type_basic(TY_ULLONG);
     }
     return type_basic(TY_INT);
+}
+
+static Type *literal_element_type(Sema *s, EncPrefix enc)
+{
+    switch (enc) {
+    case ENC_NONE:
+    case ENC_U8:
+        return type_basic(TY_CHAR);
+    case ENC_WIDE:
+        /* __WCHAR_TYPE__ is target data.  arm64-linux is the sole current
+         * unsigned-wchar target; the other four use int. */
+        return type_basic(s->target.kind == CGF_TARGET_ARM64_LINUX ? TY_UINT
+                                                                   : TY_INT);
+    case ENC_U16:
+        return type_basic(TY_USHORT);
+    case ENC_U32:
+        return type_basic(TY_UINT);
+    }
+    return type_basic(TY_CHAR);
 }
 
 /* --- operators ----------------------------------------------------------- */
@@ -923,6 +943,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 callee_name ? "'" : "", (unsigned)ft->nparams,
                 (unsigned)e->nargs);
     }
+    warn_format_check_call(s->lang->warnings, s, e);
     e->sem_type = ft->base;
     /* A function call is never an lvalue, even returning a struct. */
     e->is_lvalue = false;
@@ -1061,9 +1082,12 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->sem_type = int_literal_type(s, e->tok);
         return e;
     case AST_EXPR_CHAR:
-        /* A character constant has type int in C (6.4.4.4p10) — not char,
-         * which is the C++ rule and a classic source of sizeof surprises. */
-        e->sem_type = type_basic(TY_INT);
+        /* Ordinary character constants have type int.  Prefixed constants
+         * instead have wchar_t/char16_t/char32_t (6.4.4.4p10); format %lc
+         * depends on retaining that target-aware distinction. */
+        e->sem_type = e->tok->enc == ENC_NONE
+                          ? type_basic(TY_INT)
+                          : literal_element_type(s, (EncPrefix)e->tok->enc);
         return e;
     case AST_EXPR_FLOAT:
         e->sem_type = e->tok->float_type == 0   ? type_basic(TY_FLOAT)
@@ -1071,12 +1095,11 @@ static AstNode *expr(Sema *s, AstNode *e)
                                                 : type_basic(TY_LDOUBLE);
         return e;
     case AST_EXPR_STRING: {
-        /* A string literal is an ARRAY of char, and an lvalue — which is
-         * why `sizeof "abc"` is 4 rather than a pointer's width. */
-        Type *arr = type_array(s->arena, type_basic(TY_CHAR));
+        Type *arr = type_array(
+            s->arena, literal_element_type(s, (EncPrefix)e->tok->str.enc));
 
         arr->has_size = true;
-        arr->size = (u64)e->tok->str.nbytes + 1;
+        arr->size = (u64)e->tok->str.nelems + 1;
         e->sem_type = arr;
         e->is_lvalue = true;
         return e;

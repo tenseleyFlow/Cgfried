@@ -61,7 +61,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san test-ppdiff test-warndiff test-musl-warnings check-warn-matrix fuzz-smoke \
+.PHONY: all test test-san test-ppdiff test-warndiff test-musl-warnings test-tinycc-warnings check-warn-matrix check-format-matrix fuzz-smoke \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install asan ubsan
 
 # libcgf_rt.a: the runtime the Sprint 27 link line reserves a slot for.
@@ -234,7 +234,9 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
 	CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/warn
+	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
+	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
 	sh scripts/lex_diff.sh $(BUILD)/cgfried
@@ -308,6 +310,14 @@ test-musl-warnings: $(BUILD)/cgfried
 	@if grep -q '^HARNESS_SKIP ' $(BUILD)/musl-warn.log; then p=muslwarn-norefs; \
 	    else p=muslwarn; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/musl-warn.log
+
+test-tinycc-warnings: $(BUILD)/cgfried
+	CGF_TINYCC_WARN_WORK=$(BUILD)/tinycc-warn sh scripts/tinycc_warn_dryrun.sh \
+	    $(BUILD)/cgfried > $(BUILD)/tinycc-warn.log 2>&1; s=$$?; \
+	    cat $(BUILD)/tinycc-warn.log; exit $$s
+	@if grep -q '^HARNESS_SKIP ' $(BUILD)/tinycc-warn.log; then p=tinyccwarn-norefs; \
+	    else p=tinyccwarn; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/tinycc-warn.log
 
 # Fuzz smoke: both modes, fixed seeds, must be clean. Long runs are
 # manual/nightly (--iters). Findings reproduce from their seed alone.
@@ -405,3 +415,7 @@ clean:
                $(PPDIFF_OBJ:.o=.d) $(FUZZ_OBJ:.o=.d) $(FEFUZZ_OBJ:.o=.d) \
                $(IRFUZZ_OBJ:.o=.d) $(GENLAYOUT_OBJ:.o=.d) \
                $(OBJDIFF_OBJ:.o=.d) $(FPDIFF_OBJ:.o=.d))
+
+check-format-matrix:
+	CGF_FORMAT_MATRIX_WORK=$(BUILD)/format-matrix-check \
+	    sh scripts/check_format_matrix.sh

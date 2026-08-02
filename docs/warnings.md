@@ -55,6 +55,33 @@ Every warning-controlled diagnostic ends with the option that controls it:
 
 The first form marks a warning; the `-Werror=` form means the same diagnostic
 was emitted as an error. Notes and hard errors do not carry warning suffixes.
+GCC's base format checker uses its parameter-family spelling, so those
+diagnostics end in `[-Wformat=]` or `[-Werror=format=]`.
+
+## Format checking
+
+`-Wformat` type-checks literal formats for the known `printf`, `scanf`,
+`strftime`, and `strfmon` families after default argument promotions have
+been applied. It validates flags, widths, precisions, length modifiers,
+positional operands, scansets, POSIX allocation conversions, wide conversions,
+and missing or excess arguments. Direct calls are recognized by external
+name plus a compatible rough signature, including every fixed parameter; an
+incompatible user declaration or an internal-linkage function with the same
+name is not treated as a builtin.
+
+`-Wformat=2` additionally enables nonliteral, security, and two-digit-year
+diagnostics. The y2k check covers explicit two-digit years and the
+locale-dependent `strftime` `%c`/`%x` forms. The contained-NUL, extra-argument,
+and zero-length checks are part of level 1 and can be disabled individually.
+Same-width integer-sign mismatches are checked only by
+`-Wformat-signedness`. A null format argument is covered by the `-Wnonnull`
+implication of `-Wformat`.
+
+Cgfried also provides `-Wformat-unbounded-scanf`, off by default, which warns
+when an unbounded `%s` or `%[` writes into a fixed-size array. This is a
+Cgfried safety extension rather than GCC 8 behavior. Value-range sizing for
+`-Wformat-overflow` and `-Wformat-truncation`, format attributes, and wide
+stdio functions are outside v0.1.0.
 
 ## Source-level control
 

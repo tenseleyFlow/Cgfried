@@ -42,6 +42,8 @@ expect warn_check_bad_flag.c 1 "WARN_CHECK not satisfied"
 expect warn_check_bad_message.c 1 "WARN_CHECK not satisfied"
 expect warn_count_two.c 0 "pass=1"
 expect warn_count_driver.c 0 "pass=1"
+expect warn_count_format_suffix.c 0 "pass=1"
+expect warn_count_bad_equals.c 1 "lacks mandatory [-W<flag>] suffix"
 expect warn_count_one.c 1 "WARN_COUNT expected 2, got 1"
 expect warn_count_zero.c 0 "pass=1"
 expect warn_count_zero_fail.c 1 "WARN_COUNT expected 0, got 1"
@@ -96,7 +98,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=51 pass=18 fail=19 xfail=1 xpass=1 skip=1 config=11"*) ;;
+*"total=53 pass=19 fail=20 xfail=1 xpass=1 skip=1 config=11"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)
