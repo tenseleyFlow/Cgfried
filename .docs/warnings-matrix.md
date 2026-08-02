@@ -229,7 +229,7 @@ function.” Both are complete.
 | -Wtype-limits | — | done | tests/warn/frontend/type-limits/fire_unsigned_zero.c |
 | -Wuninitialized | — | done | tests/warn/flow/uninitialized/definite-return.c |
 | -Wmaybe-uninitialized | — | done | tests/warn/flow/uninitialized/maybe-diamond.c |
-| -Wunreachable-code | — | done | tests/warn/flow/unreachable/after-return.c |
+| -Wunreachable-code | — (GCC 8 accepts this option as a no-op) | done | tests/warn/flow/unreachable/after-return.c |
 | -Wunused | — | done | tests/unit/test_s38_warn_defaults.c |
 | -Wunused-but-set-parameter | — | done | tests/warn/frontend/unused-but-set-parameter/fire.c |
 | -Wunused-but-set-variable | — | done | tests/warn/frontend/unused-but-set-variable/fire.c |

@@ -100,7 +100,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 487 tests, 95258 assertions, 0 failures
+unit: 488 tests, 95260 assertions, 0 failures
 cgf-test: total=497 pass=497 fail=0 xfail=0 xpass=0 skip=0 config=0
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
@@ -149,7 +149,7 @@ therefore supplies the memory-safety proof available on this machine; do not
 misreport Valgrind as having run.
 
 Local Sprint 40 validation note (2026-08-02): fresh GCC 16.1, Clang 22.1 and
-complete ASan+UBSan suites pass with 487 unit tests / 95,258 assertions,
+complete ASan+UBSan suites pass with 488 unit tests / 95,260 assertions,
 497/497 program fixtures, 477/477 warning fixtures and 77 flow fixtures across
 385 byte-stable optimization-level runs. The real `gcc:8` container reports
 409 exact warning sets, 36 narrowly normalized Cgfried-only warnings, 32

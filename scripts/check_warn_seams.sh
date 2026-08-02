@@ -29,6 +29,18 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
+# Sprint 40's flow service remains private to src/warn until Sprint 42 adds
+# the memory-safety client. Update this gate when that boundary deliberately
+# opens; do not let incidental includes become an undocumented second client.
+hits=$(grep -rnF '#include "warn/flow.h"' src tests include \
+    --include='*.c' --include='*.h' |
+    grep -v '^src/warn/' || true)
+if [ -n "$hits" ]; then
+    echo "check_warn_seams: flow service included outside src/warn:" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
 if [ "$status" -eq 0 ]; then
     echo "check_warn_seams: warning option grammar is centralized"
 fi

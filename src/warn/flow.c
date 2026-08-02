@@ -293,7 +293,7 @@ static void emit_return_type(WarnCtx *warnings, FlowCtx *fc)
 static bool same_span(Span a, Span b)
 {
     return a.file_id == b.file_id && a.line == b.line && a.col == b.col &&
-           a.len == b.len && a.seq == b.seq;
+           a.len == b.len && a.seq == b.seq && a.origin == b.origin;
 }
 
 static void emit_unreachable(WarnCtx *warnings, FlowCtx *fc)

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ir/ir.h"
 #include "unit.h"
 #include "util/arena.h"
 #include "warn/warn.h"
@@ -26,6 +27,46 @@ static WarnCtx *new_warn(Arena *a, WarnCapture *cap)
     memset(cap, 0, sizeof(*cap));
     diag_set_sink(dc, sink);
     return warn_ctx_new(a, dc);
+}
+
+void test_warn_flow_span_origin_is_part_of_dedup_identity(TestCtx *t)
+{
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    BlockId entry;
+    Span function_span = {0};
+    Span removed = {0};
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wunreachable-code"));
+    m = ir_module_new(&a, warn_diag(w));
+    f = ir_func_new(m, "origin_dedup", IRT_VOID, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    function_span.file_id =
+        diag_add_file(warn_diag(w), "origin-dedup.c", "f\nx\n", 4);
+    function_span.line = 1;
+    function_span.col = 1;
+    function_span.len = 1;
+    f->loc = ir_intern_span(m, function_span);
+    ir_builder_at(&b, m, f, entry);
+    ir_builder_set_span(&b, function_span);
+    ir_build_ret(&b, NULL);
+
+    removed = function_span;
+    removed.line = 2;
+    removed.seq = 7;
+    ir_func_record_removed_span(f, entry, removed, 0);
+    removed.origin = SPAN_ORIGIN_ANY_MACRO;
+    ir_func_record_removed_span(f, entry, removed, 0);
+
+    warn_flow_module(w, m);
+    T_ASSERT_EQ_INT(t, cap.count, 2);
+    arena_free_all(&a);
 }
 
 static bool flag_in(const char *flag, const char *const *set, size_t count)
