@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ir/ir.h"
 #include "unit.h"
 #include "util/arena.h"
 #include "warn/warn.h"
@@ -26,6 +27,46 @@ static WarnCtx *new_warn(Arena *a, WarnCapture *cap)
     memset(cap, 0, sizeof(*cap));
     diag_set_sink(dc, sink);
     return warn_ctx_new(a, dc);
+}
+
+void test_warn_flow_span_origin_is_part_of_dedup_identity(TestCtx *t)
+{
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    BlockId entry;
+    Span function_span = {0};
+    Span removed = {0};
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wunreachable-code"));
+    m = ir_module_new(&a, warn_diag(w));
+    f = ir_func_new(m, "origin_dedup", IRT_VOID, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    function_span.file_id =
+        diag_add_file(warn_diag(w), "origin-dedup.c", "f\nx\n", 4);
+    function_span.line = 1;
+    function_span.col = 1;
+    function_span.len = 1;
+    f->loc = ir_intern_span(m, function_span);
+    ir_builder_at(&b, m, f, entry);
+    ir_builder_set_span(&b, function_span);
+    ir_build_ret(&b, NULL);
+
+    removed = function_span;
+    removed.line = 2;
+    removed.seq = 7;
+    ir_func_record_removed_span(f, entry, removed, 0);
+    removed.origin = SPAN_ORIGIN_ANY_MACRO;
+    ir_func_record_removed_span(f, entry, removed, 0);
+
+    warn_flow_module(w, m);
+    T_ASSERT_EQ_INT(t, cap.count, 2);
+    arena_free_all(&a);
 }
 
 static bool flag_in(const char *flag, const char *const *set, size_t count)
@@ -542,6 +583,9 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
     T_ASSERT(t, !warn_option_known("-Wno-format=2"));
     T_ASSERT(t, !warn_option_known("-Wformat-security=2"));
     T_ASSERT(t, !warn_option_known("-Werror=format-security=2"));
+    T_ASSERT(t, warn_option_known("-Wmaybe-uninitialized=strict"));
+    T_ASSERT(t, warn_option_known("-Wno-maybe-uninitialized"));
+    T_ASSERT(t, !warn_option_known("-Wmaybe-uninitialized=lax"));
     T_ASSERT(t, !warn_flag(w, "-Wformat=3"));
     T_ASSERT(t, !warn_flag(w, "-Wno-format=2"));
     T_ASSERT(t, !warn_flag(w, "-Wformat-security=2"));
@@ -574,6 +618,12 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
         t,
         warn_option_bad_value_label(WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL),
         "-Wimplicit-fallthrough=");
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wmaybe-uninitialized=lax"),
+                    WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL);
+    T_ASSERT_EQ_STR(
+        t,
+        warn_option_bad_value_label(WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL),
+        "-Wmaybe-uninitialized=");
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wnot-a-real-warning"),
                     WARN_OPTION_UNKNOWN_POSITIVE);
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wno-not-a-real-warning"),
@@ -583,6 +633,17 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wpragmas"), WARN_PRAGMAS);
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wno-pragmas"), WARN_NONE);
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wformat=2"), WARN_NONE);
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, !warn_maybe_uninitialized_strict(w));
+    T_ASSERT(t, warn_flag(w, "-Wmaybe-uninitialized=strict"));
+    T_ASSERT(t, warn_maybe_uninitialized_strict(w));
+    T_ASSERT(t, warn_enabled(w, WARN_MAYBE_UNINITIALIZED, (Span){0}));
+    T_ASSERT(t, warn_flag(w, "-Wno-maybe-uninitialized"));
+    T_ASSERT(t, !warn_maybe_uninitialized_strict(w));
+    T_ASSERT(t, !warn_enabled(w, WARN_MAYBE_UNINITIALIZED, (Span){0}));
     arena_free_all(&a);
 
     arena_init(&a);

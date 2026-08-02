@@ -769,6 +769,13 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
                         tok_desc(start));
             break;
         }
+        /* 6.7.1p6: `register` is the only storage class permitted in a
+         * parameter declaration.  AstParam intentionally carries no
+         * storage-duration state, so reject the invalid forms before the
+         * information is discarded. */
+        if (s.storage & ~(u32)AST_SC_REGISTER)
+            parse_error(p, start,
+                        "invalid storage class in function parameter");
         base = ast_type_new(p->arena, ATY_BASE, start->span);
         base->base = soup_resolve(p, &s, start);
         base->typedef_name = s.typedef_name;

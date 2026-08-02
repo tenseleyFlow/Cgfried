@@ -102,6 +102,38 @@ void test_sema_basic_types_interned(TestCtx *t)
     T_ASSERT(t, !type_compatible(type_basic(TY_CHAR), type_basic(TY_SCHAR)));
 }
 
+void test_sema_rejects_invalid_lowering_inputs(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f, "int f(const void) { return 0; }\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "int f(int n, ...) { __builtin_va_list ap; "
+             "return __builtin_va_arg(sizeof ap, int); }\n",
+             STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(double d) { return d == f; }\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(double a, double b) { a %= b; return 0; }\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(int *p, double d) { p += d; return 0; }\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(int *p, int *q) { p *= q; return 0; }\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+}
+
 /* --- the compatibility truth table --------------------------------------- */
 
 typedef struct {

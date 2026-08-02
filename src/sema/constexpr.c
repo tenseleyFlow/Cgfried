@@ -153,13 +153,16 @@ Sf constexpr_float_literal(Sema *s, AstNode *e)
     SfFormat f = constexpr_format_of(s, e->sem_type);
     Sf v = constexpr_parse_float(e->tok ? e->tok->spelling : NULL, f, &st);
 
-    if (st.overflow)
+    if (st.overflow && !e->fp_range_diagnosed) {
         warn_at(s->lang->warnings, WARN_OVERFLOW, e->span,
                 "floating constant exceeds range of '%s'",
                 type_to_str(s->arena, e->sem_type));
-    else if (st.underflow && st.inexact)
+        e->fp_range_diagnosed = true;
+    } else if (st.underflow && st.inexact && !e->fp_range_diagnosed) {
         warn_at(s->lang->warnings, WARN_OVERFLOW, e->span,
                 "floating constant truncated to zero");
+        e->fp_range_diagnosed = true;
+    }
     return v;
 }
 

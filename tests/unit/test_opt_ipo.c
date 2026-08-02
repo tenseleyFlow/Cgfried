@@ -337,10 +337,15 @@ void test_opt_ipo_variadic_and_abi_return_signatures_are_guarded(TestCtx *t)
                   "entry():\n"
                   "    ret\n"
                   "}\n"
+                  "func i32 @old(i32 %x) unproto internal {\n"
+                  "entry():\n"
+                  "    ret i32 %x\n"
+                  "}\n"
                   "func void @main(ptr %p) {\n"
                   "entry():\n"
                   "    call void @var(i32 1) va\n"
                   "    call void @aggregate(ptr %p sret(16), i32 9)\n"
+                  "    %x = call i32 @old()\n"
                   "    ret\n"
                   "}\n");
     T_ASSERT(t, m && ir_verify(f.dc, m));
@@ -354,6 +359,7 @@ void test_opt_ipo_variadic_and_abi_return_signatures_are_guarded(TestCtx *t)
         T_ASSERT_EQ_INT(t, m->funcs[0].nparams, 1);
         T_ASSERT_EQ_INT(t, m->funcs[1].nparams, 1);
         T_ASSERT_EQ_INT(t, m->funcs[1].param_types[0], IRT_PTR);
+        T_ASSERT_EQ_INT(t, m->funcs[2].nparams, 1);
         T_ASSERT(t, ir_verify(f.dc, m));
     }
     if (report) {
@@ -363,6 +369,7 @@ void test_opt_ipo_variadic_and_abi_return_signatures_are_guarded(TestCtx *t)
         log[n] = '\0';
         T_ASSERT(t, strstr(log, "ipo_variadic_signature") != NULL);
         T_ASSERT(t, strstr(log, "ipo_abi_return_param") != NULL);
+        T_ASSERT(t, strstr(log, "ipo_unprototyped_signature") != NULL);
         fclose(report);
     }
     arena_free_all(&f.arena);

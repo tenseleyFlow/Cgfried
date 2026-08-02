@@ -553,6 +553,14 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
         OPT_BAIL(&fc, "inline", "inl_va_start");
         return false;
     }
+    /* A no-prototype call may omit body parameters or pass differently
+     * promoted types.  Mapping the callee's concrete parameter SSA values
+     * onto such operands would either index past the call or change C's
+     * old-style ABI semantics. */
+    if (callee->unprototyped) {
+        OPT_BAIL(&fc, "inline", "inl_unprototyped_signature");
+        return false;
+    }
     if (caller->calls_setjmp || callee->calls_setjmp) {
         OPT_BAIL(&fc, "inline", "inl_setjmp");
         return false;

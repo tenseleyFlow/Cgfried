@@ -34,9 +34,7 @@ awk -F '|' '
         printf "check_warn_matrix: malformed flag on line %d: %s\n", NR, flag > "/dev/stderr"
         bad = 1
     }
-    if (status != "done" && status != "planned-s38" &&
-        status != "planned-s39" && status != "planned-s40" &&
-        status !~ /^out-of-scope: .+/) {
+    if (status != "done" && status !~ /^out-of-scope: .+/) {
         printf "check_warn_matrix: invalid or missing status on line %d: %s\n", NR, status > "/dev/stderr"
         bad = 1
     }

@@ -319,3 +319,187 @@ void test_mem2reg_undef_log_survives_renumber_with_block_and_span(TestCtx *t)
     T_ASSERT(t, ir_verify(f.dc, m));
     arena_free_all(&f.arena);
 }
+
+void test_mem2reg_undef_log_distinguishes_definite_maybe_and_self(TestCtx *t)
+{
+    OFix f;
+    IrModule *m;
+    OptConfig cfg;
+    const UndefUse *uses;
+    u32 nuses = 0;
+
+    ofix_init(&f);
+    m = parse_ir(&f, "func i32 @f(i32 %c) {\n"
+                     "entry():\n"
+                     "    %p = alloca 4, align 4\n"
+                     "    condbr %c, defined(), join()\n"
+                     "defined():\n"
+                     "    store i32 1, %p, align 4\n"
+                     "    br join()\n"
+                     "join():\n"
+                     "    %v = load i32, %p, align 4\n"
+                     "    ret i32 %v\n"
+                     "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    T_ASSERT(t, m && run_mem2reg(m, &cfg));
+    if (m) {
+        uses = opt_mem2reg_undef_log(&m->funcs[0], &nuses);
+        T_ASSERT_EQ_INT(t, nuses, 1);
+        if (uses) {
+            T_ASSERT_EQ_INT(t, uses[0].classification, UNDEF_USE_MAYBE);
+            T_ASSERT_EQ_INT(t, uses[0].decision_kind, 2);
+            T_ASSERT(t, !uses[0].path_undecided);
+        }
+    }
+    arena_free_all(&f.arena);
+
+    ofix_init(&f);
+    m = parse_ir(&f, "func i32 @g() {\n"
+                     "entry():\n"
+                     "    %x = alloca 4, align 4\n"
+                     "    %y = alloca 4, align 4\n"
+                     "    %u = load i32, %y, align 4, self_init\n"
+                     "    store i32 %u, %x, align 4\n"
+                     "    %v = load i32, %x, align 4\n"
+                     "    ret i32 %v\n"
+                     "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    T_ASSERT(t, m && run_mem2reg(m, &cfg));
+    if (m) {
+        uses = opt_mem2reg_undef_log(&m->funcs[0], &nuses);
+        T_ASSERT_EQ_INT(t, nuses, 1);
+        if (uses) {
+            T_ASSERT_EQ_INT(t, uses[0].classification, UNDEF_USE_DEFINITE);
+            T_ASSERT(t, uses[0].self_init);
+        }
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_mem2reg_definite_assignment_worklist_handles_reverse_chain(TestCtx *t)
+{
+    enum { CHAIN_BLOCKS = 256 };
+    OFix f;
+    IrModule *m;
+    IrFunc *fn;
+    IrBuilder b;
+    BlockId entry;
+    BlockId *chain;
+    ValueId ptr;
+    ValueId value;
+    IrOperand ret;
+    OptConfig cfg;
+    const UndefUse *uses;
+    u32 nuses = 0;
+    u32 i;
+
+    ofix_init(&f);
+    m = ir_module_new(&f.arena, f.dc);
+    fn = ir_func_new(m, "reverse_chain", IRT_I32, NULL, 0);
+    entry = ir_block_new(m, fn, "entry");
+    chain =
+        arena_alloc(&f.arena, sizeof(*chain) * CHAIN_BLOCKS, _Alignof(BlockId));
+    for (i = 0; i < CHAIN_BLOCKS; i++)
+        chain[i] = ir_block_new(m, fn, "chain");
+
+    ir_builder_at(&b, m, fn, entry);
+    ptr = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 4), 4);
+    ir_build_br(&b, chain[CHAIN_BLOCKS - 1], NULL, 0);
+    for (i = CHAIN_BLOCKS - 1; i > 0; i--) {
+        ir_builder_at(&b, m, fn, chain[i]);
+        ir_build_br(&b, chain[i - 1], NULL, 0);
+    }
+    ir_builder_at(&b, m, fn, chain[0]);
+    value = ir_build_load(&b, IRT_I32, ir_op_value(fn, ptr), 4, 0);
+    ret = ir_op_value(fn, value);
+    ir_build_ret(&b, &ret);
+
+    T_ASSERT(t, ir_verify(f.dc, m));
+    T_ASSERT(t, run_mem2reg(m, &cfg));
+    uses = opt_mem2reg_undef_log(fn, &nuses);
+    T_ASSERT_EQ_INT(t, nuses, 1);
+    if (uses)
+        T_ASSERT_EQ_INT(t, uses[0].classification, UNDEF_USE_DEFINITE);
+    T_ASSERT(t, ir_verify(f.dc, m));
+    arena_free_all(&f.arena);
+}
+
+void test_mem2reg_flow_witness_scales_across_many_guarded_uses(TestCtx *t)
+{
+    enum { STRESS_USES = 256 };
+    OFix f;
+    IrModule *m;
+    IrFunc *fn;
+    IrBuilder b;
+    IrType params[2] = {IRT_I32, IRT_I32};
+    BlockId entry, defined;
+    BlockId *guards, *uses, *next;
+    ValueId value_slot, guard_slot;
+    OptConfig cfg;
+    const UndefUse *undefs;
+    u32 nundefs = 0;
+    u32 i;
+
+    ofix_init(&f);
+    m = ir_module_new(&f.arena, f.dc);
+    fn = ir_func_new(m, "many_guards", IRT_I32, params, 2);
+    entry = ir_block_new(m, fn, "entry");
+    defined = ir_block_new(m, fn, "defined");
+    guards =
+        arena_alloc(&f.arena, sizeof(*guards) * STRESS_USES, _Alignof(BlockId));
+    uses =
+        arena_alloc(&f.arena, sizeof(*uses) * STRESS_USES, _Alignof(BlockId));
+    next =
+        arena_alloc(&f.arena, sizeof(*next) * STRESS_USES, _Alignof(BlockId));
+    for (i = 0; i < STRESS_USES; i++) {
+        guards[i] = ir_block_new(m, fn, "guard");
+        uses[i] = ir_block_new(m, fn, "use");
+        next[i] = ir_block_new(m, fn, "next");
+    }
+
+    ir_builder_at(&b, m, fn, entry);
+    value_slot = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 4), 4);
+    guard_slot = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 4), 4);
+    ir_build_store(&b, ir_op_value(fn, fn->param_vals[1]),
+                   ir_op_value(fn, guard_slot), 4, 0);
+    ir_build_condbr(&b, ir_op_value(fn, fn->param_vals[0]), defined, NULL, 0,
+                    guards[0], NULL, 0);
+
+    ir_builder_at(&b, m, fn, defined);
+    ir_build_store(&b, ir_op_iconst(IRT_I32, 1), ir_op_value(fn, value_slot), 4,
+                   0);
+    ir_build_br(&b, guards[0], NULL, 0);
+
+    for (i = 0; i < STRESS_USES; i++) {
+        ValueId condition;
+
+        ir_builder_at(&b, m, fn, guards[i]);
+        condition =
+            ir_build_load(&b, IRT_I32, ir_op_value(fn, guard_slot), 4, 0);
+        ir_build_condbr(&b, ir_op_value(fn, condition), uses[i], NULL, 0,
+                        next[i], NULL, 0);
+
+        ir_builder_at(&b, m, fn, uses[i]);
+        (void)ir_build_load(&b, IRT_I32, ir_op_value(fn, value_slot), 4, 0);
+        ir_build_br(&b, next[i], NULL, 0);
+
+        ir_builder_at(&b, m, fn, next[i]);
+        if (i + 1 < STRESS_USES)
+            ir_build_br(&b, guards[i + 1], NULL, 0);
+        else {
+            IrOperand zero = ir_op_iconst(IRT_I32, 0);
+
+            ir_build_ret(&b, &zero);
+        }
+    }
+
+    T_ASSERT(t, ir_verify(f.dc, m));
+    T_ASSERT(t, run_mem2reg(m, &cfg));
+    undefs = opt_mem2reg_undef_log(fn, &nundefs);
+    T_ASSERT_EQ_INT(t, nundefs, STRESS_USES);
+    if (undefs)
+        T_ASSERT_EQ_INT(t, undefs[STRESS_USES - 1].classification,
+                        UNDEF_USE_MAYBE);
+    T_ASSERT(t, ir_verify(f.dc, m));
+    arena_free_all(&f.arena);
+}

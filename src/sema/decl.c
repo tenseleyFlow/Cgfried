@@ -785,6 +785,16 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                     pt = type_ptr(s->arena, pt->base);
                 else if (pt && pt->kind == TY_FUNC)
                     pt = type_ptr(s->arena, pt);
+                /* The parser consumes the one legal `(void)` spelling as
+                 * an empty parameter list.  Any void type that survives as
+                 * an actual parameter is therefore constrained-invalid:
+                 * named, qualified, or accompanied by another parameter. */
+                if (pt && pt->kind == TY_VOID) {
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, at->params[i].span,
+                              "'void' must be the only parameter and unnamed");
+                    pt = type_basic(TY_ERROR);
+                }
                 fn->params[i] = pt;
 
                 /* The name enters scope NOW, not after the list: `int m[n]`

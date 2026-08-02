@@ -500,6 +500,29 @@ static bool env_is_one(const char *name)
     return value && strcmp(value, "1") == 0;
 }
 
+static void verify_generated_module(DiagCtx *dc, IrModule *m, const char *input)
+{
+    char why[256];
+
+    if (!m || ir_verify_report(dc, m, why, sizeof(why)))
+        return;
+    {
+        const char *dump_path = cgf_env("CGF_DUMP_BAD_IR");
+
+        if (dump_path) {
+            FILE *df = fopen(dump_path, "wb");
+
+            if (df) {
+                ir_print_module(df, m);
+                fprintf(df, "// verify failed: %s\n", why);
+                fclose(df);
+            }
+        }
+    }
+    CGF_ICE("lowering produced IR the verifier rejects for '%s' (%s)", input,
+            why);
+}
+
 /* The same optimization boundary serves generated C IR and verified textual
  * IR. A bad input module is a user error before this call; any invalidity
  * after a pass is our bug and therefore an ICE. */
@@ -930,56 +953,54 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                         if (tu->decls[k] && tu->decls[k]->kind == AST_FUNC_DEF)
                             dump_decl(tu->decls[k], 0);
                 }
-                if ((a->emit_ir || a->emit_mir || a->emit_asm ||
-                     a->compile_obj || a->link_exe) &&
-                    !diag_had_error(dc)) {
-                    /* AST -> IR. This module is GENERATED: a verifier
-                     * failure here is an ICE, never a user error — the
-                     * user's errors all ended in sema. CGF_DUMP_BAD_IR
-                     * captures the module first so the bug is
-                     * reportable. */
-                    IrModule *m = lower_translation_unit(arena, dc, &sema, tu);
+                {
+                    bool want_ir_output = a->emit_ir || a->emit_mir ||
+                                          a->emit_asm || a->compile_obj ||
+                                          a->link_exe;
+                    bool need_flow = warn_flow_needed(warnings);
+                    IrModule *m = NULL;
 
-                    char why[256];
+                    if (need_flow && !diag_had_error(dc)) {
+                        /* AST -> IR. This module is GENERATED: a verifier
+                         * failure here is an ICE, never a user error — the
+                         * user's errors all ended in sema. CGF_DUMP_BAD_IR
+                         * captures the module first so the bug is
+                         * reportable. */
+                        IrModule *flow = lower_translation_unit_for_flow(
+                            arena, dc, &sema, tu);
 
-                    if (m && !ir_verify_report(dc, m, why, sizeof(why))) {
-                        const char *dump_path = cgf_env("CGF_DUMP_BAD_IR");
-
-                        if (dump_path) {
-                            FILE *df = fopen(dump_path, "wb");
-
-                            if (df) {
-                                ir_print_module(df, m);
-                                fprintf(df, "// verify failed: %s\n", why);
-                                fclose(df);
-                            }
-                        }
-                        CGF_ICE("lowering produced IR the verifier "
-                                "rejects for '%s' (%s)",
-                                job->path, why);
+                        verify_generated_module(dc, flow, job->path);
+                        if (flow)
+                            warn_flow_module(warnings, flow);
                     }
-                    if (m)
+                    if (want_ir_output && !diag_had_error(dc)) {
+                        m = lower_translation_unit(arena, dc, &sema, tu);
+                        verify_generated_module(dc, m, job->path);
+                    }
+                    if (m && !diag_had_error(dc))
                         optimize_module(m, a, job->path);
-                    if (m && a->emit_mir) {
-                        int rc = emit_mir_print(arena, dc, m);
+                    if (m && !diag_had_error(dc)) {
+                        if (a->emit_mir) {
+                            int rc = emit_mir_print(arena, dc, m);
 
-                        (void)rc;
-                    } else if (m &&
-                               (a->emit_asm || a->compile_obj || a->link_exe)) {
-                        int rc = run_emit_asm(arena, dc, m, a, job);
+                            (void)rc;
+                        } else if (a->emit_asm || a->compile_obj ||
+                                   a->link_exe) {
+                            int rc = run_emit_asm(arena, dc, m, a, job);
 
-                        if (rc != CGF_EXIT_OK) {
-                            PpTokVecD_free(&collected);
-                            pp_end(&pp);
-                            intern_free(&interner);
-                            pp_loc_free(&pp.loc);
-                            strmap_free(&pp.macros);
-                            return rc;
+                            if (rc != CGF_EXIT_OK) {
+                                PpTokVecD_free(&collected);
+                                pp_end(&pp);
+                                intern_free(&interner);
+                                pp_loc_free(&pp.loc);
+                                strmap_free(&pp.macros);
+                                return rc;
+                            }
+                        } else if (a->emit_ir) {
+                            int rc = emit_ir_print(arena, dc, m, job->path);
+
+                            (void)rc;
                         }
-                    } else if (m) {
-                        int rc = emit_ir_print(arena, dc, m, job->path);
-
-                        (void)rc;
                     }
                 }
             }

@@ -250,6 +250,10 @@ struct AstNode {
     struct Symbol *sym; /* AST_EXPR_IDENT: the declaration it resolved to */
     bool is_lvalue;
     bool implicit; /* AST_EXPR_CAST: inserted by sema, not written */
+    /* Constant evaluation is intentionally reusable (sema validation,
+     * initializer images, then lowering). Range warnings belong to the
+     * source literal and must be emitted only once across those clients. */
+    bool fp_range_diagnosed;
     /* AST_FUNC_DEF: the parameter symbols, in declaration order (NULL for
      * an unnamed slot). Sema declares them into the function scope and
      * that scope is popped when the body ends — this array is how Sprint

@@ -1,6 +1,6 @@
 sources 1361
-parsed 706
-deferred 655
+parsed 709
+deferred 652
 oracle-failures 0
 genuine-warnings 181
 genuine-location-divergences 1

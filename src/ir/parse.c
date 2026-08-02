@@ -736,12 +736,24 @@ static u8 parse_memflags(P *p)
             flags |= IRF_VOLATILE;
         else if (tok_is(t, "seq_cst"))
             flags |= IRF_SEQ_CST;
+        else if (tok_is(t, "self_init"))
+            flags |= IRF_SELF_INIT;
         else
             break;
         next(p);
         next(p);
     }
     return flags;
+}
+
+static bool parse_flow_provenance(P *p, IrInst *in, const char *name)
+{
+    if (peek(p)->kind != T_COMMA || !tok_is(peek2(p), name))
+        return true;
+    next(p);
+    next(p);
+    in->flags |= IRF_FLOW_PROVENANCE;
+    return true;
 }
 
 static bool parse_etype(P *p, u8 *out)
@@ -1141,6 +1153,10 @@ static bool parse_inst(P *p)
             next(p);
             in->flags |= IRF_CALL_VARIADIC;
         }
+        if (tok_is(peek(p), "noreturn")) {
+            next(p);
+            in->flags |= IRF_NORETURN;
+        }
         return true;
     }
     case IR_VA_START:
@@ -1209,14 +1225,17 @@ static bool parse_inst(P *p)
         if (peek(p)->kind == T_IDENT && lookup_type(peek(p)) >= 0) {
             in->ops = ops_alloc(p, 1);
             in->nops = 1;
-            return parse_typed(p, &in->ops[0]);
+            if (!parse_typed(p, &in->ops[0]))
+                return false;
         }
-        return true;
+        return parse_flow_provenance(p, in, "implicit");
     case IR_BR:
         in = inst_append(p, IR_BR, IRT_VOID, NULL);
         in->edges = edges_alloc(p, 1);
         in->nedges = 1;
-        return parse_edge(p, &in->edges[0]);
+        if (!parse_edge(p, &in->edges[0]))
+            return false;
+        return parse_flow_provenance(p, in, "defensive");
     case IR_CONDBR:
         in = inst_append(p, IR_CONDBR, IRT_VOID, NULL);
         in->ops = ops_alloc(p, 1);
@@ -1231,7 +1250,9 @@ static bool parse_inst(P *p)
             return false;
         if (!expect(p, T_COMMA, "','"))
             return false;
-        return parse_edge(p, &in->edges[1]);
+        if (!parse_edge(p, &in->edges[1]))
+            return false;
+        return parse_flow_provenance(p, in, "config");
     case IR_SWITCH: {
         u32 cap = 4;
         IrEdge *edges;
@@ -1274,7 +1295,7 @@ static bool parse_inst(P *p)
                 return false;
             in->nedges++;
         }
-        return true;
+        return parse_flow_provenance(p, in, "config");
     }
     case IR_UNREACHABLE:
         inst_append(p, IR_UNREACHABLE, IRT_VOID, NULL);
@@ -1384,6 +1405,7 @@ static bool parse_func(P *p)
     bool any_annot = false;
     u32 nparams = 0;
     bool variadic = false;
+    bool unprototyped = false;
     bool internal_marker = false;
     bool setjmp_marker = false;
     u8 abi_ret = IR_ABIRET_NONE;
@@ -1449,6 +1471,10 @@ static bool parse_func(P *p)
     }
     if (!expect(p, T_RP, "')'"))
         return false;
+    if (tok_is(peek(p), "unproto")) {
+        next(p);
+        unprototyped = true;
+    }
     if (tok_is(peek(p), "internal")) {
         next(p);
         internal_marker = true;
@@ -1488,6 +1514,7 @@ static bool parse_func(P *p)
         return false;
     f = ir_func_new(p->m, tok_name(p, nm), ret, ptypes, nparams);
     f->variadic = variadic;
+    f->unprototyped = unprototyped;
     f->abi_ret = abi_ret;
     if (internal_marker)
         f->linkage = IRLINK_INTERNAL;

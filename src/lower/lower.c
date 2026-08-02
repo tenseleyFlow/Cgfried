@@ -139,6 +139,7 @@ void lower_at(Lower *lo, BlockId b)
     ir_builder_at(&lo->b, lo->m, lo->fn, b);
     ir_builder_set_span(&lo->b, loc);
     lo->terminated = false;
+    lo->dead_region = 0;
 }
 
 void lower_unimplemented(Lower *lo, Span span, const char *what, int sprint)
@@ -230,6 +231,13 @@ void lower_bind_local(Lower *lo, Symbol *sym, ValueId slot)
     f->local_slots[f->nlocal_slots].name = sym->name;
     f->local_slots[f->nlocal_slots].decl_span = sym->span;
     f->nlocal_slots++;
+}
+
+ValueId lower_local_slot(Lower *lo, Symbol *sym)
+{
+    void *hit = ptrmap_get(&lo->locals, sym);
+
+    return hit ? (ValueId){(u32)(uintptr_t)hit} : VALUE_INVALID;
 }
 
 void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)
@@ -488,6 +496,7 @@ static void lower_function(Lower *lo, AstNode *def)
     u64 pannots[130];
     bool any_annot = false;
     AbiArg plans[64];
+    Type *wire_types[64];
     u32 nplans = 0;
     u32 nir_params = 0;
     static AbiRet aret;
@@ -501,7 +510,7 @@ static void lower_function(Lower *lo, AstNode *def)
      * definition and nothing else in this TU is forced to call it — gcc
      * emits nothing for it without an `extern` declaration, and neither
      * do we. (Sprint 33's inliner will read the body from the AST.) */
-    if (sym->inline_kind == INL_INLINE_DEF)
+    if (sym->inline_kind == INL_INLINE_DEF && !lo->include_inline_defs)
         return;
     ft = sym->type;
 
@@ -514,16 +523,31 @@ static void lower_function(Lower *lo, AstNode *def)
         ptypes[nir_params++] = IRT_PTR;
     lo->named_gp = 0;
     lo->named_fp = 0;
-    for (i = 0; i < ft->nparams && ft->params && i < 64; i++) {
+    for (i = 0; i < (ft->params ? ft->nparams : def->nparam_syms) && i < 64;
+         i++) {
         AbiArg *a = &plans[nplans++];
+        Type *wire = ft->params           ? ft->params[i]
+                     : def->param_syms[i] ? def->param_syms[i]->type
+                                          : type_basic(TY_INT);
 
-        abi_classify_arg(lo, ft->params[i], a);
+        /* An old-style definition receives the default-promoted wire
+         * type, then converts it back to the declared parameter type on
+         * entry. A preceding prototype survives in ft->params and is
+         * already the authoritative wire contract. */
+        if (!ft->params) {
+            if (wire->kind == TY_FLOAT)
+                wire = type_basic(TY_DOUBLE);
+            else
+                wire = conv_promote_type(lo->sema, wire);
+        }
+        wire_types[nplans - 1] = wire;
+
+        abi_classify_arg(lo, wire, a);
         switch (a->kind) {
         case ABI_ARG_SCALAR: {
-            IrType st = lower_irtype(lo, ft->params[i]);
+            IrType st = lower_irtype(lo, wire);
 
-            if (ft->params[i]->kind == TY_PTR &&
-                (ft->params[i]->quals & CGF_QUAL_RESTRICT)) {
+            if (wire->kind == TY_PTR && (wire->quals & CGF_QUAL_RESTRICT)) {
                 pannots[nir_params] |= IR_PARAM_RESTRICT;
                 any_annot = true;
             }
@@ -561,6 +585,7 @@ static void lower_function(Lower *lo, AstNode *def)
                                                  : IRT_VOID,
                     ptypes, nir_params);
     lo->fn->variadic = ft->variadic;
+    lo->fn->unprototyped = !ft->has_proto;
     lo->fn->abi_ret = aret.ir_abi;
     lo->fn->loc = ir_intern_span(lo->m, def->span);
     if (sym->linkage == LINK_INTERNAL)
@@ -579,6 +604,9 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->sret = hidden ? lo->fn->param_vals[0] : VALUE_INVALID;
     lo->cur_abi_ret = &aret;
     lo->cur_functype = ft;
+    lo->cur_return_type = ft->base;
+    lo->dead_region = 0;
+    lo->next_dead_region = 0;
 
     entry = ir_block_new(lo->m, lo->fn, "entry");
     collect_labels(lo, def->body, NULL);
@@ -599,6 +627,7 @@ static void lower_function(Lower *lo, AstNode *def)
         for (i = 0; i < def->nparam_syms && pi < lo->fn->nparams; i++) {
             Symbol *psym = def->param_syms[i];
             AbiArg *a = plan_i < nplans ? &plans[plan_i++] : NULL;
+            Type *wire = a ? wire_types[plan_i - 1] : NULL;
 
             if (!psym) {
                 /* Unnamed slot: still consumes its IR params. */
@@ -636,37 +665,48 @@ static void lower_function(Lower *lo, AstNode *def)
                 ValueId slot = ir_build_alloca_typed(
                     &lo->b, lower_i64((i64)l.size), (u32)l.align,
                     lower_efftype(lo, psym->type));
+                IrOperand incoming =
+                    ir_op_value(lo->fn, lo->fn->param_vals[pi]);
 
-                ir_build_store_typed(
-                    &lo->b, ir_op_value(lo->fn, lo->fn->param_vals[pi]),
-                    ir_op_value(lo->fn, slot), (u32)l.align, 0,
-                    lower_efftype(lo, psym->type));
+                if (wire &&
+                    !type_compatible(conv_strip_quals(lo->sema, wire),
+                                     conv_strip_quals(lo->sema, psym->type)))
+                    incoming =
+                        lower_scalar_convert(lo, incoming, wire, psym->type);
+
+                ir_build_store_typed(&lo->b, incoming,
+                                     ir_op_value(lo->fn, slot), (u32)l.align, 0,
+                                     lower_efftype(lo, psym->type));
                 ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
                 pi++;
             }
         }
     }
 
+    lower_prebind_locals(lo, def->body);
     lower_stmt(lo, def->body);
 
     /* Falling off the end: main returns 0 (5.1.2.2.3), void returns, and
      * any other function returns an unspecified value — undef, exactly
      * the Sprint 17 contract for "the caller must not look". */
     if (!lo->terminated) {
-        if (sym->is_main) {
+        if (sym->is_main && ft->base && ft->base->kind == TY_INT) {
             IrOperand z = ir_op_iconst(lower_irtype(lo, ft->base), 0);
 
             ir_build_ret(&lo->b, &z);
         } else if (lo->fn->ret == IRT_VOID) {
             ir_build_ret(&lo->b, NULL);
+            if (ft->base && ft->base->kind != TY_VOID)
+                ir_ret_mark_implicit(&lo->b);
         } else {
             IrOperand u = ir_op_undef((IrType)lo->fn->ret);
 
             ir_build_ret(&lo->b, &u);
+            ir_ret_mark_implicit(&lo->b);
         }
     }
 
-    ir_func_remove_unreachable(lo->fn);
+    ir_func_remove_unreachable_with_log(lo->fn);
     /* Lowering fills join blocks after later-created ones, so creation
      * order != document order; renumber so the printed module reparses
      * id-for-id (the -emit-ir self-check demands it). */
@@ -684,8 +724,9 @@ static void lower_function(Lower *lo, AstNode *def)
 
 /* --- translation unit ----------------------------------------------------- */
 
-IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
-                                 AstNode *tu)
+static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
+                                             Sema *sema, AstNode *tu,
+                                             bool include_inline_defs)
 {
     Lower lo;
     u32 i;
@@ -695,6 +736,7 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
     lo.arena = arena;
     lo.dc = dc;
     lo.sema = sema;
+    lo.include_inline_defs = include_inline_defs;
     lo.m = ir_module_new(arena, dc);
     strmap_init(&lo.globals);
     strmap_init(&lo.func_ids);
@@ -753,7 +795,7 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
             sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
             if (!sym || !sym->type || sym->type->kind != TY_FUNC)
                 continue;
-            if (sym->inline_kind == INL_INLINE_DEF)
+            if (sym->inline_kind == INL_INLINE_DEF && !include_inline_defs)
                 continue; /* not emitted; calls go through the symbol */
             ptrmap_put(&lo.func_ids, sym, (void *)(uintptr_t)(++fidx));
         }
@@ -773,4 +815,16 @@ IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
     strmap_free(&lo.vla_sizes);
     strmap_free(&lo.label_vla);
     return lo.failed ? NULL : lo.m;
+}
+
+IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
+                                 AstNode *tu)
+{
+    return lower_translation_unit_impl(arena, dc, sema, tu, false);
+}
+
+IrModule *lower_translation_unit_for_flow(Arena *arena, DiagCtx *dc, Sema *sema,
+                                          AstNode *tu)
+{
+    return lower_translation_unit_impl(arena, dc, sema, tu, true);
 }

@@ -138,6 +138,15 @@ void test_ir_builder_source_locations(TestCtx *t)
     T_ASSERT(t, first->loc != 0);
     T_ASSERT_EQ_INT(t, fn->loc, first->loc); /* function/inst table dedup */
     T_ASSERT_EQ_INT(t, first->loc, first->next->loc); /* table dedup */
+    {
+        Span distinct = a;
+
+        distinct.seq = 1;
+        T_ASSERT(t, ir_intern_span(m, distinct) != first->loc);
+        distinct = a;
+        distinct.origin = SPAN_ORIGIN_ANY_MACRO;
+        T_ASSERT(t, ir_intern_span(m, distinct) != first->loc);
+    }
     got = ir_debug_loc(m, first->loc);
     T_ASSERT_EQ_INT(t, got.file_id, a.file_id);
     T_ASSERT_EQ_INT(t, got.line, 1);
@@ -163,6 +172,60 @@ void test_ir_builder_source_locations(TestCtx *t)
         }
         buf_free(&text);
     }
+    fix_free(&f);
+}
+
+void test_ir_module_clone_is_deep_and_preserves_provenance(TestCtx *t)
+{
+    IrFix f;
+    Arena clones;
+    IrModule *source, *copy;
+    IrFunc *sf, *cf;
+    Span loc = {0};
+
+    fix_init(&f);
+    arena_init(&clones);
+    source = build_sum_to(&f);
+    sf = &source->funcs[0];
+    loc.file_id = diag_add_file(f.dc, "clone.c", "x\n", 2);
+    loc.line = 1;
+    loc.col = 1;
+    loc.len = 1;
+    loc.seq = 9;
+    loc.origin = SPAN_ORIGIN_ANY_MACRO;
+    sf->loc = ir_intern_span(source, loc);
+    ir_func_record_removed_span(sf, (BlockId){3}, loc, IR_CFG_REMOVED_CONFIG);
+    loc.seq = 10;
+    ir_func_record_removed_span(sf, (BlockId){4}, loc, IR_CFG_REMOVED_CONFIG);
+    loc.origin = SPAN_ORIGIN_SYSTEM_MACRO | SPAN_ORIGIN_ANY_MACRO;
+    ir_func_record_removed_span(sf, (BlockId){4}, loc, IR_CFG_REMOVED_CONFIG);
+
+    copy = ir_module_clone(&clones, source);
+    T_ASSERT(t, copy != NULL);
+    T_ASSERT(t, copy && ir_module_struct_eq(source, copy));
+    if (copy) {
+        cf = &copy->funcs[0];
+        T_ASSERT(t, cf->module == copy);
+        T_ASSERT(t, cf->blocks != sf->blocks);
+        T_ASSERT(t, cf->blocks[0].first != sf->blocks[0].first);
+        T_ASSERT(t, cf->blocks[0].first->edges != sf->blocks[0].first->edges);
+        T_ASSERT(t, cf->blocks[0].first->edges[0].args !=
+                        sf->blocks[0].first->edges[0].args);
+        T_ASSERT_EQ_INT(t, cf->ncfg_removed, 3);
+        T_ASSERT_EQ_INT(t, cf->cfg_removed[0].loc.seq, 9);
+        T_ASSERT_EQ_INT(t, cf->cfg_removed[0].loc.origin,
+                        SPAN_ORIGIN_ANY_MACRO);
+        T_ASSERT_EQ_INT(t, cf->cfg_removed[1].loc.seq, 10);
+        T_ASSERT_EQ_INT(t, cf->cfg_removed[1].loc.origin,
+                        SPAN_ORIGIN_ANY_MACRO);
+        T_ASSERT_EQ_INT(t, cf->cfg_removed[2].loc.seq, 10);
+        T_ASSERT_EQ_INT(t, cf->cfg_removed[2].loc.origin,
+                        SPAN_ORIGIN_SYSTEM_MACRO | SPAN_ORIGIN_ANY_MACRO);
+        cf->blocks[0].first->edges[0].args[0].a = 99;
+        T_ASSERT_EQ_INT(t, sf->blocks[0].first->edges[0].args[0].a, 0);
+        T_ASSERT(t, !ir_module_struct_eq(source, copy));
+    }
+    arena_free_all(&clones);
     fix_free(&f);
 }
 

@@ -4,22 +4,14 @@
 
 #include "util/arena.h"
 
-struct OptCfgInfo {
-    CfgRemoved *removed;
-    u32 nremoved;
-    u32 cap_removed;
-};
-
 const Pass OPT_PASS_SIMPLIFY_CFG = {"simplify_cfg", opt_simplify_cfg,
                                     PASS_PINNED_EXACT};
 
 const CfgRemoved *opt_cfg_removed_log(const IrFunc *f, u32 *n)
 {
-    const struct OptCfgInfo *info = f ? f->opt_cfg_info : NULL;
-
     if (n)
-        *n = info ? info->nremoved : 0;
-    return info ? info->removed : NULL;
+        *n = f ? f->ncfg_removed : 0;
+    return f ? (const CfgRemoved *)f->cfg_removed : NULL;
 }
 
 static void *arena_grow(Arena *arena, const void *old, u32 oldn, u32 newn,
@@ -30,39 +22,6 @@ static void *arena_grow(Arena *arena, const void *old, u32 oldn, u32 newn,
     if (oldn)
         memcpy(p, old, oldn * size);
     return p;
-}
-
-static void log_removed(IrModule *m, IrFunc *f, BlockId block)
-{
-    struct OptCfgInfo *info = f->opt_cfg_info;
-    const IrBlock *blk = ir_block(f, block);
-    const IrInst *in;
-    Span loc = {0};
-
-    if (!info) {
-        info =
-            arena_alloc(m->arena, sizeof(*info), _Alignof(struct OptCfgInfo));
-        memset(info, 0, sizeof(*info));
-        f->opt_cfg_info = info;
-    }
-    if (info->nremoved == info->cap_removed) {
-        u32 cap = info->cap_removed ? info->cap_removed * 2 : 8;
-
-        info->removed =
-            arena_grow(m->arena, info->removed, info->nremoved, cap,
-                       sizeof(*info->removed), _Alignof(CfgRemoved));
-        info->cap_removed = cap;
-    }
-    for (in = blk ? blk->first : NULL; in; in = in->next)
-        if (in->loc) {
-            loc = ir_inst_span(m, in);
-            break;
-        }
-    if (!loc.file_id)
-        loc = ir_debug_loc(m, f->loc);
-    info->removed[info->nremoved].block = block;
-    info->removed[info->nremoved].loc = loc;
-    info->nremoved++;
 }
 
 static u64 int_mask(IrType type)
@@ -95,6 +54,81 @@ static bool const_is_case(IrOperand op, i64 case_val)
            (op.a & mask) == ((u64)case_val & mask);
 }
 
+static const IrInst *value_definition(const IrFunc *f, ValueId value)
+{
+    const IrValInfo *vi;
+    const IrInst *in;
+
+    if (!value.v || value.v > f->nvals)
+        return NULL;
+    vi = &f->vals[value.v - 1];
+    if (vi->def_kind != VDEF_INST || !vi->def_block.v ||
+        vi->def_block.v > f->nblocks)
+        return NULL;
+    for (in = f->blocks[vi->def_block.v - 1].first; in; in = in->next)
+        if (in->result.v == value.v)
+            return in;
+    return NULL;
+}
+
+/* simplify-cfg owns edge pruning, so it also resolves the small tree of
+ * exact scalar operations feeding a terminator. This is deliberately not a
+ * general optimizer: it asks the shared exact folder only for constants and
+ * never rewrites a value instruction. */
+static bool resolve_edge_constant(const IrFunc *f, IrOperand operand,
+                                  const OptConfig *cfg, u32 depth,
+                                  IrOperand *out)
+{
+    const IrInst *def;
+    IrInst folded;
+    IrOperand ops[3];
+    u32 i;
+
+    if (operand.kind == IROP_ICONST) {
+        *out = operand;
+        return true;
+    }
+    if (operand.kind != IROP_VALUE || depth > f->nvals)
+        return false;
+    def = value_definition(f, (ValueId){(u32)operand.a});
+    if (!def || def->nops > CGF_ARRAY_LEN(ops))
+        return false;
+    folded = *def;
+    folded.ops = ops;
+    for (i = 0; i < def->nops; i++)
+        if (!resolve_edge_constant(f, def->ops[i], cfg, depth + 1, &ops[i]))
+            return false;
+    if (!opt_fold_inst(&folded, out, cfg) || out->kind != IROP_ICONST)
+        return false;
+    return true;
+}
+
+bool opt_cfg_edge_feasible(const IrFunc *f, const IrInst *term, u32 edge)
+{
+    OptConfig cfg;
+    IrOperand condition;
+
+    if (!term || edge >= term->nedges || term->nops != 1)
+        return true;
+    opt_config_init(&cfg, OPT_O0);
+    if (!resolve_edge_constant(f, term->ops[0], &cfg, 0, &condition))
+        return true;
+    if (term->op == IR_CONDBR && term->nedges == 2)
+        return edge == (const_nonzero(condition) ? 0u : 1u);
+    if (term->op == IR_SWITCH && term->nedges) {
+        u32 chosen = 0;
+        u32 i;
+
+        for (i = 1; i < term->nedges; i++)
+            if (const_is_case(condition, term->edges[i].case_val)) {
+                chosen = i;
+                break;
+            }
+        return edge == chosen;
+    }
+    return true;
+}
+
 static void make_br(IrInst *term, IrEdge edge)
 {
     IrEdge *dst = term->edges;
@@ -105,34 +139,48 @@ static void make_br(IrInst *term, IrEdge edge)
     term->op = IR_BR;
     term->type = IRT_VOID;
     term->subop = 0;
-    term->flags = 0;
+    term->flags &= IRF_FLOW_PROVENANCE;
     term->nops = 0;
     term->ops = NULL;
     term->nedges = 1;
 }
 
-static bool fold_const_edges(IrFunc *f)
+static bool fold_const_edges(IrFunc *f, const OptConfig *cfg)
 {
     bool changed = false;
     u32 bi;
 
     for (bi = 0; bi < f->nblocks; bi++) {
         IrInst *term = f->blocks[bi].last;
+        IrOperand condition;
 
-        if (!term || term->nops != 1 || term->ops[0].kind != IROP_ICONST)
+        if (!term || term->nops != 1 ||
+            !resolve_edge_constant(f, term->ops[0], cfg, 0, &condition))
             continue;
         if (term->op == IR_CONDBR && term->nedges == 2) {
-            make_br(term, term->edges[const_nonzero(term->ops[0]) ? 0 : 1]);
+            u32 chosen = const_nonzero(condition) ? 0u : 1u;
+            u8 provenance =
+                (term->flags & IRF_FLOW_PROVENANCE) ? IR_CFG_REMOVED_CONFIG : 0;
+
+            ir_func_record_removed(f, term->edges[chosen ^ 1u].target,
+                                   provenance);
+            make_br(term, term->edges[chosen]);
             changed = true;
         } else if (term->op == IR_SWITCH && term->nedges) {
             u32 ei;
             u32 chosen = 0;
+            u8 provenance =
+                (term->flags & IRF_FLOW_PROVENANCE) ? IR_CFG_REMOVED_CONFIG : 0;
 
             for (ei = 1; ei < term->nedges; ei++)
-                if (const_is_case(term->ops[0], term->edges[ei].case_val)) {
+                if (const_is_case(condition, term->edges[ei].case_val)) {
                     chosen = ei;
                     break;
                 }
+            for (ei = 0; ei < term->nedges; ei++)
+                if (ei != chosen)
+                    ir_func_record_removed(f, term->edges[ei].target,
+                                           provenance);
             make_br(term, term->edges[chosen]);
             changed = true;
         }
@@ -181,12 +229,11 @@ static bool remove_semantic_unreachable(IrModule *m, IrFunc *f)
     arena_init(&scratch);
     reachable = find_reachable(&scratch, f);
     for (bi = 0; bi < f->nblocks; bi++)
-        if (!reachable[bi]) {
-            log_removed(m, f, (BlockId){bi + 1});
+        if (!reachable[bi])
             changed = true;
-        }
     if (changed)
-        ir_func_remove_unreachable(f);
+        ir_func_remove_unreachable_with_log(f);
+    (void)m;
     arena_free_all(&scratch);
     return changed;
 }
@@ -504,7 +551,7 @@ static bool simplify_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
     bool changed = false;
 
     local.current_func = f->name;
-    if (fold_const_edges(f))
+    if (fold_const_edges(f, &local))
         changed = true;
     if (remove_semantic_unreachable(m, f))
         changed = true;

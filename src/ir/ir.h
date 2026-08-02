@@ -290,6 +290,21 @@ typedef struct IrEdge {
  * Provenance never substitutes for proof: range/BCE clients may fold it only
  * when the comparison is established constant.  Sprint 44 is the producer. */
 #define IRF_BOUNDS_CHECK 0x10u
+/* IR_CALL: source-level knowledge that control never returns from this
+ * callee. Flow analysis treats the call as a path terminator; codegen emits
+ * an ordinary call. */
+#define IRF_NORETURN 0x20u
+/* IR_LOAD: this exact source read occurs in the initializer of the same
+ * local. It is diagnostic provenance, not an optimizer license. */
+#define IRF_SELF_INIT 0x40u
+/* Flow-only source provenance, interpreted by terminator opcode:
+ *   CONDBR/SWITCH — the source condition depended on sizeof/_Alignof or a
+ *                   macro spelling (configuration idiom);
+ *   BR            — a defensive switch-arm break;
+ *   RET           — the return was synthesized for source-level falloff.
+ * The bit affects diagnostics only and is preserved by textual IR so the
+ * parser/printer structural round-trip stays exact. */
+#define IRF_FLOW_PROVENANCE 0x80u
 
 /* Callee encoding for IR_CALL (the sister project's shape). */
 typedef enum IrFuncRefKind {
@@ -342,7 +357,21 @@ typedef struct IrValInfo {
 } IrValInfo;
 
 struct OptMem2RegInfo;
-struct OptCfgInfo;
+
+/* Source provenance for blocks discarded before Sprint 40's flow pass.
+ * Lowering records orphaned statements after a terminator; simplify-cfg
+ * records blocks removed after folding a source CFG edge.  BlockIds name the
+ * pre-compaction CFG and are diagnostic provenance only. */
+typedef struct IrCfgRemoved {
+    BlockId block;
+    Span loc;
+    const char *block_name;
+    u32 region; /* nonzero: one contiguous source-unreachable region */
+    u8 flags;
+} IrCfgRemoved;
+
+#define IR_CFG_REMOVED_CONFIG 0x1u
+#define IR_CFG_REMOVED_DEFENSIVE_BREAK 0x2u
 
 /* Front-end provenance for local slots. The textual IR intentionally omits
  * this optional metadata, but flow diagnostics retain it while compiling C. */
@@ -398,13 +427,18 @@ typedef enum IrAbiRet {
 #define ir_param_is_restrict(b) (((b) & IR_PARAM_RESTRICT) != 0)
 
 typedef struct IrFunc {
-    const char *name; /* interned */
-    u32 loc;          /* function definition location; 0 when unavailable */
-    u8 ret;           /* IrType */
-    u8 abi_ret;       /* IrAbiRet */
-    u8 linkage;       /* IrLinkage (Sprint 24: .globl vs .local emission);
-                         defaults EXTERNAL, printed ` internal` otherwise */
-    bool variadic;    /* printed as ', ...' after the last parameter */
+    struct IrModule *module; /* owning module; enables source-log helpers */
+    const char *name;        /* interned */
+    u32 loc;       /* function definition location; 0 when unavailable */
+    u8 ret;        /* IrType */
+    u8 abi_ret;    /* IrAbiRet */
+    u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);
+                      defaults EXTERNAL, printed ` internal` otherwise */
+    bool variadic; /* printed as ', ...' after the last parameter */
+    /* An old-style definition or `f()` declaration has no prototype: its
+     * body still has concrete incoming parameters, but calls may legally
+     * pass a different count and default-promoted types. */
+    bool unprototyped;
     /* The blunt setjmp policy (Sprint 20): a function that CALLS
      * setjmp/sigsetjmp/_setjmp compiles with every local memory-pinned
      * (mem2reg skips the whole function) and every call as a full
@@ -436,7 +470,9 @@ typedef struct IrFunc {
     /* Arena-owned analysis provenance retained for Sprint 40's flow
      * warnings. Opaque here so the IR does not depend on optimization. */
     struct OptMem2RegInfo *opt_mem2reg_info;
-    struct OptCfgInfo *opt_cfg_info;
+    IrCfgRemoved *cfg_removed;
+    u32 ncfg_removed;
+    u32 cap_cfg_removed;
 } IrFunc;
 
 typedef enum IrLinkage {
@@ -485,6 +521,10 @@ typedef struct IrModule {
 /* --- construction (src/ir/ir.c, src/ir/build.c) -------------------------- */
 
 IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
+/* Arena-owned exact clone used by analysis pipelines that must not perturb
+ * the code-generation module. Optional optimizer metadata is reset, while
+ * front-end source provenance is preserved. */
+IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
 IrGlobal *ir_global_new(IrModule *m, const char *name);
 IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,
@@ -549,6 +589,10 @@ void ir_build_memset(IrBuilder *b, IrOperand dst, IrOperand byte,
                      IrOperand size, u32 align, u8 flags);
 ValueId ir_build_select(IrBuilder *b, IrOperand c, IrOperand x, IrOperand y);
 void ir_call_mark_variadic(IrBuilder *b);
+void ir_call_mark_noreturn(IrBuilder *b);
+void ir_load_mark_self_init(IrBuilder *b);
+void ir_branch_mark_flow_provenance(IrBuilder *b);
+void ir_ret_mark_implicit(IrBuilder *b);
 ValueId ir_build_call(IrBuilder *b, IrType ret, IrFuncRefKind kind, u32 callee,
                       const IrOperand *args, u32 nargs);
 ValueId ir_build_call_indirect(IrBuilder *b, IrType ret, IrOperand fp,
@@ -606,6 +650,13 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b);
  * def_block; lowering never lets an SSA value cross from dead code into
  * live code (locals travel through allocas), so no live use can see one. */
 void ir_func_remove_unreachable(IrFunc *f);
+/* Same cleanup, retaining the first source span from each removed block for
+ * the flow-warning analysis clone. */
+void ir_func_remove_unreachable_with_log(IrFunc *f);
+void ir_func_record_removed(IrFunc *f, BlockId block, u8 flags);
+void ir_func_record_removed_span(IrFunc *f, BlockId block, Span loc, u8 flags);
+void ir_func_record_removed_region(IrFunc *f, BlockId block, Span loc,
+                                   u32 region, u8 flags);
 
 /* Renumbers every value into DOCUMENT order (fparams, then per block in
  * layout order: params, then instruction results) and rebuilds the vals

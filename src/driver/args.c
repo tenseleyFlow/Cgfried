@@ -490,7 +490,8 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
         WarnOptionDisposition disposition = warn_option_classify(val);
 
         if (disposition == WARN_OPTION_BAD_FORMAT_LEVEL ||
-            disposition == WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL) {
+            disposition == WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL ||
+            disposition == WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL) {
             if (!da->bad_value)
                 da->bad_value = warn_option_bad_value_label(disposition);
             return true;

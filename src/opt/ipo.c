@@ -645,6 +645,10 @@ bool opt_ipo(IrModule *m, const OptConfig *cfg)
                 OPT_BAIL(cfg, "ipo", "ipo_variadic_signature");
                 continue;
             }
+            if (f->unprototyped) {
+                OPT_BAIL(cfg, "ipo", "ipo_unprototyped_signature");
+                continue;
+            }
             if (func_reads_common(m, f))
                 OPT_BAIL(cfg, "ipo", "ipo_common_symbol");
             if (g->unknown[fi])

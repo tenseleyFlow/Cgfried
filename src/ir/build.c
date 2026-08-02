@@ -23,7 +23,8 @@ u32 ir_intern_span(IrModule *m, Span span)
         if (old.file_id == span.file_id && old.line == span.line &&
             old.col == span.col && old.len == span.len &&
             old.presumed_line == span.presumed_line &&
-            old.debug_loc == span.debug_loc && same_path)
+            old.debug_loc == span.debug_loc && old.seq == span.seq &&
+            old.origin == span.origin && same_path)
             return i + 1;
     }
     if (m->nlocs == m->cap_locs) {
@@ -359,6 +360,44 @@ void ir_call_mark_variadic(IrBuilder *b)
     if (!blk->last || blk->last->op != IR_CALL)
         CGF_ICE("ir_call_mark_variadic: last instruction is not a call");
     blk->last->flags |= IRF_CALL_VARIADIC;
+}
+
+void ir_call_mark_noreturn(IrBuilder *b)
+{
+    IrBlock *blk = &b->f->blocks[b->block.v - 1];
+
+    if (!blk->last || blk->last->op != IR_CALL)
+        CGF_ICE("ir_call_mark_noreturn: last instruction is not a call");
+    blk->last->flags |= IRF_NORETURN;
+}
+
+void ir_load_mark_self_init(IrBuilder *b)
+{
+    IrBlock *blk = &b->f->blocks[b->block.v - 1];
+
+    if (!blk->last || blk->last->op != IR_LOAD)
+        CGF_ICE("ir_load_mark_self_init: last instruction is not a load");
+    blk->last->flags |= IRF_SELF_INIT;
+}
+
+void ir_branch_mark_flow_provenance(IrBuilder *b)
+{
+    IrBlock *blk = &b->f->blocks[b->block.v - 1];
+
+    if (!blk->last || (blk->last->op != IR_BR && blk->last->op != IR_CONDBR &&
+                       blk->last->op != IR_SWITCH))
+        CGF_ICE("ir_branch_mark_flow_provenance: last instruction is not a "
+                "branch");
+    blk->last->flags |= IRF_FLOW_PROVENANCE;
+}
+
+void ir_ret_mark_implicit(IrBuilder *b)
+{
+    IrBlock *blk = &b->f->blocks[b->block.v - 1];
+
+    if (!blk->last || blk->last->op != IR_RET)
+        CGF_ICE("ir_ret_mark_implicit: last instruction is not a return");
+    blk->last->flags |= IRF_FLOW_PROVENANCE;
 }
 
 ValueId ir_build_call_indirect(IrBuilder *b, IrType ret, IrOperand fp,

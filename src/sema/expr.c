@@ -192,6 +192,18 @@ static bool is_ptr(const Type *t)
     return t && t->kind == TY_PTR;
 }
 
+/* Every supported va_list expression decays to a pointer to the canonical
+ * synthesized record.  Accepting arbitrary pointers (or integers) lets
+ * malformed source reach lowering as verifier-invalid memory operations. */
+static bool is_va_list_cursor(Sema *s, const Type *t)
+{
+    Type *va = sema_va_list_type(s);
+
+    return is_ptr(t) && va && va->kind == TY_ARRAY && va->base &&
+           type_compatible(conv_strip_quals(s, t->base),
+                           conv_strip_quals(s, va->base));
+}
+
 AstNode *sema_lvalue_root_ident(AstNode *e)
 {
     AstNode *root;
@@ -402,10 +414,41 @@ static AstNode *expr_assign(Sema *s, AstNode *e)
         conv_assignable(s, lhs->sem_type, &e->rhs, ctx);
     } else {
         /* A compound assignment converts as if by the operator then back;
-         * the checks that matter here are the same ones. */
+         * reject invalid operand pairs here so lowering may remain a pure
+         * translation of a valid, typed tree. */
+        Type *lt = lhs->sem_type;
+        Type *rt;
+        bool valid;
+
         e->rhs = conv_decay(s, e->rhs);
-        if (!type_is_arithmetic(lhs->sem_type) && !is_ptr(lhs->sem_type)) {
-            err(s, e->span, "invalid operands to '%s'", ast_punct_name(e->op));
+        rt = e->rhs->sem_type;
+        switch (e->op) {
+        case PUNCT_PLUS_ASSIGN:
+        case PUNCT_MINUS_ASSIGN:
+            valid = is_ptr(lt)
+                        ? type_is_integer(rt)
+                        : type_is_arithmetic(lt) && type_is_arithmetic(rt);
+            break;
+        case PUNCT_STAR_ASSIGN:
+        case PUNCT_SLASH_ASSIGN:
+            valid = type_is_arithmetic(lt) && type_is_arithmetic(rt);
+            break;
+        case PUNCT_PERCENT_ASSIGN:
+        case PUNCT_SHL_ASSIGN:
+        case PUNCT_SHR_ASSIGN:
+        case PUNCT_AMP_ASSIGN:
+        case PUNCT_CARET_ASSIGN:
+        case PUNCT_PIPE_ASSIGN:
+            valid = type_is_integer(lt) && type_is_integer(rt);
+            break;
+        default:
+            valid = false;
+            break;
+        }
+        if (!valid) {
+            err(s, e->span, "invalid operands to '%s' ('%s' and '%s')",
+                ast_punct_name(e->op), type_to_str(s->arena, lt),
+                type_to_str(s->arena, rt));
             return poison(s, e);
         }
     }
@@ -493,11 +536,21 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
                             "'%s')",
                             type_to_str(s->arena, lt),
                             type_to_str(s->arena, rt));
-            } else if (!conv_is_npc(s, is_ptr(lt) ? rhs : lhs)) {
-                warn_at(
-                    s->lang->warnings, WARN_INT_CONVERSION, e->span,
-                    "comparison between pointer and integer ('%s' and '%s')",
-                    type_to_str(s->arena, lt), type_to_str(s->arena, rt));
+            } else {
+                AstNode *other = is_ptr(lt) ? rhs : lhs;
+
+                if (!type_is_integer(other->sem_type)) {
+                    err(s, e->span, "invalid operands to '%s' ('%s' and '%s')",
+                        ast_punct_name(e->op), type_to_str(s->arena, lt),
+                        type_to_str(s->arena, rt));
+                    return poison(s, e);
+                }
+                if (!conv_is_npc(s, other))
+                    warn_at(s->lang->warnings, WARN_INT_CONVERSION, e->span,
+                            "comparison between pointer and integer ('%s' "
+                            "and '%s')",
+                            type_to_str(s->arena, lt),
+                            type_to_str(s->arena, rt));
             }
             e->sem_type = type_basic(TY_INT);
             e->is_lvalue = false;
@@ -654,6 +707,14 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
                 "pointer/integer type mismatch in conditional expression ('%s' "
                 "and '%s')",
                 type_to_str(s->arena, at), type_to_str(s->arena, bt));
+        /* Keep gcc's warning-only recovery, but materialize the recovery
+         * conversion just like the NPC case above.  Otherwise the two CFG
+         * edges reach lowering with different IR types even though the
+         * conditional expression has already been assigned ptype. */
+        if (is_ptr(at))
+            e->rhs = conv_cast(s, e->rhs, ptype);
+        else
+            e->mid = conv_cast(s, e->mid, ptype);
         e->sem_type = ptype;
         return e;
     }
@@ -816,6 +877,21 @@ static AstNode *expr_call(Sema *s, AstNode *e)
             }
             for (i = 0; i < e->nargs; i++)
                 e->args[i] = conv_decay(s, expr(s, e->args[i]));
+            if (b == SEMA_BUILTIN_VA_START || b == SEMA_BUILTIN_VA_END ||
+                b == SEMA_BUILTIN_VA_COPY) {
+                u32 cursors = b == SEMA_BUILTIN_VA_COPY ? 2u : 1u;
+
+                for (i = 0; i < cursors; i++) {
+                    if (quiet(e->args[i], NULL))
+                        return poison(s, e);
+                    if (!is_va_list_cursor(s, e->args[i]->sem_type)) {
+                        err(s, e->args[i]->span,
+                            "argument %u to '%s' is not a va_list",
+                            (unsigned)i + 1, e->lhs->name);
+                        return poison(s, e);
+                    }
+                }
+            }
             /* The mem/str builtins take the LIBC signatures: sizes are
              * size_t, so promote the counted argument rather than
              * passing whatever width the user wrote (v0.1.0 lowers
@@ -1177,6 +1253,13 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->lhs = conv_decay(s, expr(s, e->lhs));
         e->sem_type = sema_type_from_ast(s, e->type, e->span);
         e->is_lvalue = false;
+        if (quiet(e->lhs, NULL))
+            return poison(s, e);
+        if (!is_va_list_cursor(s, e->lhs->sem_type)) {
+            err(s, e->lhs->span,
+                "first argument to '__builtin_va_arg' is not a va_list");
+            return poison(s, e);
+        }
         return e;
     }
     case AST_EXPR_OFFSETOF: {
