@@ -27,6 +27,116 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc)
     return m;
 }
 
+static void *clone_array(Arena *arena, const void *source, size_t count,
+                         size_t size, size_t align)
+{
+    void *copy;
+
+    if (!source || !count)
+        return NULL;
+    copy = arena_alloc(arena, count * size, align);
+    memcpy(copy, source, count * size);
+    return copy;
+}
+
+static IrInst *clone_inst_list(Arena *arena, const IrInst *source,
+                               IrInst **last)
+{
+    IrInst *head = NULL;
+    IrInst *tail = NULL;
+
+    for (; source; source = source->next) {
+        IrInst *copy = arena_alloc(arena, sizeof(*copy), _Alignof(IrInst));
+        u32 i;
+
+        *copy = *source;
+        copy->next = NULL;
+        copy->ops = clone_array(arena, source->ops, source->nops,
+                                sizeof(*source->ops), _Alignof(IrOperand));
+        copy->edges = clone_array(arena, source->edges, source->nedges,
+                                  sizeof(*source->edges), _Alignof(IrEdge));
+        for (i = 0; i < copy->nedges; i++)
+            copy->edges[i].args = clone_array(
+                arena, source->edges[i].args, source->edges[i].nargs,
+                sizeof(*source->edges[i].args), _Alignof(IrOperand));
+        if (tail)
+            tail->next = copy;
+        else
+            head = copy;
+        tail = copy;
+    }
+    *last = tail;
+    return head;
+}
+
+IrModule *ir_module_clone(Arena *arena, const IrModule *source)
+{
+    IrModule *copy;
+    u32 i, j;
+
+    if (!arena || !source)
+        return NULL;
+    copy = ir_module_new(arena, source->dc);
+    copy->nsyms = copy->cap_syms = source->nsyms;
+    copy->syms = clone_array(arena, source->syms, source->nsyms,
+                             sizeof(*source->syms), _Alignof(char *));
+    copy->nlocs = copy->cap_locs = source->nlocs;
+    copy->locs = clone_array(arena, source->locs, source->nlocs,
+                             sizeof(*source->locs), _Alignof(Span));
+    copy->nglobals = copy->cap_globals = source->nglobals;
+    copy->globals = clone_array(arena, source->globals, source->nglobals,
+                                sizeof(*source->globals), _Alignof(IrGlobal));
+    for (i = 0; i < copy->nglobals; i++) {
+        const IrGlobal *sg = &source->globals[i];
+        IrGlobal *dg = &copy->globals[i];
+
+        dg->init = clone_array(arena, sg->init, sg->init ? sg->size : 0, 1, 1);
+        dg->relocs = clone_array(arena, sg->relocs, sg->nrelocs,
+                                 sizeof(*sg->relocs), _Alignof(IrReloc));
+    }
+    copy->nfuncs = copy->cap_funcs = source->nfuncs;
+    copy->funcs = clone_array(arena, source->funcs, source->nfuncs,
+                              sizeof(*source->funcs), _Alignof(IrFunc));
+    for (i = 0; i < copy->nfuncs; i++) {
+        const IrFunc *sf = &source->funcs[i];
+        IrFunc *df = &copy->funcs[i];
+
+        df->module = copy;
+        df->param_types = clone_array(arena, sf->param_types, sf->nparams,
+                                      sizeof(*sf->param_types), 1);
+        df->param_annots =
+            clone_array(arena, sf->param_annots, sf->nparams,
+                        sizeof(*sf->param_annots), _Alignof(u64));
+        df->param_vals =
+            clone_array(arena, sf->param_vals, sf->nparams,
+                        sizeof(*sf->param_vals), _Alignof(ValueId));
+        df->vals = clone_array(arena, sf->vals, sf->nvals, sizeof(*sf->vals),
+                               _Alignof(IrValInfo));
+        df->cap_vals = df->nvals;
+        df->local_slots =
+            clone_array(arena, sf->local_slots, sf->nlocal_slots,
+                        sizeof(*sf->local_slots), _Alignof(IrLocalSlot));
+        df->cap_local_slots = df->nlocal_slots;
+        df->cfg_removed =
+            clone_array(arena, sf->cfg_removed, sf->ncfg_removed,
+                        sizeof(*sf->cfg_removed), _Alignof(IrCfgRemoved));
+        df->cap_cfg_removed = df->ncfg_removed;
+        df->opt_mem2reg_info = NULL;
+        df->blocks = clone_array(arena, sf->blocks, sf->nblocks,
+                                 sizeof(*sf->blocks), _Alignof(IrBlock));
+        df->cap_blocks = df->nblocks;
+        for (j = 0; j < df->nblocks; j++) {
+            const IrBlock *sb = &sf->blocks[j];
+            IrBlock *db = &df->blocks[j];
+
+            db->params = clone_array(arena, sb->params, sb->nparams,
+                                     sizeof(*sb->params), _Alignof(ValueId));
+            db->first = clone_inst_list(arena, sb->first, &db->last);
+        }
+    }
+    return copy;
+}
+
 u32 ir_sym(IrModule *m, const char *name)
 {
     u32 i;
@@ -102,6 +212,7 @@ IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,
     }
     f = &m->funcs[m->nfuncs++];
     memset(f, 0, sizeof(*f));
+    f->module = m;
     f->name = name;
     f->ret = (u8)ret;
     f->linkage = IRLINK_EXTERNAL; /* ` internal` marker flips it */
@@ -268,7 +379,83 @@ IrOperand ir_op_undef(IrType t)
 
 /* --- unreachable-block cleanup ------------------------------------------- */
 
-void ir_func_remove_unreachable(IrFunc *f)
+static void append_removed_block(IrFunc *f, u32 index, Span loc, u32 region,
+                                 u8 flags)
+{
+    IrModule *m = f->module;
+    u32 i;
+
+    if (!m || index >= f->nblocks)
+        return;
+    if (!loc.file_id)
+        loc = ir_debug_loc(m, f->loc);
+    if (!loc.file_id)
+        return;
+    for (i = 0; i < f->ncfg_removed; i++)
+        if (f->cfg_removed[i].loc.file_id == loc.file_id &&
+            f->cfg_removed[i].loc.line == loc.line &&
+            f->cfg_removed[i].loc.col == loc.col &&
+            f->cfg_removed[i].loc.len == loc.len &&
+            f->cfg_removed[i].loc.seq == loc.seq &&
+            f->cfg_removed[i].loc.origin == loc.origin) {
+            f->cfg_removed[i].flags |= flags;
+            if (!f->cfg_removed[i].region)
+                f->cfg_removed[i].region = region;
+            return;
+        }
+    if (f->ncfg_removed == f->cap_cfg_removed) {
+        u32 nc = f->cap_cfg_removed ? f->cap_cfg_removed * 2 : 8;
+
+        f->cfg_removed = grow(m->arena, f->cfg_removed, f->ncfg_removed, nc,
+                              sizeof(*f->cfg_removed), _Alignof(IrCfgRemoved));
+        f->cap_cfg_removed = nc;
+    }
+    f->cfg_removed[f->ncfg_removed].block.v = index + 1;
+    f->cfg_removed[f->ncfg_removed].loc = loc;
+    f->cfg_removed[f->ncfg_removed].block_name = f->blocks[index].name;
+    f->cfg_removed[f->ncfg_removed].region = region;
+    f->cfg_removed[f->ncfg_removed].flags = flags;
+    f->ncfg_removed++;
+}
+
+static void log_removed_block(IrFunc *f, u32 index, u8 flags)
+{
+    IrModule *m = f->module;
+    const IrInst *in;
+    Span loc = {0};
+
+    if (!m || index >= f->nblocks)
+        return;
+    for (in = f->blocks[index].first; in; in = in->next)
+        if (in->loc) {
+            loc = ir_inst_span(m, in);
+            if (in->op == IR_BR && (in->flags & IRF_FLOW_PROVENANCE))
+                flags |= IR_CFG_REMOVED_DEFENSIVE_BREAK;
+            break;
+        }
+    append_removed_block(f, index, loc, 0, flags);
+}
+
+void ir_func_record_removed(IrFunc *f, BlockId block, u8 flags)
+{
+    if (f && block.v >= 1 && block.v <= f->nblocks)
+        log_removed_block(f, block.v - 1, flags);
+}
+
+void ir_func_record_removed_span(IrFunc *f, BlockId block, Span loc, u8 flags)
+{
+    if (f && block.v >= 1 && block.v <= f->nblocks)
+        append_removed_block(f, block.v - 1, loc, 0, flags);
+}
+
+void ir_func_record_removed_region(IrFunc *f, BlockId block, Span loc,
+                                   u32 region, u8 flags)
+{
+    if (f && block.v >= 1 && block.v <= f->nblocks)
+        append_removed_block(f, block.v - 1, loc, region, flags);
+}
+
+static void remove_unreachable(IrFunc *f, bool retain_provenance)
 {
     Arena scratch;
     bool *reach;
@@ -315,6 +502,43 @@ void ir_func_remove_unreachable(IrFunc *f)
         arena_free_all(&scratch);
         return;
     }
+    if (retain_provenance) {
+        bool logged = false;
+
+        /* Report the root of each disconnected dead region, not every
+         * descendant block. A rootless dead SCC still gets one record. */
+        for (i = 0; i < f->nblocks; i++) {
+            bool dead_pred = false;
+            u32 from;
+
+            if (reach[i])
+                continue;
+            for (from = 0; from < f->nblocks && !dead_pred; from++) {
+                const IrInst *term;
+
+                if (reach[from])
+                    continue;
+                term = f->blocks[from].last;
+                if (!term)
+                    continue;
+                for (j = 0; j < term->nedges; j++)
+                    if (term->edges[j].target.v == i + 1) {
+                        dead_pred = true;
+                        break;
+                    }
+            }
+            if (!dead_pred) {
+                log_removed_block(f, i, 0);
+                logged = true;
+            }
+        }
+        if (!logged)
+            for (i = 0; i < f->nblocks; i++)
+                if (!reach[i]) {
+                    log_removed_block(f, i, 0);
+                    break;
+                }
+    }
     /* Values defined in dying blocks lose their def coordinates; their
      * ids stay allocated so every surviving operand id is untouched. */
     for (i = 0; i < f->nvals; i++) {
@@ -345,6 +569,16 @@ void ir_func_remove_unreachable(IrFunc *f)
     }
     f->nblocks = next;
     arena_free_all(&scratch);
+}
+
+void ir_func_remove_unreachable(IrFunc *f)
+{
+    remove_unreachable(f, false);
+}
+
+void ir_func_remove_unreachable_with_log(IrFunc *f)
+{
+    remove_unreachable(f, true);
 }
 
 /* --- canonical value renumbering ------------------------------------------ */

@@ -25,14 +25,58 @@ static bool stmt_is_terminated(Lower *lo)
     return lo->terminated;
 }
 
+/* Conditions derived from target/layout facts or macro spellings are common
+ * portability idioms.  Preserve that source fact on the branch before
+ * constant folding erases the expression tree; -Wunreachable-code uses it
+ * to avoid configuration-dependent false positives. */
+static bool expr_is_configuration_dependent(const AstNode *e)
+{
+    u32 i;
+
+    if (!e)
+        return false;
+    if ((e->span.origin & SPAN_ORIGIN_ANY_MACRO) != 0 ||
+        e->kind == AST_EXPR_SIZEOF || e->kind == AST_EXPR_ALIGNOF)
+        return true;
+    if (expr_is_configuration_dependent(e->lhs) ||
+        expr_is_configuration_dependent(e->mid) ||
+        expr_is_configuration_dependent(e->rhs))
+        return true;
+    for (i = 0; i < e->nargs; i++)
+        if (expr_is_configuration_dependent(e->args[i]))
+            return true;
+    for (i = 0; i < e->nitems; i++)
+        if (expr_is_configuration_dependent(e->items[i]))
+            return true;
+    return false;
+}
+
+static void mark_config_branch(Lower *lo, const AstNode *condition)
+{
+    if (expr_is_configuration_dependent(condition))
+        ir_branch_mark_flow_provenance(&lo->b);
+}
+
 /* Terminate-then-continue: statements after a terminator open a fresh
  * block. If nothing ever branches to it, ir_func_remove_unreachable
  * deletes it after the function completes — the verifier's orphan check
  * demands deletion, not abandonment. */
 static void ensure_open_block(Lower *lo, const char *why)
 {
-    if (stmt_is_terminated(lo))
-        lower_at(lo, lower_new_block(lo, why));
+    if (stmt_is_terminated(lo)) {
+        BlockId block = lower_new_block(lo, why);
+        Span at = ir_builder_span(&lo->b);
+        u32 region = lo->dead_region;
+
+        if (!region)
+            region = ++lo->next_dead_region;
+
+        /* Preserve the exact statement span before orphan cleanup. Empty
+         * statements otherwise leave no instruction to carry it. */
+        ir_func_record_removed_region(lo->fn, block, at, region, 0);
+        lower_at(lo, block);
+        lo->dead_region = region;
+    }
 }
 
 /* --- VLA scope machinery (Sprint 20) ---------------------------------------
@@ -168,13 +212,97 @@ static void lower_one_decl(Lower *lo, AstNode *d)
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
 
+    slot = lower_local_slot(lo, sym);
+    if (!slot.v) {
+        l = layout_of(lo->sema, sym->type);
+        slot = ir_build_alloca_typed(
+            &lo->b, lower_i64((i64)(l.size ? l.size : 1)),
+            (u32)(l.align ? l.align : 1), lower_efftype(lo, sym->type));
+        lower_bind_local(lo, sym, slot);
+    }
+    if (d->init) {
+        Symbol *saved_init = lo->initializing_sym;
+        AstNode *self = d->init;
+
+        while (self && self->kind == AST_INIT_LIST && self->nitems == 1)
+            self = self->items[0];
+        while (self && (self->kind == AST_EXPR_PAREN ||
+                        (self->kind == AST_EXPR_CAST && self->implicit)))
+            self = self->lhs;
+        lo->initializing_sym =
+            self && self->kind == AST_EXPR_IDENT && self->sym == sym ? sym
+                                                                     : NULL;
+        lower_local_init(lo, ir_op_value(lo->fn, slot), sym->type, d->init);
+        lo->initializing_sym = saved_init;
+    }
+}
+
+static void prebind_one_decl(Lower *lo, AstNode *d)
+{
+    Symbol *sym;
+    TypeLayout l;
+    ValueId slot;
+
+    if (!d || !d->name || (d->storage & AST_SC_TYPEDEF))
+        return;
+    sym = d->sym;
+    if (!sym || sym->kind != SYM_VAR || (d->storage & AST_SC_STATIC) ||
+        (d->storage & AST_SC_EXTERN) || !sym->type ||
+        type_is_vla_chain(sym->type) ||
+        !layout_is_complete_for_size(sym->type) || lower_local_slot(lo, sym).v)
+        return;
     l = layout_of(lo->sema, sym->type);
     slot = ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
                                  (u32)(l.align ? l.align : 1),
                                  lower_efftype(lo, sym->type));
     lower_bind_local(lo, sym, slot);
-    if (d->init)
-        lower_local_init(lo, ir_op_value(lo->fn, slot), sym->type, d->init);
+}
+
+static void prebind_decl_group(Lower *lo, AstNode *d)
+{
+    u32 i;
+
+    if (!d)
+        return;
+    prebind_one_decl(lo, d);
+    for (i = 0; i < d->nitems; i++)
+        prebind_one_decl(lo, d->items[i]);
+}
+
+void lower_prebind_locals(Lower *lo, AstNode *s)
+{
+    u32 i;
+
+    if (!s)
+        return;
+    switch (s->kind) {
+    case AST_STMT_DECL:
+        prebind_decl_group(lo, s->lhs);
+        return;
+    case AST_STMT_COMPOUND:
+        for (i = 0; i < s->nitems; i++)
+            lower_prebind_locals(lo, s->items[i]);
+        return;
+    case AST_STMT_IF:
+        lower_prebind_locals(lo, s->body);
+        lower_prebind_locals(lo, s->rhs);
+        return;
+    case AST_STMT_SWITCH:
+    case AST_STMT_WHILE:
+    case AST_STMT_DO:
+    case AST_STMT_CASE:
+    case AST_STMT_DEFAULT:
+    case AST_STMT_LABEL:
+        lower_prebind_locals(lo, s->body);
+        return;
+    case AST_STMT_FOR:
+        if (s->lhs && s->lhs->kind == AST_DECL)
+            prebind_decl_group(lo, s->lhs);
+        lower_prebind_locals(lo, s->body);
+        return;
+    default:
+        return;
+    }
 }
 
 static void lower_local_decl(Lower *lo, AstNode *d)
@@ -302,6 +430,7 @@ static void lower_switch(Lower *lo, AstNode *s)
                 blks[j - 1] = tb;
             }
         ir_build_switch(&lo->b, scrut, defblk, vals, blks, n);
+        mark_config_branch(lo, s->lhs);
         lo->terminated = true;
     }
 
@@ -380,6 +509,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         (void)lower_rvalue(lo, s->lhs);
         return;
     case AST_STMT_NULL:
+        ensure_open_block(lo, "dead");
         return;
     case AST_STMT_IF: {
         BlockId tb, eb, join;
@@ -391,6 +521,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         join = lower_new_block(lo, "if.join");
         eb = s->rhs ? lower_new_block(lo, "if.else") : join;
         ir_build_condbr(&lo->b, c, tb, NULL, 0, eb, NULL, 0);
+        mark_config_branch(lo, s->lhs);
         lower_at(lo, tb);
         lower_stmt(lo, s->body);
         lower_branch_to(lo, join);
@@ -415,6 +546,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         lower_at(lo, header);
         c = lower_cond(lo, s->lhs);
         ir_build_condbr(&lo->b, c, body, NULL, 0, exit_, NULL, 0);
+        mark_config_branch(lo, s->lhs);
         lc.break_target = exit_;
         lc.continue_target = header;
         lc.vla_mark = lo->vla_scopes;
@@ -449,6 +581,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         lower_at(lo, cond);
         c = lower_cond(lo, s->lhs);
         ir_build_condbr(&lo->b, c, body, NULL, 0, exit_, NULL, 0);
+        mark_config_branch(lo, s->lhs);
         lower_at(lo, exit_);
         return;
     }
@@ -478,6 +611,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             IrOperand c = lower_cond(lo, s->mid);
 
             ir_build_condbr(&lo->b, c, body, NULL, 0, exit_, NULL, 0);
+            mark_config_branch(lo, s->mid);
         } else {
             ir_build_br(&lo->b, body, NULL, 0); /* for(;;) — no compare */
         }
@@ -547,6 +681,8 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         if (lc) {
             vla_restore_until(lo, lc->vla_mark);
             ir_build_br(&lo->b, lc->break_target, NULL, 0);
+            if (lc->continue_target.v == 0)
+                ir_branch_mark_flow_provenance(&lo->b);
             lo->terminated = true;
         }
         return;
@@ -569,7 +705,23 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
          * subsumes every live VLA token (and longjmp likewise unwinds
          * frames wholesale — tokens die with them). */
         ensure_open_block(lo, "dead");
-        if (s->lhs && lo->sret.v) {
+        if (lo->cur_return_type && lo->cur_return_type->kind == TY_VOID) {
+            /* Sema already warned about `return expr` here. Preserve its
+             * side effects while keeping warning-only IR verifier-valid. */
+            if (s->lhs)
+                (void)lower_rvalue(lo, s->lhs);
+            ir_build_ret(&lo->b, NULL);
+        } else if (!s->lhs) {
+            /* A missing value is a warning. Scalar and small-aggregate IR
+             * functions nevertheless require a return operand. */
+            if (lo->fn->ret == IRT_VOID) {
+                ir_build_ret(&lo->b, NULL);
+            } else {
+                IrOperand undef = ir_op_undef((IrType)lo->fn->ret);
+
+                ir_build_ret(&lo->b, &undef);
+            }
+        } else if (lo->sret.v) {
             /* SRET/PAIR aggregate return: memcpy into the hidden result
              * pointer, then ret void (the register story is the
              * IrAbiRet annotation's — see ir.h). */
@@ -607,8 +759,6 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             IrOperand v = lower_rvalue(lo, s->lhs);
 
             ir_build_ret(&lo->b, &v);
-        } else {
-            ir_build_ret(&lo->b, NULL);
         }
         lo->terminated = true;
         return;

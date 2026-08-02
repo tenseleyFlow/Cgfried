@@ -1267,6 +1267,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     ValueId sret_tmp = VALUE_INVALID;
     ValueId rv;
     u32 i;
+    bool call_noreturn = false;
 
     /* The va_* builtins carry sema's marker instead of a callee. */
     if (e->op >= SEMA_BUILTIN_VA_START && e->op <= SEMA_BUILTIN_VA_COPY) {
@@ -1286,6 +1287,21 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     }
 
     callee = direct_callee(e->lhs);
+    if (callee) {
+        static const char *const known[] = {
+            "abort", "exit", "_Exit", "quick_exit", "longjmp", "siglongjmp"};
+        size_t ni;
+
+        call_noreturn = (callee->func_specs & AST_FS_NORETURN) != 0;
+        for (ni = 0; !call_noreturn && callee->linkage == LINK_EXTERNAL &&
+                     ni < CGF_ARRAY_LEN(known);
+             ni++)
+            call_noreturn = strcmp(callee->name, known[ni]) == 0;
+        if (!call_noreturn && callee->linkage == LINK_EXTERNAL &&
+            lo->sema->target.kind == CGF_TARGET_X86_64_FREEBSD)
+            call_noreturn = strcmp(callee->name, "err") == 0 ||
+                            strcmp(callee->name, "errx") == 0;
+    }
     /* The callee's function type: through the symbol, or through the
      * called pointer's pointee. */
     if (callee)
@@ -1395,6 +1411,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
          * C type is variadic; the call instruction carries the fact. */
         if (fty && fty->variadic)
             ir_call_mark_variadic(&lo->b);
+        if (call_noreturn)
+            ir_call_mark_noreturn(&lo->b);
     }
 
     if (hidden)
@@ -1500,7 +1518,17 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
             return lower_rvalue(lo, e->lhs);
         }
         lv = lower_lvalue(lo, e);
-        return lower_load(lo, lv);
+        {
+            Span saved = ir_builder_span(&lo->b);
+            IrOperand value;
+
+            /* Flow diagnostics belong on the scalar read, not on the
+             * enclosing statement span installed by lower_stmt(). */
+            ir_builder_set_span(&lo->b, e->span);
+            value = lower_load(lo, lv);
+            ir_builder_set_span(&lo->b, saved);
+            return value;
+        }
     }
     case PUNCT_PLUS:
         return lower_rvalue(lo, e->lhs);
@@ -1583,7 +1611,17 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             return lv.addr;
         }
         lv = lower_lvalue(lo, e);
-        return lower_load(lo, lv);
+        {
+            Span saved = ir_builder_span(&lo->b);
+            IrOperand value;
+
+            ir_builder_set_span(&lo->b, e->span);
+            value = lower_load(lo, lv);
+            if (sym && lo->initializing_sym == sym)
+                ir_load_mark_self_init(&lo->b);
+            ir_builder_set_span(&lo->b, saved);
+            return value;
+        }
     }
     case AST_EXPR_STRING: {
         u32 s = lower_string_lit(lo, e);

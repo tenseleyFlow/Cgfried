@@ -256,6 +256,8 @@ static void print_memflags(Buf *out, u8 flags)
         buf_printf(out, ", volatile");
     if (flags & IRF_SEQ_CST)
         buf_printf(out, ", seq_cst");
+    if (flags & IRF_SELF_INIT)
+        buf_printf(out, ", self_init");
 }
 
 static void print_etype(Buf *out, const IrInst *in)
@@ -426,6 +428,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         buf_printf(out, ")");
         if (in->flags & IRF_CALL_VARIADIC)
             buf_printf(out, " va");
+        if (in->flags & IRF_NORETURN)
+            buf_printf(out, " noreturn");
         break;
     }
     case IR_VA_START:
@@ -462,10 +466,14 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
             buf_printf(out, " ");
             print_typed(out, m, vn, &in->ops[0]);
         }
+        if (in->flags & IRF_FLOW_PROVENANCE)
+            buf_printf(out, ", implicit");
         break;
     case IR_BR:
         buf_printf(out, "br ");
         print_edge(out, m, f, vn, &in->edges[0]);
+        if (in->flags & IRF_FLOW_PROVENANCE)
+            buf_printf(out, ", defensive");
         break;
     case IR_CONDBR:
         buf_printf(out, "condbr ");
@@ -474,6 +482,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         print_edge(out, m, f, vn, &in->edges[0]);
         buf_printf(out, ", ");
         print_edge(out, m, f, vn, &in->edges[1]);
+        if (in->flags & IRF_FLOW_PROVENANCE)
+            buf_printf(out, ", config");
         break;
     case IR_SWITCH:
         buf_printf(out, "switch %s ", type_names[in->ops[0].type]);
@@ -484,6 +494,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
             buf_printf(out, ", %lld: ", (long long)in->edges[i].case_val);
             print_edge(out, m, f, vn, &in->edges[i]);
         }
+        if (in->flags & IRF_FLOW_PROVENANCE)
+            buf_printf(out, ", config");
         break;
     case IR_UNREACHABLE:
         buf_printf(out, "unreachable");

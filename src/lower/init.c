@@ -176,12 +176,281 @@ static void plan_scalar(InitPlan *p, Type *t, AstNode *e, i64 off)
 
 static void plan_walk(InitPlan *p, Type *t, AstNode *init, i64 off);
 
-static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
+#define PLAN_CURSOR_MAX 128
+
+typedef struct PlanCursorFrame {
+    Type *aggregate;
+    u64 off;
+    u64 pos;
+} PlanCursorFrame;
+
+typedef struct PlanCursor {
+    PlanCursorFrame frames[PLAN_CURSOR_MAX];
+    u32 depth;
+    Type *current;
+    Member *member;
+    u64 off;
+} PlanCursor;
+
+static bool plan_is_aggregate(const Type *t)
 {
-    TypeLayout el = layout_of(p->lo->sema, t->base);
-    u64 idx = 0;
+    return t &&
+           (t->kind == TY_ARRAY || t->kind == TY_STRUCT || t->kind == TY_UNION);
+}
+
+static bool plan_cursor_select(InitPlan *p, PlanCursor *cursor)
+{
+    PlanCursorFrame *frame;
+    Member *member;
+    u64 at = 0;
+
+    cursor->current = NULL;
+    cursor->member = NULL;
+    if (!cursor->depth)
+        return false;
+    frame = &cursor->frames[cursor->depth - 1];
+    if (frame->aggregate->kind == TY_ARRAY) {
+        TypeLayout element;
+
+        if (!frame->aggregate->base || (frame->aggregate->has_size &&
+                                        frame->pos >= frame->aggregate->size))
+            return false;
+        element = layout_of(p->lo->sema, frame->aggregate->base);
+        cursor->current = frame->aggregate->base;
+        cursor->off = frame->off + frame->pos * element.size;
+        return true;
+    }
+    if ((frame->aggregate->kind != TY_STRUCT &&
+         frame->aggregate->kind != TY_UNION) ||
+        !frame->aggregate->tag)
+        return false;
+    layout_record(p->lo->sema, frame->aggregate);
+    for (member = frame->aggregate->tag->members; member;
+         member = member->next) {
+        if (member->is_bitfield && !member->name)
+            continue;
+        if (at++ != frame->pos)
+            continue;
+        cursor->current = member->type;
+        cursor->member = member;
+        cursor->off =
+            member->is_bitfield ? frame->off : frame->off + member->offset;
+        return true;
+    }
+    return false;
+}
+
+static void plan_cursor_start(InitPlan *p, PlanCursor *cursor, Type *root,
+                              u64 off)
+{
+    memset(cursor, 0, sizeof(*cursor));
+    cursor->frames[0].aggregate = root;
+    cursor->frames[0].off = off;
+    cursor->depth = 1;
+    (void)plan_cursor_select(p, cursor);
+}
+
+static bool plan_cursor_descend(InitPlan *p, PlanCursor *cursor)
+{
+    Type *aggregate = cursor->current;
+    u64 off = cursor->off;
+
+    if (!plan_is_aggregate(aggregate) || cursor->depth >= PLAN_CURSOR_MAX)
+        return false;
+    cursor->frames[cursor->depth].aggregate = aggregate;
+    cursor->frames[cursor->depth].off = off;
+    cursor->frames[cursor->depth].pos = 0;
+    cursor->depth++;
+    return plan_cursor_select(p, cursor);
+}
+
+static void plan_cursor_advance(InitPlan *p, PlanCursor *cursor)
+{
+    while (cursor->depth) {
+        PlanCursorFrame *frame = &cursor->frames[cursor->depth - 1];
+
+        if (frame->aggregate->kind != TY_UNION) {
+            frame->pos++;
+            if (plan_cursor_select(p, cursor))
+                return;
+        }
+        cursor->depth--;
+    }
+    cursor->current = NULL;
+    cursor->member = NULL;
+}
+
+static bool plan_member_path(Type *aggregate, const char *name, u64 *path,
+                             u32 capacity, u32 *depth)
+{
+    Member *member;
+    u64 at = 0;
+
+    if (!aggregate || !aggregate->tag || !name || !capacity)
+        return false;
+    for (member = aggregate->tag->members; member; member = member->next) {
+        if (member->is_bitfield && !member->name)
+            continue;
+        if (member->name == name) {
+            path[0] = at;
+            *depth = 1;
+            return true;
+        }
+        if (!member->name && member->type && capacity > 1 &&
+            (member->type->kind == TY_STRUCT ||
+             member->type->kind == TY_UNION)) {
+            u32 inner_depth = 0;
+
+            if (plan_member_path(member->type, name, path + 1, capacity - 1,
+                                 &inner_depth)) {
+                path[0] = at;
+                *depth = inner_depth + 1;
+                return true;
+            }
+        }
+        at++;
+    }
+    return false;
+}
+
+static bool plan_cursor_designate(InitPlan *p, PlanCursor *cursor, Type *root,
+                                  u64 off, const AstNode *item)
+{
+    u32 i;
+
+    plan_cursor_start(p, cursor, root, off);
+    for (i = 0; item && i < item->ndesignators; i++) {
+        const AstNode *designator = item->designators[i];
+        PlanCursorFrame *frame;
+        u64 pos;
+
+        if (!designator || !cursor->depth)
+            return false;
+        frame = &cursor->frames[cursor->depth - 1];
+        if (designator->desig_is_field) {
+            u64 path[PLAN_CURSOR_MAX];
+            u32 path_depth = 0;
+            u32 path_index;
+
+            if ((frame->aggregate->kind != TY_STRUCT &&
+                 frame->aggregate->kind != TY_UNION) ||
+                !plan_member_path(frame->aggregate, designator->desig_field,
+                                  path, PLAN_CURSOR_MAX - cursor->depth + 1,
+                                  &path_depth))
+                return false;
+            for (path_index = 0; path_index < path_depth; path_index++) {
+                frame = &cursor->frames[cursor->depth - 1];
+                frame->pos = path[path_index];
+                if (!plan_cursor_select(p, cursor))
+                    return false;
+                if (path_index + 1 < path_depth) {
+                    if (!plan_is_aggregate(cursor->current) ||
+                        cursor->depth >= PLAN_CURSOR_MAX)
+                        return false;
+                    cursor->frames[cursor->depth].aggregate = cursor->current;
+                    cursor->frames[cursor->depth].off = cursor->off;
+                    cursor->frames[cursor->depth].pos = 0;
+                    cursor->depth++;
+                }
+            }
+        } else {
+            ConstValue index;
+
+            if (frame->aggregate->kind != TY_ARRAY || !designator->desig_index)
+                return false;
+            index =
+                constexpr_eval(p->lo->sema, designator->desig_index, CE_FOLD);
+            if (index.kind != CV_INT || (i64)index.i < 0)
+                return false;
+            pos = index.i;
+            frame->pos = pos;
+            if (!plan_cursor_select(p, cursor))
+                return false;
+        }
+        if (i + 1 < item->ndesignators) {
+            if (!plan_is_aggregate(cursor->current) ||
+                cursor->depth >= PLAN_CURSOR_MAX)
+                return false;
+            cursor->frames[cursor->depth].aggregate = cursor->current;
+            cursor->frames[cursor->depth].off = cursor->off;
+            cursor->frames[cursor->depth].pos = 0;
+            cursor->depth++;
+        }
+    }
+    return true;
+}
+
+static bool plan_expr_initializes_whole(Type *target, const AstNode *init)
+{
+    if (!target || !init)
+        return false;
+    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
+        return true;
+    return init->sem_type && type_compatible(target, init->sem_type);
+}
+
+static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
+                              AstNode *item)
+{
+    Member *member = cursor->member;
+
+    if (!cursor->current)
+        return;
+    if (member && member->is_bitfield) {
+        ConstValue value = constexpr_eval(p->lo->sema, item, CE_FOLD);
+
+        if (value.kind == CV_INT) {
+            u32 bit;
+
+            for (bit = 0; bit < member->bit_width; bit++) {
+                u64 absolute = cursor->off * 8 + member->bit_offset + bit;
+                u64 byte = absolute / 8;
+
+                if (byte >= p->size)
+                    break;
+                if ((value.i >> bit) & 1)
+                    p->img[byte] |= (u8)(1u << (absolute % 8));
+            }
+        } else {
+            plan_rt(p, (i64)cursor->off, member->type, item, member);
+        }
+        return;
+    }
+    plan_walk(p, cursor->current, item, (i64)cursor->off);
+}
+
+static void plan_aggregate_list(InitPlan *p, Type *t, AstNode *init, u64 off)
+{
+    PlanCursor cursor;
     u32 k;
 
+    plan_cursor_start(p, &cursor, t, off);
+    for (k = 0; k < init->nitems; k++) {
+        AstNode *item = init->items[k];
+
+        if (!item)
+            continue;
+        if (item->ndesignators &&
+            !plan_cursor_designate(p, &cursor, t, off, item))
+            continue;
+        if (!cursor.current)
+            continue;
+        if (item->kind == AST_INIT_LIST) {
+            plan_cursor_value(p, &cursor, item);
+            plan_cursor_advance(p, &cursor);
+            continue;
+        }
+        while (plan_is_aggregate(cursor.current) &&
+               !plan_expr_initializes_whole(cursor.current, item))
+            if (!plan_cursor_descend(p, &cursor))
+                break;
+        plan_cursor_value(p, &cursor, item);
+        plan_cursor_advance(p, &cursor);
+    }
+}
+
+static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
+{
     if (init->kind == AST_EXPR_STRING) {
         u64 cap = t->has_size ? t->size : 0;
         u64 n = init->tok ? init->tok->str.nbytes : 0;
@@ -197,31 +466,11 @@ static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
         plan_walk(p, t->base, init, off);
         return;
     }
-    for (k = 0; k < init->nitems; k++) {
-        AstNode *item = init->items[k];
-
-        if (!item)
-            continue;
-        if (item->ndesignators > 0 && item->designators[0] &&
-            !item->designators[0]->desig_is_field &&
-            item->designators[0]->desig_index) {
-            ConstValue cv = constexpr_eval(
-                p->lo->sema, item->designators[0]->desig_index, CE_FOLD);
-
-            if (cv.kind == CV_INT)
-                idx = cv.i;
-        }
-        if (!t->has_size || idx < t->size)
-            plan_walk(p, t->base, item, off + (i64)(idx * el.size));
-        idx++;
-    }
+    plan_aggregate_list(p, t, init, (u64)off);
 }
 
 static void plan_record(InitPlan *p, Type *t, AstNode *init, i64 off)
 {
-    Member *m;
-    u32 k;
-
     if (!t->tag)
         return;
     layout_record(p->lo->sema, t);
@@ -229,57 +478,7 @@ static void plan_record(InitPlan *p, Type *t, AstNode *init, i64 off)
         plan_rt(p, off, t, init, NULL); /* runtime whole-struct memcpy */
         return;
     }
-    m = t->tag->members;
-    while (m && m->is_bitfield && !m->name)
-        m = m->next;
-    for (k = 0; k < init->nitems; k++) {
-        AstNode *item = init->items[k];
-
-        if (!item)
-            continue;
-        /* A designator re-aims the cursor even after it walked off the
-         * end — same fix as constexpr.c's fill_record (one bug, two
-         * mirrors; found landing this planner). */
-        if (item->ndesignators > 0 && item->designators[0] &&
-            item->designators[0]->desig_is_field) {
-            Member *it;
-
-            for (it = t->tag->members; it; it = it->next)
-                if (it->name == item->designators[0]->desig_field) {
-                    m = it;
-                    break;
-                }
-        }
-        if (!m)
-            break;
-        if (m->is_bitfield) {
-            ConstValue cv = constexpr_eval(p->lo->sema, item, CE_FOLD);
-
-            if (cv.kind == CV_INT) {
-                u64 bit = m->bit_offset;
-                u32 b;
-
-                for (b = 0; b < m->bit_width; b++) {
-                    u64 abs_bit = (u64)off * 8 + bit + b;
-                    u64 byte = abs_bit / 8;
-
-                    if (byte >= p->size)
-                        break;
-                    if ((cv.i >> b) & 1)
-                        p->img[byte] |= (u8)(1u << (abs_bit % 8));
-                }
-            } else {
-                plan_rt(p, off, m->type, item, m);
-            }
-        } else {
-            plan_walk(p, m->type, item, off + (i64)m->offset);
-        }
-        if (t->kind == TY_UNION)
-            break;
-        m = m->next;
-        while (m && m->is_bitfield && !m->name)
-            m = m->next;
-    }
+    plan_aggregate_list(p, t, init, (u64)off);
 }
 
 static void plan_walk(InitPlan *p, Type *t, AstNode *init, i64 off)

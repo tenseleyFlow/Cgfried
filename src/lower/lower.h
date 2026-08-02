@@ -115,23 +115,33 @@ typedef struct Lower {
     u32 named_gp;               /* gp registers consumed by named params */
     u32 named_fp;               /* fp registers consumed by named params */
     Type *cur_functype;         /* the C function type being lowered */
+    Type *cur_return_type;      /* source-level result, incl. true void */
+    Symbol *initializing_sym;   /* exact direct -Winit-self provenance */
+    u32 dead_region;            /* current contiguous unreachable source */
+    u32 next_dead_region;       /* stable diagnostic region numbering */
 
     /* module-wide */
-    Strmap globals;     /* Symbol* -> (uintptr_t)(module sym index + 1) */
-    Strmap func_ids;    /* Symbol* -> (uintptr_t)(IrFunc index + 1), for
-                           the functions THIS module emits */
-    Strmap string_pool; /* content -> sym index + 1 (init.c's dedup) */
-    u32 nstrings;       /* string-literal globals emitted, for naming */
-    u32 nlocal_static;  /* block-scope statics, for name mangling */
-    u32 ntemps;         /* aggregate temporaries (naming only) */
-    bool verify_each;   /* CGF_VERIFY_AFTER_EACH=1: verify per function */
-    bool failed;        /* a deferral hard-error fired */
+    Strmap globals;           /* Symbol* -> (uintptr_t)(module sym index + 1) */
+    Strmap func_ids;          /* Symbol* -> (uintptr_t)(IrFunc index + 1), for
+                                 the functions THIS module emits */
+    Strmap string_pool;       /* content -> sym index + 1 (init.c's dedup) */
+    u32 nstrings;             /* string-literal globals emitted, for naming */
+    u32 nlocal_static;        /* block-scope statics, for name mangling */
+    u32 ntemps;               /* aggregate temporaries (naming only) */
+    bool include_inline_defs; /* analysis module, never object emission */
+    bool verify_each;         /* CGF_VERIFY_AFTER_EACH=1: verify per function */
+    bool failed;              /* a deferral hard-error fired */
 } Lower;
 
 /* Lowers a whole translation unit. Returns NULL after reporting if a
  * deferred construct was reached (the diagnostic names its sprint). */
 IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
                                  AstNode *tu);
+/* Flow analysis needs bodies that the C inline-emission rules deliberately
+ * omit from object modules. This analysis-only surface keeps codegen's
+ * Sprint 16 linkage contract unchanged. */
+IrModule *lower_translation_unit_for_flow(Arena *arena, DiagCtx *dc, Sema *sema,
+                                          AstNode *tu);
 
 /* --- expressions (src/lower/expr.c) -------------------------------------- */
 
@@ -181,6 +191,7 @@ bool lower_internal_func(Lower *lo, Symbol *sym, u32 *index);
 /* Binds a block-scope object to its alloca / a local static to its
  * mangled global's symbol index; lower_sym_addr consults both. */
 void lower_bind_local(Lower *lo, Symbol *sym, ValueId slot);
+ValueId lower_local_slot(Lower *lo, Symbol *sym);
 void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index);
 /* An i64 constant operand (offsets, sizes). */
 IrOperand lower_i64(i64 v);
@@ -194,6 +205,10 @@ u32 lower_anon_sym(Lower *lo, const AstNode *e);
 ValueId lower_temp(Lower *lo, Type *t);
 /* Every deferred path routes through here; the message NAMES the sprint. */
 void lower_unimplemented(Lower *lo, Span span, const char *what, int sprint);
+/* Allocate fixed-size automatic objects in the entry block before statement
+ * lowering. A goto may legally enter their lexical block after the
+ * declaration, so every later load must still be dominated by its alloca. */
+void lower_prebind_locals(Lower *lo, AstNode *body);
 /* The byte size of a type as an i64 operand: a constant for complete
  * types, the cached (evaluated-once) value for a declared VLA, or a
  * fresh computation for an undeclared VLA type (sizeof(int[n]) — C17

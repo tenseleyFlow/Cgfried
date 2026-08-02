@@ -487,6 +487,16 @@ static void check_inst_misc(V *v, const IrInst *in)
             verr(v, 7, "'va' on '%s'; only calls carry the AL protocol",
                  ir_op_name((IrOp)in->op));
     }
+    if ((in->flags & IRF_NORETURN) && in->op != IR_CALL)
+        verr(v, 7, "'noreturn' on '%s'; only calls carry it",
+             ir_op_name((IrOp)in->op));
+    if ((in->flags & IRF_SELF_INIT) && in->op != IR_LOAD)
+        verr(v, 7, "'self_init' on '%s'; only loads carry it",
+             ir_op_name((IrOp)in->op));
+    if ((in->flags & IRF_FLOW_PROVENANCE) && in->op != IR_RET &&
+        in->op != IR_BR && in->op != IR_CONDBR && in->op != IR_SWITCH)
+        verr(v, 7, "flow provenance on '%s'; only terminators carry it",
+             ir_op_name((IrOp)in->op));
     if (in->flags & IRF_NSW) {
         if (in->op != IR_IADD && in->op != IR_ISUB && in->op != IR_IMUL)
             verr(v, 7,
@@ -507,7 +517,8 @@ static void check_inst_misc(V *v, const IrInst *in)
              "bounds-check provenance",
              ir_op_name((IrOp)in->op));
     if (in->flags & (u8) ~(IRF_VOLATILE | IRF_SEQ_CST | IRF_CALL_VARIADIC |
-                           IRF_NSW | IRF_BOUNDS_CHECK))
+                           IRF_NSW | IRF_BOUNDS_CHECK | IRF_NORETURN |
+                           IRF_SELF_INIT | IRF_FLOW_PROVENANCE))
         verr(v, 7, "unknown flag bits 0x%x", in->flags);
 
     /* 8: alignment discipline. */
