@@ -10,6 +10,7 @@
 #include "util/buf.h"
 #include "util/intern.h"
 #include "util/vec.h"
+#include "warn/id.h"
 
 /* ISO C17 translation phases 1-3: ingestion (normalization), line splicing,
  * pp-tokenization. Directives are Sprint 4, macro expansion Sprint 5,
@@ -51,13 +52,22 @@ typedef struct SourceFile {
      * backslash immediately before a SYNTHESIZED newline is not a splice
      * (gcc keeps the backslash) — findings row F19. */
     bool synth_final_newline;
+    /* Phase 1 drops embedded NUL bytes because NUL is the lexer sentinel.
+     * Emission waits until frame entry, after include search has classified
+     * the file as user or system, so normal warning suppression applies. */
+    u32 ignored_nul_offset;
+    bool has_ignored_nul;
+    bool source_warnings_emitted;
     /* Include-guard shape (Sprint 6 detector; Sprint 7 fast path):
      * non-NULL iff the whole file is #ifndef X/#define X ... #endif. */
     const char *guard_macro;
-    /* Sprint 26: resolved from a system dir (-isystem or builtin), or
-     * included FROM a system header. -MM and (Sprint 37) warning
-     * suppression consume this. */
+    /* Resolved from a system dir (-isystem or builtin), or included FROM a
+     * system header. -MM and warning suppression consume this. */
     bool is_system;
+    /* #pragma GCC system_header affects this physical line and later.
+     * Keeping the threshold separate prevents a late pragma from
+     * retroactively suppressing diagnostics for earlier declarations. */
+    u32 system_from_line;
 } SourceFile;
 
 /* --- Location table ---------------------------------------------------
@@ -72,9 +82,10 @@ typedef u32 SrcLoc;
 #define SRCLOC_INVALID ((SrcLoc)0)
 
 typedef struct {
-    u32 w0; /* file: line       | expansion: spelled_at   */
-    u32 w1; /* file: col        | expansion: expanded_from */
-    u32 w2; /* bit0: 1 = expansion; file: file_id << 1     */
+    u32 w0;  /* file: line       | expansion: spelled_at   */
+    u32 w1;  /* file: col        | expansion: expanded_from */
+    u32 w2;  /* bit0: 1 = expansion; file: file_id << 1     */
+    u32 seq; /* first processing-order observation; 0 until stamped */
     /* Expansion entries only: WHICH macro this frame expanded. Stored as
      * name + definition loc rather than a MacroDef* because #undef and
      * redefinition after expansion are legal and real — a late diagnostic
@@ -88,6 +99,7 @@ typedef struct LocTable {
     LocEnt *ents;
     size_t len;
     size_t cap;
+    u32 next_seq;
 } LocTable;
 
 void pp_loc_init(LocTable *t);
@@ -95,6 +107,9 @@ void pp_loc_free(LocTable *t);
 SrcLoc pp_loc_file(LocTable *t, FileId f, u32 line, u32 col);
 SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from,
                         const char *macro_name, SrcLoc macro_def_loc);
+/* Assigns and returns a stable preprocessing-order sequence. Idempotence is
+ * required because the raw stream may unget and revisit the same token. */
+u32 pp_loc_mark(LocTable *t, SrcLoc loc);
 /* Expansion frame metadata; name is NULL for file locs. */
 const char *pp_loc_macro_name(const LocTable *t, SrcLoc loc);
 SrcLoc pp_loc_macro_def(const LocTable *t, SrcLoc loc);
@@ -316,6 +331,7 @@ typedef struct PpTokBuf {
 typedef struct Preprocessor {
     Arena *arena;
     DiagCtx *diag;
+    struct WarnCtx *warn; /* per-TU warning policy + pragma history */
     Interner *interner;
     LocTable loc;
     SourceFile **files; /* index = FileId - 1 */
@@ -326,6 +342,7 @@ typedef struct Preprocessor {
         sets it; the predefine block is the only consumer. */
     bool freestanding; /* -trigraphs (gcc parity: default off) */
     bool verbose;      /* -v: print the include search list */
+    bool emit_pragmas; /* -E/.S preserve pragma lines; compilation consumes */
 
     /* Include search chains (set up by the driver before pp_begin). */
     const char *iquote_dirs[PP_MAX_DIRS];
@@ -341,6 +358,7 @@ typedef struct Preprocessor {
     PpFrame *frames; /* include stack; frames[nframes-1] is active */
     size_t nframes;
     size_t frames_cap;
+    SourceFile *main_file; /* primary TU: #pragma GCC system_header rejects */
 
     PpCond *conds;
     size_t nconds;
@@ -404,17 +422,24 @@ SourceFile *pp_source_add_buffer(Preprocessor *pp, const char *path,
                                  const char *bytes, size_t len);
 /* Loads + normalizes a file; NULL + diagnostic on I/O error (exit 3). */
 SourceFile *pp_source_load(Preprocessor *pp, const char *path);
+/* Emits phase-1 warnings after the caller has assigned system-header state. */
+void pp_source_finalize(Preprocessor *pp, SourceFile *sf);
 
 /* The Span a diagnostic at `loc` would carry (physical + #line presumed
  * display info). Consumers past the preprocessor (the lexer onward) use
  * this so they never synthesize locations. */
 Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len);
+bool pp_loc_is_system(Preprocessor *pp, SrcLoc loc);
 
 /* Diagnostic at a SrcLoc; anything inside a macro expansion automatically
  * gets its expansion backtrace (Sprint 7). Front-end phases route their
  * diagnostics through this to inherit that. */
 void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
                 const char *fmt, ...);
+void pp_warn_at(Preprocessor *pp, WarnId id, SrcLoc loc, u32 len,
+                const char *fmt, ...);
+void pp_pedwarn_at(Preprocessor *pp, WarnId id, SrcLoc loc, u32 len,
+                   const char *fmt, ...);
 
 /* --- pp-lexer (phases 2+3 fused: splices are skipped, never rewritten,
  * so every token keeps its true physical location) -------------------- */

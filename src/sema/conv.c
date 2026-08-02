@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "sema/sema.h"
+#include "warn/warn.h"
 
 /* C11 6.3: every implicit conversion, plus the operator-level rules that
  * consume them.
@@ -440,6 +441,31 @@ static void assign_diag(Sema *s, DiagLevel lvl, Span sp, AssignCtx ctx,
     }
 }
 
+static void assign_warn(Sema *s, WarnId id, Span sp, AssignCtx ctx,
+                        const Type *lhs, const Type *rhs)
+{
+    char *ls = type_to_str(s->arena, lhs);
+    char *rs = type_to_str(s->arena, rhs);
+
+    switch (ctx.kind) {
+    case ACTX_ARG:
+        warn_at(s->lang->warnings, id, sp,
+                "passing argument %u of '%s' from incompatible type "
+                "'%s' (expected '%s')",
+                (unsigned)ctx.arg_index,
+                ctx.callee ? ctx.callee : "<expression>", rs, ls);
+        return;
+    case ACTX_RETURN:
+        warn_at(s->lang->warnings, id, sp,
+                "returning '%s' from a function with return type '%s'", rs, ls);
+        return;
+    default:
+        warn_at(s->lang->warnings, id, sp, "%s to '%s' from '%s'",
+                ctx_phrase(ctx), ls, rs);
+        return;
+    }
+}
+
 bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
 {
     AstNode *rhs = *rhs_slot;
@@ -479,8 +505,8 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
         if ((is_void_ptr(lhs) && is_object_ptr(rt)) ||
             (is_void_ptr(rt) && is_object_ptr(lhs))) {
             if (!pointee_quals_ok(lp, rp)) {
-                assign_diag(s, DIAG_WARNING, rhs->span, ctx,
-                            "warning [-Wdiscarded-qualifiers]", lhs, rt);
+                assign_warn(s, WARN_DISCARDED_QUALIFIERS, rhs->span, ctx, lhs,
+                            rt);
             }
             *rhs_slot = conv_cast(s, rhs, lhs);
             return true;
@@ -490,13 +516,13 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
              * wrong, and dropping one is a warning in gcc 8 — real code
              * depends on that staying a warning. */
             if (!pointee_quals_ok(lp, rp))
-                assign_diag(s, DIAG_WARNING, rhs->span, ctx,
-                            "warning [-Wdiscarded-qualifiers]", lhs, rt);
+                assign_warn(s, WARN_DISCARDED_QUALIFIERS, rhs->span, ctx, lhs,
+                            rt);
             *rhs_slot = conv_cast(s, rhs, lhs);
             return true;
         }
-        assign_diag(s, DIAG_WARNING, rhs->span, ctx,
-                    "warning [-Wincompatible-pointer-types]", lhs, rt);
+        assign_warn(s, WARN_INCOMPATIBLE_POINTER_TYPES, rhs->span, ctx, lhs,
+                    rt);
         *rhs_slot = conv_cast(s, rhs, lhs);
         return true;
     }
@@ -506,14 +532,12 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
             *rhs_slot = conv_cast(s, rhs, lhs); /* NPC -> any pointer: OK */
             return true;
         }
-        assign_diag(s, DIAG_WARNING, rhs->span, ctx,
-                    "warning [-Wint-conversion]", lhs, rt);
+        assign_warn(s, WARN_INT_CONVERSION, rhs->span, ctx, lhs, rt);
         *rhs_slot = conv_cast(s, rhs, lhs);
         return true;
     }
     if (type_is_integer(lhs) && rt->kind == TY_PTR) {
-        assign_diag(s, DIAG_WARNING, rhs->span, ctx,
-                    "warning [-Wint-conversion]", lhs, rt);
+        assign_warn(s, WARN_INT_CONVERSION, rhs->span, ctx, lhs, rt);
         *rhs_slot = conv_cast(s, rhs, lhs);
         return true;
     }

@@ -265,13 +265,15 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
         MacroDef *prev = strmap_get(&pp->macros, m->name, strlen(m->name));
         if (prev) {
             if (prev->is_builtin && !m->is_builtin) {
-                pp_diag_at(pp, DIAG_WARNING, m->loc, (u32)strlen(m->name),
+                pp_warn_at(pp, WARN_BUILTIN_MACRO_REDEFINED, m->loc,
+                           (u32)strlen(m->name),
                            "redefining builtin macro '%s'", m->name);
             } else if (bodies_identical(prev, m)) {
                 return; /* benign */
             } else {
-                pp_diag_at(pp, DIAG_WARNING, m->loc, (u32)strlen(m->name),
-                           "'%s' macro redefined", m->name);
+                pp_warn_at(pp, WARN_MACRO_REDEFINED, m->loc,
+                           (u32)strlen(m->name), "'%s' macro redefined",
+                           m->name);
                 pp_diag_at(pp, DIAG_NOTE, prev->loc, (u32)strlen(m->name),
                            "previous definition is here");
             }
@@ -290,7 +292,7 @@ void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc)
     {
         const MacroDef *prev = pp_macro_lookup(pp, name);
         if (prev && prev->is_builtin && !loc_is_builtin_file(pp, loc))
-            pp_diag_at(pp, DIAG_WARNING, loc, (u32)strlen(name),
+            pp_warn_at(pp, WARN_BUILTIN_MACRO_REDEFINED, loc, (u32)strlen(name),
                        "undefining builtin macro '%s'", name);
     }
     strmap_put(&pp->macros, name, strlen(name), NULL);

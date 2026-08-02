@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 
 #include "pp/pp.h"
+#include "warn/warn.h"
 
 /* The directive engine: an include-stack of lexers under a single token
  * stream. pp_next yields text tokens; every `#` directive line (BOL # or
@@ -22,6 +23,8 @@ static PpFrame *cur_frame(Preprocessor *pp)
 static void push_frame(Preprocessor *pp, SourceFile *sf, int found_dir)
 {
     PpFrame *f;
+
+    pp_source_finalize(pp, sf);
 
     if (pp->nframes == pp->frames_cap) {
         size_t cap = pp->frames_cap ? pp->frames_cap * 2 : 8;
@@ -155,6 +158,7 @@ static bool raw_next(Preprocessor *pp, PpToken *out, bool *from_file)
         *out = pp->pending;
         *from_file = pp->pending_from_file;
         pp->has_pending = false;
+        pp_loc_mark(&pp->loc, out->loc);
         return true;
     }
     while (pp->nbufs) {
@@ -164,12 +168,16 @@ static bool raw_next(Preprocessor *pp, PpToken *out, bool *from_file)
             *from_file = false;
             if (b->pos == b->n)
                 pp->nbufs--;
+            pp_loc_mark(&pp->loc, out->loc);
             return true;
         }
         pp->nbufs--;
     }
     *from_file = true;
-    return frame_next(pp, out);
+    if (!frame_next(pp, out))
+        return false;
+    pp_loc_mark(&pp->loc, out->loc);
+    return true;
 }
 
 static void unget_raw(Preprocessor *pp, const PpToken *t, bool from_file)
@@ -224,7 +232,7 @@ static bool collect_args_stream(Preprocessor *pp, const MacroDef *m, SrcLoc inv,
              * error for the #if family; gcc disagrees). */
             PpToken *pass;
             u32 npass;
-            pp_diag_at(pp, DIAG_WARNING, t.loc, t.len,
+            pp_warn_at(pp, WARN_PEDANTIC, t.loc, t.len,
                        "embedding a directive within macro arguments is "
                        "not portable");
             pp->collecting_args = true;
@@ -652,8 +660,8 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
      * a system header (transitivity is what makes -MM omit a system
      * header's own quote-form includes). Absolute paths (found -1) only
      * inherit. */
-    sf->is_system = (found >= 0 && (size_t)found >= sys_start) ||
-                    cur_frame(pp)->lx.sf->is_system;
+    sf->is_system =
+        (found >= 0 && (size_t)found >= sys_start) || pp_loc_is_system(pp, loc);
     push_frame(pp, sf, found);
 }
 
@@ -683,7 +691,7 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
             return;
         }
         if (nrest != 0)
-            pp_diag_at(pp, DIAG_WARNING, rest[0].loc, rest[0].len,
+            pp_warn_at(pp, WARN_CPP, rest[0].loc, rest[0].len,
                        "extra tokens at end of #include directive");
         name = arena_strndup(pp->arena, h.spelling + 1, h.len - 2);
         do_include(pp, name, h.spelling[0] == '<', is_next, dloc);
@@ -714,7 +722,7 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
         }
         if (toks[0].kind == PPTOK_STRLIT && toks[0].len >= 2) {
             if (n > 1)
-                pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
+                pp_warn_at(pp, WARN_CPP, toks[1].loc, toks[1].len,
                            "extra tokens at end of #include directive");
             {
                 char *name = arena_strndup(pp->arena, toks[0].spelling + 1,
@@ -736,7 +744,7 @@ static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
                 if (toks[k].kind == PPTOK_PUNCT && toks[k].punct == PUNCT_GT) {
                     closed = true;
                     if (k + 1 < n)
-                        pp_diag_at(pp, DIAG_WARNING, toks[k + 1].loc,
+                        pp_warn_at(pp, WARN_CPP, toks[k + 1].loc,
                                    toks[k + 1].len,
                                    "extra tokens at end of #include "
                                    "directive");
@@ -847,8 +855,121 @@ static PpStdcSwitch parse_stdc_switch(const PpToken *t)
     return PP_STDC_DEFAULT;
 }
 
+static const char *pragma_warning_option(Preprocessor *pp, const PpToken *t)
+{
+    const char *s;
+    u32 n;
+
+    if (t->kind != PPTOK_STRLIT)
+        return NULL;
+    s = t->spelling;
+    n = t->len;
+    if (n < 4 || s[0] != '"' || s[n - 1] != '"' || s[1] != '-' || s[2] != 'W')
+        return NULL;
+    return arena_strndup(pp->arena, s + 1, n - 2);
+}
+
+static u32 pragma_seq(Preprocessor *pp, SrcLoc anchor)
+{
+    return pp_span(pp, anchor, 1).seq;
+}
+
+static void pragma_system_header(Preprocessor *pp, SrcLoc anchor)
+{
+    FileId f = 0;
+    u32 line = 0;
+
+    pp_loc_resolve(&pp->loc, anchor, &f, &line, NULL);
+    if (f && (size_t)f <= pp->nfiles) {
+        SourceFile *sf = pp->files[f - 1];
+        u32 from = line + 1;
+
+        if (sf == pp->main_file) {
+            pp_warn_at(
+                pp, WARN_PRAGMAS, anchor, 1,
+                "#pragma GCC system_header ignored outside include file");
+            return;
+        }
+        if (!sf->system_from_line || from < sf->system_from_line)
+            sf->system_from_line = from;
+    }
+}
+
+static void pragma_diagnostic(Preprocessor *pp, PpToken *toks, u32 n,
+                              SrcLoc anchor)
+{
+    const char *action;
+    u32 seq = pragma_seq(pp, anchor);
+
+    if (!pp->warn)
+        return;
+
+    if (n < 3 || toks[2].kind != PPTOK_IDENT) {
+        pp_warn_at(pp, WARN_PRAGMAS, anchor, 1,
+                   "missing [error|warning|ignored|push|pop] after "
+                   "#pragma GCC diagnostic");
+        return;
+    }
+    action = toks[2].spelling;
+    if (strcmp(action, "push") == 0 || strcmp(action, "pop") == 0) {
+        if (n != 3) {
+            pp_warn_at(pp, WARN_PRAGMAS, toks[3].loc, toks[3].len,
+                       "junk at end of #pragma GCC diagnostic %s", action);
+            return;
+        }
+        if (strcmp(action, "push") == 0)
+            warn_pragma_push(pp->warn, seq);
+        else
+            (void)warn_pragma_pop(pp->warn, seq,
+                                  pp_span(pp, toks[2].loc, toks[2].len));
+        return;
+    }
+    if (strcmp(action, "ignored") == 0 || strcmp(action, "warning") == 0 ||
+        strcmp(action, "error") == 0) {
+        const char *opt;
+        WarnPragmaClass cls = WARN_PRAGMA_IGNORED;
+
+        if (n != 4 || !(opt = pragma_warning_option(pp, &toks[3]))) {
+            SrcLoc loc = n >= 4 ? toks[3].loc : toks[2].loc;
+            u32 len = n >= 4 ? toks[3].len : toks[2].len;
+            pp_warn_at(pp, WARN_PRAGMAS, loc, len,
+                       "missing warning option after #pragma GCC diagnostic %s",
+                       action);
+            return;
+        }
+        if (strcmp(action, "warning") == 0)
+            cls = WARN_PRAGMA_WARNING;
+        else if (strcmp(action, "error") == 0)
+            cls = WARN_PRAGMA_ERROR;
+        {
+            const WarnInfo *info = warn_info_for_flag(opt);
+            size_t flag_len = info ? strlen(info->flag) : 0;
+
+            /* GCC diagnostic pragmas accept a canonical positive option,
+             * never command-line conveniences such as -Wno-foo or
+             * parameterized -Wfoo=N spellings. Those must diagnose and
+             * leave the current classification untouched. */
+            if (!info || strncmp(opt, "-W", 2) != 0 ||
+                strlen(opt) != flag_len + 2 ||
+                strcmp(opt + 2, info->flag) != 0) {
+                pp_warn_at(
+                    pp, WARN_PRAGMAS, toks[3].loc, toks[3].len,
+                    "unknown warning option '%s' after #pragma GCC diagnostic",
+                    opt);
+                return;
+            }
+            warn_pragma_set(pp->warn, seq, info->id, cls);
+        }
+        return;
+    }
+    pp_warn_at(pp, WARN_PRAGMAS, toks[2].loc, toks[2].len,
+               "expected [error|warning|ignored|push|pop] after "
+               "#pragma GCC diagnostic");
+}
+
 /* Returns true if the pragma line should pass through to -E output. */
-static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n)
+static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n,
+                             SrcLoc anchor)
 {
     if (n >= 1 && toks[0].kind == PPTOK_IDENT &&
         strcmp(toks[0].spelling, "once") == 0) {
@@ -858,9 +979,24 @@ static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n)
         const SourceFile *sf = cur_frame(pp)->lx.sf;
         once_record(pp, sf->st_dev, sf->st_ino);
         if (n > 1)
-            pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
+            pp_warn_at(pp, WARN_PRAGMAS, toks[1].loc, toks[1].len,
                        "extra tokens at end of #pragma once");
         return false;
+    }
+    if (n >= 2 && toks[0].kind == PPTOK_IDENT &&
+        strcmp(toks[0].spelling, "GCC") == 0 && toks[1].kind == PPTOK_IDENT) {
+        if (strcmp(toks[1].spelling, "diagnostic") == 0) {
+            pragma_diagnostic(pp, toks, n, anchor);
+            return true;
+        }
+        if (strcmp(toks[1].spelling, "system_header") == 0) {
+            if (n != 2)
+                pp_warn_at(pp, WARN_PRAGMAS, toks[2].loc, toks[2].len,
+                           "junk at end of #pragma GCC system_header");
+            else
+                pragma_system_header(pp, anchor);
+            return false;
+        }
     }
     if (n >= 3 && toks[0].kind == PPTOK_IDENT &&
         strcmp(toks[0].spelling, "STDC") == 0 && toks[1].kind == PPTOK_IDENT &&
@@ -876,8 +1012,9 @@ static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n)
             pp->stdc.cx_limited_range = sw;
         return true;
     }
-    /* Unknown pragmas: ignored (-Wunknown-pragmas hook is Sprint 37; gcc
-     * default off) and passed through under -E verbatim. */
+    if (n)
+        pp_warn_at(pp, WARN_UNKNOWN_PRAGMAS, toks[0].loc, toks[0].len,
+                   "ignoring unknown pragma '%s'", toks[0].spelling);
     return true;
 }
 
@@ -1039,7 +1176,7 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
             bool def = pp_name_is_defined(pp, toks[0].spelling);
             taken = (k == DK_IFDEF) ? def : !def;
             if (n > 1)
-                pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
+                pp_warn_at(pp, WARN_CPP, toks[1].loc, toks[1].len,
                            "extra tokens at end of #%s directive",
                            name.spelling);
         }
@@ -1091,7 +1228,7 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
         c->live = c->parent_live && !c->taken_any;
         c->taken_any = true;
         if (n != 0 && c->parent_live)
-            pp_diag_at(pp, DIAG_WARNING, toks[0].loc, toks[0].len,
+            pp_warn_at(pp, WARN_CPP, toks[0].loc, toks[0].len,
                        "extra tokens at end of #else directive");
         return false;
     }
@@ -1107,7 +1244,7 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
         if (f->guard_state == GUARD_IN_BODY && pp->nconds == f->guard_cond)
             f->guard_state = GUARD_AFTER_ENDIF;
         if (n != 0 && in_live_region(pp))
-            pp_diag_at(pp, DIAG_WARNING, toks[0].loc, toks[0].len,
+            pp_warn_at(pp, WARN_CPP, toks[0].loc, toks[0].len,
                        "extra tokens at end of #endif directive");
         return false;
     }
@@ -1138,7 +1275,7 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
             return false;
         }
         if (n > 1)
-            pp_diag_at(pp, DIAG_WARNING, toks[1].loc, toks[1].len,
+            pp_warn_at(pp, WARN_CPP, toks[1].loc, toks[1].len,
                        "extra tokens at end of #undef directive");
         pp_macro_undef(pp, toks[0].spelling, toks[0].loc);
         return false;
@@ -1178,15 +1315,20 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
          * GNU extension until C23 (pedwarn hook: Sprint 37). */
         PpToken *toks;
         u32 n = read_line(pp, &toks);
-        pp_diag_at(pp, k == DK_ERROR ? DIAG_ERROR : DIAG_WARNING, name.loc,
-                   name.len, "#%s%s%s", name.spelling, n ? " " : "",
-                   n ? spell_line(pp, toks, n) : "");
+        if (k == DK_ERROR)
+            pp_diag_at(pp, DIAG_ERROR, name.loc, name.len, "#%s%s%s",
+                       name.spelling, n ? " " : "",
+                       n ? spell_line(pp, toks, n) : "");
+        else
+            pp_warn_at(pp, WARN_CPP, name.loc, name.len, "#%s%s%s",
+                       name.spelling, n ? " " : "",
+                       n ? spell_line(pp, toks, n) : "");
         return false;
     }
     case DK_PRAGMA: {
         PpToken *toks;
         u32 n = read_line(pp, &toks);
-        if (directive_pragma(pp, toks, n)) {
+        if (directive_pragma(pp, toks, n, name.loc)) {
             /* Pass the whole line through to -E: rebuild `# pragma ...`
              * tokens for the output stream. */
             PpToken *out = arena_alloc(pp->arena, (n + 2) * sizeof(PpToken),
@@ -1287,7 +1429,7 @@ static void pragma_operator(Preprocessor *pp, const PpToken *op)
             n++;
         buf_free(&lx.scratch);
 
-        if (directive_pragma(pp, toks, n)) {
+        if (directive_pragma(pp, toks, n, op->loc) && pp->emit_pragmas) {
             /* Re-emit as a directive line for -E. */
             PpToken *out = arena_alloc(pp->arena, (n + 2) * sizeof(PpToken),
                                        _Alignof(PpToken));
@@ -1327,6 +1469,7 @@ void pp_begin(Preprocessor *pp, SourceFile *main_file, SourceFile *cmdline)
 {
     SourceFile *builtin;
 
+    pp->main_file = main_file;
     push_frame(pp, main_file, -1);
     if (cmdline)
         push_frame(pp, cmdline, -1);
@@ -1365,7 +1508,7 @@ bool pp_next(Preprocessor *pp, PpToken *out)
         }
 
         /* Pending passthrough tokens (#pragma under -E)? */
-        if (pp->npass) {
+        if (pp->emit_pragmas && pp->npass) {
             *out = pp->pass[pp->pass_pos++];
             if (pp->pass_pos == pp->npass) {
                 pp->npass = 0;
@@ -1385,7 +1528,8 @@ bool pp_next(Preprocessor *pp, PpToken *out)
             (t.flags & PPTOK_F_BOL)) {
             PpToken *pass;
             u32 npass;
-            if (handle_directive(pp, &t, &pass, &npass) && npass) {
+            if (handle_directive(pp, &t, &pass, &npass) && npass &&
+                pp->emit_pragmas) {
                 pp->pass = pass;
                 pp->npass = npass;
                 pp->pass_pos = 0;

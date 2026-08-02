@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "sema/sema.h"
+#include "warn/warn.h"
 
 /* Constant expressions (C11 6.6), and the bridge from a float literal's
  * SPELLING to a correctly-rounded value in the target's format.
@@ -153,12 +154,12 @@ Sf constexpr_float_literal(Sema *s, AstNode *e)
     Sf v = constexpr_parse_float(e->tok ? e->tok->spelling : NULL, f, &st);
 
     if (st.overflow)
-        diag_emit(s->dc, DIAG_WARNING, e->span,
-                  "floating constant exceeds range of '%s'",
-                  type_to_str(s->arena, e->sem_type));
+        warn_at(s->lang->warnings, WARN_OVERFLOW, e->span,
+                "floating constant exceeds range of '%s'",
+                type_to_str(s->arena, e->sem_type));
     else if (st.underflow && st.inexact)
-        diag_emit(s->dc, DIAG_WARNING, e->span,
-                  "floating constant truncated to zero");
+        warn_at(s->lang->warnings, WARN_OVERFLOW, e->span,
+                "floating constant truncated to zero");
     return v;
 }
 
@@ -826,9 +827,10 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                  * extension; matching that keeps real headers compiling. */
                 if (m == CE_ICE && e->lhs->kind != AST_EXPR_FLOAT &&
                     s->lang->pedantic)
-                    diag_emit(s->dc, DIAG_WARNING, e->span,
-                              "a folded floating expression is not an ISO "
-                              "integer constant expression");
+                    warn_at(
+                        s->lang->warnings, WARN_PEDANTIC, e->span,
+                        "a folded floating expression is not an ISO integer "
+                        "constant expression");
                 memset(&st, 0, sizeof(st));
                 iv = sf_to_int(o.f, (int)conv_int_bits(s, to),
                                !conv_is_signed(s, to), &st);
@@ -1040,8 +1042,9 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
         return;
     n = tok->str.nbytes;
     if (n > cap) {
-        diag_emit(c->s->dc, DIAG_WARNING, init->span,
-                  "initializer-string for array of chars is too long");
+        warn_at(c->s->lang->warnings, WARN_INITIALIZER_STRING_TOO_LONG,
+                init->span,
+                "initializer-string for array of chars is too long");
         n = cap;
     }
     for (i = 0; i < n && off + i < c->img->size; i++)

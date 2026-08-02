@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include "util/base.h"
+#include "warn/id.h"
 
 /* 1-based line/col; col counts bytes. file_id 0 = no source location (driver-
  * level diagnostics render as "cgfried: error: ..."). presumed_* (from
@@ -23,7 +24,15 @@ typedef struct {
     const char *presumed_path; /* NULL = use the file's real path */
     u32 presumed_line;         /* 0 = use the physical line */
     u32 debug_loc;             /* 0 = this span; otherwise DiagCtx id */
+    u32 seq;                   /* lexical event sequence (warning pragmas) */
+    u8 origin;                 /* immutable SPAN_ORIGIN_* provenance */
 } Span;
+
+enum {
+    SPAN_ORIGIN_SYSTEM_SPELLING = 1u << 0,
+    SPAN_ORIGIN_SYSTEM_MACRO = 1u << 1,
+    SPAN_ORIGIN_ANY_MACRO = 1u << 2
+};
 
 typedef enum {
     DIAG_NOTE,
@@ -32,7 +41,7 @@ typedef enum {
     DIAG_FATAL,
 } DiagLevel;
 
-/* A machine-applicable edit. RECORDED here, RENDERED in Sprint 37 (which
+/* A machine-applicable edit. RECORDED here, RENDERED in Sprint 45 (which
  * owns -fdiagnostics-*): a fix-it that is stored but not printed still lets
  * tests assert the compiler knew the repair, without committing to an
  * output format we have not designed yet. `insert == NULL` means absent. */
@@ -46,6 +55,7 @@ typedef struct {
     Span span;
     const char *message; /* formatted, arena-owned */
     DiagFixit fixit;
+    WarnId warn_id; /* WARN_NONE for raw diagnostics and notes */
 } Diag;
 
 typedef struct DiagCtx DiagCtx;
@@ -78,6 +88,12 @@ const char *diag_span_path(const DiagCtx *dc, Span sp);
 u32 diag_add_debug_span(DiagCtx *dc, Span sp);
 Span diag_span_for_debug(const DiagCtx *dc, Span sp);
 void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...);
+/* Warning-aware path. Raw diag_emit semantics remain unchanged. warn_id must
+ * name a row in warn/warnings.def; a DIAG_ERROR level denotes promotion. */
+void diag_emit_warn(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
+                    const char *fmt, ...);
+void diag_emit_warn_v(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
+                      const char *fmt, va_list ap);
 /* Same, carrying a fix-it. `insert` is borrowed and must outlive the sink
  * call (string literals and interned names qualify). */
 void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
@@ -90,6 +106,7 @@ void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
 Span diag_point_after(const DiagCtx *dc, Span sp);
 bool diag_had_error(const DiagCtx *dc);
 u32 diag_error_count(const DiagCtx *dc);
+u32 diag_warning_count(const DiagCtx *dc);
 
 /* Error cap (-fmax-errors=N, alias -ferror-limit=N). 0 = unlimited, which
  * is gcc's default. Counts ERRORS only — warnings and notes never move it.

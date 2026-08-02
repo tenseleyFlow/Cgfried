@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "parse/parse.h"
+#include "warn/warn.h"
 
 /* Statements (C11 6.8). Recursive descent gives the dangling-else binding
  * for free — an `else` is consumed by the innermost `if` still parsing —
@@ -67,8 +68,8 @@ static AstNode *parse_block_item(Parser *p, bool *saw_stmt)
          * We still PARSE them — rejecting outright would cascade — and
          * pedwarn with gcc's wording. */
         if (*saw_stmt && !std_is_c99_or_later(p->lang->std))
-            diag_emit(p->dc, DIAG_WARNING, start->span,
-                      "ISO C90 forbids mixed declarations and code");
+            warn_at(p->lang->warnings, WARN_DECLARATION_AFTER_STATEMENT,
+                    start->span, "ISO C90 forbids mixed declarations and code");
         d = parse_declaration(p, false);
         n = stmt_new(p, AST_STMT_DECL, start->span);
         n->lhs = d;

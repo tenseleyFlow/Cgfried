@@ -117,7 +117,7 @@ static u32 decode_char(LitCtx *c, const char *s, u32 len, u32 *i, bool *is_ucn)
          * strict std modes (Sprint 37 makes the flag real). */
         (*i)++;
         if (!c->lang->gnu_mode && c->lang->pedantic)
-            pp_diag_at(c->pp, DIAG_WARNING, c->loc, c->len,
+            pp_warn_at(c->pp, WARN_PEDANTIC, c->loc, c->len,
                        "'\\e' is a GNU extension");
         return 27;
     case '0':
@@ -332,7 +332,7 @@ void lex_char_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
         return;
     }
     if (nchars > 1) {
-        pp_diag_at(pp, DIAG_WARNING, loc, len,
+        pp_warn_at(pp, WARN_MULTICHAR, loc, len,
                    enc == ENC_NONE ? "multi-character character constant"
                                    : "character constant too long for its "
                                      "type");

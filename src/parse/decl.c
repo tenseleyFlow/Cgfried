@@ -3,6 +3,7 @@
 
 #include "parse/parse.h"
 #include "util/dlev.h"
+#include "warn/warn.h"
 
 /* Declarations: specifier soup, the recursive declarator grammar,
  * struct/union/enum, and initializer SYNTAX. Nothing here type-checks —
@@ -108,7 +109,7 @@ void parse_error_after_prev(Parser *p, PpPunct expected, const char *what)
         return;
     }
     p->nerrors++;
-    /* The fix-it is RECORDED, not rendered — Sprint 37 owns the output
+    /* The fix-it is RECORDED, not rendered — Sprint 45 owns the output
      * format. Storing it now means the repair is testable today. */
     diag_emit_fixit(p->dc, DIAG_ERROR, sp, sp, name, "expected '%s'%s%s", name,
                     what ? " " : "", what ? what : "");
@@ -1077,16 +1078,17 @@ static AstNode *parse_member_decl(Parser *p)
         if (base_kind == ABT_RECORD && s.record && !s.record->tag) {
             n->is_anon_member = true;
             if (!std_is_c11_or_later(p->lang->std))
-                diag_emit(p->dc, DIAG_WARNING, start->span,
-                          "anonymous struct/union members are a C11 feature");
+                warn_at(p->lang->warnings, WARN_C11_EXTENSIONS, start->span,
+                        "anonymous struct/union members are a C11 "
+                        "feature");
         } else if (base_kind == ABT_RECORD && s.record && s.record->tag &&
                    s.record->is_definition) {
             parse_error(p, start,
                         "a tagged struct/union member without a declarator "
                         "is a Microsoft extension (lands in Sprint 55)");
         } else {
-            diag_emit(p->dc, DIAG_WARNING, start->span,
-                      "declaration does not declare anything");
+            warn_at(p->lang->warnings, WARN_EMPTY_DECLARATION, start->span,
+                    "declaration does not declare anything");
         }
         return n;
     }
@@ -1176,9 +1178,10 @@ static AstNode *parse_enum_specifier(Parser *p)
         /* A trailing comma before '}' is legal in c99+. */
         if (parse_at_punct(p, PUNCT_RBRACE)) {
             if (!std_is_c99_or_later(p->lang->std))
-                diag_emit(p->dc, DIAG_WARNING, parse_peek(p)->span,
-                          "a trailing comma in an enumerator list is a C99 "
-                          "feature");
+                warn_at(p->lang->warnings, WARN_C90_C99_COMPAT,
+                        parse_peek(p)->span,
+                        "a trailing comma in an enumerator list is "
+                        "a C99 feature");
             break;
         }
     }
@@ -1209,8 +1212,8 @@ static AstNode *parse_initializer(Parser *p)
         /* Empty braces are C23. gcc accepts them as an extension and only
          * errors under -pedantic-errors, so we PEDWARN and accept —
          * verified against gcc -std=c17 (Sprint 37 makes the flag real). */
-        diag_emit(p->dc, DIAG_WARNING, parse_peek(p)->span,
-                  "ISO C forbids empty initializer braces before C23");
+        warn_at(p->lang->warnings, WARN_C23_EXTENSIONS, parse_peek(p)->span,
+                "ISO C forbids empty initializer braces before C23");
         p->pos++;
         return n;
     }
@@ -1485,8 +1488,8 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
     if (base_kind == ABT_NONE) {
         /* Implicit int: gcc 8 warns by default in c99+ (error only under
          * -pedantic-errors), so we warn and continue. */
-        diag_emit(p->dc, DIAG_WARNING, start->span,
-                  "type defaults to 'int' in declaration");
+        warn_at(p->lang->warnings, WARN_IMPLICIT_INT, start->span,
+                "type defaults to 'int' in declaration");
         base_kind = ABT_INT;
     }
 
@@ -1502,8 +1505,8 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         if (s.record && !s.record->is_definition)
             s.record->is_forward_decl = true;
         if (base_kind != ABT_RECORD && base_kind != ABT_ENUM)
-            diag_emit(p->dc, DIAG_WARNING, start->span,
-                      "declaration does not declare anything");
+            warn_at(p->lang->warnings, WARN_EMPTY_DECLARATION, start->span,
+                    "declaration does not declare anything");
         return n;
     }
 

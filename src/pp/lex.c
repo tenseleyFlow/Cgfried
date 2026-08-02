@@ -63,12 +63,12 @@ static size_t skip_spl(PpLexer *lx, size_t p)
         if (lx->sf->synth_final_newline && q + 1 >= lx->sf->size)
             break;
         if (spaced && p >= lx->warned_upto) {
-            pp_diag_at(lx->pp, DIAG_WARNING, loc_at(lx, p), 1,
+            pp_warn_at(lx->pp, WARN_BACKSLASH_NEWLINE_ESCAPE, loc_at(lx, p), 1,
                        "backslash and newline separated by space");
             lx->warned_upto = p + 1;
         }
         if (q + 1 >= lx->sf->size && p >= lx->warned_upto) {
-            pp_diag_at(lx->pp, DIAG_WARNING, loc_at(lx, p), 1,
+            pp_warn_at(lx->pp, WARN_NEWLINE_EOF, loc_at(lx, p), 1,
                        "backslash-newline at end of file");
             lx->warned_upto = p + 1;
         }

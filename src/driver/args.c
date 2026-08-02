@@ -4,6 +4,7 @@
 #include "driver/args.h"
 #include "util/arena.h"
 #include "util/dlev.h"
+#include "warn/warn.h"
 
 /* Sprint 26: gcc's joined-or-separate zoo (-DFOO vs -D FOO, -ofile vs
  * -o file) demands a spec table, not strcmp chains. Matching is
@@ -22,6 +23,7 @@ typedef enum {
  * match happens exactly once, in match_flag). */
 enum {
     F_HELP,
+    F_HELP_WARNINGS,
     F_VERSION,
     F_DUMPVERSION,
     F_DUMPMACHINE,
@@ -181,28 +183,6 @@ const char *cgf_make_quote(struct Arena *ar, const char *s)
     return out;
 }
 
-static bool known_warning(const char *name)
-{
-    static const char *const table[] = {
-#define W(n) n,
-#include "driver/warnings.def"
-#undef W
-    };
-    size_t i;
-
-    for (i = 0; i < CGF_ARRAY_LEN(table); i++) {
-        const char *t = table[i];
-        size_t n = strlen(t);
-
-        /* Rows ending '=' take a value: match the prefix
-         * ("larger-than=65536" hits "larger-than="). */
-        if (n && t[n - 1] == '=' ? strncmp(t, name, n) == 0
-                                 : strcmp(t, name) == 0)
-            return true;
-    }
-    return false;
-}
-
 /* ---- handlers ------------------------------------------------------- */
 
 static bool h_info(DriverArgs *da, const FlagSpec *fs, const char *val)
@@ -210,6 +190,9 @@ static bool h_info(DriverArgs *da, const FlagSpec *fs, const char *val)
     switch (fs->code) {
     case F_HELP:
         da->show_help = true;
+        break;
+    case F_HELP_WARNINGS:
+        da->show_help_warnings = true;
         break;
     case F_VERSION:
         da->show_version = true;
@@ -482,9 +465,11 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
         return true;
     case F_WERROR:
         da->werror = true;
+        w.name = "error";
+        VecWarn_push(&da->warn_opts, w);
         return true;
     case F_WERROR_EQ: {
-        /* Recorded as "error=NAME" in the ordered vec for Sprint 37. */
+        /* Record "error=NAME" in the ordered warning-policy stream. */
         size_t n = strlen(val);
         char *s = arena_alloc(g_ps->arena, n + 7, 1);
 
@@ -492,30 +477,72 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
         memcpy(s + 6, val, n + 1);
         w.name = s;
         VecWarn_push(&da->warn_opts, w);
+        if (!warn_option_known(s) && !da->unknown_opt) {
+            char *full = arena_alloc(g_ps->arena, n + 9, 1);
+
+            memcpy(full, "-Werror=", 8);
+            memcpy(full + 8, val, n + 1);
+            da->unknown_opt = full;
+        }
         return true;
     }
     case F_WGENERAL:
+        if ((strncmp(val, "format=", 7) == 0 &&
+             !(val[7] >= '0' && val[7] <= '2' && val[8] == '\0')) ||
+            strncmp(val, "no-format=", 10) == 0) {
+            if (!da->bad_value)
+                da->bad_value = "-Wformat=";
+            return true;
+        }
         /* -Wno-<unknown> is SILENT (gcc parity — configure probes depend
          * on it; gcc reports it only if another diagnostic fires, which
-         * is Sprint 37's job with the vec recorded here). A positive
+         * is diagnosed only if another warning fires). A positive
          * unknown warns and continues. */
         w.name = val;
         VecWarn_push(&da->warn_opts, w);
-        if (strncmp(val, "no-", 3) != 0 && !known_warning(val)) {
+        if (strcmp(val, "no-error") == 0)
+            da->werror = false;
+        else if (strcmp(val, "pedantic") == 0)
+            da->pedantic = true;
+        else if (strcmp(val, "no-pedantic") == 0)
+            da->pedantic = false;
+        if (strncmp(val, "no-error=", 9) == 0 && !warn_option_known(val) &&
+            !da->unknown_opt) {
+            size_t n = strlen(val);
+            char *s = arena_alloc(g_ps->arena, n + 3, 1);
+
+            memcpy(s, "-W", 2);
+            memcpy(s + 2, val, n + 1);
+            da->unknown_opt = s;
+        }
+        if (strncmp(val, "no-", 3) != 0 && !warn_option_known(val)) {
             size_t n = strlen(val);
             char *s = arena_alloc(g_ps->arena, n + 3, 1);
 
             memcpy(s, "-W", 2);
             memcpy(s + 2, val, n + 1);
             VecStr_push(&da->warn_unrecognized, s);
+        } else if (strncmp(val, "no-", 3) == 0 &&
+                   strncmp(val, "no-error=", 9) != 0 &&
+                   !warn_option_known(val)) {
+            size_t n = strlen(val);
+            char *s = arena_alloc(g_ps->arena, n + 3, 1);
+
+            memcpy(s, "-W", 2);
+            memcpy(s + 2, val, n + 1);
+            VecStr_push(&da->warn_unknown_negative, s);
         }
         return true;
     case F_PEDANTIC:
         da->pedantic = true;
+        w.name = "pedantic";
+        VecWarn_push(&da->warn_opts, w);
         return true;
     case F_PEDANTIC_ERR:
         da->pedantic = true;
         da->pedantic_errors = true;
+        w.name = "pedantic-errors";
+        VecWarn_push(&da->warn_opts, w);
         return true;
     }
     return true;
@@ -713,6 +740,7 @@ static bool h_link(DriverArgs *da, const FlagSpec *fs, const char *val)
 static const FlagSpec args_flag_table[] = {
     /* info / introspection */
     {"--help", ARG_NONE, h_info, F_HELP},
+    {"--help=warnings", ARG_NONE, h_info, F_HELP_WARNINGS},
     {"--version", ARG_NONE, h_info, F_VERSION},
     {"-dumpversion", ARG_NONE, h_info, F_DUMPVERSION},
     {"-dumpmachine", ARG_NONE, h_info, F_DUMPMACHINE},
@@ -1128,5 +1156,6 @@ void args_free(DriverArgs *a)
     VecLink_free(&a->link_inputs);
     VecInput_free(&a->inputs);
     VecStr_free(&a->warn_unrecognized);
+    VecStr_free(&a->warn_unknown_negative);
     VecStr_free(&a->warn_fast_math);
 }
