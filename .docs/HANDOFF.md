@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–38
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–39
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–38 complete; Phases 1–7 closed.** Phase 8 (warnings) is
+- **Sprints 0–39 complete; Phases 1–7 closed.** Phase 8 (warnings) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -72,18 +72,33 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   unannotated differences. The strict same-mode musl pass compiles 706/1,361
   sources, explicitly defers 655, finds 181 oracle-backed warnings and zero
   false positives.
-- **Next action: Sprint 39** —
-  `.docs/sprints/08-warnings/s39-format-checking.md`, adding format and
-  security-oriented warning checks over the shared policy engine.
+- Sprint 39 adds the dedicated `src/warn/format.{c,h}` checker for printf,
+  scanf, strftime and strfmon grammars. Builtin recognition is target-,
+  linkage- and rough-signature-aware, including every fixed parameter; all
+  conditional literal alternatives are checked; default promotions,
+  positional operands, output-pointer qualifiers, target wchar types,
+  GNU/FreeBSD rows and glibc `__isoc99_*` redirects are pinned. POSIX
+  `strfmon` fill/flag ordering, decorated percent rejection and all GCC 8 y2k
+  conversions are regression-tested. The 64-row type matrix generates 128 fire/nofire
+  fixtures, and the complete format tree is 203/203. The real GCC 8 lane now
+  covers 400 warning fixtures: 379 exact, 20 annotated, one narrowly normalized
+  Cgfried-only unbounded-scanf extension and zero unannotated differences.
+  musl remains zero-false-positive, and a new TinyCC lane is also
+  zero-false-positive over every source the current frontend accepts.
+- **Next action: Sprint 40** —
+  `.docs/sprints/08-warnings/s40-flow-warnings.md`, adding CFG/dataflow
+  warning checks over the shared policy engine.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 480 tests, 94590 assertions, 0 failures
+unit: 483 tests, 95206 assertions, 0 failures
 cgf-test: total=496 pass=496 fail=0 xfail=0 xpass=0 skip=0 config=0
-warning pragmas: 31/31; warning fixtures: 197/197
-GCC 8 warning differential: 179 exact + 18 annotated, 0 unannotated
+format warning fixtures: 203/203; all warning fixtures: 400/400
+format matrix: 64 semantic rows / 128 fire+nofire fixtures
+GCC 8 warning differential: 379 exact + 20 annotated + 1 normalized CGF-only, 0 unannotated
 musl warning dry-run: 706 parsed, 655 deferred, 181 genuine, 0 false positives
+TinyCC warning dry-run: 10/30 parsed, 20 deferred, 0 format warnings, 0 false positives
 warning matrix: 222/222 raw GCC 8 C rows accounted for
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 215 agree, 5 known-deferred, 0 new, 0 xpass
@@ -111,6 +126,19 @@ The closing review also pinned nested brace-elision with a persistent
 current-object cursor, rejects an unbraced scalar initializer for an aggregate,
 and makes oversized initializer-image integer writes fail before any invalid
 shift. The independent re-review found no remaining blockers.
+
+Local Sprint 39 validation note (2026-08-02): fresh GCC, Clang and complete
+ASan+UBSan suites pass with 483 unit tests / 95,206 assertions, 496/496 program
+fixtures and 400/400 warning fixtures. The real `gcc:8` container uses a
+compiler built inside that container (a host build requires GLIBC_2.33/2.34 and
+cannot execute there) and reports 379 exact, 20 annotated, one explicitly
+normalized Cgfried-only unbounded-scanf warning, and zero unannotated
+differences. The format matrix is 64/64 rows and 128/128 generated fixtures;
+musl and TinyCC both report zero format false positives. Valgrind 3.25.1 again
+fails before loading the touched format path because the stripped host loader
+lacks its mandatory `memcmp` redirection symbol. GCC/Clang/sanitizer evidence
+therefore supplies the memory-safety proof available on this machine; do not
+misreport Valgrind as having run.
 
 ---
 
@@ -380,6 +408,22 @@ because each one was learned the hard way.
   broadens only the oracle. Strict-C89 oracle copies blank runner metadata
   line-preservingly. The musl oracle must exit successfully before any of its
   warnings can certify a CGF result.
+- **Format checking runs after semantic conversions.** Compare the materialized
+  promoted argument type; do not independently replay default promotions.
+  Scanf is the intentional inverse: its stored-object type is unpromoted and
+  pointer-qualified at every level. Conditional format expressions may carry
+  multiple literal alternatives, and every distinct alternative must be
+  checked.
+- **Format extensions follow the target libc contract, not one “GNU” bit.**
+  printf `%m` and apostrophe grouping are Linux features (gnu + musl); `I`,
+  glibc redirects, syslog and asprintf are GNU-libc rows; BSD err/warn rows are
+  FreeBSD-only. Scanf `m` allocation is POSIX and is accepted on every current
+  hosted target. Target wchar signedness comes from `TargetSpec`.
+- **Differential normalization is an assertion, not a filter.** The sole
+  Sprint 39 exception is fixture-marked `-Wformat-unbounded-scanf`: the harness
+  first requires exactly one extra Cgfried diagnostic with that ID, removes
+  only it, then compares the remaining set. A general “ignore Cgfried extras”
+  path would make the oracle vacuous.
 - **No silent stubs.** A placeholder that returns a plausible value is
   worse than one that aborts. Every deferral names its sprint in the
   diagnostic; `src/rt/fp128.c` aborts rather than computing wrong math.
@@ -435,6 +479,9 @@ Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `opt_driver`, `s33_ipo_driver`, `s34_loop_driver`.
 Sprint 38 adds `warn_diff` (real GCC 8 in CI) and `musl_warn_dryrun`; both use
 the same compile mode on both sides, and the latter rejects oracle failures.
+Sprint 39 expands `warn_diff` to the full 400-fixture tree, adds a generated
+64-row/128-fixture format matrix gate, and adds `tinycc_warn_dryrun` with the
+same strict oracle-subset contract as musl.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -501,6 +548,8 @@ sh scripts/s36_vector_driver.sh build/cgfried build/cgf-test
 sh scripts/s36_isa_driver.sh build/cgfried
 CGF_DIFF_GCC8=gcc-8 sh scripts/warn_diff.sh build/cgfried
 sh scripts/musl_warn_dryrun.sh build/cgfried
+sh scripts/tinycc_warn_dryrun.sh build/cgfried
+make BUILD=build check-format-matrix
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
 # CI:
