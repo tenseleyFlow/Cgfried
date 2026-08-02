@@ -111,7 +111,7 @@ void test_dep_exact_distance_table_and_independence_are_distinct(TestCtx *t)
         arena_free_all(&fix.arena);
         return;
     }
-    cfg = (AliasConfig){&m->funcs[0], false};
+    cfg = (AliasConfig){.func = &m->funcs[0], .no_strict_aliasing = false};
     alias = alias_build(m, &cfg);
     base = ir_op_symbol(IRT_PTR, ir_sym(m, "g"), 0);
     for (i = 0; i < CGF_ARRAY_LEN(rows); i++) {
@@ -152,7 +152,7 @@ void test_dep_distinct_bases_and_may_alias_bases(TestCtx *t)
         arena_free_all(&fix.arena);
         return;
     }
-    cfg = (AliasConfig){&m->funcs[0], false};
+    cfg = (AliasConfig){.func = &m->funcs[0], .no_strict_aliasing = false};
     alias = alias_build(m, &cfg);
     a = (DepAccess){ir_op_symbol(IRT_PTR, ir_sym(m, "g"), 0), 4, 0, 4,
                     ETYPE_I32};

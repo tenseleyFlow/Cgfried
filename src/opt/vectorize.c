@@ -208,7 +208,7 @@ static const char *analyze_body(IrModule *m, IrFunc *f, VecPlan *p,
     IrBlock *body = &f->blocks[p->body_id.v - 1];
     VecAccess *accesses;
     u32 naccess = 0, i, j;
-    AliasConfig acfg;
+    AliasConfig acfg = {0};
     AliasCtx *alias;
 
     if (!body->last || body->last->op != IR_BR || body->last->nedges != 1 ||

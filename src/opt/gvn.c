@@ -528,7 +528,7 @@ static void build_dom_preorder(Arena *scratch, const IrFunc *f,
 static bool gvn_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     Arena scratch;
-    AliasConfig acfg;
+    AliasConfig acfg = {0};
     AliasCtx *alias;
     IrDomTree *dom;
     BlockInsts *blocks;
