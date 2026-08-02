@@ -435,6 +435,10 @@ typedef struct IrFunc {
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);
                       defaults EXTERNAL, printed ` internal` otherwise */
     bool variadic; /* printed as ', ...' after the last parameter */
+    /* An old-style definition or `f()` declaration has no prototype: its
+     * body still has concrete incoming parameters, but calls may legally
+     * pass a different count and default-promoted types. */
+    bool unprototyped;
     /* The blunt setjmp policy (Sprint 20): a function that CALLS
      * setjmp/sigsetjmp/_setjmp compiles with every local memory-pinned
      * (mem2reg skips the whole function) and every call as a full

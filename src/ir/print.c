@@ -532,6 +532,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
     if (f->variadic)
         buf_printf(out, "%s...", f->nparams ? ", " : "");
     buf_printf(out, ")");
+    if (f->unprototyped)
+        buf_printf(out, " unproto");
     if (f->linkage == IRLINK_INTERNAL)
         buf_printf(out, " internal");
     if (f->abi_ret != IR_ABIRET_NONE)

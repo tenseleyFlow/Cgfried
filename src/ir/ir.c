@@ -756,8 +756,8 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
         if (!str_eq(x->name, y->name) || x->ret != y->ret ||
             x->nparams != y->nparams || x->nblocks != y->nblocks ||
             x->nvals != y->nvals || x->variadic != y->variadic ||
-            x->abi_ret != y->abi_ret || x->linkage != y->linkage ||
-            x->calls_setjmp != y->calls_setjmp)
+            x->unprototyped != y->unprototyped || x->abi_ret != y->abi_ret ||
+            x->linkage != y->linkage || x->calls_setjmp != y->calls_setjmp)
             return false;
         for (j = 0; j < x->nparams; j++) {
             u64 xa = x->param_annots ? x->param_annots[j] : 0;

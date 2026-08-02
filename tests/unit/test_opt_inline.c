@@ -264,6 +264,17 @@ static void assert_bail(TestCtx *t, const char *source, const char *reason,
 void test_opt_inline_never_inline_bail_matrix(TestCtx *t)
 {
     assert_bail(t,
+                "func i32 @old(i32 %x) unproto {\n"
+                "entry():\n"
+                "    ret i32 %x\n"
+                "}\n"
+                "func i32 @caller() {\n"
+                "entry():\n"
+                "    %x = call i32 @old()\n"
+                "    ret i32 %x\n"
+                "}\n",
+                "inl_unprototyped_signature", false);
+    assert_bail(t,
                 "func void @v(ptr %p, ...) {\n"
                 "entry():\n"
                 "    va_start %p\n"

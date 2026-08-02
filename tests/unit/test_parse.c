@@ -286,12 +286,14 @@ void test_parse_specifier_multisets(TestCtx *t)
     spec_bad(t, "char int ci2;\n");
     spec_bad(t, "static extern int se;\n");
     spec_bad(t, "typedef static int ts;\n");
+    spec_bad(t, "int f(static int);\n");
     spec_bad(t, "float short fs;\n");
     spec_bad(t, "_Bool int bi;\n");
 
     /* _Thread_local is the ONE storage class that may pair (6.7.1p2). */
     spec_ok(t, "_Thread_local static int tls;\n");
     spec_ok(t, "static _Thread_local int tls2;\n");
+    spec_ok(t, "int f(register int);\n");
 }
 
 void test_parse_records_and_enums(TestCtx *t)

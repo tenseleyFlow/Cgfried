@@ -562,15 +562,29 @@ static void check_inst_misc(V *v, const IrInst *in)
             } else {
                 const IrFunc *cf = &v->m->funcs[in->callee];
 
-                /* Variadic callees: at LEAST the named parameters, typed;
-                 * the tail is the va machinery's business. */
-                if (cf->variadic ? in->nops < cf->nparams
-                                 : in->nops != cf->nparams)
+                /* Old-style callees have concrete body parameters but no
+                 * call-site prototype: count and default-promoted operand
+                 * types are intentionally unconstrained.  A hidden return
+                 * pointer remains an ABI invariant and is checked below. */
+                if (!cf->unprototyped &&
+                    (cf->variadic ? in->nops < cf->nparams
+                                  : in->nops != cf->nparams))
                     verr(v, 9, "call to @%s passes %u args; it takes %s%u",
                          cf->name, in->nops, cf->variadic ? "at least " : "",
                          cf->nparams);
                 else {
-                    for (i = 0; i < cf->nparams; i++) {
+                    u32 checked =
+                        cf->unprototyped
+                            ? (cf->abi_ret != IR_ABIRET_NONE ? 1u : 0u)
+                            : cf->nparams;
+
+                    if (checked && in->nops == 0) {
+                        verr(v, 9,
+                             "call to @%s omits its hidden return pointer",
+                             cf->name);
+                        checked = 0;
+                    }
+                    for (i = 0; i < checked; i++) {
                         u32 got_kind = in->ops[i].kind == IROP_VALUE ||
                                                in->ops[i].kind == IROP_SYMBOL
                                            ? ir_arg_kind(in->ops[i].b)

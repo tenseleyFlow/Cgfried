@@ -136,6 +136,26 @@ void test_lower_verifies_and_roundtrips(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_old_style_calls_keep_loose_contract(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "int f(x) int x; { return x; }\n"
+                              "int g(void) { return f(); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.m->nfuncs, 2);
+    T_ASSERT(t, f.m->funcs[0].unprototyped);
+    T_ASSERT(t, strstr(txt(&f), ") unproto {") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @f()") != NULL);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<old-style-rt>");
+    T_ASSERT(t, round != NULL);
+    if (round)
+        T_ASSERT(t, ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_bitfield_unsigned_rw(TestCtx *t)
 {
     LowFix f;
@@ -338,6 +358,21 @@ void test_lower_compound_assign_roundtrip(TestCtx *t)
     T_ASSERT(t, strstr(txt(&f), "sext i8") != NULL);
     T_ASSERT(t, strstr(txt(&f), "trunc i32") != NULL);
     T_ASSERT(t, strstr(txt(&f), "store i8") != NULL);
+    low_free(&f);
+}
+
+void test_lower_conditional_pointer_integer_recovery(TestCtx *t)
+{
+    LowFix f;
+
+    /* gcc accepts this with warnings.  Sema's recovery type is a pointer,
+     * so it must also materialize the integer-to-pointer conversion before
+     * the two values become CFG edge arguments. */
+    T_ASSERT(t, run_lower(&f, "int a;\n"
+                              "int f(int c) { a = c ? a : &a; return a; }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "bitcast i64") != NULL);
     low_free(&f);
 }
 

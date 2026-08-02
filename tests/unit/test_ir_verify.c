@@ -448,6 +448,28 @@ void test_ir_verify_check9_refs(TestCtx *t)
     T_ASSERT(t, fired(&f, 9));
     arena_free_all(&f.arena);
 
+    /* An old-style definition has concrete body parameters but no
+     * prototype at call sites, so arity and promoted argument types are
+     * intentionally loose. */
+    vfix_init(&f);
+    m = ir_module_new(&f.arena, f.dc);
+    fn = ir_func_new(m, "callee", IRT_VOID, pt, 1);
+    fn->unprototyped = true;
+    {
+        BlockId e = ir_block_new(m, fn, "entry");
+
+        ir_builder_at(&b, m, fn, e);
+        ir_build_ret(&b, NULL);
+        fn = ir_func_new(m, "caller", IRT_VOID, NULL, 0);
+        e = ir_block_new(m, fn, "entry");
+        ir_builder_at(&b, m, fn, e);
+        ir_build_call(&b, IRT_VOID, FUNCREF_INTERNAL, 0, NULL, 0);
+        ir_build_ret(&b, NULL);
+    }
+    T_ASSERT(t, ir_verify(f.dc, m));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    arena_free_all(&f.arena);
+
     vfix_init(&f);
     m = ir_module_new(&f.arena, f.dc);
     ir_func_new(m, "callee", IRT_VOID, pt, 1);

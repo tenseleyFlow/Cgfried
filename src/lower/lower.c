@@ -585,6 +585,7 @@ static void lower_function(Lower *lo, AstNode *def)
                                                  : IRT_VOID,
                     ptypes, nir_params);
     lo->fn->variadic = ft->variadic;
+    lo->fn->unprototyped = !ft->has_proto;
     lo->fn->abi_ret = aret.ir_abi;
     lo->fn->loc = ir_intern_span(lo->m, def->span);
     if (sym->linkage == LINK_INTERNAL)
