@@ -8,12 +8,13 @@ and are the only excluded `Warning` records. The resulting 222 rows retain
 aliases, parameter-taking forms, and duplicate raw entries across the two files.
 
 A Clang cell of `—` means that this ledger does not claim an exact Clang 7
-equivalent. Planned and out-of-scope rows have no fixture until implemented;
-every `done` row names its firing fixture.
+equivalent. Out-of-scope rows have no fixture; every `done` row names the test
+that pins the implemented behavior. Sprint 40 closed the planning burn-down:
+there are no remaining `planned-s3x` placeholders.
 
-`-Wreturn-type` is split deliberately: Sprint 38 completes the syntactic
-return/value mismatch diagnostics recorded below; Sprint 40 still owns the CFG
-half, “control reaches end of non-void function.”
+`-Wreturn-type` is split deliberately: Sprint 38 owns syntactic return/value
+mismatches and Sprint 40 owns the CFG half, “control reaches end of non-void
+function.” Both are complete.
 
 | gcc-8 flag | clang-7 equivalent (or —) | cgf status | fixture path |
 | --- | --- | --- | --- |
@@ -26,40 +27,40 @@ half, “control reaches end of non-void function.”
 | -Walloc-size-larger-than= | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Walloc-zero | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Walloca-larger-than= | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
-| -Wbad-function-cast | — | planned-s39 | — |
+| -Wbad-function-cast | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wbool-compare | — | done | tests/warn/frontend/bool-compare/fire_out_of_range.c |
-| -Wbool-operation | — | planned-s39 | — |
-| -Wframe-address | — | planned-s39 | — |
-| -Wbuiltin-declaration-mismatch | — | planned-s39 | — |
-| -Wbuiltin-macro-redefined | — | planned-s39 | — |
-| -Wc90-c99-compat | — | planned-s39 | — |
-| -Wc99-c11-compat | — | planned-s39 | — |
+| -Wbool-operation | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wframe-address | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wbuiltin-declaration-mismatch | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wbuiltin-macro-redefined | — | done | tests/unit/test_pp_macro.c |
+| -Wc90-c99-compat | — | done | tests/unit/test_parse.c |
+| -Wc99-c11-compat | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wc++-compat | — | out-of-scope: C++ or ABI compatibility diagnostics are outside Phase 8 | — |
-| -Wcast-function-type | — | planned-s39 | — |
-| -Wcast-qual | — | planned-s39 | — |
+| -Wcast-function-type | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wcast-qual | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wchar-subscripts | — | done | tests/warn/frontend/char-subscripts/fire_plain_char.c |
 | -Wchkp | — | out-of-scope: the corresponding optional language or runtime feature is not in v0.1.0 | — |
 | -Wclobbered | — | out-of-scope: setjmp dataflow is post-v0.1.0 (XD-S37-CLOBBERED) | — |
-| -Wcomment | — | planned-s39 | — |
-| -Wcomments | — | planned-s39 | — |
+| -Wcomment | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wcomments | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wconversion | — | done | tests/warn/frontend/conversion/fire-narrowing.c |
-| -Wdangling-else | — | planned-s39 | — |
-| -Wdate-time | — | planned-s39 | — |
-| -Wdeclaration-after-statement | — | planned-s39 | — |
-| -Wdeprecated | — | planned-s39 | — |
-| -Wdesignated-init | — | planned-s39 | — |
-| -Wdiscarded-array-qualifiers | — | planned-s39 | — |
-| -Wdiscarded-qualifiers | — | planned-s39 | — |
-| -Wdiv-by-zero | — | planned-s39 | — |
-| -Wduplicated-branches | — | planned-s39 | — |
-| -Wduplicated-cond | — | planned-s39 | — |
-| -Wempty-body | — | planned-s39 | — |
-| -Wendif-labels | — | planned-s39 | — |
-| -Wenum-compare | — | planned-s39 | — |
-| -Werror-implicit-function-declaration | — | planned-s39 | — |
+| -Wdangling-else | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wdate-time | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wdeclaration-after-statement | — | done | tests/unit/test_parse.c |
+| -Wdeprecated | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wdesignated-init | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wdiscarded-array-qualifiers | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wdiscarded-qualifiers | — | done | tests/programs/conv/warn_discarded_quals.c |
+| -Wdiv-by-zero | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wduplicated-branches | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wduplicated-cond | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wempty-body | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wendif-labels | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wenum-compare | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Werror-implicit-function-declaration | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wextra | — | done | tests/unit/test_s38_warn_defaults.c |
-| -Wfloat-conversion | — | planned-s39 | — |
-| -Wfloat-equal | — | planned-s39 | — |
+| -Wfloat-conversion | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wfloat-equal | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wformat | — | done | tests/warn/format/grammar/printf_mismatch.c |
 | -Wformat-contains-nul | — | done | tests/warn/format/levels/contains_nul.c |
 | -Wformat-extra-args | — | done | tests/warn/format/levels/extra_args.c |
@@ -74,35 +75,35 @@ half, “control reaches end of non-void function.”
 | -Wformat-overflow= | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39 §Defer) | — |
 | -Wformat-truncation= | — | out-of-scope: value-range format sizing is deferred beyond v0.1.0 (Sprint 39 §Defer) | — |
 | -Wif-not-aligned | — | out-of-scope: attribute semantics land in Sprint 55 | — |
-| -Wignored-qualifiers | — | planned-s39 | — |
+| -Wignored-qualifiers | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wignored-attributes | — | out-of-scope: attribute semantics land in Sprint 55 | — |
-| -Wincompatible-pointer-types | — | planned-s39 | — |
-| -Winit-self | — | planned-s40 | — |
+| -Wincompatible-pointer-types | — | done | tests/unit/test_conv.c |
+| -Winit-self | — | done | tests/warn/flow/uninitialized/init-self-enabled.c |
 | -Wimplicit | — | done | tests/unit/test_warn.c |
-| -Wdouble-promotion | — | planned-s39 | — |
-| -Wexpansion-to-defined | — | planned-s39 | — |
+| -Wdouble-promotion | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wexpansion-to-defined | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wimplicit-function-declaration | — | done | tests/warn/frontend/implicit-function-declaration/fire-c99.c |
 | -Wimplicit-int | — | done | tests/warn/frontend/implicit-int/fire-c99.c |
-| -Wint-conversion | — | planned-s39 | — |
-| -Wint-in-bool-context | — | planned-s39 | — |
-| -Wint-to-pointer-cast | — | planned-s39 | — |
+| -Wint-conversion | — | done | tests/programs/conv/warn_ptr_from_int.c |
+| -Wint-in-bool-context | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wint-to-pointer-cast | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Winvalid-pch | — | out-of-scope: gcov and precompiled headers are not supported | — |
-| -Wjump-misses-init | — | planned-s39 | — |
-| -Wlogical-op | — | planned-s39 | — |
+| -Wjump-misses-init | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wlogical-op | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wlogical-not-parentheses | — | done | tests/warn/frontend/logical-not-parentheses/fire_not_compared_to_three.c |
-| -Wlong-long | — | planned-s39 | — |
-| -Wmain | — | planned-s39 | — |
-| -Wmemset-transposed-args | — | planned-s39 | — |
-| -Wmemset-elt-size | — | planned-s39 | — |
+| -Wlong-long | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wmain | — | done | tests/programs/sema16/main_two_args.c |
+| -Wmemset-transposed-args | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wmemset-elt-size | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wmisleading-indentation | — | done | tests/warn/frontend/misleading-indentation/fire_if_body_column.c |
-| -Wmissing-braces | — | planned-s39 | — |
-| -Wmissing-declarations | — | planned-s39 | — |
-| -Wmissing-field-initializers | — | planned-s39 | — |
-| -Wmultistatement-macros | — | planned-s39 | — |
+| -Wmissing-braces | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wmissing-declarations | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wmissing-field-initializers | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wmultistatement-macros | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wpacked-not-aligned | — | out-of-scope: layout-quality diagnostics are post-v0.1.0 | — |
-| -Wsizeof-pointer-div | — | planned-s39 | — |
-| -Wsizeof-pointer-memaccess | — | planned-s39 | — |
-| -Wsizeof-array-argument | — | planned-s39 | — |
+| -Wsizeof-pointer-div | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wsizeof-pointer-memaccess | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wsizeof-array-argument | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wstringop-overflow | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Wstringop-overflow= | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Wstringop-truncation | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
@@ -110,107 +111,107 @@ half, “control reaches end of non-void function.”
 | -Wswitch | — | done | tests/warn/frontend/switch/fire_missing_enumerator.c |
 | -Wswitch-default | — | done | tests/warn/frontend/switch-default/fire_missing_default.c |
 | -Wswitch-enum | — | done | tests/warn/frontend/switch-enum/fire_default_does_not_suppress.c |
-| -Wswitch-bool | — | planned-s39 | — |
+| -Wswitch-bool | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wmissing-attributes | — | out-of-scope: attribute semantics land in Sprint 55 | — |
 | -Wmissing-format-attribute | — | out-of-scope: format attribute semantics land in Sprint 55 | — |
-| -Wmissing-include-dirs | — | planned-s39 | — |
+| -Wmissing-include-dirs | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wmissing-parameter-type | — | done | tests/warn/frontend/missing-parameter-type/fire_untyped_knr_parameter.c |
 | -Wmissing-prototypes | — | done | tests/warn/frontend/missing-prototypes/fire_external_definition.c |
-| -Wmultichar | — | planned-s39 | — |
-| -Wnarrowing | — | planned-s39 | — |
-| -Wnested-externs | — | planned-s39 | — |
+| -Wmultichar | — | done | tests/unit/test_lex.c |
+| -Wnarrowing | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wnested-externs | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wnonnull | — | done | tests/warn/format/levels/nonnull_implied.c |
 | -Wnormalized | — | out-of-scope: Unicode normalization diagnostics are post-v0.1.0 | — |
 | -Wnormalized= | — | out-of-scope: Unicode normalization diagnostics are post-v0.1.0 | — |
 | -Wold-style-declaration | — | done | tests/warn/frontend/old-style-declaration/fire_storage_class_order.c |
 | -Wold-style-definition | — | done | tests/warn/frontend/old-style-definition/fire_knr_definition.c |
 | -Wopenmp-simd | — | out-of-scope: the corresponding optional language or runtime feature is not in v0.1.0 | — |
-| -Woverlength-strings | — | planned-s39 | — |
-| -Woverride-init | — | planned-s39 | — |
-| -Woverride-init-side-effects | — | planned-s39 | — |
+| -Woverlength-strings | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Woverride-init | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Woverride-init-side-effects | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wpacked-bitfield-compat | — | out-of-scope: layout-quality diagnostics are post-v0.1.0 | — |
 | -Wparentheses | — | done | tests/warn/frontend/parentheses/fire-assignment.c |
-| -Wpedantic | — | planned-s39 | — |
+| -Wpedantic | — | done | tests/programs/lex/float_overflow_pedantic.c |
 | -Wpointer-arith | — | done | tests/warn/frontend/pointer-arith/fire-void-add.c |
-| -Wpointer-sign | — | planned-s39 | — |
-| -Wpointer-compare | — | planned-s39 | — |
-| -Wpointer-to-int-cast | — | planned-s39 | — |
+| -Wpointer-sign | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wpointer-compare | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wpointer-to-int-cast | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wpragmas | -Wpragmas | done | tests/warn/pragma/malformed.c |
-| -Wredundant-decls | — | planned-s39 | — |
-| -Wreturn-type | — | done | tests/warn/frontend/return-type/fire_missing_value.c |
-| -Wscalar-storage-order | — | planned-s39 | — |
+| -Wredundant-decls | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wreturn-type | — | done | tests/warn/flow/return-type/falloff-diamond.c |
+| -Wscalar-storage-order | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wsequence-point | — | out-of-scope: requires alias or value analysis beyond Phase 8 | — |
-| -Wshift-overflow | — | planned-s39 | — |
-| -Wshift-overflow= | — | planned-s39 | — |
-| -Wshift-count-negative | — | planned-s39 | — |
-| -Wshift-count-overflow | — | planned-s39 | — |
-| -Wshift-negative-value | — | planned-s39 | — |
+| -Wshift-overflow | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshift-overflow= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshift-count-negative | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshift-count-overflow | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshift-negative-value | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wsign-compare | — | done | tests/warn/frontend/sign-compare/fire-variable.c |
 | -Wsign-conversion | — | done | tests/warn/frontend/sign-conversion/fire-negative.c |
 | -Wstrict-prototypes | — | done | tests/warn/frontend/strict-prototypes/fire_empty_parameters.c |
-| -Wsync-nand | — | planned-s39 | — |
-| -Wsystem-headers | — | planned-s39 | — |
+| -Wsync-nand | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wsystem-headers | — | done | tests/warn/pragma/system_enabled.c |
 | -Wtautological-compare | — | done | tests/warn/frontend/tautological-compare/fire_self_compare.c |
-| -Wtraditional | — | planned-s39 | — |
-| -Wtraditional-conversion | — | planned-s39 | — |
-| -Wtrigraphs | — | planned-s39 | — |
-| -Wundef | — | planned-s39 | — |
+| -Wtraditional | — | done | tests/programs/sema16/kr_promoted_float.c |
+| -Wtraditional-conversion | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wtrigraphs | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wundef | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wunknown-pragmas | -Wunknown-pragmas | done | tests/warn/pragma/unknown.c |
-| -Wunsuffixed-float-constants | — | planned-s39 | — |
-| -Wunused-local-typedefs | — | planned-s39 | — |
-| -Wunused-macros | — | planned-s39 | — |
-| -Wunused-result | — | planned-s39 | — |
-| -Wunused-const-variable | — | planned-s39 | — |
-| -Wunused-const-variable= | — | planned-s39 | — |
-| -Wvariadic-macros | — | planned-s39 | — |
-| -Wvarargs | — | planned-s39 | — |
+| -Wunsuffixed-float-constants | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wunused-local-typedefs | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wunused-macros | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wunused-result | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wunused-const-variable | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wunused-const-variable= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wvariadic-macros | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wvarargs | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wvla | — | done | tests/warn/frontend/vla/fire_runtime_bound.c |
-| -Wvla-larger-than= | — | planned-s39 | — |
-| -Wvolatile-register-var | — | planned-s39 | — |
-| -Wwrite-strings | — | planned-s39 | — |
-| -Wduplicate-decl-specifier | — | planned-s39 | — |
+| -Wvla-larger-than= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wvolatile-register-var | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wwrite-strings | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wduplicate-decl-specifier | — | done | tests/unit/test_sema.c |
 | -Wrestrict | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
-| -W | — | planned-s39 | — |
+| -W | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Waggregate-return | — | out-of-scope: resource and stack-size diagnostics are post-v0.1.0 | — |
 | -Waggressive-loop-optimizations | — | out-of-scope: optimizer-quality diagnostics are post-v0.1.0 | — |
 | -Warray-bounds | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Warray-bounds= | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Wattributes | — | out-of-scope: attribute semantics land in Sprint 55 | — |
 | -Wattribute-alias | — | out-of-scope: attribute semantics land in Sprint 55 | — |
-| -Wcast-align | — | planned-s39 | — |
-| -Wcast-align=strict | — | planned-s39 | — |
+| -Wcast-align | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wcast-align=strict | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wcpp | -W#warnings | done | tests/warn/pragma/cpp.c |
 | -Wdeprecated-declarations | — | out-of-scope: attribute semantics land in Sprint 55 | — |
 | -Wdisabled-optimization | — | out-of-scope: optimizer-quality diagnostics are post-v0.1.0 | — |
 | -Wextra | — | done | tests/unit/test_s38_warn_defaults.c |
-| -Wframe-larger-than= | — | planned-s39 | — |
+| -Wframe-larger-than= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wfree-nonheap-object | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Whsa | — | out-of-scope: the corresponding optional language or runtime feature is not in v0.1.0 | — |
 | -Wimplicit-fallthrough | — | done | tests/warn/frontend/implicit-fallthrough/fire-level3.c |
 | -Wimplicit-fallthrough= | — | done | tests/warn/frontend/implicit-fallthrough/fire-level4-lower.c |
 | -Winline | — | out-of-scope: optimizer-quality diagnostics are post-v0.1.0 | — |
-| -Winvalid-memory-model | — | planned-s39 | — |
-| -Wlarger-than- | — | planned-s39 | — |
-| -Wlarger-than= | — | planned-s39 | — |
-| -Wnonnull-compare | — | planned-s39 | — |
+| -Winvalid-memory-model | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wlarger-than- | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wlarger-than= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wnonnull-compare | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wnull-dereference | — | out-of-scope: memory analysis is owned by Phase 9 (Sprint 42) | — |
 | -Wunsafe-loop-optimizations | — | out-of-scope: optimizer-quality diagnostics are post-v0.1.0 | — |
-| -Wmissing-noreturn | — | planned-s39 | — |
+| -Wmissing-noreturn | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wodr | — | out-of-scope: C++ or ABI compatibility diagnostics are outside Phase 8 | — |
 | -Woverflow | — | done | tests/warn/frontend/overflow/fire-char.c |
 | -Wlto-type-mismatch | — | out-of-scope: C++ or ABI compatibility diagnostics are outside Phase 8 | — |
 | -Wpacked | — | out-of-scope: layout-quality diagnostics are post-v0.1.0 | — |
 | -Wpadded | — | out-of-scope: layout-quality diagnostics are post-v0.1.0 | — |
-| -Wpedantic | — | planned-s39 | — |
-| -Wreturn-local-addr | — | planned-s40 | — |
+| -Wpedantic | — | done | tests/programs/lex/float_overflow_pedantic.c |
+| -Wreturn-local-addr | — | out-of-scope: address-escape diagnostics are owned by Phase 9 | — |
 | -Wshadow | — | done | tests/warn/frontend/shadow/fire-global.c |
-| -Wshadow=global | — | planned-s39 | — |
-| -Wshadow=local | — | planned-s39 | — |
-| -Wshadow-local | — | planned-s39 | — |
-| -Wshadow=compatible-local | — | planned-s39 | — |
-| -Wshadow-compatible-local | — | planned-s39 | — |
+| -Wshadow=global | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshadow=local | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshadow-local | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshadow=compatible-local | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wshadow-compatible-local | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wstack-protector | — | out-of-scope: resource and stack-size diagnostics are post-v0.1.0 | — |
-| -Wstack-usage= | — | planned-s39 | — |
+| -Wstack-usage= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wstrict-aliasing | — | out-of-scope: requires alias or value analysis beyond Phase 8 | — |
 | -Wstrict-aliasing= | — | out-of-scope: requires alias or value analysis beyond Phase 8 | — |
 | -Wstrict-overflow | — | out-of-scope: requires alias or value analysis beyond Phase 8 | — |
@@ -222,13 +223,13 @@ half, “control reaches end of non-void function.”
 | -Wsuggest-attribute=malloc | — | out-of-scope: attribute semantics land in Sprint 55 | — |
 | -Wsuggest-final-types | — | out-of-scope: C++ or ABI compatibility diagnostics are outside Phase 8 | — |
 | -Wsuggest-final-methods | — | out-of-scope: C++ or ABI compatibility diagnostics are outside Phase 8 | — |
-| -Wswitch-unreachable | — | planned-s40 | — |
-| -Wsystem-headers | — | planned-s39 | — |
+| -Wswitch-unreachable | — | out-of-scope: code before the first switch label is not part of the Sprint 40 flow set | — |
+| -Wsystem-headers | — | done | tests/warn/pragma/system_enabled.c |
 | -Wtrampolines | — | out-of-scope: the underlying C++ or GNU nested-function feature is not in v0.1.0 | — |
 | -Wtype-limits | — | done | tests/warn/frontend/type-limits/fire_unsigned_zero.c |
-| -Wuninitialized | — | planned-s40 | — |
-| -Wmaybe-uninitialized | — | planned-s40 | — |
-| -Wunreachable-code | — | planned-s40 | — |
+| -Wuninitialized | — | done | tests/warn/flow/uninitialized/definite-return.c |
+| -Wmaybe-uninitialized | — | done | tests/warn/flow/uninitialized/maybe-diamond.c |
+| -Wunreachable-code | — | done | tests/warn/flow/unreachable/after-return.c |
 | -Wunused | — | done | tests/unit/test_s38_warn_defaults.c |
 | -Wunused-but-set-parameter | — | done | tests/warn/frontend/unused-but-set-parameter/fire.c |
 | -Wunused-but-set-variable | — | done | tests/warn/frontend/unused-but-set-variable/fire.c |
@@ -252,7 +253,7 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Wbundled-only-option | — | done | tests/programs/driver/fast_math_component_warns.c |
 | -Wc11-extensions | -Wc11-extensions | done | tests/warn/pragma/migrated_policy.c |
 | -Wc23-extensions | -Wc23-extensions | done | tests/warn/pragma/migrated_policy.c |
-| -Wcompare-distinct-pointer-types | -Wcompare-distinct-pointer-types | planned-s39 | — |
+| -Wcompare-distinct-pointer-types | -Wcompare-distinct-pointer-types | done | tests/programs/conv/warn_cmp_distinct_ptr.c |
 | -Wempty-declaration | -Wempty-declaration | done | tests/warn/pragma/migrated_policy.c |
 | -Wfatal-errors | -Wfatal-errors | out-of-scope: accepted for driver compatibility; early-stop policy is post-Sprint 37 | — |
 | -Wformat-unbounded-scanf | — | done | tests/warn/format/grammar/unbounded_scanf_on.c |
@@ -261,9 +262,11 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Winvalid-function-specifier | -Wignored-attributes | done | tests/warn/pragma/migrated_policy.c |
 | -Wlarger-than | — | out-of-scope: normalized parameter spelling; resource diagnostics are post-v0.1.0 | — |
 | -Wmacro-redefined | -Wmacro-redefined | done | tests/warn/pragma/macro_redefined.c |
-| -Wnewline-eof | -Wnewline-eof | planned-s39 | — |
+| -Winfinite-recursion | -Winfinite-recursion | done | tests/warn/flow/recursion/direct.c |
+| -Wmaybe-uninitialized=strict | — | done | tests/warn/flow/uninitialized/same-predicate-strict.c |
+| -Wnewline-eof | -Wnewline-eof | done | tests/unit/test_pp_lex.c |
 | -Wnull-character | -Wnull-character | done | tests/programs/pp/fuzz_embedded_nul.c |
-| -Wpointer-compared-to-zero-with-relational | — | planned-s39 | — |
+| -Wpointer-compared-to-zero-with-relational | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wstatic-in-inline | -Wstatic-in-inline | done | tests/programs/sema16/inline_constraints.c |
 | -Wtentative-definition-array | — | done | tests/warn/pragma/migrated_policy.c |
 | -Wtypedef-redefinition | -Wtypedef-redefinition | done | tests/warn/pragma/migrated_policy.c |

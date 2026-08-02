@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–39
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–40
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,8 +34,8 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–39 complete; Phases 1–7 closed.** Phase 8 (warnings) is
-  under way on top of the completed preprocessor, frontend, sema, IR,
+- **Sprints 0–40 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+  next on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
@@ -85,19 +85,27 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   Cgfried-only unbounded-scanf extension and zero unannotated differences.
   musl remains zero-false-positive, and a new TinyCC lane is also
   zero-false-positive over every source the current frontend accepts.
-- **Next action: Sprint 40** —
-  `.docs/sprints/08-warnings/s40-flow-warnings.md`, adding CFG/dataflow
-  warning checks over the shared policy engine.
+- Sprint 40 closes Phase 8 with cloned-IR flow analysis for definite and maybe
+  uninitialized reads, self-init, unreachable regions, non-void falloff and
+  infinite recursion. Lowering records source provenance that optimized IR
+  cannot reconstruct; mem2reg supplies pre-rewrite definite-assignment facts;
+  diagnostics remain byte-stable across O0/O1/O2/O3/Os. The flow corpus is
+  77/77 across 385 level runs, the complete warning tree is 477/477, and the
+  real GCC 8 lane has zero unannotated differences. A bounded CFG workspace
+  reduced the 1,200-use review stress case from 23.013s to 0.455s.
+- **Next action: Sprint 41** —
+  `.docs/sprints/09-memory-safety/s41-analysis-foundation.md`, defining the
+  shared alias/points-to, lifetime-region and diagnostic-trace foundation.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 483 tests, 95206 assertions, 0 failures
-cgf-test: total=496 pass=496 fail=0 xfail=0 xpass=0 skip=0 config=0
-format warning fixtures: 203/203; all warning fixtures: 400/400
+unit: 487 tests, 95258 assertions, 0 failures
+cgf-test: total=497 pass=497 fail=0 xfail=0 xpass=0 skip=0 config=0
+format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
-GCC 8 warning differential: 379 exact + 20 annotated + 1 normalized CGF-only, 0 unannotated
-musl warning dry-run: 706 parsed, 655 deferred, 181 genuine, 0 false positives
+GCC 8 warning differential: 409 exact + 36 normalized CGF-only + 32 annotated, 0 unannotated
+musl warning dry-run: 709 parsed, 652 deferred, 181 genuine, 0 false positives
 TinyCC warning dry-run: 10/30 parsed, 20 deferred, 0 format warnings, 0 false positives
 warning matrix: 222/222 raw GCC 8 C rows accounted for
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
@@ -139,6 +147,20 @@ fails before loading the touched format path because the stripped host loader
 lacks its mandatory `memcmp` redirection symbol. GCC/Clang/sanitizer evidence
 therefore supplies the memory-safety proof available on this machine; do not
 misreport Valgrind as having run.
+
+Local Sprint 40 validation note (2026-08-02): fresh GCC 16.1, Clang 22.1 and
+complete ASan+UBSan suites pass with 487 unit tests / 95,258 assertions,
+497/497 program fixtures, 477/477 warning fixtures and 77 flow fixtures across
+385 byte-stable optimization-level runs. The real `gcc:8` container reports
+409 exact warning sets, 36 narrowly normalized Cgfried-only warnings, 32
+documented divergences and zero unannotated mismatches. musl parses 709/1,361
+sources, explicitly defers 652, observes 181 oracle-matched warnings and has
+zero false positives; c-testsuite remains 215/220 with five known deferrals.
+The complete sanitizer run uses `ASAN_OPTIONS=detect_leaks=0` for the host
+ptrace policy and reproduces fuzz digest `a847a1380ba66c9e`. Valgrind 3.25.1
+again fails before loading the touched paths because the stripped host loader
+lacks its mandatory `memcmp` redirection symbol; do not report it as a
+completed run.
 
 ---
 

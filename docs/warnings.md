@@ -19,6 +19,7 @@ Sprints 38–40 add the frontend, format, and flow warning checkers.
 | `-Wfoo` / `-Wno-foo` | Enable or disable one warning. |
 | `-Wall`, `-Wextra`, and other groups | Enable or disable the warnings in that group. `-Wall` does not mean every warning. |
 | `-Wformat`, `-Wformat=1`, `-Wformat=2`, `-Wformat=0` | Select the base format group, add the level-2 format checks, or disable both levels. Other levels and parameterized negative forms are rejected. |
+| `-Wmaybe-uninitialized=strict` | Report conservative, undecided maybe-uninitialized cases that the default mode suppresses. |
 | `-Werror` / `-Wno-error` | Promote all enabled warnings to errors, or remove that global promotion. |
 | `-Werror=foo` | Enable `foo` and promote it to an error. |
 | `-Wno-error=foo` | Keep `foo` as a warning even under `-Werror`. It does not enable `foo`. |
@@ -82,6 +83,46 @@ when an unbounded `%s` or `%[` writes into a fixed-size array. This is a
 Cgfried safety extension rather than GCC 8 behavior. Value-range sizing for
 `-Wformat-overflow` and `-Wformat-truncation`, format attributes, and wide
 stdio functions are outside v0.1.0.
+
+## Flow checking
+
+Flow warnings run over a clone of the unoptimized IR through one fixed
+analysis pipeline. The pipeline performs definite-assignment classification,
+mem2reg, and CFG simplification independently of the user-selected `-O` level.
+Consequently, the warning stream is identical at `-O0`, `-O1`, `-O2`, `-O3`,
+and `-Os`; unlike GCC 8, `-Wuninitialized` is useful at `-O0`.
+
+`-Wuninitialized` diagnoses a reachable read with no defining assignment on
+any path. `-Wmaybe-uninitialized` diagnoses a read for which defined and
+undefined paths meet, and includes a note identifying a decisive branch when
+one is available. Both attach a declaration note. Address-taken and volatile
+locals are excluded because mem2reg cannot prove their writes; functions that
+call `setjmp` are excluded because `longjmp` changes the applicable dataflow
+rules. Static-storage objects are zero-initialized and are never candidates.
+
+The default maybe-uninitialized mode is false-positive-averse. It suppresses
+same-predicate initialization/use shapes, loop-carried first-iteration shapes,
+and cases whose path search exceeds its bounded proof budget. Use
+`-Wmaybe-uninitialized=strict` to report those undecided cases. `-Winit-self`
+is separate and remains off by default.
+
+The CFG half of `-Wreturn-type` warns when a reachable path falls off the end
+of a non-void function. `main`, proven infinite loops, `_Noreturn` calls, the
+standard noreturn library functions, and the trap/unreachable builtins cut
+such paths.
+
+Cgfried also provides two off-by-default flow extensions:
+
+- `-Wunreachable-code` reports the first statement in each unreachable source
+  region. It suppresses macro/target configuration branches and defensive
+  switch-arm breaks. GCC 8 accepts this option as a no-op.
+- `-Winfinite-recursion` reports direct recursion only when every reachable
+  path calls the function itself. Mutual recursion is intentionally outside
+  this check.
+
+The reusable CFG reachability, dominance, and path-note boundary lives in
+`src/warn/flow.h`. Sprint 42 may consume that boundary for memory warnings;
+memory-safety policy does not live in the flow-warning module.
 
 ## Source-level control
 
