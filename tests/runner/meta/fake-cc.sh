@@ -192,6 +192,18 @@ exit 0
 '
     echo "cgfried: warning: option probe [-Wunknown-warning-option]" >&2
     ;;
+warn_count_format_suffix.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:1:4: warning: base format warning [-Wformat=]" >&2
+    ;;
+warn_count_bad_equals.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:1:4: warning: malformed suffix [-Whello=]" >&2
+    ;;
 warn_count_zero.c)
     emit '#!/bin/sh
 exit 0

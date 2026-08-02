@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=tinycc-warn test=corpus count=1 reason="TinyCC reference clone not found"
