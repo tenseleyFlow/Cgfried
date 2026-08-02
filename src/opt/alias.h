@@ -49,11 +49,27 @@ typedef struct MemLoc {
     EffTypeId etype;
 } MemLoc;
 
+typedef struct AllocSite AllocSite;
+
+#define ALIAS_NO_OUT_PARAM UINT32_MAX
+
+/* Allocation-family recognition belongs to the client.  The alias service
+ * knows only that a preclassified call creates one fresh abstract object and
+ * where the owning pointer is published.  out_param is an argument ordinal
+ * (the indirect callee operand, when present, is not an argument). */
+typedef struct AliasAllocSeed {
+    const IrInst *call;
+    bool owns_result;
+    uint32_t out_param;
+} AliasAllocSeed;
+
 typedef struct AliasConfig {
     /* ValueIds are function-local, so each context deliberately analyzes one
      * function even though symbols live at module scope. */
     IrFunc *func;
     bool no_strict_aliasing;
+    const AliasAllocSeed *alloc_seeds;
+    uint32_t nalloc_seeds;
 } AliasConfig;
 
 typedef struct AliasCtx AliasCtx;
@@ -73,6 +89,26 @@ bool alias_escapes(AliasCtx *c, IrOperand base);
 
 PtsSet alias_points_to(AliasCtx *c, IrOperand ptr);
 bool alias_offset_range(AliasCtx *c, IrOperand ptr, int64_t *lo, int64_t *hi);
+
+/* Allocation-site identity and iteration are stable only for the lifetime of
+ * c.  Iteration follows the seed order supplied to alias_build. */
+const AllocSite *alias_alloc_site(const AliasCtx *c, const IrInst *call);
+uint32_t alias_alloc_site_count(const AliasCtx *c);
+const AllocSite *alias_alloc_site_at(const AliasCtx *c, uint32_t index);
+uint32_t alias_alloc_site_id(const AllocSite *site);
+const IrInst *alias_alloc_site_call(const AllocSite *site);
+bool alias_pts_has_alloc_site(const AliasCtx *c, PtsSet pts,
+                              const AllocSite *site);
+const AllocSite *alias_pts_unique_alloc_site(const AliasCtx *c, PtsSet pts);
+
+/* Enumerate allocation sites named by root or transitively by explicit
+ * pointer stores/out-parameter publications.  The return value is the full
+ * count and may exceed capacity; output is truncated to capacity in stable
+ * site-id order.  UNKNOWN reachability is reported separately and is never
+ * expanded into invented site membership. */
+uint32_t alias_reachable_alloc_sites(const AliasCtx *c, IrOperand root,
+                                     const AllocSite **out, uint32_t capacity,
+                                     bool *has_unknown);
 
 /* Helpers used by optimizer clients.  alias_memloc starts at the pointer's
  * own tracked byte offset; explicit subranges may be added in MemLoc before a

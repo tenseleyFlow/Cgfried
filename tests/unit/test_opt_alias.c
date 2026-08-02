@@ -46,6 +46,18 @@ static AliasCtx *alias_ctx(IrModule *m, bool no_strict)
     return alias_build(m, &cfg);
 }
 
+static AliasCtx *alias_ctx_seeds(IrModule *m, const AliasAllocSeed *seeds,
+                                 u32 nseeds)
+{
+    AliasConfig cfg;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.func = &m->funcs[0];
+    cfg.alloc_seeds = seeds;
+    cfg.nalloc_seeds = nseeds;
+    return alias_build(m, &cfg);
+}
+
 static IrInst *alias_find(IrFunc *f, IrOp op, u32 ordinal)
 {
     u32 bi;
@@ -79,6 +91,323 @@ static bool pts_equal(PtsSet a, PtsSet b)
 {
     return a.nwords == b.nwords &&
            memcmp(a.words, b.words, a.nwords * sizeof(u64)) == 0;
+}
+
+void test_alias_allocation_sites_seed_direct_results_in_order(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c, *c2;
+    IrInst *first, *plain, *second;
+    AliasAllocSeed seeds[2];
+    const AllocSite *site0, *site1;
+    PtsSet pts;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @fresh_a\n"
+                        "sym @borrowed\n"
+                        "sym @fresh_b\n"
+                        "func void @f() {\n"
+                        "entry():\n"
+                        "    %a = call ptr @fresh_a(i64 8)\n"
+                        "    %p = call ptr @borrowed()\n"
+                        "    %b = call ptr @fresh_b(i64 16)\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    first = alias_find(&m->funcs[0], IR_CALL, 0);
+    plain = alias_find(&m->funcs[0], IR_CALL, 1);
+    second = alias_find(&m->funcs[0], IR_CALL, 2);
+    seeds[0] = (AliasAllocSeed){first, true, ALIAS_NO_OUT_PARAM};
+    seeds[1] = (AliasAllocSeed){second, true, ALIAS_NO_OUT_PARAM};
+    c = alias_ctx_seeds(m, seeds, 2);
+    site0 = alias_alloc_site_at(c, 0);
+    site1 = alias_alloc_site_at(c, 1);
+    T_ASSERT_EQ_INT(t, alias_alloc_site_count(c), 2);
+    T_ASSERT(t, site0 != NULL && site1 != NULL && site0 != site1);
+    T_ASSERT(t, alias_alloc_site(c, first) == site0);
+    T_ASSERT(t, alias_alloc_site(c, second) == site1);
+    T_ASSERT(t, alias_alloc_site(c, plain) == NULL);
+    T_ASSERT_EQ_INT(t, alias_alloc_site_id(site0), 1);
+    T_ASSERT_EQ_INT(t, alias_alloc_site_id(site1), 2);
+    T_ASSERT_EQ_INT(t, alias_alloc_site_id(NULL), 0);
+    T_ASSERT(t, alias_alloc_site_call(site0) == first);
+    T_ASSERT(t, alias_alloc_site_call(site1) == second);
+    pts = alias_points_to(c, ir_op_value(&m->funcs[0], first->result));
+    T_ASSERT(t, !pts.has_unknown);
+    T_ASSERT(t, alias_pts_has_alloc_site(c, pts, site0));
+    T_ASSERT(t, !alias_pts_has_alloc_site(c, pts, site1));
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, pts) == site0);
+    T_ASSERT_EQ_INT(
+        t,
+        alias_query(c,
+                    alias_memloc(c, ir_op_value(&m->funcs[0], first->result), 8,
+                                 ETYPE_CHAR),
+                    alias_memloc(c, ir_op_value(&m->funcs[0], second->result),
+                                 8, ETYPE_CHAR)),
+        ALIAS_NO);
+    pts = alias_points_to(c, ir_op_value(&m->funcs[0], plain->result));
+    T_ASSERT(t, pts.has_unknown);
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, pts) == NULL);
+    c2 = alias_ctx_seeds(m, seeds, 2);
+    T_ASSERT_EQ_INT(t, alias_alloc_site_id(alias_alloc_site_at(c2, 0)), 1);
+    T_ASSERT_EQ_INT(t, alias_alloc_site_id(alias_alloc_site_at(c2, 1)), 2);
+    T_ASSERT(
+        t, pts_equal(
+               alias_points_to(c, ir_op_value(&m->funcs[0], first->result)),
+               alias_points_to(c2, ir_op_value(&m->funcs[0], first->result))));
+    alias_free(c2);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_allocation_site_seeds_out_parameter_contents(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *call, *load;
+    AliasAllocSeed seed;
+    const AllocSite *site;
+    PtsSet pts;
+    i64 lo = -1, hi = -1;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @make_out\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %slot = alloca 8, align 8\n"
+                        "    %rc = call i32 @make_out(i64 8, ptr %slot)\n"
+                        "    %p = load ptr, %slot, align 8, etype ptr\n"
+                        "    ret ptr %p\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    call = alias_find(&m->funcs[0], IR_CALL, 0);
+    load = alias_find(&m->funcs[0], IR_LOAD, 0);
+    seed = (AliasAllocSeed){call, false, 1};
+    c = alias_ctx_seeds(m, &seed, 1);
+    site = alias_alloc_site(c, call);
+    pts = alias_points_to(c, ir_op_value(&m->funcs[0], load->result));
+    T_ASSERT(t, site != NULL);
+    T_ASSERT(t, alias_pts_has_alloc_site(c, pts, site));
+    /* The allocator's declared out-parameter publication is exact.  Treating
+     * the allocator itself as an arbitrary clobber would erase the ownership
+     * fact before the memory-safety client could consume it. */
+    T_ASSERT(t, !pts.has_unknown);
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, pts) == site);
+    T_ASSERT(t, alias_offset_range(c, ir_op_value(&m->funcs[0], load->result),
+                                   &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 0);
+    T_ASSERT_EQ_INT(t, hi, 0);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_out_parameter_may_target_keeps_unknown_alternative(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *call, *load_a, *load_b;
+    AliasAllocSeed seed;
+    const AllocSite *site;
+    PtsSet a, b;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @make_out\n"
+                        "func void @f(i32 %cond) {\n"
+                        "entry():\n"
+                        "    %a = alloca 8, align 8\n"
+                        "    %b = alloca 8, align 8\n"
+                        "    %dst = select %cond, ptr %a, %b\n"
+                        "    %rc = call i32 @make_out(ptr %dst)\n"
+                        "    %pa = load ptr, %a, align 8, etype ptr\n"
+                        "    %pb = load ptr, %b, align 8, etype ptr\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    call = alias_find(&m->funcs[0], IR_CALL, 0);
+    load_a = alias_find(&m->funcs[0], IR_LOAD, 0);
+    load_b = alias_find(&m->funcs[0], IR_LOAD, 1);
+    seed = (AliasAllocSeed){call, false, 0};
+    c = alias_ctx_seeds(m, &seed, 1);
+    site = alias_alloc_site(c, call);
+    a = alias_points_to(c, ir_op_value(&m->funcs[0], load_a->result));
+    b = alias_points_to(c, ir_op_value(&m->funcs[0], load_b->result));
+    T_ASSERT(t, a.has_unknown && b.has_unknown);
+    T_ASSERT(t, alias_pts_has_alloc_site(c, a, site));
+    T_ASSERT(t, alias_pts_has_alloc_site(c, b, site));
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, a) == NULL);
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, b) == NULL);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_reachable_allocation_sites_follow_stored_contents(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *first, *second, *root;
+    AliasAllocSeed seeds[2];
+    const AllocSite *sites[2] = {NULL, NULL};
+    bool unknown = true;
+    u32 count;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @fresh_a\n"
+                        "sym @fresh_b\n"
+                        "func void @f() {\n"
+                        "entry():\n"
+                        "    %a = call ptr @fresh_a()\n"
+                        "    %b = call ptr @fresh_b()\n"
+                        "    %root = alloca 8, align 8\n"
+                        "    store ptr %a, %root, align 8, etype ptr\n"
+                        "    store ptr %b, %a, align 8, etype ptr\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    first = alias_find(&m->funcs[0], IR_CALL, 0);
+    second = alias_find(&m->funcs[0], IR_CALL, 1);
+    root = alias_find(&m->funcs[0], IR_ALLOCA, 0);
+    seeds[0] = (AliasAllocSeed){first, true, ALIAS_NO_OUT_PARAM};
+    seeds[1] = (AliasAllocSeed){second, true, ALIAS_NO_OUT_PARAM};
+    c = alias_ctx_seeds(m, seeds, 2);
+    count = alias_reachable_alloc_sites(
+        c, ir_op_value(&m->funcs[0], root->result), sites, 1, &unknown);
+    T_ASSERT_EQ_INT(t, count, 2);
+    T_ASSERT(t, !unknown);
+    T_ASSERT(t, sites[0] == alias_alloc_site(c, first));
+    T_ASSERT(t, sites[1] == NULL);
+    memset(sites, 0, sizeof(sites));
+    count = alias_reachable_alloc_sites(
+        c, ir_op_value(&m->funcs[0], root->result), sites, 2, &unknown);
+    T_ASSERT_EQ_INT(t, count, 2);
+    T_ASSERT(t, sites[0] == alias_alloc_site(c, first));
+    T_ASSERT(t, sites[1] == alias_alloc_site(c, second));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_unknown_call_clobbers_passed_local_storage(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *call, *load;
+    AliasAllocSeed seed;
+    PtsSet pts;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @make_out\n"
+                        "sym @consume_slot\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %slot = alloca 8, align 8\n"
+                        "    %rc = call i32 @make_out(i64 8, ptr %slot)\n"
+                        "    call void @consume_slot(ptr %slot)\n"
+                        "    %p = load ptr, %slot, align 8, etype ptr\n"
+                        "    ret ptr %p\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    call = alias_find(&m->funcs[0], IR_CALL, 0);
+    load = alias_find(&m->funcs[0], IR_LOAD, 0);
+    seed = (AliasAllocSeed){call, false, 1};
+    c = alias_ctx_seeds(m, &seed, 1);
+    pts = alias_points_to(c, ir_op_value(&m->funcs[0], load->result));
+    T_ASSERT(t, pts.has_unknown);
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, pts) == NULL);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_unknown_call_clobber_follows_global_reachability(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *load;
+    PtsSet pts;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "global @root size 8 align 8 external\n"
+                        "sym @unknown\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %object = alloca 8, align 8\n"
+                        "    %slot = alloca 8, align 8\n"
+                        "    store ptr %object, %slot, align 8, etype ptr\n"
+                        "    store ptr %slot, @root, align 8, etype ptr\n"
+                        "    call void @unknown()\n"
+                        "    %p = load ptr, %slot, align 8, etype ptr\n"
+                        "    ret ptr %p\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    load = alias_find(&m->funcs[0], IR_LOAD, 0);
+    pts = alias_points_to(c, ir_op_value(&m->funcs[0], load->result));
+    T_ASSERT(t, pts.has_unknown);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_unknown_call_preserves_unreachable_local_storage(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *object, *load;
+    PtsSet object_pts, loaded_pts;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @unknown\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %object = alloca 8, align 8\n"
+                        "    %slot = alloca 8, align 8\n"
+                        "    store ptr %object, %slot, align 8, etype ptr\n"
+                        "    call void @unknown()\n"
+                        "    %p = load ptr, %slot, align 8, etype ptr\n"
+                        "    ret ptr %p\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    object = alias_find(&m->funcs[0], IR_ALLOCA, 0);
+    load = alias_find(&m->funcs[0], IR_LOAD, 0);
+    object_pts = alias_points_to(c, ir_op_value(&m->funcs[0], object->result));
+    loaded_pts = alias_points_to(c, ir_op_value(&m->funcs[0], load->result));
+    T_ASSERT(t, !loaded_pts.has_unknown);
+    T_ASSERT(t, pts_equal(object_pts, loaded_pts));
+    alias_free(c);
+    arena_free_all(&f.arena);
 }
 
 void test_alias_addr_of_alloca_and_global_constraints(TestCtx *t)
@@ -191,13 +520,15 @@ void test_alias_load_and_store_constraints(TestCtx *t)
     IrModule *m;
     AliasCtx *c;
     IrInst *obj, *load;
+    i64 lo = 0, hi = 0;
 
     alias_fix_init(&f);
     m = alias_parse(&f, "func ptr @f() {\n"
                         "entry():\n"
                         "    %obj = alloca 8, align 8\n"
+                        "    %at = ptradd %obj, 12\n"
                         "    %slot = alloca 8, align 8\n"
-                        "    store ptr %obj, %slot, align 8, etype ptr\n"
+                        "    store ptr %at, %slot, align 8, etype ptr\n"
                         "    %p = load ptr, %slot, align 8, etype ptr\n"
                         "    ret ptr %p\n"
                         "}\n");
@@ -213,6 +544,10 @@ void test_alias_load_and_store_constraints(TestCtx *t)
         t,
         pts_equal(alias_points_to(c, ir_op_value(&m->funcs[0], obj->result)),
                   alias_points_to(c, ir_op_value(&m->funcs[0], load->result))));
+    T_ASSERT(t, alias_offset_range(c, ir_op_value(&m->funcs[0], load->result),
+                                   &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 12);
+    T_ASSERT_EQ_INT(t, hi, 12);
     alias_free(c);
     arena_free_all(&f.arena);
 }

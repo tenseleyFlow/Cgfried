@@ -388,7 +388,10 @@ static bool fusion_dependences_ok(IrModule *m, IrFunc *f, const IrBlock *abody,
                                   ValueId aiv, const IrBlock *bbody,
                                   ValueId biv, const OptConfig *cfg)
 {
-    AliasConfig acfg = {f, cfg->no_strict_aliasing};
+    AliasConfig acfg = {
+        .func = f,
+        .no_strict_aliasing = cfg->no_strict_aliasing,
+    };
     AliasCtx *alias = alias_build(m, &acfg);
     const IrInst *ai, *bi;
     bool ok = true;

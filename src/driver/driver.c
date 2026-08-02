@@ -14,6 +14,7 @@
 #include "ir/ir.h"
 #include "lex/lex.h"
 #include "lower/lower.h"
+#include "memsafe/memsafe.h"
 #include "opt/opt.h"
 #include "parse/parse.h"
 #include "pp/pp.h"
@@ -131,6 +132,8 @@ static const char *const help_text[] = {
     "  CGF_CRT_DIR       crt object discovery override\n"
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
+    "  CGF_MEMSAFE_DUMP=1  run the inert memory analysis and dump its\n"
+    "                    per-function states/traces to stderr\n"
     "  Empty-string values are treated as unset.\n",
 };
 
@@ -821,6 +824,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
     PpToken prev_tok;
     bool dump = cgf_env("CGF_PP_DUMP_TOKENS") != NULL;
     bool dump_guard = cgf_env("CGF_PP_DUMP_GUARD") != NULL;
+    bool memsafe_dump = env_is_one("CGF_MEMSAFE_DUMP");
     bool first = true;
     size_t i;
     WarnCtx *warnings = driver_warn_ctx(arena, dc, a);
@@ -958,20 +962,29 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                                           a->emit_asm || a->compile_obj ||
                                           a->link_exe;
                     bool need_flow = warn_flow_needed(warnings);
+                    bool need_analysis_ir = need_flow || memsafe_dump;
                     IrModule *m = NULL;
 
-                    if (need_flow && !diag_had_error(dc)) {
-                        /* AST -> IR. This module is GENERATED: a verifier
-                         * failure here is an ICE, never a user error — the
-                         * user's errors all ended in sema. CGF_DUMP_BAD_IR
-                         * captures the module first so the bug is
-                         * reportable. */
-                        IrModule *flow = lower_translation_unit_for_flow(
+                    if (need_analysis_ir && !diag_had_error(dc)) {
+                        /* Analyses use their own IR so enabling a diagnostic
+                         * or debug dump can never alter emitted code.  The
+                         * flow lowering also retains inline bodies that an
+                         * emission module may legitimately omit. */
+                        IrModule *analysis = lower_translation_unit_for_flow(
                             arena, dc, &sema, tu);
 
-                        verify_generated_module(dc, flow, job->path);
-                        if (flow)
-                            warn_flow_module(warnings, flow);
+                        verify_generated_module(dc, analysis, job->path);
+                        if (analysis && need_flow)
+                            warn_flow_module(warnings, analysis);
+                        /* This is the explicit post-optimization analysis
+                         * stage from the pipeline contract.  It is not an
+                         * OPT_PASS row: memsafe is read-only, runs at O0,
+                         * and must not participate in transform fixpoints. */
+                        if (analysis && memsafe_dump && !diag_had_error(dc)) {
+                            optimize_module(analysis, a, job->path);
+                            ms_dump_module(analysis, a->fno_strict_aliasing,
+                                           stderr);
+                        }
                     }
                     if (want_ir_output && !diag_had_error(dc)) {
                         m = lower_translation_unit(arena, dc, &sema, tu);
@@ -979,7 +992,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                     }
                     if (m && !diag_had_error(dc))
                         optimize_module(m, a, job->path);
-                    if (m && !diag_had_error(dc)) {
+                    if (m && want_ir_output && !diag_had_error(dc)) {
                         if (a->emit_mir) {
                             int rc = emit_mir_print(arena, dc, m);
 

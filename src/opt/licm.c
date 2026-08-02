@@ -545,7 +545,10 @@ static bool run_loop(IrModule *m, IrFunc *f, const IrDomTree *dom,
     for (bi = 0; bi < loop_block_count(loop); bi++)
         max_moves += f->blocks[loop_block(loop, bi).v - 1].ninsts;
     for (;;) {
-        AliasConfig acfg = {f, cfg->no_strict_aliasing};
+        AliasConfig acfg = {
+            .func = f,
+            .no_strict_aliasing = cfg->no_strict_aliasing,
+        };
         AliasCtx *alias = alias_build(m, &acfg);
         LicmMove *moves =
             arena_alloc(scratch, (max_moves ? max_moves : 1) * sizeof(*moves),

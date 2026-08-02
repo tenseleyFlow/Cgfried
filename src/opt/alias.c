@@ -12,6 +12,14 @@ typedef struct {
     i64 hi;
 } OffRange;
 
+struct AllocSite {
+    const IrInst *call;
+    u32 obj;
+    u32 id;
+    bool owns_result;
+    u32 out_param;
+};
+
 struct AliasCtx {
     IrModule *m;
     IrFunc *f;
@@ -22,14 +30,19 @@ struct AliasCtx {
     u32 unknown_obj;
     u32 first_alloca_obj;
     u32 first_restrict_obj;
+    u32 first_alloc_site_obj;
 
-    u64 *vpts; /* [value id][word] */
-    u64 *mpts; /* pointer contents of abstract objects */
-    u64 *spts; /* [module symbol][word] */
+    u64 *vpts;       /* [value id][word] */
+    u64 *mpts;       /* pointer contents of abstract objects */
+    u64 *stored_pts; /* explicit store/out-param edges; excludes call poison */
+    u64 *spts;       /* [module symbol][word] */
     u64 *unknown_pts;
     OffRange *voff;
+    OffRange *moff;  /* pointer-content offset hull per abstract object */
     u32 *alloca_obj; /* value id -> object id + 1 */
     bool *escaped;
+    AllocSite *alloc_sites;
+    u32 nalloc_sites;
 };
 
 static void *zalloc(size_t n, size_t size)
@@ -58,6 +71,11 @@ static u64 *mrow(AliasCtx *c, u32 obj)
     return c->mpts + (size_t)obj * c->nwords;
 }
 
+static u64 *stored_row(AliasCtx *c, u32 obj)
+{
+    return c->stored_pts + (size_t)obj * c->nwords;
+}
+
 static u64 *srow(AliasCtx *c, u32 sym)
 {
     return c->spts + (size_t)sym * c->nwords;
@@ -66,6 +84,15 @@ static u64 *srow(AliasCtx *c, u32 sym)
 static void bit_add(u64 *bits, u32 id)
 {
     bits[id / 64] |= 1ull << (id % 64);
+}
+
+static bool bit_add_changed(u64 *bits, u32 id)
+{
+    u64 mask = 1ull << (id % 64);
+    bool had = (bits[id / 64] & mask) != 0;
+
+    bits[id / 64] |= mask;
+    return !had;
 }
 
 static bool bits_or(u64 *dst, const u64 *src, u32 nwords)
@@ -215,6 +242,67 @@ static bool is_ptr_value(const IrFunc *f, ValueId v)
     return v.v && v.v <= f->nvals && f->vals[v.v - 1].type == IRT_PTR;
 }
 
+static bool inst_belongs_to_func(const IrFunc *f, const IrInst *needle)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next)
+            if (in == needle)
+                return true;
+    }
+    return false;
+}
+
+static u32 call_first_arg(const IrInst *call)
+{
+    return call->subop == FUNCREF_INDIRECT ? 1 : 0;
+}
+
+static void validate_alloc_seeds(const AliasConfig *cfg)
+{
+    u32 i;
+
+    if (cfg->nalloc_seeds && !cfg->alloc_seeds)
+        CGF_ICE("alias: allocation seed count has no array");
+    for (i = 0; i < cfg->nalloc_seeds; i++) {
+        const AliasAllocSeed *seed = &cfg->alloc_seeds[i];
+        const IrInst *call = seed->call;
+        u32 first_arg, j;
+
+        if (!call || call->op != IR_CALL ||
+            !inst_belongs_to_func(cfg->func, call))
+            CGF_ICE("alias: allocation seed is not a call in @%s",
+                    cfg->func->name);
+        if (!seed->owns_result && seed->out_param == ALIAS_NO_OUT_PARAM)
+            CGF_ICE("alias: allocation seed publishes no owning pointer");
+        if (seed->owns_result && (!call->result.v || call->type != IRT_PTR))
+            CGF_ICE("alias: owned call result is not a pointer");
+        first_arg = call_first_arg(call);
+        if (seed->out_param != ALIAS_NO_OUT_PARAM &&
+            (call->nops < first_arg ||
+             seed->out_param >= call->nops - first_arg ||
+             call->ops[first_arg + seed->out_param].type != IRT_PTR))
+            CGF_ICE("alias: allocation out-parameter is not a pointer");
+        for (j = 0; j < i; j++)
+            if (cfg->alloc_seeds[j].call == call)
+                CGF_ICE("alias: duplicate allocation seed in @%s",
+                        cfg->func->name);
+    }
+}
+
+static AllocSite *site_for_call(AliasCtx *c, const IrInst *call)
+{
+    u32 i;
+
+    for (i = 0; i < c->nalloc_sites; i++)
+        if (c->alloc_sites[i].call == call)
+            return &c->alloc_sites[i];
+    return NULL;
+}
+
 static void count_objects(const IrFunc *f, u32 *nalloca, u32 *nrestrict)
 {
     u32 i, bi;
@@ -234,7 +322,7 @@ static void count_objects(const IrFunc *f, u32 *nalloca, u32 *nrestrict)
     }
 }
 
-static void init_roots(AliasCtx *c)
+static void init_roots(AliasCtx *c, const AliasConfig *cfg)
 {
     u32 i, bi;
     u32 next_alloca = c->first_alloca_obj;
@@ -264,6 +352,20 @@ static void init_roots(AliasCtx *c)
             c->alloca_obj[in->result.v] = next_alloca + 1;
             c->voff[in->result.v] = (OffRange){true, 0, 0};
             next_alloca++;
+        }
+    }
+    for (i = 0; i < cfg->nalloc_seeds; i++) {
+        const AliasAllocSeed *seed = &cfg->alloc_seeds[i];
+        AllocSite *site = &c->alloc_sites[i];
+
+        site->call = seed->call;
+        site->obj = c->first_alloc_site_obj + i;
+        site->id = i + 1;
+        site->owns_result = seed->owns_result;
+        site->out_param = seed->out_param;
+        if (seed->owns_result) {
+            bit_add(vrow(c, seed->call->result.v), site->obj);
+            c->voff[seed->call->result.v] = (OffRange){true, 0, 0};
         }
     }
 }
@@ -312,6 +414,8 @@ static bool propagate_store(AliasCtx *c, IrOperand val, IrOperand ptr)
         if (!unknown_target && !bits_has(targets, obj))
             continue;
         changed |= bits_or(mrow(c, obj), values, c->nwords);
+        changed |= bits_or(stored_row(c, obj), values, c->nwords);
+        changed |= off_join(&c->moff[obj], operand_off(c, val));
     }
     return changed;
 }
@@ -324,11 +428,70 @@ static bool propagate_load(AliasCtx *c, ValueId result, IrOperand ptr)
     bool unknown_target = bits_has(targets, c->unknown_obj);
     u32 obj;
 
-    if (unknown_target)
+    if (unknown_target) {
         changed |= bits_or(dst, c->unknown_pts, c->nwords);
-    for (obj = 0; obj < c->nobj; obj++)
-        if (unknown_target || bits_has(targets, obj))
+        changed |= off_join(&c->voff[result.v],
+                            (OffRange){true, INT64_MIN, INT64_MAX});
+    }
+    for (obj = 0; obj < c->nobj; obj++) {
+        if (unknown_target || bits_has(targets, obj)) {
             changed |= bits_or(dst, mrow(c, obj), c->nwords);
+            changed |= off_join(&c->voff[result.v], c->moff[obj]);
+        }
+    }
+    return changed;
+}
+
+static bool poison_call_memory(AliasCtx *c, const IrInst *call,
+                               const AllocSite *site)
+{
+    bool changed = false;
+    u32 first_arg = call_first_arg(call);
+    u64 *reachable = zalloc(c->nwords, sizeof(*reachable));
+    u64 *exact_publish = zalloc(c->nwords, sizeof(*exact_publish));
+    u32 oi, obj;
+
+    /* A call can reach every global object, every object named by a pointer
+     * argument, and the transitive pointer contents of either.  Compute that
+     * closure before poisoning: a global may contain the address of a local
+     * slot, so direct arguments alone are not a sound boundary. */
+    for (obj = 1; obj < c->first_alloca_obj; obj++)
+        bit_add(reachable, obj);
+    for (oi = first_arg; oi < call->nops; oi++) {
+        const u64 *targets;
+
+        if (call->ops[oi].type != IRT_PTR)
+            continue;
+        targets = operand_pts(c, call->ops[oi]);
+        bits_or(reachable, targets, c->nwords);
+        if (site && site->out_param != ALIAS_NO_OUT_PARAM &&
+            oi - first_arg == site->out_param &&
+            bits_singleton(targets, c->nwords) != UINT32_MAX &&
+            !bits_has(targets, c->unknown_obj))
+            bits_or(exact_publish, targets, c->nwords);
+    }
+    for (;;) {
+        bool grew = false;
+
+        if (bits_has(reachable, c->unknown_obj)) {
+            for (obj = 0; obj < c->nobj; obj++)
+                bit_add(reachable, obj);
+            break;
+        }
+        for (obj = 0; obj < c->nobj; obj++)
+            if (bits_has(reachable, obj))
+                grew |= bits_or(reachable, stored_row(c, obj), c->nwords);
+        if (!grew)
+            break;
+    }
+    for (obj = 0; obj < c->nobj; obj++)
+        if (bits_has(reachable, obj) && !bits_has(exact_publish, obj)) {
+            changed |= bits_or(mrow(c, obj), c->unknown_pts, c->nwords);
+            changed |=
+                off_join(&c->moff[obj], (OffRange){true, INT64_MIN, INT64_MAX});
+        }
+    free(exact_publish);
+    free(reachable);
     return changed;
 }
 
@@ -372,8 +535,6 @@ static bool propagate_insts(AliasCtx *c)
             } else if (in->op == IR_LOAD && in->result.v &&
                        in->type == IRT_PTR && in->nops == 1) {
                 changed |= propagate_load(c, in->result, in->ops[0]);
-                changed |= off_join(&c->voff[in->result.v],
-                                    (OffRange){true, INT64_MIN, INT64_MAX});
             } else if (in->op == IR_STORE && in->nops == 2 &&
                        in->ops[0].type == IRT_PTR) {
                 changed |= propagate_store(c, in->ops[0], in->ops[1]);
@@ -386,22 +547,45 @@ static bool propagate_insts(AliasCtx *c)
                 u32 obj;
 
                 for (obj = 0; obj < c->nobj; obj++)
-                    if (unknown_target || bits_has(targets, obj))
+                    if (unknown_target || bits_has(targets, obj)) {
                         changed |=
                             bits_or(mrow(c, obj), c->unknown_pts, c->nwords);
+                        changed |= bits_or(stored_row(c, obj), c->unknown_pts,
+                                           c->nwords);
+                        changed |=
+                            off_join(&c->moff[obj],
+                                     (OffRange){true, INT64_MIN, INT64_MAX});
+                    }
             } else if (in->op == IR_CALL) {
-                u32 oi;
+                AllocSite *site = site_for_call(c, in);
 
-                if (in->result.v && in->type == IRT_PTR) {
+                if (in->result.v && in->type == IRT_PTR &&
+                    !(site && site->owns_result)) {
                     changed |= bits_or(vrow(c, in->result.v), c->unknown_pts,
                                        c->nwords);
                     changed |= off_join(&c->voff[in->result.v],
                                         (OffRange){true, INT64_MIN, INT64_MAX});
                 }
-                /* No mod/ref summaries in v0.1.0: a call may place an
-                 * arbitrary pointer into any reachable object. */
-                for (oi = 0; oi < c->nobj; oi++)
-                    changed |= bits_or(mrow(c, oi), c->unknown_pts, c->nwords);
+                if (site && site->out_param != ALIAS_NO_OUT_PARAM) {
+                    u32 first_arg = call_first_arg(in);
+                    const u64 *targets =
+                        operand_pts(c, in->ops[first_arg + site->out_param]);
+                    bool unknown_target = bits_has(targets, c->unknown_obj);
+                    u32 obj;
+
+                    for (obj = 0; obj < c->nobj; obj++)
+                        if (unknown_target || bits_has(targets, obj)) {
+                            changed |= bit_add_changed(mrow(c, obj), site->obj);
+                            changed |=
+                                bit_add_changed(stored_row(c, obj), site->obj);
+                            changed |=
+                                off_join(&c->moff[obj], (OffRange){true, 0, 0});
+                        }
+                }
+                /* No mod/ref summaries yet: globals and objects reachable
+                 * through pointer arguments may receive arbitrary pointers.
+                 * Unpassed local allocas are not reachable by a call. */
+                changed |= poison_call_memory(c, in, site);
             }
         }
     }
@@ -452,6 +636,7 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
 
     if (!m || !cfg || !cfg->func)
         CGF_ICE("alias_build: module and function are required");
+    validate_alloc_seeds(cfg);
     c = zalloc(1, sizeof(*c));
     c->m = m;
     c->f = cfg->func;
@@ -460,18 +645,23 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     c->unknown_obj = 0;
     c->first_alloca_obj = 1 + m->nsyms;
     c->first_restrict_obj = c->first_alloca_obj + nalloca;
-    c->nobj = c->first_restrict_obj + nrestrict;
+    c->first_alloc_site_obj = c->first_restrict_obj + nrestrict;
+    c->nalloc_sites = cfg->nalloc_seeds;
+    c->nobj = c->first_alloc_site_obj + c->nalloc_sites;
     if (c->nobj == 0)
         c->nobj = 1;
     c->nwords = (c->nobj + 63) / 64;
     c->vpts = zalloc((size_t)c->f->nvals + 1, c->nwords * sizeof(u64));
     c->mpts = zalloc(c->nobj, c->nwords * sizeof(u64));
+    c->stored_pts = zalloc(c->nobj, c->nwords * sizeof(u64));
     c->spts = zalloc(m->nsyms, c->nwords * sizeof(u64));
     c->unknown_pts = zalloc(c->nwords, sizeof(u64));
     c->voff = zalloc((size_t)c->f->nvals + 1, sizeof(OffRange));
+    c->moff = zalloc(c->nobj, sizeof(OffRange));
     c->alloca_obj = zalloc((size_t)c->f->nvals + 1, sizeof(u32));
     c->escaped = zalloc(c->nobj, sizeof(bool));
-    init_roots(c);
+    c->alloc_sites = zalloc(c->nalloc_sites, sizeof(AllocSite));
+    init_roots(c, cfg);
 
     /* Every constraint is monotone over finite bitsets/range hulls.  The cap
      * is a corruption guard, not a precision bailout: one new bit or one
@@ -502,11 +692,14 @@ void alias_free(AliasCtx *c)
 {
     if (!c)
         return;
+    free(c->alloc_sites);
     free(c->escaped);
     free(c->alloca_obj);
+    free(c->moff);
     free(c->voff);
     free(c->unknown_pts);
     free(c->spts);
+    free(c->stored_pts);
     free(c->mpts);
     free(c->vpts);
     free(c);
@@ -534,6 +727,104 @@ bool alias_offset_range(AliasCtx *c, IrOperand ptr, i64 *lo, i64 *hi)
     if (hi)
         *hi = r.hi;
     return true;
+}
+
+const AllocSite *alias_alloc_site(const AliasCtx *c, const IrInst *call)
+{
+    u32 i;
+
+    if (!c || !call)
+        return NULL;
+    for (i = 0; i < c->nalloc_sites; i++)
+        if (c->alloc_sites[i].call == call)
+            return &c->alloc_sites[i];
+    return NULL;
+}
+
+u32 alias_alloc_site_count(const AliasCtx *c)
+{
+    return c ? c->nalloc_sites : 0;
+}
+
+const AllocSite *alias_alloc_site_at(const AliasCtx *c, u32 index)
+{
+    if (!c || index >= c->nalloc_sites)
+        return NULL;
+    return &c->alloc_sites[index];
+}
+
+u32 alias_alloc_site_id(const AllocSite *site)
+{
+    return site ? site->id : 0;
+}
+
+const IrInst *alias_alloc_site_call(const AllocSite *site)
+{
+    return site ? site->call : NULL;
+}
+
+bool alias_pts_has_alloc_site(const AliasCtx *c, PtsSet pts,
+                              const AllocSite *site)
+{
+    u32 i;
+
+    if (!c || !pts.words || pts.nwords != c->nwords || !site)
+        return false;
+    for (i = 0; i < c->nalloc_sites; i++)
+        if (site == &c->alloc_sites[i])
+            return bits_has(pts.words, site->obj);
+    return false;
+}
+
+const AllocSite *alias_pts_unique_alloc_site(const AliasCtx *c, PtsSet pts)
+{
+    u32 obj;
+
+    if (!c || !pts.words || pts.nwords != c->nwords)
+        return NULL;
+    obj = bits_singleton(pts.words, pts.nwords);
+    if (obj == UINT32_MAX || obj < c->first_alloc_site_obj ||
+        obj - c->first_alloc_site_obj >= c->nalloc_sites)
+        return NULL;
+    return &c->alloc_sites[obj - c->first_alloc_site_obj];
+}
+
+u32 alias_reachable_alloc_sites(const AliasCtx *c, IrOperand root,
+                                const AllocSite **out, u32 capacity,
+                                bool *has_unknown)
+{
+    u64 *reachable;
+    u32 count = 0;
+    u32 obj, i;
+
+    if (has_unknown)
+        *has_unknown = false;
+    if (!c)
+        return 0;
+    reachable = zalloc(c->nwords, sizeof(*reachable));
+    bits_or(reachable, operand_pts(c, root), c->nwords);
+    for (;;) {
+        bool changed = false;
+
+        for (obj = 0; obj < c->nobj; obj++)
+            if (bits_has(reachable, obj))
+                changed |=
+                    bits_or(reachable, c->stored_pts + (size_t)obj * c->nwords,
+                            c->nwords);
+        if (!changed)
+            break;
+    }
+    if (has_unknown)
+        *has_unknown = bits_has(reachable, c->unknown_obj);
+    for (i = 0; i < c->nalloc_sites; i++) {
+        if (!bits_has(reachable, c->alloc_sites[i].obj))
+            continue;
+        if (out && count < capacity)
+            out[count] = &c->alloc_sites[i];
+        count++;
+    }
+    free(reachable);
+    return count;
 }
 
 bool alias_escapes(AliasCtx *c, IrOperand base)

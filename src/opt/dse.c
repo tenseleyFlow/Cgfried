@@ -256,7 +256,10 @@ static bool dse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     Arena scratch;
     OptConfig fc = *cfg;
-    AliasConfig acfg = {f, cfg->no_strict_aliasing};
+    AliasConfig acfg = {
+        .func = f,
+        .no_strict_aliasing = cfg->no_strict_aliasing,
+    };
     AliasCtx *alias = alias_build(m, &acfg);
     u32 total = 0;
     bool changed = false;
