@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–40
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–41
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,8 +34,8 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–40 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
-  next on top of the completed preprocessor, frontend, sema, IR,
+- **Sprints 0–41 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+  under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
@@ -93,9 +93,18 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   77/77 across 385 level runs, the complete warning tree is 477/477, and the
   real GCC 8 lane has zero unannotated differences. A bounded CFG workspace
   reduced the 1,200-use review stress case from 23.013s to 0.455s.
-- **Next action: Sprint 41** —
-  `.docs/sprints/09-memory-safety/s41-analysis-foundation.md`, defining the
-  shared alias/points-to, lifetime-region and diagnostic-trace foundation.
+- Sprint 41 opens Phase 9 with the shared memory-analysis substrate. The alias
+  service now owns stable allocation sites, byte-offset hulls through memory,
+  stored-pointer contents, and transitive reachability for both optimizer and
+  memsafe clients. `src/memsafe/` adds the five-state lifetime lattice,
+  persistent source-qualified traces, the eleven allocation-family rows, and
+  bounded path splitting at 8 states / 256 splits / 4 predicates. The driver
+  runs it on a dedicated read-only post-opt module only under
+  `CGF_MEMSAFE_DUMP=1`; default behavior and generated assembly remain
+  byte-identical, and `-Wmem` is still unknown.
+- **Next action: Sprint 42** —
+  `.docs/sprints/09-memory-safety/s42-intraprocedural.md`, adding the first
+  user-visible intraprocedural memory diagnostics on this foundation.
 - **Pending installed-layout follow-up (user report, 2026-08-02):** a compiler
   invoked by its installed `cgf` name fails to find `stddef.h` in the user's
   `~/scratch/C/ch5/tail` build, while an absolute build-tree `cgfried` path
@@ -104,11 +113,17 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `<prefix>/lib/cgfried/include`. Reproduce and repair the install manifest;
   treat this as packaging/include discovery, not as evidence that the tail
   program is outside the supported C subset.
+- **Pending parallel-test follow-up:** `tests/fuzz/ppfuzz.c` still writes every
+  run to `build/fuzz-work/case.c`. Two concurrent full suites can replace that
+  file between the Cgfried and gcc oracle runs and report false differentials.
+  Sprint 41 validation reproduced this with concurrent Clang/sanitizer runs
+  and proved both isolated 2,000-case runs clean. Give each process/build a
+  private work directory before relying on parallel local `make test` runs.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 491 tests, 95291 assertions, 0 failures
+unit: 515 tests, 95609 assertions, 0 failures
 cgf-test: total=504 pass=504 fail=0 xfail=0 xpass=0 skip=0 config=0
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
@@ -124,6 +139,7 @@ driver_matrix: 39/39 rows agree with gcc
 objdiff: 38/38 · e2ediff: 10/10 · afsld lane: 12 fixtures
 debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 181 predefines match gcc; __GNUC__ absent
+memsafe foundation: 14 deterministic fixtures; 17 focused units / 264 assertions
 ```
 
 Local Sprint 38 validation note (2026-08-01): fresh GCC and Clang full suites
@@ -180,6 +196,21 @@ recovery now materializes its cast, while old-style no-prototype functions
 carry an explicit IR contract that the verifier accepts and inline/IPO decline
 to transform. These guards convert all 17 minimized frontend-fuzz ICE seeds
 into ordinary source diagnostics or valid warning-only recovery.
+
+Local Sprint 41 validation note (2026-08-02): fresh GCC and Clang full suites
+each pass 515 unit tests / 95,609 assertions; the focused alias set passes 26
+tests / 157 assertions. The fourteen foundation fixtures have exact
+source-qualified event chains on at least ten programs, and their double runs
+are byte-identical. They cover all three budget boundaries,
+verifier-after-each, a 300-branch `<2s` gate, and
+an assembly comparison proving the private dump stage is emission-inert. The
+complete GCC suite passes with 504/504 program fixtures, 477/477 warning
+fixtures, all three fuzz smokes, differentials, bans, seams, and formatting.
+The complete ASan+UBSan suite passes with `ASAN_OPTIONS=detect_leaks=0` for the
+host ptrace policy. Host-scope Valgrind 3.25.1 reports zero errors and zero
+leaks for the 17-test memsafe set, the 26-test shared-alias set, and an
+end-to-end gated analysis run. Independent final review found no remaining
+issue.
 
 ---
 
