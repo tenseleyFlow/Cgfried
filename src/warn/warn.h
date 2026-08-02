@@ -50,6 +50,14 @@ typedef enum WarnEmitFlags {
     WARN_SUPPRESS_IN_MACRO = 1u << 0
 } WarnEmitFlags;
 
+typedef enum WarnOptionDisposition {
+    WARN_OPTION_KNOWN,
+    WARN_OPTION_UNKNOWN_POSITIVE,
+    WARN_OPTION_UNKNOWN_NEGATIVE,
+    WARN_OPTION_UNKNOWN_PROMOTION,
+    WARN_OPTION_BAD_FORMAT_LEVEL
+} WarnOptionDisposition;
+
 typedef struct WarnCtx WarnCtx;
 struct Arena;
 
@@ -61,7 +69,10 @@ const WarnInfo *warn_info_at(size_t index);
 const WarnInfo *warn_info_for_id(WarnId id);
 const WarnInfo *warn_info_for_flag(const char *flag);
 const char *warn_flag_name(WarnId id);
+WarnOptionDisposition warn_option_classify(const char *arg);
 bool warn_option_known(const char *arg);
+const char *warn_option_bad_value_label(WarnOptionDisposition disposition);
+WarnId warn_pragma_option_id(const char *option);
 void warn_print_help(FILE *out);
 
 /* Accepts command-line spelling with or without the leading '-W'. */

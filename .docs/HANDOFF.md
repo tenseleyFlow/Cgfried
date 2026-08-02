@@ -60,7 +60,9 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   option policy, mandatory diagnostic suffixes, location-sensitive GCC
   diagnostic pragmas, macro/system provenance, strict runner assertions, and
   a complete 222-row GCC 8 parity matrix. Existing frontend warnings are
-  migrated onto the same policy engine; the manual is `docs/warnings.md`.
+  migrated onto the same policy engine. Warning-option classification and
+  pragma-name validation are centralized in `src/warn/warn.c` and protected by
+  `scripts/check_warn_seams.sh`; the manual is `docs/warnings.md`.
 - **Next action: Sprint 38** —
   `.docs/sprints/08-warnings/s38-frontend-warnings.md`, adding frontend
   checkers over the completed warning infrastructure.
@@ -68,7 +70,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 470 tests, 94230 assertions, 0 failures
+unit: 470 tests, 94238 assertions, 0 failures
 cgf-test: total=496 pass=496 fail=0 xfail=0 xpass=0 skip=0 config=0
 warning pragmas: 31/31; warning differential: 21/21 with a GCC oracle
 warning matrix: 222/222 raw GCC 8 C rows accounted for

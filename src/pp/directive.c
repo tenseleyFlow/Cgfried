@@ -942,23 +942,20 @@ static void pragma_diagnostic(Preprocessor *pp, PpToken *toks, u32 n,
         else if (strcmp(action, "error") == 0)
             cls = WARN_PRAGMA_ERROR;
         {
-            const WarnInfo *info = warn_info_for_flag(opt);
-            size_t flag_len = info ? strlen(info->flag) : 0;
+            WarnId id = warn_pragma_option_id(opt);
 
             /* GCC diagnostic pragmas accept a canonical positive option,
              * never command-line conveniences such as -Wno-foo or
              * parameterized -Wfoo=N spellings. Those must diagnose and
              * leave the current classification untouched. */
-            if (!info || strncmp(opt, "-W", 2) != 0 ||
-                strlen(opt) != flag_len + 2 ||
-                strcmp(opt + 2, info->flag) != 0) {
+            if (id == WARN_NONE) {
                 pp_warn_at(
                     pp, WARN_PRAGMAS, toks[3].loc, toks[3].len,
                     "unknown warning option '%s' after #pragma GCC diagnostic",
                     opt);
                 return;
             }
-            warn_pragma_set(pp->warn, seq, info->id, cls);
+            warn_pragma_set(pp->warn, seq, id, cls);
         }
         return;
     }

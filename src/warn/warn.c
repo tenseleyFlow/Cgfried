@@ -155,39 +155,72 @@ static int format_option_level(const char *p)
     return -1;
 }
 
-bool warn_option_known(const char *arg)
+WarnOptionDisposition warn_option_classify(const char *arg)
 {
     char name[128];
     bool negative;
     const char *p;
 
     if (!arg)
-        return false;
+        return WARN_OPTION_UNKNOWN_POSITIVE;
     if (strcmp(arg, "-w") == 0 || strcmp(arg, "w") == 0 ||
         strcmp(arg, "-pedantic") == 0 || strcmp(arg, "pedantic") == 0 ||
         strcmp(arg, "-pedantic-errors") == 0 ||
         strcmp(arg, "pedantic-errors") == 0)
-        return true;
+        return WARN_OPTION_KNOWN;
     p = strip_w(arg);
     {
         int format_level = format_option_level(p);
 
         if (format_level != -2)
-            return format_level >= 0;
+            return format_level >= 0 ? WARN_OPTION_KNOWN
+                                     : WARN_OPTION_BAD_FORMAT_LEVEL;
     }
     if (strncmp(p, "error=", 6) == 0)
         return group_for_name(p + 6) != WG_NONE ||
-               warn_info_for_flag(p + 6) != NULL;
+                       warn_info_for_flag(p + 6) != NULL
+                   ? WARN_OPTION_KNOWN
+                   : WARN_OPTION_UNKNOWN_PROMOTION;
     if (strncmp(p, "no-error=", 9) == 0)
         return group_for_name(p + 9) != WG_NONE ||
-               warn_info_for_flag(p + 9) != NULL;
+                       warn_info_for_flag(p + 9) != NULL
+                   ? WARN_OPTION_KNOWN
+                   : WARN_OPTION_UNKNOWN_PROMOTION;
     if (!normalized_name(arg, name, sizeof(name), &negative))
-        return false;
-    (void)negative;
+        return WARN_OPTION_UNKNOWN_POSITIVE;
     if (strcmp(name, "error") == 0 || strcmp(name, "fatal-errors") == 0 ||
         strcmp(name, "system-headers") == 0)
-        return true;
-    return group_for_name(name) != WG_NONE || warn_info_for_flag(name) != NULL;
+        return WARN_OPTION_KNOWN;
+    if (group_for_name(name) != WG_NONE || warn_info_for_flag(name) != NULL)
+        return WARN_OPTION_KNOWN;
+    return negative ? WARN_OPTION_UNKNOWN_NEGATIVE
+                    : WARN_OPTION_UNKNOWN_POSITIVE;
+}
+
+bool warn_option_known(const char *arg)
+{
+    return warn_option_classify(arg) == WARN_OPTION_KNOWN;
+}
+
+const char *warn_option_bad_value_label(WarnOptionDisposition disposition)
+{
+    return disposition == WARN_OPTION_BAD_FORMAT_LEVEL ? "-Wformat=" : NULL;
+}
+
+WarnId warn_pragma_option_id(const char *option)
+{
+    const WarnInfo *info;
+    size_t flag_len;
+
+    if (!option || option[0] != '-' || option[1] != 'W')
+        return WARN_NONE;
+    info = warn_info_for_flag(option + 2);
+    if (!info)
+        return WARN_NONE;
+    flag_len = strlen(info->flag);
+    if (strlen(option) != flag_len + 2 || strcmp(option + 2, info->flag) != 0)
+        return WARN_NONE;
+    return info->id;
 }
 
 WarnCtx *warn_ctx_new(Arena *arena, DiagCtx *diag)

@@ -444,6 +444,20 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
     T_ASSERT(t, warn_option_known("-Wno-error=unused-variable"));
     T_ASSERT(t, !warn_option_known("-Wnot-a-real-warning"));
     T_ASSERT(t, !warn_option_known("-Werror=not-a-real-warning"));
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wformat=3"),
+                    WARN_OPTION_BAD_FORMAT_LEVEL);
+    T_ASSERT_EQ_STR(t,
+                    warn_option_bad_value_label(WARN_OPTION_BAD_FORMAT_LEVEL),
+                    "-Wformat=");
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wnot-a-real-warning"),
+                    WARN_OPTION_UNKNOWN_POSITIVE);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wno-not-a-real-warning"),
+                    WARN_OPTION_UNKNOWN_NEGATIVE);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Werror=not-a-real-warning"),
+                    WARN_OPTION_UNKNOWN_PROMOTION);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wpragmas"), WARN_PRAGMAS);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wno-pragmas"), WARN_NONE);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wformat=2"), WARN_NONE);
     arena_free_all(&a);
 
     arena_init(&a);

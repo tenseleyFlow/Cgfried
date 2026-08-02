@@ -477,7 +477,7 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
         memcpy(s + 6, val, n + 1);
         w.name = s;
         VecWarn_push(&da->warn_opts, w);
-        if (!warn_option_known(s) && !da->unknown_opt) {
+        if (warn_option_classify(s) != WARN_OPTION_KNOWN && !da->unknown_opt) {
             char *full = arena_alloc(g_ps->arena, n + 9, 1);
 
             memcpy(full, "-Werror=", 8);
@@ -486,12 +486,12 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
         }
         return true;
     }
-    case F_WGENERAL:
-        if ((strncmp(val, "format=", 7) == 0 &&
-             !(val[7] >= '0' && val[7] <= '2' && val[8] == '\0')) ||
-            strncmp(val, "no-format=", 10) == 0) {
+    case F_WGENERAL: {
+        WarnOptionDisposition disposition = warn_option_classify(val);
+
+        if (disposition == WARN_OPTION_BAD_FORMAT_LEVEL) {
             if (!da->bad_value)
-                da->bad_value = "-Wformat=";
+                da->bad_value = warn_option_bad_value_label(disposition);
             return true;
         }
         /* -Wno-<unknown> is SILENT (gcc parity — configure probes depend
@@ -506,8 +506,7 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
             da->pedantic = true;
         else if (strcmp(val, "no-pedantic") == 0)
             da->pedantic = false;
-        if (strncmp(val, "no-error=", 9) == 0 && !warn_option_known(val) &&
-            !da->unknown_opt) {
+        if (disposition == WARN_OPTION_UNKNOWN_PROMOTION && !da->unknown_opt) {
             size_t n = strlen(val);
             char *s = arena_alloc(g_ps->arena, n + 3, 1);
 
@@ -515,16 +514,14 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
             memcpy(s + 2, val, n + 1);
             da->unknown_opt = s;
         }
-        if (strncmp(val, "no-", 3) != 0 && !warn_option_known(val)) {
+        if (disposition == WARN_OPTION_UNKNOWN_POSITIVE) {
             size_t n = strlen(val);
             char *s = arena_alloc(g_ps->arena, n + 3, 1);
 
             memcpy(s, "-W", 2);
             memcpy(s + 2, val, n + 1);
             VecStr_push(&da->warn_unrecognized, s);
-        } else if (strncmp(val, "no-", 3) == 0 &&
-                   strncmp(val, "no-error=", 9) != 0 &&
-                   !warn_option_known(val)) {
+        } else if (disposition == WARN_OPTION_UNKNOWN_NEGATIVE) {
             size_t n = strlen(val);
             char *s = arena_alloc(g_ps->arena, n + 3, 1);
 
@@ -533,6 +530,7 @@ static bool h_warn(DriverArgs *da, const FlagSpec *fs, const char *val)
             VecStr_push(&da->warn_unknown_negative, s);
         }
         return true;
+    }
     case F_PEDANTIC:
         da->pedantic = true;
         w.name = "pedantic";
