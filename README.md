@@ -19,6 +19,9 @@ make install    # PREFIX=/usr/local by default
 licenses, compatibility warnings, and IEC 60559 macro contract are documented
 in [docs/fast-math.md](docs/fast-math.md).
 
+Warning flag precedence, promotion, diagnostic pragmas, and system-header
+suppression are documented in [docs/warnings.md](docs/warnings.md).
+
 ## Toolchain
 
 The bundled assembler ([afs-as](https://github.com/FortranGoingOnForty/afs-as))

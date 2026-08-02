@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–36
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–37
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,8 +34,9 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Phases 1–7 closed** (preprocessor, frontend, sema, IR, x86_64
-  backend, driver, optimizations).
+- **Sprints 0–37 complete; Phases 1–7 closed.** Phase 8 (warnings) is
+  under way on top of the completed preprocessor, frontend, sema, IR,
+  x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
 - `-g` emits DWARF v4 line tables and every object carries `.eh_frame`;
@@ -55,17 +56,24 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   fast-math bundle. Scalar, loop and unroll groups are separate fixpoints so CFG
   cleanup cannot oscillate with canonicalization. The
   50-program corpus remains behaviorally equal across O0/O1/O2/O3/Os/Ofast.
-- **Next action: Sprint 37** —
-  `.docs/sprints/08-warnings/s37-warning-infra.md`, opening Phase 8
-  with the warning engine and diagnostic policy.
+- Sprint 37 opens Phase 8 with a 157-row warning registry, GCC-specificity
+  option policy, mandatory diagnostic suffixes, location-sensitive GCC
+  diagnostic pragmas, macro/system provenance, strict runner assertions, and
+  a complete 222-row GCC 8 parity matrix. Existing frontend warnings are
+  migrated onto the same policy engine; the manual is `docs/warnings.md`.
+- **Next action: Sprint 38** —
+  `.docs/sprints/08-warnings/s38-frontend-warnings.md`, adding frontend
+  checkers over the completed warning infrastructure.
 
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 464 tests, 93672 assertions, 0 failures
-cgf-test: total=488 pass=488 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 470 tests, 94230 assertions, 0 failures
+cgf-test: total=496 pass=496 fail=0 xfail=0 xpass=0 skip=0 config=0
+warning pragmas: 31/31; warning differential: 21/21 with a GCC oracle
+warning matrix: 222/222 raw GCC 8 C rows accounted for
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
-ctestsuite_diff: 220 files, 214 agree, 6 known-deferred, 0 new, 0 xpass
+ctestsuite_diff: 220 files, 215 agree, 5 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
 rt_diff: 2317 result lines identical to libgcc
 driver_matrix: 39/39 rows agree with gcc
@@ -74,14 +82,17 @@ debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 181 predefines match gcc; __GNUC__ absent
 ```
 
-Local Sprint 36 validation note: GCC, Clang, the Rust-free lane, and the full
-ASan+UBSan suite are green. LeakSanitizer itself cannot initialize under this
-environment's ptrace policy, so the sanitizer proof used
-`ASAN_OPTIONS=detect_leaks=0`; no ASan or UBSan diagnostic occurred. The
-installed Valgrind cannot start on this machine because the stripped
-`ld-linux-x86-64.so.2` lacks the mandatory `memcmp` redirection symbol and no
-matching glibc debuginfo is installed; it exits before loading the test binary.
-Do not misreport that environment failure as a completed Valgrind run.
+Local Sprint 37 validation note (2026-08-01): fresh full suites are green with
+GCC 16.1.1 and Clang 22.1.8. GCC 8 itself is unavailable, so the exact expected
+skip remains the default warning-differential result; a configured host-GCC
+substitute matched all 21 exit/count cases. The complete ASan+UBSan suite is
+green. LeakSanitizer itself cannot initialize under this environment's ptrace
+policy, so the sanitizer proof used `ASAN_OPTIONS=detect_leaks=0`; no ASan or
+UBSan diagnostic occurred. Valgrind 3.25.1 cannot start on this machine because
+the stripped `ld-linux-x86-64.so.2` lacks the mandatory `memcmp` redirection
+symbol and no matching glibc debuginfo is installed; it exits before loading
+the test binary. Do not misreport that environment failure as a completed
+Valgrind run.
 
 ---
 
