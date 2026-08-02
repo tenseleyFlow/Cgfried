@@ -118,6 +118,11 @@ const char *warn_flag_name(WarnId id)
 {
     const WarnInfo *info = warn_info_for_id(id);
 
+    /* GCC spells the base checker as a parameterized family in diagnostics
+     * even when enabled by bare -Wformat.  Parsing still uses the canonical
+     * registry key "format". */
+    if (id == WARN_FORMAT || id == WARN_FORMAT_SIGNEDNESS)
+        return "format=";
     return info ? info->flag : NULL;
 }
 
@@ -174,6 +179,13 @@ static int implicit_fallthrough_option_level(const char *p)
     return -1;
 }
 
+static bool bad_format_subflag_parameter(const char *p)
+{
+    const char *eq = strchr(p, '=');
+
+    return eq && strncmp(p, "format-", 7) == 0;
+}
+
 WarnOptionDisposition warn_option_classify(const char *arg)
 {
     char name[128];
@@ -204,9 +216,15 @@ WarnOptionDisposition warn_option_classify(const char *arg)
                        : WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL;
     }
     if (strncmp(p, "error=", 6) == 0) {
+        int format_level = format_option_level(p + 6);
         int fallthrough_level = implicit_fallthrough_option_level(p + 6);
 
+        if (format_level != -2)
+            return format_level >= 0 ? WARN_OPTION_KNOWN
+                                     : WARN_OPTION_UNKNOWN_PROMOTION;
         if (fallthrough_level == -1)
+            return WARN_OPTION_UNKNOWN_PROMOTION;
+        if (bad_format_subflag_parameter(p + 6))
             return WARN_OPTION_UNKNOWN_PROMOTION;
         return group_for_name(p + 6) != WG_NONE ||
                        warn_info_for_flag(p + 6) != NULL
@@ -214,9 +232,15 @@ WarnOptionDisposition warn_option_classify(const char *arg)
                    : WARN_OPTION_UNKNOWN_PROMOTION;
     }
     if (strncmp(p, "no-error=", 9) == 0) {
+        int format_level = format_option_level(p + 9);
         int fallthrough_level = implicit_fallthrough_option_level(p + 9);
 
+        if (format_level != -2)
+            return format_level >= 0 ? WARN_OPTION_KNOWN
+                                     : WARN_OPTION_UNKNOWN_PROMOTION;
         if (fallthrough_level == -1)
+            return WARN_OPTION_UNKNOWN_PROMOTION;
+        if (bad_format_subflag_parameter(p + 9))
             return WARN_OPTION_UNKNOWN_PROMOTION;
         return group_for_name(p + 9) != WG_NONE ||
                        warn_info_for_flag(p + 9) != NULL
@@ -225,6 +249,9 @@ WarnOptionDisposition warn_option_classify(const char *arg)
     }
     if (!normalized_name(arg, name, sizeof(name), &negative))
         return WARN_OPTION_UNKNOWN_POSITIVE;
+    if (bad_format_subflag_parameter(p))
+        return negative ? WARN_OPTION_UNKNOWN_NEGATIVE
+                        : WARN_OPTION_UNKNOWN_POSITIVE;
     if (strcmp(name, "error") == 0 || strcmp(name, "fatal-errors") == 0 ||
         strcmp(name, "system-headers") == 0)
         return WARN_OPTION_KNOWN;
@@ -317,9 +344,16 @@ static void apply_group(WarnCtx *w, unsigned group, bool on)
         w->implicit_fallthrough_level = on ? 3u : 0u;
     for (i = 1; i < WARN_COUNT; i++) {
         unsigned groups = infos[i].groups;
+        unsigned char item_priority = priority;
 
         if (!(groups & group))
             continue;
+        /* -Wformat implies -Wnonnull, but the implication is ordered at the
+         * same strength as -Wall: `-Wno-format -Wall` re-enables nonnull,
+         * while `-Wall -Wno-format` disables it.  A direct -Wno-nonnull is
+         * still priority 3 and wins in either order. */
+        if (group == WG_FORMAT && i == WARN_NONNULL)
+            item_priority = 1;
         /* GCC C enables these only for the intersection of -Wextra and
          * -Wunused. Encoding both memberships in the row keeps that law
          * out of warning-id special cases. */
@@ -329,9 +363,9 @@ static void apply_group(WarnCtx *w, unsigned group, bool on)
              * condition even though -Wunused is the more specific group. */
             continue;
         }
-        if (w->enabled_priority[i] <= priority) {
+        if (w->enabled_priority[i] <= item_priority) {
             w->enabled[i] = on ? WS_ON : WS_OFF;
-            w->enabled_priority[i] = priority;
+            w->enabled_priority[i] = item_priority;
         }
     }
 }
@@ -453,11 +487,40 @@ bool warn_flag(WarnCtx *w, const char *arg)
      * error is deliberately outside Sprint 37's warning-policy contract. */
     if (strcmp(p, "fatal-errors") == 0 || strcmp(p, "no-fatal-errors") == 0)
         return true;
-    if (strncmp(p, "error=", 6) == 0)
+    if (strncmp(p, "error=", 6) == 0) {
+        int level = format_option_level(p + 6);
+
+        if (level != -2) {
+            if (level < 0)
+                return false;
+            apply_format_level(w, (unsigned)level);
+            if (level > 0)
+                apply_promotion_group(w, WG_FORMAT, false);
+            if (level == 2)
+                apply_promotion_group(w, WG_FORMAT2, false);
+            return true;
+        }
+        if (bad_format_subflag_parameter(p + 6))
+            return false;
         return parse_named_error(w, p + 6, false);
-    if (strncmp(p, "no-error=", 9) == 0)
+    }
+    if (strncmp(p, "no-error=", 9) == 0) {
+        int level = format_option_level(p + 9);
+
+        if (level != -2) {
+            if (level < 0)
+                return false;
+            w->promoted[WARN_FORMAT] = WS_OFF;
+            w->promoted_priority[WARN_FORMAT] = 3;
+            return true;
+        }
+        if (bad_format_subflag_parameter(p + 9))
+            return false;
         return parse_named_error(w, p + 9, true);
+    }
     if (!normalized_name(p, name, sizeof(name), &negative))
+        return false;
+    if (bad_format_subflag_parameter(p))
         return false;
     if (strcmp(name, "system-headers") == 0) {
         w->system_headers = !negative;
