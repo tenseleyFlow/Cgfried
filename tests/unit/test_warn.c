@@ -542,6 +542,9 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
     T_ASSERT(t, !warn_option_known("-Wno-format=2"));
     T_ASSERT(t, !warn_option_known("-Wformat-security=2"));
     T_ASSERT(t, !warn_option_known("-Werror=format-security=2"));
+    T_ASSERT(t, warn_option_known("-Wmaybe-uninitialized=strict"));
+    T_ASSERT(t, warn_option_known("-Wno-maybe-uninitialized"));
+    T_ASSERT(t, !warn_option_known("-Wmaybe-uninitialized=lax"));
     T_ASSERT(t, !warn_flag(w, "-Wformat=3"));
     T_ASSERT(t, !warn_flag(w, "-Wno-format=2"));
     T_ASSERT(t, !warn_flag(w, "-Wformat-security=2"));
@@ -574,6 +577,12 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
         t,
         warn_option_bad_value_label(WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL),
         "-Wimplicit-fallthrough=");
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wmaybe-uninitialized=lax"),
+                    WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL);
+    T_ASSERT_EQ_STR(
+        t,
+        warn_option_bad_value_label(WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL),
+        "-Wmaybe-uninitialized=");
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wnot-a-real-warning"),
                     WARN_OPTION_UNKNOWN_POSITIVE);
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wno-not-a-real-warning"),
@@ -583,6 +592,17 @@ void test_warn_suffix_id_and_suppression(TestCtx *t)
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wpragmas"), WARN_PRAGMAS);
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wno-pragmas"), WARN_NONE);
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wformat=2"), WARN_NONE);
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, !warn_maybe_uninitialized_strict(w));
+    T_ASSERT(t, warn_flag(w, "-Wmaybe-uninitialized=strict"));
+    T_ASSERT(t, warn_maybe_uninitialized_strict(w));
+    T_ASSERT(t, warn_enabled(w, WARN_MAYBE_UNINITIALIZED, (Span){0}));
+    T_ASSERT(t, warn_flag(w, "-Wno-maybe-uninitialized"));
+    T_ASSERT(t, !warn_maybe_uninitialized_strict(w));
+    T_ASSERT(t, !warn_enabled(w, WARN_MAYBE_UNINITIALIZED, (Span){0}));
     arena_free_all(&a);
 
     arena_init(&a);

@@ -37,6 +37,7 @@ struct WarnCtx {
     bool system_headers;
     unsigned char implicit_fallthrough_level;
     bool implicit_fallthrough_explicit;
+    bool maybe_uninitialized_strict;
 };
 
 static const WarnInfo infos[] = {
@@ -179,6 +180,23 @@ static int implicit_fallthrough_option_level(const char *p)
     return -1;
 }
 
+/* Extension: the bare flag is GCC-compatible; `=strict` asks the flow
+ * checker to report predicate/loop cases that the conservative default
+ * deliberately leaves undecided. */
+static int maybe_uninitialized_option_mode(const char *p)
+{
+    if (strcmp(p, "maybe-uninitialized") == 0)
+        return 0;
+    if (strcmp(p, "no-maybe-uninitialized") == 0)
+        return 1;
+    if (strcmp(p, "maybe-uninitialized=strict") == 0)
+        return 2;
+    if (strncmp(p, "maybe-uninitialized=", 20) == 0 ||
+        strncmp(p, "no-maybe-uninitialized=", 23) == 0)
+        return -1;
+    return -2;
+}
+
 static bool bad_format_subflag_parameter(const char *p)
 {
     const char *eq = strchr(p, '=');
@@ -214,6 +232,13 @@ WarnOptionDisposition warn_option_classify(const char *arg)
             return fallthrough_level >= 0
                        ? WARN_OPTION_KNOWN
                        : WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL;
+    }
+    {
+        int maybe_mode = maybe_uninitialized_option_mode(p);
+
+        if (maybe_mode != -2)
+            return maybe_mode >= 0 ? WARN_OPTION_KNOWN
+                                   : WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL;
     }
     if (strncmp(p, "error=", 6) == 0) {
         int format_level = format_option_level(p + 6);
@@ -272,6 +297,8 @@ const char *warn_option_bad_value_label(WarnOptionDisposition disposition)
         return "-Wformat=";
     if (disposition == WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL)
         return "-Wimplicit-fallthrough=";
+    if (disposition == WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL)
+        return "-Wmaybe-uninitialized=";
     return NULL;
 }
 
@@ -318,6 +345,7 @@ void warn_print_help(FILE *out)
     for (i = 1; i < WARN_COUNT; i++)
         fprintf(out, "  -W%-43s %s\n", infos[i].flag,
                 infos[i].default_state == WD_ON ? "[enabled]" : "[disabled]");
+    fputs("  -Wmaybe-uninitialized=strict                 [disabled]\n", out);
 }
 
 DiagCtx *warn_diag(WarnCtx *w)
@@ -472,6 +500,19 @@ bool warn_flag(WarnCtx *w, const char *arg)
             w->enabled[WARN_IMPLICIT_FALLTHROUGH] =
                 fallthrough_level == 0 ? WS_OFF : WS_ON;
             w->enabled_priority[WARN_IMPLICIT_FALLTHROUGH] = 3;
+            return true;
+        }
+    }
+    {
+        int maybe_mode = maybe_uninitialized_option_mode(p);
+
+        if (maybe_mode == -1)
+            return false;
+        if (maybe_mode >= 0) {
+            w->enabled[WARN_MAYBE_UNINITIALIZED] =
+                maybe_mode == 1 ? WS_OFF : WS_ON;
+            w->enabled_priority[WARN_MAYBE_UNINITIALIZED] = 3;
+            w->maybe_uninitialized_strict = maybe_mode == 2;
             return true;
         }
     }
@@ -682,6 +723,45 @@ bool warn_explicitly_enabled(const WarnCtx *w, WarnId id, Span sp)
 unsigned warn_implicit_fallthrough_level(const WarnCtx *w)
 {
     return w ? w->implicit_fallthrough_level : 0;
+}
+
+bool warn_maybe_uninitialized_strict(const WarnCtx *w)
+{
+    return w && w->maybe_uninitialized_strict;
+}
+
+static bool is_flow_warning(WarnId id)
+{
+    return id == WARN_UNINITIALIZED || id == WARN_MAYBE_UNINITIALIZED ||
+           id == WARN_INIT_SELF || id == WARN_RETURN_TYPE ||
+           id == WARN_UNREACHABLE_CODE || id == WARN_INFINITE_RECURSION ||
+           id == WARN_SWITCH_UNREACHABLE;
+}
+
+bool warn_flow_needed(const WarnCtx *w)
+{
+    static const WarnId ids[] = {
+        WARN_UNINITIALIZED,      WARN_MAYBE_UNINITIALIZED,
+        WARN_INIT_SELF,          WARN_RETURN_TYPE,
+        WARN_UNREACHABLE_CODE,   WARN_INFINITE_RECURSION,
+        WARN_SWITCH_UNREACHABLE,
+    };
+    Span none = {0};
+    size_t i;
+
+    if (!w || w->inhibit)
+        return false;
+    for (i = 0; i < CGF_ARRAY_LEN(ids); i++)
+        if (warn_enabled(w, ids[i], none))
+            return true;
+    /* A source pragma may enable an otherwise-off extension after seq 0.
+     * Retain the analysis in that case; per-occurrence policy still decides
+     * whether an individual diagnostic is emitted. */
+    for (i = 0; i < w->events_len; i++)
+        if (w->events[i].kind == EV_SET && is_flow_warning(w->events[i].id) &&
+            w->events[i].classification != WARN_PRAGMA_IGNORED)
+            return true;
+    return false;
 }
 
 static void emit_warning_v(WarnCtx *w, WarnId id, Span sp, unsigned emit_flags,

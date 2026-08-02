@@ -23,13 +23,6 @@ typedef struct {
     bool promotable;
 } AllocaInfo;
 
-typedef struct {
-    u32 alloca_index;
-    BlockId block;
-    u32 loc;
-    IrOperand value;
-} PendingLoad;
-
 struct OptMem2RegInfo {
     UndefUse *uses;
     u32 nuses;
@@ -58,7 +51,10 @@ static const IrLocalSlot *slot_for(const IrFunc *f, ValueId addr)
 }
 
 static void log_undef(IrModule *m, IrFunc *f, const AllocaInfo *alloca,
-                      BlockId block, u32 loc)
+                      BlockId block, u32 loc, u8 classification,
+                      Span decision_loc, u8 decision_kind,
+                      u32 decision_predicate, bool self_init,
+                      bool suppress_same_predicate, bool path_undecided)
 {
     struct OptMem2RegInfo *info = f->opt_mem2reg_info;
     const IrLocalSlot *slot = slot_for(f, alloca->ptr);
@@ -87,6 +83,13 @@ static void log_undef(IrModule *m, IrFunc *f, const AllocaInfo *alloca,
         info->uses[info->nuses].decl_loc = slot->decl_span;
     else
         memset(&info->uses[info->nuses].decl_loc, 0, sizeof(Span));
+    info->uses[info->nuses].classification = classification;
+    info->uses[info->nuses].decision_loc = decision_loc;
+    info->uses[info->nuses].decision_kind = decision_kind;
+    info->uses[info->nuses].decision_predicate = decision_predicate;
+    info->uses[info->nuses].self_init = self_init;
+    info->uses[info->nuses].suppress_same_predicate = suppress_same_predicate;
+    info->uses[info->nuses].path_undecided = path_undecided;
     info->nuses++;
 }
 
@@ -226,12 +229,570 @@ static IrOperand resolve_inst_operand(IrOperand op,
     return op;
 }
 
-static bool operand_may_undef(IrOperand op, const bool *may_undef, u32 nvals)
+enum { DS_UNDEF = 1u, DS_DEFINED = 2u };
+
+typedef struct CfgWorkspace {
+    struct CfgPred *preds;
+    u32 *pred_offsets;
+    bool *seen;
+    bool *queued;
+    u8 *state;
+    u32 *work;
+} CfgWorkspace;
+
+typedef struct CfgPred {
+    u32 block;
+    u32 edge;
+} CfgPred;
+
+static bool block_has_noreturn_cut(const IrFunc *f, u32 block)
 {
-    if (op.kind == IROP_UNDEF)
+    const IrInst *in;
+
+    for (in = f->blocks[block].first; in; in = in->next)
+        if (in->op == IR_CALL && (in->flags & IRF_NORETURN))
+            return true;
+    return false;
+}
+
+static bool cfg_can_reach(const IrFunc *f, BlockId from, BlockId to,
+                          CfgWorkspace *ws);
+
+static bool find_decisive_branch(const IrModule *m, const IrFunc *f,
+                                 BlockId undef_block, BlockId defined_block,
+                                 CfgWorkspace *ws, Span *loc, u8 *kind,
+                                 BlockId *decision_block, bool *undecided,
+                                 u32 *predicates)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *term = f->blocks[bi].last;
+        int undef_edge = -1;
+        bool have_defined_edge = false;
+        u32 ei;
+
+        if (!term || (term->op != IR_CONDBR && term->op != IR_SWITCH))
+            continue;
+        if (++*predicates > 128) {
+            *undecided = true;
+            return false;
+        }
+        for (ei = 0; ei < term->nedges; ei++) {
+            BlockId edge = term->edges[ei].target;
+            bool reaches_undef;
+            bool reaches_defined;
+
+            if (!opt_cfg_edge_feasible(f, term, ei))
+                continue;
+            reaches_undef = cfg_can_reach(f, edge, undef_block, ws);
+            reaches_defined = cfg_can_reach(f, edge, defined_block, ws);
+            if (reaches_undef && !reaches_defined)
+                undef_edge = (int)ei;
+            if (reaches_defined && !reaches_undef)
+                have_defined_edge = true;
+        }
+        if (undef_edge < 0 || !have_defined_edge)
+            continue;
+        *loc = ir_inst_span(m, term);
+        if (term->op == IR_CONDBR)
+            *kind = undef_edge == 0 ? 1u : 2u;
+        else
+            *kind = undef_edge == 0 ? 3u : 4u;
+        decision_block->v = bi + 1;
         return true;
-    return op.kind == IROP_VALUE && op.a >= 1 && op.a <= nvals &&
-           may_undef[op.a];
+    }
+    return false;
+}
+
+typedef struct PredicateKey {
+    u32 kind; /* 1 function parameter, 2 source local, 3 parameter alloca */
+    u32 id;
+    bool negated;
+} PredicateKey;
+
+static bool predicate_key(const IrFunc *f, IrOperand op, PredicateKey *key,
+                          u32 depth);
+
+static bool predicate_is_single_entry_local(const IrFunc *f, PredicateKey key)
+{
+    u32 stores = 0;
+    u32 bi;
+
+    if (key.kind != 2)
+        return false;
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next)
+            if (in->op == IR_STORE && in->nops >= 2 &&
+                operand_is_value(in->ops[1], (ValueId){key.id})) {
+                if (bi != 0 || ++stores > 1)
+                    return false;
+            }
+    }
+    return stores == 1;
+}
+
+static void witness_for_use(const IrModule *m, const IrFunc *f,
+                            BlockId use_block, const u8 *in_state,
+                            const u8 *out_state, CfgWorkspace *ws, Span *loc,
+                            u8 *kind, u32 *predicate, BlockId *decision_block,
+                            bool *undecided)
+{
+    u32 nwork = 0;
+    u32 predicates = 0;
+
+    memset(ws->seen, 0, f->nblocks * sizeof(*ws->seen));
+    if (!use_block.v || use_block.v > f->nblocks)
+        return;
+    ws->seen[use_block.v - 1] = true;
+    ws->work[nwork++] = use_block.v - 1;
+    while (nwork) {
+        u32 target = ws->work[--nwork];
+        const IrInst *undef_term = NULL;
+        u32 undef_edge = 0, undef_block = 0, defined_block = 0;
+        bool have_undef = false, have_defined = false;
+        u32 pi;
+
+        for (pi = ws->pred_offsets[target]; pi < ws->pred_offsets[target + 1];
+             pi++) {
+            u32 bi = ws->preds[pi].block;
+            const IrInst *term = f->blocks[bi].last;
+            u32 ei = ws->preds[pi].edge;
+
+            if (!term || block_has_noreturn_cut(f, bi))
+                continue;
+            if (term->op == IR_CONDBR && ++predicates > 128) {
+                *undecided = true;
+                return;
+            }
+            if (out_state[bi] == DS_UNDEF) {
+                have_undef = true;
+                undef_term = term;
+                undef_edge = ei;
+                undef_block = bi;
+            } else if (out_state[bi] == DS_DEFINED) {
+                have_defined = true;
+                defined_block = bi;
+            } else if (out_state[bi] == (DS_UNDEF | DS_DEFINED) &&
+                       !ws->seen[bi]) {
+                PredicateKey guard = {0};
+                bool stable_guard = term->op == IR_CONDBR && term->nops == 1 &&
+                                    predicate_key(f, term->ops[0], &guard, 0) &&
+                                    (guard.kind == 1 || guard.kind == 3 ||
+                                     predicate_is_single_entry_local(f, guard));
+
+                /* Derived predicates and reassigned locals can carry path
+                 * correlations this two-bit lattice cannot prove. A local
+                 * copied once in entry is stable and remains eligible for
+                 * the ordinary witness/same-predicate checks. */
+                if (term->op == IR_CONDBR && !stable_guard)
+                    *undecided = true;
+                ws->seen[bi] = true;
+                ws->work[nwork++] = bi;
+            }
+        }
+        if (have_undef && have_defined && undef_term) {
+            *loc = ir_inst_span(m, undef_term);
+            if (undef_term->op == IR_CONDBR)
+                *kind = undef_edge == 0 ? 1u : 2u;
+            else if (undef_term->op == IR_SWITCH)
+                *kind = undef_edge == 0 ? 3u : 4u;
+            else
+                (void)find_decisive_branch(m, f, (BlockId){undef_block + 1},
+                                           (BlockId){defined_block + 1}, ws,
+                                           loc, kind, decision_block, undecided,
+                                           &predicates);
+            if (undef_term->op == IR_CONDBR && undef_term->nops == 1 &&
+                undef_term->ops[0].kind == IROP_VALUE &&
+                undef_term->ops[0].a >= 1 &&
+                f->vals[undef_term->ops[0].a - 1].def_kind == VDEF_FPARAM)
+                *predicate = (u32)undef_term->ops[0].a;
+            if (!decision_block->v && *kind)
+                decision_block->v = undef_block + 1;
+            return;
+        }
+        if (in_state[target] != (DS_UNDEF | DS_DEFINED))
+            return;
+    }
+}
+
+static const IrInst *inst_for_value(const IrFunc *f, u32 value)
+{
+    const IrValInfo *vi;
+    const IrInst *in;
+
+    if (!value || value > f->nvals)
+        return NULL;
+    vi = &f->vals[value - 1];
+    if (vi->def_kind != VDEF_INST || !vi->def_block.v ||
+        vi->def_block.v > f->nblocks)
+        return NULL;
+    for (in = f->blocks[vi->def_block.v - 1].first; in; in = in->next)
+        if (in->result.v == value)
+            return in;
+    return NULL;
+}
+
+static bool operand_zero(IrOperand op)
+{
+    return op.kind == IROP_ICONST && op.a == 0;
+}
+
+static bool predicate_key(const IrFunc *f, IrOperand op, PredicateKey *key,
+                          u32 depth)
+{
+    const IrInst *def;
+
+    if (op.kind != IROP_VALUE || op.a == 0 || op.a > f->nvals ||
+        depth > f->nvals)
+        return false;
+    if (f->vals[op.a - 1].def_kind == VDEF_FPARAM) {
+        key->kind = 1;
+        key->id = (u32)op.a;
+        return true;
+    }
+    def = inst_for_value(f, (u32)op.a);
+    if (!def)
+        return false;
+    if (def->op == IR_LOAD && def->nops >= 1 &&
+        def->ops[0].kind == IROP_VALUE) {
+        const IrInst *addr = inst_for_value(f, (u32)def->ops[0].a);
+
+        if (!addr || addr->op != IR_ALLOCA)
+            return false;
+        key->kind = slot_for(f, (ValueId){(u32)def->ops[0].a}) ? 2 : 3;
+        key->id = (u32)def->ops[0].a;
+        return true;
+    }
+    if (def->op == IR_ICMP && def->nops == 2 &&
+        (def->subop == ICMP_EQ || def->subop == ICMP_NE)) {
+        IrOperand base;
+
+        if (operand_zero(def->ops[0]))
+            base = def->ops[1];
+        else if (operand_zero(def->ops[1]))
+            base = def->ops[0];
+        else
+            return false;
+        if (!predicate_key(f, base, key, depth + 1))
+            return false;
+        if (def->subop == ICMP_EQ)
+            key->negated = !key->negated;
+        return true;
+    }
+    if ((def->op == IR_TRUNC || def->op == IR_ZEXT || def->op == IR_SEXT) &&
+        def->nops == 1)
+        return predicate_key(f, def->ops[0], key, depth + 1);
+    return false;
+}
+
+static bool cfg_can_reach(const IrFunc *f, BlockId from, BlockId to,
+                          CfgWorkspace *ws)
+{
+    u32 nwork = 0;
+
+    if (!from.v || from.v > f->nblocks || !to.v || to.v > f->nblocks)
+        return false;
+    memset(ws->seen, 0, f->nblocks * sizeof(*ws->seen));
+    ws->seen[from.v - 1] = true;
+    ws->work[nwork++] = from.v - 1;
+    while (nwork) {
+        u32 bi = ws->work[--nwork];
+        const IrInst *term = f->blocks[bi].last;
+        u32 ei;
+
+        if (bi == to.v - 1)
+            return true;
+        if (!term || block_has_noreturn_cut(f, bi))
+            continue;
+        for (ei = 0; ei < term->nedges; ei++) {
+            u32 target = term->edges[ei].target.v;
+
+            if (opt_cfg_edge_feasible(f, term, ei) && target &&
+                target <= f->nblocks && !ws->seen[target - 1]) {
+                ws->seen[target - 1] = true;
+                ws->work[nwork++] = target - 1;
+            }
+        }
+    }
+    return false;
+}
+
+static bool predicate_reassigned(const IrFunc *f, PredicateKey key,
+                                 BlockId decision, BlockId guard,
+                                 CfgWorkspace *ws)
+{
+    const IrInst *term;
+    u32 nwork = 0;
+    u32 ei;
+
+    if ((key.kind != 2 && key.kind != 3) || !decision.v ||
+        decision.v > f->nblocks || !guard.v || guard.v > f->nblocks)
+        return false;
+    memset(ws->state, 0, f->nblocks * sizeof(*ws->state));
+    memset(ws->queued, 0, f->nblocks * sizeof(*ws->queued));
+    term = f->blocks[decision.v - 1].last;
+    if (!term || block_has_noreturn_cut(f, decision.v - 1))
+        return false;
+    for (ei = 0; ei < term->nedges; ei++) {
+        u32 target = term->edges[ei].target.v;
+
+        if (!opt_cfg_edge_feasible(f, term, ei) || !target ||
+            target > f->nblocks)
+            continue;
+        ws->state[target - 1] |= DS_UNDEF;
+        if (!ws->queued[target - 1]) {
+            ws->queued[target - 1] = true;
+            ws->work[nwork++] = target - 1;
+        }
+    }
+    while (nwork) {
+        u32 bi = ws->work[--nwork];
+        u8 current = ws->state[bi];
+        const IrInst *in;
+
+        ws->queued[bi] = false;
+        for (in = f->blocks[bi].first; in; in = in->next)
+            if (in->op == IR_STORE && in->nops >= 2 &&
+                operand_is_value(in->ops[1], (ValueId){key.id})) {
+                current = DS_DEFINED;
+                break;
+            }
+        if (bi + 1 == guard.v) {
+            if (current & DS_DEFINED)
+                return true;
+            continue;
+        }
+        term = f->blocks[bi].last;
+        if (!term || block_has_noreturn_cut(f, bi))
+            continue;
+        for (ei = 0; ei < term->nedges; ei++) {
+            u32 target = term->edges[ei].target.v;
+            u8 incoming;
+
+            if (!opt_cfg_edge_feasible(f, term, ei) || !target ||
+                target > f->nblocks)
+                continue;
+            incoming = ws->state[target - 1] | current;
+            if (incoming == ws->state[target - 1])
+                continue;
+            ws->state[target - 1] = incoming;
+            if (!ws->queued[target - 1]) {
+                ws->queued[target - 1] = true;
+                ws->work[nwork++] = target - 1;
+            }
+        }
+    }
+    return false;
+}
+
+static bool suppress_same_predicate(const IrFunc *f, const IrDomTree *dom,
+                                    BlockId decision, BlockId use,
+                                    u8 decision_kind, CfgWorkspace *ws,
+                                    bool *undecided)
+{
+    const IrInst *decision_term;
+    PredicateKey original = {0};
+    u32 bi;
+    u32 predicates = 0;
+
+    if (!decision.v || decision.v > f->nblocks || decision_kind < 1 ||
+        decision_kind > 2)
+        return false;
+    decision_term = f->blocks[decision.v - 1].last;
+    if (!decision_term || decision_term->op != IR_CONDBR ||
+        decision_term->nops != 1 ||
+        !predicate_key(f, decision_term->ops[0], &original, 0))
+        return false;
+    for (bi = 0; bi < f->nblocks; bi++) {
+        BlockId guard = {bi + 1};
+        const IrInst *term = f->blocks[bi].last;
+        PredicateKey candidate = {0};
+        bool true_reaches, false_reaches;
+        u32 defined_edge, use_edge;
+
+        if (term && term->op == IR_CONDBR && ++predicates > 128) {
+            *undecided = true;
+            return false;
+        }
+        if (guard.v == decision.v || !term || term->op != IR_CONDBR ||
+            term->nedges != 2 || term->nops != 1 ||
+            !ir_dominates(dom, decision, guard) ||
+            !ir_dominates(dom, guard, use) ||
+            !predicate_key(f, term->ops[0], &candidate, 0) ||
+            candidate.kind != original.kind || candidate.id != original.id)
+            continue;
+        true_reaches = cfg_can_reach(f, term->edges[0].target, use, ws);
+        false_reaches = cfg_can_reach(f, term->edges[1].target, use, ws);
+        if (true_reaches == false_reaches)
+            continue;
+        use_edge = true_reaches ? 0u : 1u;
+        defined_edge = ((u32)decision_kind - 1u) ^ 1u;
+        if (candidate.negated != original.negated)
+            defined_edge ^= 1u;
+        if (use_edge == defined_edge &&
+            !predicate_reassigned(f, original, decision, guard, ws))
+            return true;
+    }
+    return false;
+}
+
+static void classify_alloca_uses(IrModule *m, IrFunc *f,
+                                 const AllocaInfo *allocas, u32 nallocas,
+                                 u32 nblocks, Arena *scratch)
+{
+    u8 *in_state = arena_alloc(scratch, nblocks ? nblocks : 1, 1);
+    u8 *out_state = arena_alloc(scratch, nblocks ? nblocks : 1, 1);
+    bool *queued = arena_alloc(scratch, nblocks ? nblocks : 1, 1);
+    u32 *work = arena_alloc(scratch, (nblocks ? nblocks : 1) * sizeof(*work),
+                            _Alignof(u32));
+    IrDomTree *dom = ir_domtree_build(scratch, f);
+    CfgWorkspace ws;
+    u32 *pred_cursor;
+    u32 npreds;
+    u32 ai;
+
+    ws.seen = arena_alloc(scratch, nblocks ? nblocks : 1, sizeof(*ws.seen));
+    ws.queued = arena_alloc(scratch, nblocks ? nblocks : 1, sizeof(*ws.queued));
+    ws.state = arena_alloc(scratch, nblocks ? nblocks : 1, sizeof(*ws.state));
+    ws.work = arena_alloc(scratch, (nblocks ? nblocks : 1) * sizeof(*ws.work),
+                          _Alignof(u32));
+    ws.pred_offsets =
+        arena_alloc(scratch, (nblocks + 1) * sizeof(u32), _Alignof(u32));
+    memset(ws.pred_offsets, 0, (nblocks + 1) * sizeof(u32));
+    for (ai = 0; ai < nblocks; ai++) {
+        const IrInst *term = f->blocks[ai].last;
+        u32 ei;
+
+        if (!term || block_has_noreturn_cut(f, ai))
+            continue;
+        for (ei = 0; ei < term->nedges; ei++) {
+            u32 target = term->edges[ei].target.v;
+
+            if (opt_cfg_edge_feasible(f, term, ei) && target &&
+                target <= nblocks)
+                ws.pred_offsets[target]++;
+        }
+    }
+    for (ai = 1; ai <= nblocks; ai++)
+        ws.pred_offsets[ai] += ws.pred_offsets[ai - 1];
+    npreds = ws.pred_offsets[nblocks];
+    ws.preds = arena_alloc(scratch, (npreds ? npreds : 1) * sizeof(*ws.preds),
+                           _Alignof(CfgPred));
+    pred_cursor = arena_alloc(scratch, (nblocks ? nblocks : 1) * sizeof(u32),
+                              _Alignof(u32));
+    if (nblocks)
+        memcpy(pred_cursor, ws.pred_offsets, nblocks * sizeof(u32));
+    for (ai = 0; ai < nblocks; ai++) {
+        const IrInst *term = f->blocks[ai].last;
+        u32 ei;
+
+        if (!term || block_has_noreturn_cut(f, ai))
+            continue;
+        for (ei = 0; ei < term->nedges; ei++) {
+            u32 target = term->edges[ei].target.v;
+            u32 at;
+
+            if (!opt_cfg_edge_feasible(f, term, ei) || !target ||
+                target > nblocks)
+                continue;
+            at = pred_cursor[target - 1]++;
+            ws.preds[at].block = ai;
+            ws.preds[at].edge = ei;
+        }
+    }
+
+    for (ai = 0; ai < nallocas; ai++) {
+        u32 nwork = 0;
+        u32 bi;
+
+        if (!allocas[ai].promotable)
+            continue;
+        memset(in_state, 0, nblocks);
+        memset(out_state, 0, nblocks);
+        memset(queued, 0, nblocks);
+        in_state[0] = DS_UNDEF;
+        queued[0] = true;
+        work[nwork++] = 0;
+        while (nwork) {
+            const IrInst *in;
+            const IrInst *term;
+            u8 current;
+            u32 ei;
+
+            bi = work[--nwork];
+            queued[bi] = false;
+            current = in_state[bi];
+            for (in = f->blocks[bi].first; in; in = in->next)
+                if (in->op == IR_CALL && (in->flags & IRF_NORETURN))
+                    break;
+                else if (in->op == IR_STORE && in->nops >= 2 &&
+                         operand_is_value(in->ops[1], allocas[ai].ptr))
+                    current = DS_DEFINED;
+            if (current == out_state[bi])
+                continue;
+            out_state[bi] = current;
+            term = f->blocks[bi].last;
+            if (!term || block_has_noreturn_cut(f, bi))
+                continue;
+            for (ei = 0; ei < term->nedges; ei++) {
+                u32 to = term->edges[ei].target.v;
+                u8 incoming;
+
+                if (!opt_cfg_edge_feasible(f, term, ei) || !to || to > nblocks)
+                    continue;
+                incoming = in_state[to - 1] | current;
+                if (incoming == in_state[to - 1])
+                    continue;
+                in_state[to - 1] = incoming;
+                if (!queued[to - 1]) {
+                    queued[to - 1] = true;
+                    work[nwork++] = to - 1;
+                }
+            }
+        }
+
+        for (bi = 0; bi < nblocks; bi++) {
+            u8 current = in_state[bi];
+            const IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next) {
+                if (in->op == IR_CALL && (in->flags & IRF_NORETURN))
+                    break;
+                if (in->op == IR_LOAD && in->nops >= 1 &&
+                    operand_is_value(in->ops[0], allocas[ai].ptr) &&
+                    (current & DS_UNDEF)) {
+                    Span decision = {0};
+                    u8 decision_kind = 0;
+                    u32 predicate = 0;
+                    BlockId decision_block = BLOCK_INVALID;
+                    bool same_predicate = false;
+                    bool path_undecided = false;
+
+                    if (current & DS_DEFINED) {
+                        witness_for_use(m, f, (BlockId){bi + 1}, in_state,
+                                        out_state, &ws, &decision,
+                                        &decision_kind, &predicate,
+                                        &decision_block, &path_undecided);
+                        same_predicate = suppress_same_predicate(
+                            f, dom, decision_block, (BlockId){bi + 1},
+                            decision_kind, &ws, &path_undecided);
+                    }
+                    log_undef(m, f, &allocas[ai], (BlockId){bi + 1}, in->loc,
+                              (current & DS_DEFINED) ? UNDEF_USE_MAYBE
+                                                     : UNDEF_USE_DEFINITE,
+                              decision, decision_kind, predicate,
+                              (in->flags & IRF_SELF_INIT) != 0, same_predicate,
+                              path_undecided);
+                }
+                if (in->op == IR_STORE && in->nops >= 2 &&
+                    operand_is_value(in->ops[1], allocas[ai].ptr))
+                    current = DS_DEFINED;
+            }
+        }
+    }
 }
 
 static void append_phi_args(IrModule *m, IrEdge *edge,
@@ -272,8 +833,7 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
     Arena scratch;
     OptConfig fc = *cfg;
     AllocaInfo *allocas;
-    PendingLoad *pending;
-    u32 nallocas = 0, nloads = 0, npending = 0, ai = 0, bi, i, j;
+    u32 nallocas = 0, ai = 0, bi, i, j;
     u32 nblocks = f->nblocks;
     bool *pred, *df, *defs, *phis, *use_before_def, *live_in;
     u32 *pred_count, *idom, *order, *stack, *work;
@@ -294,8 +854,6 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
         for (in = f->blocks[bi].first; in; in = in->next) {
             if (in->op == IR_ALLOCA)
                 nallocas++;
-            else if (in->op == IR_LOAD)
-                nloads++;
         }
     }
     if (!nallocas || !nblocks)
@@ -348,8 +906,6 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
     order = arena_alloc(&scratch, nblocks * sizeof(*order), _Alignof(u32));
     stack = arena_alloc(&scratch, nblocks * sizeof(*stack), _Alignof(u32));
     work = arena_alloc(&scratch, nblocks * sizeof(*work), _Alignof(u32));
-    pending = arena_alloc(&scratch, (nloads ? nloads : 1) * sizeof(*pending),
-                          _Alignof(PendingLoad));
     memset(pred, 0, (size_t)nblocks * nblocks);
     memset(df, 0, (size_t)nblocks * nblocks);
     memset(defs, 0, (size_t)nallocas * nblocks);
@@ -381,6 +937,12 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
             }
         }
     }
+
+    /* Classify reads while LOAD/STORE events and their original source
+     * locations still exist.  A store initializes its destination regardless
+     * of the value stored; following undefined SSA values would diagnose the
+     * assignee instead of the read that produced the indeterminate value. */
+    classify_alloca_uses(m, f, allocas, nallocas, nblocks, &scratch);
 
     /* Pruned SSA placement: a frontier gets a parameter only if the slot is
      * live on entry. Loads before the first local definition generate use;
@@ -563,11 +1125,6 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
                         value = ir_op_undef(allocas[aidx].type);
                     }
                     replacement[in->result.v] = value;
-                    pending[npending].alloca_index = (u32)aidx;
-                    pending[npending].block.v = bidx + 1;
-                    pending[npending].loc = in->loc;
-                    pending[npending].value = value;
-                    npending++;
                     remove = true;
                 }
             } else if (in->op == IR_STORE && in->nops >= 2) {
@@ -617,80 +1174,6 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
         }
     }
 
-    /* Propagate undef provenance through block parameters and ordinary SSA
-     * results. Logging the removed LOAD (the consumer), rather than its seed
-     * edge, preserves per-read freedom and gives Sprint 40 the useful site. */
-    {
-        u32 nvals = f->nvals;
-        bool *may_undef = arena_alloc(&scratch, (nvals + 1) * sizeof(bool), 1);
-        bool moved;
-
-        memset(may_undef, 0, (nvals + 1) * sizeof(bool));
-        do {
-            moved = false;
-            for (bi = 0; bi < nblocks; bi++) {
-                IrBlock *blk = &f->blocks[bi];
-                u32 pi;
-
-                for (pi = 0; pi < blk->nparams; pi++) {
-                    ValueId param = blk->params[pi];
-                    u32 from;
-
-                    if (may_undef[param.v])
-                        continue;
-                    for (from = 0; from < nblocks && !may_undef[param.v];
-                         from++) {
-                        IrInst *term;
-
-                        for (term = f->blocks[from].first; term;
-                             term = term->next) {
-                            u32 ei;
-
-                            for (ei = 0; ei < term->nedges; ei++) {
-                                IrEdge *edge = &term->edges[ei];
-
-                                if (edge->target.v == bi + 1 &&
-                                    pi < edge->nargs &&
-                                    operand_may_undef(edge->args[pi], may_undef,
-                                                      nvals)) {
-                                    may_undef[param.v] = true;
-                                    moved = true;
-                                    break;
-                                }
-                            }
-                            if (may_undef[param.v])
-                                break;
-                        }
-                    }
-                }
-                {
-                    IrInst *in;
-
-                    for (in = blk->first; in; in = in->next) {
-                        u32 oi;
-
-                        if (!in->result.v || may_undef[in->result.v])
-                            continue;
-                        for (oi = 0; oi < in->nops; oi++)
-                            if (operand_may_undef(in->ops[oi], may_undef,
-                                                  nvals)) {
-                                may_undef[in->result.v] = true;
-                                moved = true;
-                                break;
-                            }
-                    }
-                }
-            }
-        } while (moved);
-        for (i = 0; i < npending; i++) {
-            IrOperand value =
-                resolve_operand(pending[i].value, replacement, old_nvals);
-
-            if (operand_may_undef(value, may_undef, nvals))
-                log_undef(m, f, &allocas[pending[i].alloca_index],
-                          pending[i].block, pending[i].loc);
-        }
-    }
     ir_func_renumber(m->arena, f);
     arena_free_all(&scratch);
     return true;

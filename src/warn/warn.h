@@ -56,11 +56,13 @@ typedef enum WarnOptionDisposition {
     WARN_OPTION_UNKNOWN_NEGATIVE,
     WARN_OPTION_UNKNOWN_PROMOTION,
     WARN_OPTION_BAD_FORMAT_LEVEL,
-    WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL
+    WARN_OPTION_BAD_IMPLICIT_FALLTHROUGH_LEVEL,
+    WARN_OPTION_BAD_MAYBE_UNINITIALIZED_LEVEL
 } WarnOptionDisposition;
 
 typedef struct WarnCtx WarnCtx;
 struct Arena;
+struct IrModule;
 
 WarnCtx *warn_ctx_new(struct Arena *arena, DiagCtx *diag);
 DiagCtx *warn_diag(WarnCtx *w);
@@ -81,6 +83,9 @@ bool warn_flag(WarnCtx *w, const char *arg);
 bool warn_enabled(const WarnCtx *w, WarnId id, Span sp);
 bool warn_explicitly_enabled(const WarnCtx *w, WarnId id, Span sp);
 unsigned warn_implicit_fallthrough_level(const WarnCtx *w);
+bool warn_maybe_uninitialized_strict(const WarnCtx *w);
+bool warn_flow_needed(const WarnCtx *w);
+void warn_flow_module(WarnCtx *w, const struct IrModule *module);
 
 void warn_at(WarnCtx *w, WarnId id, Span sp, const char *fmt, ...);
 /* Emits one occurrence as a pedwarn even when its registry row is also used

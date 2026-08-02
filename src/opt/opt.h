@@ -102,6 +102,10 @@ bool opt_dce(IrModule *m, const OptConfig *cfg);
 bool opt_dse(IrModule *m, const OptConfig *cfg);
 bool opt_simplify_cfg(IrModule *m, const OptConfig *cfg);
 bool opt_jump_thread(IrModule *m, const OptConfig *cfg);
+/* Exact constant-edge query shared by simplify-cfg and analysis clients.
+ * It recursively asks the common scalar folder for the bounded definition
+ * tree feeding a terminator, without mutating the function. */
+bool opt_cfg_edge_feasible(const IrFunc *f, const IrInst *term, u32 edge);
 
 /* Sprint 33 interprocedural work.  The callgraph owns heap-backed analysis
  * storage and indexes nodes by IrModule function index.  SCC enumeration is
@@ -250,16 +254,24 @@ typedef struct UndefUse {
     Span loc;
     const char *name;
     Span decl_loc;
+    /* 1 = undef on every incoming path; 2 = both undef and defined paths.
+     * The latter may carry the branch that admits the undef value. */
+    u8 classification;
+    u8 decision_kind; /* 0 none/path, 1 true edge, 2 false edge */
+    bool self_init;
+    bool suppress_same_predicate;
+    bool path_undecided;    /* bounded witness could not prove correlation */
+    u32 decision_predicate; /* SSA value id when the witness is condbr */
+    Span decision_loc;
 } UndefUse;
+
+enum { UNDEF_USE_DEFINITE = 1, UNDEF_USE_MAYBE = 2 };
 
 const UndefUse *opt_mem2reg_undef_log(const IrFunc *f, u32 *n);
 
 /* Unreachable-code provenance retained before simplify_cfg deletes blocks.
  * Sprint 40 consumes these resolved Spans after PP state has gone away. */
-typedef struct CfgRemoved {
-    BlockId block;
-    Span loc;
-} CfgRemoved;
+typedef IrCfgRemoved CfgRemoved;
 
 const CfgRemoved *opt_cfg_removed_log(const IrFunc *f, u32 *n);
 
