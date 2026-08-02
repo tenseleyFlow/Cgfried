@@ -1,6 +1,6 @@
 #!/bin/sh
-# Warning-policy differential: compare exit status and warning count, not
-# compiler-specific text. GCC 8 is opt-in because modern hosts rarely ship it.
+# Sprint 38 warning differential: compare every warning fixture's exact
+# (source line, warning flag) set against the GCC 8 baseline.
 set -eu
 LC_ALL=C
 SOURCE_DATE_EPOCH=0
@@ -18,61 +18,88 @@ command -v "$GCC8" >/dev/null 2>&1 || {
 rm -rf "$WORK"
 mkdir -p "$WORK"
 agree=0
+annotated=0
 disagree=0
+serial=0
+
+warning_set() {
+    awk '
+    /:[0-9][0-9]*:[0-9][0-9]*: (warning|error):/ && /\[-W[^]]*\]/ {
+        location = $0
+        sub(/^[^:]*:/, "", location)
+        sub(/:.*/, "", location)
+        flag = $0
+        sub(/^.*\[-W/, "", flag)
+        sub(/\].*$/, "", flag)
+        sub(/^error=/, "", flag)
+        sub(/=$/, "", flag)
+        print location, flag
+    }
+    ' "$1" | sort -u > "$2"
+}
 
 check() {
     file=$1
-    name=$(basename "$file" .c)
     flags=$(sed -n 's@^// FLAGS: @@p' "$file" | sed -n '1p')
-    cgf_err="$WORK/$name.cgf.err"
-    gcc_err="$WORK/$name.gcc.err"
-    if "$CGF" $flags "$file" >/dev/null 2>"$cgf_err"; then
+    serial=$((serial + 1))
+    cgf_err="$WORK/$serial.cgf.err"
+    gcc_err="$WORK/$serial.gcc.err"
+    cgf_set="$WORK/$serial.cgf.set"
+    gcc_set="$WORK/$serial.gcc.set"
+    gcc_file=$file
+    cgf_mode=
+    gcc_mode=
+
+    # GCC rejects the runner's // metadata in strict C89 before reaching the
+    # program.  Blank only those harness lines in a line-preserving oracle
+    # copy; the language flags and program tokens remain identical.
+    case " $flags " in
+    *' -std=c89 '*)
+        gcc_file="$WORK/$serial.gcc.c"
+        sed 's@^//.*$@@' "$file" > "$gcc_file"
+        ;;
+    esac
+    # -S fixtures need distinct output files, but both compilers receive the
+    # same compile mode and option set.
+    case " $flags " in
+    *' -S '*)
+        cgf_mode="-o $WORK/$serial.cgf.s"
+        gcc_mode="-o $WORK/$serial.gcc.s"
+        ;;
+    esac
+
+    if "$CGF" $flags $cgf_mode "$file" >/dev/null 2>"$cgf_err"; then
         cgf_status=0
     else
         cgf_status=$?
     fi
-    if "$GCC8" $flags "$file" >/dev/null 2>"$gcc_err"; then
+    if "$GCC8" $flags $gcc_mode "$gcc_file" >/dev/null 2>"$gcc_err"; then
         gcc_status=0
     else
         gcc_status=$?
     fi
-    cgf_count=$(grep -c ': warning:' "$cgf_err" || true)
-    gcc_count=$(grep -c ': warning:' "$gcc_err" || true)
-    if [ "$cgf_status" -eq "$gcc_status" ] &&
-       [ "$cgf_count" -eq "$gcc_count" ]; then
+    warning_set "$cgf_err" "$cgf_set"
+    warning_set "$gcc_err" "$gcc_set"
+
+    if [ "$cgf_status" -eq "$gcc_status" ] && cmp -s "$cgf_set" "$gcc_set"; then
         agree=$((agree + 1))
-    else
-        echo "warn_diff: DISAGREE $name: ours=$cgf_status/$cgf_count gcc8=$gcc_status/$gcc_count" >&2
-        disagree=$((disagree + 1))
+        return
     fi
+    if grep -Eq '^// DIVERGES\(gcc-8\): .+' "$file"; then
+        annotated=$((annotated + 1))
+        echo "warn_diff: ANNOTATED $file"
+        return
+    fi
+
+    echo "warn_diff: DISAGREE $file: ours-exit=$cgf_status gcc8-exit=$gcc_status" >&2
+    diff -u "$gcc_set" "$cgf_set" >&2 || true
+    disagree=$((disagree + 1))
 }
 
-for file in \
-    tests/warn/pragma/cpp.c \
-    tests/warn/pragma/malformed.c \
-    tests/warn/pragma/unknown.c \
-    tests/warn/pragma/ignored.c \
-    tests/warn/pragma/warning_restore.c \
-    tests/warn/pragma/error.c \
-    tests/warn/pragma/push_pop.c \
-    tests/warn/pragma/nested_push_pop.c \
-    tests/warn/pragma/pedantic_w.c \
-    tests/warn/pragma/mid_function.c \
-    tests/warn/pragma/skipped_region.c \
-    tests/warn/pragma/pragma_macro_ignored.c \
-    tests/warn/pragma/pragma_macro_warning.c \
-    tests/warn/pragma/macro_definition_state.c \
-    tests/warn/pragma/macro_expansion_state.c \
-    tests/warn/pragma/error_implies_enable.c \
-    tests/warn/pragma/global_demote.c \
-    tests/warn/pragma/system_suppressed.c \
-    tests/warn/pragma/system_enabled.c \
-    tests/warn/pragma/system_pragma_threshold.c \
-    tests/warn/pragma/unbalanced_pop.c
-do
+for file in $(find tests/warn -type f -name '*.c' | sort); do
     check "$file"
 done
 
-total=$((agree + disagree))
-echo "warn_diff: $agree/$total exit/count classifications match GCC 8"
+total=$((agree + annotated + disagree))
+echo "warn_diff: $agree/$total exact warning sets match GCC 8; $annotated annotated; $disagree unannotated"
 [ "$disagree" -eq 0 ]

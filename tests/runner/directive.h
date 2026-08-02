@@ -26,6 +26,7 @@ typedef enum {
     DIR_WARNING_EXPECTED,
     DIR_WARN_CHECK,
     DIR_WARN_COUNT,
+    DIR_DIVERGES_GCC8, /* documented warning-oracle exception metadata */
     DIR_XFAIL,
     DIR_SKIP,
     DIR_TIMEOUT,

@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=musl-warn test=corpus count=1 reason="musl reference clone not found"

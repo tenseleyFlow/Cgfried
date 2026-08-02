@@ -1,4 +1,5 @@
 // FLAGS: -fsyntax-only
+// DIVERGES(gcc-8): CGF binds diagnostic state at macro expansion, not definition.
 // WARN_COUNT: 1
 #pragma GCC diagnostic ignored "-Wpragmas"
 #define BAD_PRAGMA _Pragma("GCC diagnostic bogus")

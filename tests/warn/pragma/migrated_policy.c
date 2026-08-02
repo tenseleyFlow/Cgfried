@@ -1,4 +1,5 @@
 // FLAGS: -fsyntax-only -std=c99
+// DIVERGES(gcc-8): CGF retains Clang-compatible names for migrated frontend diagnostics.
 // WARN_COUNT: 8
 struct sprint37_outer {
     // WARN_CHECK: c11-extensions anonymous struct/union members are a C11 feature
