@@ -24,6 +24,8 @@ typedef enum {
      * warning that silently stops firing is exactly the regression a
      * corpus is supposed to catch. */
     DIR_WARNING_EXPECTED,
+    DIR_WARN_CHECK,
+    DIR_WARN_COUNT,
     DIR_XFAIL,
     DIR_SKIP,
     DIR_TIMEOUT,
@@ -43,10 +45,11 @@ typedef enum {
 
 typedef struct {
     DirectiveKind kind;
-    u32 line;             /* 1-based source line */
-    const char *selector; /* XFAIL/SKIP target selector, else NULL */
-    const char *value;    /* text after ": " (XFAIL: reason after the id) */
-    const char *xf_id;    /* XFAIL only: the cited XF-NNNN id */
+    u32 line;              /* 1-based source line */
+    const char *selector;  /* XFAIL/SKIP target selector, else NULL */
+    const char *value;     /* text after ": " (XFAIL: reason after the id) */
+    const char *xf_id;     /* XFAIL only: the cited XF-NNNN id */
+    const char *warn_flag; /* WARN_CHECK only: flag name without "-W" */
 } Directive;
 
 typedef struct {
@@ -67,6 +70,9 @@ typedef struct {
     const char *ofast_divergence_reason;
     bool has_error_expected;
     bool has_warning_expected;
+    bool has_warn_check;
+    bool has_warn_count;
+    int warn_count;
 } DirectiveSet;
 
 /* Parses directives out of a test source. All strings are arena-copies. */

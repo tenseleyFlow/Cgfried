@@ -3,6 +3,7 @@
 #include "pp/pp.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Macro-table units: define/undef/lookup/redefinition compare, and the
  * #line presumed-vs-physical split, all through the full engine. */
@@ -40,6 +41,7 @@ static void mfix_init(MacFix *f)
     diag_set_sink(dc, sink);
     intern_init(&f->in, &f->arena);
     pp_init(&f->pp, &f->arena, dc, &f->in);
+    f->pp.warn = warn_ctx_new(&f->arena, dc);
 }
 
 static void mfix_free(MacFix *f)

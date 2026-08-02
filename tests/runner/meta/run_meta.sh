@@ -36,6 +36,18 @@ expect err_expected_fail.c 1 "ERROR_EXPECTED not satisfied"
 expect warn_expected_pass.c 0 "pass=1"
 expect warn_expected_fail.c 1 "WARNING_EXPECTED not satisfied"
 expect warn_expected_errored.c 1 "WARNING_EXPECTED not satisfied"
+expect warn_check_pass.c 0 "pass=1"
+expect warn_check_bad_line.c 1 "WARN_CHECK not satisfied"
+expect warn_check_bad_flag.c 1 "WARN_CHECK not satisfied"
+expect warn_check_bad_message.c 1 "WARN_CHECK not satisfied"
+expect warn_count_two.c 0 "pass=1"
+expect warn_count_driver.c 0 "pass=1"
+expect warn_count_one.c 1 "WARN_COUNT expected 2, got 1"
+expect warn_count_zero.c 0 "pass=1"
+expect warn_count_zero_fail.c 1 "WARN_COUNT expected 0, got 1"
+expect warn_count_missing_suffix.c 1 "lacks mandatory [-W<flag>] suffix"
+expect config_warn_check.c 1 "WARN_CHECK must be"
+expect config_warn_count.c 1 "WARN_COUNT must be"
 # TU-BREAK: the fixture splits into two TUs; TU0 compiles clean, TU1 fails
 # with the expected text — the merged output satisfies ERROR_EXPECTED.
 expect tu_break.c 0 "pass=1"
@@ -84,7 +96,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=39 pass=14 fail=13 xfail=1 xpass=1 skip=1 config=9"*) ;;
+*"total=51 pass=18 fail=19 xfail=1 xpass=1 skip=1 config=11"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)

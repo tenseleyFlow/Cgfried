@@ -14,6 +14,8 @@ static const DirectiveName directive_table[] = {
     {"EXIT_CODE", DIR_EXIT_CODE},
     {"ERROR_EXPECTED", DIR_ERROR_EXPECTED},
     {"WARNING_EXPECTED", DIR_WARNING_EXPECTED},
+    {"WARN_CHECK", DIR_WARN_CHECK},
+    {"WARN_COUNT", DIR_WARN_COUNT},
     {"XFAIL", DIR_XFAIL},
     {"SKIP", DIR_SKIP},
     {"TIMEOUT", DIR_TIMEOUT},
@@ -37,6 +39,7 @@ typedef struct {
     bool seen_flags;
     bool seen_opt_eq;
     bool seen_ofast_divergence_ok;
+    bool seen_warn_count;
     u32 ofast_divergence_line;
 } Parser;
 
@@ -132,6 +135,23 @@ static int parse_int(const char *s, size_t len)
         v = v * 10 + (s[i] - '0');
     }
     return v;
+}
+
+static bool warn_flag_valid(const char *s, size_t len)
+{
+    size_t i;
+
+    if (len == 0 || s[0] == '-' || s[len - 1] == '-' || s[0] == '=' ||
+        s[len - 1] == '=')
+        return false;
+    for (i = 0; i < len; i++) {
+        char c = s[i];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ||
+              c == '='))
+            return false;
+    }
+    return true;
 }
 
 /* One line, already stripped of its trailing newline (and \r for CRLF
@@ -295,6 +315,46 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             }
             d.value = arena_strndup(p->arena, value, value_len);
             break;
+        case DIR_WARN_CHECK: {
+            size_t split = 0;
+
+            while (split < value_len && value[split] != ' ')
+                split++;
+            if (!warn_flag_valid(value, split)) {
+                err(p, line_no,
+                    "WARN_CHECK flag must be a lowercase warning name "
+                    "without the '-W' prefix");
+                return;
+            }
+            if (split == value_len || split + 1 == value_len ||
+                value[split + 1] == ' ') {
+                err(p, line_no,
+                    "WARN_CHECK must be '<flag> <message-substring>' with "
+                    "one separating space");
+                return;
+            }
+            d.warn_flag = arena_strndup(p->arena, value, split);
+            d.value = arena_strndup(p->arena, value + split + 1,
+                                    value_len - split - 1);
+            break;
+        }
+        case DIR_WARN_COUNT: {
+            int v = parse_int(value, value_len);
+
+            if (v < 0) {
+                err(p, line_no,
+                    "WARN_COUNT must be a nonnegative integer in 0..9999");
+                return;
+            }
+            if (p->seen_warn_count) {
+                err(p, line_no, "duplicate WARN_COUNT directive");
+                return;
+            }
+            p->seen_warn_count = true;
+            p->set->has_warn_count = true;
+            p->set->warn_count = v;
+            break;
+        }
         case DIR_EXIT_CODE: {
             int v = parse_int(value, value_len);
             if (v < 0 || v > 255) {
@@ -477,6 +537,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             p->set->has_error_expected = true;
         if (hit->kind == DIR_WARNING_EXPECTED)
             p->set->has_warning_expected = true;
+        if (hit->kind == DIR_WARN_CHECK)
+            p->set->has_warn_check = true;
         /* F-S22-MIRCHECK: DIR_MIR_CHECK was missing from this list for
          * all of Sprint 21 — MIR_CHECK directives parsed, validated, and
          * were then silently DROPPED, so the nine MIR goldens asserted
@@ -486,8 +548,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             hit->kind == DIR_MIR_CHECK || hit->kind == DIR_ASM_CHECK ||
             hit->kind == DIR_IR_CHECK_NOT || hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
-            hit->kind == DIR_SKIP || hit->kind == DIR_ENV ||
-            hit->kind == DIR_OFAST_DIVERGENCE_OK)
+            hit->kind == DIR_WARN_CHECK || hit->kind == DIR_SKIP ||
+            hit->kind == DIR_ENV || hit->kind == DIR_OFAST_DIVERGENCE_OK)
             add_dir(p, d);
     }
 }

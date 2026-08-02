@@ -307,3 +307,45 @@ void test_directive_flags_env(TestCtx *t)
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     arena_free_all(&a);
 }
+
+void test_directive_warn_assertions(TestCtx *t)
+{
+    Arena a;
+    DirectiveSet ds;
+
+    arena_init(&a);
+    ds = parse(&a, "// WARN_CHECK: unused-variable unused variable 'x'\n"
+                   "// WARN_COUNT: 2\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.ndirs, 1);
+    T_ASSERT(t, ds.dirs[0].kind == DIR_WARN_CHECK);
+    T_ASSERT_EQ_INT(t, ds.dirs[0].line, 1);
+    T_ASSERT_EQ_STR(t, ds.dirs[0].warn_flag, "unused-variable");
+    T_ASSERT_EQ_STR(t, ds.dirs[0].value, "unused variable 'x'");
+    T_ASSERT(t, ds.has_warn_check);
+    T_ASSERT(t, ds.has_warn_count);
+    T_ASSERT_EQ_INT(t, ds.warn_count, 2);
+
+    ds = parse(&a, "// WARN_COUNT: 0\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT(t, ds.has_warn_count);
+    T_ASSERT_EQ_INT(t, ds.warn_count, 0);
+
+    ds = parse(&a, "// WARN_CHECK: -Wunused-variable message\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "without the '-W' prefix") != NULL);
+    ds = parse(&a, "// WARN_CHECK: Unused message\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// WARN_CHECK: unused-variable\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// WARN_CHECK: unused-variable  message\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// WARN_COUNT: -1\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// WARN_COUNT: 10000\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    ds = parse(&a, "// WARN_COUNT: 1\n// WARN_COUNT: 1\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "duplicate WARN_COUNT") != NULL);
+    arena_free_all(&a);
+}

@@ -4,6 +4,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 typedef struct {
     Arena arena;
@@ -127,6 +128,8 @@ static Buf lower_text(NswFix *f, const char *source, bool fwrapv)
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
     lang.fwrapv = fwrapv;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
     sf = pp_source_add_buffer(&pp, "nsw.c", source, strlen(source));
     pp_begin(&pp, sf, NULL);

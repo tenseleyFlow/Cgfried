@@ -61,8 +61,8 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san test-ppdiff fuzz-smoke fuzz-frontend-smoke fuzz \
-        pp-bench clean tools bootstrap install asan ubsan
+.PHONY: all test test-san test-ppdiff test-warndiff check-warn-matrix fuzz-smoke \
+        fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install asan ubsan
 
 # libcgf_rt.a: the runtime the Sprint 27 link line reserves a slot for.
 # Built by the HOST cc (RT_CC) until Sprint 58 flips it to cgf — the
@@ -232,6 +232,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	        p=$$p-nogdb; fi; \
 	    sh ci/check_skips.sh $$p $(BUILD)/debug-info.log
 	sh tests/runner/meta/run_meta.sh $(BUILD)/cgf-test
+	CGF_TEST_CC=$(BUILD)/cgfried \
+	    $(BUILD)/cgf-test --profile linux-x86_64 tests/warn/pragma
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-ppdiff
 	sh scripts/pp_dm_check.sh $(BUILD)/cgfried
 	sh scripts/lex_diff.sh $(BUILD)/cgfried
@@ -273,7 +275,12 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/check_sema_target.sh
 	sh scripts/check_verify_coverage.sh
 	sh scripts/check_no_host_fpu.sh
+	$(MAKE) check-warn-matrix
+	$(MAKE) BUILD=$(BUILD) test-warndiff
 	sh scripts/check_format.sh
+
+check-warn-matrix:
+	sh scripts/check_warn_matrix.sh
 
 # Preprocessor differential: token-level vs gcc AND clang over fixtures
 # and imported corpora, at both std flavors.
@@ -283,6 +290,14 @@ test-ppdiff: $(BUILD)/cgfried $(BUILD)/cgf-ppdiff
 	$(BUILD)/cgf-ppdiff --std -std=c17 -I tests/fixtures/imported/chibicc --xfail tests/fixtures/imported/ppdiff-xfail.txt $(BUILD)/cgfried $(PPDIFF_FILES) > $(BUILD)/ppdiff.log 2>&1; s=$$?; cat $(BUILD)/ppdiff.log; [ $$s -eq 0 ]
 	$(BUILD)/cgf-ppdiff --std -std=gnu17 -I tests/fixtures/imported/chibicc --xfail tests/fixtures/imported/ppdiff-xfail.txt $(BUILD)/cgfried $(PPDIFF_FILES) >> $(BUILD)/ppdiff.log 2>&1; s=$$?; tail -1 $(BUILD)/ppdiff.log; [ $$s -eq 0 ]
 	sh ci/check_skips.sh ppdiff $(BUILD)/ppdiff.log
+
+test-warndiff: $(BUILD)/cgfried
+	CGF_WARN_DIFF_WORK=$(BUILD)/warn-diff sh scripts/warn_diff.sh \
+	    $(BUILD)/cgfried > $(BUILD)/warn-diff.log 2>&1; s=$$?; \
+	    cat $(BUILD)/warn-diff.log; exit $$s
+	@if grep -q '^HARNESS_SKIP ' $(BUILD)/warn-diff.log; then p=warndiff-nogcc8; \
+	    else p=warndiff; fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/warn-diff.log
 
 # Fuzz smoke: both modes, fixed seeds, must be clean. Long runs are
 # manual/nightly (--iters). Findings reproduce from their seed alone.
@@ -376,4 +391,7 @@ install: all
 clean:
 	rm -rf $(BUILD)
 
--include $(sort $(OBJ:.o=.d) $(RUNNER_OBJ:.o=.d) $(UNIT_OBJ:.o=.d))
+-include $(sort $(OBJ:.o=.d) $(RUNNER_OBJ:.o=.d) $(UNIT_OBJ:.o=.d) \
+               $(PPDIFF_OBJ:.o=.d) $(FUZZ_OBJ:.o=.d) $(FEFUZZ_OBJ:.o=.d) \
+               $(IRFUZZ_OBJ:.o=.d) $(GENLAYOUT_OBJ:.o=.d) \
+               $(OBJDIFF_OBJ:.o=.d) $(FPDIFF_OBJ:.o=.d))

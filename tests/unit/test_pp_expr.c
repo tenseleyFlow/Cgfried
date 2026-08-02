@@ -3,6 +3,7 @@
 #include "pp/pp.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Harness: lex an expression string into pp-tokens, then evaluate as a
  * #if condition. Error counting is structural via a capture sink. */
@@ -35,6 +36,7 @@ static void efix_init(ExprFix *f)
     diag_set_sink(dc, sink);
     intern_init(&f->in, &f->arena);
     pp_init(&f->pp, &f->arena, dc, &f->in);
+    f->pp.warn = warn_ctx_new(&f->arena, dc);
 }
 
 static void efix_free(ExprFix *f)

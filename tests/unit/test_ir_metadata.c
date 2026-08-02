@@ -5,6 +5,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 typedef struct {
     Arena arena;
@@ -53,6 +54,8 @@ static IrModule *meta_lower(MetaFix *f, const char *src)
     pp_init(&f->pp, &f->arena, f->dc, &f->in);
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
     sf = pp_source_add_buffer(&f->pp, "meta.c", src, strlen(src));
     pp_begin(&f->pp, sf, NULL);

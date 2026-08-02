@@ -295,6 +295,187 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
     return NULL;
 }
 
+static bool rendered_warning_line(const char *line, size_t len,
+                                  const char **message, size_t *message_len,
+                                  const char **flag, size_t *flag_len)
+{
+    static const char severity[] = ": warning: ";
+    const char *sev = NULL;
+    const char *suffix = NULL;
+    size_t sev_pos = 0;
+    size_t i;
+
+    for (i = 0; i + sizeof(severity) - 1 <= len; i++) {
+        if (memcmp(line + i, severity, sizeof(severity) - 1) == 0) {
+            sev = line + i + sizeof(severity) - 1;
+            sev_pos = i;
+            break;
+        }
+    }
+    if (!sev || sev_pos < 4)
+        return false;
+    if (!(sev_pos == 7 && memcmp(line, "cgfried", 7) == 0)) {
+        /* A source diagnostic has path:line:column immediately before the
+         * severity. Walk backward so ':' in a path remains harmless. */
+        i = sev_pos;
+        if (i == 0 || line[i - 1] < '0' || line[i - 1] > '9')
+            return false;
+        while (i > 0 && line[i - 1] >= '0' && line[i - 1] <= '9')
+            i--;
+        if (i == 0 || line[--i] != ':' || i == 0 || line[i - 1] < '0' ||
+            line[i - 1] > '9')
+            return false;
+        while (i > 0 && line[i - 1] >= '0' && line[i - 1] <= '9')
+            i--;
+        if (i == 0 || line[i - 1] != ':' || i == 1)
+            return false;
+    }
+
+    *message = sev;
+    *message_len = len - (size_t)(sev - line);
+    *flag = NULL;
+    *flag_len = 0;
+    if (len < 6 || line[len - 1] != ']')
+        return true;
+    for (i = (size_t)(sev - line); i + 4 < len; i++) {
+        if (memcmp(line + i, " [-W", 4) == 0)
+            suffix = line + i;
+    }
+    if (!suffix || suffix + 4 == line + len - 1)
+        return true;
+    *message = sev;
+    *message_len = (size_t)(suffix - sev);
+    *flag = suffix + 4;
+    *flag_len = (size_t)((line + len - 1) - *flag);
+    if ((*flag)[0] == '-' || (*flag)[0] == '=' ||
+        (*flag)[*flag_len - 1] == '-' || (*flag)[*flag_len - 1] == '=') {
+        *flag = NULL;
+        *flag_len = 0;
+        return true;
+    }
+    for (i = 0; i < *flag_len; i++) {
+        char c = (*flag)[i];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ||
+              c == '=')) {
+            *flag = NULL;
+            *flag_len = 0;
+            break;
+        }
+    }
+    return true;
+}
+
+static bool line_has_substr(const char *line, size_t len, const char *needle)
+{
+    size_t needle_len = strlen(needle);
+    size_t i;
+
+    if (needle_len > len)
+        return false;
+    for (i = 0; i + needle_len <= len; i++)
+        if (memcmp(line + i, needle, needle_len) == 0)
+            return true;
+    return false;
+}
+
+static bool warning_location_matches(const char *line, size_t len,
+                                     const char *path, u32 wanted_line)
+{
+    size_t path_len = strlen(path);
+    size_t pos;
+    u32 line_no = 0;
+
+    if (path_len + 4 >= len || memcmp(line, path, path_len) != 0 ||
+        line[path_len] != ':')
+        return false;
+    pos = path_len + 1;
+    if (line[pos] < '0' || line[pos] > '9')
+        return false;
+    while (pos < len && line[pos] >= '0' && line[pos] <= '9') {
+        line_no = line_no * 10 + (u32)(line[pos] - '0');
+        pos++;
+    }
+    if (pos >= len || line[pos++] != ':' || line_no != wanted_line ||
+        pos >= len || line[pos] < '0' || line[pos] > '9')
+        return false;
+    while (pos < len && line[pos] >= '0' && line[pos] <= '9')
+        pos++;
+    return pos < len && line[pos] == ':';
+}
+
+static bool check_warning_directives(const DirectiveSet *ds, const Buf *err,
+                                     const char *path, const Directive **miss,
+                                     size_t *actual_count, bool *bad_suffix)
+{
+    size_t pos = 0;
+    size_t d;
+
+    *miss = NULL;
+    *actual_count = 0;
+    *bad_suffix = false;
+    while (pos < err->len) {
+        size_t eol = pos;
+        const char *line = (const char *)err->data + pos;
+        const char *message;
+        const char *flag;
+        size_t message_len;
+        size_t flag_len;
+
+        while (eol < err->len && err->data[eol] != '\n')
+            eol++;
+        if (rendered_warning_line(line, eol - pos, &message, &message_len,
+                                  &flag, &flag_len)) {
+            (*actual_count)++;
+            if (!flag)
+                *bad_suffix = true;
+        }
+        pos = eol + 1;
+    }
+
+    if (ds->has_warn_count) {
+        if (*bad_suffix)
+            return false;
+        if (*actual_count != (size_t)ds->warn_count)
+            return false;
+    }
+
+    for (d = 0; d < ds->ndirs; d++) {
+        const Directive *dir = &ds->dirs[d];
+        bool found = false;
+
+        if (dir->kind != DIR_WARN_CHECK)
+            continue;
+        pos = 0;
+        while (pos < err->len && !found) {
+            size_t eol = pos;
+            const char *line = (const char *)err->data + pos;
+            const char *message;
+            const char *flag;
+            size_t message_len;
+            size_t flag_len;
+
+            while (eol < err->len && err->data[eol] != '\n')
+                eol++;
+            if (rendered_warning_line(line, eol - pos, &message, &message_len,
+                                      &flag, &flag_len) &&
+                flag &&
+                warning_location_matches(line, eol - pos, path,
+                                         dir->line + 1) &&
+                strlen(dir->warn_flag) == flag_len &&
+                memcmp(flag, dir->warn_flag, flag_len) == 0 &&
+                line_has_substr(message, message_len, dir->value))
+                found = true;
+            pos = eol + 1;
+        }
+        if (!found) {
+            *miss = dir;
+            return false;
+        }
+    }
+    return true;
+}
+
 /* ASM_CHECK matcher (Sprint 25 rules): per-line substring after
  * whitespace normalization (runs of blanks -> one space), `{{...}}`
  * embedding POSIX ERE fragments, ordered (each check matches at or
@@ -700,6 +881,34 @@ have_compile:
             printf("FAIL %s: TIMEOUT after %ds (compile)\n", id, timeout);
         spawn_result_free(&comp);
         return OUT_FAIL;
+    }
+
+    if (ds->has_warn_count || ds->has_warn_check) {
+        const Directive *miss;
+        size_t actual_count;
+        bool bad_suffix;
+
+        if (!check_warning_directives(ds, &comp.err, t->path, &miss,
+                                      &actual_count, &bad_suffix)) {
+            if (!quiet) {
+                if (miss) {
+                    printf("FAIL %s: WARN_CHECK not satisfied (line %u): "
+                           "-W%s %s\n",
+                           id, (unsigned)miss->line, miss->warn_flag,
+                           miss->value);
+                } else if (bad_suffix) {
+                    printf("FAIL %s: rendered warning lacks mandatory "
+                           "[-W<flag>] suffix\n",
+                           id);
+                } else {
+                    printf("FAIL %s: WARN_COUNT expected %d, got %zu\n", id,
+                           ds->warn_count, actual_count);
+                }
+                print_detail("compiler stderr", &comp.err);
+            }
+            spawn_result_free(&comp);
+            return OUT_FAIL;
+        }
     }
 
     if (ds->has_warning_expected) {

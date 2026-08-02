@@ -4,6 +4,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* ABI-lowering units (Sprint 19): the classification->rewrite table over
  * the Sprint 14 torture shapes, the va_start field constants, and the
@@ -55,6 +56,8 @@ static bool run_abi(AbiFix *f, const char *src)
 
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
