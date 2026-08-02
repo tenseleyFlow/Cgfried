@@ -4,6 +4,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Lowering units, expression side: the whole front end runs over a C
  * snippet in-process, the module lowers, and assertions land on BOTH the
@@ -58,6 +59,8 @@ static bool run_lower(LowFix *f, const char *src)
 
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

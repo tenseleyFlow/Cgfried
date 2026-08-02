@@ -136,7 +136,7 @@ flags_env_pp.c)
     ;;
 warn_expected_pass.c)
     # A warning: text on stderr, exit 0. WARNING_EXPECTED asserts BOTH.
-    echo "warning: unused variable 'x'" >&2
+    echo "$src:2:4: warning: unused variable 'x' [-Wunused-variable]" >&2
     exit 0
     ;;
 warn_expected_fail.c)
@@ -146,8 +146,63 @@ warn_expected_fail.c)
 warn_expected_errored.c)
     # Right text, but it FAILED the compile — a warning that quietly
     # became an error is as much a regression as one that stopped firing.
-    echo "warning: unused variable 'x'" >&2
+    echo "$src:2:4: warning: unused variable 'x' [-Wunused-variable]" >&2
     exit 1
+    ;;
+warn_check_pass.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:2:4: warning: unused variable 'x' [-Wunused-variable]" >&2
+    ;;
+warn_check_bad_line.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:1:4: warning: unused variable 'x' [-Wunused-variable]" >&2
+    ;;
+warn_check_bad_flag.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:2:4: warning: unused variable 'x' [-Wunused-parameter]" >&2
+    ;;
+warn_check_bad_message.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:2:4: warning: a different message [-Wunused-variable]" >&2
+    ;;
+warn_count_two.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:1:4: warning: first [-Wpragmas]" >&2
+    echo "$src:2:4: warning: second [-Wunknown-pragmas]" >&2
+    ;;
+warn_count_one.c | warn_count_zero_fail.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:1:4: warning: only one [-Wpragmas]" >&2
+    ;;
+warn_count_driver.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "cgfried: warning: option probe [-Wunknown-warning-option]" >&2
+    ;;
+warn_count_zero.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "warning: this lacks a controllable diagnostic suffix" >&2
+    ;;
+warn_count_missing_suffix.c)
+    emit '#!/bin/sh
+exit 0
+'
+    echo "$src:1:4: warning: migration gap" >&2
     ;;
 *tu_break.tu0.c)
     # TU 0 is fine on its own — the point of the split.

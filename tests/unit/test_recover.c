@@ -3,6 +3,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Recovery: the PROGRESS guarantee, poison propagation, the error cap, the
  * unknown-type heuristic's cascade suppression, and the bracket limit. */
@@ -55,6 +56,8 @@ static AstNode *parse_src_r(RecFix *f, const char *src, u32 max_errors)
 
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

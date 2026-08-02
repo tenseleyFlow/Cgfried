@@ -2,6 +2,7 @@
 
 #include "sema/sema.h"
 #include "util/dlev.h"
+#include "warn/warn.h"
 
 /* Expression typing. Each node gets a sem_type and an is_lvalue bit, and
  * every operand is rewritten with the conversions its operator demands.
@@ -109,10 +110,10 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     /* 6.7.4p3: an inline definition may not reference an identifier with
      * internal linkage. gcc warns; matched by observation. */
     if (s->cur_inline_candidate && sym->linkage == LINK_INTERNAL)
-        diag_emit(s->dc, DIAG_WARNING, e->span,
-                  "'%s' is static but used in inline function '%s' which "
-                  "is not static",
-                  e->name, s->cur_fname ? s->cur_fname : "?");
+        warn_at(s->lang->warnings, WARN_STATIC_IN_INLINE, e->span,
+                "'%s' is static but used in inline function '%s' "
+                "which is not static",
+                e->name, s->cur_fname ? s->cur_fname : "?");
     /* An enum CONSTANT is a value, not an object — assigning to one is a
      * different error than assigning to a const object, so the lvalue bit
      * has to distinguish them here. Functions ARE lvalues (of function
@@ -394,17 +395,17 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
 
                 if (!type_compatible(lb, rb) && lt->base->kind != TY_VOID &&
                     rt->base->kind != TY_VOID)
-                    diag_emit(s->dc, DIAG_WARNING, e->span,
-                              "warning [-Wcompare-distinct-pointer-types]: "
-                              "comparison of distinct pointer types ('%s' "
-                              "and '%s')",
-                              type_to_str(s->arena, lt),
-                              type_to_str(s->arena, rt));
+                    warn_at(s->lang->warnings,
+                            WARN_COMPARE_DISTINCT_POINTER_TYPES, e->span,
+                            "comparison of distinct pointer types ('%s' and "
+                            "'%s')",
+                            type_to_str(s->arena, lt),
+                            type_to_str(s->arena, rt));
             } else if (!conv_is_npc(s, is_ptr(lt) ? rhs : lhs)) {
-                diag_emit(s->dc, DIAG_WARNING, e->span,
-                          "warning [-Wint-conversion]: comparison between "
-                          "pointer and integer ('%s' and '%s')",
-                          type_to_str(s->arena, lt), type_to_str(s->arena, rt));
+                warn_at(
+                    s->lang->warnings, WARN_INT_CONVERSION, e->span,
+                    "comparison between pointer and integer ('%s' and '%s')",
+                    type_to_str(s->arena, lt), type_to_str(s->arena, rt));
             }
             e->sem_type = type_basic(TY_INT);
             e->is_lvalue = false;
@@ -535,10 +536,10 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
         /* gcc's recovery: warn and yield `void *` rather than erroring.
          * Matching this is the deliverable — erroring here would reject
          * code that builds everywhere else. */
-        diag_emit(s->dc, DIAG_WARNING, e->span,
-                  "warning [-Wincompatible-pointer-types]: pointer type "
-                  "mismatch in conditional expression ('%s' and '%s')",
-                  type_to_str(s->arena, at), type_to_str(s->arena, bt));
+        warn_at(s->lang->warnings, WARN_INCOMPATIBLE_POINTER_TYPES, e->span,
+                "pointer type mismatch in conditional expression ('%s' and "
+                "'%s')",
+                type_to_str(s->arena, at), type_to_str(s->arena, bt));
         e->sem_type = type_ptr(s->arena, type_basic(TY_VOID));
         return e;
     }
@@ -557,10 +558,10 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
             e->sem_type = ptype;
             return e;
         }
-        diag_emit(s->dc, DIAG_WARNING, e->span,
-                  "warning [-Wint-conversion]: pointer/integer type mismatch "
-                  "in conditional expression ('%s' and '%s')",
-                  type_to_str(s->arena, at), type_to_str(s->arena, bt));
+        warn_at(s->lang->warnings, WARN_INT_CONVERSION, e->span,
+                "pointer/integer type mismatch in conditional expression ('%s' "
+                "and '%s')",
+                type_to_str(s->arena, at), type_to_str(s->arena, bt));
         e->sem_type = ptype;
         return e;
     }

@@ -195,8 +195,8 @@ too_big_decimal:
     /* gcc 8 pedwarns ("integer constant is so large that it is unsigned")
      * and uses ullong; we match, and Sprint 37's -pedantic-errors turns it
      * into an error under strict std modes. Never SILENTLY unsigned. */
-    pp_diag_at(pp, DIAG_WARNING, loc, len,
-               "integer constant is so large that it is unsigned");
+    pp_pedwarn_at(pp, WARN_OVERFLOW, loc, len,
+                  "integer constant is so large that it is unsigned");
     t->int_type = ITY_ULLONG;
 }
 
@@ -257,7 +257,7 @@ void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
         return;
     }
     if (hex && !std_is_c99_or_later(lang->std))
-        pp_diag_at(pp, DIAG_WARNING, loc, len,
+        pp_warn_at(pp, WARN_C90_C99_COMPAT, loc, len,
                    "hexadecimal floating constants are a C99 feature");
 
     if (i < len) {

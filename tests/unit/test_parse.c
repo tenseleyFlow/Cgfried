@@ -3,6 +3,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Parser units: the declarator torture suite (round-tripped through
  * ast_type_render), the typedef-ambiguity pitfalls, and the 6.7.2
@@ -54,6 +55,8 @@ static AstNode *parse_src(ParseFix *f, const char *src, CStd std)
     memset(&lang, 0, sizeof(lang));
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
+    lang.warnings = warn_ctx_new(&f->arena, dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

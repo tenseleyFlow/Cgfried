@@ -4,6 +4,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Lowering units, statement side: loop shapes, the LoopCtx stack under
  * nesting, the two-pass switch (Duff included), goto, dead-code cleanup,
@@ -54,6 +55,8 @@ static bool run_lower_s(StFix *f, const char *src)
 
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

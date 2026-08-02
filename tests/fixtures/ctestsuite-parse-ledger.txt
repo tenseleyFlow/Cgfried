@@ -11,7 +11,6 @@
 #   folds now (Sprint 14 gave it layout, Sprint 15 the evaluator), so the
 #   file that needed it agrees with gcc and its entry is gone.
 #
-00206.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
 00210.c  XD-S10-GNUEXT  GNU '__attribute__' is not yet supported (lands in Sprint 55)
 00213.c  XD-S10-GNUEXT  GNU statement expressions are not yet supported (lands in Sprint 55)
 00214.c  XD-S10-BUILTIN  '__builtin_expect' is not yet supported (the compiler builtins land in Sprint 28)

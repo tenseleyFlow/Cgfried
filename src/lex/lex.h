@@ -87,9 +87,10 @@ typedef struct TokenList {
 typedef struct LangOpts {
     CStd std;
     bool gnu_mode;
-    bool pedantic; /* -pedantic: pedwarns become visible (Sprint 37 wires
-                      the real flag machinery; the hook is here) */
+    bool pedantic; /* -pedantic: pedwarns become visible; parsers also use
+                      this bit for dialect-sensitive syntax */
     bool fwrapv;   /* signed arithmetic wraps: suppress IR no-wrap provenance */
+    struct WarnCtx *warnings; /* per-TU warning policy */
 } LangOpts;
 
 /* --- target type widths (the ONLY source; never host sizeof) ---------- */

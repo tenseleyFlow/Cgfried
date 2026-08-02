@@ -4,6 +4,7 @@
 #include "sema/sema.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Conversions (C11 6.3). The UAC table is the centerpiece and runs on
  * ALL FIVE TargetSpecs — the first target-parameterized unit suite in the
@@ -49,6 +50,7 @@ static void conv_fix_init(ConvFix *f, TargetKind target)
     intern_init(&f->in, &f->arena);
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
     spec.kind = target;
     sema_init(&f->sema, &f->arena, f->dc, &f->in, &lang, spec);
 }
@@ -314,6 +316,8 @@ static AstNode *run_src(SrcFix *f, const char *src, TargetKind target)
 
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     spec.kind = target;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

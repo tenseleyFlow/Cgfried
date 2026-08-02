@@ -557,9 +557,36 @@ void test_args_warn_routing(TestCtx *t)
           (char *)"-pedantic-errors", (char *)"t.c");
     T_ASSERT(t, a.no_warnings);
     T_ASSERT(t, a.werror);
-    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 1);
-    T_ASSERT_EQ_STR(t, a.warn_opts.data[0].name, "error=shadow");
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 3);
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[0].name, "error");
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[1].name, "error=shadow");
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[2].name, "pedantic-errors");
     T_ASSERT(t, a.pedantic && a.pedantic_errors);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-Wfatal-errors", (char *)"-Wno-not-a-real-warning",
+          (char *)"t.c");
+    T_ASSERT(t, !a.unknown_opt);
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 2);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unknown_negative.len, 1);
+    T_ASSERT_EQ_STR(t, a.warn_unknown_negative.data[0],
+                    "-Wno-not-a-real-warning");
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-Werror=not-a-real-warning", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.unknown_opt, "-Werror=not-a-real-warning");
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-Wno-error=not-a-real-warning", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.unknown_opt, "-Wno-error=not-a-real-warning");
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-Wformat=3", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-Wformat=");
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-Wno-format=2", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-Wformat=");
     args_free(&a);
     arena_free_all(&ar);
 }

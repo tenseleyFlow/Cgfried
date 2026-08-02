@@ -13,7 +13,7 @@ struct Arena;
  * (FlagSpec in args.c — zero strcmp dispatch chains outside it) and does
  * no I/O except response-file reads, so it unit-tests pure. Everything
  * here is parsed and STORED this sprint; some semantics route elsewhere:
- * -W machinery is Sprint 37, -shared/-fPIC Sprint 51,
+ * -W machinery is live, -shared/-fPIC Sprint 51,
  * crt/archive link depth Sprint 27. */
 
 /* Input dispatch: extension decides unless an active -x overrides. */
@@ -46,7 +46,7 @@ typedef struct LinkInput {
                         filled with the produced object path post-compile */
 } LinkInput;
 
-/* -W options in command-line order; Sprint 37 interprets. `name` is the
+/* -W options in command-line order; warn.c interprets them. `name` is the
  * spelling after "-W" ("all", "no-shadow", "error=format"). */
 typedef struct {
     const char *name;
@@ -71,11 +71,12 @@ typedef struct {
     bool show_dumpversion; /* -dumpversion: "0.1.0" */
     bool show_dumpmachine; /* -dumpmachine: cgf_target_name() */
     bool show_help;
-    bool print_search_dirs; /* -print-search-dirs */
-    const char *print_prog; /* -print-prog-name=X, or NULL */
-    const char *print_file; /* -print-file-name=X, or NULL */
-    bool verbose;           /* -v: print each subcommand before running */
-    bool dry_run;           /* -###: print subcommands, run NOTHING */
+    bool show_help_warnings; /* --help=warnings: registry-derived table */
+    bool print_search_dirs;  /* -print-search-dirs */
+    const char *print_prog;  /* -print-prog-name=X, or NULL */
+    const char *print_file;  /* -print-file-name=X, or NULL */
+    bool verbose;            /* -v: print each subcommand before running */
+    bool dry_run;            /* -###: print subcommands, run NOTHING */
 
     /* --- modes --- */
     bool mode_E;         /* -E: preprocess only; default stdout, -o redirects */
@@ -108,7 +109,7 @@ typedef struct {
     bool fno_strict_aliasing; /* Sprint 32 consumes */
     bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
 
-    /* --- warnings: parsed/stored now, interpreted in Sprint 37 --- */
+    /* --- warnings: every positional policy operation in argv order --- */
     VecWarn warn_opts;
     bool werror;      /* -Werror (bare) — live for existing diagnostics */
     bool no_warnings; /* -w — live for existing diagnostics */
@@ -151,6 +152,9 @@ typedef struct {
      * parity — hard-erroring breaks flag-probing configure scripts); bare
      * -Werror promotes the emitted command-line warning. */
     VecStr warn_unrecognized;
+    /* Unknown -Wno-* options are deferred: gcc reports them only when some
+     * other diagnostic is produced, preserving configure probes. */
+    VecStr warn_unknown_negative;
     /* Recognized fast-math component options that v0.1.0 deliberately
      * accepts but only honors through the complete bundle. */
     VecStr warn_fast_math;

@@ -5,6 +5,7 @@
 
 #include "driver/toolchain.h"
 #include "pp/pp.h"
+#include "warn/warn.h"
 
 void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
 {
@@ -30,26 +31,26 @@ void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
  * Splicing itself (phase 2) is NOT a rewrite — the lexer skips backslash-
  * newline in place so tokens keep true physical locations. */
 static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
-                       size_t *out_len, bool *synth_nl)
+                       size_t *out_len, bool *synth_nl, bool *has_nul,
+                       size_t *nul_offset)
 {
     char *out = arena_alloc(pp->arena, in_len + 2, 1); /* +LF +NUL */
     size_t n = 0, i = 0;
-    bool nul_warned = false;
-    bool *saw_nul = &nul_warned;
+
+    *has_nul = false;
+    *nul_offset = 0;
 
     while (i < in_len) {
         char c = in[i];
 
         if (c == '\0') {
-            /* Embedded NUL: gcc warns and ignores it. We MUST drop it —
-             * the lexer uses NUL as its end-of-buffer sentinel, so an
-             * embedded one would silently truncate the file (found by
-             * ppfuzz seed 1278). Warned once per file. */
-            if (!*saw_nul) {
-                Span sp = {0};
-                *saw_nul = true;
-                diag_emit(pp->diag, DIAG_WARNING, sp,
-                          "null character(s) ignored");
+            /* The lexer uses NUL as its end-of-buffer sentinel, so retain
+             * the first normalized offset and drop every occurrence. The
+             * warning cannot fire yet: an included file is not classified
+             * as system/user until after pp_source_load returns. */
+            if (!*has_nul) {
+                *has_nul = true;
+                *nul_offset = n;
             }
             i++;
             continue;
@@ -115,7 +116,8 @@ static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
 }
 
 static SourceFile *add_normalized(Preprocessor *pp, const char *path,
-                                  char *contents, size_t size, bool synth_nl)
+                                  char *contents, size_t size, bool synth_nl,
+                                  bool has_nul, size_t nul_offset)
 {
     SourceFile *sf =
         arena_alloc(pp->arena, sizeof(SourceFile), _Alignof(SourceFile));
@@ -135,6 +137,8 @@ static SourceFile *add_normalized(Preprocessor *pp, const char *path,
 
     memset(sf, 0, sizeof(*sf)); /* arena memory is never pre-zeroed */
     sf->synth_final_newline = synth_nl;
+    sf->has_ignored_nul = has_nul;
+    sf->ignored_nul_offset = (u32)nul_offset;
     sf->id = (FileId)(pp->nfiles + 1);
     sf->path = arena_strdup(pp->arena, path);
     sf->contents = contents;
@@ -164,11 +168,38 @@ static SourceFile *add_normalized(Preprocessor *pp, const char *path,
 SourceFile *pp_source_add_buffer(Preprocessor *pp, const char *path,
                                  const char *bytes, size_t len)
 {
-    size_t norm_len;
-    bool synth_nl;
-    char *norm = normalize(pp, bytes, len, &norm_len, &synth_nl);
+    size_t norm_len, nul_offset;
+    bool synth_nl, has_nul;
+    char *norm =
+        normalize(pp, bytes, len, &norm_len, &synth_nl, &has_nul, &nul_offset);
 
-    return add_normalized(pp, path, norm, norm_len, synth_nl);
+    return add_normalized(pp, path, norm, norm_len, synth_nl, has_nul,
+                          nul_offset);
+}
+
+void pp_source_finalize(Preprocessor *pp, SourceFile *sf)
+{
+    u32 lo = 0, hi;
+    SrcLoc loc;
+
+    if (!sf || sf->source_warnings_emitted)
+        return;
+    sf->source_warnings_emitted = true;
+    if (!sf->has_ignored_nul)
+        return;
+
+    hi = sf->nlines;
+    while (hi - lo > 1) {
+        u32 mid = lo + (hi - lo) / 2;
+
+        if (sf->line_offsets[mid] <= sf->ignored_nul_offset)
+            lo = mid;
+        else
+            hi = mid;
+    }
+    loc = pp_loc_file(&pp->loc, sf->id, lo + 1,
+                      sf->ignored_nul_offset - sf->line_offsets[lo] + 1);
+    pp_warn_at(pp, WARN_NULL_CHARACTER, loc, 1, "null character(s) ignored");
 }
 
 SourceFile *pp_source_load(Preprocessor *pp, const char *path)

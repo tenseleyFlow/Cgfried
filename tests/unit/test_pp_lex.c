@@ -3,6 +3,7 @@
 #include "pp/pp.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Fixture: preprocessor over an in-memory buffer with an error-counting
  * sink (keeps unit runs quiet; asserts are structural). */
@@ -40,6 +41,7 @@ static void fix_init(LexFix *f, const char *src, bool trigraphs)
     diag_set_sink(dc, sink);
     intern_init(&f->in, &f->arena);
     pp_init(&f->pp, &f->arena, dc, &f->in);
+    f->pp.warn = warn_ctx_new(&f->arena, dc);
     f->pp.trigraphs = trigraphs;
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
     pp_lexer_init(&f->lx, &f->pp, sf);

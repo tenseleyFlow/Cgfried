@@ -6,6 +6,7 @@
 
 #include "driver/toolchain.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 typedef struct {
     const char *path; /* arena copy */
@@ -98,14 +99,15 @@ static bool same_debug_span(Span a, Span b)
 {
     return a.file_id == b.file_id && a.line == b.line && a.col == b.col &&
            a.len == b.len && a.presumed_line == b.presumed_line &&
+           a.seq == b.seq && a.origin == b.origin &&
            same_path(a.presumed_path, b.presumed_path);
 }
 
 static u64 debug_span_hash(Span sp)
 {
     const unsigned char *p = (const unsigned char *)sp.presumed_path;
-    const u32 fields[] = {sp.file_id, sp.line, sp.col, sp.len,
-                          sp.presumed_line};
+    const u32 fields[] = {sp.file_id,       sp.line, sp.col,   sp.len,
+                          sp.presumed_line, sp.seq,  sp.origin};
     u64 h = 1469598103934665603ULL;
     size_t i;
 
@@ -262,7 +264,8 @@ Span diag_point_after(const DiagCtx *dc, Span sp)
 /* The single emission path. `fix_where`/`insert` may be a zero Span and
  * NULL for the (usual) no-fix-it case. */
 static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
-                   const char *insert, const char *fmt, va_list ap)
+                   const char *insert, WarnId warn_id, const char *fmt,
+                   va_list ap)
 {
     va_list ap2;
     int need;
@@ -295,6 +298,7 @@ static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
     d.message = msg;
     d.fixit.where = fix_where;
     d.fixit.insert = insert;
+    d.warn_id = warn_id;
     dc->sink.handle(dc->sink.user, &d, dc);
 
     /* The cap message is itself a diagnostic, so latch AFTER emitting the
@@ -318,7 +322,7 @@ void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...)
     Span nofix = {0};
 
     va_start(ap, fmt);
-    emit_v(dc, lvl, sp, nofix, NULL, fmt, ap);
+    emit_v(dc, lvl, sp, nofix, NULL, WARN_NONE, fmt, ap);
     va_end(ap);
 }
 
@@ -328,7 +332,25 @@ void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
     va_list ap;
 
     va_start(ap, fmt);
-    emit_v(dc, lvl, sp, fix_where, insert, fmt, ap);
+    emit_v(dc, lvl, sp, fix_where, insert, WARN_NONE, fmt, ap);
+    va_end(ap);
+}
+
+void diag_emit_warn_v(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
+                      const char *fmt, va_list ap)
+{
+    Span nofix = {0};
+
+    emit_v(dc, lvl, sp, nofix, NULL, warn_id, fmt, ap);
+}
+
+void diag_emit_warn(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
+                    const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    diag_emit_warn_v(dc, lvl, sp, warn_id, fmt, ap);
     va_end(ap);
 }
 
@@ -360,6 +382,11 @@ bool diag_had_error(const DiagCtx *dc)
 u32 diag_error_count(const DiagCtx *dc)
 {
     return dc->error_count;
+}
+
+u32 diag_warning_count(const DiagCtx *dc)
+{
+    return dc->warning_count;
 }
 
 bool diag_use_color(void)
@@ -444,21 +471,30 @@ void diag_render(FILE *f, const Diag *d, const DiagCtx *dc, bool color)
     const char *lvl_col = color ? level_color(d->level) : "";
     const char *reset = color ? "\033[0m" : "";
 
+    const char *warn_flag = warn_flag_name(d->warn_id);
+    const char *warn_eq = d->level == DIAG_ERROR ? "error=" : "";
+
     if (d->span.file_id == 0) {
-        fprintf(f, "%scgfried:%s %s%s:%s %s\n", bold, reset, lvl_col,
+        fprintf(f, "%scgfried:%s %s%s:%s %s", bold, reset, lvl_col,
                 level_str(d->level), reset, d->message);
+        if (warn_flag)
+            fprintf(f, " [-W%s%s]", warn_eq, warn_flag);
+        fputc('\n', f);
         return;
     }
 
     /* #line presumed path/line override the HEADER; the caret snippet
      * below always comes from the physical location. */
-    fprintf(f, "%s%s:%u:%u:%s %s%s:%s %s\n", bold,
+    fprintf(f, "%s%s:%u:%u:%s %s%s:%s %s", bold,
             d->span.presumed_path ? d->span.presumed_path
                                   : dc->files[d->span.file_id - 1].path,
             (unsigned)(d->span.presumed_line ? d->span.presumed_line
                                              : d->span.line),
             (unsigned)d->span.col, reset, lvl_col, level_str(d->level), reset,
             d->message);
+    if (warn_flag)
+        fprintf(f, " [-W%s%s]", warn_eq, warn_flag);
+    fputc('\n', f);
 
     {
         const char *src_line;

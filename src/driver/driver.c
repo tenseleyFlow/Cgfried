@@ -21,6 +21,7 @@
 #include "target.h"
 #include "util/arena.h"
 #include "util/intern.h"
+#include "warn/warn.h"
 
 /* Hand-organized, no generated help (locked style); an ARRAY of segments
  * because ISO caps one string literal at 4095 bytes. Info-option
@@ -77,8 +78,8 @@ static const char *const help_text[] = {
     "                    and the gnu twins; the LAST -std= wins.\n"
     "                    Default c17 (gcc defaults to gnu17 — divergence\n"
     "                    is deliberate and documented here)\n"
-    "  -W<name>/-Wno-<name>  enable/disable a warning (stored; the full\n"
-    "                    machinery lands in a later sprint)\n"
+    "  -W<name>/-Wno-<name>  enable/disable a warning; exact options\n"
+    "                    outrank groups regardless of argv order\n"
     "  -w                suppress all warnings\n"
     "  -Werror[=name]    warnings become errors\n"
     "  -pedantic[-errors] ISO conformance diagnostics\n"
@@ -105,7 +106,7 @@ static const char *const help_text[] = {
     "  -nostdlib -nostartfiles -nodefaultlibs   omit default link inputs\n"
     "\n",
     "Introspection:\n"
-    "  --help --version -dumpversion -dumpmachine\n"
+    "  --help --help=warnings --version -dumpversion -dumpmachine\n"
     "  -print-prog-name=X -print-file-name=X -print-search-dirs\n"
     "  -v                print each subcommand before running it\n"
     "  -###              print subcommands, run nothing, exit 0\n"
@@ -133,6 +134,18 @@ static const char *const help_text[] = {
 };
 
 VEC_DECL(PpTokVecD, PpToken);
+
+static WarnCtx *driver_warn_ctx(Arena *arena, DiagCtx *dc, const DriverArgs *a)
+{
+    WarnCtx *w = warn_ctx_new(arena, dc);
+    size_t i;
+
+    if (a->no_warnings)
+        (void)warn_flag(w, "-w");
+    for (i = 0; i < a->warn_opts.len; i++)
+        (void)warn_flag(w, a->warn_opts.data[i].name);
+    return w;
+}
 
 /* Per-input work order: which pipeline slice runs and where the product
  * lands. driver_main builds one per input; the compile functions never
@@ -786,11 +799,14 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
     bool dump_guard = cgf_env("CGF_PP_DUMP_GUARD") != NULL;
     bool first = true;
     size_t i;
+    WarnCtx *warnings = driver_warn_ctx(arena, dc, a);
 
     memset(&prev_tok, 0, sizeof(prev_tok));
 
     intern_init(&interner, arena);
     pp_init(&pp, arena, dc, &interner);
+    pp.warn = warnings;
+    pp.emit_pragmas = job->pp_text != NULL;
     pp.trigraphs = a->trigraphs;
     pp.freestanding = a->freestanding;
     pp.verbose = a->verbose;
@@ -864,6 +880,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         lang.gnu_mode = lang.std >= STD_GNU89;
         lang.pedantic = a->pedantic;
         lang.fwrapv = a->fwrapv;
+        lang.warnings = warnings;
         while (pp_next(&pp, &t))
             PpTokVecD_push(&collected, t);
         tl = lex_convert(&pp, collected.data, (u32)collected.len, &lang,
@@ -1175,6 +1192,7 @@ int driver_main(int argc, char **argv)
     static const Span no_span = {0};
     Arena arena;
     DiagCtx *dc;
+    WarnCtx *command_warn;
     DriverArgs a;
     int status = CGF_EXIT_OK;
     size_t k;
@@ -1190,26 +1208,18 @@ int driver_main(int argc, char **argv)
     dc = diag_ctx_new(&arena);
     a = args_parse(&arena, argc, argv);
     diag_set_max_errors(dc, a.max_errors);
+    command_warn = driver_warn_ctx(&arena, dc, &a);
 
-    command_line_warning_error =
-        a.werror && !a.no_warnings &&
-        (a.warn_unrecognized.len != 0 || a.warn_fast_math.len != 0);
-
-    /* Flag-parse warnings are subject to the already-live bare -Werror
-     * contract.  Named warning policy remains Sprint 37 territory. */
-    if (!a.no_warnings) {
-        for (k = 0; k < a.warn_unrecognized.len; k++)
-            fprintf(stderr,
-                    "cgfried: %s: unrecognized command-line option "
-                    "'%s'\n",
-                    a.werror ? "error" : "warning",
-                    a.warn_unrecognized.data[k]);
-        for (k = 0; k < a.warn_fast_math.len; k++)
-            fprintf(stderr,
-                    "cgfried: %s: option '%s' is bundled-only in "
-                    "v0.1.0; see docs/fast-math.md\n",
-                    a.werror ? "error" : "warning", a.warn_fast_math.data[k]);
-    }
+    for (k = 0; k < a.warn_unrecognized.len; k++)
+        warn_at(command_warn, WARN_UNKNOWN_WARNING_OPTION, no_span,
+                "unrecognized command-line option '%s'",
+                a.warn_unrecognized.data[k]);
+    for (k = 0; k < a.warn_fast_math.len; k++)
+        warn_at(command_warn, WARN_BUNDLED_ONLY_OPTION, no_span,
+                "option '%s' is bundled-only in v0.1.0; see "
+                "docs/fast-math.md",
+                a.warn_fast_math.data[k]);
+    command_line_warning_error = diag_had_error(dc);
 
     if (a.unknown_opt) {
         if (a.suggest[0])
@@ -1247,6 +1257,8 @@ int driver_main(int argc, char **argv)
     } else if (command_line_warning_error) {
         /* The promoted diagnostics were rendered above; do not compile. */
         status = CGF_EXIT_COMPILE;
+    } else if (a.show_help_warnings) {
+        warn_print_help(stdout);
     } else if (a.show_help) {
         for (k = 0; k < CGF_ARRAY_LEN(help_text); k++)
             fputs(help_text[k], stdout);
@@ -1304,10 +1316,11 @@ int driver_main(int argc, char **argv)
             cgf_ice_set_input(in->path);
 
             if (in->kind == IN_LINK) {
-                if (!a.link_exe && !a.no_warnings)
-                    fprintf(stderr,
-                            "cgfried: warning: %s: linker input file unused "
-                            "because linking is not done\n",
+                if (!a.link_exe)
+                    warn_at(command_warn, WARN_UNUSED_COMMAND_LINE_ARGUMENT,
+                            no_span,
+                            "%s: linker input file unused because linking "
+                            "is not done",
                             in->path);
                 continue;
             }
@@ -1331,9 +1344,8 @@ int driver_main(int argc, char **argv)
             }
             if (in->kind == IN_ASM && (a.mode_E || a.emit_asm)) {
                 /* Nothing in this mode consumes a .s input. */
-                if (!a.no_warnings)
-                    fprintf(stderr, "cgfried: warning: %s: input file unused\n",
-                            in->path);
+                warn_at(command_warn, WARN_UNUSED_COMMAND_LINE_ARGUMENT,
+                        no_span, "%s: input file unused", in->path);
                 continue;
             }
 
@@ -1607,6 +1619,14 @@ int driver_main(int argc, char **argv)
         VecStr_free(&temp_objs);
     }
 done:
+    if (a.warn_unknown_negative.len != 0 &&
+        (diag_error_count(dc) != 0 || diag_warning_count(dc) != 0)) {
+        for (k = 0; k < a.warn_unknown_negative.len; k++)
+            diag_emit(dc, DIAG_NOTE, no_span,
+                      "unrecognized command-line option '%s' may have been "
+                      "intended to silence earlier diagnostics",
+                      a.warn_unknown_negative.data[k]);
+    }
     args_free(&a);
     arena_free_all(&arena);
     return status;

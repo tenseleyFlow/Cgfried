@@ -30,7 +30,8 @@ void cgf_deps_write(Buf *out, const DriverArgs *a, struct Arena *ar,
 
         if (sf->path[0] == '<')
             continue; /* <command-line>, <built-in>, <stdin> */
-        if (a->dep_mode == DEP_MM && sf->is_system)
+        if (a->dep_mode == DEP_MM &&
+            (sf->is_system || sf->system_from_line != 0))
             continue;
         for (j = 0; j < prereqs.len && !dup; j++)
             dup = strcmp(prereqs.data[j], sf->path) == 0;

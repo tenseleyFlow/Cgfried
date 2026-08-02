@@ -4,6 +4,7 @@
 #include "sema/sema.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Layout, bitfields and SysV classification. The truth tables here are
  * per-target where the answer differs — `long double` is the row that
@@ -56,6 +57,8 @@ static AstNode *run_lay(LayFix *f, const char *src, TargetKind target)
 
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     spec.kind = target;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

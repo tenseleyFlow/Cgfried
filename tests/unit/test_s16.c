@@ -4,6 +4,7 @@
 #include "sema/sema.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Sprint 16: the inline matrix (all orderings), tentative resolution in
  * both -fcommon modes, and the VM classifier — asserted STRUCTURALLY on
@@ -54,6 +55,8 @@ static void run16(S16Fix *f, const char *src, bool fcommon)
     pp_init(&f->pp, &f->arena, f->dc, &f->in);
     memset(&lang, 0, sizeof(lang));
     lang.std = STD_C17;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     spec.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

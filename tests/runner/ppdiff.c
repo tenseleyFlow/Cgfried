@@ -22,6 +22,7 @@
 #include "spawn.h"
 #include "util/arena.h"
 #include "util/intern.h"
+#include "warn/warn.h"
 
 typedef struct {
     Arena arena;
@@ -49,6 +50,7 @@ static void lexctx_init(LexCtx *c)
     diag_set_sink(dc, sink);
     intern_init(&c->in, &c->arena);
     pp_init(&c->pp, &c->arena, dc, &c->in);
+    c->pp.warn = warn_ctx_new(&c->arena, dc);
 }
 
 static void lexctx_free(LexCtx *c)

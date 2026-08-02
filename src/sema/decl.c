@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "sema/sema.h"
+#include "warn/warn.h"
 
 /* Declarations: AST types to semantic Types, tag scoping, linkage,
  * redeclaration merging, and enum completion.
@@ -170,10 +171,10 @@ declare_new: {
      * caller can ever name it. gcc warns; matching the wording matters
      * because this is a real bug in real code. */
     if (s->scope->kind == SCOPE_PROTO)
-        diag_emit(s->dc, DIAG_WARNING, span,
-                  "'%s %s' declared inside parameter list will not be "
-                  "visible outside of this definition or declaration",
-                  tag_kw(kind), name);
+        warn_at(s->lang->warnings, WARN_VISIBILITY, span,
+                "'%s %s' declared inside parameter list will not be "
+                "visible outside of this definition or declaration",
+                tag_kw(kind), name);
     return tag;
 }
 }
@@ -454,9 +455,9 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
              * a constraint the standard states and every real toolchain
              * relaxes. */
             if (s->lang->pedantic)
-                diag_emit(s->dc, DIAG_WARNING, m->span,
-                          "ISO C restricts enumerator values to range of "
-                          "'int'");
+                warn_at(s->lang->warnings, WARN_PEDANTIC, m->span,
+                        "ISO C restricts enumerator values to range "
+                        "of 'int'");
         }
 
         prev = scope_lookup_local(s->scope, m->name, NS_ORDINARY);
@@ -546,8 +547,8 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
             return type_basic(TY_ERROR);
         }
         if (inner && (inner->quals & CGF_QUAL_ATOMIC))
-            diag_emit(s->dc, DIAG_WARNING, span,
-                      "'_Atomic' applied to an already-atomic type");
+            warn_at(s->lang->warnings, WARN_DUPLICATE_DECL_SPECIFIER, span,
+                    "'_Atomic' applied to an already-atomic type");
         return inner; /* the ATOMIC qual is applied by the caller's
                          quals_from_ast, since the spelling set it */
     }
@@ -726,8 +727,8 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                     diag_emit(s->dc, DIAG_ERROR, span,
                               "array has a negative size");
                 } else if (n == 0) {
-                    diag_emit(s->dc, DIAG_WARNING, span,
-                              "ISO C forbids zero-size arrays");
+                    warn_at(s->lang->warnings, WARN_ZERO_LENGTH_ARRAY, span,
+                            "ISO C forbids zero-size arrays");
                     arr->has_size = true;
                     arr->size = 0;
                 } else {
@@ -882,9 +883,8 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
             diag_emit(s->dc, DIAG_NOTE, prev->span,
                       "previous declaration is here");
         } else if (!std_is_c11_or_later(s->lang->std)) {
-            diag_emit(s->dc, DIAG_WARNING, cur->span,
-                      "redefinition of typedef '%s' is a C11 feature",
-                      cur->name);
+            warn_at(s->lang->warnings, WARN_TYPEDEF_REDEFINITION, cur->span,
+                    "redefinition of typedef '%s' is a C11 feature", cur->name);
         }
         return;
     }
@@ -1309,15 +1309,16 @@ static void declare_one(Sema *s, AstNode *d)
             /* 6.7.4p4 is a constraint, but gcc WARNS by default and errors
              * only under -pedantic-errors; real code (test harnesses,
              * mostly) relies on the warning. */
-            diag_emit(s->dc, DIAG_WARNING, d->span,
-                      "cannot inline function 'main'");
+            warn_at(s->lang->warnings, WARN_MAIN, d->span,
+                    "cannot inline function 'main'");
         }
     } else if (d->func_specs) {
         /* 6.7.4p2: function specifiers appear only on functions. gcc
          * warns rather than errors here too. */
-        diag_emit(s->dc, DIAG_WARNING, d->span, "%s '%s' declared '%s'",
-                  sym->kind == SYM_TYPEDEF ? "typedef" : "variable", d->name,
-                  (d->func_specs & AST_FS_INLINE) ? "inline" : "_Noreturn");
+        warn_at(s->lang->warnings, WARN_INVALID_FUNCTION_SPECIFIER, d->span,
+                "%s '%s' declared '%s'",
+                sym->kind == SYM_TYPEDEF ? "typedef" : "variable", d->name,
+                (d->func_specs & AST_FS_INLINE) ? "inline" : "_Noreturn");
     }
 
     /* 6.7.4p3: an inline definition may not define a MODIFIABLE object
@@ -1327,10 +1328,10 @@ static void declare_one(Sema *s, AstNode *d)
         sym->kind != SYM_TYPEDEF &&
         (d->storage & (AST_SC_STATIC | AST_SC_THREAD_LOCAL)) && type &&
         !(type->quals & CGF_QUAL_CONST))
-        diag_emit(s->dc, DIAG_WARNING, d->span,
-                  "'%s' is static but declared in inline function '%s' "
-                  "which is not static",
-                  d->name, s->cur_fname ? s->cur_fname : "?");
+        warn_at(s->lang->warnings, WARN_STATIC_IN_INLINE, d->span,
+                "'%s' is static but declared in inline function '%s' "
+                "which is not static",
+                d->name, s->cur_fname ? s->cur_fname : "?");
 
     /* An object of incomplete type cannot be defined — but `extern int
      * a[];` and a tentative `int a[];` are both fine, so the check is on
@@ -1396,23 +1397,23 @@ static void check_main_signature(Sema *s, AstNode *d, Type *ftype)
     if (!ftype || ftype->kind != TY_FUNC)
         return;
     if (!ftype->base || ftype->base->kind != TY_INT)
-        diag_emit(s->dc, DIAG_WARNING, d->span,
-                  "return type of 'main' is not 'int'");
+        warn_at(s->lang->warnings, WARN_MAIN, d->span,
+                "return type of 'main' is not 'int'");
     if (!ftype->has_proto || ftype->nparams == 0)
         return;
     if (ftype->nparams != 2) {
-        diag_emit(s->dc, DIAG_WARNING, d->span,
-                  "'main' takes only zero or two arguments");
+        warn_at(s->lang->warnings, WARN_MAIN, d->span,
+                "'main' takes only zero or two arguments");
         return;
     }
     if (!type_is_integer(ftype->params[0]))
-        diag_emit(s->dc, DIAG_WARNING, d->span,
-                  "first argument of 'main' should be 'int'");
+        warn_at(s->lang->warnings, WARN_MAIN, d->span,
+                "first argument of 'main' should be 'int'");
     cc = ftype->params[1];
     if (!(cc && cc->kind == TY_PTR && cc->base && cc->base->kind == TY_PTR &&
           cc->base->base && cc->base->base->kind == TY_CHAR))
-        diag_emit(s->dc, DIAG_WARNING, d->span,
-                  "second argument of 'main' should be 'char **'");
+        warn_at(s->lang->warnings, WARN_MAIN, d->span,
+                "second argument of 'main' should be 'char **'");
 }
 
 /* K&R parameter resolution (the definition's declaration list), plus the
@@ -1480,12 +1481,13 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
             if (pt->kind == TY_FLOAT)
                 promoted = type_basic(TY_DOUBLE);
             if (!type_compatible(conv_strip_quals(s, promoted), want))
-                diag_emit(s->dc, DIAG_WARNING, ft->params[pi].span,
-                          "promoted argument '%s' doesn't match prototype "
-                          "('%s' promotes to '%s', prototype says '%s')",
-                          pname, type_to_str(s->arena, pt),
-                          type_to_str(s->arena, promoted),
-                          type_to_str(s->arena, proto->params[pi]));
+                warn_at(s->lang->warnings, WARN_TRADITIONAL,
+                        ft->params[pi].span,
+                        "promoted argument '%s' doesn't match prototype ('%s' "
+                        "promotes to '%s', prototype says '%s')",
+                        pname, type_to_str(s->arena, pt),
+                        type_to_str(s->arena, promoted),
+                        type_to_str(s->arena, proto->params[pi]));
         }
 
         ps = sym_new(s, pname, SYM_VAR, NS_ORDINARY, pt, ft->params[pi].span);
@@ -1771,19 +1773,18 @@ static void sema_stmt(Sema *s, AstNode *st)
          * error — the promise is broken but the code is well-defined. The
          * flow-sensitive falls-off-the-end half joins Sprint 40's CFG. */
         if (s->cur_func_specs & AST_FS_NORETURN)
-            diag_emit(s->dc, DIAG_WARNING, st->span,
-                      "function declared 'noreturn' has a 'return' "
-                      "statement");
+            warn_at(s->lang->warnings, WARN_RETURN_TYPE, st->span,
+                    "function declared 'noreturn' has a 'return' "
+                    "statement");
         if (s->cur_ret && s->cur_ret->kind == TY_VOID) {
             if (st->lhs)
-                diag_emit(s->dc, DIAG_WARNING, st->span,
-                          "'return' with a value, in function returning "
-                          "void");
+                warn_at(s->lang->warnings, WARN_RETURN_TYPE, st->span,
+                        "'return' with a value, in function returning void");
         } else if (s->cur_ret) {
             if (!st->lhs) {
-                diag_emit(s->dc, DIAG_WARNING, st->span,
-                          "'return' with no value, in function returning "
-                          "non-void");
+                warn_at(
+                    s->lang->warnings, WARN_RETURN_TYPE, st->span,
+                    "'return' with no value, in function returning non-void");
             } else if (!st->lhs->poisoned) {
                 AssignCtx ctx;
 
@@ -1938,8 +1939,9 @@ static void finish_symbol(Sema *s, Symbol *sym)
             one->has_size = true;
             one->size = 1;
             sym->type = one;
-            diag_emit(s->dc, DIAG_WARNING, sym->span,
-                      "array '%s' assumed to have one element", sym->name);
+            warn_at(s->lang->warnings, WARN_TENTATIVE_DEFINITION_ARRAY,
+                    sym->span, "array '%s' assumed to have one element",
+                    sym->name);
         } else {
             /* 6.9.2p3: an internal-linkage tentative must have a complete
              * type by end of TU — nothing can complete it later. */

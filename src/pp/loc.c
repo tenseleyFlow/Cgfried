@@ -5,6 +5,7 @@
 
 #include "driver/toolchain.h"
 #include "pp/pp.h"
+#include "warn/warn.h"
 
 void pp_loc_init(LocTable *t)
 {
@@ -32,6 +33,7 @@ SrcLoc pp_loc_file(LocTable *t, FileId f, u32 line, u32 col)
 {
     LocEnt e;
 
+    e.seq = 0;
     e.macro_name = NULL;
     e.macro_def_loc = SRCLOC_INVALID;
     e.w0 = line;
@@ -47,12 +49,30 @@ SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from,
 
     if (spelled_at == SRCLOC_INVALID || expanded_from == SRCLOC_INVALID)
         CGF_ICE("pp_loc_expansion: invalid operand loc");
+    e.seq = 0;
     e.w0 = spelled_at;
     e.w1 = expanded_from;
     e.w2 = 1;
     e.macro_name = macro_name;
     e.macro_def_loc = macro_def_loc;
     return push_ent(t, e);
+}
+
+u32 pp_loc_mark(LocTable *t, SrcLoc loc)
+{
+    LocEnt *e;
+
+    if (loc == SRCLOC_INVALID)
+        return 0;
+    if ((size_t)loc > t->len)
+        CGF_ICE("bad SrcLoc %u (table has %zu)", (unsigned)loc, t->len);
+    e = &t->ents[loc - 1];
+    if (e->seq == 0) {
+        if (t->next_seq == UINT32_MAX)
+            CGF_ICE("preprocessor lexical sequence exhausted");
+        e->seq = ++t->next_seq;
+    }
+    return e->seq;
 }
 
 static const LocEnt *ent(const LocTable *t, SrcLoc loc)
@@ -139,6 +159,22 @@ static Span span_at(Preprocessor *pp, SrcLoc loc, u32 len)
     return sp;
 }
 
+bool pp_loc_is_system(Preprocessor *pp, SrcLoc loc)
+{
+    FileId f = 0;
+    u32 line = 0;
+    const SourceFile *sf;
+
+    if (loc == SRCLOC_INVALID)
+        return false;
+    pp_loc_resolve(&pp->loc, loc, &f, &line, NULL);
+    if (!f || (size_t)f > pp->nfiles)
+        return false;
+    sf = pp->files[f - 1];
+    return sf->is_system ||
+           (sf->system_from_line && line >= sf->system_from_line);
+}
+
 /* Diagnostics point at the token spelling and render the macro backtrace.
  * Debuggers instead need the executable statement's user-visible origin:
  * walk expansion parents through nested macros to the outermost invocation
@@ -147,10 +183,22 @@ Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len)
 {
     Span sp = span_at(pp, loc, len);
     SrcLoc invocation = loc;
+    bool from_macro =
+        loc != SRCLOC_INVALID && pp_loc_is_expansion(&pp->loc, loc);
 
     while (invocation != SRCLOC_INVALID &&
            pp_loc_is_expansion(&pp->loc, invocation))
         invocation = pp_loc_expansion_parent(&pp->loc, invocation);
+    /* Raw token flow normally stamps before any consumer sees the token.
+     * The fallback keeps direct location-unit callers deterministic. */
+    sp.seq = pp_loc_mark(&pp->loc, loc);
+    if (pp_loc_is_system(pp, loc))
+        sp.origin |= SPAN_ORIGIN_SYSTEM_SPELLING;
+    if (from_macro) {
+        sp.origin |= SPAN_ORIGIN_ANY_MACRO;
+        if (pp_loc_is_system(pp, loc))
+            sp.origin |= SPAN_ORIGIN_SYSTEM_MACRO;
+    }
     if (invocation != loc && invocation != SRCLOC_INVALID)
         sp.debug_loc =
             diag_add_debug_span(pp->diag, span_at(pp, invocation, len));
@@ -254,5 +302,55 @@ void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,
      * diagnostics inherit it for free. Notes never recurse (they carry
      * already-resolved spans). */
     if (lvl != DIAG_NOTE)
+        emit_expansion_chain(pp, loc);
+}
+
+void pp_warn_at(Preprocessor *pp, WarnId id, SrcLoc loc, u32 len,
+                const char *fmt, ...)
+{
+    Span sp = pp_span(pp, loc, len);
+    va_list ap, ap2;
+    int need;
+    char *msg;
+
+    if (!pp->warn)
+        CGF_ICE("pp_warn_at called without a warning context");
+    if (!warn_enabled(pp->warn, id, sp))
+        return;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    need = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (need < 0)
+        CGF_ICE("pp_warn_at: vsnprintf failed on format \"%s\"", fmt);
+    msg = arena_alloc(pp->arena, (size_t)need + 1, 1);
+    vsnprintf(msg, (size_t)need + 1, fmt, ap2);
+    va_end(ap2);
+    warn_at(pp->warn, id, sp, "%s", msg);
+    if (loc != SRCLOC_INVALID && pp_loc_is_expansion(&pp->loc, loc))
+        emit_expansion_chain(pp, loc);
+}
+
+void pp_pedwarn_at(Preprocessor *pp, WarnId id, SrcLoc loc, u32 len,
+                   const char *fmt, ...)
+{
+    Span sp = pp_span(pp, loc, len);
+    va_list ap, ap2;
+    int need;
+    char *msg;
+
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    need = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (need < 0)
+        CGF_ICE("pp_pedwarn_at: vsnprintf failed on format \"%s\"", fmt);
+    msg = arena_alloc(pp->arena, (size_t)need + 1, 1);
+    vsnprintf(msg, (size_t)need + 1, fmt, ap2);
+    va_end(ap2);
+    if (!pp->warn)
+        CGF_ICE("pp_pedwarn_at called without a warning context");
+    warn_pedwarn_at(pp->warn, id, sp, "%s", msg);
+    if (loc != SRCLOC_INVALID && pp_loc_is_expansion(&pp->loc, loc))
         emit_expansion_chain(pp, loc);
 }

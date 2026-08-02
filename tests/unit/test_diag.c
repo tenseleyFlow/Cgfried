@@ -4,6 +4,7 @@
 #include "diag.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/id.h"
 
 /* The capture-sink pattern all future diagnostic tests copy: tests assert on
  * Diag fields structurally, never by scraping rendered text. */
@@ -40,6 +41,7 @@ void test_diag_sink_structural(TestCtx *t)
     T_ASSERT_EQ_INT(t, cap.count, 1);
     T_ASSERT(t, cap.last.level == DIAG_WARNING);
     T_ASSERT_EQ_STR(t, cap.last.message, "w=7");
+    T_ASSERT_EQ_INT(t, cap.last.warn_id, WARN_NONE);
     T_ASSERT(t, !diag_had_error(dc)); /* warnings are not errors */
 
     diag_emit(dc, DIAG_ERROR, sp, "x=%d", 42);

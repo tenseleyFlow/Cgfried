@@ -5,6 +5,7 @@
 #include "unit.h"
 #include "util/arena.h"
 #include "util/dlev.h"
+#include "warn/warn.h"
 
 /* Sema units: the compatibility/composite truth tables, basic-type
  * interning, the four namespaces, and the full 6.2.2 linkage matrix. */
@@ -58,6 +59,8 @@ static void run_sema(SemaFix *f, const char *src, CStd std)
     memset(&lang, 0, sizeof(lang));
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
+    lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

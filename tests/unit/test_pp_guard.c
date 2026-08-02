@@ -7,6 +7,7 @@
 #include "pp/pp.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Include-guard shape detector (Sprint 6) + #pragma once identity. */
 typedef struct {
@@ -38,6 +39,7 @@ static void gfix_init(GFix *f)
     diag_set_sink(dc, s);
     intern_init(&f->in, &f->arena);
     pp_init(&f->pp, &f->arena, dc, &f->in);
+    f->pp.warn = warn_ctx_new(&f->arena, dc);
 }
 
 static void gfix_free(GFix *f)
@@ -217,6 +219,7 @@ void test_pp_pragma_destringize(TestCtx *t)
         bool saw_pragma = false;
 
         gfix_init(&f);
+        f.pp.emit_pragmas = true; /* this test exercises -E passthrough */
         sf = pp_source_add_buffer(&f.pp, "p.c", cases[i].src,
                                   strlen(cases[i].src));
         pp_begin(&f.pp, sf, NULL);
@@ -232,6 +235,7 @@ void test_pp_pragma_destringize(TestCtx *t)
     {
         int quotes = 0;
         gfix_init(&f);
+        f.pp.emit_pragmas = true; /* this test exercises -E passthrough */
         sf = pp_source_add_buffer(&f.pp, "p.c",
                                   "_Pragma(\"message \\\"hi\\\"\")\n", 27);
         pp_begin(&f.pp, sf, NULL);

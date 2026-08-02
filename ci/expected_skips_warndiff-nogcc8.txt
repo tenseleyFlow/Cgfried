@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=warndiff test=gcc8-oracle count=1 reason="gcc-8 not found (set CGF_DIFF_GCC8)"

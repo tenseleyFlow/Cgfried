@@ -3,6 +3,7 @@
 #include "parse/parse.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* The precedence matrix. Each case parses a single expression and asserts
  * its FULLY PARENTHESIZED rendering, so a wrong binding power or a wrong
@@ -55,6 +56,10 @@ static AstNode *parse_src_e(ExprFix *f, const char *src, CStd std)
     memset(&lang, 0, sizeof(lang));
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
+    lang.warnings = warn_ctx_new(&f->arena, dc);
+    if (!std_is_c99_or_later(std))
+        (void)warn_flag(lang.warnings, "declaration-after-statement");
+    f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));

@@ -1,0 +1,470 @@
+#include <stdio.h>
+#include <string.h>
+
+#include "unit.h"
+#include "util/arena.h"
+#include "warn/warn.h"
+
+typedef struct WarnCapture {
+    Diag last;
+    int count;
+} WarnCapture;
+
+static void warn_capture(void *user, const Diag *d, const DiagCtx *dc)
+{
+    WarnCapture *cap = user;
+    (void)dc;
+    cap->last = *d;
+    cap->count++;
+}
+
+static WarnCtx *new_warn(Arena *a, WarnCapture *cap)
+{
+    DiagCtx *dc = diag_ctx_new(a);
+    DiagSink sink = {warn_capture, cap};
+
+    memset(cap, 0, sizeof(*cap));
+    diag_set_sink(dc, sink);
+    return warn_ctx_new(a, dc);
+}
+
+static bool flag_in(const char *flag, const char *const *set, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count; i++)
+        if (strcmp(flag, set[i]) == 0)
+            return true;
+    return false;
+}
+
+void test_warn_metadata_groups(TestCtx *t)
+{
+    static const char *const wall[] = {"address",
+                                       "array-bounds",
+                                       "bool-compare",
+                                       "bool-operation",
+                                       "char-subscripts",
+                                       "comment",
+                                       "duplicate-decl-specifier",
+                                       "enum-compare",
+                                       "format",
+                                       "int-in-bool-context",
+                                       "implicit",
+                                       "implicit-function-declaration",
+                                       "implicit-int",
+                                       "logical-not-parentheses",
+                                       "main",
+                                       "maybe-uninitialized",
+                                       "memset-elt-size",
+                                       "memset-transposed-args",
+                                       "misleading-indentation",
+                                       "missing-braces",
+                                       "multistatement-macros",
+                                       "nonnull",
+                                       "parentheses",
+                                       "pointer-sign",
+                                       "restrict",
+                                       "return-type",
+                                       "sequence-point",
+                                       "sizeof-pointer-div",
+                                       "sizeof-pointer-memaccess",
+                                       "strict-aliasing",
+                                       "strict-overflow",
+                                       "stringop-truncation",
+                                       "switch",
+                                       "tautological-compare",
+                                       "trigraphs",
+                                       "uninitialized",
+                                       "unknown-pragmas",
+                                       "unused",
+                                       "unused-but-set-variable",
+                                       "unused-function",
+                                       "unused-label",
+                                       "unused-local-typedefs",
+                                       "unused-value",
+                                       "unused-variable",
+                                       "volatile-register-var"};
+    static const char *const extra[] = {
+        "cast-function-type",
+        "clobbered",
+        "empty-body",
+        "ignored-qualifiers",
+        "implicit-fallthrough",
+        "missing-field-initializers",
+        "missing-parameter-type",
+        "old-style-declaration",
+        "override-init",
+        "pointer-compared-to-zero-with-relational",
+        "shift-negative-value",
+        "sign-compare",
+        "type-limits",
+        "uninitialized",
+        "unused-but-set-parameter",
+        "unused-parameter"};
+    size_t i, nwall = 0, nextra = 0;
+    const char *prev = "";
+
+    T_ASSERT_EQ_INT(t, sizeof(wall) / sizeof(wall[0]), 45);
+    T_ASSERT_EQ_INT(t, sizeof(extra) / sizeof(extra[0]), 16);
+    for (i = 0; i < warn_info_count(); i++) {
+        const WarnInfo *info = warn_info_at(i);
+        T_ASSERT(t, strcmp(prev, info->flag) < 0);
+        prev = info->flag;
+        if (info->groups & WG_ALL) {
+            nwall++;
+            T_ASSERT(t,
+                     flag_in(info->flag, wall, sizeof(wall) / sizeof(wall[0])));
+        }
+        if (info->groups & WG_EXTRA) {
+            nextra++;
+            T_ASSERT(t, flag_in(info->flag, extra,
+                                sizeof(extra) / sizeof(extra[0])));
+        }
+    }
+    T_ASSERT_EQ_INT(t, nwall, sizeof(wall) / sizeof(wall[0]));
+    T_ASSERT_EQ_INT(t, nextra, sizeof(extra) / sizeof(extra[0]));
+    T_ASSERT_EQ_INT(t, warn_info_for_flag("-Warray-bounds=1")->id,
+                    WARN_ARRAY_BOUNDS);
+    T_ASSERT_EQ_INT(t, warn_info_for_flag("implicit-fallthrough=3")->id,
+                    WARN_IMPLICIT_FALLTHROUGH);
+}
+
+typedef struct FlagCase {
+    const char *opts[5];
+    WarnId id;
+    int count;
+    DiagLevel level;
+} FlagCase;
+
+void test_warn_flag_order_table(TestCtx *t)
+{
+    static const FlagCase cases[] = {
+        {{NULL}, WARN_UNUSED_VARIABLE, 0, DIAG_WARNING},
+        {{"-Wall"}, WARN_UNUSED_VARIABLE, 1, DIAG_WARNING},
+        {{"-Wno-unused-variable", "-Wall"},
+         WARN_UNUSED_VARIABLE,
+         0,
+         DIAG_WARNING},
+        {{"-Wall", "-Wno-unused-variable"},
+         WARN_UNUSED_VARIABLE,
+         0,
+         DIAG_WARNING},
+        {{"-Wunused-variable", "-Wno-all"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_WARNING},
+        {{"-Wno-all", "-Wunused-variable"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_WARNING},
+        {{"-Wunused", "-Wno-unused-variable"},
+         WARN_UNUSED_VARIABLE,
+         0,
+         DIAG_WARNING},
+        {{"-Wno-unused-variable", "-Wunused"},
+         WARN_UNUSED_VARIABLE,
+         0,
+         DIAG_WARNING},
+        {{"-Wall", "-Werror"}, WARN_UNUSED_VARIABLE, 1, DIAG_ERROR},
+        {{"-Werror", "-Wall"}, WARN_UNUSED_VARIABLE, 1, DIAG_ERROR},
+        {{"-Werror=unused-variable"}, WARN_UNUSED_VARIABLE, 1, DIAG_ERROR},
+        {{"-Werror=unused-variable", "-Wno-unused-variable"},
+         WARN_UNUSED_VARIABLE,
+         0,
+         DIAG_WARNING},
+        {{"-Wno-unused-variable", "-Werror=unused-variable"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_ERROR},
+        {{"-Wno-error=unused-variable", "-Werror", "-Wall"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_WARNING},
+        {{"-Werror", "-Wno-error=unused-variable", "-Wall"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_WARNING},
+        {{"-Wall", "-Werror", "-Wno-error"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_WARNING},
+        {{"-Wall", "-Wno-error", "-Werror"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_ERROR},
+        {{"-w", "-Wall"}, WARN_UNUSED_VARIABLE, 0, DIAG_WARNING},
+        {{"-Wall", "-w"}, WARN_UNUSED_VARIABLE, 0, DIAG_WARNING},
+        {{"-w", "-Werror=unused-variable"},
+         WARN_UNUSED_VARIABLE,
+         0,
+         DIAG_ERROR},
+        {{"-Wpragmas"}, WARN_PRAGMAS, 1, DIAG_WARNING},
+        {{"-Wno-pragmas"}, WARN_PRAGMAS, 0, DIAG_WARNING},
+        {{"-Wno-pragmas", "-Wpragmas"}, WARN_PRAGMAS, 1, DIAG_WARNING},
+        {{"-Wpragmas", "-Wno-pragmas"}, WARN_PRAGMAS, 0, DIAG_WARNING},
+        {{"-Wextra"}, WARN_SIGN_COMPARE, 1, DIAG_WARNING},
+        {{"-Wno-extra", "-Wsign-compare"}, WARN_SIGN_COMPARE, 1, DIAG_WARNING},
+        {{"-Wsign-compare", "-Wno-extra"}, WARN_SIGN_COMPARE, 1, DIAG_WARNING},
+        {{"-Wextra", "-Wno-sign-compare"}, WARN_SIGN_COMPARE, 0, DIAG_WARNING},
+        {{"-Wextra"}, WARN_UNUSED_PARAMETER, 0, DIAG_WARNING},
+        {{"-Wunused"}, WARN_UNUSED_PARAMETER, 0, DIAG_WARNING},
+        {{"-Wextra", "-Wunused"}, WARN_UNUSED_PARAMETER, 1, DIAG_WARNING},
+        {{"-Wunused", "-Wextra"}, WARN_UNUSED_PARAMETER, 1, DIAG_WARNING},
+        {{"-Wall", "-Wextra"}, WARN_UNUSED_PARAMETER, 1, DIAG_WARNING},
+        {{"-Wextra", "-Wall"}, WARN_UNUSED_PARAMETER, 1, DIAG_WARNING},
+        {{"-Wno-unused", "-Wall", "-Wextra"},
+         WARN_UNUSED_PARAMETER,
+         0,
+         DIAG_WARNING},
+        {{"-Wextra", "-Wunused", "-Wno-extra"},
+         WARN_UNUSED_PARAMETER,
+         0,
+         DIAG_WARNING},
+        {{"-Wformat"}, WARN_FORMAT, 1, DIAG_WARNING},
+        {{"-Wformat"}, WARN_FORMAT_SECURITY, 0, DIAG_WARNING},
+        {{"-Wformat=0"}, WARN_FORMAT, 0, DIAG_WARNING},
+        {{"-Wformat=1"}, WARN_FORMAT_SECURITY, 0, DIAG_WARNING},
+        {{"-Wformat=2"}, WARN_FORMAT_SECURITY, 1, DIAG_WARNING},
+        {{"-Wformat=2", "-Wformat=1"}, WARN_FORMAT_SECURITY, 0, DIAG_WARNING},
+        {{"-Wno-format-security", "-Wformat=2"},
+         WARN_FORMAT_SECURITY,
+         0,
+         DIAG_WARNING},
+        {{"-Wformat=2", "-Wno-format-security"},
+         WARN_FORMAT_SECURITY,
+         0,
+         DIAG_WARNING},
+        {{"-Warray-bounds=1"}, WARN_ARRAY_BOUNDS, 1, DIAG_WARNING},
+        {{"-Wno-array-bounds=2"}, WARN_ARRAY_BOUNDS, 0, DIAG_WARNING},
+        {{"-Wimplicit"}, WARN_IMPLICIT_INT, 1, DIAG_WARNING},
+        {{"-Wimplicit", "-Wno-implicit-int"},
+         WARN_IMPLICIT_INT,
+         0,
+         DIAG_WARNING},
+        {{"-Wno-implicit-int", "-Wimplicit"},
+         WARN_IMPLICIT_INT,
+         0,
+         DIAG_WARNING},
+        {{"-Wpedantic"}, WARN_POINTER_ARITH, 1, DIAG_WARNING},
+        {{"-Wno-pedantic", "-Wpointer-arith"},
+         WARN_POINTER_ARITH,
+         1,
+         DIAG_WARNING},
+        {{"-pedantic-errors"}, WARN_POINTER_ARITH, 1, DIAG_ERROR},
+        {{"-pedantic-errors", "-w"}, WARN_POINTER_ARITH, 0, DIAG_ERROR},
+        {{"-Werror", "-Wpointer-arith"}, WARN_POINTER_ARITH, 1, DIAG_ERROR},
+        {{"-Wpointer-arith", "-Wno-error=pointer-arith", "-Werror"},
+         WARN_POINTER_ARITH,
+         1,
+         DIAG_WARNING},
+        {{"-Werror=unused"}, WARN_UNUSED_VARIABLE, 1, DIAG_ERROR},
+        {{"-Wall", "-Werror=unused", "-Wno-error=unused-variable"},
+         WARN_UNUSED_VARIABLE,
+         1,
+         DIAG_WARNING},
+    };
+    size_t i, j;
+
+    T_ASSERT(t, sizeof(cases) / sizeof(cases[0]) >= 40);
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        Arena a;
+        WarnCapture cap;
+        WarnCtx *w;
+        arena_init(&a);
+        w = new_warn(&a, &cap);
+        for (j = 0; j < sizeof(cases[i].opts) / sizeof(cases[i].opts[0]) &&
+                    cases[i].opts[j];
+             j++)
+            T_ASSERT(t, warn_flag(w, cases[i].opts[j]));
+        warn_at(w, cases[i].id, (Span){0}, "probe");
+        T_ASSERT_EQ_INT(t, cap.count, cases[i].count);
+        if (cap.count) {
+            T_ASSERT_EQ_INT(t, cap.last.level, cases[i].level);
+            T_ASSERT_EQ_INT(t, cap.last.warn_id, cases[i].id);
+        }
+        arena_free_all(&a);
+    }
+}
+
+void test_warn_pedwarn_exhaustive(TestCtx *t)
+{
+    static const char *const configs[] = {NULL, "-pedantic",
+                                          "-pedantic-errors"};
+    static const int counts[3][3] = {{0, 1, 1}, {1, 1, 1}, {1, 1, 1}};
+    static const DiagLevel levels[3][3] = {
+        {DIAG_WARNING, DIAG_WARNING, DIAG_WARNING},
+        {DIAG_WARNING, DIAG_WARNING, DIAG_WARNING},
+        {DIAG_ERROR, DIAG_ERROR, DIAG_WARNING}};
+    size_t row, col;
+
+    for (row = 0; row < 3; row++) {
+        for (col = 0; col < 3; col++) {
+            Arena a;
+            WarnCapture cap;
+            WarnCtx *w;
+            WarnId id = col == 2 ? WARN_PRAGMAS : WARN_POINTER_ARITH;
+            arena_init(&a);
+            w = new_warn(&a, &cap);
+            if (configs[row])
+                T_ASSERT(t, warn_flag(w, configs[row]));
+            if (col == 1)
+                T_ASSERT(t, warn_flag(w, "-Wpointer-arith"));
+            if (col == 2)
+                warn_at(w, id, (Span){0}, "warn probe");
+            else
+                warn_at(w, id, (Span){0}, "ped probe");
+            T_ASSERT_EQ_INT(t, cap.count, counts[row][col]);
+            if (cap.count)
+                T_ASSERT_EQ_INT(t, cap.last.level, levels[row][col]);
+            arena_free_all(&a);
+        }
+    }
+
+    /* One registry flag can classify both ordinary warnings and pedwarn
+     * occurrences. Only the latter are promoted by -pedantic-errors. */
+    for (row = 0; row < 3; row++) {
+        Arena a;
+        WarnCapture cap;
+        WarnCtx *w;
+
+        arena_init(&a);
+        w = new_warn(&a, &cap);
+        if (configs[row])
+            T_ASSERT(t, warn_flag(w, configs[row]));
+        warn_pedwarn_at(w, WARN_OVERFLOW, (Span){0}, "integer overflow");
+        T_ASSERT_EQ_INT(t, cap.count, 1);
+        T_ASSERT_EQ_INT(t, cap.last.level,
+                        row == 2 ? DIAG_ERROR : DIAG_WARNING);
+        warn_at(w, WARN_OVERFLOW, (Span){0}, "floating overflow");
+        T_ASSERT_EQ_INT(t, cap.count, 2);
+        T_ASSERT_EQ_INT(t, cap.last.level, DIAG_WARNING);
+        arena_free_all(&a);
+    }
+}
+
+void test_warn_pragma_sequence_and_stack(TestCtx *t)
+{
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    Span sp = {0};
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    warn_pragma_set(w, 10, WARN_PRAGMAS, WARN_PRAGMA_IGNORED);
+    warn_pragma_push(w, 20);
+    warn_pragma_set(w, 30, WARN_PRAGMAS, WARN_PRAGMA_ERROR);
+    warn_pragma_push(w, 40);
+    warn_pragma_set(w, 50, WARN_PRAGMAS, WARN_PRAGMA_IGNORED);
+    T_ASSERT(t, warn_pragma_pop(w, 60, sp));
+    T_ASSERT(t, warn_pragma_pop(w, 70, sp));
+
+    sp.seq = 5;
+    warn_at(w, WARN_PRAGMAS, sp, "a");
+    T_ASSERT_EQ_INT(t, cap.count, 1);
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_WARNING);
+    sp.seq = 15;
+    warn_at(w, WARN_PRAGMAS, sp, "b");
+    T_ASSERT_EQ_INT(t, cap.count, 1);
+    sp.seq = 35;
+    warn_at(w, WARN_PRAGMAS, sp, "c");
+    T_ASSERT_EQ_INT(t, cap.count, 2);
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+    sp.seq = 55;
+    warn_at(w, WARN_PRAGMAS, sp, "d");
+    T_ASSERT_EQ_INT(t, cap.count, 2);
+    sp.seq = 65;
+    warn_at(w, WARN_PRAGMAS, sp, "e");
+    T_ASSERT_EQ_INT(t, cap.count, 3);
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+    sp.seq = 75;
+    warn_at(w, WARN_PRAGMAS, sp, "f");
+    T_ASSERT_EQ_INT(t, cap.count, 3);
+    T_ASSERT(t, !warn_pragma_pop(w, 80, sp));
+    T_ASSERT_EQ_INT(t, cap.count, 3);
+    sp.seq = 85;
+    warn_at(w, WARN_PRAGMAS, sp, "baseline restored");
+    T_ASSERT_EQ_INT(t, cap.count, 4);
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, !warn_pragma_pop(w, 1, (Span){0}));
+    T_ASSERT_EQ_INT(t, cap.count, 0);
+    arena_free_all(&a);
+}
+
+void test_warn_suffix_id_and_suppression(TestCtx *t)
+{
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    Span sp = {0};
+    FILE *f;
+    char rendered[128];
+    size_t n;
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    sp.origin = SPAN_ORIGIN_SYSTEM_SPELLING;
+    warn_at(w, WARN_PRAGMAS, sp, "hidden");
+    T_ASSERT_EQ_INT(t, cap.count, 0);
+    T_ASSERT(t, warn_flag(w, "-Werror=pragmas"));
+    warn_at(w, WARN_PRAGMAS, sp, "promoted but hidden");
+    T_ASSERT_EQ_INT(t, cap.count, 0);
+    sp.origin = SPAN_ORIGIN_SYSTEM_MACRO | SPAN_ORIGIN_ANY_MACRO;
+    warn_at(w, WARN_PRAGMAS, sp, "system macro hidden");
+    T_ASSERT_EQ_INT(t, cap.count, 0);
+    T_ASSERT(t, warn_flag(w, "-Wsystem-headers"));
+    warn_at(w, WARN_PRAGMAS, sp, "visible");
+    T_ASSERT_EQ_INT(t, cap.count, 1);
+    T_ASSERT_EQ_INT(t, cap.last.warn_id, WARN_PRAGMAS);
+    sp.origin = SPAN_ORIGIN_SYSTEM_MACRO | SPAN_ORIGIN_ANY_MACRO;
+    warn_at_ex(w, WARN_PRAGMAS, sp, WARN_SUPPRESS_IN_MACRO,
+               "macro blanket hidden");
+    T_ASSERT_EQ_INT(t, cap.count, 1);
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+
+    f = tmpfile();
+    T_ASSERT(t, f != NULL);
+    diag_render(f, &cap.last, warn_diag(w), false);
+    rewind(f);
+    n = fread(rendered, 1, sizeof(rendered) - 1, f);
+    rendered[n] = '\0';
+    fclose(f);
+    T_ASSERT_EQ_STR(t, rendered, "cgfried: error: visible [-Werror=pragmas]\n");
+
+    T_ASSERT(t, warn_option_known("-Wall"));
+    T_ASSERT(t, warn_option_known("-Wformat=2"));
+    T_ASSERT(t, !warn_option_known("-Wformat=3"));
+    T_ASSERT(t, !warn_option_known("-Wno-format=2"));
+    T_ASSERT(t, !warn_flag(w, "-Wformat=3"));
+    T_ASSERT(t, !warn_flag(w, "-Wno-format=2"));
+    T_ASSERT(t, warn_option_known("-Werror=unused-variable"));
+    T_ASSERT(t, warn_option_known("-Wno-error=unused-variable"));
+    T_ASSERT(t, !warn_option_known("-Wnot-a-real-warning"));
+    T_ASSERT(t, !warn_option_known("-Werror=not-a-real-warning"));
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wformat=3"),
+                    WARN_OPTION_BAD_FORMAT_LEVEL);
+    T_ASSERT_EQ_STR(t,
+                    warn_option_bad_value_label(WARN_OPTION_BAD_FORMAT_LEVEL),
+                    "-Wformat=");
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wnot-a-real-warning"),
+                    WARN_OPTION_UNKNOWN_POSITIVE);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wno-not-a-real-warning"),
+                    WARN_OPTION_UNKNOWN_NEGATIVE);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Werror=not-a-real-warning"),
+                    WARN_OPTION_UNKNOWN_PROMOTION);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wpragmas"), WARN_PRAGMAS);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wno-pragmas"), WARN_NONE);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wformat=2"), WARN_NONE);
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wall"));
+    warn_at(w, WARN_UNKNOWN_PRAGMAS, (Span){0}, "unknown tracer");
+    T_ASSERT_EQ_INT(t, cap.count, 1);
+    T_ASSERT_EQ_INT(t, cap.last.warn_id, WARN_UNKNOWN_PRAGMAS);
+    arena_free_all(&a);
+}
