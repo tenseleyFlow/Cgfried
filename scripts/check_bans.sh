@@ -37,10 +37,12 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
-# CGF_* toolchain env vars are read ONLY in toolchain.c's env_override —
-# that single choke point is what keeps the documented routing table true.
+# Compiler/toolchain CGF_* env vars are read ONLY in toolchain.c's
+# env_override.  The separately linked Sprint 44 runtime has one deliberate
+# process-time control: CGF_SAFE_ABORT selects abort versus trap on failure.
 hits=$(grep -rn 'getenv' src | grep 'CGF_' |
-    grep -v '^src/driver/toolchain\.c:' || true)
+    grep -v '^src/driver/toolchain\.c:' |
+    grep -v '^src/rt/cgf_safe_diag\.c:.*getenv("CGF_SAFE_ABORT")' || true)
 if [ -n "$hits" ]; then
     echo "check_bans: CGF_* env read outside toolchain.c env_override:" >&2
     printf '%s\n' "$hits" >&2

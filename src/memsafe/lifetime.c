@@ -33,6 +33,7 @@ typedef struct MsFact {
     bool realloc_pending;
     MsAllocSuccess alloc_success;
     u32 alloc_status_value;
+    bool nonnull_proven;
     bool extent_known;
     u64 extent;
     MsInitKind init;
@@ -84,6 +85,26 @@ typedef struct MsWorklist {
     size_t cap;
 } MsWorklist;
 
+typedef enum MsRuntimeAccessKind {
+    MS_RUNTIME_READ,
+    MS_RUNTIME_WRITE,
+} MsRuntimeAccessKind;
+
+typedef struct MsRuntimeAccess {
+    const IrInst *inst;
+    IrOperand pointer;
+    IrOperand size;
+    u32 site_id;
+    u8 slot;
+    u8 kind;
+    bool discharged;
+} MsRuntimeAccess;
+
+typedef struct MsRuntimeAlloc {
+    const IrInst *call;
+    u32 site_id;
+} MsRuntimeAlloc;
+
 struct MsFunctionResult {
     Arena *arena;
     IrModule *module;
@@ -101,6 +122,11 @@ struct MsFunctionResult {
     MsIssue *issues;
     u32 nissues;
     u32 issue_cap;
+    MsRuntimeAccess *accesses;
+    u32 naccesses;
+    u32 access_cap;
+    MsRuntimeAlloc *allocs;
+    u32 nallocs;
 };
 
 static void init_reset(MsFact *fact, MsInitKind kind)
@@ -331,6 +357,7 @@ static bool path_equal(const MsFunctionResult *result, const MsPath *a,
             a->facts[i].realloc_pending != b->facts[i].realloc_pending ||
             a->facts[i].alloc_success != b->facts[i].alloc_success ||
             a->facts[i].alloc_status_value != b->facts[i].alloc_status_value ||
+            a->facts[i].nonnull_proven != b->facts[i].nonnull_proven ||
             a->facts[i].extent_known != b->facts[i].extent_known ||
             (a->facts[i].extent_known &&
              a->facts[i].extent != b->facts[i].extent) ||
@@ -358,6 +385,7 @@ static void path_degrade_facts(MsFunctionResult *result, MsPath *path)
         path->facts[i].realloc_pending = false;
         path->facts[i].alloc_success = MS_ALLOC_SUCCESS_DIRECT;
         path->facts[i].alloc_status_value = 0;
+        path->facts[i].nonnull_proven = false;
         init_reset(&path->facts[i], MS_INIT_UNKNOWN);
     }
 }
@@ -434,6 +462,9 @@ static bool path_join_into(MsFunctionResult *result, MsPath *dst,
         u32 alloc_status_value = alloc_success != MS_ALLOC_SUCCESS_DIRECT
                                      ? dst->facts[i].alloc_status_value
                                      : 0;
+        bool nonnull_proven = !lose_correlations &&
+                              dst->facts[i].nonnull_proven &&
+                              src->facts[i].nonnull_proven;
         MsFact joined_init = {0};
         bool extent_known = dst->facts[i].extent_known &&
                             src->facts[i].extent_known &&
@@ -462,6 +493,10 @@ static bool path_join_into(MsFunctionResult *result, MsPath *dst,
             dst->facts[i].alloc_status_value != alloc_status_value) {
             dst->facts[i].alloc_success = alloc_success;
             dst->facts[i].alloc_status_value = alloc_status_value;
+            changed = true;
+        }
+        if (dst->facts[i].nonnull_proven != nonnull_proven) {
+            dst->facts[i].nonnull_proven = nonnull_proven;
             changed = true;
         }
         if (dst->facts[i].extent_known != extent_known ||
@@ -620,6 +655,7 @@ static void degrade_candidate_sites(MsFunctionResult *result, MsPath *path,
             continue;
         path->facts[i].state = MS_UNKNOWN;
         path->facts[i].realloc_old_site = -1;
+        path->facts[i].nonnull_proven = false;
         trace_clear(&path->facts[i]);
     }
 }
@@ -970,8 +1006,79 @@ static bool access_must_uninit(const MsFact *fact, i64 lo, i64 hi)
     return true;
 }
 
+static bool runtime_access_proven(MsFunctionResult *result, const MsPath *path,
+                                  PtsSet pts, const AllocSite *unique,
+                                  IrOperand pointer, bool size_known, u64 size)
+{
+    const MsFact *fact;
+    i64 lo, hi;
+    u32 site;
+
+    /* A zero-byte library operation observes no storage.  Stack and global
+     * objects are deliberately outside Sprint 44's heap runtime; proving the
+     * pointer is non-heap discharges the otherwise useless magic probe. */
+    if (size_known && size == 0)
+        return true;
+    if (alias_pts_must_be_nonheap(result->alias, pts))
+        return true;
+    if (!unique || path->correlations_lost || !size_known)
+        return false;
+    site = alias_alloc_site_id(unique) - 1;
+    fact = &path->facts[site];
+    if (fact->state != MS_ALLOCATED || !fact->nonnull_proven ||
+        !fact->extent_known || !access_range(result, pointer, size, &lo, &hi))
+        return false;
+    return lo >= 0 && hi >= lo && (u64)hi <= fact->extent;
+}
+
+static void record_runtime_access(MsFunctionResult *result, const MsPath *path,
+                                  const IrInst *inst, u8 slot,
+                                  IrOperand pointer, IrOperand size_operand,
+                                  bool size_known, u64 size, bool write,
+                                  PtsSet pts, const AllocSite *unique)
+{
+    MsRuntimeAccess *access = NULL;
+    bool proven = runtime_access_proven(result, path, pts, unique, pointer,
+                                        size_known, size);
+    u32 i;
+
+    for (i = 0; i < result->naccesses; i++)
+        if (result->accesses[i].inst == inst &&
+            result->accesses[i].slot == slot) {
+            access = &result->accesses[i];
+            break;
+        }
+    if (!access) {
+        if (result->naccesses == result->access_cap) {
+            u32 nc = result->access_cap ? result->access_cap * 2 : 16;
+            MsRuntimeAccess *grown = arena_alloc(
+                result->arena, nc * sizeof(*grown), _Alignof(MsRuntimeAccess));
+
+            if (result->naccesses)
+                memcpy(grown, result->accesses,
+                       result->naccesses * sizeof(*grown));
+            result->accesses = grown;
+            result->access_cap = nc;
+        }
+        access = &result->accesses[result->naccesses++];
+        memset(access, 0, sizeof(*access));
+        access->inst = inst;
+        access->slot = slot;
+        access->pointer = pointer;
+        access->size = size_operand;
+        access->kind = write ? MS_RUNTIME_WRITE : MS_RUNTIME_READ;
+        /* Access-site identity is independent of pointer provenance. The
+         * allocation header reports its own allocation-site ID. */
+        access->site_id = result->naccesses;
+        access->discharged = proven;
+        return;
+    }
+    access->discharged = access->discharged && proven;
+}
+
 static bool process_access(MsFunctionResult *result, MsPath *path,
-                           IrOperand pointer, bool size_known, u64 size,
+                           const IrInst *inst, u8 slot, IrOperand pointer,
+                           IrOperand size_operand, bool size_known, u64 size,
                            bool write, bool check_uninit, BlockId access_block,
                            Span loc, const char *note)
 {
@@ -1003,6 +1110,9 @@ static bool process_access(MsFunctionResult *result, MsPath *path,
                       false, &fact->trace);
         }
     }
+    if (inst)
+        record_runtime_access(result, path, inst, slot, pointer, size_operand,
+                              size_known, size, write, pts, unique);
     transition_members(result, path, pointer, MS_ACT_DEREF, loc, MS_EV_USE,
                        note);
     if (write && !oob)
@@ -1183,6 +1293,7 @@ static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
                                       BlockId block, Span loc)
 {
     IrOperand dst, src;
+    IrOperand size_operand = ir_op_iconst(IRT_I64, 1);
     u64 size = 0;
     bool known;
 
@@ -1192,25 +1303,30 @@ static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
         if (!call_arg(call, 0, &dst) || !call_arg(call, 1, &src))
             return false;
         known = call_size(result, call, 2, MS_NO_ARG, &size);
-        process_access(result, path, dst, known, size, true, true, block, loc,
-                       "wrote through pointer here");
-        process_access(result, path, src, known, size, false, true, block, loc,
-                       "read through pointer here");
+        (void)call_arg(call, 2, &size_operand);
+        process_access(result, path, NULL, 0, dst, size_operand, known, size,
+                       true, true, block, loc, "wrote through pointer here");
+        process_access(result, path, NULL, 1, src, size_operand, known, size,
+                       false, true, block, loc, "read through pointer here");
         return true;
     }
     if (strcmp(name, "memset") == 0) {
         if (!call_arg(call, 0, &dst))
             return false;
         known = call_size(result, call, 2, MS_NO_ARG, &size);
-        process_access(result, path, dst, known, size, true, true, block, loc,
-                       "wrote through pointer here");
+        (void)call_arg(call, 2, &size_operand);
+        process_access(result, path, NULL, 0, dst, size_operand, known, size,
+                       true, true, block, loc, "wrote through pointer here");
         return true;
     }
     if (strcmp(name, "fread") == 0) {
         if (!call_arg(call, 0, &dst))
             return false;
         known = call_size(result, call, 1, 2, &size);
-        process_access(result, path, dst, known, size, true, true, block, loc,
+        if (!call_arg(call, 1, &size_operand))
+            size_operand = ir_op_iconst(IRT_I64, 1);
+        process_access(result, path, NULL, 0, dst, size_operand, known, size,
+                       true, true, block, loc,
                        "library call writes through pointer here");
         return true;
     }
@@ -1218,10 +1334,13 @@ static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
         if (!call_arg(call, 0, &dst))
             return false;
         known = call_size(result, call, 1, MS_NO_ARG, &size);
-        process_access(result, path, dst, known, size, true, true, block, loc,
+        (void)call_arg(call, 1, &size_operand);
+        process_access(result, path, NULL, 0, dst, size_operand, known, size,
+                       true, true, block, loc,
                        "library call writes through pointer here");
         if (call_arg(call, 2, &src))
-            process_access(result, path, src, false, 0, false, true, block, loc,
+            process_access(result, path, NULL, 1, src, ir_op_iconst(IRT_I64, 1),
+                           false, 0, false, true, block, loc,
                            "library call reads through pointer here");
         return true;
     }
@@ -1254,6 +1373,7 @@ static void process_call(MsFunctionResult *result, MsPath *path,
         path->facts[site].realloc_pending = false;
         path->facts[site].alloc_success = MS_ALLOC_SUCCESS_DIRECT;
         path->facts[site].alloc_status_value = 0;
+        path->facts[site].nonnull_proven = false;
         if (family && family->frees_on_success) {
             i32 old = -1;
 
@@ -1448,12 +1568,14 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                     apply_summary_write_range(result, path, actual,
                                               &summary->params[arg], loc);
                 } else if (write && lib && lib_extent_known) {
-                    process_access(result, path, actual, true, lib_extent, true,
-                                   true, block, loc,
+                    process_access(result, path, NULL, 0, actual,
+                                   ir_op_iconst(IRT_I64, (i64)lib_extent), true,
+                                   lib_extent, true, true, block, loc,
                                    "library call writes through pointer here");
                 } else if (deref || write) {
-                    process_access(result, path, actual, false, 0, write, true,
-                                   block, loc,
+                    process_access(result, path, NULL, 0, actual,
+                                   ir_op_iconst(IRT_I64, 1), false, 0, write,
+                                   true, block, loc,
                                    write ? "callee writes through pointer here"
                                          : "callee reads through pointer here");
                 }
@@ -1506,23 +1628,36 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
         break;
     case IR_LOAD:
         if (in->nops >= 1)
-            process_access(result, path, in->ops[0], true,
-                           ir_type_size((IrType)in->type), false, true, block,
-                           loc, "read through pointer here");
+            process_access(
+                result, path, in, 0, in->ops[0],
+                ir_op_iconst(IRT_I64, (i64)ir_type_size((IrType)in->type)),
+                true, ir_type_size((IrType)in->type), false, true, block, loc,
+                "read through pointer here");
         break;
     case IR_STORE:
         if (in->nops >= 2) {
             if (in->ops[0].type == IRT_PTR)
                 process_pointer_value_use(result, path, in->ops[0], loc);
-            process_access(result, path, in->ops[1], true,
-                           ir_type_size((IrType)in->ops[0].type), true, true,
-                           block, loc, "wrote through pointer here");
+            process_access(result, path, in, 0, in->ops[1],
+                           ir_op_iconst(IRT_I64, (i64)ir_type_size(
+                                                     (IrType)in->ops[0].type)),
+                           true, ir_type_size((IrType)in->ops[0].type), true,
+                           true, block, loc, "wrote through pointer here");
             if (in->ops[0].type == IRT_PTR &&
                 !local_address(result->function, in->ops[1], 0))
                 transition_reachable(result, path, in->ops[0], MS_ACT_ESCAPE,
                                      loc, MS_EV_ESCAPE,
                                      "stored into escaping memory here");
         }
+        break;
+    case IR_VA_START:
+        if (in->nops >= 1)
+            /* SysV va_start fills the pointer fields after lowering has
+             * stored the two offsets. Treat the backend expansion as one
+             * 24-byte write so terminal residue protects every field. */
+            process_access(result, path, in, 0, in->ops[0],
+                           ir_op_iconst(IRT_I64, 24), true, 24, true, true,
+                           block, loc, "initialized va_list here");
         break;
     case IR_MEMCPY:
         if (in->nops >= 2) {
@@ -1540,13 +1675,17 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
             /* The source is observed before the destination changes.  This
              * is load-before-store even for `*p = *p`, and preserves missing
              * member state when the destination is another heap object. */
-            source_oob = process_access(result, path, in->ops[1], known,
-                                        (u64)value, false, false, block, loc,
-                                        "read through pointer here");
+            source_oob = process_access(
+                result, path, in, 0, in->ops[1],
+                in->nops >= 3 ? in->ops[2] : ir_op_iconst(IRT_I64, 0), known,
+                (u64)value, false, false, block, loc,
+                "read through pointer here");
             if (!source_oob && layout)
                 process_aggregate_uninit(result, path, in->ops[1], layout, loc);
-            process_access(result, path, in->ops[0], known, (u64)value,
-                           layout == NULL, false, block, loc,
+            process_access(result, path, in, 1, in->ops[0],
+                           in->nops >= 3 ? in->ops[2]
+                                         : ir_op_iconst(IRT_I64, 0),
+                           known, (u64)value, layout == NULL, false, block, loc,
                            "wrote through pointer here");
             if (layout)
                 mark_aggregate_copy(result, path, in->ops[0], in->ops[1],
@@ -1561,9 +1700,28 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
                 operand_constant(result->function, in->ops[2], &value, 0) &&
                 value >= 0;
 
-            process_access(result, path, in->ops[0], known, (u64)value, true,
-                           true, block, loc, "wrote through pointer here");
+            process_access(result, path, in, 0, in->ops[0],
+                           in->nops >= 3 ? in->ops[2]
+                                         : ir_op_iconst(IRT_I64, 0),
+                           known, (u64)value, true, true, block, loc,
+                           "wrote through pointer here");
         }
+        break;
+    case IR_ATOMICRMW:
+        if (in->nops >= 1)
+            process_access(
+                result, path, in, 0, in->ops[0],
+                ir_op_iconst(IRT_I64, (i64)ir_type_size((IrType)in->type)),
+                true, ir_type_size((IrType)in->type), true, true, block, loc,
+                "accessed through atomic pointer here");
+        break;
+    case IR_CMPXCHG:
+        if (in->nops >= 1)
+            process_access(
+                result, path, in, 0, in->ops[0],
+                ir_op_iconst(IRT_I64, (i64)ir_type_size((IrType)in->type)),
+                true, ir_type_size((IrType)in->type), true, true, block, loc,
+                "accessed through atomic pointer here");
         break;
     case IR_RET:
         if (in->nops == 1 && in->ops[0].type == IRT_PTR) {
@@ -1687,6 +1845,7 @@ static void refine_pointer_branch(MsFunctionResult *result, MsPath *path,
         i32 old = path->facts[site].realloc_old_site;
 
         path->facts[site].state = nonnull ? MS_ALLOCATED : MS_UNALLOCATED;
+        path->facts[site].nonnull_proven = nonnull;
         init_reset(&path->facts[site], MS_INIT_UNKNOWN);
         ms_trace_push(
             &path->facts[site].trace, loc, MS_EV_BRANCH,
@@ -1713,6 +1872,7 @@ static void refine_pointer_branch(MsFunctionResult *result, MsPath *path,
     else
         after = before;
     path->facts[site].state = after;
+    path->facts[site].nonnull_proven = nonnull && after == MS_ALLOCATED;
     if (after == MS_UNKNOWN && before != MS_UNKNOWN)
         trace_clear(&path->facts[site]);
     ms_trace_push(&path->facts[site].trace, loc, MS_EV_BRANCH,
@@ -1813,6 +1973,7 @@ static void refine_alloc_status_branch(MsFunctionResult *result, MsPath *path,
                                  &success))
             continue;
         fact->state = success ? MS_ALLOCATED : MS_UNALLOCATED;
+        fact->nonnull_proven = success;
         init_reset(fact, success && family && family->fully_written
                              ? MS_INIT_FULL
                              : MS_INIT_NONE);
@@ -2079,11 +2240,24 @@ ms_analyze_function_with_summaries(Arena *arena, IrModule *module,
                                    (result->nsites ? result->nsites : 1) *
                                        sizeof(*result->families),
                                    _Alignof(const MsAllocFamily *));
+    result->allocs = arena_alloc(
+        arena, (result->nsites ? result->nsites : 1) * sizeof(*result->allocs),
+        _Alignof(MsRuntimeAlloc));
     for (i = 0; i < result->nsites; i++) {
-        const IrInst *call =
-            alias_alloc_site_call(alias_alloc_site_at(result->alias, i));
+        const AllocSite *site = alias_alloc_site_at(result->alias, i);
+        const IrInst *call = alias_alloc_site_call(site);
+        const char *name = call_name(module, call);
 
-        result->families[i] = ms_alloc_family_lookup(call_name(module, call));
+        result->families[i] = ms_alloc_family_lookup(name);
+        if (name &&
+            (!strcmp(name, "malloc") || !strcmp(name, "calloc") ||
+             !strcmp(name, "realloc") || !strcmp(name, "reallocarray") ||
+             !strcmp(name, "strdup") || !strcmp(name, "strndup") ||
+             !strcmp(name, "aligned_alloc") ||
+             !strcmp(name, "posix_memalign"))) {
+            result->allocs[result->nallocs++] =
+                (MsRuntimeAlloc){call, alias_alloc_site_id(site)};
+        }
     }
     result->blocks = arena_alloc(arena,
                                  (function->nblocks ? function->nblocks : 1) *
@@ -2263,37 +2437,168 @@ static void emit_issue(WarnCtx *warnings, const MsIssue *issue)
     }
 }
 
-void ms_warn_module(WarnCtx *warnings, IrModule *module,
-                    bool no_strict_aliasing)
+static const char *event_name(MsEventKind kind);
+
+static void dump_result(const MsFunctionResult *result, FILE *out)
 {
-    Arena analysis;
-    OptConfig cfg;
-    u32 fi;
+    u32 bi, si, ei;
 
-    if (!warnings || !module)
-        return;
-    /* L1 is an SSA/path analysis even at -O0.  Promotion is an analysis
-     * normalization step here, not a user-selected optimization, and the
-     * driver gave us a throwaway module separate from emission. */
-    opt_config_init(&cfg, OPT_O0);
-    cfg.no_strict_aliasing = no_strict_aliasing;
-    (void)opt_mem2reg(module, &cfg);
-    arena_init(&analysis);
-    {
-        MsSummarySet *summaries =
-            ms_summary_build(&analysis, module, no_strict_aliasing, warnings);
-        for (fi = 0; fi < module->nfuncs; fi++) {
-            MsFunctionResult *result = ms_analyze_function_with_summaries(
-                &analysis, module, &module->funcs[fi], no_strict_aliasing,
-                summaries);
-            u32 i;
+    fprintf(out, "memsafe function=%s sites=%u splits=%u degraded=%s\n",
+            result->function->name, result->nsites, result->splits,
+            result->degraded ? "may" : "no");
+    for (bi = 0; bi < result->function->nblocks; bi++)
+        fprintf(out, "block=%u name=%s states=%u\n", bi,
+                result->function->blocks[bi].name, result->blocks[bi].nslots);
+    for (si = 0; si < result->nsites; si++) {
+        const AllocSite *site = alias_alloc_site_at(result->alias, si);
+        const IrInst *call = alias_alloc_site_call(site);
+        const char *name = call_name(result->module, call);
 
-            for (i = 0; i < result->nissues; i++)
-                emit_issue(warnings, &result->issues[i]);
-            ms_result_free(result);
+        for (ei = 0; ei < result->nexits; ei++) {
+            const MsTrace *trace = &result->exits[ei].path.facts[si].trace;
+            u32 ti;
+
+            fprintf(out, "site=%u callee=%s exit=%u state=%s\n",
+                    alias_alloc_site_id(site), name ? name : "?", ei,
+                    ms_state_name(result->exits[ei].path.facts[si].state));
+            for (ti = 0; ti < trace->len; ti++) {
+                MsEvent event;
+                u32 line, col;
+
+                if (!ms_trace_event(trace, ti, &event))
+                    continue;
+                line = event.loc.presumed_line ? event.loc.presumed_line
+                                               : event.loc.line;
+                col = event.loc.col;
+                fprintf(out,
+                        "trace site=%u exit=%u event=%s line=%u col=%u "
+                        "note=%s\n",
+                        alias_alloc_site_id(site), ei, event_name(event.kind),
+                        line, col, event.note);
+            }
         }
     }
-    arena_free_all(&analysis);
+}
+
+static void splice_runtime_check(MsFunctionResult *result,
+                                 const MsRuntimeAccess *access, u32 callee)
+{
+    IrModule *module = result->module;
+    IrFunc *function = result->function;
+    IrInst *check =
+        arena_alloc(module->arena, sizeof(*check), _Alignof(IrInst));
+    IrOperand *args =
+        arena_alloc(module->arena, 4 * sizeof(*args), _Alignof(IrOperand));
+    u32 bi;
+
+    memset(check, 0, sizeof(*check));
+    args[0] = access->pointer;
+    args[1] = access->size;
+    args[2] = ir_op_iconst(IRT_I32, access->kind);
+    args[3] = ir_op_iconst(IRT_I32, access->site_id);
+    check->op = IR_CALL;
+    check->type = IRT_VOID;
+    check->subop = FUNCREF_EXTERNAL;
+    check->callee = callee;
+    check->loc = access->inst->loc;
+    check->ops = args;
+    check->nops = 4;
+
+    for (bi = 0; bi < function->nblocks; bi++) {
+        IrBlock *block = &function->blocks[bi];
+        IrInst *in = block->first;
+        IrInst *previous = NULL;
+
+        while (in && in != access->inst) {
+            previous = in;
+            in = in->next;
+        }
+        if (!in)
+            continue;
+        check->next = in;
+        if (previous)
+            previous->next = check;
+        else
+            block->first = check;
+        block->ninsts++;
+        return;
+    }
+    CGF_ICE("memsafe instrumentation lost its target in @%s", function->name);
+}
+
+static void splice_allocation_site(MsFunctionResult *result,
+                                   const MsRuntimeAlloc *alloc, u32 callee)
+{
+    IrModule *module = result->module;
+    IrFunc *function = result->function;
+    IrInst *setter =
+        arena_alloc(module->arena, sizeof(*setter), _Alignof(IrInst));
+    IrOperand *args =
+        arena_alloc(module->arena, sizeof(*args), _Alignof(IrOperand));
+    u32 bi;
+
+    memset(setter, 0, sizeof(*setter));
+    args[0] = ir_op_iconst(IRT_I32, alloc->site_id);
+    setter->op = IR_CALL;
+    setter->type = IRT_VOID;
+    setter->subop = FUNCREF_EXTERNAL;
+    setter->callee = callee;
+    setter->loc = alloc->call->loc;
+    setter->ops = args;
+    setter->nops = 1;
+
+    for (bi = 0; bi < function->nblocks; bi++) {
+        IrBlock *block = &function->blocks[bi];
+        IrInst *in = block->first;
+        IrInst *previous = NULL;
+
+        while (in && in != alloc->call) {
+            previous = in;
+            in = in->next;
+        }
+        if (!in)
+            continue;
+        setter->next = in;
+        if (previous)
+            previous->next = setter;
+        else
+            block->first = setter;
+        block->ninsts++;
+        return;
+    }
+    CGF_ICE("memsafe instrumentation lost allocation site in @%s",
+            function->name);
+}
+
+static void instrument_result(MsFunctionResult *result, MsCheckStats *stats)
+{
+    u32 callee = UINT32_MAX;
+    u32 setter = UINT32_MAX;
+    u32 i;
+    bool changed = false;
+
+    for (i = 0; i < result->naccesses; i++) {
+        const MsRuntimeAccess *access = &result->accesses[i];
+
+        stats->total++;
+        if (access->discharged) {
+            stats->discharged++;
+            continue;
+        }
+        if (callee == UINT32_MAX)
+            callee = ir_sym(result->module, "cgf_safe_check");
+        splice_runtime_check(result, access, callee);
+        stats->emitted++;
+        changed = true;
+    }
+    for (i = 0; i < result->nallocs; i++) {
+        if (setter == UINT32_MAX)
+            setter = ir_sym(result->module, "cgf_safe_set_next_site");
+        splice_allocation_site(result, &result->allocs[i], setter);
+        changed = true;
+    }
+    if (changed)
+        ir_func_renumber(result->module->arena, result->function);
 }
 
 static const char *event_name(MsEventKind kind)
@@ -2305,64 +2610,78 @@ static const char *event_name(MsEventKind kind)
     return (u32)kind < CGF_ARRAY_LEN(names) ? names[kind] : "unknown";
 }
 
-void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out)
+void ms_process_module(WarnCtx *warnings, IrModule *module,
+                       bool no_strict_aliasing, FILE *dump, bool instrument,
+                       MsCheckStats *stats)
 {
     Arena analysis;
+    MsCheckStats counts = {0};
+    OptConfig cfg;
     u32 fi;
 
-    if (!module || !out)
+    if (stats)
+        memset(stats, 0, sizeof(*stats));
+    if (!module || (!warnings && !dump && !instrument))
         return;
+    /* L1 is an SSA/path analysis even at -O0. Promotion is analysis
+     * normalization; safe mode intentionally applies it to the emitted
+     * module before taking the terminal instrumentation residue. */
+    if (warnings || instrument) {
+        opt_config_init(&cfg, OPT_O0);
+        cfg.no_strict_aliasing = no_strict_aliasing;
+        (void)opt_mem2reg(module, &cfg);
+    }
     arena_init(&analysis);
     {
         MsSummarySet *summaries =
-            ms_summary_build(&analysis, module, no_strict_aliasing, NULL);
-        ms_summary_dump(summaries, out);
+            ms_summary_build(&analysis, module, no_strict_aliasing, warnings);
+        MsFunctionResult **results = arena_alloc(
+            &analysis, (module->nfuncs ? module->nfuncs : 1) * sizeof(*results),
+            _Alignof(MsFunctionResult *));
+
+        if (dump)
+            ms_summary_dump(summaries, dump);
         for (fi = 0; fi < module->nfuncs; fi++) {
             MsFunctionResult *result = ms_analyze_function_with_summaries(
                 &analysis, module, &module->funcs[fi], no_strict_aliasing,
                 summaries);
-            u32 bi, si, ei;
 
-            fprintf(out, "memsafe function=%s sites=%u splits=%u degraded=%s\n",
-                    result->function->name, result->nsites, result->splits,
-                    result->degraded ? "may" : "no");
-            for (bi = 0; bi < result->function->nblocks; bi++)
-                fprintf(out, "block=%u name=%s states=%u\n", bi,
-                        result->function->blocks[bi].name,
-                        result->blocks[bi].nslots);
-            for (si = 0; si < result->nsites; si++) {
-                const AllocSite *site = alias_alloc_site_at(result->alias, si);
-                const IrInst *call = alias_alloc_site_call(site);
-                const char *name = call_name(module, call);
+            results[fi] = result;
+            if (warnings) {
+                u32 i;
 
-                for (ei = 0; ei < result->nexits; ei++) {
-                    const MsTrace *trace =
-                        &result->exits[ei].path.facts[si].trace;
-                    u32 ti;
-
-                    fprintf(
-                        out, "site=%u callee=%s exit=%u state=%s\n",
-                        alias_alloc_site_id(site), name ? name : "?", ei,
-                        ms_state_name(result->exits[ei].path.facts[si].state));
-                    for (ti = 0; ti < trace->len; ti++) {
-                        MsEvent event;
-                        u32 line, col;
-
-                        if (!ms_trace_event(trace, ti, &event))
-                            continue;
-                        line = event.loc.presumed_line ? event.loc.presumed_line
-                                                       : event.loc.line;
-                        col = event.loc.col;
-                        fprintf(out,
-                                "trace site=%u exit=%u event=%s line=%u col=%u "
-                                "note=%s\n",
-                                alias_alloc_site_id(site), ei,
-                                event_name(event.kind), line, col, event.note);
-                    }
-                }
+                for (i = 0; i < result->nissues; i++)
+                    emit_issue(warnings, &result->issues[i]);
             }
+            if (dump)
+                dump_result(result, dump);
+            /* Mutation is legal only after this function's AliasCtx has been
+             * destroyed. The retained access plan is arena-owned and uses no
+             * alias query during splicing. */
             ms_result_free(result);
         }
+        /* No IR changes occur until every function has been analyzed and
+         * every AliasCtx has been destroyed. Symbol-table growth and list
+         * splicing therefore cannot perturb a later function's proof. */
+        if (instrument)
+            for (fi = 0; fi < module->nfuncs; fi++)
+                instrument_result(results[fi], &counts);
     }
+    if (dump && instrument)
+        fprintf(dump, "checks: %u total, %u discharged, %u emitted\n",
+                counts.total, counts.discharged, counts.emitted);
+    if (stats)
+        *stats = counts;
     arena_free_all(&analysis);
+}
+
+void ms_warn_module(WarnCtx *warnings, IrModule *module,
+                    bool no_strict_aliasing)
+{
+    ms_process_module(warnings, module, no_strict_aliasing, NULL, false, NULL);
+}
+
+void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out)
+{
+    ms_process_module(NULL, module, no_strict_aliasing, out, false, NULL);
 }

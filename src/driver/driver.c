@@ -97,6 +97,10 @@ static const char *const help_text[] = {
     "  -ffreestanding    freestanding environment (-fhosted restores)\n"
     "  -fwrapv           signed overflow wraps\n"
     "  -fno-strict-aliasing  disable type-based aliasing\n"
+    "  -fcgf-safe        instrument unresolved heap accesses; static\n"
+    "                    proofs discharge checks before code generation\n"
+    "                    (temporal detection is deterministic only while\n"
+    "                    blocks remain in the bounded quarantine)\n"
     "  -ffast-math       enable the complete fast-math bundle\n"
     "  -fno-fast-math    disable it; component flags are accepted but\n"
     "                    bundled-only and warn (docs/fast-math.md)\n"
@@ -136,7 +140,8 @@ static const char *const help_text[] = {
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
     "  CGF_MEMSAFE_DUMP=1  dump memory-analysis states and traces\n"
-    "                    per-function states/traces to stderr\n"
+    "                    plus -fcgf-safe check-discharge totals to stderr\n"
+    "  CGF_SAFE_ABORT=trap  trap instead of abort after a runtime finding\n"
     "  Empty-string values are treated as unset.\n",
 };
 
@@ -966,8 +971,10 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                                           a->link_exe;
                     bool need_flow = warn_flow_needed(warnings);
                     bool need_memsafe = warn_memsafe_needed(warnings);
+                    bool safe_on_emission = a->fcgf_safe && want_ir_output;
                     bool need_analysis_ir =
-                        need_flow || need_memsafe || memsafe_dump;
+                        need_flow ||
+                        (!safe_on_emission && (need_memsafe || memsafe_dump));
                     IrModule *m = NULL;
 
                     if (need_analysis_ir && !diag_had_error(dc)) {
@@ -985,15 +992,14 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                          * stage from the pipeline contract.  It is not an
                          * OPT_PASS row: memsafe is read-only, runs at O0,
                          * and must not participate in transform fixpoints. */
-                        if (analysis && (need_memsafe || memsafe_dump) &&
+                        if (analysis && !safe_on_emission &&
+                            (need_memsafe || memsafe_dump) &&
                             !diag_had_error(dc)) {
                             optimize_module(analysis, a, job->path);
-                            if (need_memsafe)
-                                ms_warn_module(warnings, analysis,
-                                               a->fno_strict_aliasing);
-                            if (memsafe_dump)
-                                ms_dump_module(analysis, a->fno_strict_aliasing,
-                                               stderr);
+                            ms_process_module(need_memsafe ? warnings : NULL,
+                                              analysis, a->fno_strict_aliasing,
+                                              memsafe_dump ? stderr : NULL,
+                                              false, NULL);
                         }
                     }
                     if (want_ir_output && !diag_had_error(dc)) {
@@ -1002,6 +1008,18 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                     }
                     if (m && !diag_had_error(dc))
                         optimize_module(m, a, job->path);
+                    if (m && safe_on_emission && !diag_had_error(dc)) {
+                        /* Analyze the exact final emission IR, then splice
+                         * opaque checks into its proof residue. This is one
+                         * state-machine traversal for warnings, dumps, and
+                         * instrumentation; no cross-module access mapping. */
+                        ms_process_module(need_memsafe ? warnings : NULL, m,
+                                          a->fno_strict_aliasing,
+                                          memsafe_dump ? stderr : NULL, true,
+                                          NULL);
+                        if (!diag_had_error(dc))
+                            verify_generated_module(dc, m, job->path);
+                    }
                     if (m && want_ir_output && !diag_had_error(dc)) {
                         if (a->emit_mir) {
                             int rc = emit_mir_print(arena, dc, m);

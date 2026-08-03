@@ -2,9 +2,9 @@
 
 Cgfried's memory-safety work is a six-layer ladder. Each layer adds one
 mechanism and keeps its claim narrow enough to test. A layer's guarantee does
-not imply the guarantees of later layers. Sprints 41 and 42 now ship the
-shared foundation and the first user-visible layer: intraprocedural `-Wmem`
-warnings with ordered proof traces.
+not imply the guarantees of later layers. Sprints 41 through 44 ship the
+shared foundation, intraprocedural and interprocedural `-Wmem`, ownership
+contracts, and the opt-in L3 heap runtime.
 
 ## The six layers
 
@@ -276,6 +276,80 @@ fixtures for its new policy, and update this document. Do not add a silent
 allowlist. A genuine finding in the pinned corpus requires a reviewed entry
 with the source location and musl commit.
 
+## L3 runtime instrumentation
+
+`-fcgf-safe` instruments the residue that the shared memory analysis cannot
+prove safe. The driver first completes the selected optimization pipeline on
+the exact module that will be emitted. One memsafe traversal then serves
+warnings, an optional dump, and check classification. After its alias context
+is destroyed, the compiler terminal-splices opaque `cgf_safe_check` calls
+before surviving loads, stores, copies, sets, and atomic memory operations.
+The backend-generated `IR_VA_START` operation is also treated as one 24-byte
+write before its target-specific stores are expanded. No ordinary optimizer
+runs after those calls are inserted, so it cannot
+orphan a check from its memory operation. Statically diagnosed accesses still
+retain a runtime check.
+
+`CGF_MEMSAFE_DUMP=1` prints the accounting line `checks: N total, M
+discharged, K emitted`. A check is discharged only when every path reaching
+that operation proves a non-null live heap allocation with a known in-bounds
+range, or proves that the operation addresses nonheap storage outside this
+runtime's scope. Lost correlations and unknown extents emit a check. External
+library summary effects remain warning-only: the runtime instruments emitted
+IR dereferences, not accesses performed inside foreign code.
+
+### Allocation and temporal checks
+
+Each wrapped allocation has a 32-byte header immediately before its
+user-visible bytes and an eight-byte trailing canary. Private registry
+metadata precedes the public layout. The registry is consulted before any
+header read; this is stronger and safer than probing `pointer - 32`, which
+could fault for a valid foreign pointer near a page boundary. Exact allocation
+lookups use a bounded hash table, while range lookup accepts tracked interior
+pointers. The runtime preserves requested alignment, including
+`aligned_alloc` and `posix_memalign` alignments above `max_align_t`.
+
+Freeing a live block checks the header and canary, poisons the user bytes with
+`0xDE`, and places the raw allocation in a FIFO quarantine. The quarantine is
+bounded at 1,024 blocks or 8 MiB, whichever limit is reached first. Use after
+free and double free are deterministic while the block remains quarantined.
+After eviction its registry entry and header are gone, so detection is
+probabilistic. Pointer versioning for deterministic long-delay temporal safety
+is post-0.1.0 work.
+
+| Pointer provenance | Runtime behavior |
+| --- | --- |
+| Allocation reached through one of the nine wrapped allocation APIs | Header, live/freed state, bounds, canary, allocation site, and quarantine are tracked. |
+| Interior pointer within a tracked raw allocation | Checked against the tracked user range; an interior `free`/`realloc` is a deterministic failure. |
+| `mmap`, stack, global, libc-internal, or otherwise foreign pointer | Registry miss silently degrades to a no-op. It never false-aborts and never reads before the pointer. |
+| Pointer beyond the tracked raw allocation, or a quarantine-evicted pointer | No registry match; detection is not guaranteed. In particular, a far out-of-bounds pointer may be indistinguishable from foreign memory. |
+
+This registry is a safety mechanism, not a hardening boundary. Metadata
+forgery, uninstrumented dereferences, accesses inside foreign code, far wild
+pointers, and reuse after quarantine eviction are outside its guarantee.
+Stack canaries and global red zones are also deferred; L3 v0.1.0 is heap-only.
+
+### Linking and mixed translation units
+
+At the final link, `-fcgf-safe` adds GNU ld `--wrap` entries for `malloc`,
+`calloc`, `realloc`, `free`, `reallocarray`, `strdup`, `strndup`,
+`aligned_alloc`, and `posix_memalign`. The same mechanism is used for normal
+dynamic executables and static links; there is no `dlsym`, `LD_PRELOAD`, or
+separate dynamic-interposition path. `-nostdlib` and `-nodefaultlibs` remove
+both the runtime archive and the wrap options.
+
+A mixed final link is supported. References from GCC- or Cgfried-compiled
+objects pass through the wrappers when that final link uses `-fcgf-safe`, so
+their allocations receive headers. Only translation units compiled with
+`-fcgf-safe` contain dereference checks. Conversely, a safe object must be
+linked with `-fcgf-safe`; otherwise its `cgf_safe_check` and allocation-site
+handoff references are not supplied by the default runtime link contract.
+
+Failures are written directly with `write(2)`, followed by
+`CGF_SAFE_ABORT: aborting`, then terminate with `abort()`. Setting
+`CGF_SAFE_ABORT=trap` preserves the diagnostic and uses a trap for a debugger-
+first workflow. Recovery is intentionally unsupported.
+
 ## One points-to engine, two clients
 
 Optimization and memory-safety analysis share the points-to service in
@@ -302,20 +376,20 @@ does not recreate the graph walk.
 
 ## Pipeline boundary
 
-Memory-safety analysis is a distinct, read-only post-optimization stage:
+Memory-safety analysis is a distinct post-optimization stage:
 
 ```text
 parse -> sema -> analysis lowering -> optimizations -> memsafe -> codegen
 ```
 
-It is deliberately not an optimizer-pass row. It runs at every optimization
-level, does not join transform fixpoints, and returns no changed flag. When an
-enabled memory warning or the private `CGF_MEMSAFE_DUMP=1` test gate needs the
-analysis, the driver lowers a dedicated module that retains inline bodies,
-verifies it, applies the selected optimization pipeline, and normalizes local
-memory to SSA even at `-O0`. The ordinary emission module remains separate,
-so analysis and dumps cannot change generated code. `-fsyntax-only` still
-runs this stage and therefore reports `-Wmem` findings without codegen.
+It is deliberately not an optimizer-pass row and never joins transform
+fixpoints. Warning-only analysis and `CGF_MEMSAFE_DUMP=1` use a dedicated
+read-only module that retains inline bodies, so diagnostics cannot change
+ordinary generated code. `-fsyntax-only` still runs that path. Safe emission
+instead analyzes the already-optimized emission module itself, normalizes
+local memory to SSA even at `-O0`, consumes warnings/dumps/classification in
+one traversal, destroys alias state, inserts only residual checks, renumbers,
+and verifies before code generation.
 
 ## Lifetime state and bounded paths
 
@@ -357,8 +431,7 @@ data model; Sprint 42 renders it as user-visible `-Wmem` diagnostics.
 
 ## Position relative to other tools
 
-This table describes the intended comparison surface. It does not claim that
-the future Cgfried layers are already available.
+This table describes the implemented comparison surface.
 
 | Tool or mode | Relevant strength | Important limit | Cgfried position |
 | --- | --- | --- | --- |

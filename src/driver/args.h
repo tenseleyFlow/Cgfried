@@ -108,6 +108,7 @@ typedef struct {
     bool fwrapv;
     bool fno_strict_aliasing; /* Sprint 32 consumes */
     bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
+    bool fcgf_safe;           /* Sprint 44 heap runtime instrumentation */
 
     /* --- warnings: every positional policy operation in argv order --- */
     VecWarn warn_opts;

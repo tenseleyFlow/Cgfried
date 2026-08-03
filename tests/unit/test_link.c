@@ -116,6 +116,43 @@ void test_link_argv_static_grouping(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
+{
+    static const char *const wraps[] = {
+        "--wrap=malloc",  "--wrap=calloc",        "--wrap=realloc",
+        "--wrap=free",    "--wrap=reallocarray",  "--wrap=strdup",
+        "--wrap=strndup", "--wrap=aligned_alloc", "--wrap=posix_memalign",
+    };
+    Arena ar;
+    DriverArgs a;
+    VecStr v = {0};
+    int previous;
+    size_t i;
+
+    arena_init(&ar);
+    fill_args(&a);
+    a.fcgf_safe = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    previous = argv_index(&v, "--eh-frame-hdr");
+    for (i = 0; i < CGF_ARRAY_LEN(wraps); i++) {
+        int at = argv_index(&v, wraps[i]);
+
+        T_ASSERT(t, at == previous + 1);
+        previous = at;
+    }
+    T_ASSERT(t, previous < argv_index(&v, "x.o"));
+    VecStr_free(&v);
+    args_free(&a);
+
+    fill_args(&a);
+    memset(&v, 0, sizeof(v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);
+    VecStr_free(&v);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 /* The subtraction table: user -l flags ALWAYS survive. */
 void test_link_argv_subtraction(TestCtx *t)
 {
@@ -138,21 +175,25 @@ void test_link_argv_subtraction(TestCtx *t)
 
     fill_args(&a);
     a.nodefaultlibs = true;
+    a.fcgf_safe = true;
     memset(&v, 0, sizeof(v));
     T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") > 0);
     T_ASSERT(t, argv_index_suffix(&v, "/crtn.o") > 0);
     T_ASSERT(t, argv_index(&v, "-lc") < 0);
+    T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);
     T_ASSERT(t, argv_index(&v, "-lm") > 0); /* the user's, survives */
     VecStr_free(&v);
     args_free(&a);
 
     fill_args(&a);
     a.nostdlib = true;
+    a.fcgf_safe = true;
     memset(&v, 0, sizeof(v));
     T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") < 0);
     T_ASSERT(t, argv_index(&v, "-lc") < 0);
+    T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);
     T_ASSERT(t, argv_index(&v, "-lm") > 0);
     VecStr_free(&v);
     args_free(&a);

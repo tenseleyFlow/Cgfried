@@ -658,6 +658,11 @@ static const char *joined2(struct Arena *ar, const char *a, const char *b)
 bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
                                struct Arena *ar, VecStr *out)
 {
+    static const char *const safe_wraps[] = {
+        "--wrap=malloc",  "--wrap=calloc",        "--wrap=realloc",
+        "--wrap=free",    "--wrap=reallocarray",  "--wrap=strdup",
+        "--wrap=strndup", "--wrap=aligned_alloc", "--wrap=posix_memalign",
+    };
     ToolchainConfig tc = cgf_toolchain_resolve(t);
     const char *crtdir = NULL;
     const char *dl = cgf_target_dynamic_linker(t);
@@ -706,6 +711,14 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     /* gcc always passes --eh-frame-hdr; the unwind index costs nothing
      * for plain C and readelf-structural parity wants it. */
     VecStr_push(out, "--eh-frame-hdr");
+    /* Sprint 44: the runtime archive supplies the corresponding
+     * __wrap_* definitions. Keep these option-like arguments before every
+     * position-sensitive user input. When default libraries are subtracted,
+     * the runtime is absent too, so emitting wrappers would manufacture
+     * unresolved __wrap_* references and violate -nodefaultlibs/-nostdlib. */
+    if (da->fcgf_safe && want_libs)
+        for (i = 0; i < CGF_ARRAY_LEN(safe_wraps); i++)
+            VecStr_push(out, safe_wraps[i]);
     for (i = 0; i < da->lib_dirs.len; i++)
         VecStr_push(out, joined2(ar, "-L", da->lib_dirs.data[i]));
     if (crtdir)

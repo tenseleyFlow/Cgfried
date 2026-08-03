@@ -213,6 +213,16 @@ typedef struct MsIssue {
     MsTrace trace;
 } MsIssue;
 
+/* Sprint 44: every surviving IR memory access is classified by the same
+ * path/alias analysis that emits -Wmem diagnostics.  A proven access needs
+ * no runtime call; every other access remains in the instrumentation
+ * residue. */
+typedef struct MsCheckStats {
+    u32 total;
+    u32 discharged;
+    u32 emitted;
+} MsCheckStats;
+
 MsFunctionResult *ms_analyze_function(Arena *arena, IrModule *module,
                                       IrFunc *function,
                                       bool no_strict_aliasing);
@@ -231,5 +241,8 @@ const MsIssue *ms_result_issue_at(const MsFunctionResult *result, u32 index);
 void ms_warn_module(struct WarnCtx *warnings, IrModule *module,
                     bool no_strict_aliasing);
 void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out);
+void ms_process_module(struct WarnCtx *warnings, IrModule *module,
+                       bool no_strict_aliasing, FILE *dump, bool instrument,
+                       MsCheckStats *stats);
 
 #endif
