@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "driver/toolchain.h"
@@ -10,8 +11,14 @@
 
 typedef struct {
     const char *path; /* arena copy */
-    const char *src;  /* borrowed */
+    const char *src;  /* normalized diagnostic view, borrowed */
     size_t len;
+    const char *original; /* exact copy-only edit input, borrowed */
+    size_t original_len;
+    bool safely_editable;
+    bool have_identity;
+    dev_t device;
+    ino_t inode;
 } DiagFile;
 
 struct DiagCtx {
@@ -24,6 +31,9 @@ struct DiagCtx {
     size_t debug_spans_cap;
     u32 *debug_span_slots;
     size_t debug_span_slot_count;
+    DiagFixit *fixits;
+    size_t fixits_len;
+    size_t fixits_cap;
     DiagSink sink;
     u32 error_count;
     u32 warning_count;
@@ -58,8 +68,12 @@ DiagSink diag_swap_sink(DiagCtx *dc, DiagSink sink)
     return prev;
 }
 
-u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
+u32 diag_add_file_with_original(DiagCtx *dc, const char *path, const char *src,
+                                size_t len, const char *original,
+                                size_t original_len, bool safely_editable)
 {
+    struct stat st;
+
     if (dc->files_len == dc->files_cap) {
         size_t cap = dc->files_cap ? dc->files_cap * 2 : 8;
         DiagFile *grown =
@@ -72,8 +86,21 @@ u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
     dc->files[dc->files_len].path = arena_strdup(dc->arena, path);
     dc->files[dc->files_len].src = src;
     dc->files[dc->files_len].len = len;
+    dc->files[dc->files_len].original = original;
+    dc->files[dc->files_len].original_len = original_len;
+    dc->files[dc->files_len].safely_editable = safely_editable;
+    dc->files[dc->files_len].have_identity = stat(path, &st) == 0;
+    if (dc->files[dc->files_len].have_identity) {
+        dc->files[dc->files_len].device = st.st_dev;
+        dc->files[dc->files_len].inode = st.st_ino;
+    }
     dc->files_len++;
     return (u32)dc->files_len; /* ids are 1-based; 0 = no location */
+}
+
+u32 diag_add_file(DiagCtx *dc, const char *path, const char *src, size_t len)
+{
+    return diag_add_file_with_original(dc, path, src, len, src, len, true);
 }
 
 const char *diag_file_path(const DiagCtx *dc, u32 file_id)
@@ -81,6 +108,22 @@ const char *diag_file_path(const DiagCtx *dc, u32 file_id)
     if (!dc || file_id == 0 || file_id > dc->files_len)
         return NULL;
     return dc->files[file_id - 1].path;
+}
+
+size_t diag_file_count(const DiagCtx *dc)
+{
+    return dc ? dc->files_len : 0;
+}
+
+const char *diag_file_source(const DiagCtx *dc, u32 file_id, size_t *len)
+{
+    if (len)
+        *len = 0;
+    if (!dc || file_id == 0 || file_id > dc->files_len)
+        return NULL;
+    if (len)
+        *len = dc->files[file_id - 1].len;
+    return dc->files[file_id - 1].src;
 }
 
 const char *diag_span_path(const DiagCtx *dc, Span sp)
@@ -261,16 +304,51 @@ Span diag_point_after(const DiagCtx *dc, Span sp)
     return out;
 }
 
-/* The single emission path. `fix_where`/`insert` may be a zero Span and
- * NULL for the (usual) no-fix-it case. */
-static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
-                   const char *insert, WarnId warn_id, const char *fmt,
+static const DiagFixit *record_fixits(DiagCtx *dc, const DiagFixit *fixits,
+                                      size_t count)
+{
+    DiagFixit *out;
+    size_t i;
+
+    if (!count)
+        return NULL;
+    if (dc->fixits_len + count > dc->fixits_cap) {
+        size_t cap = dc->fixits_cap ? dc->fixits_cap * 2 : 16;
+        DiagFixit *grown;
+
+        while (cap < dc->fixits_len + count)
+            cap *= 2;
+        grown =
+            arena_alloc(dc->arena, cap * sizeof(*grown), _Alignof(DiagFixit));
+        if (dc->fixits_len)
+            memcpy(grown, dc->fixits, dc->fixits_len * sizeof(*grown));
+        dc->fixits = grown;
+        dc->fixits_cap = cap;
+    }
+    out = dc->fixits + dc->fixits_len;
+    for (i = 0; i < count; i++) {
+        out[i] = fixits[i];
+        if (out[i].insert)
+            out[i].insert = arena_strdup(dc->arena, out[i].insert);
+        if ((out[i].where.origin & SPAN_ORIGIN_ANY_MACRO) ||
+            out[i].where.file_id == 0 || out[i].where.file_id > dc->files_len ||
+            !dc->files[out[i].where.file_id - 1].safely_editable)
+            out[i].machine_applicable = false;
+    }
+    dc->fixits_len += count;
+    return out;
+}
+
+/* The single emission path. The edit array may be NULL when count is zero. */
+static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, const DiagFixit *fixits,
+                   size_t fixit_count, WarnId warn_id, const char *fmt,
                    va_list ap)
 {
     va_list ap2;
     int need;
     char *msg;
     Diag d;
+    const DiagFixit *recorded;
 
     /* Once the cap has latched, everything after it is noise: the whole
      * point of the cap is to bound output volume. */
@@ -278,6 +356,8 @@ static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
         return;
 
     check_span(dc, sp);
+    for (size_t i = 0; i < fixit_count; i++)
+        check_span(dc, fixits[i].where);
 
     va_copy(ap2, ap);
     need = vsnprintf(NULL, 0, fmt, ap);
@@ -296,8 +376,11 @@ static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
     d.level = lvl;
     d.span = sp;
     d.message = msg;
-    d.fixit.where = fix_where;
-    d.fixit.insert = insert;
+    recorded = record_fixits(dc, fixits, fixit_count);
+    d.fixits = recorded;
+    d.fixit_count = fixit_count;
+    if (fixit_count)
+        d.fixit = recorded[0];
     d.warn_id = warn_id;
     dc->sink.handle(dc->sink.user, &d, dc);
 
@@ -319,10 +402,9 @@ static void emit_v(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
 void diag_emit(DiagCtx *dc, DiagLevel lvl, Span sp, const char *fmt, ...)
 {
     va_list ap;
-    Span nofix = {0};
 
     va_start(ap, fmt);
-    emit_v(dc, lvl, sp, nofix, NULL, WARN_NONE, fmt, ap);
+    emit_v(dc, lvl, sp, NULL, 0, WARN_NONE, fmt, ap);
     va_end(ap);
 }
 
@@ -330,18 +412,61 @@ void diag_emit_fixit(DiagCtx *dc, DiagLevel lvl, Span sp, Span fix_where,
                      const char *insert, const char *fmt, ...)
 {
     va_list ap;
+    DiagFixit fixit;
+
+    memset(&fixit, 0, sizeof(fixit));
+    fixit.where = fix_where;
+    fixit.insert = insert;
+    fixit.machine_applicable = true;
+    va_start(ap, fmt);
+    emit_v(dc, lvl, sp, &fixit, 1, WARN_NONE, fmt, ap);
+    va_end(ap);
+}
+
+void diag_emit_with_fixits(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
+                           const DiagFixit *fixits, size_t fixit_count,
+                           const char *fmt, ...)
+{
+    va_list ap;
 
     va_start(ap, fmt);
-    emit_v(dc, lvl, sp, fix_where, insert, WARN_NONE, fmt, ap);
+    emit_v(dc, lvl, sp, fixits, fixit_count, warn_id, fmt, ap);
+    va_end(ap);
+}
+
+void diag_emit_warn_fixits(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
+                           const DiagFixit *fixits, size_t fixit_count,
+                           const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    emit_v(dc, lvl, sp, fixits, fixit_count, warn_id, fmt, ap);
     va_end(ap);
 }
 
 void diag_emit_warn_v(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
                       const char *fmt, va_list ap)
 {
-    Span nofix = {0};
+    emit_v(dc, lvl, sp, NULL, 0, warn_id, fmt, ap);
+}
 
-    emit_v(dc, lvl, sp, nofix, NULL, warn_id, fmt, ap);
+size_t diag_fixit_count(const DiagCtx *dc)
+{
+    return dc ? dc->fixits_len : 0;
+}
+
+const DiagFixit *diag_fixit_at(const DiagCtx *dc, size_t index)
+{
+    if (!dc || index >= dc->fixits_len)
+        return NULL;
+    return &dc->fixits[index];
+}
+
+void diag_clear_fixits(DiagCtx *dc)
+{
+    if (dc)
+        dc->fixits_len = 0;
 }
 
 void diag_emit_warn(DiagCtx *dc, DiagLevel lvl, Span sp, WarnId warn_id,
@@ -522,6 +647,420 @@ void diag_render(FILE *f, const Diag *d, const DiagCtx *dc, bool color)
             fprintf(f, "%s\n", reset);
         }
     }
+}
+
+static void print_escaped(FILE *f, const char *s)
+{
+    const unsigned char *p = (const unsigned char *)s;
+
+    while (p && *p) {
+        switch (*p) {
+        case '\\':
+            fputs("\\\\", f);
+            break;
+        case '"':
+            fputs("\\\"", f);
+            break;
+        case '\n':
+            fputs("\\n", f);
+            break;
+        case '\t':
+            fputs("\\t", f);
+            break;
+        default:
+            if (*p < 0x20 || *p == 0x7f)
+                fprintf(f, "\\%03o", (unsigned)*p);
+            else
+                fputc(*p, f);
+            break;
+        }
+        p++;
+    }
+}
+
+static bool span_end(const DiagCtx *dc, Span sp, u32 *end_line, u32 *end_col)
+{
+    const DiagFile *file;
+    size_t pos = 0;
+    u32 line = 1, col = 1;
+
+    if (sp.file_id == 0 || sp.file_id > dc->files_len || !sp.line || !sp.col)
+        return false;
+    file = &dc->files[sp.file_id - 1];
+    while (pos < file->len && line < sp.line) {
+        if (file->src[pos++] == '\n')
+            line++;
+    }
+    if (line != sp.line)
+        return false;
+    while (pos < file->len && file->src[pos] != '\n' && col < sp.col) {
+        pos++;
+        col++;
+    }
+    if (col != sp.col)
+        return false;
+    for (u32 i = 0; i < sp.len; i++) {
+        if (pos == file->len)
+            return false;
+        if (file->src[pos++] == '\n') {
+            line++;
+            col = 1;
+        } else {
+            col++;
+        }
+    }
+    *end_line = line;
+    *end_col = col;
+    return true;
+}
+
+void diag_render_parseable_fixits(FILE *f, const Diag *d, const DiagCtx *dc)
+{
+    size_t i;
+
+    for (i = 0; i < d->fixit_count; i++) {
+        const DiagFixit *fixit = &d->fixits[i];
+        const char *path = diag_file_path(dc, fixit->where.file_id);
+        u32 end_line, end_col;
+
+        if (!fixit->insert || !path || fixit->where.file_id == 0 ||
+            fixit->where.file_id > dc->files_len ||
+            !dc->files[fixit->where.file_id - 1].safely_editable ||
+            !span_end(dc, fixit->where, &end_line, &end_col))
+            continue;
+        fputs("fix-it:\"", f);
+        print_escaped(f, path);
+        fprintf(f, "\":{%u:%u-%u:%u}:\"", (unsigned)fixit->where.line,
+                (unsigned)fixit->where.col, (unsigned)end_line,
+                (unsigned)end_col);
+        print_escaped(f, fixit->insert);
+        fputs("\"\n", f);
+    }
+}
+
+typedef struct {
+    const DiagFixit *fixit;
+    const char *path;
+    size_t ordinal;
+    size_t start;
+    size_t end;
+    bool conflict;
+    bool selected;
+} FixWork;
+
+static bool same_edit_file(const DiagCtx *dc, u32 a, u32 b)
+{
+    const DiagFile *left, *right;
+
+    if (!a || !b || a > dc->files_len || b > dc->files_len)
+        return false;
+    left = &dc->files[a - 1];
+    right = &dc->files[b - 1];
+    if (left->have_identity && right->have_identity)
+        return left->device == right->device && left->inode == right->inode;
+    return same_path(left->path, right->path);
+}
+
+static bool original_line_col_offset(const DiagFile *file, u32 wanted_line,
+                                     u32 wanted_col, size_t *offset)
+{
+    size_t pos = 0;
+    u32 line = 1, col = 1;
+
+    if (!wanted_line || !wanted_col)
+        return false;
+    while (pos < file->original_len && line < wanted_line) {
+        if (file->original[pos] == '\r') {
+            pos++;
+            if (pos < file->original_len && file->original[pos] == '\n')
+                pos++;
+            line++;
+        } else if (file->original[pos++] == '\n') {
+            line++;
+        }
+    }
+    if (line != wanted_line)
+        return false;
+    while (pos < file->original_len && file->original[pos] != '\n' &&
+           file->original[pos] != '\r' && col < wanted_col) {
+        pos++;
+        col++;
+    }
+    if (col != wanted_col)
+        return false;
+    *offset = pos;
+    return true;
+}
+
+static bool span_offsets(const DiagCtx *dc, Span sp, size_t *start, size_t *end)
+{
+    const DiagFile *file;
+    u32 end_line, end_col;
+
+    if (sp.file_id == 0 || sp.file_id > dc->files_len)
+        return false;
+    file = &dc->files[sp.file_id - 1];
+    return file->safely_editable && span_end(dc, sp, &end_line, &end_col) &&
+           original_line_col_offset(file, sp.line, sp.col, start) &&
+           original_line_col_offset(file, end_line, end_col, end);
+}
+
+static bool edit_conflicts(const DiagCtx *dc, const FixWork *a,
+                           const FixWork *b)
+{
+    if (!same_edit_file(dc, a->fixit->where.file_id, b->fixit->where.file_id))
+        return false;
+    if (a->start == a->end && b->start == b->end)
+        return a->start == b->start;
+    if (a->start == a->end)
+        return a->start >= b->start && a->start <= b->end;
+    if (b->start == b->end)
+        return b->start >= a->start && b->start <= a->end;
+    /* Adjacent replacements also conflict. Applying either could invalidate
+     * the other's intended token boundary even though byte intervals are
+     * half-open. The conservative rule preserves tooling trust. */
+    return a->start <= b->end && b->start <= a->end;
+}
+
+static int prompt_choice(const DiagCtx *dc, FILE *input, FILE *prompt,
+                         const DiagFixit *fixit)
+{
+    int ch, tail;
+    const char *path = diag_file_path(dc, fixit->where.file_id);
+
+    fprintf(prompt, "apply fix-it at %s:%u:%u (%s)? [y/n/a/q] ",
+            path ? path : "<unknown>", (unsigned)fixit->where.line,
+            (unsigned)fixit->where.col,
+            fixit->machine_applicable ? "machine-applicable" : "advisory");
+    fflush(prompt);
+    ch = fgetc(input);
+    if (ch == EOF)
+        return 'q';
+    do {
+        tail = fgetc(input);
+    } while (tail != '\n' && tail != EOF);
+    return ch;
+}
+
+static void sort_reverse(FixWork **items, size_t count)
+{
+    size_t i;
+
+    for (i = 1; i < count; i++) {
+        FixWork *item = items[i];
+        size_t j = i;
+
+        while (j > 0 && (items[j - 1]->start < item->start ||
+                         (items[j - 1]->start == item->start &&
+                          items[j - 1]->ordinal < item->ordinal))) {
+            items[j] = items[j - 1];
+            j--;
+        }
+        items[j] = item;
+    }
+}
+
+static bool write_fixed_file(DiagCtx *dc, u32 file_id, FixWork *work,
+                             size_t count)
+{
+    const DiagFile *file = &dc->files[file_id - 1];
+    FixWork **selected;
+    size_t selected_count = 0, final_len = file->original_len, i;
+    char *result, *out_path, *temp_path;
+    FILE *out;
+    int fd;
+
+    selected =
+        arena_alloc(dc->arena, count * sizeof(*selected), _Alignof(FixWork *));
+    for (i = 0; i < count; i++) {
+        size_t insert_len;
+
+        if (!work[i].selected ||
+            !same_edit_file(dc, work[i].fixit->where.file_id, file_id))
+            continue;
+        {
+            const DiagFile *edit_file =
+                &dc->files[work[i].fixit->where.file_id - 1];
+
+            if (edit_file->original_len != file->original_len ||
+                (file->original_len &&
+                 memcmp(edit_file->original, file->original,
+                        file->original_len)))
+                return false;
+        }
+        insert_len = strlen(work[i].fixit->insert);
+        final_len -= work[i].end - work[i].start;
+        final_len += insert_len;
+        selected[selected_count++] = &work[i];
+    }
+    if (!selected_count)
+        return true;
+    sort_reverse(selected, selected_count);
+    result = arena_alloc(dc->arena, final_len + 1, 1);
+    memcpy(result, file->original, file->original_len);
+    {
+        size_t current_len = file->original_len;
+
+        for (i = 0; i < selected_count; i++) {
+            FixWork *edit = selected[i];
+            size_t old_len = edit->end - edit->start;
+            size_t new_len = strlen(edit->fixit->insert);
+
+            memmove(result + edit->start + new_len, result + edit->end,
+                    current_len - edit->end);
+            memcpy(result + edit->start, edit->fixit->insert, new_len);
+            current_len = current_len - old_len + new_len;
+        }
+    }
+    result[final_len] = '\0';
+    {
+        static const char suffix[] = ".cgf-fixed";
+        static const char temp_suffix[] = ".tmp.XXXXXX";
+
+        out_path =
+            arena_alloc(dc->arena, strlen(file->path) + sizeof(suffix), 1);
+        sprintf(out_path, "%s%s", file->path, suffix);
+        temp_path = arena_alloc(
+            dc->arena,
+            strlen(file->path) + sizeof(suffix) + sizeof(temp_suffix), 1);
+        sprintf(temp_path, "%s%s%s", file->path, suffix, temp_suffix);
+    }
+    fd = mkstemp(temp_path);
+    if (fd < 0)
+        return false;
+    out = fdopen(fd, "wb");
+    if (!out) {
+        close(fd);
+        unlink(temp_path);
+        return false;
+    }
+    if (fwrite(result, 1, final_len, out) != final_len) {
+        fclose(out);
+        unlink(temp_path);
+        return false;
+    }
+    if (fclose(out) != 0) {
+        unlink(temp_path);
+        return false;
+    }
+    /* Atomic replacement never follows an existing destination symlink, so
+     * even a hostile stale .cgf-fixed entry cannot redirect this write into
+     * the source file or another target. */
+    if (rename(temp_path, out_path) != 0) {
+        unlink(temp_path);
+        return false;
+    }
+    return true;
+}
+
+bool diag_apply_fixits(DiagCtx *dc, DiagFixitApplyMode mode, FILE *input,
+                       FILE *prompt, DiagFixitApplyReport *report)
+{
+    DiagFixitApplyReport local = {0};
+    FixWork *work;
+    size_t valid_count = 0, i, j;
+    bool accept_all = mode == DIAG_FIXITS_ALL;
+    bool quit = false;
+
+    if (!report)
+        report = &local;
+    memset(report, 0, sizeof(*report));
+    if (mode == DIAG_FIXITS_INTERACTIVE && (!input || !isatty(fileno(input)))) {
+        report->non_tty = true;
+        return false;
+    }
+    if (!prompt)
+        prompt = stderr;
+    work = arena_alloc(dc->arena,
+                       (dc->fixits_len ? dc->fixits_len : 1) * sizeof(*work),
+                       _Alignof(FixWork));
+    memset(work, 0, dc->fixits_len * sizeof(*work));
+    for (i = 0; i < dc->fixits_len; i++) {
+        const DiagFixit *fixit = &dc->fixits[i];
+
+        if (!fixit->insert ||
+            !span_offsets(dc, fixit->where, &work[valid_count].start,
+                          &work[valid_count].end))
+            continue;
+        work[valid_count].fixit = fixit;
+        work[valid_count].path = diag_file_path(dc, fixit->where.file_id);
+        work[valid_count].ordinal = i;
+        valid_count++;
+    }
+    report->considered = valid_count;
+    for (i = 0; i < valid_count; i++) {
+        for (j = i + 1; j < valid_count; j++) {
+            if (edit_conflicts(dc, &work[i], &work[j])) {
+                work[i].conflict = true;
+                work[j].conflict = true;
+            }
+        }
+        if (work[i].conflict)
+            report->conflicts++;
+        if (work[i].conflict && !report->first_conflict_path) {
+            report->first_conflict_path =
+                diag_file_path(dc, work[i].fixit->where.file_id);
+            report->first_conflict_line = work[i].fixit->where.line;
+            report->first_conflict_col = work[i].fixit->where.col;
+        }
+    }
+    for (i = 0; i < valid_count && !quit; i++) {
+        int choice;
+
+        if (work[i].conflict)
+            continue;
+        if (mode == DIAG_FIXITS_ALL && !work[i].fixit->machine_applicable) {
+            report->advisory_skipped++;
+            continue;
+        }
+        if (accept_all) {
+            work[i].selected = true;
+            continue;
+        }
+        choice = prompt_choice(dc, input, prompt, work[i].fixit);
+        switch (choice) {
+        case 'y':
+        case 'Y':
+            work[i].selected = true;
+            break;
+        case 'a':
+        case 'A':
+            work[i].selected = true;
+            accept_all = true;
+            break;
+        case 'q':
+        case 'Q':
+            quit = true;
+            break;
+        default:
+            break;
+        }
+    }
+    for (u32 file_id = 1; file_id <= dc->files_len; file_id++) {
+        size_t before = report->applied;
+        bool already_handled = false;
+
+        for (u32 prior = 1; prior < file_id; prior++)
+            if (same_edit_file(dc, prior, file_id)) {
+                already_handled = true;
+                break;
+            }
+        if (already_handled)
+            continue;
+
+        for (i = 0; i < valid_count; i++)
+            if (work[i].selected &&
+                same_edit_file(dc, work[i].fixit->where.file_id, file_id))
+                report->applied++;
+        if (report->applied == before)
+            continue;
+        if (!write_fixed_file(dc, file_id, work, valid_count)) {
+            report->io_error = true;
+            return false;
+        }
+        report->files_written++;
+    }
+    return true;
 }
 
 void diag_render_stderr(void *user, const Diag *d, const DiagCtx *dc)

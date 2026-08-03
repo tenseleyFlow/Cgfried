@@ -479,8 +479,10 @@ void test_memsafe_summary_forwards_mixed_owned_and_alias_return(TestCtx *t)
     forward = ms_summary_get(set, 1);
     arena_load = ms_summary_get(set, 2);
     T_ASSERT(t, mixed && mixed->returns_ownership);
+    T_ASSERT(t, mixed && !mixed->must_return_ownership);
     T_ASSERT(t, mixed && mixed->params[0].returned_alias);
     T_ASSERT(t, forward && forward->returns_ownership);
+    T_ASSERT(t, forward && !forward->must_return_ownership);
     T_ASSERT(t, forward && forward->params[0].returned_alias);
     T_ASSERT(t, arena_load && !arena_load->returns_ownership);
     T_ASSERT(t, arena_load && arena_load->params[0].returned_alias);
@@ -710,21 +712,31 @@ void test_memsafe_summary_suppressed_mismatch_has_no_orphan_notes(TestCtx *t)
 void test_memsafe_summary_may_free_vs_annotated_must(TestCtx *t)
 {
     SummaryFix fix;
-    IrModule *module =
-        summary_parse(&fix, "sym @free\n"
-                            "func void @inferred(ptr %p) internal {\n"
-                            "entry():\n"
-                            "    call void @free(ptr %p)\n"
-                            "    ret\n"
-                            "}\n"
-                            "func void @contract(ptr %p) {\n"
-                            "entry():\n"
-                            "    ret\n"
-                            "}\n");
+    IrModule *module = summary_parse(
+        &fix, "sym @free\n"
+              "func void @inferred(ptr %p) internal {\n"
+              "entry():\n"
+              "    call void @free(ptr %p)\n"
+              "    ret\n"
+              "}\n"
+              "func void @contract(ptr %p) {\n"
+              "entry():\n"
+              "    ret\n"
+              "}\n"
+              "func void @conditional(ptr %p, i32 %take) internal {\n"
+              "entry():\n"
+              "    condbr %take, consume(), keep()\n"
+              "consume():\n"
+              "    call void @free(ptr %p)\n"
+              "    ret\n"
+              "keep():\n"
+              "    ret\n"
+              "}\n");
     CgfAttr takes = {CGF_ATTR_TAKES_OWNERSHIP, 1, 1, {0}, NULL};
     MsSummarySet *set;
     const MsSummary *inferred;
     const MsSummary *contract;
+    const MsSummary *conditional;
 
     T_ASSERT(t, module != NULL);
     if (!module) {
@@ -735,10 +747,13 @@ void test_memsafe_summary_may_free_vs_annotated_must(TestCtx *t)
     set = ms_summary_build(&fix.arena, module, false, NULL);
     inferred = ms_summary_get(set, 0);
     contract = ms_summary_get(set, 1);
+    conditional = ms_summary_get(set, 2);
     T_ASSERT(t, inferred && inferred->params[0].may_free);
-    T_ASSERT(t, inferred && !inferred->params[0].must_free);
+    T_ASSERT(t, inferred && inferred->params[0].must_free);
     T_ASSERT(t, contract && contract->params[0].may_free);
     T_ASSERT(t, contract && contract->params[0].must_free);
+    T_ASSERT(t, conditional && conditional->params[0].may_free);
+    T_ASSERT(t, conditional && !conditional->params[0].must_free);
     arena_free_all(&fix.arena);
 }
 

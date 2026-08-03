@@ -201,6 +201,23 @@ static void lower_one_decl(Lower *lo, AstNode *d)
             ir_build_alloca_typed(&lo->b, bytes, (u32)(el.align ? el.align : 1),
                                   lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
+        if (lo->auto_var_init != LOWER_AUTO_VAR_INIT_NONE &&
+            !(d->storage & AST_SC_THREAD_LOCAL)) {
+            i64 byte =
+                lo->auto_var_init == LOWER_AUTO_VAR_INIT_PATTERN ? 0xfe : 0;
+            IrOperand args[3];
+
+            /* The x86 backend's inline IR_MEMSET form is constant-size by
+             * contract.  A VLA is necessarily runtime-sized, so lower its
+             * mitigation through the ordinary hosted memset ABI instead of
+             * sending an unsupported dynamic intrinsic to instruction
+             * selection. */
+            args[0] = ir_op_value(lo->fn, slot);
+            args[1] = ir_op_iconst(IRT_I32, byte);
+            args[2] = bytes;
+            (void)ir_build_call(&lo->b, IRT_PTR, FUNCREF_EXTERNAL,
+                                ir_sym(lo->m, "memset"), args, 3);
+        }
         return;
     }
     if (d->storage & AST_SC_STATIC) {
@@ -234,6 +251,19 @@ static void lower_one_decl(Lower *lo, AstNode *d)
                                                                      : NULL;
         lower_local_init(lo, ir_op_value(lo->fn, slot), sym->type, d->init);
         lo->initializing_sym = saved_init;
+    } else if (lo->auto_var_init != LOWER_AUTO_VAR_INIT_NONE &&
+               !(d->storage & AST_SC_THREAD_LOCAL)) {
+        i64 byte = 0;
+
+        if (lo->auto_var_init == LOWER_AUTO_VAR_INIT_PATTERN) {
+            /* 0xFE makes accidental pointer values non-canonical on x86-64,
+             * so a dereference tends to trap instead of behaving like NULL. */
+            byte = 0xfe;
+        }
+        l = layout_of(lo->sema, sym->type);
+        ir_build_memset(&lo->b, ir_op_value(lo->fn, slot),
+                        ir_op_iconst(IRT_I32, byte), lower_i64((i64)l.size),
+                        (u32)(l.align ? l.align : 1), 0);
     }
 }
 

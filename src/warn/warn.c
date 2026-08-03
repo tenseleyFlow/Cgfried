@@ -773,8 +773,11 @@ static bool is_memsafe_warning(WarnId id)
 {
     return id == WARN_MEM_ANNOTATION_MISMATCH || id == WARN_MEM_DOUBLE_FREE ||
            id == WARN_MEM_FREE_NONHEAP || id == WARN_MEM_LEAK ||
-           id == WARN_MEM_OUT_OF_BOUNDS || id == WARN_MEM_REALLOC_ZERO ||
-           id == WARN_MEM_UNINIT_READ || id == WARN_MEM_USE_AFTER_FREE ||
+           id == WARN_MEM_NULL_CHECK || id == WARN_MEM_OUT_OF_BOUNDS ||
+           id == WARN_MEM_REALLOC_ZERO || id == WARN_MEM_SIZEOF_MISMATCH ||
+           id == WARN_MEM_SUGGEST_ANNOTATIONS ||
+           id == WARN_MEM_UNBOUNDED_COPY || id == WARN_MEM_UNINIT_READ ||
+           id == WARN_MEM_USE_AFTER_FREE ||
            id == WARN_MEM_USE_AFTER_FREE_UNKNOWN;
 }
 
@@ -785,8 +788,12 @@ bool warn_memsafe_needed(const WarnCtx *w)
         WARN_MEM_DOUBLE_FREE,
         WARN_MEM_FREE_NONHEAP,
         WARN_MEM_LEAK,
+        WARN_MEM_NULL_CHECK,
         WARN_MEM_OUT_OF_BOUNDS,
         WARN_MEM_REALLOC_ZERO,
+        WARN_MEM_SIZEOF_MISMATCH,
+        WARN_MEM_SUGGEST_ANNOTATIONS,
+        WARN_MEM_UNBOUNDED_COPY,
         WARN_MEM_UNINIT_READ,
         WARN_MEM_USE_AFTER_FREE,
         WARN_MEM_USE_AFTER_FREE_UNKNOWN,
@@ -813,7 +820,10 @@ bool warn_mem_strict_enabled(const WarnCtx *w)
 {
     Span none = {0};
 
-    return w && warn_enabled(w, WARN_MEM_USE_AFTER_FREE_UNKNOWN, none);
+    return w && (warn_enabled(w, WARN_MEM_NULL_CHECK, none) ||
+                 warn_enabled(w, WARN_MEM_SIZEOF_MISMATCH, none) ||
+                 warn_enabled(w, WARN_MEM_UNBOUNDED_COPY, none) ||
+                 warn_enabled(w, WARN_MEM_USE_AFTER_FREE_UNKNOWN, none));
 }
 
 static void emit_warning_v(WarnCtx *w, WarnId id, Span sp, unsigned emit_flags,
@@ -860,6 +870,34 @@ void warn_at_ex(WarnCtx *w, WarnId id, Span sp, unsigned emit_flags,
     va_start(ap, fmt);
     emit_warning_v(w, id, sp, emit_flags, false, fmt, ap);
     va_end(ap);
+}
+
+void warn_at_fixits(WarnCtx *w, WarnId id, Span sp, const DiagFixit *fixits,
+                    size_t fixit_count, const char *fmt, ...)
+{
+    int cls;
+    va_list ap, copy;
+    char *message;
+    int needed;
+
+    if (!w || id <= WARN_NONE || id >= WARN_COUNT)
+        return;
+    cls = effective_class(w, id, sp, false);
+    if (cls < 0 || w->inhibit || suppressed_by_origin(w, sp, WARN_EMIT_NONE))
+        return;
+    va_start(ap, fmt);
+    va_copy(copy, ap);
+    needed = vsnprintf(NULL, 0, fmt, copy);
+    va_end(copy);
+    if (needed < 0) {
+        va_end(ap);
+        return;
+    }
+    message = arena_alloc(w->arena, (size_t)needed + 1, 1);
+    vsnprintf(message, (size_t)needed + 1, fmt, ap);
+    va_end(ap);
+    diag_emit_warn_fixits(w->diag, (DiagLevel)cls, sp, id, fixits, fixit_count,
+                          "%s", message);
 }
 
 static void append_event(WarnCtx *w, WarnEvent ev)

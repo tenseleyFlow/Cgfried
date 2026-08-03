@@ -244,6 +244,16 @@ typedef struct MacroDef {
     u32 body_len;
 } MacroDef;
 
+/* Point-sensitive macro state for source-edit clients. The live macro table
+ * only describes end-of-TU state, which is insufficient when an edit inserts
+ * an identifier before a later #define/#undef. Events are retained in lexical
+ * order; definition == NULL records #undef. */
+typedef struct PpMacroEvent {
+    const char *name;
+    const MacroDef *definition;
+    u32 seq;
+} PpMacroEvent;
+
 /* --- Conditional stack -------------------------------------------------- */
 
 typedef struct PpCond {
@@ -372,7 +382,10 @@ typedef struct Preprocessor {
         *system_dirs[PP_MAX_DIRS]; /* from TargetSpec; -nostdinc empties */
     size_t n_system;
 
-    Strmap macros; /* interned name -> MacroDef* */
+    Strmap macros;              /* interned name -> MacroDef* */
+    PpMacroEvent *macro_events; /* arena-owned lexical definition history */
+    size_t nmacro_events;
+    size_t macro_events_cap;
 
     PpFrame *frames; /* include stack; frames[nframes-1] is active */
     size_t nframes;
@@ -496,6 +509,11 @@ void pp_end(Preprocessor *pp);                /* frees engine-owned buffers */
 void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n);
 void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc);
 const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name);
+/* Macro definition active immediately before lexical sequence `seq`, or
+ * NULL. Unlike pp_macro_lookup(), this is point-sensitive across later
+ * redefinitions and #undef directives. */
+const MacroDef *pp_macro_lookup_at_seq(const Preprocessor *pp, const char *name,
+                                       u32 seq);
 /* As `defined`/#ifdef see it: macros PLUS _Pragma (gcc+clang parity). */
 bool pp_name_is_defined(const Preprocessor *pp, const char *name);
 

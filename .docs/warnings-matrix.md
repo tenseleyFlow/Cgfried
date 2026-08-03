@@ -266,8 +266,12 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Wmem-double-free | — | done | tests/memsafe/wmem/double-free/fire-direct.c |
 | -Wmem-free-nonheap | — | done | tests/memsafe/wmem/free-nonheap/fire-local.c |
 | -Wmem-leak | — | done | tests/memsafe/wmem/leak/fire-direct.c |
+| -Wmem-null-check | — | done | tests/memsafe/autofix/null.c |
 | -Wmem-out-of-bounds | — | done | tests/memsafe/wmem/out-of-bounds/fire-read-end.c |
 | -Wmem-realloc-zero | — | done | tests/memsafe/wmem/realloc-zero/fire-opt-in.c |
+| -Wmem-sizeof-mismatch | — | done | tests/memsafe/autofix/sizeof.c |
+| -Wmem-suggest-annotations | — | done | tests/memsafe/autofix/annotations.c |
+| -Wmem-unbounded-copy | — | done | tests/memsafe/autofix/copy.c |
 | -Wmem-uninit-read | — | done | tests/memsafe/wmem/uninit-read/fire-first-byte.c |
 | -Wmem-use-after-free | — | done | tests/memsafe/wmem/use-after-free/fire-direct.c |
 | -Wmem-use-after-free-unknown | — | done | tests/memsafe/wmem/strict/fire-unknown.c |
@@ -310,3 +314,12 @@ the fixture records one of these intentional policy or diagnostic-name differenc
 | tests/warn/pragma/system_enabled.c | CGF's system-header policy includes its own header fixture. |
 | tests/warn/pragma/system_pragma_threshold.c | CGF applies its `system_header` pragma threshold. |
 | tests/warn/pragma/unknown.c | CGF uses its own unknown-pragma spelling and policy. |
+
+## Deliberate post-2018 adoptions
+
+These features are outside the GCC 8 parity baseline but are intentional
+safety-mission additions. They do not change the 222-row raw-warning count.
+
+| feature | later upstream precedent | Cgfried policy | fixture |
+| --- | --- | --- | --- |
+| `-ftrivial-auto-var-init=zero\|pattern` | GCC 12 | Opt-in mitigation lowered after warning analysis; `zero` prevents uninitialized reads, `pattern` fills `0xFE`, and neither mode suppresses `-Wuninitialized`. | tests/programs/s45_auto_init_equiv.c |

@@ -101,6 +101,7 @@ static Span span_after_prev(Parser *p)
 void parse_error_after_prev(Parser *p, PpPunct expected, const char *what)
 {
     Span sp = span_after_prev(p);
+    Span fix = sp;
     const char *name = ast_punct_name((u16)expected);
 
     if (p->recovering) {
@@ -109,9 +110,10 @@ void parse_error_after_prev(Parser *p, PpPunct expected, const char *what)
         return;
     }
     p->nerrors++;
-    /* The fix-it is RECORDED, not rendered — Sprint 45 owns the output
-     * format. Storing it now means the repair is testable today. */
-    diag_emit_fixit(p->dc, DIAG_ERROR, sp, sp, name, "expected '%s'%s%s", name,
+    /* Keep the primary caret visible, but describe the edit as a zero-width
+     * insertion. GCC's parseable-fixits format distinguishes those ranges. */
+    fix.len = 0;
+    diag_emit_fixit(p->dc, DIAG_ERROR, sp, fix, name, "expected '%s'%s%s", name,
                     what ? " " : "", what ? what : "");
 }
 

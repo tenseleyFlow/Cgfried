@@ -4,6 +4,10 @@
 #include <string.h>
 
 #include "opt/opt.h"
+#include "parse/ast.h"
+#include "pp/pp.h"
+#include "sema/sema.h"
+#include "util/buf.h"
 #include "warn/warn.h"
 
 struct MsSummarySet {
@@ -146,6 +150,7 @@ static void apply_contract(MsSummary *summary, const CgfAttr *attrs,
                 }
             }
             summary->returns_ownership = true;
+            summary->must_return_ownership = true;
             summary->annot_returns_owned = true;
             break;
         case CGF_ATTR_TAKES_OWNERSHIP:
@@ -172,6 +177,7 @@ static void apply_contract(MsSummary *summary, const CgfAttr *attrs,
             mismatch = summary->returns_ownership;
             witness = summary->returns_ownership_span;
             summary->returns_ownership = false;
+            summary->must_return_ownership = false;
             effect->returned_alias = true;
             effect->annot_returns_borrowed = true;
             break;
@@ -462,6 +468,24 @@ static bool returned_call_proves_ownership(const MsSummarySet *set,
             seed.owns_result);
 }
 
+static bool returned_call_must_own(const MsSummarySet *set, const IrInst *call)
+{
+    const MsSummary *callee;
+    const MsLibSummary *lib = NULL;
+    AliasAllocSeed seed;
+
+    if (!call || call->op != IR_CALL)
+        return false;
+    callee = call_summary(set, call);
+    if (callee)
+        return callee->annot_returns_owned || callee->must_return_ownership;
+    if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms)
+        lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
+    return (lib && lib->returns_ownership) ||
+           (ms_alloc_seed_for_call(set->module, call, &seed) &&
+            seed.owns_result);
+}
+
 static bool call_within_scc(const Callgraph *cg, u32 scc, const IrInst *call)
 {
     return cg && scc != UINT32_MAX && call && call->op == IR_CALL &&
@@ -613,6 +637,99 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
     }
 }
 
+static bool summary_exact_param(const IrFunc *func, IrOperand operand,
+                                u32 param, u32 depth)
+{
+    const IrInst *def;
+
+    if (!func || param >= func->nparams || operand.kind != IROP_VALUE ||
+        depth > func->nvals)
+        return false;
+    if (operand.a == func->param_vals[param].v)
+        return true;
+    def = summary_value_def(func, operand);
+    return def && def->op == IR_BITCAST && def->nops == 1 &&
+           summary_exact_param(func, def->ops[0], param, depth + 1);
+}
+
+static bool summary_call_must_free_arg(const MsSummarySet *set,
+                                       const IrInst *call, u32 arg)
+{
+    const MsSummary *callee = call_summary(set, call);
+    const MsLibSummary *lib = NULL;
+
+    if (!call || call->op != IR_CALL)
+        return false;
+    if (callee)
+        return arg < callee->nparams && callee->params[arg].must_free;
+    if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms)
+        lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
+    return lib && arg < 64 && (lib->free_mask & (1ull << arg)) != 0;
+}
+
+/* A must-free fact needs one call that consumes the exact incoming parameter
+ * and dominates every normal return.  This deliberately declines merged
+ * values and branch-distributed frees: the points-to relation is a may set,
+ * so using it here would turn `free(cond ? p : 0)` into a false must fact. */
+static void infer_must_free(Arena *arena, const MsSummarySet *set, IrFunc *func,
+                            MsSummary *summary)
+{
+    IrDomTree *dom;
+    u32 p, bi;
+    bool has_return = false;
+
+    if (!func->nblocks || !summary->nparams)
+        return;
+    dom = ir_domtree_build(arena, func);
+    for (bi = 0; bi < func->nblocks; bi++)
+        if (func->blocks[bi].last && func->blocks[bi].last->op == IR_RET)
+            has_return = true;
+    if (!has_return)
+        return;
+    for (p = 0; p < summary->nparams; p++) {
+        for (bi = 0; bi < func->nblocks; bi++) {
+            const IrInst *in;
+            u32 first, ai;
+
+            for (in = func->blocks[bi].first; in; in = in->next) {
+                bool dominates_returns = true;
+                u32 exit;
+
+                if (in->op != IR_CALL)
+                    continue;
+                first = in->subop == FUNCREF_INDIRECT ? 1 : 0;
+                for (ai = first; ai < in->nops; ai++) {
+                    u32 arg = ai - first;
+
+                    if (!summary_call_must_free_arg(set, in, arg) ||
+                        !summary_exact_param(func, in->ops[ai], p, 0))
+                        continue;
+                    for (exit = 0; exit < func->nblocks; exit++)
+                        if (func->blocks[exit].last &&
+                            func->blocks[exit].last->op == IR_RET &&
+                            !ir_dominates(dom, (BlockId){bi + 1},
+                                          (BlockId){exit + 1})) {
+                            dominates_returns = false;
+                            break;
+                        }
+                    if (!dominates_returns)
+                        continue;
+                    summary->params[p].may_free = true;
+                    summary->params[p].must_free = true;
+                    if (!span_present(summary->params[p].free_span))
+                        summary->params[p].free_span =
+                            ir_inst_span(set->module, in);
+                    break;
+                }
+                if (summary->params[p].must_free)
+                    break;
+            }
+            if (summary->params[p].must_free)
+                break;
+        }
+    }
+}
+
 static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
                            bool no_strict_aliasing, WarnCtx *warnings,
                            const Callgraph *cg, u32 active_scc)
@@ -624,6 +741,9 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
     AliasConfig cfg = {0};
     AliasCtx *alias;
     u32 na, nr, bi;
+    bool saw_pointer_return = false;
+    bool any_owned_return = false;
+    bool all_returns_owned_or_null = true;
 
     collect_alias_seeds(arena, set->module, func, set, cg, active_scc, &allocs,
                         &na, &returns, &nr);
@@ -698,6 +818,15 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
                     bool returns_allocation =
                         alias_pts_unique_alloc_site(alias, pts) != NULL ||
                         returned_call_proves_ownership(set, def);
+                    bool must_own =
+                        alias_pts_unique_alloc_site(alias, pts) != NULL ||
+                        returned_call_must_own(set, def);
+                    bool is_null =
+                        in->ops[0].kind == IROP_ICONST && in->ops[0].a == 0;
+
+                    saw_pointer_return = true;
+                    any_owned_return |= must_own;
+                    all_returns_owned_or_null &= must_own || is_null;
 
                     if (returns_allocation) {
                         summary->returns_ownership = true;
@@ -718,6 +847,9 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
             }
         }
     }
+    summary->must_return_ownership =
+        saw_pointer_return && any_owned_return && all_returns_owned_or_null;
+    infer_must_free(arena, set, func, summary);
     apply_contract(summary, func->cgf_attrs, warnings, true,
                    func->loc && func->loc <= set->module->nlocs
                        ? set->module->locs[func->loc - 1]
@@ -843,5 +975,168 @@ void ms_summary_dump(const MsSummarySet *set, FILE *out)
                                   : "no",
                     e->returned_alias ? "yes" : "no");
         }
+    }
+}
+
+static bool annotation_simple_abi(const Type *function)
+{
+    u32 i;
+
+    if (!function || function->kind != TY_FUNC ||
+        function->base->kind == TY_STRUCT || function->base->kind == TY_UNION)
+        return false;
+    for (i = 0; i < function->nparams; i++)
+        if (function->params[i]->kind == TY_STRUCT ||
+            function->params[i]->kind == TY_UNION)
+            return false;
+    return true;
+}
+
+static Span annotation_decl_start(const AstNode *decl)
+{
+    const AstType *type = decl ? decl->type : NULL;
+
+    while (type && type->next)
+        type = type->next;
+    return type ? type->span : decl->span;
+}
+
+static bool macro_ident(const MacroDef *macro, u32 index, const char *spelling)
+{
+    return macro && index < macro->body_len &&
+           macro->body[index].kind == PPTOK_IDENT &&
+           strcmp(macro->body[index].spelling, spelling) == 0;
+}
+
+static bool macro_punct(const MacroDef *macro, u32 index, u16 punct)
+{
+    return macro && index < macro->body_len &&
+           macro->body[index].kind == PPTOK_PUNCT &&
+           macro->body[index].punct == punct;
+}
+
+static bool public_annotation_macro_shape(const MacroDef *macro,
+                                          const char *name)
+{
+    bool common_prefix;
+
+    if (!macro || macro->is_variadic || macro->is_builtin)
+        return false;
+    common_prefix = macro_ident(macro, 0,
+                                "__"
+                                "attribute__") &&
+                    macro_punct(macro, 1, PUNCT_LPAREN) &&
+                    macro_punct(macro, 2, PUNCT_LPAREN);
+    if (!common_prefix)
+        return false;
+    if (strcmp(name, "CGF_RETURNS_OWNED") == 0)
+        return !macro->is_function && macro->nparams == 0 &&
+               macro->body_len == 6 &&
+               macro_ident(macro, 3, "cgf_returns_owned") &&
+               macro_punct(macro, 4, PUNCT_RPAREN) &&
+               macro_punct(macro, 5, PUNCT_RPAREN);
+    if (strcmp(name, "CGF_TAKES_OWNERSHIP") == 0)
+        return macro->is_function && macro->nparams == 1 &&
+               macro->body_len == 9 &&
+               macro_ident(macro, 3, "cgf_takes_ownership") &&
+               macro_punct(macro, 4, PUNCT_LPAREN) &&
+               macro_ident(macro, 5, macro->params[0]) &&
+               macro_punct(macro, 6, PUNCT_RPAREN) &&
+               macro_punct(macro, 7, PUNCT_RPAREN) &&
+               macro_punct(macro, 8, PUNCT_RPAREN);
+    return false;
+}
+
+static bool trusted_annotation_macro(const Preprocessor *pp, const char *name,
+                                     u32 seq)
+{
+    const MacroDef *active = pp_macro_lookup_at_seq(pp, name, seq);
+
+    /* Requiring the same definition to remain live at end of the TU is a
+     * deliberate conservative boundary: a later #undef/redefinition keeps
+     * the textual suggestion useful but prevents unattended application. */
+    return active && pp_macro_lookup(pp, name) == active &&
+           public_annotation_macro_shape(active, name);
+}
+
+/* Annotation edits deliberately target a declaration, never a definition.
+ * The summary indexes IR parameters; aggregate ABI expansion can split one C
+ * parameter into multiple slots, so this first adoption pass declines those
+ * prototypes instead of guessing an index. */
+void ms_summary_suggest_annotations(WarnCtx *warnings, const MsSummarySet *set,
+                                    const AstNode *tu, const Preprocessor *pp)
+{
+    u32 fi;
+
+    if (!warnings || !set || !tu || tu->kind != AST_TRANSLATION_UNIT)
+        return;
+    for (fi = 0; fi < set->module->nfuncs; fi++) {
+        const MsSummary *summary = &set->functions[fi];
+        const AstNode *prototype = NULL;
+        Buf replacement;
+        DiagFixit fixit;
+        u32 di, pi;
+        bool any = false;
+
+        if (summary->top)
+            continue;
+        for (di = 0; di < tu->ndecls; di++) {
+            const AstNode *decl = tu->decls[di];
+
+            if (!decl || decl->kind != AST_DECL || !decl->name ||
+                !decl->sem_type || decl->sem_type->kind != TY_FUNC ||
+                !annotation_simple_abi(decl->sem_type) ||
+                strcmp(decl->name, summary->name) != 0)
+                continue;
+            prototype = decl;
+            break;
+        }
+        if (!prototype || summary->nparams != prototype->sem_type->nparams ||
+            !warn_enabled(warnings, WARN_MEM_SUGGEST_ANNOTATIONS,
+                          prototype->span))
+            continue;
+        buf_init(&replacement);
+        if (summary->must_return_ownership && !summary->annot_returns_owned) {
+            buf_printf(&replacement, "CGF_RETURNS_OWNED ");
+            any = true;
+        }
+        for (pi = 0; pi < prototype->sem_type->nparams && pi < summary->nparams;
+             pi++) {
+            const MsParamSummary *param = &summary->params[pi];
+
+            if (prototype->sem_type->params[pi]->kind == TY_PTR &&
+                param->must_free && !param->annot_takes_ownership) {
+                buf_printf(&replacement, "CGF_TAKES_OWNERSHIP(%u) ", pi + 1);
+                any = true;
+            }
+        }
+        if (!any) {
+            buf_free(&replacement);
+            continue;
+        }
+        buf_push_u8(&replacement, 0);
+        memset(&fixit, 0, sizeof(fixit));
+        fixit.where = annotation_decl_start(prototype);
+        fixit.where.len = 0;
+        fixit.insert = (const char *)replacement.data;
+        /* Macro spellings keep the adopted header portable to GCC/Clang.
+         * Without the defining header, the textual advice remains useful but
+         * =all must not create an uncompilable source copy. */
+        /* End-of-TU macro state alone is not enough: a later include would
+         * make an insertion before that include uncompilable.  Preprocessor
+         * sequence proves both definitions precede this spelling location.
+         * A later #undef conservatively leaves the suggestion advisory. */
+        fixit.machine_applicable =
+            fixit.where.seq != 0 &&
+            trusted_annotation_macro(pp, "CGF_RETURNS_OWNED",
+                                     fixit.where.seq) &&
+            trusted_annotation_macro(pp, "CGF_TAKES_OWNERSHIP",
+                                     fixit.where.seq);
+        diag_emit_with_fixits(
+            warn_diag(warnings), DIAG_NOTE, fixit.where,
+            WARN_MEM_SUGGEST_ANNOTATIONS, &fixit, 1,
+            "function '%s' has must ownership facts; annotate its prototype",
+            prototype->name);
+        buf_free(&replacement);
     }
 }

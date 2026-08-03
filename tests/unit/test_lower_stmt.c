@@ -33,7 +33,8 @@ static void st_sink(void *user, const Diag *d, const DiagCtx *dc)
 
 VEC_DECL(PpVecT, PpToken);
 
-static bool run_lower_s(StFix *f, const char *src)
+static bool run_lower_opts_s(StFix *f, const char *src,
+                             LowerAutoVarInit auto_var_init)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -72,13 +73,25 @@ static bool run_lower_s(StFix *f, const char *src)
     sema_run(&f->sema, tu);
     if (f->errors)
         return false;
-    f->m = lower_translation_unit(&f->arena, f->dc, &f->sema, tu);
+    if (auto_var_init == LOWER_AUTO_VAR_INIT_NONE) {
+        f->m = lower_translation_unit(&f->arena, f->dc, &f->sema, tu);
+    } else {
+        LowerOptions options = {auto_var_init};
+
+        f->m = lower_translation_unit_with_options(&f->arena, f->dc, &f->sema,
+                                                   tu, &options);
+    }
     if (!f->m)
         return false;
     buf_init(&f->text);
     ir_print_module_buf(&f->text, f->m);
     buf_push_u8(&f->text, 0);
     return true;
+}
+
+static bool run_lower_s(StFix *f, const char *src)
+{
+    return run_lower_opts_s(f, src, LOWER_AUTO_VAR_INIT_NONE);
 }
 
 static void st_free(StFix *f)
@@ -530,5 +543,95 @@ void test_lower_inline_def_not_emitted(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.m->nfuncs, 1);
     T_ASSERT(t, strstr(stxt(&f), "func i32 @twice") == NULL);
     T_ASSERT(t, strstr(stxt(&f), "call i32 @twice(") != NULL);
+    st_free(&f);
+}
+
+void test_lower_trivial_auto_var_init_zero(TestCtx *t)
+{
+    StFix f;
+    StFix plain;
+
+    T_ASSERT(t, run_lower_s(&plain, "int f(void) { int x; return x; }\n"));
+    T_ASSERT_EQ_INT(t, scount(stxt(&plain), "memset"), 0);
+    st_free(&plain);
+
+    T_ASSERT(t, run_lower_opts_s(&f, "int f(void) { int x; return x; }\n",
+                                 LOWER_AUTO_VAR_INIT_ZERO));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "memset %0, 0, 4") != NULL);
+    st_free(&f);
+}
+
+void test_lower_trivial_auto_var_init_pattern(TestCtx *t)
+{
+    StFix f;
+
+    T_ASSERT(t,
+             run_lower_opts_s(&f, "int f(void) { void *p; return p != 0; }\n",
+                              LOWER_AUTO_VAR_INIT_PATTERN));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "memset %0, 254, 8") != NULL);
+    st_free(&f);
+}
+
+void test_lower_trivial_auto_var_init_vla(TestCtx *t)
+{
+    StFix f;
+
+    T_ASSERT(
+        t, run_lower_opts_s(&f, "int f(int n) { int a[n]; return a[n - 1]; }\n",
+                            LOWER_AUTO_VAR_INIT_ZERO));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "call ptr @memset"), 1);
+    st_free(&f);
+}
+
+void test_lower_trivial_auto_var_init_exclusions(TestCtx *t)
+{
+    StFix f;
+
+    T_ASSERT(t, run_lower_opts_s(
+                    &f,
+                    "int g;\n"
+                    "int f(int n) {\n"
+                    "  int explicit = 7;\n"
+                    "  static int stat;\n"
+                    "  extern int g;\n"
+                    "  typedef int I;\n"
+                    "  int vla[n];\n"
+                    "  I plain;\n"
+                    "  return explicit + stat + g + plain + sizeof vla;\n"
+                    "}\n",
+                    LOWER_AUTO_VAR_INIT_ZERO));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    /* The runtime-sized VLA uses the hosted ABI; fixed-size `plain` keeps the
+     * constant-size IR intrinsic that instruction selection can inline. */
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "call ptr @memset"), 1);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "memset %"), 1);
+    T_ASSERT(t, strstr(stxt(&f), ", 0, 4") != NULL);
+    st_free(&f);
+}
+
+void test_lower_trivial_auto_var_init_source_order(TestCtx *t)
+{
+    StFix f;
+    const char *text;
+    const char *first;
+    const char *call;
+    const char *second;
+
+    T_ASSERT(t,
+             run_lower_opts_s(
+                 &f,
+                 "int side(void);\n"
+                 "int f(void) { int before; side(); int after; return 0; }\n",
+                 LOWER_AUTO_VAR_INIT_ZERO));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    text = stxt(&f);
+    first = strstr(text, "memset");
+    call = first ? strstr(first, "call i32 @side") : NULL;
+    second = call ? strstr(call, "memset") : NULL;
+    T_ASSERT(t, first && call && second);
+    T_ASSERT(t, first < call && call < second);
     st_free(&f);
 }

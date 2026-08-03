@@ -32,13 +32,14 @@ void pp_init(Preprocessor *pp, Arena *arena, DiagCtx *diag, Interner *interner)
  * newline in place so tokens keep true physical locations. */
 static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
                        size_t *out_len, bool *synth_nl, bool *has_nul,
-                       size_t *nul_offset)
+                       size_t *nul_offset, bool *safely_editable)
 {
     char *out = arena_alloc(pp->arena, in_len + 2, 1); /* +LF +NUL */
     size_t n = 0, i = 0;
 
     *has_nul = false;
     *nul_offset = 0;
+    *safely_editable = true;
 
     while (i < in_len) {
         char c = in[i];
@@ -52,6 +53,7 @@ static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
                 *has_nul = true;
                 *nul_offset = n;
             }
+            *safely_editable = false;
             i++;
             continue;
         }
@@ -95,6 +97,7 @@ static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
             }
             if (rep) {
                 out[n++] = rep;
+                *safely_editable = false;
                 i += 3;
                 continue;
             }
@@ -117,7 +120,9 @@ static char *normalize(Preprocessor *pp, const char *in, size_t in_len,
 
 static SourceFile *add_normalized(Preprocessor *pp, const char *path,
                                   char *contents, size_t size, bool synth_nl,
-                                  bool has_nul, size_t nul_offset)
+                                  bool has_nul, size_t nul_offset,
+                                  const char *original, size_t original_len,
+                                  bool safely_editable)
 {
     SourceFile *sf =
         arena_alloc(pp->arena, sizeof(SourceFile), _Alignof(SourceFile));
@@ -143,7 +148,9 @@ static SourceFile *add_normalized(Preprocessor *pp, const char *path,
     sf->path = arena_strdup(pp->arena, path);
     sf->contents = contents;
     sf->size = (u32)size;
-    sf->diag_file_id = diag_add_file(pp->diag, path, contents, size);
+    sf->diag_file_id =
+        diag_add_file_with_original(pp->diag, path, contents, size, original,
+                                    original_len, safely_editable);
 
     /* Physical line starts over the NORMALIZED buffer. */
     nlines = 1;
@@ -169,12 +176,24 @@ SourceFile *pp_source_add_buffer(Preprocessor *pp, const char *path,
                                  const char *bytes, size_t len)
 {
     size_t norm_len, nul_offset;
-    bool synth_nl, has_nul;
-    char *norm =
-        normalize(pp, bytes, len, &norm_len, &synth_nl, &has_nul, &nul_offset);
+    bool synth_nl, has_nul, safely_editable;
+    char *original = arena_alloc(pp->arena, len ? len : 1, 1);
+    if (len)
+        memcpy(original, bytes, len);
+    char *norm = normalize(pp, bytes, len, &norm_len, &synth_nl, &has_nul,
+                           &nul_offset, &safely_editable);
+
+    /* Pseudo-files have no physical source-copy destination. In particular,
+     * stdin must never create a literal `<stdin>.cgf-fixed` in cwd. */
+    {
+        size_t path_len = strlen(path);
+
+        if (path_len >= 2 && path[0] == '<' && path[path_len - 1] == '>')
+            safely_editable = false;
+    }
 
     return add_normalized(pp, path, norm, norm_len, synth_nl, has_nul,
-                          nul_offset);
+                          nul_offset, original, len, safely_editable);
 }
 
 void pp_source_finalize(Preprocessor *pp, SourceFile *sf)

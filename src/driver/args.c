@@ -80,6 +80,9 @@ enum {
     F_FHOSTED,
     F_FWRAPV,
     F_FCGF_SAFE,
+    F_FDIAG_PARSEABLE_FIXITS,
+    F_FDIAG_APPLY_FIXITS,
+    F_FTRIVIAL_AUTO_VAR_INIT,
     F_FSTRICT_ALIAS,
     F_FNO_STRICT_ALIAS,
     F_FOMIT_FP,
@@ -596,6 +599,25 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
     case F_FCGF_SAFE:
         da->fcgf_safe = true;
         break;
+    case F_FDIAG_PARSEABLE_FIXITS:
+        da->diagnostics_parseable_fixits = true;
+        break;
+    case F_FDIAG_APPLY_FIXITS:
+        if (val && strcmp(val, "all") == 0)
+            da->fixit_apply_mode = FIXIT_APPLY_ALL;
+        else if (val && strcmp(val, "interactive") == 0)
+            da->fixit_apply_mode = FIXIT_APPLY_INTERACTIVE;
+        else if (!da->bad_value)
+            da->bad_value = "-fdiagnostics-apply-fixits=";
+        break;
+    case F_FTRIVIAL_AUTO_VAR_INIT:
+        if (val && strcmp(val, "zero") == 0)
+            da->trivial_auto_var_init = AUTO_VAR_INIT_ZERO;
+        else if (val && strcmp(val, "pattern") == 0)
+            da->trivial_auto_var_init = AUTO_VAR_INIT_PATTERN;
+        else if (!da->bad_value)
+            da->bad_value = "-ftrivial-auto-var-init=";
+        break;
     case F_FSTRICT_ALIAS:
         da->fno_strict_aliasing = false;
         break;
@@ -807,6 +829,12 @@ static const FlagSpec args_flag_table[] = {
     {"-fhosted", ARG_NONE, h_fflag, F_FHOSTED},
     {"-fwrapv", ARG_NONE, h_fflag, F_FWRAPV},
     {"-fcgf-safe", ARG_NONE, h_fflag, F_FCGF_SAFE},
+    {"-fdiagnostics-parseable-fixits", ARG_NONE, h_fflag,
+     F_FDIAG_PARSEABLE_FIXITS},
+    {"-fdiagnostics-apply-fixits", ARG_NONE, h_fflag, F_FDIAG_APPLY_FIXITS},
+    {"-fdiagnostics-apply-fixits=", ARG_JOINED, h_fflag, F_FDIAG_APPLY_FIXITS},
+    {"-ftrivial-auto-var-init", ARG_NONE, h_fflag, F_FTRIVIAL_AUTO_VAR_INIT},
+    {"-ftrivial-auto-var-init=", ARG_JOINED, h_fflag, F_FTRIVIAL_AUTO_VAR_INIT},
     {"-fstrict-aliasing", ARG_NONE, h_fflag, F_FSTRICT_ALIAS},
     {"-fno-strict-aliasing", ARG_NONE, h_fflag, F_FNO_STRICT_ALIAS},
     {"-fomit-frame-pointer", ARG_NONE, h_fflag, F_FOMIT_FP},

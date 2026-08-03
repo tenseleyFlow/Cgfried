@@ -14,6 +14,7 @@
 #include "ir/ir.h"
 #include "lex/lex.h"
 #include "lower/lower.h"
+#include "memsafe/autofix.h"
 #include "memsafe/memsafe.h"
 #include "opt/opt.h"
 #include "parse/parse.h"
@@ -90,6 +91,11 @@ static const char *const help_text[] = {
     "  -pedantic[-errors] ISO conformance diagnostics\n"
     "  -fmax-errors=N    stop after N errors (0 = unlimited, default);\n"
     "                    -ferror-limit=N is accepted as an alias\n"
+    "  -fdiagnostics-parseable-fixits\n"
+    "                    emit gcc-compatible machine-readable edits\n"
+    "  -fdiagnostics-apply-fixits=all|interactive\n"
+    "                    apply edits to <source>.cgf-fixed copies only;\n"
+    "                    source files are never rewritten in place\n"
     "  -fcommon          tentative definitions become COMMON symbols;\n"
     "                    the DEFAULT is -fno-common (gcc 10 semantics;\n"
     "                    gcc 8 defaulted to -fcommon — divergence is\n"
@@ -101,6 +107,9 @@ static const char *const help_text[] = {
     "                    proofs discharge checks before code generation\n"
     "                    (temporal detection is deterministic only while\n"
     "                    blocks remain in the bounded quarantine)\n"
+    "  -ftrivial-auto-var-init=zero|pattern\n"
+    "                    initialize otherwise-uninitialized automatic\n"
+    "                    objects after warning analysis\n"
     "  -ffast-math       enable the complete fast-math bundle\n"
     "  -fno-fast-math    disable it; component flags are accepted but\n"
     "                    bundled-only and warn (docs/fast-math.md)\n"
@@ -146,6 +155,30 @@ static const char *const help_text[] = {
 };
 
 VEC_DECL(PpTokVecD, PpToken);
+
+typedef struct DriverDiagRender {
+    bool parseable_fixits;
+} DriverDiagRender;
+
+static void driver_diag_render(void *user, const Diag *d, const DiagCtx *dc)
+{
+    const DriverDiagRender *render = user;
+
+    diag_render_stderr(NULL, d, dc);
+    if (render && render->parseable_fixits)
+        diag_render_parseable_fixits(stderr, d, dc);
+}
+
+static LowerOptions driver_lower_options(const DriverArgs *a)
+{
+    LowerOptions options = {LOWER_AUTO_VAR_INIT_NONE};
+
+    if (a->trivial_auto_var_init == AUTO_VAR_INIT_ZERO)
+        options.auto_var_init = LOWER_AUTO_VAR_INIT_ZERO;
+    else if (a->trivial_auto_var_init == AUTO_VAR_INIT_PATTERN)
+        options.auto_var_init = LOWER_AUTO_VAR_INIT_PATTERN;
+    return options;
+}
 
 static WarnCtx *driver_warn_ctx(Arena *arena, DiagCtx *dc, const DriverArgs *a)
 {
@@ -952,6 +985,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                 sema.fcommon = !a->fno_common;
                 sema_run(&sema, tu);
                 sema_warn_translation_unit(&sema, tu, &pp);
+                if (!diag_had_error(dc))
+                    memsafe_autofix_translation_unit(warnings, &sema, tu, &pp);
                 if (a->dump_layout)
                     layout_dump(&sema, stdout);
                 if (a->dump_init)
@@ -996,14 +1031,18 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                             (need_memsafe || memsafe_dump) &&
                             !diag_had_error(dc)) {
                             optimize_module(analysis, a, job->path);
-                            ms_process_module(need_memsafe ? warnings : NULL,
-                                              analysis, a->fno_strict_aliasing,
-                                              memsafe_dump ? stderr : NULL,
-                                              false, NULL);
+                            ms_process_module_with_tu(
+                                need_memsafe ? warnings : NULL, analysis,
+                                a->fno_strict_aliasing,
+                                memsafe_dump ? stderr : NULL, false, NULL, tu,
+                                &pp);
                         }
                     }
                     if (want_ir_output && !diag_had_error(dc)) {
-                        m = lower_translation_unit(arena, dc, &sema, tu);
+                        LowerOptions lower_options = driver_lower_options(a);
+
+                        m = lower_translation_unit_with_options(
+                            arena, dc, &sema, tu, &lower_options);
                         verify_generated_module(dc, m, job->path);
                     }
                     if (m && !diag_had_error(dc))
@@ -1013,10 +1052,10 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                          * opaque checks into its proof residue. This is one
                          * state-machine traversal for warnings, dumps, and
                          * instrumentation; no cross-module access mapping. */
-                        ms_process_module(need_memsafe ? warnings : NULL, m,
-                                          a->fno_strict_aliasing,
-                                          memsafe_dump ? stderr : NULL, true,
-                                          NULL);
+                        ms_process_module_with_tu(
+                            need_memsafe ? warnings : NULL, m,
+                            a->fno_strict_aliasing,
+                            memsafe_dump ? stderr : NULL, true, NULL, tu, &pp);
                         if (!diag_had_error(dc))
                             verify_generated_module(dc, m, job->path);
                     }
@@ -1258,6 +1297,7 @@ int driver_main(int argc, char **argv)
     DiagCtx *dc;
     WarnCtx *command_warn;
     DriverArgs a;
+    DriverDiagRender diag_render_options;
     int status = CGF_EXIT_OK;
     size_t k;
     bool command_line_warning_error;
@@ -1271,6 +1311,8 @@ int driver_main(int argc, char **argv)
     arena_init(&arena);
     dc = diag_ctx_new(&arena);
     a = args_parse(&arena, argc, argv);
+    diag_render_options.parseable_fixits = a.diagnostics_parseable_fixits;
+    diag_set_sink(dc, (DiagSink){driver_diag_render, &diag_render_options});
     diag_set_max_errors(dc, a.max_errors);
     command_warn = driver_warn_ctx(&arena, dc, &a);
 
@@ -1690,6 +1732,29 @@ done:
                       "unrecognized command-line option '%s' may have been "
                       "intended to silence earlier diagnostics",
                       a.warn_unknown_negative.data[k]);
+    }
+    if (a.fixit_apply_mode != FIXIT_APPLY_NONE && diag_fixit_count(dc) != 0) {
+        DiagFixitApplyReport report;
+        DiagFixitApplyMode mode = a.fixit_apply_mode == FIXIT_APPLY_ALL
+                                      ? DIAG_FIXITS_ALL
+                                      : DIAG_FIXITS_INTERACTIVE;
+
+        if (!diag_apply_fixits(dc, mode, stdin, stderr, &report)) {
+            if (report.non_tty)
+                diag_emit(dc, DIAG_ERROR, no_span,
+                          "interactive fix-it application requires a TTY "
+                          "on stdin");
+            else
+                diag_emit(dc, DIAG_ERROR, no_span,
+                          "could not write a .cgf-fixed source copy");
+            if (status == CGF_EXIT_OK)
+                status = CGF_EXIT_COMPILE;
+        }
+        if (report.conflicts)
+            diag_emit(dc, DIAG_NOTE, no_span,
+                      "%zu fix-it%s not applied because the edits conflict",
+                      report.conflicts,
+                      report.conflicts == 1 ? " was" : "s were");
     }
     args_free(&a);
     arena_free_all(&arena);

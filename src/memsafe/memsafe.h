@@ -157,7 +157,11 @@ typedef struct MsSummary {
     const char *name;
     u32 nparams;
     MsParamSummary *params;
+    /* Union fact consumed by the warning analysis: at least one path returns
+     * fresh ownership. The separate must fact is the intersection required
+     * before suggesting a public ownership contract. */
     bool returns_ownership;
+    bool must_return_ownership;
     Span returns_ownership_span;
     bool annot_returns_owned;
     bool top;
@@ -182,6 +186,8 @@ typedef struct MsLibSummary {
 
 typedef struct MsSummarySet MsSummarySet;
 struct WarnCtx;
+struct AstNode;
+struct Preprocessor;
 MsSummarySet *ms_summary_build(Arena *arena, IrModule *module,
                                bool no_strict_aliasing,
                                struct WarnCtx *warnings);
@@ -192,6 +198,12 @@ const MsLibSummary *ms_lib_summary_lookup(const char *name);
 /* UINT32_MAX for non-variadic rows; otherwise the first variadic argument. */
 u32 ms_lib_summary_variadic_from(const MsLibSummary *summary);
 void ms_summary_dump(const MsSummarySet *set, FILE *out);
+/* Emits source-copy annotation suggestions on declarations in this
+ * translation unit. Only must-summary facts produce edits. */
+void ms_summary_suggest_annotations(struct WarnCtx *warnings,
+                                    const MsSummarySet *set,
+                                    const struct AstNode *tu,
+                                    const struct Preprocessor *pp);
 
 typedef enum MsIssueKind {
     MS_ISSUE_USE_AFTER_FREE,
@@ -244,5 +256,12 @@ void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out);
 void ms_process_module(struct WarnCtx *warnings, IrModule *module,
                        bool no_strict_aliasing, FILE *dump, bool instrument,
                        MsCheckStats *stats);
+/* Driver-only extension: keeps the stable analysis API above while making
+ * typed prototype locations available to Sprint 45's annotation ratchet. */
+void ms_process_module_with_tu(struct WarnCtx *warnings, IrModule *module,
+                               bool no_strict_aliasing, FILE *dump,
+                               bool instrument, MsCheckStats *stats,
+                               const struct AstNode *tu,
+                               const struct Preprocessor *pp);
 
 #endif

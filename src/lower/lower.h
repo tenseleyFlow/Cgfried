@@ -119,6 +119,7 @@ typedef struct Lower {
     Symbol *initializing_sym;   /* exact direct -Winit-self provenance */
     u32 dead_region;            /* current contiguous unreachable source */
     u32 next_dead_region;       /* stable diagnostic region numbering */
+    u8 auto_var_init;           /* LowerAutoVarInit; emission mitigation */
 
     /* module-wide */
     Strmap globals;           /* Symbol* -> (uintptr_t)(module sym index + 1) */
@@ -133,10 +134,26 @@ typedef struct Lower {
     bool failed;              /* a deferral hard-error fired */
 } Lower;
 
+typedef enum LowerAutoVarInit {
+    LOWER_AUTO_VAR_INIT_NONE,
+    LOWER_AUTO_VAR_INIT_ZERO,
+    LOWER_AUTO_VAR_INIT_PATTERN,
+} LowerAutoVarInit;
+
+typedef struct LowerOptions {
+    LowerAutoVarInit auto_var_init;
+} LowerOptions;
+
 /* Lowers a whole translation unit. Returns NULL after reporting if a
  * deferred construct was reached (the diagnostic names its sprint). */
 IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
                                  AstNode *tu);
+/* Emission-only mitigations are explicit so warning/flow analysis continues
+ * to see the original, unmitigated program.  A NULL options pointer is the
+ * same as lower_translation_unit(). */
+IrModule *lower_translation_unit_with_options(Arena *arena, DiagCtx *dc,
+                                              Sema *sema, AstNode *tu,
+                                              const LowerOptions *options);
 /* Flow analysis needs bodies that the C inline-emission rules deliberately
  * omit from object modules. This analysis-only surface keeps codegen's
  * Sprint 16 linkage contract unchanged. */

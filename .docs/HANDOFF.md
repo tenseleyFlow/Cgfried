@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–44
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–45
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–44 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+- **Sprints 0–45 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -133,9 +133,25 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   complete ASan+UBSan suites pass. Valgrind 3.25.1 reports zero errors/leaks
   over the seven instrumentation units; the runtime executable has no definite
   or possible leaks, with only its bounded quarantine still reachable.
-- **Next action: Sprint 45** —
-  `.docs/sprints/09-memory-safety/s45-autofix-transforms.md`, adding auto-fix
-  transforms and machine-applicable fixits.
+- Sprint 45 ships GCC-compatible parseable fixits and copy-only application to
+  `*.cgf-fixed`, retaining original source bytes so CRLF, missing final newline,
+  UTF-8 byte columns, physical aliases and symlinks are handled deterministically.
+  Conflicting/touching edits are withheld and advisory edits are never applied
+  by `=all`. Four conservative transform families cover early-return leaks,
+  bounded copy APIs, missing allocation checks and `sizeof` mismatches; every
+  family has explicit no-fire cases and no path suggests `strncpy`. Inserted
+  identifiers are resolved conservatively at their lexical point: active
+  `snprintf`/`free` macros and local shadows suppress edits, while annotation
+  macros must match the shipped replacement-token shapes. A `free` prototype
+  appearing only after the return cannot authorize an earlier suggestion.
+  `-ftrivial-auto-var-init=zero|pattern` lowers after warning analysis, including
+  dynamic VLA initialization, while must-fact annotation inference provides the
+  mechanical annotate-then-ratchet workflow. The dedicated lane proves 12 exact
+  parseable records, original-byte preservation, GCC sanity, O0/O2 equivalence
+  and the annotation round trip.
+- **Next action: Sprint 46** —
+  `.docs/sprints/09-memory-safety/s46-safe-mode.md`, composing the completed
+  analysis, runtime checks and initialization mitigations into safe mode.
 - **Pending parallel-test follow-up:** `tests/fuzz/ppfuzz.c` still writes every
   run to `build/fuzz-work/case.c`. Two concurrent full suites can replace that
   file between the Cgfried and gcc oracle runs and report false differentials.
@@ -146,12 +162,13 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 560 tests, 96179 assertions, 0 failures
-cgf-test: total=504 pass=504 fail=0 xfail=0 xpass=0 skip=0 config=0
+unit: 582 tests, 96373 assertions, 0 failures
+cgf-test: total=505 pass=505 fail=0 xfail=0 xpass=0 skip=0 config=0
 memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
 interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
 focused memsafe units: 52 tests / 764 assertions
 safe runtime: 27 checks, 0 skips; three interim benches within 2.5x/2x
+autofix transforms: source-copy, four transforms, auto-init and annotation ratchet green
 musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
@@ -168,6 +185,7 @@ objdiff: 38/38 · e2ediff: 10/10 · afsld lane: 12 fixtures
 debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 182 predefines checked; __CGFRIED__=1; __GNUC__ absent
 memsafe foundation: 14 deterministic fixtures; 17 focused units / 264 assertions
+frontend fuzz digest: e39a0b1f9c71243f; 2,000 sanitized smoke iterations, 0 findings
 ```
 
 Local Sprint 38 validation note (2026-08-01): fresh GCC and Clang full suites
@@ -274,6 +292,23 @@ two-hop mixed-return compiler regression is independently clean. The
 installed-layout follow-up is closed: the install manifest now copies the
 complete include tree, and the ownership portability header compiles cleanly
 under both host GCC and Clang.
+
+Local Sprint 45 validation note (2026-08-03): fresh GCC, Clang and complete
+ASan+UBSan suites pass with 582 unit tests / 96,373 assertions, 505/505
+program fixtures, 477/477 warning fixtures, 89/89 intraprocedural memory
+fixtures and 50/50 interprocedural fixtures. The dedicated autofix lane proves
+the copy-only/source-byte laws, exact format records, all transform positives
+and negatives, auto-init layering and annotation round-trip. The pinned musl
+memory sweep remains 732/1,361 analyzed, 629 deferred and zero diagnostics;
+the new permanent program fixture legitimately repins the frontend-fuzz digest
+to `e39a0b1f9c71243f`. The sanitizer suite uses
+`ASAN_OPTIONS=detect_leaks=0` only because LeakSanitizer cannot initialize
+under this host's ptrace policy; ASan and UBSan exercise the complete suite.
+Valgrind 3.25.1 is usable on this machine: the diagnostic, autofix, trivial
+auto-init, summary and lifetime groups total 57 passing tests with every heap
+block freed and zero errors, and an end-to-end auto-init compiler run is also
+clean. Earlier Valgrind startup failures were sandbox-loader-specific evidence,
+not a machine incompatibility.
 
 ---
 
@@ -645,6 +680,10 @@ Sprint 43 adds `test-mem-interproc` (50 fixtures plus 13 exact traces),
 `header_portability.sh` under both host compilers, exact `__CGFRIED__`
 predefine checking, and the same pinned musl zero-diagnostic budget with
 summaries enabled.
+Sprint 44 adds `test-mem-runtime` and `bench-safe` for deterministic runtime
+failures, mixed/static linking and the overhead budget. Sprint 45 adds
+`test-mem-autofix`, covering parseable/application semantics, all transform
+families, auto-init and the annotation ratchet.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -715,6 +754,7 @@ sh scripts/tinycc_warn_dryrun.sh build/cgfried
 make BUILD=build test-mem-warnings
 make BUILD=build test-mem-interproc
 make BUILD=build test-mem-runtime
+make BUILD=build test-mem-autofix
 make BUILD=build bench-safe
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
 make BUILD=build musl-sweep               # pinned 732/1361 analyzed, <90s

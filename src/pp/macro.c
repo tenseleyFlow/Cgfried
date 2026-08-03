@@ -50,6 +50,44 @@ const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name)
     return strmap_get(&pp->macros, name, strlen(name));
 }
 
+const MacroDef *pp_macro_lookup_at_seq(const Preprocessor *pp, const char *name,
+                                       u32 seq)
+{
+    const MacroDef *active = NULL;
+    size_t i;
+
+    if (!pp || !name || !seq)
+        return NULL;
+    for (i = 0; i < pp->nmacro_events; i++) {
+        const PpMacroEvent *event = &pp->macro_events[i];
+
+        if (event->seq && event->seq < seq && strcmp(event->name, name) == 0)
+            active = event->definition;
+    }
+    return active;
+}
+
+static void macro_event_append(Preprocessor *pp, const char *name,
+                               const MacroDef *definition, SrcLoc loc)
+{
+    PpMacroEvent *event;
+
+    if (pp->nmacro_events == pp->macro_events_cap) {
+        size_t new_cap = pp->macro_events_cap ? pp->macro_events_cap * 2 : 32;
+        PpMacroEvent *grown = arena_alloc(pp->arena, new_cap * sizeof(*grown),
+                                          _Alignof(PpMacroEvent));
+
+        if (pp->nmacro_events)
+            memcpy(grown, pp->macro_events, pp->nmacro_events * sizeof(*grown));
+        pp->macro_events = grown;
+        pp->macro_events_cap = new_cap;
+    }
+    event = &pp->macro_events[pp->nmacro_events++];
+    event->name = name;
+    event->definition = definition;
+    event->seq = pp_loc_mark(&pp->loc, loc);
+}
+
 /* `defined(_Pragma)` and `#ifdef _Pragma` answer TRUE in both gcc and
  * clang — the operator is registered as a macro-like name for that
  * purpose even though it never expands like one. Verified against both
@@ -133,6 +171,11 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
     memset(m, 0, sizeof(*m));
     m->name = toks[0].spelling;
     m->loc = toks[0].loc;
+    /* Directive operands do not flow through raw_next(), so stamp the
+     * definition at the moment it becomes visible.  Besides preserving a
+     * total lexical order for diagnostics, this lets source-edit clients
+     * prove that an annotation macro predates the prototype they edit. */
+    pp_loc_mark(&pp->loc, m->loc);
     m->is_builtin = loc_is_builtin_file(pp, toks[0].loc);
     i = 1;
 
@@ -280,6 +323,7 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
         }
     }
     strmap_put(&pp->macros, m->name, strlen(m->name), m);
+    macro_event_append(pp, m->name, m, m->loc);
 }
 
 void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc)
@@ -296,6 +340,7 @@ void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc)
                        "undefining builtin macro '%s'", name);
     }
     strmap_put(&pp->macros, name, strlen(name), NULL);
+    macro_event_append(pp, name, NULL, loc);
 }
 
 /* --- expansion helpers -------------------------------------------------- */

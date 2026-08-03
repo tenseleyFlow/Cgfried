@@ -99,6 +99,11 @@ void warn_pedwarn_at(WarnCtx *w, WarnId id, Span sp, const char *fmt, ...);
 void warn_at_v(WarnCtx *w, WarnId id, Span sp, const char *fmt, va_list ap);
 void warn_at_ex(WarnCtx *w, WarnId id, Span sp, unsigned emit_flags,
                 const char *fmt, ...);
+/* Warning-policy preserving emission with source edits. This is the only
+ * supported path for warning fix-its: it honors pragmas, system-header
+ * suppression, -w and -Werror before forwarding to the diagnostic layer. */
+void warn_at_fixits(WarnCtx *w, WarnId id, Span sp, const DiagFixit *fixits,
+                    size_t fixit_count, const char *fmt, ...);
 
 void warn_pragma_push(WarnCtx *w, u32 seq);
 bool warn_pragma_pop(WarnCtx *w, u32 seq, Span at);

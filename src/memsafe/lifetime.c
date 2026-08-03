@@ -7,6 +7,9 @@
 #include "diag.h"
 #include "opt/dep.h"
 #include "opt/opt.h"
+#include "parse/ast.h"
+#include "pp/pp.h"
+#include "sema/sema.h"
 #include "warn/warn.h"
 
 typedef enum MsInitKind {
@@ -2420,14 +2423,403 @@ static const char *issue_message(const MsIssue *issue)
     return "memory-safety issue";
 }
 
-static void emit_issue(WarnCtx *warnings, const MsIssue *issue)
+static bool source_span_offset(const DiagCtx *dc, Span span, size_t *offset,
+                               size_t *line_start)
+{
+    const char *source;
+    size_t len, pos = 0;
+    u32 line = 1, col = 1;
+
+    source = diag_file_source(dc, span.file_id, &len);
+    if (!source || !span.line || !span.col)
+        return false;
+    while (pos < len && line < span.line)
+        if (source[pos++] == '\n')
+            line++;
+    if (line != span.line)
+        return false;
+    *line_start = pos;
+    while (pos < len && source[pos] != '\n' && col < span.col) {
+        pos++;
+        col++;
+    }
+    if (col != span.col)
+        return false;
+    *offset = pos;
+    return true;
+}
+
+static bool same_span_start(Span a, Span b)
+{
+    return a.file_id == b.file_id && a.line == b.line && a.col == b.col;
+}
+
+static const AstNode *strip_expr(const AstNode *e);
+
+static bool direct_return_body(const AstNode *st, Span target)
+{
+    if (!st)
+        return false;
+    if (st->kind == AST_STMT_RETURN)
+        return same_span_start(st->span, target);
+    return st->kind == AST_STMT_COMPOUND && st->nitems == 1 && st->items[0] &&
+           st->items[0]->kind == AST_STMT_RETURN &&
+           same_span_start(st->items[0]->span, target);
+}
+
+static bool decl_chain_contains(const AstNode *decl, const AstNode *wanted)
+{
+    u32 i;
+
+    if (!decl)
+        return false;
+    if (decl == wanted)
+        return true;
+    for (i = 0; i < decl->nitems; i++)
+        if (decl_chain_contains(decl->items[i], wanted))
+            return true;
+    return false;
+}
+
+static bool node_changes_binding(const AstNode *n, const struct Symbol *binding)
+{
+    const AstNode *lhs;
+    u32 i;
+
+    if (!n)
+        return false;
+    if (n->kind == AST_EXPR_BINARY && n->op >= PUNCT_ASSIGN &&
+        n->op <= PUNCT_PIPE_ASSIGN) {
+        lhs = strip_expr(n->lhs);
+        if (lhs && lhs->kind == AST_EXPR_IDENT && lhs->sym == binding)
+            return true;
+    }
+    if (n->kind == AST_EXPR_UNARY &&
+        (n->op == PUNCT_PLUSPLUS || n->op == PUNCT_MINUSMINUS ||
+         n->op == PUNCT_AMP)) {
+        lhs = strip_expr(n->lhs);
+        if (lhs && lhs->kind == AST_EXPR_IDENT && lhs->sym == binding)
+            return true;
+    }
+    if (node_changes_binding(n->body, binding) ||
+        node_changes_binding(n->lhs, binding) ||
+        node_changes_binding(n->rhs, binding) ||
+        node_changes_binding(n->mid, binding) ||
+        node_changes_binding(n->init, binding))
+        return true;
+    for (i = 0; i < n->nitems; i++)
+        if (node_changes_binding(n->items[i], binding))
+            return true;
+    for (i = 0; i < n->nargs; i++)
+        if (node_changes_binding(n->args[i], binding))
+            return true;
+    return false;
+}
+
+static bool compound_has_safe_early_return(const AstNode *compound,
+                                           const AstNode *decl, Span target)
+{
+    u32 i, j;
+
+    if (!compound || compound->kind != AST_STMT_COMPOUND)
+        return false;
+    for (i = 0; i < compound->nitems; i++) {
+        const AstNode *item = compound->items[i];
+
+        if (item && item->kind == AST_STMT_DECL &&
+            decl_chain_contains(item->lhs, decl)) {
+            for (j = i + 1; j < compound->nitems; j++) {
+                const AstNode *later = compound->items[j];
+
+                if (later && later->kind == AST_STMT_IF &&
+                    direct_return_body(later->body, target))
+                    return !node_changes_binding(later->lhs, decl->sym);
+                if (node_changes_binding(later, decl->sym))
+                    return false;
+                /* Do not carry source-level binding claims through another
+                 * control-flow construct before the target guard. */
+                if (later && later->kind != AST_STMT_EXPR &&
+                    later->kind != AST_STMT_DECL &&
+                    later->kind != AST_STMT_NULL)
+                    return false;
+            }
+            return false;
+        }
+        if (item && item->kind == AST_STMT_COMPOUND &&
+            compound_has_safe_early_return(item, decl, target))
+            return true;
+    }
+    return false;
+}
+
+static bool node_declares_name(const AstNode *n, const char *name)
+{
+    u32 i;
+
+    if (!n)
+        return false;
+    if (n->kind == AST_DECL && n->name && strcmp(n->name, name) == 0)
+        return true;
+    if (node_declares_name(n->body, name) || node_declares_name(n->lhs, name) ||
+        node_declares_name(n->rhs, name) || node_declares_name(n->mid, name) ||
+        node_declares_name(n->init, name))
+        return true;
+    for (i = 0; i < n->nitems; i++)
+        if (node_declares_name(n->items[i], name))
+            return true;
+    for (i = 0; i < n->nargs; i++)
+        if (node_declares_name(n->args[i], name))
+            return true;
+    return false;
+}
+
+static bool function_declares_name(const AstNode *function, const char *name)
+{
+    u32 i;
+
+    if (!function || function->kind != AST_FUNC_DEF)
+        return false;
+    for (i = 0; i < function->nparam_syms; i++)
+        if (function->param_syms[i] && function->param_syms[i]->name &&
+            strcmp(function->param_syms[i]->name, name) == 0)
+            return true;
+    return node_declares_name(function->body, name);
+}
+
+static bool tu_has_safe_early_return(const AstNode *tu, const AstNode *decl,
+                                     Span target)
+{
+    u32 i;
+
+    if (!tu || !decl || !decl->sym || tu->kind != AST_TRANSLATION_UNIT)
+        return false;
+    for (i = 0; i < tu->ndecls; i++)
+        if (tu->decls[i] && tu->decls[i]->kind == AST_FUNC_DEF &&
+            compound_has_safe_early_return(tu->decls[i]->body, decl, target)) {
+            /* The inserted call must still name the external deallocator.
+             * A parameter or block declaration can shadow it even when the
+             * original function never spells `free` itself. */
+            return !function_declares_name(tu->decls[i], "free");
+        }
+    return false;
+}
+
+static bool free_prototype_type(const Type *type)
+{
+    const Type *param;
+
+    if (!type || type->kind != TY_FUNC || !type->base ||
+        type->base->kind != TY_VOID || !type->has_proto || type->variadic ||
+        type->nparams != 1)
+        return false;
+    param = type->params[0];
+    return param && param->kind == TY_PTR && param->base &&
+           param->base->kind == TY_VOID;
+}
+
+static void scan_free_declarations(const AstNode *decl, bool *compatible,
+                                   bool *defined, u32 insertion_seq)
+{
+    u32 i;
+
+    if (!decl)
+        return;
+    if ((decl->kind == AST_DECL || decl->kind == AST_FUNC_DEF) && decl->name &&
+        strcmp(decl->name, "free") == 0 && decl->sym) {
+        if (decl->sym->kind != SYM_FUNC ||
+            decl->sym->linkage != LINK_EXTERNAL || decl->sym->defined) {
+            *defined = true;
+        } else if (decl->span.seq && decl->span.seq < insertion_seq &&
+                   free_prototype_type(decl->sem_type)) {
+            *compatible = true;
+        }
+    }
+    for (i = 0; i < decl->nitems; i++)
+        scan_free_declarations(decl->items[i], compatible, defined,
+                               insertion_seq);
+}
+
+static bool tu_has_external_free_prototype(const AstNode *tu, u32 insertion_seq)
+{
+    bool compatible = false, defined = false;
+    u32 i;
+
+    if (!tu || tu->kind != AST_TRANSLATION_UNIT || !insertion_seq)
+        return false;
+    for (i = 0; i < tu->ndecls; i++)
+        scan_free_declarations(tu->decls[i], &compatible, &defined,
+                               insertion_seq);
+    return compatible && !defined;
+}
+
+static const AstNode *strip_expr(const AstNode *e)
+{
+    while (e && (e->kind == AST_EXPR_PAREN ||
+                 (e->kind == AST_EXPR_CAST && e->implicit)))
+        e = e->lhs;
+    return e;
+}
+
+static bool expr_has_allocator_on_line(const AstNode *e, Span allocation)
+{
+    const AstNode *callee;
+    u32 i;
+
+    if (!e)
+        return false;
+    if (e->kind == AST_EXPR_CALL && e->span.file_id == allocation.file_id &&
+        e->span.line == allocation.line) {
+        callee = strip_expr(e->lhs);
+        if (callee && callee->kind == AST_EXPR_IDENT && callee->name &&
+            (strcmp(callee->name, "malloc") == 0 ||
+             strcmp(callee->name, "calloc") == 0 ||
+             strcmp(callee->name, "realloc") == 0 ||
+             strcmp(callee->name, "aligned_alloc") == 0))
+            return true;
+    }
+    if (expr_has_allocator_on_line(e->lhs, allocation) ||
+        expr_has_allocator_on_line(e->rhs, allocation) ||
+        expr_has_allocator_on_line(e->mid, allocation) ||
+        expr_has_allocator_on_line(e->init, allocation))
+        return true;
+    for (i = 0; i < e->nargs; i++)
+        if (expr_has_allocator_on_line(e->args[i], allocation))
+            return true;
+    for (i = 0; i < e->nitems; i++)
+        if (expr_has_allocator_on_line(e->items[i], allocation))
+            return true;
+    return false;
+}
+
+static void collect_leak_bindings(const AstNode *n, Span allocation,
+                                  const char **binding,
+                                  const AstNode **binding_decl, u32 *count)
+{
+    u32 i;
+
+    if (!n)
+        return;
+    if (n->kind == AST_DECL && n->name && n->init &&
+        expr_has_allocator_on_line(n->init, allocation)) {
+        *binding = n->name;
+        *binding_decl = n;
+        (*count)++;
+    }
+    collect_leak_bindings(n->body, allocation, binding, binding_decl, count);
+    collect_leak_bindings(n->lhs, allocation, binding, binding_decl, count);
+    collect_leak_bindings(n->rhs, allocation, binding, binding_decl, count);
+    collect_leak_bindings(n->mid, allocation, binding, binding_decl, count);
+    if (n->kind != AST_DECL)
+        collect_leak_bindings(n->init, allocation, binding, binding_decl,
+                              count);
+    for (i = 0; i < n->nitems; i++)
+        collect_leak_bindings(n->items[i], allocation, binding, binding_decl,
+                              count);
+    for (i = 0; i < n->nargs; i++)
+        collect_leak_bindings(n->args[i], allocation, binding, binding_decl,
+                              count);
+    for (i = 0; i < n->ndecls; i++)
+        collect_leak_bindings(n->decls[i], allocation, binding, binding_decl,
+                              count);
+}
+
+/* Bind the allocation to a source declaration through the typed AST. Textual
+ * `first '=' on the line` recovery can name the wrong object when declarations
+ * share a line. Ambiguous multiple allocator declarations are suppressed. */
+static bool leak_binding_name(const AstNode *tu, Span allocation, char *name,
+                              size_t name_cap, const AstNode **decl_out)
+{
+    const char *binding = NULL;
+    const AstNode *binding_decl = NULL;
+    u32 count = 0;
+    size_t len;
+
+    if (!tu || (allocation.origin & SPAN_ORIGIN_ANY_MACRO))
+        return false;
+    collect_leak_bindings(tu, allocation, &binding, &binding_decl, &count);
+    if (count != 1 || !binding || !binding_decl || !binding_decl->sym)
+        return false;
+    len = strlen(binding);
+    if (len + 1 > name_cap)
+        return false;
+    memcpy(name, binding, len + 1);
+    *decl_out = binding_decl;
+    return true;
+}
+
+static bool leak_fixit(WarnCtx *warnings, const MsIssue *issue,
+                       const AstNode *tu, const Preprocessor *pp,
+                       DiagFixit *fixit, char *replacement,
+                       size_t replacement_cap, char *name, size_t name_cap)
+{
+    const DiagCtx *dc = warn_diag(warnings);
+    const char *source;
+    const AstNode *binding_decl = NULL;
+    MsEvent allocation = {0};
+    size_t len, at, line_start, indent;
+    u32 i;
+    int n;
+
+    if (issue->kind != MS_ISSUE_LEAK || issue->file_resource || !pp ||
+        !issue->loc.file_id || (issue->loc.origin & SPAN_ORIGIN_ANY_MACRO))
+        return false;
+    for (i = 0; i < issue->trace.len; i++) {
+        MsEvent event;
+
+        if (ms_trace_event(&issue->trace, i, &event) &&
+            event.kind == MS_EV_ALLOC) {
+            allocation = event;
+            break;
+        }
+    }
+    if (!allocation.loc.file_id ||
+        !tu_has_external_free_prototype(tu, issue->loc.seq) ||
+        pp_macro_lookup_at_seq(pp, "free", issue->loc.seq) ||
+        !leak_binding_name(tu, allocation.loc, name, name_cap, &binding_decl) ||
+        !tu_has_safe_early_return(tu, binding_decl, issue->loc) ||
+        !source_span_offset(dc, issue->loc, &at, &line_start))
+        return false;
+    source = diag_file_source(dc, issue->loc.file_id, &len);
+    (void)len;
+    indent = at - line_start;
+    if (indent > 128)
+        return false;
+    for (i = 0; i < indent; i++)
+        if (source[line_start + i] != ' ' && source[line_start + i] != '\t')
+            return false;
+    n = snprintf(replacement, replacement_cap, "free(%s);\n%.*s", name,
+                 (int)indent, source + line_start);
+    if (n < 0 || (size_t)n >= replacement_cap)
+        return false;
+    memset(fixit, 0, sizeof(*fixit));
+    fixit->where = issue->loc;
+    fixit->where.len = 0;
+    fixit->insert = replacement;
+    fixit->machine_applicable = false;
+    return true;
+}
+
+static void emit_issue(WarnCtx *warnings, const MsIssue *issue,
+                       const AstNode *tu, const Preprocessor *pp)
 {
     WarnId id = issue_warn_id(issue);
+    DiagFixit fixit;
+    char replacement[512], name[128];
+    bool suggested;
     u32 i;
 
     if (id == WARN_NONE || !warn_enabled(warnings, id, issue->loc))
         return;
-    warn_at(warnings, id, issue->loc, "%s", issue_message(issue));
+    suggested = leak_fixit(warnings, issue, tu, pp, &fixit, replacement,
+                           sizeof(replacement), name, sizeof(name));
+    if (suggested) {
+        warn_at_fixits(warnings, id, issue->loc, &fixit, 1, "%s",
+                       issue_message(issue));
+        diag_emit(warn_diag(warnings), DIAG_NOTE, issue->loc,
+                  "suggested fix: insert 'free(%s);' before the return", name);
+    } else {
+        warn_at(warnings, id, issue->loc, "%s", issue_message(issue));
+    }
     for (i = 0; i < issue->trace.len; i++) {
         MsEvent event;
 
@@ -2610,9 +3002,10 @@ static const char *event_name(MsEventKind kind)
     return (u32)kind < CGF_ARRAY_LEN(names) ? names[kind] : "unknown";
 }
 
-void ms_process_module(WarnCtx *warnings, IrModule *module,
-                       bool no_strict_aliasing, FILE *dump, bool instrument,
-                       MsCheckStats *stats)
+static void process_module(WarnCtx *warnings, IrModule *module,
+                           bool no_strict_aliasing, FILE *dump, bool instrument,
+                           MsCheckStats *stats, const struct AstNode *tu,
+                           const struct Preprocessor *pp)
 {
     Arena analysis;
     MsCheckStats counts = {0};
@@ -2639,6 +3032,8 @@ void ms_process_module(WarnCtx *warnings, IrModule *module,
             &analysis, (module->nfuncs ? module->nfuncs : 1) * sizeof(*results),
             _Alignof(MsFunctionResult *));
 
+        if (warnings && tu)
+            ms_summary_suggest_annotations(warnings, summaries, tu, pp);
         if (dump)
             ms_summary_dump(summaries, dump);
         for (fi = 0; fi < module->nfuncs; fi++) {
@@ -2651,7 +3046,7 @@ void ms_process_module(WarnCtx *warnings, IrModule *module,
                 u32 i;
 
                 for (i = 0; i < result->nissues; i++)
-                    emit_issue(warnings, &result->issues[i]);
+                    emit_issue(warnings, &result->issues[i], tu, pp);
             }
             if (dump)
                 dump_result(result, dump);
@@ -2673,6 +3068,24 @@ void ms_process_module(WarnCtx *warnings, IrModule *module,
     if (stats)
         *stats = counts;
     arena_free_all(&analysis);
+}
+
+void ms_process_module(WarnCtx *warnings, IrModule *module,
+                       bool no_strict_aliasing, FILE *dump, bool instrument,
+                       MsCheckStats *stats)
+{
+    process_module(warnings, module, no_strict_aliasing, dump, instrument,
+                   stats, NULL, NULL);
+}
+
+void ms_process_module_with_tu(WarnCtx *warnings, IrModule *module,
+                               bool no_strict_aliasing, FILE *dump,
+                               bool instrument, MsCheckStats *stats,
+                               const struct AstNode *tu,
+                               const struct Preprocessor *pp)
+{
+    process_module(warnings, module, no_strict_aliasing, dump, instrument,
+                   stats, tu, pp);
 }
 
 void ms_warn_module(WarnCtx *warnings, IrModule *module,
