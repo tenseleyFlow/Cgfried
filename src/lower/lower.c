@@ -850,7 +850,8 @@ static void lower_function(Lower *lo, AstNode *def)
 
 static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
                                              Sema *sema, AstNode *tu,
-                                             bool include_inline_defs)
+                                             bool include_inline_defs,
+                                             const LowerOptions *options)
 {
     Lower lo;
     u32 i;
@@ -861,6 +862,8 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
     lo.dc = dc;
     lo.sema = sema;
     lo.include_inline_defs = include_inline_defs;
+    lo.auto_var_init =
+        options ? (u8)options->auto_var_init : LOWER_AUTO_VAR_INIT_NONE;
     lo.m = ir_module_new(arena, dc);
     strmap_init(&lo.globals);
     strmap_init(&lo.func_ids);
@@ -944,11 +947,18 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
 IrModule *lower_translation_unit(Arena *arena, DiagCtx *dc, Sema *sema,
                                  AstNode *tu)
 {
-    return lower_translation_unit_impl(arena, dc, sema, tu, false);
+    return lower_translation_unit_impl(arena, dc, sema, tu, false, NULL);
+}
+
+IrModule *lower_translation_unit_with_options(Arena *arena, DiagCtx *dc,
+                                              Sema *sema, AstNode *tu,
+                                              const LowerOptions *options)
+{
+    return lower_translation_unit_impl(arena, dc, sema, tu, false, options);
 }
 
 IrModule *lower_translation_unit_for_flow(Arena *arena, DiagCtx *dc, Sema *sema,
                                           AstNode *tu)
 {
-    return lower_translation_unit_impl(arena, dc, sema, tu, true);
+    return lower_translation_unit_impl(arena, dc, sema, tu, true, NULL);
 }

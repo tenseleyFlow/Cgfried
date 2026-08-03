@@ -446,6 +446,10 @@ void test_warn_memsafe_policy(TestCtx *t)
     for (i = 0; i < CGF_ARRAY_LEN(proof_ids); i++)
         T_ASSERT(t, warn_enabled(w, proof_ids[i], (Span){0}));
     T_ASSERT(t, !warn_enabled(w, WARN_MEM_REALLOC_ZERO, (Span){0}));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_NULL_CHECK, (Span){0}));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_SIZEOF_MISMATCH, (Span){0}));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_SUGGEST_ANNOTATIONS, (Span){0}));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_UNBOUNDED_COPY, (Span){0}));
     T_ASSERT(t, warn_memsafe_needed(w));
     T_ASSERT(t, !warn_mem_strict_enabled(w));
     T_ASSERT(t, !warn_mem_strict_enabled(NULL));
@@ -465,6 +469,9 @@ void test_warn_memsafe_policy(TestCtx *t)
     T_ASSERT(t, warn_memsafe_needed(w));
     T_ASSERT(t, warn_flag(w, "-Wmem-strict"));
     T_ASSERT(t, warn_mem_strict_enabled(w));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_NULL_CHECK, (Span){0}));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_SIZEOF_MISMATCH, (Span){0}));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_UNBOUNDED_COPY, (Span){0}));
     T_ASSERT(t, warn_flag(w, "-Wno-mem-strict"));
     T_ASSERT(t, !warn_mem_strict_enabled(w));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_USE_AFTER_FREE, (Span){0}));
@@ -476,10 +483,17 @@ void test_warn_memsafe_policy(TestCtx *t)
     w = new_warn(&a, &cap);
     T_ASSERT(t, warn_flag(w, "-Wno-mem"));
     T_ASSERT(t, warn_flag(w, "-Werror=mem"));
-    warn_at(w, WARN_MEM_LEAK, (Span){0}, "probe");
+    {
+        DiagFixit fix = {{0}, "repair", true};
+
+        warn_at_fixits(w, WARN_MEM_LEAK, (Span){0}, &fix, 1, "probe %d", 7);
+    }
     T_ASSERT_EQ_INT(t, cap.count, 1);
     T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
     T_ASSERT_EQ_INT(t, cap.last.warn_id, WARN_MEM_LEAK);
+    T_ASSERT_EQ_STR(t, cap.last.message, "probe 7");
+    T_ASSERT_EQ_INT(t, cap.last.fixit_count, 1);
+    T_ASSERT_EQ_STR(t, cap.last.fixits[0].insert, "repair");
     arena_free_all(&a);
 
     arena_init(&a);

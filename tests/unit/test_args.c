@@ -81,6 +81,93 @@ void test_args_cgf_safe_exact_flag(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_sprint45_fixit_and_init_defaults(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"t.c");
+    T_ASSERT(t, !a.diagnostics_parseable_fixits);
+    T_ASSERT_EQ_INT(t, a.fixit_apply_mode, FIXIT_APPLY_NONE);
+    T_ASSERT_EQ_INT(t, a.trivial_auto_var_init, AUTO_VAR_INIT_NONE);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_sprint45_fixit_and_init_values(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-fdiagnostics-parseable-fixits",
+          (char *)"-fdiagnostics-apply-fixits=all",
+          (char *)"-ftrivial-auto-var-init=zero", (char *)"t.c");
+    T_ASSERT(t, a.diagnostics_parseable_fixits);
+    T_ASSERT_EQ_INT(t, a.fixit_apply_mode, FIXIT_APPLY_ALL);
+    T_ASSERT_EQ_INT(t, a.trivial_auto_var_init, AUTO_VAR_INIT_ZERO);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    T_ASSERT(t, !a.bad_value);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-fdiagnostics-apply-fixits=all",
+          (char *)"-fdiagnostics-apply-fixits=interactive",
+          (char *)"-ftrivial-auto-var-init=zero",
+          (char *)"-ftrivial-auto-var-init=pattern", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.fixit_apply_mode, FIXIT_APPLY_INTERACTIVE);
+    T_ASSERT_EQ_INT(t, a.trivial_auto_var_init, AUTO_VAR_INIT_PATTERN);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-fdiagnostics-apply-fixits=interactive",
+          (char *)"-fdiagnostics-apply-fixits=all",
+          (char *)"-ftrivial-auto-var-init=pattern",
+          (char *)"-ftrivial-auto-var-init=zero", (char *)"t.c");
+    T_ASSERT_EQ_INT(t, a.fixit_apply_mode, FIXIT_APPLY_ALL);
+    T_ASSERT_EQ_INT(t, a.trivial_auto_var_init, AUTO_VAR_INIT_ZERO);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_args_sprint45_fixit_and_init_bad_values(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-fdiagnostics-apply-fixits=maybe", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-fdiagnostics-apply-fixits=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-fdiagnostics-apply-fixits=", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-fdiagnostics-apply-fixits=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-fdiagnostics-apply-fixits", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-fdiagnostics-apply-fixits=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-ftrivial-auto-var-init=ones", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-ftrivial-auto-var-init=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-ftrivial-auto-var-init=", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-ftrivial-auto-var-init=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-ftrivial-auto-var-init", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.bad_value, "-ftrivial-auto-var-init=");
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_fast_math_bundle_and_order(TestCtx *t)
 {
     Arena ar;

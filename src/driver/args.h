@@ -54,6 +54,18 @@ typedef struct {
 
 typedef enum { DEP_OFF, DEP_M, DEP_MM } DepMode;
 
+typedef enum {
+    FIXIT_APPLY_NONE,
+    FIXIT_APPLY_ALL,
+    FIXIT_APPLY_INTERACTIVE,
+} FixitApplyMode;
+
+typedef enum {
+    AUTO_VAR_INIT_NONE,
+    AUTO_VAR_INIT_ZERO,
+    AUTO_VAR_INIT_PATTERN,
+} TrivialAutoVarInitMode;
+
 typedef struct {
     const char *val; /* "NAME", "NAME=VAL" (-D) or "NAME" (-U) */
     bool is_undef;
@@ -109,6 +121,9 @@ typedef struct {
     bool fno_strict_aliasing; /* Sprint 32 consumes */
     bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
     bool fcgf_safe;           /* Sprint 44 heap runtime instrumentation */
+    bool diagnostics_parseable_fixits; /* gcc-compatible fixit records */
+    FixitApplyMode fixit_apply_mode;   /* source-copy application policy */
+    TrivialAutoVarInitMode trivial_auto_var_init; /* Sprint 45 mitigation */
 
     /* --- warnings: every positional policy operation in argv order --- */
     VecWarn warn_opts;

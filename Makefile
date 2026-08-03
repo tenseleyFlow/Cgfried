@@ -63,7 +63,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
-        test-mem-runtime test-mem-fanalyzer bench-safe \
+        test-mem-runtime test-mem-autofix test-mem-fanalyzer bench-safe \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
@@ -246,6 +246,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) test-mem-warnings
 	$(MAKE) BUILD=$(BUILD) test-mem-interproc
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-mem-runtime
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-mem-autofix
 	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
 	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
@@ -341,6 +342,10 @@ test-mem-interproc: $(BUILD)/cgfried $(BUILD)/cgf-test
 test-mem-runtime: $(BUILD)/cgfried rt
 	CGF_SAFE_WORK=$(BUILD)/safe-runtime \
 	    sh scripts/safe_runtime.sh $(BUILD)/cgfried $(BUILD)
+
+test-mem-autofix: $(BUILD)/cgfried
+	CGF_AUTOFIX_WORK=$(BUILD)/autofix-transforms \
+	    sh scripts/autofix_transforms.sh $(BUILD)/cgfried $(BUILD)
 
 bench-safe: $(BUILD)/cgfried rt
 	CC='$(CC)' CGF_SAFE_WORK=$(BUILD)/safe-bench \
