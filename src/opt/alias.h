@@ -63,6 +63,15 @@ typedef struct AliasAllocSeed {
     uint32_t out_param;
 } AliasAllocSeed;
 
+/* A summarized call may return an alias of one or more pointer arguments.
+ * Distinct (call, arg) entries form a set.  The client classifies the call;
+ * the shared engine unions every matching argument into the result so
+ * interprocedural clients do not grow a second alias analysis. */
+typedef struct AliasReturnSeed {
+    const IrInst *call;
+    uint32_t arg;
+} AliasReturnSeed;
+
 typedef struct AliasConfig {
     /* ValueIds are function-local, so each context deliberately analyzes one
      * function even though symbols live at module scope. */
@@ -70,6 +79,9 @@ typedef struct AliasConfig {
     bool no_strict_aliasing;
     const AliasAllocSeed *alloc_seeds;
     uint32_t nalloc_seeds;
+    const AliasReturnSeed *return_seeds;
+    uint32_t nreturn_seeds;
+    bool track_param_origins;
 } AliasConfig;
 
 typedef struct AliasCtx AliasCtx;
@@ -94,6 +106,10 @@ bool alias_offset_range(AliasCtx *c, IrOperand ptr, int64_t *lo, int64_t *hi);
  * heap storage.  The query is deliberately phrased as a proof so clients can
  * diagnose invalid deallocation without learning private object ids. */
 bool alias_pts_must_be_nonheap(const AliasCtx *c, PtsSet pts);
+/* Parameter-origin markers are optional analysis-only objects.  They are
+ * added alongside (never instead of) UNKNOWN, preserving ordinary alias
+ * answers while allowing a summary client to ask where a value originated. */
+bool alias_pts_has_param(const AliasCtx *c, PtsSet pts, uint32_t param);
 
 /* Allocation-site identity and iteration are stable only for the lifetime of
  * c.  Iteration follows the seed order supplied to alias_build. */

@@ -111,6 +111,7 @@ typedef struct MsAllocFamily {
      * size_arg2.  MS_NO_ARG means that factor is absent/unknown. */
     u32 size_arg;
     u32 size_arg2;
+    bool is_file_resource;
 } MsAllocFamily;
 
 const MsAllocFamily *ms_alloc_family_lookup(const char *name);
@@ -128,6 +129,70 @@ u32 ms_alias_alloc_seeds(Arena *arena, const IrModule *module,
 
 typedef struct MsFunctionResult MsFunctionResult;
 
+typedef struct MsParamSummary {
+    bool dereferenced;
+    bool written;
+    bool escapes;
+    bool may_free;
+    bool must_free;
+    bool returned_alias;
+    bool write_range_known;
+    bool write_range_unknown;
+    i64 write_lo;
+    i64 write_hi; /* half-open */
+    /* First deterministic body witnesses used by annotation-mismatch notes.
+     * A zero span means the effect came only from a declaration contract. */
+    Span free_span;
+    Span escape_span;
+    Span return_alias_span;
+    /* Annotation strength is per dimension: one contract never suppresses
+     * unrelated facts inferred from the body. */
+    bool annot_borrow;
+    bool annot_no_escape;
+    bool annot_takes_ownership;
+    bool annot_returns_borrowed;
+} MsParamSummary;
+
+typedef struct MsSummary {
+    const char *name;
+    u32 nparams;
+    MsParamSummary *params;
+    bool returns_ownership;
+    Span returns_ownership_span;
+    bool annot_returns_owned;
+    bool top;
+    bool partial; /* external annotation: unspecified dimensions stay TOP */
+} MsSummary;
+
+/* Compact built-in contracts cover external libc calls without inventing
+ * external IR functions.  Masks use zero-based argument ordinals. */
+typedef struct MsLibSummary {
+    const char *name;
+    u64 deref_mask;
+    u64 write_mask;
+    u64 escape_mask;
+    u64 free_mask;
+    i32 return_alias; /* -1 when the result does not alias an argument */
+    bool returns_ownership;
+    /* Argument ordinals supplying a constant write extent.  The second
+     * factor is -1 when the first argument is the complete byte count. */
+    i32 write_size_arg;
+    i32 write_size_arg2;
+} MsLibSummary;
+
+typedef struct MsSummarySet MsSummarySet;
+struct WarnCtx;
+MsSummarySet *ms_summary_build(Arena *arena, IrModule *module,
+                               bool no_strict_aliasing,
+                               struct WarnCtx *warnings);
+const MsSummary *ms_summary_get(const MsSummarySet *set, u32 function);
+const MsSummary *ms_summary_for_call(const MsSummarySet *set,
+                                     const IrInst *call);
+const MsLibSummary *ms_lib_summary_lookup(const char *name);
+/* UINT32_MAX for non-variadic rows; otherwise the first variadic argument. */
+u32 ms_lib_summary_variadic_from(const MsLibSummary *summary);
+void ms_summary_dump(const MsSummarySet *set, FILE *out);
+
 typedef enum MsIssueKind {
     MS_ISSUE_USE_AFTER_FREE,
     MS_ISSUE_DOUBLE_FREE,
@@ -144,6 +209,7 @@ typedef struct MsIssue {
     Span loc;
     u32 site_id; /* zero for issues that do not name a heap allocation */
     bool strict;
+    bool file_resource;
     MsTrace trace;
 } MsIssue;
 
@@ -162,7 +228,6 @@ const MsTrace *ms_result_exit_trace(const MsFunctionResult *result,
                                     u32 exit_index, u32 site_index);
 u32 ms_result_issue_count(const MsFunctionResult *result);
 const MsIssue *ms_result_issue_at(const MsFunctionResult *result, u32 index);
-struct WarnCtx;
 void ms_warn_module(struct WarnCtx *warnings, IrModule *module,
                     bool no_strict_aliasing);
 void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out);

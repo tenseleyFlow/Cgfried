@@ -771,20 +771,25 @@ bool warn_flow_needed(const WarnCtx *w)
 
 static bool is_memsafe_warning(WarnId id)
 {
-    return id == WARN_MEM_DOUBLE_FREE || id == WARN_MEM_FREE_NONHEAP ||
-           id == WARN_MEM_LEAK || id == WARN_MEM_OUT_OF_BOUNDS ||
-           id == WARN_MEM_REALLOC_ZERO || id == WARN_MEM_UNINIT_READ ||
-           id == WARN_MEM_USE_AFTER_FREE ||
+    return id == WARN_MEM_ANNOTATION_MISMATCH || id == WARN_MEM_DOUBLE_FREE ||
+           id == WARN_MEM_FREE_NONHEAP || id == WARN_MEM_LEAK ||
+           id == WARN_MEM_OUT_OF_BOUNDS || id == WARN_MEM_REALLOC_ZERO ||
+           id == WARN_MEM_UNINIT_READ || id == WARN_MEM_USE_AFTER_FREE ||
            id == WARN_MEM_USE_AFTER_FREE_UNKNOWN;
 }
 
 bool warn_memsafe_needed(const WarnCtx *w)
 {
     static const WarnId ids[] = {
-        WARN_MEM_DOUBLE_FREE,    WARN_MEM_FREE_NONHEAP,
-        WARN_MEM_LEAK,           WARN_MEM_OUT_OF_BOUNDS,
-        WARN_MEM_REALLOC_ZERO,   WARN_MEM_UNINIT_READ,
-        WARN_MEM_USE_AFTER_FREE, WARN_MEM_USE_AFTER_FREE_UNKNOWN,
+        WARN_MEM_ANNOTATION_MISMATCH,
+        WARN_MEM_DOUBLE_FREE,
+        WARN_MEM_FREE_NONHEAP,
+        WARN_MEM_LEAK,
+        WARN_MEM_OUT_OF_BOUNDS,
+        WARN_MEM_REALLOC_ZERO,
+        WARN_MEM_UNINIT_READ,
+        WARN_MEM_USE_AFTER_FREE,
+        WARN_MEM_USE_AFTER_FREE_UNKNOWN,
     };
     Span none = {0};
     size_t i;
