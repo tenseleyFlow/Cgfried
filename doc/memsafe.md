@@ -2,12 +2,9 @@
 
 Cgfried's memory-safety work is a six-layer ladder. Each layer adds one
 mechanism and keeps its claim narrow enough to test. A layer's guarantee does
-not imply the guarantees of later layers.
-
-Sprint 41 supplies the shared analysis foundation only. It does not enable a
-user-visible memory warning, runtime check, source rewrite, or safe-language
-mode. In particular, `-Wmem` remains an unrecognized warning option until
-Sprint 42.
+not imply the guarantees of later layers. Sprints 41 and 42 now ship the
+shared foundation and the first user-visible layer: intraprocedural `-Wmem`
+warnings with ordered proof traces.
 
 ## The six layers
 
@@ -27,6 +24,131 @@ The L1 leak claim is deliberately limited to allocations that analysis can
 prove neither escape nor reach a release. It is not a claim to find every
 leak. Likewise, an unknown state suppresses a static diagnostic; it does not
 prove that the program is safe.
+
+## L1 warning surface
+
+`-Wmem` is enabled by default, independently of `-Wall`. `-Wno-mem` disables
+the default group, and an exact per-check option outranks the group regardless
+of command-line order. `-Werror=mem` promotes the group. The same per-check
+names work with `#pragma GCC diagnostic` push, ignored, warning, and error.
+
+| Warning | Default | Proven condition |
+| --- | --- | --- |
+| `-Wmem-use-after-free` | on | A tracked freed pointer is dereferenced or its value is used. Comparison with null is explicitly silent. Known dereferencing libc calls are modeled. |
+| `-Wmem-double-free` | on | A must-alias freed allocation is released again. `free(NULL)` is silent. |
+| `-Wmem-leak` | on | A tracked allocation reaches a real function return without release or escape. Returning, publishing, or passing ownership to an unknown callee suppresses the claim; noreturn paths are not exits. |
+| `-Wmem-out-of-bounds` | on | A constant-size allocation has a constant or provable affine access outside its extent. Forming a one-past pointer is legal; dereferencing it is not. |
+| `-Wmem-uninit-read` | on | A must-uninitialized byte range from a malloc-family site is read. `calloc`, fully written allocators, stores, and modeled libc writers update initialization state. |
+| `-Wmem-free-nonheap` | on | Every possible target is non-heap storage, or a heap pointer has a proven nonzero interior offset. Mixed heap/nonheap and unknown-offset cases are silent. |
+| `-Wmem-realloc-zero` | off | A constant zero size reaches `realloc` or `reallocarray`; C17 leaves this implementation-defined. Enable this check explicitly. |
+
+### Use after free
+
+The default check requires one exact tracked allocation and a direct value use,
+dereference, or modeled dereferencing library call after release. Null
+comparisons stay silent. Passing a freed pointer to an unknown call is kept in
+the opt-in strict tier because “may dereference” is not default-tier proof.
+
+### Double free
+
+A second release is reported only for a must-alias freed site. Null releases,
+may-alias sets, paths joined after a precision cap, and ambiguous conditional
+ownership stay silent. Releasing an invalid interior pointer is handled by the
+nonheap warning instead of also changing the site to freed.
+
+### Leaks
+
+A leak requires an allocated site at an ordinary return with no release,
+escape, or unresolved allocation status. Unknown calls, returned ownership,
+published aggregates, globals, and noreturn paths suppress the claim. Fallible
+out-parameter allocators are correlated with their status convention:
+`posix_memalign` succeeds at zero, while `asprintf` and `vasprintf` succeed at
+a nonnegative result.
+
+### Out of bounds
+
+Exact constant accesses report when any byte falls below offset zero or beyond
+the allocation extent. Affine loop ranges additionally require the access
+block itself to execute on every path to the latch and require a single loop
+exit; proving only that the pointer expression executes is insufficient.
+Unknown, wrapping, conditional, side-exit, or runtime-trip ranges stay silent,
+and merely forming a one-past pointer is legal.
+
+### Uninitialized reads
+
+The checker tracks a bounded normalized set of proven initialized byte ranges
+for a unique allocated site, preserving holes between separately written
+members. Unknown-size or may-alias writes widen toward silence; `calloc` and
+modeled fully-writing libc calls mark bytes initialized. Lowering records the
+semantic member-byte ranges for compiler-generated aggregate copies. Their
+lifetime and bounds checks cover the full representation, while the
+uninitialized-read check examines members and deliberately ignores padding.
+Union or over-complex layouts widen toward silence rather than guessing an
+active member. Aggregate initialization is transferred source-before-
+destination, so self-copy and heap-to-heap propagation preserve missing-member
+state.
+
+### Freeing nonheap storage
+
+The warning requires every possible target to be stack, global, function, or
+string storage, or an exact heap target with a proven nonzero interior offset.
+Unknown parameters, restrict objects without a concrete origin, and mixed
+heap/nonheap sets are not proof and remain silent.
+
+### Zero-size reallocation
+
+This check is off by default because C17 leaves zero-size `realloc` behavior
+implementation-defined. It fires only when the size or product is constant
+zero; the lifetime state widens instead of assuming whether the old object was
+released or a new object exists.
+
+`-Wmem-strict` is off by default. Its first member,
+`-Wmem-use-after-free-unknown`, warns when a freed pointer is passed to an
+unknown function that may dereference it. The default tier instead treats an
+unknown call as an ownership escape. Sprint 43 replaces that broad rule with
+interprocedural summaries.
+
+### Reallocation correlation
+
+`realloc(p, n)` creates two correlated abstract paths. A non-null result means
+success and marks the old allocation freed; a null result means failure and
+leaves it allocated. Consequently, use of `p` under `if (q)` is diagnosed,
+while use in the failure branch is not. The analysis never infers anything
+from equality between the old and new addresses because a successful
+reallocation may return the same address.
+
+### Proof traces
+
+Each warning is followed by the ordered `MsTrace` events that establish the
+claim: allocation, release/reallocation, relevant branch, escape or return.
+Path splits copy persistent traces, so only events from the proof path are
+rendered. Warning policy is applied at the primary occurrence; notes follow
+only when that warning remains enabled.
+
+## False-positive budget
+
+The default-tier law is: no `-Wmem` diagnostics on the pinned musl corpus
+translation units that the current front end can lower to analysis IR. The CI
+lane pins musl commit `b306b16af15c89a04d8e0c55cac2dadbeb39c083`, analyzes
+732 of 1,361 x86-64 source files, records the 629 files deferred by GNU syntax
+scheduled for Sprint 55, requires zero memory diagnostics, and completes in
+under 90 seconds. The baseline pins separate SHA-256 digests of the normalized,
+sorted analyzed and deferred identity sets in addition to their counts, so a
+front-end change cannot silently swap files between the sets.
+Only exit status 1 is accepted as an unsupported-syntax deferral. ICE, tool,
+signal, and other compiler failures fail the gate; a fake-compiler meta test
+pins that distinction.
+
+This is narrower than “all musl TUs are clean”: deferred files do not reach
+IR and therefore are not evidence for or against the analyzer. When frontend
+support grows, the baseline must be deliberately updated and every newly
+analyzable file immediately enters the zero-warning budget.
+
+If a default heuristic produces a false positive, move that heuristic to
+`WG_MEM_STRICT` in `src/warn/warnings.def`, add firing and silent regression
+fixtures for its new policy, and update this document. Do not add a silent
+allowlist. A genuine finding in the pinned corpus requires a reviewed entry
+with the source location and musl commit.
 
 ## One points-to engine, two clients
 
@@ -60,13 +182,14 @@ Memory-safety analysis is a distinct, read-only post-optimization stage:
 parse -> sema -> analysis lowering -> optimizations -> memsafe -> codegen
 ```
 
-It is deliberately not an optimizer-pass row. It must run at `-O0`, must not
-join transform fixpoints, and returns no changed flag. When the private
-`CGF_MEMSAFE_DUMP=1` test gate is active, the driver lowers a dedicated
-analysis module that retains inline bodies, verifies it, optimizes it, and
-then dumps memsafe results. The ordinary emission module remains separate, so
-enabling the foundation dump cannot change generated code. Without the gate,
-Sprint 41 performs no memsafe work and emits no memory diagnostic.
+It is deliberately not an optimizer-pass row. It runs at every optimization
+level, does not join transform fixpoints, and returns no changed flag. When an
+enabled memory warning or the private `CGF_MEMSAFE_DUMP=1` test gate needs the
+analysis, the driver lowers a dedicated module that retains inline bodies,
+verifies it, applies the selected optimization pipeline, and normalizes local
+memory to SSA even at `-O0`. The ordinary emission module remains separate,
+so analysis and dumps cannot change generated code. `-fsyntax-only` still
+runs this stage and therefore reports `-Wmem` findings without codegen.
 
 ## Lifetime state and bounded paths
 
@@ -101,11 +224,10 @@ vocabulary covers allocation, release, reallocation, escape, use, branches,
 calls, and returns. Events retain their source location and a stable note.
 
 The rendering contract is a warning at the use or violation site followed by
-one note per event in program order, for example allocation, release, then
-use. A path split copies the trace, and only the trace belonging to the
-surviving proof path is rendered. Sprint 41 builds and tests this data model;
-Sprint 42 is the first sprint that renders it as a user-visible `-Wmem`
-diagnostic.
+one note per proof event in program order, for example allocation, release,
+and a realloc-success branch. A path split copies the trace, and only the
+trace belonging to the surviving proof path is rendered. Sprint 41 built the
+data model; Sprint 42 renders it as user-visible `-Wmem` diagnostics.
 
 ## Position relative to other tools
 
@@ -115,7 +237,7 @@ the future Cgfried layers are already available.
 | Tool or mode | Relevant strength | Important limit | Cgfried position |
 | --- | --- | --- | --- |
 | GCC 8 warnings | Provides scattered compile-time checks including `-Wfree-nonheap-object` and some `-Wuninitialized` diagnostics. | It has no unified path-sensitive memory checker comparable to later GCC analyzer releases. | GCC 8 remains the command-line and diagnostic parity baseline, but the L1/L2 design intentionally goes beyond its memory checks. |
-| GCC 10+ `-fanalyzer` | Provides the real static-analysis comparator for intraprocedural and interprocedural memory diagnostics. | Analyzer precision and false positives depend on modeled calls and path budgets. | On overlapping checks, L1/L2 target complete proof-chain event traces and the Sprint 42 musl zero-false-positive gate. These are targets until those layers ship. |
+| GCC 10+ `-fanalyzer` | Provides the real static-analysis comparator for intraprocedural and interprocedural memory diagnostics. | Analyzer precision and false positives depend on modeled calls and path budgets. | The optional `make test-mem-fanalyzer` target records both verdicts for exactly 20 overlap cases. GCC is a comparator, not an oracle for Cgfried's narrower default policy. |
 | AddressSanitizer | Dynamically detects a broader set of exercised bugs, including stack and global out-of-bounds accesses through shadow memory, and initialization-order bugs. | It detects only exercised paths and requires its instrumentation and runtime model. | L3 deliberately targets fewer bug classes. Its design goal is production deployment without shadow memory, with no runtime dependency beyond `libcgf_rt.a`, plus static discharge of checks that can be proved unnecessary. L3 does not replace ASan. |
 
 Static analysis and runtime checking are complementary. A successful static

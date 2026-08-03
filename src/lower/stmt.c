@@ -728,8 +728,8 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             IrOperand src = lower_rvalue(lo, s->lhs);
             TypeLayout l = layout_of(lo->sema, s->lhs->sem_type);
 
-            ir_build_memcpy(&lo->b, ir_op_value(lo->fn, lo->sret), src,
-                            lower_i64((i64)l.size), (u32)l.align, 0);
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, lo->sret), src,
+                                   s->lhs->sem_type, (u32)l.align, 0);
             ir_build_ret(&lo->b, NULL);
         } else if (s->lhs && lo->cur_abi_ret &&
                    lo->cur_abi_ret->kind == ABI_RET_SMALL) {
@@ -745,8 +745,8 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             if (ar->size < 8) {
                 ValueId tmp = ir_build_alloca(&lo->b, lower_i64(8), 8);
 
-                ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), src,
-                                lower_i64((i64)ar->size), ar->align, 0);
+                lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), src,
+                                       s->lhs->sem_type, ar->align, 0);
                 from = ir_op_value(lo->fn, tmp);
             }
             memset(&lv, 0, sizeof(lv));

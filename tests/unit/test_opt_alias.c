@@ -842,3 +842,112 @@ void test_alias_offset_overflow_widens_to_unknown(TestCtx *t)
     alias_free(c);
     arena_free_all(&f.arena);
 }
+
+void test_alias_nonheap_proof_accepts_stack_and_global_objects(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *stack;
+    IrOperand global;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "global @g size 8 align 8 external\n"
+                        "func void @f() {\n"
+                        "entry():\n"
+                        "    %stack = alloca 8, align 8\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    stack = alias_find(&m->funcs[0], IR_ALLOCA, 0);
+    global = ir_op_symbol(IRT_PTR, ir_sym(m, "g"), 0);
+    T_ASSERT(t, alias_pts_must_be_nonheap(
+                    c, alias_points_to(
+                           c, ir_op_value(&m->funcs[0], stack->result))));
+    T_ASSERT(t, alias_pts_must_be_nonheap(c, alias_points_to(c, global)));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_nonheap_proof_rejects_unknown_parameter(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrOperand param;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "func void @f(ptr %p) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    param = ir_op_value(&m->funcs[0], m->funcs[0].param_vals[0]);
+    T_ASSERT(t, !alias_pts_must_be_nonheap(c, alias_points_to(c, param)));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_nonheap_proof_rejects_restrict_parameter(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrOperand param;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "func void @f(ptr restrict %p) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    param = ir_op_value(&m->funcs[0], m->funcs[0].param_vals[0]);
+    T_ASSERT(t, !alias_pts_must_be_nonheap(c, alias_points_to(c, param)));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_nonheap_proof_rejects_seeded_heap_site(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *call;
+    AliasAllocSeed seed;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @fresh\n"
+                        "func void @f() {\n"
+                        "entry():\n"
+                        "    %p = call ptr @fresh(i64 8)\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    call = alias_find(&m->funcs[0], IR_CALL, 0);
+    seed = (AliasAllocSeed){call, true, ALIAS_NO_OUT_PARAM};
+    c = alias_ctx_seeds(m, &seed, 1);
+    T_ASSERT(
+        t, !alias_pts_must_be_nonheap(
+               c, alias_points_to(c, ir_op_value(&m->funcs[0], call->result))));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}

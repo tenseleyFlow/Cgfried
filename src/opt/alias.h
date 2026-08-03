@@ -89,6 +89,11 @@ bool alias_escapes(AliasCtx *c, IrOperand base);
 
 PtsSet alias_points_to(AliasCtx *c, IrOperand ptr);
 bool alias_offset_range(AliasCtx *c, IrOperand ptr, int64_t *lo, int64_t *hi);
+/* True only when every possible pointee is a symbol or stack allocation.
+ * Restrict-parameter abstract objects remain unknown here: a caller may pass
+ * heap storage.  The query is deliberately phrased as a proof so clients can
+ * diagnose invalid deallocation without learning private object ids. */
+bool alias_pts_must_be_nonheap(const AliasCtx *c, PtsSet pts);
 
 /* Allocation-site identity and iteration are stable only for the lifetime of
  * c.  Iteration follows the seed order supplied to alias_build. */

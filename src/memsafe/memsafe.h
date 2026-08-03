@@ -85,6 +85,12 @@ bool ms_trace_event(const MsTrace *trace, u32 ordinal, MsEvent *out);
 
 #define MS_NO_ARG UINT32_MAX
 
+typedef enum MsAllocSuccess {
+    MS_ALLOC_SUCCESS_DIRECT,
+    MS_ALLOC_SUCCESS_STATUS_ZERO,
+    MS_ALLOC_SUCCESS_STATUS_NONNEG,
+} MsAllocSuccess;
+
 /* Libc ownership semantics are data, not name-special cases in the analysis.
  * alloc_out_arg == MS_NO_ARG means a direct result when allocates is true.
  * frees_on_success distinguishes realloc-family consumption from free(). */
@@ -97,6 +103,14 @@ typedef struct MsAllocFamily {
     bool returns_ownership;
     bool zeroes;
     bool fully_written;
+    /* Direct-return allocators are born allocated and are later refined by
+     * null tests.  Fallible out-parameter allocators remain pending until
+     * their integer status is proven successful or failed. */
+    MsAllocSuccess success;
+    /* Constant extent, when recoverable, is size_arg multiplied by
+     * size_arg2.  MS_NO_ARG means that factor is absent/unknown. */
+    u32 size_arg;
+    u32 size_arg2;
 } MsAllocFamily;
 
 const MsAllocFamily *ms_alloc_family_lookup(const char *name);
@@ -114,6 +128,25 @@ u32 ms_alias_alloc_seeds(Arena *arena, const IrModule *module,
 
 typedef struct MsFunctionResult MsFunctionResult;
 
+typedef enum MsIssueKind {
+    MS_ISSUE_USE_AFTER_FREE,
+    MS_ISSUE_DOUBLE_FREE,
+    MS_ISSUE_LEAK,
+    MS_ISSUE_OUT_OF_BOUNDS,
+    MS_ISSUE_UNINIT_READ,
+    MS_ISSUE_FREE_NONHEAP,
+    MS_ISSUE_REALLOC_ZERO,
+    MS_ISSUE_COUNT
+} MsIssueKind;
+
+typedef struct MsIssue {
+    MsIssueKind kind;
+    Span loc;
+    u32 site_id; /* zero for issues that do not name a heap allocation */
+    bool strict;
+    MsTrace trace;
+} MsIssue;
+
 MsFunctionResult *ms_analyze_function(Arena *arena, IrModule *module,
                                       IrFunc *function,
                                       bool no_strict_aliasing);
@@ -127,6 +160,11 @@ MsState ms_result_exit_state(const MsFunctionResult *result, u32 exit_index,
                              u32 site_index);
 const MsTrace *ms_result_exit_trace(const MsFunctionResult *result,
                                     u32 exit_index, u32 site_index);
+u32 ms_result_issue_count(const MsFunctionResult *result);
+const MsIssue *ms_result_issue_at(const MsFunctionResult *result, u32 index);
+struct WarnCtx;
+void ms_warn_module(struct WarnCtx *warnings, IrModule *module,
+                    bool no_strict_aliasing);
 void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out);
 
 #endif

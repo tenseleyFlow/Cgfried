@@ -44,4 +44,22 @@ bool dep_access_from_ptr(const IrFunc *f, IrOperand ptr, ValueId iv,
                          uint64_t size, EffTypeId etype, DepAccess *out,
                          const char **reason);
 
+/* Exact signed range for an affine integer expression over a constant-trip
+ * induction variable.  This is the shared optimizer/diagnostic seam for
+ * loop byte offsets; unsupported, wrapping, or runtime-trip shapes return
+ * false rather than a speculative interval. */
+bool dep_affine_range(const IrFunc *f, IrOperand operand, int64_t *lo,
+                      int64_t *hi);
+bool dep_affine_ptr_range(const IrFunc *f, IrOperand pointer, int64_t *lo,
+                          int64_t *hi);
+
+/* Diagnostic clients additionally need proof that the memory access itself,
+ * not merely the affine pointer definition, executes at every endpoint used
+ * by the range.  The `_at` forms therefore require one loop exit and require
+ * `access_block` to be in the recognized loop and to dominate its latch. */
+bool dep_affine_range_at(const IrFunc *f, IrOperand operand,
+                         BlockId access_block, int64_t *lo, int64_t *hi);
+bool dep_affine_ptr_range_at(const IrFunc *f, IrOperand pointer,
+                             BlockId access_block, int64_t *lo, int64_t *hi);
+
 #endif

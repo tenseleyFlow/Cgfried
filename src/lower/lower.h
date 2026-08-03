@@ -177,6 +177,8 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init);
 IrType lower_irtype(Lower *lo, const Type *t); /* scalars only */
 EffTypeId lower_efftype(Lower *lo, const Type *t);
 bool lower_is_aggregate(const Type *t);
+void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
+                            u32 align, u8 flags);
 /* Fresh block; the label is arena-formatted for deterministic names. */
 BlockId lower_new_block(Lower *lo, const char *prefix);
 /* Moves the builder; resets the terminated flag. */

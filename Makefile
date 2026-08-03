@@ -62,7 +62,8 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
-        test-memsafe-foundation test-musl-warnings test-tinycc-warnings \
+        test-memsafe-foundation test-mem-warnings test-mem-fanalyzer \
+        musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
@@ -239,6 +240,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/warn
 	$(MAKE) BUILD=$(BUILD) test-flow-warnings
 	$(MAKE) BUILD=$(BUILD) test-memsafe-foundation
+	$(MAKE) BUILD=$(BUILD) test-mem-warnings
 	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
 	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
@@ -316,6 +318,24 @@ test-memsafe-foundation: $(BUILD)/cgfried
 	CGF_MEMSAFE_WORK=$(BUILD)/memsafe-foundation \
 	    sh scripts/memsafe_foundation.sh $(BUILD)/cgfried \
 	    tests/memsafe/foundation
+
+test-mem-warnings: $(BUILD)/cgfried $(BUILD)/cgf-test
+	CGF_TEST_CC=$(BUILD)/cgfried $(BUILD)/cgf-test \
+	    --profile linux-x86_64 tests/memsafe/wmem
+	CGF_MEM_WARN_WORK=$(BUILD)/mem-warnings \
+	    sh scripts/memsafe_warn.sh $(BUILD)/cgfried tests/memsafe/wmem
+	sh tests/memsafe/musl_status_meta.sh
+
+# Optional local comparison: records both verdicts without treating GCC's
+# analyzer as an oracle for Cgfried's narrower default policy.
+test-mem-fanalyzer: $(BUILD)/cgfried
+	CGF_FANALYZER_WORK=$(BUILD)/mem-fanalyzer \
+	    sh scripts/fanalyzer_mem_compare.sh $(BUILD)/cgfried \
+	    tests/memsafe/fanalyzer
+
+musl-sweep: $(BUILD)/cgfried
+	timeout 90 env CGF_MUSL_MEM_WORK=$(BUILD)/musl-mem-warn \
+	    sh scripts/musl_mem_warn.sh $(BUILD)/cgfried
 
 test-musl-warnings: $(BUILD)/cgfried
 	CGF_MUSL_WARN_WORK=$(BUILD)/musl-warn sh scripts/musl_warn_dryrun.sh \

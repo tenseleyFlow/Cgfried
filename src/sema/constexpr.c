@@ -722,15 +722,26 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             }
             if (inner && inner->kind == AST_EXPR_INDEX) {
                 /* `&arr[k]` folds through the standard identity. */
-                ConstValue base = eval(s, inner->lhs, CE_ADDR);
-                ConstValue idx = eval(s, inner->rhs, CE_ICE);
+                AstNode *base_node = inner->lhs;
+                AstNode *idx_node = inner->rhs;
+                ConstValue base;
+                ConstValue idx;
                 u64 scale = 1;
 
+                if ((!base_node->sem_type ||
+                     base_node->sem_type->kind != TY_PTR) &&
+                    idx_node->sem_type && idx_node->sem_type->kind == TY_PTR) {
+                    AstNode *tmp = base_node;
+
+                    base_node = idx_node;
+                    idx_node = tmp;
+                }
+                base = eval(s, base_node, CE_ADDR);
+                idx = eval(s, idx_node, CE_ICE);
                 if (base.kind != CV_ADDR || idx.kind != CV_INT)
                     return cv_error();
-                if (inner->lhs->sem_type &&
-                    inner->lhs->sem_type->kind == TY_PTR)
-                    scale = layout_of(s, inner->lhs->sem_type->base).size;
+                if (base_node->sem_type && base_node->sem_type->kind == TY_PTR)
+                    scale = layout_of(s, base_node->sem_type->base).size;
                 base.addend += (i64)idx.i * (i64)scale;
                 base.type = e->sem_type;
                 return base;

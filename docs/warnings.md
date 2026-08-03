@@ -10,7 +10,8 @@ cgf --help=warnings
 ```
 
 Sprint 37 provides the control machinery and preprocessor diagnostics.
-Sprints 38–40 add the frontend, format, and flow warning checkers.
+Sprints 38–40 add the frontend, format, and flow warning checkers. Sprint 42
+adds the default-on intraprocedural memory warning group.
 
 ## Command-line options
 
@@ -20,6 +21,9 @@ Sprints 38–40 add the frontend, format, and flow warning checkers.
 | `-Wall`, `-Wextra`, and other groups | Enable or disable the warnings in that group. `-Wall` does not mean every warning. |
 | `-Wformat`, `-Wformat=1`, `-Wformat=2`, `-Wformat=0` | Select the base format group, add the level-2 format checks, or disable both levels. Other levels and parameterized negative forms are rejected. |
 | `-Wmaybe-uninitialized=strict` | Report conservative, undecided maybe-uninitialized cases that the default mode suppresses. |
+| `-Wmem` / `-Wno-mem` | Enable or disable the default-on proof-only intraprocedural memory group. |
+| `-Wmem-strict` | Enable heuristic memory checks that do not meet the default zero-false-positive policy. |
+| `-Wmem-realloc-zero` | Warn about C17's implementation-defined zero-size realloc behavior; off by default. |
 | `-Werror` / `-Wno-error` | Promote all enabled warnings to errors, or remove that global promotion. |
 | `-Werror=foo` | Enable `foo` and promote it to an error. |
 | `-Wno-error=foo` | Keep `foo` as a warning even under `-Werror`. It does not enable `foo`. |
@@ -121,8 +125,29 @@ Cgfried also provides two off-by-default flow extensions:
   this check.
 
 The reusable CFG reachability, dominance, and path-note boundary lives in
-`src/warn/flow.h`. Sprint 42 may consume that boundary for memory warnings;
-memory-safety policy does not live in the flow-warning module.
+`src/warn/flow.h`. Memory-safety policy does not live in the flow-warning
+module.
+
+## Memory checking
+
+`-Wmem` runs a read-only analysis over a dedicated IR module at every
+optimization level, including under `-fsyntax-only`. It diagnoses only proven
+intraprocedural use-after-free, double-free, leak-without-escape,
+constant/affine out-of-bounds access, uninitialized heap read, and free of a
+must-nonheap or proven interior pointer. Imprecise aliases, lost path
+correlation, and unknown byte ranges suppress a diagnostic rather than turn a
+may-bug into a default warning.
+
+Realloc results remain correlated with the old allocation until a null check:
+success frees the old site, while failure leaves it live. Unknown calls escape
+ownership in the default tier. `-Wmem-strict` additionally enables
+`-Wmem-use-after-free-unknown`, which treats passing a freed pointer to an
+unknown callee as a possible dereference.
+
+Each memory warning is followed by ordered allocation, release, branch,
+escape, or return notes from the proof path. The full per-check contract,
+false-positive budget, musl coverage baseline, and demotion procedure are in
+`doc/memsafe.md`.
 
 ## Source-level control
 

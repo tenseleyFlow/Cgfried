@@ -29,7 +29,7 @@ for source in "$fixtures"/*.c; do
     if [ "$name" = branch_torture ]; then
         limit=2
     fi
-    if (unset CGF_MEMSAFE_DUMP; timeout "$limit" "$cc" -fsyntax-only \
+    if (unset CGF_MEMSAFE_DUMP; timeout "$limit" "$cc" -Wno-mem -fsyntax-only \
         "$source" >"$silent_out" 2>"$silent_err"); then
         :
     else
@@ -43,7 +43,7 @@ for source in "$fixtures"/*.c; do
         exit 1
     fi
     if timeout "$limit" env CGF_MEMSAFE_DUMP=1 CGF_VERIFY_AFTER_EACH=1 \
-        "$cc" -fsyntax-only "$source" >"$out" 2>"$err"; then
+        "$cc" -Wno-mem -fsyntax-only "$source" >"$out" 2>"$err"; then
         :
     else
         status=$?
@@ -77,7 +77,7 @@ for source in "$fixtures"/*.c; do
 $(sed -n 's|^// MS_CHECK: ||p' "$source")
 EOF
     timeout "$limit" env CGF_MEMSAFE_DUMP=1 CGF_VERIFY_AFTER_EACH=1 "$cc" \
-        -fsyntax-only "$source" >"$out" 2>"$second"
+        -Wno-mem -fsyntax-only "$source" >"$out" 2>"$second"
     if ! cmp -s "$err" "$second"; then
         echo "memsafe_foundation: nondeterministic dump for $name" >&2
         diff -u "$err" "$second" >&2 || true
@@ -107,9 +107,9 @@ asm_dump="$work/alloc_free.dump.s"
 asm_plain_err="$work/alloc_free.plain-asm.err"
 asm_dump_err="$work/alloc_free.dump-asm.err"
 unset CGF_MEMSAFE_DUMP
-"$cc" -S "$asm_source" -o "$asm_plain" 2>"$asm_plain_err"
-env CGF_MEMSAFE_DUMP=1 CGF_VERIFY_AFTER_EACH=1 "$cc" -S "$asm_source" \
-    -o "$asm_dump" 2>"$asm_dump_err"
+"$cc" -Wno-mem -S "$asm_source" -o "$asm_plain" 2>"$asm_plain_err"
+env CGF_MEMSAFE_DUMP=1 CGF_VERIFY_AFTER_EACH=1 "$cc" -Wno-mem \
+    -S "$asm_source" -o "$asm_dump" 2>"$asm_dump_err"
 if [ -s "$asm_plain_err" ] || [ ! -s "$asm_dump_err" ] || \
     ! cmp -s "$asm_plain" "$asm_dump"; then
     echo "memsafe_foundation: dump gate changed assembly or stage output" >&2
@@ -117,16 +117,5 @@ if [ -s "$asm_plain_err" ] || [ ! -s "$asm_dump_err" ] || \
     exit 1
 fi
 
-probe="$work/wmem.err"
-if ! "$cc" -Wmem -fsyntax-only "$fixtures/alloc_free.c" \
-    >"$work/wmem.out" 2>"$probe"; then
-    echo "memsafe_foundation: the standard unknown-warning probe failed" >&2
-    exit 1
-fi
-if ! grep -F '[-Wunknown-warning-option]' "$probe" >/dev/null; then
-    echo "memsafe_foundation: -Wmem became visible before Sprint 42" >&2
-    exit 1
-fi
-
 echo "memsafe_foundation: $count fixtures passed; inert gate, assembly, and "\
-"verifier clean; dumps deterministic; branch cap <2s; -Wmem still deferred"
+"verifier clean; dumps deterministic; branch cap <2s"

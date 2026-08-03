@@ -312,12 +312,18 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         }
         break;
     case AST_EXPR_INDEX: {
-        /* Left-to-right: the base pointer first, then the index. */
-        IrOperand base = lower_rvalue(lo, e->lhs);
-        IrOperand idx = lower_rvalue(lo, e->rhs);
+        /* Preserve source evaluation order, then normalize the commutative
+         * C subscript rule: `a[b]` is `*(a + b)`, so either operand may be
+         * the pointer (musl deliberately uses `index[pointer]`). */
+        IrOperand left = lower_rvalue(lo, e->lhs);
+        IrOperand right = lower_rvalue(lo, e->rhs);
+        bool left_is_pointer = sem(e->lhs) && sem(e->lhs)->kind == TY_PTR;
+        IrOperand base = left_is_pointer ? left : right;
+        IrOperand idx = left_is_pointer ? right : left;
+        Type *idx_type = left_is_pointer ? sem(e->rhs) : sem(e->lhs);
         TypeLayout el = layout_of(lo->sema, sem(e));
         IrOperand wide =
-            lower_scalar_convert(lo, idx, sem(e->rhs), type_basic(TY_LONG));
+            lower_scalar_convert(lo, idx, idx_type, type_basic(TY_LONG));
         ValueId scaled =
             ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, lower_i64((i64)el.size));
         ValueId sum =
@@ -462,8 +468,8 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
     if (is_agg) {
         TypeLayout l = layout_of(lo->sema, rt);
 
-        ir_build_memcpy(&lo->b, ir_op_value(lo->fn, agg_tmp), v,
-                        lower_i64((i64)l.size), (u32)l.align, 0);
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, agg_tmp), v, rt,
+                               (u32)l.align, 0);
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
         ir_build_br(&lo->b, join, NULL, 0);
@@ -476,8 +482,8 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
     if (is_agg) {
         TypeLayout l = layout_of(lo->sema, rt);
 
-        ir_build_memcpy(&lo->b, ir_op_value(lo->fn, agg_tmp), v,
-                        lower_i64((i64)l.size), (u32)l.align, 0);
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, agg_tmp), v, rt,
+                               (u32)l.align, 0);
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
         ir_build_br(&lo->b, join, NULL, 0);
@@ -826,8 +832,8 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             IrOperand src = lower_rvalue(lo, e->rhs);
             TypeLayout l = layout_of(lo->sema, sem(e->lhs));
 
-            ir_build_memcpy(&lo->b, lv.addr, src, lower_i64((i64)l.size),
-                            (u32)l.align, lv.is_volatile ? IRF_VOLATILE : 0);
+            lower_memcpy_aggregate(lo, lv.addr, src, sem(e->lhs), (u32)l.align,
+                                   lv.is_volatile ? IRF_VOLATILE : 0);
             return lv.addr;
         }
         {
@@ -1089,9 +1095,9 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
         if (is_agg) {
             ValueId tmp = lower_temp(lo, t);
 
-            ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp),
-                            ir_op_value(lo->fn, addr), lower_i64((i64)l.size),
-                            (u32)(l.align > 8 ? 8 : l.align), 0);
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp),
+                                   ir_op_value(lo->fn, addr), t,
+                                   (u32)(l.align > 8 ? 8 : l.align), 0);
             return ir_op_value(lo->fn, tmp);
         }
         {
@@ -1341,8 +1347,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                                                 lower_efftype(lo, sem(a)));
             u32 k;
 
-            ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), av,
-                            lower_i64((i64)plan.size), plan.align, 0);
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), av, sem(a),
+                                   plan.align, 0);
             for (k = 0; k < plan.n; k++) {
                 Lvalue lv;
                 IrOperand addr = ir_op_value(lo->fn, tmp);
@@ -1370,8 +1376,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
              * onto the stack. */
             ValueId tmp = lower_temp(lo, sem(a));
 
-            ir_build_memcpy(&lo->b, ir_op_value(lo->fn, tmp), av,
-                            lower_i64((i64)plan.size), plan.align, 0);
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), av, sem(a),
+                                   plan.align, 0);
             args[nargs] = ir_op_value(lo->fn, tmp);
             args[nargs].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
             nargs++;

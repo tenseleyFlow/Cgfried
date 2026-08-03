@@ -705,8 +705,8 @@ static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
         IrOperand src = lower_rvalue(lo, r->e);
         TypeLayout l = layout_of(lo->sema, r->t);
 
-        ir_build_memcpy(&lo->b, off_addr(lo, base, r->off), src,
-                        lower_i64((i64)l.size), (u32)l.align, 0);
+        lower_memcpy_aggregate(lo, off_addr(lo, base, r->off), src, r->t,
+                               (u32)l.align, 0);
         return;
     }
     {
@@ -759,8 +759,7 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
         /* struct x = expr: one memcpy (the Sprint 18 §8 law). */
         IrOperand src = lower_rvalue(lo, init);
 
-        ir_build_memcpy(&lo->b, base, src, lower_i64((i64)l.size), (u32)l.align,
-                        0);
+        lower_memcpy_aggregate(lo, base, src, t, (u32)l.align, 0);
         return;
     }
     {

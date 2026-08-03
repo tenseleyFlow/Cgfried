@@ -83,6 +83,15 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source)
     copy->nlocs = copy->cap_locs = source->nlocs;
     copy->locs = clone_array(arena, source->locs, source->nlocs,
                              sizeof(*source->locs), _Alignof(Span));
+    copy->nmem_layouts = copy->cap_mem_layouts = source->nmem_layouts;
+    copy->mem_layouts =
+        clone_array(arena, source->mem_layouts, source->nmem_layouts,
+                    sizeof(*source->mem_layouts), _Alignof(IrMemLayout));
+    for (i = 0; i < copy->nmem_layouts; i++)
+        copy->mem_layouts[i].ranges =
+            clone_array(arena, source->mem_layouts[i].ranges,
+                        source->mem_layouts[i].nranges, sizeof(IrByteRange),
+                        _Alignof(IrByteRange));
     copy->nglobals = copy->cap_globals = source->nglobals;
     copy->globals = clone_array(arena, source->globals, source->nglobals,
                                 sizeof(*source->globals), _Alignof(IrGlobal));
@@ -135,6 +144,64 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source)
         }
     }
     return copy;
+}
+
+void ir_mem_layout_register(IrModule *m, Span span, u64 size,
+                            const IrByteRange *ranges, u32 nranges,
+                            bool suppress_uninit)
+{
+    u32 loc = ir_intern_span(m, span);
+    u32 i;
+
+    if (!loc)
+        return;
+    for (i = 0; i < m->nmem_layouts; i++) {
+        IrMemLayout *old = &m->mem_layouts[i];
+
+        if (old->loc != loc || old->size != size)
+            continue;
+        if (old->suppress_uninit != suppress_uninit ||
+            old->nranges != nranges ||
+            (nranges &&
+             memcmp(old->ranges, ranges, nranges * sizeof(*ranges)) != 0)) {
+            /* One spelling produced incompatible aggregate shapes.  This is
+             * possible through aggressive macro provenance coalescing; a
+             * diagnostic must not guess which shape an instruction meant. */
+            old->suppress_uninit = true;
+            old->nranges = 0;
+            old->ranges = NULL;
+        }
+        return;
+    }
+    if (m->nmem_layouts == m->cap_mem_layouts) {
+        u32 nc = m->cap_mem_layouts ? m->cap_mem_layouts * 2 : 16;
+
+        m->mem_layouts = grow(m->arena, m->mem_layouts, m->nmem_layouts, nc,
+                              sizeof(*m->mem_layouts), _Alignof(IrMemLayout));
+        m->cap_mem_layouts = nc;
+    }
+    m->mem_layouts[m->nmem_layouts] = (IrMemLayout){
+        .loc = loc,
+        .nranges = nranges,
+        .size = size,
+        .ranges = clone_array(m->arena, ranges, nranges, sizeof(*ranges),
+                              _Alignof(IrByteRange)),
+        .suppress_uninit = suppress_uninit,
+    };
+    m->nmem_layouts++;
+}
+
+const IrMemLayout *ir_mem_layout_find(const IrModule *m, const IrInst *in,
+                                      u64 size)
+{
+    u32 i;
+
+    if (!m || !in || !in->loc)
+        return NULL;
+    for (i = 0; i < m->nmem_layouts; i++)
+        if (m->mem_layouts[i].loc == in->loc && m->mem_layouts[i].size == size)
+            return &m->mem_layouts[i];
+    return NULL;
 }
 
 u32 ir_sym(IrModule *m, const char *name)

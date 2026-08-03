@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "opt/dep.h"
+#include "opt/opt.h"
 #include "util/base.h"
 
 typedef struct {
@@ -220,18 +222,79 @@ static OffRange operand_off(const AliasCtx *c, IrOperand o)
     return (OffRange){true, INT64_MIN, INT64_MAX};
 }
 
-static OffRange shifted_off(OffRange base, IrOperand off)
+static const IrInst *value_inst(const IrFunc *f, IrOperand operand)
+{
+    const IrValInfo *info;
+    const IrInst *in;
+
+    if (operand.kind != IROP_VALUE || operand.a == 0 || operand.a > f->nvals)
+        return NULL;
+    info = &f->vals[operand.a - 1];
+    if (info->def_kind != VDEF_INST || info->def_block.v == 0 ||
+        info->def_block.v > f->nblocks)
+        return NULL;
+    for (in = f->blocks[info->def_block.v - 1].first; in; in = in->next)
+        if (in->result.v == operand.a)
+            return in;
+    return NULL;
+}
+
+static bool fold_integer_operand(const AliasCtx *c, IrOperand operand,
+                                 IrOperand *out, u32 depth)
+{
+    const IrInst *def;
+    IrInst folded;
+    IrOperand ops[3];
+    OptConfig cfg;
+    u32 i;
+
+    if (operand.kind == IROP_ICONST) {
+        *out = operand;
+        return true;
+    }
+    if (depth > c->f->nvals || !(def = value_inst(c->f, operand)) ||
+        def->nops > CGF_ARRAY_LEN(ops))
+        return false;
+    switch (def->op) {
+    case IR_IADD:
+    case IR_ISUB:
+    case IR_IMUL:
+    case IR_SHL:
+    case IR_LSHR:
+    case IR_ASHR:
+    case IR_SEXT:
+    case IR_ZEXT:
+    case IR_TRUNC:
+        break;
+    default:
+        return false;
+    }
+    folded = *def;
+    for (i = 0; i < def->nops; i++)
+        if (!fold_integer_operand(c, def->ops[i], &ops[i], depth + 1))
+            return false;
+    folded.ops = ops;
+    opt_config_init(&cfg, OPT_O0);
+    return opt_fold_inst(&folded, out, &cfg) && out->kind == IROP_ICONST;
+}
+
+static OffRange shifted_off(const AliasCtx *c, OffRange base, IrOperand off)
 {
     bool overflow = false;
-    i64 k;
+    IrOperand constant;
+    i64 k, off_lo, off_hi;
 
     if (!base.set)
         return base;
-    if (off.kind != IROP_ICONST)
+    if (fold_integer_operand(c, off, &constant, 0)) {
+        off_lo = (i64)constant.a;
+        off_hi = off_lo;
+    } else if (!dep_affine_range(c->f, off, &off_lo, &off_hi)) {
         return (OffRange){true, INT64_MIN, INT64_MAX};
-    k = (i64)off.a;
+    }
+    k = off_lo;
     base.lo = sat_add(base.lo, k, &overflow);
-    base.hi = sat_add(base.hi, k, &overflow);
+    base.hi = sat_add(base.hi, off_hi, &overflow);
     if (overflow)
         return (OffRange){true, INT64_MIN, INT64_MAX};
     return base;
@@ -508,7 +571,7 @@ static bool propagate_insts(AliasCtx *c)
                 changed |= union_operand(c, vrow(c, in->result.v), in->ops[0]);
                 changed |= off_join(
                     &c->voff[in->result.v],
-                    shifted_off(operand_off(c, in->ops[0]), in->ops[1]));
+                    shifted_off(c, operand_off(c, in->ops[0]), in->ops[1]));
             } else if (in->op == IR_BITCAST && in->result.v && in->nops == 1 &&
                        ((in->type == IRT_PTR && in->ops[0].type == IRT_I64) ||
                         (in->type == IRT_I64 && in->ops[0].type == IRT_PTR))) {
@@ -727,6 +790,23 @@ bool alias_offset_range(AliasCtx *c, IrOperand ptr, i64 *lo, i64 *hi)
     if (hi)
         *hi = r.hi;
     return true;
+}
+
+bool alias_pts_must_be_nonheap(const AliasCtx *c, PtsSet pts)
+{
+    bool any = false;
+    u32 obj;
+
+    if (!c || !pts.words || pts.nwords != c->nwords || pts.has_unknown)
+        return false;
+    for (obj = 0; obj < c->nobj; obj++) {
+        if (!bits_has(pts.words, obj))
+            continue;
+        any = true;
+        if (obj == c->unknown_obj || obj >= c->first_restrict_obj)
+            return false;
+    }
+    return any;
 }
 
 const AllocSite *alias_alloc_site(const AliasCtx *c, const IrInst *call)
