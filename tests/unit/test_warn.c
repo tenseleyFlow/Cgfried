@@ -431,8 +431,10 @@ void test_warn_explicit_activation(TestCtx *t)
 void test_warn_memsafe_policy(TestCtx *t)
 {
     static const WarnId proof_ids[] = {
-        WARN_MEM_DOUBLE_FREE,   WARN_MEM_FREE_NONHEAP, WARN_MEM_LEAK,
-        WARN_MEM_OUT_OF_BOUNDS, WARN_MEM_UNINIT_READ,  WARN_MEM_USE_AFTER_FREE,
+        WARN_MEM_ANNOTATION_MISMATCH, WARN_MEM_DOUBLE_FREE,
+        WARN_MEM_FREE_NONHEAP,        WARN_MEM_LEAK,
+        WARN_MEM_OUT_OF_BOUNDS,       WARN_MEM_UNINIT_READ,
+        WARN_MEM_USE_AFTER_FREE,
     };
     Arena a;
     WarnCapture cap;
@@ -448,6 +450,8 @@ void test_warn_memsafe_policy(TestCtx *t)
     T_ASSERT(t, !warn_mem_strict_enabled(w));
     T_ASSERT(t, !warn_mem_strict_enabled(NULL));
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wmem-leak"), WARN_MEM_LEAK);
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wmem-annotation-mismatch"),
+                    WARN_MEM_ANNOTATION_MISMATCH);
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wmem"), WARN_OPTION_KNOWN);
     T_ASSERT_EQ_INT(t, warn_option_classify("-Wmem-strict"), WARN_OPTION_KNOWN);
 

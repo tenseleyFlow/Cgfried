@@ -25,6 +25,132 @@ prove neither escape nor reach a release. It is not a claim to find every
 leak. Likewise, an unknown state suppresses a static diagnostic; it does not
 prove that the program is safe.
 
+## Interprocedural ownership contracts
+
+L2 summarizes each function once and applies that summary at its call sites.
+It does not inline callees into the memory-safety analysis. Acyclic calls are
+processed bottom-up; recursive strongly connected components and indirect
+calls deliberately receive conservative summaries. This bounds analysis cost
+and makes loss of precision suppress a claim rather than manufacture one.
+
+Include `<cgfried/memsafe.h>` to use the five portable ownership macros. They
+expand to Cgfried attributes under Cgfried and to nothing under GCC, Clang,
+and other compilers, so the same public header remains portable. Parameter
+numbers are one-based.
+
+### Returning new ownership
+
+`CGF_RETURNS_OWNED` says the caller receives a new ownership obligation.
+
+```c
+#include <cgfried/memsafe.h>
+
+CGF_RETURNS_OWNED void *buffer_new(unsigned long size);
+
+void example(void)
+{
+    void *p = buffer_new(64);
+    /* ... */
+    free(p);
+}
+```
+
+### Transferring ownership to a callee
+
+`CGF_TAKES_OWNERSHIP(n)` says the caller relinquishes argument `n`. The
+callee may release it immediately or retain it as owned state.
+
+```c
+#include <cgfried/memsafe.h>
+
+void queue_submit(void *item) CGF_TAKES_OWNERSHIP(1);
+
+void send(void *item)
+{
+    queue_submit(item);
+    /* item is no longer owned here. */
+}
+```
+
+This is a forward contract. A definition that does not currently release or
+store the argument is not an annotation mismatch: it may consume the argument
+in a future compatible implementation. Callers must obey the contract now.
+
+### Borrowing during a call
+
+`CGF_BORROWS(n)` says argument `n` is used only for the duration of the call:
+the callee neither releases it nor makes it escape.
+
+```c
+#include <cgfried/memsafe.h>
+
+void checksum(const void *data) CGF_BORROWS(1);
+
+void inspect(void *data)
+{
+    checksum(data);
+    free(data); /* ownership remained with the caller */
+}
+```
+
+### Returning a borrowed alias
+
+`CGF_RETURNS_BORROWED(n)` says the result aliases argument `n` and creates no
+new ownership obligation.
+
+```c
+#include <cgfried/memsafe.h>
+
+CGF_RETURNS_BORROWED(1) char *skip_prefix(char *text);
+
+void trim(char *text)
+{
+    char *view = skip_prefix(text);
+    use(view);
+    free(text); /* free the owner, not the borrowed view */
+}
+```
+
+### Preventing escape
+
+`CGF_NO_ESCAPE(n)` says argument `n` is not retained beyond the call. Unlike
+`CGF_BORROWS`, it does not by itself prohibit release; it composes with
+`CGF_TAKES_OWNERSHIP` when both facts are part of an API contract.
+
+```c
+#include <cgfried/memsafe.h>
+
+void run_now(void *context) CGF_NO_ESCAPE(1);
+
+void dispatch(void *context)
+{
+    run_now(context);
+    free(context);
+}
+```
+
+Unknown names in the `cgf_` attribute namespace and invalid parameter indices
+are hard errors. Other GNU attributes retain the pre-Sprint-55 behavior and
+remain hard errors until the full attribute surface lands. Definitions are
+also checked against their annotations by default under
+`-Wmem-annotation-mismatch`. A body that frees a borrowed argument, publishes
+a no-escape argument, returns fresh ownership as borrowed, or returns a
+borrowed object as owned is diagnosed; the declared contract is still applied
+to callers.
+
+## FILE ownership and resource scope
+
+The same ownership lattice models `FILE *`: `fopen`, `fdopen`, and successful
+`freopen` acquire a resource; `fclose` releases it; and operations such as
+`fread`, `fwrite`, `fflush`, and `fprintf` borrow it. Consequently an
+unclosed stream is a `-Wmem-leak` and closing the same stream twice is a
+`-Wmem-double-free`, with resource-specific wording.
+
+Acquire/release APIs for sockets, mutexes, descriptors, and application
+handles fit the same state machine. Version 0.1.0 intentionally ships built-in
+models only for memory and `FILE *`; user-defined resource pairs and arbitrary
+resource kinds remain future work.
+
 ## L1 warning surface
 
 `-Wmem` is enabled by default, independently of `-Wall`. `-Wno-mem` disables

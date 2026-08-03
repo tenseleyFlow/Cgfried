@@ -1,8 +1,8 @@
 #!/bin/sh
-# -dM differential: every macro cgf predefines must exist in gcc's -dM
-# output with an IDENTICAL value (allowlist: our honest scope answers and
-# frozen date/time), and __GNUC__ must be ABSENT from ours (the no-__GNUC__
-# policy — see pp_predefine_all).
+# -dM differential: every shared macro cgf predefines must exist in gcc's
+# -dM output with an IDENTICAL value (allowlist: our honest scope answers and
+# frozen date/time).  The one implementation marker, __CGFRIED__, must be 1,
+# and __GNUC__ must be ABSENT (the no-__GNUC__ policy — see pp_predefine_all).
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -16,9 +16,15 @@ if grep -q '__GNUC__' "$work/ours.dm"; then
     echo "pp_dm_check: __GNUC__ must NOT be defined (policy)" >&2
     exit 1
 fi
+if ! grep -qx '#define __CGFRIED__ 1' "$work/ours.dm"; then
+    echo "pp_dm_check: __CGFRIED__ must be defined as 1" >&2
+    exit 1
+fi
 fails=0
 while read -r _ name rest; do
     case "$name" in
+    __CGFRIED__)
+        continue ;; # implementation identity, consumed by shipped headers
     __STDC_NO_* | __DATE__ | __TIME__ | __STDC_HOSTED__ | __STDC__ | __STDC_VERSION__)
         continue ;; # honest scope answers / frozen / std-dependent
     esac
@@ -32,5 +38,5 @@ while read -r _ name rest; do
         fails=$((fails + 1))
     }
 done < "$work/ours.dm"
-[ "$fails" -eq 0 ] && echo "pp_dm_check: $(wc -l < "$work/ours.dm") predefines match gcc; __GNUC__ absent"
+[ "$fails" -eq 0 ] && echo "pp_dm_check: $(wc -l < "$work/ours.dm") predefines checked; __CGFRIED__=1; __GNUC__ absent"
 exit "$fails"

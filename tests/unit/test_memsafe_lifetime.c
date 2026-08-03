@@ -115,6 +115,45 @@ void test_memsafe_lifetime_null_branch_keeps_two_paths(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_memsafe_lifetime_null_test_survives_block_parameter(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @free\n"
+                           "func void @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    %isnull = icmp eq ptr %p, 0\n"
+                           "    br join(i32 %isnull)\n"
+                           "join(i32 %condition):\n"
+                           "    condbr %condition, failed(), success()\n"
+                           "failed():\n"
+                           "    ret\n"
+                           "success():\n"
+                           "    call void @free(ptr %p)\n"
+                           "    ret\n"
+                           "}\n");
+    MsFunctionResult *result;
+    MsState a, b;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_exit_count(result), 2);
+    a = ms_result_exit_state(result, 0, 0);
+    b = ms_result_exit_state(result, 1, 0);
+    T_ASSERT(t, (a == MS_UNALLOCATED && b == MS_FREED) ||
+                    (a == MS_FREED && b == MS_UNALLOCATED));
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 0);
+    T_ASSERT(t, !ms_result_degraded(result));
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_lifetime_unknown_call_escapes(TestCtx *t)
 {
     MsFix fix;
