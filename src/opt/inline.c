@@ -542,6 +542,13 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
     if (call->subop != FUNCREF_INTERNAL || call->callee >= m->nfuncs)
         return false;
     callee = &m->funcs[call->callee];
+    /* An ownership annotation is a call-boundary contract and may be
+     * deliberately stronger than the current body.  Splicing that body
+     * would erase the promised effect before memsafe applies summaries. */
+    if (callee->cgf_attrs) {
+        OPT_BAIL(&fc, "inline", "inl_memsafe_contract");
+        return false;
+    }
     /* The current DWARF backend has no abstract-origin/inlined-subroutine
      * records.  Splicing a debug build would silently erase source-level
      * breakpoint and backtrace frames promised by Sprint 29. */

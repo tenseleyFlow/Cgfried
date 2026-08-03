@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 
+#include "attr.h"
 #include "diag.h"
 #include "util/arena.h"
 #include "util/base.h"
@@ -447,6 +448,9 @@ typedef struct IrFunc {
      * setjmp-calling frame, whose locals are already pinned. Printed as
      * a `setjmp` marker after the parameter list. */
     bool calls_setjmp;
+    /* Validated source ownership contracts.  The immutable list is shared
+     * with sema and remains live for the translation-unit arena lifetime. */
+    const CgfAttr *cgf_attrs;
     u8 *param_types;
     /* Per-parameter ABI annotation, same encoding as IrOperand.b call
      * annotations (Sprint 23). Today only IR_ARG_BYVAL appears: a
@@ -530,6 +534,9 @@ typedef struct IrModule {
     u32 nglobals;
     u32 cap_globals;
     const char **syms;
+    /* Ownership contracts for external function symbols, parallel to syms.
+     * Non-functions and unannotated externals have NULL entries. */
+    const CgfAttr **sym_cgf_attrs;
     u32 nsyms;
     u32 cap_syms;
     Span *locs; /* instruction source locations; ids are 1-based */

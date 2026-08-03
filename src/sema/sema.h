@@ -189,6 +189,7 @@ struct Symbol {
     u8 def_kind;           /* DefKind, valid after sema_finish */
     i64 enum_value;        /* SYM_ENUM_CONST */
     TagDecl *tag;          /* SYM_TAG */
+    CgfAttr *cgf_attrs;    /* merged ownership contract, source-ordered */
 
     Symbol *next; /* intrusive chain within one scope, newest first */
 };
