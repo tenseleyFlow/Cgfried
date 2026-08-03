@@ -489,6 +489,45 @@ void test_memsafe_summary_marks_recursive_scc_as_top(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_memsafe_summary_recursive_top_does_not_prove_owned_return(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "func ptr @recursive(i32 %again) internal {\n"
+                            "entry():\n"
+                            "    condbr %again, recurse(), allocate()\n"
+                            "recurse():\n"
+                            "    %next = call ptr @recursive(i32 %again)\n"
+                            "    ret ptr %next\n"
+                            "allocate():\n"
+                            "    %fresh = call ptr @malloc(i64 8)\n"
+                            "    ret ptr %fresh\n"
+                            "}\n"
+                            "func ptr @wrapper(i32 %again) {\n"
+                            "entry():\n"
+                            "    %result = call ptr @recursive(i32 %again)\n"
+                            "    ret ptr %result\n"
+                            "}\n");
+    MsSummarySet *set;
+    const MsSummary *recursive;
+    const MsSummary *wrapper;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    recursive = ms_summary_get(set, 0);
+    wrapper = ms_summary_get(set, 1);
+    T_ASSERT(t, recursive && recursive->top);
+    T_ASSERT(t, recursive && recursive->returns_ownership);
+    T_ASSERT(t, wrapper && !wrapper->top);
+    T_ASSERT(t, wrapper && !wrapper->returns_ownership);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_summary_borrowed_return_override(TestCtx *t)
 {
     SummaryFix fix;

@@ -453,7 +453,8 @@ static bool returned_call_proves_ownership(const MsSummarySet *set,
         return false;
     callee = call_summary(set, call);
     if (callee)
-        return callee->returns_ownership;
+        return callee->returns_ownership &&
+               (!callee->top || callee->annot_returns_owned);
     if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms)
         lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
     return (lib && lib->returns_ownership) ||

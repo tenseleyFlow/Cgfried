@@ -2013,7 +2013,8 @@ static void context_alias_seeds(Arena *arena, IrModule *module,
             const MsLibSummary *lib = ms_lib_summary_lookup(callee_name);
             if (ms_alloc_seed_for_call(module, in, &allocs[na]))
                 na++;
-            else if ((s && s->returns_ownership) ||
+            else if ((s && s->returns_ownership &&
+                      (!s->top || s->annot_returns_owned)) ||
                      (lib && lib->returns_ownership))
                 allocs[na++] = (AliasAllocSeed){in, true, ALIAS_NO_OUT_PARAM};
             if (s) {

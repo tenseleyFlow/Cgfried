@@ -134,11 +134,11 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 550 tests, 96081 assertions, 0 failures
+unit: 551 tests, 96086 assertions, 0 failures
 cgf-test: total=504 pass=504 fail=0 xfail=0 xpass=0 skip=0 config=0
 memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
 interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
-focused memsafe units: 44 tests / 687 assertions
+focused memsafe units: 45 tests / 692 assertions
 musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
@@ -244,7 +244,7 @@ both report zero Memcheck errors and zero leaks. Independent final review
 approved the implementation with no remaining findings.
 
 Local Sprint 43 validation note (2026-08-02): fresh GCC, Clang and complete
-ASan+UBSan suites pass with 550 unit tests / 96,081 assertions, 504/504
+ASan+UBSan suites pass with 551 unit tests / 96,086 assertions, 504/504
 program fixtures, 477/477 warning fixtures, 89/89 intraprocedural memory
 fixtures, and 50/50 interprocedural fixtures with 13 exact ordered traces. The
 sanitizer run uses `ASAN_OPTIONS=detect_leaks=0` because LeakSanitizer cannot
@@ -255,7 +255,7 @@ unit and corpus coverage. The pinned musl memory sweep still analyzes
 732/1,361 TUs, defers 629 exact identities and emits zero `-Wmem`
 diagnostics; the general warning sweep reports 183 oracle-backed warnings and
 zero false positives. Summary dumps are byte-identical across repeated runs.
-Valgrind 3.25.1 passes the 44-test / 687-assertion memsafe set with 1,625
+Valgrind 3.25.1 passes the 45-test / 692-assertion memsafe set with 1,695
 allocations and frees, zero bytes live, zero leaks and zero errors; the
 two-hop mixed-return compiler regression is independently clean. The
 installed-layout follow-up is closed: the install manifest now copies the
@@ -421,7 +421,9 @@ because each one was learned the hard way.
   block-parameter correlation budgets degrade toward silence. Infer first,
   diagnose annotation mismatches second, then apply the annotation contract.
   Attribute metadata must be cloned and ABI-parameter indices remapped by
-  every IR transform that copies a function.
+  every IR transform that copies a function. A top summary may retain local
+  inference for mismatch diagnostics, but callers may consume its return
+  ownership only when `cgf_returns_owned` explicitly supplies that contract.
 - **Pinned effects have explicit pass policies.** Ordinary passes preserve
   the exact volatile/seq_cst sequence; the inliner may add only metadata-equal
   clones while leaving originals ordered; IPO may delete whole functions but
