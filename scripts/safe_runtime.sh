@@ -14,6 +14,12 @@ fails=0
 passes=0
 skips=0
 
+# Rust-free CI checkouts intentionally do not build the bundled assembler.
+# Exercise the system-as route unless the caller selected a tool explicitly;
+# CGF_AS_PATH still has the driver's documented higher precedence.
+: "${CGF_AS:=0}"
+export CGF_AS
+
 case $WORK in
 */safe-runtime | */safe-bench) ;;
 *)
