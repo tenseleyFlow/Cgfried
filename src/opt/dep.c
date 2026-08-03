@@ -93,7 +93,11 @@ static bool affine_expr(const IrFunc *f, IrOperand op, ValueId iv, u32 depth,
         return true;
     }
     in = def_inst(f, (ValueId){(u32)op.a});
-    if (!in || in->nops != 2)
+    if (!in)
+        return false;
+    if ((in->op == IR_SEXT || in->op == IR_ZEXT) && in->nops == 1)
+        return affine_expr(f, in->ops[0], iv, depth + 1, out);
+    if (in->nops != 2)
         return false;
     /* simplify canonicalizes multiplication by a power of two into shl
      * before the O3 loop group.  Dependence analysis must understand that
@@ -122,6 +126,183 @@ static bool affine_expr(const IrFunc *f, IrOperand op, ValueId iv, u32 depth,
     if (a.k)
         return checked_mul(a.k, b.c, &out->k) && checked_mul(a.c, b.c, &out->c);
     return checked_mul(b.k, a.c, &out->k) && checked_mul(b.c, a.c, &out->c);
+}
+
+static u32 affine_type_bits(IrType type)
+{
+    switch (type) {
+    case IRT_I8:
+        return 8;
+    case IRT_I16:
+        return 16;
+    case IRT_I32:
+        return 32;
+    case IRT_I64:
+        return 64;
+    default:
+        return 0;
+    }
+}
+
+static bool signed_loop_predicate(IrIcmp pred)
+{
+    return pred >= ICMP_SLT && pred <= ICMP_SGE;
+}
+
+static bool bits_as_i64(u64 value, u32 bits, bool is_signed, i64 *out)
+{
+    u64 mask, sign, magnitude;
+
+    if (!bits)
+        return false;
+    mask = bits == 64 ? UINT64_MAX : (UINT64_C(1) << bits) - 1;
+    value &= mask;
+    if (!is_signed) {
+        if (value > (u64)INT64_MAX)
+            return false;
+        *out = (i64)value;
+        return true;
+    }
+    sign = UINT64_C(1) << (bits - 1);
+    if (!(value & sign)) {
+        *out = (i64)value;
+        return true;
+    }
+    magnitude = (~value + 1) & mask;
+    if (magnitude == (UINT64_C(1) << 63)) {
+        *out = INT64_MIN;
+        return true;
+    }
+    *out = -(i64)magnitude;
+    return true;
+}
+
+static bool affine_range(const IrFunc *f, IrOperand operand,
+                         BlockId access_block, i64 *lo, i64 *hi)
+{
+    Arena scratch;
+    IrDomTree *dom;
+    LoopTree *tree;
+    u32 li;
+    bool found = false;
+
+    if (!f || !lo || !hi)
+        return false;
+    arena_init(&scratch);
+    dom = ir_domtree_build(&scratch, f);
+    tree = loop_tree_build(&scratch, f, dom);
+    for (li = 0; li < loop_tree_count(tree) && !found; li++) {
+        const Loop *loop = loop_tree_at(tree, li);
+        TripInfo trip;
+        Affine expr;
+        const char *reason = NULL;
+        i64 start, step, last, first_value, last_value, delta;
+        u32 bits;
+        bool is_signed;
+
+        if (!loop_trip_analyze(f, loop, false, &trip, &reason) ||
+            trip.kind != LOOP_TRIP_CONSTANT || trip.constant == 0 ||
+            loop_exit_count(loop) != 1 ||
+            trip.induction.start.kind != IROP_ICONST ||
+            trip.induction.step.kind != IROP_ICONST ||
+            !affine_expr(f, operand, trip.induction.iv, 0, &expr) ||
+            expr.k == 0)
+            continue;
+        if (access_block.v) {
+            /* The full-iteration interval proves a default-tier diagnostic
+             * only when the actual access executes on every path to the
+             * latch.  A pointer computed before a conditional dereference is
+             * insufficient: the invalid endpoint may be skipped. */
+            if (!loop_contains(loop, access_block) ||
+                !ir_dominates(dom, access_block, trip.induction.latch))
+                continue;
+        } else if (operand.kind == IROP_VALUE && operand.a <= f->nvals) {
+            BlockId at = f->vals[operand.a - 1].def_block;
+
+            /* A range over all iterations proves that this operation occurs
+             * at the bad endpoint only when its defining/access block is on
+             * every path to the latch.  Conditional bodies remain MAY and
+             * are rejected for the default warning tier. */
+            if (at.v && loop_contains(loop, at) &&
+                !ir_dominates(dom, at, trip.induction.latch))
+                continue;
+        }
+        bits = affine_type_bits(trip.induction.type);
+        is_signed = signed_loop_predicate(trip.induction.pred);
+        if (!bits_as_i64(trip.induction.start.a, bits, is_signed, &start) ||
+            !bits_as_i64(trip.induction.step.a, bits, is_signed, &step))
+            continue;
+        if (trip.induction.subtract_step) {
+            if (step == INT64_MIN)
+                continue;
+            step = -step;
+        }
+        if (trip.constant - 1 > (u64)INT64_MAX ||
+            !checked_mul(step, (i64)(trip.constant - 1), &delta) ||
+            !checked_add(start, delta, &last) ||
+            !checked_mul(expr.k, start, &first_value) ||
+            !checked_add(first_value, expr.c, &first_value) ||
+            !checked_mul(expr.k, last, &last_value) ||
+            !checked_add(last_value, expr.c, &last_value))
+            continue;
+        *lo = first_value < last_value ? first_value : last_value;
+        *hi = first_value > last_value ? first_value : last_value;
+        found = true;
+    }
+    arena_free_all(&scratch);
+    return found;
+}
+
+bool dep_affine_range(const IrFunc *f, IrOperand operand, i64 *lo, i64 *hi)
+{
+    return affine_range(f, operand, (BlockId){0}, lo, hi);
+}
+
+bool dep_affine_range_at(const IrFunc *f, IrOperand operand,
+                         BlockId access_block, i64 *lo, i64 *hi)
+{
+    if (!access_block.v)
+        return false;
+    return affine_range(f, operand, access_block, lo, hi);
+}
+
+static bool affine_ptr_range(const IrFunc *f, IrOperand pointer,
+                             BlockId access_block, i64 *lo, i64 *hi)
+{
+    const IrInst *in;
+    i64 base_lo = 0, base_hi = 0, add_lo, add_hi;
+
+    if (!f || pointer.kind != IROP_VALUE ||
+        !(in = def_inst(f, (ValueId){(u32)pointer.a})))
+        return false;
+    if (in->op == IR_BITCAST && in->nops == 1)
+        return affine_ptr_range(f, in->ops[0], access_block, lo, hi);
+    if (in->op != IR_PTRADD || in->nops != 2 ||
+        !(access_block.v ? dep_affine_range_at(f, in->ops[1], access_block,
+                                               &add_lo, &add_hi)
+                         : dep_affine_range(f, in->ops[1], &add_lo, &add_hi)))
+        return false;
+    if (in->ops[0].kind == IROP_VALUE) {
+        const IrInst *base = def_inst(f, (ValueId){(u32)in->ops[0].a});
+
+        if (base && (base->op == IR_PTRADD || base->op == IR_BITCAST) &&
+            !affine_ptr_range(f, in->ops[0], access_block, &base_lo, &base_hi))
+            return false;
+    }
+    return checked_add(base_lo, add_lo, lo) && checked_add(base_hi, add_hi, hi);
+}
+
+bool dep_affine_ptr_range(const IrFunc *f, IrOperand pointer, i64 *lo, i64 *hi)
+{
+    return affine_ptr_range(f, pointer, (BlockId){0}, lo, hi);
+}
+
+bool dep_affine_ptr_range_at(const IrFunc *f, IrOperand pointer,
+                             BlockId access_block, i64 *lo, i64 *hi)
+{
+    if (!access_block.v)
+        return false;
+    return affine_ptr_range(f, pointer, access_block, lo, hi);
 }
 
 bool dep_access_from_ptr(const IrFunc *f, IrOperand ptr, ValueId iv, u64 size,

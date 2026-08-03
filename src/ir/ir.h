@@ -498,6 +498,25 @@ typedef struct IrGlobal {
     u32 nrelocs;
 } IrGlobal;
 
+/* Front-end-only object-representation provenance for aggregate copies.
+ * C aggregate assignment may copy padding, but memory diagnostics must ask
+ * only whether bytes belonging to actual members were initialized.  The
+ * textual IR deliberately omits this optional table; entries are keyed by
+ * the instruction's interned source location and exact copy size so they
+ * survive cloning, inlining and CFG rewrites without growing IrInst. */
+typedef struct IrByteRange {
+    u64 lo;
+    u64 hi; /* half-open */
+} IrByteRange;
+
+typedef struct IrMemLayout {
+    u32 loc;
+    u32 nranges;
+    u64 size;
+    IrByteRange *ranges;
+    bool suppress_uninit; /* union/complex layout: widen toward silence */
+} IrMemLayout;
+
 /* The module symbol table: every name the IR can reference — globals,
  * external functions, string-literal objects. Insertion-ordered (the
  * determinism law); IROP_SYMBOL/IrReloc/FUNCREF_EXTERNAL index into it. */
@@ -516,6 +535,9 @@ typedef struct IrModule {
     Span *locs; /* instruction source locations; ids are 1-based */
     u32 nlocs;
     u32 cap_locs;
+    IrMemLayout *mem_layouts;
+    u32 nmem_layouts;
+    u32 cap_mem_layouts;
 } IrModule;
 
 /* --- construction (src/ir/ir.c, src/ir/build.c) -------------------------- */
@@ -562,6 +584,11 @@ Span ir_builder_span(const IrBuilder *b);
 u32 ir_intern_span(IrModule *m, Span span);
 Span ir_debug_loc(const IrModule *m, u32 loc);
 Span ir_inst_span(const IrModule *m, const IrInst *in);
+void ir_mem_layout_register(IrModule *m, Span span, u64 size,
+                            const IrByteRange *ranges, u32 nranges,
+                            bool suppress_uninit);
+const IrMemLayout *ir_mem_layout_find(const IrModule *m, const IrInst *in,
+                                      u64 size);
 ValueId ir_build2(IrBuilder *b, IrOp op, IrType t, IrOperand x, IrOperand y);
 ValueId ir_build2_flags(IrBuilder *b, IrOp op, IrType t, IrOperand x,
                         IrOperand y, u8 flags);

@@ -25,7 +25,7 @@ struct WarnCtx {
     unsigned char enabled_priority[WARN_COUNT];
     WarnSetting promoted[WARN_COUNT];
     unsigned char promoted_priority[WARN_COUNT];
-    WarnSetting group_enabled[8];
+    WarnSetting group_enabled[10];
     signed char pragma_state[WARN_COUNT]; /* -1 or WarnPragmaClass */
     const signed char **pragma_stack;
     size_t stack_len, stack_cap;
@@ -132,10 +132,15 @@ static unsigned group_for_name(const char *name)
     static const struct {
         const char *name;
         unsigned group;
-    } groups[] = {{"all", WG_ALL},           {"extra", WG_EXTRA},
-                  {"unused", WG_UNUSED},     {"format", WG_FORMAT},
-                  {"implicit", WG_IMPLICIT}, {"pedantic", WG_PEDANTIC},
-                  {"cgf-ext", WG_CGF_EXT}};
+    } groups[] = {{"all", WG_ALL},
+                  {"extra", WG_EXTRA},
+                  {"unused", WG_UNUSED},
+                  {"format", WG_FORMAT},
+                  {"implicit", WG_IMPLICIT},
+                  {"pedantic", WG_PEDANTIC},
+                  {"cgf-ext", WG_CGF_EXT},
+                  {"mem", WG_MEM},
+                  {"mem-strict", WG_MEM_STRICT}};
     size_t i;
 
     for (i = 0; i < sizeof(groups) / sizeof(groups[0]); i++)
@@ -762,6 +767,48 @@ bool warn_flow_needed(const WarnCtx *w)
             w->events[i].classification != WARN_PRAGMA_IGNORED)
             return true;
     return false;
+}
+
+static bool is_memsafe_warning(WarnId id)
+{
+    return id == WARN_MEM_DOUBLE_FREE || id == WARN_MEM_FREE_NONHEAP ||
+           id == WARN_MEM_LEAK || id == WARN_MEM_OUT_OF_BOUNDS ||
+           id == WARN_MEM_REALLOC_ZERO || id == WARN_MEM_UNINIT_READ ||
+           id == WARN_MEM_USE_AFTER_FREE ||
+           id == WARN_MEM_USE_AFTER_FREE_UNKNOWN;
+}
+
+bool warn_memsafe_needed(const WarnCtx *w)
+{
+    static const WarnId ids[] = {
+        WARN_MEM_DOUBLE_FREE,    WARN_MEM_FREE_NONHEAP,
+        WARN_MEM_LEAK,           WARN_MEM_OUT_OF_BOUNDS,
+        WARN_MEM_REALLOC_ZERO,   WARN_MEM_UNINIT_READ,
+        WARN_MEM_USE_AFTER_FREE, WARN_MEM_USE_AFTER_FREE_UNKNOWN,
+    };
+    Span none = {0};
+    size_t i;
+
+    if (!w || w->inhibit)
+        return false;
+    for (i = 0; i < CGF_ARRAY_LEN(ids); i++)
+        if (warn_enabled(w, ids[i], none))
+            return true;
+    /* A source pragma can re-enable an individual checker after -Wno-mem.
+     * Retain analysis so occurrence policy can honor that lexical event. */
+    for (i = 0; i < w->events_len; i++)
+        if (w->events[i].kind == EV_SET &&
+            is_memsafe_warning(w->events[i].id) &&
+            w->events[i].classification != WARN_PRAGMA_IGNORED)
+            return true;
+    return false;
+}
+
+bool warn_mem_strict_enabled(const WarnCtx *w)
+{
+    Span none = {0};
+
+    return w && warn_enabled(w, WARN_MEM_USE_AFTER_FREE_UNKNOWN, none);
 }
 
 static void emit_warning_v(WarnCtx *w, WarnId id, Span sp, unsigned emit_flags,

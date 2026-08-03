@@ -25,6 +25,103 @@ bool lower_is_aggregate(const Type *t)
            (t->kind == TY_STRUCT || t->kind == TY_UNION || t->kind == TY_ARRAY);
 }
 
+#define LOWER_MEM_RANGES_MAX 64u
+
+typedef struct LowerMemRanges {
+    IrByteRange ranges[LOWER_MEM_RANGES_MAX];
+    u32 n;
+    bool suppress;
+} LowerMemRanges;
+
+static void lower_mem_range_add(LowerMemRanges *out, u64 lo, u64 hi)
+{
+    IrByteRange *last;
+
+    if (out->suppress || hi <= lo)
+        return;
+    if (out->n) {
+        last = &out->ranges[out->n - 1];
+        if (lo <= last->hi) {
+            if (hi > last->hi)
+                last->hi = hi;
+            return;
+        }
+    }
+    if (out->n == LOWER_MEM_RANGES_MAX) {
+        out->suppress = true;
+        out->n = 0;
+        return;
+    }
+    out->ranges[out->n++] = (IrByteRange){lo, hi};
+}
+
+static void lower_mem_ranges(Lower *lo, Type *t, u64 base, LowerMemRanges *out)
+{
+    TypeLayout l;
+
+    if (!t || out->suppress)
+        return;
+    l = layout_of(lo->sema, t);
+    switch (t->kind) {
+    case TY_STRUCT: {
+        Member *m;
+
+        layout_record(lo->sema, t);
+        for (m = t->tag->members; m; m = m->next) {
+            if (m->is_bitfield) {
+                u64 cbits;
+                u64 unit;
+
+                if (m->bit_width == 0 || m->container_size == 0)
+                    continue;
+                cbits = m->container_size * 8;
+                unit = (m->bit_offset / cbits) * m->container_size;
+                lower_mem_range_add(out, base + unit,
+                                    base + unit + m->container_size);
+            } else {
+                lower_mem_ranges(lo, m->type, base + m->offset, out);
+            }
+        }
+        return;
+    }
+    case TY_UNION:
+        /* The active member is not retained in the IR.  Requiring every
+         * possible union member would manufacture reads that C did not make. */
+        out->suppress = true;
+        out->n = 0;
+        return;
+    case TY_ARRAY: {
+        TypeLayout el;
+        u64 i, count;
+
+        if (!t->has_size || !t->base)
+            return;
+        el = layout_of(lo->sema, t->base);
+        if (!el.size)
+            return;
+        count = l.size / el.size;
+        for (i = 0; i < count && !out->suppress; i++)
+            lower_mem_ranges(lo, t->base, base + i * el.size, out);
+        return;
+    }
+    default:
+        lower_mem_range_add(out, base, base + l.size);
+        return;
+    }
+}
+
+void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
+                            u32 align, u8 flags)
+{
+    TypeLayout l = layout_of(lo->sema, t);
+    LowerMemRanges ranges = {0};
+
+    lower_mem_ranges(lo, t, 0, &ranges);
+    ir_mem_layout_register(lo->m, ir_builder_span(&lo->b), l.size,
+                           ranges.ranges, ranges.n, ranges.suppress);
+    ir_build_memcpy(&lo->b, dst, src, lower_i64((i64)l.size), align, flags);
+}
+
 IrType lower_irtype(Lower *lo, const Type *t)
 {
     switch (t->kind) {

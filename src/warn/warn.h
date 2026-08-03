@@ -18,7 +18,9 @@ typedef enum WarnGroup {
     WG_IMPLICIT = 1u << 4,
     WG_PEDANTIC = 1u << 5,
     WG_CGF_EXT = 1u << 6,
-    WG_FORMAT2 = 1u << 7
+    WG_FORMAT2 = 1u << 7,
+    WG_MEM = 1u << 8,
+    WG_MEM_STRICT = 1u << 9
 } WarnGroup;
 
 typedef enum WarnDefault {
@@ -85,6 +87,8 @@ bool warn_explicitly_enabled(const WarnCtx *w, WarnId id, Span sp);
 unsigned warn_implicit_fallthrough_level(const WarnCtx *w);
 bool warn_maybe_uninitialized_strict(const WarnCtx *w);
 bool warn_flow_needed(const WarnCtx *w);
+bool warn_memsafe_needed(const WarnCtx *w);
+bool warn_mem_strict_enabled(const WarnCtx *w);
 void warn_flow_module(WarnCtx *w, const struct IrModule *module);
 
 void warn_at(WarnCtx *w, WarnId id, Span sp, const char *fmt, ...);

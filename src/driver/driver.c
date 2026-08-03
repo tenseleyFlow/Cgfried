@@ -43,7 +43,8 @@ static const char *const help_text[] = {
     "  -x <lang>         treat subsequent inputs as <lang>: 'c' or 'none'\n"
     "                    (restore extension dispatch); '-' reads stdin and\n"
     "                    requires an active -x c\n"
-    "  -fsyntax-only     parse and report diagnostics; produce no output\n"
+    "  -fsyntax-only     parse, run enabled analyses, and report\n"
+    "                    diagnostics; produce no output\n"
     "  Extension dispatch: .c preprocess+compile+assemble; .i compile;\n"
     "  .s assemble; .S preprocess then assemble; anything else is a\n"
     "  linker input, kept in command-line position.\n"
@@ -82,6 +83,8 @@ static const char *const help_text[] = {
     "                    is deliberate and documented here)\n"
     "  -W<name>/-Wno-<name>  enable/disable a warning; exact options\n"
     "                    outrank groups regardless of argv order\n"
+    "  -Wmem/-Wno-mem   enable/disable default-on intraprocedural memory\n"
+    "                    checks; -Wmem-strict adds heuristic checks\n"
     "  -w                suppress all warnings\n"
     "  -Werror[=name]    warnings become errors\n"
     "  -pedantic[-errors] ISO conformance diagnostics\n"
@@ -132,7 +135,7 @@ static const char *const help_text[] = {
     "  CGF_CRT_DIR       crt object discovery override\n"
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
-    "  CGF_MEMSAFE_DUMP=1  run the inert memory analysis and dump its\n"
+    "  CGF_MEMSAFE_DUMP=1  dump memory-analysis states and traces\n"
     "                    per-function states/traces to stderr\n"
     "  Empty-string values are treated as unset.\n",
 };
@@ -962,7 +965,9 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                                           a->emit_asm || a->compile_obj ||
                                           a->link_exe;
                     bool need_flow = warn_flow_needed(warnings);
-                    bool need_analysis_ir = need_flow || memsafe_dump;
+                    bool need_memsafe = warn_memsafe_needed(warnings);
+                    bool need_analysis_ir =
+                        need_flow || need_memsafe || memsafe_dump;
                     IrModule *m = NULL;
 
                     if (need_analysis_ir && !diag_had_error(dc)) {
@@ -980,10 +985,15 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                          * stage from the pipeline contract.  It is not an
                          * OPT_PASS row: memsafe is read-only, runs at O0,
                          * and must not participate in transform fixpoints. */
-                        if (analysis && memsafe_dump && !diag_had_error(dc)) {
+                        if (analysis && (need_memsafe || memsafe_dump) &&
+                            !diag_had_error(dc)) {
                             optimize_module(analysis, a, job->path);
-                            ms_dump_module(analysis, a->fno_strict_aliasing,
-                                           stderr);
+                            if (need_memsafe)
+                                ms_warn_module(warnings, analysis,
+                                               a->fno_strict_aliasing);
+                            if (memsafe_dump)
+                                ms_dump_module(analysis, a->fno_strict_aliasing,
+                                               stderr);
                         }
                     }
                     if (want_ir_output && !diag_had_error(dc)) {
