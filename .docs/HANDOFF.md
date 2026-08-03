@@ -109,8 +109,8 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `-Wmem-strict` holds pass-to-unknown UAF. Realloc success/failure paths are
   correlated, every diagnostic has an ordered proof trace, and exact warning
   policy/pragma behavior is fixture-pinned. The semantic corpus is 89/89 with
-  11 exact trace sequences. The musl gate analyzes 732/1,361 pinned TUs,
-  explicitly baseline-defers 629 pre-Sprint-55 GNU-syntax TUs, emits zero
+  11 exact trace sequences. The musl gate analyzes 733/1,361 pinned TUs,
+  explicitly baseline-defers 628 pre-Sprint-55 GNU-syntax TUs, emits zero
   memory warnings, and completes in about 13 seconds.
 - Sprint 43 makes those checks interprocedural through deterministic bottom-up
   summaries over the shared callgraph. Five checked `cgf_*` ownership
@@ -180,7 +180,7 @@ interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
 focused memsafe units: 52 tests / 764 assertions
 safe runtime: 27 checks, 0 skips; three interim benches within 2.5x/2x
 autofix transforms: source-copy, four transforms, auto-init and annotation ratchet green
-musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
+musl -Wmem gate: 733 analyzed, 628 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
 GCC 8 warning differential: 409 exact + 36 normalized CGF-only + 32 annotated, 0 unannotated
@@ -333,6 +333,9 @@ rejects a repeated S0-S28 type graph within 64 MiB and three seconds. A fresh
 Valgrind 3.25.1 run over the nested-large regression reports 556 allocations
 and frees, zero bytes live and zero errors. Independent final review approved
 the implementation with no remaining correctness or performance blockers.
+CI review moved musl `src/network/getaddrinfo.c` from deferred to analyzed after
+the automatic-address fold repair; the exact gate is now 733 analyzed / 628
+deferred with zero memory diagnostics.
 
 ---
 
@@ -635,7 +638,7 @@ because each one was learned the hard way.
   resolves success versus failure.
 - **The musl memory budget covers lowered TUs, not parse failures.** Unsupported
   Sprint 55 GNU syntax stops before analysis IR. The CI gate therefore pins
-  the upstream commit, the 732 analyzed / 629 deferred split, and SHA-256
+  the upstream commit, the 733 analyzed / 628 deferred split, and SHA-256
   digests of both normalized identity sets. Do not
   describe a deferred TU as warning-clean; newly parseable files must move the
   checked baseline and enter the zero-diagnostic set.
@@ -787,7 +790,7 @@ make BUILD=build test-safe-mode
 make BUILD=build safe-dogfood
 make BUILD=build bench-safe
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
-make BUILD=build musl-sweep               # pinned 732/1361 analyzed, <90s
+make BUILD=build musl-sweep               # pinned 733/1361 analyzed, <90s
 make BUILD=build check-format-matrix
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
