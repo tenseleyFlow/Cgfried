@@ -633,8 +633,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             return cv_int(s, e->sem_type, (u64)sym->enum_value);
         /* A FUNCTION or an array designator is an address constant even
          * without an explicit `&`. */
-        if (sym && (sym->kind == SYM_FUNC ||
-                    (sym->type && sym->type->kind == TY_ARRAY))) {
+        if (sym &&
+            (sym->kind == SYM_FUNC || (sym->static_storage && sym->type &&
+                                       sym->type->kind == TY_ARRAY))) {
             if (m != CE_ADDR && m != CE_FOLD) {
                 ce_error(s, m, e->span,
                          "'%s' is not an integer constant expression", e->name);
@@ -669,8 +670,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             v.kind = CV_ADDR;
             v.type = e->sem_type;
             if (inner && inner->kind == AST_EXPR_IDENT && inner->sym) {
-                if (inner->sym->linkage == LINK_NONE && !inner->sym->is_param &&
-                    s->scope != s->file_scope) {
+                if (inner->sym->kind == SYM_VAR &&
+                    !inner->sym->static_storage) {
                     ce_error(s, m, e->span,
                              "initializer element is not computable at load "
                              "time: '%s' has automatic storage duration",
@@ -682,7 +683,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             }
             if (inner && inner->kind == AST_EXPR_MEMBER) {
                 /* `&g.member`: the same symbol at a constant offset. */
-                ConstValue base = eval(s, inner->lhs, CE_ADDR);
+                ConstValue base = eval(s, inner->lhs, m);
                 Member *mem;
 
                 if (base.kind != CV_ADDR)
@@ -736,8 +737,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                     base_node = idx_node;
                     idx_node = tmp;
                 }
-                base = eval(s, base_node, CE_ADDR);
-                idx = eval(s, idx_node, CE_ICE);
+                base = eval(s, base_node, m);
+                idx = eval(s, idx_node, m == CE_FOLD ? CE_FOLD : CE_ICE);
                 if (base.kind != CV_ADDR || idx.kind != CV_INT)
                     return cv_error();
                 if (base_node->sem_type && base_node->sem_type->kind == TY_PTR)

@@ -23,11 +23,11 @@ void intern_init(Interner *in, Arena *arena)
 
 u32 intern(Interner *in, const char *s, size_t len)
 {
-    void *hit = strmap_get(&in->map, s, len);
+    u32 *hit = strmap_get(&in->map, s, len);
     const char *copy;
 
     if (hit)
-        return (u32)(uintptr_t)hit;
+        return *hit;
 
     if (in->len > 0xFFFFFFFFu)
         CGF_ICE("interner overflow: more than 2^32 distinct strings");
@@ -37,7 +37,9 @@ u32 intern(Interner *in, const char *s, size_t len)
     }
     copy = arena_strndup(in->arena, s, len);
     in->strs[in->len] = copy;
-    strmap_put(&in->map, s, len, (void *)(uintptr_t)in->len);
+    hit = arena_alloc(in->arena, sizeof(*hit), _Alignof(u32));
+    *hit = (u32)in->len;
+    strmap_put(&in->map, s, len, hit);
     return (u32)in->len++;
 }
 

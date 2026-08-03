@@ -1,6 +1,6 @@
 #!/bin/sh
 # Sprint 36 blocking x86-64 ISA ceiling: adversarial checker self-tests plus
-# every one of the 50 permanent corpus sources at all six optimization levels.
+# every permanent corpus source at all six optimization levels.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -101,8 +101,8 @@ sh "$checker" tests/isa/unlicensed.c "$work/labels_comments.o"
 corpus_list=$work/corpus.list
 find tests/corpus -type f -name '*.c' -print | sort >"$corpus_list"
 corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
-if [ "$corpus_count" -ne 50 ]; then
-    echo "s36_isa_driver: expected 50 corpus C files, found $corpus_count" >&2
+if [ "$corpus_count" -ne 51 ]; then
+    echo "s36_isa_driver: expected 51 corpus C files, found $corpus_count" >&2
     exit 1
 fi
 
@@ -118,8 +118,8 @@ while IFS= read -r source_path; do
     done
 done <"$corpus_list"
 
-if [ "$checks" -ne 300 ]; then
-    echo "s36_isa_driver: expected exactly 300 object checks, ran $checks" >&2
+if [ "$checks" -ne 306 ]; then
+    echo "s36_isa_driver: expected exactly 306 object checks, ran $checks" >&2
     exit 1
 fi
 

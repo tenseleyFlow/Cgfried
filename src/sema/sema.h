@@ -176,6 +176,7 @@ struct Symbol {
     bool tentative; /* file-scope object, no initializer (6.9.2p2) */
     bool defined;   /* has an initializer, or is a function definition */
     bool is_param;
+    bool static_storage; /* object address is a link-time constant */
     u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
     u32 writes; /* assignments after declaration; initializer is not one */
     bool tls;   /* _Thread_local */
@@ -477,6 +478,10 @@ Symbol *sym_new(Sema *s, const char *name, SymKind kind, Namespace ns,
 /* --- the pass ------------------------------------------------------------ */
 
 void sema_run(Sema *s, AstNode *tu);
+/* Sprint 46's -fsafe restrictions are a post-typing policy pass. Keeping
+ * them separate from ISO C semantic analysis guarantees that rejected
+ * programs are never silently reinterpreted. */
+void sema_check_safe_mode(Sema *s, AstNode *tu);
 /* End-of-TU resolution: the inline matrix and tentative definitions.
  * Called by sema_run; exposed for the unit suite. */
 void sema_finish(Sema *s);

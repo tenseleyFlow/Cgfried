@@ -809,18 +809,30 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Width w = width_of((IrType)in->type);
         X64VReg d = newv(is);
         X64VReg a0 = to_vreg(is, &in->ops[0]);
-        X64Inst *x = emit(is, alu_op((IrOp)in->op), w);
+        X64Operand count;
+        X64Inst *x;
 
-        x->def = d;
-        x->a = ovreg(a0);
         if (in->ops[1].kind == IROP_ICONST) {
-            x->b = oimm((i64)in->ops[1].a);
+            count = oimm((i64)in->ops[1].a);
         } else {
             /* variable count: CL fixed-reg constraint (hardware masks
-             * &63/&31; over-width shifts are C UB — matching gcc). */
-            x->b = ovreg(to_vreg(is, &in->ops[1]));
-            x->b.fixed = X64_RCX + 1;
+             * &63/&31; over-width shifts are C UB — matching gcc).  Give
+             * the constraint its own vreg: the source may itself be a div
+             * result precolored to rax/rdx. */
+            X64VReg src = to_vreg(is, &in->ops[1]);
+            X64VReg cl = newv(is);
+
+            x = emit(is, X64_OP_MOV, X64_Q);
+            x->def = cl;
+            x->def_fixed = X64_RCX + 1;
+            x->a = ovreg(src);
+            count = ovreg(cl);
+            count.fixed = X64_RCX + 1;
         }
+        x = emit(is, alu_op((IrOp)in->op), w);
+        x->def = d;
+        x->a = ovreg(a0);
+        x->b = count;
         is->vals[in->result.v].vr = d;
         /* Sprint 31 canonicalizes multiply-by-{2,4,8} to a shift.  Keep
          * the address-folding promise by recording the equivalent scaled
