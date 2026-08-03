@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–41
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–42
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–41 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+- **Sprints 0–42 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -102,9 +102,19 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   runs it on a dedicated read-only post-opt module only under
   `CGF_MEMSAFE_DUMP=1`; default behavior and generated assembly remain
   byte-identical, and `-Wmem` is still unknown.
-- **Next action: Sprint 42** —
-  `.docs/sprints/09-memory-safety/s42-intraprocedural.md`, adding the first
-  user-visible intraprocedural memory diagnostics on this foundation.
+- Sprint 42 ships the first user-visible memory-safety layer. `-Wmem` is
+  default-on and reports proof-only intraprocedural use-after-free,
+  double-free, leak, constant/affine OOB, uninitialized heap read, and
+  free-nonheap findings; `-Wmem-realloc-zero` is opt-in and
+  `-Wmem-strict` holds pass-to-unknown UAF. Realloc success/failure paths are
+  correlated, every diagnostic has an ordered proof trace, and exact warning
+  policy/pragma behavior is fixture-pinned. The semantic corpus is 89/89 with
+  11 exact trace sequences. The musl gate analyzes 732/1,361 pinned TUs,
+  explicitly baseline-defers 629 pre-Sprint-55 GNU-syntax TUs, emits zero
+  memory warnings, and completes in about 13 seconds.
+- **Next action: Sprint 43** —
+  `.docs/sprints/09-memory-safety/s43-interprocedural.md`, adding summaries,
+  ownership annotations, and cross-call precision.
 - **Pending installed-layout follow-up (user report, 2026-08-02):** a compiler
   invoked by its installed `cgf` name fails to find `stddef.h` in the user's
   `~/scratch/C/ch5/tail` build, while an absolute build-tree `cgfried` path
@@ -123,12 +133,14 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 515 tests, 95609 assertions, 0 failures
+unit: 534 tests, 95771 assertions, 0 failures
 cgf-test: total=504 pass=504 fail=0 xfail=0 xpass=0 skip=0 config=0
+memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
+musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
 GCC 8 warning differential: 409 exact + 36 normalized CGF-only + 32 annotated, 0 unannotated
-musl warning dry-run: 709 parsed, 652 deferred, 181 genuine, 0 false positives
+musl warning dry-run: 711 parsed, 650 deferred, 183 genuine, 0 false positives
 TinyCC warning dry-run: 10/30 parsed, 20 deferred, 0 format warnings, 0 false positives
 warning matrix: 222/222 raw GCC 8 C rows accounted for
 OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
@@ -211,6 +223,22 @@ host ptrace policy. Host-scope Valgrind 3.25.1 reports zero errors and zero
 leaks for the 17-test memsafe set, the 26-test shared-alias set, and an
 end-to-end gated analysis run. Independent final review found no remaining
 issue.
+
+Local Sprint 42 validation note (2026-08-02): fresh GCC and Clang full suites
+and the complete ASan+UBSan suite pass with 534 unit tests / 95,771
+assertions, 504/504 program fixtures, 477/477 warning fixtures, and 89/89
+memory-warning fixtures plus 11 exact proof traces. The pinned musl memory
+sweep analyzes 732/1,361 TUs, defers 629 exact identities, emits zero `-Wmem`
+diagnostics, and finishes in 13 seconds; the warning sweep now parses 711 TUs
+and records 183 oracle-matched warnings with zero false positives. The
+20-case GCC `-fanalyzer` comparison is complete. A host-scope ASan+UBSan
+frontend fuzz run completes 100,000 fixed-seed iterations with zero findings;
+the deterministic smoke digest is `d6abeca631b6cd2e`. Host-scope Valgrind 3.25.1
+first found 244 conditional reads from uninitialized `MsFact.extent` state;
+zero-initializing facts and canonicalizing unknown extents fixed the defect.
+The final 30-test memsafe unit run and an end-to-end aggregate-provenance run
+both report zero Memcheck errors and zero leaks. Independent final review
+approved the implementation with no remaining findings.
 
 ---
 
@@ -496,6 +524,18 @@ because each one was learned the hard way.
   first requires exactly one extra Cgfried diagnostic with that ID, removes
   only it, then compares the remaining set. A general “ignore Cgfried extras”
   path would make the oracle vacuous.
+- **Default `-Wmem` findings require proof.** Fire only on a singleton
+  allocation site or a must-nonheap target; imprecise aliasing, lost path
+  correlation, and unknown byte ranges degrade toward silence. Unknown calls
+  escape ownership in the default tier; their possible UAF is
+  `-Wmem-strict`. Realloc is pending until a null/non-null result branch
+  resolves success versus failure.
+- **The musl memory budget covers lowered TUs, not parse failures.** Unsupported
+  Sprint 55 GNU syntax stops before analysis IR. The CI gate therefore pins
+  the upstream commit, the 732 analyzed / 629 deferred split, and SHA-256
+  digests of both normalized identity sets. Do not
+  describe a deferred TU as warning-clean; newly parseable files must move the
+  checked baseline and enter the zero-diagnostic set.
 - **No silent stubs.** A placeholder that returns a plausible value is
   worse than one that aborts. Every deferral names its sprint in the
   diagnostic; `src/rt/fp128.c` aborts rather than computing wrong math.
@@ -554,6 +594,9 @@ the same compile mode on both sides, and the latter rejects oracle failures.
 Sprint 39 expands `warn_diff` to the full 400-fixture tree, adds a generated
 64-row/128-fixture format matrix gate, and adds `tinycc_warn_dryrun` with the
 same strict oracle-subset contract as musl.
+Sprint 42 adds `test-mem-warnings` (11 exact proof-trace sequences), the
+89-file semantic `tests/memsafe/wmem` corpus, optional 20-case
+`test-mem-fanalyzer`, and the pinned `musl-sweep` zero-diagnostic CI lane.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -621,6 +664,9 @@ sh scripts/s36_isa_driver.sh build/cgfried
 CGF_DIFF_GCC8=gcc-8 sh scripts/warn_diff.sh build/cgfried
 sh scripts/musl_warn_dryrun.sh build/cgfried
 sh scripts/tinycc_warn_dryrun.sh build/cgfried
+make BUILD=build test-mem-warnings
+make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
+make BUILD=build musl-sweep               # pinned 732/1361 analyzed, <90s
 make BUILD=build check-format-matrix
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 

@@ -262,6 +262,14 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Winvalid-function-specifier | -Wignored-attributes | done | tests/warn/pragma/migrated_policy.c |
 | -Wlarger-than | — | out-of-scope: normalized parameter spelling; resource diagnostics are post-v0.1.0 | — |
 | -Wmacro-redefined | -Wmacro-redefined | done | tests/warn/pragma/macro_redefined.c |
+| -Wmem-double-free | — | done | tests/memsafe/wmem/double-free/fire-direct.c |
+| -Wmem-free-nonheap | — | done | tests/memsafe/wmem/free-nonheap/fire-local.c |
+| -Wmem-leak | — | done | tests/memsafe/wmem/leak/fire-direct.c |
+| -Wmem-out-of-bounds | — | done | tests/memsafe/wmem/out-of-bounds/fire-read-end.c |
+| -Wmem-realloc-zero | — | done | tests/memsafe/wmem/realloc-zero/fire-opt-in.c |
+| -Wmem-uninit-read | — | done | tests/memsafe/wmem/uninit-read/fire-first-byte.c |
+| -Wmem-use-after-free | — | done | tests/memsafe/wmem/use-after-free/fire-direct.c |
+| -Wmem-use-after-free-unknown | — | done | tests/memsafe/wmem/strict/fire-unknown.c |
 | -Winfinite-recursion | -Winfinite-recursion | done | tests/warn/flow/recursion/direct.c |
 | -Wmaybe-uninitialized=strict | — | done | tests/warn/flow/uninitialized/same-predicate-strict.c |
 | -Wnewline-eof | -Wnewline-eof | done | tests/unit/test_pp_lex.c |
