@@ -25,6 +25,66 @@ prove neither escape nor reach a release. It is not a claim to find every
 leak. Likewise, an unknown state suppresses a static diagnostic; it does not
 prove that the program is safe.
 
+## L4 source-copy fixes and transforms
+
+`-fdiagnostics-parseable-fixits` prints GCC-compatible `fix-it:` records with
+1-based byte columns and end-exclusive ranges. A diagnostic may carry any
+number of edits. `-fdiagnostics-apply-fixits=all` applies only edits whose
+preconditions prove them machine-applicable; `interactive` also offers
+advisory edits one at a time and therefore requires a TTY on stdin.
+
+The compiler never rewrites a source file in place. An accepted edit to
+`file.c` is written atomically as `file.c.cgf-fixed`; the original bytes,
+including CRLF line endings, remain unchanged. Conflicting or touching edits
+are both withheld. Macro-expansion locations, pseudo-files, normalized source
+whose original bytes cannot be mapped safely, and ambiguous physical aliases
+are never guessed into writable paths.
+
+| Transform | Trigger and proof | Applicability | Why it may be withheld |
+| --- | --- | --- | --- |
+| Missing free before an early return | A `-Wmem-leak` proof names one unchanged allocation binding and a direct guarded return; a preceding undefined external `void free(void *)` prototype is visible. | Advisory only. | Injecting the wrong release can create a double free; reassignment, shadowing, escape, intervening control flow, a later-only prototype, or a point-visible `free` macro suppresses the edit. |
+| `strcpy` / `sprintf` into a true array | The external API has a compatible prototype, the result is discarded, a compatible `snprintf` is visible, no point-visible macro captures that name, and `sizeof destination` is the real array bound. | Machine-applicable. | Unknown bounds or value-used calls retain the warning without an edit. `strcat` receives restructure guidance only. Cgfried never suggests `strncpy`: truncation may leave its destination unterminated. |
+| Missing allocation NULL check | A supported malloc-family result reaches a dereference without a dominating NULL guard. | Advisory only. | The compiler cannot choose the program's failure policy. Allocation size is never treated as proof that failure is impossible. |
+| Allocation `sizeof` mismatch | A complete non-void pointee receives a direct or multiplicative `sizeof` of the wrong type. | Machine-applicable when the exact source range is proven. | Exact types, intentional array objects, additive/composite sizes, byte counts, `void *`, and ambiguous unparenthesized operands are silent or warning-only. |
+
+Machine applicability is a proof obligation, not a severity judgment. `=all`
+never applies advisory edits, even when it prints them for editors and review.
+
+### Annotation adoption ratchet
+
+`-Wmem-suggest-annotations` reads interprocedural summaries and suggests
+`CGF_RETURNS_OWNED` or `CGF_TAKES_OWNERSHIP(n)` only from must facts. It edits
+a prototype, never a definition chosen merely because it has a body. The edit
+is machine-applicable only when both macros from `<cgfried/memsafe.h>` are
+proven visible before that prototype; otherwise the same guidance remains
+advisory.
+
+A mechanical adoption workflow is:
+
+1. Run `cgf -fsyntax-only -Wmem-suggest-annotations
+   -fdiagnostics-apply-fixits=all` over the library and review the resulting
+   `.cgf-fixed` headers.
+2. Diff, test, and commit the reviewed contracts.
+3. Keep default-on `-Wmem-annotation-mismatch` enabled. It becomes the ratchet
+   that reports when a later body no longer honors its published contract.
+
+Conditional or otherwise may-only ownership effects deliberately suggest
+nothing; teaching every caller a false must contract would create bugs.
+
+### Trivial automatic initialization
+
+`-ftrivial-auto-var-init=zero` initializes otherwise-uninitialized automatic
+objects to zero. `pattern` fills them with `0xFE`; on x86-64 this makes pointer
+mistakes conspicuous because the resulting value is non-canonical rather than
+quietly null. This is an intentional post-2018 adoption from GCC 12, justified
+by Cgfried's safety mission and recorded in `.docs/warnings-matrix.md`.
+
+Diagnosis precedes mitigation. `-Wuninitialized` analyzes the program before
+these stores are lowered, so enabling auto-init never hides the defect. The
+stores enter IR before optimization; dead-store elimination may remove stores
+that cannot be observed, while observable zero-initialized behavior remains
+identical at `-O0` and `-O2`.
+
 ## Interprocedural ownership contracts
 
 L2 summarizes each function once and applies that summary at its call sites.
@@ -228,11 +288,13 @@ implementation-defined. It fires only when the size or product is constant
 zero; the lifetime state widens instead of assuming whether the old object was
 released or a new object exists.
 
-`-Wmem-strict` is off by default. Its first member,
-`-Wmem-use-after-free-unknown`, warns when a freed pointer is passed to an
-unknown function that may dereference it. The default tier instead treats an
-unknown call as an ownership escape. Sprint 43 replaces that broad rule with
-interprocedural summaries.
+`-Wmem-strict` is off by default. It contains the heuristic diagnostics that
+are useful during hardening but intentionally excluded from the zero-false-
+positive default tier: pass-to-unknown use-after-free, a missing allocation
+NULL check, allocation `sizeof` mismatches, and unbounded string copies. The
+default tier treats an unknown call as an ownership escape; Sprint 43's
+interprocedural summaries replace that broad rule whenever a checked summary
+is available.
 
 ### Reallocation correlation
 
