@@ -1,0 +1,1 @@
+# No symbol exemptions: every compiler TU must satisfy -fsafe as written.

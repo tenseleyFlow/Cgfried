@@ -63,7 +63,8 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
-        test-mem-runtime test-mem-autofix test-mem-fanalyzer bench-safe \
+        test-mem-runtime test-mem-autofix test-safe-mode safe-dogfood \
+        test-mem-fanalyzer bench-safe \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
@@ -247,6 +248,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) test-mem-interproc
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-mem-runtime
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-mem-autofix
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-safe-mode
 	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
 	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
@@ -346,6 +348,16 @@ test-mem-runtime: $(BUILD)/cgfried rt
 test-mem-autofix: $(BUILD)/cgfried
 	CGF_AUTOFIX_WORK=$(BUILD)/autofix-transforms \
 	    sh scripts/autofix_transforms.sh $(BUILD)/cgfried $(BUILD)
+
+test-safe-mode: $(BUILD)/cgfried $(BUILD)/cgf-test rt
+	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried $(BUILD)/cgf-test \
+	    --profile linux-x86_64 tests/memsafe/safe-mode
+	$(AS_LANE) CGF_SAFE_MODE_WORK=$(BUILD)/safe-mode \
+	    sh scripts/safe_mode.sh $(BUILD)/cgfried $(BUILD)
+
+safe-dogfood: $(BUILD)/cgfried rt
+	CC='$(CC)' CGF_SAFE_DOGFOOD_WORK=$(BUILD)/safe-dogfood \
+	    sh scripts/safe_dogfood.sh $(BUILD)/cgfried $(BUILD)
 
 bench-safe: $(BUILD)/cgfried rt
 	CC='$(CC)' CGF_SAFE_WORK=$(BUILD)/safe-bench \

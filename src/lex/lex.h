@@ -90,6 +90,7 @@ typedef struct LangOpts {
     bool pedantic; /* -pedantic: pedwarns become visible; parsers also use
                       this bit for dialect-sensitive syntax */
     bool fwrapv;   /* signed arithmetic wraps: suppress IR no-wrap provenance */
+    bool safe_mode; /* -fsafe policy diagnostics at syntax-only boundaries */
     struct WarnCtx *warnings; /* per-TU warning policy */
 } LangOpts;
 
