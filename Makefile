@@ -62,7 +62,8 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
-        test-memsafe-foundation test-mem-warnings test-mem-fanalyzer \
+        test-memsafe-foundation test-mem-warnings test-mem-interproc \
+        test-mem-fanalyzer \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
@@ -213,6 +214,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    > $(BUILD)/header.log 2>&1; s=$$?; \
 	    cat $(BUILD)/header.log; exit $$s
 	sh ci/check_skips.sh headerdiff $(BUILD)/header.log
+	CGF_HEADER_PORTABILITY_WORK=$(BUILD)/header-portability BUILD=$(BUILD) \
+	    CC='$(CC)' sh scripts/header_portability.sh
 	CGF_RT_WORK=$(BUILD)/rt-diff BUILD=$(BUILD) \
 	    sh scripts/rt_diff.sh $(BUILD)/cgfried \
 	    > $(BUILD)/rt.log 2>&1; s=$$?; \
@@ -241,6 +244,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) test-flow-warnings
 	$(MAKE) BUILD=$(BUILD) test-memsafe-foundation
 	$(MAKE) BUILD=$(BUILD) test-mem-warnings
+	$(MAKE) BUILD=$(BUILD) test-mem-interproc
 	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
 	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
@@ -325,6 +329,13 @@ test-mem-warnings: $(BUILD)/cgfried $(BUILD)/cgf-test
 	CGF_MEM_WARN_WORK=$(BUILD)/mem-warnings \
 	    sh scripts/memsafe_warn.sh $(BUILD)/cgfried tests/memsafe/wmem
 	sh tests/memsafe/musl_status_meta.sh
+
+test-mem-interproc: $(BUILD)/cgfried $(BUILD)/cgf-test
+	CGF_TEST_CC=$(BUILD)/cgfried $(BUILD)/cgf-test \
+	    --profile linux-x86_64 tests/memsafe/interproc
+	CGF_MEM_WARN_WORK=$(BUILD)/mem-interproc-warnings \
+	    sh scripts/memsafe_warn.sh $(BUILD)/cgfried \
+	    tests/memsafe/interproc
 
 # Optional local comparison: records both verdicts without treating GCC's
 # analyzer as an oracle for Cgfried's narrower default policy.
@@ -437,6 +448,8 @@ install: all
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(BUILD)/cgfried $(DESTDIR)$(PREFIX)/bin/cgfried
 	ln -sf cgfried $(DESTDIR)$(PREFIX)/bin/cgf
+	install -d $(DESTDIR)$(PREFIX)/lib/cgfried/include
+	cp -R include/. $(DESTDIR)$(PREFIX)/lib/cgfried/include/
 	@if [ -x afs-as/target/release/afs-as ]; then \
 	    install -m 755 afs-as/target/release/afs-as \
 	        $(DESTDIR)$(PREFIX)/bin/afs-as; \

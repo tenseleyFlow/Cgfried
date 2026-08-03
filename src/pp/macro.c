@@ -1003,6 +1003,7 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
     SourceFile *sf;
 
     buf_init(&b);
+    buf_printf(&b, "#define __CGFRIED__ 1\n");
     buf_printf(&b, "#define __STDC__ 1\n");
     /* C17 4p6: a freestanding implementation says 0 here, and the
      * library subset it promises is exactly the headers we ship. */

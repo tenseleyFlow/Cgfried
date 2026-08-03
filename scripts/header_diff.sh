@@ -157,12 +157,16 @@ if ! cmp -s "$WORK/cgf.cmp" "$WORK/gcc.cmp"; then
 fi
 n=$(grep -c '' "$WORK/cgf.out")
 
-# DoD 6: the shipped dir holds EXACTLY the nine compiler-owned headers,
-# and a hosted include of <stdio.h> still resolves to libc's.
-dir=$("$CGF" -print-search-dirs > /dev/null 2>&1; echo "")
-hdrs=$(ls include | wc -l)
+# DoD 6: the shipped tree retains the nine top-level compiler-owned standard
+# headers.  Namespaced extension headers may live in subdirectories without
+# making this check mistake directories for headers.
+hdrs=$(find include -type f | awk -F/ 'NF == 2 { n++ } END { print n + 0 }')
 if [ "$hdrs" -ne 9 ]; then
-    echo "header_diff: include/ has $hdrs files, expected exactly 9" >&2
+    echo "header_diff: include/ has $hdrs top-level files, expected exactly 9" >&2
+    fails=$((fails + 1))
+fi
+if [ ! -f include/cgfried/memsafe.h ]; then
+    echo "header_diff: missing namespaced <cgfried/memsafe.h>" >&2
     fails=$((fails + 1))
 fi
 printf '#include <stdio.h>\nint main(void){return 0;}\n' > "$WORK/hosted.c"
@@ -173,4 +177,4 @@ fi
 
 [ "$fails" -eq 0 ] || exit 1
 echo "header_diff: $n macro/type lines byte-identical to gcc;" \
-    "9 shipped headers, no libc shadowing"
+    "$hdrs standard headers plus cgfried/memsafe.h, no libc shadowing"

@@ -266,6 +266,14 @@ u32 ipo_callgraph_bottom_up_scc(const Callgraph *g, u32 ordinal)
 
 static bool linkage_allows_ipo(const IrFunc *f, const OptConfig *cfg)
 {
+    /* Signature specialization and dead-function removal run before the
+     * memory-safety pass.  Preserve annotated functions verbatim so source
+     * parameter indices and stronger-than-body call contracts stay valid,
+     * and so an unused definition can still receive mismatch diagnostics. */
+    if (f->cgf_attrs) {
+        OPT_BAIL(cfg, "ipo", "ipo_memsafe_contract");
+        return false;
+    }
     switch ((IrLinkage)f->linkage) {
     case IRLINK_INTERNAL:
         return true;

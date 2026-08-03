@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+const CgfAttr *lower_clone_cgf_attrs(Lower *lo, const CgfAttr *attrs,
+                                     const u32 *ir_args, u32 nargs);
+
 /* Expression lowering. The tree arrives fully typed with every implicit
  * conversion materialized (Sprint 13), so this file is a TRANSLATOR, not
  * a rule engine: the only type computations it performs are the ones C
@@ -1269,6 +1272,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     bool hidden;
     IrOperand fp;
     IrOperand args[130];
+    u32 attr_ir_args[130] = {0};
     u32 nargs = 0;
     ValueId sret_tmp = VALUE_INVALID;
     ValueId rv;
@@ -1334,6 +1338,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         AstNode *a = e->args[i];
         AbiArg plan;
         IrOperand av = lower_rvalue(lo, a);
+
+        attr_ir_args[i] = nargs + 1;
 
         abi_classify_arg(lo, sem(a), &plan);
         switch (plan.kind) {
@@ -1401,14 +1407,22 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 rv = ir_build_call(&lo->b, irret, FUNCREF_INTERNAL, fidx, args,
                                    nargs);
             } else {
+                u32 symidx = lower_global_sym(lo, callee);
+
+                /* Keep the validated declaration contract beside the
+                 * external symbol.  A later unannotated redeclaration must
+                 * not erase an earlier contract for the same symbol. */
+                if (callee->cgf_attrs && !lo->m->sym_cgf_attrs[symidx])
+                    lo->m->sym_cgf_attrs[symidx] = lower_clone_cgf_attrs(
+                        lo, callee->cgf_attrs, attr_ir_args, i);
                 /* The blunt setjmp policy: calling any of the family
                  * marks the whole function (see IrFunc.calls_setjmp). */
                 if (strcmp(callee->name, "setjmp") == 0 ||
                     strcmp(callee->name, "sigsetjmp") == 0 ||
                     strcmp(callee->name, "_setjmp") == 0)
                     lo->fn->calls_setjmp = true;
-                rv = ir_build_call(&lo->b, irret, FUNCREF_EXTERNAL,
-                                   lower_global_sym(lo, callee), args, nargs);
+                rv = ir_build_call(&lo->b, irret, FUNCREF_EXTERNAL, symidx,
+                                   args, nargs);
             }
         } else {
             rv = ir_build_call_indirect(&lo->b, irret, fp, args, nargs);

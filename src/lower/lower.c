@@ -259,6 +259,28 @@ static void ptrmap_put(Strmap *m, const void *key, void *val)
     strmap_put(m, (const char *)&key, sizeof(key), val);
 }
 
+/* Clone source contracts into IR ownership and attach the ABI-level operand
+ * index without destroying the source index used by diagnostics. */
+const CgfAttr *lower_clone_cgf_attrs(Lower *lo, const CgfAttr *attrs,
+                                     const u32 *ir_args, u32 nargs)
+{
+    CgfAttr *head = NULL;
+    CgfAttr **tail = &head;
+
+    for (; attrs; attrs = attrs->next) {
+        CgfAttr *copy =
+            arena_alloc(lo->m->arena, sizeof(*copy), _Alignof(CgfAttr));
+
+        *copy = *attrs;
+        copy->ir_arg =
+            attrs->arg && attrs->arg <= nargs ? ir_args[attrs->arg - 1] : 0;
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return head;
+}
+
 /* The module symbol index for a file-scope symbol, interning on first
  * use (externs referenced but never declared as globals still resolve). */
 static u32 global_sym_index(Lower *lo, Symbol *sym)
@@ -591,6 +613,7 @@ static void lower_function(Lower *lo, AstNode *def)
     Type *ft;
     IrType ptypes[130];
     u64 pannots[130];
+    u32 attr_ir_args[64] = {0};
     bool any_annot = false;
     AbiArg plans[64];
     Type *wire_types[64];
@@ -626,6 +649,8 @@ static void lower_function(Lower *lo, AstNode *def)
         Type *wire = ft->params           ? ft->params[i]
                      : def->param_syms[i] ? def->param_syms[i]->type
                                           : type_basic(TY_INT);
+
+        attr_ir_args[i] = nir_params + 1;
 
         /* An old-style definition receives the default-promoted wire
          * type, then converts it back to the declared parameter type on
@@ -685,6 +710,8 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->fn->unprototyped = !ft->has_proto;
     lo->fn->abi_ret = aret.ir_abi;
     lo->fn->loc = ir_intern_span(lo->m, def->span);
+    lo->fn->cgf_attrs =
+        lower_clone_cgf_attrs(lo, sym->cgf_attrs, attr_ir_args, nplans);
     if (sym->linkage == LINK_INTERNAL)
         lo->fn->linkage = IRLINK_INTERNAL;
     if (any_annot) {

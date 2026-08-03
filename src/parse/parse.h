@@ -157,4 +157,12 @@ bool parse_is_known_builtin(const char *name);
  * rather than an expression — see the heuristic's comment in decl.c. */
 bool parse_at_unknown_type(Parser *p);
 
+/* Sprint 43's deliberately narrow GNU-attribute surface. The returned lists
+ * are arena-owned and immutable once returned. `parse_cgf_attributes`
+ * consumes one complete __attribute__((...)) construct; check_bans allow
+ * concat copies both inputs so prefix attributes can be reused safely by
+ * sibling declarators. */
+CgfAttr *parse_cgf_attributes(Parser *p);
+CgfAttr *parse_cgf_attrs_concat(Parser *p, const CgfAttr *a, const CgfAttr *b);
+
 #endif

@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–42
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–43
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–42 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+- **Sprints 0–43 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -112,17 +112,18 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   11 exact trace sequences. The musl gate analyzes 732/1,361 pinned TUs,
   explicitly baseline-defers 629 pre-Sprint-55 GNU-syntax TUs, emits zero
   memory warnings, and completes in about 13 seconds.
-- **Next action: Sprint 43** —
-  `.docs/sprints/09-memory-safety/s43-interprocedural.md`, adding summaries,
-  ownership annotations, and cross-call precision.
-- **Pending installed-layout follow-up (user report, 2026-08-02):** a compiler
-  invoked by its installed `cgf` name fails to find `stddef.h` in the user's
-  `~/scratch/C/ch5/tail` build, while an absolute build-tree `cgfried` path
-  works. The current `make install` recipe installs the compiler (and optional
-  assembler) but not `include/`, even though runtime discovery probes
-  `<prefix>/lib/cgfried/include`. Reproduce and repair the install manifest;
-  treat this as packaging/include discovery, not as evidence that the tail
-  program is outside the supported C subset.
+- Sprint 43 makes those checks interprocedural through deterministic bottom-up
+  summaries over the shared callgraph. Five checked `cgf_*` ownership
+  attributes, a 55-row libc/`FILE *` summary table, write ranges and
+  multi-parameter return aliases feed call-site state without inlining. The
+  default-on annotation-mismatch lint keeps declared contracts honest. The
+  new corpus is 50/50 with 13 exact traces; musl remains zero-diagnostic.
+  `<cgfried/memsafe.h>` is portable under host GCC/Clang, and `make install`
+  now copies the whole include tree to the path used by installed compiler
+  discovery, resolving the reported installed-`cgf` `stddef.h` failure.
+- **Next action: Sprint 44** —
+  `.docs/sprints/09-memory-safety/s44-autofix-runtime.md`, adding
+  `-fcgf-safe` runtime instrumentation.
 - **Pending parallel-test follow-up:** `tests/fuzz/ppfuzz.c` still writes every
   run to `build/fuzz-work/case.c`. Two concurrent full suites can replace that
   file between the Cgfried and gcc oracle runs and report false differentials.
@@ -133,9 +134,11 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 534 tests, 95771 assertions, 0 failures
+unit: 551 tests, 96086 assertions, 0 failures
 cgf-test: total=504 pass=504 fail=0 xfail=0 xpass=0 skip=0 config=0
 memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
+interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
+focused memsafe units: 45 tests / 692 assertions
 musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
@@ -150,7 +153,7 @@ rt_diff: 2317 result lines identical to libgcc
 driver_matrix: 39/39 rows agree with gcc
 objdiff: 38/38 · e2ediff: 10/10 · afsld lane: 12 fixtures
 debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
-pp_dm_check: 181 predefines match gcc; __GNUC__ absent
+pp_dm_check: 182 predefines checked; __CGFRIED__=1; __GNUC__ absent
 memsafe foundation: 14 deterministic fixtures; 17 focused units / 264 assertions
 ```
 
@@ -239,6 +242,25 @@ zero-initializing facts and canonicalizing unknown extents fixed the defect.
 The final 30-test memsafe unit run and an end-to-end aggregate-provenance run
 both report zero Memcheck errors and zero leaks. Independent final review
 approved the implementation with no remaining findings.
+
+Local Sprint 43 validation note (2026-08-02): fresh GCC, Clang and complete
+ASan+UBSan suites pass with 551 unit tests / 96,086 assertions, 504/504
+program fixtures, 477/477 warning fixtures, 89/89 intraprocedural memory
+fixtures, and 50/50 interprocedural fixtures with 13 exact ordered traces. The
+sanitizer run uses `ASAN_OPTIONS=detect_leaks=0` because LeakSanitizer cannot
+initialize under this host's ptrace policy; AddressSanitizer and Undefined
+BehaviorSanitizer remain enabled for the complete suite. The
+55-row builtin summary table and all five ownership annotations have focused
+unit and corpus coverage. The pinned musl memory sweep still analyzes
+732/1,361 TUs, defers 629 exact identities and emits zero `-Wmem`
+diagnostics; the general warning sweep reports 183 oracle-backed warnings and
+zero false positives. Summary dumps are byte-identical across repeated runs.
+Valgrind 3.25.1 passes the 45-test / 692-assertion memsafe set with 1,695
+allocations and frees, zero bytes live, zero leaks and zero errors; the
+two-hop mixed-return compiler regression is independently clean. The
+installed-layout follow-up is closed: the install manifest now copies the
+complete include tree, and the ownership portability header compiles cleanly
+under both host GCC and Clang.
 
 ---
 
@@ -393,6 +415,15 @@ because each one was learned the hard way.
   both IPO and inlining. Never fork the analysis. A recursive callee is never
   inlined even from outside its SCC: cloning its recursive edge creates a
   fresh eligible site and otherwise expands without bound.
+- **Memory summaries are may-effects unless a checked annotation says must.**
+  An inferred conditional free joins toward unknown; it never manufactures a
+  proven freed state. Recursive/indirect top summaries and exhausted
+  block-parameter correlation budgets degrade toward silence. Infer first,
+  diagnose annotation mismatches second, then apply the annotation contract.
+  Attribute metadata must be cloned and ABI-parameter indices remapped by
+  every IR transform that copies a function. A top summary may retain local
+  inference for mismatch diagnostics, but callers may consume its return
+  ownership only when `cgf_returns_owned` explicitly supplies that contract.
 - **Pinned effects have explicit pass policies.** Ordinary passes preserve
   the exact volatile/seq_cst sequence; the inliner may add only metadata-equal
   clones while leaving originals ordered; IPO may delete whole functions but
@@ -597,6 +628,10 @@ same strict oracle-subset contract as musl.
 Sprint 42 adds `test-mem-warnings` (11 exact proof-trace sequences), the
 89-file semantic `tests/memsafe/wmem` corpus, optional 20-case
 `test-mem-fanalyzer`, and the pinned `musl-sweep` zero-diagnostic CI lane.
+Sprint 43 adds `test-mem-interproc` (50 fixtures plus 13 exact traces),
+`header_portability.sh` under both host compilers, exact `__CGFRIED__`
+predefine checking, and the same pinned musl zero-diagnostic budget with
+summaries enabled.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -665,6 +700,7 @@ CGF_DIFF_GCC8=gcc-8 sh scripts/warn_diff.sh build/cgfried
 sh scripts/musl_warn_dryrun.sh build/cgfried
 sh scripts/tinycc_warn_dryrun.sh build/cgfried
 make BUILD=build test-mem-warnings
+make BUILD=build test-mem-interproc
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
 make BUILD=build musl-sweep               # pinned 732/1361 analyzed, <90s
 make BUILD=build check-format-matrix

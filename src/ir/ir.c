@@ -80,6 +80,9 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source)
     copy->nsyms = copy->cap_syms = source->nsyms;
     copy->syms = clone_array(arena, source->syms, source->nsyms,
                              sizeof(*source->syms), _Alignof(char *));
+    copy->sym_cgf_attrs =
+        clone_array(arena, source->sym_cgf_attrs, source->nsyms,
+                    sizeof(*source->sym_cgf_attrs), _Alignof(CgfAttr *));
     copy->nlocs = copy->cap_locs = source->nlocs;
     copy->locs = clone_array(arena, source->locs, source->nlocs,
                              sizeof(*source->locs), _Alignof(Span));
@@ -218,9 +221,12 @@ u32 ir_sym(IrModule *m, const char *name)
 
         m->syms = grow(m->arena, m->syms, m->nsyms, nc, sizeof(char *),
                        _Alignof(char *));
+        m->sym_cgf_attrs = grow(m->arena, m->sym_cgf_attrs, m->nsyms, nc,
+                                sizeof(*m->sym_cgf_attrs), _Alignof(CgfAttr *));
         m->cap_syms = nc;
     }
     m->syms[m->nsyms] = name;
+    m->sym_cgf_attrs[m->nsyms] = NULL;
     return m->nsyms++;
 }
 

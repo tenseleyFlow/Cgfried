@@ -58,6 +58,35 @@ static AliasCtx *alias_ctx_seeds(IrModule *m, const AliasAllocSeed *seeds,
     return alias_build(m, &cfg);
 }
 
+static AliasCtx *alias_ctx_mixed_seeds(IrModule *m,
+                                       const AliasAllocSeed *alloc_seeds,
+                                       u32 nalloc_seeds,
+                                       const AliasReturnSeed *return_seeds,
+                                       u32 nreturn_seeds)
+{
+    AliasConfig cfg;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.func = &m->funcs[0];
+    cfg.alloc_seeds = alloc_seeds;
+    cfg.nalloc_seeds = nalloc_seeds;
+    cfg.return_seeds = return_seeds;
+    cfg.nreturn_seeds = nreturn_seeds;
+    return alias_build(m, &cfg);
+}
+
+static AliasCtx *
+alias_ctx_return_seeds(IrModule *m, const AliasReturnSeed *seeds, u32 nseeds)
+{
+    AliasConfig cfg;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.func = &m->funcs[0];
+    cfg.return_seeds = seeds;
+    cfg.nreturn_seeds = nseeds;
+    return alias_build(m, &cfg);
+}
+
 static IrInst *alias_find(IrFunc *f, IrOp op, u32 ordinal)
 {
     u32 bi;
@@ -91,6 +120,105 @@ static bool pts_equal(PtsSet a, PtsSet b)
 {
     return a.nwords == b.nwords &&
            memcmp(a.words, b.words, a.nwords * sizeof(u64)) == 0;
+}
+
+void test_alias_return_seeds_union_multiple_arguments(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *a, *b, *call;
+    AliasReturnSeed seeds[2];
+    PtsSet result;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @choose\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %a = alloca 8, align 8\n"
+                        "    %b = alloca 8, align 8\n"
+                        "    %p = call ptr @choose(ptr %a, ptr %b)\n"
+                        "    ret ptr %p\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    a = alias_find(&m->funcs[0], IR_ALLOCA, 0);
+    b = alias_find(&m->funcs[0], IR_ALLOCA, 1);
+    call = alias_find(&m->funcs[0], IR_CALL, 0);
+    seeds[0] = (AliasReturnSeed){call, 0};
+    seeds[1] = (AliasReturnSeed){call, 1};
+    c = alias_ctx_return_seeds(m, seeds, 2);
+    result = alias_points_to(c, ir_op_value(&m->funcs[0], call->result));
+    T_ASSERT(t, !result.has_unknown);
+    T_ASSERT_EQ_INT(t, pts_count(result), 2);
+    T_ASSERT_EQ_INT(
+        t,
+        alias_query(c,
+                    alias_memloc(c, ir_op_value(&m->funcs[0], call->result), 1,
+                                 ETYPE_CHAR),
+                    alias_memloc(c, ir_op_value(&m->funcs[0], a->result), 1,
+                                 ETYPE_CHAR)),
+        ALIAS_MAY);
+    T_ASSERT_EQ_INT(
+        t,
+        alias_query(c,
+                    alias_memloc(c, ir_op_value(&m->funcs[0], call->result), 1,
+                                 ETYPE_CHAR),
+                    alias_memloc(c, ir_op_value(&m->funcs[0], b->result), 1,
+                                 ETYPE_CHAR)),
+        ALIAS_MAY);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_owned_result_preserves_return_alias_alternatives(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *arg, *call;
+    AliasAllocSeed alloc_seed;
+    AliasReturnSeed return_seed;
+    const AllocSite *fresh;
+    PtsSet result;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @fresh_or_alias\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %arg = alloca 8, align 8\n"
+                        "    %p = call ptr @fresh_or_alias(ptr %arg)\n"
+                        "    ret ptr %p\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    arg = alias_find(&m->funcs[0], IR_ALLOCA, 0);
+    call = alias_find(&m->funcs[0], IR_CALL, 0);
+    alloc_seed = (AliasAllocSeed){call, true, ALIAS_NO_OUT_PARAM};
+    return_seed = (AliasReturnSeed){call, 0};
+    c = alias_ctx_mixed_seeds(m, &alloc_seed, 1, &return_seed, 1);
+    fresh = alias_alloc_site(c, call);
+    result = alias_points_to(c, ir_op_value(&m->funcs[0], call->result));
+    T_ASSERT(t, fresh != NULL);
+    T_ASSERT(t, !result.has_unknown);
+    T_ASSERT_EQ_INT(t, pts_count(result), 2);
+    T_ASSERT(t, alias_pts_has_alloc_site(c, result, fresh));
+    T_ASSERT_EQ_INT(
+        t,
+        alias_query(c,
+                    alias_memloc(c, ir_op_value(&m->funcs[0], call->result), 1,
+                                 ETYPE_CHAR),
+                    alias_memloc(c, ir_op_value(&m->funcs[0], arg->result), 1,
+                                 ETYPE_CHAR)),
+        ALIAS_MAY);
+    alias_free(c);
+    arena_free_all(&f.arena);
 }
 
 void test_alias_allocation_sites_seed_direct_results_in_order(TestCtx *t)

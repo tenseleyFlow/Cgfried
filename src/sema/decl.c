@@ -25,6 +25,18 @@ static bool enum_fold(Sema *s, AstNode *e, i64 *out)
     return sema_require_ice(s, e, out, "this");
 }
 
+static void reject_nonfunction_attrs(Sema *s, const CgfAttr *attrs)
+{
+    const CgfAttr *a;
+
+    for (a = attrs; a; a = a->next) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, a->span,
+                  "attribute '%s' applies only to functions",
+                  cgf_attr_name(a->kind));
+    }
+}
+
 /* --- tags ---------------------------------------------------------------- */
 
 static TagDecl *tag_new(Sema *s, const char *name, TypeKind kind, Span span)
@@ -252,6 +264,7 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
 
         if (!m)
             return;
+        reject_nonfunction_attrs(s, m->cgf_attrs);
         mt = type_from_ast(s, m->type, m->span);
         /* A member carries its own _Alignas constraints; the bitfield
          * case in particular has no address to align. The RESULT feeds
@@ -776,6 +789,8 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
             for (i = 0; i < fn->nparams; i++) {
                 Type *pt =
                     type_from_ast(s, at->params[i].type, at->params[i].span);
+
+                reject_nonfunction_attrs(s, at->params[i].cgf_attrs);
 
                 /* 6.7.6.3p7/p8: a parameter of array type is adjusted to
                  * pointer-to-element, and of function type to pointer-to
@@ -1427,6 +1442,111 @@ static bool type_contains_vla(const Type *t)
     return false;
 }
 
+static bool attrs_conflict(const CgfAttr *a, const CgfAttr *b)
+{
+    if ((a->kind == CGF_ATTR_RETURNS_OWNED &&
+         b->kind == CGF_ATTR_RETURNS_BORROWED) ||
+        (b->kind == CGF_ATTR_RETURNS_OWNED &&
+         a->kind == CGF_ATTR_RETURNS_BORROWED))
+        return true;
+    if (a->kind == CGF_ATTR_RETURNS_BORROWED &&
+        b->kind == CGF_ATTR_RETURNS_BORROWED && a->arg != b->arg)
+        return true;
+    return a->arg == b->arg && ((a->kind == CGF_ATTR_TAKES_OWNERSHIP &&
+                                 b->kind == CGF_ATTR_BORROWS) ||
+                                (b->kind == CGF_ATTR_TAKES_OWNERSHIP &&
+                                 a->kind == CGF_ATTR_BORROWS));
+}
+
+static void append_valid_attrs(Sema *s, Symbol *sym, const AstNode *d,
+                               Type *decl_type)
+{
+    const CgfAttr *a;
+    CgfAttr *head = NULL;
+    CgfAttr *tail = NULL;
+    u32 nparams = d->type && d->type->kind == ATY_FUNC ? d->type->nparams : 0;
+    bool is_func = decl_type && decl_type->kind == TY_FUNC;
+
+    if (!d->cgf_attrs)
+        return;
+    /* Never extend an already-published list in place. Redeclarations may
+     * already have handed the old head to analysis clients, so merging is a
+     * copied concatenation and every observable list remains immutable. */
+    for (a = sym->cgf_attrs; a; a = a->next) {
+        CgfAttr *copy = arena_alloc(s->arena, sizeof(*copy), _Alignof(CgfAttr));
+
+        *copy = *a;
+        copy->next = NULL;
+        if (tail)
+            tail->next = copy;
+        else
+            head = copy;
+        tail = copy;
+    }
+    for (a = d->cgf_attrs; a; a = a->next) {
+        const CgfAttr *old;
+        CgfAttr *copy;
+
+        if (!is_func) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, a->span,
+                      "attribute '%s' applies only to functions",
+                      cgf_attr_name(a->kind));
+            continue;
+        }
+        if ((a->kind == CGF_ATTR_RETURNS_OWNED ||
+             a->kind == CGF_ATTR_RETURNS_BORROWED) &&
+            (!decl_type->base || decl_type->base->kind != TY_PTR)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, a->span,
+                      "attribute '%s' requires a pointer return type",
+                      cgf_attr_name(a->kind));
+            continue;
+        }
+        if (a->kind != CGF_ATTR_RETURNS_OWNED &&
+            (a->arg == 0 || a->arg > nparams)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, a->span,
+                      "attribute '%s' parameter index %u is out of range "
+                      "for function with %u parameter%s",
+                      cgf_attr_name(a->kind), a->arg, nparams,
+                      nparams == 1 ? "" : "s");
+            continue;
+        }
+        if (a->kind != CGF_ATTR_RETURNS_OWNED &&
+            (!decl_type->has_proto || a->arg > decl_type->nparams ||
+             !decl_type->params[a->arg - 1] ||
+             decl_type->params[a->arg - 1]->kind != TY_PTR)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, a->span,
+                      "attribute '%s' parameter %u must have pointer type",
+                      cgf_attr_name(a->kind), a->arg);
+            continue;
+        }
+        for (old = head; old; old = old->next)
+            if (attrs_conflict(old, a)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, a->span,
+                          "attribute '%s' contradicts '%s'",
+                          cgf_attr_name(a->kind), cgf_attr_name(old->kind));
+                diag_emit(s->dc, DIAG_NOTE, old->span,
+                          "conflicting ownership attribute is here");
+                break;
+            }
+        if (old)
+            continue;
+        copy = arena_alloc(s->arena, sizeof(*copy), _Alignof(CgfAttr));
+        *copy = *a;
+        copy->next = NULL;
+        if (tail)
+            tail->next = copy;
+        else
+            head = copy;
+        tail = copy;
+    }
+    sym->cgf_attrs = head;
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
@@ -1659,6 +1779,7 @@ static void declare_one(Sema *s, AstNode *d)
             prev->any_decl_extern || (d->storage & AST_SC_EXTERN) != 0;
         if (d->storage & AST_SC_THREAD_LOCAL)
             prev->tls = true;
+        append_valid_attrs(s, prev, d, type);
         merge_redeclaration(s, prev, sym, d->storage);
         d->sym = prev; /* lowering resolves the DECL to its symbol */
         /* The initializer still has to be TYPED even when the declaration
@@ -1667,6 +1788,7 @@ static void declare_one(Sema *s, AstNode *d)
         sema_init_expr(s, prev->type, d, static_init);
         return;
     }
+    append_valid_attrs(s, sym, d, type);
     scope_declare(s, sym);
     d->sym = sym; /* lowering resolves the DECL to its symbol */
     sema_init_expr(s, sym->type, d, static_init);
@@ -1859,6 +1981,7 @@ static void sema_decl(Sema *s, AstNode *d)
     case AST_EMPTY_DECL:
         /* `struct S { ... };` declares no object but DOES introduce or
          * complete a tag, which is the whole point of the line. */
+        reject_nonfunction_attrs(s, d->cgf_attrs);
         if (d->type)
             (void)type_from_ast(s, d->type, d->span);
         return;

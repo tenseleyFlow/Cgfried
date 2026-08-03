@@ -33,6 +33,7 @@ struct AliasCtx {
     u32 first_alloca_obj;
     u32 first_restrict_obj;
     u32 first_alloc_site_obj;
+    u32 first_param_obj;
 
     u64 *vpts;       /* [value id][word] */
     u64 *mpts;       /* pointer contents of abstract objects */
@@ -45,6 +46,7 @@ struct AliasCtx {
     bool *escaped;
     AllocSite *alloc_sites;
     u32 nalloc_sites;
+    u32 *param_obj; /* parameter ordinal -> provenance object id + 1 */
 };
 
 static void *zalloc(size_t n, size_t size)
@@ -356,6 +358,37 @@ static void validate_alloc_seeds(const AliasConfig *cfg)
     }
 }
 
+static void validate_return_seeds(const AliasConfig *cfg)
+{
+    u32 i, j;
+
+    if (cfg->nreturn_seeds && !cfg->return_seeds)
+        CGF_ICE("alias: return seed count has no array");
+    for (i = 0; i < cfg->nreturn_seeds; i++) {
+        const AliasReturnSeed *seed = &cfg->return_seeds[i];
+        const IrInst *call = seed->call;
+        u32 first;
+
+        if (!call || call->op != IR_CALL ||
+            !inst_belongs_to_func(cfg->func, call) || !call->result.v ||
+            call->type != IRT_PTR)
+            CGF_ICE("alias: return-alias seed is not a pointer call in @%s "
+                    "(op=%u result=%u type=%u belongs=%u)",
+                    cfg->func->name, call ? call->op : UINT8_MAX,
+                    call ? call->result.v : 0, call ? call->type : UINT8_MAX,
+                    call ? inst_belongs_to_func(cfg->func, call) : 0);
+        first = call_first_arg(call);
+        if (seed->arg >= call->nops - first ||
+            call->ops[first + seed->arg].type != IRT_PTR)
+            CGF_ICE("alias: return-alias seed argument is not a pointer");
+        for (j = 0; j < i; j++)
+            if (cfg->return_seeds[j].call == call &&
+                cfg->return_seeds[j].arg == seed->arg)
+                CGF_ICE("alias: duplicate return-alias seed in @%s",
+                        cfg->func->name);
+    }
+}
+
 static AllocSite *site_for_call(AliasCtx *c, const IrInst *call)
 {
     u32 i;
@@ -390,6 +423,7 @@ static void init_roots(AliasCtx *c, const AliasConfig *cfg)
     u32 i, bi;
     u32 next_alloca = c->first_alloca_obj;
     u32 next_restrict = c->first_restrict_obj;
+    u32 next_param = c->first_param_obj;
 
     bit_add(c->unknown_pts, c->unknown_obj);
     for (i = 0; i < c->m->nsyms; i++)
@@ -403,6 +437,12 @@ static void init_roots(AliasCtx *c, const AliasConfig *cfg)
             bit_add(vrow(c, v.v), next_restrict++);
         else
             bit_add(vrow(c, v.v), c->unknown_obj);
+        if (cfg->track_param_origins) {
+            c->param_obj[i] = next_param + 1;
+            bit_add(vrow(c, v.v), next_param++);
+            /* A provenance marker is not a no-alias promise. */
+            bit_add(vrow(c, v.v), c->unknown_obj);
+        }
         c->voff[v.v] = (OffRange){true, 0, 0};
     }
     for (bi = 0; bi < c->f->nblocks; bi++) {
@@ -558,7 +598,7 @@ static bool poison_call_memory(AliasCtx *c, const IrInst *call,
     return changed;
 }
 
-static bool propagate_insts(AliasCtx *c)
+static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
 {
     bool changed = false;
     u32 bi;
@@ -622,12 +662,30 @@ static bool propagate_insts(AliasCtx *c)
             } else if (in->op == IR_CALL) {
                 AllocSite *site = site_for_call(c, in);
 
-                if (in->result.v && in->type == IRT_PTR &&
-                    !(site && site->owns_result)) {
-                    changed |= bits_or(vrow(c, in->result.v), c->unknown_pts,
-                                       c->nwords);
-                    changed |= off_join(&c->voff[in->result.v],
-                                        (OffRange){true, INT64_MIN, INT64_MAX});
+                if (in->result.v && in->type == IRT_PTR) {
+                    bool seeded = false;
+                    u32 first = call_first_arg(in);
+                    u32 ri;
+
+                    for (ri = 0; ri < cfg->nreturn_seeds; ri++) {
+                        const AliasReturnSeed *ret = &cfg->return_seeds[ri];
+                        IrOperand arg;
+
+                        if (ret->call != in)
+                            continue;
+                        seeded = true;
+                        arg = in->ops[first + ret->arg];
+                        changed |= union_operand(c, vrow(c, in->result.v), arg);
+                        changed |= off_join(&c->voff[in->result.v],
+                                            operand_off(c, arg));
+                    }
+                    if (!seeded && !(site && site->owns_result)) {
+                        changed |= bits_or(vrow(c, in->result.v),
+                                           c->unknown_pts, c->nwords);
+                        changed |=
+                            off_join(&c->voff[in->result.v],
+                                     (OffRange){true, INT64_MIN, INT64_MAX});
+                    }
                 }
                 if (site && site->out_param != ALIAS_NO_OUT_PARAM) {
                     u32 first_arg = call_first_arg(in);
@@ -699,6 +757,7 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
 
     if (!m || !cfg || !cfg->func)
         CGF_ICE("alias_build: module and function are required");
+    validate_return_seeds(cfg);
     validate_alloc_seeds(cfg);
     c = zalloc(1, sizeof(*c));
     c->m = m;
@@ -710,7 +769,9 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     c->first_restrict_obj = c->first_alloca_obj + nalloca;
     c->first_alloc_site_obj = c->first_restrict_obj + nrestrict;
     c->nalloc_sites = cfg->nalloc_seeds;
-    c->nobj = c->first_alloc_site_obj + c->nalloc_sites;
+    c->first_param_obj = c->first_alloc_site_obj + c->nalloc_sites;
+    c->nobj =
+        c->first_param_obj + (cfg->track_param_origins ? c->f->nparams : 0);
     if (c->nobj == 0)
         c->nobj = 1;
     c->nwords = (c->nobj + 63) / 64;
@@ -724,6 +785,7 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     c->alloca_obj = zalloc((size_t)c->f->nvals + 1, sizeof(u32));
     c->escaped = zalloc(c->nobj, sizeof(bool));
     c->alloc_sites = zalloc(c->nalloc_sites, sizeof(AllocSite));
+    c->param_obj = zalloc(c->f->nparams, sizeof(u32));
     init_roots(c, cfg);
 
     /* Every constraint is monotone over finite bitsets/range hulls.  The cap
@@ -733,7 +795,7 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     for (iteration = 0; iteration < cap; iteration++) {
         bool changed = propagate_edges(c);
 
-        changed |= propagate_insts(c);
+        changed |= propagate_insts(c, cfg);
         if (!changed)
             break;
     }
@@ -755,6 +817,7 @@ void alias_free(AliasCtx *c)
 {
     if (!c)
         return;
+    free(c->param_obj);
     free(c->alloc_sites);
     free(c->escaped);
     free(c->alloca_obj);
@@ -807,6 +870,16 @@ bool alias_pts_must_be_nonheap(const AliasCtx *c, PtsSet pts)
             return false;
     }
     return any;
+}
+
+bool alias_pts_has_param(const AliasCtx *c, PtsSet pts, u32 param)
+{
+    u32 encoded;
+
+    if (!c || param >= c->f->nparams || !pts.words || pts.nwords != c->nwords)
+        return false;
+    encoded = c->param_obj[param];
+    return encoded && bits_has(pts.words, encoded - 1);
 }
 
 const AllocSite *alias_alloc_site(const AliasCtx *c, const IrInst *call)

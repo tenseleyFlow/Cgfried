@@ -219,6 +219,7 @@ typedef struct {
     /* _Alignas, as written; sema checks the constraints. */
     AstNode *alignas_expr;
     AstType *alignas_type;
+    CgfAttr *cgf_attrs;
     bool has_alignas;
     bool saw_any;
     bool saw_non_storage;
@@ -512,14 +513,10 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 goto consumed;
             case KW_ATTRIBUTE:
             case KW_ATTRIBUTE2:
-                /* The spelling below NAMES the extension in a diagnostic; it
-                 * does not use it. */
-                parse_error(
-                    p, t,
-                    "GNU '__attribute__' is not yet " /* check_bans allow */
-                    "supported (lands in Sprint 55)");
-                s->bad = true;
-                goto consumed;
+                s->cgf_attrs = parse_cgf_attrs_concat(p, s->cgf_attrs,
+                                                      parse_cgf_attributes(p));
+                s->saw_any = true;
+                continue;
             case KW_ALIGNAS: {
                 /* `_Alignas(N)` or `_Alignas(type-name)`. It is an
                  * alignment SPECIFIER, so it may appear anywhere in the
@@ -794,6 +791,10 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         memset(&prm, 0, sizeof(prm));
         prm.span = start->span;
         prm.type = parse_declarator(p, base, &prm.name, true);
+        prm.cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
+        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
+            prm.cgf_attrs = parse_cgf_attrs_concat(p, prm.cgf_attrs,
+                                                   parse_cgf_attributes(p));
         if (prm.name)
             parse_scope_declare(p, prm.name, false);
         ParamVec_push(&params, prm);
@@ -1092,6 +1093,7 @@ static AstNode *parse_member_decl(Parser *p)
         bt->atomic_specifier = s.atomic_specifier;
         bt->atomic_inner = s.atomic_inner;
         n->type = bt;
+        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         if (base_kind == ABT_RECORD && s.record && !s.record->tag) {
             n->is_anon_member = true;
             if (!std_is_c11_or_later(p->lang->std))
@@ -1128,6 +1130,10 @@ static AstNode *parse_member_decl(Parser *p)
             n->type = parse_declarator(p, bt, &n->name, true);
         else
             n->type = bt; /* unnamed bitfield */
+        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
+        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
+            n->cgf_attrs = parse_cgf_attrs_concat(p, n->cgf_attrs,
+                                                  parse_cgf_attributes(p));
 
         if (parse_eat_punct(p, PUNCT_COLON)) {
             /* The WIDTH is an expression; Sprint 14/15 check it. */
@@ -1543,6 +1549,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->type->base = base_kind;
         n->type->record = s.record;
         n->type->typedef_name = s.typedef_name;
+        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         /* No declarator followed, so a tag here is a FORWARD DECLARATION
          * rather than a use — and 6.7.2.3p7 makes that introduce a new tag
          * in this scope even when an outer one is visible. */
@@ -1570,6 +1577,10 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->alignas_expr = s.alignas_expr;
         n->alignas_type = s.alignas_type;
         n->type = parse_declarator(p, bt, &n->name, false);
+        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
+        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
+            n->cgf_attrs = parse_cgf_attrs_concat(p, n->cgf_attrs,
+                                                  parse_cgf_attributes(p));
         if (implicit_int)
             warn_implicit_int(p, n->span, n->name);
 

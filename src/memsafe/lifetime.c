@@ -19,6 +19,7 @@ typedef enum MsInitKind {
 } MsInitKind;
 
 #define MS_MAX_INIT_RANGES 8u
+#define MS_MAX_BINDINGS_PER_PATH 8u
 
 typedef struct MsInitRange {
     i64 lo;
@@ -45,10 +46,17 @@ typedef struct MsPredicate {
     bool equal;
 } MsPredicate;
 
+typedef struct MsBinding {
+    ValueId param;
+    IrOperand incoming;
+} MsBinding;
+
 typedef struct MsPath {
     MsFact *facts;
     MsPredicate predicates[MS_MAX_PREDICATES_PER_PATH];
     u32 npredicates;
+    MsBinding bindings[MS_MAX_BINDINGS_PER_PATH];
+    u32 nbindings;
     bool correlations_lost;
 } MsPath;
 
@@ -80,6 +88,7 @@ struct MsFunctionResult {
     Arena *arena;
     IrModule *module;
     IrFunc *function;
+    const MsSummarySet *summaries;
     AliasCtx *alias;
     const MsAllocFamily **families;
     u32 nsites;
@@ -275,12 +284,46 @@ static bool predicates_equal(const MsPath *a, const MsPath *b)
     return true;
 }
 
+static bool bindings_equal(const MsPath *a, const MsPath *b)
+{
+    u32 i;
+
+    if (a->nbindings != b->nbindings)
+        return false;
+    for (i = 0; i < a->nbindings; i++)
+        if (a->bindings[i].param.v != b->bindings[i].param.v ||
+            !operand_equal(a->bindings[i].incoming, b->bindings[i].incoming))
+            return false;
+    return true;
+}
+
+static IrOperand path_resolve_binding(const MsPath *path, IrOperand operand)
+{
+    u32 depth;
+
+    for (depth = 0; depth <= path->nbindings; depth++) {
+        u32 i;
+
+        if (operand.kind != IROP_VALUE)
+            break;
+        for (i = 0; i < path->nbindings; i++)
+            if (path->bindings[i].param.v == operand.a) {
+                operand = path->bindings[i].incoming;
+                break;
+            }
+        if (i == path->nbindings)
+            break;
+    }
+    return operand;
+}
+
 static bool path_equal(const MsFunctionResult *result, const MsPath *a,
                        const MsPath *b)
 {
     u32 i;
 
-    if (a->correlations_lost != b->correlations_lost || !predicates_equal(a, b))
+    if (a->correlations_lost != b->correlations_lost ||
+        !predicates_equal(a, b) || !bindings_equal(a, b))
         return false;
     for (i = 0; i < result->nsites; i++)
         if (a->facts[i].state != b->facts[i].state ||
@@ -307,6 +350,7 @@ static void path_degrade_facts(MsFunctionResult *result, MsPath *path)
 {
     u32 i;
 
+    path->nbindings = 0;
     for (i = 0; i < result->nsites; i++) {
         path->facts[i].state = MS_UNKNOWN;
         trace_clear(&path->facts[i]);
@@ -351,13 +395,17 @@ static bool path_join_into(MsFunctionResult *result, MsPath *dst,
                            const MsPath *src)
 {
     bool keep_predicates = predicates_equal(dst, src);
-    bool lose_correlations =
-        dst->correlations_lost || src->correlations_lost || !keep_predicates;
-    bool changed = !keep_predicates && dst->npredicates != 0;
+    bool keep_bindings = bindings_equal(dst, src);
+    bool lose_correlations = dst->correlations_lost || src->correlations_lost ||
+                             !keep_predicates || !keep_bindings;
+    bool changed = (!keep_predicates && dst->npredicates != 0) ||
+                   (!keep_bindings && dst->nbindings != 0);
     u32 i;
 
     if (!keep_predicates)
         dst->npredicates = 0;
+    if (!keep_bindings)
+        dst->nbindings = 0;
     if (lose_correlations != dst->correlations_lost) {
         dst->correlations_lost = lose_correlations;
         changed = true;
@@ -640,6 +688,9 @@ static void add_issue(MsFunctionResult *result, const MsPath *path,
                                           result->alias, (u32)site_index))
                                     : 0;
     issue.strict = strict;
+    if (site_index >= 0 && (u32)site_index < result->nsites &&
+        result->families && result->families[site_index])
+        issue.file_resource = result->families[site_index]->is_file_resource;
     if (trace)
         issue.trace = *trace;
     else
@@ -1103,6 +1154,30 @@ static bool call_size(const MsFunctionResult *result, const IrInst *call,
     return true;
 }
 
+static void apply_summary_write_range(MsFunctionResult *result, MsPath *path,
+                                      IrOperand pointer,
+                                      const MsParamSummary *effect, Span loc)
+{
+    i64 base_lo, base_hi, lo, hi;
+    i32 site;
+
+    process_pointer_value_use(result, path, pointer, loc);
+    site = path_site_for_operand(result, path, pointer);
+    if (site < 0 || !effect->write_range_known ||
+        !alias_offset_range(result->alias, pointer, &base_lo, &base_hi) ||
+        base_lo != base_hi ||
+        (effect->write_lo > 0 && base_lo > INT64_MAX - effect->write_lo) ||
+        (effect->write_lo < 0 && base_lo < INT64_MIN - effect->write_lo) ||
+        (effect->write_hi > 0 && base_hi > INT64_MAX - effect->write_hi) ||
+        (effect->write_hi < 0 && base_hi < INT64_MIN - effect->write_hi))
+        return;
+    lo = base_lo + effect->write_lo;
+    hi = base_hi + effect->write_hi;
+    init_add_range(&path->facts[site], lo, hi);
+    ms_trace_push(&path->facts[site].trace, loc, MS_EV_USE,
+                  "callee initialized this byte range here");
+}
+
 static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
                                       const IrInst *call, const char *name,
                                       BlockId block, Span loc)
@@ -1158,6 +1233,7 @@ static void process_call(MsFunctionResult *result, MsPath *path,
 {
     const char *name = call_name(result->module, call);
     const MsAllocFamily *family = ms_alloc_family_lookup(name);
+    const MsLibSummary *lib = name ? ms_lib_summary_lookup(name) : NULL;
     const AllocSite *created = alias_alloc_site(result->alias, call);
     Span loc = ir_inst_span(result->module, call);
     IrOperand operand;
@@ -1202,10 +1278,17 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                 }
                 fact->realloc_pending = false;
             } else if (old >= 0 && path->facts[old].state == MS_ALLOCATED) {
-                fact->realloc_old_site = old;
-                ms_trace_push(
-                    &path->facts[old].trace, loc, MS_EV_REALLOC,
-                    "reallocated here; on success the old pointer is freed");
+                if (family->is_file_resource) {
+                    (void)transition_site(
+                        result, path, (u32)old, MS_ACT_FREE, loc, MS_EV_REALLOC,
+                        "old stream closed while replacement was attempted",
+                        false);
+                } else {
+                    fact->realloc_old_site = old;
+                    ms_trace_push(&path->facts[old].trace, loc, MS_EV_REALLOC,
+                                  "reallocated here; on success the old "
+                                  "pointer is freed");
+                }
             }
         } else if (family && family->alloc_out_arg != MS_NO_ARG &&
                    family->success != MS_ALLOC_SUCCESS_DIRECT &&
@@ -1217,8 +1300,11 @@ static void process_call(MsFunctionResult *result, MsPath *path,
             ms_trace_push(&fact->trace, loc, MS_EV_ALLOC,
                           "allocation result is pending its status check");
         } else {
-            (void)transition_site(result, path, site, MS_ACT_ALLOC, loc,
-                                  MS_EV_ALLOC, "allocated here", false);
+            (void)transition_site(
+                result, path, site, MS_ACT_ALLOC, loc, MS_EV_ALLOC,
+                family && family->is_file_resource ? "resource opened here"
+                                                   : "allocated here",
+                false);
             init_reset(fact, family && family->fully_written ? MS_INIT_FULL
                                                              : MS_INIT_NONE);
         }
@@ -1242,6 +1328,25 @@ static void process_call(MsFunctionResult *result, MsPath *path,
             return;
         pts = alias_points_to(result->alias, operand);
         unique = alias_pts_unique_alloc_site(result->alias, pts);
+        if (unique) {
+            u32 unique_site = alias_alloc_site_id(unique) - 1;
+            const MsAllocFamily *created_by = result->families[unique_site];
+
+            if (created_by &&
+                created_by->is_file_resource != family->is_file_resource) {
+                MsTrace proof = path->facts[unique_site].trace;
+
+                ms_trace_push(&proof, loc, MS_EV_FREE,
+                              family->is_file_resource
+                                  ? "stream close applied to a non-stream "
+                                    "allocation"
+                                  : "memory deallocator applied to an open "
+                                    "stream");
+                add_issue(result, path, MS_ISSUE_FREE_NONHEAP, loc,
+                          (i32)unique_site, false, &proof);
+                return;
+            }
+        }
         if (alias_pts_must_be_nonheap(result->alias, pts)) {
             MsTrace proof;
 
@@ -1272,10 +1377,104 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                                   MS_EV_FREE, "freed here", true);
         return;
     }
-    if (family)
+    if (family && !lib)
         return;
     if (process_known_memory_call(result, path, call, name, block, loc))
         return;
+    {
+        const MsSummary *summary = ms_summary_for_call(result->summaries, call);
+        bool handled = summary != NULL || lib != NULL;
+        u64 lib_extent = 0;
+        bool lib_extent_known =
+            lib && lib->write_size_arg >= 0 &&
+            call_size(result, call, (u32)lib->write_size_arg,
+                      lib->write_size_arg2 >= 0 ? (u32)lib->write_size_arg2
+                                                : MS_NO_ARG,
+                      &lib_extent);
+
+        if (handled) {
+            first = call_first_arg(call);
+            for (i = first; i < call->nops; i++) {
+                u32 arg = i - first;
+                bool deref = false, write = false, escape = false;
+                bool may_free = false, must_free = false;
+                IrOperand actual = call->ops[i];
+
+                if (summary && arg < summary->nparams) {
+                    const MsParamSummary *e = &summary->params[arg];
+                    deref = e->dereferenced;
+                    write = e->written;
+                    escape = e->escapes;
+                    may_free = e->may_free;
+                    must_free = e->must_free;
+                    if (summary->partial || summary->top) {
+                        deref = true;
+                        write = true;
+                        escape = !e->annot_no_escape && !e->annot_borrow;
+                        if (!e->annot_borrow && !e->annot_takes_ownership)
+                            may_free = true;
+                    }
+                } else if (summary && (summary->top || summary->partial)) {
+                    deref = write = escape = actual.type == IRT_PTR;
+                } else if (lib && arg < 64) {
+                    u64 bit = 1ull << arg;
+                    deref = (lib->deref_mask & bit) != 0;
+                    write = (lib->write_mask & bit) != 0;
+                    escape = (lib->escape_mask & bit) != 0;
+                    may_free = (lib->free_mask & bit) != 0;
+                    if (arg >= ms_lib_summary_variadic_from(lib))
+                        deref = write = escape = true;
+                }
+                if (actual.type != IRT_PTR)
+                    continue;
+                /* The family transition already validated and consumed this
+                 * argument before the generic libc effects are applied. */
+                if (family && family->frees_on_success &&
+                    arg == family->frees_arg)
+                    continue;
+                if ((summary && (summary->top || summary->partial)) && deref) {
+                    PtsSet pts = alias_points_to(result->alias, actual);
+                    const AllocSite *unique =
+                        alias_pts_unique_alloc_site(result->alias, pts);
+                    if (unique) {
+                        u32 site = alias_alloc_site_id(unique) - 1;
+                        if (path->facts[site].state == MS_FREED)
+                            add_issue(result, path, MS_ISSUE_USE_AFTER_FREE,
+                                      loc, (i32)site, true,
+                                      &path->facts[site].trace);
+                    }
+                } else if (write && summary && arg < summary->nparams &&
+                           summary->params[arg].write_range_known) {
+                    apply_summary_write_range(result, path, actual,
+                                              &summary->params[arg], loc);
+                } else if (write && lib && lib_extent_known) {
+                    process_access(result, path, actual, true, lib_extent, true,
+                                   true, block, loc,
+                                   "library call writes through pointer here");
+                } else if (deref || write) {
+                    process_access(result, path, actual, false, 0, write, true,
+                                   block, loc,
+                                   write ? "callee writes through pointer here"
+                                         : "callee reads through pointer here");
+                }
+                if (must_free) {
+                    i32 site = path_site_for_operand(result, path, actual);
+                    if (site >= 0)
+                        (void)transition_site(result, path, (u32)site,
+                                              MS_ACT_FREE, loc, MS_EV_FREE,
+                                              "ownership taken here", true);
+                } else if (may_free) {
+                    PtsSet pts = alias_points_to(result->alias, actual);
+                    degrade_candidate_sites(result, path, pts);
+                }
+                if (escape)
+                    transition_reachable(result, path, actual, MS_ACT_ESCAPE,
+                                         loc, MS_EV_CALL,
+                                         "passed to an escaping callee here");
+            }
+            return;
+        }
+    }
     first = call_first_arg(call);
     for (i = first; i < call->nops; i++) {
         if (call->ops[i].type == IRT_PTR) {
@@ -1404,12 +1603,13 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
     }
 }
 
-static bool decode_predicate(const IrFunc *function, const IrInst *term,
-                             u32 edge, MsPredicate *predicate,
-                             IrOperand *pointer, bool *pointer_nonnull)
+static bool decode_predicate(const IrFunc *function, const MsPath *path,
+                             const IrInst *term, u32 edge,
+                             MsPredicate *predicate, IrOperand *pointer,
+                             bool *pointer_nonnull)
 {
     const IrInst *cmp;
-    IrOperand subject;
+    IrOperand lhs, rhs, subject;
     i64 constant;
     bool equal;
 
@@ -1417,21 +1617,24 @@ static bool decode_predicate(const IrFunc *function, const IrInst *term,
     memset(pointer, 0, sizeof(*pointer));
     *pointer_nonnull = false;
     if (term->op == IR_SWITCH && term->nops == 1 && edge > 0) {
-        predicate->subject = term->ops[0];
+        predicate->subject = path_resolve_binding(path, term->ops[0]);
         predicate->constant = term->edges[edge].case_val;
         predicate->equal = true;
         return predicate->subject.kind == IROP_VALUE;
     }
     if (term->op != IR_CONDBR || term->nops != 1 || edge > 1)
         return false;
-    cmp = value_def(function, term->ops[0]);
+    subject = path_resolve_binding(path, term->ops[0]);
+    cmp = value_def(function, subject);
     if (!cmp || cmp->op != IR_ICMP || cmp->nops != 2 ||
         (cmp->subop != ICMP_EQ && cmp->subop != ICMP_NE))
         return false;
-    if (operand_constant(function, cmp->ops[0], &constant, 0)) {
-        subject = cmp->ops[1];
-    } else if (operand_constant(function, cmp->ops[1], &constant, 0)) {
-        subject = cmp->ops[0];
+    lhs = path_resolve_binding(path, cmp->ops[0]);
+    rhs = path_resolve_binding(path, cmp->ops[1]);
+    if (operand_constant(function, lhs, &constant, 0)) {
+        subject = rhs;
+    } else if (operand_constant(function, rhs, &constant, 0)) {
+        subject = lhs;
     } else {
         return false;
     }
@@ -1460,7 +1663,7 @@ static bool refine_switch_default(MsFunctionResult *result, MsPath *path,
         return true;
     for (i = 1; i < term->nedges; i++) {
         MsPredicate predicate = {
-            term->ops[0],
+            path_resolve_binding(path, term->ops[0]),
             term->edges[i].case_val,
             false,
         };
@@ -1485,11 +1688,15 @@ static void refine_pointer_branch(MsFunctionResult *result, MsPath *path,
 
         path->facts[site].state = nonnull ? MS_ALLOCATED : MS_UNALLOCATED;
         init_reset(&path->facts[site], MS_INIT_UNKNOWN);
-        ms_trace_push(&path->facts[site].trace, loc, MS_EV_BRANCH,
-                      nonnull ? "this branch is taken only when realloc "
-                                "succeeded"
-                              : "this branch is taken only when realloc "
-                                "failed");
+        ms_trace_push(
+            &path->facts[site].trace, loc, MS_EV_BRANCH,
+            result->families[site]->is_file_resource
+                ? (nonnull ? "this branch is taken only when reopening the "
+                             "stream succeeded"
+                           : "this branch is taken only when reopening the "
+                             "stream failed")
+                : (nonnull ? "this branch is taken only when realloc succeeded"
+                           : "this branch is taken only when realloc failed"));
         if (nonnull && old >= 0)
             (void)transition_site(
                 result, path, (u32)old, MS_ACT_FREE, loc, MS_EV_REALLOC,
@@ -1538,27 +1745,30 @@ static IrIcmp reverse_icmp(IrIcmp pred)
 }
 
 static bool status_edge_success(const MsFunctionResult *result,
-                                const IrInst *term, u32 edge, u32 status_value,
+                                const MsPath *path, const IrInst *term,
+                                u32 edge, u32 status_value,
                                 MsAllocSuccess convention, bool *success)
 {
     const IrInst *cmp;
-    IrOperand subject;
+    IrOperand lhs, rhs, subject;
     IrIcmp pred;
     i64 constant;
     bool truth;
 
     if (!success || term->op != IR_CONDBR || term->nops != 1 || edge > 1 ||
-        !(cmp = value_def(result->function, term->ops[0])) ||
+        !(cmp = value_def(result->function,
+                          path_resolve_binding(path, term->ops[0]))) ||
         cmp->op != IR_ICMP || cmp->nops != 2)
         return false;
     pred = (IrIcmp)cmp->subop;
-    if (cmp->ops[0].kind == IROP_VALUE && cmp->ops[0].a == status_value &&
-        operand_constant(result->function, cmp->ops[1], &constant, 0)) {
-        subject = cmp->ops[0];
-    } else if (cmp->ops[1].kind == IROP_VALUE &&
-               cmp->ops[1].a == status_value &&
-               operand_constant(result->function, cmp->ops[0], &constant, 0)) {
-        subject = cmp->ops[1];
+    lhs = path_resolve_binding(path, cmp->ops[0]);
+    rhs = path_resolve_binding(path, cmp->ops[1]);
+    if (lhs.kind == IROP_VALUE && lhs.a == status_value &&
+        operand_constant(result->function, rhs, &constant, 0)) {
+        subject = lhs;
+    } else if (rhs.kind == IROP_VALUE && rhs.a == status_value &&
+               operand_constant(result->function, lhs, &constant, 0)) {
+        subject = rhs;
         pred = reverse_icmp(pred);
     } else {
         return false;
@@ -1598,8 +1808,9 @@ static void refine_alloc_status_branch(MsFunctionResult *result, MsPath *path,
         bool success;
 
         if (fact->alloc_success == MS_ALLOC_SUCCESS_DIRECT ||
-            !status_edge_success(result, term, edge, fact->alloc_status_value,
-                                 fact->alloc_success, &success))
+            !status_edge_success(result, path, term, edge,
+                                 fact->alloc_status_value, fact->alloc_success,
+                                 &success))
             continue;
         fact->state = success ? MS_ALLOCATED : MS_UNALLOCATED;
         init_reset(fact, success && family && family->fully_written
@@ -1613,12 +1824,56 @@ static void refine_alloc_status_branch(MsFunctionResult *result, MsPath *path,
     }
 }
 
-static u32 feasible_edge_count(const IrFunc *function, const IrInst *term)
+static bool path_edge_feasible(const IrFunc *function, const MsPath *path,
+                               const IrInst *term, u32 edge)
+{
+    IrOperand condition;
+    i64 constant;
+
+    if (!opt_cfg_edge_feasible(function, term, edge))
+        return false;
+    if (term->op != IR_CONDBR || term->nops != 1 || edge > 1)
+        return true;
+    condition = path_resolve_binding(path, term->ops[0]);
+    if (!operand_constant(function, condition, &constant, 0))
+        return true;
+    return (constant != 0) == (edge == 0);
+}
+
+static bool path_bind_target(MsFunctionResult *result, MsPath *path,
+                             const IrEdge *edge, const IrBlock *target)
+{
+    MsBinding next[MS_MAX_BINDINGS_PER_PATH];
+    u32 i;
+
+    if (path->correlations_lost) {
+        path->nbindings = 0;
+        return true;
+    }
+    if (target->nparams != edge->nargs ||
+        target->nparams > MS_MAX_BINDINGS_PER_PATH) {
+        result->degraded = true;
+        path->correlations_lost = true;
+        path_degrade_facts(result, path);
+        return true;
+    }
+    for (i = 0; i < target->nparams; i++) {
+        next[i].param = target->params[i];
+        next[i].incoming = path_resolve_binding(path, edge->args[i]);
+    }
+    path->nbindings = target->nparams;
+    if (target->nparams)
+        memcpy(path->bindings, next, target->nparams * sizeof(next[0]));
+    return true;
+}
+
+static u32 feasible_edge_count(const IrFunc *function, const MsPath *path,
+                               const IrInst *term)
 {
     u32 count = 0, i;
 
     for (i = 0; i < term->nedges; i++)
-        if (opt_cfg_edge_feasible(function, term, i))
+        if (path_edge_feasible(function, path, term, i))
             count++;
     return count;
 }
@@ -1626,7 +1881,7 @@ static u32 feasible_edge_count(const IrFunc *function, const IrInst *term)
 static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
                                  const MsPath *source, const IrInst *term)
 {
-    u32 feasible = feasible_edge_count(result->function, term);
+    u32 feasible = feasible_edge_count(result->function, source, term);
     Span loc = ir_inst_span(result->module, term);
     u32 i;
 
@@ -1648,7 +1903,7 @@ static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
         bool pointer_nonnull;
         u32 target;
 
-        if (!opt_cfg_edge_feasible(result->function, term, i))
+        if (!path_edge_feasible(result->function, source, term, i))
             continue;
         target = term->edges[i].target.v;
         if (!target || target > result->function->nblocks)
@@ -1664,14 +1919,17 @@ static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
         if (!result->split_budget_exhausted)
             refine_alloc_status_branch(result, &path, term, i, loc);
         if (!result->split_budget_exhausted &&
-            decode_predicate(result->function, term, i, &predicate, &pointer,
-                             &pointer_nonnull)) {
+            decode_predicate(result->function, &path, term, i, &predicate,
+                             &pointer, &pointer_nonnull)) {
             if (!path_add_predicate(result, &path, predicate))
                 continue;
             if (pointer.kind != IROP_NONE)
                 refine_pointer_branch(result, &path, pointer, pointer_nonnull,
                                       loc);
         }
+        if (!path_bind_target(result, &path, &term->edges[i],
+                              &result->function->blocks[target - 1]))
+            continue;
         add_block_path(result, work, target - 1, &path);
     }
 }
@@ -1713,12 +1971,82 @@ static void record_exit_leaks(MsFunctionResult *result, const MsPath *path,
     }
 }
 
-MsFunctionResult *ms_analyze_function(Arena *arena, IrModule *module,
-                                      IrFunc *function, bool no_strict_aliasing)
+static void context_alias_seeds(Arena *arena, IrModule *module,
+                                IrFunc *function, const MsSummarySet *summaries,
+                                AliasAllocSeed **alloc_out, u32 *nalloc_out,
+                                AliasReturnSeed **return_out, u32 *nreturn_out)
+{
+    AliasAllocSeed *allocs;
+    AliasReturnSeed *returns;
+    u32 na = 0, nr = 0, bi, cap = 0, return_cap = 0;
+
+    for (bi = 0; bi < function->nblocks; bi++) {
+        const IrInst *in;
+        for (in = function->blocks[bi].first; in; in = in->next) {
+            const MsSummary *s = ms_summary_for_call(summaries, in);
+            const char *callee_name = call_name(module, in);
+            const MsLibSummary *lib = ms_lib_summary_lookup(callee_name);
+            u32 p;
+
+            cap++;
+            if (s) {
+                for (p = 0; p < s->nparams; p++)
+                    if (!s->annot_returns_owned &&
+                        s->params[p].returned_alias &&
+                        (!s->top || s->params[p].annot_returns_borrowed))
+                        return_cap++;
+            } else if (lib && lib->return_alias >= 0) {
+                return_cap++;
+            }
+        }
+    }
+    allocs = arena_alloc(arena, (cap ? cap : 1) * sizeof(*allocs),
+                         _Alignof(AliasAllocSeed));
+    returns =
+        arena_alloc(arena, (return_cap ? return_cap : 1) * sizeof(*returns),
+                    _Alignof(AliasReturnSeed));
+    for (bi = 0; bi < function->nblocks; bi++) {
+        const IrInst *in;
+        for (in = function->blocks[bi].first; in; in = in->next) {
+            const MsSummary *s = ms_summary_for_call(summaries, in);
+            const char *callee_name = call_name(module, in);
+            const MsLibSummary *lib = ms_lib_summary_lookup(callee_name);
+            if (ms_alloc_seed_for_call(module, in, &allocs[na]))
+                na++;
+            else if ((s && s->returns_ownership &&
+                      (!s->top || s->annot_returns_owned)) ||
+                     (lib && lib->returns_ownership))
+                allocs[na++] = (AliasAllocSeed){in, true, ALIAS_NO_OUT_PARAM};
+            if (s) {
+                u32 p;
+                for (p = 0; p < s->nparams; p++)
+                    if (!s->annot_returns_owned &&
+                        s->params[p].returned_alias &&
+                        (!s->top || s->params[p].annot_returns_borrowed))
+                        returns[nr++] = (AliasReturnSeed){in, p};
+            } else if (lib && lib->return_alias >= 0)
+                returns[nr++] = (AliasReturnSeed){in, (u32)lib->return_alias};
+        }
+    }
+    *alloc_out = allocs;
+    *nalloc_out = na;
+    *return_out = returns;
+    *nreturn_out = nr;
+    for (bi = 0; bi < nr; bi++)
+        if (!returns[bi].call || returns[bi].call->op != IR_CALL)
+            CGF_ICE("memsafe: corrupt return-alias seed in @%s",
+                    function->name);
+}
+
+static MsFunctionResult *
+ms_analyze_function_with_summaries(Arena *arena, IrModule *module,
+                                   IrFunc *function, bool no_strict_aliasing,
+                                   const MsSummarySet *summaries)
 {
     MsFunctionResult *result;
     AliasAllocSeed *seeds = NULL;
     AliasConfig config = {0};
+    AliasReturnSeed *return_seeds = NULL;
     MsWorklist work = {0};
     MsPath initial;
     u32 nseeds;
@@ -1731,11 +2059,20 @@ MsFunctionResult *ms_analyze_function(Arena *arena, IrModule *module,
     result->arena = arena;
     result->module = module;
     result->function = function;
-    nseeds = ms_alias_alloc_seeds(arena, module, function, &seeds);
+    u32 nreturn_seeds = 0;
+
+    if (summaries)
+        context_alias_seeds(arena, module, function, summaries, &seeds, &nseeds,
+                            &return_seeds, &nreturn_seeds);
+    else
+        nseeds = ms_alias_alloc_seeds(arena, module, function, &seeds);
+    result->summaries = summaries;
     config.func = function;
     config.no_strict_aliasing = no_strict_aliasing;
     config.alloc_seeds = seeds;
     config.nalloc_seeds = nseeds;
+    config.return_seeds = return_seeds;
+    config.nreturn_seeds = nreturn_seeds;
     result->alias = alias_build(module, &config);
     result->nsites = alias_alloc_site_count(result->alias);
     result->families = arena_alloc(arena,
@@ -1796,6 +2133,13 @@ MsFunctionResult *ms_analyze_function(Arena *arena, IrModule *module,
     }
     free(work.items);
     return result;
+}
+
+MsFunctionResult *ms_analyze_function(Arena *arena, IrModule *module,
+                                      IrFunc *function, bool no_strict_aliasing)
+{
+    return ms_analyze_function_with_summaries(arena, module, function,
+                                              no_strict_aliasing, NULL);
 }
 
 void ms_result_free(MsFunctionResult *result)
@@ -1881,9 +2225,12 @@ static const char *issue_message(const MsIssue *issue)
     case MS_ISSUE_USE_AFTER_FREE:
         return "use of memory after it was freed";
     case MS_ISSUE_DOUBLE_FREE:
-        return "memory is freed more than once";
+        return issue->file_resource ? "resource is closed more than once"
+                                    : "memory is freed more than once";
     case MS_ISSUE_LEAK:
-        return "allocated memory is not released before this return";
+        return issue->file_resource
+                   ? "opened resource is not closed before this return"
+                   : "allocated memory is not released before this return";
     case MS_ISSUE_OUT_OF_BOUNDS:
         return "memory access is outside the allocated object";
     case MS_ISSUE_UNINIT_READ:
@@ -1932,14 +2279,19 @@ void ms_warn_module(WarnCtx *warnings, IrModule *module,
     cfg.no_strict_aliasing = no_strict_aliasing;
     (void)opt_mem2reg(module, &cfg);
     arena_init(&analysis);
-    for (fi = 0; fi < module->nfuncs; fi++) {
-        MsFunctionResult *result = ms_analyze_function(
-            &analysis, module, &module->funcs[fi], no_strict_aliasing);
-        u32 i;
+    {
+        MsSummarySet *summaries =
+            ms_summary_build(&analysis, module, no_strict_aliasing, warnings);
+        for (fi = 0; fi < module->nfuncs; fi++) {
+            MsFunctionResult *result = ms_analyze_function_with_summaries(
+                &analysis, module, &module->funcs[fi], no_strict_aliasing,
+                summaries);
+            u32 i;
 
-        for (i = 0; i < result->nissues; i++)
-            emit_issue(warnings, &result->issues[i]);
-        ms_result_free(result);
+            for (i = 0; i < result->nissues; i++)
+                emit_issue(warnings, &result->issues[i]);
+            ms_result_free(result);
+        }
     }
     arena_free_all(&analysis);
 }
@@ -1961,48 +2313,56 @@ void ms_dump_module(IrModule *module, bool no_strict_aliasing, FILE *out)
     if (!module || !out)
         return;
     arena_init(&analysis);
-    for (fi = 0; fi < module->nfuncs; fi++) {
-        MsFunctionResult *result = ms_analyze_function(
-            &analysis, module, &module->funcs[fi], no_strict_aliasing);
-        u32 bi, si, ei;
+    {
+        MsSummarySet *summaries =
+            ms_summary_build(&analysis, module, no_strict_aliasing, NULL);
+        ms_summary_dump(summaries, out);
+        for (fi = 0; fi < module->nfuncs; fi++) {
+            MsFunctionResult *result = ms_analyze_function_with_summaries(
+                &analysis, module, &module->funcs[fi], no_strict_aliasing,
+                summaries);
+            u32 bi, si, ei;
 
-        fprintf(out, "memsafe function=%s sites=%u splits=%u degraded=%s\n",
-                result->function->name, result->nsites, result->splits,
-                result->degraded ? "may" : "no");
-        for (bi = 0; bi < result->function->nblocks; bi++)
-            fprintf(out, "block=%u name=%s states=%u\n", bi,
-                    result->function->blocks[bi].name,
-                    result->blocks[bi].nslots);
-        for (si = 0; si < result->nsites; si++) {
-            const AllocSite *site = alias_alloc_site_at(result->alias, si);
-            const IrInst *call = alias_alloc_site_call(site);
-            const char *name = call_name(module, call);
+            fprintf(out, "memsafe function=%s sites=%u splits=%u degraded=%s\n",
+                    result->function->name, result->nsites, result->splits,
+                    result->degraded ? "may" : "no");
+            for (bi = 0; bi < result->function->nblocks; bi++)
+                fprintf(out, "block=%u name=%s states=%u\n", bi,
+                        result->function->blocks[bi].name,
+                        result->blocks[bi].nslots);
+            for (si = 0; si < result->nsites; si++) {
+                const AllocSite *site = alias_alloc_site_at(result->alias, si);
+                const IrInst *call = alias_alloc_site_call(site);
+                const char *name = call_name(module, call);
 
-            for (ei = 0; ei < result->nexits; ei++) {
-                const MsTrace *trace = &result->exits[ei].path.facts[si].trace;
-                u32 ti;
+                for (ei = 0; ei < result->nexits; ei++) {
+                    const MsTrace *trace =
+                        &result->exits[ei].path.facts[si].trace;
+                    u32 ti;
 
-                fprintf(out, "site=%u callee=%s exit=%u state=%s\n",
+                    fprintf(
+                        out, "site=%u callee=%s exit=%u state=%s\n",
                         alias_alloc_site_id(site), name ? name : "?", ei,
                         ms_state_name(result->exits[ei].path.facts[si].state));
-                for (ti = 0; ti < trace->len; ti++) {
-                    MsEvent event;
-                    u32 line, col;
+                    for (ti = 0; ti < trace->len; ti++) {
+                        MsEvent event;
+                        u32 line, col;
 
-                    if (!ms_trace_event(trace, ti, &event))
-                        continue;
-                    line = event.loc.presumed_line ? event.loc.presumed_line
-                                                   : event.loc.line;
-                    col = event.loc.col;
-                    fprintf(out,
-                            "trace site=%u exit=%u event=%s line=%u col=%u "
-                            "note=%s\n",
-                            alias_alloc_site_id(site), ei,
-                            event_name(event.kind), line, col, event.note);
+                        if (!ms_trace_event(trace, ti, &event))
+                            continue;
+                        line = event.loc.presumed_line ? event.loc.presumed_line
+                                                       : event.loc.line;
+                        col = event.loc.col;
+                        fprintf(out,
+                                "trace site=%u exit=%u event=%s line=%u col=%u "
+                                "note=%s\n",
+                                alias_alloc_site_id(site), ei,
+                                event_name(event.kind), line, col, event.note);
+                    }
                 }
             }
+            ms_result_free(result);
         }
-        ms_result_free(result);
     }
     arena_free_all(&analysis);
 }

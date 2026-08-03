@@ -1,6 +1,7 @@
 #ifndef CGF_AST_H
 #define CGF_AST_H
 
+#include "attr.h"
 #include "diag.h"
 #include "lex/lex.h"
 #include "util/arena.h"
@@ -134,6 +135,7 @@ typedef struct AstParam {
     AstType *type;
     const char *name; /* NULL for unnamed prototype params */
     Span span;
+    CgfAttr *cgf_attrs; /* invalid on parameters; retained for sema's error */
 } AstParam;
 
 struct AstType {
@@ -179,9 +181,10 @@ struct AstNode {
     /* AST_DECL / AST_FUNC_DEF */
     const char *name;
     AstType *type;
-    u32 storage;    /* AST_SC_* */
-    u32 func_specs; /* AST_FS_* */
-    AstNode *init;  /* initializer, or NULL */
+    u32 storage;        /* AST_SC_* */
+    u32 func_specs;     /* AST_FS_* */
+    AstNode *init;      /* initializer, or NULL */
+    CgfAttr *cgf_attrs; /* ownership attributes, immutable/source-ordered */
     /* _Alignas: either an expression (`_Alignas(16)`) or a type-name
      * (`_Alignas(double)`). Only one is set. Constraints are sema's — the
      * parser records what was written. */

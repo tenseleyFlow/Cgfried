@@ -2,6 +2,42 @@
 
 #include "memsafe/memsafe.h"
 #include "unit.h"
+#include "warn/warn.h"
+
+typedef struct {
+    Arena arena;
+    DiagCtx *dc;
+} SummaryFix;
+
+static void summary_silent_sink(void *user, const Diag *diag, const DiagCtx *dc)
+{
+    (void)user;
+    (void)diag;
+    (void)dc;
+}
+
+static void summary_count_sink(void *user, const Diag *diag, const DiagCtx *dc)
+{
+    u32 *count = user;
+
+    (void)diag;
+    (void)dc;
+    (*count)++;
+}
+
+static IrModule *summary_parse(SummaryFix *fix, const char *source)
+{
+    DiagSink sink = {summary_silent_sink, NULL};
+    IrModule *module;
+
+    arena_init(&fix->arena);
+    fix->dc = diag_ctx_new(&fix->arena);
+    diag_set_sink(fix->dc, sink);
+    module = ir_parse_module(&fix->arena, fix->dc, source, "<summary-test>");
+    if (module && !ir_verify(fix->dc, module))
+        return NULL;
+    return module;
+}
 
 void test_memsafe_state_join_exhaustive(TestCtx *t)
 {
@@ -93,27 +129,41 @@ void test_memsafe_allocation_family_table(TestCtx *t)
 {
     static const MsAllocFamily expected[] = {
         {"malloc", true, MS_NO_ARG, MS_NO_ARG, false, true, false, false,
-         MS_ALLOC_SUCCESS_DIRECT, 0, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_DIRECT, 0, MS_NO_ARG, false},
         {"calloc", true, MS_NO_ARG, MS_NO_ARG, false, true, true, true,
-         MS_ALLOC_SUCCESS_DIRECT, 0, 1},
+         MS_ALLOC_SUCCESS_DIRECT, 0, 1, false},
         {"realloc", true, MS_NO_ARG, 0, true, true, false, false,
-         MS_ALLOC_SUCCESS_DIRECT, 1, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_DIRECT, 1, MS_NO_ARG, false},
         {"reallocarray", true, MS_NO_ARG, 0, true, true, false, false,
-         MS_ALLOC_SUCCESS_DIRECT, 1, 2},
+         MS_ALLOC_SUCCESS_DIRECT, 1, 2, false},
         {"free", false, MS_NO_ARG, 0, false, false, false, false,
-         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, false},
         {"strdup", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
-         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, false},
         {"strndup", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
-         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, false},
         {"asprintf", true, 0, MS_NO_ARG, false, true, false, true,
-         MS_ALLOC_SUCCESS_STATUS_NONNEG, MS_NO_ARG, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_STATUS_NONNEG, MS_NO_ARG, MS_NO_ARG, false},
         {"vasprintf", true, 0, MS_NO_ARG, false, true, false, true,
-         MS_ALLOC_SUCCESS_STATUS_NONNEG, MS_NO_ARG, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_STATUS_NONNEG, MS_NO_ARG, MS_NO_ARG, false},
         {"aligned_alloc", true, MS_NO_ARG, MS_NO_ARG, false, true, false, false,
-         MS_ALLOC_SUCCESS_DIRECT, 1, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_DIRECT, 1, MS_NO_ARG, false},
         {"posix_memalign", true, 0, MS_NO_ARG, false, true, false, false,
-         MS_ALLOC_SUCCESS_STATUS_ZERO, 2, MS_NO_ARG},
+         MS_ALLOC_SUCCESS_STATUS_ZERO, 2, MS_NO_ARG, false},
+        {"fopen", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
+        {"fdopen", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
+        {"tmpfile", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
+        {"popen", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
+        {"freopen", true, MS_NO_ARG, 2, true, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
+        {"fclose", false, MS_NO_ARG, 0, false, false, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
+        {"pclose", false, MS_NO_ARG, 0, false, false, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG, true},
     };
     u32 i;
 
@@ -136,6 +186,8 @@ void test_memsafe_allocation_family_table(TestCtx *t)
         T_ASSERT_EQ_INT(t, family->success, expected[i].success);
         T_ASSERT_EQ_INT(t, family->size_arg, expected[i].size_arg);
         T_ASSERT_EQ_INT(t, family->size_arg2, expected[i].size_arg2);
+        T_ASSERT_EQ_INT(t, family->is_file_resource,
+                        expected[i].is_file_resource);
     }
     T_ASSERT(t, ms_alloc_family_lookup("not_an_allocator") == NULL);
     T_ASSERT(t, ms_alloc_family_lookup(NULL) == NULL);
@@ -187,4 +239,476 @@ void test_memsafe_alias_seed_translation(TestCtx *t)
     T_ASSERT(t, seeds[0].call == &malloc_call);
     T_ASSERT(t, seeds[1].call == &posix_call);
     arena_free_all(&arena);
+}
+
+void test_memsafe_lib_summary_table_covers_reviewed_libc_surface(TestCtx *t)
+{
+    static const char *const names[] = {
+        "memcpy",  "memmove", "memset",   "memcmp",     "memchr",      "strlen",
+        "strnlen", "strcmp",  "strncmp",  "strcasecmp", "strncasecmp", "strcpy",
+        "strncpy", "strcat",  "strncat",  "strchr",     "strrchr",     "strstr",
+        "strpbrk", "strspn",  "strcspn",  "strtok",     "strerror_r",  "bcopy",
+        "bzero",   "fread",   "fwrite",   "fgets",      "fputs",       "puts",
+        "printf",  "fprintf", "snprintf", "sprintf",    "scanf",       "sscanf",
+        "fscanf",  "getenv",  "getcwd",   "realpath",   "read",        "write",
+        "pread",   "pwrite",  "qsort",    "bsearch",    "free",        "fopen",
+        "fdopen",  "tmpfile", "popen",    "freopen",    "fflush",      "fclose",
+        "pclose",
+    };
+    u32 i;
+
+    T_ASSERT(t, CGF_ARRAY_LEN(names) >= 40);
+    for (i = 0; i < CGF_ARRAY_LEN(names); i++) {
+        const MsLibSummary *summary = ms_lib_summary_lookup(names[i]);
+
+        T_ASSERT(t, summary != NULL);
+        if (summary)
+            T_ASSERT_EQ_STR(t, summary->name, names[i]);
+    }
+    T_ASSERT(t, ms_lib_summary_lookup("not_a_libc_function") == NULL);
+    T_ASSERT(t, ms_lib_summary_lookup(NULL) == NULL);
+}
+
+void test_memsafe_lib_summary_records_alias_and_write_effects(TestCtx *t)
+{
+    const MsLibSummary *memcpy_summary = ms_lib_summary_lookup("memcpy");
+    const MsLibSummary *strchr_summary = ms_lib_summary_lookup("strchr");
+
+    T_ASSERT(t, memcpy_summary != NULL);
+    T_ASSERT(t, strchr_summary != NULL);
+    if (!memcpy_summary || !strchr_summary)
+        return;
+    T_ASSERT_EQ_INT(t, memcpy_summary->deref_mask, 3);
+    T_ASSERT_EQ_INT(t, memcpy_summary->write_mask, 1);
+    T_ASSERT_EQ_INT(t, memcpy_summary->return_alias, 0);
+    T_ASSERT_EQ_INT(t, memcpy_summary->write_size_arg, 2);
+    T_ASSERT_EQ_INT(t, memcpy_summary->write_size_arg2, -1);
+    T_ASSERT_EQ_INT(t, strchr_summary->deref_mask, 1);
+    T_ASSERT_EQ_INT(t, strchr_summary->write_mask, 0);
+    T_ASSERT_EQ_INT(t, strchr_summary->return_alias, 0);
+    T_ASSERT_EQ_INT(t, strchr_summary->write_size_arg, -1);
+}
+
+void test_memsafe_lib_summary_records_memory_and_file_release_pairs(TestCtx *t)
+{
+    const MsLibSummary *free_summary = ms_lib_summary_lookup("free");
+    const MsLibSummary *fclose_summary = ms_lib_summary_lookup("fclose");
+
+    T_ASSERT(t, free_summary != NULL);
+    T_ASSERT(t, fclose_summary != NULL);
+    if (!free_summary || !fclose_summary)
+        return;
+    T_ASSERT_EQ_INT(t, free_summary->free_mask, 1);
+    T_ASSERT_EQ_INT(t, fclose_summary->free_mask, 1);
+    T_ASSERT_EQ_INT(t, fclose_summary->deref_mask, 1);
+    T_ASSERT(t, !free_summary->returns_ownership);
+    T_ASSERT(t, !fclose_summary->returns_ownership);
+}
+
+void test_memsafe_lib_summary_marks_variadic_portions_conservative(TestCtx *t)
+{
+    const MsLibSummary *printf_summary = ms_lib_summary_lookup("printf");
+    const MsLibSummary *fprintf_summary = ms_lib_summary_lookup("fprintf");
+    const MsLibSummary *snprintf_summary = ms_lib_summary_lookup("snprintf");
+    const MsLibSummary *memcpy_summary = ms_lib_summary_lookup("memcpy");
+
+    T_ASSERT_EQ_INT(t, ms_lib_summary_variadic_from(printf_summary), 1);
+    T_ASSERT_EQ_INT(t, ms_lib_summary_variadic_from(fprintf_summary), 2);
+    T_ASSERT_EQ_INT(t, ms_lib_summary_variadic_from(snprintf_summary), 3);
+    T_ASSERT_EQ_INT(t, ms_lib_summary_variadic_from(memcpy_summary), (u32)-1);
+    T_ASSERT_EQ_INT(t, ms_lib_summary_variadic_from(NULL), (u32)-1);
+}
+
+void test_memsafe_summary_propagates_nonzero_libc_argument_masks(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @fread\n"
+                            "sym @freopen\n"
+                            "sym @strerror_r\n"
+                            "func void @helper(ptr %buffer, ptr %path, "
+                            "ptr %mode, ptr %stream, ptr %scratch) {\n"
+                            "entry():\n"
+                            "    %n = call i64 @fread(ptr %buffer, i64 1, "
+                            "i64 2, ptr %stream)\n"
+                            "    %replacement = call ptr @freopen(ptr %path, "
+                            "ptr %mode, ptr %stream)\n"
+                            "    %status = call i32 @strerror_r(i32 1, "
+                            "ptr %scratch, i64 4)\n"
+                            "    ret\n"
+                            "}\n");
+    MsSummarySet *set;
+    const MsSummary *helper;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    helper = ms_summary_get(set, 0);
+    T_ASSERT(t, helper != NULL);
+    if (helper) {
+        T_ASSERT(t, helper->params[0].dereferenced);
+        T_ASSERT(t, helper->params[0].written);
+        T_ASSERT(t, helper->params[1].dereferenced);
+        T_ASSERT(t, helper->params[2].dereferenced);
+        T_ASSERT(t, helper->params[3].dereferenced);
+        T_ASSERT(t, helper->params[3].may_free);
+        T_ASSERT(t, helper->params[4].dereferenced);
+        T_ASSERT(t, helper->params[4].written);
+    }
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_diamond_propagates_bottom_up(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @free\n"
+                            "func void @leaf(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @free(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @left(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @leaf(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @right(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @leaf(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @root(ptr %p) {\n"
+                            "entry():\n"
+                            "    call void @left(ptr %p)\n"
+                            "    call void @right(ptr %p)\n"
+                            "    ret\n"
+                            "}\n");
+    MsSummarySet *set;
+    const MsSummary *left;
+    const MsSummary *right;
+    const MsSummary *root;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    left = ms_summary_get(set, 1);
+    right = ms_summary_get(set, 2);
+    root = ms_summary_get(set, 3);
+    T_ASSERT(t, left && !left->top && left->params[0].may_free);
+    T_ASSERT(t, right && !right->top && right->params[0].may_free);
+    T_ASSERT(t, root && !root->top && root->params[0].may_free);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_forwards_mixed_owned_and_alias_return(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module = summary_parse(
+        &fix, "sym @malloc\n"
+              "func ptr @mixed(ptr %p, i32 %fresh) internal {\n"
+              "entry():\n"
+              "    condbr %fresh, take_owned(), take_alias()\n"
+              "take_owned():\n"
+              "    %owned = call ptr @malloc(i64 8)\n"
+              "    ret ptr %owned\n"
+              "take_alias():\n"
+              "    ret ptr %p\n"
+              "}\n"
+              "func ptr @forward(ptr %p, i32 %fresh) {\n"
+              "entry():\n"
+              "    %result = call ptr @mixed(ptr %p, i32 %fresh)\n"
+              "    ret ptr %result\n"
+              "}\n"
+              "func ptr @arena_load(ptr %p) {\n"
+              "entry():\n"
+              "    %slot = alloca 8, align 8\n"
+              "    %unrelated = call ptr @malloc(i64 8)\n"
+              "    store ptr %unrelated, %slot, align 8, etype ptr\n"
+              "    store ptr %p, %slot, align 8, etype ptr\n"
+              "    %result = load ptr, %slot, align 8, etype ptr\n"
+              "    ret ptr %result\n"
+              "}\n");
+    MsSummarySet *set;
+    const MsSummary *mixed;
+    const MsSummary *forward;
+    const MsSummary *arena_load;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    mixed = ms_summary_get(set, 0);
+    forward = ms_summary_get(set, 1);
+    arena_load = ms_summary_get(set, 2);
+    T_ASSERT(t, mixed && mixed->returns_ownership);
+    T_ASSERT(t, mixed && mixed->params[0].returned_alias);
+    T_ASSERT(t, forward && forward->returns_ownership);
+    T_ASSERT(t, forward && forward->params[0].returned_alias);
+    T_ASSERT(t, arena_load && !arena_load->returns_ownership);
+    T_ASSERT(t, arena_load && arena_load->params[0].returned_alias);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_marks_recursive_scc_as_top(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func void @left(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @right(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @right(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @left(ptr %p)\n"
+                            "    ret\n"
+                            "}\n");
+    MsSummarySet *set;
+    const MsSummary *left;
+    const MsSummary *right;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    left = ms_summary_get(set, 0);
+    right = ms_summary_get(set, 1);
+    T_ASSERT(t, left && left->top);
+    T_ASSERT(t, right && right->top);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_recursive_top_does_not_prove_owned_return(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "func ptr @recursive(i32 %again) internal {\n"
+                            "entry():\n"
+                            "    condbr %again, recurse(), allocate()\n"
+                            "recurse():\n"
+                            "    %next = call ptr @recursive(i32 %again)\n"
+                            "    ret ptr %next\n"
+                            "allocate():\n"
+                            "    %fresh = call ptr @malloc(i64 8)\n"
+                            "    ret ptr %fresh\n"
+                            "}\n"
+                            "func ptr @wrapper(i32 %again) {\n"
+                            "entry():\n"
+                            "    %result = call ptr @recursive(i32 %again)\n"
+                            "    ret ptr %result\n"
+                            "}\n");
+    MsSummarySet *set;
+    const MsSummary *recursive;
+    const MsSummary *wrapper;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    recursive = ms_summary_get(set, 0);
+    wrapper = ms_summary_get(set, 1);
+    T_ASSERT(t, recursive && recursive->top);
+    T_ASSERT(t, recursive && recursive->returns_ownership);
+    T_ASSERT(t, wrapper && !wrapper->top);
+    T_ASSERT(t, wrapper && !wrapper->returns_ownership);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_borrowed_return_override(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "func ptr @fresh(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    %q = call ptr @malloc(i64 8)\n"
+                            "    ret ptr %q\n"
+                            "}\n"
+                            "func ptr @caller(ptr %p) {\n"
+                            "entry():\n"
+                            "    %q = call ptr @fresh(ptr %p)\n"
+                            "    ret ptr %q\n"
+                            "}\n");
+    CgfAttr borrowed = {CGF_ATTR_RETURNS_BORROWED, 1, 1, {0}, NULL};
+    MsSummarySet *set;
+    const MsSummary *fresh;
+    const MsSummary *caller;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    module->funcs[0].cgf_attrs = &borrowed;
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    fresh = ms_summary_get(set, 0);
+    caller = ms_summary_get(set, 1);
+    T_ASSERT(t, fresh && !fresh->returns_ownership);
+    T_ASSERT(t, fresh && fresh->params[0].returned_alias);
+    T_ASSERT(t, caller && !caller->returns_ownership);
+    T_ASSERT(t, caller && caller->params[0].returned_alias);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_recursive_annotation_wrapper(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @free\n"
+                            "func void @recursive(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @free(ptr %p)\n"
+                            "    call void @recursive(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @wrapper(ptr %p) {\n"
+                            "entry():\n"
+                            "    call void @recursive(ptr %p)\n"
+                            "    ret\n"
+                            "}\n");
+    CgfAttr borrows = {CGF_ATTR_BORROWS, 1, 1, {0}, NULL};
+    MsSummarySet *set;
+    const MsSummary *recursive;
+    const MsSummary *wrapper;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    module->funcs[0].cgf_attrs = &borrows;
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    recursive = ms_summary_get(set, 0);
+    wrapper = ms_summary_get(set, 1);
+    T_ASSERT(t, recursive && recursive->top);
+    T_ASSERT(t, recursive && recursive->params[0].annot_borrow);
+    T_ASSERT(t, recursive && !recursive->params[0].may_free);
+    T_ASSERT(t, recursive && !recursive->params[0].escapes);
+    T_ASSERT(t, wrapper && !wrapper->top);
+    T_ASSERT(t, wrapper && !wrapper->params[0].may_free);
+    T_ASSERT(t, wrapper && !wrapper->params[0].escapes);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_owned_return_suppresses_alias(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func ptr @owned(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    ret ptr %p\n"
+                            "}\n"
+                            "func ptr @caller(ptr %p) {\n"
+                            "entry():\n"
+                            "    %q = call ptr @owned(ptr %p)\n"
+                            "    ret ptr %q\n"
+                            "}\n");
+    CgfAttr owned = {CGF_ATTR_RETURNS_OWNED, 0, 0, {0}, NULL};
+    MsSummarySet *set;
+    const MsSummary *callee;
+    const MsSummary *caller;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    module->funcs[0].cgf_attrs = &owned;
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    callee = ms_summary_get(set, 0);
+    caller = ms_summary_get(set, 1);
+    T_ASSERT(t, callee && callee->returns_ownership);
+    T_ASSERT(t, callee && callee->params[0].returned_alias);
+    T_ASSERT(t, caller && caller->returns_ownership);
+    T_ASSERT(t, caller && !caller->params[0].returned_alias);
+    arena_free_all(&fix.arena);
+}
+
+static void check_annotation_mismatch_suppression(TestCtx *t, bool pragma)
+{
+    SummaryFix fix;
+    IrModule *module = summary_parse(&fix, "sym @malloc\n"
+                                           "func ptr @suppressed(ptr %p) {\n"
+                                           "entry():\n"
+                                           "    %q = call ptr @malloc(i64 8)\n"
+                                           "    ret ptr %q\n"
+                                           "}\n");
+    CgfAttr borrowed = {CGF_ATTR_RETURNS_BORROWED, 1, 1, {0}, NULL};
+    DiagSink sink;
+    WarnCtx *warnings;
+    u32 count = 0;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    module->funcs[0].cgf_attrs = &borrowed;
+    sink.handle = summary_count_sink;
+    sink.user = &count;
+    diag_set_sink(fix.dc, sink);
+    warnings = warn_ctx_new(&fix.arena, fix.dc);
+    if (pragma)
+        warn_pragma_set(warnings, 0, WARN_MEM_ANNOTATION_MISMATCH,
+                        WARN_PRAGMA_IGNORED);
+    else
+        T_ASSERT(t, warn_flag(warnings, "no-mem-annotation-mismatch"));
+    (void)ms_summary_build(&fix.arena, module, false, warnings);
+    T_ASSERT_EQ_INT(t, count, 0);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_suppressed_mismatch_has_no_orphan_notes(TestCtx *t)
+{
+    check_annotation_mismatch_suppression(t, false);
+    check_annotation_mismatch_suppression(t, true);
+}
+
+void test_memsafe_summary_may_free_vs_annotated_must(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @free\n"
+                            "func void @inferred(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    call void @free(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @contract(ptr %p) {\n"
+                            "entry():\n"
+                            "    ret\n"
+                            "}\n");
+    CgfAttr takes = {CGF_ATTR_TAKES_OWNERSHIP, 1, 1, {0}, NULL};
+    MsSummarySet *set;
+    const MsSummary *inferred;
+    const MsSummary *contract;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    module->funcs[1].cgf_attrs = &takes;
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    inferred = ms_summary_get(set, 0);
+    contract = ms_summary_get(set, 1);
+    T_ASSERT(t, inferred && inferred->params[0].may_free);
+    T_ASSERT(t, inferred && !inferred->params[0].must_free);
+    T_ASSERT(t, contract && contract->params[0].may_free);
+    T_ASSERT(t, contract && contract->params[0].must_free);
+    arena_free_all(&fix.arena);
 }
