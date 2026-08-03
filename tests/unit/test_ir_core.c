@@ -182,6 +182,7 @@ void test_ir_module_clone_is_deep_and_preserves_provenance(TestCtx *t)
     IrModule *source, *copy;
     IrFunc *sf, *cf;
     Span loc = {0};
+    const IrByteRange member_ranges[] = {{0, 1}, {4, 8}};
 
     fix_init(&f);
     arena_init(&clones);
@@ -194,6 +195,8 @@ void test_ir_module_clone_is_deep_and_preserves_provenance(TestCtx *t)
     loc.seq = 9;
     loc.origin = SPAN_ORIGIN_ANY_MACRO;
     sf->loc = ir_intern_span(source, loc);
+    ir_mem_layout_register(source, loc, 8, member_ranges,
+                           CGF_ARRAY_LEN(member_ranges), false);
     ir_func_record_removed_span(sf, (BlockId){3}, loc, IR_CFG_REMOVED_CONFIG);
     loc.seq = 10;
     ir_func_record_removed_span(sf, (BlockId){4}, loc, IR_CFG_REMOVED_CONFIG);
@@ -212,6 +215,13 @@ void test_ir_module_clone_is_deep_and_preserves_provenance(TestCtx *t)
         T_ASSERT(t, cf->blocks[0].first->edges[0].args !=
                         sf->blocks[0].first->edges[0].args);
         T_ASSERT_EQ_INT(t, cf->ncfg_removed, 3);
+        T_ASSERT_EQ_INT(t, copy->nmem_layouts, 1);
+        T_ASSERT(t, copy->mem_layouts != source->mem_layouts);
+        T_ASSERT(t,
+                 copy->mem_layouts[0].ranges != source->mem_layouts[0].ranges);
+        T_ASSERT_EQ_INT(t, copy->mem_layouts[0].nranges, 2);
+        T_ASSERT_EQ_INT(t, copy->mem_layouts[0].ranges[1].lo, 4);
+        T_ASSERT_EQ_INT(t, copy->mem_layouts[0].ranges[1].hi, 8);
         T_ASSERT_EQ_INT(t, cf->cfg_removed[0].loc.seq, 9);
         T_ASSERT_EQ_INT(t, cf->cfg_removed[0].loc.origin,
                         SPAN_ORIGIN_ANY_MACRO);

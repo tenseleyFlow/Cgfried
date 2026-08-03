@@ -8,9 +8,14 @@
 // IR_CHECK: reloc 0 @x 0
 // IR_CHECK: global @t size 8 align 8 common tentative
 // IR_CHECK: reloc 0 @.Lstr.0 0
+// IR_CHECK: reloc 0 @.Lstr.0 1
 int x = 42;
 int *px = &x;
 double t;
 const char *msg = "hi";
+const char *commuted_subscript = &1 ["hi"];
 static short s2[3] = {1, 2, 3};
-short use(void) { return s2[1]; }
+short use(void)
+{
+    return s2[1];
+}

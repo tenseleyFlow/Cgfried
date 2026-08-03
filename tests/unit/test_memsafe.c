@@ -92,18 +92,28 @@ void test_memsafe_trace_persistent_order_and_interning(TestCtx *t)
 void test_memsafe_allocation_family_table(TestCtx *t)
 {
     static const MsAllocFamily expected[] = {
-        {"malloc", true, MS_NO_ARG, MS_NO_ARG, false, true, false, false},
-        {"calloc", true, MS_NO_ARG, MS_NO_ARG, false, true, true, true},
-        {"realloc", true, MS_NO_ARG, 0, true, true, false, false},
-        {"reallocarray", true, MS_NO_ARG, 0, true, true, false, false},
-        {"free", false, MS_NO_ARG, 0, false, false, false, false},
-        {"strdup", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true},
-        {"strndup", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true},
-        {"asprintf", true, 0, MS_NO_ARG, false, true, false, true},
-        {"vasprintf", true, 0, MS_NO_ARG, false, true, false, true},
-        {"aligned_alloc", true, MS_NO_ARG, MS_NO_ARG, false, true, false,
-         false},
-        {"posix_memalign", true, 0, MS_NO_ARG, false, true, false, false},
+        {"malloc", true, MS_NO_ARG, MS_NO_ARG, false, true, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, 0, MS_NO_ARG},
+        {"calloc", true, MS_NO_ARG, MS_NO_ARG, false, true, true, true,
+         MS_ALLOC_SUCCESS_DIRECT, 0, 1},
+        {"realloc", true, MS_NO_ARG, 0, true, true, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, 1, MS_NO_ARG},
+        {"reallocarray", true, MS_NO_ARG, 0, true, true, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, 1, 2},
+        {"free", false, MS_NO_ARG, 0, false, false, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG},
+        {"strdup", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG},
+        {"strndup", true, MS_NO_ARG, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_DIRECT, MS_NO_ARG, MS_NO_ARG},
+        {"asprintf", true, 0, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_STATUS_NONNEG, MS_NO_ARG, MS_NO_ARG},
+        {"vasprintf", true, 0, MS_NO_ARG, false, true, false, true,
+         MS_ALLOC_SUCCESS_STATUS_NONNEG, MS_NO_ARG, MS_NO_ARG},
+        {"aligned_alloc", true, MS_NO_ARG, MS_NO_ARG, false, true, false, false,
+         MS_ALLOC_SUCCESS_DIRECT, 1, MS_NO_ARG},
+        {"posix_memalign", true, 0, MS_NO_ARG, false, true, false, false,
+         MS_ALLOC_SUCCESS_STATUS_ZERO, 2, MS_NO_ARG},
     };
     u32 i;
 
@@ -123,6 +133,9 @@ void test_memsafe_allocation_family_table(TestCtx *t)
                         expected[i].returns_ownership);
         T_ASSERT_EQ_INT(t, family->zeroes, expected[i].zeroes);
         T_ASSERT_EQ_INT(t, family->fully_written, expected[i].fully_written);
+        T_ASSERT_EQ_INT(t, family->success, expected[i].success);
+        T_ASSERT_EQ_INT(t, family->size_arg, expected[i].size_arg);
+        T_ASSERT_EQ_INT(t, family->size_arg2, expected[i].size_arg2);
     }
     T_ASSERT(t, ms_alloc_family_lookup("not_an_allocator") == NULL);
     T_ASSERT(t, ms_alloc_family_lookup(NULL) == NULL);

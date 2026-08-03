@@ -393,6 +393,20 @@ void test_lower_ptr_arith_scaling(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_commuted_subscript(TestCtx *t)
+{
+    LowFix f;
+
+    /* C defines a[b] as *(a + b), so the pointer may legally be the second
+     * operand.  musl's getenv uses this spelling as `l[*e]`. */
+    T_ASSERT(t, run_lower(&f, "int get(unsigned long l, char **e) {\n"
+                              "    return l[*e];\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "ptradd") != NULL);
+    low_free(&f);
+}
+
 void test_lower_incdec_result_values(TestCtx *t)
 {
     LowFix f;

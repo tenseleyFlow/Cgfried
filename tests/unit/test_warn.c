@@ -428,6 +428,66 @@ void test_warn_explicit_activation(TestCtx *t)
     T_ASSERT(t, !warn_explicitly_enabled(NULL, WARN_IMPLICIT_INT, (Span){0}));
 }
 
+void test_warn_memsafe_policy(TestCtx *t)
+{
+    static const WarnId proof_ids[] = {
+        WARN_MEM_DOUBLE_FREE,   WARN_MEM_FREE_NONHEAP, WARN_MEM_LEAK,
+        WARN_MEM_OUT_OF_BOUNDS, WARN_MEM_UNINIT_READ,  WARN_MEM_USE_AFTER_FREE,
+    };
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    size_t i;
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    for (i = 0; i < CGF_ARRAY_LEN(proof_ids); i++)
+        T_ASSERT(t, warn_enabled(w, proof_ids[i], (Span){0}));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_REALLOC_ZERO, (Span){0}));
+    T_ASSERT(t, warn_memsafe_needed(w));
+    T_ASSERT(t, !warn_mem_strict_enabled(w));
+    T_ASSERT(t, !warn_mem_strict_enabled(NULL));
+    T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wmem-leak"), WARN_MEM_LEAK);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wmem"), WARN_OPTION_KNOWN);
+    T_ASSERT_EQ_INT(t, warn_option_classify("-Wmem-strict"), WARN_OPTION_KNOWN);
+
+    T_ASSERT(t, warn_flag(w, "-Wno-mem"));
+    for (i = 0; i < CGF_ARRAY_LEN(proof_ids); i++)
+        T_ASSERT(t, !warn_enabled(w, proof_ids[i], (Span){0}));
+    T_ASSERT(t, !warn_memsafe_needed(w));
+
+    T_ASSERT(t, warn_flag(w, "-Wmem-use-after-free"));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_USE_AFTER_FREE, (Span){0}));
+    T_ASSERT(t, warn_memsafe_needed(w));
+    T_ASSERT(t, warn_flag(w, "-Wmem-strict"));
+    T_ASSERT(t, warn_mem_strict_enabled(w));
+    T_ASSERT(t, warn_flag(w, "-Wno-mem-strict"));
+    T_ASSERT(t, !warn_mem_strict_enabled(w));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_USE_AFTER_FREE, (Span){0}));
+    T_ASSERT(t, warn_flag(w, "-Wmem-realloc-zero"));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_REALLOC_ZERO, (Span){0}));
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wno-mem"));
+    T_ASSERT(t, warn_flag(w, "-Werror=mem"));
+    warn_at(w, WARN_MEM_LEAK, (Span){0}, "probe");
+    T_ASSERT_EQ_INT(t, cap.count, 1);
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+    T_ASSERT_EQ_INT(t, cap.last.warn_id, WARN_MEM_LEAK);
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wno-mem"));
+    warn_pragma_set(w, 10, WARN_MEM_LEAK, WARN_PRAGMA_WARNING);
+    T_ASSERT(t, warn_memsafe_needed(w));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_LEAK, (Span){.seq = 5}));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_LEAK, (Span){.seq = 10}));
+    arena_free_all(&a);
+}
+
 void test_warn_pedwarn_exhaustive(TestCtx *t)
 {
     static const char *const configs[] = {NULL, "-pedantic",

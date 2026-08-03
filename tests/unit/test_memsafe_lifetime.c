@@ -30,6 +30,20 @@ static IrModule *parse_module(MsFix *fix, const char *source)
     return module;
 }
 
+static u32 issue_count_kind(const MsFunctionResult *result, MsIssueKind kind)
+{
+    u32 count = 0;
+    u32 i;
+
+    for (i = 0; i < ms_result_issue_count(result); i++) {
+        const MsIssue *issue = ms_result_issue_at(result, i);
+
+        if (issue && issue->kind == kind)
+            count++;
+    }
+    return count;
+}
+
 void test_memsafe_lifetime_malloc_free(TestCtx *t)
 {
     MsFix fix;
@@ -490,6 +504,371 @@ void test_memsafe_lifetime_predicate_cap_drops_oldest_term(TestCtx *t)
     T_ASSERT_EQ_INT(t, ms_result_split_count(result), 5);
     T_ASSERT_EQ_INT(t, ms_result_exit_count(result), 6);
     T_ASSERT(t, ms_result_degraded(result));
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_reports_direct_use_after_free_with_trace(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @free\n"
+                           "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    call void @free(ptr %p)\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+    const MsIssue *issue;
+    MsEvent event;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_USE_AFTER_FREE), 1);
+    issue = ms_result_issue_at(result, 0);
+    T_ASSERT(t, issue != NULL);
+    T_ASSERT_EQ_INT(t, issue ? issue->kind : MS_ISSUE_COUNT,
+                    MS_ISSUE_USE_AFTER_FREE);
+    T_ASSERT_EQ_INT(t, issue ? issue->site_id : 0, 1);
+    T_ASSERT(t, issue && !issue->strict);
+    T_ASSERT_EQ_INT(t, issue ? issue->trace.len : 0, 2);
+    T_ASSERT(t, issue && ms_trace_event(&issue->trace, 0, &event));
+    T_ASSERT_EQ_INT(t, event.kind, MS_EV_ALLOC);
+    T_ASSERT(t, issue && ms_trace_event(&issue->trace, 1, &event));
+    T_ASSERT_EQ_INT(t, event.kind, MS_EV_FREE);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_reports_double_free_once(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(&fix, "sym @malloc\n"
+                                          "sym @free\n"
+                                          "func void @f() {\n"
+                                          "entry():\n"
+                                          "    %p = call ptr @malloc(i64 8)\n"
+                                          "    call void @free(ptr %p)\n"
+                                          "    call void @free(ptr %p)\n"
+                                          "    ret\n"
+                                          "}\n");
+    MsFunctionResult *result;
+    const MsIssue *issue;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_DOUBLE_FREE), 1);
+    issue = ms_result_issue_at(result, 0);
+    T_ASSERT_EQ_INT(t, issue ? issue->kind : MS_ISSUE_COUNT,
+                    MS_ISSUE_DOUBLE_FREE);
+    T_ASSERT_EQ_INT(t, issue ? issue->site_id : 0, 1);
+    T_ASSERT_EQ_INT(t, issue ? issue->trace.len : 0, 2);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_reports_leak_at_return(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(&fix, "sym @malloc\n"
+                                          "func void @f() {\n"
+                                          "entry():\n"
+                                          "    %p = call ptr @malloc(i64 8)\n"
+                                          "    ret\n"
+                                          "}\n");
+    MsFunctionResult *result;
+    const MsIssue *issue;
+    MsEvent event;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(result), 1);
+    issue = ms_result_issue_at(result, 0);
+    T_ASSERT_EQ_INT(t, issue ? issue->kind : MS_ISSUE_COUNT, MS_ISSUE_LEAK);
+    T_ASSERT_EQ_INT(t, issue ? issue->trace.len : 0, 2);
+    T_ASSERT(t, issue && ms_trace_event(&issue->trace, 1, &event));
+    T_ASSERT_EQ_INT(t, event.kind, MS_EV_RETURN);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_escape_suppresses_leak_issue(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(&fix, "sym @malloc\n"
+                                          "sym @consume\n"
+                                          "func void @f() {\n"
+                                          "entry():\n"
+                                          "    %p = call ptr @malloc(i64 8)\n"
+                                          "    call void @consume(ptr %p)\n"
+                                          "    ret\n"
+                                          "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 0);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(result), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_noreturn_call_suppresses_leak_issue(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(&fix, "sym @malloc\n"
+                                          "sym @abort\n"
+                                          "func void @f() {\n"
+                                          "entry():\n"
+                                          "    %p = call ptr @malloc(i64 8)\n"
+                                          "    call void @abort() noreturn\n"
+                                          "    unreachable\n"
+                                          "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_exit_count(result), 0);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_reports_constant_out_of_bounds_read(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    %past = ptradd %p, 8\n"
+                           "    %v = load i32, %past, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_OUT_OF_BOUNDS), 1);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_UNINIT_READ), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_reports_uninitialized_malloc_read(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_UNINIT_READ), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_initialized_write_suppresses_uninit_read(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    store i32 7, %p, align 4, etype i32\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_UNINIT_READ), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_calloc_read_is_initialized(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @calloc\n"
+                           "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @calloc(i64 2, i64 4)\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_UNINIT_READ), 0);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_OUT_OF_BOUNDS), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_deduplicates_same_issue_across_paths(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @free\n"
+                           "func i32 @f(i32 %choose) {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    call void @free(ptr %p)\n"
+                           "    condbr %choose, join(), join()\n"
+                           "join():\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_USE_AFTER_FREE), 1);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(result), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_realloc_correlates_old_and_new_sites(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @realloc\n"
+                           "func void @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    %q = call ptr @realloc(ptr %p, i64 16)\n"
+                           "    %ok = icmp ne ptr %q, 0\n"
+                           "    condbr %ok, success(), failure()\n"
+                           "success():\n"
+                           "    ret\n"
+                           "failure():\n"
+                           "    ret\n"
+                           "}\n");
+    MsFunctionResult *result;
+    u32 i;
+    bool saw_success = false;
+    bool saw_failure = false;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_exit_count(result), 2);
+    for (i = 0; i < ms_result_exit_count(result); i++) {
+        MsState old = ms_result_exit_state(result, i, 0);
+        MsState replacement = ms_result_exit_state(result, i, 1);
+
+        if (old == MS_FREED && replacement == MS_ALLOCATED)
+            saw_success = true;
+        if (old == MS_ALLOCATED && replacement == MS_UNALLOCATED)
+            saw_failure = true;
+    }
+    T_ASSERT(t, saw_success);
+    T_ASSERT(t, saw_failure);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_equal_span_issue_order_is_deterministic(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @free\n"
+                           "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    call void @free(ptr %p)\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    call void @free(ptr %p)\n"
+                           "    ret i32 %v\n"
+                           "}\n");
+    MsFunctionResult *result;
+    MsFunctionResult *again;
+    const MsIssue *first;
+    const MsIssue *second;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(result), 2);
+    first = ms_result_issue_at(result, 0);
+    second = ms_result_issue_at(result, 1);
+    T_ASSERT_EQ_INT(t, first ? first->kind : MS_ISSUE_COUNT,
+                    MS_ISSUE_USE_AFTER_FREE);
+    T_ASSERT_EQ_INT(t, second ? second->kind : MS_ISSUE_COUNT,
+                    MS_ISSUE_DOUBLE_FREE);
+    again = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(again), 2);
+    T_ASSERT_EQ_INT(t, ms_result_issue_at(again, 0)->kind,
+                    MS_ISSUE_USE_AFTER_FREE);
+    T_ASSERT_EQ_INT(t, ms_result_issue_at(again, 1)->kind,
+                    MS_ISSUE_DOUBLE_FREE);
+    ms_result_free(again);
     ms_result_free(result);
     arena_free_all(&fix.arena);
 }

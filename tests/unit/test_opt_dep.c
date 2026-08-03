@@ -224,6 +224,57 @@ void test_dep_ptr_recognizer_accepts_k_i_plus_c_and_rejects_nonaffine(
     arena_free_all(&fix.arena);
 }
 
+void test_dep_affine_range_canonical_four_iteration_loop(TestCtx *t)
+{
+    DepFix fix;
+    IrModule *m;
+    IrFunc *f;
+    IrInst *scale, *pointer;
+    i64 lo = -1, hi = -1;
+
+    dep_fix_init(&fix);
+    m = dep_parse(&fix, "func void @f(ptr %p) {\n"
+                        "entry():\n"
+                        "    br loop(i64 0)\n"
+                        "loop(i64 %i):\n"
+                        "    %more = icmp sle i64 %i, 3\n"
+                        "    condbr %more, body(), exit()\n"
+                        "body():\n"
+                        "    %scale = imul i64 %i, 4\n"
+                        "    %at = ptradd %p, %scale\n"
+                        "    store i32 1, %at, align 4, etype i32\n"
+                        "    %next = iadd nsw i64 %i, 1\n"
+                        "    br loop(i64 %next)\n"
+                        "exit():\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    f = &m->funcs[0];
+    scale = find_op(f, IR_IMUL, 0);
+    pointer = find_op(f, IR_PTRADD, 0);
+    T_ASSERT(t, scale != NULL && pointer != NULL);
+    T_ASSERT(t, scale && dep_affine_range(f, ir_op_value(f, scale->result), &lo,
+                                          &hi));
+    T_ASSERT_EQ_INT(t, lo, 0);
+    T_ASSERT_EQ_INT(t, hi, 12);
+    lo = hi = -1;
+    T_ASSERT(t, pointer && dep_affine_ptr_range(
+                               f, ir_op_value(f, pointer->result), &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 0);
+    T_ASSERT_EQ_INT(t, hi, 12);
+    lo = hi = -1;
+    T_ASSERT(t, pointer &&
+                    dep_affine_ptr_range_at(f, ir_op_value(f, pointer->result),
+                                            (BlockId){3}, &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 0);
+    T_ASSERT_EQ_INT(t, hi, 12);
+    arena_free_all(&fix.arena);
+}
+
 static const char *fusion_ir(bool negative, bool mismatch)
 {
     if (negative)

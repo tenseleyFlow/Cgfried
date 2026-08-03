@@ -7,11 +7,11 @@
 // MS_CHECK: trace site=1 exit=1 event=free line=26 col=9 note=freed here
 // MS_CHECK: site=2 callee=realloc exit=0 state=freed
 // MS_CHECK: trace site=2 exit=0 event=realloc line=22 col=5 note=reallocated here
-// MS_CHECK: trace site=2 exit=0 event=branch line=23 col=5 note=pointer is non-null on this branch
+// MS_CHECK: trace site=2 exit=0 event=branch line=23 col=5 note=this branch is taken only when realloc succeeded
 // MS_CHECK: trace site=2 exit=0 event=free line=24 col=9 note=freed here
 // MS_CHECK: site=2 callee=realloc exit=1 state=unallocated
 // MS_CHECK: trace site=2 exit=1 event=realloc line=22 col=5 note=reallocated here
-// MS_CHECK: trace site=2 exit=1 event=branch line=23 col=5 note=pointer is null on this branch
+// MS_CHECK: trace site=2 exit=1 event=branch line=23 col=5 note=this branch is taken only when realloc failed
 void *malloc(unsigned long);
 void *realloc(void *, unsigned long);
 void free(void *);
