@@ -79,6 +79,7 @@ enum {
     F_FFREESTANDING,
     F_FHOSTED,
     F_FWRAPV,
+    F_FCGF_SAFE,
     F_FSTRICT_ALIAS,
     F_FNO_STRICT_ALIAS,
     F_FOMIT_FP,
@@ -592,6 +593,9 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
     case F_FWRAPV:
         da->fwrapv = true;
         break;
+    case F_FCGF_SAFE:
+        da->fcgf_safe = true;
+        break;
     case F_FSTRICT_ALIAS:
         da->fno_strict_aliasing = false;
         break;
@@ -802,6 +806,7 @@ static const FlagSpec args_flag_table[] = {
     {"-ffreestanding", ARG_NONE, h_fflag, F_FFREESTANDING},
     {"-fhosted", ARG_NONE, h_fflag, F_FHOSTED},
     {"-fwrapv", ARG_NONE, h_fflag, F_FWRAPV},
+    {"-fcgf-safe", ARG_NONE, h_fflag, F_FCGF_SAFE},
     {"-fstrict-aliasing", ARG_NONE, h_fflag, F_FSTRICT_ALIAS},
     {"-fno-strict-aliasing", ARG_NONE, h_fflag, F_FNO_STRICT_ALIAS},
     {"-fomit-frame-pointer", ARG_NONE, h_fflag, F_FOMIT_FP},

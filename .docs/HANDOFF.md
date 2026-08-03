@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–43
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–44
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–43 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+- **Sprints 0–44 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -121,9 +121,21 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `<cgfried/memsafe.h>` is portable under host GCC/Clang, and `make install`
   now copies the whole include tree to the path used by installed compiler
   discovery, resolving the reported installed-`cgf` `stddef.h` failure.
-- **Next action: Sprint 44** —
-  `.docs/sprints/09-memory-safety/s44-autofix-runtime.md`, adding
-  `-fcgf-safe` runtime instrumentation.
+- Sprint 44 ships `-fcgf-safe`: one exact-emission memsafe traversal
+  statically discharges proven accesses and terminal-splices opaque checks for
+  the residue, including the backend-generated 24-byte `va_start` write. Nine
+  GNU ld wrappers add 32-byte headers, canaries, poison and a 1,024-block/8-MiB
+  quarantine. Private registry lookup preserves the foreign-pointer
+  no-false-abort law; diagnostics are stdio-free and deterministic. Runtime
+  coverage is 27/27 across seven O0/O2 failures, correct and mixed programs,
+  static link, threads, trap mode and real-C discharge accounting; all three
+  interim benches are below the 2.5x time/2x RSS budget. Fresh GCC, Clang and
+  complete ASan+UBSan suites pass. Valgrind 3.25.1 reports zero errors/leaks
+  over the seven instrumentation units; the runtime executable has no definite
+  or possible leaks, with only its bounded quarantine still reachable.
+- **Next action: Sprint 45** —
+  `.docs/sprints/09-memory-safety/s45-autofix-transforms.md`, adding auto-fix
+  transforms and machine-applicable fixits.
 - **Pending parallel-test follow-up:** `tests/fuzz/ppfuzz.c` still writes every
   run to `build/fuzz-work/case.c`. Two concurrent full suites can replace that
   file between the Cgfried and gcc oracle runs and report false differentials.
@@ -134,11 +146,12 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 551 tests, 96086 assertions, 0 failures
+unit: 560 tests, 96179 assertions, 0 failures
 cgf-test: total=504 pass=504 fail=0 xfail=0 xpass=0 skip=0 config=0
 memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
 interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
-focused memsafe units: 45 tests / 692 assertions
+focused memsafe units: 52 tests / 764 assertions
+safe runtime: 27 checks, 0 skips; three interim benches within 2.5x/2x
 musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
@@ -701,6 +714,8 @@ sh scripts/musl_warn_dryrun.sh build/cgfried
 sh scripts/tinycc_warn_dryrun.sh build/cgfried
 make BUILD=build test-mem-warnings
 make BUILD=build test-mem-interproc
+make BUILD=build test-mem-runtime
+make BUILD=build bench-safe
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
 make BUILD=build musl-sweep               # pinned 732/1361 analyzed, <90s
 make BUILD=build check-format-matrix

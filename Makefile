@@ -63,7 +63,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
-        test-mem-fanalyzer \
+        test-mem-runtime test-mem-fanalyzer bench-safe \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
@@ -245,6 +245,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) test-memsafe-foundation
 	$(MAKE) BUILD=$(BUILD) test-mem-warnings
 	$(MAKE) BUILD=$(BUILD) test-mem-interproc
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-mem-runtime
 	$(MAKE) BUILD=$(BUILD) check-format-matrix
 	$(MAKE) BUILD=$(BUILD) test-musl-warnings
 	$(MAKE) BUILD=$(BUILD) test-tinycc-warnings
@@ -336,6 +337,14 @@ test-mem-interproc: $(BUILD)/cgfried $(BUILD)/cgf-test
 	CGF_MEM_WARN_WORK=$(BUILD)/mem-interproc-warnings \
 	    sh scripts/memsafe_warn.sh $(BUILD)/cgfried \
 	    tests/memsafe/interproc
+
+test-mem-runtime: $(BUILD)/cgfried rt
+	CGF_SAFE_WORK=$(BUILD)/safe-runtime \
+	    sh scripts/safe_runtime.sh $(BUILD)/cgfried $(BUILD)
+
+bench-safe: $(BUILD)/cgfried rt
+	CC='$(CC)' CGF_SAFE_WORK=$(BUILD)/safe-bench \
+	    sh scripts/safe_runtime.sh $(BUILD)/cgfried $(BUILD) bench
 
 # Optional local comparison: records both verdicts without treating GCC's
 # analyzer as an oracle for Cgfried's narrower default policy.
@@ -450,6 +459,9 @@ install: all
 	ln -sf cgfried $(DESTDIR)$(PREFIX)/bin/cgf
 	install -d $(DESTDIR)$(PREFIX)/lib/cgfried/include
 	cp -R include/. $(DESTDIR)$(PREFIX)/lib/cgfried/include/
+	install -d $(DESTDIR)$(PREFIX)/lib/cgfried/$(RT_TARGET)
+	install -m 644 $(RT_LIB) \
+	    $(DESTDIR)$(PREFIX)/lib/cgfried/$(RT_TARGET)/libcgf_rt.a
 	@if [ -x afs-as/target/release/afs-as ]; then \
 	    install -m 755 afs-as/target/release/afs-as \
 	        $(DESTDIR)$(PREFIX)/bin/afs-as; \

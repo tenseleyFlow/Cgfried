@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "memsafe/memsafe.h"
+#include "opt/opt.h"
 #include "unit.h"
 #include "warn/warn.h"
 
@@ -37,6 +38,34 @@ static IrModule *summary_parse(SummaryFix *fix, const char *source)
     if (module && !ir_verify(fix->dc, module))
         return NULL;
     return module;
+}
+
+static u32 safe_check_count(const IrModule *module)
+{
+    u32 count = 0;
+    u32 fi;
+
+    for (fi = 0; fi < module->nfuncs; fi++) {
+        const IrFunc *function = &module->funcs[fi];
+        u32 bi;
+
+        for (bi = 0; bi < function->nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = function->blocks[bi].first; in; in = in->next)
+                if (in->op == IR_CALL && in->callee < module->nsyms &&
+                    strcmp(module->syms[in->callee], "cgf_safe_check") == 0)
+                    count++;
+        }
+    }
+    return count;
+}
+
+static void expect_check_stats(TestCtx *t, const IrModule *module,
+                               const MsCheckStats *stats)
+{
+    T_ASSERT_EQ_INT(t, stats->total, stats->discharged + stats->emitted);
+    T_ASSERT_EQ_INT(t, safe_check_count(module), stats->emitted);
 }
 
 void test_memsafe_state_join_exhaustive(TestCtx *t)
@@ -710,5 +739,269 @@ void test_memsafe_summary_may_free_vs_annotated_must(TestCtx *t)
     T_ASSERT(t, inferred && !inferred->params[0].must_free);
     T_ASSERT(t, contract && contract->params[0].may_free);
     T_ASSERT(t, contract && contract->params[0].must_free);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_discharges_proven_heap_access(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "sym @free\n"
+                            "func i32 @f(i32 %choose) {\n"
+                            "entry():\n"
+                            "    %p = call ptr @malloc(i64 8)\n"
+                            "    %ok = icmp ne ptr %p, 0\n"
+                            "    condbr %ok, live(), null()\n"
+                            "live():\n"
+                            "    condbr %choose, left(), right()\n"
+                            "left():\n"
+                            "    br join()\n"
+                            "right():\n"
+                            "    br join()\n"
+                            "join():\n"
+                            "    %v = load i32, %p, align 4, volatile, etype "
+                            "i32\n"
+                            "    call void @free(ptr %p)\n"
+                            "    ret i32 %v\n"
+                            "null():\n"
+                            "    ret i32 0\n"
+                            "}\n");
+    MsCheckStats stats;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.total, 1);
+    T_ASSERT_EQ_INT(t, stats.discharged, 1);
+    T_ASSERT_EQ_INT(t, stats.emitted, 0);
+    expect_check_stats(t, module, &stats);
+    {
+        const IrInst *setter = module->funcs[0].blocks[0].first;
+
+        T_ASSERT(t, setter && setter->op == IR_CALL &&
+                        setter->callee < module->nsyms &&
+                        strcmp(module->syms[setter->callee],
+                               "cgf_safe_set_next_site") == 0);
+        T_ASSERT(t, setter && setter->nops == 1 && setter->ops[0].a == 1);
+        T_ASSERT(t,
+                 setter && setter->next && setter->next->op == IR_CALL &&
+                     strcmp(module->syms[setter->next->callee], "malloc") == 0);
+    }
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_emits_for_unproven_pointer_access(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func i32 @f(ptr %p) {\n"
+                            "entry():\n"
+                            "    %v = load i32, %p, align 4, etype i32\n"
+                            "    ret i32 %v\n"
+                            "}\n");
+    MsCheckStats stats;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.total, 1);
+    T_ASSERT_EQ_INT(t, stats.discharged, 0);
+    T_ASSERT_EQ_INT(t, stats.emitted, 1);
+    expect_check_stats(t, module, &stats);
+    {
+        const IrInst *check = module->funcs[0].blocks[0].first;
+
+        T_ASSERT(t, check && check->nops == 4);
+        if (check && check->nops == 4)
+            T_ASSERT_EQ_INT(t, check->ops[3].a, 1);
+    }
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_keeps_statically_diagnosed_oob_access(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "sym @free\n"
+                            "func i32 @f() {\n"
+                            "entry():\n"
+                            "    %p = call ptr @malloc(i64 8)\n"
+                            "    %ok = icmp ne ptr %p, 0\n"
+                            "    condbr %ok, live(), null()\n"
+                            "live():\n"
+                            "    %past = ptradd %p, 8\n"
+                            "    %v = load i32, %past, align 4, etype i32\n"
+                            "    call void @free(ptr %p)\n"
+                            "    ret i32 %v\n"
+                            "null():\n"
+                            "    ret i32 0\n"
+                            "}\n");
+    MsFunctionResult *analysis;
+    const MsIssue *issue;
+    MsCheckStats stats;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    analysis =
+        ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(analysis), 1);
+    issue = ms_result_issue_at(analysis, 0);
+    T_ASSERT_EQ_INT(t, issue ? issue->kind : MS_ISSUE_COUNT,
+                    MS_ISSUE_OUT_OF_BOUNDS);
+    ms_result_free(analysis);
+
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.total, 1);
+    T_ASSERT_EQ_INT(t, stats.discharged, 0);
+    T_ASSERT_EQ_INT(t, stats.emitted, 1);
+    expect_check_stats(t, module, &stats);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_discharges_stack_access(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func i32 @f() {\n"
+                            "entry():\n"
+                            "    %p = alloca 4, align 4\n"
+                            "    %v = load i32, %p, align 4, volatile, etype "
+                            "i32\n"
+                            "    ret i32 %v\n"
+                            "}\n");
+    MsCheckStats stats;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.total, 1);
+    T_ASSERT_EQ_INT(t, stats.discharged, 1);
+    T_ASSERT_EQ_INT(t, stats.emitted, 0);
+    expect_check_stats(t, module, &stats);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_orders_memcpy_source_before_destination(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func void @f(ptr %dst, ptr %src) {\n"
+                            "entry():\n"
+                            "    memcpy %dst, %src, 8, align 1\n"
+                            "    ret\n"
+                            "}\n");
+    MsCheckStats stats;
+    const IrInst *read_check;
+    const IrInst *write_check;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.total, 2);
+    T_ASSERT_EQ_INT(t, stats.discharged, 0);
+    T_ASSERT_EQ_INT(t, stats.emitted, 2);
+    expect_check_stats(t, module, &stats);
+    read_check = module->funcs[0].blocks[0].first;
+    write_check = read_check ? read_check->next : NULL;
+    T_ASSERT(t, read_check && read_check->op == IR_CALL);
+    T_ASSERT(t, write_check && write_check->op == IR_CALL);
+    T_ASSERT(t, read_check && read_check->nops == 4);
+    T_ASSERT(t, write_check && write_check->nops == 4);
+    if (read_check && read_check->nops == 4)
+        T_ASSERT_EQ_INT(t, read_check->ops[2].a, 0);
+    if (write_check && write_check->nops == 4)
+        T_ASSERT_EQ_INT(t, write_check->ops[2].a, 1);
+    if (read_check && read_check->nops == 4)
+        T_ASSERT_EQ_INT(t, read_check->ops[3].a, 1);
+    if (write_check && write_check->nops == 4)
+        T_ASSERT_EQ_INT(t, write_check->ops[3].a, 2);
+    T_ASSERT(t, write_check && write_check->next &&
+                    write_check->next->op == IR_MEMCPY);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_covers_backend_va_start_writes(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module = summary_parse(&fix, "func void @f(ptr %ap, ...) {\n"
+                                           "entry():\n"
+                                           "    va_start %ap\n"
+                                           "    ret\n"
+                                           "}\n");
+    MsCheckStats stats;
+    const IrInst *check;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.total, 1);
+    T_ASSERT_EQ_INT(t, stats.discharged, 0);
+    T_ASSERT_EQ_INT(t, stats.emitted, 1);
+    expect_check_stats(t, module, &stats);
+    check = module->funcs[0].blocks[0].first;
+    T_ASSERT(t, check && check->op == IR_CALL && check->nops == 4);
+    if (check && check->nops == 4) {
+        T_ASSERT_EQ_INT(t, check->ops[1].a, 24);
+        T_ASSERT_EQ_INT(t, check->ops[2].a, 1);
+        T_ASSERT_EQ_INT(t, check->ops[3].a, 1);
+    }
+    T_ASSERT(t, check && check->next && check->next->op == IR_VA_START);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_check_is_dce_side_effect_root(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func void @f(ptr %p) {\n"
+                            "entry():\n"
+                            "    %unused = load i32, %p, align 4, etype i32\n"
+                            "    ret\n"
+                            "}\n");
+    MsCheckStats stats;
+    OptConfig cfg;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.emitted, 1);
+    expect_check_stats(t, module, &stats);
+    opt_config_init(&cfg, OPT_O1);
+    T_ASSERT(t, opt_dce(module, &cfg));
+    T_ASSERT_EQ_INT(t, safe_check_count(module), 1);
+    T_ASSERT(t, module->funcs[0].blocks[0].first &&
+                    module->funcs[0].blocks[0].first->op == IR_CALL);
+    T_ASSERT(t, module->funcs[0].blocks[0].first->next &&
+                    module->funcs[0].blocks[0].first->next->op == IR_RET);
+    T_ASSERT(t, ir_verify(fix.dc, module));
     arena_free_all(&fix.arena);
 }

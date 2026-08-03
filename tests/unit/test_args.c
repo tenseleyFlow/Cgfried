@@ -60,6 +60,27 @@ void test_args_optimization_controls(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_cgf_safe_exact_flag(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-fcgf-safe", (char *)"t.c");
+    T_ASSERT(t, a.fcgf_safe);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+    T_ASSERT(t, !a.unknown_opt && !a.bad_value);
+    args_free(&a);
+
+    /* The generic -f prefix must not steal the exact spelling. */
+    PARSE(a, &ar, (char *)"-fcgf-safety", (char *)"t.c");
+    T_ASSERT(t, !a.fcgf_safe);
+    T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 1);
+    T_ASSERT_EQ_STR(t, a.warn_unrecognized.data[0], "-fcgf-safety");
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_fast_math_bundle_and_order(TestCtx *t)
 {
     Arena ar;
