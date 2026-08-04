@@ -44,6 +44,141 @@ static IrType eightbyte_irtype(AbiClass c)
     }
 }
 
+/* --- AAPCS64 (Sprint 48) ---------------------------------------------------
+ *
+ * The parallel table against SysV, where the CONTRAST is the lesson:
+ *
+ *   case            SysV x86-64                  AAPCS64
+ *   int args        rdi,rsi,rdx,rcx,r8,r9 (6)    x0-x7 (8)
+ *   FP args         xmm0-7                       v0-v7 (s/d/q views)
+ *   sret pointer    rdi — SHIFTS the real args   x8 — x0-x7 UNSHIFTED
+ *   composite <=16  per-eightbyte, may split     x-reg pair, or v-regs if HFA
+ *   composite >16   copied ONTO THE STACK        caller copy, POINTER in 1 GPR
+ *   return >16      hidden rdi ptr, echoed rax   via x8, not preserved
+ *
+ * The composite>16 row is the #1 cross-ABI porting bug: on AAPCS64 a big
+ * struct argument consumes one GPR, not a pile of stack bytes. The x8 row
+ * is the second: x8 is not "argument 9", and a function returning a large
+ * struct still receives its first real argument in x0.
+ *
+ * Register ASSIGNMENT (including the stage C NAF rule) belongs to the
+ * backend walking these plans in order; this file only says what each
+ * argument IS. */
+
+static IrType hfa_leaf_irtype(const Type *base)
+{
+    switch (base->kind) {
+    case TY_FLOAT:
+        return IRT_F32;
+    case TY_DOUBLE:
+        return IRT_F64;
+    case TY_LDOUBLE:
+        /* AAPCS64 long double is IEEE binary128 and travels in a q-reg;
+         * the f128 leaf type exists, but every operation on it needs the
+         * Sprint 49 soft-float runtime. */
+        return IRT_F128;
+    default:
+        CGF_ICE("abi: HFA base type %d is not floating", (int)base->kind);
+    }
+}
+
+static void classify_arg_aapcs64(Lower *lo, Type *t, AbiArg *out)
+{
+    TypeLayout l;
+    Type *base = NULL;
+    int leaves = 0;
+
+    if (!lower_is_aggregate(t)) {
+        out->kind = ABI_ARG_SCALAR;
+        return;
+    }
+    l = layout_of(lo->sema, t);
+    out->size = (u32)l.size;
+    out->align = (u32)(l.align ? l.align : 1);
+
+    if (layout_is_hfa(lo->sema, t, &base, &leaves)) {
+        int i;
+
+        out->kind = ABI_ARG_HFA;
+        out->n = (u8)leaves;
+        for (i = 0; i < leaves && i < ABI_MAX_LEAVES; i++)
+            out->t[i] = hfa_leaf_irtype(base);
+        return;
+    }
+    /* Not an HFA: <=16 bytes travels in one or two general registers as
+     * bit-carrying doublewords; anything larger becomes a caller-made
+     * copy whose ADDRESS is the argument. */
+    if (l.size <= 16) {
+        out->kind = ABI_ARG_EIGHTBYTES;
+        out->n = (u8)(l.size > 8 ? 2 : 1);
+        out->t[0] = IRT_I64;
+        if (out->n == 2)
+            out->t[1] = IRT_I64;
+        return;
+    }
+    out->kind = ABI_ARG_BYVAL;
+}
+
+static void classify_ret_aapcs64(Lower *lo, Type *t, AbiRet *out)
+{
+    TypeLayout l;
+    Type *base = NULL;
+    int leaves = 0;
+
+    if (!t || t->kind == TY_VOID) {
+        out->kind = ABI_RET_VOID;
+        return;
+    }
+    if (!lower_is_aggregate(t)) {
+        out->kind = ABI_RET_SCALAR;
+        return;
+    }
+    l = layout_of(lo->sema, t);
+    out->size = (u32)l.size;
+    out->align = (u32)(l.align ? l.align : 1);
+
+    if (layout_is_hfa(lo->sema, t, &base, &leaves)) {
+        out->kind = ABI_RET_HFA;
+        out->small_t = hfa_leaf_irtype(base);
+        out->ir_abi = IR_ABIRET_SRET; /* sret-SHAPED IR; v0-v3 is the truth */
+        out->arg_annot = IR_ARG_SRET;
+        return;
+    }
+    if (l.size <= 8) {
+        out->kind = ABI_RET_SMALL;
+        out->small_t = IRT_I64;
+        return;
+    }
+    if (l.size <= 16) {
+        /* x0:x1. Kept sret-SHAPED in IR exactly as SysV's pair is; the
+         * register truth rides IrFunc.abi_ret. */
+        out->kind = ABI_RET_PAIR;
+        out->ir_abi = IR_ABIRET_PAIR_II;
+        out->arg_annot = IR_ARG_PAIR_II;
+        return;
+    }
+    out->kind = ABI_RET_SRET;
+    out->ir_abi = IR_ABIRET_SRET;
+    out->arg_annot = IR_ARG_SRET;
+}
+
+/* Which psABI governs this translation unit. arm64-macos diverges in
+ * varargs and argument extension; it hard-errors until Sprint 50 rather
+ * than silently borrowing the Linux rules. */
+static bool target_is_aapcs64(Lower *lo, Span span)
+{
+    switch (lo->sema->target.kind) {
+    case CGF_TARGET_ARM64_LINUX:
+        return true;
+    case CGF_TARGET_ARM64_MACOS:
+        sema_unimplemented(lo->sema, span, "the Apple arm64 calling convention",
+                           50);
+        return true;
+    default:
+        return false;
+    }
+}
+
 void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
 {
     TypeLayout l;
@@ -51,6 +186,10 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    if (target_is_aapcs64(lo, (Span){0})) {
+        classify_arg_aapcs64(lo, t, out);
+        return;
+    }
     if (!lower_is_aggregate(t)) {
         out->kind = ABI_ARG_SCALAR;
         return;
@@ -77,6 +216,10 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    if (target_is_aapcs64(lo, (Span){0})) {
+        classify_ret_aapcs64(lo, t, out);
+        return;
+    }
     if (!t || t->kind == TY_VOID) {
         out->kind = ABI_RET_VOID;
         return;
@@ -116,10 +259,17 @@ void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp)
 
     switch (a->kind) {
     case ABI_ARG_BYVAL:
-        return; /* memory arguments consume no registers */
+        /* SysV: a memory argument consumes no register. AAPCS64 spends
+         * one GPR on the pointer — the caller counts that where it walks
+         * the IR, since the pointer is an ordinary ptr-typed argument
+         * there rather than an annotation-only one. */
+        return;
+    case ABI_ARG_HFA:
+        *fp += a->n;
+        return;
     case ABI_ARG_EIGHTBYTES:
         for (i = 0; i < a->n; i++) {
-            if (a->t[i] == IRT_F64)
+            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64)
                 (*fp)++;
             else
                 (*gp)++;

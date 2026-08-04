@@ -244,13 +244,37 @@ IrOperand lower_type_size(Lower *lo, Type *t);
 
 /* How one C argument travels. EIGHTBYTES replaces the Sprint 18 abstract
  * ptr-to-copy with 1-2 bit-carrying scalars; BYVAL keeps the pointer but
- * annotates it (codegen copies the pointee onto the stack). */
-typedef enum { ABI_ARG_SCALAR, ABI_ARG_EIGHTBYTES, ABI_ARG_BYVAL } AbiArgKind;
+ * annotates it.
+ *
+ * BYVAL means DIFFERENT THINGS per ABI, and conflating them is the #1
+ * cross-ABI porting bug (Sprint 48):
+ *   SysV x86-64 — codegen copies the POINTEE onto the stack; the pointer
+ *     itself never travels at runtime and the argument consumes no
+ *     register.
+ *   AAPCS64     — the caller allocates the copy and passes its ADDRESS as
+ *     an ordinary argument, so it consumes exactly ONE GPR and no stack
+ *     bytes at all.
+ * The plan is the same shape; the backend reads its own ABI's meaning.
+ *
+ * HFA is AAPCS64-only: 1-4 leaves of the SAME floating type travelling in
+ * CONSECUTIVE v-regs. It is kept distinct from EIGHTBYTES because the
+ * backend must be able to apply the NAF rule (once any FP argument is
+ * stacked, the remaining v-regs are dead for later FP arguments), which
+ * needs to know the leaves belong to one aggregate. */
+typedef enum {
+    ABI_ARG_SCALAR,
+    ABI_ARG_EIGHTBYTES,
+    ABI_ARG_BYVAL,
+    ABI_ARG_HFA
+} AbiArgKind;
+
+/* Four: an HFA has up to four leaves. SysV never sets n > 2. */
+#define ABI_MAX_LEAVES 4
 
 typedef struct AbiArg {
-    u8 kind;     /* AbiArgKind */
-    u8 n;        /* EIGHTBYTES: 1 or 2 */
-    IrType t[2]; /* eightbyte IR types (i64 / f64) */
+    u8 kind;                  /* AbiArgKind */
+    u8 n;                     /* EIGHTBYTES: 1-2; HFA: 1-4 */
+    IrType t[ABI_MAX_LEAVES]; /* eightbyte / HFA-leaf IR types */
     u32 size;
     u32 align;
 } AbiArg;
@@ -260,7 +284,9 @@ typedef enum {
     ABI_RET_SCALAR, /* the IR return type says it all (incl. f80/x87) */
     ABI_RET_SMALL,  /* one eightbyte: bit-carrying i64 or f64 return */
     ABI_RET_PAIR,   /* two eightbytes: sret-shaped IR + register truth */
-    ABI_RET_SRET    /* MEMORY: hidden pointer + rax echo */
+    ABI_RET_SRET,   /* MEMORY: hidden pointer (SysV rdi echoed in rax;
+                       AAPCS64 x8, NOT guaranteed preserved at return) */
+    ABI_RET_HFA     /* AAPCS64: 1-4 FP leaves returned in v0-v3 */
 } AbiRetKind;
 
 typedef struct AbiRet {
