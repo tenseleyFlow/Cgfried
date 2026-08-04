@@ -824,14 +824,11 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
                 w.ngrn = 8;
         }
         if (phys == A64_REG_NONE) {
-            /* An outgoing stack argument must sit at SP+0 at the `bl`, which
-             * the canonical pre-index prologue cannot provide: it puts x29/x30
-             * there. Placing the outgoing area at the bottom needs the
-             * two-step `sub sp` prologue, which lands with varargs. Until
-             * then this is a named boundary, not a wrong frame. */
-            (void)mk_out_arg_store;
-            CGF_ICE("arm64 regalloc: outgoing stack arguments need the "
-                    "two-step frame (Sprint 48 varargs work)");
+            A64Inst store = mk_out_arg_store(arg->value, sf, w.nsaa);
+
+            rb_put(rb, &store);
+            w.nsaa += 8;
+            continue;
         }
         {
             A64Reg slot = fixed_vreg(f, fp ? A64RC_FP : A64RC_GP, sf, phys);
@@ -934,7 +931,8 @@ typedef struct Frame {
     u32 ngp;
     u8 fp[8];
     u32 nfp;
-    u32 csr_end;   /* first byte above the saved-register area */
+    u32 base;      /* SP offset of the x29/x30 pair == the outgoing area */
+    u32 csr_size;  /* 16 + saved registers, measured from `base` */
     u32 total;     /* whole frame, a multiple of 16 */
     u32 local_top; /* bytes of spill/alloca area */
 } Frame;
@@ -1014,6 +1012,31 @@ static A64Inst mk_addsub_sp(u16 op, i64 imm)
     return in;
 }
 
+/* ADD/SUB immediate is a uimm12 optionally shifted left by 12, so a frame up
+ * to 16 MiB needs at most two instructions. Emitting the shifted half FIRST
+ * keeps SP monotone in the direction of travel, which matters for a signal
+ * arriving between the two. */
+static void emit_sp_adjust(Rb *rb, u16 op, u32 amount)
+{
+    u32 hi = amount >> 12;
+    u32 lo = amount & 0xfffu;
+
+    if (hi > 0xfffu)
+        CGF_ICE("arm64 regalloc: frame of %u bytes exceeds the 16 MiB "
+                "two-instruction SP adjustment",
+                amount);
+    if (hi) {
+        A64Inst in = mk_addsub_sp(op, (i64)(hi << 12));
+
+        rb_put(rb, &in);
+    }
+    if (lo || !hi) {
+        A64Inst in = mk_addsub_sp(op, (i64)lo);
+
+        rb_put(rb, &in);
+    }
+}
+
 /* Slot references leave the rewrite as [x29, #negative]; nothing else in the
  * A64 stream can produce one, so recognizing them is unambiguous. */
 static void frame_fixup_slots(A64Func *f, const Frame *fr)
@@ -1034,7 +1057,10 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
                     op->mem.base.id != (u32)A64_X29 + 1 || op->mem.offset >= 0)
                     continue;
                 slot = -op->mem.offset; /* 8, 16, 24, ... */
-                op->mem.offset = (i64)fr->csr_end + slot - 8;
+                /* x29 sits at SP+base, so the base cancels: a slot is
+                 * addressed from the frame pointer by its distance above the
+                 * saved-register area alone. */
+                op->mem.offset = (i64)fr->csr_size + slot - 8;
                 op->mem.mode = (u8)a64_isel_addr(op->mem.offset, op->mem.size,
                                                  false, false);
             }
@@ -1049,17 +1075,21 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
     u32 off, i;
 
     rb_init(&rb, f->arena, b->n);
-    if (fr->total <= A64_FRAME_PREINDEX_MAX) {
+    /* The one-instruction pre-index form is only available when the saved
+     * pair belongs at SP+0. As soon as this function passes an argument on
+     * the stack, the outgoing area owns SP+0 — the callee reads its stack
+     * arguments from exactly there — so the pair moves up and the frame is
+     * allocated by a separate subtraction. */
+    if (fr->base == 0 && fr->total <= A64_FRAME_PREINDEX_MAX) {
         A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
                              -(i64)fr->total, A64_ADDR_PRE);
 
         rb_put(&rb, &in);
     } else {
-        A64Inst sub = mk_addsub_sp(A64_OP_SUB, (i64)fr->total);
-        A64Inst in =
-            mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP, 0, A64_ADDR_SCALED);
+        A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
+                             (i64)fr->base, A64_ADDR_SCALED);
 
-        rb_put(&rb, &sub);
+        emit_sp_adjust(&rb, A64_OP_SUB, fr->total);
         rb_put(&rb, &in);
     }
     {
@@ -1074,9 +1104,10 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
         mov.ops[1].kind = A64O_REG;
         mov.ops[1].reg = phys_reg(A64_SP);
         mov.ops[2].kind = A64O_IMM;
+        mov.ops[2].imm = (i64)fr->base;
         rb_put(&rb, &mov);
     }
-    off = 16;
+    off = fr->base + 16;
     for (i = 0; i + 1 < fr->ngp; i += 2, off += 16) {
         A64Inst in =
             mk_pair(A64_OP_STP, (A64PhysReg)fr->gp[i],
@@ -1135,7 +1166,7 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 rb_put(&rb, &b->insts[ii]);
                 continue;
             }
-            off = 16;
+            off = fr->base + 16;
             for (i = 0; i + 1 < fr->ngp; i += 2, off += 16) {
                 A64Inst in = mk_pair(A64_OP_LDP, (A64PhysReg)fr->gp[i],
                                      (A64PhysReg)fr->gp[i + 1], A64_SP, off,
@@ -1169,18 +1200,17 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                     (u8)a64_isel_addr((i64)off, 8, false, false);
                 rb_put(&rb, &in);
             }
-            if (fr->total <= A64_FRAME_PREINDEX_MAX) {
+            if (fr->base == 0 && fr->total <= A64_FRAME_PREINDEX_MAX) {
                 A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_SP,
                                      (i64)fr->total, A64_ADDR_POST);
 
                 rb_put(&rb, &in);
             } else {
-                A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_SP, 0,
-                                     A64_ADDR_SCALED);
-                A64Inst add = mk_addsub_sp(A64_OP_ADD, (i64)fr->total);
+                A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_SP,
+                                     (i64)fr->base, A64_ADDR_SCALED);
 
                 rb_put(&rb, &in);
-                rb_put(&rb, &add);
+                emit_sp_adjust(&rb, A64_OP_ADD, fr->total);
             }
             rb_put(&rb, &b->insts[ii]);
         }
@@ -1197,10 +1227,11 @@ static void frame_finalize(Ra *ra)
     frame_collect_saved(f, &fr);
     if (fr.ngp > 16 || fr.nfp > 8)
         CGF_ICE("arm64 regalloc: impossible callee-saved count");
-    fr.csr_end = 16 + fr.ngp * 8 + fr.nfp * 8;
-    fr.csr_end = (fr.csr_end + 7) & ~7u;
+    fr.base = f->out_args;
+    fr.csr_size = 16 + fr.ngp * 8 + fr.nfp * 8;
+    fr.csr_size = (fr.csr_size + 7) & ~7u;
     fr.local_top = (u32)(-ra->slots.next_offset);
-    fr.total = a64_frame_total(fr.csr_end, fr.local_top, f->out_args);
+    fr.total = a64_frame_total(fr.base + fr.csr_size, fr.local_top, 0);
     if (fr.total & 15)
         CGF_ICE("arm64 regalloc: frame %u is not 16-byte aligned", fr.total);
     frame_fixup_slots(f, &fr);

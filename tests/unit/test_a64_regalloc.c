@@ -410,3 +410,87 @@ void test_a64_regalloc_marshals_aapcs64_arguments(TestCtx *t)
     T_ASSERT_EQ_INT(t, (long long)f.out_args, 0);
     arena_free_all(&arena);
 }
+
+/* Nine or more integer arguments force the stack case. The outgoing area
+ * must own SP+0 at the `bl` — that is where the callee reads it — so the
+ * saved x29/x30 pair moves up and the frame is allocated by a separate
+ * subtraction instead of the one-instruction pre-index form. */
+void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg v[10], res;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u32 i, ii, stores = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    for (i = 0; i < 10; i++) {
+        v[i] = a64_newv(&f, A64RC_GP);
+        put(&f, 0, A64_OP_MOVZ, 2, treg(v[i]), timm((i64)i),
+            treg((A64Reg){0, 0}));
+    }
+    res = a64_newv(&f, A64RC_GP);
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    for (i = 0; i < 10; i++)
+        a64_call_add_arg(&f, call, v[i], IRT_I64, 0);
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    /* two eight-byte slots, rounded to the 16-byte SP granule */
+    T_ASSERT_EQ_INT(t, (long long)f.out_args, 16);
+    T_ASSERT_EQ_INT(t, (long long)(f.frame_bytes % 16), 0);
+
+    bb = &f.blocks[0];
+    /* sub sp, sp, #FRAME ; stp x29, x30, [sp, #16] ; add x29, sp, #16 */
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[0].op, A64_OP_SUB);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[0].ops[0].reg.id,
+                    (long long)A64_SP + 1);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[0].ops[2].imm,
+                    (long long)f.frame_bytes);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[1].op, A64_OP_STP);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[1].ops[2].mem.mode,
+                    A64_ADDR_SCALED);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[1].ops[2].mem.offset, 16);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[2].op, A64_OP_ADD);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[2].ops[0].reg.id,
+                    (long long)A64_X29 + 1);
+    T_ASSERT_EQ_INT(t, (long long)bb->insts[2].ops[2].imm, 16);
+
+    /* exactly two outgoing stores, at [sp, #0] and [sp, #8] */
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+
+        if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM &&
+            cur->ops[1].mem.base.physical &&
+            cur->ops[1].mem.base.id == (u32)A64_SP + 1) {
+            T_ASSERT_EQ_INT(t, (long long)cur->ops[1].mem.offset,
+                            (long long)(stores * 8));
+            stores++;
+        }
+    }
+    T_ASSERT_EQ_INT(t, (long long)stores, 2);
+
+    /* the first eight still take x0-x7 in order */
+    for (ii = 0; ii < bb->n; ii++)
+        if (bb->insts[ii].op == A64_OP_CALL) {
+            const A64CallInfo *c = bb->insts[ii].call;
+
+            T_ASSERT_EQ_INT(t, (long long)c->nargs, 8);
+            for (i = 0; i < 8; i++)
+                T_ASSERT_EQ_INT(t, (long long)c->args[i].value.id,
+                                (long long)A64_X0 + 1 + (long long)i);
+        }
+    arena_free_all(&arena);
+}
