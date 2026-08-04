@@ -304,6 +304,8 @@ typedef struct A64Func {
     u8 *vclass;
     u8 *vwidth;
     u32 cap_vclass;
+    u32 spill_bytes; /* post-allocation: bytes of spill/alloca area */
+    u32 frame_bytes; /* post-allocation: whole frame, a multiple of 16 */
     const IrModule *m;
 } A64Func;
 
@@ -355,6 +357,12 @@ const char *a64_phys_name(u8 reg, u8 sf);
 void a64_mir_print(const A64Func *f, Buf *out);
 int a64_mir_verify(const A64Func *f, DiagCtx *dc);
 A64Func *a64_isel_function(const IrModule *m, const IrFunc *f, Arena *a);
+void a64_regalloc(A64Func *f);
+u32 a64_liveness_words(const A64Func *f);
+void a64_liveness(const A64Func *f, u64 *live_in, u64 *live_out);
+bool a64_reg_is_callee_saved_gp(u8 reg);
+bool a64_reg_preserved_across_call(u8 reg, bool wide128);
+u32 a64_frame_total(u32 csr_bytes, u32 local_bytes, u32 out_args);
 bool a64_peep_pair_mem(A64Func *f);
 bool a64_relax_branches(A64Func *f);
 bool a64_branch_delta_fits(u16 op, i64 delta);
