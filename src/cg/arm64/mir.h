@@ -303,9 +303,13 @@ typedef struct A64Func {
     u32 nvregs;
     u8 *vclass;
     u8 *vwidth;
+    /* Pre-colouring: a physical register id + 1 that this vreg MUST take,
+     * or zero. Call marshalling is the only producer. */
+    u8 *vfixed;
     u32 cap_vclass;
     u32 spill_bytes; /* post-allocation: bytes of spill/alloca area */
     u32 frame_bytes; /* post-allocation: whole frame, a multiple of 16 */
+    u32 out_args;    /* bytes of outgoing stack arguments, 16-byte rounded */
     const IrModule *m;
 } A64Func;
 

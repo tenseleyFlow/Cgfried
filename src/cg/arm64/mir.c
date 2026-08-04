@@ -52,19 +52,24 @@ A64Reg a64_newv_width(A64Func *f, A64RegClass rc, A64Sf sf)
         u32 nc = f->cap_vclass ? f->cap_vclass * 2 : 64;
         u8 *classes;
         u8 *widths;
+        u8 *fixed;
 
         while (nc < f->nvregs + 1)
             nc *= 2;
         classes = arena_alloc(f->arena, nc, 1);
         widths = arena_alloc(f->arena, nc, 1);
+        fixed = arena_alloc(f->arena, nc, 1);
         if (f->cap_vclass) {
             memcpy(classes, f->vclass, f->cap_vclass);
             memcpy(widths, f->vwidth, f->cap_vclass);
+            memcpy(fixed, f->vfixed, f->cap_vclass);
         }
         memset(classes + f->cap_vclass, 0, nc - f->cap_vclass);
         memset(widths + f->cap_vclass, 0, nc - f->cap_vclass);
+        memset(fixed + f->cap_vclass, 0, nc - f->cap_vclass);
         f->vclass = classes;
         f->vwidth = widths;
+        f->vfixed = fixed;
         f->cap_vclass = nc;
     }
     f->vclass[r.id] = (u8)rc;

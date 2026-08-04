@@ -341,3 +341,72 @@ void test_a64_regalloc_spill_all_lane(TestCtx *t)
     if (!saved_set)
         unsetenv("CGF_SPILL_ALL");
 }
+
+/* AAPCS64 stage C: NGRN and NSRN advance independently, so an interleaved
+ * argument list still fills x0.. and v0.. in their own orders. The result
+ * arrives in x0 and is copied out to an ordinary value. */
+void test_a64_regalloc_marshals_aapcs64_arguments(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg a, b, d, e, res;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u32 ii, seen = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    a = a64_newv(&f, A64RC_GP);
+    b = a64_newv(&f, A64RC_GP);
+    d = a64_newv_width(&f, A64RC_FP, A64_SF64);
+    e = a64_newv(&f, A64RC_GP);
+    res = a64_newv(&f, A64RC_GP);
+
+    put(&f, 0, A64_OP_MOVZ, 2, treg(a), timm(1), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_MOVZ, 2, treg(b), timm(2), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_FMOV, 2, treg(d), treg(d), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_MOVZ, 2, treg(e), timm(3), treg((A64Reg){0, 0}));
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    a64_call_add_arg(&f, call, a, IRT_I64, 0);
+    a64_call_add_arg(&f, call, d, IRT_F64, 0);
+    a64_call_add_arg(&f, call, b, IRT_I64, 0);
+    a64_call_add_arg(&f, call, e, IRT_I64, 0);
+
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++)
+        if (bb->insts[ii].op == A64_OP_CALL) {
+            const A64CallInfo *c = bb->insts[ii].call;
+
+            seen = 1;
+            T_ASSERT_EQ_INT(t, (long long)c->nargs, 4);
+            /* integers take x0, x1, x2 in order; the double takes v0 and
+             * consumes none of the general registers */
+            T_ASSERT_EQ_INT(t, (long long)c->args[0].value.id,
+                            (long long)A64_X0 + 1);
+            T_ASSERT_EQ_INT(t, (long long)c->args[1].value.id,
+                            (long long)A64_V0 + 1);
+            T_ASSERT_EQ_INT(t, (long long)c->args[2].value.id,
+                            (long long)A64_X1 + 1);
+            T_ASSERT_EQ_INT(t, (long long)c->args[3].value.id,
+                            (long long)A64_X2 + 1);
+            T_ASSERT(t, c->args[0].value.physical);
+            T_ASSERT_EQ_INT(t, (long long)c->result.id, (long long)A64_X0 + 1);
+            T_ASSERT(t, c->result.physical);
+        }
+    T_ASSERT(t, seen);
+    T_ASSERT_EQ_INT(t, (long long)f.out_args, 0);
+    arena_free_all(&arena);
+}

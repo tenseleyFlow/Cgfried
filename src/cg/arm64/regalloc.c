@@ -601,9 +601,22 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
         rw->gp_next = 0;
         rw->fp_next = 0;
 
-        if (in.op == A64_OP_CALL)
-            CGF_ICE("arm64 regalloc: AAPCS64 call marshalling is not wired "
-                    "up yet (Sprint 48 deliverable 6)");
+        if (in.op == A64_OP_CALL) {
+            /* Arguments and the result live on the side record; every one of
+             * them is a pre-coloured vreg by now, so substitution is the same
+             * lookup as any other operand. */
+            A64CallInfo *call = in.call;
+            u32 k;
+
+            if (!call)
+                CGF_ICE("arm64 regalloc: call without ABI metadata");
+            sub_reg(rw, &call->indirect, 0);
+            sub_reg(rw, &call->result, 0);
+            for (k = 0; k < call->nargs; k++)
+                sub_reg(rw, &call->args[k].value, 0);
+            rb_put(&rb, &in);
+            continue;
+        }
 
         /* Reloads first, so a spilled source is in a scratch before the
          * instruction that reads it. */
@@ -687,6 +700,202 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
         }
     }
     rb_commit(&rb, b);
+}
+
+/* --- AAPCS64 call marshalling ---------------------------------------------
+ *
+ * Sprint 47 left calls ABI-neutral on purpose: selection recorded every
+ * logical argument and its IR annotation but assigned no register. This pass
+ * runs the AAPCS64 stage-C walk and pre-colours the copies, so the shared
+ * linear scan force-colours them rather than needing a separate marshaller.
+ *
+ * The IR the lowering hands us is already classified (src/lower/abi.c), so a
+ * composite has become either bit-carrying doublewords, HFA leaves, or — for
+ * anything over 16 bytes — a POINTER to a caller-made copy. That last row is
+ * the #1 cross-ABI porting bug: on AAPCS64 the pointer costs one GPR, where
+ * SysV would have copied the pointee onto the stack. Here it simply arrives
+ * as an ordinary pointer-typed argument and needs no special case at all.
+ *
+ * Two counters, not one: NGRN and NSRN advance independently, and each is
+ * driven to 8 the moment its bank stacks an argument, so a later argument of
+ * that class cannot sneak back into a register (the NAF rule). */
+
+typedef struct ArgWalk {
+    u32 ngrn; /* next general register number */
+    u32 nsrn; /* next SIMD register number */
+    u32 nsaa; /* next stacked argument offset, from the outgoing area base */
+} ArgWalk;
+
+static bool a64_type_is_fp(u8 type)
+{
+    return type == IRT_F32 || type == IRT_F64;
+}
+
+static A64Sf a64_type_sf(u8 type)
+{
+    return type == IRT_I8 || type == IRT_I16 || type == IRT_I32 ||
+                   type == IRT_F32
+               ? A64_SF32
+               : A64_SF64;
+}
+
+static A64Reg fixed_vreg(A64Func *f, A64RegClass rc, A64Sf sf, u8 phys)
+{
+    A64Reg v = a64_newv_width(f, rc, sf);
+
+    f->vfixed[v.id] = (u8)(phys + 1);
+    return v;
+}
+
+static A64Inst mk_move(bool fp, A64Sf sf, A64Reg dst, A64Reg src)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = fp ? A64_OP_FMOV : A64_OP_MOV;
+    in.sf = (u8)sf;
+    in.nops = 2;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = dst;
+    in.ops[1].kind = A64O_REG;
+    in.ops[1].reg = src;
+    return in;
+}
+
+/* An outgoing stack argument is addressed from SP, and SP has not moved yet:
+ * the offsets are relative to the base of the outgoing area, which frame
+ * finalization places at SP+0 after the prologue's single subtraction. */
+static A64Inst mk_out_arg_store(A64Reg value, A64Sf sf, u32 offset)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_STORE;
+    in.sf = (u8)sf;
+    in.nops = 2;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = value;
+    in.ops[1].kind = A64O_MEM;
+    in.ops[1].mem.base = phys_reg(A64_SP);
+    in.ops[1].mem.offset = (i64)offset;
+    in.ops[1].mem.size = 8;
+    in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, 8, false, false);
+    return in;
+}
+
+static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
+{
+    A64CallInfo *call = in->call;
+    ArgWalk w;
+    A64CallArg *kept;
+    u32 nkept = 0, i;
+
+    if (!call)
+        CGF_ICE("arm64 regalloc: call without ABI metadata");
+    memset(&w, 0, sizeof(w));
+    kept =
+        arena_alloc(f->arena, (call->nargs ? call->nargs : 1) * sizeof(*kept),
+                    _Alignof(A64CallArg));
+
+    for (i = 0; i < call->nargs; i++) {
+        A64CallArg *arg = &call->args[i];
+        u32 kind = ir_arg_kind(arg->abi_annot);
+        bool fp = a64_type_is_fp(arg->type);
+        A64Sf sf = a64_type_sf(arg->type);
+        u8 phys = A64_REG_NONE;
+
+        if (kind >= IR_ARG_PAIR_II)
+            CGF_ICE("arm64 regalloc: x0:x1 pair returns are not marshalled "
+                    "yet (Sprint 48)");
+        if (kind == IR_ARG_SRET) {
+            /* x8 is NOT argument nine: a function returning a large object
+             * still receives its first real argument in x0, so the indirect
+             * result register consumes no NGRN. */
+            phys = A64_X8;
+        } else if (fp) {
+            if (w.nsrn < 8)
+                phys = (u8)(A64_V0 + w.nsrn++);
+            else
+                w.nsrn = 8;
+        } else {
+            if (w.ngrn < 8)
+                phys = (u8)(A64_X0 + w.ngrn++);
+            else
+                w.ngrn = 8;
+        }
+        if (phys == A64_REG_NONE) {
+            /* An outgoing stack argument must sit at SP+0 at the `bl`, which
+             * the canonical pre-index prologue cannot provide: it puts x29/x30
+             * there. Placing the outgoing area at the bottom needs the
+             * two-step `sub sp` prologue, which lands with varargs. Until
+             * then this is a named boundary, not a wrong frame. */
+            (void)mk_out_arg_store;
+            CGF_ICE("arm64 regalloc: outgoing stack arguments need the "
+                    "two-step frame (Sprint 48 varargs work)");
+        }
+        {
+            A64Reg slot = fixed_vreg(f, fp ? A64RC_FP : A64RC_GP, sf, phys);
+            A64Inst move = mk_move(fp, sf, slot, arg->value);
+
+            rb_put(rb, &move);
+            kept[nkept] = *arg;
+            kept[nkept].value = slot;
+            nkept++;
+        }
+    }
+    call->args = kept;
+    call->nargs = nkept;
+    if (w.nsaa > *out_args)
+        *out_args = w.nsaa;
+
+    if (call->result.id) {
+        bool fp = a64_type_is_fp(call->result_type);
+        A64Sf sf = a64_type_sf(call->result_type);
+        A64Reg ret = fixed_vreg(f, fp ? A64RC_FP : A64RC_GP, sf,
+                                (u8)(fp ? A64_V0 : A64_X0));
+        A64Reg original = call->result;
+        A64Inst copy = mk_move(fp, sf, original, ret);
+
+        call->result = ret;
+        rb_put(rb, in);
+        rb_put(rb, &copy);
+        return;
+    }
+    rb_put(rb, in);
+}
+
+static void marshal_calls(A64Func *f)
+{
+    u32 out_args = 0, bi, ii;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+        Rb rb;
+        bool any = false;
+
+        for (ii = 0; ii < b->n; ii++)
+            if (b->insts[ii].op == A64_OP_CALL)
+                any = true;
+        if (!any)
+            continue;
+        rb_init(&rb, f->arena, b->n);
+        for (ii = 0; ii < b->n; ii++) {
+            rb.map[ii] = rb.n;
+            rb.source_loc = b->insts[ii].loc;
+            if (b->insts[ii].op == A64_OP_CALL) {
+                /* The marshalling copies precede the call, so the map entry
+                 * must name the CALL itself rather than the first copy; no
+                 * NZCV consumer can name a call anyway (a call clobbers the
+                 * flags), so recording the block-relative start is correct
+                 * and the verifier re-checks it. */
+                marshal_call(f, &rb, &b->insts[ii], &out_args);
+            } else {
+                rb_put(&rb, &b->insts[ii]);
+            }
+        }
+        rb_commit(&rb, b);
+    }
+    f->out_args = (out_args + 15) & ~15u;
 }
 
 /* --- frame ----------------------------------------------------------------
@@ -991,7 +1200,7 @@ static void frame_finalize(Ra *ra)
     fr.csr_end = 16 + fr.ngp * 8 + fr.nfp * 8;
     fr.csr_end = (fr.csr_end + 7) & ~7u;
     fr.local_top = (u32)(-ra->slots.next_offset);
-    fr.total = a64_frame_total(fr.csr_end, fr.local_top, 0);
+    fr.total = a64_frame_total(fr.csr_end, fr.local_top, f->out_args);
     if (fr.total & 15)
         CGF_ICE("arm64 regalloc: frame %u is not 16-byte aligned", fr.total);
     frame_fixup_slots(f, &fr);
@@ -1015,6 +1224,7 @@ void a64_regalloc(A64Func *f)
     memset(&ra, 0, sizeof(ra));
     ra.f = f;
     ra.arena = f->arena;
+    marshal_calls(f);
     ra.max_uses = compute_max_uses(f);
     view = a64_mir_view(&ra);
     ra.words = cg_liveness_words(&view);
@@ -1029,6 +1239,13 @@ void a64_regalloc(A64Func *f)
     ra.iv = cgf_xmalloc((f->nvregs + 1) * sizeof(*ra.iv));
 
     cg_intervals_build(&view, ra.live_in, ra.live_out, ra.iv);
+    if (f->vfixed) {
+        u32 v;
+
+        for (v = 1; v <= f->nvregs; v++)
+            if (f->vfixed[v] && ra.iv[v].live)
+                ra.iv[v].fixed = f->vfixed[v];
+    }
     collect_calls(&ra);
     linear_scan(&ra);
 
