@@ -1106,6 +1106,170 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
     }
 }
 
+/* The AAPCS64 register save area, which only a variadic function needs.
+ * Registers the named parameters already consumed are not saved — those
+ * values are dead here — but both banks are otherwise dumped in full. gcc
+ * additionally drops the whole vector half when it can prove the callee
+ * takes no floating variadic argument; that is an optimization, and getting
+ * the proof wrong yields garbage rather than slow code, so it waits.
+ *
+ * Geometry, from the top of the frame down, because __gr_top and __vr_top
+ * name the ENDS of their areas and the offsets reach back from there:
+ *
+ *     total          <- __vr_top, and the first incoming stack argument
+ *     total - 128    <- __gr_top; q0-q7 live above this
+ *     total - 192       x0-x7 live above this
+ *
+ * gcc orders the two areas the other way round (vector below general). The
+ * order is unobservable — both tops are stored into the va_list as plain
+ * pointers and va_arg only ever computes top+offset — so this is a layout
+ * choice, not a compatibility one. Verified self-consistent: the first
+ * unnamed general argument sits at gr_top - 8*(8-named), which is exactly
+ * where __gr_offs starts.
+ *
+ * The vector slots are 16 bytes apart but only their low 8 are written: a
+ * variadic float or double occupies the low half of its q slot, and we are
+ * little-endian only. A 128-bit variadic argument would need the full q
+ * store, which arrives with NEON in Sprint 49. */
+#define A64_VA_GP_BYTES 64
+#define A64_VA_FP_BYTES 128
+#define A64_VA_SAVE_BYTES (A64_VA_GP_BYTES + A64_VA_FP_BYTES)
+
+/* `add dst, src, #imm` in at most two instructions, mirroring the SP
+ * adjustment's uimm12-plus-shifted-uimm12 reach. */
+static void emit_add_imm(Rb *rb, A64PhysReg dst, A64PhysReg src, u32 imm)
+{
+    u32 hi = imm >> 12;
+    u32 lo = imm & 0xfffu;
+    A64Inst in;
+
+    if (hi > 0xfffu)
+        CGF_ICE("arm64 regalloc: frame offset %u exceeds two-instruction "
+                "address formation",
+                imm);
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_ADD;
+    in.sf = A64_SF64;
+    in.nops = 3;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = phys_reg((u8)dst);
+    in.ops[1].kind = A64O_REG;
+    in.ops[1].reg = phys_reg((u8)src);
+    in.ops[2].kind = A64O_IMM;
+    if (hi) {
+        in.ops[2].imm = (i64)(hi << 12);
+        rb_put(rb, &in);
+        if (!lo)
+            return;
+        in.ops[1].reg = phys_reg((u8)dst);
+    }
+    in.ops[2].imm = (i64)lo;
+    rb_put(rb, &in);
+}
+
+static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u32 offset,
+                           bool fp)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_STORE;
+    in.sf = A64_SF64;
+    in.nops = 2;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = phys_reg((u8)value);
+    in.ops[1].kind = A64O_MEM;
+    in.ops[1].mem.base = phys_reg((u8)base);
+    in.ops[1].mem.offset = (i64)offset;
+    in.ops[1].mem.size = 8;
+    in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, 8, false, false);
+    (void)fp; /* the register operand names the bank */
+    return in;
+}
+
+/* x16 is IP0, a reload scratch: nothing is live in it between instructions,
+ * which is exactly what a post-allocation expansion needs. */
+#define A64_VA_SCRATCH A64_X16
+
+static void frame_expand_vastart(A64Func *f, const Frame *fr)
+{
+    u32 bi, ii;
+    bool any = false;
+
+    for (bi = 0; bi < f->nblocks && !any; bi++)
+        for (ii = 0; ii < f->blocks[bi].n; ii++)
+            if (f->blocks[bi].insts[ii].op == A64_OP_VASTART)
+                any = true;
+    if (!any)
+        return;
+    if (!f->variadic)
+        CGF_ICE("arm64 regalloc: va_start in a non-variadic function");
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+        Rb rb;
+
+        rb_init(&rb, f->arena, b->n);
+        for (ii = 0; ii < b->n; ii++) {
+            A64Inst *in = &b->insts[ii];
+            A64PhysReg ap;
+            u32 vr_top, gr_top;
+
+            rb.map[ii] = rb.n;
+            rb.source_loc = in->loc;
+            if (in->op != A64_OP_VASTART) {
+                rb_put(&rb, in);
+                continue;
+            }
+            if (!in->nops || in->ops[0].kind != A64O_REG ||
+                !in->ops[0].reg.physical)
+                CGF_ICE("arm64 regalloc: va_start lost its va_list pointer");
+            ap = (A64PhysReg)(in->ops[0].reg.id - 1);
+            /* x29 sits `base` bytes into the frame. */
+            vr_top = fr->total - fr->base;
+            gr_top = vr_top - A64_VA_FP_BYTES;
+
+            emit_add_imm(&rb, A64_VA_SCRATCH, A64_X29, gr_top);
+            {
+                A64Inst st = mk_store_at(A64_VA_SCRATCH, ap, 8, false);
+
+                rb_put(&rb, &st);
+            }
+            emit_add_imm(&rb, A64_VA_SCRATCH, A64_X29, vr_top);
+            {
+                A64Inst st = mk_store_at(A64_VA_SCRATCH, ap, 16, false);
+
+                rb_put(&rb, &st);
+                /* __stack is the first incoming stack argument, which is the
+                 * top of the frame when no named parameter was stacked —
+                 * selection hard-errors on the case where one was. */
+                st = mk_store_at(A64_VA_SCRATCH, ap, 0, false);
+                rb_put(&rb, &st);
+            }
+        }
+        rb_commit(&rb, b);
+    }
+}
+
+static void frame_emit_save_area(A64Func *f, const Frame *fr, Rb *rb)
+{
+    u32 base = fr->total - A64_VA_SAVE_BYTES;
+    u32 i;
+
+    for (i = f->va_named_gp; i < 8; i++) {
+        A64Inst in =
+            mk_store_at((A64PhysReg)(A64_X0 + i), A64_SP, base + 8 * i, false);
+
+        rb_put(rb, &in);
+    }
+    for (i = f->va_named_fp; i < 8; i++) {
+        A64Inst in = mk_store_at((A64PhysReg)(A64_V0 + i), A64_SP,
+                                 base + A64_VA_GP_BYTES + 16 * i, true);
+
+        rb_put(rb, &in);
+    }
+}
+
 static void frame_emit_prologue(A64Func *f, const Frame *fr)
 {
     Rb rb;
@@ -1177,6 +1341,8 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
         in.ops[1].mem.mode = (u8)a64_isel_addr((i64)off, 8, false, false);
         rb_put(&rb, &in);
     }
+    if (f->variadic)
+        frame_emit_save_area(f, fr, &rb);
     for (i = 0; i < b->n; i++) {
         rb.map[i] = rb.n;
         rb.source_loc = b->insts[i].loc;
@@ -1269,10 +1435,12 @@ static void frame_finalize(Ra *ra)
     fr.csr_size = 16 + fr.ngp * 8 + fr.nfp * 8;
     fr.csr_size = (fr.csr_size + 7) & ~7u;
     fr.local_top = (u32)(-ra->slots.next_offset);
-    fr.total = a64_frame_total(fr.base + fr.csr_size, fr.local_top, 0);
+    fr.total = a64_frame_total(fr.base + fr.csr_size, fr.local_top,
+                               f->variadic ? A64_VA_SAVE_BYTES : 0);
     if (fr.total & 15)
         CGF_ICE("arm64 regalloc: frame %u is not 16-byte aligned", fr.total);
     frame_fixup_slots(f, &fr);
+    frame_expand_vastart(f, &fr);
     if (f->nblocks)
         frame_emit_prologue(f, &fr);
     frame_emit_epilogue(f, &fr);

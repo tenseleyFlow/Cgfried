@@ -1544,8 +1544,16 @@ static void select_inst(Isel *is, const IrInst *ir)
     case IR_CALL:
         select_call(is, ir);
         break;
-    case IR_VA_START:
-        CGF_ICE("arm64 isel: AAPCS64 varargs lowering lands in Sprint 48");
+    case IR_VA_START: {
+        /* The three pointer fields need the frame size, so the marker
+         * survives to frame finalization; lowering has already stored the
+         * two offsets, which are compile-time constants. */
+        A64Reg ap = to_gp(is, &ir->ops[0]);
+        A64Inst *inst = emit(is, A64_OP_VASTART, A64_SF64);
+
+        add_operand(inst, reg_op(ap));
+        break;
+    }
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
         /* UPGRADE(armv8.1-lse): Sprint 49 emits armv8.0 ldxr/stxr loops;
@@ -1585,6 +1593,7 @@ static void bind_params(Isel *is, const IrFunc *ir)
     u32 i;
 
     is->cur = 0;
+    is->func->variadic = ir->variadic;
     for (i = 0; i < ir->nparams; i++) {
         IrType ty = (IrType)ir->param_types[i];
         u32 kind = ir->param_annots ? ir_arg_kind(ir->param_annots[i]) : 0;
@@ -1621,6 +1630,10 @@ static void bind_params(Isel *is, const IrFunc *ir)
             add_operand(load, reg_op(dst));
             add_operand(load, mem);
             nsaa += 8;
+            if (ir->variadic)
+                CGF_ICE("arm64 isel: a variadic function with stack-passed "
+                        "named parameters needs __stack biased past them "
+                        "(Sprint 48)");
             continue;
         }
         {
@@ -1632,6 +1645,8 @@ static void bind_params(Isel *is, const IrFunc *ir)
             add_operand(move, reg_op(src));
         }
     }
+    is->func->va_named_gp = ngrn;
+    is->func->va_named_fp = nsrn;
 }
 
 A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
@@ -1647,9 +1662,7 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
     if (ir->abi_ret != IR_ABIRET_NONE && ir->abi_ret != IR_ABIRET_SRET)
         CGF_ICE("arm64 isel: x0:x1 pair returns are not marshalled yet "
                 "(Sprint 48)");
-    if (ir->variadic)
-        CGF_ICE("arm64 isel: the AAPCS64 variadic register save area lands "
-                "later in Sprint 48");
+
     for (i = 0; i < ir->nparams; i++)
         if (ir_type_is_vector((IrType)ir->param_types[i]) ||
             ir->param_types[i] == IRT_F80 || ir->param_types[i] == IRT_F128)

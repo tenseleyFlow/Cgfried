@@ -574,3 +574,95 @@ void test_a64_regalloc_argument_copies_do_not_clobber_each_other(TestCtx *t)
     }
     arena_free_all(&arena);
 }
+
+/* A variadic function reserves the 192-byte register save area, dumps the
+ * registers the named parameters did not consume, and resolves va_start's
+ * three pointer fields once the frame size is known.
+ *
+ * The arithmetic that matters: the first unnamed general argument must land
+ * exactly where __gr_offs starts reaching from __gr_top, or every va_arg is
+ * off by a register. */
+void test_a64_regalloc_variadic_save_area(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg ap;
+    const A64Block *bb;
+    A64Inst in;
+    u32 ii, gp_saved = 0, fp_saved = 0, gr_top = 0, vr_top = 0;
+    u32 first_unnamed_gp = 0;
+    bool seen_gr = false, seen_vr = false;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    f.variadic = true;
+    f.va_named_gp = 1; /* one named integer parameter, as in `f(int n, ...)` */
+    f.va_named_fp = 0;
+    ap = a64_newv(&f, A64RC_GP);
+
+    put(&f, 0, A64_OP_MOVZ, 2, treg(ap), timm(0), treg((A64Reg){0, 0}));
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_VASTART;
+    in.sf = A64_SF64;
+    in.nops = 1;
+    in.ops[0] = treg(ap);
+    a64_block_append(&f, &f.blocks[0], in);
+    put(&f, 0, A64_OP_RET, 0, treg((A64Reg){0, 0}), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    /* 16 for the saved pair plus the 192-byte save area, rounded */
+    T_ASSERT(t, f.frame_bytes >= 192 + 16);
+    T_ASSERT_EQ_INT(t, (long long)(f.frame_bytes % 16), 0);
+
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+        u32 reg;
+
+        if (cur->op != A64_OP_STORE || cur->ops[1].kind != A64O_MEM ||
+            !cur->ops[1].mem.base.physical ||
+            cur->ops[1].mem.base.id != (u32)A64_SP + 1)
+            continue;
+        reg = cur->ops[0].reg.id - 1;
+        if (reg <= A64_X7) {
+            if (!gp_saved)
+                first_unnamed_gp = (u32)cur->ops[1].mem.offset;
+            gp_saved++;
+            /* the named parameter's register is dead, never saved */
+            T_ASSERT(t, reg != A64_X0);
+        } else if (reg >= A64_V0 && reg <= A64_V7) {
+            fp_saved++;
+        }
+    }
+    T_ASSERT_EQ_INT(t, (long long)gp_saved, 7); /* x1-x7 */
+    T_ASSERT_EQ_INT(t, (long long)fp_saved, 8); /* v0-v7 */
+
+    /* va_start's stores: [ap,#8] is __gr_top, [ap,#16] is __vr_top; both are
+     * formed from x29, which sits `out_args` bytes into the frame. */
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+
+        if (cur->op == A64_OP_ADD && cur->ops[1].kind == A64O_REG &&
+            cur->ops[1].reg.physical &&
+            cur->ops[1].reg.id == (u32)A64_X29 + 1 &&
+            cur->ops[2].kind == A64O_IMM && cur->ops[0].reg.physical &&
+            cur->ops[0].reg.id == (u32)A64_X16 + 1) {
+            if (!seen_gr) {
+                gr_top = (u32)cur->ops[2].imm;
+                seen_gr = true;
+            } else if (!seen_vr) {
+                vr_top = (u32)cur->ops[2].imm;
+                seen_vr = true;
+            }
+        }
+    }
+    T_ASSERT(t, seen_gr && seen_vr);
+    T_ASSERT_EQ_INT(t, (long long)vr_top, (long long)f.frame_bytes);
+    T_ASSERT_EQ_INT(t, (long long)gr_top, (long long)f.frame_bytes - 128);
+    /* THE invariant: __gr_top - 8*(8 - named) is the first saved register. */
+    T_ASSERT_EQ_INT(t, (long long)(gr_top - 8 * (8 - f.va_named_gp)),
+                    (long long)first_unnamed_gp);
+    arena_free_all(&arena);
+}

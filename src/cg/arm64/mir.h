@@ -316,6 +316,9 @@ typedef struct A64Func {
     u32 spill_bytes; /* post-allocation: bytes of spill/alloca area */
     u32 frame_bytes; /* post-allocation: whole frame, a multiple of 16 */
     u32 out_args;    /* bytes of outgoing stack arguments, 16-byte rounded */
+    bool variadic;   /* needs the AAPCS64 register save area */
+    u32 va_named_gp; /* general registers the named parameters consumed */
+    u32 va_named_fp; /* vector registers the named parameters consumed */
     const IrModule *m;
 } A64Func;
 
