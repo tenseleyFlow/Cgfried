@@ -455,6 +455,23 @@ void test_layout_hfa(TestCtx *t)
         {"struct I { float x, y; }; struct S { struct I i; float z; };", true,
          3},
         {"struct S { float a:1; float b; };", false, 0}, /* bitfields exclude */
+        /* UNION members OVERLAY, so the leaf count is the MAX over members,
+         * never the sum. Verified against clang --target=aarch64-linux-gnu:
+         * this union is passed in s0-s2, i.e. a 3-leaf HFA. Summing gives 6
+         * and wrongly rejects it — the Sprint 14 predicate had no union row
+         * at all, which is how that survived. */
+        {"union S { float f[3]; struct { float x, y, z; } v; };", true, 3},
+        {"union S { float a; float b; };", true, 1},
+        {"union S { float f[2]; double d; };", false, 0}, /* not homogeneous */
+        {"union S { float f[5]; };", false, 0},           /* > 4 leaves */
+        /* A union inside a struct still overlays. */
+        {"struct S { union { float a; float b; } u; float c; };", true, 2},
+        /* Zero-length arrays contribute no leaves (GNU extension shape). */
+        {"struct S { float a, b; float z[0]; };", true, 2},
+        /* An over-aligned member pads beyond the natural layout, so the
+         * aggregate stops being an HFA. clang --target=aarch64-linux-gnu
+         * passes this one in x0/x1 while the natural pair goes to s0/s1. */
+        {"struct S { _Alignas(16) float a; float b; };", false, 0},
     };
     u32 i;
 

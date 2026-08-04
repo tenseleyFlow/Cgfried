@@ -472,8 +472,7 @@ static bool hfa_walk(Sema *s, Type *t, Type **base, int *count)
                 return false;
         return true;
     }
-    case TY_STRUCT:
-    case TY_UNION: {
+    case TY_STRUCT: {
         Member *m;
 
         if (!t->tag || !t->tag->complete || t->tag->nmembers == 0)
@@ -481,10 +480,41 @@ static bool hfa_walk(Sema *s, Type *t, Type **base, int *count)
         for (m = t->tag->members; m; m = m->next) {
             if (m->is_bitfield)
                 return false;
+            /* An over-aligned member introduces padding beyond the natural
+             * layout, so the aggregate is no longer a plain sequence of
+             * base-type values and AAPCS64 stops treating it as an HFA. */
+            if (m->align_override)
+                return false;
             if (!hfa_walk(s, m->type, base, count))
                 return false;
         }
         return true;
+    }
+    case TY_UNION: {
+        Member *m;
+        int best;
+
+        if (!t->tag || !t->tag->complete || t->tag->nmembers == 0)
+            return false;
+        /* Union members OVERLAY, so the leaves this union contributes is
+         * the MAX over its members, never the sum. Summing rejected
+         * `union { float f[3]; struct { float x, y, z; } v; }` as a
+         * six-leaf aggregate; clang --target=aarch64-linux-gnu passes it
+         * in s0-s2, i.e. three leaves. Sprint 14 shipped no union row at
+         * all, which is how the sum survived to Sprint 48. */
+        best = *count;
+        for (m = t->tag->members; m; m = m->next) {
+            int sub = *count; /* every member starts from the same base */
+
+            if (m->is_bitfield || m->align_override)
+                return false;
+            if (!hfa_walk(s, m->type, base, &sub))
+                return false;
+            if (sub > best)
+                best = sub;
+        }
+        *count = best;
+        return *count <= 4;
     }
     default:
         return false;
