@@ -1,0 +1,19 @@
+mir.a64 @integer_alu (vregs=20)
+bb1:
+    add.w v5, v1, v2
+    add.x v6, v3, #4095
+    add.x v7, v6, #4096
+    sub.x v8, v7, #8
+    mul.x v9, v8, v4
+    and.x v10, v9, #71777214294589695
+    movz.x v11, #4660, #0
+    and.x v12, v10, v11
+    orr.x v13, v12, v3
+    eor.x v14, v13, v4
+    lsl.x v15, v14, #3
+    mov.w v16, v5
+    lsr.x v17, v15, v16
+    asr.x v18, v17, #1
+    orr.x v19, xzr, #-9223372036854775808
+    sub.x v20, v18, v19
+    ret v20

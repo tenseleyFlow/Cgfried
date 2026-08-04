@@ -40,6 +40,9 @@ FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ
 # gcc then certifies via _Static_assert built from OUR numbers.
 GENLAYOUT_OBJ := $(BUILD)/tests/tools/gen_layout.o $(LIB_OBJ)
 OBJDIFF_OBJ := $(BUILD)/tests/tools/objdiff.o
+A64_OBJBYTES_OBJ := $(BUILD)/tests/tools/a64_objbytes.o
+A64MIR_OBJ := $(BUILD)/tests/tools/a64mir.o $(LIB_OBJ)
+A64_LOGIMM_GEN_OBJ := $(BUILD)/tests/tools/a64_logimm_gen.o $(LIB_OBJ)
 # The float differential's printer: softfp only, no compiler, no host FPU.
 FPDIFF_OBJ := $(BUILD)/tests/tools/fpdiff.o $(BUILD)/src/util/softfp.o \
               $(BUILD)/src/util/bigint.o
@@ -59,7 +62,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(BUILD)/tests/runner/directive.o \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
@@ -67,6 +70,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         test-mem-fanalyzer bench-safe \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
+        check-ub-division test-a64-asm-diff test-a64-mir \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
 
@@ -133,6 +137,15 @@ $(BUILD)/gen_layout: $(sort $(GENLAYOUT_OBJ))
 
 $(BUILD)/cgf-objdiff: $(sort $(OBJDIFF_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(OBJDIFF_OBJ))
+
+$(BUILD)/a64_objbytes: $(A64_OBJBYTES_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(A64_OBJBYTES_OBJ)
+
+$(BUILD)/a64mir: $(sort $(A64MIR_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(A64MIR_OBJ))
+
+$(BUILD)/a64_logimm_gen: $(sort $(A64_LOGIMM_GEN_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(A64_LOGIMM_GEN_OBJ))
 
 $(BUILD)/fpdiff: $(sort $(FPDIFF_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(FPDIFF_OBJ))
@@ -202,6 +215,9 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(AS_LANE) sh scripts/s36_vector_driver.sh $(BUILD)/cgfried \
 	    $(BUILD)/cgf-test
 	sh scripts/s36_isa_driver.sh $(BUILD)/cgfried ci/check_isa.sh
+	$(MAKE) BUILD=$(BUILD) check-ub-division
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-a64-mir
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-a64-asm-diff
 	$(AS_LANE) sh scripts/strict_alias_diff.sh $(BUILD)/cgfried
 	$(AS_LANE) CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/corpus \
@@ -300,6 +316,30 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 
 check-warn-matrix:
 	sh scripts/check_warn_matrix.sh
+
+check-ub-division:
+	CGF_UB_DIV_WORK=$(BUILD)/ub-division-lint \
+	    sh scripts/check_ub_division.sh --self-test
+
+test-a64-mir: $(BUILD)/a64mir
+	CGF_A64_MIR_WORK=$(BUILD)/a64-mir-lane \
+	    sh scripts/a64_mir_lane.sh $(BUILD)/a64mir
+
+test-a64-asm-diff: $(BUILD)/a64_objbytes $(BUILD)/a64_logimm_gen
+	CGF_A64_OBJBYTES=$(BUILD)/a64_objbytes \
+	    CGF_A64_LOGIMM_GEN=$(BUILD)/a64_logimm_gen \
+	    CGF_A64_DIFF_WORK=$(BUILD)/a64-asm-diff \
+	    sh scripts/a64_asm_diff.sh > $(BUILD)/a64-asm-diff.log 2>&1; \
+	    s=$$?; cat $(BUILD)/a64-asm-diff.log; exit $$s
+	@p=a64asmdiff; \
+	    if grep -q 'test=afs-as ' $(BUILD)/a64-asm-diff.log; then \
+	        p=a64asmdiff-notools; \
+	    elif grep -q 'test=gnu-as ' $(BUILD)/a64-asm-diff.log; then \
+	        p=a64asmdiff-clang; \
+	    elif grep -q 'test=elf-assembler ' $(BUILD)/a64-asm-diff.log; then \
+	        p=a64asmdiff-noelf; \
+	    fi; \
+	    sh ci/check_skips.sh $$p $(BUILD)/a64-asm-diff.log
 
 # Preprocessor differential: token-level vs gcc AND clang over fixtures
 # and imported corpora, at both std flavors.
@@ -490,7 +530,10 @@ clean:
 -include $(sort $(OBJ:.o=.d) $(RUNNER_OBJ:.o=.d) $(UNIT_OBJ:.o=.d) \
                $(PPDIFF_OBJ:.o=.d) $(FUZZ_OBJ:.o=.d) $(FEFUZZ_OBJ:.o=.d) \
                $(IRFUZZ_OBJ:.o=.d) $(GENLAYOUT_OBJ:.o=.d) \
-               $(OBJDIFF_OBJ:.o=.d) $(FPDIFF_OBJ:.o=.d))
+               $(OBJDIFF_OBJ:.o=.d) $(A64_OBJBYTES_OBJ:.o=.d) \
+               $(A64MIR_OBJ:.o=.d) \
+               $(A64_LOGIMM_GEN_OBJ:.o=.d) \
+               $(FPDIFF_OBJ:.o=.d))
 
 check-format-matrix:
 	CGF_FORMAT_MATRIX_WORK=$(BUILD)/format-matrix-check \

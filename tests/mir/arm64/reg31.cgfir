@@ -1,0 +1,13 @@
+// PATTERN: add-immediate reads SP
+// PATTERN: add-immediate writes SP
+// PATTERN: sub-immediate reads and writes SP
+// PATTERN: flag-setting subtract writes XZR
+// PATTERN: flag-setting logical writes XZR
+// PATTERN: logical immediate writes SP
+// PATTERN: logical register writes XZR
+// PATTERN: load base reads SP
+// PATTERN: store value reads XZR while base reads SP
+func void @reg31_anchor() {
+entry():
+    ret
+}

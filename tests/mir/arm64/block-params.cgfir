@@ -1,0 +1,16 @@
+// PATTERN: block parameter lowering
+// PATTERN: cyclic parallel copy on backedge
+// PATTERN: two-result diamond merge
+func i32 @block_params(i32 %a, i32 %b, i32 %n) {
+entry():
+    br loop(i32 %a, i32 %b, i32 %n)
+loop(i32 %x, i32 %y, i32 %left):
+    %more = icmp sgt i32 %left, 0
+    condbr %more, rotate(), done(i32 %x, i32 %y)
+rotate():
+    %next = isub i32 %left, 1
+    br loop(i32 %y, i32 %x, i32 %next)
+done(i32 %first, i32 %second):
+    %sum = iadd i32 %first, %second
+    ret i32 %sum
+}

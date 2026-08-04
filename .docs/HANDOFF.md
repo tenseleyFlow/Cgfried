@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–46
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–47
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,9 +34,9 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–46 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
-  under way on top of the completed preprocessor, frontend, sema, IR,
-  x86_64 backend, driver, and optimizer.
+- **Sprints 0–47 complete; Phases 1–9 closed.** Phase 10 (second backend and
+  targets) is under way on top of the completed preprocessor, frontend, sema,
+  IR, x86_64 backend, driver, optimizer, warnings, and memory-safety phases.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
 - `-g` emits DWARF v4 line tables and every object carries `.eh_frame`;
@@ -160,9 +160,20 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   values and automatic-address constant folding. The contract truthfully
   defers stack/global spatial instrumentation; VLA acceptance is not described
   as a runtime-bound guarantee.
-- **Next action: Sprint 47** —
-  `.docs/sprints/10-backend-arm64/s47-arm64-isel.md`, opening the arm64
-  backend with instruction selection.
+- Sprint 47 opens the ARM64 backend with verified pre-RA MIR, exact
+  instruction selection, ABI-neutral call metadata, shared target-independent
+  liveness/linear scan, SP/XZR form checking, memory pairing, and monotone
+  branch relaxation. The contract is intentionally pre-RA: Sprint 48 owns
+  AAPCS64 and physical allocation, Sprint 49 owns assembly/object/execution,
+  and Sprint 51 owns public cross-target routing. Ten `.cgfir` modules pin 93
+  coverage labels as exact deterministic full snapshots; they are labels, not
+  93 independent fixtures. The assembly oracle compares afs-as Mach-O and GNU
+  as ELF `.text` bytes for a fixed fragment plus all 5,334 logical immediates.
+  Constant bulk-memory expansion is capped at 64 KiB; larger/dynamic forms
+  fail immediately naming Sprint 49.
+- **Next action: Sprint 48** —
+  `.docs/sprints/10-backend-arm64/s48-arm64-regalloc-abi.md`, adding ARM64
+  register allocation and AAPCS64 lowering.
 - **Pending parallel-test follow-up:** `tests/fuzz/ppfuzz.c` still writes every
   run to `build/fuzz-work/case.c`. Two concurrent full suites can replace that
   file between the Cgfried and gcc oracle runs and report false differentials.
@@ -173,7 +184,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 583 tests, 96392 assertions, 0 failures
+unit: 598 tests, 4262592 assertions, 0 failures
 cgf-test: total=505 pass=505 fail=0 xfail=0 xpass=0 skip=0 config=0
 memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
 interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
@@ -199,7 +210,23 @@ debug_info lane: 81 checks with tools/gdb; 6 addr2line rows
 pp_dm_check: 182 predefines checked; __CGFRIED__=1; __GNUC__ absent
 memsafe foundation: 14 deterministic fixtures; 17 focused units / 264 assertions
 frontend fuzz digest: e39a0b1f9c71243f; 2,000 sanitized smoke iterations, 0 findings
+ARM64 MIR: 10 modules / 93 exact coverage labels; 1 GiB bulk expansion rejected boundedly
+ARM64 assembler differential: 1 fixed fragment + 5,334 logical immediates
+ARM64 Valgrind: 10/10 modules, 0 errors, 0 leaks
 ```
+
+Local Sprint 47 validation note (2026-08-03): fresh GCC, Clang and complete
+ASan+UBSan suites pass with 598 unit tests / 4,262,592 assertions and 505/505
+program fixtures. The ARM64 lane passes 10 byte-exact deterministic MIR
+modules / 93 coverage labels and rejects the 1 GiB bulk-memory stress case
+before expansion. The assembler differential passes its fixed fragment plus
+all 5,334 production-accepted logical immediates; local GNU-as absence is one
+exact expected skip, while the CI toolchain job requires afs-as and GNU as
+with zero skips. The dataflow-aware division-UB lint accepts all 67 real
+fixtures and rejects its planted self-tests. With the glibc loader debuginfo
+cache described in §3.5, Valgrind 3.25.1 reports zero errors and zero leaks
+over all 10 successful ARM64 MIR modules. Independent re-review covered 61
+files, found zero remaining issues at every severity, and approved the sprint.
 
 Local Sprint 38 validation note (2026-08-01): fresh GCC and Clang full suites
 pass with 480 unit tests / 94,590 assertions and 496/496 program fixtures. The
@@ -433,6 +460,25 @@ c-testsuite programs** that had been pinned as deferred for unrelated
 reasons. When something feels stuck at a suspiciously round number,
 suspect the environment, not the feature.
 
+### 3.5 Valgrind may need loader debug symbols, not a different machine
+
+On this Arch glibc 2.44 host, Valgrind 3.25.1 can fail before the target
+program starts with a mandatory `ld-linux` `memcmp` redirection error. That is
+not compiler evidence and it is not a Valgrind incompatibility. Fetch the
+loader's build-id debuginfo into a writable cache, then reuse that cache:
+
+```sh
+DEBUGINFOD_CACHE_PATH=/tmp/cgfried-debuginfod \
+  debuginfod-find debuginfo <loader-build-id>
+DEBUGINFOD_CACHE_PATH=/tmp/cgfried-debuginfod \
+  valgrind --error-exitcode=99 --leak-check=full your-command
+```
+
+For the 2026-08-03 loader the build id was
+`d1e0e87f381ead4885f87135128da0c20166f55f`. Always use `set -e` in a
+multi-fixture Memcheck loop; otherwise a startup failure can be followed by a
+misleading final success message.
+
 ---
 
 ## 4. Architectural laws (violating these is a silent miscompile)
@@ -449,6 +495,19 @@ because each one was learned the hard way.
   backedge. Operand materialization reserves the value's vreg first; the later
   definition bridges into that stable identity. Never restore the assumption
   that a layout-order use already has a selected definition.
+- **ARM64 MIR is ABI-neutral through Sprint 47.** Calls preserve exact callee,
+  argument annotation, result, variadic, and noreturn metadata, but no physical
+  AAPCS64 register may be assigned before Sprint 48.
+- **ARM64 NZCV dependencies are explicit indices.** Any insertion, deletion,
+  pairing, or relaxation before a flags consumer must repair `flags_src`; a
+  nearby flags-setting instruction is not an implicit substitute.
+- **Register 31 is an instruction-form property.** SP and XZR share encoding
+  bits but are distinct MIR identities. Validate every position, including
+  memory base/index and both legal GP sides of FP/GP `fmov`; the XZR-source
+  forms `fmov dN,xzr` / `fmov sN,wzr` are the +0.0 idioms.
+- **Two-edge conditional MIR occupies eight emitted bytes.** The taken edge
+  uses the narrow conditional range; the explicit false edge is an ordinary B
+  with an independent imm26/local-target check.
 - **Optimizer scratch is phase-local.** Printer/verifier/dominance/pass
   analysis state must use short-lived arenas; verify-after-each fixpoints must
   not grow the module arena per invocation. Persistent mem2reg undef records
@@ -689,6 +748,9 @@ because each one was learned the hard way.
 | `check_verify_coverage.sh` | every IR verifier check has a firing fixture |
 | `check_fuzz_crashes.sh` | a crash in `tests/fuzz/crashes/` fails the build until fixed |
 | `check_skips.sh <profile>` | the exact HARNESS_SKIP set per profile |
+| `check_ub_division.sh` | ARM64/x86 differential fixtures cannot depend on divide-by-zero or signed-min/-1 UB; simple local propagation is tracked |
+| `a64_mir_lane.sh` | ARM64 pre-RA MIR is verified, deterministic, and byte-exact against full snapshots |
+| `a64_asm_diff.sh` | afs-as Mach-O and GNU-as ELF encode identical `.text`, including all 5,334 logical masks and production-packed fields |
 
 Differential lanes (each is an *oracle*, not a golden): `header_diff`,
 `rt_diff`, `driver_matrix`, `objdiff_lane`, `afsld_lane`,
@@ -715,6 +777,10 @@ families, auto-init and the annotation ratchet. Sprint 46 adds
 `check_safe_mode_doc.sh`, and the shrink-only symbol allowlist gate. The
 normative contract is `doc/safe-mode.md`; `.docs/sprints/09-memory-safety/
 s46-findings.md` records the VLA/stack correction and dogfood defects.
+Sprint 47 adds `test-a64-mir`, `test-a64-asm-diff`, and
+`check-ub-division`. Local runs may use Clang's integrated AArch64 assembler
+with an exact skip; the CI toolchain job builds afs-as, installs GNU binutils,
+and requires both oracles with zero skips.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -788,6 +854,9 @@ make BUILD=build test-mem-runtime
 make BUILD=build test-mem-autofix
 make BUILD=build test-safe-mode
 make BUILD=build safe-dogfood
+make BUILD=build test-a64-mir
+make BUILD=build test-a64-asm-diff   # both afs-as + GNU as in CI toolchain job
+make BUILD=build check-ub-division
 make BUILD=build bench-safe
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
 make BUILD=build musl-sweep               # pinned 733/1361 analyzed, <90s

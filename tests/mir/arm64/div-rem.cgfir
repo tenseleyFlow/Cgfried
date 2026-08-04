@@ -1,0 +1,13 @@
+// PATTERN: signed division
+// PATTERN: unsigned division
+// PATTERN: signed remainder via msub
+// PATTERN: unsigned remainder via msub
+func i64 @div_rem(i64 %a, i64 %b) {
+entry():
+    %sd = sdiv i64 %a, %b
+    %ud = udiv i64 %a, %b
+    %sr = srem i64 %sd, %b
+    %ur = urem i64 %ud, %b
+    %sum = iadd i64 %sr, %ur
+    ret i64 %sum
+}

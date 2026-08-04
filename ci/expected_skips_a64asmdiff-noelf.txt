@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=a64-asm-diff test=elf-assembler count=1 reason="neither aarch64-linux-gnu-as nor clang available"

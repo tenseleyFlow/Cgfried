@@ -1,0 +1,38 @@
+mir.a64 @branch_zero (vregs=3)
+bb1:
+    cbz.w v1, bb2, bb3
+bb2:
+    orr.w v2, wzr, #1
+    ret v2
+bb3:
+    movz.w v3, #0, #0
+    ret v3
+mir.a64 @branch_nonzero (vregs=3)
+bb1:
+    cbnz.x v1, bb2, bb3
+bb2:
+    orr.w v2, wzr, #1
+    ret v2
+bb3:
+    movz.w v3, #0, #0
+    ret v3
+mir.a64 @branch_signed (vregs=4)
+bb1:
+    subs.w wzr, v1, v2
+    b.lt bb2, bb3
+bb2:
+    orr.w v3, wzr, #7
+    ret v3
+bb3:
+    movz.w v4, #9, #0
+    ret v4
+mir.a64 @branch_unsigned (vregs=4)
+bb1:
+    subs.x xzr, v1, v2
+    b.hi bb2, bb3
+bb2:
+    orr.w v3, wzr, #7
+    ret v3
+bb3:
+    movz.w v4, #9, #0
+    ret v4

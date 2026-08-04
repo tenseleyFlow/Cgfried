@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=a64-asm-diff test=gnu-as count=1 reason="aarch64-linux-gnu-as unavailable; clang integrated assembler fallback ran"

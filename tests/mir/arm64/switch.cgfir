@@ -1,0 +1,17 @@
+// PATTERN: dense integer switch
+// PATTERN: negative switch case
+// PATTERN: default switch edge
+func i32 @switch_dense(i32 %x) {
+entry():
+    switch i32 %x, other(), -1: neg(), 0: zero(), 1: one(), 2: two()
+neg():
+    ret i32 -1
+zero():
+    ret i32 10
+one():
+    ret i32 11
+two():
+    ret i32 12
+other():
+    ret i32 99
+}

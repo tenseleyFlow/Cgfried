@@ -1,0 +1,37 @@
+mir.a64 @scalar_fp (vregs=25)
+bb1:
+    fadd.s v7, v1, v2
+    fsub.s v8, v7, v2
+    fmul.s v9, v8, v1
+    fdiv.s v10, v9, v2
+    fadd.d v11, v3, v4
+    fsub.d v12, v11, v4
+    fmul.d v13, v12, v3
+    fdiv.d v14, v13, v4
+    fneg.d v15, v14
+    scvtf.d.w v16, v5
+    ucvtf.s.x v17, v6
+    fcvtzs.x.d v18, v16
+    fcvtzu.w.s v19, v17
+    fcvt.d.s v20, v10
+    fcvt.s.d v21, v15
+    fcmp.d v20, v16
+    cset.mi.w v22
+    fcmp.s v21, v17
+    cset.vs.w v23
+    subs.w wzr, v22, #0
+    fcsel.ne.d v24, v20, v16
+    add.w v25, v22, v23
+    ret v25
+mir.a64 @f32_zero (vregs=3)
+bb1:
+    fmov.s v1, wzr
+    fmov.s v3, wzr
+    fadd.s v2, v1, v3
+    ret v2
+mir.a64 @f64_zero (vregs=3)
+bb1:
+    fmov.d v1, xzr
+    fmov.d v3, xzr
+    fadd.d v2, v1, v3
+    ret v2

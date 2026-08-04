@@ -1,0 +1,60 @@
+// PATTERN: byte load widened in a w register
+// PATTERN: halfword load widened in a w register
+// PATTERN: word load at scaled positive offset
+// PATTERN: xword load at negative unscaled offset
+// PATTERN: byte store
+// PATTERN: halfword store
+// PATTERN: word store
+// PATTERN: xword store at negative unscaled offset
+// PATTERN: register-indexed address
+func i64 @memory_modes(ptr %base, i64 %index, i64 %value) {
+entry():
+    %p1 = ptradd %base, 1
+    %p2 = ptradd %base, 2
+    %p16 = ptradd %base, 16
+    %neg = ptradd %base, -8
+    %dyn = ptradd %base, %index
+    %b = load i8, %p1, align 1
+    %h = load i16, %p2, align 2
+    %w = load i32, %p16, align 4
+    %x = load i64, %neg, align 8
+    store i8 %b, %dyn, align 1
+    store i16 %h, %p2, align 2
+    store i32 %w, %p16, align 4
+    store i64 %value, %neg, align 8
+    %r = iadd i64 %x, %value
+    ret i64 %r
+}
+
+// PATTERN: byte access at simm9 upper boundary
+// PATTERN: byte access beyond simm9 materializes its address
+// PATTERN: xword access at scaled imm12 upper boundary
+// PATTERN: xword access beyond scaled imm12 materializes its address
+func i64 @memory_boundaries(ptr %base) {
+entry():
+    %p255 = ptradd %base, 255
+    %p256 = ptradd %base, 256
+    %p32760 = ptradd %base, 32760
+    %p32768 = ptradd %base, 32768
+    %a = load i8, %p255, align 1
+    %b = load i8, %p256, align 1
+    %c = load i64, %p32760, align 8
+    %d = load i64, %p32768, align 8
+    %ab = iadd i8 %a, %b
+    %wide = zext i8 %ab to i64
+    %cd = iadd i64 %c, %d
+    %r = iadd i64 %wide, %cd
+    ret i64 %r
+}
+
+// PATTERN: global-symbol materialization survives folded ptradd roots
+func i64 @memory_global_addr() {
+entry():
+    %pload = ptradd @tab, 8
+    %x = load i64, %pload, align 8
+    %pstore = ptradd @tab, 16
+    store i64 %x, %pstore, align 8
+    ret i64 %x
+}
+
+global @tab size 32 align 8 internal

@@ -1,0 +1,34 @@
+// PATTERN: integer csel
+// PATTERN: integer compare materialized with cset
+// PATTERN: 64-bit compare materialized with cset
+func i64 @select_and_setcc(i64 %a, i64 %b, i32 %choose) {
+entry():
+    %truth = icmp ne i32 %choose, 0
+    %picked = select %truth, i64 %a, %b
+    %lt = icmp slt i64 %a, %b
+    %ge = icmp uge i64 %a, %b
+    %wide_lt = zext i32 %lt to i64
+    %wide_ge = zext i32 %ge to i64
+    %bits = iadd i64 %wide_lt, %wide_ge
+    %result = iadd i64 %picked, %bits
+    ret i64 %result
+}
+
+// PATTERN: compare feeding select and a later use stays materialized
+func i32 @select_compare_multi_use(i32 %a, i32 %b) {
+entry():
+    %c = icmp slt i32 %a, %b
+    %picked = select %c, i32 %a, %b
+    %result = iadd i32 %picked, %c
+    ret i32 %result
+}
+
+// PATTERN: clobbered comparison flags fall back through the boolean value
+func i32 @select_after_flags_clobber(i32 %a, i32 %b, i32 %x, i32 %y) {
+entry():
+    %c = icmp slt i32 %a, %b
+    %other = icmp sgt i32 %x, %y
+    %picked = select %c, i32 %a, %b
+    %result = iadd i32 %picked, %other
+    ret i32 %result
+}

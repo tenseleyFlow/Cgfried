@@ -1,0 +1,55 @@
+mir.a64 @test_bit (vregs=4)
+bb1:
+    tbz.x v1, #3, bb2, bb3
+bb2:
+    orr.w v3, wzr, #1
+    ret v3
+bb3:
+    movz.w v4, #0, #0
+    ret v4
+mir.a64 @conditional_idioms (vregs=19)
+bb1:
+    subs.x xzr, v1, v2
+    cset.lt.w v8
+    csinc.lt.x v10, v1, v1
+    csinv.lt.x v12, v1, v1
+    csneg.lt.x v14, v1, v1
+    csetm.lt.x v16
+    add.x v17, v10, v12
+    add.x v18, v14, v16
+    add.x v19, v17, v18
+    ret v19
+mir.a64 @multiply_idioms (vregs=11)
+bb1:
+    madd.x v5, v1, v2, v3
+    msub.x v7, v1, v2, v3
+    mneg.x v9, v1, v2
+    add.x v10, v5, v7
+    add.x v11, v10, v9
+    ret v11
+mir.a64 @widening_multiply (vregs=11)
+bb1:
+    smull.x v7, v1, v2
+    umull.x v10, v1, v2
+    add.x v11, v7, v10
+    ret v11
+mir.a64 @register_offset_load (vregs=4)
+bb1:
+    load.x v4, [v1, v2, lsl]
+    ret v4
+mir.a64 @callee (vregs=1)
+bb1:
+    ret v1
+mir.a64 @calls (vregs=6)
+bb1:
+    call @callee(v3:t3/a0000000000000000) -> v4:t3
+    call @external(v2:t8/a0000000100000018, v4:t3/a0000000000000000) -> v5:t3 variadic
+    call v1(v5:t3/a0000000000000000) -> v6:t3
+    ret v6
+mir.a64 @constant_select (vregs=4)
+bb1:
+    subs.w wzr, v1, #0
+    orr.x v3, xzr, #2
+    orr.x v4, xzr, #3
+    csel.ne.x v2, v3, v4
+    ret v2

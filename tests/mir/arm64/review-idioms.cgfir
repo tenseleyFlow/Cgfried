@@ -1,0 +1,94 @@
+// PATTERN: single-bit equality branch via tbz
+func i32 @test_bit(i64 %x) {
+entry():
+    %masked = and i64 %x, 8
+    %clear = icmp eq i64 %masked, 0
+    condbr %clear, yes(), no()
+yes():
+    ret i32 1
+no():
+    ret i32 0
+}
+
+// PATTERN: csinc select idiom
+// PATTERN: csinv select idiom
+// PATTERN: csneg select idiom
+// PATTERN: csetm select idiom
+func i64 @conditional_idioms(i64 %x, i64 %y) {
+entry():
+    %inc = iadd i64 %x, 1
+    %inv = xor i64 %x, -1
+    %neg = isub i64 0, %x
+    %cond = icmp slt i64 %x, %y
+    %a = select %cond, i64 %x, %inc
+    %b = select %cond, i64 %x, %inv
+    %c = select %cond, i64 %x, %neg
+    %mask = select %cond, i64 -1, 0
+    %ab = iadd i64 %a, %b
+    %cm = iadd i64 %c, %mask
+    %r = iadd i64 %ab, %cm
+    ret i64 %r
+}
+
+// PATTERN: multiply-add fusion
+// PATTERN: multiply-subtract fusion
+// PATTERN: multiply-negate fusion
+func i64 @multiply_idioms(i64 %a, i64 %b, i64 %c) {
+entry():
+    %p1 = imul i64 %a, %b
+    %madd = iadd i64 %p1, %c
+    %p2 = imul i64 %a, %b
+    %msub = isub i64 %c, %p2
+    %p3 = imul i64 %a, %b
+    %mneg = isub i64 0, %p3
+    %sum = iadd i64 %madd, %msub
+    %r = iadd i64 %sum, %mneg
+    ret i64 %r
+}
+
+// PATTERN: signed widening multiply
+// PATTERN: unsigned widening multiply
+func i64 @widening_multiply(i32 %a, i32 %b) {
+entry():
+    %sa = sext i32 %a to i64
+    %sb = sext i32 %b to i64
+    %smul = imul i64 %sa, %sb
+    %ua = zext i32 %a to i64
+    %ub = zext i32 %b to i64
+    %umul = imul i64 %ua, %ub
+    %r = iadd i64 %smul, %umul
+    ret i64 %r
+}
+
+// PATTERN: register-offset load operand
+func i64 @register_offset_load(ptr %base, i64 %index) {
+entry():
+    %addr = ptradd %base, %index
+    %value = load i64, %addr, align 8
+    ret i64 %value
+}
+
+// PATTERN: internal direct call remains ABI-neutral MIR
+func i64 @callee(i64 %x) {
+entry():
+    ret i64 %x
+}
+
+// PATTERN: external call preserves byval metadata
+// PATTERN: variadic call metadata survives selection
+// PATTERN: indirect call preserves its callee register
+// PATTERN: scalar call result remains a virtual register
+func i64 @calls(ptr %fp, ptr %object, i64 %x) {
+entry():
+    %a = call i64 @callee(i64 %x)
+    %b = call i64 @external(ptr %object byval(24), i64 %a) va
+    %c = call i64 %fp(i64 %b)
+    ret i64 %c
+}
+
+// PATTERN: non-fused select snapshots NZCV before constant materialization
+func i64 @constant_select(i32 %condition) {
+entry():
+    %r = select %condition, i64 2, 3
+    ret i64 %r
+}

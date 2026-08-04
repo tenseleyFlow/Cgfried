@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cg/shared.h"
 #include "driver/toolchain.h"
-#include "util/sort.h"
 
 /* Sprint 22: backward liveness, the SIMPLE linear scan (one interval per
  * vreg, [first_point, last_point], NO holes — hole-aware allocation buys
@@ -64,14 +64,7 @@ static bool is_callee_saved(u8 reg)
            reg == X64_R14 || reg == X64_R15;
 }
 
-typedef struct Interval {
-    u32 vreg;
-    u32 start, end; /* inclusive instruction points */
-    bool live;
-    u8 fixed; /* X64Reg + 1: pre-colored (unspillable) */
-    u8 phys;  /* X64Reg + 1 once assigned */
-    i32 slot; /* spill slot rbp-disp; 0 = not spilled */
-} Interval;
+typedef CgInterval Interval;
 
 typedef struct Ra {
     X64Func *f;
@@ -80,7 +73,7 @@ typedef struct Ra {
     u64 *live_in; /* [nblocks * words] */
     u64 *live_out;
     u32 words;
-    i32 next_slot; /* grows downward; slots at -8, -16, ... */
+    CgSpillSlots slots;
     u32 *call_pts; /* sorted global points of CALL instructions */
     u32 ncalls;
     u32 call_cap;
@@ -206,27 +199,71 @@ static u32 inst_targets(const X64Func *f, const X64Inst *in, const u32 **tab)
     return in->target ? 1 : 0;
 }
 
-/* --- liveness --------------------------------------------------------------
- */
+/* --- shared MIR view + liveness -------------------------------------------
+ *
+ * shared.c owns target-neutral backward dataflow and interval mechanics.
+ * This adapter owns x86 operand walking and CFG interpretation. */
 
-static void bit_set(u64 *w, u32 i)
+static u32 view_block_ninsts(const void *ctx, u32 block)
 {
-    w[i >> 6] |= 1ull << (i & 63);
+    const X64Func *f = ctx;
+
+    return f->blocks[block].n;
 }
 
-static void bit_clear(u64 *w, u32 i)
+static u32 view_inst_def(const void *ctx, u32 block, u32 inst)
 {
-    w[i >> 6] &= ~(1ull << (i & 63));
+    const X64Func *f = ctx;
+
+    return f->blocks[block].insts[inst].def.v;
 }
 
-static bool bit_get(const u64 *w, u32 i)
+static u32 view_inst_uses(const void *ctx, u32 block, u32 inst, u32 *out,
+                          u32 cap)
 {
-    return (w[i >> 6] >> (i & 63)) & 1;
+    const X64Func *f = ctx;
+    X64VReg uses[MAX_USES];
+    u32 n = inst_uses(&f->blocks[block].insts[inst], uses);
+    u32 i;
+
+    if (n > cap)
+        return n;
+    for (i = 0; i < n; i++)
+        out[i] = uses[i].v;
+    return n;
+}
+
+static u32 view_inst_targets(const void *ctx, u32 block, u32 inst,
+                             const u32 **targets)
+{
+    const X64Func *f = ctx;
+    const X64Inst *in = &f->blocks[block].insts[inst];
+
+    if (!inst_is_branch(in))
+        return 0;
+    return inst_targets(f, in, targets);
+}
+
+static CgMirView x64_mir_view(const X64Func *f)
+{
+    CgMirView view;
+
+    view.ctx = f;
+    view.nvregs = f->nvregs;
+    view.nblocks = f->nblocks;
+    view.max_uses = MAX_USES;
+    view.block_ninsts = view_block_ninsts;
+    view.inst_def = view_inst_def;
+    view.inst_uses = view_inst_uses;
+    view.inst_targets = view_inst_targets;
+    return view;
 }
 
 u32 x64_liveness_words(const X64Func *f)
 {
-    return (f->nvregs + 64) / 64;
+    CgMirView view = x64_mir_view(f);
+
+    return cg_liveness_words(&view);
 }
 
 /* Backward dataflow to fixpoint. A block may branch MID-stream (switch
@@ -237,77 +274,19 @@ u32 x64_liveness_words(const X64Func *f)
  * (a conservative summary; interval building consumes it). */
 void x64_liveness(const X64Func *f, u64 *live_in, u64 *live_out)
 {
-    u32 words = x64_liveness_words(f);
-    u64 *tmp = cgf_xmalloc(words * 8);
-    bool changed = true;
-    u32 bi, w;
+    CgMirView view = x64_mir_view(f);
 
-    while (changed) {
-        changed = false;
-        for (bi = f->nblocks; bi-- > 0;) {
-            const X64Block *b = &f->blocks[bi];
-            u64 *in_ = &live_in[bi * words];
-            u64 *out_ = &live_out[bi * words];
-            i64 ii;
-
-            memset(tmp, 0, words * 8);
-            for (ii = (i64)b->n - 1; ii >= 0; ii--) {
-                const X64Inst *x = &b->insts[ii];
-                X64VReg uses[MAX_USES];
-                u32 nu, k;
-
-                if (inst_is_branch(x)) {
-                    const u32 *tgt;
-                    u32 nt = inst_targets(f, x, &tgt);
-
-                    for (k = 0; k < nt; k++) {
-                        const u64 *tin = &live_in[(tgt[k] - 1) * words];
-
-                        for (w = 0; w < words; w++) {
-                            tmp[w] |= tin[w];
-                            out_[w] |= tin[w];
-                        }
-                    }
-                }
-                if (x->def.v)
-                    bit_clear(tmp, x->def.v);
-                nu = inst_uses(x, uses);
-                for (k = 0; k < nu; k++)
-                    bit_set(tmp, uses[k].v);
-            }
-            for (w = 0; w < words; w++)
-                if (tmp[w] != in_[w]) {
-                    in_[w] = tmp[w];
-                    changed = true;
-                }
-        }
-    }
-    free(tmp);
+    cg_liveness(&view, live_in, live_out);
 }
 
 /* --- intervals -------------------------------------------------------------
  */
 
-static void iv_extend(Ra *ra, u32 v, u32 p)
-{
-    Interval *it = &ra->iv[v];
-
-    if (!it->live) {
-        it->live = true;
-        it->vreg = v;
-        it->start = it->end = p;
-        return;
-    }
-    if (p < it->start)
-        it->start = p;
-    if (p > it->end)
-        it->end = p;
-}
-
 static void build_intervals(Ra *ra)
 {
     X64Func *f = ra->f;
-    u32 p = 0, bi, i, v, max_calls = 0;
+    CgMirView view = x64_mir_view(f);
+    u32 p = 0, bi, i, max_calls = 0;
 
     for (bi = 0; bi < f->nblocks; bi++)
         max_calls += f->blocks[bi].n;
@@ -322,37 +301,22 @@ static void build_intervals(Ra *ra)
     memset(ra->live_in, 0, f->nblocks * ra->words * 8);
     memset(ra->live_out, 0, f->nblocks * ra->words * 8);
     ra->ncalls = 0; /* rebuilt every repair iteration */
-    x64_liveness(f, ra->live_in, ra->live_out);
 
     ra->iv = arena_alloc(ra->arena, (f->nvregs + 1) * sizeof(Interval),
                          _Alignof(Interval));
-    memset(ra->iv, 0, (f->nvregs + 1) * sizeof(Interval));
+    cg_intervals_build(&view, ra->live_in, ra->live_out, ra->iv);
     for (bi = 0; bi < f->nblocks; bi++) {
         const X64Block *b = &f->blocks[bi];
-        u32 bstart = p;
         u32 bend = p + (b->n ? b->n - 1 : 0);
 
-        for (v = 1; v <= f->nvregs; v++) {
-            if (bit_get(&ra->live_in[bi * ra->words], v))
-                iv_extend(ra, v, bstart);
-            if (bit_get(&ra->live_out[bi * ra->words], v))
-                iv_extend(ra, v, bend);
-        }
         for (i = 0; i < b->n; i++) {
             const X64Inst *in = &b->insts[i];
-            X64VReg uses[MAX_USES];
-            u32 nu, k;
 
             if (in->op == X64_OP_CALL) {
                 if (ra->ncalls >= ra->call_cap)
                     CGF_ICE("regalloc: call-site capacity accounting failed");
-                ra->call_pts[ra->ncalls++] = bstart + i;
+                ra->call_pts[ra->ncalls++] = p + i;
             }
-            if (in->def.v)
-                iv_extend(ra, in->def.v, bstart + i);
-            nu = inst_uses(in, uses);
-            for (k = 0; k < nu; k++)
-                iv_extend(ra, uses[k].v, bstart + i);
         }
         p = bend + 1;
     }
@@ -536,32 +500,8 @@ static u32 find_conflicts(Ra *ra, u32 *out, u32 cap)
     return n;
 }
 
-/* --- linear scan -----------------------------------------------------------
+/* --- shared linear scan policy --------------------------------------------
  */
-
-static int iv_cmp_start(const void *pa, const void *pb, void *ctx)
-{
-    const Interval *x = *(Interval *const *)pa;
-    const Interval *y = *(Interval *const *)pb;
-
-    (void)ctx;
-    if (x->start != y->start)
-        return x->start < y->start ? -1 : 1;
-    return x->vreg < y->vreg ? -1 : x->vreg > y->vreg ? 1 : 0;
-}
-
-static void assign_slot(Ra *ra, Interval *it)
-{
-    if (!it->slot) {
-        u32 width = x64_vwidth(ra->f, it->vreg) == X64_X ? 16 : 8;
-        u32 raw = (u32)(-ra->next_slot) + width;
-
-        raw = (raw + width - 1) & ~(width - 1);
-        ra->next_slot = -(i32)raw;
-        it->slot = ra->next_slot;
-        ra->f->spill_slots++;
-    }
-}
 
 /* Would giving [start,end] register `reg` collide with a fixed interval?
  * Inclusive overlap: even endpoint sharing is refused for ordinary
@@ -583,117 +523,67 @@ static bool fixed_clash(const Ra *ra, u8 reg, u32 start, u32 end)
     return false;
 }
 
+static void x64_scan_pool(void *ctx, u32 vreg, const u8 **regs, u32 *nregs)
+{
+    Ra *ra = ctx;
+
+    if (x64_vclass(ra->f, vreg) == X64RC_XMM) {
+        *regs = xmm_order;
+        *nregs = NXMM;
+    } else {
+        *regs = alloc_order;
+        *nregs = NALLOC;
+    }
+}
+
+static bool x64_scan_same_class(void *ctx, u32 a, u32 b)
+{
+    Ra *ra = ctx;
+
+    return x64_vclass(ra->f, a) == x64_vclass(ra->f, b);
+}
+
+static bool x64_scan_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
+{
+    Ra *ra = ctx;
+    u8 rc = x64_vclass(ra->f, vreg);
+    bool crossing = crosses_call(ra, start, end);
+
+    if (crossing && rc == X64RC_XMM)
+        return false;
+    if (crossing && rc == X64RC_GP && !is_callee_saved(reg))
+        return false;
+    return !fixed_clash(ra, reg, start, end);
+}
+
+static u32 x64_scan_spill_size(void *ctx, u32 vreg)
+{
+    Ra *ra = ctx;
+
+    return x64_vwidth(ra->f, vreg) == X64_X ? 16 : 8;
+}
+
+static u32 x64_scan_spill_align(void *ctx, u32 vreg)
+{
+    return x64_scan_spill_size(ctx, vreg);
+}
+
 static void linear_scan(Ra *ra)
 {
-    X64Func *f = ra->f;
-    Interval **order;
-    Interval **active;
-    u32 nactive = 0, nord = 0;
-    u32 v, i, k;
+    CgLinearScanPolicy policy;
     const char *env = cgf_env("CGF_SPILL_ALL");
-    bool spill_all = env && strcmp(env, "1") == 0;
 
-    order = arena_alloc(ra->arena, (f->nvregs + 1) * sizeof(Interval *),
-                        _Alignof(Interval *));
-    active = arena_alloc(ra->arena, (f->nvregs + 1) * sizeof(Interval *),
-                         _Alignof(Interval *));
-    for (v = 1; v <= f->nvregs; v++)
-        if (ra->iv[v].live)
-            order[nord++] = &ra->iv[v];
-    cgf_sort_stable(order, nord, sizeof(Interval *), iv_cmp_start, NULL);
-
-    for (i = 0; i < nord; i++) {
-        Interval *cur = order[i];
-        bool used[X64_REG_COUNT];
-
-        /* Expire strictly-ended intervals. An interval ending exactly at
-         * cur->start stays active — see fixed_clash on why endpoint
-         * sharing is not safe for ordinary intervals. */
-        for (k = 0; k < nactive;) {
-            if (active[k]->end < cur->start)
-                active[k] = active[--nactive];
-            else
-                k++;
-        }
-        if (cur->fixed) {
-            /* Pre-colored: assigned unconditionally. Disjointness among
-             * fixed intervals was repaired; ordinary intervals steer
-             * around them via fixed_clash. */
-            cur->phys = cur->fixed;
-            active[nactive++] = cur;
-            continue;
-        }
-        if (spill_all) {
-            assign_slot(ra, cur);
-            continue;
-        }
-        {
-            u8 rc = x64_vclass(f, cur->vreg);
-            bool crossing = crosses_call(ra, cur->start, cur->end);
-            const u8 *pool = rc == X64RC_XMM ? xmm_order : alloc_order;
-            u32 npool = rc == X64RC_XMM ? NXMM : NALLOC;
-
-            /* Call-crossing xmm ALWAYS spills — no callee-saved xmm
-             * exists, so there is no register that survives. */
-            if (crossing && rc == X64RC_XMM) {
-                assign_slot(ra, cur);
-                continue;
-            }
-            memset(used, 0, sizeof(used));
-            for (k = 0; k < nactive; k++)
-                if (active[k]->phys)
-                    used[active[k]->phys - 1] = true;
-            cur->phys = 0;
-            for (k = 0; k < npool; k++) {
-                u8 r = pool[k];
-
-                if (crossing && rc == X64RC_GP && !is_callee_saved(r))
-                    continue;
-                if (!used[r] && !fixed_clash(ra, r, cur->start, cur->end)) {
-                    cur->phys = (u8)(r + 1);
-                    break;
-                }
-            }
-            if (!cur->phys) {
-                /* Pressure: spill the active interval with the furthest
-                 * end (the no-holes proxy for furthest next use) — if it
-                 * ends later than cur and its register is legal for cur
-                 * (same class, callee-saved when cur crosses a call). */
-                Interval *far = NULL;
-
-                for (k = 0; k < nactive; k++) {
-                    Interval *cand = active[k];
-
-                    if (cand->fixed || !cand->phys)
-                        continue;
-                    if (x64_vclass(f, cand->vreg) != rc)
-                        continue;
-                    if (crossing && rc == X64RC_GP &&
-                        !is_callee_saved((u8)(cand->phys - 1)))
-                        continue;
-                    if (fixed_clash(ra, (u8)(cand->phys - 1), cur->start,
-                                    cur->end))
-                        continue;
-                    if (!far || cand->end > far->end)
-                        far = cand;
-                }
-                if (far && far->end > cur->end) {
-                    cur->phys = far->phys;
-                    far->phys = 0;
-                    assign_slot(ra, far);
-                    for (k = 0; k < nactive; k++)
-                        if (active[k] == far) {
-                            active[k] = cur;
-                            break;
-                        }
-                } else {
-                    assign_slot(ra, cur);
-                }
-                continue;
-            }
-            active[nactive++] = cur;
-        }
-    }
+    memset(&policy, 0, sizeof(policy));
+    policy.ctx = ra;
+    policy.nphys_regs = X64_REG_COUNT;
+    policy.spill_all = env && strcmp(env, "1") == 0;
+    policy.pool = x64_scan_pool;
+    policy.same_class = x64_scan_same_class;
+    policy.reg_usable = x64_scan_reg_usable;
+    policy.spill_size = x64_scan_spill_size;
+    policy.spill_align = x64_scan_spill_align;
+    cg_linear_scan(ra->iv, ra->f->nvregs, &policy, &ra->slots);
+    ra->f->spill_slots = ra->slots.count;
 }
 
 /* --- rewrite ---------------------------------------------------------------
@@ -1110,7 +1000,7 @@ static void frame_finalize(Ra *ra)
     bool touched[X64_REG_COUNT];
     u8 push_order[8];
     u32 npush = 0, bi, i, k;
-    u32 raw = (u32)(-ra->next_slot);
+    u32 raw = (u32)(-ra->slots.next_offset);
     u32 slot_pad = 0;
     u32 frame_bias;
     u32 save_off = 0; /* variadic reg-save area rbp-offset */

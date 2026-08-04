@@ -1,8 +1,10 @@
 #ifndef CGF_CG_H
 #define CGF_CG_H
 
-/* The shared backend interface. One target this phase; arm64 joins at
- * Sprint 46 behind the same shape. */
+/* Backend entry points. Shared target-independent allocation helpers live in
+ * cg/shared.h; each target owns its MIR, constraints, and selection. */
+#include "cg/arm64/mir.h"
+#include "cg/shared.h"
 #include "cg/x86_64/mir.h"
 
 #endif

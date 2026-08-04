@@ -1,0 +1,5 @@
+func void @large_bulk(ptr %dst, ptr %src) {
+entry():
+    memcpy %dst, %src, 1073741824, align 8
+    ret
+}
