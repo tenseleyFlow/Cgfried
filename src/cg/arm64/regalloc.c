@@ -816,6 +816,7 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
     A64CallInfo *call = in->call;
     ArgWalk w;
     A64CallArg *kept;
+    A64Reg pair_dest = {0, 0};
     u32 nkept = 0, i;
 
     if (!call)
@@ -832,9 +833,16 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         A64Sf sf = a64_type_sf(arg->type);
         u8 phys = A64_REG_NONE;
 
-        if (kind >= IR_ARG_PAIR_II)
-            CGF_ICE("arm64 regalloc: x0:x1 pair returns are not marshalled "
-                    "yet (Sprint 48)");
+        if (kind >= IR_ARG_PAIR_II) {
+            /* The IR keeps a 9-16 byte composite return sret-SHAPED, but
+             * AAPCS64 passes no pointer for it: the pair comes back in
+             * x0:x1 and the caller stores it into the temporary itself.
+             * The pointer therefore consumes no argument register and its
+             * value must survive the call, which the clobber model already
+             * forces into a callee-saved register. */
+            pair_dest = arg->value;
+            continue;
+        }
         if (kind == IR_ARG_SRET) {
             /* x8 is NOT argument nine: a function returning a large object
              * still receives its first real argument in x0, so the indirect
@@ -873,6 +881,32 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
     if (w.nsaa > *out_args)
         *out_args = w.nsaa;
 
+    if (pair_dest.id) {
+        /* Reading x0/x1 physically is safe exactly here: an interval that
+         * crosses a call is already confined to callee-saved registers, and
+         * these stores precede every definition after the call. */
+        static const u8 regs[2] = {A64_X0, A64_X1};
+        u32 half;
+
+        rb_put(rb, in);
+        for (half = 0; half < 2; half++) {
+            A64Inst st;
+
+            memset(&st, 0, sizeof(st));
+            st.op = A64_OP_STORE;
+            st.sf = A64_SF64;
+            st.nops = 2;
+            st.ops[0].kind = A64O_REG;
+            st.ops[0].reg = phys_reg(regs[half]);
+            st.ops[1].kind = A64O_MEM;
+            st.ops[1].mem.base = pair_dest;
+            st.ops[1].mem.offset = (i64)(8 * half);
+            st.ops[1].mem.size = 8;
+            st.ops[1].mem.mode = A64_ADDR_SCALED;
+            rb_put(rb, &st);
+        }
+        return;
+    }
     if (call->result.id) {
         bool fp = a64_type_is_fp(call->result_type);
         A64Sf sf = a64_type_sf(call->result_type);

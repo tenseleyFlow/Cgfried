@@ -43,6 +43,10 @@ typedef struct Isel {
     u32 cur_loc;
     u32 selection_start;
     u32 selection_block;
+    /* A 9-16 byte composite return travels in x0:x1, but the IR keeps it
+     * sret-SHAPED: the callee writes through a hidden pointer. The buffer
+     * that pointer names is ours, and `ret` loads the pair out of it. */
+    A64Reg pair_ret_buf;
 } Isel;
 
 static A64Sf sf_of(IrType type)
@@ -1517,6 +1521,29 @@ static void select_inst(Isel *is, const IrInst *ir)
         A64Reg value = {0};
         A64Inst *ret;
 
+        if (is->pair_ret_buf.id) {
+            /* x0:x1 out of the buffer the hidden pointer named. */
+            static const u8 regs[2] = {A64_X0, A64_X1};
+            u32 half;
+
+            for (half = 0; half < 2; half++) {
+                A64Reg out =
+                    a64_newv_fixed(is->func, A64RC_GP, A64_SF64, regs[half]);
+                A64Inst *load = emit(is, A64_OP_LOAD, A64_SF64);
+                A64Operand mem;
+
+                memset(&mem, 0, sizeof(mem));
+                mem.kind = A64O_MEM;
+                mem.mem.base = is->pair_ret_buf;
+                mem.mem.offset = (i64)(8 * half);
+                mem.mem.size = 8;
+                mem.mem.mode = A64_ADDR_SCALED;
+                add_operand(load, reg_op(out));
+                add_operand(load, mem);
+            }
+            (void)emit(is, A64_OP_RET, A64_SF64);
+            break;
+        }
         if (ir->nops) {
             /* AAPCS64 returns in x0 or v0. Pre-colouring a copy keeps the
              * producing value free to live anywhere up to this point. */
@@ -1602,6 +1629,18 @@ static void bind_params(Isel *is, const IrFunc *ir)
         A64Reg dst = is->vals[ir->param_vals[i].v].reg;
         u8 phys = A64_REG_NONE;
 
+        if (kind >= IR_ARG_PAIR_II) {
+            /* No pointer is passed at all on AAPCS64: the caller reads the
+             * pair out of x0:x1. The callee still needs somewhere to write,
+             * so it allocates that somewhere itself. */
+            A64Inst *slot = emit(is, A64_OP_ALLOCA, A64_SF64);
+
+            add_operand(slot, reg_op(dst));
+            add_operand(slot, imm_op(16));
+            add_operand(slot, imm_op(8));
+            is->pair_ret_buf = dst;
+            continue;
+        }
         if (kind == IR_ARG_SRET) {
             /* The indirect-result pointer arrives in x8 and consumes none of
              * x0-x7, so the first real parameter is still in x0. */
@@ -1658,20 +1697,13 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
 
     if (ir_type_is_vector((IrType)ir->ret) || ir->ret == IRT_F80 ||
         ir->ret == IRT_F128)
-        CGF_ICE("arm64 isel: vector/f80/f128 function ABI lands in Sprint 48");
-    if (ir->abi_ret != IR_ABIRET_NONE && ir->abi_ret != IR_ABIRET_SRET)
-        CGF_ICE("arm64 isel: x0:x1 pair returns are not marshalled yet "
-                "(Sprint 48)");
+        CGF_ICE("arm64 isel: vector/f80/f128 function ABI lands in Sprint 49");
 
     for (i = 0; i < ir->nparams; i++)
         if (ir_type_is_vector((IrType)ir->param_types[i]) ||
             ir->param_types[i] == IRT_F80 || ir->param_types[i] == IRT_F128)
             CGF_ICE("arm64 isel: vector/f80/f128 parameters land in "
                     "Sprint 49");
-        else if (ir->param_annots &&
-                 ir_arg_kind(ir->param_annots[i]) >= IR_ARG_PAIR_II)
-            CGF_ICE("arm64 isel: x0:x1 pair returns are not marshalled yet "
-                    "(Sprint 48)");
 
     memset(func, 0, sizeof(*func));
     func->name = ir->name;

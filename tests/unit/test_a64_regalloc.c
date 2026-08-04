@@ -734,3 +734,72 @@ void test_a64_regalloc_static_allocas_get_disjoint_frame_slots(TestCtx *t)
     }
     arena_free_all(&arena);
 }
+
+/* A 9-16 byte composite return comes back in x0:x1 with NO pointer passed —
+ * verified against aarch64-linux-gnu-gcc, which leaves x8 untouched and
+ * returns the halves in x0 and x1. The IR still models it sret-shaped, so
+ * marshalling must drop the hidden pointer from the argument list entirely
+ * and store the pair itself, while the pointer stays live across the call. */
+void test_a64_regalloc_pair_return_consumes_no_argument_register(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg dest, real;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u32 ii, stores = 0;
+    bool past_call = false;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    dest = a64_newv(&f, A64RC_GP);
+    real = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_MOVZ, 2, treg(dest), timm(0), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_MOVZ, 2, treg(real), timm(7), treg((A64Reg){0, 0}));
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call =
+        a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                          FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, (A64Reg){0, 0},
+                          IRT_VOID, IR_ABIRET_PAIR_II, false, false);
+    /* the hidden pointer, then one real argument */
+    a64_call_add_arg(&f, call, dest, IRT_PTR,
+                     ((u64)IR_ARG_PAIR_II << 32) | 16u);
+    a64_call_add_arg(&f, call, real, IRT_I64, 0);
+    put(&f, 0, A64_OP_RET, 0, treg((A64Reg){0, 0}), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+
+        if (cur->op == A64_OP_CALL) {
+            /* the hidden pointer is gone; the real argument took x0, not x1 */
+            T_ASSERT_EQ_INT(t, (long long)cur->call->nargs, 1);
+            T_ASSERT_EQ_INT(t, (long long)cur->call->args[0].value.id,
+                            (long long)A64_X0 + 1);
+            past_call = true;
+            continue;
+        }
+        if (past_call && cur->op == A64_OP_STORE &&
+            cur->ops[1].kind == A64O_MEM) {
+            T_ASSERT(t, cur->ops[0].reg.physical);
+            T_ASSERT_EQ_INT(t, (long long)cur->ops[0].reg.id,
+                            (long long)(stores == 0 ? A64_X0 : A64_X1) + 1);
+            T_ASSERT_EQ_INT(t, (long long)cur->ops[1].mem.offset,
+                            (long long)(stores * 8));
+            /* the destination survived the call, so it is callee-saved */
+            T_ASSERT(t, a64_reg_is_callee_saved_gp(
+                            (u8)(cur->ops[1].mem.base.id - 1)));
+            stores++;
+        }
+    }
+    T_ASSERT_EQ_INT(t, (long long)stores, 2);
+    arena_free_all(&arena);
+}
