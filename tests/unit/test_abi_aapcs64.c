@@ -376,3 +376,66 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
 
     abi_close(&f);
 }
+
+/* The Linux AAPCS64 va_list, field for field against gcc's aarch64
+ * `build_va_list`. The offsets are load-bearing: lowering hard-codes them,
+ * and va_copy copies exactly this many bytes. */
+void test_abi_aapcs64_va_list_shape(TestCtx *t)
+{
+    static const struct {
+        const char *name;
+        u32 offset;
+    } expect[] = {
+        {"__stack", 0},    {"__gr_top", 8},   {"__vr_top", 16},
+        {"__gr_offs", 24}, {"__vr_offs", 28},
+    };
+    AbiFix f;
+    Type *va, *rec;
+    TypeLayout l;
+    Member *m;
+    u32 i = 0;
+
+    abi_open(&f, "int x;\n", CGF_TARGET_ARM64_LINUX);
+    va = sema_va_list_type(&f.sema);
+    T_ASSERT(t, va != NULL);
+    /* a one-element array, so every use decays to a pointer and a callee
+     * advances its caller's cursor */
+    T_ASSERT_EQ_INT(t, va->kind, TY_ARRAY);
+    T_ASSERT_EQ_INT(t, (long long)va->size, 1);
+    rec = va->base;
+    T_ASSERT_EQ_INT(t, rec->kind, TY_STRUCT);
+    T_ASSERT_EQ_INT(t, rec->tag->nmembers, 5);
+
+    l = layout_of(&f.sema, rec);
+    T_ASSERT_EQ_INT(t, (long long)l.size, 32);
+    T_ASSERT_EQ_INT(t, (long long)l.align, 8);
+    for (m = rec->tag->members; m; m = m->next, i++) {
+        T_ASSERT(t, i < 5);
+        T_ASSERT_EQ_STR(t, m->name, expect[i].name);
+        T_ASSERT_EQ_INT(t, (long long)m->offset, (long long)expect[i].offset);
+        /* the two offsets are SIGNED: negative is the whole design */
+        if (i >= 3)
+            T_ASSERT_EQ_INT(t, m->type->kind, TY_INT);
+        else
+            T_ASSERT_EQ_INT(t, m->type->kind, TY_PTR);
+    }
+    T_ASSERT_EQ_INT(t, (long long)i, 5);
+    abi_close(&f);
+}
+
+/* x86-64 keeps its own four-field shape; the two must not converge. */
+void test_abi_sysv_va_list_shape_is_unchanged(TestCtx *t)
+{
+    AbiFix f;
+    Type *va, *rec;
+    TypeLayout l;
+
+    abi_open(&f, "int x;\n", CGF_TARGET_X86_64_LINUX_GNU);
+    va = sema_va_list_type(&f.sema);
+    rec = va->base;
+    T_ASSERT_EQ_INT(t, rec->tag->nmembers, 4);
+    T_ASSERT_EQ_STR(t, rec->tag->members->name, "gp_offset");
+    l = layout_of(&f.sema, rec);
+    T_ASSERT_EQ_INT(t, (long long)l.size, 24);
+    abi_close(&f);
+}

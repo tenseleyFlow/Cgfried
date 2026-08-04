@@ -51,9 +51,19 @@ static TagDecl *tag_new(Sema *s, const char *name, TypeKind kind, Span span)
     return tag;
 }
 
-/* The synthesized SysV va_list (see sema.h for the shape's why). Member
- * names are interned so lowering's pointer-compare member lookup works. */
-Type *sema_va_list_type(Sema *s)
+/* The synthesized va_list (see sema.h for the shape's why). Member names are
+ * interned so lowering's pointer-compare member lookup works.
+ *
+ * Two shapes, because the two psABIs disagree about more than field names.
+ * SysV x86-64 keeps two 32-bit offsets that count UP from zero toward their
+ * limits, plus a save-area base. Linux AAPCS64 keeps two save-area TOPS and
+ * two NEGATIVE offsets that count up toward zero, so the argument at offset
+ * o lives at `top + o`. Apple's arm64 has neither: its va_list is a plain
+ * `char *`, which is Sprint 50's divergence.
+ *
+ * Both are wrapped in a one-element ARRAY so `va_list` decays to a pointer
+ * on every use, which is what makes a callee advance its caller's cursor. */
+static Type *va_list_sysv(Sema *s)
 {
     static const char *const names[] = {"gp_offset", "fp_offset",
                                         "overflow_arg_area", "reg_save_area"};
@@ -63,8 +73,6 @@ Type *sema_va_list_type(Sema *s)
     Type *arr;
     int i;
 
-    if (s->va_list_type)
-        return s->va_list_type;
     tag = tag_new(
         s,
         intern_str(s->interner, intern_cstr(s->interner, "__cgf_va_list_rec")),
@@ -85,8 +93,64 @@ Type *sema_va_list_type(Sema *s)
     arr = type_array(s->arena, tag->type);
     arr->has_size = true;
     arr->size = 1;
-    s->va_list_type = arr;
     return arr;
+}
+
+/* Field order and types are gcc's aarch64 `build_va_list`, verbatim:
+ * __stack +0, __gr_top +8, __vr_top +16, __gr_offs +24, __vr_offs +28. The
+ * offsets are SIGNED — negative is the whole design. */
+static Type *va_list_aapcs64(Sema *s)
+{
+    static const char *const names[] = {"__stack", "__gr_top", "__vr_top",
+                                        "__gr_offs", "__vr_offs"};
+    Span sp = {0};
+    TagDecl *tag;
+    Member *prev = NULL;
+    Type *arr;
+    int i;
+
+    tag = tag_new(
+        s,
+        intern_str(s->interner, intern_cstr(s->interner, "__cgf_va_list_rec")),
+        TY_STRUCT, sp);
+    for (i = 4; i >= 0; i--) {
+        Member *m = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
+
+        memset(m, 0, sizeof(*m));
+        m->name = intern_str(s->interner, intern_cstr(s->interner, names[i]));
+        m->type = i < 3 ? type_ptr(s->arena, type_basic(TY_VOID))
+                        : type_basic(TY_INT);
+        m->next = prev;
+        prev = m;
+    }
+    tag->members = prev;
+    tag->nmembers = 5;
+    tag->complete = true;
+    arr = type_array(s->arena, tag->type);
+    arr->has_size = true;
+    arr->size = 1;
+    return arr;
+}
+
+Type *sema_va_list_type(Sema *s)
+{
+    if (s->va_list_type)
+        return s->va_list_type;
+    switch (s->target.kind) {
+    case CGF_TARGET_ARM64_LINUX:
+        s->va_list_type = va_list_aapcs64(s);
+        break;
+    case CGF_TARGET_ARM64_MACOS:
+        /* Apple's va_list is a bare `char *`; synthesizing the AAPCS64
+         * record here would be silently wrong rather than unimplemented. */
+        sema_unimplemented(s, (Span){0}, "the Apple arm64 va_list", 50);
+        s->va_list_type = va_list_aapcs64(s);
+        break;
+    default:
+        s->va_list_type = va_list_sysv(s);
+        break;
+    }
+    return s->va_list_type;
 }
 
 static const char *tag_kw(TypeKind k)

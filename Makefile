@@ -310,6 +310,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/check_sema_target.sh
 	sh scripts/check_verify_coverage.sh
 	sh scripts/check_no_host_fpu.sh
+	sh scripts/a64_va_list_diff.sh
 	$(MAKE) check-warn-matrix
 	$(MAKE) BUILD=$(BUILD) test-warndiff
 	sh scripts/check_format.sh

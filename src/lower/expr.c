@@ -966,140 +966,186 @@ static void va_store_u32(Lower *lo, IrOperand ap, i64 off, IrOperand v)
     lower_store(lo, lv, v);
 }
 
-static IrOperand lower_va_arg(Lower *lo, AstNode *e)
+/* --- varargs (Linux AAPCS64, Sprint 48) ------------------------------------
+ *
+ * The five-field record (sema synthesized it, so these offsets are ours):
+ * __stack +0, __gr_top +8, __vr_top +16, __gr_offs +24, __vr_offs +28.
+ *
+ * The backwards-offset design is the thing to understand. Both offsets are
+ * NEGATIVE and count UP toward zero: the argument at offset o lives at
+ * `top + o`, and reaching zero means the register save area is exhausted.
+ * That is why the register test is two comparisons, not one — an argument
+ * needing two registers can START below zero and CROSS it, and an argument
+ * that crosses was passed on the stack in its entirety. Testing only the
+ * starting offset reads half an argument out of the save area and half out
+ * of nowhere. */
+
+static bool lower_is_aapcs64(Lower *lo)
+{
+    return lo->sema->target.kind == CGF_TARGET_ARM64_LINUX ||
+           lo->sema->target.kind == CGF_TARGET_ARM64_MACOS;
+}
+
+#define VA64_STACK 0
+#define VA64_GR_TOP 8
+#define VA64_VR_TOP 16
+#define VA64_GR_OFFS 24
+#define VA64_VR_OFFS 28
+
+static IrOperand va64_load_ptr(Lower *lo, IrOperand ap, i64 off)
+{
+    Lvalue lv;
+
+    memset(&lv, 0, sizeof(lv));
+    lv.addr = va_field_addr(lo, ap, off);
+    lv.unit = IRT_PTR;
+    lv.align = 8;
+    return lower_load(lo, lv);
+}
+
+static void va64_store_ptr(Lower *lo, IrOperand ap, i64 off, IrOperand v)
+{
+    Lvalue lv;
+
+    memset(&lv, 0, sizeof(lv));
+    lv.addr = va_field_addr(lo, ap, off);
+    lv.unit = IRT_PTR;
+    lv.align = 8;
+    lower_store(lo, lv, v);
+}
+
+static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
 {
     Type *t = sem(e);
-    IrOperand ap = lower_rvalue(lo, e->lhs);
-    AbiArg plan;
     TypeLayout l = layout_of(lo->sema, t);
     bool is_agg = lower_is_aggregate(t);
+    AbiArg plan;
     bool fp_path = false;
-    u32 n = 1;
-    bool reg_ok = true;
+    bool indirect = false;
+    i64 nslots = 1;
+    i64 bump;
+    i64 top_off, offs_off;
+    BlockId join, stack;
+    ValueId addr;
 
     abi_classify_arg(lo, t, &plan);
-    if (plan.kind == ABI_ARG_SCALAR) {
+    switch (plan.kind) {
+    case ABI_ARG_SCALAR: {
         IrType st = lower_irtype(lo, t);
 
         if (st == IRT_F32 || st == IRT_F64)
             fp_path = true;
         else if (st == IRT_F80 || st == IRT_F128)
-            reg_ok = false; /* long double: always the overflow area */
-    } else if (plan.kind == ABI_ARG_EIGHTBYTES) {
-        bool all_int = true;
-        bool all_sse = true;
-        u32 k;
-
-        n = plan.n;
-        for (k = 0; k < plan.n; k++) {
-            if (plan.t[k] == IRT_F64)
-                all_int = false;
-            else
-                all_sse = false;
-        }
-        if (all_sse)
-            fp_path = true;
-        else if (!all_int)
-            reg_ok = false; /* mixed eightbytes: overflow (corner —
-                               noted for Sprint 50's revisit) */
-    } else {
-        reg_ok = false; /* MEMORY class: no register branch at all */
+            lower_unimplemented(
+                lo, e->span, "va_arg of a 128-bit floating type on arm64", 49);
+        break;
     }
+    case ABI_ARG_EIGHTBYTES:
+        /* A composite of 16 bytes or fewer travels in one or two general
+         * registers, so its save-area image is already contiguous. */
+        nslots = plan.n;
+        break;
+    case ABI_ARG_HFA:
+        /* Each leaf occupies its own 16-byte q slot in the save area, so the
+         * aggregate is NOT contiguous there and reassembly must gather leaf
+         * by leaf. Erroring beats reading three floats out of a 48-byte
+         * window as if they were adjacent. */
+        lower_unimplemented(lo, e->span,
+                            "va_arg of a homogeneous floating aggregate", 49);
+        break;
+    default:
+        /* Over 16 bytes: the caller passed a POINTER, so the slot holds an
+         * address and the object lives behind it. */
+        indirect = true;
+        break;
+    }
+    bump = fp_path ? 16 * nslots : 8 * nslots;
+    top_off = fp_path ? VA64_VR_TOP : VA64_GR_TOP;
+    offs_off = fp_path ? VA64_VR_OFFS : VA64_GR_OFFS;
 
+    join = lower_new_block(lo, "va.join");
+    addr = ir_block_param(lo->m, lo->fn, join, IRT_PTR);
+    stack = lower_new_block(lo, "va.stack");
     {
-        BlockId join = lower_new_block(lo, "va.join");
-        ValueId addr = ir_block_param(lo->m, lo->fn, join, IRT_PTR);
-        i64 field = fp_path ? 4 : 0;
-        i64 bump = fp_path ? 16 * (i64)n : 8 * (i64)n;
-        i64 limit = fp_path ? 176 - 16 * (i64)n : 48 - 8 * (i64)n;
-        u64 slot = l.size <= 8 ? 8 : (l.size + 15) & ~15ull;
+        BlockId cross = lower_new_block(lo, "va.cross");
+        BlockId reg = lower_new_block(lo, "va.reg");
+        Lvalue offlv;
+        IrOperand off;
+        ValueId below, bumped, exhausted;
 
-        if (reg_ok) {
-            BlockId reg = lower_new_block(lo, "va.reg");
-            BlockId mem = lower_new_block(lo, "va.mem");
-            Lvalue offlv;
-            IrOperand off;
+        memset(&offlv, 0, sizeof(offlv));
+        offlv.addr = va_field_addr(lo, ap, offs_off);
+        offlv.unit = IRT_I32;
+        offlv.align = 4;
+        offlv.is_signed = true;
+        off = lower_load(lo, offlv);
 
-            memset(&offlv, 0, sizeof(offlv));
-            offlv.addr = va_field_addr(lo, ap, field);
-            offlv.unit = IRT_I32;
-            offlv.align = 4;
-            off = lower_load(lo, offlv);
-            {
-                ValueId c = ir_build_icmp(&lo->b, ICMP_ULE, off,
-                                          ir_op_iconst(IRT_I32, limit));
+        below = ir_build_icmp(&lo->b, ICMP_SLT, off, ir_op_iconst(IRT_I32, 0));
+        ir_build_condbr(&lo->b, ir_op_value(lo->fn, below), cross, NULL, 0,
+                        stack, NULL, 0);
 
-                ir_build_condbr(&lo->b, ir_op_value(lo->fn, c), reg, NULL, 0,
-                                mem, NULL, 0);
-            }
-            lower_at(lo, reg);
-            {
-                Lvalue rsalv;
-                IrOperand rsa;
-                ValueId wide, sum, bumped;
-                IrOperand from_reg;
+        lower_at(lo, cross);
+        bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, off,
+                           ir_op_iconst(IRT_I32, bump));
+        exhausted = ir_build_icmp(&lo->b, ICMP_SLE, ir_op_value(lo->fn, bumped),
+                                  ir_op_iconst(IRT_I32, 0));
+        ir_build_condbr(&lo->b, ir_op_value(lo->fn, exhausted), reg, NULL, 0,
+                        stack, NULL, 0);
 
-                memset(&rsalv, 0, sizeof(rsalv));
-                rsalv.addr = va_field_addr(lo, ap, 16);
-                rsalv.unit = IRT_PTR;
-                rsalv.align = 8;
-                rsa = lower_load(lo, rsalv);
-                wide = ir_build1(&lo->b, IR_ZEXT, IRT_I64, off);
-                sum = ir_build_ptradd(&lo->b, rsa, ir_op_value(lo->fn, wide));
-                bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, off,
-                                   ir_op_iconst(IRT_I32, bump));
-                va_store_u32(lo, ap, field, ir_op_value(lo->fn, bumped));
-                from_reg = ir_op_value(lo->fn, sum);
-                ir_build_br(&lo->b, join, &from_reg, 1);
-            }
-            lower_at(lo, mem);
-        }
-        /* The overflow path (straight-line when no register branch). */
+        lower_at(lo, reg);
         {
-            Lvalue ovlv;
-            IrOperand ov;
-            ValueId nov;
-            IrOperand from_mem;
+            IrOperand top = va64_load_ptr(lo, ap, top_off);
+            ValueId wide = ir_build1(&lo->b, IR_SEXT, IRT_I64, off);
+            ValueId at =
+                ir_build_ptradd(&lo->b, top, ir_op_value(lo->fn, wide));
+            IrOperand from_reg = ir_op_value(lo->fn, at);
 
-            memset(&ovlv, 0, sizeof(ovlv));
-            ovlv.addr = va_field_addr(lo, ap, 8);
-            ovlv.unit = IRT_PTR;
-            ovlv.align = 8;
-            ov = lower_load(lo, ovlv);
-            if (l.align > 8) {
-                /* Align the cursor up before reading (16-aligned types:
-                 * long double and 16-aligned aggregates). */
-                ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, ov);
-                ValueId up = ir_build2(&lo->b, IR_IADD, IRT_I64,
-                                       ir_op_value(lo->fn, as_i),
-                                       lower_i64((i64)l.align - 1));
-                ValueId masked =
-                    ir_build2(&lo->b, IR_AND, IRT_I64, ir_op_value(lo->fn, up),
-                              lower_i64(-(i64)l.align));
-                ValueId back = ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
-                                         ir_op_value(lo->fn, masked));
-
-                ov = ir_op_value(lo->fn, back);
-            }
-            nov = ir_build_ptradd(&lo->b, ov, lower_i64((i64)slot));
-            {
-                Lvalue novlv;
-
-                memset(&novlv, 0, sizeof(novlv));
-                novlv.addr = va_field_addr(lo, ap, 8);
-                novlv.unit = IRT_PTR;
-                novlv.align = 8;
-                lower_store(lo, novlv, ir_op_value(lo->fn, nov));
-            }
-            from_mem = ov;
-            ir_build_br(&lo->b, join, &from_mem, 1);
+            va_store_u32(lo, ap, offs_off, ir_op_value(lo->fn, bumped));
+            ir_build_br(&lo->b, join, &from_reg, 1);
         }
-        lower_at(lo, join);
+    }
+    lower_at(lo, stack);
+    {
+        IrOperand st = va64_load_ptr(lo, ap, VA64_STACK);
+        u64 slot = indirect ? 8 : ((u64)l.size + 7) & ~7ull;
+        ValueId next;
+        IrOperand from_stack;
+
+        if (!indirect && l.align > 8) {
+            ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, st);
+            ValueId up =
+                ir_build2(&lo->b, IR_IADD, IRT_I64, ir_op_value(lo->fn, as_i),
+                          lower_i64((i64)l.align - 1));
+            ValueId masked =
+                ir_build2(&lo->b, IR_AND, IRT_I64, ir_op_value(lo->fn, up),
+                          lower_i64(-(i64)l.align));
+
+            st = ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                               ir_op_value(lo->fn, masked)));
+            slot = ((u64)l.size + (u64)l.align - 1) & ~((u64)l.align - 1);
+        }
+        next = ir_build_ptradd(&lo->b, st, lower_i64((i64)slot));
+        va64_store_ptr(lo, ap, VA64_STACK, ir_op_value(lo->fn, next));
+        from_stack = st;
+        ir_build_br(&lo->b, join, &from_stack, 1);
+    }
+    lower_at(lo, join);
+    {
+        IrOperand at = ir_op_value(lo->fn, addr);
+
+        if (indirect) {
+            Lvalue plv;
+
+            memset(&plv, 0, sizeof(plv));
+            plv.addr = at;
+            plv.unit = IRT_PTR;
+            plv.align = 8;
+            at = lower_load(lo, plv);
+        }
         if (is_agg) {
             ValueId tmp = lower_temp(lo, t);
 
-            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp),
-                                   ir_op_value(lo->fn, addr), t,
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), at, t,
                                    (u32)(l.align > 8 ? 8 : l.align), 0);
             return ir_op_value(lo->fn, tmp);
         }
@@ -1107,11 +1153,167 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
             Lvalue lv;
 
             memset(&lv, 0, sizeof(lv));
-            lv.addr = ir_op_value(lo->fn, addr);
+            lv.addr = at;
             lv.unit = lower_irtype(lo, t);
             lv.align = (u32)(l.align > 8 ? 8 : l.align);
             lv.is_signed = type_is_integer(t) && is_signed_ty(lo, t);
             return lower_load(lo, lv);
+        }
+    }
+}
+
+static IrOperand lower_va_arg(Lower *lo, AstNode *e)
+{
+    Type *t = sem(e);
+    IrOperand ap = lower_rvalue(lo, e->lhs);
+    AbiArg plan;
+
+    if (lower_is_aapcs64(lo))
+        return lower_va_arg_aapcs64(lo, e, ap);
+    {
+        TypeLayout l = layout_of(lo->sema, t);
+        bool is_agg = lower_is_aggregate(t);
+        bool fp_path = false;
+        u32 n = 1;
+        bool reg_ok = true;
+
+        abi_classify_arg(lo, t, &plan);
+        if (plan.kind == ABI_ARG_SCALAR) {
+            IrType st = lower_irtype(lo, t);
+
+            if (st == IRT_F32 || st == IRT_F64)
+                fp_path = true;
+            else if (st == IRT_F80 || st == IRT_F128)
+                reg_ok = false; /* long double: always the overflow area */
+        } else if (plan.kind == ABI_ARG_EIGHTBYTES) {
+            bool all_int = true;
+            bool all_sse = true;
+            u32 k;
+
+            n = plan.n;
+            for (k = 0; k < plan.n; k++) {
+                if (plan.t[k] == IRT_F64)
+                    all_int = false;
+                else
+                    all_sse = false;
+            }
+            if (all_sse)
+                fp_path = true;
+            else if (!all_int)
+                reg_ok = false; /* mixed eightbytes: overflow (corner —
+                                   noted for Sprint 50's revisit) */
+        } else {
+            reg_ok = false; /* MEMORY class: no register branch at all */
+        }
+
+        {
+            BlockId join = lower_new_block(lo, "va.join");
+            ValueId addr = ir_block_param(lo->m, lo->fn, join, IRT_PTR);
+            i64 field = fp_path ? 4 : 0;
+            i64 bump = fp_path ? 16 * (i64)n : 8 * (i64)n;
+            i64 limit = fp_path ? 176 - 16 * (i64)n : 48 - 8 * (i64)n;
+            u64 slot = l.size <= 8 ? 8 : (l.size + 15) & ~15ull;
+
+            if (reg_ok) {
+                BlockId reg = lower_new_block(lo, "va.reg");
+                BlockId mem = lower_new_block(lo, "va.mem");
+                Lvalue offlv;
+                IrOperand off;
+
+                memset(&offlv, 0, sizeof(offlv));
+                offlv.addr = va_field_addr(lo, ap, field);
+                offlv.unit = IRT_I32;
+                offlv.align = 4;
+                off = lower_load(lo, offlv);
+                {
+                    ValueId c = ir_build_icmp(&lo->b, ICMP_ULE, off,
+                                              ir_op_iconst(IRT_I32, limit));
+
+                    ir_build_condbr(&lo->b, ir_op_value(lo->fn, c), reg, NULL,
+                                    0, mem, NULL, 0);
+                }
+                lower_at(lo, reg);
+                {
+                    Lvalue rsalv;
+                    IrOperand rsa;
+                    ValueId wide, sum, bumped;
+                    IrOperand from_reg;
+
+                    memset(&rsalv, 0, sizeof(rsalv));
+                    rsalv.addr = va_field_addr(lo, ap, 16);
+                    rsalv.unit = IRT_PTR;
+                    rsalv.align = 8;
+                    rsa = lower_load(lo, rsalv);
+                    wide = ir_build1(&lo->b, IR_ZEXT, IRT_I64, off);
+                    sum =
+                        ir_build_ptradd(&lo->b, rsa, ir_op_value(lo->fn, wide));
+                    bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, off,
+                                       ir_op_iconst(IRT_I32, bump));
+                    va_store_u32(lo, ap, field, ir_op_value(lo->fn, bumped));
+                    from_reg = ir_op_value(lo->fn, sum);
+                    ir_build_br(&lo->b, join, &from_reg, 1);
+                }
+                lower_at(lo, mem);
+            }
+            /* The overflow path (straight-line when no register branch). */
+            {
+                Lvalue ovlv;
+                IrOperand ov;
+                ValueId nov;
+                IrOperand from_mem;
+
+                memset(&ovlv, 0, sizeof(ovlv));
+                ovlv.addr = va_field_addr(lo, ap, 8);
+                ovlv.unit = IRT_PTR;
+                ovlv.align = 8;
+                ov = lower_load(lo, ovlv);
+                if (l.align > 8) {
+                    /* Align the cursor up before reading (16-aligned types:
+                     * long double and 16-aligned aggregates). */
+                    ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, ov);
+                    ValueId up = ir_build2(&lo->b, IR_IADD, IRT_I64,
+                                           ir_op_value(lo->fn, as_i),
+                                           lower_i64((i64)l.align - 1));
+                    ValueId masked = ir_build2(&lo->b, IR_AND, IRT_I64,
+                                               ir_op_value(lo->fn, up),
+                                               lower_i64(-(i64)l.align));
+                    ValueId back = ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                             ir_op_value(lo->fn, masked));
+
+                    ov = ir_op_value(lo->fn, back);
+                }
+                nov = ir_build_ptradd(&lo->b, ov, lower_i64((i64)slot));
+                {
+                    Lvalue novlv;
+
+                    memset(&novlv, 0, sizeof(novlv));
+                    novlv.addr = va_field_addr(lo, ap, 8);
+                    novlv.unit = IRT_PTR;
+                    novlv.align = 8;
+                    lower_store(lo, novlv, ir_op_value(lo->fn, nov));
+                }
+                from_mem = ov;
+                ir_build_br(&lo->b, join, &from_mem, 1);
+            }
+            lower_at(lo, join);
+            if (is_agg) {
+                ValueId tmp = lower_temp(lo, t);
+
+                lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp),
+                                       ir_op_value(lo->fn, addr), t,
+                                       (u32)(l.align > 8 ? 8 : l.align), 0);
+                return ir_op_value(lo->fn, tmp);
+            }
+            {
+                Lvalue lv;
+
+                memset(&lv, 0, sizeof(lv));
+                lv.addr = ir_op_value(lo->fn, addr);
+                lv.unit = lower_irtype(lo, t);
+                lv.align = (u32)(l.align > 8 ? 8 : l.align);
+                lv.is_signed = type_is_integer(t) && is_signed_ty(lo, t);
+                return lower_load(lo, lv);
+            }
         }
     }
 }
@@ -1130,21 +1332,37 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
             lo->failed = true;
             return;
         }
-        va_store_u32(
-            lo, ap, 0,
-            ir_op_iconst(IRT_I32,
-                         8 * (i64)(lo->named_gp > 6 ? 6 : lo->named_gp)));
-        va_store_u32(
-            lo, ap, 4,
-            ir_op_iconst(IRT_I32,
-                         48 + 16 * (i64)(lo->named_fp > 8 ? 8 : lo->named_fp)));
+        if (lower_is_aapcs64(lo)) {
+            /* Negative, counting up toward zero: the unused tail of each
+             * save area. Eight registers per bank, the named parameters
+             * having already consumed their share. */
+            i64 gp = (i64)(lo->named_gp > 8 ? 8 : lo->named_gp);
+            i64 fp = (i64)(lo->named_fp > 8 ? 8 : lo->named_fp);
+
+            va_store_u32(lo, ap, VA64_GR_OFFS,
+                         ir_op_iconst(IRT_I32, -(8 * (8 - gp))));
+            va_store_u32(lo, ap, VA64_VR_OFFS,
+                         ir_op_iconst(IRT_I32, -(16 * (8 - fp))));
+        } else {
+            va_store_u32(
+                lo, ap, 0,
+                ir_op_iconst(IRT_I32,
+                             8 * (i64)(lo->named_gp > 6 ? 6 : lo->named_gp)));
+            va_store_u32(
+                lo, ap, 4,
+                ir_op_iconst(
+                    IRT_I32,
+                    48 + 16 * (i64)(lo->named_fp > 8 ? 8 : lo->named_fp)));
+        }
         ir_build_va_start(&lo->b, ap);
         return;
     case SEMA_BUILTIN_VA_COPY: {
         IrOperand src = lower_rvalue(lo, e->args[1]);
 
-        /* The whole 24-byte record; the register save area is shared. */
-        ir_build_memcpy(&lo->b, ap, src, lower_i64(24), 8, 0);
+        /* The whole record; both save areas stay shared. AAPCS64's is 32
+         * bytes (three pointers and two offsets), SysV's 24. */
+        ir_build_memcpy(&lo->b, ap, src,
+                        lower_i64(lower_is_aapcs64(lo) ? 32 : 24), 8, 0);
         return;
     }
     default: /* va_end: the SysV va_end is a no-op — nothing at all */
