@@ -67,12 +67,12 @@ typedef struct P {
     u32 pos;
     IrModule *m;
     /* module-level */
-    Strmap func_ids; /* name -> (uintptr_t)(func index + 1) */
+    Strmap func_ids; /* name -> arena-owned u32 (func index + 1) */
     /* per-function */
     IrFunc *f;
     BlockId cur_block;
-    Strmap vals;   /* name -> (uintptr_t)ValueId */
-    Strmap blocks; /* name -> (uintptr_t)BlockId */
+    Strmap vals;   /* name -> arena-owned u32 ValueId */
+    Strmap blocks; /* name -> arena-owned u32 BlockId */
     Fixup *fixups;
     u32 nfixups;
     u32 cap_fixups;
@@ -384,13 +384,22 @@ static bool parse_type(P *p, IrType *out, const char *what)
 
 /* --- value bookkeeping --------------------------------------------------- */
 
+static void map_put_u32(P *p, Strmap *map, const char *key, size_t key_len,
+                        u32 value)
+{
+    u32 *cell = arena_alloc(p->arena, sizeof(*cell), _Alignof(u32));
+
+    *cell = value;
+    strmap_put(map, key, key_len, cell);
+}
+
 static void def_value(P *p, const Tok *t, ValueId v)
 {
     if (strmap_get(&p->vals, t->s, t->len)) {
         perr(p, t, "redefinition of value '%%%.*s'", (int)t->len, t->s);
         return;
     }
-    strmap_put(&p->vals, t->s, t->len, (void *)(uintptr_t)v.v);
+    map_put_u32(p, &p->vals, t->s, t->len, v.v);
 }
 
 /* Mirrors ir.c's new_value: parser-created values MUST appear in document
@@ -454,10 +463,10 @@ static bool parse_atom(P *p, IrType expected, IrOperand *slot)
     memset(slot, 0, sizeof(*slot));
     switch (t->kind) {
     case T_PIDENT: {
-        void *hit = strmap_get(&p->vals, t->s, t->len);
+        u32 *hit = strmap_get(&p->vals, t->s, t->len);
 
         if (hit) {
-            ValueId v = {(u32)(uintptr_t)hit};
+            ValueId v = {*hit};
 
             *slot = ir_op_value(p->f, v);
         } else {
@@ -667,7 +676,7 @@ static IrOperand *ops_alloc(P *p, u32 n)
 static bool parse_edge(P *p, IrEdge *e)
 {
     Tok *lbl = expect(p, T_IDENT, "a branch target label");
-    void *hit;
+    u32 *hit;
     u32 i;
 
     if (!lbl)
@@ -677,7 +686,7 @@ static bool parse_edge(P *p, IrEdge *e)
         perr(p, lbl, "branch to unknown block '%.*s'", (int)lbl->len, lbl->s);
         return false;
     }
-    e->target.v = (u32)(uintptr_t)hit;
+    e->target.v = *hit;
     /* case_val is the CALLER's field (already set for switch cases,
      * memset-zero otherwise) — do not touch it here. */
     if (!expect(p, T_LP, "'(' after the branch target"))
@@ -1131,11 +1140,11 @@ static bool parse_inst(P *p)
                 p->fixups[p->nfixups - 1].slot == &fp[0])
                 p->fixups[p->nfixups - 1].slot = &in->ops[0];
         } else {
-            void *hit = strmap_get(&p->func_ids, ct->s, ct->len);
+            u32 *hit = strmap_get(&p->func_ids, ct->s, ct->len);
 
             if (hit) {
                 in->subop = FUNCREF_INTERNAL;
-                in->callee = (u32)(uintptr_t)hit - 1;
+                in->callee = *hit - 1;
             } else {
                 in->subop = FUNCREF_EXTERNAL;
                 in->callee = ir_sym(p->m, tok_name(p, ct));
@@ -1344,8 +1353,7 @@ static bool prescan_blocks(P *p)
                     return false;
                 }
                 b = ir_block_new(p->m, p->f, tok_name(p, lbl));
-                strmap_put(&p->blocks, lbl->s, lbl->len,
-                           (void *)(uintptr_t)b.v);
+                map_put_u32(p, &p->blocks, lbl->s, lbl->len, b.v);
                 i = j + 2;
                 continue;
             }
@@ -1358,7 +1366,7 @@ static bool prescan_blocks(P *p)
 static bool parse_block_header(P *p)
 {
     Tok *lbl = expect(p, T_IDENT, "a block label");
-    void *hit;
+    u32 *hit;
 
     if (!lbl)
         return false;
@@ -1367,7 +1375,7 @@ static bool parse_block_header(P *p)
         perr(p, lbl, "expected a block label");
         return false;
     }
-    p->cur_block.v = (u32)(uintptr_t)hit;
+    p->cur_block.v = *hit;
     if (!expect(p, T_LP, "'(' after the block label"))
         return false;
     if (peek(p)->kind != T_RP) {
@@ -1565,14 +1573,14 @@ static bool parse_func(P *p)
     /* Resolve forward value references. */
     for (i = 0; i < p->nfixups; i++) {
         Fixup *fx = &p->fixups[i];
-        void *hit = strmap_get(&p->vals, fx->name, strlen(fx->name));
+        u32 *hit = strmap_get(&p->vals, fx->name, strlen(fx->name));
 
         if (!hit) {
             perr(p, &fx->tok, "use of undefined value '%%%s'", fx->name);
             goto out;
         }
         {
-            ValueId v = {(u32)(uintptr_t)hit};
+            ValueId v = {*hit};
             u64 annot = fx->slot->b; /* keep any call-arg annotation */
 
             *fx->slot = ir_op_value(f, v);
@@ -1729,8 +1737,7 @@ static bool prescan_funcs(P *p)
                 perr(p, nm, "duplicate function '@%.*s'", (int)nm->len, nm->s);
                 return false;
             }
-            strmap_put(&p->func_ids, nm->s, nm->len,
-                       (void *)(uintptr_t)(++idx));
+            map_put_u32(p, &p->func_ids, nm->s, nm->len, ++idx);
         }
     }
     return true;

@@ -40,7 +40,7 @@ static u32 pool_intern(Lower *lo, u8 tag, const u8 *bytes, u64 n,
     char *key = n + 1 <= sizeof(small)
                     ? small
                     : arena_alloc(lo->arena, (size_t)n + 1, 1);
-    void *hit;
+    u32 *hit;
     char buf[32];
     IrGlobal *g;
     u32 idx;
@@ -48,9 +48,9 @@ static u32 pool_intern(Lower *lo, u8 tag, const u8 *bytes, u64 n,
     key[0] = (char)tag;
     if (n)
         memcpy(key + 1, bytes, (size_t)n);
-    hit = strmap_get(&lo->string_pool, key, (size_t)n + 1);
+    hit = lower_u32map_get(&lo->string_pool, key, (size_t)n + 1);
     if (hit)
-        return (u32)(uintptr_t)hit - 1;
+        return *hit - 1;
     snprintf(buf, sizeof(buf), "%s%u", prefix, lo->nstrings++);
     g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
     g->size = n;
@@ -60,8 +60,7 @@ static u32 pool_intern(Lower *lo, u8 tag, const u8 *bytes, u64 n,
     if (n)
         memcpy(g->init, bytes, (size_t)n);
     idx = ir_sym(lo->m, g->name);
-    strmap_put(&lo->string_pool, key, (size_t)n + 1,
-               (void *)(uintptr_t)(idx + 1));
+    lower_u32map_put(lo, &lo->string_pool, key, (size_t)n + 1, idx + 1);
     return idx;
 }
 

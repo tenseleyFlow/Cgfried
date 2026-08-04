@@ -3,8 +3,12 @@
 set -u
 
 BIN=${1:?usage: smoke.sh path/to/cgfried}
+work=${CGF_SMOKE_WORK:-build/smoke}
 fails=0
 fail() { echo "SMOKE FAIL: $*" >&2; fails=$((fails + 1)); }
+
+mkdir -p "$work"
+printf 'int main(void) { return @; }\n' >"$work/error.c"
 
 out=$("$BIN" --version) || fail "--version exit code"
 case $out in
@@ -23,11 +27,11 @@ out=$("$BIN" -dumpversion) || fail "-dumpversion exit code"
 "$BIN" --definitely-not-a-flag >/dev/null 2>&1
 [ $? -eq 1 ] || fail "unknown option should exit 1"
 
-err=$("$BIN" foo.c 2>&1)
-[ $? -eq 1 ] || fail "input file should exit 1"
+err=$("$BIN" /nonexistent-cgf.c 2>&1)
+[ $? -eq 3 ] || fail "missing input file should exit 3"
 case $err in
-*"only -E"*) ;;
-*) fail "non--E input should say only -E is supported: '$err'" ;;
+*"cannot open"*) ;;
+*) fail "missing input should name the open failure: '$err'" ;;
 esac
 
 "$BIN" -E /nonexistent-cgf.c >/dev/null 2>&1
@@ -38,20 +42,20 @@ esac
 
 esc=$(printf '\033')
 
-err=$(NO_COLOR=1 "$BIN" foo.c 2>&1)
+err=$(NO_COLOR=1 "$BIN" -fsyntax-only "$work/error.c" 2>&1)
 case $err in
 *"$esc"*) fail "NO_COLOR=1 output contains an escape byte" ;;
 *) ;;
 esac
 
-err=$(CLICOLOR_FORCE=1 "$BIN" foo.c 2>&1)
+err=$(NO_COLOR= CLICOLOR_FORCE=1 "$BIN" -fsyntax-only "$work/error.c" 2>&1)
 case $err in
 *"$esc"*) ;;
 *) fail "CLICOLOR_FORCE=1 piped output should contain colors" ;;
 esac
 
-a=$("$BIN" foo.c 2>&1)
-b=$("$BIN" foo.c 2>&1)
+a=$("$BIN" -fsyntax-only "$work/error.c" 2>&1)
+b=$("$BIN" -fsyntax-only "$work/error.c" 2>&1)
 [ "$a" = "$b" ] || fail "diagnostic stderr is nondeterministic"
 
 if [ "$fails" -ne 0 ]; then

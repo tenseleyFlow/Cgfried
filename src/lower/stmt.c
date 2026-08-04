@@ -680,10 +680,10 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         return;
     }
     case AST_STMT_LABEL: {
-        void *hit = strmap_get(&lo->labels, s->name, strlen(s->name));
+        u32 *hit = lower_u32map_get(&lo->labels, s->name, strlen(s->name));
 
         if (hit) {
-            BlockId b = {(u32)(uintptr_t)hit};
+            BlockId b = {*hit};
 
             lower_branch_to(lo, b); /* fallthrough into the label */
             lower_at(lo, b);
@@ -692,11 +692,11 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         return;
     }
     case AST_STMT_GOTO: {
-        void *hit = strmap_get(&lo->labels, s->name, strlen(s->name));
+        u32 *hit = lower_u32map_get(&lo->labels, s->name, strlen(s->name));
 
         ensure_open_block(lo, "dead");
         if (hit) {
-            BlockId b = {(u32)(uintptr_t)hit};
+            BlockId b = {*hit};
 
             vla_restore_for_goto(lo, s->name);
             ir_build_br(&lo->b, b, NULL, 0);

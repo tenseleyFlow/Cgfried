@@ -967,6 +967,7 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
     composite = type_composite(s->arena, prev->type, cur->type);
     prev->type = composite;
     prev->defined = prev->defined || cur->defined;
+    prev->static_storage = prev->static_storage || cur->static_storage;
     /* A tentative definition stops being tentative once a real one
      * appears; several tentatives are fine (6.9.2p2). */
     if (cur->defined)
@@ -1380,6 +1381,7 @@ static u64 check_alignas(Sema *s, AstNode *d, Type *type)
     if (d->alignas_type) {
         Type *at = sema_type_from_ast(s, d->alignas_type, d->span);
 
+        d->sem_alignas_type = at;
         if (!layout_is_complete_for_size(at)) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, d->span,
@@ -1599,6 +1601,9 @@ static void declare_one(Sema *s, AstNode *d)
                               visible->type->has_proto;
         sym->linkage = linkage_for(s, visible, d->storage, is_func);
         sym->defined = d->init != NULL || d->kind == AST_FUNC_DEF;
+        sym->static_storage =
+            !is_func && !(d->storage & AST_SC_THREAD_LOCAL) &&
+            (file_scope || (d->storage & (AST_SC_STATIC | AST_SC_EXTERN)));
         /* A file-scope object with no initializer and no `extern` is a
          * TENTATIVE definition (6.9.2p2). Resolution to a zero-initialized
          * object at end of TU is Sprint 16's; recording it is ours. */

@@ -249,14 +249,28 @@ void lower_unimplemented(Lower *lo, Span span, const char *what, int sprint)
 
 /* --- symbol bookkeeping --------------------------------------------------- */
 
-static void *ptrmap_get(const Strmap *m, const void *key)
+u32 *lower_u32map_get(const Strmap *map, const char *key, size_t key_len)
 {
-    return strmap_get(m, (const char *)&key, sizeof(key));
+    return strmap_get(map, key, key_len);
 }
 
-static void ptrmap_put(Strmap *m, const void *key, void *val)
+void lower_u32map_put(Lower *lo, Strmap *map, const char *key, size_t key_len,
+                      u32 value)
 {
-    strmap_put(m, (const char *)&key, sizeof(key), val);
+    u32 *cell = arena_alloc(lo->arena, sizeof(*cell), _Alignof(u32));
+
+    *cell = value;
+    strmap_put(map, key, key_len, cell);
+}
+
+static u32 *ptrmap_get_u32(const Strmap *map, const void *key)
+{
+    return lower_u32map_get(map, (const char *)&key, sizeof(key));
+}
+
+static void ptrmap_put_u32(Lower *lo, Strmap *map, const void *key, u32 value)
+{
+    lower_u32map_put(lo, map, (const char *)&key, sizeof(key), value);
 }
 
 /* Clone source contracts into IR ownership and attach the ABI-level operand
@@ -285,24 +299,24 @@ const CgfAttr *lower_clone_cgf_attrs(Lower *lo, const CgfAttr *attrs,
  * use (externs referenced but never declared as globals still resolve). */
 static u32 global_sym_index(Lower *lo, Symbol *sym)
 {
-    void *hit = ptrmap_get(&lo->globals, sym);
+    u32 *hit = ptrmap_get_u32(&lo->globals, sym);
 
     if (hit)
-        return (u32)(uintptr_t)hit - 1;
+        return *hit - 1;
     {
         u32 idx = ir_sym(lo->m, sym->name);
 
-        ptrmap_put(&lo->globals, sym, (void *)(uintptr_t)(idx + 1));
+        ptrmap_put_u32(lo, &lo->globals, sym, idx + 1);
         return idx;
     }
 }
 
 IrOperand lower_sym_addr(Lower *lo, Symbol *sym)
 {
-    void *hit = ptrmap_get(&lo->locals, sym);
+    u32 *hit = ptrmap_get_u32(&lo->locals, sym);
 
     if (hit) {
-        ValueId v = {(u32)(uintptr_t)hit};
+        ValueId v = {*hit};
 
         return ir_op_value(lo->fn, v);
     }
@@ -311,7 +325,7 @@ IrOperand lower_sym_addr(Lower *lo, Symbol *sym)
      * miscompile (exactly how the for-init bug hid before this guard).
      * Local statics are exempt: they bind through the globals map. */
     if (sym->linkage == LINK_NONE && sym->kind == SYM_VAR &&
-        !ptrmap_get(&lo->globals, sym))
+        !ptrmap_get_u32(&lo->globals, sym))
         CGF_ICE("lowering lost the local '%s' (no alloca binding)", sym->name);
     return ir_op_symbol(IRT_PTR, global_sym_index(lo, sym), 0);
 }
@@ -323,11 +337,11 @@ u32 lower_global_sym(Lower *lo, Symbol *sym)
 
 bool lower_internal_func(Lower *lo, Symbol *sym, u32 *index)
 {
-    void *hit = ptrmap_get(&lo->func_ids, sym);
+    u32 *hit = ptrmap_get_u32(&lo->func_ids, sym);
 
     if (!hit)
         return false;
-    *index = (u32)(uintptr_t)hit - 1;
+    *index = *hit - 1;
     return true;
 }
 
@@ -335,7 +349,7 @@ void lower_bind_local(Lower *lo, Symbol *sym, ValueId slot)
 {
     IrFunc *f = lo->fn;
 
-    ptrmap_put(&lo->locals, sym, (void *)(uintptr_t)slot.v);
+    ptrmap_put_u32(lo, &lo->locals, sym, slot.v);
     if (f->nlocal_slots == f->cap_local_slots) {
         u32 nc = f->cap_local_slots ? f->cap_local_slots * 2 : 8;
         IrLocalSlot *ns =
@@ -354,9 +368,9 @@ void lower_bind_local(Lower *lo, Symbol *sym, ValueId slot)
 
 ValueId lower_local_slot(Lower *lo, Symbol *sym)
 {
-    void *hit = ptrmap_get(&lo->locals, sym);
+    u32 *hit = ptrmap_get_u32(&lo->locals, sym);
 
-    return hit ? (ValueId){(u32)(uintptr_t)hit} : VALUE_INVALID;
+    return hit ? (ValueId){*hit} : VALUE_INVALID;
 }
 
 void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)
@@ -366,7 +380,7 @@ void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)
      * binding is module-lifetime on purpose: the same Symbol may be
      * referenced again after its block closes only via pointers, but a
      * second execution of the block must reuse the same object. */
-    ptrmap_put(&lo->globals, sym, (void *)(uintptr_t)(sym_index + 1));
+    ptrmap_put_u32(lo, &lo->globals, sym, sym_index + 1);
 }
 
 /* VLA byte sizes are evaluated ONCE at declaration and cached by Type
@@ -375,7 +389,7 @@ void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)
  * exactly C17's rule for sizeof(int[n]). */
 IrOperand lower_type_size(Lower *lo, Type *t)
 {
-    void *hit;
+    u32 *hit;
     IrOperand n, inner;
     ValueId prod;
 
@@ -386,9 +400,9 @@ IrOperand lower_type_size(Lower *lo, Type *t)
 
         return lower_i64((i64)l.size);
     }
-    hit = strmap_get(&lo->vla_sizes, (const char *)&t, sizeof(t));
+    hit = lower_u32map_get(&lo->vla_sizes, (const char *)&t, sizeof(t));
     if (hit) {
-        ValueId v = {(u32)(uintptr_t)hit};
+        ValueId v = {*hit};
 
         return ir_op_value(lo->fn, v);
     }
@@ -397,8 +411,7 @@ IrOperand lower_type_size(Lower *lo, Type *t)
                              type_basic(TY_LONG));
     inner = lower_type_size(lo, t->base);
     prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
-    strmap_put(&lo->vla_sizes, (const char *)&t, sizeof(t),
-               (void *)(uintptr_t)prod.v);
+    lower_u32map_put(lo, &lo->vla_sizes, (const char *)&t, sizeof(t), prod.v);
     return ir_op_value(lo->fn, prod);
 }
 
@@ -454,7 +467,7 @@ static u32 lower_anon_global(Lower *lo, const AstNode *e)
     if (e->kind == AST_EXPR_STRING)
         return lower_string_lit(lo, e);
     {
-        void *hit = ptrmap_get(&lo->globals, e);
+        u32 *hit = ptrmap_get_u32(&lo->globals, e);
         char buf[32];
         IrGlobal *g;
         InitImage img;
@@ -462,7 +475,7 @@ static u32 lower_anon_global(Lower *lo, const AstNode *e)
         u32 idx;
 
         if (hit)
-            return (u32)(uintptr_t)hit - 1;
+            return *hit - 1;
         snprintf(buf, sizeof(buf), ".Lcompound.%u", lo->nlocal_static++);
         g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
         l = layout_of(lo->sema, e->sem_type);
@@ -473,7 +486,7 @@ static u32 lower_anon_global(Lower *lo, const AstNode *e)
         else
             g->size = l.size;
         idx = ir_sym(lo->m, g->name);
-        ptrmap_put(&lo->globals, e, (void *)(uintptr_t)(idx + 1));
+        ptrmap_put_u32(lo, &lo->globals, e, idx + 1);
         return idx;
     }
 }
@@ -515,8 +528,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     }
     /* The global's symbol index was interned by ir_global_new; record the
      * mapping so expression references resolve to the same index. */
-    ptrmap_put(&lo->globals, sym,
-               (void *)(uintptr_t)(ir_sym(lo->m, sym->name) + 1));
+    ptrmap_put_u32(lo, &lo->globals, sym, ir_sym(lo->m, sym->name) + 1);
 }
 
 /* --- function lowering ---------------------------------------------------- */
@@ -577,8 +589,7 @@ static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain)
 
         snprintf(buf, sizeof(buf), "L.%s", s->name ? s->name : "?");
         b = ir_block_new(lo->m, lo->fn, arena_strdup(lo->arena, buf));
-        strmap_put(&lo->labels, s->name, strlen(s->name),
-                   (void *)(uintptr_t)b.v);
+        lower_u32map_put(lo, &lo->labels, s->name, strlen(s->name), b.v);
         strmap_put(&lo->label_vla, s->name, strlen(s->name), (void *)vla_chain);
         collect_labels(lo, s->body, vla_chain);
         return;
@@ -778,11 +789,10 @@ static void lower_function(Lower *lo, AstNode *def)
                         &lo->b, ir_op_value(lo->fn, lo->fn->param_vals[pi + k]),
                         dst, 8, 0, lower_efftype(lo, psym->type));
                 }
-                ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
+                ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
                 pi += a->n;
             } else if (a && a->kind == ABI_ARG_BYVAL) {
-                ptrmap_put(&lo->locals, psym,
-                           (void *)(uintptr_t)lo->fn->param_vals[pi].v);
+                ptrmap_put_u32(lo, &lo->locals, psym, lo->fn->param_vals[pi].v);
                 pi++;
             } else {
                 TypeLayout l = layout_of(lo->sema, psym->type);
@@ -801,7 +811,7 @@ static void lower_function(Lower *lo, AstNode *def)
                 ir_build_store_typed(&lo->b, incoming,
                                      ir_op_value(lo->fn, slot), (u32)l.align, 0,
                                      lower_efftype(lo, psym->type));
-                ptrmap_put(&lo->locals, psym, (void *)(uintptr_t)slot.v);
+                ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
                 pi++;
             }
         }
@@ -888,7 +898,7 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
         sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
         if (!sym || sym->kind != SYM_VAR)
             continue;
-        if (ptrmap_get(&lo.globals, sym))
+        if (ptrmap_get_u32(&lo.globals, sym))
             continue; /* already emitted (redeclaration) */
         if (sym->def_kind == DEF_INIT && !d->init) {
             /* Not the initializing declaration; find it. */
@@ -924,7 +934,7 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
                 continue;
             if (sym->inline_kind == INL_INLINE_DEF && !include_inline_defs)
                 continue; /* not emitted; calls go through the symbol */
-            ptrmap_put(&lo.func_ids, sym, (void *)(uintptr_t)(++fidx));
+            ptrmap_put_u32(&lo, &lo.func_ids, sym, ++fidx);
         }
     }
 

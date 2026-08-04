@@ -83,6 +83,7 @@ typedef struct Ra {
     i32 next_slot; /* grows downward; slots at -8, -16, ... */
     u32 *call_pts; /* sorted global points of CALL instructions */
     u32 ncalls;
+    u32 call_cap;
 } Ra;
 
 /* An interval STRICTLY spanning a call keeps its value live across the
@@ -306,7 +307,14 @@ static void iv_extend(Ra *ra, u32 v, u32 p)
 static void build_intervals(Ra *ra)
 {
     X64Func *f = ra->f;
-    u32 p = 0, bi, i, v;
+    u32 p = 0, bi, i, v, max_calls = 0;
+
+    for (bi = 0; bi < f->nblocks; bi++)
+        max_calls += f->blocks[bi].n;
+    if (max_calls > ra->call_cap) {
+        ra->call_pts = arena_alloc(ra->arena, max_calls * sizeof(u32), 4);
+        ra->call_cap = max_calls;
+    }
 
     ra->words = x64_liveness_words(f);
     ra->live_in = arena_alloc(ra->arena, f->nblocks * ra->words * 8, 8);
@@ -336,13 +344,9 @@ static void build_intervals(Ra *ra)
             u32 nu, k;
 
             if (in->op == X64_OP_CALL) {
-                if (!ra->call_pts)
-                    ra->call_pts =
-                        arena_alloc(ra->arena, 1024 * sizeof(u32), 4);
-                if (ra->ncalls < 1024)
-                    ra->call_pts[ra->ncalls++] = bstart + i;
-                else
-                    CGF_ICE("regalloc: >1024 call sites in one function");
+                if (ra->ncalls >= ra->call_cap)
+                    CGF_ICE("regalloc: call-site capacity accounting failed");
+                ra->call_pts[ra->ncalls++] = bstart + i;
             }
             if (in->def.v)
                 iv_extend(ra, in->def.v, bstart + i);

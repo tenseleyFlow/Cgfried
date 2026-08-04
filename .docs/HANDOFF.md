@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–45
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–46
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,7 +34,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–45 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
+- **Sprints 0–46 complete; Phases 1–8 closed.** Phase 9 (memory safety) is
   under way on top of the completed preprocessor, frontend, sema, IR,
   x86_64 backend, driver, and optimizer.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -109,8 +109,8 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `-Wmem-strict` holds pass-to-unknown UAF. Realloc success/failure paths are
   correlated, every diagnostic has an ordered proof trace, and exact warning
   policy/pragma behavior is fixture-pinned. The semantic corpus is 89/89 with
-  11 exact trace sequences. The musl gate analyzes 732/1,361 pinned TUs,
-  explicitly baseline-defers 629 pre-Sprint-55 GNU-syntax TUs, emits zero
+  11 exact trace sequences. The musl gate analyzes 733/1,361 pinned TUs,
+  explicitly baseline-defers 628 pre-Sprint-55 GNU-syntax TUs, emits zero
   memory warnings, and completes in about 13 seconds.
 - Sprint 43 makes those checks interprocedural through deterministic bottom-up
   summaries over the shared callgraph. Five checked `cgf_*` ownership
@@ -149,9 +149,20 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   mechanical annotate-then-ratchet workflow. The dedicated lane proves 12 exact
   parseable records, original-byte preservation, GCC sanity, O0/O2 equivalence
   and the annotation round trip.
-- **Next action: Sprint 46** —
-  `.docs/sprints/09-memory-safety/s46-safe-mode.md`, composing the completed
-  analysis, runtime checks and initialization mitigations into safe mode.
+- Sprint 46 ships the documented `-fsafe` per-TU contract. It composes
+  instrumentation, default-tier memory errors and zero auto-init; rejects six
+  unmodelled construct families with deployment alternatives; permits only the
+  exact pointer-derived `uintptr_t` grammar; and emits a versioned ELF safety
+  note that is validated before safe links. `make safe-dogfood` rebuilds all
+  91 compiler TUs, verifies every marker and smoke-tests the result with zero
+  exemptions. Dogfood found and fixed the call-site allocator
+  ceiling, the `%rdx`/`%rcx` fixed-register conflict, fabricated-pointer map
+  values and automatic-address constant folding. The contract truthfully
+  defers stack/global spatial instrumentation; VLA acceptance is not described
+  as a runtime-bound guarantee.
+- **Next action: Sprint 47** —
+  `.docs/sprints/10-backend-arm64/s47-arm64-isel.md`, opening the arm64
+  backend with instruction selection.
 - **Pending parallel-test follow-up:** `tests/fuzz/ppfuzz.c` still writes every
   run to `build/fuzz-work/case.c`. Two concurrent full suites can replace that
   file between the Cgfried and gcc oracle runs and report false differentials.
@@ -162,21 +173,23 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 Metrics to compare against after your changes (all must hold or improve):
 
 ```
-unit: 582 tests, 96373 assertions, 0 failures
+unit: 583 tests, 96392 assertions, 0 failures
 cgf-test: total=505 pass=505 fail=0 xfail=0 xpass=0 skip=0 config=0
 memsafe warning fixtures: 89/89; exact ordered trace sequences: 11
 interprocedural memsafe fixtures: 50/50; exact ordered trace sequences: 13
 focused memsafe units: 52 tests / 764 assertions
 safe runtime: 27 checks, 0 skips; three interim benches within 2.5x/2x
 autofix transforms: source-copy, four transforms, auto-init and annotation ratchet green
-musl -Wmem gate: 732 analyzed, 629 pinned deferrals, 0 memory diagnostics, <90s
+musl -Wmem gate: 733 analyzed, 628 pinned deferrals, 0 memory diagnostics, <90s
 format warning fixtures: 203/203; flow warning fixtures: 77/77; all warning fixtures: 477/477
 format matrix: 64 semantic rows / 128 fire+nofire fixtures
 GCC 8 warning differential: 409 exact + 36 normalized CGF-only + 32 annotated, 0 unannotated
-musl warning dry-run: 711 parsed, 650 deferred, 183 genuine, 0 false positives
-TinyCC warning dry-run: 10/30 parsed, 20 deferred, 0 format warnings, 0 false positives
+safe mode: 56/56 fixtures; 8 accept + 8 reject uintptr cases; mixed-link green
+safe dogfood: 91/91 object notes; 0 symbol exemptions; smoke green
+musl warning dry-run: 716 parsed, 645 deferred, 186 genuine, 0 false positives
+TinyCC warning dry-run: 12/30 parsed, 18 deferred, 0 format warnings, 0 false positives
 warning matrix: 222/222 raw GCC 8 C rows accounted for
-OPT_EQ corpus: 50/50 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
+OPT_EQ corpus: 51/51 at O0/O1/O2/O3/Os/Ofast; verifier-after-each also green
 ctestsuite_diff: 220 files, 215 agree, 5 known-deferred, 0 new, 0 xpass
 header_diff: 148 macro/type lines byte-identical to gcc
 rt_diff: 2317 result lines identical to libgcc
@@ -309,6 +322,20 @@ auto-init, summary and lifetime groups total 57 passing tests with every heap
 block freed and zero errors, and an end-to-end auto-init compiler run is also
 clean. Earlier Valgrind startup failures were sandbox-loader-specific evidence,
 not a machine incompatibility.
+
+Local Sprint 46 validation note (2026-08-03): fresh GCC, Clang and complete
+ASan+UBSan suites pass with 583 unit tests / 96,392 assertions, 505/505
+program fixtures and 56/56 safe-mode fixtures. Safe dogfood rebuilds all 91
+compiler translation units, verifies every safety note with zero exemptions and
+passes its smoke test. The bounded union-layout proof accepts matching large
+and nested layouts, rejects crossed layouts and ranges above `INT64_MAX`, and
+rejects a repeated S0-S28 type graph within 64 MiB and three seconds. A fresh
+Valgrind 3.25.1 run over the nested-large regression reports 556 allocations
+and frees, zero bytes live and zero errors. Independent final review approved
+the implementation with no remaining correctness or performance blockers.
+CI review moved musl `src/network/getaddrinfo.c` from deferred to analyzed after
+the automatic-address fold repair; the exact gate is now 733 analyzed / 628
+deferred with zero memory diagnostics.
 
 ---
 
@@ -611,7 +638,7 @@ because each one was learned the hard way.
   resolves success versus failure.
 - **The musl memory budget covers lowered TUs, not parse failures.** Unsupported
   Sprint 55 GNU syntax stops before analysis IR. The CI gate therefore pins
-  the upstream commit, the 732 analyzed / 629 deferred split, and SHA-256
+  the upstream commit, the 733 analyzed / 628 deferred split, and SHA-256
   digests of both normalized identity sets. Do not
   describe a deferred TU as warning-clean; newly parseable files must move the
   checked baseline and enter the zero-diagnostic set.
@@ -683,7 +710,11 @@ summaries enabled.
 Sprint 44 adds `test-mem-runtime` and `bench-safe` for deterministic runtime
 failures, mixed/static linking and the overhead budget. Sprint 45 adds
 `test-mem-autofix`, covering parseable/application semantics, all transform
-families, auto-init and the annotation ratchet.
+families, auto-init and the annotation ratchet. Sprint 46 adds
+`test-safe-mode`, `safe-dogfood`, the exact ELF-note mixed-link lane,
+`check_safe_mode_doc.sh`, and the shrink-only symbol allowlist gate. The
+normative contract is `doc/safe-mode.md`; `.docs/sprints/09-memory-safety/
+s46-findings.md` records the VLA/stack correction and dogfood defects.
 
 **Design differentials so the oracle can't be faked.** The best ones in
 this repo: `layout_diff` hands gcc `_Static_assert`s built from *our*
@@ -755,9 +786,11 @@ make BUILD=build test-mem-warnings
 make BUILD=build test-mem-interproc
 make BUILD=build test-mem-runtime
 make BUILD=build test-mem-autofix
+make BUILD=build test-safe-mode
+make BUILD=build safe-dogfood
 make BUILD=build bench-safe
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
-make BUILD=build musl-sweep               # pinned 732/1361 analyzed, <90s
+make BUILD=build musl-sweep               # pinned 733/1361 analyzed, <90s
 make BUILD=build check-format-matrix
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 

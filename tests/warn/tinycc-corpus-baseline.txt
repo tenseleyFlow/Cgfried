@@ -1,6 +1,6 @@
 sources 30
-parsed 10
-deferred 20
+parsed 12
+deferred 18
 oracle-failures 0
 format-warnings 0
 false-positives 0

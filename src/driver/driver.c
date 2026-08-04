@@ -10,6 +10,7 @@
 #include "cg/x86_64/debug.h"
 #include "diag.h"
 #include "driver/deps.h"
+#include "driver/safe_elf.h"
 #include "driver/toolchain.h"
 #include "ir/ir.h"
 #include "lex/lex.h"
@@ -107,6 +108,10 @@ static const char *const help_text[] = {
     "                    proofs discharge checks before code generation\n"
     "                    (temporal detection is deterministic only while\n"
     "                    blocks remain in the bounded quarantine)\n"
+    "  -fsafe            safe-TU policy: -fcgf-safe, -Werror=mem,\n"
+    "                    -Werror=uninitialized, zero automatic\n"
+    "                    initialization, and unsafe-construct rejection\n"
+    "                    (see doc/safe-mode.md)\n"
     "  -ftrivial-auto-var-init=zero|pattern\n"
     "                    initialize otherwise-uninitialized automatic\n"
     "                    objects after warning analysis\n"
@@ -118,6 +123,8 @@ static const char *const help_text[] = {
     "\n"
     "Link:\n"
     "  -L <dir> / -l <name>  library search dir / library (position kept)\n"
+    "  -fsafe-allow-unsafe=<object>\n"
+    "                    permit exactly one unmarked explicit link input\n"
     "  -Wl,a,b           comma-split args passed to the linker in position\n"
     "  -Xlinker <arg>    one raw linker arg in position\n"
     "  -static           static link\n"
@@ -639,6 +646,16 @@ static bool debug_comp_dir(char *out, size_t cap)
 static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                         const DriverArgs *a, const CompileJob *job)
 {
+    static const char safe_note_asm[] =
+        "\n\t.section .note.cgf.safe,\"a\",@note\n"
+        "\t.p2align 2\n"
+        "\t.long 4\n"
+        "\t.long 4\n"
+        "\t.long 1\n"
+        "\t.asciz \"CGF\"\n"
+        "\t.p2align 2\n"
+        "\t.long 1\n"
+        "\t.p2align 2\n";
     Buf b;
     u32 i;
     X64Func **xfuncs = NULL;
@@ -676,6 +693,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     }
     x64_emit_debug_sections(cgf_target_host(), arena, m, xfuncs, m->nfuncs,
                             job->path, comp_dir, a->debug_level != 0, &b);
+    if (a->fsafe)
+        buf_append(&b, safe_note_asm, sizeof(safe_note_asm) - 1);
 
     if (diag_had_error(dc)) {
         buf_free(&b);
@@ -949,6 +968,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         lang.gnu_mode = lang.std >= STD_GNU89;
         lang.pedantic = a->pedantic;
         lang.fwrapv = a->fwrapv;
+        lang.safe_mode = a->fsafe;
         lang.warnings = warnings;
         while (pp_next(&pp, &t))
             PpTokVecD_push(&collected, t);
@@ -984,6 +1004,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                  * locked the flip, documented in --help). */
                 sema.fcommon = !a->fno_common;
                 sema_run(&sema, tu);
+                if (a->fsafe && !diag_had_error(dc))
+                    sema_check_safe_mode(&sema, tu);
                 sema_warn_translation_unit(&sema, tu, &pp);
                 if (!diag_had_error(dc))
                     memsafe_autofix_translation_unit(warnings, &sema, tu, &pp);
@@ -1360,6 +1382,16 @@ int driver_main(int argc, char **argv)
         diag_emit(dc, DIAG_ERROR, no_span,
                   "cannot specify -o with -c, -S or -E with multiple files");
         status = CGF_EXIT_COMPILE;
+    } else if (a.fsafe_conflict) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "-fsafe requires -fcgf-safe; remove -fno-cgf-safe or "
+                  "compile without -fsafe");
+        status = CGF_EXIT_COMPILE;
+    } else if (a.fsafe_warning_conflict) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "-fsafe requires memory diagnostics; remove -w or compile "
+                  "without -fsafe");
+        status = CGF_EXIT_COMPILE;
     } else if (command_line_warning_error) {
         /* The promoted diagnostics were rendered above; do not compile. */
         status = CGF_EXIT_COMPILE;
@@ -1396,6 +1428,10 @@ int driver_main(int argc, char **argv)
 
         a.link_exe = !stop_mode;
         cgf_toolchain_set_echo(a.verbose);
+        if (a.dry_run && a.fsafe)
+            fprintf(stderr, "cgfried: effective -fsafe options: -fcgf-safe "
+                            "-Werror=mem -Werror=uninitialized "
+                            "-ftrivial-auto-var-init=zero\n");
 
         if (a.mode_E && a.output && !a.dry_run) {
             eout = fopen(a.output, "wb");
@@ -1672,8 +1708,11 @@ int driver_main(int argc, char **argv)
 
             /* final_out is what the builder reads via a.output. */
             (void)final_out;
-            if (!toolchain_build_link_argv(&a, cgf_target_host(), &arena,
-                                           &ldargv)) {
+            if (a.fsafe && !a.dry_run && !safe_link_inputs_ok(&a)) {
+                if (status == CGF_EXIT_OK)
+                    status = CGF_EXIT_LINK;
+            } else if (!toolchain_build_link_argv(&a, cgf_target_host(), &arena,
+                                                  &ldargv)) {
                 /* crt/route failure: link-phase error, exit 2 (the
                  * diagnostic named every probed path already). */
                 if (status == CGF_EXIT_OK)

@@ -122,13 +122,13 @@ typedef struct Lower {
     u8 auto_var_init;           /* LowerAutoVarInit; emission mitigation */
 
     /* module-wide */
-    Strmap globals;           /* Symbol* -> (uintptr_t)(module sym index + 1) */
-    Strmap func_ids;          /* Symbol* -> (uintptr_t)(IrFunc index + 1), for
-                                 the functions THIS module emits */
-    Strmap string_pool;       /* content -> sym index + 1 (init.c's dedup) */
-    u32 nstrings;             /* string-literal globals emitted, for naming */
-    u32 nlocal_static;        /* block-scope statics, for name mangling */
-    u32 ntemps;               /* aggregate temporaries (naming only) */
+    Strmap globals;     /* Symbol* -> arena-owned u32 (sym index + 1) */
+    Strmap func_ids;    /* Symbol* -> arena-owned u32 (IrFunc index + 1), for
+                           the functions THIS module emits */
+    Strmap string_pool; /* content -> arena-owned u32 sym index + 1 */
+    u32 nstrings;       /* string-literal globals emitted, for naming */
+    u32 nlocal_static;  /* block-scope statics, for name mangling */
+    u32 ntemps;         /* aggregate temporaries (naming only) */
     bool include_inline_defs; /* analysis module, never object emission */
     bool verify_each;         /* CGF_VERIFY_AFTER_EACH=1: verify per function */
     bool failed;              /* a deferral hard-error fired */
@@ -143,6 +143,12 @@ typedef enum LowerAutoVarInit {
 typedef struct LowerOptions {
     LowerAutoVarInit auto_var_init;
 } LowerOptions;
+
+/* Strmap's payload is intentionally generic, but lowering's numeric maps
+ * must not encode integers as fabricated pointers. */
+u32 *lower_u32map_get(const Strmap *map, const char *key, size_t key_len);
+void lower_u32map_put(Lower *lo, Strmap *map, const char *key, size_t key_len,
+                      u32 value);
 
 /* Lowers a whole translation unit. Returns NULL after reporting if a
  * deferred construct was reached (the diagnostic names its sprint). */

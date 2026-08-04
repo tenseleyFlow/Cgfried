@@ -378,6 +378,23 @@ AstNode *parse_stmt(Parser *p)
             parse_expect_punct(p, PUNCT_SEMI, "after 'continue'");
             return n;
         }
+        case KW_ASM:
+        case KW_ALT_ASM:
+        case KW_ALT_ASM2:
+            if (p->lang->safe_mode) {
+                AstNode *n = stmt_new(p, AST_ERROR, t->span);
+
+                parse_error(p, t,
+                            "-fsafe rejects inline asm; move the asm into "
+                            "a non-safe TU and call it");
+                while (!parse_at_punct(p, PUNCT_SEMI) &&
+                       parse_peek(p)->kind != TOK_EOF)
+                    p->pos++;
+                parse_eat_punct(p, PUNCT_SEMI);
+                n->poisoned = true;
+                return n;
+            }
+            break;
         default:
             break;
         }

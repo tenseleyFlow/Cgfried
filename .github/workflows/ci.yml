@@ -38,6 +38,14 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test-memsafe-foundation
 
+  # Sprint 46: the compiler itself must remain inside the -fsafe profile.
+  # The allowlist is a shrink-only reviewed upper bound.
+  safe-dogfood:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: make CC=gcc safe-dogfood
+
   # Sprint 42's credibility gate: the default memory-warning tier must stay
   # silent over every musl TU that reaches analysis IR.  Both the upstream
   # commit and the analyzed/deferred coverage split are pinned.

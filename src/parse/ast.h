@@ -190,6 +190,7 @@ struct AstNode {
      * parser records what was written. */
     AstNode *alignas_expr;
     AstType *alignas_type;
+    struct Type *sem_alignas_type; /* resolved while declaration scope lives */
     bool has_alignas;
     AstNode *body;      /* AST_FUNC_DEF: compound statement (Sprint 10) */
     AstNode **kr_decls; /* AST_FUNC_DEF: K&R declaration list */

@@ -79,7 +79,10 @@ enum {
     F_FFREESTANDING,
     F_FHOSTED,
     F_FWRAPV,
+    F_FSAFE,
     F_FCGF_SAFE,
+    F_FNO_CGF_SAFE,
+    F_FSAFE_ALLOW_UNSAFE,
     F_FDIAG_PARSEABLE_FIXITS,
     F_FDIAG_APPLY_FIXITS,
     F_FTRIVIAL_AUTO_VAR_INIT,
@@ -596,8 +599,19 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
     case F_FWRAPV:
         da->fwrapv = true;
         break;
+    case F_FSAFE:
+        da->fsafe = true;
+        break;
     case F_FCGF_SAFE:
         da->fcgf_safe = true;
+        da->fcgf_safe_disabled = false;
+        break;
+    case F_FNO_CGF_SAFE:
+        da->fcgf_safe = false;
+        da->fcgf_safe_disabled = true;
+        break;
+    case F_FSAFE_ALLOW_UNSAFE:
+        VecStr_push(&da->fsafe_allow_unsafe, val);
         break;
     case F_FDIAG_PARSEABLE_FIXITS:
         da->diagnostics_parseable_fixits = true;
@@ -828,7 +842,10 @@ static const FlagSpec args_flag_table[] = {
     {"-ffreestanding", ARG_NONE, h_fflag, F_FFREESTANDING},
     {"-fhosted", ARG_NONE, h_fflag, F_FHOSTED},
     {"-fwrapv", ARG_NONE, h_fflag, F_FWRAPV},
+    {"-fsafe", ARG_NONE, h_fflag, F_FSAFE},
     {"-fcgf-safe", ARG_NONE, h_fflag, F_FCGF_SAFE},
+    {"-fno-cgf-safe", ARG_NONE, h_fflag, F_FNO_CGF_SAFE},
+    {"-fsafe-allow-unsafe=", ARG_JOINED, h_fflag, F_FSAFE_ALLOW_UNSAFE},
     {"-fdiagnostics-parseable-fixits", ARG_NONE, h_fflag,
      F_FDIAG_PARSEABLE_FIXITS},
     {"-fdiagnostics-apply-fixits", ARG_NONE, h_fflag, F_FDIAG_APPLY_FIXITS},
@@ -1161,6 +1178,22 @@ DriverArgs args_parse(struct Arena *arena, int argc, char **argv)
     if (a.dep_mode != DEP_OFF && !a.dep_side)
         a.mode_E = true;
 
+    /* -fsafe is a policy profile, not a spelling alias whose pieces may
+     * be weakened by a later option. Compose it after the whole argv. */
+    if (a.fsafe) {
+        WarnOpt mem_errors = {"error=mem"};
+        WarnOpt uninit_errors = {"error=uninitialized"};
+
+        if (a.fcgf_safe_disabled)
+            a.fsafe_conflict = true;
+        if (a.no_warnings)
+            a.fsafe_warning_conflict = true;
+        a.fcgf_safe = true;
+        a.trivial_auto_var_init = AUTO_VAR_INIT_ZERO;
+        VecWarn_push(&a.warn_opts, mem_errors);
+        VecWarn_push(&a.warn_opts, uninit_errors);
+    }
+
     /* -o is forbidden with multiple inputs under -c/-S/-E: each input
      * names its own output, so one -o cannot serve. */
     if (a.output && (a.compile_obj || a.emit_asm || a.mode_E)) {
@@ -1186,6 +1219,7 @@ void args_free(DriverArgs *a)
     VecStr_free(&a->dep_targets);
     VecStr_free(&a->lib_dirs);
     VecStr_free(&a->prefix_dirs);
+    VecStr_free(&a->fsafe_allow_unsafe);
     VecLink_free(&a->link_inputs);
     VecInput_free(&a->inputs);
     VecStr_free(&a->warn_unrecognized);

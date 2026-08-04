@@ -12,7 +12,8 @@ struct ArenaBlock {
     ArenaBlock *next;
     size_t cap;
     size_t used;
-    unsigned char payload[];
+    size_t align;
+    unsigned char *payload;
 };
 
 void arena_init(Arena *a)
@@ -21,17 +22,26 @@ void arena_init(Arena *a)
     a->next_block_size = ARENA_FIRST_BLOCK;
 }
 
-static ArenaBlock *arena_new_block(Arena *a, size_t min_payload)
+static ArenaBlock *arena_new_block(Arena *a, size_t min_payload, size_t align)
 {
     size_t cap = a->next_block_size;
+    size_t block_align = align;
+    size_t alloc_size;
     ArenaBlock *b;
 
+    if (block_align < _Alignof(max_align_t))
+        block_align = _Alignof(max_align_t);
     while (cap < min_payload)
         cap *= 2;
-    b = cgf_xmalloc(sizeof(ArenaBlock) + cap);
+    alloc_size = (cap + block_align - 1) & ~(block_align - 1);
+    b = cgf_xmalloc(sizeof(ArenaBlock));
+    b->payload = aligned_alloc(block_align, alloc_size);
+    if (!b->payload)
+        CGF_ICE("out of memory allocating %zu aligned arena bytes", alloc_size);
     b->next = a->head;
-    b->cap = cap;
+    b->cap = alloc_size;
     b->used = 0;
+    b->align = block_align;
     a->head = b;
     /* Geometric growth caps the block count at O(log total). */
     if (a->next_block_size < cap)
@@ -43,25 +53,22 @@ static ArenaBlock *arena_new_block(Arena *a, size_t min_payload)
 void *arena_alloc(Arena *a, size_t size, size_t align)
 {
     ArenaBlock *b = a->head;
-    uintptr_t base, aligned;
+    size_t aligned;
 
     if (align == 0 || (align & (align - 1)) != 0)
         CGF_ICE("arena_alloc: alignment %zu is not a power of two", align);
 
-    if (b) {
-        base = (uintptr_t)b->payload + b->used;
-        aligned = (base + align - 1) & ~(uintptr_t)(align - 1);
-        if (aligned + size <= (uintptr_t)b->payload + b->cap) {
-            b->used = (size_t)(aligned + size - (uintptr_t)b->payload);
-            return (void *)aligned;
+    if (b && align <= b->align) {
+        aligned = (b->used + align - 1) & ~(align - 1);
+        if (aligned <= b->cap && size <= b->cap - aligned) {
+            b->used = aligned + size;
+            return b->payload + aligned;
         }
     }
     /* Room for worst-case alignment slack in a fresh block. */
-    b = arena_new_block(a, size + align);
-    base = (uintptr_t)b->payload;
-    aligned = (base + align - 1) & ~(uintptr_t)(align - 1);
-    b->used = (size_t)(aligned + size - base);
-    return (void *)aligned;
+    b = arena_new_block(a, size, align);
+    b->used = size;
+    return b->payload;
 }
 
 char *arena_strndup(Arena *a, const char *s, size_t n)
@@ -85,6 +92,7 @@ void arena_free_all(Arena *a)
 
     while (b) {
         ArenaBlock *next = b->next;
+        free(b->payload);
         free(b);
         b = next;
     }

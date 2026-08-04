@@ -121,6 +121,8 @@ typedef struct {
     bool fno_strict_aliasing; /* Sprint 32 consumes */
     bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
     bool fcgf_safe;           /* Sprint 44 heap runtime instrumentation */
+    bool fsafe;               /* Sprint 46 composed safe-language profile */
+    bool fcgf_safe_disabled;  /* explicit -fno-cgf-safe */
     bool diagnostics_parseable_fixits; /* gcc-compatible fixit records */
     FixitApplyMode fixit_apply_mode;   /* source-copy application policy */
     TrivialAutoVarInitMode trivial_auto_var_init; /* Sprint 45 mitigation */
@@ -146,8 +148,9 @@ typedef struct {
     VecStr dep_targets;   /* -MT verbatim / -MQ pre-quoted at parse time */
 
     /* --- link --- */
-    VecStr lib_dirs;    /* -L, in order */
-    VecStr prefix_dirs; /* -B, stored (tool search; Sprint 27 deepens) */
+    VecStr lib_dirs;           /* -L, in order */
+    VecStr prefix_dirs;        /* -B, stored (tool search; Sprint 27 deepens) */
+    VecStr fsafe_allow_unsafe; /* explicitly exempt user objects */
     VecLink link_inputs;
     bool static_link, nostdlib, nostartfiles, nodefaultlibs;
 
@@ -164,6 +167,8 @@ typedef struct {
     const char *rsp_error;       /* response-file nesting error, or NULL */
     const char *stdin_no_x;      /* "-" was given without an active -x c */
     bool o_multi_conflict;       /* -o with -c/-S/-E and multiple inputs */
+    bool fsafe_conflict;         /* -fsafe combined with -fno-cgf-safe */
+    bool fsafe_warning_conflict; /* -fsafe combined with absolute -w */
     /* -f<unknown>/-fomit-frame-pointer: warn and continue by default (gcc
      * parity — hard-erroring breaks flag-probing configure scripts); bare
      * -Werror promotes the emitted command-line warning. */
