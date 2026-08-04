@@ -223,7 +223,13 @@ typedef enum A64AddrMode {
     A64_ADDR_REG_LSL,
     A64_ADDR_REG_UXTW,
     A64_ADDR_REG_SXTW,
-    A64_ADDR_MATERIALIZE
+    A64_ADDR_MATERIALIZE,
+    /* Frame-pointer-relative, in the INCOMING argument area: the offset is
+     * measured from the first incoming stack argument, and frame
+     * finalization biases it once the frame size is known. Selection cannot
+     * compute the real displacement because it does not yet know how big the
+     * frame is. */
+    A64_ADDR_INCOMING
 } A64AddrMode;
 
 typedef struct A64Mem {
@@ -335,6 +341,7 @@ typedef struct A64AddSubImm {
 
 A64Reg a64_newv(A64Func *f, A64RegClass rc);
 A64Reg a64_newv_width(A64Func *f, A64RegClass rc, A64Sf sf);
+A64Reg a64_newv_fixed(A64Func *f, A64RegClass rc, A64Sf sf, u8 phys);
 A64Reg a64_phys(A64PhysReg reg);
 u8 a64_vclass(const A64Func *f, A64Reg reg);
 u8 a64_vwidth(const A64Func *f, A64Reg reg);

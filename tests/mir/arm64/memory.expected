@@ -1,34 +1,41 @@
-mir.a64 @memory_modes (vregs=13)
+mir.a64 @memory_modes (vregs=17)
 bb1:
-    add.x v5, v1, #2
-    add.x v6, v1, #16
-    sub.x v7, v1, #8
-    load.w v9, [v1, #1]
-    load.w v10, [v1, #2]
-    load.w v11, [v1, #16]
-    load.x v12, [v1, #-8]
-    store.w v9, [v1, v2, lsl]
-    store.w v10, [v1, #2]
-    store.w v11, [v1, #16]
+    mov.x v1, v4
+    mov.x v2, v5
+    mov.x v3, v6
+    add.x v8, v1, #2
+    add.x v9, v1, #16
+    sub.x v10, v1, #8
+    load.w v12, [v1, #1]
+    load.w v13, [v1, #2]
+    load.w v14, [v1, #16]
+    load.x v15, [v1, #-8]
+    store.w v12, [v1, v2, lsl]
+    store.w v13, [v1, #2]
+    store.w v14, [v1, #16]
     store.x v3, [v1, #-8]
-    add.x v13, v12, v3
-    ret v13
-mir.a64 @memory_boundaries (vregs=15)
+    add.x v16, v15, v3
+    mov.x v17, v16
+    ret v17
+mir.a64 @memory_boundaries (vregs=17)
 bb1:
-    load.w v7, [v1, #255]
-    load.w v8, [v1, #256]
-    load.x v9, [v1, #32760]
-    add.x v11, v1, #32768
-    load.x v10, [v11]
-    add.w v12, v7, v8
-    and.x v13, v12, #255
-    add.x v14, v9, v10
-    add.x v15, v13, v14
-    ret v15
-mir.a64 @memory_global_addr (vregs=7)
+    mov.x v1, v2
+    load.w v8, [v1, #255]
+    load.w v9, [v1, #256]
+    load.x v10, [v1, #32760]
+    add.x v12, v1, #32768
+    load.x v11, [v12]
+    add.w v13, v8, v9
+    and.x v14, v13, #255
+    add.x v15, v10, v11
+    add.x v16, v14, v15
+    mov.x v17, v16
+    ret v17
+mir.a64 @memory_global_addr (vregs=8)
 bb1:
     addr.x v4, @tab
     load.x v3, [v4, #8]
     addr.x v7, @tab
     store.x v3, [v7, #16]
-    ret v3
+    mov.x v8, v3
+    ret v8

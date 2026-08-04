@@ -1,10 +1,13 @@
-mir.a64 @div_rem (vregs=9)
+mir.a64 @div_rem (vregs=12)
 bb1:
-    sdiv.x v3, v1, v2
-    udiv.x v4, v1, v2
-    sdiv.x v5, v3, v2
-    msub.x v6, v5, v2, v3
-    udiv.x v7, v4, v2
-    msub.x v8, v7, v2, v4
-    add.x v9, v6, v8
-    ret v9
+    mov.x v1, v3
+    mov.x v2, v4
+    sdiv.x v5, v1, v2
+    udiv.x v6, v1, v2
+    sdiv.x v7, v5, v2
+    msub.x v8, v7, v2, v5
+    udiv.x v9, v6, v2
+    msub.x v10, v9, v2, v6
+    add.x v11, v8, v10
+    mov.x v12, v11
+    ret v12

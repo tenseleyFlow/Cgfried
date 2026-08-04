@@ -302,7 +302,7 @@ static int verify_operand(const A64Func *f, const A64Operand *op)
     case A64O_MEM:
         return !reg_valid(f, op->mem.base) ||
                (op->mem.index.id && !reg_valid(f, op->mem.index)) ||
-               op->mem.mode > A64_ADDR_MATERIALIZE || !op->mem.size;
+               op->mem.mode > A64_ADDR_INCOMING || !op->mem.size;
     case A64O_LABEL:
         return !op->id || op->id > f->nblocks;
     case A64O_SYM:

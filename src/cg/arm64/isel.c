@@ -1517,8 +1517,21 @@ static void select_inst(Isel *is, const IrInst *ir)
         A64Reg value = {0};
         A64Inst *ret;
 
-        if (ir->nops)
+        if (ir->nops) {
+            /* AAPCS64 returns in x0 or v0. Pre-colouring a copy keeps the
+             * producing value free to live anywhere up to this point. */
+            IrType ty = (IrType)ir->ops[0].type;
+            bool fp = fp_type(ty);
+            A64Reg out = a64_newv_fixed(is->func, fp ? A64RC_FP : A64RC_GP,
+                                        sf_of(ty), (u8)(fp ? A64_V0 : A64_X0));
+            A64Inst *move;
+
             value = to_reg(is, &ir->ops[0]);
+            move = emit(is, fp ? A64_OP_FMOV : A64_OP_MOV, sf_of(ty));
+            add_operand(move, reg_op(out));
+            add_operand(move, reg_op(value));
+            value = out;
+        }
         ret = emit(is, A64_OP_RET, A64_SF64);
 
         if (ir->nops)
@@ -1558,6 +1571,69 @@ static void select_inst(Isel *is, const IrInst *ir)
     }
 }
 
+/* Callee side of the AAPCS64 stage-C walk — the exact mirror of the argument
+ * marshalling in regalloc.c, and it must stay that way: a caller and callee
+ * that disagree about which register holds argument three fail silently.
+ *
+ * Incoming parameters arrive in fixed registers, so each one is copied out
+ * of a pre-coloured virtual register into an ordinary one. Binding them to
+ * the physical register directly would pin the value for the whole function
+ * and make x0 unusable everywhere. */
+static void bind_params(Isel *is, const IrFunc *ir)
+{
+    u32 ngrn = 0, nsrn = 0, nsaa = 0;
+    u32 i;
+
+    is->cur = 0;
+    for (i = 0; i < ir->nparams; i++) {
+        IrType ty = (IrType)ir->param_types[i];
+        u32 kind = ir->param_annots ? ir_arg_kind(ir->param_annots[i]) : 0;
+        bool fp = fp_type(ty);
+        A64Sf sf = sf_of(ty);
+        A64Reg dst = is->vals[ir->param_vals[i].v].reg;
+        u8 phys = A64_REG_NONE;
+
+        if (kind == IR_ARG_SRET) {
+            /* The indirect-result pointer arrives in x8 and consumes none of
+             * x0-x7, so the first real parameter is still in x0. */
+            phys = A64_X8;
+        } else if (fp) {
+            if (nsrn < 8)
+                phys = (u8)(A64_V0 + nsrn++);
+            else
+                nsrn = 8;
+        } else {
+            if (ngrn < 8)
+                phys = (u8)(A64_X0 + ngrn++);
+            else
+                ngrn = 8;
+        }
+        if (phys == A64_REG_NONE) {
+            A64Inst *load = emit(is, A64_OP_LOAD, sf);
+            A64Operand mem;
+
+            memset(&mem, 0, sizeof(mem));
+            mem.kind = A64O_MEM;
+            mem.mem.base = a64_phys(A64_X29);
+            mem.mem.offset = (i64)nsaa;
+            mem.mem.mode = A64_ADDR_INCOMING;
+            mem.mem.size = 8;
+            add_operand(load, reg_op(dst));
+            add_operand(load, mem);
+            nsaa += 8;
+            continue;
+        }
+        {
+            A64Reg src =
+                a64_newv_fixed(is->func, fp ? A64RC_FP : A64RC_GP, sf, phys);
+            A64Inst *move = emit(is, fp ? A64_OP_FMOV : A64_OP_MOV, sf);
+
+            add_operand(move, reg_op(dst));
+            add_operand(move, reg_op(src));
+        }
+    }
+}
+
 A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
                            Arena *arena)
 {
@@ -1568,14 +1644,21 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
     if (ir_type_is_vector((IrType)ir->ret) || ir->ret == IRT_F80 ||
         ir->ret == IRT_F128)
         CGF_ICE("arm64 isel: vector/f80/f128 function ABI lands in Sprint 48");
-    if (ir->abi_ret != IR_ABIRET_NONE || ir->variadic)
-        CGF_ICE("arm64 isel: AAPCS64 function ABI lands in Sprint 48");
+    if (ir->abi_ret != IR_ABIRET_NONE && ir->abi_ret != IR_ABIRET_SRET)
+        CGF_ICE("arm64 isel: x0:x1 pair returns are not marshalled yet "
+                "(Sprint 48)");
+    if (ir->variadic)
+        CGF_ICE("arm64 isel: the AAPCS64 variadic register save area lands "
+                "later in Sprint 48");
     for (i = 0; i < ir->nparams; i++)
         if (ir_type_is_vector((IrType)ir->param_types[i]) ||
-            ir->param_types[i] == IRT_F80 || ir->param_types[i] == IRT_F128 ||
-            (ir->param_annots && ir_arg_kind(ir->param_annots[i])))
-            CGF_ICE(
-                "arm64 isel: AAPCS64 parameter lowering lands in Sprint 48");
+            ir->param_types[i] == IRT_F80 || ir->param_types[i] == IRT_F128)
+            CGF_ICE("arm64 isel: vector/f80/f128 parameters land in "
+                    "Sprint 49");
+        else if (ir->param_annots &&
+                 ir_arg_kind(ir->param_annots[i]) >= IR_ARG_PAIR_II)
+            CGF_ICE("arm64 isel: x0:x1 pair returns are not marshalled yet "
+                    "(Sprint 48)");
 
     memset(func, 0, sizeof(*func));
     func->name = ir->name;
@@ -1601,6 +1684,7 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
     for (i = 0; i < ir->nparams; i++)
         is.vals[ir->param_vals[i].v].reg =
             new_reg(&is, (IrType)ir->param_types[i]);
+    bind_params(&is, ir);
     for (bi = 0; bi < ir->nblocks; bi++) {
         const IrBlock *ir_block = &ir->blocks[bi];
         const IrInst *inst;

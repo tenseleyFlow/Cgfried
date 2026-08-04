@@ -1082,7 +1082,17 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
                 i64 slot;
 
                 if (op->kind != A64O_MEM || !op->mem.base.physical ||
-                    op->mem.base.id != (u32)A64_X29 + 1 || op->mem.offset >= 0)
+                    op->mem.base.id != (u32)A64_X29 + 1)
+                    continue;
+                if (op->mem.mode == A64_ADDR_INCOMING) {
+                    /* Incoming arguments sit immediately above the frame, and
+                     * x29 is `base` bytes into it. */
+                    op->mem.offset += (i64)fr->total - (i64)fr->base;
+                    op->mem.mode = (u8)a64_isel_addr(
+                        op->mem.offset, op->mem.size, false, false);
+                    continue;
+                }
+                if (op->mem.offset >= 0)
                     continue;
                 slot = -op->mem.offset; /* 8, 16, 24, ... */
                 /* x29 sits at SP+base, so the base cancels: a slot is

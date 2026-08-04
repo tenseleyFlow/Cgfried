@@ -1,37 +1,46 @@
-mir.a64 @scalar_fp (vregs=25)
+mir.a64 @scalar_fp (vregs=32)
 bb1:
-    fadd.s v7, v1, v2
-    fsub.s v8, v7, v2
-    fmul.s v9, v8, v1
-    fdiv.s v10, v9, v2
-    fadd.d v11, v3, v4
-    fsub.d v12, v11, v4
-    fmul.d v13, v12, v3
-    fdiv.d v14, v13, v4
-    fneg.d v15, v14
-    scvtf.d.w v16, v5
-    ucvtf.s.x v17, v6
-    fcvtzs.x.d v18, v16
-    fcvtzu.w.s v19, v17
-    fcvt.d.s v20, v10
-    fcvt.s.d v21, v15
-    fcmp.d v20, v16
-    cset.mi.w v22
-    fcmp.s v21, v17
-    cset.vs.w v23
-    subs.w wzr, v22, #0
-    fcsel.ne.d v24, v20, v16
-    add.w v25, v22, v23
-    ret v25
-mir.a64 @f32_zero (vregs=3)
+    fmov.s v1, v7
+    fmov.s v2, v8
+    fmov.d v3, v9
+    fmov.d v4, v10
+    mov.w v5, v11
+    mov.x v6, v12
+    fadd.s v13, v1, v2
+    fsub.s v14, v13, v2
+    fmul.s v15, v14, v1
+    fdiv.s v16, v15, v2
+    fadd.d v17, v3, v4
+    fsub.d v18, v17, v4
+    fmul.d v19, v18, v3
+    fdiv.d v20, v19, v4
+    fneg.d v21, v20
+    scvtf.d.w v22, v5
+    ucvtf.s.x v23, v6
+    fcvtzs.x.d v24, v22
+    fcvtzu.w.s v25, v23
+    fcvt.d.s v26, v16
+    fcvt.s.d v27, v21
+    fcmp.d v26, v22
+    cset.mi.w v28
+    fcmp.s v27, v23
+    cset.vs.w v29
+    subs.w wzr, v28, #0
+    fcsel.ne.d v30, v26, v22
+    add.w v31, v28, v29
+    mov.w v32, v31
+    ret v32
+mir.a64 @f32_zero (vregs=4)
 bb1:
     fmov.s v1, wzr
     fmov.s v3, wzr
     fadd.s v2, v1, v3
-    ret v2
-mir.a64 @f64_zero (vregs=3)
+    fmov.s v4, v2
+    ret v4
+mir.a64 @f64_zero (vregs=4)
 bb1:
     fmov.d v1, xzr
     fmov.d v3, xzr
     fadd.d v2, v1, v3
-    ret v2
+    fmov.d v4, v2
+    ret v4
