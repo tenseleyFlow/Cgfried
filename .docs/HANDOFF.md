@@ -437,6 +437,12 @@ distinct bugs. Put it back afterwards.
   (F-S24-NOPVERSION). Never assert a version-dependent outcome —
   assert *agreement* between the two drivers instead.
 
+**Root-owned build artifacts**: a podman run that mounts the repo
+WRITABLE leaves root-owned files under `build/`, and the next native
+build dies with "Permission denied" opening a `.d` file. Clear them with
+`find build -not -user "$(id -un)" -delete` — the parent dirs are
+user-owned so unlink is permitted. Mount `:ro` to avoid it.
+
 **The tool for all of this is podman**, and it is cheap:
 
 ```sh
@@ -812,6 +818,21 @@ Open upstream debt: `.docs/audits/afsld-elf-debt.md` (LD-ELF-001..005,
 with two already fixed and recorded).
 
 ---
+
+## 7b. Cross-target verification (arm64, Sprints 47-51)
+
+This machine has **no `aarch64-linux-gnu-gcc`, no qemu-user, and no
+arm64 binfmt handler**, so nothing arm64 can be EXECUTED here. Sprint
+48's DoD 3 and 6 depend on that and cannot be closed on this host; the
+sprint file already permits "assemble+inspect" as the fallback.
+
+`clang --target=aarch64-linux-gnu -O1 -S` is the working oracle and is
+authoritative for ABI questions: AAPCS64 is a published contract, so
+which register a composite lands in is not a compiler preference.
+
+Installing `qemu-user-static` plus a cross gcc would unblock the
+execution gates. That is a host decision — ask before changing the
+machine.
 
 ## 8. Deferrals you will trip over
 
