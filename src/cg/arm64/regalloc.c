@@ -1065,6 +1065,97 @@ static void emit_sp_adjust(Rb *rb, u16 op, u32 amount)
     }
 }
 
+/* Static allocas become ordinary frame objects. Their sizes are arbitrary, so
+ * they cannot go through cg_spill_slot_assign, whose power-of-two contract
+ * exists for register spills; the bump arithmetic is the same and shares the
+ * same downward-growing cursor, which is what keeps allocas and spills from
+ * overlapping.
+ *
+ * An object's slot records its TOP, so its base sits `size` bytes below —
+ * spills are the size-8 special case of exactly this. */
+static i32 frame_object_assign(CgSpillSlots *slots, u32 size, u32 align)
+{
+    u32 raw;
+
+    if (!align || (align & (align - 1)))
+        CGF_ICE("arm64 regalloc: frame object alignment %u is not a power of "
+                "two",
+                align);
+    if (!size)
+        size = 1;
+    raw = (u32)(-slots->next_offset) + size;
+    raw = (raw + align - 1) & ~(align - 1);
+    slots->next_offset = -(i32)raw;
+    slots->count++;
+    return slots->next_offset;
+}
+
+static void frame_assign_allocas(A64Func *f, CgSpillSlots *slots)
+{
+    u32 bi, ii;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+
+        for (ii = 0; ii < b->n; ii++) {
+            A64Inst *in = &b->insts[ii];
+            u32 size, align;
+
+            if (in->op == A64_OP_ALLOCA_DYN || in->op == A64_OP_STACKSAVE ||
+                in->op == A64_OP_STACKRESTORE)
+                CGF_ICE("arm64 regalloc: dynamic stack allocation lands in "
+                        "Sprint 49");
+            if (in->op != A64_OP_ALLOCA)
+                continue;
+            if (in->nops != 3 || in->ops[1].kind != A64O_IMM ||
+                in->ops[2].kind != A64O_IMM)
+                CGF_ICE("arm64 regalloc: malformed static alloca marker");
+            size = (u32)in->ops[1].imm;
+            align = (u32)in->ops[2].imm;
+            if (align > 16)
+                CGF_ICE("arm64 regalloc: over-aligned stack objects land in "
+                        "Sprint 53");
+            /* stash the assignment where the size was; the expansion below
+             * turns it into a real address once csr_size is known */
+            in->ops[1].imm =
+                frame_object_assign(slots, size, align ? align : 8);
+            in->ops[2].imm = (i64)size;
+        }
+    }
+}
+
+static void frame_expand_allocas(A64Func *f, const Frame *fr)
+{
+    u32 bi, ii;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+
+        for (ii = 0; ii < b->n; ii++) {
+            A64Inst *in = &b->insts[ii];
+            i64 raw, size, off;
+            A64Reg dst;
+
+            if (in->op != A64_OP_ALLOCA)
+                continue;
+            raw = -in->ops[1].imm;
+            size = in->ops[2].imm;
+            off = (i64)fr->csr_size + raw - size;
+            dst = in->ops[0].reg;
+            memset(in->ops, 0, sizeof(in->ops));
+            in->op = A64_OP_ADD;
+            in->sf = A64_SF64;
+            in->nops = 3;
+            in->ops[0].kind = A64O_REG;
+            in->ops[0].reg = dst;
+            in->ops[1].kind = A64O_REG;
+            in->ops[1].reg = phys_reg(A64_X29);
+            in->ops[2].kind = A64O_IMM;
+            in->ops[2].imm = off;
+        }
+    }
+}
+
 /* Slot references leave the rewrite as [x29, #negative]; nothing else in the
  * A64 stream can produce one, so recognizing them is unambiguous. */
 static void frame_fixup_slots(A64Func *f, const Frame *fr)
@@ -1098,7 +1189,8 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
                 /* x29 sits at SP+base, so the base cancels: a slot is
                  * addressed from the frame pointer by its distance above the
                  * saved-register area alone. */
-                op->mem.offset = (i64)fr->csr_size + slot - 8;
+                op->mem.offset = (i64)fr->csr_size + slot -
+                                 (i64)(op->mem.size ? op->mem.size : 8);
                 op->mem.mode = (u8)a64_isel_addr(op->mem.offset, op->mem.size,
                                                  false, false);
             }
@@ -1434,12 +1526,14 @@ static void frame_finalize(Ra *ra)
     fr.base = f->out_args;
     fr.csr_size = 16 + fr.ngp * 8 + fr.nfp * 8;
     fr.csr_size = (fr.csr_size + 7) & ~7u;
+    frame_assign_allocas(f, &ra->slots);
     fr.local_top = (u32)(-ra->slots.next_offset);
     fr.total = a64_frame_total(fr.base + fr.csr_size, fr.local_top,
                                f->variadic ? A64_VA_SAVE_BYTES : 0);
     if (fr.total & 15)
         CGF_ICE("arm64 regalloc: frame %u is not 16-byte aligned", fr.total);
     frame_fixup_slots(f, &fr);
+    frame_expand_allocas(f, &fr);
     frame_expand_vastart(f, &fr);
     if (f->nblocks)
         frame_emit_prologue(f, &fr);

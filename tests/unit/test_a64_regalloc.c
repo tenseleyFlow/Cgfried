@@ -666,3 +666,71 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
                     (long long)first_unnamed_gp);
     arena_free_all(&arena);
 }
+
+/* Static allocas become ordinary frame objects addressed from x29, and they
+ * must not overlap each other or the spill slots that share the same cursor.
+ * Arbitrary sizes are the point: an alloca is not a register spill, so the
+ * power-of-two contract that guards spill slots cannot apply to it. */
+void test_a64_regalloc_static_allocas_get_disjoint_frame_slots(TestCtx *t)
+{
+    static const struct {
+        u32 size, align;
+    } objects[] = {
+        {4, 4}, {1, 1}, {40, 8}, {3, 1}, {16, 16},
+    };
+    Arena arena;
+    A64Func f;
+    A64Reg dst[5];
+    const A64Block *bb;
+    i64 base[5];
+    u32 i, k, seen = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    for (i = 0; i < 5; i++) {
+        A64Inst in;
+
+        dst[i] = a64_newv(&f, A64RC_GP);
+        memset(&in, 0, sizeof(in));
+        in.op = A64_OP_ALLOCA;
+        in.sf = A64_SF64;
+        in.nops = 3;
+        in.ops[0] = treg(dst[i]);
+        in.ops[1] = timm((i64)objects[i].size);
+        in.ops[2] = timm((i64)objects[i].align);
+        a64_block_append(&f, &f.blocks[0], in);
+    }
+    put(&f, 0, A64_OP_RET, 0, treg((A64Reg){0, 0}), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    /* every marker became `add dst, x29, #offset` */
+    bb = &f.blocks[0];
+    for (i = 0; i < bb->n; i++) {
+        const A64Inst *cur = &bb->insts[i];
+
+        T_ASSERT(t, cur->op != A64_OP_ALLOCA);
+        if (cur->op == A64_OP_ADD && cur->ops[1].kind == A64O_REG &&
+            cur->ops[1].reg.physical &&
+            cur->ops[1].reg.id == (u32)A64_X29 + 1 &&
+            cur->ops[2].kind == A64O_IMM && cur->ops[0].reg.physical &&
+            cur->ops[0].reg.id != (u32)A64_X29 + 1 && seen < 5)
+            base[seen++] = cur->ops[2].imm;
+    }
+    T_ASSERT_EQ_INT(t, (long long)seen, 5);
+
+    /* pairwise disjoint, each honouring its own alignment */
+    for (i = 0; i < 5; i++) {
+        T_ASSERT(t, base[i] >= 0);
+        T_ASSERT_EQ_INT(t, (long long)(base[i] % objects[i].align), 0);
+        T_ASSERT(t, (u32)base[i] + objects[i].size <= f.frame_bytes);
+        for (k = i + 1; k < 5; k++) {
+            i64 ai = base[i], bi = base[k];
+
+            T_ASSERT(t, ai + (i64)objects[i].size <= bi ||
+                            bi + (i64)objects[k].size <= ai);
+        }
+    }
+    arena_free_all(&arena);
+}
