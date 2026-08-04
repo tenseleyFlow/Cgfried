@@ -1,0 +1,1 @@
+HARNESS_SKIP suite=a64-asm-diff test=afs-as count=1 reason="afs-as not built (make tools)"

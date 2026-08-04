@@ -1,0 +1,32 @@
+// PATTERN: i32 add register
+// PATTERN: i64 add small immediate
+// PATTERN: i64 add shifted immediate
+// PATTERN: i64 subtract immediate
+// PATTERN: i64 multiply
+// PATTERN: encodable logical immediate
+// PATTERN: materialized logical immediate
+// PATTERN: register or
+// PATTERN: register xor
+// PATTERN: constant left shift
+// PATTERN: register logical right shift
+// PATTERN: constant arithmetic right shift
+// PATTERN: zero extension for a variable shift count
+// PATTERN: INT64_MIN subtraction materializes without host signed overflow
+func i64 @integer_alu(i32 %a, i32 %b, i64 %x, i64 %y) {
+entry():
+    %sum32 = iadd i32 %a, %b
+    %small = iadd i64 %x, 4095
+    %shifted = iadd i64 %small, 4096
+    %sub = isub i64 %shifted, 8
+    %mul = imul i64 %sub, %y
+    %mask = and i64 %mul, 71777214294589695
+    %oddmask = and i64 %mask, 4660
+    %ored = or i64 %oddmask, %x
+    %xored = xor i64 %ored, %y
+    %left = shl i64 %xored, 3
+    %count = zext i32 %sum32 to i64
+    %right = lshr i64 %left, %count
+    %signed = ashr i64 %right, 1
+    %minsub = isub i64 %signed, -9223372036854775808
+    ret i64 %minsub
+}

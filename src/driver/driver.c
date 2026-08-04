@@ -663,6 +663,14 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     char comp_dir[4096];
     FILE *f;
 
+    if (cgf_target_host().kind == CGF_TARGET_ARM64_LINUX ||
+        cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
+        fprintf(stderr,
+                "cgfried: error: arm64 assembly and object emission lands "
+                "in Sprint 49\n");
+        return CGF_EXIT_COMPILE;
+    }
+
     buf_init(&b);
     if (m->nfuncs)
         xfuncs = arena_alloc(arena, m->nfuncs * sizeof(X64Func *),
@@ -767,22 +775,38 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
 {
     u32 i;
     Buf b;
+    TargetKind target = cgf_target_host().kind;
 
     buf_init(&b);
     for (i = 0; i < m->nfuncs; i++) {
-        X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
+        if (target == CGF_TARGET_ARM64_LINUX ||
+            target == CGF_TARGET_ARM64_MACOS) {
+            A64Func *af = a64_isel_function(m, &m->funcs[i], arena);
 
-        if (x64_mir_verify(xf, dc))
-            CGF_ICE("isel produced MIR the verifier rejects for '@%s'",
-                    m->funcs[i].name);
-        /* Sprint 22: -emit-mir shows the ALLOCATED form — physical
-         * registers, spill code, prologue/epilogue — verified again
-         * post-RA (vreg survival, canonical two-address, markers gone). */
-        x64_regalloc_entry(CG_O0)(xf);
-        if (x64_mir_verify(xf, dc))
-            CGF_ICE("regalloc produced MIR the verifier rejects for '@%s'",
-                    m->funcs[i].name);
-        x64_mir_print(xf, &b);
+            if (a64_mir_verify(af, dc))
+                CGF_ICE("arm64 isel produced MIR the verifier rejects for "
+                        "'@%s'",
+                        m->funcs[i].name);
+            /* Sprint 47 intentionally prints pre-RA A64 MIR. AAPCS64
+             * allocation and the post-RA form arrive together in Sprint 48. */
+            a64_mir_print(af, &b);
+            continue;
+        }
+        {
+            X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
+
+            if (x64_mir_verify(xf, dc))
+                CGF_ICE("isel produced MIR the verifier rejects for '@%s'",
+                        m->funcs[i].name);
+            /* Sprint 22: -emit-mir shows the ALLOCATED form — physical
+             * registers, spill code, prologue/epilogue — verified again
+             * post-RA (vreg survival, canonical two-address, markers gone). */
+            x64_regalloc_entry(CG_O0)(xf);
+            if (x64_mir_verify(xf, dc))
+                CGF_ICE("regalloc produced MIR the verifier rejects for '@%s'",
+                        m->funcs[i].name);
+            x64_mir_print(xf, &b);
+        }
     }
     fwrite(b.data, 1, b.len, stdout);
     buf_free(&b);

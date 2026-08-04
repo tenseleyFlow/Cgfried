@@ -1,0 +1,23 @@
+mir.a64 @block_params (vregs=11)
+bb1:
+    mov.w v4, v1
+    mov.w v5, v2
+    mov.w v6, v3
+    b bb2
+bb2:
+    subs.w wzr, v6, #0
+    b.gt bb3, bb5
+bb3:
+    sub.w v9, v6, #1
+    mov.w v6, v9
+    mov.w v10, v4
+    mov.w v4, v5
+    mov.w v5, v10
+    b bb2
+bb4:
+    add.w v11, v7, v8
+    ret v11
+bb5:
+    mov.w v7, v4
+    mov.w v8, v5
+    b bb4

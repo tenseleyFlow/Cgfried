@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "cg/cg.h"
+#include "cg/shared.h"
 #include "unit.h"
 #include "util/arena.h"
 
@@ -73,6 +74,71 @@ static X64Operand oi(i64 v)
 
 /* --- the invariant ----------------------------------------------------------
  */
+
+static const u8 shared_test_pool[] = {0, 1};
+
+static void shared_pool(void *ctx, u32 vreg, const u8 **regs, u32 *nregs)
+{
+    (void)ctx;
+    (void)vreg;
+    *regs = shared_test_pool;
+    *nregs = CGF_ARRAY_LEN(shared_test_pool);
+}
+
+static bool shared_same_class(void *ctx, u32 a, u32 b)
+{
+    (void)ctx;
+    (void)a;
+    (void)b;
+    return true;
+}
+
+static bool shared_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
+{
+    (void)ctx;
+    (void)vreg;
+    (void)reg;
+    (void)start;
+    (void)end;
+    return true;
+}
+
+static u32 shared_spill_8(void *ctx, u32 vreg)
+{
+    (void)ctx;
+    (void)vreg;
+    return 8;
+}
+
+void test_cg_shared_linear_scan_and_spill_slots(TestCtx *t)
+{
+    CgInterval iv[4];
+    CgLinearScanPolicy policy;
+    CgSpillSlots slots = {0};
+
+    memset(iv, 0, sizeof(iv));
+    memset(&policy, 0, sizeof(policy));
+    iv[1] = (CgInterval){1, 0, 10, true, 0, 0, 0};
+    iv[2] = (CgInterval){2, 1, 2, true, 0, 0, 0};
+    iv[3] = (CgInterval){3, 1, 8, true, 0, 0, 0};
+    policy.nphys_regs = 2;
+    policy.pool = shared_pool;
+    policy.same_class = shared_same_class;
+    policy.reg_usable = shared_reg_usable;
+    policy.spill_size = shared_spill_8;
+    policy.spill_align = shared_spill_8;
+
+    cg_linear_scan(iv, 3, &policy, &slots);
+    T_ASSERT_EQ_INT(t, iv[1].phys, 0); /* furthest end is evicted */
+    T_ASSERT_EQ_INT(t, iv[1].slot, -8);
+    T_ASSERT_EQ_INT(t, iv[2].phys, 2);
+    T_ASSERT_EQ_INT(t, iv[3].phys, 1);
+    T_ASSERT_EQ_INT(t, slots.count, 1);
+
+    T_ASSERT_EQ_INT(t, cg_spill_slot_assign(&slots, 16, 16), -32);
+    T_ASSERT_EQ_INT(t, cg_spill_slot_assign(&slots, 8, 8), -40);
+    T_ASSERT_EQ_INT(t, slots.count, 3);
+}
 
 void test_x64_linear_scan_at_every_opt_level(TestCtx *t)
 {

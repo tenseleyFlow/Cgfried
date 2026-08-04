@@ -1,0 +1,43 @@
+// PATTERN: equality-to-zero branch via cbz
+func i32 @branch_zero(i32 %x) {
+entry():
+    %c = icmp eq i32 %x, 0
+    condbr %c, yes(), no()
+yes():
+    ret i32 1
+no():
+    ret i32 0
+}
+
+// PATTERN: inequality-to-zero branch via cbnz
+func i32 @branch_nonzero(i64 %x) {
+entry():
+    %c = icmp ne i64 %x, 0
+    condbr %c, yes(), no()
+yes():
+    ret i32 1
+no():
+    ret i32 0
+}
+
+// PATTERN: signed compare and conditional branch
+func i32 @branch_signed(i32 %a, i32 %b) {
+entry():
+    %c = icmp slt i32 %a, %b
+    condbr %c, yes(), no()
+yes():
+    ret i32 7
+no():
+    ret i32 9
+}
+
+// PATTERN: unsigned compare and conditional branch
+func i32 @branch_unsigned(i64 %a, i64 %b) {
+entry():
+    %c = icmp ugt i64 %a, %b
+    condbr %c, yes(), no()
+yes():
+    ret i32 7
+no():
+    ret i32 9
+}

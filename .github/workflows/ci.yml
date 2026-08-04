@@ -106,6 +106,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: install authoritative AArch64 assembler oracle
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
       - name: submodules (https mirror of the SSH URLs)
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
@@ -124,6 +128,10 @@ jobs:
             tools-v1-${{ hashFiles('.gitmodules') }}-
             tools-v1-
       - run: make tools
+      - name: AArch64 assembler differential (both required, zero skips)
+        run: |
+          command -v aarch64-linux-gnu-as
+          make test-a64-asm-diff
       - name: smoke differential (afs-as vs gas, section bytes)
         run: |
           sh scripts/toolchain_smoke.sh > toolchain.log 2>&1; s=$?

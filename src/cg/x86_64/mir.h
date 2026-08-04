@@ -340,8 +340,10 @@ bool x64_fold_ok(u8 scale, bool index_is_rsp, i64 disp);
 const char *x64_cc_name(u8 cc);
 const char *x64_reg_name(u8 reg);
 
-/* --- Sprint 22: allocation -------------------------------------------------
- */
+/* --- allocation ------------------------------------------------------------
+ * Target-neutral liveness, interval scan, and spill-slot mechanics live in
+ * cg/shared.{c,h}. This interface retains x86 register constraints, spill
+ * rewriting, two-address repair, and frame finalization. */
 
 /* ONE allocator at every opt level — the golden invariant. The enum
  * exists so the invariant is testable: x64_regalloc_entry returns the

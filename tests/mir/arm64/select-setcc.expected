@@ -1,0 +1,30 @@
+mir.a64 @select_and_setcc (vregs=10)
+bb1:
+    subs.w wzr, v3, #0
+    csel.ne.x v4, v1, v2
+    subs.x xzr, v1, v2
+    cset.lt.w v5
+    subs.x xzr, v1, v2
+    cset.hs.w v6
+    mov.w v7, v5
+    mov.w v8, v6
+    add.x v9, v7, v8
+    add.x v10, v4, v9
+    ret v10
+mir.a64 @select_compare_multi_use (vregs=5)
+bb1:
+    subs.w wzr, v1, v2
+    cset.lt.w v3
+    csel.lt.w v4, v1, v2
+    add.w v5, v4, v3
+    ret v5
+mir.a64 @select_after_flags_clobber (vregs=8)
+bb1:
+    subs.w wzr, v1, v2
+    cset.lt.w v5
+    subs.w wzr, v3, v4
+    cset.gt.w v6
+    subs.w wzr, v5, #0
+    csel.ne.w v7, v1, v2
+    add.w v8, v7, v6
+    ret v8

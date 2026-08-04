@@ -1,0 +1,14 @@
+mir.a64 @reg31_anchor (vregs=0)
+bb1:
+    ret
+mir.a64 @reg31_legal (vregs=0)
+bb1:
+    add.x x0, sp, #0
+    add.x sp, x0, #16
+    sub.x sp, sp, #16
+    subs.x xzr, x0, #5
+    ands.x xzr, x0, #255
+    orr.x sp, x0, #255
+    orr.x xzr, x0, x1
+    load.x x0, [sp]
+    store.x xzr, [sp, #-8]

@@ -1,0 +1,55 @@
+// PATTERN: f32 add
+// PATTERN: f32 subtract
+// PATTERN: f32 multiply
+// PATTERN: f32 divide
+// PATTERN: f64 add
+// PATTERN: f64 subtract
+// PATTERN: f64 multiply
+// PATTERN: f64 divide
+// PATTERN: f64 negate
+// PATTERN: signed integer to f64
+// PATTERN: unsigned integer to f32
+// PATTERN: f64 to signed integer
+// PATTERN: f32 to unsigned integer
+// PATTERN: f32 to f64 conversion
+// PATTERN: f64 to f32 conversion
+// PATTERN: ordered floating compare
+// PATTERN: unordered floating compare
+// PATTERN: f64 conditional select via fcsel
+// PATTERN: fmov s-register zero from wzr
+// PATTERN: fmov d-register zero from xzr
+func i32 @scalar_fp(f32 %as, f32 %bs, f64 %ad, f64 %bd, i32 %si, i64 %ui) {
+entry():
+    %sa = fadd f32 %as, %bs
+    %ss = fsub f32 %sa, %bs
+    %sm = fmul f32 %ss, %as
+    %sq = fdiv f32 %sm, %bs
+    %da = fadd f64 %ad, %bd
+    %ds = fsub f64 %da, %bd
+    %dm = fmul f64 %ds, %ad
+    %dq = fdiv f64 %dm, %bd
+    %dn = fneg f64 %dq
+    %froms = sitofp i32 %si to f64
+    %fromu = uitofp i64 %ui to f32
+    %tos = fptosi f64 %froms to i64
+    %tou = fptoui f32 %fromu to i32
+    %ext = fpext f32 %sq to f64
+    %trunc = fptrunc f64 %dn to f32
+    %ordered = fcmp olt f64 %ext, %froms
+    %unordered = fcmp uno f32 %trunc, %fromu
+    %picked = select %ordered, f64 %ext, %froms
+    %r = iadd i32 %ordered, %unordered
+    ret i32 %r
+}
+
+func f32 @f32_zero() {
+entry():
+    %z = fadd f32 0x00000000, 0x00000000
+    ret f32 %z
+}
+
+func f64 @f64_zero() {
+entry():
+    %z = fadd f64 0x0000000000000000, 0x0000000000000000
+    ret f64 %z
+}

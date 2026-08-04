@@ -1,0 +1,30 @@
+mir.a64 @switch_dense (vregs=10)
+bb1:
+    movn.w v2, #0, #0
+    subs.w wzr, v1, v2
+    b.eq bb2
+    movz.w v3, #0, #0
+    subs.w wzr, v1, v3
+    b.eq bb3
+    orr.w v4, wzr, #1
+    subs.w wzr, v1, v4
+    b.eq bb4
+    orr.w v5, wzr, #2
+    subs.w wzr, v1, v5
+    b.eq bb5
+    b bb6
+bb2:
+    movn.w v6, #0, #0
+    ret v6
+bb3:
+    movz.w v7, #10, #0
+    ret v7
+bb4:
+    movz.w v8, #11, #0
+    ret v8
+bb5:
+    orr.w v9, wzr, #12
+    ret v9
+bb6:
+    movz.w v10, #99, #0
+    ret v10
