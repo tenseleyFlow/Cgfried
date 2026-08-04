@@ -416,11 +416,39 @@ static bool a64_scan_same_class(void *ctx, u32 a, u32 b)
     return vreg_is_fp(ra->f, a) == vreg_is_fp(ra->f, b);
 }
 
+/* A pre-coloured interval takes its register unconditionally, so an ordinary
+ * interval must never be handed a colour that a FIXED interval claims over an
+ * overlapping range. Without this an argument copy into x0 and an unrelated
+ * temporary the allocator also put in x0 silently share the register: the
+ * copy destroys the temporary, a later copy reads the wrong value, and the
+ * allocator reports success. Nothing crashes — the callee simply receives the
+ * wrong argument.
+ *
+ * Endpoint sharing counts as a conflict. A pre-coloured value is live from
+ * its defining copy until the call reads it, and an ordinary value whose last
+ * use is that same copy still needs its register intact when it executes. */
+static bool fixed_clash(const Ra *ra, u32 vreg, u8 reg, u32 start, u32 end)
+{
+    u32 v;
+
+    for (v = 1; v <= ra->f->nvregs; v++) {
+        const CgInterval *it = &ra->iv[v];
+
+        if (v == vreg || !it->live || !it->fixed || it->fixed != (u8)(reg + 1))
+            continue;
+        if (start <= it->end && it->start <= end)
+            return true;
+    }
+    return false;
+}
+
 static bool a64_scan_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
 {
     Ra *ra = ctx;
 
     if (vreg_is_fp(ra->f, vreg) != (reg >= A64_V0 && reg <= A64_V31))
+        return false;
+    if (fixed_clash(ra, vreg, reg, start, end))
         return false;
     if (crosses_call(ra, start, end))
         return a64_reg_preserved_across_call(reg, false);

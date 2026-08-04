@@ -494,3 +494,83 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
         }
     arena_free_all(&arena);
 }
+
+/* Regression: a pre-coloured argument copy must not clobber a value the
+ * allocator parked in that same register.
+ *
+ * Eight values are defined in order, so the natural colouring is v0->x0 ...
+ * v7->x7, and then they are passed in REVERSE. That misalignment is what
+ * exposes the bug: the first copy is `mov x0, <v7's home>` while v0 still
+ * lives in x0 and is not read until the eighth copy. Without a fixed-interval
+ * clash test v0 keeps x0, the first copy destroys it, and the eighth copy
+ * passes v7's value where v0's belongs. Passing the arguments in order hides
+ * this completely — every copy degenerates to `mov xN, xN`, which is why a
+ * naive two-argument test reports success either way. */
+void test_a64_regalloc_argument_copies_do_not_clobber_each_other(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg v[8], res;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u32 i, ii;
+    u8 home[8];
+    bool dead[A64_REG_COUNT];
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    for (i = 0; i < 8; i++) {
+        v[i] = a64_newv(&f, A64RC_GP);
+        put(&f, 0, A64_OP_MOVZ, 2, treg(v[i]), timm((i64)i + 1),
+            treg((A64Reg){0, 0}));
+    }
+    res = a64_newv(&f, A64RC_GP);
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    for (i = 8; i-- > 0;)
+        a64_call_add_arg(&f, call, v[i], IRT_I64, 0);
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    /* Recover each value's home from the movz that defines it, then walk the
+     * copies: no copy may read a register an earlier copy already wrote. */
+    bb = &f.blocks[0];
+    memset(home, 0, sizeof(home));
+    memset(dead, 0, sizeof(dead));
+    i = 0;
+    for (ii = 0; ii < bb->n && i < 8; ii++)
+        if (bb->insts[ii].op == A64_OP_MOVZ) {
+            T_ASSERT(t, bb->insts[ii].ops[0].reg.physical);
+            home[i++] = (u8)(bb->insts[ii].ops[0].reg.id - 1);
+        }
+    T_ASSERT_EQ_INT(t, (long long)i, 8);
+
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+
+        if (cur->op == A64_OP_CALL)
+            break;
+        if (cur->op != A64_OP_MOV || cur->nops != 2 ||
+            cur->ops[1].kind != A64O_REG || !cur->ops[1].reg.physical)
+            continue;
+        T_ASSERT(t, !dead[cur->ops[1].reg.id - 1]);
+        dead[cur->ops[0].reg.id - 1] = true;
+    }
+    /* and every value still had a distinct home to begin with */
+    for (i = 0; i < 8; i++) {
+        u32 k;
+
+        for (k = i + 1; k < 8; k++)
+            T_ASSERT(t, home[i] != home[k]);
+    }
+    arena_free_all(&arena);
+}
