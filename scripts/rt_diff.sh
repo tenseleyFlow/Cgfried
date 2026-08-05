@@ -200,34 +200,63 @@ else
     fails=$((fails + 1))
 fi
 
-# The fp128 stubs must ABORT, never return a plausible wrong number.
+# Sprint 49 implemented the fp128 entry points, so this check flipped from
+# "the stub must abort" to "the implementation must compute". The arm64
+# differential against libgcc lives in scripts/fp128_diff.sh and needs a
+# cross toolchain; this one runs everywhere, because mode(TF) is __float128
+# on x86_64 too and the arithmetic is target-independent softfloat.
 cat > "$WORK/tf.c" << 'EOF'
-typedef struct { unsigned long long w[2]; } cgf_tf;
-extern cgf_tf __addtf3(cgf_tf, cgf_tf);
+typedef float tf __attribute__((mode(TF)));
+extern tf __addtf3(tf, tf);
+extern tf __multf3(tf, tf);
+extern tf __divtf3(tf, tf);
+extern int __lttf2(tf, tf);
+extern tf __floatsitf(int);
+extern int __fixtfsi(tf);
+
+static int bits_are(tf v, unsigned long long hi, unsigned long long lo)
+{
+    unsigned char b[16];
+    unsigned long long ghi, glo;
+
+    __builtin_memcpy(b, &v, 16);
+    __builtin_memcpy(&glo, b, 8);
+    __builtin_memcpy(&ghi, b + 8, 8);
+    return ghi == hi && glo == lo;
+}
+
 int main(void)
 {
-    cgf_tf a = {{1, 0}}, b = {{2, 0}};
-    cgf_tf c = __addtf3(a, b);
-    return (int)c.w[0];
+    tf one = __floatsitf(1);
+    tf two = __floatsitf(2);
+    tf three = __addtf3(one, two);
+
+    if (!bits_are(one, 0x3fff000000000000ull, 0))
+        return 1;
+    if (!bits_are(three, 0x4000800000000000ull, 0))
+        return 2;
+    if (!bits_are(__multf3(three, two), 0x4001800000000000ull, 0))
+        return 3;
+    if (!bits_are(__divtf3(three, three), 0x3fff000000000000ull, 0))
+        return 4;
+    /* The three-way contract, not a boolean: negative means strictly less. */
+    if (!(__lttf2(one, two) < 0) || __lttf2(two, one) < 0)
+        return 5;
+    if (__fixtfsi(three) != 3)
+        return 6;
+    return 0;
 }
 EOF
-gcc -std=c11 -w "$WORK/tf.c" "$RT" -o "$WORK/tf" 2>/dev/null
-# The abort is the POINT of this check. The "Aborted (core dumped)"
-# line comes from the shell REPORTING the signal, not from the program,
-# so it has to be silenced in the reporting shell — an inner sh whose
-# own stderr is redirected.
-sh -c '"$1" > "$2" 2>&1' _ "$WORK/tf" "$WORK/tf.out" 2>/dev/null
-tf_rc=$?
-if [ "$tf_rc" -eq 0 ]; then
-    echo "rt_diff: an fp128 stub RETURNED instead of aborting — a silent" \
-        "wrong answer is exactly what Sprint 28 forbids" >&2
+if gcc -std=c11 -w "$WORK/tf.c" "$RT" -o "$WORK/tf" 2> "$WORK/tf.err"; then
+    if ! "$WORK/tf"; then
+        echo "rt_diff: fp128 entry point check failed" >&2
+        fails=$((fails + 1))
+    fi
+else
+    echo "rt_diff: the fp128 probe did not build" >&2
+    cat "$WORK/tf.err" >&2
     fails=$((fails + 1))
 fi
-grep -q "Sprint 49" "$WORK/tf.out" || {
-    echo "rt_diff: fp128 stub did not name Sprint 49" >&2
-    cat "$WORK/tf.out" >&2
-    fails=$((fails + 1))
-}
 
 # DoD 7: the archive is reproducible.
 cp "$RT" "$WORK/first.a"
@@ -243,4 +272,4 @@ fi
 
 [ "$fails" -eq 0 ] || exit 1
 echo "rt_diff: $cases result lines identical to libgcc; mixing law both" \
-    "directions; fp128 stubs abort naming Sprint 49; archive reproducible"
+    "directions; fp128 entry points compute; archive reproducible"

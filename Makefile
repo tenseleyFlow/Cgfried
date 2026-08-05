@@ -81,11 +81,17 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 # a plain toolchain. `ar rcsD` for a DETERMINISTIC archive (no
 # timestamps, uids or modes) — two clean builds must be byte-equal.
 RT_CC ?= $(CC)
-RT_CFLAGS ?= -std=c11 -Wall -Wextra -O2 -fno-strict-aliasing
+RT_CFLAGS ?= -std=c11 -Wall -Wextra -O2 -fno-strict-aliasing -Isrc
 RT_TARGET := $(shell $(BUILD)/cgfried -dumpmachine 2>/dev/null || \
                      echo x86_64-linux-gnu)
 RT_SRC := $(sort $(wildcard src/rt/*.c))
-RT_OBJ := $(patsubst src/rt/%.c,$(BUILD)/rt/%.o,$(RT_SRC))
+# Sprint 49: the arm64 fp128 entry points ARE softfp. Sprint 15 kept that
+# core library-clean (no arena, no diagnostics, no sema) exactly so it could
+# link in here; this is the payoff, and it is why the runtime never grows a
+# second float implementation to drift against the compiler's.
+RT_SHARED_SRC := src/util/softfp.c src/util/bigint.c
+RT_OBJ := $(patsubst src/rt/%.c,$(BUILD)/rt/%.o,$(RT_SRC)) \
+          $(patsubst src/util/%.c,$(BUILD)/rt/shared_%.o,$(RT_SHARED_SRC))
 RT_LIB := $(BUILD)/$(RT_TARGET)/libcgf_rt.a
 
 all: $(BUILD)/cgfried $(BUILD)/cgf rt
@@ -94,6 +100,9 @@ all: $(BUILD)/cgfried $(BUILD)/cgf rt
 rt: $(RT_LIB)
 
 $(BUILD)/rt/%.o: src/rt/%.c | $(BUILD)/rt/
+	$(RT_CC) $(RT_CFLAGS) -c -o $@ $<
+
+$(BUILD)/rt/shared_%.o: src/util/%.c | $(BUILD)/rt/
 	$(RT_CC) $(RT_CFLAGS) -c -o $@ $<
 
 $(RT_LIB): $(RT_OBJ)
@@ -314,6 +323,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) $(BUILD)/a64mir
 	sh scripts/a64_exec_lane.sh $(BUILD)/a64mir
 	sh scripts/char_sign_oracle.sh
+	sh scripts/fp128_diff.sh
 	$(MAKE) check-warn-matrix
 	$(MAKE) BUILD=$(BUILD) test-warndiff
 	sh scripts/check_format.sh

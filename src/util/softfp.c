@@ -517,6 +517,53 @@ static void mul_256(uint64_t ahi, uint64_t alo, uint64_t bhi, uint64_t blo,
     out[3] = acc[6] | (acc[7] << 32);
 }
 
+static int bitlen_256(const uint64_t p[4])
+{
+    int i;
+
+    for (i = 3; i >= 0; i--)
+        if (p[i]) {
+            uint64_t v = p[i];
+            int n = 0;
+
+            while (v) {
+                v >>= 1;
+                n++;
+            }
+            return i * 64 + n;
+        }
+    return 0;
+}
+
+static bool low_bits_set_256(const uint64_t p[4], int d)
+{
+    int w = d / 64, b = d % 64, i;
+
+    for (i = 0; i < w && i < 4; i++)
+        if (p[i])
+            return true;
+    if (b && w < 4 && (p[w] & ((1ull << b) - 1)))
+        return true;
+    return false;
+}
+
+static void shr_256(uint64_t p[4], int d)
+{
+    int w = d / 64, b = d % 64, i;
+
+    if (w) {
+        for (i = 0; i + w < 4; i++)
+            p[i] = p[i + w];
+        for (; i < 4; i++)
+            p[i] = 0;
+    }
+    if (b) {
+        for (i = 0; i < 3; i++)
+            p[i] = (p[i] >> b) | (p[i + 1] << (64 - b));
+        p[3] >>= b;
+    }
+}
+
 Sf sf_mul(Sf a, Sf b, SfFormat f, SfStatus *st)
 {
     uint8_t sign = a.sign ^ b.sign;
@@ -552,43 +599,28 @@ Sf sf_mul(Sf a, Sf b, SfFormat f, SfStatus *st)
     mul_256(a.hi, a.lo, b.hi, b.lo, p);
     pexp = a.exp + b.exp;
 
-    /* Fold the product down to 128 bits, keeping everything shifted out
-     * as sticky so round_pack still rounds exactly once. */
-    if (p[3] || p[2]) {
-        int shift = 0;
-        uint64_t t3 = p[3], t2 = p[2];
+    /* Fold the 256-bit product down to the 128 bits round_pack wants,
+     * keeping everything shifted out as sticky so the value is rounded
+     * exactly once.
+     *
+     * This has to be driven by the product's BIT LENGTH. The first version
+     * walked a 128-bit window down one bit at a time and used the step count
+     * as the shift, which overshot 63 and then fed an out-of-range count to
+     * `>>` — undefined behaviour. It never showed up because no format
+     * reached it: a binary64 product is at most 106 bits and an x87-80 one
+     * at most 128, so both stay inside p[1]:p[0]. binary128 has a 113-bit
+     * significand, so its product always spills into p[3] and always took
+     * the broken path. */
+    {
+        int len = bitlen_256(p);
 
-        while (t3 || t2) {
-            t2 = (t2 >> 1) | (t3 << 63);
-            t3 >>= 1;
-            shift++;
-        }
-        /* Anything below the retained 128 bits is sticky. */
-        {
-            int k;
+        if (len > 128) {
+            int drop = len - 128;
 
-            for (k = 0; k < shift; k++)
-                if ((p[0] >> k) & 1) {
-                    sticky = true;
-                    break;
-                }
+            sticky = low_bits_set_256(p, drop);
+            shr_256(p, drop);
+            pexp += drop;
         }
-        hi = (p[2] >> shift) | (shift ? (p[3] << (64 - shift)) : 0);
-        lo = (p[1] >> shift) | (shift ? (p[2] << (64 - shift)) : 0);
-        if (shift) {
-            uint64_t dropped = p[0] >> shift;
-
-            (void)dropped;
-            if (p[0] & ((shift >= 64) ? ~0ull : ((1ull << shift) - 1)))
-                sticky = true;
-        }
-        /* Recombine: the retained window is bits [shift, shift+128). */
-        hi = (p[2] >> shift) | (shift ? (p[3] << (64 - shift)) : 0);
-        lo = (p[1] >> shift) | (shift ? (p[2] << (64 - shift)) : 0);
-        if (p[0])
-            sticky = true;
-        pexp += 64 + shift;
-    } else {
         hi = p[1];
         lo = p[0];
     }
@@ -605,6 +637,7 @@ Sf sf_div(Sf a, Sf b, SfFormat f, SfStatus *st)
     uint64_t rhi, rlo;
     uint64_t dhi, dlo;
     uint8_t sign = a.sign ^ b.sign;
+    int32_t aexp = 0, bexp = 0;
     int i;
     Sf r;
 
@@ -637,13 +670,42 @@ Sf sf_div(Sf a, Sf b, SfFormat f, SfStatus *st)
         return r;
     }
 
+    /* Both significands are normalized to the SAME width first. Without
+     * that the restoring loop below is unbounded: a subnormal operand
+     * arrives with a tiny significand — the minimum subnormal's is
+     * literally 1 — so the remainder never shrinks and doubles every
+     * iteration until it will not fit.
+     *
+     * The first version coped by BREAKING out of the loop at that point,
+     * which silently produced fewer quotient bits than the exponent
+     * adjustment below assumes. 1.0 / DBL_MIN_SUBNORMAL came back as a
+     * large finite number instead of overflowing to infinity, in every
+     * format. Normalizing removes the condition rather than detecting it.
+     *
+     * 120 leaves headroom: after a subtract the remainder is below the
+     * divisor, so the following shift cannot exceed 121 bits. */
+    {
+        int ka = 120 - u128_bitlen(a.hi, a.lo);
+        int kb = 120 - u128_bitlen(b.hi, b.lo);
+
+        rhi = a.hi;
+        rlo = a.lo;
+        dhi = b.hi;
+        dlo = b.lo;
+        if (ka > 0)
+            u128_shl(&rhi, &rlo, ka);
+        else if (ka < 0)
+            u128_shr_sticky(&rhi, &rlo, -ka);
+        if (kb > 0)
+            u128_shl(&dhi, &dlo, kb);
+        else if (kb < 0)
+            u128_shr_sticky(&dhi, &dlo, -kb);
+        aexp = a.exp - ka;
+        bexp = b.exp - kb;
+    }
     /* Restoring division, one quotient bit at a time to prec+2 bits, with
      * the final remainder as sticky — the same shape as the decimal
      * path, and for the same reason: obviously correct beats clever. */
-    rhi = a.hi;
-    rlo = a.lo;
-    dhi = b.hi;
-    dlo = b.lo;
     for (i = 0; i < qbits; i++) {
         qhi = (qhi << 1) | (qlo >> 63);
         qlo <<= 1;
@@ -651,15 +713,12 @@ Sf sf_div(Sf a, Sf b, SfFormat f, SfStatus *st)
             u128_sub(&rhi, &rlo, dhi, dlo);
             qlo |= 1;
         }
-        if (i + 1 < qbits) {
-            if (u128_bitlen(rhi, rlo) >= 127)
-                break; /* cannot shift further; remainder is sticky */
+        if (i + 1 < qbits)
             u128_shl(&rhi, &rlo, 1);
-        }
     }
     /* The loop produced qbits bits of (sig_a / sig_b) scaled up by
      * 2^(qbits-1), so that scaling comes back out of the exponent. */
-    return round_pack(sign, qhi, qlo, a.exp - b.exp - (qbits - 1),
+    return round_pack(sign, qhi, qlo, aexp - bexp - (qbits - 1),
                       (rhi | rlo) != 0, f, st);
 }
 

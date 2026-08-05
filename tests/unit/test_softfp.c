@@ -602,3 +602,84 @@ void test_softfp_extreme_inputs(TestCtx *t)
         t->assertions++;
     }
 }
+
+/* Regression: the 256-bit product renormalization in sf_mul.
+ *
+ * Only binary128 reaches it. A binary64 product is at most 106 bits and an
+ * x87-80 one at most 128, so both stay inside the low two limbs; a 113-bit
+ * significand squared always spills into the top limb. The original loop
+ * walked a 128-bit window down one bit at a time and used the STEP COUNT as
+ * the shift, which ran past 63 and then fed an out-of-range count to `>>`.
+ * 1.0 * 1.0 came back as 2^64. */
+void test_softfp_mul_wide_product(TestCtx *t)
+{
+    static const struct {
+        const char *a, *b, *product;
+        int32_t ea, eb, ep;
+    } rows[] = {
+        {"1", "1", "1", 0, 0, 0},    {"2", "2", "4", 0, 0, 0},
+        {"1", "5", "5", 0, 0, 0},    {"3", "7", "21", 0, 0, 0},
+        {"5", "2", "1", -1, -1, -1}, /* 0.5 * 0.2 is 0.1, not 0.01 */
+        {"125", "8", "1", -3, 0, 0}, /* 0.125 * 8 is exactly 1 */
+    };
+    SfStatus st;
+    uint8_t got[16], want[16];
+    size_t i;
+
+    for (i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        Sf a, b, p, e;
+
+        memset(&st, 0, sizeof(st));
+        a = sf_from_decimal(rows[i].a, strlen(rows[i].a), rows[i].ea,
+                            SF_BINARY128, &st);
+        b = sf_from_decimal(rows[i].b, strlen(rows[i].b), rows[i].eb,
+                            SF_BINARY128, &st);
+        p = sf_mul(a, b, SF_BINARY128, &st);
+        e = sf_from_decimal(rows[i].product, strlen(rows[i].product),
+                            rows[i].ep, SF_BINARY128, &st);
+        sf_to_bits(p, SF_BINARY128, got);
+        sf_to_bits(e, SF_BINARY128, want);
+        T_ASSERT(t, memcmp(got, want, 16) == 0);
+    }
+}
+
+/* Regression: dividing by an UNNORMALIZED significand.
+ *
+ * A subnormal operand arrives with a tiny significand — the minimum
+ * subnormal's is literally 1 — so the restoring loop's remainder never
+ * shrank and doubled every iteration. The old code broke out of the loop at
+ * that point, producing fewer quotient bits than the exponent adjustment
+ * assumed, so 1.0 divided by the smallest subnormal came back as a large
+ * FINITE value in every format instead of overflowing to infinity. */
+void test_softfp_div_by_subnormal_overflows(TestCtx *t)
+{
+    static const SfFormat *formats[] = {&SF_BINARY32, &SF_BINARY64,
+                                        &SF_BINARY128};
+    size_t k;
+
+    for (k = 0; k < sizeof(formats) / sizeof(formats[0]); k++) {
+        SfFormat f = *formats[k];
+        SfStatus st;
+        uint8_t bits[16];
+        Sf one, sub, q;
+        int i;
+
+        memset(&st, 0, sizeof(st));
+        memset(bits, 0, sizeof(bits));
+        bits[0] = 1; /* the minimum positive subnormal in any format */
+        sub = sf_from_bits(bits, f);
+        one = sf_from_decimal("1", 1, 0, f, &st);
+
+        q = sf_div(one, sub, f, &st);
+        T_ASSERT(t, q.cls == SF_INF);
+        T_ASSERT(t, q.sign == 0);
+
+        /* and the reciprocal direction stays finite and tiny */
+        q = sf_div(sub, one, f, &st);
+        T_ASSERT(t, q.cls != SF_INF);
+        sf_to_bits(q, f, bits);
+        T_ASSERT_EQ_INT(t, bits[0], 1);
+        for (i = 1; i < f.total_bytes; i++)
+            T_ASSERT_EQ_INT(t, bits[i], 0);
+    }
+}
