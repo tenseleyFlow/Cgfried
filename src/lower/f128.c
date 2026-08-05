@@ -367,6 +367,7 @@ void lower_legalize_f128(IrModule *m, TargetSpec t)
 
     for (fi = 0; fi < m->nfuncs; fi++) {
         IrFunc *f = &m->funcs[fi];
+        bool spliced = false;
 
         for (bi = 0; bi < f->nblocks; bi++) {
             IrBlock *block = &f->blocks[bi];
@@ -383,6 +384,7 @@ void lower_legalize_f128(IrModule *m, TargetSpec t)
                                 in->subop);
                     rewrite_compare(m, f, block, (BlockId){bi + 1}, &prev, in,
                                     &plan);
+                    spliced = true;
                     continue;
                 }
                 if (in->type == IRT_F128)
@@ -393,5 +395,13 @@ void lower_legalize_f128(IrModule *m, TargetSpec t)
                     rewrite_as_call(m, in, name);
             }
         }
+        /* Spliced values land at the END of f->vals, so document order and
+         * value-id order diverge. The -emit-ir self-check re-parses what it
+         * printed and demands structural equality, which is only id-exact
+         * under canonical numbering; without this the round trip ICEs on any
+         * long-double comparison. The in-place rewrites above add no values
+         * and need none of this. */
+        if (spliced)
+            ir_func_renumber(m->arena, f);
     }
 }

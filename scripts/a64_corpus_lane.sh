@@ -143,6 +143,23 @@ if [ "$rc" -ne 42 ]; then
     exit 1
 fi
 
+# The f128 legalization pass SPLICES instructions, so it is the one thing in
+# the arm64 pipeline that can leave document order and value-id order out of
+# step. -emit-ir re-parses what it printed and demands structural equality,
+# which is only id-exact under canonical numbering -- so this one command is
+# the whole renumbering contract, and nothing in the corpus run would catch
+# a regression in it.
+if ! "$WORK/cgf-a64" -emit-ir -O0 tests/corpus/x86_64/fp/ld_sign_and_order.c \
+    >"$WORK/f128.ir" 2>"$WORK/f128.err"; then
+    echo "a64_corpus: -emit-ir failed on a long-double program" >&2
+    head -10 "$WORK/f128.err" >&2
+    exit 1
+fi
+if ! grep -q '@__lttf2' "$WORK/f128.ir"; then
+    echo "a64_corpus: f128 comparisons did not legalize to libcalls" >&2
+    exit 1
+fi
+
 CGF_TEST_CC="$WORK/cgf-a64" \
     CGF_TEST_RUN="$PWD/scripts/qemu-run.sh" \
     CGF_TEST_TARGET=arm64-linux \
