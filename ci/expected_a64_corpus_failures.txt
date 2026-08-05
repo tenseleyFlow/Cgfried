@@ -15,4 +15,3 @@ fp/ld_convert [-O0] # isel.c: f128 values unselected (the RUNTIME landed in D4)
 fp/long_double_basic [-O0] # isel.c: f128 values unselected
 int/duff [-O1] # isel: NZCV consumer does not name an earlier producer
 int/promo_traps [-O0] # exits 3, expected 0
-int/struct_ret [-O0] # SIGSEGV: aggregate return

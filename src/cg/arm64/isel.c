@@ -1920,21 +1920,33 @@ static void bind_params(Isel *is, const IrFunc *ir)
 {
     u32 ngrn = 0, nsrn = 0, nsaa = 0;
     u32 i;
+    /* Sprint 19 shapes an aggregate return as a hidden POINTER parameter 0 --
+     * the SysV convention, spelled into the IR. AAPCS64 disagrees twice, and
+     * the difference is on the CALLEE side only (call lowering already gets
+     * both right): an indirect result travels in x8 and consumes none of
+     * x0-x7, and a 16-byte pair passes NO pointer at all, because the caller
+     * reads the value straight out of x0:x1.
+     *
+     * The shape is named by IrFunc.abi_ret. It is NOT in param_annots, which
+     * only ever carries byval (ir.h says so) -- reading it there made both
+     * branches below dead code, so the hidden pointer fell through to the
+     * ordinary GP queue and landed in x0, on top of the first real argument.
+     * `mkp(30, 12)` then stored its result through address 30. */
+    bool hidden_ret = ir->abi_ret != IR_ABIRET_NONE;
 
     is->cur = 0;
     is->func->variadic = ir->variadic;
     for (i = 0; i < ir->nparams; i++) {
         IrType ty = (IrType)ir->param_types[i];
-        u32 kind = ir->param_annots ? ir_arg_kind(ir->param_annots[i]) : 0;
         bool fp = fp_type(ty);
         A64Sf sf = sf_of(ty);
         A64Reg dst = is->vals[ir->param_vals[i].v].reg;
         u8 phys = A64_REG_NONE;
 
-        if (kind >= IR_ARG_PAIR_II) {
-            /* No pointer is passed at all on AAPCS64: the caller reads the
-             * pair out of x0:x1. The callee still needs somewhere to write,
-             * so it allocates that somewhere itself. */
+        if (i == 0 && hidden_ret && ir->abi_ret != IR_ABIRET_SRET) {
+            /* Pair: nothing arrives. The callee still needs somewhere to
+             * build the value, so it allocates that somewhere itself; IR_RET
+             * loads x0:x1 back out of it. */
             A64Inst *slot = emit(is, A64_OP_ALLOCA, A64_SF64);
 
             add_operand(slot, reg_op(dst));
@@ -1943,9 +1955,7 @@ static void bind_params(Isel *is, const IrFunc *ir)
             is->pair_ret_buf = dst;
             continue;
         }
-        if (kind == IR_ARG_SRET) {
-            /* The indirect-result pointer arrives in x8 and consumes none of
-             * x0-x7, so the first real parameter is still in x0. */
+        if (i == 0 && hidden_ret) {
             phys = A64_X8;
         } else if (fp) {
             if (nsrn < 8)

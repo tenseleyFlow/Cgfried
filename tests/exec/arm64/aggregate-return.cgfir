@@ -1,0 +1,47 @@
+// AAPCS64 aggregate returns, from the CALLEE side.
+//
+// Sprint 19 shapes an aggregate return as a hidden POINTER parameter 0 --
+// the SysV convention, spelled into the IR. AAPCS64 disagrees twice, and
+// only on the callee side:
+//
+//   * a 16-byte pair passes NO pointer at all; the caller reads the value
+//     straight out of x0:x1, so the callee must build it somewhere of its
+//     own and load x0:x1 from there;
+//   * an indirect result arrives in x8, which consumes NONE of x0-x7, so
+//     the first real argument is still in x0.
+//
+// Getting either wrong puts the hidden pointer in x0 on top of the first
+// real argument, and the callee stores its result through whatever integer
+// the caller passed. That is a wild write, not a wrong answer: `mkpair(30,
+// 12)` stored through address 30.
+//
+// PATTERN: pair return builds into a local slot and loads x0:x1
+// PATTERN: indirect return reads its destination from x8
+// PATTERN: the first real argument of an sret callee is still in x0
+
+func void @mkpair(ptr %out, i64 %x, i64 %y) abi(pair_ii) {
+entry():
+    %px = ptradd %out, 0
+    store i64 %x, %px, align 8
+    %py = ptradd %out, 8
+    store i64 %y, %py, align 8
+    ret
+}
+
+// Four eightbytes: too big for a pair, so the destination arrives in x8.
+// `%seed` is the first REAL argument and must still be found in x0.
+func void @mkbig(ptr %out, i64 %seed) abi(sret) {
+entry():
+    %p0 = ptradd %out, 0
+    store i64 %seed, %p0, align 8
+    %v1 = iadd i64 %seed, 1
+    %p1 = ptradd %out, 8
+    store i64 %v1, %p1, align 8
+    %v2 = iadd i64 %seed, 2
+    %p2 = ptradd %out, 16
+    store i64 %v2, %p2, align 8
+    %v3 = iadd i64 %seed, 3
+    %p3 = ptradd %out, 24
+    store i64 %v3, %p3, align 8
+    ret
+}
