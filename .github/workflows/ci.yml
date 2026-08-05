@@ -132,6 +132,16 @@ jobs:
         run: |
           command -v aarch64-linux-gnu-as
           make test-a64-asm-diff
+      # Sprint 49 DoD 1. This is the only job with BOTH assemblers, so it is
+      # the only place the arm64 object differential can be required rather
+      # than allowed to skip. A skip line here is a failure.
+      - name: AArch64 object differential (afs-as ELF vs gas, zero skips)
+        run: |
+          make -j"$(nproc)" build/a64mir
+          sh scripts/a64_objdiff_lane.sh build/a64mir > a64objdiff.log 2>&1; s=$?
+          cat a64objdiff.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64objdiff.log
       - name: smoke differential (afs-as vs gas, section bytes)
         run: |
           sh scripts/toolchain_smoke.sh > toolchain.log 2>&1; s=$?

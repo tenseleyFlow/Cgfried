@@ -322,6 +322,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/a64_va_list_diff.sh
 	$(MAKE) BUILD=$(BUILD) $(BUILD)/a64mir
 	sh scripts/a64_exec_lane.sh $(BUILD)/a64mir
+	CGF_A64_OBJDIFF_WORK=$(BUILD)/a64-objdiff \
+	    sh scripts/a64_objdiff_lane.sh $(BUILD)/a64mir
 	sh scripts/char_sign_oracle.sh
 	sh scripts/fp128_diff.sh
 	sh scripts/x86_atomics_lane.sh $(BUILD)/cgfried
