@@ -67,8 +67,14 @@ if [ "$host" = "aarch64" ] || [ "$host" = "arm64" ]; then
         exit 1
     }
 elif [ -z "${CGF_A64_NO_BUILD:-}" ]; then
-    make CC="$CROSS_CC" BUILD=build-a64 -j"$(nproc 2>/dev/null || echo 2)" \
-        build-a64/cgfried >"$WORK.build.log" 2>&1 || {
+    # RT_TARGET is normally read from `$(BUILD)/cgfried -dumpmachine`, which
+    # a cross build cannot run, so it would silently fall back to the HOST
+    # triple and file the arm64 archive under x86_64-linux-gnu/ -- where the
+    # driver never looks. Every long-double program then fails to link on
+    # __addtf3. Name it explicitly.
+    make CC="$CROSS_CC" BUILD=build-a64 RT_TARGET=arm64-linux \
+        -j"$(nproc 2>/dev/null || echo 2)" \
+        build-a64/cgfried rt >"$WORK.build.log" 2>&1 || {
         echo "a64_corpus: cross build failed" >&2
         tail -20 "$WORK.build.log" >&2
         exit 1
