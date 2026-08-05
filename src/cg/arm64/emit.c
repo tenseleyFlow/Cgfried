@@ -317,14 +317,29 @@ static void emit_pair(Emit *e, const A64Inst *in, bool store)
 static void emit_addr(Emit *e, const A64Inst *in)
 {
     const char *sym;
+    const char *reg;
+    char addend[32];
 
-    if (in->nops != 2 || in->ops[0].kind != A64O_REG ||
+    if ((in->nops != 2 && in->nops != 3) || in->ops[0].kind != A64O_REG ||
         in->ops[1].kind != A64O_SYM)
         CGF_ICE("arm64 emit: malformed global address");
     sym = sym_name(e, in->ops[1].id);
-    buf_printf(e->out, "\tadrp\t%s, %s\n", rn(in->ops[0].reg, A64_SF64), sym);
-    buf_printf(e->out, "\tadd\t%s, %s, #:lo12:%s\n",
-               rn(in->ops[0].reg, A64_SF64), rn(in->ops[0].reg, A64_SF64), sym);
+    reg = rn(in->ops[0].reg, A64_SF64);
+    /* An address constant may carry an addend -- `&g.member`, `&arr[k]`, or
+     * anything the optimizer folded into one operand. It has to ride BOTH
+     * halves of the pair: adrp computes page(S+A) and the lo12 adds
+     * (S+A) & 0xfff, so spelling it on only one of them lands somewhere
+     * between the two. GNU as takes `sym+off` in both positions. */
+    addend[0] = '\0';
+    if (in->nops == 3) {
+        if (in->ops[2].kind != A64O_IMM)
+            CGF_ICE("arm64 emit: global address addend is not an immediate");
+        if (in->ops[2].imm)
+            snprintf(addend, sizeof(addend), "%+lld",
+                     (long long)in->ops[2].imm);
+    }
+    buf_printf(e->out, "\tadrp\t%s, %s%s\n", reg, sym, addend);
+    buf_printf(e->out, "\tadd\t%s, %s, #:lo12:%s%s\n", reg, reg, sym, addend);
 }
 
 static void emit_call(Emit *e, const A64Inst *in)

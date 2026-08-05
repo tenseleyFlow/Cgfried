@@ -108,11 +108,18 @@ for input in tests/mir/arm64/*.cgfir tests/exec/arm64/*.cgfir; do
         fi
     done
 
-    # Relocations: type, offset and addend all matter, and so does WHICH
-    # symbol is named -- gas points a local reference at its section.
+    # Relocations: type, offset, addend and WHICH symbol is named all matter
+    # -- gas points a local reference at its section. The `Info` column is
+    # dropped: it packs the symbol INDEX, which is a position in the symbol
+    # table rather than a fact about the relocation. gas orders globals by
+    # first MENTION (a symbol referenced inside an early function precedes a
+    # function defined later); we order by address. Both are valid, the
+    # linker resolves by name, and the same reasoning already excluded the
+    # index from the symbol comparison below.
     for who in afs gas; do
         "$READELF" -rW "$WORK/$name.$who.o" |
-            grep R_AARCH64 | sort >"$WORK/$name.$who.rel"
+            grep R_AARCH64 | awk '{ $2 = ""; print }' |
+            sort >"$WORK/$name.$who.rel"
     done
     if ! cmp -s "$WORK/$name.afs.rel" "$WORK/$name.gas.rel"; then
         echo "a64_objdiff FAIL: $name: relocations differ" >&2

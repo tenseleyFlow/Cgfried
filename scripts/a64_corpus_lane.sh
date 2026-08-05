@@ -57,11 +57,16 @@ fi
 # `cgf_target_host()` is what selects the arm64 backend -- there is no
 # --target flag until Sprint 51, so the compiler's OWN architecture is the
 # target, which is exactly why this needs a cross build rather than a flag.
-if [ ! -x "$CGF" ]; then
-    if [ "$host" = "aarch64" ] || [ "$host" = "arm64" ]; then
+# ALWAYS rebuild, never build-if-absent: make is incremental, so this costs
+# nothing when nothing changed, and a stale cross compiler otherwise reports
+# a fix as still broken -- or worse, reports a regression as fine. That trap
+# (F-S22-MIRCHECK's shape) cost two wrong diagnoses in one afternoon.
+if [ "$host" = "aarch64" ] || [ "$host" = "arm64" ]; then
+    [ -x "$CGF" ] || {
         echo "a64_corpus: no compiler at $CGF (build it first)" >&2
         exit 1
-    fi
+    }
+elif [ -z "${CGF_A64_NO_BUILD:-}" ]; then
     make CC="$CROSS_CC" BUILD=build-a64 -j"$(nproc 2>/dev/null || echo 2)" \
         build-a64/cgfried >"$WORK.build.log" 2>&1 || {
         echo "a64_corpus: cross build failed" >&2

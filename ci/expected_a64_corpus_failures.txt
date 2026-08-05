@@ -8,9 +8,6 @@
 #
 # Format: <suite>/<name> [-O<level>] # <cause>
 
-fp/fp_globals [-O1] # emit.c: global address with a folded nonzero offset
-int/global_init [-O1] # emit.c: global address with a folded nonzero offset
-int/str_literals [-O1] # emit.c: global address with a folded nonzero offset
 fp/ld_convert [-O0] # isel.c: f128 values unselected (the RUNTIME landed in D4)
 fp/long_double_basic [-O0] # isel.c: f128 values unselected
 int/duff [-O1] # isel: NZCV consumer does not name an earlier producer

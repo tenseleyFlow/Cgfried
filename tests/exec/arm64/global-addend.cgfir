@@ -1,0 +1,32 @@
+// Address constants with a nonzero addend -- what `&arr[k]` and `&s.member`
+// fold to once the optimizer has run. The IR spells them `@sym+N` on the
+// operand itself, so isel hands emission a third operand.
+//
+// The addend has to ride BOTH halves of the adrp pair: adrp computes
+// page(S+A) and the lo12 supplies (S+A) & 0xfff. Spelling it on only one
+// lands somewhere between the two -- a plausible address in the right
+// neighbourhood, which is the worst kind of wrong. An addend that crosses a
+// 4KB page boundary is what tells the two spellings apart, so `far` is
+// deliberately larger than a page.
+//
+// PATTERN: adrp and :lo12: both carry the addend
+// PATTERN: an addend crossing a page boundary still resolves
+
+func i64 @sum_offsets() {
+entry():
+    %a = load i64, @table+8, align 8
+    %b = load i64, @table+24, align 8
+    %s1 = iadd i64 %a, %b
+    %c = load i64, @far+4096, align 8
+    %s2 = iadd i64 %s1, %c
+    ret i64 %s2
+}
+
+func ptr @addr_of_third() {
+entry():
+    %p = ptradd @table+16, 0
+    ret ptr %p
+}
+
+global @table size 32 align 8 external init x0100000000000000020000000000000003000000000000000400000000000000
+global @far size 4104 align 8 external
