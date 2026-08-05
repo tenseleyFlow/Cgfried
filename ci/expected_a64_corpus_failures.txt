@@ -8,7 +8,7 @@
 #
 # Format: <suite>/<name> [-O<level>] # <cause>
 
-fp/ld_convert [-O0] # isel.c: f128 values unselected (the RUNTIME landed in D4)
-fp/long_double_basic [-O0] # isel.c: f128 values unselected
+fp/ld_convert [-O0] # f128 CONVERSION libcalls: GP<->FP argument marshalling
+fp/long_double_basic [-O0] # f128 compares (__lttf2 etc.) and fneg are not legalized yet
 int/duff [-O1] # isel: NZCV consumer does not name an earlier producer
 int/promo_traps [-O0] # exits 3, expected 0

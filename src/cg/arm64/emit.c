@@ -758,6 +758,16 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
                    rn(in->ops[2].reg, A64_SF32));
         return;
     }
+    /* There is no 128-bit `fmov`: a whole-register move is the NEON
+     * `mov vD.16b, vN.16b`. binary128 values reach this path once
+     * lower/f128.c has made their arithmetic soft-float -- the VALUE still
+     * moves and spills as a q register. */
+    if (in->op == A64_OP_FMOV && in->nops == 2 && in->ops[1].kind == A64O_REG &&
+        sf == A64_SF128) {
+        buf_printf(e->out, "\tmov\t%s.16b, %s.16b\n", vname(in->ops[0].reg),
+                   vname(in->ops[1].reg));
+        return;
+    }
     if (in->op == A64_OP_FMOV && in->nops == 2 && in->ops[1].kind == A64O_IMM) {
         buf_printf(e->out, "\tfmov\t%s, ", rn(in->ops[0].reg, sf));
         emit_fp_imm(e, in->ops[1].imm);

@@ -67,6 +67,11 @@ static A64Sf sf_of(IrType type)
     case IRT_V2I64:
     case IRT_V4F32:
     case IRT_V2F64:
+    /* binary128 is a 16-byte FP value in a q register. Its ARITHMETIC is
+     * soft-float (lower/f128.c rewrites it to libcgf_rt calls), but the
+     * value itself moves, spills and travels the AAPCS64 SIMD queue like
+     * any other FP type. */
+    case IRT_F128:
         return A64_SF128;
     default:
         CGF_ICE("arm64 isel: type '%s' lands in Sprint 49", ir_type_name(type));
@@ -75,7 +80,7 @@ static A64Sf sf_of(IrType type)
 
 static bool fp_type(IrType type)
 {
-    return type == IRT_F32 || type == IRT_F64;
+    return type == IRT_F32 || type == IRT_F64 || type == IRT_F128;
 }
 
 static A64Reg new_reg(Isel *is, IrType type)
@@ -2007,15 +2012,17 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
     A64Func *func = arena_alloc(arena, sizeof(*func), _Alignof(A64Func));
     u32 bi, i;
 
-    if (ir_type_is_vector((IrType)ir->ret) || ir->ret == IRT_F80 ||
-        ir->ret == IRT_F128)
-        CGF_ICE("arm64 isel: vector/f80/f128 function ABI lands in Sprint 49");
+    /* f128 is off this list: it rides the SIMD queue like any other FP type
+     * once lower/f128.c has turned its arithmetic into calls. Vectors have
+     * no AAPCS64 parameter contract in v0.1.0 (Sprint 36 declined to invent
+     * one), and f80 does not exist on this target. */
+    if (ir_type_is_vector((IrType)ir->ret) || ir->ret == IRT_F80)
+        CGF_ICE("arm64 isel: vector/f80 function ABI lands in Sprint 51");
 
     for (i = 0; i < ir->nparams; i++)
         if (ir_type_is_vector((IrType)ir->param_types[i]) ||
-            ir->param_types[i] == IRT_F80 || ir->param_types[i] == IRT_F128)
-            CGF_ICE("arm64 isel: vector/f80/f128 parameters land in "
-                    "Sprint 49");
+            ir->param_types[i] == IRT_F80)
+            CGF_ICE("arm64 isel: vector/f80 parameters land in Sprint 51");
 
     memset(func, 0, sizeof(*func));
     func->name = ir->name;

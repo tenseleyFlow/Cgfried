@@ -14,6 +14,7 @@
 #include "driver/toolchain.h"
 #include "ir/ir.h"
 #include "lex/lex.h"
+#include "lower/f128.h"
 #include "lower/lower.h"
 #include "memsafe/autofix.h"
 #include "memsafe/memsafe.h"
@@ -615,6 +616,11 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
             m->funcs[fi].fp_contract = policy != 0 && a->opt_level > 0;
     }
     (void)opt_run_pipeline(m, &cfg);
+    /* AFTER the optimizer on purpose: simplify.c folds f128 arithmetic
+     * through the same softfp core, so legalizing earlier would hide
+     * constant operations behind opaque calls. A no-op on x86_64, whose
+     * long double is x87 f80 and selects natively. */
+    lower_legalize_f128(m, cgf_target_host());
     if (!ir_verify_report(m->dc, m, why, sizeof(why))) {
         if (cfg.dump_bad_ir) {
             FILE *df = fopen(cfg.dump_bad_ir, "wb");
