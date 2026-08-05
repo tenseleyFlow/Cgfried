@@ -65,13 +65,19 @@ static void pmem(Emit *e, const A64Mem *m, u8 sf)
                                                          : "lsl";
 
         buf_printf(
-            e->out, ", %s, %s",
-            rn(m->index, m->mode == A64_ADDR_REG_LSL ? A64_SF64 : A64_SF32),
-            ext);
-        /* `lsl` REQUIRES its amount spelled even when zero; the extending
-         * forms may omit it. GNU as rejects a bare `lsl`. */
-        if (m->shift || m->mode == A64_ADDR_REG_LSL)
-            buf_printf(e->out, " #%u", m->shift);
+            e->out, ", %s",
+            rn(m->index, m->mode == A64_ADDR_REG_LSL ? A64_SF64 : A64_SF32));
+        /* `lsl #0` is not merely redundant: on a byte access it sets the S
+         * bit, which changes the ENCODING while leaving the semantics
+         * identical, so gas and afs-as produce different bytes for the same
+         * instruction. Writing the bare `[base, index]` form makes the two
+         * agree. `lsl` also REQUIRES its amount spelled when present — GNU
+         * as rejects a bare `lsl` — while the extending forms may omit it. */
+        if (m->shift || m->mode != A64_ADDR_REG_LSL) {
+            buf_printf(e->out, ", %s", ext);
+            if (m->shift || m->mode == A64_ADDR_REG_LSL)
+                buf_printf(e->out, " #%u", m->shift);
+        }
     } else if (m->offset && m->mode != A64_ADDR_POST) {
         buf_printf(e->out, ", #%lld", (long long)m->offset);
     }
