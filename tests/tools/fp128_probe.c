@@ -111,6 +111,15 @@ int main(void)
         }
     }
 
+    /* Negation is a bit operation, so the NaN and -0.0 rows are the whole
+     * test: `0 - x` would agree on every other value in the table. */
+    for (i = 0; i < NVALUES; i++) {
+        volatile long double a = from_bits(VALUES[i].hi, VALUES[i].lo);
+
+        show("neg", -a);
+        show("negneg", -(-a));
+    }
+
     for (i = 0; i < NVALUES; i++) {
         volatile long double a = from_bits(VALUES[i].hi, VALUES[i].lo);
         volatile double d;

@@ -149,8 +149,28 @@ static cgf_tf finish(Sf v, cgf_tf a, cgf_tf b)
 
 /* --- arithmetic ------------------------------------------------------------
  *
- * __negtf2 is deliberately absent: the compiler inlines negation as a
- * sign-bit eor, so shipping a symbol nothing calls would be dead weight. */
+ * __negtf2 flips the sign bit and touches nothing else: it is not `0 - x`,
+ * which turns -0.0 into +0.0, and it must not go through the softfloat core,
+ * which would canonicalize a NaN payload that negation is required to
+ * preserve. It is a documented libgcc entry point, so fp128_diff compares it
+ * like the rest.
+ *
+ * It exists as a CALL rather than an inline sign-bit eor because the inline
+ * form is a NEON `eor vD.16b`, and the bundled assembler cannot yet encode
+ * NEON register operands (the same gap that pins four fixtures in
+ * scripts/a64_objdiff_lane.sh). When afs-as gains them, isel can inline this
+ * and the symbol stays for ABI compatibility. */
+cgf_tf __negtf2(cgf_tf a)
+{
+    unsigned char bits[16];
+
+    memcpy(bits, &a, sizeof(bits));
+    /* binary128 is little-endian on every target in the closed set, so the
+     * sign is the top bit of the LAST byte. */
+    bits[15] ^= 0x80u;
+    memcpy(&a, bits, sizeof(bits));
+    return a;
+}
 
 cgf_tf __addtf3(cgf_tf a, cgf_tf b)
 {

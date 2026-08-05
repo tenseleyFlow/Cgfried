@@ -71,13 +71,13 @@ if command -v "$NM" >/dev/null 2>&1; then
         __lttf2 __letf2 __gttf2 __getf2 __unordtf2 __extendsftf2 \
         __extenddftf2 __trunctfsf2 __trunctfdf2 __fixtfsi __fixtfdi \
         __fixunstfsi __fixunstfdi __floatsitf __floatditf __floatunsitf \
-        __floatunditf; do
+        __floatunditf __negtf2; do
         if ! "$NM" "$work/libcgf_rt.a" | grep -q "T $sym\$"; then
             echo "fp128_diff: libcgf_rt.a does not define $sym" >&2
             exit 1
         fi
     done
-    echo "fp128_diff: 23 entry points, $lines result lines identical to libgcc"
+    echo "fp128_diff: 24 entry points, $lines result lines identical to libgcc"
 else
     echo "fp128_diff: $lines result lines identical to libgcc ($NM absent," \
         "symbol audit skipped)"
