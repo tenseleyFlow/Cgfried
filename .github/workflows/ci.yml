@@ -48,8 +48,12 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq binutils libc6-dev
+      # `rt` is not optional here: arm64's long double is binary128 and every
+      # operation on it is a call into libcgf_rt, so without the archive the
+      # corpus's long-double programs fail to link on __addtf3. On a native
+      # host RT_TARGET resolves by running the compiler just built.
       - name: build
-        run: make CC=gcc -j"$(nproc)" build/cgfried build/cgf build/cgf-test
+        run: make CC=gcc -j"$(nproc)" build/cgfried build/cgf build/cgf-test rt
       - name: "arm64-hello-world: THE milestone"
         run: |
           printf 'int printf(const char *, ...);\nint main(void) { printf("hello, world\\n"); return 0; }\n' > hello.c

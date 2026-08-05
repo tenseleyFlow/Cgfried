@@ -1,7 +1,7 @@
 /* Sprint 49: binary128 legalization — f128 operations become soft-float calls.
  *
  * arm64-linux's `long double` is IEEE binary128, and the architecture has no
- * instructions for it. Every operation is a call into libcgf_rt, whose 23
+ * instructions for it. Every operation is a call into libcgf_rt, whose 24
  * entry points landed in Sprint 49 D4 and are byte-identical to libgcc's over
  * 1400 cases. This pass is the other half of that: the codegen side, turning
  * the IR's native f128 opcodes into those calls.
@@ -207,6 +207,13 @@ static bool compare_plan(u8 pred, CmpPlan *out)
     default:
         return false;
     }
+}
+
+const char *lower_f128_compare_libcall(u8 pred)
+{
+    CmpPlan plan;
+
+    return compare_plan(pred, &plan) ? plan.call : NULL;
 }
 
 static ValueId alloc_value(IrModule *m, IrFunc *f, BlockId block)

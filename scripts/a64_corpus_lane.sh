@@ -66,6 +66,13 @@ if [ "$host" = "aarch64" ] || [ "$host" = "arm64" ]; then
         echo "a64_corpus: no compiler at $CGF (build it first)" >&2
         exit 1
     }
+    # Say so here rather than letting two fixtures fail with an undefined
+    # __addtf3: arm64's long double is binary128 and every operation on it
+    # is a libcall, so a missing runtime is a build gap, not a codegen bug.
+    [ -f "$(dirname "$CGF")/arm64-linux/libcgf_rt.a" ] || {
+        echo "a64_corpus: no libcgf_rt.a beside $CGF -- run 'make rt'" >&2
+        exit 1
+    }
 elif [ -z "${CGF_A64_NO_BUILD:-}" ]; then
     # RT_TARGET is normally read from `$(BUILD)/cgfried -dumpmachine`, which
     # a cross build cannot run, so it would silently fall back to the HOST

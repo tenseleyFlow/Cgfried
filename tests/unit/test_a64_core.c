@@ -1,4 +1,5 @@
 #include "cg/arm64/mir.h"
+#include "lower/f128.h"
 #include "unit.h"
 
 static u64 splitmix64(u64 *state);
@@ -671,4 +672,74 @@ void test_a64_mir_core(TestCtx *t)
     block.insts[0].ops[1].reg = a64_phys(A64_XZR);
     T_ASSERT(t, a64_mir_verify(&func, dc) > 0);
     arena_free_all(&arena);
+}
+
+/* The 16-byte constant pool. Deduping is not a nicety: every fneg in a
+ * function would otherwise mint its own copy of the same sign mask, and the
+ * .rodata bytes are part of the object differential. */
+void test_a64_cpool_interning(TestCtx *t)
+{
+    Arena arena;
+    A64Func func = {0};
+
+    arena_init(&arena);
+    func.name = "cpool";
+    func.arena = &arena;
+
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 0, 0), 0);
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 1, 0), 1);
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 0, 1), 2);
+    /* Both halves participate: same lo, different hi is a DIFFERENT
+     * constant, and 1.5L vs 2.25L differ only in the high word. */
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 0, 0), 0);
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 1, 0), 1);
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 0, 1), 2);
+    T_ASSERT_EQ_INT(t, (int)func.ncpool, 3);
+
+    /* Past the initial capacity, so the growth path copies what is there. */
+    {
+        u64 i;
+
+        for (i = 0; i < 64; i++)
+            T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 100 + i, 0),
+                            (int)(3 + i));
+        T_ASSERT_EQ_INT(t, (int)func.ncpool, 67);
+        for (i = 0; i < 64; i++)
+            T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 100 + i, 0),
+                            (int)(3 + i));
+        T_ASSERT_EQ_INT(t, (int)func.ncpool, 67);
+    }
+    T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 0, 0), 0);
+    arena_free_all(&arena);
+}
+
+/* Every FP predicate must have a libcall plan.
+ *
+ * C's six relational and equality operators reach only eight of the
+ * fourteen; the other six arise when the optimizer negates a condition, so
+ * no fixture covers them and the failure mode is an ICE on valid input --
+ * exactly the shape that survives a full test run. */
+void test_f128_every_predicate_has_a_libcall(TestCtx *t)
+{
+    static const u8 preds[] = {FCMP_OEQ, FCMP_ONE, FCMP_OLT, FCMP_OLE,
+                               FCMP_OGT, FCMP_OGE, FCMP_ORD, FCMP_UEQ,
+                               FCMP_UNE, FCMP_ULT, FCMP_ULE, FCMP_UGT,
+                               FCMP_UGE, FCMP_UNO};
+    u32 i;
+
+    for (i = 0; i < sizeof(preds) / sizeof(preds[0]); i++)
+        T_ASSERT(t, lower_f128_compare_libcall(preds[i]) != NULL);
+    T_ASSERT_EQ_INT(t, (int)(sizeof(preds) / sizeof(preds[0])),
+                    (int)FCMP_UNO + 1);
+
+    /* The relations that share a call with their negation: ULT is !(a >= b),
+     * so it asks __getf2 and tests the other way. Getting this backwards is
+     * invisible without a NaN. */
+    T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_OLT), "__lttf2");
+    T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_UGE), "__lttf2");
+    T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_OGE), "__getf2");
+    T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_ULT), "__getf2");
+    T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_ORD), "__unordtf2");
+    T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_UNO), "__unordtf2");
+    T_ASSERT(t, lower_f128_compare_libcall(200) == NULL);
 }
