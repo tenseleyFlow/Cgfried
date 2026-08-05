@@ -987,8 +987,26 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
          * Probe order: CGF_INCLUDE_DIR > installed layout > dev tree. */
         const char *shipped = cgf_shipped_include_dir();
 
-        if (shipped)
+        if (shipped) {
             pp.system_dirs[pp.n_system++] = shipped;
+        } else {
+            /* A broken installation, and one that otherwise reports itself
+             * as glibc's problem: <stdio.h> includes <stddef.h>, so the
+             * diagnostic names a system header and a line the user did not
+             * write. Say whose fault it is, once, naming what was probed --
+             * the same debuggability contract the crt probe follows. */
+            static bool warned;
+
+            if (!warned) {
+                warned = true;
+                fprintf(stderr,
+                        "cgfried: warning: cannot find the shipped headers "
+                        "(stddef.h, stdarg.h, ...)\n");
+                cgf_report_include_search(stderr);
+                fprintf(stderr, "cgfried: note: reinstall ('make install') "
+                                "or set CGF_INCLUDE_DIR\n");
+            }
+        }
         pp.n_system += cgf_target_system_include_dirs(
             cgf_target_host(), pp.system_dirs + pp.n_system,
             PP_MAX_DIRS - pp.n_system);

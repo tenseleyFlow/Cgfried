@@ -346,6 +346,26 @@ const char *cgf_shipped_include_dir(void)
     return result;
 }
 
+/* Name every place the shipped headers were looked for. Kept beside the
+ * probe so the two cannot drift. */
+void cgf_report_include_search(FILE *out)
+{
+    static const char *const suffixes[] = {
+        "/../lib/cgfried/include",
+        "/../include",
+    };
+    char path[4096];
+    size_t i;
+
+    if (cgf_env("CGF_INCLUDE_DIR")) {
+        fprintf(out, "  %s (CGF_INCLUDE_DIR)\n", cgf_env("CGF_INCLUDE_DIR"));
+        return;
+    }
+    for (i = 0; i < CGF_ARRAY_LEN(suffixes); i++)
+        if (cgf_exe_relative(suffixes[i], path, sizeof(path)))
+            fprintf(out, "  %s\n", path);
+}
+
 const char *cgf_tool_missing_hint(ToolKind which)
 {
     switch (which) {

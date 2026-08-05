@@ -5,6 +5,8 @@
 #include <stddef.h>
 
 #include "driver/args.h"
+#include <stdio.h>
+
 #include "target.h"
 #include "util/base.h"
 #include "util/buf.h"
@@ -139,6 +141,9 @@ bool cgf_exe_relative(const char *suffix, char *out, size_t out_size);
  * the installed layout then the dev tree, probed for stddef.h. NULL
  * when none exists. */
 const char *cgf_shipped_include_dir(void);
+
+/* Print every path the shipped-header probe tries, one per line. */
+void cgf_report_include_search(FILE *out);
 
 /* Non-toolchain CGF_* variables (debug/testing knobs like
  * CGF_PP_DUMP_TOKENS) ALSO route through this translation unit, so the
