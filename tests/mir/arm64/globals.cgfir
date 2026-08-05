@@ -1,0 +1,31 @@
+// Initialized data, which is the shape a string literal takes: a `.byte`
+// stream in a section that never holds code. gas gives such a section NO
+// `$d` mapping symbol -- `.zero` establishes a mapping state where `.byte`
+// only follows one -- and it strips `.L` names from the symbol table even
+// when `.local`/`.type`/`.size` name them. Both rules were found by
+// assembling a hello world through the object differential, and neither is
+// visible in a disassembly.
+//
+// PATTERN: initialized internal data emitted as a byte stream
+// PATTERN: uninitialized internal data emitted as .zero
+// PATTERN: data word carrying a relocation against another global
+
+func i64 @load_msg() {
+entry():
+    %a = ptradd @msg, 0
+    %v = load i64, %a, align 1
+    ret i64 %v
+}
+
+func i64 @bump() {
+entry():
+    %p = ptradd @counter, 0
+    %v = load i64, %p, align 8
+    %n = iadd i64 %v, 1
+    store i64 %n, %p, align 8
+    ret i64 %n
+}
+
+global @msg size 8 align 1 internal init x68656c6c6f000000
+global @counter size 8 align 8 internal
+global @table size 16 align 8 external init x0000000000000000ffffffffffffffff reloc 0 @msg 0

@@ -1,0 +1,15 @@
+mir.a64 @load_msg (vregs=5)
+bb1:
+    addr.x v4, @msg
+    load.x v3, [v4]
+    mov.x v5, v3
+    ret v5
+mir.a64 @bump (vregs=5)
+bb1:
+    addr.x v1, @counter
+    add.x v2, v1, #0
+    load.x v3, [v1]
+    add.x v4, v3, #1
+    store.x v4, [v1]
+    mov.x v5, v4
+    ret v5
