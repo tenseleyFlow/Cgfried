@@ -137,6 +137,16 @@ static A64Operand sym_op(u32 id)
     return op;
 }
 
+static A64Operand cpool_op(u32 index)
+{
+    A64Operand op;
+
+    memset(&op, 0, sizeof(op));
+    op.kind = A64O_CPOOL;
+    op.id = index + 1;
+    return op;
+}
+
 static A64Operand mem_op(A64Reg base, i64 offset, u8 size)
 {
     A64Operand op;
@@ -343,6 +353,27 @@ static A64Reg to_gp(Isel *is, const IrOperand *operand)
     }
 }
 
+/* Load a 16-byte constant out of the function's pool.
+ *
+ * adrp/add then a plain `ldr q`, rather than the load-folded `:lo12:` form:
+ * that form's immediate is SCALED by the access size, so it constrains the
+ * symbol's alignment. The two-instruction form is the same one every global
+ * address already uses and is differential-tested against gas. */
+static A64Reg emit_cpool_load(Isel *is, u64 lo, u64 hi)
+{
+    u32 index = a64_cpool_add(is->func, lo, hi);
+    A64Reg addr = a64_newv_width(is->func, A64RC_GP, A64_SF64);
+    A64Reg dest = a64_newv_width(is->func, A64RC_FP, A64_SF128);
+    A64Inst *inst = emit(is, A64_OP_ADDR, A64_SF64);
+
+    add_operand(inst, reg_op(addr));
+    add_operand(inst, cpool_op(index));
+    inst = emit(is, A64_OP_LOAD, A64_SF128);
+    add_operand(inst, reg_op(dest));
+    add_operand(inst, mem_op(addr, 0, 16));
+    return dest;
+}
+
 static A64Reg to_fp(Isel *is, const IrOperand *operand)
 {
     IrType type = (IrType)operand->type;
@@ -352,10 +383,17 @@ static A64Reg to_fp(Isel *is, const IrOperand *operand)
         return value_reg(is, (ValueId){(u32)operand->a}, type);
     case IROP_FCONST: {
         A64Sf sf = sf_of(type);
-        A64Reg dest = new_reg(is, type);
+        A64Reg dest;
         A64Inst *inst;
         u8 encoded;
 
+        /* binary128 has no immediate form of any kind: movz/movk reach only
+         * general registers and `fmov` immediates top out at 64 bits. Both
+         * halves come from memory, which is also why the operand carries
+         * `b` -- the high 64 bits Sprint 15 kept exact. */
+        if (type == IRT_F128)
+            return emit_cpool_load(is, operand->a, operand->b);
+        dest = new_reg(is, type);
         if (operand->a == 0) {
             inst = emit(is, A64_OP_FMOV, sf);
             add_operand(inst, reg_op(dest));
@@ -379,6 +417,20 @@ static A64Reg to_fp(Isel *is, const IrOperand *operand)
     default:
         CGF_ICE("arm64 isel: non-FP operand kind %u", operand->kind);
     }
+}
+
+/* The per-argument ABI annotation lives in IrOperand.b, but ONLY for VALUE
+ * and SYMBOL operands: on an FCONST that same field carries the high 64 bits
+ * of an f80/f128 constant, and reading it as an annotation makes a large
+ * long-double literal look like a pair/sret hidden pointer. print.c,
+ * verify.c and the x86 selector all scope the read this way; this is the
+ * same class of mistake as binding the hidden return pointer from
+ * param_annots. */
+static u64 arg_annot(const IrOperand *operand)
+{
+    return operand->kind == IROP_VALUE || operand->kind == IROP_SYMBOL
+               ? operand->b
+               : 0;
 }
 
 static A64Reg to_reg(Isel *is, const IrOperand *operand)
@@ -1497,7 +1549,7 @@ static void select_call(Isel *is, const IrInst *ir)
     args = arena_alloc(is->arena, (nargs ? nargs : 1) * sizeof(*args),
                        _Alignof(A64Reg));
     for (i = first; i < ir->nops; i++) {
-        u32 kind = ir_arg_kind(ir->ops[i].b);
+        u32 kind = ir_arg_kind(arg_annot(&ir->ops[i]));
 
         args[i - first] = to_reg(is, &ir->ops[i]);
         if (kind >= IR_ARG_SRET && kind <= IR_ARG_PAIR_SS)
@@ -1511,7 +1563,7 @@ static void select_call(Isel *is, const IrInst *ir)
                              (ir->flags & IRF_NORETURN) != 0);
     for (i = first; i < ir->nops; i++)
         a64_call_add_arg(is->func, call, args[i - first], ir->ops[i].type,
-                         ir->ops[i].b);
+                         arg_annot(&ir->ops[i]));
     if (ir->type != IRT_VOID)
         bind_result(is, ir, result);
 }
