@@ -14,14 +14,22 @@ int lane2(const int *p);
 
 static int fails;
 static void chk(const char *w, long g, long want)
-{ if (g != want) { printf("FAIL %s: %ld vs %ld\n", w, g, want); fails++; } }
+{
+    if (g != want) {
+        printf("FAIL %s: %ld vs %ld\n", w, g, want);
+        fails++;
+    }
+}
 
 int main(void)
 {
     static const int rows[][4] = {
-        {0, 0, 0, 0},        {1, 2, 3, 4},
-        {-1, -2, -3, -4},    {2147483647, 1, 0, 0},
-        {-2147483648, -1, 0, 0}, {65536, 65536, 65536, 65536},
+        {0, 0, 0, 0},
+        {1, 2, 3, 4},
+        {-1, -2, -3, -4},
+        {2147483647, 1, 0, 0},
+        {-2147483648, -1, 0, 0},
+        {65536, 65536, 65536, 65536},
         {0x0f0f0f0f, 0x33333333, 0x55555555, 0xffff},
     };
     unsigned r;

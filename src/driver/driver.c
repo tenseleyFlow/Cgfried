@@ -599,6 +599,21 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
     cfg.disable_vectorize = env_is_one("CGF_OPT_DISABLE_VECTORIZE");
     cfg.time_report = a->time_report;
     cfg.dump_bad_ir = cgf_env("CGF_DUMP_BAD_IR");
+    {
+        /* Contraction is permitted by the language policy but PERFORMED by
+         * the optimizer, which is why gcc emits no fmadd at -O0 even under
+         * -ffp-contract=fast. Stamping the permission here, where both the
+         * policy and the level are known, keeps the backend from having to
+         * learn an opt level it deliberately does not consult. */
+        u32 fi;
+        bool gnu = a->std >= STD_GNU89;
+        u8 policy = a->fp_contract_set    ? a->fp_contract
+                    : a->fast_math || gnu ? 2u
+                                          : 0u;
+
+        for (fi = 0; fi < m->nfuncs; fi++)
+            m->funcs[fi].fp_contract = policy != 0 && a->opt_level > 0;
+    }
     (void)opt_run_pipeline(m, &cfg);
     if (!ir_verify_report(m->dc, m, why, sizeof(why))) {
         if (cfg.dump_bad_ir) {
@@ -990,6 +1005,14 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         memset(&lang, 0, sizeof(lang));
         lang.std = (CStd)a->std;
         lang.gnu_mode = lang.std >= STD_GNU89;
+        /* gcc contracts by default in GNU dialects and never in ISO ones;
+         * -ffp-contract= overrides either way, and -ffast-math forces it. */
+        lang.fp_contract = a->fp_contract_set ? a->fp_contract
+                           : a->fast_math     ? 2u
+                           : lang.gnu_mode    ? 2u
+                                              : 0u;
+        if (a->fast_math && !a->fp_contract_set)
+            lang.fp_contract = 2;
         lang.pedantic = a->pedantic;
         lang.fwrapv = a->fwrapv;
         lang.safe_mode = a->fsafe;

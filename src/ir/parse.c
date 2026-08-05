@@ -1416,6 +1416,7 @@ static bool parse_func(P *p)
     bool unprototyped = false;
     bool internal_marker = false;
     bool setjmp_marker = false;
+    bool contract_marker = false;
     u8 abi_ret = IR_ABIRET_NONE;
     IrFunc *f;
     u32 i;
@@ -1518,6 +1519,10 @@ static bool parse_func(P *p)
         next(p);
         setjmp_marker = true;
     }
+    if (tok_is(peek(p), "contract")) {
+        next(p);
+        contract_marker = true;
+    }
     if (!expect(p, T_LB, "'{'"))
         return false;
     f = ir_func_new(p->m, tok_name(p, nm), ret, ptypes, nparams);
@@ -1527,6 +1532,7 @@ static bool parse_func(P *p)
     if (internal_marker)
         f->linkage = IRLINK_INTERNAL;
     f->calls_setjmp = setjmp_marker;
+    f->fp_contract = contract_marker;
     if (any_annot) {
         f->param_annots =
             arena_alloc(p->m->arena, nparams * sizeof(u64), _Alignof(u64));

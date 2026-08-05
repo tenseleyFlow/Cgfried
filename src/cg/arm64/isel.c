@@ -1047,6 +1047,79 @@ static void select_conversion(Isel *is, const IrInst *ir)
     bind_result(is, ir, dest);
 }
 
+/* Contraction: `a * b + c` becomes one fmadd with a SINGLE rounding step.
+ * That changes results, which is why it happens only when the language
+ * policy allows it — IrFunc.fp_contract, set from -ffp-contract and the
+ * -std dialect.
+ *
+ * The multiply must have exactly one use, or fusing would compute it twice
+ * (or, worse, leave a second consumer reading a value that no longer exists
+ * as a separate instruction). */
+static const IrInst *contractable_mul(Isel *is, const IrOperand *op,
+                                      IrType type)
+{
+    const IrInst *def;
+
+    if (!is->ir->fp_contract || op->kind != IROP_VALUE)
+        return NULL;
+    def = is->defs[(u32)op->a];
+    if (!def || def->op != IR_FMUL || (IrType)def->type != type)
+        return NULL;
+    if (is->use_count[(u32)op->a] != 1)
+        return NULL;
+    return def;
+}
+
+static bool select_fma(Isel *is, const IrInst *ir)
+{
+    IrType type = (IrType)ir->type;
+    const IrInst *mul;
+    A64Reg a, b, c, dest;
+    A64Inst *inst;
+    bool negate;
+
+    if (ir->op != IR_FADD && ir->op != IR_FSUB)
+        return false;
+    if (!fp_type(type))
+        return false;
+    /* For a subtract only the LEFT operand may be the multiply: `c - a * b`
+     * is fmsub, but `a * b - c` is not — fmsub negates the PRODUCT. */
+    mul = contractable_mul(is, &ir->ops[0], type);
+    negate = false;
+    if (!mul && ir->op == IR_FADD) {
+        mul = contractable_mul(is, &ir->ops[1], type);
+        if (!mul)
+            return false;
+        c = to_fp(is, &ir->ops[0]);
+    } else if (mul && ir->op == IR_FADD) {
+        c = to_fp(is, &ir->ops[1]);
+    } else if (mul) {
+        /* a * b - c  ==  -(c - a * b) is not a single fmsub, so leave the
+         * subtract alone rather than inventing a sign flip. */
+        return false;
+    } else {
+        mul = contractable_mul(is, &ir->ops[1], type);
+        if (!mul)
+            return false;
+        c = to_fp(is, &ir->ops[0]);
+        negate = true;
+    }
+    a = to_fp(is, &mul->ops[0]);
+    b = to_fp(is, &mul->ops[1]);
+    /* The multiply already selected into an fmul when its own instruction
+     * was walked; folding it into the fmadd means deleting that code, or the
+     * product would be computed twice. */
+    erase_value_code(is, mul);
+    dest = new_reg(is, type);
+    inst = emit(is, negate ? A64_OP_FMSUB : A64_OP_FMADD, sf_of(type));
+    add_operand(inst, reg_op(dest));
+    add_operand(inst, reg_op(a));
+    add_operand(inst, reg_op(b));
+    add_operand(inst, reg_op(c));
+    bind_result(is, ir, dest);
+    return true;
+}
+
 static void select_fp_arith(Isel *is, const IrInst *ir)
 {
     A64Sf sf = sf_of((IrType)ir->type);
@@ -1482,6 +1555,8 @@ static void select_inst(Isel *is, const IrInst *ir)
         }
         if (!fp_type((IrType)ir->type))
             CGF_ICE("arm64 isel: f80/f128 arithmetic lands in Sprint 49");
+        if (select_fma(is, ir))
+            break;
         select_fp_arith(is, ir);
         break;
     case IR_SEXT:

@@ -20,7 +20,7 @@ static const char *const op_names[] = {
     "vastart",     "atomic_llsc", "atomic_cas", "vadd",      "vsub",
     "vmul",        "vand",        "vorr",       "veor",      "vfadd",
     "vfsub",       "vfmul",       "vfdiv",      "vdup",      "vduplane",
-    "vext",        "vumov",       "vlane",
+    "vext",        "vumov",       "vlane",      "fmadd",     "fmsub",
 };
 
 _Static_assert(sizeof(op_names) / sizeof(op_names[0]) == A64_OP_COUNT,

@@ -673,6 +673,10 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
                 da->bad_value = "-ffp-contract=";
             break;
         }
+        da->fp_contract = strcmp(val, "off") == 0  ? 0
+                          : strcmp(val, "on") == 0 ? 1
+                                                   : 2;
+        da->fp_contract_set = true;
         n = strlen(fs->name) + strlen(val);
         spelling = arena_alloc(g_ps->arena, n + 1, 1);
         memcpy(spelling, fs->name, strlen(fs->name));

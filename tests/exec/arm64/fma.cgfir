@@ -1,0 +1,24 @@
+// Contraction is permitted only when the function carries `contract`, which
+// the driver sets from -ffp-contract and the -std dialect.
+func f64 @fused(f64 %a, f64 %b, f64 %c) contract {
+entry():
+    %m = fmul f64 %a, %b
+    %r = fadd f64 %m, %c
+    ret f64 %r
+}
+
+func f64 @unfused(f64 %a, f64 %b, f64 %c) {
+entry():
+    %m = fmul f64 %a, %b
+    %r = fadd f64 %m, %c
+    ret f64 %r
+}
+
+// A subtract fuses only with the multiply on the RIGHT: fmsub negates the
+// PRODUCT, so `c - a*b` is one instruction and `a*b - c` is not.
+func f64 @fused_sub(f64 %a, f64 %b, f64 %c) contract {
+entry():
+    %m = fmul f64 %a, %b
+    %r = fsub f64 %c, %m
+    ret f64 %r
+}

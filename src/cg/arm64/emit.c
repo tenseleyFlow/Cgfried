@@ -705,6 +705,12 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
         buf_printf(e->out, "\t%s\t%s, %s\n", a64_op_name(in->op),
                    rn(in->ops[0].reg, sf), a64_cond_name(in->cond));
         return;
+    case A64_OP_FMADD:
+    case A64_OP_FMSUB:
+        buf_printf(e->out, "\t%s\t%s, %s, %s, %s\n", a64_op_name(in->op),
+                   rn(in->ops[0].reg, sf), rn(in->ops[1].reg, sf),
+                   rn(in->ops[2].reg, sf), rn(in->ops[3].reg, sf));
+        return;
     case A64_OP_FCSEL:
         buf_printf(e->out, "\tfcsel");
         emit_ops(e, in, 0, 3, sf);

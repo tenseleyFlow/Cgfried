@@ -11,7 +11,10 @@ static long mix_ref(long a, long b, int c)
     return (((a + b - 7) * 3 + (long)c) << 2) & 1048575;
 }
 
-static int divrem_ref(int a, int b) { return a / b * 100 + a % b; }
+static int divrem_ref(int a, int b)
+{
+    return a / b * 100 + a % b;
+}
 
 static int fails;
 
@@ -38,8 +41,7 @@ int main(void)
     for (i = 0; i < sizeof(vc) / sizeof(vc[0]); i++)
         for (j = 0; j < sizeof(vc) / sizeof(vc[0]); j++)
             if (vc[j] != 0)
-                chk_l("divrem", divrem(vc[i], vc[j]),
-                      divrem_ref(vc[i], vc[j]));
+                chk_l("divrem", divrem(vc[i], vc[j]), divrem_ref(vc[i], vc[j]));
 
     printf(fails ? "FAILURES %d\n" : "OK\n", fails);
     return fails != 0;

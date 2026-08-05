@@ -91,6 +91,13 @@ typedef struct LangOpts {
                       this bit for dialect-sensitive syntax */
     bool fwrapv;   /* signed arithmetic wraps: suppress IR no-wrap provenance */
     bool safe_mode; /* -fsafe policy diagnostics at syntax-only boundaries */
+    /* -ffp-contract. gcc's DEFAULT is fast in -std=gnu* and off in ISO
+     * -std=c*, which is a language policy; whether contraction actually
+     * happens additionally requires optimization, because gcc contracts in
+     * the optimizers. Measured, not assumed: gnu17 -O0 emits no fmadd even
+     * with -ffp-contract=fast, which corrects the sprint file's claim that
+     * the behavior is independent of -O. 0 = off, 1 = on, 2 = fast. */
+    u8 fp_contract;
     struct WarnCtx *warnings; /* per-TU warning policy */
 } LangOpts;
 

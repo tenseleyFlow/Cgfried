@@ -540,6 +540,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " abi(%s)", ir_abi_ret_name(f->abi_ret));
     if (f->calls_setjmp)
         buf_printf(out, " setjmp");
+    if (f->fp_contract)
+        buf_printf(out, " contract");
     buf_printf(out, " {\n");
     for (i = 0; i < f->nblocks; i++) {
         const IrBlock *blk = &f->blocks[i];

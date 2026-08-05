@@ -239,6 +239,10 @@ typedef enum A64Op {
     A64_OP_VEXT,     /* ext vd.16b, vn.16b, vm.16b, #imm -- byte rotate */
     A64_OP_VUMOV,    /* umov wd, vn.<T>[i] -- lane to general register */
     A64_OP_VLANE,    /* mov sd, vn.<T>[i]  -- lane to scalar FP register */
+    /* Fused multiply-add: ONE rounding step, not two. Only emitted when the
+     * language policy permits contraction (IrFunc.fp_contract). */
+    A64_OP_FMADD,
+    A64_OP_FMSUB,
     A64_OP_COUNT
 } A64Op;
 

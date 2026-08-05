@@ -448,6 +448,12 @@ typedef struct IrFunc {
      * setjmp-calling frame, whose locals are already pinned. Printed as
      * a `setjmp` marker after the parameter list. */
     bool calls_setjmp;
+    /* Whether the backend may fuse a multiply and an add into one
+     * rounding step. It is a property of the MODULE's semantics, not a
+     * codegen preference — contraction changes results — so it round-trips
+     * as a `contract` marker rather than being re-derived from flags the
+     * IR does not carry. */
+    bool fp_contract;
     /* Validated source ownership contracts.  The immutable list is shared
      * with sema and remains live for the translation-unit arena lifetime. */
     const CgfAttr *cgf_attrs;

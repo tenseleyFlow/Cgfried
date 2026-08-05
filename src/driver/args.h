@@ -120,9 +120,11 @@ typedef struct {
     bool fwrapv;
     bool fno_strict_aliasing; /* Sprint 32 consumes */
     bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
-    bool fcgf_safe;           /* Sprint 44 heap runtime instrumentation */
-    bool fsafe;               /* Sprint 46 composed safe-language profile */
-    bool fcgf_safe_disabled;  /* explicit -fno-cgf-safe */
+    u8 fp_contract;           /* 0 off, 1 on, 2 fast; defaulted from -std */
+    bool fp_contract_set; /* an explicit -ffp-contract= overrides the default */
+    bool fcgf_safe;       /* Sprint 44 heap runtime instrumentation */
+    bool fsafe;           /* Sprint 46 composed safe-language profile */
+    bool fcgf_safe_disabled;           /* explicit -fno-cgf-safe */
     bool diagnostics_parseable_fixits; /* gcc-compatible fixit records */
     FixitApplyMode fixit_apply_mode;   /* source-copy application policy */
     TrivialAutoVarInitMode trivial_auto_var_init; /* Sprint 45 mitigation */
