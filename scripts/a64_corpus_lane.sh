@@ -79,11 +79,16 @@ ulimit -c 0 2>/dev/null || true
 
 case "$host" in
 aarch64 | arm64)
-    # Native: the compiler's own toolchain discovery is already correct,
-    # and qemu-run.sh is a passthrough. No routing to invent.
+    # Native: qemu-run.sh is a passthrough and the compiler's own tool
+    # discovery is already right -- EXCEPT that its default assembler is the
+    # BUNDLED afs-as, so an unbuilt one has to fall back to system gas the
+    # same way the Makefile's AS_LANE does. Left out, the driver reports
+    # "assembler not found" on a host that has a perfectly good `as`.
+    as_mode=
+    [ -x afs-as/target/release/afs-as ] || as_mode="CGF_AS=0"
     cat >"$WORK/cgf-a64" <<EOF
 #!/bin/sh
-exec "$PWD/$CGF" "\$@"
+exec env $as_mode "$PWD/$CGF" "\$@"
 EOF
     ;;
 *)

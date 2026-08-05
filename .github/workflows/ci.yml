@@ -53,8 +53,10 @@ jobs:
       - name: "arm64-hello-world: THE milestone"
         run: |
           printf 'int printf(const char *, ...);\nint main(void) { printf("hello, world\\n"); return 0; }\n' > hello.c
-          # -v on failure: the crt probe names every path it tried, which is
-          # the whole point of that diagnostic being a contract.
+          # CGF_AS=0: the default assembler is the BUNDLED afs-as, which this
+          # Rust-free job does not build. -v on failure, because the probe
+          # diagnostics name every path they tried.
+          export CGF_AS=0
           ./build/cgf hello.c -o hello || { ./build/cgf -v hello.c -o hello; exit 1; }
           ./hello
       - name: e2e corpus, natively (exact failure ledger)
