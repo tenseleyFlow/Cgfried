@@ -1,6 +1,6 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–47
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–49
 are complete and CI-green. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
@@ -34,9 +34,19 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–47 complete; Phases 1–9 closed.** Phase 10 (second backend and
+- **Sprints 0–49 complete; Phases 1–9 closed.** Phase 10 (second backend and
   targets) is under way on top of the completed preprocessor, frontend, sema,
   IR, x86_64 backend, driver, optimizer, warnings, and memory-safety phases.
+- `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
+  arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
+  with the bundled afs-as into ELF objects byte-identical to
+  `aarch64-linux-gnu-as`, and links. The e2e corpus is 43/51 there, with the
+  8 gaps ledgered by cause (§5) — the same split on real hardware and under
+  qemu, so they are backend gaps, not emulator artifacts.
+- **Sprint 49 closed 5 of its 7 DoD gates as written**; gates 1, 2, 3, 4 and 6
+  carry named gaps rather than being met. See the DoD audit table at the end
+  of `.docs/sprints/10-backend-arm64/s49-arm64-linux.md` before assuming any
+  arm64 property holds.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
   programs against system glibc work on Arch *and* Debian/Ubuntu.
 - `-g` emits DWARF v4 line tables and every object carries `.eh_frame`;
@@ -487,6 +497,52 @@ misleading final success message.
 
 ---
 
+### 3.6 READ THE LOG — both fetch commands fail QUIETLY (Sprint 49)
+
+This cost three CI round-trips on one job, and two of the three "fixes"
+were for causes that had been INFERRED rather than read.
+
+- `gh run view --log` and `gh run view --job <id> --log` **print nothing
+  here**. No error, no exit code — just empty output, which reads exactly
+  like "the log is empty".
+- `gh api repos/O/R/actions/jobs/<id>/logs` refuses with *"the response
+  contains terminal escape sequences"* unless you pass
+  **`--allow-escape-sequences`**.
+
+The invocation that works:
+
+```sh
+id=$(gh run list --branch trunk --limit 1 --json databaseId -q '.[0].databaseId')
+jid=$(gh api "repos/O/R/actions/runs/$id/jobs" --jq '.jobs[]|select(.name=="JOB")|.id')
+gh api --allow-escape-sequences "repos/O/R/actions/jobs/$jid/logs" \
+  | sed 's/\x1b\[[0-9;]*m//g' | tail -30
+```
+
+The failure mode is not "I could not get the log", it is "getting the log
+was harder than guessing, so I guessed." A plausible cause stated as a
+diagnosis is worse than saying you do not know: it produces a commit that
+looks like a fix. If you cannot read the log, say so and make the CI step
+print what you need on failure.
+
+### 3.7 A table mixing string literals with runtime-built entries (Sprint 49)
+
+The crt probe's rows were four string literals. Making one target-derived
+(`/usr/lib/<multiarch>`) meant building it into a buffer — and
+`cgf_probe_crt_dir` RETURNS whichever row matched, so a caller-stack buffer
+dangled. Invisible on Arch, where the match is the literal `/usr/lib64`;
+broken on every Debian-layout host, which is all of CI.
+
+The shape generalizes: **when a lookup table mixes static and constructed
+entries, a lifetime bug hides behind whichever row a given host happens to
+match.** The guard is a test that runs where the constructed row wins —
+`test_toolchain_crt_probe` is host-sensitive on purpose, and its comment
+says so. Do not "simplify" it into a pure-function test.
+
+Related: the Debian multiarch tuple is **not** the target name. Debian
+spells arm64 `aarch64-linux-gnu`; the closed target set calls it
+`arm64-linux`. `cgf_target_multiarch()` exists for exactly that, with a
+unit test asserting the two differ.
+
 ## 4. Architectural laws (violating these is a silent miscompile)
 
 These are written in the code as comments; they are repeated here
@@ -725,6 +781,26 @@ because each one was learned the hard way.
   report both names.
 - **Never write a listing into the directory being listed** — the
   redirect races the command (green here, red on CI).
+- **A harness's notion of "target" was a fact about ITSELF** (Sprint 49).
+  `cgf-test` took its target from `cgf_target_host()` — its own binary's
+  architecture. Correct-looking for four sprints, because runner and
+  compiler-under-test always matched. The moment an x86 runner drove an
+  arm64 compiler, every `ASM_CHECK(x86_64-linux-gnu):` in the shared corpus
+  applied to arm64 assembly and SEVEN fixtures failed for that reason alone.
+  `CGF_TEST_TARGET` overrides it; `CGF_TEST_RUN` prefixes the command that
+  executes a produced binary. Ask of any harness property: *is this about
+  the harness, or about the thing under test?*
+- **Shared fixtures get a LEDGER, not edits.** The e2e corpus is 51
+  gcc-verified expectations used by both targets. arm64 debt lives in
+  `ci/expected_a64_corpus_failures.txt` — one line per (fixture, opt level)
+  with its cause — enforced EXACTLY in both directions, so a new failure and
+  a repaired one both fail the lane. Same shape as the `UNENCODABLE` pin in
+  `scripts/a64_objdiff_lane.sh`. Never edit 51 shared files to record one
+  target's gap.
+- **POSIX `sh` has no locals.** `is_pinned() { for name in ...; }` clobbered
+  its caller's `$name`, so every fixture after the first was tested under the
+  last pinned fixture's identity. The lane reported 13 failures that were one
+  bug. Give helper loops distinctive variable names.
 - **Assert the artifact exists before comparing behavior.** Two
   missing binaries compare `127 == 127` and pass while proving nothing.
 - **Expectations must be gcc-verified before pinning.** Four staged
@@ -821,18 +897,36 @@ with two already fixed and recorded).
 
 ## 7b. Cross-target verification (arm64, Sprints 47-51)
 
-This machine has **no `aarch64-linux-gnu-gcc`, no qemu-user, and no
-arm64 binfmt handler**, so nothing arm64 can be EXECUTED here. Sprint
-48's DoD 3 and 6 depend on that and cannot be closed on this host; the
-sprint file already permits "assemble+inspect" as the fallback.
+The host constraint is GONE (2026-08-04): `aarch64-linux-gnu-gcc` and
+`qemu-user-static` are installed. arm64 can be built AND executed here.
 
-`clang --target=aarch64-linux-gnu -O1 -S` is the working oracle and is
-authoritative for ABI questions: AAPCS64 is a published contract, so
-which register a composite lands in is not a compiler preference.
+There is no `--target` flag until Sprint 51, so **the compiler's own
+architecture IS the target**. To exercise the arm64 backend you must
+cross-BUILD the compiler:
 
-Installing `qemu-user-static` plus a cross gcc would unblock the
-execution gates. That is a host decision — ask before changing the
-machine.
+```sh
+make CC=aarch64-linux-gnu-gcc BUILD=build-a64 build-a64/cgfried
+sh scripts/a64_corpus_lane.sh      # does this for you, then runs the corpus
+```
+
+Under qemu the compiler's own `execve` of `as`/`ld` reaches the HOST, so
+they must be routed by absolute path (`CGF_AS_PATH`, `CGF_LD_PATH`,
+`CGF_CRT_DIR`) or you silently get x86 objects. `scripts/a64_corpus_lane.sh`
+builds that wrapper; copy it rather than re-deriving it.
+
+`scripts/qemu-run.sh` is the ONE place that knows how to run a foreign
+binary. It is a passthrough on an arm64 host, which is what lets a single
+lane serve both. It exits **125** when it cannot run at all — distinct from
+any corpus exit code, so "could not run" never reads as "ran and failed".
+
+`clang --target=aarch64-linux-gnu -O1 -S` remains the ABI oracle: AAPCS64 is
+a published contract, so which register a composite lands in is not a
+compiler preference.
+
+CI has three arm64 lanes: `test-arm64-native` (real `ubuntu-24.04-arm`
+hardware — leaner image, so install what you need and remember the default
+assembler is the BUNDLED afs-as, i.e. pass `CGF_AS=0` in a Rust-free job),
+`test-arm64-qemu`, and the object differential inside `toolchain`.
 
 ## 8. Deferrals you will trip over
 
