@@ -26,6 +26,57 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test
 
+  # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
+  # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
+  # is no --target flag until Sprint 51, so the compiler's architecture IS
+  # the target, and a native runner is the only way to exercise it without
+  # emulation.
+  #
+  # Deliberately NOT `make test`: that suite has x86-pinned lanes (the object
+  # differential, the atomics lane, the MIR goldens) which need target guards
+  # before they can run here. Making them target-aware is Sprint 51's
+  # cross-and-differential work. What this job proves is the milestone and
+  # the corpus, which is what DoD 2 asks for.
+  test-arm64-native:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - name: build
+        run: make CC=gcc -j"$(nproc)" build/cgfried build/cgf build/cgf-test
+      - name: "arm64-hello-world: THE milestone"
+        run: |
+          printf 'int printf(const char *, ...);\nint main(void) { printf("hello, world\\n"); return 0; }\n' > hello.c
+          ./build/cgf hello.c -o hello
+          ./hello
+      - name: e2e corpus, natively (exact failure ledger)
+        run: |
+          CGF_A64_CGF=build/cgfried sh scripts/a64_corpus_lane.sh "" build/cgf-test \
+            > a64native.log 2>&1; s=$?
+          cat a64native.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64native.log
+
+  # ...and the cross lane, which is what a developer on an x86 box gets.
+  # Two levels of emulation: an arm64 cgfried under qemu-user building
+  # programs that also run under qemu-user. Its failure ledger is exact, so
+  # a regression and a repair both fail it.
+  test-arm64-qemu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: install the cross toolchain and emulator
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu qemu-user-static
+      - name: e2e corpus on arm64 under qemu (exact failure ledger)
+        run: |
+          make -j"$(nproc)" build/cgf-test
+          make test-a64-corpus > a64corpus.log 2>&1; s=$?
+          cat a64corpus.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64corpus.log
+
   test-san:
     runs-on: ubuntu-latest
     steps:
