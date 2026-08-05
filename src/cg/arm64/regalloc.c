@@ -640,7 +640,6 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
         u8 def_scratch = 0;
         bool def_spilled = false;
 
-        rb.map[ii] = rb.n;
         rb.source_loc = in.loc;
         rw->gp_next = 0;
         rw->fp_next = 0;
@@ -658,6 +657,7 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
             sub_reg(rw, &call->result, 0);
             for (k = 0; k < call->nargs; k++)
                 sub_reg(rw, &call->args[k].value, 0);
+            rb.map[ii] = rb.n;
             rb_put(&rb, &in);
             continue;
         }
@@ -737,6 +737,14 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
                 in.ops[0].reg = phys_reg((u8)(ra->iv[def].phys - 1));
             }
         }
+        /* Recorded HERE, not at the top of the loop: this pass emits RELOADS
+         * ahead of the instruction, so an entry taken before them names the
+         * first reload instead of the instruction itself. An NZCV producer
+         * whose own operands spilled then had every consumer re-aimed at a
+         * load, which defines no flags -- 'NZCV consumer does not name an
+         * earlier producer'. The other four rebuild loops already record the
+         * entry immediately before their rb_put for exactly this reason. */
+        rb.map[ii] = rb.n;
         rb_put(&rb, &in);
         if (def_spilled) {
             A64Inst store = mk_mem_op(

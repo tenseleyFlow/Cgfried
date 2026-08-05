@@ -8,4 +8,3 @@
 #
 # Format: <suite>/<name> [-O<level>] # <cause>
 
-int/duff [-O1] # isel: NZCV consumer does not name an earlier producer
