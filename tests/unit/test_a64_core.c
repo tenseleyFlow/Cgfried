@@ -701,12 +701,10 @@ void test_a64_cpool_interning(TestCtx *t)
         u64 i;
 
         for (i = 0; i < 64; i++)
-            T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 100 + i, 0),
-                            (int)(3 + i));
+            T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 100 + i, 0), (int)(3 + i));
         T_ASSERT_EQ_INT(t, (int)func.ncpool, 67);
         for (i = 0; i < 64; i++)
-            T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 100 + i, 0),
-                            (int)(3 + i));
+            T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 100 + i, 0), (int)(3 + i));
         T_ASSERT_EQ_INT(t, (int)func.ncpool, 67);
     }
     T_ASSERT_EQ_INT(t, a64_cpool_add(&func, 0, 0), 0);
@@ -721,10 +719,9 @@ void test_a64_cpool_interning(TestCtx *t)
  * exactly the shape that survives a full test run. */
 void test_f128_every_predicate_has_a_libcall(TestCtx *t)
 {
-    static const u8 preds[] = {FCMP_OEQ, FCMP_ONE, FCMP_OLT, FCMP_OLE,
-                               FCMP_OGT, FCMP_OGE, FCMP_ORD, FCMP_UEQ,
-                               FCMP_UNE, FCMP_ULT, FCMP_ULE, FCMP_UGT,
-                               FCMP_UGE, FCMP_UNO};
+    static const u8 preds[] = {FCMP_OEQ, FCMP_ONE, FCMP_OLT, FCMP_OLE, FCMP_OGT,
+                               FCMP_OGE, FCMP_ORD, FCMP_UEQ, FCMP_UNE, FCMP_ULT,
+                               FCMP_ULE, FCMP_UGT, FCMP_UGE, FCMP_UNO};
     u32 i;
 
     for (i = 0; i < sizeof(preds) / sizeof(preds[0]); i++)
