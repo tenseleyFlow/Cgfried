@@ -298,9 +298,13 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
                 return;
             }
             d.selector = sel;
-        } else if (sel_len != 0 && hit->kind == DIR_ASM_CHECK) {
-            /* Sprint 25: ASM_CHECK takes a target selector (asm text is
-             * inherently per-target); the other CHECKs stay Sprint 49. */
+        } else if (sel_len != 0 &&
+                   (hit->kind == DIR_ASM_CHECK || hit->kind == DIR_CHECK)) {
+            /* ASM_CHECK has taken a target selector since Sprint 25 (asm
+             * text is inherently per-target). Sprint 49 extends it to CHECK,
+             * because RUNTIME output legitimately diverges too: plain char is
+             * unsigned on arm64-linux and signed on x86, so the same program
+             * prints -1 on one and 255 on the other. */
             char *sel = arena_strndup(p->arena, line + sel_start, sel_len);
 
             if (!selector_valid(sel)) {
@@ -610,6 +614,29 @@ void directive_parse(Arena *a, const char *src, size_t len, DirectiveSet *out)
                 break;
             }
         }
+    }
+    {
+        /* Bare CHECKs apply to every target and targeted ones select among
+         * targets; mixing the two in one fixture makes the ORDER of the
+         * in-order match depend on which target is running, so the same
+         * source would assert different sequences per arch. All or none. */
+        size_t i;
+        int bare_line = 0, targeted_line = 0;
+
+        for (i = 0; i < out->ndirs; i++) {
+            if (out->dirs[i].kind != DIR_CHECK)
+                continue;
+            if (out->dirs[i].selector) {
+                if (!targeted_line)
+                    targeted_line = out->dirs[i].line;
+            } else if (!bare_line) {
+                bare_line = out->dirs[i].line;
+            }
+        }
+        if (bare_line && targeted_line)
+            err(&p, bare_line > targeted_line ? bare_line : targeted_line,
+                "a fixture uses both bare and target-qualified CHECKs; use "
+                "one form throughout");
     }
     if (out->ofast_divergence_reason) {
         size_t i;

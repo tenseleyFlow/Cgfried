@@ -313,6 +313,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/a64_va_list_diff.sh
 	$(MAKE) BUILD=$(BUILD) $(BUILD)/a64mir
 	sh scripts/a64_exec_lane.sh $(BUILD)/a64mir
+	sh scripts/char_sign_oracle.sh
 	$(MAKE) check-warn-matrix
 	$(MAKE) BUILD=$(BUILD) test-warndiff
 	sh scripts/check_format.sh

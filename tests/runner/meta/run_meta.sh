@@ -29,6 +29,9 @@ expect() {
 
 expect check_pass.c 0 "pass=1"
 expect check_order.c 1 "FAIL"
+expect check_target_pass.c 0 "pass=1"
+expect config_check_target_mixed.c 1 "bare and target-qualified"
+expect config_check_target_unknown.c 1 "unknown target selector"
 expect exit_code_pass.c 0 "pass=1"
 expect exit_code_fail.c 1 "exit code 3, expected 0"
 expect err_expected_pass.c 0 "pass=1"
@@ -98,7 +101,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=53 pass=19 fail=20 xfail=1 xpass=1 skip=1 config=11"*) ;;
+*"total=56 pass=20 fail=20 xfail=1 xpass=1 skip=1 config=13"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)

@@ -257,7 +257,8 @@ static void print_detail(const char *label, const Buf *b)
 /* In-order CHECK matching: each CHECK must match a later stdout line than
  * the previous one; two CHECKs can never match the same line. Returns the
  * first unmatched CHECK, or NULL. */
-static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
+static const Directive *match_checks(const DirectiveSet *ds, const Buf *out,
+                                     const char *target)
 {
     size_t cursor = 0;
     size_t d;
@@ -269,6 +270,8 @@ static const Directive *match_checks(const DirectiveSet *ds, const Buf *out)
         if (dir->kind != DIR_CHECK && dir->kind != DIR_IR_CHECK &&
             dir->kind != DIR_MIR_CHECK)
             continue; /* IR_CHECK-NOT is judged by find_forbidden */
+        if (dir->selector && !directive_selector_matches(dir->selector, target))
+            continue; /* a CHECK for a different arch is not ours to match */
         while (cursor < out->len && !matched) {
             size_t eol = cursor;
             while (eol < out->len && out->data[eol] != '\n')
@@ -1004,7 +1007,7 @@ have_compile:
                 buf_init(&comp.out);
                 buf_append(&comp.out, atext, alen);
             }
-            miss = match_checks(ds, &comp.out);
+            miss = match_checks(ds, &comp.out, r->target);
             if (!miss && s_mode)
                 miss = match_asm_checks(ds, &comp.out, r->target);
             hit = find_forbidden(ds, &comp.out);
@@ -1122,7 +1125,7 @@ have_compile:
                 print_detail("stderr", &run.err);
             }
         } else {
-            const Directive *miss = match_checks(ds, &run.out);
+            const Directive *miss = match_checks(ds, &run.out, r->target);
             const Directive *hit = find_forbidden(ds, &run.out);
             if (miss) {
                 if (!quiet) {

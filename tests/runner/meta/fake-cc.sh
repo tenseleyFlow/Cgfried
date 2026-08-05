@@ -116,6 +116,19 @@ echo one
 echo two
 '
     ;;
+check_target_pass.c)
+    # Emits ONLY the line for the running arch. If the runner failed to skip
+    # CHECKs naming a different target it would demand both lines and fail,
+    # so this is the filtering proof, not just a smoke test.
+    case $(uname -m) in
+    aarch64 | arm64) emit '#!/bin/sh
+echo unsigned here
+' ;;
+    *) emit '#!/bin/sh
+echo signed here
+' ;;
+    esac
+    ;;
 exit_code_pass.c | exit_code_fail.c | xfail_fail.c)
     emit '#!/bin/sh
 exit 3

@@ -128,9 +128,22 @@ void test_directive_reserved(TestCtx *t)
     T_ASSERT_EQ_STR(t, ds.dirs[0].selector, "x86_64-linux-gnu");
     ds = parse(&a, "// ASM_CHECK(bogus-target): mov\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    /* Sprint 49 landed target-qualified CHECKs: runtime output diverges by
+     * target too, because plain char is unsigned on arm64-linux. */
     ds = parse(&a, "// CHECK(x86_64-linux-gnu): out\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.ndirs, 1);
+    T_ASSERT_EQ_STR(t, ds.dirs[0].selector, "x86_64-linux-gnu");
+    ds = parse(&a, "// CHECK(nope-nope): out\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
-    T_ASSERT(t, strstr(ds.errs[0].msg, "Sprint 49") != NULL);
+    /* Bare and targeted CHECKs cannot be mixed: the in-order match sequence
+     * would depend on which target is running. */
+    ds = parse(&a, "// CHECK: always\n// CHECK(arm64-linux): sometimes\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT(t, strstr(ds.errs[0].msg, "bare and target-qualified") != NULL);
+    ds = parse(&a, "// CHECK(arm64-linux): a\n// CHECK(x86_64-linux-gnu): b\n");
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
+    T_ASSERT_EQ_INT(t, ds.ndirs, 2);
     /* IR_CHECK was reserved here until Sprint 17 landed it; it now
      * parses as a value directive with CHECK semantics. */
     ds = parse(&a, "// IR_CHECK: iadd\n");
@@ -276,9 +289,9 @@ void test_directive_cross_constraints(TestCtx *t)
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
     ds = parse(&a, "// TIMEOUT: 0\n");
     T_ASSERT_EQ_INT(t, ds.nerrs, 1);
-    /* Selector on CHECK is reserved until Sprint 49. */
+    /* A lone target-qualified CHECK is fine; only MIXING forms errors. */
     ds = parse(&a, "// CHECK(arm64-linux): x\n");
-    T_ASSERT_EQ_INT(t, ds.nerrs, 1);
+    T_ASSERT_EQ_INT(t, ds.nerrs, 0);
     arena_free_all(&a);
 }
 
