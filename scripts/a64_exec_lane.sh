@@ -61,7 +61,10 @@ for input in tests/exec/arm64/*.cgfir; do
     fi
     "$tool" --asm "$input" >"$work/x_$name.s"
     "$AS" -o "$work/x_$name.o" "$work/x_$name.s"
-    "$CC" -static -O2 -o "$work/x_$name" "$work/x_$name.o" "$driver"
+    # -pthread: the atomics fixture hammers the ll/sc loops from four
+    # threads, which is the only way a non-atomic sequence shows itself.
+    "$CC" -static -O2 -pthread -o "$work/x_$name" "$work/x_$name.o" \
+        "$driver"
     out=$("$QEMU" "$work/x_$name")
     if [ "$out" != OK ]; then
         echo "a64_exec_lane: $name disagreed with its C reference:" >&2

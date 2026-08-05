@@ -206,7 +206,16 @@ typedef enum A64Op {
     A64_OP_STACKSAVE,
     A64_OP_STACKRESTORE,
     A64_OP_VASTART,
-    A64_OP_ATOMIC_LLSC,
+    /* Two pseudo-instructions, each expanded at EMISSION into a complete
+     * ll/sc loop. They stay single instructions through allocation on
+     * purpose: a spill or reload landing between the ldaxr and the stlxr
+     * would clear the exclusive monitor, and the loop would spin forever
+     * rather than fail visibly.
+     *
+     * UPGRADE(armv8.1-lse): with LSE these collapse to single instructions
+     * (ldadd/swp/cas) and the pseudo-ops can go away entirely. */
+    A64_OP_ATOMIC_LLSC, /* dst, [addr], val, #rmw-op */
+    A64_OP_ATOMIC_CAS,  /* dst(old), [addr], expected, new */
     A64_OP_COUNT
 } A64Op;
 

@@ -17,7 +17,7 @@ static const char *const op_names[] = {
     "fdiv",        "fsqrt",       "fneg",       "fabs",      "fcmp",
     "fcsel",       "scvtf",       "ucvtf",      "fcvtzs",    "fcvtzu",
     "fcvt",        "alloca",      "alloca_dyn", "stacksave", "stackrestore",
-    "vastart",     "atomic_llsc",
+    "vastart",     "atomic_llsc", "atomic_cas",
 };
 
 _Static_assert(sizeof(op_names) / sizeof(op_names[0]) == A64_OP_COUNT,
@@ -158,6 +158,7 @@ static bool op_has_size(u16 op)
     case A64_OP_STACKRESTORE:
     case A64_OP_VASTART:
     case A64_OP_ATOMIC_LLSC:
+    case A64_OP_ATOMIC_CAS:
         return false;
     default:
         return true;

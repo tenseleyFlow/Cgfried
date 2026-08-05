@@ -56,10 +56,16 @@ static const u8 fp_scratch[A64_NFP_SCRATCH] = {A64_V31, A64_V30, A64_V29};
 
 /* Caller-saved first: they are free in a leaf range, and a call-crossing
  * interval is steered to the callee-saved tail by reg_usable anyway. */
+/* x12/x13 are withheld: the atomic pseudo-ops expand at EMISSION into an
+ * ll/sc loop that needs a temporary and a store-exclusive status register,
+ * and neither can come from the reload scratches — a spilled operand of the
+ * very same instruction may already be sitting in those. Two registers is
+ * the price of guaranteeing no spill code lands inside an exclusive
+ * sequence, which would clear the monitor and spin forever. */
 static const u8 gp_order[] = {
     A64_X0,  A64_X1,  A64_X2,  A64_X3,  A64_X4,  A64_X5,  A64_X6,  A64_X7,
-    A64_X8,  A64_X9,  A64_X10, A64_X11, A64_X12, A64_X13, A64_X19, A64_X20,
-    A64_X21, A64_X22, A64_X23, A64_X24, A64_X25, A64_X26, A64_X27, A64_X28,
+    A64_X8,  A64_X9,  A64_X10, A64_X11, A64_X19, A64_X20, A64_X21, A64_X22,
+    A64_X23, A64_X24, A64_X25, A64_X26, A64_X27, A64_X28,
 };
 #define A64_NGP ((u32)(sizeof(gp_order) / sizeof(gp_order[0])))
 

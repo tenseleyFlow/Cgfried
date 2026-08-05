@@ -1220,6 +1220,22 @@ static bool select_conditional_idiom(Isel *is, const IrInst *ir, A64Cond cond,
     return true;
 }
 
+/* The acquire/release and exclusive forms take a BARE base register: none
+ * of ldar/stlr/ldaxr/stlxr has an offset field. Ordinary accesses fold an
+ * offset into the addressing mode, so an atomic one must not go through
+ * address_operand at all. */
+static A64Operand atomic_addr(Isel *is, const IrOperand *ptr, u8 size)
+{
+    A64Operand op;
+
+    memset(&op, 0, sizeof(op));
+    op.kind = A64O_MEM;
+    op.mem.base = to_gp(is, ptr);
+    op.mem.size = size;
+    op.mem.mode = A64_ADDR_SCALED;
+    return op;
+}
+
 static void select_call(Isel *is, const IrInst *ir)
 {
     u32 first = ir->subop == FUNCREF_INDIRECT ? 1u : 0u;
@@ -1333,7 +1349,9 @@ static void select_inst(Isel *is, const IrInst *ir)
         A64Sf sf = sf_of((IrType)ir->type);
         A64Reg dest = new_reg(is, (IrType)ir->type);
         A64Operand address =
-            address_operand(is, &ir->ops[0], ir_type_size(ir->type));
+            (ir->flags & IRF_SEQ_CST)
+                ? atomic_addr(is, &ir->ops[0], (u8)ir_type_size(ir->type))
+                : address_operand(is, &ir->ops[0], ir_type_size(ir->type));
         A64Inst *inst = emit(is, A64_OP_LOAD, sf);
 
         if (ir->flags & IRF_VOLATILE)
@@ -1349,7 +1367,11 @@ static void select_inst(Isel *is, const IrInst *ir)
         A64Sf sf = sf_of((IrType)ir->ops[0].type);
         A64Reg value = to_reg(is, &ir->ops[0]);
         A64Operand address =
-            address_operand(is, &ir->ops[1], ir_type_size(ir->ops[0].type));
+            (ir->flags & IRF_SEQ_CST)
+                ? atomic_addr(is, &ir->ops[1],
+                              (u8)ir_type_size(ir->ops[0].type))
+                : address_operand(is, &ir->ops[1],
+                                  ir_type_size(ir->ops[0].type));
         A64Inst *inst = emit(is, A64_OP_STORE, sf);
 
         if (ir->flags & IRF_VOLATILE)
@@ -1581,11 +1603,41 @@ static void select_inst(Isel *is, const IrInst *ir)
         add_operand(inst, reg_op(ap));
         break;
     }
-    case IR_ATOMICRMW:
-    case IR_CMPXCHG:
-        /* UPGRADE(armv8.1-lse): Sprint 49 emits armv8.0 ldxr/stxr loops;
-         * an LSE feature tier may replace them only after feature routing. */
-        CGF_ICE("arm64 isel: seq_cst ll/sc lowering lands in Sprint 49");
+    case IR_ATOMICRMW: {
+        /* UPGRADE(armv8.1-lse): the armv8.0 baseline has no ldadd/cas, so
+         * every read-modify-write is an exclusive loop. A feature tier may
+         * replace these, but only behind real feature routing. */
+        u8 size = (u8)ir_type_size(ir->type);
+        A64Operand address = atomic_addr(is, &ir->ops[0], size);
+        A64Reg val = to_gp(is, &ir->ops[1]);
+        A64Reg dest = new_reg(is, (IrType)ir->type);
+        A64Inst *inst = emit(is, A64_OP_ATOMIC_LLSC, sf_of((IrType)ir->type));
+
+        inst->flags |= A64IF_ATOMIC;
+        add_operand(inst, reg_op(dest));
+        add_operand(inst, address);
+        add_operand(inst, reg_op(val));
+        add_operand(inst, imm_op((i64)ir->subop));
+        bind_result(is, ir, dest);
+        break;
+    }
+    case IR_CMPXCHG: {
+        /* UPGRADE(armv8.1-lse): the cas family would collapse this loop. */
+        u8 size = (u8)ir_type_size(ir->type);
+        A64Operand address = atomic_addr(is, &ir->ops[0], size);
+        A64Reg expected = to_gp(is, &ir->ops[1]);
+        A64Reg desired = to_gp(is, &ir->ops[2]);
+        A64Reg dest = new_reg(is, (IrType)ir->type);
+        A64Inst *inst = emit(is, A64_OP_ATOMIC_CAS, sf_of((IrType)ir->type));
+
+        inst->flags |= A64IF_ATOMIC;
+        add_operand(inst, reg_op(dest));
+        add_operand(inst, address);
+        add_operand(inst, reg_op(expected));
+        add_operand(inst, reg_op(desired));
+        bind_result(is, ir, dest);
+        break;
+    }
     case IR_VSPLAT:
     case IR_VEXTRACT:
     case IR_VREDUCE_ADD:

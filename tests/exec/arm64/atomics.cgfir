@@ -1,0 +1,50 @@
+// Atomic read-modify-write and compare-exchange on the armv8.0 baseline:
+// every one of these becomes an ldaxr/stlxr loop.
+func i32 @rmw_add(ptr %p, i32 %v) {
+entry():
+    %old = atomicrmw add i32 %p, %v, seq_cst
+    ret i32 %old
+}
+
+func i32 @rmw_sub(ptr %p, i32 %v) {
+entry():
+    %old = atomicrmw sub i32 %p, %v, seq_cst
+    ret i32 %old
+}
+
+func i64 @rmw_and64(ptr %p, i64 %v) {
+entry():
+    %old = atomicrmw and i64 %p, %v, seq_cst
+    ret i64 %old
+}
+
+func i32 @rmw_xor(ptr %p, i32 %v) {
+entry():
+    %old = atomicrmw xor i32 %p, %v, seq_cst
+    ret i32 %old
+}
+
+func i32 @rmw_xchg(ptr %p, i32 %v) {
+entry():
+    %old = atomicrmw xchg i32 %p, %v, seq_cst
+    ret i32 %old
+}
+
+// cmpxchg returns the OLD value; success is `old == expected`.
+func i32 @cas(ptr %p, i32 %expected, i32 %desired) {
+entry():
+    %old = cmpxchg i32 %p, %expected, %desired, seq_cst
+    ret i32 %old
+}
+
+func i64 @seq_load(ptr %p) {
+entry():
+    %v = load i64, %p, align 8, seq_cst
+    ret i64 %v
+}
+
+func i32 @seq_store(ptr %p, i32 %v) {
+entry():
+    store i32 %v, %p, align 4, seq_cst
+    ret i32 %v
+}

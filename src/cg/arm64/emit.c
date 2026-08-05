@@ -31,6 +31,7 @@ typedef struct Emit {
     const A64Func *f;
     const IrModule *m;
     u32 fidx;
+    u32 atomic_seq; /* names the labels inside each expanded ll/sc loop */
 } Emit;
 
 static const char *rn(A64Reg r, u8 sf)
@@ -154,6 +155,112 @@ static u8 mem_reg_sf(const A64Inst *in, bool fp, u8 size)
     return size >= 8 ? A64_SF64 : (u8)(size == 4 ? in->sf : A64_SF32);
 }
 
+/* --- atomics ---------------------------------------------------------------
+ *
+ * The armv8.0 baseline has no LSE, so every atomic read-modify-write is an
+ * exclusive loop. Ordering: ldaxr provides the acquire half and stlxr the
+ * release half, which together give seq_cst under the AArch64 mapping — the
+ * one Sprint 20 fixed as policy, where weaker orders are accepted and
+ * strengthened rather than implemented separately.
+ *
+ * UPGRADE(armv8.1-lse): ldadd/swp/cas collapse each of these to a single
+ * instruction. They must stay behind real feature routing, because emitting
+ * them unconditionally would fault on an armv8.0 part.
+ *
+ * x12 and x13 are withheld from allocation for these expansions: the loop
+ * needs a temporary and a status register, and taking either from the reload
+ * scratches could collide with a spilled operand of this very instruction. */
+#define A64_ATOMIC_TMP A64_X12
+#define A64_ATOMIC_STATUS A64_X13
+
+static const char *ex_suffix(u8 size)
+{
+    switch (size) {
+    case 1:
+        return "b";
+    case 2:
+        return "h";
+    case 4:
+    case 8:
+        return "";
+    default:
+        CGF_ICE("arm64 emit: atomic access of %u bytes", size);
+    }
+}
+
+/* The exclusive forms name a W register for every size below eight bytes;
+ * the mnemonic suffix carries the width. */
+static u8 ex_sf(u8 size)
+{
+    return size == 8 ? A64_SF64 : A64_SF32;
+}
+
+static const char *rmw_mnemonic(i64 op)
+{
+    switch (op) {
+    case RMW_ADD:
+        return "add";
+    case RMW_SUB:
+        return "sub";
+    case RMW_AND:
+        return "and";
+    case RMW_OR:
+        return "orr";
+    case RMW_XOR:
+        return "eor";
+    case RMW_XCHG:
+        return NULL; /* no arithmetic: the new value IS the operand */
+    default:
+        CGF_ICE("arm64 emit: unknown atomicrmw operation %lld", (long long)op);
+    }
+}
+
+static void emit_atomic_rmw(Emit *e, const A64Inst *in, u32 seq)
+{
+    const A64Mem *m = &in->ops[1].mem;
+    const char *sfx = ex_suffix(m->size);
+    u8 sf = ex_sf(m->size);
+    const char *base = rn(m->base, A64_SF64);
+    const char *dst = rn(in->ops[0].reg, sf);
+    const char *val = rn(in->ops[2].reg, sf);
+    const char *tmp = a64_phys_name(A64_ATOMIC_TMP, sf);
+    const char *status = a64_phys_name(A64_ATOMIC_STATUS, A64_SF32);
+    const char *op = rmw_mnemonic(in->ops[3].imm);
+
+    buf_printf(e->out, ".Lat%u_%u:\n", e->fidx, seq);
+    buf_printf(e->out, "\tldaxr%s\t%s, [%s]\n", sfx, dst, base);
+    if (op)
+        buf_printf(e->out, "\t%s\t%s, %s, %s\n", op, tmp, dst, val);
+    buf_printf(e->out, "\tstlxr%s\t%s, %s, [%s]\n", sfx, status, op ? tmp : val,
+               base);
+    buf_printf(e->out, "\tcbnz\t%s, .Lat%u_%u\n", status, e->fidx, seq);
+}
+
+static void emit_atomic_cas(Emit *e, const A64Inst *in, u32 seq)
+{
+    const A64Mem *m = &in->ops[1].mem;
+    const char *sfx = ex_suffix(m->size);
+    u8 sf = ex_sf(m->size);
+    const char *base = rn(m->base, A64_SF64);
+    const char *dst = rn(in->ops[0].reg, sf);
+    const char *expected = rn(in->ops[2].reg, sf);
+    const char *desired = rn(in->ops[3].reg, sf);
+    const char *status = a64_phys_name(A64_ATOMIC_STATUS, A64_SF32);
+
+    buf_printf(e->out, ".Lat%u_%u:\n", e->fidx, seq);
+    buf_printf(e->out, "\tldaxr%s\t%s, [%s]\n", sfx, dst, base);
+    buf_printf(e->out, "\tcmp\t%s, %s\n", dst, expected);
+    buf_printf(e->out, "\tb.ne\t.Lax%u_%u\n", e->fidx, seq);
+    buf_printf(e->out, "\tstlxr%s\t%s, %s, [%s]\n", sfx, status, desired, base);
+    buf_printf(e->out, "\tcbnz\t%s, .Lat%u_%u\n", status, e->fidx, seq);
+    buf_printf(e->out, "\tb\t.Lad%u_%u\n", e->fidx, seq);
+    /* The comparison failed, so no stlxr ran and the monitor is still armed.
+     * Leaving it armed is legal but antisocial: it can make an unrelated
+     * exclusive sequence fail spuriously, so the failure edge clears it. */
+    buf_printf(e->out, ".Lax%u_%u:\n\tclrex\n", e->fidx, seq);
+    buf_printf(e->out, ".Lad%u_%u:\n", e->fidx, seq);
+}
+
 static void emit_mem(Emit *e, const A64Inst *in, bool store)
 {
     const A64Operand *value = &in->ops[0];
@@ -166,6 +273,17 @@ static void emit_mem(Emit *e, const A64Inst *in, bool store)
     fp = reg_is_fp(value->reg);
     size = addr->mem.size ? addr->mem.size : (u8)(in->sf == A64_SF32 ? 4 : 8);
     sf = mem_reg_sf(in, fp, size);
+    if (in->flags & A64IF_ATOMIC) {
+        /* Sequentially consistent load/store. Neither ldar nor stlr has an
+         * offset field, so selection hands these a bare base — a folded
+         * displacement here would be unencodable rather than merely slow. */
+        if (addr->mem.offset || addr->mem.index.id)
+            CGF_ICE("arm64 emit: an atomic access cannot carry an offset");
+        buf_printf(e->out, "\t%s%s\t%s, [%s]\n", store ? "stlr" : "ldar",
+                   ex_suffix(size), rn(value->reg, sf),
+                   rn(addr->mem.base, A64_SF64));
+        return;
+    }
     buf_printf(e->out, "\t%s\t%s, ", mem_mnemonic(store, fp, size),
                rn(value->reg, sf));
     pmem(e, &addr->mem, sf);
@@ -404,6 +522,12 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
     case A64_OP_STORE:
         emit_mem(e, in, true);
         return;
+    case A64_OP_ATOMIC_LLSC:
+        emit_atomic_rmw(e, in, e->atomic_seq++);
+        return;
+    case A64_OP_ATOMIC_CAS:
+        emit_atomic_cas(e, in, e->atomic_seq++);
+        return;
     case A64_OP_LDP:
         emit_pair(e, in, false);
         return;
@@ -525,6 +649,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
     e.f = f;
     e.m = m;
     e.fidx = fidx;
+    e.atomic_seq = 0;
 
     buf_printf(out, "\t.text\n");
     if (linkage != IRLINK_INTERNAL)

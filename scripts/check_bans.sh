@@ -97,5 +97,23 @@ if [ -n "$hits" ]; then
     status=1
 fi
 
+# Sprint 49 (DoD 6): every armv8.0 ll/sc site carries an UPGRADE marker, so
+# the LSE opportunity is recorded where the loop is rather than in a document
+# nobody greps. Emitting ldadd/cas unconditionally would fault on an armv8.0
+# part, so the upgrade must stay behind feature routing -- the marker is what
+# makes those sites findable when that routing lands.
+exlusive=$(grep -rln 'ldaxr\|stlxr\|clrex' src || true)
+for f in $exlusive; do
+    if ! grep -q 'UPGRADE(armv8.1-lse)' "$f"; then
+        echo "check_bans: $f emits exclusives without an UPGRADE marker" >&2
+        status=1
+    fi
+done
+markers=$(grep -rc 'UPGRADE(armv8.1-lse)' src/cg/arm64/isel.c || echo 0)
+if [ "$markers" -lt 2 ]; then
+    echo "check_bans: both atomic selection sites need UPGRADE markers" >&2
+    status=1
+fi
+
 [ "$status" -eq 0 ] && echo "check_bans: clean"
 exit "$status"
