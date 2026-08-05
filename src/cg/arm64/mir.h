@@ -89,7 +89,11 @@ typedef struct A64Reg {
     u8 physical;
 } A64Reg;
 
-typedef enum A64Sf { A64_SF32, A64_SF64 } A64Sf;
+/* Operation width. SF128 names a whole q register and appears only on the
+ * NEON forms; the ELEMENT arrangement (4s, 8h, ...) is per-instruction and
+ * rides in src_sf as the vector IrType, because `add v0.4s` and `add v0.8h`
+ * are different instructions over the same registers. */
+typedef enum A64Sf { A64_SF32, A64_SF64, A64_SF128 } A64Sf;
 
 /* Values match the architectural four-bit condition encoding. */
 typedef enum A64Cond {
@@ -216,6 +220,25 @@ typedef enum A64Op {
      * (ldadd/swp/cas) and the pseudo-ops can go away entirely. */
     A64_OP_ATOMIC_LLSC, /* dst, [addr], val, #rmw-op */
     A64_OP_ATOMIC_CAS,  /* dst(old), [addr], expected, new */
+    /* NEON (Sprint 49). Arrangement comes from src_fs; unlike SSE2 there is
+     * no aligned/unaligned split to model — ldr/str q never fault on
+     * alignment — so the x86 movaps/movups machinery has no counterpart
+     * here and is deliberately not ported. */
+    A64_OP_VADD,
+    A64_OP_VSUB,
+    A64_OP_VMUL,
+    A64_OP_VAND,
+    A64_OP_VORR,
+    A64_OP_VEOR,
+    A64_OP_VFADD,
+    A64_OP_VFSUB,
+    A64_OP_VFMUL,
+    A64_OP_VFDIV,
+    A64_OP_VDUP,     /* dup vd.<T>, wn   -- splat from a general register */
+    A64_OP_VDUPLANE, /* dup vd.<T>, vn.<T>[0] -- splat from lane zero */
+    A64_OP_VEXT,     /* ext vd.16b, vn.16b, vm.16b, #imm -- byte rotate */
+    A64_OP_VUMOV,    /* umov wd, vn.<T>[i] -- lane to general register */
+    A64_OP_VLANE,    /* mov sd, vn.<T>[i]  -- lane to scalar FP register */
     A64_OP_COUNT
 } A64Op;
 
@@ -377,6 +400,9 @@ A64AddrMode a64_addr_reg_mode(bool index32, bool index_signed, bool scaled);
 const char *a64_op_name(u16 op);
 const char *a64_cond_name(u8 cond);
 const char *a64_phys_name(u8 reg, u8 sf);
+const char *a64_vec_name(u8 reg);
+const char *a64_vec_arrangement(u8 ir_vector_type);
+u8 a64_vec_lane_sf(u8 ir_vector_type);
 void a64_mir_print(const A64Func *f, Buf *out);
 int a64_mir_verify(const A64Func *f, DiagCtx *dc);
 A64Func *a64_isel_function(const IrModule *m, const IrFunc *f, Arena *a);

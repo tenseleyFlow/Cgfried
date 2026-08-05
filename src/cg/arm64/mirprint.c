@@ -17,7 +17,10 @@ static const char *const op_names[] = {
     "fdiv",        "fsqrt",       "fneg",       "fabs",      "fcmp",
     "fcsel",       "scvtf",       "ucvtf",      "fcvtzs",    "fcvtzu",
     "fcvt",        "alloca",      "alloca_dyn", "stacksave", "stackrestore",
-    "vastart",     "atomic_llsc", "atomic_cas",
+    "vastart",     "atomic_llsc", "atomic_cas", "vadd",      "vsub",
+    "vmul",        "vand",        "vorr",       "veor",      "vfadd",
+    "vfsub",       "vfmul",       "vfdiv",      "vdup",      "vduplane",
+    "vext",        "vumov",       "vlane",
 };
 
 _Static_assert(sizeof(op_names) / sizeof(op_names[0]) == A64_OP_COUNT,
@@ -36,6 +39,49 @@ const char *a64_op_name(u16 op)
 const char *a64_cond_name(u8 cond)
 {
     return cond < 16 ? cond_names[cond] : "?";
+}
+
+/* NEON arrangement specifiers, keyed by the vector IrType. `add v0.4s` and
+ * `add v0.8h` are distinct instructions over identical registers, so the
+ * element shape has to travel with the instruction. */
+/* `vN`, the spelling every arrangement form uses: `add v0.4s, ...`. The `qN`
+ * spelling is reserved for whole-register loads and stores. */
+const char *a64_vec_name(u8 reg)
+{
+    static const char *const names[] = {
+        "v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
+        "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
+        "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+        "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
+    };
+
+    if (reg < A64_V0 || reg > A64_V31)
+        return "v?";
+    return names[reg - A64_V0];
+}
+
+const char *a64_vec_arrangement(u8 t)
+{
+    switch (t) {
+    case IRT_V16I8:
+        return "16b";
+    case IRT_V8I16:
+        return "8h";
+    case IRT_V4I32:
+    case IRT_V4F32:
+        return "4s";
+    case IRT_V2I64:
+    case IRT_V2F64:
+        return "2d";
+    default:
+        return "?";
+    }
+}
+
+/* The width a single lane occupies when it is moved out into a scalar. */
+u8 a64_vec_lane_sf(u8 t)
+{
+    return t == IRT_V2I64 || t == IRT_V2F64 ? A64_SF64 : A64_SF32;
 }
 
 const char *a64_phys_name(u8 reg, u8 sf)
@@ -71,8 +117,21 @@ const char *a64_phys_name(u8 reg, u8 sf)
         return sf == A64_SF32 ? "wsp" : "sp";
     if (reg == A64_XZR)
         return sf == A64_SF32 ? "wzr" : "xzr";
-    if (reg >= A64_V0 && reg <= A64_V31)
+    if (reg >= A64_V0 && reg <= A64_V31) {
+        static const char *const vnames128[] = {
+            "q0",  "q1",  "q2",  "q3",  "q4",  "q5",  "q6",  "q7",
+            "q8",  "q9",  "q10", "q11", "q12", "q13", "q14", "q15",
+            "q16", "q17", "q18", "q19", "q20", "q21", "q22", "q23",
+            "q24", "q25", "q26", "q27", "q28", "q29", "q30", "q31",
+        };
+
+        /* SF128 names the whole register for a load or store; the
+         * arrangement forms spell the SAME register `vN` instead, which is
+         * what a64_vec_name gives them. */
+        if (sf == A64_SF128)
+            return vnames128[reg - A64_V0];
         return sf == A64_SF32 ? vnames32[reg - A64_V0] : vnames64[reg - A64_V0];
+    }
     if (reg == A64_NZCV)
         return "nzcv";
     return "r?";
@@ -448,7 +507,8 @@ int a64_mir_verify(const A64Func *f, DiagCtx *dc)
     } while (0)
             if (inst->op >= A64_OP_COUNT)
                 A64_BAD("invalid opcode %u", inst->op);
-            if (inst->sf != A64_SF32 && inst->sf != A64_SF64)
+            if (inst->sf != A64_SF32 && inst->sf != A64_SF64 &&
+                inst->sf != A64_SF128)
                 A64_BAD("invalid sf %u", inst->sf);
             if (op_has_mixed_widths(inst->op) && inst->src_sf != A64_SF32 &&
                 inst->src_sf != A64_SF64)

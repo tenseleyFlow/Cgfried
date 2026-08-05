@@ -151,7 +151,7 @@ static const char *mem_mnemonic(bool store, bool fp, u8 size)
 static u8 mem_reg_sf(const A64Inst *in, bool fp, u8 size)
 {
     if (fp)
-        return size == 4 ? A64_SF32 : A64_SF64;
+        return size == 16 ? A64_SF128 : size == 4 ? A64_SF32 : A64_SF64;
     return size >= 8 ? A64_SF64 : (u8)(size == 4 ? in->sf : A64_SF32);
 }
 
@@ -393,6 +393,122 @@ static void emit_fp_imm(Emit *e, i64 encoded)
     }
 }
 
+/* A single lane names its ELEMENT size, not the register arrangement:
+ * `umov w0, v1.s[2]`, never `v1.4s[2]`. */
+static const char *lane_arrangement(u8 t)
+{
+    switch (t) {
+    case IRT_V16I8:
+        return "b";
+    case IRT_V8I16:
+        return "h";
+    case IRT_V4I32:
+    case IRT_V4F32:
+        return "s";
+    default:
+        return "d";
+    }
+}
+
+/* --- NEON ------------------------------------------------------------------
+ *
+ * The arrangement specifier comes from src_sf (the vector IrType), because
+ * `add v0.4s` and `add v0.8h` are different instructions over the same
+ * registers. Loads and stores need nothing special: ldr/str of a q register
+ * never faults on alignment, so SSE2's aligned/unaligned split has no
+ * counterpart to port. */
+static const char *vec_mnemonic(u16 op)
+{
+    switch (op) {
+    case A64_OP_VADD:
+        return "add";
+    case A64_OP_VSUB:
+        return "sub";
+    case A64_OP_VMUL:
+        return "mul";
+    case A64_OP_VAND:
+        return "and";
+    case A64_OP_VORR:
+        return "orr";
+    case A64_OP_VEOR:
+        return "eor";
+    case A64_OP_VFADD:
+        return "fadd";
+    case A64_OP_VFSUB:
+        return "fsub";
+    case A64_OP_VFMUL:
+        return "fmul";
+    case A64_OP_VFDIV:
+        return "fdiv";
+    default:
+        return NULL;
+    }
+}
+
+static const char *vname(A64Reg r)
+{
+    if (!r.id || !r.physical)
+        CGF_ICE("arm64 emit: a virtual register reached emission");
+    return a64_vec_name((u8)(r.id - 1));
+}
+
+static bool emit_neon(Emit *e, const A64Inst *in)
+{
+    const char *arr = a64_vec_arrangement(in->src_sf);
+    const char *mn = vec_mnemonic(in->op);
+
+    if (mn) {
+        /* The bitwise forms take ONLY .8b or .16b: the element size means
+         * nothing to them, and gas rejects `eor v0.4s`. Everything else
+         * carries its real arrangement. */
+        if (in->op == A64_OP_VAND || in->op == A64_OP_VORR ||
+            in->op == A64_OP_VEOR)
+            arr = "16b";
+        /* NEON has no 64-bit vector multiply; the vectorizer must not have
+         * formed one. Erroring beats emitting a mnemonic gas will reject
+         * later with no explanation of where it came from. */
+        if (in->op == A64_OP_VMUL &&
+            (in->src_sf == IRT_V2I64 || in->src_sf == IRT_V2F64))
+            CGF_ICE("arm64 emit: NEON has no 64-bit integer vector multiply");
+        buf_printf(e->out, "\t%s\t%s.%s, %s.%s, %s.%s\n", mn,
+                   vname(in->ops[0].reg), arr, vname(in->ops[1].reg), arr,
+                   vname(in->ops[2].reg), arr);
+        return true;
+    }
+    switch (in->op) {
+    case A64_OP_VDUP:
+        /* the logical/arithmetic bit-width of the source register follows
+         * the lane, not the instruction */
+        buf_printf(e->out, "\tdup\t%s.%s, %s\n", vname(in->ops[0].reg), arr,
+                   rn(in->ops[1].reg, a64_vec_lane_sf(in->src_sf)));
+        return true;
+    case A64_OP_VDUPLANE:
+        buf_printf(e->out, "\tdup\t%s.%s, %s.%s[0]\n", vname(in->ops[0].reg),
+                   arr, vname(in->ops[1].reg), lane_arrangement(in->src_sf));
+        return true;
+    case A64_OP_VEXT:
+        /* ext is always byte-addressed, whatever the element size. */
+        buf_printf(e->out, "\text\t%s.16b, %s.16b, %s.16b, #%lld\n",
+                   vname(in->ops[0].reg), vname(in->ops[1].reg),
+                   vname(in->ops[2].reg), (long long)in->ops[3].imm);
+        return true;
+    case A64_OP_VUMOV:
+        buf_printf(e->out, "\tumov\t%s, %s.%s[%lld]\n",
+                   rn(in->ops[0].reg, a64_vec_lane_sf(in->src_sf)),
+                   vname(in->ops[1].reg), lane_arrangement(in->src_sf),
+                   (long long)in->ops[2].imm);
+        return true;
+    case A64_OP_VLANE:
+        buf_printf(e->out, "\tmov\t%s, %s.%s[%lld]\n",
+                   rn(in->ops[0].reg, a64_vec_lane_sf(in->src_sf)),
+                   vname(in->ops[1].reg), lane_arrangement(in->src_sf),
+                   (long long)in->ops[2].imm);
+        return true;
+    default:
+        return false;
+    }
+}
+
 static const char *plain_mnemonic(u16 op)
 {
     switch (op) {
@@ -607,6 +723,8 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
     default:
         break;
     }
+    if (emit_neon(e, in))
+        return;
     if (is_widening_mul(in->op)) {
         buf_printf(e->out, "\t%s\t%s, %s, %s\n", a64_op_name(in->op),
                    rn(in->ops[0].reg, A64_SF64), rn(in->ops[1].reg, A64_SF32),

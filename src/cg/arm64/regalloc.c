@@ -402,6 +402,14 @@ static bool vreg_is_fp(const A64Func *f, u32 vreg)
     return a64_vclass(f, (A64Reg){vreg, 0}) == A64RC_FP;
 }
 
+/* A whole-q value. AAPCS64 preserves only the LOW 64 bits of v8-v15, so a
+ * 128-bit value living across a call cannot go there — the rule Sprint 48
+ * wrote down and had nothing wide enough to exercise until NEON arrived. */
+static bool vreg_is_wide(const A64Func *f, u32 vreg)
+{
+    return a64_vwidth(f, (A64Reg){vreg, 0}) == A64_SF128;
+}
+
 static void a64_scan_pool(void *ctx, u32 vreg, const u8 **regs, u32 *nregs)
 {
     Ra *ra = ctx;
@@ -457,7 +465,7 @@ static bool a64_scan_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
     if (fixed_clash(ra, vreg, reg, start, end))
         return false;
     if (crosses_call(ra, start, end))
-        return a64_reg_preserved_across_call(reg, false);
+        return a64_reg_preserved_across_call(reg, vreg_is_wide(ra->f, vreg));
     return true;
 }
 
@@ -467,16 +475,16 @@ static bool a64_scan_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
  * Sprint 49's 128-bit vectors widen this to 16. */
 static u32 a64_scan_spill_size(void *ctx, u32 vreg)
 {
-    (void)ctx;
-    (void)vreg;
-    return 8;
+    Ra *ra = ctx;
+
+    return vreg_is_wide(ra->f, vreg) ? 16u : 8u;
 }
 
 static u32 a64_scan_spill_align(void *ctx, u32 vreg)
 {
-    (void)ctx;
-    (void)vreg;
-    return 8;
+    Ra *ra = ctx;
+
+    return vreg_is_wide(ra->f, vreg) ? 16u : 8u;
 }
 
 static void linear_scan(Ra *ra)
@@ -577,11 +585,13 @@ static A64Inst mk_mem_op(u16 op, u8 sf, A64Reg value, i32 offset)
     in.ops[1].kind = A64O_MEM;
     in.ops[1].mem.base = phys_reg(A64_X29);
     in.ops[1].mem.offset = offset;
-    in.ops[1].mem.mode =
-        a64_isel_addr(offset, 8, false, false) == A64_ADDR_SCALED
-            ? A64_ADDR_SCALED
-            : A64_ADDR_UNSCALED;
-    in.ops[1].mem.size = 8;
+    /* The access size follows the width: a spilled vector moves as a whole
+     * q register, and an 8-byte slot would silently drop its upper half. */
+    in.ops[1].mem.size = (u8)(sf == A64_SF128 ? 16 : 8);
+    in.ops[1].mem.mode = a64_isel_addr(offset, in.ops[1].mem.size, false,
+                                       false) == A64_ADDR_SCALED
+                             ? A64_ADDR_SCALED
+                             : A64_ADDR_UNSCALED;
     return in;
 }
 
@@ -681,9 +691,11 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
                 fp = vreg_is_fp(ra->f, v);
                 scratch = take_scratch(rw, fp);
                 /* One opcode serves both banks: the register operand names
-                 * the bank, exactly as the printer reads it. */
-                reload = mk_mem_op(A64_OP_LOAD, A64_SF64, phys_reg(scratch),
-                                   ra->iv[v].slot);
+                 * the bank, exactly as the printer reads it. A vector value
+                 * moves as a whole q register or its upper half is lost. */
+                reload = mk_mem_op(
+                    A64_OP_LOAD, vreg_is_wide(ra->f, v) ? A64_SF128 : A64_SF64,
+                    phys_reg(scratch), ra->iv[v].slot);
                 rb_put(&rb, &reload);
             }
         }
@@ -727,8 +739,9 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
         }
         rb_put(&rb, &in);
         if (def_spilled) {
-            A64Inst store = mk_mem_op(A64_OP_STORE, A64_SF64,
-                                      phys_reg(def_scratch), ra->iv[def].slot);
+            A64Inst store = mk_mem_op(
+                A64_OP_STORE, vreg_is_wide(ra->f, def) ? A64_SF128 : A64_SF64,
+                phys_reg(def_scratch), ra->iv[def].slot);
 
             rb_put(&rb, &store);
         }

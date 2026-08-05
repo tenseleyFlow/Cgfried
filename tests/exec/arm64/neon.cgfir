@@ -1,0 +1,45 @@
+// NEON: element-wise arithmetic, splat, lane extract, and the reductions
+// that have no single instruction and go through the ext/op halving.
+func i32 @sum4(ptr %p) {
+entry():
+    %v = load v4i32, %p, align 16
+    %s = vreduce_add v4i32 %v
+    ret i32 %s
+}
+
+func i32 @xor4(ptr %p) {
+entry():
+    %v = load v4i32, %p, align 16
+    %s = vreduce_xor v4i32 %v
+    ret i32 %s
+}
+
+func i64 @sum2(ptr %p) {
+entry():
+    %v = load v2i64, %p, align 16
+    %s = vreduce_add v2i64 %v
+    ret i64 %s
+}
+
+func void @addvec(ptr %a, ptr %b, ptr %out) {
+entry():
+    %x = load v4i32, %a, align 16
+    %y = load v4i32, %b, align 16
+    %z = iadd v4i32 %x, %y
+    store v4i32 %z, %out, align 16
+    ret
+}
+
+func void @splat(ptr %out, i32 %v) {
+entry():
+    %s = vsplat v4i32 i32 %v
+    store v4i32 %s, %out, align 16
+    ret
+}
+
+func i32 @lane2(ptr %p) {
+entry():
+    %v = load v4i32, %p, align 16
+    %e = vextract v4i32 %v, 2
+    ret i32 %e
+}

@@ -61,6 +61,13 @@ static A64Sf sf_of(IrType type)
     case IRT_PTR:
     case IRT_F64:
         return A64_SF64;
+    case IRT_V16I8:
+    case IRT_V8I16:
+    case IRT_V4I32:
+    case IRT_V2I64:
+    case IRT_V4F32:
+    case IRT_V2F64:
+        return A64_SF128;
     default:
         CGF_ICE("arm64 isel: type '%s' lands in Sprint 49", ir_type_name(type));
     }
@@ -73,8 +80,11 @@ static bool fp_type(IrType type)
 
 static A64Reg new_reg(Isel *is, IrType type)
 {
-    return a64_newv_width(is->func, fp_type(type) ? A64RC_FP : A64RC_GP,
-                          sf_of(type));
+    /* Vectors live in the FP bank whatever their element type: NEON has one
+     * register file, so a v4i32 and a v2f64 are both q registers. */
+    bool fp = fp_type(type) || ir_type_is_vector(type);
+
+    return a64_newv_width(is->func, fp ? A64RC_FP : A64RC_GP, sf_of(type));
 }
 
 static A64Block *block(Isel *is)
@@ -1236,6 +1246,160 @@ static A64Operand atomic_addr(Isel *is, const IrOperand *ptr, u8 size)
     return op;
 }
 
+/* --- NEON (Sprint 49) -------------------------------------------------------
+ *
+ * The Sprint 36 vectorizer emits target-neutral IR, so the port is entirely
+ * here and in emission. Two things are simpler than SSE2: ldr/str q never
+ * fault on alignment, so there is no aligned/unaligned split to model, and
+ * the element arrangement travels on the instruction rather than being
+ * implied by the opcode.
+ *
+ * Reductions have no single NEON instruction for most operations. addv
+ * exists for integer add, but mul/and/or/xor have nothing, so all of them
+ * use the same halving sequence: rotate the register by half its width with
+ * `ext`, apply the operation, repeat. Uniformity beats a special case that
+ * only one opcode can take -- UPGRADE(neon-addv) marks where the shortcut
+ * would go. */
+
+static A64Reg new_vreg128(Isel *is)
+{
+    return a64_newv_width(is->func, A64RC_FP, A64_SF128);
+}
+
+static u16 vector_alu_op(IrOp op, bool fp)
+{
+    if (fp)
+        return op == IR_FADD   ? A64_OP_VFADD
+               : op == IR_FSUB ? A64_OP_VFSUB
+               : op == IR_FMUL ? A64_OP_VFMUL
+                               : A64_OP_VFDIV;
+    switch (op) {
+    case IR_IADD:
+        return A64_OP_VADD;
+    case IR_ISUB:
+        return A64_OP_VSUB;
+    case IR_IMUL:
+        return A64_OP_VMUL;
+    case IR_AND:
+        return A64_OP_VAND;
+    case IR_OR:
+        return A64_OP_VORR;
+    case IR_XOR:
+        return A64_OP_VEOR;
+    default:
+        CGF_ICE("arm64 isel: IR op %u has no NEON form", (unsigned)op);
+    }
+}
+
+static void select_vector_binary(Isel *is, const IrInst *ir)
+{
+    IrType vt = (IrType)ir->type;
+    bool fp = vt == IRT_V4F32 || vt == IRT_V2F64;
+    A64Reg a = to_reg(is, &ir->ops[0]);
+    A64Reg b = to_reg(is, &ir->ops[1]);
+    A64Reg dst = new_vreg128(is);
+    A64Inst *inst = emit(is, vector_alu_op((IrOp)ir->op, fp), A64_SF128);
+
+    inst->src_sf = (u8)vt;
+    add_operand(inst, reg_op(dst));
+    add_operand(inst, reg_op(a));
+    add_operand(inst, reg_op(b));
+    bind_result(is, ir, dst);
+}
+
+static void select_vsplat(Isel *is, const IrInst *ir)
+{
+    IrType vt = (IrType)ir->type;
+    IrType et = ir_vector_elem_type(vt);
+    bool fp = et == IRT_F32 || et == IRT_F64;
+    A64Reg dst = new_vreg128(is);
+    A64Inst *inst;
+
+    if (fp) {
+        /* the scalar already sits in the low lane of an FP register */
+        A64Reg src = to_reg(is, &ir->ops[0]);
+
+        inst = emit(is, A64_OP_VDUPLANE, A64_SF128);
+        inst->src_sf = (u8)vt;
+        add_operand(inst, reg_op(dst));
+        add_operand(inst, reg_op(src));
+    } else {
+        A64Reg src = to_gp(is, &ir->ops[0]);
+
+        inst = emit(is, A64_OP_VDUP, A64_SF128);
+        inst->src_sf = (u8)vt;
+        add_operand(inst, reg_op(dst));
+        add_operand(inst, reg_op(src));
+    }
+    bind_result(is, ir, dst);
+}
+
+/* One lane out of a vector: umov for an integer element, a scalar mov for a
+ * floating one (which is also how a reduction delivers its result). */
+static void emit_lane_extract(Isel *is, IrType vt, A64Reg src, A64Reg dst,
+                              u32 lane)
+{
+    IrType et = ir_vector_elem_type(vt);
+    bool fp = et == IRT_F32 || et == IRT_F64;
+    A64Inst *inst =
+        emit(is, fp ? A64_OP_VLANE : A64_OP_VUMOV, a64_vec_lane_sf((u8)vt));
+
+    inst->src_sf = (u8)vt;
+    add_operand(inst, reg_op(dst));
+    add_operand(inst, reg_op(src));
+    add_operand(inst, imm_op((i64)lane));
+}
+
+static void select_vextract(Isel *is, const IrInst *ir)
+{
+    IrType vt = (IrType)ir->ops[0].type;
+    A64Reg src = to_reg(is, &ir->ops[0]);
+    A64Reg dst = new_reg(is, (IrType)ir->type);
+
+    emit_lane_extract(is, vt, src, dst, ir->subop);
+    bind_result(is, ir, dst);
+}
+
+static void select_vreduce(Isel *is, const IrInst *ir)
+{
+    IrType vt = (IrType)ir->ops[0].type;
+    IrType et = ir_vector_elem_type(vt);
+    bool fp = et == IRT_F32 || et == IRT_F64;
+    u32 elem = ir_type_size(et);
+    A64Reg cur = to_reg(is, &ir->ops[0]);
+    A64Reg dst = new_reg(is, (IrType)ir->type);
+    IrOp op = ir->op == IR_VREDUCE_ADD   ? (fp ? IR_FADD : IR_IADD)
+              : ir->op == IR_VREDUCE_MUL ? (fp ? IR_FMUL : IR_IMUL)
+              : ir->op == IR_VREDUCE_AND ? IR_AND
+              : ir->op == IR_VREDUCE_OR  ? IR_OR
+                                         : IR_XOR;
+    u32 half;
+
+    /* UPGRADE(neon-addv): integer add could use addv in one instruction.
+     * Every other operation needs this halving anyway, so one shape serves
+     * all five rather than a fast path only add can take. */
+    for (half = 8; half >= elem; half >>= 1) {
+        A64Reg rot = new_vreg128(is);
+        A64Reg acc = new_vreg128(is);
+        A64Inst *inst = emit(is, A64_OP_VEXT, A64_SF128);
+
+        inst->src_sf = (u8)vt;
+        add_operand(inst, reg_op(rot));
+        add_operand(inst, reg_op(cur));
+        add_operand(inst, reg_op(cur));
+        add_operand(inst, imm_op((i64)half));
+
+        inst = emit(is, vector_alu_op(op, fp), A64_SF128);
+        inst->src_sf = (u8)vt;
+        add_operand(inst, reg_op(acc));
+        add_operand(inst, reg_op(cur));
+        add_operand(inst, reg_op(rot));
+        cur = acc;
+    }
+    emit_lane_extract(is, vt, cur, dst, 0);
+    bind_result(is, ir, dst);
+}
+
 static void select_call(Isel *is, const IrInst *ir)
 {
     u32 first = ir->subop == FUNCREF_INDIRECT ? 1u : 0u;
@@ -1289,8 +1453,10 @@ static void select_inst(Isel *is, const IrInst *ir)
     case IR_SHL:
     case IR_LSHR:
     case IR_ASHR:
-        if (ir_type_is_vector((IrType)ir->type))
-            CGF_ICE("arm64 isel: NEON selection lands in Sprint 49");
+        if (ir_type_is_vector((IrType)ir->type)) {
+            select_vector_binary(is, ir);
+            break;
+        }
         select_binary(is, ir);
         break;
     case IR_SDIV:
@@ -1310,6 +1476,10 @@ static void select_inst(Isel *is, const IrInst *ir)
     case IR_FMUL:
     case IR_FDIV:
     case IR_FNEG:
+        if (ir_type_is_vector((IrType)ir->type)) {
+            select_vector_binary(is, ir);
+            break;
+        }
         if (!fp_type((IrType)ir->type))
             CGF_ICE("arm64 isel: f80/f128 arithmetic lands in Sprint 49");
         select_fp_arith(is, ir);
@@ -1639,13 +1809,18 @@ static void select_inst(Isel *is, const IrInst *ir)
         break;
     }
     case IR_VSPLAT:
+        select_vsplat(is, ir);
+        break;
     case IR_VEXTRACT:
+        select_vextract(is, ir);
+        break;
     case IR_VREDUCE_ADD:
     case IR_VREDUCE_MUL:
     case IR_VREDUCE_AND:
     case IR_VREDUCE_OR:
     case IR_VREDUCE_XOR:
-        CGF_ICE("arm64 isel: NEON selection lands in Sprint 49");
+        select_vreduce(is, ir);
+        break;
     default:
         CGF_ICE("arm64 isel: unhandled IR opcode %u", ir->op);
     }
