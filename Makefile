@@ -324,6 +324,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/a64_exec_lane.sh $(BUILD)/a64mir
 	sh scripts/char_sign_oracle.sh
 	sh scripts/fp128_diff.sh
+	sh scripts/x86_atomics_lane.sh $(BUILD)/cgfried
 	$(MAKE) check-warn-matrix
 	$(MAKE) BUILD=$(BUILD) test-warndiff
 	sh scripts/check_format.sh

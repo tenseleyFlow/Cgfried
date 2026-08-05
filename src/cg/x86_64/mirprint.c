@@ -107,6 +107,10 @@ static const char *const op_names[] = {
     "fpop",
     "fnstcw",
     "fldcw",
+    "xadd",
+    "cmpxchg",
+    "xchg",
+    "mfence",
 };
 
 _Static_assert(sizeof(op_names) / sizeof(op_names[0]) == X64_OP_COUNT,

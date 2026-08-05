@@ -269,6 +269,23 @@ static void emit_inst(Emit *e, const X64Inst *in, u32 bi, u32 next_bb)
         snprintf(op, sizeof(op), "mov%c", sfx(w));
         emit2(e, op, &in->a, w, &in->b, w);
         break;
+    case X64_OP_XADD:
+    case X64_OP_CMPXCHG:
+    case X64_OP_XCHG:
+        /* AT&T order is (src, dst): the register is the source and memory
+         * the destination for all three. XCHG against memory is atomic with
+         * no prefix, which is why only the other two carry X64IF_LOCK. */
+        snprintf(op, sizeof(op), "%s%s%c",
+                 in->flags & X64IF_LOCK ? "lock " : "",
+                 in->op == X64_OP_XADD      ? "xadd"
+                 : in->op == X64_OP_CMPXCHG ? "cmpxchg"
+                                            : "xchg",
+                 sfx(w));
+        emit2(e, op, &in->a, w, &in->b, w);
+        break;
+    case X64_OP_MFENCE:
+        buf_printf(e->out, "\tmfence\n");
+        break;
     case X64_OP_JMP:
         buf_printf(e->out, "\tjmp\t.Lf%u_%u\n", e->fidx, in->target);
         break;

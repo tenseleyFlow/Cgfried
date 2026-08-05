@@ -201,12 +201,20 @@ typedef enum X64Op {
     X64_OP_X87_FPOP,    /* fstp %st(0): discard st0 */
     X64_OP_X87_FNSTCW,  /* [mem] <- control word (16 bits) */
     X64_OP_X87_FLDCW,   /* control word <- [mem] */
+    /* Sprint 49 (Sprint 25's unfinished business): the atomic forms.
+     * XCHG with a memory operand is implicitly locked by the architecture;
+     * XADD and CMPXCHG need X64IF_LOCK spelled. */
+    X64_OP_XADD,    /* lock xadd mem, reg -- reg gets the OLD value */
+    X64_OP_CMPXCHG, /* lock cmpxchg mem, reg -- rax is expected and result */
+    X64_OP_XCHG,    /* xchg reg, mem -- always atomic, no prefix */
+    X64_OP_MFENCE,  /* the store half of sequential consistency */
     X64_OP_COUNT
 } X64Op;
 
 #define X64IF_TWO_ADDR 0x1 /* dst must equal src1 after Sprint 22 */
 #define X64IF_DEFS_FLAGS 0x2
 #define X64IF_USES_FLAGS 0x4
+#define X64IF_LOCK 0x8 /* emit a `lock` prefix before the mnemonic */
 
 typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
     X64VReg base, index; /* either may be invalid */

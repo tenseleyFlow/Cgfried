@@ -1130,6 +1130,17 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a = v;
             x->b.kind = X64O_MEM;
             x->b.mem = mem;
+            if (in->flags & IRF_SEQ_CST) {
+                /* x86-TSO gives every load acquire semantics and every store
+                 * release semantics for free, so an atomic LOAD needs nothing
+                 * beyond a plain mov. A sequentially consistent STORE does
+                 * not come free: the store buffer lets a later load overtake
+                 * it, which is exactly the reordering Dekker-style algorithms
+                 * depend on not happening. Without this fence the code is
+                 * silently wrong on real hardware and passes every
+                 * single-threaded test. */
+                (void)emit(is, X64_OP_MFENCE, X64_Q);
+            }
         }
         break;
     }
@@ -2495,13 +2506,131 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         }
         break;
     }
-    case IR_ATOMICRMW:
-    case IR_CMPXCHG:
-        /* lock-prefixed forms; retargeted from the old Sprint 24 guess
-         * when emission landed there without them (the staged atomic
-         * exec fixtures unskip at Sprint 25, which owns this). */
-        CGF_ICE("x86_64 isel: '%s' isel lands in Sprint 25",
-                ir_op_name((IrOp)in->op));
+    case IR_ATOMICRMW: {
+        /* Every form returns the OLD value. `add` and `xchg` have direct
+         * instructions for that; `sub` is add of the negation; and/or/xor
+         * have no such form and go through the compare-exchange below.
+         *
+         * Unlike the arm64 ll/sc sequence, a retry loop here is ordinary
+         * code: x86 has no exclusive monitor to lose, so spill code inside
+         * it is merely slow and the loop is built from real blocks. */
+        X64Width w = width_of((IrType)in->type);
+        X64Mem mem = fold_addr(is, &in->ops[0]);
+        X64VReg val = to_vreg(is, &in->ops[1]);
+        X64VReg out = newv(is);
+        X64Inst *x;
+
+        if (in->subop == RMW_XCHG) {
+            /* xchg against memory is atomic with no prefix — the one form
+             * the architecture locks implicitly. */
+            x = emit(is, X64_OP_MOV, w);
+            x->def = out;
+            x->a = ovreg(val);
+            x = emit(is, X64_OP_XCHG, w);
+            x->def = out;
+            x->flags |= X64IF_TWO_ADDR;
+            x->a = ovreg(out);
+            x->b.kind = X64O_MEM;
+            x->b.mem = mem;
+            is->vals[in->result.v].vr = out;
+            break;
+        }
+        if (in->subop == RMW_ADD || in->subop == RMW_SUB) {
+            x = emit(is, X64_OP_MOV, w);
+            x->def = out;
+            x->a = ovreg(val);
+            if (in->subop == RMW_SUB) {
+                x = emit(is, X64_OP_NEG, w);
+                x->def = out;
+                x->flags |= X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+                x->a = ovreg(out);
+            }
+            x = emit(is, X64_OP_XADD, w);
+            x->def = out;
+            x->flags |= X64IF_TWO_ADDR | X64IF_DEFS_FLAGS | X64IF_LOCK;
+            x->a = ovreg(out);
+            x->b.kind = X64O_MEM;
+            x->b.mem = mem;
+            is->vals[in->result.v].vr = out;
+            break;
+        }
+        {
+            u32 loop = new_block(is, "atomic.loop");
+            u32 done = new_block(is, "atomic.done");
+            X64VReg next = newv(is);
+            IrOp alu = in->subop == RMW_AND  ? IR_AND
+                       : in->subop == RMW_OR ? IR_OR
+                                             : IR_XOR;
+
+            /* Seed rax with the current value, then retry until the
+             * compare-exchange reports success. */
+            x = emit(is, X64_OP_LOAD, w);
+            x->def = out;
+            x->def_fixed = X64_RAX + 1;
+            x->a.kind = X64O_MEM;
+            x->a.mem = mem;
+            x = emit(is, X64_OP_JMP, X64_Q);
+            x->target = loop;
+
+            is->cur = loop - 1;
+            x = emit(is, X64_OP_MOV, w);
+            x->def = next;
+            x->a = ovreg(out);
+            x->a.fixed = X64_RAX + 1;
+            x = emit(is, alu_op(alu), w);
+            x->def = next;
+            x->flags |= X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+            x->a = ovreg(next);
+            x->b = ovreg(val);
+            /* cmpxchg compares rax against memory: on a match it stores the
+             * source and sets ZF; otherwise it loads memory INTO rax, which
+             * is what makes the retry converge without re-reading. */
+            x = emit(is, X64_OP_CMPXCHG, w);
+            x->def = out;
+            x->def_fixed = X64_RAX + 1;
+            x->flags |= X64IF_DEFS_FLAGS | X64IF_LOCK;
+            x->a = ovreg(next);
+            x->b.kind = X64O_MEM;
+            x->b.mem = mem;
+            x64_add_xuse(is->xf, x, out, X64_RAX + 1);
+            x = emit(is, X64_OP_JCC, X64_Q);
+            x->cc = X64_CC_NE;
+            x->flags |= X64IF_USES_FLAGS;
+            x->flags_src = blk(is)->n - 2;
+            x->target = loop;
+            x->target2 = done;
+
+            is->cur = done - 1;
+            is->vals[in->result.v].vr = out;
+        }
+        break;
+    }
+    case IR_CMPXCHG: {
+        X64Width w = width_of((IrType)in->type);
+        X64Mem mem = fold_addr(is, &in->ops[0]);
+        X64VReg expected = to_vreg(is, &in->ops[1]);
+        X64VReg desired = to_vreg(is, &in->ops[2]);
+        X64VReg out = newv(is);
+        X64Inst *x;
+
+        /* rax carries the expected value in and the OLD value out. The IR
+         * contract is single-result: success is `icmp eq old, expected`,
+         * which the caller computes, so ZF is not consumed here. */
+        x = emit(is, X64_OP_MOV, w);
+        x->def = out;
+        x->def_fixed = X64_RAX + 1;
+        x->a = ovreg(expected);
+        x = emit(is, X64_OP_CMPXCHG, w);
+        x->def = out;
+        x->def_fixed = X64_RAX + 1;
+        x->flags |= X64IF_DEFS_FLAGS | X64IF_LOCK;
+        x->a = ovreg(desired);
+        x->b.kind = X64O_MEM;
+        x->b.mem = mem;
+        x64_add_xuse(is->xf, x, out, X64_RAX + 1);
+        is->vals[in->result.v].vr = out;
+        break;
+    }
     default:
         CGF_ICE("x86_64 isel: unhandled IR op %u", in->op);
     }
