@@ -43,9 +43,9 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
   with the bundled afs-as into ELF objects byte-identical to
   `aarch64-linux-gnu-as`, and links. The e2e corpus is 43/51 there, with the
-  8 gaps ledgered by cause (§5) — the same split on real hardware and under
-  qemu, so they are backend gaps, not emulator artifacts.
-- **Sprint 49 closed 5 of its 7 DoD gates as written**; gates 1, 2, 3, 4 and 6
+  one gap ledgered by cause — the same split on real hardware and under
+  qemu, so it is a backend gap, not an emulator artifact.
+- **Sprint 49 closed 6 of its 7 DoD gates as written**; gates 1, 2, 4 and 6
   carry named gaps rather than being met. See the DoD audit table at the end
   of `.docs/sprints/10-backend-arm64/s49-arm64-linux.md` before assuming any
   arm64 property holds.
@@ -389,63 +389,114 @@ both directions by `scripts/a64_corpus_lane.sh`: a new failure fails the
 lane, and so does a pinned entry that starts passing. One line per (fixture,
 opt level) with its cause. `make test-a64-corpus` runs it.
 
-Arm64 corpus went 43/51 -> 47/51 this session. Closed:
+Arm64 corpus went 43/51 -> **50/51**. Closed:
 
 | gap | cause | commit |
 |---|---|---|
 | `int/struct_ret` SIGSEGV | the hidden aggregate-return pointer was bound from `param_annots`, which ir.h says carries ONLY byval — so both AAPCS64 branches in `bind_params` were dead code and the pointer landed in x0 on top of the first real argument | `0d2daa8` |
 | 3x "malformed global address" at -O1 | an address constant's addend must ride BOTH halves of the adrp pair | `6462370` |
+| `int/promo_traps` exits 3 | NOT a miscompile. Plain `char` is unsigned on arm64 and real aarch64 gcc exits 3 too; the fixture now spells `signed char`, which is what it always meant | `b325152` |
+| f128, both halves | four defects, below | `5414896`..`c2adb03` |
 
-### The four that remain, in the order I would take them
+**f128 is complete and gate 3 is closed.** The first half (`715dab8`) had
+never been assembled by anything — every f128 program failed before reaching
+the assembler — so three of its four defects were in code it claimed to have
+landed:
 
-**1. `int/promo_traps` exits 3, expected 0.** The ONLY wrong-answer
-miscompile left — everything else crashes or ICEs, which is louder and
-safer. Take it first for that reason. `char` is UNSIGNED on arm64-linux, so
-CHECK WHETHER THE FIXTURE'S EXPECTATION IS TARGET-DEPENDENT before assuming
-codegen: `tests/corpus/char_sign/` exists precisely because some of these
-legitimately diverge, and this may belong there rather than in the ledger.
+- `a64_type_is_fp` in `regalloc.c` omitted f128, so libcall arguments
+  marshalled through the INTEGER queue: `mov x0, d0`, one register from each
+  bank. This broke the ARITHMETIC the first half was supposedly about.
+- The arm64 selector read a call argument's ABI annotation from
+  `IrOperand.b` unconditionally. That field is the annotation only for VALUE
+  and SYMBOL operands; on an FCONST it holds the HIGH 64 BITS of an f80/f128
+  constant, so a large long-double literal argument decoded as a pair/sret
+  hidden pointer and the caller stored the result through an FP register.
+  **`print.c`, `verify.c` and the x86 selector all already scope this read**
+  — the arm64 backend was the outlier, for the second time in two commits
+  (`0d2daa8` was the same class). If you touch arm64 ABI code, check what
+  the other three do first.
+- f128 constants had NO materialization: the emitter printed `v?`, an
+  unallocated vreg, and gas said "undefined symbol". binary128 has no
+  immediate form of any kind, so both halves come from a per-function
+  16-byte `.rodata` pool addressed with the ordinary adrp/add pair (not the
+  load-folded `:lo12:`, whose immediate is scaled).
+- The corpus lane never built an arm64 `libcgf_rt.a`. `RT_TARGET` comes from
+  RUNNING `$(BUILD)/cgfried -dumpmachine`, which a cross build cannot do, so
+  it silently fell back to the host triple and filed the archive under
+  `x86_64-linux-gnu/` where the driver never looks.
 
-**2. f128, second half.** The first half is `715dab8`; read
-`src/lower/f128.c`'s header comment, which states the design and why it is a
-pass rather than a lowering condition. Done: arithmetic -> `__addtf3` &c,
-f128 treated as the q-register FP value it is, and the 128-bit register move
-(`mov vD.16b, vN.16b` — there is no 128-bit `fmov`). Remaining, in
-increasing difficulty:
+**`__negtf2` is SHIPPED, not inlined — the previous handoff was wrong about
+this.** It said there is no `__negtf2` in libgcc's set. There is; it is a
+documented libgcc entry point. Our runtime omitted it on the assumption that
+negation would be an inline sign-bit `eor` — but that is a NEON
+`eor vD.16b`, and afs-as cannot encode NEON register operands. Since the
+DEFAULT assembler is the bundled one, an inline form would have made
+`long double` negation depend on upstream Rust work. `fp128_diff` now
+compares 24 entry points, 1432 lines identical to libgcc. When afs-as gains
+NEON, isel can inline it and the symbol stays for ABI compatibility.
 
-- *Conversions.* The mapping table in `convert_libcall()` is already
-  written and correct; what fails is the CALL, with `mov d1, x0` and
-  "undefined symbol d0 used as an immediate". Those libcalls mix banks —
-  `__floatsitf` takes an int in w0 and returns f128 in q0, `__trunctfdf2`
-  takes q0 and returns a double in d0 — so the argument marshalling is what
-  needs fixing, not the table. Reproduce with three lines:
-  `long double add(long double a, long double b){return a+b;}` plus a
-  `(double)` and a `(long double)(int)` conversion, then `-S` it.
-- *Comparisons.* `__lttf2(a,b)` returns an int whose SIGN encodes the
-  answer, so `a < b` becomes a call plus an icmp. That is two instructions
-  where the arithmetic rewrite was one, so it cannot be the in-place trick
-  `rewrite_as_call()` uses — it needs real instruction insertion.
-- *`fneg`.* There is NO `__negtf2` in libgcc's set or ours (`scripts/fp128_diff.sh`
-  lists all 23 we ship). It must be a sign-bit flip in the backend — a NEON
-  `eor` against a mask. `0 - x` is NOT a substitute: it turns `-0.0` into
-  `+0.0`.
+`int/duff` at -O1 is also closed, and the previous handoff's diagnosis of it
+was WRONG in a way worth repeating: it said "isel is producing something
+structurally wrong". The verifier that rejected it runs at driver.c:711,
+which is AFTER regalloc — reading the line number in the message would have
+said so in ten seconds. The actual bug was in the spill rewrite: it emits
+reloads AHEAD of the instruction they serve but recorded its
+old-index-to-new-index entry at the TOP of the loop, so the entry named the
+first reload. An NZCV producer whose own operands spilled therefore had every
+consumer re-aimed at a load, which defines no flags. The other four rebuild
+loops in that file already record the entry immediately before their
+`rb_put`; the spill one was the outlier (`9c98698`).
 
-Closing f128 also closes Sprint 49's DoD gate 3.
+### THE finding of this session: the spill-all lane
 
-**3. `int/duff` at -O1: "NZCV consumer does not name an earlier producer".**
-An MIR verifier rejection, so isel is producing something structurally
-wrong — a flags consumer whose `flags_src` is stale or points forward after
-some transform. Duff's device is the trigger.
+Because that bug lived in the spill path and exactly one fixture at one
+optimization level caught it, the corpus now also runs with
+`CGF_SPILL_ALL=1` (`make test-a64-spill-all`, own ledger at
+`ci/expected_a64_spill_all_failures.txt`). **It immediately found eleven
+failures the ordinary lane does not see**, including wrong ANSWERS rather
+than crashes — `printf_fp` prints `pi=3.140625` for 3.141593.
 
-**4. afs-as instruction coverage** — unpins the four fixtures in
+Only one cluster is diagnosed, and the ledger says so rather than guessing:
+
+- **Frame immediates (verified).** `ldp x29, x30, [sp], #512` and
+  `sub sp, sp, #4096` both exceed their fields. stp/ldp pre/post-index AND
+  scaled offsets are a signed 7-bit value scaled by 8, so **+504 is the
+  maximum and `A64_FRAME_PREINDEX_MAX 512` is off by one slot** — legal for
+  the store, illegal for the matching load. add/sub immediates are 12 bits
+  unless spelled `lsl #12`, which the emitter does not spell.
+  **This is NOT spill-all-only.** `tests/corpus/x86_64/int/big_frame.c`
+  reaches it with an ordinary 8000-byte local array, at every optimization
+  level, and is pinned in the ordinary ledger. Any arm64 function with a
+  frame past ~504 bytes fails to assemble. The 53-program corpus had simply
+  never allocated one.
+- **Floating point under spill: wrong answers and faults.** Five fixtures.
+  Undiagnosed — the reload/consume pairing at the call site is correct on
+  inspection, so it is not obviously marshalling.
+- **Two integer programs fault or answer wrongly.** Undiagnosed.
+
+### What remains
+
+**1. Large frames.** The verified cluster above. Fix `A64_FRAME_PREINDEX_MAX`
+to 504, teach the emitter the `lsl #12` add/sub form, and give frame-object
+addressing past 4095 a materialized base. Test at each boundary
+(504/512/4095/4096), not just past all of them.
+
+**2. The FP-under-spill cluster and the two integer ones.** Get evidence
+before naming a cause.
+
+**3. afs-as instruction coverage** — unpins the four fixtures in
 `scripts/a64_objdiff_lane.sh`'s `UNENCODABLE` list and closes Sprint 49 DoD
-gate 1. Needs `mneg`, `smull`, `ucvtf`, `fcvtzu`, `ldar`/`ldaxr`/`stlxr`/`clrex`,
-and NEON vector operands in the submodule's arm64 encoder. Rust work,
-upstream PR + submodule bump (§7).
+gate 1. Needs `mneg`, `smull`, `ucvtf`, `fcvtzu`,
+`ldar`/`ldaxr`/`stlxr`/`clrex`, and NEON vector operands in the submodule's
+arm64 encoder. Measured, not guessed: afs-as DOES take `ldr q`/`str q`/
+`ldp q`/`fmov x<->d`, and does NOT take `mov v0.16b`, `orr`/`eor` on
+vectors, `umov`, or `mov v0.d[1], x0`. NEON also unblocks inlining
+`__negtf2`. Rust work, upstream PR + submodule bump (§7).
 
-Two Sprint 49 gates are also cheap to close and need job steps, not
-engineering: the char-sign corpus and the 4-thread atomics hammer do not run
-on the NATIVE arm64 runner, which is real hardware already sitting in CI.
-See the DoD audit table at the end of the Sprint 49 file.
+**4. Two Sprint 49 gates need job steps, not engineering:** the char-sign
+corpus and the 4-thread atomics hammer do not run on the NATIVE arm64
+runner, which is real hardware already sitting in CI. See the DoD audit
+table at the end of the Sprint 49 file.
 
 ### THE trap that bit three times in one session
 
@@ -474,14 +525,14 @@ There are THREE binaries in play and they are easy to confuse:
 Things a reader cannot reconstruct from the diff, written down because the
 next person will otherwise re-derive them or, worse, quietly undo them.
 
-**The Sprint 49 DoD is 5 of 7, not 7 of 7.** All seven deliverables are
-implemented; five gates are met as written and gates 1, 2, 3, 4 and 6 carry
+**The Sprint 49 DoD is 6 of 7, not 7 of 7.** All seven deliverables are
+implemented; six gates are met as written and gates 1, 2, 4 and 6 carry
 named gaps. The audit table at the end of
 `.docs/sprints/10-backend-arm64/s49-arm64-linux.md` says which is which. Do
 not let "Sprint 49 complete" in a changelog become "arm64 is done" in your
-head — the corpus is 47/51 and the four remaining failures are real.
+head — the corpus is 50/51 and the remaining failure is real.
 
-**The corpus ledger is a floor, not a ceiling.** 47 of 51 e2e programs pass
+**The corpus ledger is a floor, not a ceiling.** 50 of 51 e2e programs pass
 on arm64. That is a good deal short of "the arm64 backend works", and the
 corpus is 51 small programs written to exercise x86. Sprint 57's musl
 campaign will be a far harsher test. Treat the current arm64 backend as
