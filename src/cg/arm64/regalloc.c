@@ -773,13 +773,21 @@ typedef struct ArgWalk {
     u32 nsaa; /* next stacked argument offset, from the outgoing area base */
 } ArgWalk;
 
+/* f128 belongs here even though the architecture cannot compute with it:
+ * AAPCS64 passes and returns binary128 in a q register exactly like any
+ * other floating type, and lower/f128.c's libcalls are ordinary calls whose
+ * arguments happen to be f128. Leaving it out classified those arguments as
+ * integers, which marshalled them with `mov x0, d0` -- a mixed-bank move
+ * that names one register in each file. */
 static bool a64_type_is_fp(u8 type)
 {
-    return type == IRT_F32 || type == IRT_F64;
+    return type == IRT_F32 || type == IRT_F64 || type == IRT_F128;
 }
 
 static A64Sf a64_type_sf(u8 type)
 {
+    if (type == IRT_F128)
+        return A64_SF128;
     return type == IRT_I8 || type == IRT_I16 || type == IRT_I32 ||
                    type == IRT_F32
                ? A64_SF32
@@ -815,6 +823,7 @@ static A64Inst mk_move(bool fp, A64Sf sf, A64Reg dst, A64Reg src)
 static A64Inst mk_out_arg_store(A64Reg value, A64Sf sf, u32 offset)
 {
     A64Inst in;
+    u8 size = (u8)(sf == A64_SF128 ? 16 : 8);
 
     memset(&in, 0, sizeof(in));
     in.op = A64_OP_STORE;
@@ -825,8 +834,8 @@ static A64Inst mk_out_arg_store(A64Reg value, A64Sf sf, u32 offset)
     in.ops[1].kind = A64O_MEM;
     in.ops[1].mem.base = phys_reg(A64_SP);
     in.ops[1].mem.offset = (i64)offset;
-    in.ops[1].mem.size = 8;
-    in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, 8, false, false);
+    in.ops[1].mem.size = size;
+    in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, size, false, false);
     return in;
 }
 
@@ -879,10 +888,16 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
                 w.ngrn = 8;
         }
         if (phys == A64_REG_NONE) {
-            A64Inst store = mk_out_arg_store(arg->value, sf, w.nsaa);
+            A64Inst store;
 
+            /* AAPCS64 B.3: an argument's stack slot inherits its natural
+             * alignment, so a 16-byte binary128 cannot sit at an odd
+             * eightbyte. Everything else this backend passes is <= 8. */
+            if (sf == A64_SF128)
+                w.nsaa = (w.nsaa + 15u) & ~15u;
+            store = mk_out_arg_store(arg->value, sf, w.nsaa);
             rb_put(rb, &store);
-            w.nsaa += 8;
+            w.nsaa += sf == A64_SF128 ? 16u : 8u;
             continue;
         }
         {
