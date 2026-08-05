@@ -1,0 +1,22 @@
+// Integer arithmetic, the ALU forms the emitter has to spell correctly.
+func i64 @mix(i64 %a, i64 %b, i32 %c) {
+entry():
+    %sum = iadd i64 %a, %b
+    %dif = isub i64 %sum, 7
+    %prod = imul i64 %dif, 3
+    %wide = sext i32 %c to i64
+    %tot = iadd i64 %prod, %wide
+    %sh = shl i64 %tot, 2
+    %msk = and i64 %sh, 1048575
+    ret i64 %msk
+}
+
+// Signed division and remainder, which use distinct instructions.
+func i32 @divrem(i32 %a, i32 %b) {
+entry():
+    %q = sdiv i32 %a, %b
+    %r = srem i32 %a, %b
+    %t = imul i32 %q, 100
+    %s = iadd i32 %t, %r
+    ret i32 %s
+}

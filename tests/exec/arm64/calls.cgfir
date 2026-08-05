@@ -1,0 +1,45 @@
+// Direct, recursive, and stack-argument calls. Ten integer arguments force
+// the ninth and tenth onto the stack, which is where the caller and callee
+// walks have to agree exactly.
+func i64 @add10(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, i64 %h, i64 %i, i64 %j) {
+entry():
+    %s1 = iadd i64 %a, %b
+    %s2 = iadd i64 %s1, %c
+    %s3 = iadd i64 %s2, %d
+    %s4 = iadd i64 %s3, %e
+    %s5 = iadd i64 %s4, %f
+    %s6 = iadd i64 %s5, %g
+    %s7 = iadd i64 %s6, %h
+    %s8 = iadd i64 %s7, %i
+    %s9 = imul i64 %j, 1000
+    %s10 = iadd i64 %s8, %s9
+    ret i64 %s10
+}
+
+func i64 @call10(i64 %x) {
+entry():
+    %r = call i64 @add10(i64 %x, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7, i64 8, i64 9, i64 10)
+    ret i64 %r
+}
+
+func i64 @fact(i64 %n) {
+entry():
+    %c = icmp sle i64 %n, 1
+    condbr %c, base(), rec()
+base():
+    ret i64 1
+rec():
+    %m = isub i64 %n, 1
+    %r = call i64 @fact(i64 %m)
+    %p = imul i64 %n, %r
+    ret i64 %p
+}
+
+func i64 @mixedargs(i64 %a, f64 %x, i64 %b, f64 %y) {
+entry():
+    %s = iadd i64 %a, %b
+    %f = fadd f64 %x, %y
+    %i = fptosi f64 %f to i64
+    %t = iadd i64 %s, %i
+    ret i64 %t
+}

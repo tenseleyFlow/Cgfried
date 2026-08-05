@@ -372,6 +372,9 @@ void a64_mir_print(const A64Func *f, Buf *out);
 int a64_mir_verify(const A64Func *f, DiagCtx *dc);
 A64Func *a64_isel_function(const IrModule *m, const IrFunc *f, Arena *a);
 void a64_regalloc(A64Func *f);
+void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
+                       u8 linkage, Buf *out);
+void a64_emit_globals(const IrModule *m, Buf *out);
 u32 a64_liveness_words(const A64Func *f);
 void a64_liveness(const A64Func *f, u64 *live_in, u64 *live_out);
 bool a64_reg_is_callee_saved_gp(u8 reg);

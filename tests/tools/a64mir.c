@@ -118,6 +118,7 @@ static int print_reg31(Arena *arena, DiagCtx *dc, Buf *out)
 int main(int argc, char **argv)
 {
     bool reg31_mode = false;
+    bool asm_mode = false;
     const char *path;
     char *source;
     Arena arena;
@@ -129,10 +130,16 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--reg31") == 0) {
         reg31_mode = true;
         path = argv[2];
+    } else if (argc == 3 && strcmp(argv[1], "--asm") == 0) {
+        /* Sprint 49: allocate and emit real assembly. The driver cannot
+         * select arm64 on an x86 host until --target lands in Sprint 51, so
+         * this is how arm64 emission is exercised and assembled here. */
+        asm_mode = true;
+        path = argv[2];
     } else if (argc == 2) {
         path = argv[1];
     } else {
-        fprintf(stderr, "usage: a64mir [--reg31] input.cgfir\n");
+        fprintf(stderr, "usage: a64mir [--reg31|--asm] input.cgfir\n");
         return 2;
     }
     source = read_all(path);
@@ -153,8 +160,21 @@ int main(int argc, char **argv)
             arena_free_all(&arena);
             return 1;
         }
+        if (asm_mode) {
+            a64_regalloc(f);
+            if (a64_mir_verify(f, dc) != 0) {
+                buf_free(&out);
+                free(source);
+                arena_free_all(&arena);
+                return 1;
+            }
+            a64_emit_function(f, module, i, module->funcs[i].linkage, &out);
+            continue;
+        }
         a64_mir_print(f, &out);
     }
+    if (asm_mode)
+        a64_emit_globals(module, &out);
     if (reg31_mode && !print_reg31(&arena, dc, &out)) {
         buf_free(&out);
         free(source);

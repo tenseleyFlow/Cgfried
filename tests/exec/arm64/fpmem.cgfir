@@ -1,0 +1,40 @@
+// Scalar floating point and global addressing. Globals go through the
+// adrp/add page pair, so a wrong page computation shows up as a wild store.
+func f64 @farith(f64 %a, f64 %b) {
+entry():
+    %s = fadd f64 %a, %b
+    %d = fsub f64 %s, 0x3ff8000000000000
+    %m = fmul f64 %d, %b
+    %q = fdiv f64 %m, 0x4000000000000000
+    ret f64 %q
+}
+
+func i64 @roundtrip(i64 %n) {
+entry():
+    %f = sitofp i64 %n to f64
+    %g = fmul f64 %f, 0x4004000000000000
+    %i = fptosi f64 %g to i64
+    ret i64 %i
+}
+
+func f32 @narrow(f64 %x) {
+entry():
+    %s = fptrunc f64 %x to f32
+    %t = fmul f32 %s, 0x40400000
+    ret f32 %t
+}
+
+func i64 @globals(i64 %v) {
+entry():
+    %p0 = ptradd @cell, 0
+    store i64 %v, %p0, align 8
+    %p1 = ptradd @cell, 8
+    %d = imul i64 %v, 3
+    store i64 %d, %p1, align 8
+    %a = load i64, %p0, align 8
+    %b = load i64, %p1, align 8
+    %s = iadd i64 %a, %b
+    ret i64 %s
+}
+
+global @cell size 16 align 8 external
