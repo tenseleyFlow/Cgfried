@@ -1,0 +1,51 @@
+# arm64-linux corpus debt under CGF_SPILL_ALL=1.
+#
+# Forcing every interval to memory is the only thing that exercises the spill
+# rewrite broadly, and that rewrite is where an instruction's index moves --
+# the exact shape of the NZCV bug fixed in `9c98698`, which one fixture at
+# one optimization level was all that caught. The ordinary lane runs at
+# natural pressure, where a handful of corpus programs spill at all.
+#
+# Enforced EXACTLY in both directions by scripts/a64_corpus_lane.sh, the same
+# as the ordinary ledger: a new failure fails the lane and so does an entry
+# that starts passing. Run it with
+#
+#     CGF_A64_SPILL_ALL=1 CGF_A64_CORPUS_WORK=build/a64-corpus-sa \
+#       CGF_A64_LEDGER=ci/expected_a64_spill_all_failures.txt \
+#       sh scripts/a64_corpus_lane.sh
+#
+# or `make test-a64-spill-all`.
+#
+# THREE clusters. Only the first has a verified cause; the other two are
+# recorded as OBSERVATIONS, because naming a cause I have not seen in a
+# disassembly is how the last two wrong diagnoses started.
+#
+# 1. Frame immediates (verified). `ldp x29, x30, [sp], #512` and
+#    `sub sp, sp, #4096` both exceed their fields -- pre/post-index and
+#    scaled stp/ldp offsets are a signed 7-bit value scaled by 8, so +504 is
+#    the maximum, and add/sub immediates are 12 bits unless spelled with
+#    `lsl #12`. Spilling everything makes frames large enough to reach all
+#    three. This is NOT a spill-all-only bug: tests/corpus/x86_64/int/
+#    big_frame.c reaches it with an ordinary 8000-byte local array and is
+#    pinned in the ordinary ledger too.
+#
+# 2. Floating point produces WRONG ANSWERS or faults. printf_fp prints
+#    pi=3.140625 for 3.141593, which is a value that lost mantissa bits
+#    somewhere, not a marshalling mistake -- the reload/consume pairing at
+#    the call is correct on inspection. Undiagnosed.
+#
+# 3. Two integer programs fault or answer wrongly. Undiagnosed.
+#
+# Format: <suite>/<name> [-O<level>] # <cause or observation>
+
+fp/float_conv [-O0] # FP under spill: exit 5, undiagnosed
+fp/fp_call_args [-O0] # FP under spill: exit 1, undiagnosed
+fp/printf_fp [-O0] # FP under spill: prints pi=3.140625, undiagnosed
+fp/u64_double [-O0] # FP under spill: exit 1, undiagnosed
+fp/varargs_mixed [-O0] # FP under spill: SIGSEGV, undiagnosed
+int/big_frame [-O0] # frame immediates; also fails without spill-all
+int/bsearch_hand [-O0] # exit 1, undiagnosed
+int/duff [-O2] # frame immediates: ldp x29,x30,[sp],#512 exceeds +504
+int/ptr_chase [-O0] # frame immediates: ldp x29,x30,[sp],#512 exceeds +504
+int/switch_dense [-O0] # SIGSEGV, undiagnosed
+int/varargs_sum [-O0] # wrong sum, undiagnosed

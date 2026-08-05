@@ -8,3 +8,6 @@
 #
 # Format: <suite>/<name> [-O<level>] # <cause>
 
+# Every level fails, but OPT_EQ compares against the -O0 baseline and never
+# reaches the others once that one cannot compile, so this is one row.
+int/big_frame [-O0] # frame > 504/4095: stp/ldp index and add/sub immediates need their wide forms

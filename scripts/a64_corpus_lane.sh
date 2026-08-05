@@ -95,6 +95,15 @@ mkdir -p "$WORK"
 # runner already reports the signal, and the cores are pure litter.
 ulimit -c 0 2>/dev/null || true
 
+# CGF_A64_SPILL_ALL=1 forces every interval to memory. It is not a stress
+# test for its own sake: the spill rewrite inserts reloads AHEAD of the
+# instruction they serve, which is the one place in this backend where an
+# instruction's index moves, and a stale NZCV producer index there is a
+# silent miscompile rather than a crash. At ordinary pressure only a handful
+# of corpus programs spill at all.
+spill=
+[ -n "${CGF_A64_SPILL_ALL:-}" ] && spill="CGF_SPILL_ALL=1"
+
 case "$host" in
 aarch64 | arm64)
     # Native: qemu-run.sh is a passthrough and the compiler's own tool
@@ -106,7 +115,7 @@ aarch64 | arm64)
     [ -x afs-as/target/release/afs-as ] || as_mode="CGF_AS=0"
     cat >"$WORK/cgf-a64" <<EOF
 #!/bin/sh
-exec env $as_mode "$PWD/$CGF" "\$@"
+exec env $as_mode $spill "$PWD/$CGF" "\$@"
 EOF
     ;;
 *)
@@ -122,6 +131,7 @@ EOF
 CGF_AS_PATH='$as_path' \\
 CGF_LD_PATH='$ld_path' \\
 CGF_CRT_DIR='$SYSROOT/lib' \\
+$spill \\
 exec sh "$PWD/scripts/qemu-run.sh" "$PWD/$CGF" "\$@"
 EOF
     ;;

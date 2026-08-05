@@ -71,6 +71,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-corpus \
+        test-a64-spill-all \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
 
@@ -342,6 +343,16 @@ check-ub-division:
 # of emulation. CI runs it; locally it is one command away.
 test-a64-corpus: $(BUILD)/cgf-test
 	CGF_A64_CORPUS_WORK=$(BUILD)/a64-corpus \
+	    sh scripts/a64_corpus_lane.sh "" $(BUILD)/cgf-test
+
+# The same lane with every interval forced to memory. Separate ledger,
+# because the spill rewrite is the one place an instruction's index moves
+# and natural pressure barely reaches it -- `9c98698` was a stale NZCV
+# producer index that exactly one fixture at one level caught.
+test-a64-spill-all: $(BUILD)/cgf-test
+	CGF_A64_SPILL_ALL=1 \
+	    CGF_A64_CORPUS_WORK=$(BUILD)/a64-corpus-spill-all \
+	    CGF_A64_LEDGER=ci/expected_a64_spill_all_failures.txt \
 	    sh scripts/a64_corpus_lane.sh "" $(BUILD)/cgf-test
 
 test-a64-mir: $(BUILD)/a64mir

@@ -91,6 +91,16 @@ jobs:
           cat a64corpus.log
           [ $s -eq 0 ]
           ! grep -q "skipped" a64corpus.log
+      # The same corpus with every interval forced to memory, against its own
+      # ledger. The spill rewrite moves instruction indices and natural
+      # pressure barely reaches it; this lane found eleven failures the
+      # ordinary one does not see.
+      - name: e2e corpus under CGF_SPILL_ALL (exact failure ledger)
+        run: |
+          make test-a64-spill-all > a64spill.log 2>&1; s=$?
+          cat a64spill.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64spill.log
 
   test-san:
     runs-on: ubuntu-latest
