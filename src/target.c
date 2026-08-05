@@ -409,6 +409,27 @@ const char *cgf_target_dynamic_linker(TargetSpec t)
     CGF_ICE("cgf_target_dynamic_linker: bad target kind %d", (int)t.kind);
 }
 
+/* The Debian/Ubuntu multiarch tuple, which is NOT the target name: Debian
+ * spells arm64 `aarch64-linux-gnu` while our closed target set calls it
+ * `arm64-linux`. The crt probe and the system include path both key off
+ * this, and hardcoding the x86 tuple is exactly how a native arm64 link
+ * failed to find crt1.o. */
+const char *cgf_target_multiarch(TargetSpec t)
+{
+    switch (t.kind) {
+    case CGF_TARGET_X86_64_LINUX_GNU:
+    case CGF_TARGET_X86_64_LINUX_MUSL:
+        return "x86_64-linux-gnu";
+    case CGF_TARGET_ARM64_LINUX:
+        return "aarch64-linux-gnu";
+    case CGF_TARGET_ARM64_MACOS:
+    case CGF_TARGET_X86_64_FREEBSD:
+        /* No multiarch layout on either. */
+        return NULL;
+    }
+    CGF_ICE("cgf_target_multiarch: bad target kind %d", (int)t.kind);
+}
+
 const char *cgf_target_name(TargetSpec t)
 {
     switch (t.kind) {

@@ -517,12 +517,27 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
 /* Sprint 27 probe table, first stat() hit for crt1.o wins. Order is the
  * distro-layout ladder from the sprint file; overrides (CGF_CRT_DIR,
  * then each -B in flag order) probe first. */
-static const char *const crt_default_dirs[] = {
-    "/usr/lib/x86_64-linux-gnu", /* Debian/Ubuntu multiarch */
-    "/usr/lib64",                /* Fedora/RHEL */
-    "/usr/lib",                  /* Arch/generic */
-    "/lib",                      /* fallback */
-};
+#define CRT_DIR_MAX 4
+
+/* The multiarch row is TARGET-DERIVED: Debian spells arm64
+ * `aarch64-linux-gnu`, so a hardcoded x86 tuple makes a native arm64 link
+ * fail to find crt1.o -- which is precisely how it failed the first time the
+ * arm64 CI lane ran. Targets with no multiarch layout simply lose the row. */
+static size_t crt_default_dirs_for(TargetSpec t, const char **out,
+                                   char *scratch, size_t scratch_sz)
+{
+    const char *multiarch = cgf_target_multiarch(t);
+    size_t n = 0;
+
+    if (multiarch) {
+        snprintf(scratch, scratch_sz, "/usr/lib/%s", multiarch);
+        out[n++] = scratch;
+    }
+    out[n++] = "/usr/lib64"; /* Fedora/RHEL */
+    out[n++] = "/usr/lib";   /* Arch/generic */
+    out[n++] = "/lib";       /* fallback */
+    return n;
+}
 
 /* Injectable core (units point `table` at temp dirs): returns the first
  * dir whose crt1.o exists; every probed path is appended to `searched`
@@ -568,17 +583,20 @@ const char *cgf_probe_crt_dir_in(const char *override, const char *const *bdirs,
 const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
 {
     ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    const char *table[CRT_DIR_MAX];
+    char multiarch_dir[128];
+    size_t ntable = crt_default_dirs_for(cgf_target_host(), table,
+                                         multiarch_dir, sizeof(multiarch_dir));
     const char *dir =
-        cgf_probe_crt_dir_in(tc.crt_dir, NULL, 0, crt_default_dirs,
-                             CGF_ARRAY_LEN(crt_default_dirs), NULL);
+        cgf_probe_crt_dir_in(tc.crt_dir, NULL, 0, table, ntable, NULL);
 
     if (!dir && diag_sz) {
         size_t i, used = 0;
 
         diag[0] = '\0';
-        for (i = 0; i < CGF_ARRAY_LEN(crt_default_dirs); i++) {
+        for (i = 0; i < ntable; i++) {
             used += (size_t)snprintf(diag + used, diag_sz - used, "%s%s",
-                                     used ? ", " : "", crt_default_dirs[i]);
+                                     used ? ", " : "", table[i]);
             if (used >= diag_sz)
                 break;
         }
@@ -704,11 +722,15 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     }
     if (want_crts || want_libs) {
         Buf searched;
+        const char *table[CRT_DIR_MAX];
+        char multiarch_dir[128];
+        size_t ntable = crt_default_dirs_for(t, table, multiarch_dir,
+                                             sizeof(multiarch_dir));
 
         buf_init(&searched);
-        crtdir = cgf_probe_crt_dir_in(
-            tc.crt_dir, da->prefix_dirs.data, da->prefix_dirs.len,
-            crt_default_dirs, CGF_ARRAY_LEN(crt_default_dirs), &searched);
+        crtdir =
+            cgf_probe_crt_dir_in(tc.crt_dir, da->prefix_dirs.data,
+                                 da->prefix_dirs.len, table, ntable, &searched);
         if (!crtdir && want_crts) {
             fprintf(stderr, "cgfried: error: cannot find crt1.o; searched:\n");
             fwrite(searched.data, 1, searched.len, stderr);

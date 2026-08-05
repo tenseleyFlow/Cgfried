@@ -59,6 +59,10 @@ extern const char *const cgf_target_names[CGF_TARGET_COUNT];
  * target and rots the cross-targeting story — review rejection. */
 TargetSpec cgf_target_host(void);
 
+/* Debian/Ubuntu multiarch tuple (NULL where the layout does not exist).
+ * NOT the target name: Debian spells arm64 `aarch64-linux-gnu`. */
+const char *cgf_target_multiarch(TargetSpec t);
+
 const char *cgf_target_name(TargetSpec t);
 
 /* ELF dynamic-linker path for the target; NULL for arm64-macos (dyld,

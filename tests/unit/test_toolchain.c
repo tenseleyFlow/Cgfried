@@ -194,3 +194,28 @@ void test_toolchain_crt_probe(TestCtx *t)
             fclose(f);
     }
 }
+
+/* Sprint 49: the crt probe's multiarch row is TARGET-derived. Debian spells
+ * arm64 `aarch64-linux-gnu` while our closed target set calls it
+ * `arm64-linux`, so reusing the target NAME here silently points a native
+ * arm64 link at the x86 crt directory -- which is exactly how the first
+ * arm64 CI lane failed. */
+void test_target_multiarch_is_the_debian_tuple(TestCtx *t)
+{
+    TargetSpec spec;
+
+    spec.kind = CGF_TARGET_X86_64_LINUX_GNU;
+    T_ASSERT_EQ_STR(t, cgf_target_multiarch(spec), "x86_64-linux-gnu");
+    spec.kind = CGF_TARGET_X86_64_LINUX_MUSL;
+    T_ASSERT_EQ_STR(t, cgf_target_multiarch(spec), "x86_64-linux-gnu");
+
+    spec.kind = CGF_TARGET_ARM64_LINUX;
+    T_ASSERT_EQ_STR(t, cgf_target_multiarch(spec), "aarch64-linux-gnu");
+    T_ASSERT(t, strcmp(cgf_target_multiarch(spec), cgf_target_name(spec)) != 0);
+
+    /* Neither has a multiarch layout. */
+    spec.kind = CGF_TARGET_ARM64_MACOS;
+    T_ASSERT(t, cgf_target_multiarch(spec) == NULL);
+    spec.kind = CGF_TARGET_X86_64_FREEBSD;
+    T_ASSERT(t, cgf_target_multiarch(spec) == NULL);
+}
