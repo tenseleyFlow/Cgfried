@@ -176,7 +176,13 @@ void test_toolchain_exit_mapping(TestCtx *t)
 
 /* Sprint 25: the crt probe. The pure resolver carries CGF_CRT_DIR; the
  * live probe must find crt1.o on any host that can link (CI has gcc),
- * and the directory it names must actually contain crt1.o. */
+ * and the directory it names must actually contain crt1.o.
+ *
+ * HOST-SENSITIVE, deliberately so. On a multiarch host (Debian, Ubuntu, and
+ * therefore every CI job) the matching row is the one built at runtime, so
+ * this is what catches a returned pointer into dead stack. On Arch the match
+ * is a string literal and the same bug is invisible — which is how one
+ * shipped. Do not "simplify" this into a pure-function test. */
 void test_toolchain_crt_probe(TestCtx *t)
 {
     char diag[256];

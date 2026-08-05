@@ -522,16 +522,24 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
 /* The multiarch row is TARGET-DERIVED: Debian spells arm64
  * `aarch64-linux-gnu`, so a hardcoded x86 tuple makes a native arm64 link
  * fail to find crt1.o -- which is precisely how it failed the first time the
- * arm64 CI lane ran. Targets with no multiarch layout simply lose the row. */
-static size_t crt_default_dirs_for(TargetSpec t, const char **out,
-                                   char *scratch, size_t scratch_sz)
+ * arm64 CI lane ran. Targets with no multiarch layout simply lose the row.
+ *
+ * The buffer is FILE-SCOPE, not a caller's stack: cgf_probe_crt_dir returns
+ * whichever table entry matched, so that pointer outlives the call. A stack
+ * scratch dangles the moment the multiarch row is the one that hits — which
+ * is every Debian and Ubuntu host. Every other row is a string literal, and
+ * that is exactly why a stack buffer survived testing on Arch. */
+static char crt_multiarch_dir[128];
+
+static size_t crt_default_dirs_for(TargetSpec t, const char **out)
 {
     const char *multiarch = cgf_target_multiarch(t);
     size_t n = 0;
 
     if (multiarch) {
-        snprintf(scratch, scratch_sz, "/usr/lib/%s", multiarch);
-        out[n++] = scratch;
+        snprintf(crt_multiarch_dir, sizeof(crt_multiarch_dir), "/usr/lib/%s",
+                 multiarch);
+        out[n++] = crt_multiarch_dir;
     }
     out[n++] = "/usr/lib64"; /* Fedora/RHEL */
     out[n++] = "/usr/lib";   /* Arch/generic */
@@ -584,9 +592,7 @@ const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
 {
     ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
     const char *table[CRT_DIR_MAX];
-    char multiarch_dir[128];
-    size_t ntable = crt_default_dirs_for(cgf_target_host(), table,
-                                         multiarch_dir, sizeof(multiarch_dir));
+    size_t ntable = crt_default_dirs_for(cgf_target_host(), table);
     const char *dir =
         cgf_probe_crt_dir_in(tc.crt_dir, NULL, 0, table, ntable, NULL);
 
@@ -723,9 +729,7 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     if (want_crts || want_libs) {
         Buf searched;
         const char *table[CRT_DIR_MAX];
-        char multiarch_dir[128];
-        size_t ntable = crt_default_dirs_for(t, table, multiarch_dir,
-                                             sizeof(multiarch_dir));
+        size_t ntable = crt_default_dirs_for(t, table);
 
         buf_init(&searched);
         crtdir =
