@@ -86,6 +86,10 @@ int cgf_tool_exit_code(ToolKind which, const ToolResult *res, bool user_input);
  * stdout/stderr CAPTURED, echoed line-by-line as "[as] ...". On
  * failure, *diag_line holds the first ".s:<line>:" the assembler
  * reported (0 if none) so the driver can quote the offending line. */
+/* The afs-as arm for a target: it is multi-target with an arm64 Mach-O
+ * DEFAULT, so every other target must be named. NULL means "no flag". */
+const char *cgf_afs_as_target_flag(TargetSpec t);
+
 ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
                              u32 *diag_line);
 

@@ -367,6 +367,23 @@ const char *cgf_tool_missing_hint(ToolKind which)
  * stdout and stderr; the read loop drains to EOF before waitpid, so a
  * chatty assembler cannot deadlock us. */
 
+/* Which arm of afs-as to select. It is a multi-target assembler whose
+ * DEFAULT is arm64 Mach-O, so every other target has to be named
+ * explicitly -- an omitted flag assembles silently for the wrong one. */
+const char *cgf_afs_as_target_flag(TargetSpec t)
+{
+    switch (t.kind) {
+    case CGF_TARGET_ARM64_LINUX:
+        return "--target=aarch64-elf";
+    case CGF_TARGET_ARM64_MACOS:
+        /* afs-as's default arm needs no flag. Unreachable today: arm64-macos
+         * codegen hard-errors naming Sprint 50 long before this. */
+        return NULL;
+    default:
+        return "--64";
+    }
+}
+
 ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
                              u32 *diag_line)
 {
@@ -395,14 +412,19 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
     }
     argv[an++] = tc.as_path;
     /* afs-as defaults to its ARM64 Mach-O arm; --64 selects x86_64 AT&T
-     * (exactly how the Sprint 2 toolchain smoke invokes it). GNU as may be
-     * configured to compress .debug_* by default. afs-ld deliberately does
-     * not decode SHF_COMPRESSED inputs, and reloc offsets name the
+     * (exactly how the Sprint 2 toolchain smoke invokes it) and
+     * --target=aarch64-elf selects the Sprint 49 arm64 ELF arm. GNU as may
+     * be configured to compress .debug_* by default. afs-ld deliberately
+     * does not decode SHF_COMPRESSED inputs, and reloc offsets name the
      * uncompressed image, so keep compiler-produced debug sections plain. */
-    if (tc.use_afs_as)
-        argv[an++] = "--64";
-    else
+    if (tc.use_afs_as) {
+        const char *arm = cgf_afs_as_target_flag(cgf_target_host());
+
+        if (arm)
+            argv[an++] = arm;
+    } else {
         argv[an++] = "--nocompress-debug-sections";
+    }
     argv[an++] = s_path;
     argv[an++] = "-o";
     argv[an++] = o_path;
@@ -780,10 +802,14 @@ void cgf_echo_as_plan(const char *s_path, const char *o_path)
     int n = 0;
 
     argv[n++] = tc.as_path ? tc.as_path : "as";
-    if (tc.as_path && tc.use_afs_as)
-        argv[n++] = "--64";
-    else
+    if (tc.as_path && tc.use_afs_as) {
+        const char *arm = cgf_afs_as_target_flag(cgf_target_host());
+
+        if (arm)
+            argv[n++] = arm;
+    } else {
         argv[n++] = "--nocompress-debug-sections";
+    }
     argv[n++] = s_path;
     argv[n++] = "-o";
     argv[n++] = o_path;

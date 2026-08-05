@@ -678,12 +678,37 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     char comp_dir[4096];
     FILE *f;
 
-    if (cgf_target_host().kind == CGF_TARGET_ARM64_LINUX ||
-        cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
-        fprintf(stderr,
-                "cgfried: error: arm64 assembly and object emission lands "
-                "in Sprint 49\n");
+    if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
+        fprintf(stderr, "cgfried: error: arm64-macos Mach-O emission lands "
+                        "in Sprint 50\n");
         return CGF_EXIT_COMPILE;
+    }
+    if (cgf_target_host().kind == CGF_TARGET_ARM64_LINUX) {
+        if (a->debug_level) {
+            /* Sprint 29's DWARF emitter is x86-only. Emitting arm64 objects
+             * that silently lack the line table would break the -g contract
+             * without saying so; Sprint 51 joins arm64 to the differential. */
+            fprintf(stderr, "cgfried: error: -g on arm64-linux lands in "
+                            "Sprint 51\n");
+            return CGF_EXIT_COMPILE;
+        }
+        buf_init(&b);
+        for (i = 0; i < m->nfuncs; i++) {
+            A64Func *af = a64_isel_function(m, &m->funcs[i], arena);
+
+            if (!af || a64_mir_verify(af, dc))
+                CGF_ICE("arm64 isel produced MIR the verifier rejects for "
+                        "'@%s'",
+                        m->funcs[i].name);
+            a64_regalloc(af);
+            if (a64_mir_verify(af, dc))
+                CGF_ICE("arm64 regalloc produced MIR the verifier rejects "
+                        "for '@%s'",
+                        m->funcs[i].name);
+            a64_emit_function(af, m, i, m->funcs[i].linkage, &b);
+        }
+        a64_emit_globals(m, &b);
+        goto emit_tail;
     }
 
     buf_init(&b);
@@ -716,6 +741,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     }
     x64_emit_debug_sections(cgf_target_host(), arena, m, xfuncs, m->nfuncs,
                             job->path, comp_dir, a->debug_level != 0, &b);
+
+emit_tail:
     if (a->fsafe)
         buf_append(&b, safe_note_asm, sizeof(safe_note_asm) - 1);
 

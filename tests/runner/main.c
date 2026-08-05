@@ -1100,13 +1100,24 @@ have_compile:
         }
     }
 
-    /* Run the produced binary. */
+    /* Run the produced binary.
+     *
+     * CGF_TEST_RUN prefixes the command, which is how a cross target gets
+     * executed: on an x86 host `scripts/qemu-run.sh` runs an arm64 binary
+     * under qemu-user, and the fixture's CHECK/EXIT_CODE assertions apply
+     * to the emulated program unchanged. The wrapper must pass the exit
+     * status through, or every EXIT_CODE assertion silently tests the
+     * wrapper instead. */
     {
         SpawnResult run;
-        char *argv[2];
+        char *argv[3];
+        const char *runner = getenv("CGF_TEST_RUN");
+        int an = 0;
 
-        argv[0] = binpath;
-        argv[1] = NULL;
+        if (runner && runner[0])
+            argv[an++] = (char *)runner;
+        argv[an++] = binpath;
+        argv[an] = NULL;
         spawn_capture(argv, timeout, &run);
 
         if (!run.spawned) {
@@ -1348,7 +1359,12 @@ int main(int argc, char **argv)
     strmap_init(&r.ledger);
     r.profile = "linux-x86_64";
     r.cc = getenv("CGF_TEST_CC") ? getenv("CGF_TEST_CC") : "build/cgfried";
-    r.target = cgf_target_name(cgf_target_host());
+    /* The target is a fact about the COMPILER UNDER TEST, not about the
+     * runner. In a cross lane the runner is an x86 binary driving an arm64
+     * cgfried, and leaving this at the runner's own host would apply every
+     * `ASM_CHECK(x86_64-linux-gnu):` to arm64 assembly. */
+    r.target = getenv("CGF_TEST_TARGET") ? getenv("CGF_TEST_TARGET")
+                                         : cgf_target_name(cgf_target_host());
     r.default_timeout = DEFAULT_TIMEOUT_SECS;
     r.ledger_path = getenv("CGF_TEST_XFAIL_LEDGER")
                         ? getenv("CGF_TEST_XFAIL_LEDGER")

@@ -70,7 +70,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         test-mem-fanalyzer bench-safe \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
-        check-ub-division test-a64-asm-diff test-a64-mir \
+        check-ub-division test-a64-asm-diff test-a64-mir test-a64-corpus \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
 
@@ -337,6 +337,12 @@ check-warn-matrix:
 check-ub-division:
 	CGF_UB_DIV_WORK=$(BUILD)/ub-division-lint \
 	    sh scripts/check_ub_division.sh --self-test
+
+# Not in `make test`: it cross-builds the whole compiler and runs two levels
+# of emulation. CI runs it; locally it is one command away.
+test-a64-corpus: $(BUILD)/cgf-test
+	CGF_A64_CORPUS_WORK=$(BUILD)/a64-corpus \
+	    sh scripts/a64_corpus_lane.sh "" $(BUILD)/cgf-test
 
 test-a64-mir: $(BUILD)/a64mir
 	CGF_A64_MIR_WORK=$(BUILD)/a64-mir-lane \

@@ -1,0 +1,18 @@
+# arm64-linux corpus debt (Sprint 49).
+#
+# The corpus fixtures are x86-verified expectations shared by both targets,
+# so arm64 gaps are recorded HERE rather than by editing 51 shared files.
+# One line per failing (fixture, opt level), with the cause. The lane
+# enforces this set EXACTLY: an unlisted failure fails the lane, and so does
+# a listed entry that starts passing. The list can only shrink deliberately.
+#
+# Format: <suite>/<name> [-O<level>] # <cause>
+
+fp/fp_globals [-O1] # emit.c: global address with a folded nonzero offset
+int/global_init [-O1] # emit.c: global address with a folded nonzero offset
+int/str_literals [-O1] # emit.c: global address with a folded nonzero offset
+fp/ld_convert [-O0] # isel.c: f128 values unselected (the RUNTIME landed in D4)
+fp/long_double_basic [-O0] # isel.c: f128 values unselected
+int/duff [-O1] # isel: NZCV consumer does not name an earlier producer
+int/promo_traps [-O0] # exits 3, expected 0
+int/struct_ret [-O0] # SIGSEGV: aggregate return
