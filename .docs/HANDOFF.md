@@ -34,7 +34,9 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–49 complete; Phases 1–9 closed.** Phase 10 (second backend and
+- **Sprints 0–49 complete; Phases 1–9 closed.** Sprint 49's DoD is 5 of 7
+  gates met as written — see §1b for the arm64 backend gaps still open and
+  §1c for the judgement calls behind how they were sequenced. Phase 10 (second backend and
   targets) is under way on top of the completed preprocessor, frontend, sema,
   IR, x86_64 backend, driver, optimizer, warnings, and memory-safety phases.
 - `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
@@ -375,6 +377,157 @@ the automatic-address fold repair; the exact gate is now 733 analyzed / 628
 deferred with zero memory diagnostics.
 
 ---
+
+## 1b. WHERE THE WORK IS RIGHT NOW (post-Sprint-49 arm64 gaps)
+
+Sprint 49 is landed. What is IN FLIGHT is the ledger of arm64 backend gaps
+it left behind — real miscompiles, found by executing the e2e corpus on
+arm64 rather than by inspecting output.
+
+**The ledger is `ci/expected_a64_corpus_failures.txt`**, enforced exactly in
+both directions by `scripts/a64_corpus_lane.sh`: a new failure fails the
+lane, and so does a pinned entry that starts passing. One line per (fixture,
+opt level) with its cause. `make test-a64-corpus` runs it.
+
+Arm64 corpus went 43/51 -> 47/51 this session. Closed:
+
+| gap | cause | commit |
+|---|---|---|
+| `int/struct_ret` SIGSEGV | the hidden aggregate-return pointer was bound from `param_annots`, which ir.h says carries ONLY byval — so both AAPCS64 branches in `bind_params` were dead code and the pointer landed in x0 on top of the first real argument | `0d2daa8` |
+| 3x "malformed global address" at -O1 | an address constant's addend must ride BOTH halves of the adrp pair | `6462370` |
+
+### The four that remain, in the order I would take them
+
+**1. `int/promo_traps` exits 3, expected 0.** The ONLY wrong-answer
+miscompile left — everything else crashes or ICEs, which is louder and
+safer. Take it first for that reason. `char` is UNSIGNED on arm64-linux, so
+CHECK WHETHER THE FIXTURE'S EXPECTATION IS TARGET-DEPENDENT before assuming
+codegen: `tests/corpus/char_sign/` exists precisely because some of these
+legitimately diverge, and this may belong there rather than in the ledger.
+
+**2. f128, second half.** The first half is `715dab8`; read
+`src/lower/f128.c`'s header comment, which states the design and why it is a
+pass rather than a lowering condition. Done: arithmetic -> `__addtf3` &c,
+f128 treated as the q-register FP value it is, and the 128-bit register move
+(`mov vD.16b, vN.16b` — there is no 128-bit `fmov`). Remaining, in
+increasing difficulty:
+
+- *Conversions.* The mapping table in `convert_libcall()` is already
+  written and correct; what fails is the CALL, with `mov d1, x0` and
+  "undefined symbol d0 used as an immediate". Those libcalls mix banks —
+  `__floatsitf` takes an int in w0 and returns f128 in q0, `__trunctfdf2`
+  takes q0 and returns a double in d0 — so the argument marshalling is what
+  needs fixing, not the table. Reproduce with three lines:
+  `long double add(long double a, long double b){return a+b;}` plus a
+  `(double)` and a `(long double)(int)` conversion, then `-S` it.
+- *Comparisons.* `__lttf2(a,b)` returns an int whose SIGN encodes the
+  answer, so `a < b` becomes a call plus an icmp. That is two instructions
+  where the arithmetic rewrite was one, so it cannot be the in-place trick
+  `rewrite_as_call()` uses — it needs real instruction insertion.
+- *`fneg`.* There is NO `__negtf2` in libgcc's set or ours (`scripts/fp128_diff.sh`
+  lists all 23 we ship). It must be a sign-bit flip in the backend — a NEON
+  `eor` against a mask. `0 - x` is NOT a substitute: it turns `-0.0` into
+  `+0.0`.
+
+Closing f128 also closes Sprint 49's DoD gate 3.
+
+**3. `int/duff` at -O1: "NZCV consumer does not name an earlier producer".**
+An MIR verifier rejection, so isel is producing something structurally
+wrong — a flags consumer whose `flags_src` is stale or points forward after
+some transform. Duff's device is the trigger.
+
+**4. afs-as instruction coverage** — unpins the four fixtures in
+`scripts/a64_objdiff_lane.sh`'s `UNENCODABLE` list and closes Sprint 49 DoD
+gate 1. Needs `mneg`, `smull`, `ucvtf`, `fcvtzu`, `ldar`/`ldaxr`/`stlxr`/`clrex`,
+and NEON vector operands in the submodule's arm64 encoder. Rust work,
+upstream PR + submodule bump (§7).
+
+Two Sprint 49 gates are also cheap to close and need job steps, not
+engineering: the char-sign corpus and the 4-thread atomics hammer do not run
+on the NATIVE arm64 runner, which is real hardware already sitting in CI.
+See the DoD audit table at the end of the Sprint 49 file.
+
+### THE trap that bit three times in one session
+
+**A stale binary reports success.** `build/a64mir`, then `build-a64/cgfried`,
+then `build/a64mir` again. Each time the symptom was "my fix did not work" or
+"this fixture is still broken", and each time the fix was fine and the binary
+was old. `scripts/a64_corpus_lane.sh` now ALWAYS rebuilds (make is
+incremental, so it costs nothing), but `build/a64mir` is still a separate
+target that the MIR and exec lanes do not rebuild for you.
+
+**On any red arm64 lane, the first question is not "what is wrong with my
+change" — it is "did the thing I am testing actually get rebuilt".** This is
+F-S22-MIRCHECK's shape and it has now recurred four times across three
+sprints.
+
+There are THREE binaries in play and they are easy to confuse:
+
+| binary | what it is | rebuild with |
+|---|---|---|
+| `build/cgfried` | x86 host compiler | `make build/cgfried` |
+| `build/a64mir` | drives `.cgfir` through arm64 isel/regalloc/emit | `make build/a64mir` |
+| `build-a64/cgfried` | the compiler CROSS-BUILT for arm64; its own architecture is the target | `make CC=aarch64-linux-gnu-gcc BUILD=build-a64 build-a64/cgfried` |
+
+## 1c. Concerns and judgement calls worth inheriting
+
+Things a reader cannot reconstruct from the diff, written down because the
+next person will otherwise re-derive them or, worse, quietly undo them.
+
+**The Sprint 49 DoD is 5 of 7, not 7 of 7.** All seven deliverables are
+implemented; five gates are met as written and gates 1, 2, 3, 4 and 6 carry
+named gaps. The audit table at the end of
+`.docs/sprints/10-backend-arm64/s49-arm64-linux.md` says which is which. Do
+not let "Sprint 49 complete" in a changelog become "arm64 is done" in your
+head — the corpus is 47/51 and the four remaining failures are real.
+
+**The corpus ledger is a floor, not a ceiling.** 47 of 51 e2e programs pass
+on arm64. That is a good deal short of "the arm64 backend works", and the
+corpus is 51 small programs written to exercise x86. Sprint 57's musl
+campaign will be a far harsher test. Treat the current arm64 backend as
+"boots and runs simple programs", not as production.
+
+**Do not start Sprint 50 (arm64-macos) before the backend gaps close.**
+Sprint 50 is a new object format AND a new ABI on top of the SAME isel and
+regalloc. With an aggregate-return crash or an NZCV structural bug still
+live, every Sprint 50 failure would be ambiguous — Mach-O, Apple ABI, or the
+shared backend? The aggregate-return case was the sharpest example: Sprint 50
+is precisely about ABI differences in varargs and aggregates. That is why the
+gap work was sequenced first, and the reasoning still holds for whatever
+remains.
+
+**`lower/f128.c` runs after the optimizer deliberately.** `simplify.c` folds
+f128 through the same softfp core (Sprint 31). Moving the pass earlier — which
+looks tidier, since it is nominally "lowering" — would hide constant f128
+arithmetic behind opaque calls and silently lose that folding. The header
+comment says so; do not "fix" the placement.
+
+**The in-place `rewrite_as_call()` trick has a precondition.** It works only
+because a call's operands ARE its arguments and its type IS its result, so an
+f128 add and a call to `__addtf3` have identical shape. The moment a rewrite
+needs a different operand count or an extra instruction — which comparisons
+do — that trick does not apply and real insertion is required. Do not try to
+stretch it.
+
+**I corrected two user-facing reports this session; both times the reported
+symptom was real and the reported CAUSE was not.** The installed-compiler
+bug was reported as by-name-vs-full-path and was actually
+installed-vs-dev-tree (the full path to the INSTALLED binary fails
+identically). Reproduce before believing a causal story, including your own.
+
+**Two of my own commits fixed causes I had inferred rather than read.** See
+§3.6. The crt-multiarch work was genuinely needed, so it was not wasted, but
+it was not the diagnosis I claimed it was. If you catch yourself writing "the
+cause is X" without having seen X in a log or a debugger, stop and go get the
+evidence — it is nearly always cheaper than the round trip you are about to
+spend.
+
+**Unverifiable CI steps are worth deferring.** The native arm64 lane took
+three rounds partly because I shipped job steps I could not test locally. Two
+Sprint 49 gates (char-sign and the atomics hammer on native hardware) are
+still open specifically because I chose not to add a fourth unverified step
+at the end of a long session. That was the right call; make it again if you
+are in the same position.
 
 ## 2. The ritual (not optional)
 
@@ -931,7 +1084,15 @@ assembler is the BUNDLED afs-as, i.e. pass `CGF_AS=0` in a Rust-free job),
 ## 8. Deferrals you will trip over
 
 `grep -rn "Sprint 55" src/` and friends — every deferral names its
-sprint in the diagnostic. Current counts: **Sprint 55** (22 sites: GNU
+sprint in the diagnostic. The counts below are from Sprint 49 and drift as
+work lands; re-grep rather than trusting them. Note the arm64 backend now
+defers a few things to **Sprint 51** that used to say Sprint 49 (vector and
+f80 function ABI in `src/cg/arm64/isel.c`), and `-g` on arm64-linux
+hard-errors naming Sprint 51 because Sprint 29's DWARF emitter is x86-only —
+that is deliberate, not an oversight: emitting arm64 objects that silently
+lack a line table would break the `-g` contract without saying so.
+
+Current counts: **Sprint 55** (22 sites: GNU
 `__attribute__`, `typeof`, `__builtin_types_compatible_p`,
 `__builtin_choose_expr`), **Sprint 51** (6: `-shared`/`-fPIC`/`-fpie`),
 **Sprint 49** (6: arm64 fp128 soft-float bodies), **Sprint 57** (2:
