@@ -283,7 +283,8 @@ typedef enum A64OperandKind {
     A64O_IMM,
     A64O_MEM,
     A64O_LABEL,
-    A64O_SYM
+    A64O_SYM,
+    A64O_CPOOL /* `id` is a per-function constant-pool index + 1 */
 } A64OperandKind;
 
 typedef struct A64Operand {
@@ -355,6 +356,13 @@ typedef struct A64Func {
     bool variadic;   /* needs the AAPCS64 register save area */
     u32 va_named_gp; /* general registers the named parameters consumed */
     u32 va_named_fp; /* vector registers the named parameters consumed */
+    /* 16-byte constants, as {lo, hi} pairs. binary128 has no immediate form
+     * -- no movz sequence reaches a q register and no fmov immediate covers
+     * 128 bits -- so an f128 literal, and the sign mask fneg needs, are
+     * materialized as adrp/add to a per-function .rodata entry. Deduped, so
+     * the same literal used twice occupies one slot. */
+    u64 *cpool;
+    u32 ncpool, cap_cpool;
     const IrModule *m;
 } A64Func;
 
@@ -377,6 +385,9 @@ typedef struct A64AddSubImm {
     u16 imm12;
     u8 shift; /* 0 or 12 */
 } A64AddSubImm;
+
+/* Intern a 16-byte constant, returning its pool index. */
+u32 a64_cpool_add(A64Func *f, u64 lo, u64 hi);
 
 A64Reg a64_newv(A64Func *f, A64RegClass rc);
 A64Reg a64_newv_width(A64Func *f, A64RegClass rc, A64Sf sf);

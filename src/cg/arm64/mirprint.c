@@ -196,6 +196,9 @@ static void print_operand(Buf *out, const A64Func *f, const A64Operand *op,
         else
             buf_printf(out, "@sym%u", op->id);
         break;
+    case A64O_CPOOL:
+        buf_printf(out, "cp%u", op->id - 1);
+        break;
     default:
         buf_printf(out, "?");
         break;
@@ -367,6 +370,8 @@ static int verify_operand(const A64Func *f, const A64Operand *op)
         return !op->id || op->id > f->nblocks;
     case A64O_SYM:
         return !op->id;
+    case A64O_CPOOL:
+        return !op->id || op->id > f->ncpool;
     default:
         return 1;
     }

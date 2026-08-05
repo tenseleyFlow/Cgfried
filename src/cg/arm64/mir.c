@@ -39,6 +39,31 @@ u8 a64_phys_encode(A64PhysReg reg)
     return 255;
 }
 
+/* Deduped so that the same literal, and above all the single sign mask every
+ * fneg in a function shares, occupies one slot. The scan is linear because a
+ * function's pool is a handful of entries; a hash here would cost more in
+ * code than it saves. */
+u32 a64_cpool_add(A64Func *f, u64 lo, u64 hi)
+{
+    u32 i;
+
+    for (i = 0; i < f->ncpool; i++)
+        if (f->cpool[2 * i] == lo && f->cpool[2 * i + 1] == hi)
+            return i;
+    if (f->ncpool == f->cap_cpool) {
+        u32 nc = f->cap_cpool ? f->cap_cpool * 2 : 4;
+        u64 *nv = arena_alloc(f->arena, nc * 2 * sizeof(*nv), _Alignof(u64));
+
+        if (f->cap_cpool)
+            memcpy(nv, f->cpool, f->cap_cpool * 2 * sizeof(*nv));
+        f->cpool = nv;
+        f->cap_cpool = nc;
+    }
+    f->cpool[2 * f->ncpool] = lo;
+    f->cpool[2 * f->ncpool + 1] = hi;
+    return f->ncpool++;
+}
+
 A64Reg a64_newv(A64Func *f, A64RegClass rc)
 {
     return a64_newv_width(f, rc, A64_SF64);

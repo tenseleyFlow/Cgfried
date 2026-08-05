@@ -107,6 +107,9 @@ static void poper(Emit *e, const A64Operand *o, u8 sf)
     case A64O_SYM:
         buf_printf(e->out, "%s", sym_name(e, o->id));
         break;
+    case A64O_CPOOL:
+        buf_printf(e->out, ".Lcp%u_%u", e->fidx, o->id - 1);
+        break;
     default:
         CGF_ICE("arm64 emit: operand kind %u has no spelling", o->kind);
     }
@@ -319,11 +322,18 @@ static void emit_addr(Emit *e, const A64Inst *in)
     const char *sym;
     const char *reg;
     char addend[32];
+    char cplabel[32];
 
     if ((in->nops != 2 && in->nops != 3) || in->ops[0].kind != A64O_REG ||
-        in->ops[1].kind != A64O_SYM)
+        (in->ops[1].kind != A64O_SYM && in->ops[1].kind != A64O_CPOOL))
         CGF_ICE("arm64 emit: malformed global address");
-    sym = sym_name(e, in->ops[1].id);
+    if (in->ops[1].kind == A64O_CPOOL) {
+        snprintf(cplabel, sizeof(cplabel), ".Lcp%u_%u", e->fidx,
+                 in->ops[1].id - 1);
+        sym = cplabel;
+    } else {
+        sym = sym_name(e, in->ops[1].id);
+    }
     reg = rn(in->ops[0].reg, A64_SF64);
     /* An address constant may carry an addend -- `&g.member`, `&arr[k]`, or
      * anything the optimizer folded into one operand. It has to ride BOTH
@@ -825,6 +835,23 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
             emit_inst(&e, &b->insts[i], bi + 2);
     }
     buf_printf(out, "\t.size\t%s, .-%s\n", f->name, f->name);
+
+    /* The 16-byte constant pool, after the body so the .text run stays
+     * contiguous. `.p2align 4` is not needed by the load -- adrp/add
+     * computes a whole address and `ldr q` tolerates any alignment on
+     * normal memory -- but a 16-byte datum that straddles a cache line for
+     * no reason is worth one directive. */
+    if (f->ncpool) {
+        buf_printf(out, "\t.section\t.rodata\n");
+        buf_printf(out, "\t.p2align\t4\n");
+        for (i = 0; i < f->ncpool; i++) {
+            buf_printf(out, ".Lcp%u_%u:\n", fidx, i);
+            buf_printf(out, "\t.quad\t%llu\n",
+                       (unsigned long long)f->cpool[2 * i]);
+            buf_printf(out, "\t.quad\t%llu\n",
+                       (unsigned long long)f->cpool[2 * i + 1]);
+        }
+    }
 }
 
 /* --- data emission ----------------------------------------------------------
