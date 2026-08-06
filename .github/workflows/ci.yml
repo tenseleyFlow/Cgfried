@@ -70,6 +70,31 @@ jobs:
           cat a64native.log
           [ $s -eq 0 ]
           ! grep -q "skipped" a64native.log
+      # DoD 4. The char-sign fixtures carry one expectation per arch and are
+      # the only ones that assert the target's char signedness; until now the
+      # arm64 half was oracle-verified against gcc but had never EXECUTED on
+      # arm64. Same lane, different corpus directory.
+      - name: char-sign corpus, natively
+        run: |
+          CGF_A64_CGF=build/cgfried \
+          CGF_A64_CORPUS_DIR=tests/corpus/char_sign \
+          CGF_A64_CORPUS_WORK=build/a64-char-sign \
+          CGF_A64_LEDGER=/dev/null \
+            sh scripts/a64_corpus_lane.sh "" build/cgf-test > a64cs.log 2>&1; s=$?
+          cat a64cs.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64cs.log
+      # DoD 6. qemu-user does not reproduce weak memory ordering and its
+      # scheduling is far tamer than a real core's, so the four-thread ll/sc
+      # hammer only counts here. The lane picks native tool names on an arm64
+      # host and executes through qemu-run.sh, which is a passthrough.
+      - name: atomics hammer and exec fixtures, natively
+        run: |
+          make CC=gcc -j"$(nproc)" build/a64mir
+          sh scripts/a64_exec_lane.sh build/a64mir > a64exec.log 2>&1; s=$?
+          cat a64exec.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64exec.log
 
   # ...and the cross lane, which is what a developer on an x86 box gets.
   # Two levels of emulation: an arm64 cgfried under qemu-user building
@@ -101,6 +126,12 @@ jobs:
           cat a64spill.log
           [ $s -eq 0 ]
           ! grep -q "skipped" a64spill.log
+      - name: char-sign corpus under qemu
+        run: |
+          make test-a64-char-sign > a64cs.log 2>&1; s=$?
+          cat a64cs.log
+          [ $s -eq 0 ]
+          ! grep -q "skipped" a64cs.log
 
   test-san:
     runs-on: ubuntu-latest

@@ -16,32 +16,26 @@
 #
 # or `make test-a64-spill-all`.
 #
-# TWO clusters, both UNDIAGNOSED. They are recorded as OBSERVATIONS, because
-# naming a cause I have not seen in a disassembly is how the last two wrong
-# diagnoses started.
+# EMPTY. Every finding this lane produced has been fixed; three distinct
+# causes, none of them reachable by the ordinary lane:
 #
-# 1. Floating point produces WRONG ANSWERS or faults. printf_fp prints
-#    pi=3.140625 for 3.141593, which is a value that lost mantissa bits
-#    somewhere, not a marshalling mistake -- the reload/consume pairing at
-#    the call is correct on inspection.
+# 1. A read-modify-write def took a FRESH scratch instead of the one its own
+#    reload had just filled. movk is the only RMW and it exists only inside a
+#    multi-instruction constant materialization, so the symptom was a silently
+#    WRONG CONSTANT: `movz x16, ...; movk x17, ...` built 3.187264 where the
+#    program said 3.140625. Five fixtures.
+# 2. A spilled INDIRECT CALLEE was substituted with no scratch and no reload,
+#    which quietly rewrote it to x0 -- `blr x0`, branching to whatever the
+#    first argument left there. marshal_calls pre-colours a call's arguments
+#    and result but not its callee, so it is the one value on a call that can
+#    spill. One fixture.
+# 3. The va_start expansion hardcoded x16 for its address computations, but
+#    the va_list pointer it writes THROUGH is an operand of that very
+#    instruction -- so a spilled one was reloaded into the same register and
+#    destroyed before the stores. It now picks a scratch that differs from
+#    the pointer. Two fixtures.
 #
-# 2. Two integer programs fault or answer wrongly, and varargs_sum computes
-#    a wrong sum.
-#
-# The third cluster, frame immediates, is CLOSED: stp/ldp pre/post-index and
-# scaled offsets share a signed 7-bit field scaled by 8, so the bound is +504
-# and not 512 (legal for the prologue's store, illegal for the epilogue's
-# matching load), and a frame object past 4095 now takes two ADDs the way the
-# stack adjustment always has. That fix removed three entries from this list
-# and unpinned int/big_frame from the ordinary ledger.
+# Keep the lane. All three are real miscompiles that ordinary pressure can
+# reach; spill-all only makes them certain.
 #
 # Format: <suite>/<name> [-O<level>] # <cause or observation>
-
-fp/float_conv [-O0] # FP under spill: exit 5, undiagnosed
-fp/fp_call_args [-O0] # FP under spill: exit 1, undiagnosed
-fp/printf_fp [-O0] # FP under spill: prints pi=3.140625, undiagnosed
-fp/u64_double [-O0] # FP under spill: exit 1, undiagnosed
-fp/varargs_mixed [-O0] # FP under spill: SIGSEGV, undiagnosed
-int/bsearch_hand [-O0] # exit 1, undiagnosed
-int/switch_dense [-O0] # SIGSEGV, undiagnosed
-int/varargs_sum [-O0] # wrong sum, undiagnosed

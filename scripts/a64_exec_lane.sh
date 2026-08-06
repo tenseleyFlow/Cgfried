@@ -20,14 +20,33 @@ set -eu
 tool=${1:-build/a64mir}
 work=${CGF_A64_EXEC_WORK:-build/a64-exec-lane}
 
-AS=${CGF_A64_AS:-aarch64-linux-gnu-as}
-CC=${CGF_A64_GCC:-aarch64-linux-gnu-gcc}
+# On an arm64 host the toolchain is not cross-prefixed and no emulator is
+# needed, which is the whole reason this lane can close Sprint 49's DoD 6:
+# qemu-user does not reproduce weak memory ordering and its scheduling is far
+# tamer than a real core's, so the four-thread ll/sc hammer only counts on
+# hardware. Execution goes through qemu-run.sh either way -- it is already a
+# passthrough on a matching arch, so the branch is over TOOL NAMES only.
+host=$(uname -m 2>/dev/null || echo unknown)
+case "$host" in
+aarch64 | arm64)
+    AS=${CGF_A64_AS:-as}
+    CC=${CGF_A64_GCC:-cc}
+    native=1
+    ;;
+*)
+    AS=${CGF_A64_AS:-aarch64-linux-gnu-as}
+    CC=${CGF_A64_GCC:-aarch64-linux-gnu-gcc}
+    native=0
+    ;;
+esac
 QEMU=${CGF_QEMU:-qemu-aarch64-static}
 
 missing=
 command -v "$AS" >/dev/null 2>&1 || missing="$missing $AS"
 command -v "$CC" >/dev/null 2>&1 || missing="$missing $CC"
-command -v "$QEMU" >/dev/null 2>&1 || missing="$missing $QEMU"
+if [ "$native" -eq 0 ]; then
+    command -v "$QEMU" >/dev/null 2>&1 || missing="$missing $QEMU"
+fi
 if [ -n "$missing" ]; then
     echo "a64_exec_lane: skipped (missing:$missing)"
     exit 0
@@ -65,7 +84,7 @@ for input in tests/exec/arm64/*.cgfir; do
     # threads, which is the only way a non-atomic sequence shows itself.
     "$CC" -static -O2 -pthread -o "$work/x_$name" "$work/x_$name.o" \
         "$driver" -lm
-    out=$("$QEMU" "$work/x_$name")
+    out=$(sh scripts/qemu-run.sh "$work/x_$name")
     if [ "$out" != OK ]; then
         echo "a64_exec_lane: $name disagreed with its C reference:" >&2
         echo "$out" >&2
@@ -75,5 +94,9 @@ for input in tests/exec/arm64/*.cgfir; do
 done
 test "$ran" -ge 4
 
-echo "a64_exec_lane: $emitted modules emitted and assembled, \
-$ran executed under $($QEMU --version 2>/dev/null | head -1 | tr -d '\n')"
+if [ "$native" -eq 1 ]; then
+    how="natively on $host"
+else
+    how="under $($QEMU --version 2>/dev/null | head -1 | tr -d '\n')"
+fi
+echo "a64_exec_lane: $emitted modules emitted and assembled, $ran executed $how"

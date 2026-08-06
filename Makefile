@@ -71,7 +71,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-corpus \
-        test-a64-spill-all \
+        test-a64-spill-all test-a64-char-sign \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
 
@@ -381,6 +381,15 @@ test-a64-spill-all: $(BUILD)/cgf-test
 	CGF_A64_SPILL_ALL=1 \
 	    CGF_A64_CORPUS_WORK=$(BUILD)/a64-corpus-spill-all \
 	    CGF_A64_LEDGER=ci/expected_a64_spill_all_failures.txt \
+	    sh scripts/a64_corpus_lane.sh "" $(BUILD)/cgf-test
+
+# Sprint 49 DoD 4: the char-sign fixtures carry one expectation PER ARCH, and
+# only this runs the arm64 half through OUR compiler -- char_sign_oracle.sh
+# proves the EXPECTATIONS with gcc, which is a different claim.
+test-a64-char-sign: $(BUILD)/cgf-test
+	CGF_A64_CORPUS_DIR=tests/corpus/char_sign \
+	    CGF_A64_CORPUS_WORK=$(BUILD)/a64-char-sign \
+	    CGF_A64_LEDGER=/dev/null \
 	    sh scripts/a64_corpus_lane.sh "" $(BUILD)/cgf-test
 
 test-a64-mir: $(BUILD)/a64mir

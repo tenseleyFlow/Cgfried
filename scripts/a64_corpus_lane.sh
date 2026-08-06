@@ -170,11 +170,17 @@ if ! grep -q '@__lttf2' "$WORK/f128.ir"; then
     exit 1
 fi
 
+# CGF_A64_CORPUS_DIR lets the same lane run tests/corpus/char_sign, whose
+# fixtures carry one expectation PER ARCH (`// CHECK(arm64-linux):`) and are
+# therefore the only ones that assert the target's char signedness. The
+# runner needs CGF_TEST_TARGET to pick the right half; without it every
+# targeted CHECK silently applies to the wrong architecture.
 CGF_TEST_CC="$WORK/cgf-a64" \
     CGF_TEST_RUN="$PWD/scripts/qemu-run.sh" \
     CGF_TEST_TARGET=arm64-linux \
     CGF_TEST_TIMEOUT=${CGF_A64_TIMEOUT:-120} \
-    "$TEST" --profile linux-arm64 tests/corpus/x86_64 >"$WORK/run.log" 2>&1
+    "$TEST" --profile linux-arm64 "${CGF_A64_CORPUS_DIR:-tests/corpus/x86_64}" \
+    >"$WORK/run.log" 2>&1
 status=$?
 cat "$WORK/run.log"
 
