@@ -788,6 +788,35 @@ spells arm64 `aarch64-linux-gnu`; the closed target set calls it
 `arm64-linux`. `cgf_target_multiarch()` exists for exactly that, with a
 unit test asserting the two differ.
 
+### 3.7b A CI step that redirects to a log can THROW IT AWAY (Sprint 49)
+
+```yaml
+run: |
+  make some-lane > out.log 2>&1; s=$?   # <-- WRONG
+  cat out.log
+  [ $s -eq 0 ]
+```
+
+GitHub runs `run:` blocks under `bash -e`. When `make` fails, `-e` fires on
+that first line and the step exits **before `cat out.log`** — so the entire
+diagnostic goes into a file nobody ever prints, and the log shows nothing but
+`Process completed with exit code 2`. The flaw is invisible while the step
+passes, which is every run until the one you need it.
+
+Use a condition context, which `-e` does not trigger on:
+
+```yaml
+run: |
+  s=0
+  make some-lane > out.log 2>&1 || s=$?
+  cat out.log
+  [ "$s" -eq 0 ]
+```
+
+Also: **GNU make exits 2 for ANY failed target**, not with the recipe's
+status. `exit code 2` from a make step tells you nothing about the cause;
+do not read it as a signal.
+
 ### 3.8 `RT_TARGET` is evaluated at PARSE time (Sprint 49 follow-up)
 
 `RT_TARGET := $(shell $(BUILD)/cgfried -dumpmachine || echo ...)` runs when

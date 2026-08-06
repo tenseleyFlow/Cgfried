@@ -65,10 +65,11 @@ jobs:
           ./hello
       - name: e2e corpus, natively (exact failure ledger)
         run: |
+          s=0
           CGF_A64_CGF=build/cgfried sh scripts/a64_corpus_lane.sh "" build/cgf-test \
-            > a64native.log 2>&1; s=$?
+            > a64native.log 2>&1 || s=$?
           cat a64native.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64native.log
       # DoD 4. The char-sign fixtures carry one expectation per arch and are
       # the only ones that assert the target's char signedness; until now the
@@ -76,13 +77,14 @@ jobs:
       # arm64. Same lane, different corpus directory.
       - name: char-sign corpus, natively
         run: |
+          s=0
           CGF_A64_CGF=build/cgfried \
           CGF_A64_CORPUS_DIR=tests/corpus/char_sign \
           CGF_A64_CORPUS_WORK=build/a64-char-sign \
           CGF_A64_LEDGER=/dev/null \
-            sh scripts/a64_corpus_lane.sh "" build/cgf-test > a64cs.log 2>&1; s=$?
+            sh scripts/a64_corpus_lane.sh "" build/cgf-test > a64cs.log 2>&1 || s=$?
           cat a64cs.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64cs.log
       # DoD 6. qemu-user does not reproduce weak memory ordering and its
       # scheduling is far tamer than a real core's, so the four-thread ll/sc
@@ -91,9 +93,10 @@ jobs:
       - name: atomics hammer and exec fixtures, natively
         run: |
           make CC=gcc -j"$(nproc)" build/a64mir
-          sh scripts/a64_exec_lane.sh build/a64mir > a64exec.log 2>&1; s=$?
+          s=0
+          sh scripts/a64_exec_lane.sh build/a64mir > a64exec.log 2>&1 || s=$?
           cat a64exec.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64exec.log
 
   # ...and the cross lane, which is what a developer on an x86 box gets.
@@ -112,9 +115,10 @@ jobs:
       - name: e2e corpus on arm64 under qemu (exact failure ledger)
         run: |
           make -j"$(nproc)" build/cgf-test
-          make test-a64-corpus > a64corpus.log 2>&1; s=$?
+          s=0
+          make test-a64-corpus > a64corpus.log 2>&1 || s=$?
           cat a64corpus.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64corpus.log
       # The same corpus with every interval forced to memory, against its own
       # ledger. The spill rewrite moves instruction indices and natural
@@ -122,15 +126,17 @@ jobs:
       # ordinary one does not see.
       - name: e2e corpus under CGF_SPILL_ALL (exact failure ledger)
         run: |
-          make test-a64-spill-all > a64spill.log 2>&1; s=$?
+          s=0
+          make test-a64-spill-all > a64spill.log 2>&1 || s=$?
           cat a64spill.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64spill.log
       - name: char-sign corpus under qemu
         run: |
-          make test-a64-char-sign > a64cs.log 2>&1; s=$?
+          s=0
+          make test-a64-char-sign > a64cs.log 2>&1 || s=$?
           cat a64cs.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64cs.log
 
   test-san:
@@ -245,15 +251,17 @@ jobs:
       - name: AArch64 object differential (afs-as ELF vs gas, zero skips)
         run: |
           make -j"$(nproc)" build/a64mir
-          sh scripts/a64_objdiff_lane.sh build/a64mir > a64objdiff.log 2>&1; s=$?
+          s=0
+          sh scripts/a64_objdiff_lane.sh build/a64mir > a64objdiff.log 2>&1 || s=$?
           cat a64objdiff.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           ! grep -q "skipped" a64objdiff.log
       - name: smoke differential (afs-as vs gas, section bytes)
         run: |
-          sh scripts/toolchain_smoke.sh > toolchain.log 2>&1; s=$?
+          s=0
+          sh scripts/toolchain_smoke.sh > toolchain.log 2>&1 || s=$?
           cat toolchain.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           sh ci/check_skips.sh toolchain toolchain.log
       - name: "x86_64-hello-world: THE milestone (Sprint 25)"
         run: |
@@ -274,7 +282,7 @@ jobs:
           if sh scripts/objdiff_lane.sh build/cgfried build/cgf-objdiff \
               > objdiff.log 2>&1; then s=0; else s=1; fi
           cat objdiff.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           sh ci/check_skips.sh objdiff objdiff.log
       - name: "afs-ld static lane (Sprint 27: CGF_LD=1 corpus + structure)"
         run: |
@@ -282,7 +290,7 @@ jobs:
           if sh scripts/afsld_lane.sh build/cgfried \
               > afsld.log 2>&1; then s=0; else s=1; fi
           cat afsld.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           sh ci/check_skips.sh afsld afsld.log
       - name: "DWARF v4 + CFI debugger lane (Sprint 29)"
         run: |
@@ -293,5 +301,5 @@ jobs:
               sh scripts/debug_info_lane.sh build/cgfried \
               > debug-info.log 2>&1; then s=0; else s=1; fi
           cat debug-info.log
-          [ $s -eq 0 ]
+          [ "$s" -eq 0 ]
           sh ci/check_skips.sh debug debug-info.log
