@@ -279,11 +279,14 @@ static IrOperand mapped_operand(const IrOperand *map, IrOperand old)
     if (old.kind != IROP_VALUE)
         return old;
     out = map[old.a];
-    /* Operand.b on a value is a use-site ABI annotation.  Parameter
-     * substitution must not leak the outer call's annotation into ordinary
-     * callee uses, while a nested byval/sret call keeps its own annotation. */
-    if (out.kind != IROP_FCONST)
-        out.b = old.b;
+    /* Operand.b and argflags on a value are use-site ABI annotations.
+     * Parameter substitution must not leak the outer call's annotation into
+     * ordinary callee uses, while a nested byval/sret call keeps its own --
+     * which is precisely ir_arg_carry_provenance's contract, including the
+     * fconst guard this site had and the argflags carry it did not. Losing
+     * argflags here dropped IROPF_ANON from a variadic call inside an
+     * inlined body: verifier check 9. */
+    ir_arg_carry_provenance(&out, &old);
     return out;
 }
 
@@ -310,23 +313,28 @@ static void replace_value(IrFunc *f, ValueId old, IrOperand replacement)
         for (in = f->blocks[bi].first; in; in = in->next) {
             u32 i, j;
 
+            /* ir_arg_carry_provenance, not a local copy of it: this was the
+             * sixth site hand-rolling "re-attach a call argument's
+             * annotation across a replacement", and like three of the
+             * earlier five it carried the ABI word `b` and silently dropped
+             * `argflags`. Substituting an inlined parameter into a variadic
+             * call then lost IROPF_ANON on exactly the arguments the
+             * inliner made constant -- verifier check 9. */
             for (i = 0; i < in->nops; i++)
                 if (in->ops[i].kind == IROP_VALUE && in->ops[i].a == old.v) {
-                    u64 annot = in->ops[i].b;
+                    IrOperand old_op = in->ops[i];
 
                     in->ops[i] = replacement;
-                    if (replacement.kind != IROP_FCONST)
-                        in->ops[i].b = annot;
+                    ir_arg_carry_provenance(&in->ops[i], &old_op);
                 }
             for (i = 0; i < in->nedges; i++)
                 for (j = 0; j < in->edges[i].nargs; j++)
                     if (in->edges[i].args[j].kind == IROP_VALUE &&
                         in->edges[i].args[j].a == old.v) {
-                        u64 annot = in->edges[i].args[j].b;
+                        IrOperand old_op = in->edges[i].args[j];
 
                         in->edges[i].args[j] = replacement;
-                        if (replacement.kind != IROP_FCONST)
-                            in->edges[i].args[j].b = annot;
+                        ir_arg_carry_provenance(&in->edges[i].args[j], &old_op);
                     }
         }
     }

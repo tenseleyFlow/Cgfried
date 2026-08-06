@@ -304,14 +304,24 @@ typedef struct IrOperand {
  * the value that happens to fill it, so folding `printf("%d", n)` to a
  * constant must not forget the argument was anonymous.
  *
- * FIVE passes rewrite call operands in place (sccp, simplify, gvn, cse,
- * mem2reg) and each had its own copy of this; three of them carried `b` and
- * silently dropped `argflags` the day it was added. One function, so the
- * next field cannot be missed the same way.
+ * SIX passes rewrite call operands in place (sccp, simplify, gvn, cse,
+ * mem2reg, inline) and each had its own copy of this; three of them carried
+ * `b` and silently dropped `argflags` the day it was added, and the inliner
+ * was still hand-rolling its own version a sprint later. One function, so
+ * the next field cannot be missed the same way.
  *
- * `b` moves only when the OLD operand actually named a kind, because `b` is
- * not free on every operand kind: on an f80/f128 fconst it is the high half
- * of the value, and a replacement may well be one. */
+ * An annotation belongs to the USE SITE, not to the value, so the fresh
+ * operand takes the old one's outright rather than keeping its own. That
+ * matters when the replacement already carries one: substituting a caller's
+ * argument operand into an inlined callee body would otherwise leak the
+ * OUTER call's annotation onto an ordinary callee use.
+ *
+ * The single exception is `b` on an fconst, where those bits are the high
+ * half of an f80/f128 VALUE rather than an annotation -- writing to it
+ * silently rewrites the constant. Only the inliner's private copy had that
+ * guard; folding the argument of `f(1.0L)` through any of the other five
+ * would have corrupted it. argflags always moves: being a byte of its own
+ * is exactly why it works for every operand kind. */
 void ir_arg_carry_provenance(IrOperand *fresh, const IrOperand *old);
 
 /* argflags occupies padding that already existed between `type` and `sym`.

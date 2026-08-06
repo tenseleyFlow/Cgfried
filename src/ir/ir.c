@@ -811,7 +811,7 @@ IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index)
 
 void ir_arg_carry_provenance(IrOperand *fresh, const IrOperand *old)
 {
-    if (ir_arg_kind(old->b) != IR_ARG_NONE)
+    if (fresh->kind != IROP_FCONST)
         fresh->b = old->b;
     fresh->argflags = old->argflags;
 }

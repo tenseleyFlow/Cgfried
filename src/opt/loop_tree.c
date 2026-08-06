@@ -601,14 +601,27 @@ static void replace_block_uses(IrFunc *f, BlockId block, ValueId old,
     IrOperand op = ir_op_value(f, replacement);
     u32 oi, ei, ai;
 
+    /* Routing a use through an LCSSA block parameter must not lose what the
+     * use SITE said about it. Overwriting the operand outright dropped both
+     * the ABI annotation and argflags, so a call argument that LCSSA
+     * rewrote stopped being 'anon' -- and `printf("...", f(), g())` is
+     * exactly the shape that produces. */
     for (in = f->blocks[block.v - 1].first; in; in = in->next) {
         for (oi = 0; oi < in->nops; oi++)
-            if (operand_names_value(&in->ops[oi], old))
+            if (operand_names_value(&in->ops[oi], old)) {
+                IrOperand old_op = in->ops[oi];
+
                 in->ops[oi] = op;
+                ir_arg_carry_provenance(&in->ops[oi], &old_op);
+            }
         for (ei = 0; ei < in->nedges; ei++)
             for (ai = 0; ai < in->edges[ei].nargs; ai++)
-                if (operand_names_value(&in->edges[ei].args[ai], old))
+                if (operand_names_value(&in->edges[ei].args[ai], old)) {
+                    IrOperand old_op = in->edges[ei].args[ai];
+
                     in->edges[ei].args[ai] = op;
+                    ir_arg_carry_provenance(&in->edges[ei].args[ai], &old_op);
+                }
     }
 }
 
