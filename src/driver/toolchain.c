@@ -408,7 +408,7 @@ const char *cgf_afs_as_target_flag(TargetSpec t)
 ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
                              u32 *diag_line)
 {
-    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
     const char *argv[6];
     int an = 0;
     ToolResult res;
@@ -439,11 +439,11 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
      * does not decode SHF_COMPRESSED inputs, and reloc offsets name the
      * uncompressed image, so keep compiler-produced debug sections plain. */
     if (tc.use_afs_as) {
-        const char *arm = cgf_afs_as_target_flag(cgf_target_host());
+        const char *arm = cgf_afs_as_target_flag(cgf_target_selected());
 
         if (arm)
             argv[an++] = arm;
-    } else if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS) {
+    } else if (cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS) {
         /* GNU-as only. macOS `as` is a clang driver and rejects the flag
          * outright ("unknown argument"), which surfaced as an ICE blaming
          * our own assembly. Mach-O has no SHF_COMPRESSED anyway, so there
@@ -719,9 +719,9 @@ const char *cgf_probe_crt_dir_in(const char *override, const char *const *bdirs,
  * search transcript. diag gets a comma-joined summary. */
 const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
 {
-    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
     const char *table[CRT_DIR_MAX];
-    size_t ntable = crt_default_dirs_for(cgf_target_host(), table);
+    size_t ntable = crt_default_dirs_for(cgf_target_selected(), table);
     const char *dir =
         cgf_probe_crt_dir_in(tc.crt_dir, NULL, 0, table, ntable, NULL);
 
@@ -1042,17 +1042,17 @@ void cgf_toolchain_echo_argv(const char *const argv[])
 
 void cgf_echo_as_plan(const char *s_path, const char *o_path)
 {
-    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
     const char *argv[6];
     int n = 0;
 
     argv[n++] = tc.as_path ? tc.as_path : "as";
     if (tc.as_path && tc.use_afs_as) {
-        const char *arm = cgf_afs_as_target_flag(cgf_target_host());
+        const char *arm = cgf_afs_as_target_flag(cgf_target_selected());
 
         if (arm)
             argv[n++] = arm;
-    } else if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS) {
+    } else if (cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS) {
         /* Must mirror cgf_assemble exactly: -### promises the plan that
          * WOULD run, so a flag added on one side and not the other makes
          * the plan a lie. */

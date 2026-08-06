@@ -1979,7 +1979,7 @@ static void bind_params(Isel *is, const IrFunc *ir)
 {
     u32 ngrn = 0, nsrn = 0, nsaa = 0;
     u32 i;
-    bool apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
+    bool apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
     /* Sprint 19 shapes an aggregate return as a hidden POINTER parameter 0 --
      * the SysV convention, spelled into the IR. AAPCS64 disagrees twice, and
      * the difference is on the CALLEE side only (call lowering already gets

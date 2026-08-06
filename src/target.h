@@ -59,6 +59,19 @@ extern const char *const cgf_target_names[CGF_TARGET_COUNT];
  * target and rots the cross-targeting story — review rejection. */
 TargetSpec cgf_target_host(void);
 
+/* The target being compiled FOR: the host unless --target= said otherwise.
+ * THIS is what every code path outside target.c wants. Asking the host
+ * instead yields a compiler that is right only when host == target, and a
+ * cross build then miscompiles silently -- which is why
+ * scripts/check_target_seam.sh rejects cgf_target_host() anywhere else. */
+TargetSpec cgf_target_selected(void);
+
+/* Select by exact name from the closed set; false = unknown (the caller
+ * reports it and lists cgf_target_names). There is no triple PARSER on
+ * purpose: an unrecognised triple that silently degrades to a default is
+ * the failure mode a closed enum exists to prevent. */
+bool cgf_target_select(const char *name);
+
 /* Debian/Ubuntu multiarch tuple (NULL where the layout does not exist).
  * NOT the target name: Debian spells arm64 `aarch64-linux-gnu`. */
 const char *cgf_target_multiarch(TargetSpec t);

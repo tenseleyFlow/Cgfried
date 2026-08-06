@@ -1,5 +1,7 @@
 #include "target.h"
 
+#include <string.h>
+
 #include "diag.h"
 
 const char *const cgf_target_names[CGF_TARGET_COUNT] = {
@@ -27,6 +29,38 @@ TargetSpec cgf_target_host(void)
 #error "unsupported host; add it to the closed target set deliberately"
 #endif
     return t;
+}
+
+/* The target being compiled FOR. Everything outside this file asks here;
+ * cgf_target_host() exists only to supply the default. Sprint 51's grep gate
+ * (scripts/check_target_seam.sh) enforces that split, because a host sniff
+ * on a code path that meant "target" produces a compiler that is correct
+ * only when the two coincide — and cross-compiling then miscompiles with no
+ * diagnostic at all. */
+static bool selected_set;
+static TargetSpec selected;
+
+TargetSpec cgf_target_selected(void)
+{
+    if (!selected_set) {
+        selected = cgf_target_host();
+        selected_set = true;
+    }
+    return selected;
+}
+
+bool cgf_target_select(const char *name)
+{
+    int i;
+
+    for (i = 0; i < CGF_TARGET_COUNT; i++) {
+        if (strcmp(name, cgf_target_names[i]) == 0) {
+            selected.kind = (TargetKind)i;
+            selected_set = true;
+            return true;
+        }
+    }
+    return false;
 }
 
 void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)

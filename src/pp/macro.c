@@ -1110,7 +1110,7 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
                    tmv.tm_min, tmv.tm_sec);
     }
 
-    cgf_target_predef_lines(cgf_target_host(), pp->gnu_mode, &b);
+    cgf_target_predef_lines(cgf_target_selected(), pp->gnu_mode, &b);
 
     sf = pp_source_add_buffer(pp, "<built-in>", (const char *)b.data, b.len);
     buf_free(&b);

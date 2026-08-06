@@ -956,7 +956,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
     e.m = m;
     e.fidx = fidx;
     e.atomic_seq = 0;
-    e.apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
+    e.apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
 
     buf_printf(out,
                e.apple ? "\t.section\t__TEXT,__text,regular,pure_instructions\n"
@@ -1049,14 +1049,14 @@ static void emit_image(Emit *e, const IrModule *m, const IrGlobal *g, Buf *out)
  * and datum is its own subsection, which is what that directive asserts. */
 void a64_emit_file_prologue(Buf *out)
 {
-    if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS)
+    if (cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS)
         return;
     buf_printf(out, "\t.build_version macos, 11, 0\n");
 }
 
 void a64_emit_file_epilogue(Buf *out)
 {
-    if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS)
+    if (cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS)
         return;
     buf_printf(out, "\t.subsections_via_symbols\n");
 }
@@ -1069,7 +1069,7 @@ void a64_emit_globals(const IrModule *m, Buf *out)
     memset(&e, 0, sizeof(e));
     e.out = out;
     e.m = m;
-    e.apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
+    e.apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
 
     for (i = 0; i < m->nglobals; i++) {
         const IrGlobal *g = &m->globals[i];

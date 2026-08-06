@@ -937,7 +937,7 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
     /* AAPCS64 fills the register queues with named and anonymous arguments
      * alike; Apple stops at the last named one. Sprint 51 replaces the host
      * sniff with the driver's selected target. */
-    bool apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
+    bool apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
     u32 nkept = 0, i;
 
     if (!call)
@@ -1589,7 +1589,7 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
              * argument, which is the top of the frame. No save area exists
              * to describe, so there are no tops and no offsets -- the whole
              * five-field dance below is AAPCS64's alone. */
-            if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
+            if (cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
                 A64Inst st;
 
                 emit_add_imm(&rb, scratch, A64_X29, vr_top);
@@ -1711,7 +1711,7 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
     }
     /* Apple passes every anonymous argument on the stack, so a variadic
      * function there needs no register save area at all. */
-    if (f->variadic && cgf_target_host().kind != CGF_TARGET_ARM64_MACOS)
+    if (f->variadic && cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS)
         frame_emit_save_area(f, fr, &rb);
     for (i = 0; i < b->n; i++) {
         rb.map[i] = rb.n;
