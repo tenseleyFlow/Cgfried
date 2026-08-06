@@ -96,6 +96,23 @@ static Type *va_list_sysv(Sema *s)
     return arr;
 }
 
+/* Apple's arm64 va_list is a plain `char *`, and NOT wrapped in an array.
+ *
+ * That is a real semantic difference, not a simplification. The array wrapper
+ * on the other two targets is what makes `va_list` decay to a pointer at
+ * every use, so a callee handed one advances ITS CALLER's cursor. Apple's is
+ * an ordinary pointer object: passing it copies the cursor, and a callee that
+ * consumes arguments leaves the caller's copy untouched. Code relying on the
+ * array behaviour is relying on an ABI accident, and `va_copy` exists for
+ * exactly this reason.
+ *
+ * `char *` rather than `void *` because va_arg advances it by the argument's
+ * size and pointer arithmetic on void is a GNU extension. */
+static Type *va_list_apple(Sema *s)
+{
+    return type_ptr(s->arena, type_basic(TY_CHAR));
+}
+
 /* Field order and types are gcc's aarch64 `build_va_list`, verbatim:
  * __stack +0, __gr_top +8, __vr_top +16, __gr_offs +24, __vr_offs +28. The
  * offsets are SIGNED — negative is the whole design. */
@@ -141,10 +158,7 @@ Type *sema_va_list_type(Sema *s)
         s->va_list_type = va_list_aapcs64(s);
         break;
     case CGF_TARGET_ARM64_MACOS:
-        /* Apple's va_list is a bare `char *`; synthesizing the AAPCS64
-         * record here would be silently wrong rather than unimplemented. */
-        sema_unimplemented(s, (Span){0}, "the Apple arm64 va_list", 50);
-        s->va_list_type = va_list_aapcs64(s);
+        s->va_list_type = va_list_apple(s);
         break;
     default:
         s->va_list_type = va_list_sysv(s);

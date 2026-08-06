@@ -1162,12 +1162,98 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
     }
 }
 
+/* The cursor a va_* builtin operates on, as a POINTER to it.
+ *
+ * An array va_list has already decayed to that pointer, so its value is the
+ * address. Apple's is a `char *` object, and its value is the CURSOR rather
+ * than a pointer to it -- taking the address is what makes the two uniform,
+ * and reading the value instead would have every va_arg advance a copy. */
+static IrOperand lower_va_cursor(Lower *lo, AstNode *e)
+{
+    if (lo->sema->target.kind == CGF_TARGET_ARM64_MACOS)
+        return lower_lvalue(lo, e).addr;
+    return lower_rvalue(lo, e);
+}
+
+/* Apple's arm64 va_arg, and the whole of it.
+ *
+ * Every anonymous argument is on the stack, so there is no register save
+ * area, no offset pair, and no classification diamond -- just a cursor:
+ *
+ *     cursor = *ap
+ *     cursor = align_up(cursor, alignof(T))     // only when align > 8
+ *     value  = *(T *)cursor
+ *     *ap    = cursor + round_up(sizeof(T), 8)
+ *
+ * Slots are 8 bytes even for a char, and an aggregate sits in the varargs
+ * area BY VALUE rather than behind a pointer -- clang reads a 16-byte struct
+ * with a single `ldp` straight out of it. The alignment step matters only
+ * for 16-aligned types; clang emits the and/orr dance for __int128 and
+ * nothing at all for double, and `long double` takes an ordinary 8-byte slot
+ * because Apple makes it a double.
+ *
+ * `ap` is a plain `char *` OBJECT here, not the one-element array the other
+ * two targets use, so the cursor is read and written through `ap` itself. */
+static IrOperand lower_va_arg_apple(Lower *lo, AstNode *e, IrOperand ap)
+{
+    Type *t = sem(e);
+    TypeLayout l = layout_of(lo->sema, t);
+    u64 slot = ((u64)l.size + 7) & ~7ull;
+    Lvalue cur;
+    IrOperand at;
+    ValueId next;
+
+    memset(&cur, 0, sizeof(cur));
+    cur.addr = ap;
+    cur.unit = IRT_PTR;
+    cur.align = 8;
+    at = lower_load(lo, cur);
+    if (l.align > 8) {
+        ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, at);
+        ValueId up =
+            ir_build2(&lo->b, IR_IADD, IRT_I64, ir_op_value(lo->fn, as_i),
+                      lower_i64((i64)l.align - 1));
+        ValueId masked =
+            ir_build2(&lo->b, IR_AND, IRT_I64, ir_op_value(lo->fn, up),
+                      lower_i64(-(i64)l.align));
+
+        at = ir_op_value(
+            lo->fn,
+            ir_build1(&lo->b, IR_BITCAST, IRT_PTR, ir_op_value(lo->fn, masked)));
+        slot = ((u64)l.size + (u64)l.align - 1) & ~((u64)l.align - 1);
+    }
+    next = ir_build_ptradd(&lo->b, at, lower_i64((i64)slot));
+    lower_store(lo, cur, ir_op_value(lo->fn, next));
+    /* `at` is the ADDRESS of the argument; the contract is the value. An
+     * aggregate is copied out because the varargs area is the caller's
+     * memory and the callee may not alias it. */
+    if (lower_is_aggregate(t)) {
+        ValueId tmp = lower_temp(lo, t);
+
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), at, t,
+                               (u32)(l.align > 8 ? 8 : l.align), 0);
+        return ir_op_value(lo->fn, tmp);
+    }
+    {
+        Lvalue lv;
+
+        memset(&lv, 0, sizeof(lv));
+        lv.addr = at;
+        lv.unit = lower_irtype(lo, t);
+        lv.align = (u32)(l.align > 8 ? 8 : l.align);
+        lv.is_signed = type_is_integer(t) && is_signed_ty(lo, t);
+        return lower_load(lo, lv);
+    }
+}
+
 static IrOperand lower_va_arg(Lower *lo, AstNode *e)
 {
     Type *t = sem(e);
-    IrOperand ap = lower_rvalue(lo, e->lhs);
+    IrOperand ap = lower_va_cursor(lo, e->lhs);
     AbiArg plan;
 
+    if (lo->sema->target.kind == CGF_TARGET_ARM64_MACOS)
+        return lower_va_arg_apple(lo, e, ap);
     if (lower_is_aapcs64(lo))
         return lower_va_arg_aapcs64(lo, e, ap);
     {
@@ -1320,7 +1406,7 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
 
 static void lower_va_builtin(Lower *lo, AstNode *e)
 {
-    IrOperand ap = lower_rvalue(lo, e->args[0]);
+    IrOperand ap = lower_va_cursor(lo, e->args[0]);
 
     switch (e->op) {
     case SEMA_BUILTIN_VA_START:
@@ -1332,7 +1418,12 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
             lo->failed = true;
             return;
         }
-        if (lower_is_aapcs64(lo)) {
+        if (lo->sema->target.kind == CGF_TARGET_ARM64_MACOS) {
+            /* Nothing to seed. Apple's va_list holds ONE cursor and every
+             * anonymous argument is already on the stack, so va_start is
+             * exactly "point at the first of them" -- which only codegen
+             * knows the address of, and ir_build_va_start below asks for. */
+        } else if (lower_is_aapcs64(lo)) {
             /* Negative, counting up toward zero: the unused tail of each
              * save area. Eight registers per bank, the named parameters
              * having already consumed their share. */
@@ -1357,12 +1448,19 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
         ir_build_va_start(&lo->b, ap);
         return;
     case SEMA_BUILTIN_VA_COPY: {
-        IrOperand src = lower_rvalue(lo, e->args[1]);
+        IrOperand src = lower_va_cursor(lo, e->args[1]);
 
         /* The whole record; both save areas stay shared. AAPCS64's is 32
-         * bytes (three pointers and two offsets), SysV's 24. */
+         * bytes (three pointers and two offsets), SysV's 24. Apple's is one
+         * pointer -- and copying it is the ONLY way to get an independent
+         * cursor there, since its va_list is not an array and assignment
+         * would alias rather than decay. */
         ir_build_memcpy(&lo->b, ap, src,
-                        lower_i64(lower_is_aapcs64(lo) ? 32 : 24), 8, 0);
+                        lower_i64(lo->sema->target.kind == CGF_TARGET_ARM64_MACOS
+                                      ? 8
+                                      : lower_is_aapcs64(lo) ? 32
+                                                             : 24),
+                        8, 0);
         return;
     }
     default: /* va_end: the SysV va_end is a no-op — nothing at all */

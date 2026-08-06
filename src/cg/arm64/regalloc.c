@@ -1511,6 +1511,18 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
             vr_top = fr->total - fr->base;
             gr_top = vr_top - A64_VA_FP_BYTES;
 
+            /* Apple: one cursor, pointed at the first incoming stack
+             * argument, which is the top of the frame. No save area exists
+             * to describe, so there are no tops and no offsets -- the whole
+             * five-field dance below is AAPCS64's alone. */
+            if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
+                A64Inst st;
+
+                emit_add_imm(&rb, scratch, A64_X29, vr_top);
+                st = mk_store_at(scratch, ap, 0, false);
+                rb_put(&rb, &st);
+                continue;
+            }
             emit_add_imm(&rb, scratch, A64_X29, gr_top);
             {
                 A64Inst st = mk_store_at(scratch, ap, 8, false);
@@ -1623,7 +1635,9 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
         in.ops[1].mem.mode = (u8)a64_isel_addr((i64)off, 8, false, false);
         rb_put(&rb, &in);
     }
-    if (f->variadic)
+    /* Apple passes every anonymous argument on the stack, so a variadic
+     * function there needs no register save area at all. */
+    if (f->variadic && cgf_target_host().kind != CGF_TARGET_ARM64_MACOS)
         frame_emit_save_area(f, fr, &rb);
     for (i = 0; i < b->n; i++) {
         rb.map[i] = rb.n;

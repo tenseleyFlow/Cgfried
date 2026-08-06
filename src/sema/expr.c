@@ -195,11 +195,24 @@ static bool is_ptr(const Type *t)
 /* Every supported va_list expression decays to a pointer to the canonical
  * synthesized record.  Accepting arbitrary pointers (or integers) lets
  * malformed source reach lowering as verifier-invalid memory operations. */
+/* What the va_* builtins accept as a cursor.
+ *
+ * On targets whose va_list is a one-element ARRAY, the argument arrives
+ * already decayed to a pointer at the record, so the test is "pointer to the
+ * element type". Apple's va_list is a plain `char *` OBJECT, so the argument
+ * arrives as that pointer itself and the test is "compatible with va_list".
+ * Lowering makes the two uniform by taking the ADDRESS in the second case --
+ * decay does it for free in the first. */
 static bool is_va_list_cursor(Sema *s, const Type *t)
 {
     Type *va = sema_va_list_type(s);
 
-    return is_ptr(t) && va && va->kind == TY_ARRAY && va->base &&
+    if (!va)
+        return false;
+    if (va->kind != TY_ARRAY)
+        return type_compatible(conv_strip_quals(s, (Type *)t),
+                               conv_strip_quals(s, va));
+    return is_ptr(t) && va->base &&
            type_compatible(conv_strip_quals(s, t->base),
                            conv_strip_quals(s, va->base));
 }
