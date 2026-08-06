@@ -92,6 +92,30 @@ static bool type_is_vla_chain(const Type *t)
     return false;
 }
 
+/* C17 6.7.6.2p4: the size expression of a VLA type is evaluated when the
+ * DECLARATION is reached, whether or not that declaration creates an object
+ * of the type. `char (*p)[width]` declares a POINTER, so type_is_vla_chain
+ * never sees it -- yet `p[i]` still has to scale by `width`.
+ *
+ * Computing that lazily at the first use put the definition wherever the
+ * first subscript happened to be, which in musl's lsearch.c is inside a loop
+ * body that does not dominate the later use: IR verify check 1. Priming the
+ * cache at the declaration gives every use one dominating definition and
+ * evaluates the expression exactly once, in the place the standard names.
+ *
+ * Walking base through arrays AND pointers is the whole point; lower_type_size
+ * already recurses through an array's element type, so caching the outermost
+ * VLA caches everything under it. */
+static void lower_vla_sizes_in_decl(Lower *lo, Type *t)
+{
+    for (; t; t = t->base) {
+        if (t->kind == TY_ARRAY && t->is_vla)
+            (void)lower_type_size(lo, t);
+        else if (t->kind != TY_ARRAY && t->kind != TY_PTR)
+            break;
+    }
+}
+
 /* Restores the OUTERMOST live token among the scopes from the innermost
  * up to (but excluding) `stop` — one restore subsumes the inner ones. */
 static void vla_restore_until(Lower *lo, VlaScope *stop)
@@ -183,6 +207,7 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         return;
     if (!sym || sym->kind != SYM_VAR)
         return; /* typedef/tag/enum-only declarations */
+    lower_vla_sizes_in_decl(lo, sym->type);
     if (sym->type && type_is_vla_chain(sym->type)) {
         /* VLA: the size expressions evaluate exactly ONCE, here, in
          * declaration order (lower_type_size caches per Type node — a

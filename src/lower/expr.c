@@ -324,11 +324,18 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         IrOperand base = left_is_pointer ? left : right;
         IrOperand idx = left_is_pointer ? right : left;
         Type *idx_type = left_is_pointer ? sem(e->rhs) : sem(e->lhs);
-        TypeLayout el = layout_of(lo->sema, sem(e));
+        /* lower_type_size, NOT layout_of: the element of a multidimensional
+         * VLA is itself a VLA, whose static layout size is 0. `int m[r][c]`
+         * then scaled every row index by zero and every row of the matrix
+         * aliased row 0 -- silently, at every optimization level, with
+         * sizeof(m) and sizeof(m[0]) both still correct because they take
+         * this same runtime size by a different route. The `p + n` path in
+         * ptr_index always did this correctly; only the dedicated subscript
+         * shortcut did not. */
+        IrOperand el = lower_type_size(lo, sem(e));
         IrOperand wide =
             lower_scalar_convert(lo, idx, idx_type, type_basic(TY_LONG));
-        ValueId scaled =
-            ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, lower_i64((i64)el.size));
+        ValueId scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, el);
         ValueId sum =
             ir_build_ptradd(&lo->b, base, ir_op_value(lo->fn, scaled));
 
@@ -645,15 +652,22 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
             /* p - q: byte difference / element size, i64 result. */
             IrOperand a = lower_rvalue(lo, e->lhs);
             IrOperand b = lower_rvalue(lo, e->rhs);
-            TypeLayout el = layout_of(lo->sema, lt->base);
+            /* Runtime size for the same reason the subscript below needs
+             * one: pointers into a multidimensional VLA have a VLA pointee,
+             * whose static size is 0. The zero-size guard stays for the
+             * non-VLA cases that reach here (void pointees), where dividing
+             * by the real 0 would trap rather than mean anything. */
+            TypeLayout ell = layout_of(lo->sema, lt->base);
+            IrOperand el = lt->base && lt->base->is_vla
+                               ? lower_type_size(lo, lt->base)
+                               : lower_i64((i64)(ell.size ? ell.size : 1));
             ValueId ai = ir_build1(&lo->b, IR_BITCAST, IRT_I64, a);
             ValueId bi = ir_build1(&lo->b, IR_BITCAST, IRT_I64, b);
             ValueId d =
                 ir_build2(&lo->b, IR_ISUB, IRT_I64, ir_op_value(lo->fn, ai),
                           ir_op_value(lo->fn, bi));
             ValueId q =
-                ir_build2(&lo->b, IR_SDIV, IRT_I64, ir_op_value(lo->fn, d),
-                          lower_i64((i64)(el.size ? el.size : 1)));
+                ir_build2(&lo->b, IR_SDIV, IRT_I64, ir_op_value(lo->fn, d), el);
 
             return ir_op_value(lo->fn, q);
         }
