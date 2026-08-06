@@ -447,13 +447,24 @@ named and open; do not discover this a third time.
 - **#99**: TLV thread-locals, the reloc differential vs clang, and the macOS
   CI runner. The differential is the one that will find things — `tests/macos/`
   already holds the mixed-link programs and a README with the exact recipe.
-- **NOT yet implemented and it will bite**: on Mach-O ALL extern data goes
-  through the GOT even non-PIC (`_ext@GOTPAGE`/`@GOTPAGEOFF`), while defined
-  globals stay direct. Only same-TU globals have been exercised, so the first
-  fixture referencing an extern variable hits it.
+- The GOT gap is CLOSED (`ff9bd75`): an undefined symbol goes through
+  `@GOTPAGE`/`@GOTPAGEOFF` with a LOAD, a defined one stays direct, and it
+  applies to a function's ADDRESS as much as to data. An addend cannot ride a
+  GOT relocation and becomes a separate add.
+- **Run `sh tests/macos/run.sh build/cgfried` on the Mac after ANY backend
+  change.** Seven mixed-link programs, exact output compared. It exists
+  because row 3 silently regressed row 1 for two commits — see the traps
+  below.
 
 ### The traps this sprint actually produced
 
+- **A fixture verified by hand once is not a test.** Landing row 3
+  (natural-size stack packing) also packed the VARARGS area, which regressed
+  row 1: every anonymous argument after the first went where the callee never
+  looks, so `printf("%d %d", a, b)` printed `a` and then garbage. It survived
+  two commits because the macOS programs had each been run once, by hand, at
+  the moment they were written. `tests/macos/run.sh` is the answer. There is
+  still no CI runner (D6), and it still catches regressions.
 - **A symmetric ABI rule has two halves and only one is obvious.** Row 3's
   caller half went in, our caller packed correctly, and our callee still read
   eightbyte slots — so a Cgfried-to-Cgfried call agreed with ITSELF and clang's
