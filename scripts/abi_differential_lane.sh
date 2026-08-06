@@ -81,6 +81,32 @@ command -v "$REF" >/dev/null 2>&1 || {
     echo "HARNESS_SKIP suite=abi-differential test=all count=1 reason=\"$REF not found\""
     exit 0
 }
+
+# THE assembler routing, and it is not optional. cgf's default assembler is
+# the BUNDLED afs-as; a Rust-free job never builds one, and the driver then
+# reports "assembler not found" for every signature -- which this lane would
+# faithfully report as 304 ABI disagreements. Sprint 49's native arm64 lane
+# lost three rounds to exactly this.
+#
+# CGF_AS=0 means "system as", which is the HOST's, so it is right only when
+# the target is the host. A cross target needs its own by absolute path.
+AS_ENV=
+if [ ! -x afs-as/target/release/afs-as ]; then
+    case $target in
+    arm64-linux)
+        as_path=$(command -v aarch64-linux-gnu-as 2>/dev/null || true)
+        [ -n "$as_path" ] || {
+            echo "HARNESS_SKIP suite=abi-differential test=all count=1" \
+                "reason=\"no afs-as and no aarch64-linux-gnu-as\""
+            exit 0
+        }
+        AS_ENV="CGF_AS_PATH=$as_path"
+        ;;
+    *)
+        AS_ENV="CGF_AS=0"
+        ;;
+    esac
+fi
 if [ -n "$RUN" ]; then
     set -- $RUN
     command -v "$1" >/dev/null 2>&1 || {
@@ -100,15 +126,15 @@ try_pair() {
     rm -f "$dir/a.o" "$dir/b.o" "$dir/prog"
 
     if [ "$which" = cgf-caller ]; then
-        "$CGF" --target="$target" -I"$dir" -c -o "$dir/a.o" "$dir/caller.c" \
-            >"$dir/build.log" 2>&1 || return 90
+        env $AS_ENV "$CGF" --target="$target" -I"$dir" -c -o "$dir/a.o" \
+            "$dir/caller.c" >"$dir/build.log" 2>&1 || return 90
         "$REF" -std=c11 -I"$dir" -c -o "$dir/b.o" "$dir/callee.c" \
             >>"$dir/build.log" 2>&1 || return 91
     else
         "$REF" -std=c11 -I"$dir" -c -o "$dir/a.o" "$dir/caller.c" \
             >"$dir/build.log" 2>&1 || return 91
-        "$CGF" --target="$target" -I"$dir" -c -o "$dir/b.o" "$dir/callee.c" \
-            >>"$dir/build.log" 2>&1 || return 90
+        env $AS_ENV "$CGF" --target="$target" -I"$dir" -c -o "$dir/b.o" \
+            "$dir/callee.c" >>"$dir/build.log" 2>&1 || return 90
     fi
     # The REFERENCE compiler links: it owns the crt and libc for its target,
     # and the object layout is what is under test, not the link line.
