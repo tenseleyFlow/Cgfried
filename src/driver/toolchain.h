@@ -158,3 +158,8 @@ const char *cgf_env(const char *name);
  * libSystem stub both live inside it — there is no /usr/include on a modern
  * macOS — so this is a prerequisite for both preprocessing and linking. */
 const char *cgf_probe_macos_sdk(void);
+
+/* When cgf_probe_macos_sdk() returned NULL because CGF_SDKROOT was SET but
+ * did not name an SDK, this is that path; NULL otherwise. Callers use it to
+ * blame the override instead of reporting a generic "no SDK found". */
+const char *cgf_macos_sdk_bad_override(void);

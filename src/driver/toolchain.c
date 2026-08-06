@@ -555,6 +555,7 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
  * follows: silently ignoring an override is how you debug the wrong SDK. */
 static bool sdk_probed;
 static const char *sdk_path;
+static const char *sdk_bad_override;
 
 static const char *capture_first_line(const char *const argv[])
 {
@@ -605,12 +606,23 @@ const char *cgf_probe_macos_sdk(void)
 {
     static const char *const argv[] = {"xcrun", "--show-sdk-path", NULL};
     const char *ov;
+    char probe[1200];
 
     if (sdk_probed)
         return sdk_path;
     sdk_probed = true;
     ov = cgf_env("CGF_SDKROOT");
     if (ov && ov[0]) {
+        /* An override that does not name an SDK FAILS rather than falling
+         * through to the probe. Accepting it verbatim sends a typo all the
+         * way to the linker, where it surfaces as `library 'System' not
+         * found` -- a diagnostic that names neither the variable nor the
+         * path. Same debuggability contract as CGF_CRT_DIR. */
+        snprintf(probe, sizeof(probe), "%s/usr/include", ov);
+        if (access(probe, F_OK) != 0) {
+            sdk_bad_override = ov;
+            return NULL;
+        }
         sdk_path = ov;
         return sdk_path;
     }
@@ -624,6 +636,11 @@ const char *cgf_probe_macos_sdk(void)
         }
     }
     return sdk_path;
+}
+
+const char *cgf_macos_sdk_bad_override(void)
+{
+    return sdk_bad_override;
 }
 
 /* Sprint 27 probe table, first stat() hit for crt1.o wins. Order is the
@@ -856,10 +873,21 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             return false;
         }
         if (!sdk && want_libs) {
-            fprintf(stderr, "cgfried: error: no macOS SDK found; "
-                            "`xcrun --show-sdk-path` failed\n");
-            fprintf(stderr, "cgfried: note: install the Command Line Tools "
-                            "('xcode-select --install') or set CGF_SDKROOT\n");
+            const char *bad = cgf_macos_sdk_bad_override();
+
+            if (bad) {
+                fprintf(stderr,
+                        "cgfried: error: CGF_SDKROOT does not name an SDK: "
+                        "%s\n",
+                        bad);
+                fprintf(stderr, "cgfried: note: probed %s/usr/include\n", bad);
+            } else {
+                fprintf(stderr, "cgfried: error: no macOS SDK found; "
+                                "`xcrun --show-sdk-path` failed\n");
+                fprintf(stderr,
+                        "cgfried: note: install the Command Line Tools "
+                        "('xcode-select --install') or set CGF_SDKROOT\n");
+            }
             return false;
         }
         VecStr_push(out, tc.ld_path);
@@ -903,8 +931,17 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             if (rt2)
                 VecStr_push(out, rt2);
             /* libSystem IS libc here, and it resolves through a .tbd text
-             * stub in the SDK rather than a dylib on the host. */
-            VecStr_push(out, "-lSystem");
+             * stub in the SDK rather than a dylib on the host. Naming the
+             * stub outright is the escape hatch for an SDK whose layout the
+             * linker's own search cannot reach. */
+            {
+                const char *tbd = cgf_env("CGF_LIBSYSTEM_TBD");
+
+                if (tbd && tbd[0])
+                    VecStr_push(out, tbd);
+                else
+                    VecStr_push(out, "-lSystem");
+            }
         }
         return true;
     }

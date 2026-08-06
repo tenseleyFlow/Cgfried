@@ -1047,13 +1047,27 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
             if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS && !sysroot) {
                 static bool warned;
 
+                const char *bad = cgf_macos_sdk_bad_override();
+
                 if (!warned) {
                     warned = true;
-                    fprintf(stderr, "cgfried: warning: no macOS SDK found; "
-                                    "`xcrun --show-sdk-path` failed\n");
-                    fprintf(stderr,
-                            "cgfried: note: install the Command Line Tools "
-                            "('xcode-select --install') or set CGF_SDKROOT\n");
+                    /* Blame the override when there is one. Reporting "xcrun
+                     * failed" for a mistyped CGF_SDKROOT names neither the
+                     * variable nor the path, and xcrun was never consulted. */
+                    if (bad) {
+                        fprintf(stderr,
+                                "cgfried: warning: CGF_SDKROOT does not name "
+                                "an SDK: %s\n",
+                                bad);
+                        fprintf(stderr,
+                                "cgfried: note: probed %s/usr/include\n", bad);
+                    } else {
+                        fprintf(stderr, "cgfried: warning: no macOS SDK found; "
+                                        "`xcrun --show-sdk-path` failed\n");
+                        fprintf(stderr, "cgfried: note: install the Command "
+                                        "Line Tools ('xcode-select --install') "
+                                        "or set CGF_SDKROOT\n");
+                    }
                 }
             }
         }
