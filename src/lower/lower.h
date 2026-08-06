@@ -327,6 +327,11 @@ typedef struct AbiBudget {
  * one. */
 void abi_budget_init(Lower *lo, AbiBudget *b, const AbiRet *ret);
 
+/* Is the selected target's argument convention AAPCS64? Exported because the
+ * two argument walks and the classifier all need it, and a third private copy
+ * of the target switch is a drift hazard. */
+bool abi_is_aapcs64(Lower *lo);
+
 /* Decide where one classified argument actually goes, given what is left, and
  * charge it to the budget. May REWRITE a->kind: an aggregate that cannot be
  * placed entirely in registers is passed entirely in memory instead. Every

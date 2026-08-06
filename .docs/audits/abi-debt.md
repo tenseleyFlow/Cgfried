@@ -6,6 +6,66 @@ clean error naming its sprint, never an ICE and never a silent wrong answer.
 | ID | Gap | Targets | Found by | State |
 |---|---|---|---|---|
 | ABI-001 | HFA arguments and returns (v0-v3) | arm64-linux, arm64-macos | Sprint 51 cross-determinism probe | **CLOSED** |
+| ABI-002 | An aggregate that does not fit is split across registers and stack | x86_64 (all), arm64-linux, arm64-macos | Sprint 51 ABI differential | **CLOSED** |
+
+## ABI-002 — register exhaustion splits an aggregate — CLOSED in Sprint 51
+
+Both psABIs say the same thing and we did neither. SysV 3.2.3 step 5: "if
+there are no registers available for ANY eightbyte of an argument, the whole
+argument is passed on the stack." AAPCS64 C.4 and C.12 say it for HFAs and
+for general-register composites, and then go further — the exhausted bank is
+PINNED at 8, so every later argument of that class stacks too even if a
+register happens to be free.
+
+We committed eightbytes one at a time, so an aggregate straddling the end of
+the bank put its first half in a register and its second on the stack.
+
+Two minimal reproducers, both found by generation rather than by anyone
+writing the program:
+
+    R v  A i  A l  A c  A s(a(16,c))  A s(a(15,c))     x86_64
+    R v  A s(d,d,d,d)  A d  A s(d,d,d,d)               arm64
+
+**Both directions failed, and that is the diagnostic.** Our caller and our
+callee agreed with each other and neither agreed with gcc, so `ours × ours`
+passes and only a mixed link in both directions sees it. This is the third
+time in three sprints that the same tell has appeared (ABI-001's HFA return,
+Sprint 50's row 3, now this).
+
+### Why classification could not decide it
+
+`abi_classify_arg` is a pure function of the TYPE, and placement is a
+function of the type *and everything before it*. The rule needs a running
+budget, so `abi_budget_init`/`abi_arg_place` are one shared service that both
+argument walks call — the call site in `expr.c` and the definition in
+`lower.c`. Those two walks disagreeing is precisely the failure mode, so they
+run the same sequence rather than each implementing it.
+
+### Why ABI_ARG_STACK is not ABI_ARG_BYVAL
+
+BYVAL means opposite things per ABI, which `lower.h` has warned about since
+Sprint 48: on SysV codegen copies the pointee onto the stack, on AAPCS64 the
+copy's ADDRESS rides one general register. "Stacked because the bank ran out"
+is the SysV meaning on both targets, so it needed its own kind.
+
+On AAPCS64 a stacked aggregate is re-planned into `ceil(size/8)` eightbyte
+leaves, which makes both of the stack's properties fall out of machinery that
+already existed: 8-byte slots, and a size rounded up to 8 — a stacked HFA of
+three floats occupies 16 bytes, not the 12 its leaves suggest. The leaf TYPE
+stays f64 for an FP-class aggregate so the backend can pin the same bank; a
+bit copy of 8 bytes through an f64 is exact on arm64, where FP load/store
+never canonicalizes.
+
+Carried as `IROPF_ONSTACK` on call operands and `IR_PARAM_ONSTACK` on
+parameter annotations. Neither grows anything: the operand flag is a spare
+bit in the byte Sprint 50 added, and the `IR_ARG_*` kind field's three bits
+were all spoken for.
+
+### Coverage
+
+300 generated signatures per target, both directions, clean. The two minimal
+descriptors are permanent fixtures in `tests/abi_differential/repro/` and the
+lane replays every one of them before it generates anything.
 
 ## ABI-001 — HFA arguments and returns — CLOSED in Sprint 51
 

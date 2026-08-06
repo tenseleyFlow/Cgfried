@@ -647,6 +647,7 @@ static void lower_function(Lower *lo, AstNode *def)
     static AbiRet aret;
     AbiBudget budget;
     bool hidden;
+    bool stacked = false;
     u32 i;
     BlockId entry;
 
@@ -698,6 +699,16 @@ static void lower_function(Lower *lo, AstNode *def)
          * caller stacked because the bank was full is one the callee has to
          * read off the stack. */
         abi_arg_place(lo, a, &budget);
+        /* Mirror of the call site: on AAPCS64 a stacked aggregate is
+         * eightbyte leaves the callee reads off the stack; on SysV it is
+         * the byval pointer form, which already means the same thing. */
+        if (a->kind == ABI_ARG_STACK) {
+            stacked = true;
+            a->kind =
+                (u8)(abi_is_aapcs64(lo) ? ABI_ARG_EIGHTBYTES : ABI_ARG_BYVAL);
+        } else {
+            stacked = false;
+        }
         switch (a->kind) {
         case ABI_ARG_SCALAR: {
             IrType st = lower_irtype(lo, wire);
@@ -724,8 +735,16 @@ static void lower_function(Lower *lo, AstNode *def)
              * i64 and land in x0-x7 -- abi_arg_regs knows which queue. */
             u32 k;
 
-            for (k = 0; k < a->n; k++)
+            for (k = 0; k < a->n; k++) {
+                /* A stacked aggregate's leaves must ALL be marked, or the
+                 * callee reads the first few out of registers the caller
+                 * never wrote. */
+                if (stacked) {
+                    pannots[nir_params] |= IR_PARAM_ONSTACK;
+                    any_annot = true;
+                }
                 ptypes[nir_params++] = a->t[k];
+            }
             abi_arg_regs(a, &lo->named_gp, &lo->named_fp);
             break;
         }
@@ -836,8 +855,8 @@ static void lower_function(Lower *lo, AstNode *def)
                 }
                 ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
                 pi += a->n;
-            } else if (a && (a->kind == ABI_ARG_BYVAL ||
-                             a->kind == ABI_ARG_STACK)) {
+            } else if (a &&
+                       (a->kind == ABI_ARG_BYVAL || a->kind == ABI_ARG_STACK)) {
                 /* Both arrive as the ADDRESS of a copy the caller already
                  * made, so the local IS that address and no store happens.
                  * STACK reaching the scalar branch below instead stored the

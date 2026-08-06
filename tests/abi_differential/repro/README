@@ -1,0 +1,31 @@
+Minimized ABI reproducers.
+
+Every file here is a signature descriptor (abigen's text form) that once made
+cgfried and the reference compiler disagree, shrunk by the lane's minimizer
+until dropping any argument or unwrapping any composite made the failure go
+away. scripts/abi_differential_lane.sh replays all of them before it generates
+anything, on every target it runs.
+
+They are kept because a generated seed only covers a shape until the generator
+changes; these are the shapes that actually broke. New ones are written here
+automatically when the lane finds a disagreement -- check in the minimal
+descriptor, not the whole generated program, since abigen regenerates the
+sources from it deterministically.
+
+  x86_64-sysv-split-eightbyte
+      SysV 3.2.3 step 5. Three integer scalars fill rdi/rsi/rdx and a 16-byte
+      composite takes rcx/r8, so a following 15-byte composite has one
+      register left for its two eightbytes. We split it -- first half in r9,
+      second on the stack -- where the psABI says an argument that cannot be
+      placed entirely in registers goes entirely in memory.
+
+  aapcs64-hfa-exhaust-d4, -f4, -f3
+      AAPCS64 C.4. Two HFAs with a scalar double between them need nine SIMD
+      registers and there are eight. The second HFA must go on the stack
+      whole, and NSRN is then pinned at 8 so later FP arguments stack too. We
+      placed the leaves one at a time and split the aggregate across v-regs
+      and memory.
+
+Both bugs failed in BOTH directions, which is the tell for a self-consistent
+convention error: our caller and our callee agreed with each other and neither
+agreed with gcc. A same-compiler test cannot see that.

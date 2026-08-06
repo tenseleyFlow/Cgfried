@@ -2032,6 +2032,17 @@ static void bind_params(Isel *is, const IrFunc *ir)
         }
         if (i == 0 && hidden_ret) {
             phys = A64_X8;
+        } else if (ir->param_annots &&
+                   ir_param_is_onstack(ir->param_annots[i])) {
+            /* The callee's half of AAPCS64 C.4/C.12: the caller could not
+             * fit this aggregate in what remained, so it is on the stack and
+             * the bank is pinned for everything after it. The two walks must
+             * agree exactly -- marshal_calls computes the mirror. */
+            phys = A64_REG_NONE;
+            if (fp)
+                nsrn = 8;
+            else
+                ngrn = 8;
         } else if (fp) {
             if (nsrn < 8)
                 phys = (u8)(A64_V0 + nsrn++);

@@ -984,6 +984,19 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
              * still receives its first real argument in x0, so the indirect
              * result register consumes no NGRN. */
             phys = A64_X8;
+        } else if (arg->argflags & IROPF_ONSTACK) {
+            /* AAPCS64 C.4/C.12: an aggregate that did not fit ENTIRELY in
+             * the remaining registers is passed entirely on the stack, and
+             * the exhausted bank is then PINNED at 8 so every later argument
+             * of that class stacks too. Lowering decided the placement (it
+             * is the only thing that sees a whole C argument rather than its
+             * eightbyte leaves); this honours it and pins the same bank,
+             * which the leaf TYPE identifies. */
+            phys = A64_REG_NONE;
+            if (fp)
+                w.nsrn = 8;
+            else
+                w.ngrn = 8;
         } else if (apple && (arg->argflags & IROPF_ANON)) {
             /* Apple: an anonymous argument NEVER takes a register, and it
              * does not consume one either — a named argument after it is

@@ -197,6 +197,11 @@ static bool target_is_aapcs64(Lower *lo, Span span)
     }
 }
 
+bool abi_is_aapcs64(Lower *lo)
+{
+    return target_is_aapcs64(lo, (Span){0});
+}
+
 void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
 {
     TypeLayout l;
@@ -328,11 +333,42 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b)
      * exhausted bank is PINNED at 8, so every later argument of that class
      * also goes to the stack even if a register happens to be free. That
      * makes it a property of the walk, not of the argument. */
-    if (aapcs) {
-        if (need_fp)
-            b->fp = 8;
-        if (need_gp)
-            b->gp = 8;
+    if (!aapcs) {
+        /* SysV: the byval form already means by-value-on-the-stack, and the
+         * exhausted bank is NOT pinned -- a later argument that does fit
+         * still gets its register. */
+        a->kind = (u8)ABI_ARG_STACK;
+        return;
+    }
+
+    /* AAPCS64 pins the exhausted bank at 8, so every later argument of that
+     * class is stacked too. */
+    if (need_fp)
+        b->fp = 8;
+    if (need_gp)
+        b->gp = 8;
+
+    /* On the stack an aggregate is just BYTES: no leaf keeps a register
+     * class, and the size rounds up to a multiple of 8. Re-planning it as
+     * ceil(size/8) eightbyte leaves makes both facts fall out of the
+     * existing N-leaf machinery -- a stacked HFA of three floats occupies
+     * 16 bytes, not the 12 its leaves would suggest.
+     *
+     * The leaf TYPE still records which bank ran out, because the backend
+     * has to pin the same one. Moving 8 bytes of float through an f64 is a
+     * pure bit copy on arm64; FP load/store never canonicalizes. */
+    {
+        u32 words = (a->size + 7u) / 8u;
+        IrType leaf = need_fp ? IRT_F64 : IRT_I64;
+        u32 k;
+
+        if (words > ABI_MAX_LEAVES)
+            CGF_ICE("abi_arg_place: stacked aggregate of %u bytes needs %u "
+                    "eightbytes, over the %u-leaf plan",
+                    a->size, words, (unsigned)ABI_MAX_LEAVES);
+        a->n = (u8)(words ? words : 1);
+        for (k = 0; k < a->n; k++)
+            a->t[k] = leaf;
     }
     a->kind = (u8)ABI_ARG_STACK;
 }

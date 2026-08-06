@@ -160,6 +160,34 @@ minimize() {
 
 checked=0
 failed=0
+
+# The permanent fixtures FIRST: every descriptor ever minimized out of a real
+# disagreement, replayed on every run. A generated seed only covers a shape
+# until the generator changes; these are the shapes that actually broke.
+for fixture in tests/abi_differential/repro/*.txt; do
+    [ -f "$fixture" ] || continue
+    name=$(basename "$fixture" .txt)
+    d=$WORK/repro-$name
+    mkdir -p "$d"
+    cp "$fixture" "$d/desc.txt"
+    # check_desc treats an unparseable descriptor as agreement, which is
+    # right while shrinking (never accept a broken reduction) and wrong here:
+    # a fixture that does not parse would report as a silent pass. The first
+    # run counted the README as one.
+    if ! "$ABIGEN" --emit "$d/desc.txt" --out "$d" >/dev/null 2>&1; then
+        echo "abi_differential: fixture $name is not a valid descriptor" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+    if check_desc "$d"; then
+        checked=$((checked + 1))
+    else
+        echo "abi_differential: REGRESSION on fixture $name ($target)" >&2
+        cat "$fixture" >&2
+        failed=$((failed + 1))
+    fi
+done
+
 seed=$FIRST
 end=$((FIRST + COUNT))
 while [ "$seed" -lt "$end" ]; do

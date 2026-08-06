@@ -1586,6 +1586,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     AbiRet aret;
     AbiBudget budget;
     bool hidden;
+    bool stacked = false;
     IrOperand fp;
     IrOperand args[130];
     u32 attr_ir_args[130] = {0};
@@ -1691,6 +1692,17 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             else if (st != IRT_F80 && st != IRT_F128)
                 budget.gp++;
         }
+        /* A stacked aggregate travels as eightbyte leaves on AAPCS64 (which
+         * is what abi_arg_place re-planned it into) and as a byval pointer
+         * on SysV, where that spelling already means
+         * by-value-on-the-stack. */
+        if (plan.kind == ABI_ARG_STACK) {
+            plan.kind =
+                (u8)(lower_is_aapcs64(lo) ? ABI_ARG_EIGHTBYTES : ABI_ARG_BYVAL);
+            stacked = true;
+        } else {
+            stacked = false;
+        }
         switch (plan.kind) {
         case ABI_ARG_EIGHTBYTES:
         case ABI_ARG_HFA: {
@@ -1756,11 +1768,15 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             args[nargs++] = av;
             break;
         }
-        /* One C argument can become two operands (an EIGHTBYTES aggregate);
-         * both halves are equally anonymous. */
-        if (anon)
+        /* One C argument can become several operands (an EIGHTBYTES or HFA
+         * aggregate); every one of them shares the argument's provenance.
+         * A stacked aggregate must mark ALL its leaves, or the backend
+         * places the first few in registers and splits the very thing this
+         * is here to keep whole. */
+        if (anon || stacked)
             for (; first_arg < nargs; first_arg++)
-                args[first_arg].argflags |= anon;
+                args[first_arg].argflags |=
+                    (u8)(anon | (stacked ? (u8)IROPF_ONSTACK : 0u));
     }
 
     {
