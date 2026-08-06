@@ -788,6 +788,29 @@ spells arm64 `aarch64-linux-gnu`; the closed target set calls it
 `arm64-linux`. `cgf_target_multiarch()` exists for exactly that, with a
 unit test asserting the two differ.
 
+### 3.3b The qemu cross lane compiled against HOST headers (Sprint 49)
+
+The driver builds its system include list for the TARGET
+(`/usr/include/aarch64-linux-gnu`, `/usr/include`), but on an x86 host those
+are the HOST's headers. **Arch has no multiarch directories at all**, so
+`/usr/include` holds everything and a cross compile there silently succeeds
+against x86 glibc headers. Ubuntu keeps glibc's `bits/` under
+`/usr/include/x86_64-linux-gnu` and has no aarch64 directory, so the same
+compile fails outright.
+
+No corpus fixture noticed for a whole sprint, because **none of them includes
+a SYSTEM header** — they hand-declare `int printf(const char *, ...)`, and the
+only `#include` in the whole corpus is `<stdarg.h>`, which is ours.
+`tests/corpus/char_sign` is the first that does, and it went red on CI while
+passing locally.
+
+`scripts/a64_corpus_lane.sh` now passes `-isystem $SYSROOT/include` in the
+cross branch. Note what this means: **the lane had been wrong the entire
+time** and only ever looked right because Arch's layout let host headers
+stand in. If you add a fixture that includes a system header and it passes
+locally, check which `stdio.h` it actually opened (`-v` prints the search
+list) before believing it.
+
 ### 3.7b A CI step that redirects to a log can THROW IT AWAY (Sprint 49)
 
 ```yaml

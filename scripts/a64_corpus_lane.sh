@@ -122,6 +122,16 @@ EOF
     # The compiler spawns \`as\` and \`ld\`. Under qemu those exec calls reach
     # the HOST, so they must be routed to the cross tools by absolute path --
     # left alone they would silently produce x86 objects.
+    #
+    # -isystem the SYSROOT's headers for the same reason. The driver's system
+    # include list is built for the TARGET (/usr/include/aarch64-linux-gnu,
+    # /usr/include), but on an x86 host those are the HOST's headers. Arch
+    # has no multiarch directories at all, so /usr/include holds everything
+    # and a cross compile there silently succeeds against x86 headers; Ubuntu
+    # keeps glibc's bits/ under /usr/include/x86_64-linux-gnu and has no
+    # aarch64 directory, so the same compile fails outright. No corpus fixture
+    # noticed because none includes a SYSTEM header -- only <stdarg.h>, which
+    # is ours -- and tests/corpus/char_sign is the first that does.
     as_path=$(command -v "$AS")
     ld_path=$(command -v "$LD")
     cat >"$WORK/cgf-a64" <<EOF
@@ -132,7 +142,8 @@ CGF_AS_PATH='$as_path' \\
 CGF_LD_PATH='$ld_path' \\
 CGF_CRT_DIR='$SYSROOT/lib' \\
 $spill \\
-exec sh "$PWD/scripts/qemu-run.sh" "$PWD/$CGF" "\$@"
+exec sh "$PWD/scripts/qemu-run.sh" "$PWD/$CGF" \\
+    -isystem '$SYSROOT/include' "\$@"
 EOF
     ;;
 esac
