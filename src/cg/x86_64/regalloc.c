@@ -804,9 +804,23 @@ static void rewrite(Ra *ra)
                 continue;
             }
             if (in.op == X64_OP_ALLOCA_DYN) {
-                /* mov r10, size; add r10, 15; and r10, -16;
-                 * sub rsp, r10; def = rsp. Emitted in canonical
-                 * two-address form (def == a) so the fixup skips it. */
+                /* mov r10, size; add r10, 15+OUT; and r10, -16;
+                 * sub rsp, r10; def = rsp + OUT. Emitted in canonical
+                 * two-address form (def == a) so the fixup skips it.
+                 *
+                 * OUT is the outgoing-argument area rounded up to 16, and it
+                 * is the whole reason this is not simply `def = rsp`. Call
+                 * arguments are stored at [rsp + k] with the CURRENT rsp, so
+                 * a bare `sub rsp, size` puts the fresh object exactly where
+                 * the next call writes its stack arguments — a VLA whose
+                 * first OUT bytes get overwritten by an argument list, with
+                 * no diagnostic. Reserving OUT below the object keeps the two
+                 * disjoint; OUT is a multiple of 16, so folding it into the
+                 * round-up addend is exact.
+                 *
+                 * The epilogue recomputes rsp from rbp, so nothing downstream
+                 * has to know rsp moved. */
+                u32 out = (f->out_args + 15u) & ~15u;
                 X64Inst x;
 
                 rb.map[i] = rb.n;
@@ -824,7 +838,7 @@ static void rewrite(Ra *ra)
                 x.a.kind = X64O_VREG;
                 x.a.r = physreg(SCRATCH_B);
                 x.b.kind = X64O_IMM;
-                x.b.imm = 15;
+                x.b.imm = 15 + (i64)out;
                 rb_put(&rb, &x);
                 x.op = X64_OP_AND;
                 x.b.imm = -16;
@@ -839,13 +853,26 @@ static void rewrite(Ra *ra)
                 x.b.kind = X64O_VREG;
                 x.b.r = physreg(SCRATCH_B);
                 rb_put(&rb, &x);
+                if (out) {
+                    /* lea r10, [rsp + OUT] — r10's round-up value is dead. */
+                    memset(&x, 0, sizeof(x));
+                    x.op = X64_OP_LEA;
+                    x.width = X64_Q;
+                    x.def = physreg(SCRATCH_B);
+                    x.a.kind = X64O_MEM;
+                    x.a.mem.base = physreg(X64_RSP);
+                    x.a.mem.scale = 1;
+                    x.a.mem.disp = (i32)out;
+                    rb_put(&rb, &x);
+                }
                 if (dit->phys) {
-                    X64Inst mv =
-                        mk_mov(physreg((u8)(dit->phys - 1)), physreg(X64_RSP));
+                    X64Inst mv = mk_mov(physreg((u8)(dit->phys - 1)),
+                                        physreg(out ? SCRATCH_B : X64_RSP));
 
                     rb_put(&rb, &mv);
                 } else {
-                    X64Inst st = mk_spill(X64_RSP, dit->slot, false, X64_Q);
+                    X64Inst st = mk_spill(out ? SCRATCH_B : X64_RSP, dit->slot,
+                                          false, X64_Q);
 
                     rb_put(&rb, &st);
                 }

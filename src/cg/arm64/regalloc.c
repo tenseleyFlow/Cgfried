@@ -1187,11 +1187,29 @@ typedef struct Frame {
     u32 ngp;
     u8 fp[8];
     u32 nfp;
-    u32 base;      /* SP offset of the x29/x30 pair == the outgoing area */
-    u32 csr_size;  /* 16 + saved registers, measured from `base` */
-    u32 total;     /* whole frame, a multiple of 16 */
-    u32 local_top; /* bytes of spill/alloca area */
+    u32 base;        /* SP offset of the x29/x30 pair == the outgoing area */
+    u32 csr_size;    /* 16 + saved registers, measured from `base` */
+    u32 total;       /* whole frame, a multiple of 16 */
+    u32 local_top;   /* bytes of spill/alloca area */
+    bool dynamic_sp; /* a VLA or stackrestore moves SP inside the body */
 } Frame;
+
+/* Does anything in this function move SP after the prologue? Spill slots and
+ * static allocas are addressed from x29 and do not care, but the EPILOGUE is
+ * written entirely against SP, so it has to recover SP from x29 first. */
+static bool frame_has_dynamic_sp(const A64Func *f)
+{
+    u32 bi, ii;
+
+    for (bi = 0; bi < f->nblocks; bi++)
+        for (ii = 0; ii < f->blocks[bi].n; ii++) {
+            u16 op = f->blocks[bi].insts[ii].op;
+
+            if (op == A64_OP_ALLOCA_DYN || op == A64_OP_STACKRESTORE)
+                return true;
+        }
+    return false;
+}
 
 static void frame_collect_saved(const A64Func *f, Frame *fr)
 {
@@ -1329,10 +1347,6 @@ static void frame_assign_allocas(A64Func *f, CgSpillSlots *slots)
             A64Inst *in = &b->insts[ii];
             u32 size, align;
 
-            if (in->op == A64_OP_ALLOCA_DYN || in->op == A64_OP_STACKSAVE ||
-                in->op == A64_OP_STACKRESTORE)
-                CGF_ICE("arm64 regalloc: dynamic stack allocation lands in "
-                        "Sprint 49");
             if (in->op != A64_OP_ALLOCA)
                 continue;
             if (in->nops != 3 || in->ops[1].kind != A64O_IMM ||
@@ -1433,6 +1447,160 @@ static void frame_expand_allocas(A64Func *f, const Frame *fr)
                 add = mk_add_imm(dst, dst, lo);
                 rb_put(&rb, &add);
             }
+        }
+        rb_commit(&rb, b);
+    }
+}
+
+/* `dst = base + imm`, in one ADD when the immediate fits and otherwise two,
+ * high part first exactly as emit_sp_adjust splits a stack adjustment. */
+static void emit_add_imm_split(Rb *rb, A64Reg dst, A64Reg base, i64 imm,
+                               const char *what)
+{
+    A64AddSubImm addsub;
+    A64Inst add;
+
+    if (a64_addsub_imm(imm, &addsub) && !addsub.is_sub) {
+        add = mk_add_imm(dst, base, (i64)addsub.imm12 << addsub.shift);
+        rb_put(rb, &add);
+        return;
+    }
+    if ((imm >> 12) > 4095 || imm < 0)
+        CGF_ICE("arm64 regalloc: %s offset %lld is outside the 16 MiB "
+                "two-instruction ADD range",
+                what, (long long)imm);
+    add = mk_add_imm(dst, base, (imm >> 12) << 12);
+    rb_put(rb, &add);
+    add = mk_add_imm(dst, dst, imm & 0xfff);
+    rb_put(rb, &add);
+}
+
+/* Dynamic stack: VLAs and the stacksave/stackrestore pair that scopes them.
+ *
+ * A dynamic alloca lowers to `sub sp, sp, rounded_size`, and the object it
+ * returns must sit ABOVE the outgoing-argument area rather than at the new
+ * SP. Stack arguments are stored at [sp + k] against the CURRENT SP, so
+ * handing back a bare SP puts the fresh object exactly where the next call
+ * writes its arguments -- a VLA silently overwritten by an argument list.
+ * x86 shipped that bug; this backend never got the chance, because it ICEd
+ * on the whole construct instead.
+ *
+ * `out` is a multiple of 16, so folding it into the round-up addend is exact
+ * and SP stays 16-aligned -- which AArch64 checks in hardware at every
+ * SP-based access, so getting it wrong faults rather than limping.
+ *
+ * `dst` is DEFINED here, so using it as the scratch cannot clobber anything
+ * live; and `add dst, count, #n` reads count before writing dst, so the two
+ * being the same register (count dying at this instruction) is fine.
+ *
+ * SP still needs a second register. Encoding 31 names SP or XZR from the
+ * instruction POSITION, and the only add/sub shapes that read it as SP are
+ * the immediate and extended-register forms -- the emitter has no extended
+ * form, so `sub sp, sp, xN` is unrepresentable and the subtraction detours
+ * through a scratch. The verifier rejects the direct spelling outright,
+ * which is how this was caught rather than assembled into nonsense. */
+
+/* A reload scratch that is neither `dst` nor `count`. Two candidates would
+ * do; three is the same belt-and-braces as A64_VA_SCRATCH_ALT. Every scratch
+ * is dead here: the rewrite emits a reload and its single consumer together,
+ * and this expansion replaces that consumer. */
+static A64PhysReg dyn_scratch(A64Reg dst, A64Reg count)
+{
+    static const u8 cand[3] = {A64_X16, A64_X17, A64_X15};
+    u32 i;
+
+    for (i = 0; i < 3; i++) {
+        u32 id = (u32)cand[i] + 1;
+
+        if ((!dst.physical || dst.id != id) &&
+            (!count.physical || count.id != id))
+            return (A64PhysReg)cand[i];
+    }
+    CGF_ICE("arm64 regalloc: no free scratch for a dynamic alloca");
+}
+static void frame_expand_dynamic(A64Func *f, const Frame *fr)
+{
+    u32 bi, ii;
+    i64 out = (i64)fr->base;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+        Rb rb;
+        bool any = false;
+
+        for (ii = 0; ii < b->n; ii++) {
+            u16 op = b->insts[ii].op;
+
+            if (op == A64_OP_ALLOCA_DYN || op == A64_OP_STACKSAVE ||
+                op == A64_OP_STACKRESTORE)
+                any = true;
+        }
+        if (!any)
+            continue;
+        rb_init(&rb, f->arena, b->n);
+        for (ii = 0; ii < b->n; ii++) {
+            A64Inst *in = &b->insts[ii];
+            A64Inst x;
+            A64Reg dst, tmp;
+
+            rb.map[ii] = rb.n;
+            rb.source_loc = in->loc;
+            if (in->op == A64_OP_STACKSAVE) {
+                /* `mov dst, sp` is the ADD-immediate alias. */
+                x = mk_add_imm(in->ops[0].reg, phys_reg(A64_SP), 0);
+                rb_put(&rb, &x);
+                continue;
+            }
+            if (in->op == A64_OP_STACKRESTORE) {
+                x = mk_add_imm(phys_reg(A64_SP), in->ops[0].reg, 0);
+                rb_put(&rb, &x);
+                continue;
+            }
+            if (in->op != A64_OP_ALLOCA_DYN) {
+                rb_put(&rb, in);
+                continue;
+            }
+            if (in->nops != 3 || in->ops[1].kind != A64O_REG ||
+                in->ops[2].kind != A64O_IMM)
+                CGF_ICE("arm64 regalloc: malformed dynamic alloca marker");
+            if (in->ops[2].imm > 16)
+                CGF_ICE("arm64 regalloc: over-aligned stack objects land in "
+                        "Sprint 53");
+            dst = in->ops[0].reg;
+            tmp = phys_reg(dyn_scratch(dst, in->ops[1].reg));
+            /* dst = (count + 15 + out) & ~15 */
+            emit_add_imm_split(&rb, dst, in->ops[1].reg, 15 + out,
+                               "dynamic alloca round-up");
+            memset(&x, 0, sizeof(x));
+            x.op = A64_OP_AND;
+            x.sf = A64_SF64;
+            x.nops = 3;
+            x.ops[0].kind = A64O_REG;
+            x.ops[0].reg = dst;
+            x.ops[1].kind = A64O_REG;
+            x.ops[1].reg = dst;
+            x.ops[2].kind = A64O_IMM;
+            x.ops[2].imm = -16;
+            rb_put(&rb, &x);
+            /* sp = sp - dst, through the scratch */
+            x = mk_add_imm(tmp, phys_reg(A64_SP), 0);
+            rb_put(&rb, &x);
+            memset(&x, 0, sizeof(x));
+            x.op = A64_OP_SUB;
+            x.sf = A64_SF64;
+            x.nops = 3;
+            x.ops[0].kind = A64O_REG;
+            x.ops[0].reg = tmp;
+            x.ops[1].kind = A64O_REG;
+            x.ops[1].reg = tmp;
+            x.ops[2].kind = A64O_REG;
+            x.ops[2].reg = dst;
+            rb_put(&rb, &x);
+            x = mk_add_imm(phys_reg(A64_SP), tmp, 0);
+            rb_put(&rb, &x);
+            /* dst = sp + out */
+            emit_add_imm_split(&rb, dst, phys_reg(A64_SP), out,
+                               "dynamic alloca outgoing area");
         }
         rb_commit(&rb, b);
     }
@@ -1775,6 +1943,20 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 rb_put(&rb, &b->insts[ii]);
                 continue;
             }
+            /* Every line below addresses the frame from SP, so a VLA that
+             * moved SP invalidates all of it -- the callee-saved reloads and
+             * the final ldp alike. x29 is the one register that still knows
+             * where the frame is, so put SP back before touching anything.
+             * x29 sits `base` bytes into the frame; the subtraction cancels
+             * that, which is what makes the SP-relative offsets below valid
+             * again. */
+            if (fr->dynamic_sp) {
+                A64Inst mv = mk_add_imm(phys_reg(A64_SP), phys_reg(A64_X29), 0);
+
+                rb_put(&rb, &mv);
+                if (fr->base)
+                    emit_sp_adjust(&rb, A64_OP_SUB, fr->base);
+            }
             off = fr->base + 16;
             for (i = 0; i + 1 < fr->ngp; i += 2, off += 16) {
                 A64Inst in = mk_pair(A64_OP_LDP, (A64PhysReg)fr->gp[i],
@@ -1845,8 +2027,10 @@ static void frame_finalize(Ra *ra)
                                f->variadic ? A64_VA_SAVE_BYTES : 0);
     if (fr.total & 15)
         CGF_ICE("arm64 regalloc: frame %u is not 16-byte aligned", fr.total);
+    fr.dynamic_sp = frame_has_dynamic_sp(f);
     frame_fixup_slots(f, &fr);
     frame_expand_allocas(f, &fr);
+    frame_expand_dynamic(f, &fr);
     frame_expand_vastart(f, &fr);
     if (f->nblocks)
         frame_emit_prologue(f, &fr);

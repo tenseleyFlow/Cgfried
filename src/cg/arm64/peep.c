@@ -182,6 +182,9 @@ static u64 worst_inst_bytes(const A64Inst *in)
     case A64_OP_VASTART:
         return 32;
     case A64_OP_ALLOCA_DYN:
+        /* round-up (2 ADDs worst case), AND, SUB sp, and the outgoing-area
+         * ADD (2 worst case) -- see frame_expand_dynamic. */
+        return 32;
     case A64_OP_STACKRESTORE:
         return 24;
     case A64_OP_CALL:
