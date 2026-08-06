@@ -166,10 +166,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # git.musl-libc.org is a single upstream host and has timed out twice in
+      # one night, failing a gate that has nothing to do with the network.
+      # The corpus is pinned to an exact commit, so caching it is safe: the
+      # key IS the pin, and a different pin cannot hit a stale entry.
+      - name: cache the pinned musl corpus
+        id: musl-cache
+        uses: actions/cache@v5
+        with:
+          path: .docs/refs/musl
+          key: musl-b306b16af15c89a04d8e0c55cac2dadbeb39c083
       - name: fetch pinned musl corpus
+        if: steps.musl-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --filter=blob:none https://git.musl-libc.org/git/musl .docs/refs/musl
+          for i in 1 2 3; do
+            rm -rf .docs/refs/musl
+            git clone --filter=blob:none \
+              https://git.musl-libc.org/git/musl .docs/refs/musl && break
+            echo "clone attempt $i failed; retrying" >&2
+            sleep 15
+          done
           git -C .docs/refs/musl checkout b306b16af15c89a04d8e0c55cac2dadbeb39c083
+      # Unconditional, and deliberately its own step: a cache hit must be
+      # checked against the pin too, or a poisoned entry would go unexamined.
+      - name: verify the musl pin
+        run: |
           test "$(git -C .docs/refs/musl rev-parse HEAD)" = b306b16af15c89a04d8e0c55cac2dadbeb39c083
       - run: make CC=gcc musl-sweep
 
