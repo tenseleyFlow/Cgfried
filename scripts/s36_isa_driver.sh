@@ -101,8 +101,8 @@ sh "$checker" tests/isa/unlicensed.c "$work/labels_comments.o"
 corpus_list=$work/corpus.list
 find tests/corpus -type f -name '*.c' -print | sort >"$corpus_list"
 corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
-if [ "$corpus_count" -ne 71 ]; then
-    echo "s36_isa_driver: expected 71 corpus C files, found $corpus_count" >&2
+if [ "$corpus_count" -ne 73 ]; then
+    echo "s36_isa_driver: expected 73 corpus C files, found $corpus_count" >&2
     exit 1
 fi
 
@@ -118,8 +118,8 @@ while IFS= read -r source_path; do
     done
 done <"$corpus_list"
 
-if [ "$checks" -ne 426 ]; then
-    echo "s36_isa_driver: expected exactly 426 object checks, ran $checks" >&2
+if [ "$checks" -ne 438 ]; then
+    echo "s36_isa_driver: expected exactly 438 object checks, ran $checks" >&2
     exit 1
 fi
 
