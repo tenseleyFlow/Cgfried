@@ -28,15 +28,31 @@ NAMED one is shaped, so it reaches the backend either as an indirect pointer
 own eightbyte slot. A three-float HFA occupies 24 bytes of varargs area where
 clang uses 16.
 
-The fix is almost certainly to classify an anonymous aggregate on
-arm64-macos as `ABI_ARG_STACK`, which ABI-002 introduced and which already
-means precisely "by value on the stack, whole". The provenance needed to
-recognize it -- `IROPF_ANON` -- has been on the operand since Sprint 50.
+### Where the fix goes
 
-Not attempted here because it needs a Mac in the loop to verify and this
-sprint's verified surface was already large. arm64-linux and x86_64 are
-unaffected: AAPCS64 and SysV place anonymous arguments exactly as named ones,
-which is the whole reason this is Apple-only.
+It is CALLER-ONLY. `lower_va_arg_apple` is already a plain cursor bump that
+reads the aggregate contiguously and rounds the advance to 8, which is right;
+the caller is what puts the bytes somewhere else. So there is no matching
+callee change, and `ours x clang` in the other direction should stay green
+throughout.
+
+Anonymity is known only at the call site, where `lower_call` already computes
+`IROPF_ANON`. Marking such an argument `ABI_ARG_STACK` there gets most of the
+way: `abi_arg_place` re-plans a stacked aggregate into `ceil(size/8)`
+eightbyte leaves, the marshaller gives each anonymous leaf a full eightbyte,
+and a three-float HFA then occupies the 16 bytes clang uses instead of 24.
+
+The catch is size. That re-plan caps at `ABI_MAX_LEAVES` (4), so it covers an
+aggregate up to 32 bytes and no further. A larger anonymous aggregate needs
+the OTHER stacked shape -- a byval pointer carrying `IROPF_ONSTACK`, which
+means "copy the pointee onto the stack" -- and the arm64 marshaller does not
+implement that yet; it honours `onstack` only on leaves. That is the real
+work, and it is backend work.
+
+Not attempted here: it needs a Mac in the loop to verify, and this sprint's
+verified surface was already large. arm64-linux and x86_64 are unaffected --
+AAPCS64 and SysV place anonymous arguments exactly as named ones, which is
+the whole reason this is Apple-only.
 
 ## ABI-003 — varargs — CLOSED in Sprint 51
 
