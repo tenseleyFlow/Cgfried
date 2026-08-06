@@ -367,23 +367,13 @@ static bool replace_operand(IrOperand *op, const Lattice *values, u32 nvals,
                             bool preserve_annot)
 {
     IrOperand replacement;
-    u64 annot;
-    u8 argflags;
 
     if (op->kind != IROP_VALUE || op->a < 1 || op->a > nvals ||
         values[op->a].kind != LAT_CONST)
         return false;
-    annot = op->b;
-    argflags = op->argflags;
     replacement = values[op->a].value;
-    if (preserve_annot) {
-        if (ir_arg_kind(annot) != IR_ARG_NONE)
-            replacement.b = annot;
-        /* Call-argument provenance is a property of the POSITION, not of the
-         * value that occupies it: folding `printf("%d", n)` to a constant
-         * must not forget the argument was anonymous. */
-        replacement.argflags = argflags;
-    }
+    if (preserve_annot)
+        ir_arg_carry_provenance(&replacement, op);
     *op = replacement;
     return true;
 }

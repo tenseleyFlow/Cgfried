@@ -219,13 +219,13 @@ static IrOperand resolve_operand(IrOperand op, const IrOperand *replacement,
 
 static IrOperand resolve_inst_operand(IrOperand op,
                                       const IrOperand *replacement, u32 nold,
-                                      bool preserve_annot)
+                                      bool call_operand)
 {
-    u64 annot = op.b;
+    IrOperand old = op;
 
     op = resolve_operand(op, replacement, nold);
-    if (preserve_annot)
-        op.b = annot;
+    if (call_operand)
+        ir_arg_carry_provenance(&op, &old);
     return op;
 }
 
@@ -1103,8 +1103,7 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 
             for (oi = 0; oi < in->nops; oi++)
                 in->ops[oi] = resolve_inst_operand(
-                    in->ops[oi], replacement, old_nvals,
-                    in->op == IR_CALL && in->ops[oi].b != 0);
+                    in->ops[oi], replacement, old_nvals, in->op == IR_CALL);
             for (ei = 0; ei < in->nedges; ei++)
                 for (xi = 0; xi < in->edges[ei].nargs; xi++)
                     in->edges[ei].args[xi] = resolve_operand(
@@ -1164,9 +1163,8 @@ static bool promote_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
             u32 ei, xi;
 
             for (i = 0; i < in->nops; i++)
-                in->ops[i] = resolve_inst_operand(
-                    in->ops[i], replacement, old_nvals,
-                    in->op == IR_CALL && in->ops[i].b != 0);
+                in->ops[i] = resolve_inst_operand(in->ops[i], replacement,
+                                                  old_nvals, in->op == IR_CALL);
             for (ei = 0; ei < in->nedges; ei++)
                 for (xi = 0; xi < in->edges[ei].nargs; xi++)
                     in->edges[ei].args[xi] = resolve_operand(

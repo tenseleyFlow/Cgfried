@@ -282,6 +282,21 @@ typedef struct IrOperand {
     u64 b; /* FCONST: bits hi (f80/f128); else 0 */
 } IrOperand;
 
+/* Re-attach a call argument's ABI provenance after its operand was REPLACED
+ * by an optimization. The provenance belongs to the argument SLOT, not to
+ * the value that happens to fill it, so folding `printf("%d", n)` to a
+ * constant must not forget the argument was anonymous.
+ *
+ * FIVE passes rewrite call operands in place (sccp, simplify, gvn, cse,
+ * mem2reg) and each had its own copy of this; three of them carried `b` and
+ * silently dropped `argflags` the day it was added. One function, so the
+ * next field cannot be missed the same way.
+ *
+ * `b` moves only when the OLD operand actually named a kind, because `b` is
+ * not free on every operand kind: on an f80/f128 fconst it is the high half
+ * of the value, and a replacement may well be one. */
+void ir_arg_carry_provenance(IrOperand *fresh, const IrOperand *old);
+
 /* argflags occupies padding that already existed between `type` and `sym`.
  * If this ever fails, the field stopped being free and the trade needs
  * re-deciding rather than silently costing 8 bytes per operand. */

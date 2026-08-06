@@ -196,13 +196,13 @@ static IrOperand resolve_operand(IrOperand op, const IrOperand *replacement,
 
 static IrOperand resolve_inst_operand(IrOperand op,
                                       const IrOperand *replacement, u32 nold,
-                                      bool preserve_annot)
+                                      bool call_operand)
 {
-    u64 annot = op.b;
+    IrOperand old = op;
 
     op = resolve_operand(op, replacement, nold);
-    if (preserve_annot)
-        op.b = annot;
+    if (call_operand)
+        ir_arg_carry_provenance(&op, &old);
     return op;
 }
 
@@ -312,9 +312,8 @@ static bool cse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
             u32 oi;
 
             for (oi = 0; oi < in->nops; oi++)
-                in->ops[oi] = resolve_inst_operand(
-                    in->ops[oi], replacement, nold,
-                    in->op == IR_CALL && in->ops[oi].b != 0);
+                in->ops[oi] = resolve_inst_operand(in->ops[oi], replacement,
+                                                   nold, in->op == IR_CALL);
 
             if (in->op == IR_LOAD && !load_bailed) {
                 OPT_BAIL(&fc, "cse", "load_requires_alias");
@@ -380,9 +379,8 @@ static bool cse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
                 u32 oi, ei, ai;
 
                 for (oi = 0; oi < in->nops; oi++)
-                    in->ops[oi] = resolve_inst_operand(
-                        in->ops[oi], replacement, nold,
-                        in->op == IR_CALL && in->ops[oi].b != 0);
+                    in->ops[oi] = resolve_inst_operand(in->ops[oi], replacement,
+                                                       nold, in->op == IR_CALL);
                 for (ei = 0; ei < in->nedges; ei++)
                     for (ai = 0; ai < in->edges[ei].nargs; ai++)
                         in->edges[ei].args[ai] = resolve_operand(

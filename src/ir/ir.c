@@ -765,6 +765,13 @@ static bool str_eq(const char *a, const char *b)
     return strcmp(a, b) == 0;
 }
 
+void ir_arg_carry_provenance(IrOperand *fresh, const IrOperand *old)
+{
+    if (ir_arg_kind(old->b) != IR_ARG_NONE)
+        fresh->b = old->b;
+    fresh->argflags = old->argflags;
+}
+
 static bool operand_eq(const IrOperand *a, const IrOperand *b)
 {
     return a->kind == b->kind && a->type == b->type &&

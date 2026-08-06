@@ -56,13 +56,13 @@ static IrOperand resolve_operand(IrOperand op, const IrOperand *replacement,
 
 static IrOperand resolve_inst_operand(IrOperand op,
                                       const IrOperand *replacement, u32 nold,
-                                      bool preserve_annot)
+                                      bool call_operand)
 {
-    u64 annot = op.b;
+    IrOperand old = op;
 
     op = resolve_operand(op, replacement, nold);
-    if (preserve_annot)
-        op.b = annot;
+    if (call_operand)
+        ir_arg_carry_provenance(&op, &old);
     return op;
 }
 
@@ -676,8 +676,7 @@ static bool gvn_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
                 if (!remove) {
                     for (i = 0; i < in->nops; i++)
                         in->ops[i] = resolve_inst_operand(
-                            in->ops[i], replacement, nold,
-                            in->op == IR_CALL && in->ops[i].b != 0);
+                            in->ops[i], replacement, nold, in->op == IR_CALL);
                     for (ei = 0; ei < in->nedges; ei++)
                         for (ai = 0; ai < in->edges[ei].nargs; ai++)
                             in->edges[ei].args[ai] = resolve_operand(
