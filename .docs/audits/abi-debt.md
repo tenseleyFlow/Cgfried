@@ -54,6 +54,13 @@ verified surface was already large. arm64-linux and x86_64 are unaffected --
 AAPCS64 and SysV place anonymous arguments exactly as named ones, which is
 the whole reason this is Apple-only.
 
+The checked-in fixtures already carry a standing witness: 10 of the 11 pass
+on arm64-macos and `sysv-va-overflow-slot8` does not, because it happens to
+pass two composite anonymous arguments. The other varargs fixtures pass
+there, which is itself informative -- they are SysV save-area shapes, and
+Apple's all-stack rule has no save area to get wrong. Closing ABI-004 should
+take that fixture green without touching the rest.
+
 ## ABI-003 — varargs — CLOSED in Sprint 51
 
 Teaching the generator to emit a variadic tail found six defects in one
