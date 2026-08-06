@@ -138,6 +138,28 @@ jobs:
           cat a64cs.log
           [ "$s" -eq 0 ]
           ! grep -q "skipped" a64cs.log
+      # Sprint 51 D6 at PR scale. `make test` runs 24 seeds on x86_64 only,
+      # because that is what fits its budget; this is where arm64 gets
+      # covered and where the count is large enough to reach the cliff
+      # shapes. Both directions, and the checked-in reproducers first.
+      # A HARNESS_SKIP here would mean the cross toolchain vanished, so it
+      # is a failure rather than a pass.
+      - name: ABI differential, both arches, 250 signatures each
+        run: |
+          make -j"$(nproc)" all build/abigen
+          s=0
+          for t in x86_64-linux-gnu arm64-linux; do
+            CGF_ABI_DIFF_TARGET=$t CGF_ABI_DIFF_COUNT=250 \
+              CGF_ABI_DIFF_WORK=build/abi-$t \
+              sh scripts/abi_differential_lane.sh build/cgfried \
+              > "abi-$t.log" 2>&1 || s=1
+            cat "abi-$t.log"
+            if grep -q HARNESS_SKIP "abi-$t.log"; then
+              echo "the cross toolchain went missing; a skip here is a failure"
+              s=1
+            fi
+          done
+          [ "$s" -eq 0 ]
 
   test-san:
     runs-on: ubuntu-latest
