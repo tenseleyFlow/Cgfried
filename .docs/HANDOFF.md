@@ -45,8 +45,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `aarch64-linux-gnu-as`, and links. The e2e corpus is 43/51 there, with the
   one gap ledgered by cause — the same split on real hardware and under
   qemu, so it is a backend gap, not an emulator artifact.
-- **Sprint 49 closed 6 of its 7 DoD gates as written**; gates 1, 2, 4 and 6
-  carry named gaps rather than being met. See the DoD audit table at the end
+- **Sprint 49 is CLOSED — all seven DoD gates met as written.** See the DoD audit table at the end
   of `.docs/sprints/10-backend-arm64/s49-arm64-linux.md` before assuming any
   arm64 property holds.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -525,50 +524,34 @@ three distinct causes, none reachable by the ordinary lane:
 
 ### What remains
 
-**1. afs-as instruction coverage** — unpins the four fixtures in
-`scripts/a64_objdiff_lane.sh`'s `UNENCODABLE` list and closes Sprint 49 DoD
-gate 1. Needs `mneg`, `smull`, `ucvtf`, `fcvtzu`,
-`ldar`/`ldaxr`/`stlxr`/`clrex`, and NEON vector operands in the submodule's
-arm64 encoder. Measured, not guessed: afs-as DOES take `ldr q`/`str q`/
-`ldp q`/`fmov x<->d`, and does NOT take `mov v0.16b`, `orr`/`eor` on
-vectors, `umov`, or `mov v0.d[1], x0`. NEON also unblocks inlining
-`__negtf2`. Rust work, upstream PR + submodule bump (§7).
+**Sprint 49 is CLOSED — all seven gates met as written.** afs-as PR #27
+(merged `05a6b52`, submodule bumped) took the object differential to **20
+identical with an EMPTY UNENCODABLE list**, and the native arm64 runner now
+executes both the char-sign corpus and the four-thread ll/sc atomics hammer.
 
-**2. Sprint 50 (arm64-macos) is UNBLOCKED.** The standing caution -- do not
-start it until the backend gaps close, because a new object format plus a new
-ABI on the same isel/regalloc makes every failure ambiguous -- no longer
-applies. Both ledgers are empty and Sprint 49 is six of seven gates.
+Next is **Sprint 50 (arm64-macos)**. The standing caution — do not start it
+until the backend gaps close, because a new object format plus a new ABI on
+the same isel/regalloc makes every failure ambiguous — no longer applies.
 
-### THE trap that bit three times in one session
+Two things from #27 that Sprint 50 inherits:
 
-**A stale binary reports success.** `build/a64mir`, then `build-a64/cgfried`,
-then `build/a64mir` again. Each time the symptom was "my fix did not work" or
-"this fixture is still broken", and each time the fix was fine and the binary
-was old. `scripts/a64_corpus_lane.sh` now ALWAYS rebuilds (make is
-incremental, so it costs nothing), but `build/a64mir` is still a separate
-target that the MIR and exec lanes do not rebuild for you.
-
-**On any red arm64 lane, the first question is not "what is wrong with my
-change" — it is "did the thing I am testing actually get rebuilt".** This is
-F-S22-MIRCHECK's shape and it has now recurred four times across three
-sprints.
-
-There are THREE binaries in play and they are easy to confuse:
-
-| binary | what it is | rebuild with |
-|---|---|---|
-| `build/cgfried` | x86 host compiler | `make build/cgfried` |
-| `build/a64mir` | drives `.cgfir` through arm64 isel/regalloc/emit | `make build/a64mir` |
-| `build-a64/cgfried` | the compiler CROSS-BUILT for arm64; its own architecture is the target | `make CC=aarch64-linux-gnu-gcc BUILD=build-a64 build-a64/cgfried` |
+- **The GNU/Apple dialect split is a real axis in OUR emitter, not just in
+  afs-as.** Mach-O wants `eor.16b v0, v1, v2` and `sym@PAGE`/`@PAGEOFF`;
+  ELF wants `eor v0.16b, ...` and `:lo12:`. afs-as now speaks both; the
+  emitter speaks only GNU.
+- **arm64-macos inverts two type facts.** `long double` is a plain `double`
+  there (TargetLayout in src/target.c already says 8/8) and `char` is
+  SIGNED, the opposite of arm64-linux. `tests/corpus/char_sign/` carries two
+  expectation columns and will need a third.
 
 ## 1c. Concerns and judgement calls worth inheriting
 
 Things a reader cannot reconstruct from the diff, written down because the
 next person will otherwise re-derive them or, worse, quietly undo them.
 
-**The Sprint 49 DoD is 6 of 7, not 7 of 7.** All seven deliverables are
-implemented; six gates are met as written and gates 1, 2, 4 and 6 carry
-named gaps. The audit table at the end of
+**The Sprint 49 DoD is 7 of 7 — but it took three counts to get the number
+right.** Two earlier revisions of that line disagreed with their own table.
+The habit that fixed it: count the `**met**` rows, do not trust the prose. The audit table at the end of
 `.docs/sprints/10-backend-arm64/s49-arm64-linux.md` says which is which. Do
 not let "Sprint 49 complete" in a changelog become "arm64 is done" in your
 head — the corpus is 50/51 and the remaining failure is real.
