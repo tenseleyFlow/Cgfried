@@ -803,3 +803,65 @@ void test_a64_regalloc_pair_return_consumes_no_argument_register(TestCtx *t)
     T_ASSERT_EQ_INT(t, (long long)stores, 2);
     arena_free_all(&arena);
 }
+
+/* The OTHER half of "movk reads its destination".
+ *
+ * The liveness test above pins that ops[0] counts as a USE. That is the
+ * analysis; this is the REWRITE, and the two came apart: the substitution
+ * pass reloaded the old value into a scratch and pointed ops[0] at it, then
+ * the def handling took a FRESH scratch and overwrote ops[0] with it. The
+ * merge then landed in whatever the other scratch held.
+ *
+ * movk is the only read-modify-write opcode and it appears only inside a
+ * multi-instruction constant materialization, so the symptom is a silently
+ * WRONG CONSTANT -- no crash, no diagnostic. Asserting the property that
+ * makes it correct (def register == use register) is what the liveness test
+ * could never have caught. */
+void test_a64_regalloc_spilled_movk_keeps_one_register(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg acc;
+    u32 bi, ii, saved_set = 0;
+    const char *old = getenv("CGF_SPILL_ALL");
+    bool saw_movk = false;
+
+    if (!old)
+        setenv("CGF_SPILL_ALL", "1", 1);
+    else
+        saved_set = 1;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    acc = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_MOVZ, 2, treg(acc), timm(0x2000), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_MOVK, 2, treg(acc), timm(0x4009), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_RET, 1, treg(acc), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    for (bi = 0; bi < f.nblocks; bi++) {
+        const A64Block *b = &f.blocks[bi];
+
+        for (ii = 0; ii < b->n; ii++) {
+            const A64Inst *in = &b->insts[ii];
+
+            if (in->op != A64_OP_MOVK)
+                continue;
+            saw_movk = true;
+            /* The reload immediately preceding it must have filled the very
+             * register the movk merges into. */
+            T_ASSERT(t, ii > 0);
+            T_ASSERT(t, b->insts[ii - 1].op == A64_OP_LOAD);
+            T_ASSERT(t, b->insts[ii - 1].ops[0].kind == A64O_REG);
+            T_ASSERT_EQ_INT(t, (int)b->insts[ii - 1].ops[0].reg.id,
+                            (int)in->ops[0].reg.id);
+        }
+    }
+    T_ASSERT(t, saw_movk);
+    arena_free_all(&arena);
+
+    if (!saved_set)
+        unsetenv("CGF_SPILL_ALL");
+}

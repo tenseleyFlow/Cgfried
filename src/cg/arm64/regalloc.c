@@ -653,7 +653,32 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
 
             if (!call)
                 CGF_ICE("arm64 regalloc: call without ABI metadata");
-            sub_reg(rw, &call->indirect, 0);
+            /* The arguments and the result ARE pre-coloured -- marshal_calls
+             * runs before allocation and linear scan honours `fixed` ahead of
+             * the spill-everything policy -- but the INDIRECT CALLEE is not.
+             * It is an ordinary vreg, so it can spill, and sub_reg with no
+             * scratch would quietly rewrite it to x0: `blr x0`, branching to
+             * whatever the first argument left there. Reloading into x16 is
+             * safe here because IP0 is not an argument register and the
+             * marshalling moves are already behind us. */
+            {
+                u32 v = vreg_of(call->indirect);
+                u8 scratch = 0;
+
+                if (v && !ra->iv[v].phys) {
+                    A64Inst reload;
+
+                    if (!ra->iv[v].slot)
+                        CGF_ICE("arm64 regalloc: spilled indirect callee %u "
+                                "has no slot",
+                                v);
+                    scratch = take_scratch(rw, false);
+                    reload = mk_mem_op(A64_OP_LOAD, A64_SF64, phys_reg(scratch),
+                                       ra->iv[v].slot);
+                    rb_put(&rb, &reload);
+                }
+                sub_reg(rw, &call->indirect, scratch);
+            }
             sub_reg(rw, &call->result, 0);
             for (k = 0; k < call->nargs; k++)
                 sub_reg(rw, &call->args[k].value, 0);
@@ -731,8 +756,24 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
             if (def_spilled) {
                 if (!ra->iv[def].slot)
                     CGF_ICE("arm64 regalloc: spilled def %u has no slot", def);
-                def_scratch = take_scratch(rw, vreg_is_fp(ra->f, def));
-                in.ops[0].reg = phys_reg(def_scratch);
+                if (def_shape(in.op) == A64_DEF_OP0RMW) {
+                    /* A read-modify-write MERGES into its destination, so the
+                     * def and the use are ONE register. The substitution pass
+                     * above already reloaded the old value into a scratch and
+                     * pointed ops[0] at it; taking a fresh scratch here would
+                     * merge the immediate into whatever the OTHER scratch
+                     * happened to hold.
+                     *
+                     * movk is the only RMW, and it exists only inside a
+                     * multi-instruction constant materialization -- so the
+                     * symptom is a silently WRONG CONSTANT, with no crash and
+                     * no diagnostic. `movz x16, ...; movk x17, ...` built
+                     * 3.187264 where the program said 3.140625. */
+                    def_scratch = (u8)(in.ops[0].reg.id - 1);
+                } else {
+                    def_scratch = take_scratch(rw, vreg_is_fp(ra->f, def));
+                    in.ops[0].reg = phys_reg(def_scratch);
+                }
             } else {
                 in.ops[0].reg = phys_reg((u8)(ra->iv[def].phys - 1));
             }
@@ -1415,9 +1456,21 @@ static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u32 offset,
     return in;
 }
 
-/* x16 is IP0, a reload scratch: nothing is live in it between instructions,
- * which is exactly what a post-allocation expansion needs. */
+/* x16 is IP0, a reload scratch: nothing is live in it BETWEEN instructions,
+ * which is what a post-allocation expansion needs -- but the va_list pointer
+ * this expansion writes THROUGH is an operand of the va_start itself, so it
+ * is live INTO it, and if it spilled the rewrite pass reloaded it into that
+ * very scratch. `add x16, x29, #336` then destroyed the base and the stores
+ * went to `[x16, #8]` relative to the value just computed. x17 is IP1 and is
+ * the b-side reload scratch, so it is equally free and cannot be the same
+ * register. */
 #define A64_VA_SCRATCH A64_X16
+#define A64_VA_SCRATCH_ALT A64_X17
+
+static A64PhysReg va_scratch_for(A64PhysReg va_list_ptr)
+{
+    return va_list_ptr == A64_VA_SCRATCH ? A64_VA_SCRATCH_ALT : A64_VA_SCRATCH;
+}
 
 static void frame_expand_vastart(A64Func *f, const Frame *fr)
 {
@@ -1440,7 +1493,7 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
         rb_init(&rb, f->arena, b->n);
         for (ii = 0; ii < b->n; ii++) {
             A64Inst *in = &b->insts[ii];
-            A64PhysReg ap;
+            A64PhysReg ap, scratch;
             u32 vr_top, gr_top;
 
             rb.map[ii] = rb.n;
@@ -1453,25 +1506,26 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
                 !in->ops[0].reg.physical)
                 CGF_ICE("arm64 regalloc: va_start lost its va_list pointer");
             ap = (A64PhysReg)(in->ops[0].reg.id - 1);
+            scratch = va_scratch_for(ap);
             /* x29 sits `base` bytes into the frame. */
             vr_top = fr->total - fr->base;
             gr_top = vr_top - A64_VA_FP_BYTES;
 
-            emit_add_imm(&rb, A64_VA_SCRATCH, A64_X29, gr_top);
+            emit_add_imm(&rb, scratch, A64_X29, gr_top);
             {
-                A64Inst st = mk_store_at(A64_VA_SCRATCH, ap, 8, false);
+                A64Inst st = mk_store_at(scratch, ap, 8, false);
 
                 rb_put(&rb, &st);
             }
-            emit_add_imm(&rb, A64_VA_SCRATCH, A64_X29, vr_top);
+            emit_add_imm(&rb, scratch, A64_X29, vr_top);
             {
-                A64Inst st = mk_store_at(A64_VA_SCRATCH, ap, 16, false);
+                A64Inst st = mk_store_at(scratch, ap, 16, false);
 
                 rb_put(&rb, &st);
                 /* __stack is the first incoming stack argument, which is the
                  * top of the frame when no named parameter was stacked —
                  * selection hard-errors on the case where one was. */
-                st = mk_store_at(A64_VA_SCRATCH, ap, 0, false);
+                st = mk_store_at(scratch, ap, 0, false);
                 rb_put(&rb, &st);
             }
         }
