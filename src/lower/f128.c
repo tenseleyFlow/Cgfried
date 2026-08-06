@@ -354,8 +354,16 @@ static void rewrite_compare(IrModule *m, IrFunc *f, IrBlock *block,
 
 bool lower_f128_needs_libcalls(TargetSpec t)
 {
-    /* x86_64's long double is x87 f80, which the backend selects natively. */
-    return t.kind == CGF_TARGET_ARM64_LINUX || t.kind == CGF_TARGET_ARM64_MACOS;
+    /* Keyed on the LONG DOUBLE FORMAT, not on the architecture.
+     *
+     * x86_64's long double is x87 f80, which the backend selects natively.
+     * arm64-linux's is IEEE binary128 with no hardware for it, so every
+     * operation is a libcall. arm64-macos is the same ARCHITECTURE and needs
+     * NONE of this: Apple makes long double a plain double, so f128 never
+     * enters the IR there and libcgf_rt's __addtf3 does not exist on that
+     * platform. Asking the layout removes the standing risk that a future
+     * f128 source emits a call into a runtime the target has not got. */
+    return cgf_target_layout(t).ldbl_kind == CGF_LDBL_IEEE128;
 }
 
 void lower_legalize_f128(IrModule *m, TargetSpec t)
