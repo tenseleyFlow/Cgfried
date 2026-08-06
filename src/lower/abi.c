@@ -162,17 +162,29 @@ static void classify_ret_aapcs64(Lower *lo, Type *t, AbiRet *out)
     out->arg_annot = IR_ARG_SRET;
 }
 
-/* Which psABI governs this translation unit. arm64-macos diverges in
- * varargs and argument extension; it hard-errors until Sprint 50 rather
- * than silently borrowing the Linux rules. */
+/* Which psABI governs this translation unit.
+ *
+ * Apple follows AAPCS64 for how an AGGREGATE is classified -- HFAs, the
+ * 16-byte pair, the indirect-result pointer in x8 -- so both arm64 targets
+ * share this classifier. The Apple divergences are elsewhere and are handled
+ * where they actually live:
+ *
+ *   varargs        every anonymous argument goes on the STACK, so there is
+ *                  no register save area and va_list is a plain char *
+ *   extension      the CALLER sign/zero-extends anything narrower than 32
+ *                  bits; AAPCS64 leaves those high bits unspecified
+ *   stack packing  stack arguments take their natural size and alignment
+ *                  rather than an 8-byte slot each
+ *
+ * Keeping them out of here is deliberate: a target check inside the
+ * aggregate classifier would imply Apple classifies aggregates differently,
+ * which it does not. */
 static bool target_is_aapcs64(Lower *lo, Span span)
 {
+    (void)span;
     switch (lo->sema->target.kind) {
     case CGF_TARGET_ARM64_LINUX:
-        return true;
     case CGF_TARGET_ARM64_MACOS:
-        sema_unimplemented(lo->sema, span, "the Apple arm64 calling convention",
-                           50);
         return true;
     default:
         return false;
