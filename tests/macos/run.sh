@@ -32,31 +32,52 @@ esac
 mkdir -p "$work"
 pass=0
 
-# run <name> <ours.c> <theirs.c-or-> <expected-output-file-content...>
+# Each program is built TWICE, once per linker: the system ld64 lane and the
+# bundled afs-ld lane. The assembler is the bundled afs-as in both, which is
+# the default routing, so this exercises our own toolchain end to end rather
+# than borrowing Apple's for the parts we ship ourselves.
+#
+# run <name> <ours.c> <theirs.c-or-> <expected output on stdin>
 run() {
     name=$1
     ours=$2
     theirs=$3
     shift 3
-    "$CGF" -S -o "$work/$name.s" "$here/$ours"
-    clang -c -o "$work/$name.o" "$work/$name.s"
-    if [ "$theirs" = "-" ]; then
-        clang -o "$work/$name" "$work/$name.o"
-    else
-        clang -O1 -c -o "$work/$name.their.o" "$here/$theirs"
-        clang -o "$work/$name" "$work/$name.o" "$work/$name.their.o"
-    fi
-    got=$("$work/$name")
     want=$(cat)
-    if [ "$got" != "$want" ]; then
-        echo "macos_lane: $name disagreed with its reference" >&2
-        echo "--- want:" >&2
-        echo "$want" >&2
-        echo "--- got:" >&2
-        echo "$got" >&2
-        exit 1
+
+    partner=
+    if [ "$theirs" != "-" ]; then
+        # The partner TU is clang's on purpose: an ABI bug both halves share
+        # is invisible, so the two must disagree for the test to mean
+        # anything. Several partners also include system headers, which we
+        # cannot preprocess until Sprint 55.
+        partner=$work/$name.their.o
+        clang -O1 -c -o "$partner" "$here/$theirs"
     fi
-    pass=$((pass + 1))
+
+    for ld in system afs; do
+        out=$work/$name.$ld
+        if [ "$ld" = afs ]; then
+            CGF_LD=1 "$CGF" -o "$out" "$here/$ours" $partner
+        else
+            "$CGF" -o "$out" "$here/$ours" $partner
+        fi
+        got=$("$out")
+        if [ "$got" != "$want" ]; then
+            echo "macos_lane: $name disagreed with its reference ($ld ld)" >&2
+            echo "--- want:" >&2
+            echo "$want" >&2
+            echo "--- got:" >&2
+            echo "$got" >&2
+            exit 1
+        fi
+        # D4: every product must be signed, on both lanes.
+        if ! codesign --verify "$out" 2>/dev/null; then
+            echo "macos_lane: $name ($ld ld) is not validly signed" >&2
+            exit 1
+        fi
+        pass=$((pass + 1))
+    done
 }
 
 # Row 1: our CALLER puts every anonymous argument on the stack. Also runs
@@ -114,4 +135,5 @@ fn=99 same=1
 def=1000 stat=2000
 EOF
 
-echo "macos_lane: $pass mixed-link programs agree with their references"
+echo "macos_lane: $pass builds agree with their references and pass codesign" \
+    "($((pass / 2)) programs x system ld + afs-ld)"
