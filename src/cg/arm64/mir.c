@@ -173,14 +173,14 @@ A64CallInfo *a64_call_info_new(A64Func *f, A64Inst *inst, u8 callee_ref_kind,
 }
 
 void a64_call_add_arg(A64Func *f, A64CallInfo *call, A64Reg value, u8 type,
-                      u64 abi_annot)
+                      u8 argflags, u64 abi_annot)
 {
     A64CallArg *args = arena_alloc(f->arena, (call->nargs + 1) * sizeof(*args),
                                    _Alignof(A64CallArg));
 
     if (call->nargs)
         memcpy(args, call->args, call->nargs * sizeof(*args));
-    args[call->nargs] = (A64CallArg){value, type, abi_annot};
+    args[call->nargs] = (A64CallArg){value, type, argflags, abi_annot};
     call->args = args;
     call->nargs++;
 }

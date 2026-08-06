@@ -375,10 +375,10 @@ void test_a64_regalloc_marshals_aapcs64_arguments(TestCtx *t)
     call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
                              FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
                              IR_ABIRET_NONE, false, false);
-    a64_call_add_arg(&f, call, a, IRT_I64, 0);
-    a64_call_add_arg(&f, call, d, IRT_F64, 0);
-    a64_call_add_arg(&f, call, b, IRT_I64, 0);
-    a64_call_add_arg(&f, call, e, IRT_I64, 0);
+    a64_call_add_arg(&f, call, a, IRT_I64, 0, 0);
+    a64_call_add_arg(&f, call, d, IRT_F64, 0, 0);
+    a64_call_add_arg(&f, call, b, IRT_I64, 0, 0);
+    a64_call_add_arg(&f, call, e, IRT_I64, 0, 0);
 
     put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
         treg((A64Reg){0, 0}));
@@ -442,7 +442,7 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
                              FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
                              IR_ABIRET_NONE, false, false);
     for (i = 0; i < 10; i++)
-        a64_call_add_arg(&f, call, v[i], IRT_I64, 0);
+        a64_call_add_arg(&f, call, v[i], IRT_I64, 0, 0);
     put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
         treg((A64Reg){0, 0}));
 
@@ -535,7 +535,7 @@ void test_a64_regalloc_argument_copies_do_not_clobber_each_other(TestCtx *t)
                              FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
                              IR_ABIRET_NONE, false, false);
     for (i = 8; i-- > 0;)
-        a64_call_add_arg(&f, call, v[i], IRT_I64, 0);
+        a64_call_add_arg(&f, call, v[i], IRT_I64, 0, 0);
     put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
         treg((A64Reg){0, 0}));
 
@@ -767,9 +767,9 @@ void test_a64_regalloc_pair_return_consumes_no_argument_register(TestCtx *t)
                           FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, (A64Reg){0, 0},
                           IRT_VOID, IR_ABIRET_PAIR_II, false, false);
     /* the hidden pointer, then one real argument */
-    a64_call_add_arg(&f, call, dest, IRT_PTR,
+    a64_call_add_arg(&f, call, dest, IRT_PTR, 0,
                      ((u64)IR_ARG_PAIR_II << 32) | 16u);
-    a64_call_add_arg(&f, call, real, IRT_I64, 0);
+    a64_call_add_arg(&f, call, real, IRT_I64, 0, 0);
     put(&f, 0, A64_OP_RET, 0, treg((A64Reg){0, 0}), treg((A64Reg){0, 0}),
         treg((A64Reg){0, 0}));
 

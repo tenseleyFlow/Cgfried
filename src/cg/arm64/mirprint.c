@@ -322,6 +322,8 @@ void a64_mir_print(const A64Func *f, Buf *out)
                               type_sf(call->args[ai].type));
                     buf_printf(out, ":t%u/a%016llx", call->args[ai].type,
                                (unsigned long long)call->args[ai].abi_annot);
+                    if (call->args[ai].argflags & IROPF_ANON)
+                        buf_printf(out, "/anon");
                 }
                 buf_printf(out, ")");
                 if (call->result.id) {

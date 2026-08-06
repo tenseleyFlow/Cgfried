@@ -559,6 +559,7 @@ void test_a64_mixed_width_and_call_metadata(TestCtx *t)
     for (i = 0; i < 6; i++)
         a64_call_add_arg(&func, ci, a64_phys((A64PhysReg)(A64_X0 + i)),
                          i & 1 ? IRT_F64 : IRT_I32,
+                         i >= 4 ? (u8)IROPF_ANON : 0u,
                          i == 5 ? ir_arg_annot(IR_ARG_BYVAL, 24) : i);
     a64_block_append(&func, &block, call);
     call = (A64Inst){.op = A64_OP_CALL, .sf = A64_SF64, .src_sf = A64_SF64};
@@ -577,6 +578,11 @@ void test_a64_mixed_width_and_call_metadata(TestCtx *t)
     T_ASSERT_EQ_INT(t, a64_mir_verify(&func, dc), 0);
     T_ASSERT_EQ_INT(t, ci->nargs, 6);
     T_ASSERT_EQ_INT(t, ci->args[5].abi_annot, ir_arg_annot(IR_ARG_BYVAL, 24));
+    /* The anonymous marker is independent of the ABI annotation word: arg 5
+     * carries both, arg 4 only the marker, arg 3 neither. */
+    T_ASSERT_EQ_INT(t, ci->args[3].argflags, 0);
+    T_ASSERT_EQ_INT(t, ci->args[4].argflags, IROPF_ANON);
+    T_ASSERT_EQ_INT(t, ci->args[5].argflags, IROPF_ANON);
 
     buf_init(&first);
     buf_init(&second);

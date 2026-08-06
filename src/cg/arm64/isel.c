@@ -1563,7 +1563,7 @@ static void select_call(Isel *is, const IrInst *ir)
                              (ir->flags & IRF_NORETURN) != 0);
     for (i = first; i < ir->nops; i++)
         a64_call_add_arg(is->func, call, args[i - first], ir->ops[i].type,
-                         arg_annot(&ir->ops[i]));
+                         ir->ops[i].argflags, arg_annot(&ir->ops[i]));
     if (ir->type != IRT_VOID)
         bind_result(is, ir, result);
 }

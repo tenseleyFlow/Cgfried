@@ -302,6 +302,7 @@ typedef struct A64Operand {
 typedef struct A64CallArg {
     A64Reg value;
     u8 type;       /* IrType */
+    u8 argflags;   /* exact IrOperand.argflags: IROPF_ANON */
     u64 abi_annot; /* exact IrOperand.b: byval/pair classification + size */
 } A64CallArg;
 
@@ -402,7 +403,7 @@ A64CallInfo *a64_call_info_new(A64Func *f, A64Inst *inst, u8 callee_ref_kind,
                                u8 result_type, u8 abi_ret, bool variadic,
                                bool noreturn);
 void a64_call_add_arg(A64Func *f, A64CallInfo *call, A64Reg value, u8 type,
-                      u64 abi_annot);
+                      u8 argflags, u64 abi_annot);
 
 bool a64_logical_imm_encode(u64 value, unsigned width, u32 *n_immr_imms);
 u32 a64_synth_mov_width(u64 value, unsigned width, A64MovSynth out[4]);

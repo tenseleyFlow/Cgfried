@@ -894,6 +894,10 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
     ArgWalk w;
     A64CallArg *kept;
     A64Reg pair_dest = {0, 0};
+    /* AAPCS64 fills the register queues with named and anonymous arguments
+     * alike; Apple stops at the last named one. Sprint 51 replaces the host
+     * sniff with the driver's selected target. */
+    bool apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
     u32 nkept = 0, i;
 
     if (!call)
@@ -925,6 +929,12 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
              * still receives its first real argument in x0, so the indirect
              * result register consumes no NGRN. */
             phys = A64_X8;
+        } else if (apple && (arg->argflags & IROPF_ANON)) {
+            /* Apple: an anonymous argument NEVER takes a register, and it
+             * does not consume one either — a named argument after it is
+             * impossible, but the queues stay untouched on principle. This
+             * is the whole reason a callee there needs no save area. */
+            phys = A64_REG_NONE;
         } else if (fp) {
             if (w.nsrn < 8)
                 phys = (u8)(A64_V0 + w.nsrn++);
