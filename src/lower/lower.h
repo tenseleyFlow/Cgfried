@@ -300,6 +300,10 @@ typedef struct AbiRet {
 
 void abi_classify_arg(Lower *lo, Type *t, AbiArg *out);
 void abi_classify_ret(Lower *lo, Type *t, AbiRet *out);
+
+/* True (and diagnosed) when the classified return shape has no lowering
+ * yet. Callers must stop rather than build IR the verifier will reject. */
+bool abi_ret_unsupported(Lower *lo, const AbiRet *a, Span span);
 /* gp/fp register consumption of one classified argument (for va_start's
  * gp_offset/fp_offset constants and the 6/8 register caps). */
 void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp);

@@ -1635,6 +1635,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         fty = sem(e->lhs)->base;
     ret = fty ? fty->base : sem(e);
     abi_classify_ret(lo, ret, &aret);
+    if (abi_ret_unsupported(lo, &aret, e->span))
+        return ir_op_undef(IRT_I32);
     hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
 
     /* Left-to-right: the callee expression evaluates before any

@@ -138,9 +138,13 @@ static void classify_ret_aapcs64(Lower *lo, Type *t, AbiRet *out)
     out->align = (u32)(l.align ? l.align : 1);
 
     if (layout_is_hfa(lo->sema, t, &base, &leaves)) {
+        /* AAPCS64 returns 1-4 homogeneous FP leaves in v0-v3, passing no
+         * hidden pointer at all. That is a THIRD return shape, and it is
+         * not yet implemented end to end -- see abi_ret_unsupported below
+         * for why it cannot simply borrow the sret one. */
         out->kind = ABI_RET_HFA;
         out->small_t = hfa_leaf_irtype(base);
-        out->ir_abi = IR_ABIRET_SRET; /* sret-SHAPED IR; v0-v3 is the truth */
+        out->ir_abi = IR_ABIRET_SRET; /* placeholder; see the note above */
         out->arg_annot = IR_ARG_SRET;
         return;
     }
@@ -263,6 +267,28 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
         out->ir_abi =
             cls[1] == ABI_INTEGER ? IR_ABIRET_PAIR_SI : IR_ABIRET_PAIR_SS;
     out->arg_annot = (u8)(IR_ARG_SRET + (out->ir_abi - IR_ABIRET_SRET));
+}
+
+/* AAPCS64's HFA return is classified but not yet lowered, and the reason it
+ * cannot just reuse the sret shape is worth stating: sret passes a hidden
+ * pointer in x8, while an HFA passes NOTHING and comes back in v0-v3. The
+ * backend distinguishes return shapes through IrFunc.abi_ret, so the two
+ * need distinct values there -- which means a new IrAbiRet, its round trip
+ * through print/parse/struct_eq, a verifier rule, and both sides of a call
+ * in the arm64 backend.
+ *
+ * Until that lands this is a clean error rather than an ICE. It fires on
+ * `struct { float x, y, z; }` and friends -- common in graphics and math
+ * code -- so it is not an exotic corner. See .docs/audits/abi-debt.md. */
+bool abi_ret_unsupported(Lower *lo, const AbiRet *a, Span span)
+{
+    if (a->kind != ABI_RET_HFA)
+        return false;
+    lower_unimplemented(lo, span,
+                        "returning a homogeneous floating-point aggregate "
+                        "(AAPCS64 v0-v3 return)",
+                        51);
+    return true;
 }
 
 void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp)

@@ -662,6 +662,8 @@ static void lower_function(Lower *lo, AstNode *def)
     /* The SysV plan: return first (a hidden pointer goes in slot 0),
      * then each parameter expands per its classification. */
     abi_classify_ret(lo, ft->base, &aret);
+    if (abi_ret_unsupported(lo, &aret, sym->span))
+        return;
     hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
     memset(pannots, 0, sizeof(pannots));
     if (hidden)

@@ -12,6 +12,7 @@
 !.docs/audits/afsld-elf-debt.md
 !.docs/audits/debug-info-debt.md
 !.docs/audits/tls-debt.md
+!.docs/audits/abi-debt.md
 CLAUDE.md
 AGENTS.md
 build/

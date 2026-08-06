@@ -346,8 +346,11 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/check_warn_seams.sh
 	sh scripts/check_pp_seams.sh
 	sh scripts/check_sema_target.sh
+	sh scripts/check_target_seam.sh
 	sh scripts/check_verify_coverage.sh
 	sh scripts/check_no_host_fpu.sh
+	CGF_CROSS_WORK=$(BUILD)/cross-determinism \
+	    sh tests/cross/determinism.sh $(BUILD)/cgfried >/dev/null
 	sh scripts/a64_va_list_diff.sh
 	$(MAKE) BUILD=$(BUILD) $(BUILD)/a64mir
 	sh scripts/a64_exec_lane.sh $(BUILD)/a64mir
