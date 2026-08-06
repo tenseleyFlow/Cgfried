@@ -1350,7 +1350,8 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
             if (reg_ok) {
                 BlockId reg = lower_new_block(lo, "va.reg");
                 BlockId mem = lower_new_block(lo, "va.mem");
-                IrOperand gp_off, fp_off;
+                IrOperand gp_off = {0};
+                IrOperand fp_off = {0};
                 IrOperand cond;
 
                 /* An aggregate can need BOTH banks (`struct { double d; short
@@ -1403,7 +1404,11 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
                 lower_at(lo, reg);
                 {
                     Lvalue rsalv;
-                    IrOperand rsa, gp_base, fp_base, from_reg;
+                    IrOperand rsa, from_reg;
+                    /* Only the bank an argument actually uses is computed;
+                     * zeroed so the unused one is never a stale read. */
+                    IrOperand gp_base = {0};
+                    IrOperand fp_base = {0};
                     i64 gp_seen = 0, fp_seen = 0;
                     u32 k;
 
