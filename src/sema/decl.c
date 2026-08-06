@@ -1834,6 +1834,21 @@ static void declare_one(Sema *s, AstNode *d)
                   "variable '%s' has incomplete type '%s'", d->name,
                   type_to_str(s->arena, type));
     }
+    /* 6.7p7: an object with NO LINKAGE must have a complete type by the end
+     * of its declarator (or of its init-declarator, which the completion
+     * event above has already applied). `int a[];` at file scope is a
+     * tentative definition a later one may complete, so the check above is
+     * rightly keyed on `defined`; inside a block there is no later one and
+     * nothing has a size, which used to reach lowering and ICE. */
+    if (!is_func && sym->kind != SYM_TYPEDEF && !sym->defined &&
+        sym->linkage == LINK_NONE && type && type->kind != TY_ERROR &&
+        type->kind != TY_VOID && !type_is_complete(type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  type->kind == TY_ARRAY ? "array size missing in '%s'"
+                                         : "variable '%s' has incomplete type",
+                  d->name);
+    }
     if (!is_func && sym->kind != SYM_TYPEDEF && type && type->kind == TY_VOID) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, d->span, "variable '%s' declared void",
