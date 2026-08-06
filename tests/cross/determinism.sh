@@ -43,10 +43,10 @@ struct Small { int a, b; };
 struct Big { double a, b, c; };
 struct Hfa { float x, y, z, w; };
 struct Small pass_small(struct Small s) { return s; }
-/* Returning an HFA is a distinct AAPCS64 shape and is not lowered yet
-   (.docs/audits/abi-debt.md, ABI-001); passing one by value is. */
-void take_big(struct Big s) { (void)s; }
-void take_hfa(struct Hfa s) { (void)s; }
+struct Big pass_big(struct Big s) { return s; }
+/* HFAs pass and return in v0-v3 on AAPCS64 and go through memory on SysV --
+   the single sharpest divergence in the set (ABI-001). */
+struct Hfa pass_hfa(struct Hfa s) { return s; }
 double sum_hfa(struct Hfa s) { return s.x + s.y + s.z + s.w; }
 
 /* varargs: register save area vs all-stack */

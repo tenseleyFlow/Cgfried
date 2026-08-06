@@ -125,6 +125,14 @@ row7 wchar=4
 row5 pct_Lf=3.1415926536 -0.5000000000
 EOF
 
+# AAPCS64 passes and returns a homogeneous floating aggregate in v0-v3 with
+# no hidden pointer. Both halves were classified since Sprint 14 and consumed
+# nowhere until Sprint 51 (ABI-001). The result is the EXIT CODE rather than
+# printf output, because <stdio.h> here still needs Sprint 55 -- which is
+# also why our CALLER half could only be checked this way.
+run hfa_abi hfa_check.c hfa_lib.c <<'EOF'
+EOF
+
 # Mach-O routes every UNDEFINED symbol through the GOT even non-PIC, for a
 # function's address as much as for data. A direct adrp/add is not a slower
 # program, it is a link error or a wrong address.
