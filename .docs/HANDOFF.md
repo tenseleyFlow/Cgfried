@@ -794,6 +794,23 @@ stand in. If you add a fixture that includes a system header and it passes
 locally, check which `stdio.h` it actually opened (`-v` prints the search
 list) before believing it.
 
+### 3.7c "Verified locally" means nothing if you did not COMMIT it
+
+The afs-as submodule bump went red on a lane I had run and watched pass
+minutes earlier. The edit that made it pass (`UNENCODABLE=""`) was in the
+working tree and never staged — the commit took `afs-as` and `HANDOFF.md`
+only. So the local run proved a tree that trunk did not have.
+
+`git status` before pushing costs a second and would have caught it. The
+underlying error was treating the local run as the proof and the commit as
+bookkeeping; they are one step, and the artifact CI tests is the commit.
+
+What saved it was the ratchet failing in the direction that looks harmless:
+**"neon is pinned unencodable but assembled"**. A lane that only checked for
+NEW failures would have let trunk carry a stale pin, silently claiming a
+fixture was unsupported when it had started working. Enforce debt lists in
+both directions, always.
+
 ### 3.7b A CI step that redirects to a log can THROW IT AWAY (Sprint 49)
 
 ```yaml
