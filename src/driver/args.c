@@ -748,8 +748,7 @@ static bool h_deferred(DriverArgs *da, const FlagSpec *fs, const char *val)
         return true;
     switch (fs->code) {
     case F_SHARED:
-        da->deferred = "-shared";
-        da->deferred_sprint = "lands in Sprint 51";
+        da->shared = true;
         break;
     case F_LINK_PIE:
         da->link_pie = true;

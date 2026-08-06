@@ -500,9 +500,12 @@ void test_args_deferred_flags(TestCtx *t)
     DriverArgs a;
 
     arena_init(&ar);
+    /* -shared is IMPLEMENTED as of Sprint 51 (system linker, ELF only) and
+     * no longer deferred. Needing -fPIC is checked by the driver, not here:
+     * argument consistency is not the parser's business. */
     PARSE(a, &ar, (char *)"-shared", (char *)"t.c");
-    T_ASSERT(t, a.deferred && strcmp(a.deferred, "-shared") == 0);
-    T_ASSERT(t, strstr(a.deferred_sprint, "Sprint 51") != NULL);
+    T_ASSERT(t, !a.deferred);
+    T_ASSERT(t, a.shared);
     args_free(&a);
     /* -fPIC/-fPIE are IMPLEMENTED as of Sprint 51 and no longer deferred.
      * -fpic and -fPIC are the same flag here: neither current target has a

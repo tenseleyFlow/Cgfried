@@ -180,10 +180,11 @@ typedef struct {
      * PIE-default gcc that Arch and Debian ship: the parity baseline is
      * upstream. -pie and -no-pie are explicit and are LINK flags; -fpie
      * implies nothing about linking. */
-    bool fpic;                   /* -fPIC/-fpic: full position independence */
-    bool fpie;                   /* -fPIE/-fpie: executable-scoped */
-    bool link_pie;               /* -pie */
-    bool no_pie;                 /* -no-pie */
+    bool fpic;     /* -fPIC/-fpic: full position independence */
+    bool fpie;     /* -fPIE/-fpie: executable-scoped */
+    bool link_pie; /* -pie */
+    bool no_pie;   /* -no-pie */
+    bool shared;   /* -shared: emit a shared object rather than an executable */
     char suggest[64];            /* "; did you mean '-o'?" payload, or "" */
     const char *missing_arg;     /* option lacking its argument, or NULL */
     const char *bad_value;       /* option whose value did not parse */

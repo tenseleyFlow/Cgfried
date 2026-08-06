@@ -868,6 +868,25 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
                         "tools' or unset CGF_LD to use the system linker\n");
         return false;
     }
+    if (da->shared) {
+        /* The tier, decided honestly rather than discovered at run time.
+         * -fPIC codegen works on both architectures and -shared through the
+         * SYSTEM linker works, because ld does the dynamic-section heavy
+         * lifting. afs-ld's dynamic ELF lane is out for v0.1.0 (Sprint 27's
+         * LD-ELF ledger stands) and Mach-O dylib emission is out entirely.
+         * Saying so beats failing somewhere inside the linker. */
+        if (macho) {
+            fprintf(stderr, "cgfried: error: -shared (Mach-O dylib) is out of "
+                            "scope for v0.1.0 on arm64-macos\n");
+            return false;
+        }
+        if (tc.use_afs_ld) {
+            fprintf(stderr,
+                    "cgfried: error: afs-ld cannot produce a shared object "
+                    "yet; unset CGF_LD to use the system linker\n");
+            return false;
+        }
+    }
     if (macho) {
         /* Mach-O has no crt at all: dyld enters at LC_MAIN, an offset to
          * main's atom that the linker synthesizes. There is nothing to
@@ -986,9 +1005,13 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
         VecStr_push(out, "-melf_x86_64"); /* select its ELF arm */
     if (da->static_link)
         VecStr_push(out, "-static");
+    else if (da->shared)
+        VecStr_push(out, "-shared");
     else if (da->link_pie)
         VecStr_push(out, "-pie");
-    if (!da->static_link && dl) {
+    /* A shared object has no entry point and no program interpreter: dyld
+     * or ld.so loads it on behalf of whatever did have one. */
+    if (!da->static_link && !da->shared && dl) {
         VecStr_push(out, "-dynamic-linker");
         VecStr_push(out, dl);
     }
