@@ -1021,7 +1021,13 @@ static void marshal_calls(A64Func *f)
  * misaligned SP faults at the next load rather than limping the way a
  * misaligned rsp does. a64_frame_total rounds and the verifier re-checks. */
 
-#define A64_FRAME_PREINDEX_MAX 512
+/* stp/ldp index and scaled offsets share ONE field: a signed 7-bit value
+ * scaled by 8, so the range is [-512, +504] -- ASYMMETRIC. 512 is legal for
+ * the prologue's `stp x29, x30, [sp, #-512]!` and illegal for the epilogue's
+ * matching `ldp x29, x30, [sp], #512`, which is exactly how a 512-byte frame
+ * assembled the store and then failed on the load. The bound has to be the
+ * one both directions satisfy. */
+#define A64_FRAME_PREINDEX_MAX 504
 
 u32 a64_frame_total(u32 csr_bytes, u32 local_bytes, u32 out_args)
 {
@@ -1200,35 +1206,89 @@ static void frame_assign_allocas(A64Func *f, CgSpillSlots *slots)
     }
 }
 
+static A64Inst mk_add_imm(A64Reg dst, A64Reg base, i64 imm)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_ADD;
+    in.sf = A64_SF64;
+    in.nops = 3;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = dst;
+    in.ops[1].kind = A64O_REG;
+    in.ops[1].reg = base;
+    in.ops[2].kind = A64O_IMM;
+    in.ops[2].imm = imm;
+    return in;
+}
+
+/* A frame object's address is `x29 + off`, and ADD-immediate carries a
+ * uimm12 optionally shifted left by 12 -- so an `off` that is neither <= 4095
+ * nor a multiple of 4096 does not fit ONE instruction. An 8000-byte local
+ * array reaches that with no help from register pressure, and the frame is
+ * final here, so the offset cannot be made smaller.
+ *
+ * Two adds, high part first, exactly as emit_sp_adjust splits the stack
+ * adjustment. No scratch register is needed and none is available this late:
+ * `dst` is being DEFINED by this instruction, so accumulating into it cannot
+ * clobber anything live. */
 static void frame_expand_allocas(A64Func *f, const Frame *fr)
 {
     u32 bi, ii;
 
     for (bi = 0; bi < f->nblocks; bi++) {
         A64Block *b = &f->blocks[bi];
+        Rb rb;
+        bool any = false;
 
+        for (ii = 0; ii < b->n; ii++)
+            if (b->insts[ii].op == A64_OP_ALLOCA)
+                any = true;
+        if (!any)
+            continue;
+        rb_init(&rb, f->arena, b->n);
         for (ii = 0; ii < b->n; ii++) {
             A64Inst *in = &b->insts[ii];
+            A64AddSubImm addsub;
             i64 raw, size, off;
             A64Reg dst;
 
-            if (in->op != A64_OP_ALLOCA)
+            rb.map[ii] = rb.n;
+            rb.source_loc = in->loc;
+            if (in->op != A64_OP_ALLOCA) {
+                rb_put(&rb, in);
                 continue;
+            }
             raw = -in->ops[1].imm;
             size = in->ops[2].imm;
             off = (i64)fr->csr_size + raw - size;
             dst = in->ops[0].reg;
-            memset(in->ops, 0, sizeof(in->ops));
-            in->op = A64_OP_ADD;
-            in->sf = A64_SF64;
-            in->nops = 3;
-            in->ops[0].kind = A64O_REG;
-            in->ops[0].reg = dst;
-            in->ops[1].kind = A64O_REG;
-            in->ops[1].reg = phys_reg(A64_X29);
-            in->ops[2].kind = A64O_IMM;
-            in->ops[2].imm = off;
+            if (off < 0)
+                CGF_ICE("arm64 regalloc: frame object at negative offset %lld",
+                        (long long)off);
+            if (a64_addsub_imm(off, &addsub) && !addsub.is_sub) {
+                A64Inst add = mk_add_imm(dst, phys_reg(A64_X29),
+                                         (i64)addsub.imm12 << addsub.shift);
+
+                rb_put(&rb, &add);
+                continue;
+            }
+            {
+                i64 hi = (off >> 12) << 12;
+                i64 lo = off & 0xfff;
+                A64Inst add = mk_add_imm(dst, phys_reg(A64_X29), hi);
+
+                if ((off >> 12) > 4095)
+                    CGF_ICE("arm64 regalloc: frame object offset %lld exceeds "
+                            "the 16 MiB two-instruction ADD range",
+                            (long long)off);
+                rb_put(&rb, &add);
+                add = mk_add_imm(dst, dst, lo);
+                rb_put(&rb, &add);
+            }
         }
+        rb_commit(&rb, b);
     }
 }
 

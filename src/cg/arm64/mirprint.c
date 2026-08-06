@@ -363,9 +363,15 @@ static int verify_operand(const A64Func *f, const A64Operand *op)
     case A64O_IMM:
         return 0;
     case A64O_MEM:
+        /* MATERIALIZE is a SIGNAL from a64_isel_addr meaning "this offset
+         * does not fit any addressing form"; whoever asked owes an explicit
+         * address computation. It must never reach an instruction, and if it
+         * does, pmem prints the offset anyway and the ASSEMBLER reports it --
+         * a compiler bug wearing an assembler's diagnostic. */
         return !reg_valid(f, op->mem.base) ||
                (op->mem.index.id && !reg_valid(f, op->mem.index)) ||
-               op->mem.mode > A64_ADDR_INCOMING || !op->mem.size;
+               op->mem.mode > A64_ADDR_INCOMING ||
+               op->mem.mode == A64_ADDR_MATERIALIZE || !op->mem.size;
     case A64O_LABEL:
         return !op->id || op->id > f->nblocks;
     case A64O_SYM:
