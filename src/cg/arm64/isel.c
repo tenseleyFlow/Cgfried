@@ -78,7 +78,8 @@ static A64Sf sf_of(IrType type)
     case IRT_F128:
         return A64_SF128;
     default:
-        CGF_ICE("arm64 isel: type '%s' lands in Sprint 49", ir_type_name(type));
+        CGF_ICE("arm64 isel: type '%s' has no arm64 representation",
+                ir_type_name(type));
     }
 }
 
@@ -1079,7 +1080,7 @@ static void select_conversion(Isel *is, const IrInst *ir)
     case IR_FPEXT:
     case IR_FPTRUNC:
         if (!fp_type(src_type) || !fp_type(dst_type))
-            CGF_ICE("arm64 isel: f80/f128 conversion lands in Sprint 49");
+            CGF_ICE("arm64 isel: floating conversion from a non-FP type");
         inst = emit(is, A64_OP_FCVT, sf_of(dst_type));
         inst->src_sf = sf_of(src_type);
         add_operand(inst, reg_op(dest));
@@ -1222,11 +1223,13 @@ static void select_memory_copy(Isel *is, const IrInst *ir, bool set)
 
     if (ir->ops[2].kind != IROP_ICONST ||
         (set && ir->ops[1].kind != IROP_ICONST))
-        CGF_ICE("arm64 isel: dynamic memcpy/memset lands in Sprint 49");
+        CGF_ICE("arm64 isel: memcpy/memset with a non-constant size (the C "
+                "front end always emits a constant one; a dynamic size "
+                "belongs in a libc call)");
     size = ir->ops[2].a;
     if (size > A64_INLINE_MEM_MAX)
-        CGF_ICE("arm64 isel: memcpy/memset larger than 65536 bytes lands in "
-                "Sprint 49");
+        CGF_ICE("arm64 isel: memcpy/memset larger than 65536 bytes (inlining "
+                "it would grow MIR without bound; use a libc call)");
     dest = to_gp(is, &ir->ops[0]);
     if (!set)
         source = to_gp(is, &ir->ops[1]);
@@ -1622,7 +1625,7 @@ static void select_inst(Isel *is, const IrInst *ir)
             break;
         }
         if (!fp_type((IrType)ir->type))
-            CGF_ICE("arm64 isel: f80/f128 arithmetic lands in Sprint 49");
+            CGF_ICE("arm64 isel: floating arithmetic on a non-FP type");
         if (select_fma(is, ir))
             break;
         select_fp_arith(is, ir);
@@ -2110,14 +2113,17 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
     /* f128 is off this list: it rides the SIMD queue like any other FP type
      * once lower/f128.c has turned its arithmetic into calls. Vectors have
      * no AAPCS64 parameter contract in v0.1.0 (Sprint 36 declined to invent
-     * one), and f80 does not exist on this target. */
+     * one), and f80 does not exist on this target.
+     *
+     * Reachable only through `vector_size`, which is Sprint 55 -- no C
+     * program can name a vector parameter until the attribute parses. */
     if (ir_type_is_vector((IrType)ir->ret) || ir->ret == IRT_F80)
-        CGF_ICE("arm64 isel: vector/f80 function ABI lands in Sprint 51");
+        CGF_ICE("arm64 isel: a vector function ABI lands in Sprint 55");
 
     for (i = 0; i < ir->nparams; i++)
         if (ir_type_is_vector((IrType)ir->param_types[i]) ||
             ir->param_types[i] == IRT_F80)
-            CGF_ICE("arm64 isel: vector/f80 parameters land in Sprint 51");
+            CGF_ICE("arm64 isel: vector parameters land in Sprint 55");
 
     memset(func, 0, sizeof(*func));
     func->name = ir->name;

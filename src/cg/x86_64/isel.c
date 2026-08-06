@@ -238,7 +238,7 @@ static X64Width width_of(IrType t)
     case IRT_PTR:
         return X64_Q;
     default:
-        CGF_ICE("x86_64 isel: f32/f64/f80/f128 isel lands in Sprint 23");
+        CGF_ICE("x86_64 isel: no integer width for this IR type");
     }
 }
 
@@ -2567,7 +2567,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Inst *x;
 
         if (in->ops[2].kind != IROP_ICONST)
-            CGF_ICE("x86_64 isel: dynamic-size memcpy lands in Sprint 24");
+            CGF_ICE("x86_64 isel: memcpy with a non-constant size (the C front "
+                    "end always emits a constant one; a dynamic size "
+                    "belongs in a libc call)");
         dst = to_vreg(is, &in->ops[0]);
         src = to_vreg(is, &in->ops[1]);
         sz = in->ops[2].a;
@@ -2598,7 +2600,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Inst *x;
 
         if (in->ops[2].kind != IROP_ICONST || in->ops[1].kind != IROP_ICONST)
-            CGF_ICE("x86_64 isel: dynamic memset lands in Sprint 24");
+            CGF_ICE("x86_64 isel: memset with a non-constant size or byte (the C "
+                    "front end always emits constants; a dynamic size "
+                    "belongs in a libc call)");
         dst = to_vreg(is, &in->ops[0]);
         byte = in->ops[1].a & 0xff;
         pat = byte * 0x0101010101010101ull;

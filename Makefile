@@ -353,6 +353,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/check_pp_seams.sh
 	sh scripts/check_sema_target.sh
 	sh scripts/check_target_seam.sh
+	sh scripts/check_deferrals.sh
 	sh scripts/check_verify_coverage.sh
 	sh scripts/check_no_host_fpu.sh
 	CGF_CROSS_WORK=$(BUILD)/cross-determinism \

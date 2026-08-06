@@ -468,8 +468,8 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 s->saw_any = true;
                 continue;
             case KW_ATOMIC:
-                /* _Atomic(T) is a specifier; bare _Atomic is a qualifier.
-                 * Semantics land in Sprint 16. */
+                /* _Atomic(T) is a specifier; bare _Atomic is a
+                 * qualifier. Sema owns the semantics. */
                 p->pos++;
                 s->saw_any = true;
                 if (parse_at_punct(p, PUNCT_LPAREN)) {
@@ -566,8 +566,8 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                  * declarator" — our own <stdarg.h> lands on this path. */
                 if (parse_is_builtin_name(t->spelling)) {
                     parse_error(p, t,
-                                "'%s' is not yet supported (the compiler "
-                                "builtins land in Sprint 28)",
+                                "'%s' is not a builtin this compiler "
+                                "implements (see src/builtins.def)",
                                 t->spelling);
                     s->bad = true;
                     s->saw_any = true;

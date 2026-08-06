@@ -31,6 +31,6 @@ else
     status=$?
 fi
 test "$status" -eq 4
-grep -F "memcpy/memset larger than 65536 bytes lands in Sprint 49" \
+grep -F "memcpy/memset larger than 65536 bytes" \
     "$work/large-bulk.err" >/dev/null
 echo "a64_mir_lane: $count golden modules, $patterns patterns deterministic and exact; oversized bulk expansion bounded"
