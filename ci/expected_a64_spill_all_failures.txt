@@ -16,25 +16,24 @@
 #
 # or `make test-a64-spill-all`.
 #
-# THREE clusters. Only the first has a verified cause; the other two are
-# recorded as OBSERVATIONS, because naming a cause I have not seen in a
-# disassembly is how the last two wrong diagnoses started.
+# TWO clusters, both UNDIAGNOSED. They are recorded as OBSERVATIONS, because
+# naming a cause I have not seen in a disassembly is how the last two wrong
+# diagnoses started.
 #
-# 1. Frame immediates (verified). `ldp x29, x30, [sp], #512` and
-#    `sub sp, sp, #4096` both exceed their fields -- pre/post-index and
-#    scaled stp/ldp offsets are a signed 7-bit value scaled by 8, so +504 is
-#    the maximum, and add/sub immediates are 12 bits unless spelled with
-#    `lsl #12`. Spilling everything makes frames large enough to reach all
-#    three. This is NOT a spill-all-only bug: tests/corpus/x86_64/int/
-#    big_frame.c reaches it with an ordinary 8000-byte local array and is
-#    pinned in the ordinary ledger too.
-#
-# 2. Floating point produces WRONG ANSWERS or faults. printf_fp prints
+# 1. Floating point produces WRONG ANSWERS or faults. printf_fp prints
 #    pi=3.140625 for 3.141593, which is a value that lost mantissa bits
 #    somewhere, not a marshalling mistake -- the reload/consume pairing at
-#    the call is correct on inspection. Undiagnosed.
+#    the call is correct on inspection.
 #
-# 3. Two integer programs fault or answer wrongly. Undiagnosed.
+# 2. Two integer programs fault or answer wrongly, and varargs_sum computes
+#    a wrong sum.
+#
+# The third cluster, frame immediates, is CLOSED: stp/ldp pre/post-index and
+# scaled offsets share a signed 7-bit field scaled by 8, so the bound is +504
+# and not 512 (legal for the prologue's store, illegal for the epilogue's
+# matching load), and a frame object past 4095 now takes two ADDs the way the
+# stack adjustment always has. That fix removed three entries from this list
+# and unpinned int/big_frame from the ordinary ledger.
 #
 # Format: <suite>/<name> [-O<level>] # <cause or observation>
 
@@ -43,9 +42,6 @@ fp/fp_call_args [-O0] # FP under spill: exit 1, undiagnosed
 fp/printf_fp [-O0] # FP under spill: prints pi=3.140625, undiagnosed
 fp/u64_double [-O0] # FP under spill: exit 1, undiagnosed
 fp/varargs_mixed [-O0] # FP under spill: SIGSEGV, undiagnosed
-int/big_frame [-O0] # frame immediates; also fails without spill-all
 int/bsearch_hand [-O0] # exit 1, undiagnosed
-int/duff [-O2] # frame immediates: ldp x29,x30,[sp],#512 exceeds +504
-int/ptr_chase [-O0] # frame immediates: ldp x29,x30,[sp],#512 exceeds +504
 int/switch_dense [-O0] # SIGSEGV, undiagnosed
 int/varargs_sum [-O0] # wrong sum, undiagnosed
