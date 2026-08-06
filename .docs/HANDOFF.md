@@ -45,7 +45,8 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `aarch64-linux-gnu-as`, and links. The e2e corpus is 43/51 there, with the
   one gap ledgered by cause — the same split on real hardware and under
   qemu, so it is a backend gap, not an emulator artifact.
-- **Sprint 49 is CLOSED — all seven DoD gates met as written.** See the DoD audit table at the end
+- **Sprint 49 is CLOSED — all seven DoD gates met as written. Sprint 50
+  (arm64-macos) is IN PROGRESS; see §1b.** See the DoD audit table at the end
   of `.docs/sprints/10-backend-arm64/s49-arm64-linux.md` before assuming any
   arm64 property holds.
 - `cgf hello.c -o hello && ./hello` works. Multi-TU works. Hosted
@@ -377,172 +378,145 @@ deferred with zero memory diagnostics.
 
 ---
 
-## 1b. WHERE THE WORK IS RIGHT NOW (post-Sprint-49 arm64 gaps)
+## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 50, arm64-macos)
 
-Sprint 49 is landed. What is IN FLIGHT is the ledger of arm64 backend gaps
-it left behind — real miscompiles, found by executing the e2e corpus on
-arm64 rather than by inspecting output.
+**Sprint 49 is CLOSED at 7 of 7 gates**, all verified in CI. Both arm64
+corpus ledgers are empty (54/54 ordinary, 54/54 under `CGF_SPILL_ALL=1`), the
+object differential is 20 identical with nothing pinned, and the char-sign
+corpus plus the four-thread ll/sc atomics hammer execute on real arm64
+hardware. Nothing there is outstanding.
 
-**The ledger is `ci/expected_a64_corpus_failures.txt`**, enforced exactly in
-both directions by `scripts/a64_corpus_lane.sh`: a new failure fails the
-lane, and so does a pinned entry that starts passing. One line per (fixture,
-opt level) with its cause. `make test-a64-corpus` runs it.
+**Sprint 50 (arm64-macos) is IN PROGRESS.** Tasks #94-#99 break it down.
+Read `.docs/sprints/10-backend-arm64/s50-arm64-macos.md`; its centerpiece is
+the seven-row Apple divergence table.
 
-Arm64 corpus went 43/51 -> **50/51**. Closed:
+### What already works, verified ON HARDWARE
 
-| gap | cause | commit |
-|---|---|---|
-| `int/struct_ret` SIGSEGV | the hidden aggregate-return pointer was bound from `param_annots`, which ir.h says carries ONLY byval — so both AAPCS64 branches in `bind_params` were dead code and the pointer landed in x0 on top of the first real argument | `0d2daa8` |
-| 3x "malformed global address" at -O1 | an address constant's addend must ride BOTH halves of the adrp pair | `6462370` |
-| `int/promo_traps` exits 3 | NOT a miscompile. Plain `char` is unsigned on arm64 and real aarch64 gcc exits 3 too; the fixture now spells `signed char`, which is what it always meant | `b325152` |
-| f128, both halves | four defects, below | `5414896`..`c2adb03` |
+`hello, world` runs on Apple silicon. So do globals, statics, BSS and string
+relocations, and a variadic CALLEE mixed-linked against a clang caller
+(`sum=45`, nine anonymous arguments).
 
-**f128 is complete and gate 3 is closed.** The first half (`715dab8`) had
-never been assembled by anything — every f128 program failed before reaching
-the assembler — so three of its four defects were in code it claimed to have
-landed:
+- **D1, the Mach-O dialect, is DONE** (`54736ed`). One flag on `Emit`, not a
+  second emitter -- the instruction printer is identical and duplicating it
+  to change punctuation is how the two drift apart.
+- **Row 1's CALLEE half is DONE** (`944e850`). `va_list` is a plain `char *`,
+  va_arg is a cursor bump, no register save area.
 
-- `a64_type_is_fp` in `regalloc.c` omitted f128, so libcall arguments
-  marshalled through the INTEGER queue: `mov x0, d0`, one register from each
-  bank. This broke the ARITHMETIC the first half was supposedly about.
-- The arm64 selector read a call argument's ABI annotation from
-  `IrOperand.b` unconditionally. That field is the annotation only for VALUE
-  and SYMBOL operands; on an FCONST it holds the HIGH 64 BITS of an f80/f128
-  constant, so a large long-double literal argument decoded as a pair/sret
-  hidden pointer and the caller stored the result through an FP register.
-  **`print.c`, `verify.c` and the x86 selector all already scope this read**
-  — the arm64 backend was the outlier, for the second time in two commits
-  (`0d2daa8` was the same class). If you touch arm64 ABI code, check what
-  the other three do first.
-- f128 constants had NO materialization: the emitter printed `v?`, an
-  unallocated vreg, and gas said "undefined symbol". binary128 has no
-  immediate form of any kind, so both halves come from a per-function
-  16-byte `.rodata` pool addressed with the ordinary adrp/add pair (not the
-  load-folded `:lo12:`, whose immediate is scaled).
-- The corpus lane never built an arm64 `libcgf_rt.a`. `RT_TARGET` comes from
-  RUNNING `$(BUILD)/cgfried -dumpmachine`, which a cross build cannot do, so
-  it silently fell back to the host triple and filed the archive under
-  `x86_64-linux-gnu/` where the driver never looks.
+### THE remaining half of row 1, and its design
 
-**`__negtf2` is SHIPPED, not inlined — the previous handoff was wrong about
-this.** It said there is no `__negtf2` in libgcc's set. There is; it is a
-documented libgcc entry point. Our runtime omitted it on the assumption that
-negation would be an inline sign-bit `eor` — but that is a NEON
-`eor vD.16b`, and afs-as cannot encode NEON register operands. Since the
-DEFAULT assembler is the bundled one, an inline form would have made
-`long double` negation depend on upstream Rust work. `fp128_diff` now
-compares 24 entry points, 1432 lines identical to libgcc. When afs-as gains
-NEON, isel can inline it and the symbol stays for ABI compatibility.
+The CALLER still passes anonymous arguments in registers, so
+`printf("%d", x)` prints garbage while `puts(s)` is fine. That asymmetry is
+the cleanest demonstration of row 1 there is -- keep it as the reproducer.
 
-`int/duff` at -O1 is also closed, and the previous handoff's diagnosis of it
-was WRONG in a way worth repeating: it said "isel is producing something
-structurally wrong". The verifier that rejected it runs at driver.c:711,
-which is AFTER regalloc — reading the line number in the message would have
-said so in ten seconds. The actual bug was in the spill rewrite: it emits
-reloads AHEAD of the instruction they serve but recorded its
-old-index-to-new-index entry at the TOP of the loop, so the entry named the
-first reload. An NZCV producer whose own operands spilled therefore had every
-consumer re-aimed at a load, which defines no flags. The other four rebuild
-loops in that file already record the entry immediately before their
-`rb_put`; the spill one was the outlier (`9c98698`).
+The blocker is that **the IR marks a call variadic but never says WHICH
+arguments are anonymous**. `IRF_CALL_VARIADIC` is a bool; x86 SysV only ever
+needed that plus an xmm count. Apple needs the named-parameter boundary.
 
-### THE finding of this session: the spill-all lane
+`IrInst` is 48 bytes and static-asserted, so do NOT grow it. The fit is the
+mechanism that already exists: per-argument ABI annotations in
+`IrOperand.b`, read by `ir_arg_kind`, which currently uses values 0-6 of a
+3-bit field. **Add `IR_ARG_ANON = 7`**, set by lowering at the site that
+already computes ABI plans (`src/lower/abi.c` is THE psABI site), and read by
+`marshal_call` in `src/cg/arm64/regalloc.c` exactly where it reads
+`byval`/`sret` today. Zero bytes added.
 
-Because that bug lived in the spill path and exactly one fixture at one
-optimization level caught it, the corpus now also runs with
-`CGF_SPILL_ALL=1` (`make test-a64-spill-all`, own ledger at
-`ci/expected_a64_spill_all_failures.txt`). **It immediately found eleven
-failures the ordinary lane does not see**, including wrong ANSWERS rather
-than crashes — `printf_fp` prints `pi=3.140625` for 3.141593.
+It touches the IR round-trip contract -- `print.c`, `parse.c`, `verify.c`,
+`struct_eq` -- so budget for that and re-run the `-emit-ir` self-check, which
+is id-exact and will catch a mistake immediately.
 
-Only one cluster is diagnosed, and the ledger says so rather than guessing:
+### The two oracles -- this is what makes Sprint 50 tractable
 
-- **Frame immediates (verified).** `ldp x29, x30, [sp], #512` and
-  `sub sp, sp, #4096` both exceed their fields. stp/ldp pre/post-index AND
-  scaled offsets are a signed 7-bit value scaled by 8, so **+504 is the
-  maximum and `A64_FRAME_PREINDEX_MAX 512` is off by one slot** — legal for
-  the store, illegal for the matching load. add/sub immediates are 12 bits
-  unless spelled `lsl #12`, which the emitter does not spell.
-  **This is NOT spill-all-only.** `tests/corpus/x86_64/int/big_frame.c`
-  reaches it with an ordinary 8000-byte local array, at every optimization
-  level, and is pinned in the ordinary ledger. Any arm64 function with a
-  frame past ~504 bytes fails to assemble. The 53-program corpus had simply
-  never allocated one.
-- **Floating point under spill: wrong answers and faults.** Five fixtures.
-  Undiagnosed — the reload/consume pairing at the call site is correct on
-  inspection, so it is not obviously marshalling.
-- **Two integer programs fault or answer wrongly.** Undiagnosed.
+**1. clang on the LINUX box targets Apple arm64.** No Mac round trip needed
+for ABI questions:
 
-Large frames are now CLOSED, and the shape of it is worth keeping:
+```sh
+clang -target arm64-apple-macos11 -O1 -S -o - t.c    # assembly
+clang -target arm64-apple-macos11 -c  -o t.o    t.c  # a real Mach-O object
+```
 
-- `A64_FRAME_PREINDEX_MAX` was 512. stp/ldp pre/post-index and scaled
-  offsets share ONE field, a signed 7-bit value scaled by 8, so the range is
-  **[-512, +504] — asymmetric**. 512 is legal for the prologue's
-  `stp x29, x30, [sp, #-512]!` and illegal for the epilogue's matching
-  `ldp x29, x30, [sp], #512`. The trigger is a frame of EXACTLY 512, which is
-  **one 16-byte step wide**: 496 takes a different immediate and 528 takes the
-  separate sub-sp path. `int/big_frame.c` at 8000 bytes never touches the form
-  at all. `tests/corpus/x86_64/int/frame_512.c` pins the exact size, and I
-  confirmed it fails with the constant put back before trusting it.
-- `sub sp, sp, #4096` was NOT a bug — gas encodes the implicit `lsl #12`
-  itself. The real second site was frame-object addressing:
-  `add xN, x29, #8024` is neither <= 4095 nor a multiple of 4096. It now
-  splits into two ADDs, high part first, exactly as `emit_sp_adjust` has
-  always split the stack adjustment. No scratch is needed because `dst` is
-  being DEFINED by that instruction.
-- `A64_ADDR_MATERIALIZE` is a SIGNAL from `a64_isel_addr` meaning "no
-  addressing form fits"; it must never reach an instruction, but `pmem`
-  printed the offset anyway, so a survivor read as an ASSEMBLER complaint.
-  The MIR verifier now rejects it.
+`llvm-objdump`, `llvm-readobj`, `llvm-otool`, `llvm-nm` are all present under
+`/usr/lib/llvm*/bin/`. **Measure clang before implementing.** Every rule in
+row 1 came from reading its output rather than the ABI document: 8-byte slots
+even for a char, aggregates in the varargs area BY VALUE (one `ldp` for a
+16-byte struct), `__int128` forcing the cursor to 16 first, and `long double`
+in an ordinary 8-byte slot.
 
-That fix closed three spill-all entries and unpinned `big_frame`, so the
-ORDINARY arm64 ledger is empty at 53/53 and spill-all is 45/53.
+**2. nomad-1 over the tailnet** is Darwin arm64, macOS 26.4.1, with
+`clang`/`ld`/`codesign`/`otool` and the SDK at
+`/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`. **`cargo` is MISSING**,
+which blocks only the afs-as/afs-ld lanes -- the sprint's second phase by
+design, so sequencing is unaffected.
 
-The spill-all lane then found EIGHT more, and all of them are fixed too --
-three distinct causes, none reachable by the ordinary lane:
+The compiler builds there with NO source changes and reports
+`-dumpmachine arm64-macos`.
 
-1. **A read-modify-write def took a FRESH scratch** instead of the one its
-   own reload had just filled. `movk` is the only RMW opcode and it appears
-   only inside a multi-instruction constant materialization, so the symptom
-   is a silently WRONG CONSTANT. **`test_a64_regalloc_movk_reads_its_destination`
-   already existed and passed the whole time** -- it pins that ops[0] counts
-   as a use in LIVENESS. The bug was in the REWRITE. A test that checks the
-   analysis and not the transform leaves exactly this gap; the missing half
-   is now pinned and was confirmed to fail without the fix.
-2. **A spilled INDIRECT CALLEE** was substituted with no scratch and no
-   reload, quietly becoming x0 -- `blr x0`, branching to whatever the first
-   argument left there. `marshal_calls` pre-colours a call's arguments and
-   result but NOT its callee, so it is the one value on a call that can spill.
-   The comment in the rewrite said "every one of them is pre-coloured by now",
-   which was true of the three it listed and false of the fourth.
-3. **The `va_start` expansion hardcoded x16** on the grounds that "nothing is
-   live in it between instructions" -- true, but the va_list pointer it writes
-   THROUGH is an operand of that very instruction, so a spilled one was
-   reloaded into the same register and destroyed before the stores.
+```sh
+rsync -az --exclude 'build*/' --exclude '.git/' --exclude 'target/' \
+    ./ nomad-1:/tmp/cgfried-s50/
+ssh nomad-1 "sh -c 'cd /tmp/cgfried-s50 && make -j18 build/cgfried'"
+```
 
-**Both ledgers are now empty: 54/54 ordinary and 54/54 under spill-all.**
+Two remote traps, both of which cost time:
 
-### What remains
+- **nomad-1's login shell is fish**, which has no `do ... done`. Wrap every
+  remote command in `sh -c '...'`.
+- **Quoting dies through ssh + fish + sh.** A `printf` with `\\n` arrived as
+  a literal newline and produced a syntax error. Write the file locally and
+  `scp` it instead of heredoc-ing it through three layers.
 
-**Sprint 49 is CLOSED — all seven gates met as written.** afs-as PR #27
-(merged `05a6b52`, submodule bumped) took the object differential to **20
-identical with an EMPTY UNENCODABLE list**, and the native arm64 runner now
-executes both the char-sign corpus and the four-thread ll/sc atomics hammer.
+### Mach-O details that only real assembly caught
 
-Next is **Sprint 50 (arm64-macos)**. The standing caution — do not start it
-until the backend gaps close, because a new object format plus a new ABI on
-the same isel/regalloc makes every failure ambiguous — no longer applies.
+- **`l_` is LINKER-private, not assembler-local.** Apple's assembler rejects
+  a conditional branch to one: "conditional branch requires assembler-local
+  label". Block labels must be capital `L`, which is why clang writes
+  `LBB0_2`. `l_` survives to the object and ld64 strips it later; `L` never
+  reaches the symbol table at all.
+- Anonymous globals arrive from lowering with ELF-shaped `.L` names. They
+  must become `L`, not `_.L` -- `msym()` special-cases that.
+- **ALL extern data goes through the GOT on Mach-O**, even non-PIC:
+  `_ext@GOTPAGE` / `@GOTPAGEOFF` then a load, while DEFINED globals stay
+  direct. Confirmed against clang. **NOT YET IMPLEMENTED** -- the emitter
+  currently emits a direct adrp/add for everything, which is why only
+  same-TU globals have been exercised. This will bite the first fixture that
+  references an extern variable.
+- `.zerofill SEG,SECT,name,size,align` replaces the label AND the body; it is
+  `__DATA,__common` for external and `__DATA,__bss` for internal.
+- Mach-O has NEITHER `.type` NOR `.size`.
+- `.subsections_via_symbols` is REQUIRED, not cosmetic: ld64's atom model and
+  dead-strip both assume it.
 
-Two things from #27 that Sprint 50 inherits:
+### Sequencing discipline the sprint states, and why
 
-- **The GNU/Apple dialect split is a real axis in OUR emitter, not just in
-  afs-as.** Mach-O wants `eor.16b v0, v1, v2` and `sym@PAGE`/`@PAGEOFF`;
-  ELF wants `eor v0.16b, ...` and `:lo12:`. afs-as now speaks both; the
-  emitter speaks only GNU.
-- **arm64-macos inverts two type facts.** `long double` is a plain `double`
-  there (TargetLayout in src/target.c already says 8/8) and `char` is
-  SIGNED, the opposite of arm64-linux. `tests/corpus/char_sign/` carries two
-  expectation columns and will need a third.
+Bring up against **system as/ld FIRST**, afs-as/afs-ld second. It isolates
+compiler bugs from toolchain-routing bugs. Do not invert it because cargo is
+missing on nomad-1 -- that ordering was the plan anyway.
+
+## 1b-2. Process traps from the Sprint 50 session
+
+**Backticks in a `git commit -m` message are COMMAND SUBSTITUTION.** Four
+terms were eaten from a commit message, leaving a paragraph that read as
+nonsense, and the shell helpfully printed `command not found: l_`. Write the
+message to a file and use `-F` whenever it contains code punctuation.
+
+**A guard that names one TARGET where it means the ARCHITECTURE.** The `-g`
+check named `CGF_TARGET_ARM64_LINUX` only, so an arm64-macos build fell
+through into the x86 CFI encoder and died with `non-x86 target 2` instead of
+the intended diagnostic. Whenever you write a target comparison, ask whether
+the fact is about the target or the machine.
+
+**Do not edit files while a verification run is executing them.** A shell
+read `a64_corpus_lane.sh` mid-write and produced `eeds: command not found`.
+Two runs were corrupted this way before the lesson stuck.
+
+**`pgrep -f 'make test'` inside a shell whose own command line contains
+`make test` matches ITSELF and never terminates.** Two monitors deadlocked on
+this. Prefer a command that exits when the work is done (`run_in_background`)
+over a loop polling for the work's absence; if you must poll, watch for a
+file marker rather than a process name.
+
+**Pin the CI run ID when arming a monitor.** A monitor that polls
+`gh run list --limit 1` drifts onto whatever run is newest and starts
+reporting someone else's push. Two had to be stopped mid-session for this.
 
 ## 1c. Concerns and judgement calls worth inheriting
 
