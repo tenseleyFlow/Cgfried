@@ -260,12 +260,19 @@ IrOperand lower_type_size(Lower *lo, Type *t);
  * CONSECUTIVE v-regs. It is kept distinct from EIGHTBYTES because the
  * backend must be able to apply the NAF rule (once any FP argument is
  * stacked, the remaining v-regs are dead for later FP arguments), which
- * needs to know the leaves belong to one aggregate. */
+ * needs to know the leaves belong to one aggregate.
+ *
+ * STACK is the register bank running out: an aggregate that would otherwise
+ * travel in registers but cannot fit ENTIRELY in what remains. It is passed
+ * by value on the stack, which is what SysV BYVAL already means there and
+ * what AAPCS64 BYVAL emphatically does not -- hence a distinct kind rather
+ * than a reuse. abi_arg_place is the only thing that produces it. */
 typedef enum {
     ABI_ARG_SCALAR,
     ABI_ARG_EIGHTBYTES,
     ABI_ARG_BYVAL,
-    ABI_ARG_HFA
+    ABI_ARG_HFA,
+    ABI_ARG_STACK
 } AbiArgKind;
 
 /* Four: an HFA has up to four leaves. SysV never sets n > 2. */
@@ -305,5 +312,26 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out);
 /* gp/fp register consumption of one classified argument (for va_start's
  * gp_offset/fp_offset constants and the 6/8 register caps). */
 void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp);
+
+/* The running argument-register budget for ONE call or definition. Both psABIs
+ * make placement depend on what earlier arguments already consumed, so
+ * classification alone cannot decide where an argument goes -- see
+ * abi_arg_place. */
+typedef struct AbiBudget {
+    u32 gp; /* general registers committed so far (6 on SysV, 8 on AAPCS64) */
+    u32 fp; /* SSE/SIMD registers committed so far (8 on both) */
+} AbiBudget;
+
+/* Seed a budget from the return convention: a hidden MEMORY-return pointer is
+ * a real runtime argument and spends a register before the first declared
+ * one. */
+void abi_budget_init(Lower *lo, AbiBudget *b, const AbiRet *ret);
+
+/* Decide where one classified argument actually goes, given what is left, and
+ * charge it to the budget. May REWRITE a->kind: an aggregate that cannot be
+ * placed entirely in registers is passed entirely in memory instead. Every
+ * walk over an argument list must call this, or the two halves of a call
+ * disagree. */
+void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b);
 
 #endif

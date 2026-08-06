@@ -631,6 +631,10 @@ static bool parse_call_arg(P *p, IrOperand *slot)
         next(p);
         slot->argflags |= IROPF_ZEXT;
     }
+    if (peek(p)->kind == T_IDENT && tok_is(peek(p), "onstack")) {
+        next(p);
+        slot->argflags |= IROPF_ONSTACK;
+    }
     return true;
 }
 
@@ -1490,6 +1494,11 @@ static bool parse_func(P *p)
                 if (!expect(p, T_RP, "')'"))
                     return false;
                 pannots[nparams] = ir_arg_annot(IR_ARG_BYVAL, (u32)sz->ival);
+                any_annot = true;
+            }
+            if (tok_is(peek(p), "onstack")) {
+                next(p);
+                pannots[nparams] |= IR_PARAM_ONSTACK;
                 any_annot = true;
             }
             if (tok_is(peek(p), "restrict")) {

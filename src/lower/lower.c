@@ -645,6 +645,7 @@ static void lower_function(Lower *lo, AstNode *def)
     u32 nplans = 0;
     u32 nir_params = 0;
     static AbiRet aret;
+    AbiBudget budget;
     bool hidden;
     u32 i;
     BlockId entry;
@@ -669,6 +670,7 @@ static void lower_function(Lower *lo, AstNode *def)
         ptypes[nir_params++] = IRT_PTR;
     lo->named_gp = 0;
     lo->named_fp = 0;
+    abi_budget_init(lo, &budget, &aret);
     for (i = 0; i < (ft->params ? ft->nparams : def->nparam_syms) && i < 64;
          i++) {
         AbiArg *a = &plans[nplans++];
@@ -691,6 +693,11 @@ static void lower_function(Lower *lo, AstNode *def)
         wire_types[nplans - 1] = wire;
 
         abi_classify_arg(lo, wire, a);
+        /* The DEFINITION half of the placement decision. It must run the
+         * same sequence as the call site in expr.c: an aggregate that the
+         * caller stacked because the bank was full is one the callee has to
+         * read off the stack. */
+        abi_arg_place(lo, a, &budget);
         switch (a->kind) {
         case ABI_ARG_SCALAR: {
             IrType st = lower_irtype(lo, wire);
@@ -700,10 +707,13 @@ static void lower_function(Lower *lo, AstNode *def)
                 any_annot = true;
             }
             ptypes[nir_params++] = st;
-            if (st == IRT_F32 || st == IRT_F64)
+            if (st == IRT_F32 || st == IRT_F64) {
                 lo->named_fp++;
-            else if (st != IRT_F80 && st != IRT_F128)
+                budget.fp++;
+            } else if (st != IRT_F80 && st != IRT_F128) {
                 lo->named_gp++;
+                budget.gp++;
+            }
             break;
         }
         case ABI_ARG_EIGHTBYTES:
@@ -719,12 +729,14 @@ static void lower_function(Lower *lo, AstNode *def)
             abi_arg_regs(a, &lo->named_gp, &lo->named_fp);
             break;
         }
-        default: /* BYVAL */
+        default: /* BYVAL and STACK */
             /* The annotation lands on IrFunc.param_annots after
              * ir_func_new — a bare ptr param would look like a pointer
              * in the GP queue to codegen, but this one is the ADDRESS
              * OF THE INCOMING STACK COPY (Sprint 23). */
             pannots[nir_params] = ir_arg_annot(IR_ARG_BYVAL, a->size);
+            if (a->kind == ABI_ARG_STACK)
+                pannots[nir_params] |= IR_PARAM_ONSTACK;
             any_annot = true;
             ptypes[nir_params++] = IRT_PTR;
             break;
@@ -824,7 +836,13 @@ static void lower_function(Lower *lo, AstNode *def)
                 }
                 ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
                 pi += a->n;
-            } else if (a && a->kind == ABI_ARG_BYVAL) {
+            } else if (a && (a->kind == ABI_ARG_BYVAL ||
+                             a->kind == ABI_ARG_STACK)) {
+                /* Both arrive as the ADDRESS of a copy the caller already
+                 * made, so the local IS that address and no store happens.
+                 * STACK reaching the scalar branch below instead stored the
+                 * POINTER into a fresh slot and then read the aggregate out
+                 * of it -- silent garbage, caught by the ABI differential. */
                 ptrmap_put_u32(lo, &lo->locals, psym, lo->fn->param_vals[pi].v);
                 pi++;
             } else {

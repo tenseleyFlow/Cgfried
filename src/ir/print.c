@@ -243,6 +243,8 @@ static void print_call_arg(Buf *out, const IrModule *m, const ValNames *vn,
         buf_printf(out, " sext");
     if (o->argflags & IROPF_ZEXT)
         buf_printf(out, " zext");
+    if (o->argflags & IROPF_ONSTACK)
+        buf_printf(out, " onstack");
 }
 
 static void print_edge(Buf *out, const IrModule *m, const IrFunc *f,
@@ -535,6 +537,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, "%s ", type_names[f->param_types[i]]);
         if (f->param_annots && ir_arg_kind(f->param_annots[i]) == IR_ARG_BYVAL)
             buf_printf(out, "byval(%u) ", ir_arg_size(f->param_annots[i]));
+        if (f->param_annots && ir_param_is_onstack(f->param_annots[i]))
+            buf_printf(out, "onstack ");
         if (f->param_annots && ir_param_is_restrict(f->param_annots[i]))
             buf_printf(out, "restrict ");
         print_val(out, &vn, f->param_vals[i].v);

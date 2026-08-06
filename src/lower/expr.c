@@ -1584,6 +1584,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     Type *fty = NULL;
     Type *ret;
     AbiRet aret;
+    AbiBudget budget;
     bool hidden;
     IrOperand fp;
     IrOperand args[130];
@@ -1652,6 +1653,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                             : ir_arg_annot(aret.arg_annot, aret.size);
         nargs++;
     }
+    abi_budget_init(lo, &budget, &aret);
     for (i = 0; i < e->nargs && nargs + 2 <= 130; i++) {
         AstNode *a = e->args[i];
         AbiArg plan;
@@ -1676,6 +1678,19 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         attr_ir_args[i] = nargs + 1;
 
         abi_classify_arg(lo, sem(a), &plan);
+        /* Placement depends on what earlier arguments already spent, so this
+         * may turn a register-class aggregate into a stacked one. The
+         * DEFINITION walk in lower.c runs the identical sequence -- if the
+         * two ever diverge, the halves of a call disagree silently. */
+        abi_arg_place(lo, &plan, &budget);
+        if (plan.kind == ABI_ARG_SCALAR) {
+            IrType st = lower_irtype(lo, sem(a));
+
+            if (st == IRT_F32 || st == IRT_F64)
+                budget.fp++;
+            else if (st != IRT_F80 && st != IRT_F128)
+                budget.gp++;
+        }
         switch (plan.kind) {
         case ABI_ARG_EIGHTBYTES:
         case ABI_ARG_HFA: {
@@ -1714,18 +1729,26 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             }
             break;
         }
-        case ABI_ARG_BYVAL: {
+        case ABI_ARG_BYVAL:
+        case ABI_ARG_STACK: {
             /* THE mandatory call-site copy: the callee may scribble on
              * its parameter, and without a fresh temporary that scribble
              * lands on the caller's object. The pointer is IR-level
              * bookkeeping; byval(N) tells codegen to copy the pointee
-             * onto the stack. */
+             * onto the stack.
+             *
+             * STACK shares the shape and adds `onstack`, which is inert on
+             * SysV (byval already means by-value-on-the-stack there) and is
+             * the whole distinction on AAPCS64, where a plain byval passes
+             * the ADDRESS in a general register instead. */
             ValueId tmp = lower_temp(lo, sem(a));
 
             lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), av, sem(a),
                                    plan.align, 0);
             args[nargs] = ir_op_value(lo->fn, tmp);
             args[nargs].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
+            if (plan.kind == ABI_ARG_STACK)
+                args[nargs].argflags |= (u8)IROPF_ONSTACK;
             nargs++;
             break;
         }

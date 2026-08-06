@@ -280,6 +280,15 @@ typedef enum IrOpKind {
  * so these are inert everywhere else. Printed ` sext` / ` zext`. */
 #define IROPF_SEXT 0x2u
 #define IROPF_ZEXT 0x4u
+/* ONSTACK modifies IR_ARG_BYVAL: the callee receives the POINTEE by value on
+ * the stack, not the pointer. That is what byval already means on SysV, so
+ * the flag is inert there; on AAPCS64 plain byval is INDIRECT (the address
+ * rides a GPR) and this is the distinct case where the register bank ran out
+ * mid-list and the whole aggregate had to be stacked instead.
+ *
+ * A flag rather than a new IR_ARG_* kind because that field is three bits and
+ * all eight are spoken for. Printed ` onstack`. */
+#define IROPF_ONSTACK 0x8u
 
 typedef struct IrOperand {
     u8 kind;     /* IrOpKind */
@@ -490,6 +499,12 @@ typedef enum IrAbiRet {
  * full annotation word. */
 #define IR_PARAM_RESTRICT (1ull << 63)
 #define ir_param_is_restrict(b) (((b) & IR_PARAM_RESTRICT) != 0)
+/* The parameter-side spelling of IROPF_ONSTACK: this byval parameter arrived
+ * by value on the stack rather than as an address in a register. A parameter
+ * annotation is a bare u64 with no argflags byte beside it, so the flag has
+ * to ride the word itself. */
+#define IR_PARAM_ONSTACK (1ull << 62)
+#define ir_param_is_onstack(b) (((b) & IR_PARAM_ONSTACK) != 0)
 
 typedef struct IrFunc {
     struct IrModule *module; /* owning module; enables source-log helpers */

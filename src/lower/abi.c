@@ -271,6 +271,72 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
     out->arg_annot = (u8)(IR_ARG_SRET + (out->ir_abi - IR_ABIRET_SRET));
 }
 
+void abi_budget_init(Lower *lo, AbiBudget *b, const AbiRet *ret)
+{
+    memset(b, 0, sizeof(*b));
+    if (!ret)
+        return;
+    /* A MEMORY return is a real argument at runtime: SysV spends rdi on it,
+     * AAPCS64 spends x8, which is outside the argument bank. A PAIR or an
+     * HFA is sret-SHAPED in our IR but passes nothing at all. */
+    if (ret->kind == ABI_RET_SRET && !target_is_aapcs64(lo, (Span){0}))
+        b->gp = 1;
+}
+
+void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b)
+{
+    u32 need_gp = 0;
+    u32 need_fp = 0;
+    u32 i;
+    bool aapcs = target_is_aapcs64(lo, (Span){0});
+
+    switch (a->kind) {
+    case ABI_ARG_HFA:
+        need_fp = a->n;
+        break;
+    case ABI_ARG_EIGHTBYTES:
+        for (i = 0; i < a->n; i++) {
+            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64)
+                need_fp++;
+            else
+                need_gp++;
+        }
+        break;
+    case ABI_ARG_BYVAL:
+        /* SysV: memory, no register. AAPCS64: INDIRECT -- the caller-made
+         * copy's address rides one general register. */
+        if (aapcs)
+            b->gp++;
+        return;
+    default:
+        return; /* SCALAR: the walk charges it from the IR type. */
+    }
+
+    if (b->gp + need_gp <= 6 + (aapcs ? 2u : 0u) && b->fp + need_fp <= 8) {
+        b->gp += need_gp;
+        b->fp += need_fp;
+        return;
+    }
+
+    /* It does not fit. SysV 3.2.3 step 5: "if there are no registers
+     * available for ANY eightbyte of an argument, the whole argument is
+     * passed on the stack" -- never half in r9 and half in memory, which is
+     * what we did until the Sprint 51 ABI differential caught it on
+     * `(int, long, char, struct{char[16]}, struct{char[15]})`.
+     *
+     * AAPCS64 says the same in C.4 and C.12 and then goes further: the
+     * exhausted bank is PINNED at 8, so every later argument of that class
+     * also goes to the stack even if a register happens to be free. That
+     * makes it a property of the walk, not of the argument. */
+    if (aapcs) {
+        if (need_fp)
+            b->fp = 8;
+        if (need_gp)
+            b->gp = 8;
+    }
+    a->kind = (u8)ABI_ARG_STACK;
+}
+
 void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp)
 {
     u32 i;
