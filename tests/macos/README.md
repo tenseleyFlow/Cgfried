@@ -31,9 +31,28 @@ files locally and rsync them rather than heredoc-ing them across.
 | `vaboth.c` | 1 | both halves ours, at -O0/-O1/-O2 | `tally=55`, `dsum=4.00` |
 | `rows23.c` + `rows23_defs.c` | 2, 3 | our CALLER widens sub-32-bit arguments and packs the stack tail at natural size | `ext4=65280`, `pack5=4556199` |
 | `rev23.c` + `rev23_main.c` | 2, 3 | our CALLEE reads that packed tail at the same offsets | `ext4x=65280`, `pack5x=4556199` |
+| `rows47.c` (alone) | 4, 5, 7 | signed `char`, `long double` == `double` incl. libc `%Lf`, `wchar_t` is `int` | `row4 char=-1`, `row5 sizeof=8 ...`, `row7 wchar=4`, `row5 pct_Lf=3.1415926536 -0.5000000000` |
 
 The two constants are worth keeping honest: `65280` and `4556199` were
 computed from the C semantics independently of any compiler, so a shared bug
 cannot make them agree. `rev23` is the pair that caught the callee half of
 row 3 — the caller half alone gave `pack5x=49989689`, because our callee was
 still reading eightbyte slots where clang's caller had packed.
+
+`rows47.c` needs no partner: every claim is a `_Static_assert`, so **clang
+accepting the same file** is the cross-check — no dump format to parse and
+nothing version-specific. It is anti-vacuous by construction:
+`clang --target=aarch64-linux-gnu` rejects it at row 4, because plain `char`
+is unsigned under AAPCS64 and signed under Apple's ABI.
+
+Row 6 (x18 is the reserved platform register) is not here. It is a
+grep-the-assembly gate and lives in `scripts/a64_exec_lane.sh`, which already
+runs in CI: arm64-linux reserves x18 as well, so the check does not need a
+macOS runner. macOS clobbers x18 *asynchronously*, so allocating it corrupts
+a function that never called anything — a failure that needs a context switch
+at the wrong instant and will not show up in a test.
+
+These programs use hand-written prototypes rather than `<stdio.h>`, because
+SDK header discovery is deliverable D3 and macOS keeps no `/usr/include`.
+Once that lands, `tests/corpus/char_sign/` can also run here — its fixtures
+now carry `// CHECK(arm64-macos):` rows.

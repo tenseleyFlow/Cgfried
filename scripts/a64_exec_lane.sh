@@ -68,6 +68,16 @@ for input in tests/mir/arm64/*.cgfir; do
 done
 test "$emitted" -ge 8
 
+# Divergence-table row 6: x18 is the platform register and macOS clobbers it
+# ASYNCHRONOUSLY, so a function that allocates it is corrupted by something it
+# never called. Sprint 48 excluded it from every pool; nothing tells you if
+# that stops being true, because the failure needs a context switch at the
+# wrong instant. arm64-linux reserves it too, so the gate rides this lane.
+if grep -nE '\b[wx]18\b' "$work"/*.s; then
+    echo "a64_exec_lane: x18 is the reserved platform register (row 6)" >&2
+    exit 1
+fi
+
 # The execution fixtures carry a C driver holding the reference computation.
 ran=0
 for input in tests/exec/arm64/*.cgfir; do
