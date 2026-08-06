@@ -40,6 +40,9 @@ FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ
 # gcc then certifies via _Static_assert built from OUR numbers.
 GENLAYOUT_OBJ := $(BUILD)/tests/tools/gen_layout.o $(LIB_OBJ)
 OBJDIFF_OBJ := $(BUILD)/tests/tools/objdiff.o
+# The ABI differential's generator. Host-only and dependency-free: it emits
+# C sources, it is never itself a compilation target.
+ABIGEN_OBJ := $(BUILD)/tests/tools/abigen.o
 A64_OBJBYTES_OBJ := $(BUILD)/tests/tools/a64_objbytes.o
 A64MIR_OBJ := $(BUILD)/tests/tools/a64mir.o $(LIB_OBJ)
 A64_LOGIMM_GEN_OBJ := $(BUILD)/tests/tools/a64_logimm_gen.o $(LIB_OBJ)
@@ -71,7 +74,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-corpus \
-        test-a64-spill-all test-a64-char-sign \
+        test-a64-spill-all test-a64-char-sign test-abi-diff \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
 
@@ -175,6 +178,9 @@ $(BUILD)/gen_layout: $(sort $(GENLAYOUT_OBJ))
 
 $(BUILD)/cgf-objdiff: $(sort $(OBJDIFF_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(OBJDIFF_OBJ))
+
+$(BUILD)/abigen: $(sort $(ABIGEN_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(ABIGEN_OBJ))
 
 $(BUILD)/a64_objbytes: $(A64_OBJBYTES_OBJ)
 	$(CC) $(CFLAGS) -o $@ $(A64_OBJBYTES_OBJ)
@@ -363,6 +369,10 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/char_sign_oracle.sh
 	sh scripts/fp128_diff.sh
 	sh scripts/x86_atomics_lane.sh $(BUILD)/cgfried
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' $(BUILD)/abigen
+	CGF_ABIGEN=$(BUILD)/abigen CGF_ABI_DIFF_WORK=$(BUILD)/abi-differential \
+	    CGF_ABI_DIFF_COUNT=24 \
+	    sh scripts/abi_differential_lane.sh $(BUILD)/cgfried
 	$(MAKE) check-warn-matrix
 	$(MAKE) BUILD=$(BUILD) test-warndiff
 	sh scripts/check_format.sh
@@ -373,6 +383,18 @@ check-warn-matrix:
 check-ub-division:
 	CGF_UB_DIV_WORK=$(BUILD)/ub-division-lint \
 	    sh scripts/check_ub_division.sh --self-test
+
+# Sprint 51 DoD 6: generated signatures, compiled half by us and half by the
+# reference compiler, linked together and run. In `make test` at a small seed
+# count because a disagreement here is an ABI bug and those are silent; the
+# soak runs with CGF_ABI_DIFF_COUNT cranked up.
+test-abi-diff: all $(BUILD)/abigen
+	CGF_ABIGEN=$(BUILD)/abigen CGF_ABI_DIFF_WORK=$(BUILD)/abi-differential \
+	    sh scripts/abi_differential_lane.sh $(BUILD)/cgfried
+	CGF_ABIGEN=$(BUILD)/abigen \
+	    CGF_ABI_DIFF_WORK=$(BUILD)/abi-differential-a64 \
+	    CGF_ABI_DIFF_TARGET=arm64-linux \
+	    sh scripts/abi_differential_lane.sh $(BUILD)/cgfried
 
 # Not in `make test`: it cross-builds the whole compiler and runs two levels
 # of emulation. CI runs it; locally it is one command away.

@@ -1,0 +1,194 @@
+#!/bin/sh
+# Sprint 51 D6: the ABI differential harness -- the phase capstone.
+#
+# For each generated signature, compile the caller with one compiler and the
+# callee with the other, link them together, and run. Both directions, every
+# time: after the HFA work in this same sprint our CALLEE was correct while
+# our CALLER still read the wrong registers, so `ours x theirs` passed and
+# `theirs x ours` did not. One direction is two ways of agreeing with
+# yourself.
+#
+# A disagreement is an ABI bug, and it is MINIMIZED before being reported:
+# the descriptor is shrunk (drop an argument, replace a composite with one
+# member, simplify the return) as long as the failure survives, and the
+# 1-minimal reproducer plus its seed is written to tests/abi_differential/
+# repro/ for check-in as a permanent fixture.
+#
+# Targets and their reference compilers:
+#   x86_64-linux-gnu   gcc, natively
+#   arm64-linux        aarch64-linux-gnu-gcc, run under qemu
+# arm64-macos needs clang on a Mac (nomad-1) and x86_64-freebsd needs a VM;
+# both are driven by their own lanes rather than folded in here.
+set -eu
+LC_ALL=C
+export LC_ALL
+
+# A disagreeing program often dies on a signal, and qemu-user writes a core
+# per crash into the CURRENT directory -- which is the repo root. There is
+# nothing to debug in them; the reproducer is the artifact.
+ulimit -c 0 2>/dev/null || true
+
+CGF=${1:-build/cgfried}
+ABIGEN=${CGF_ABIGEN:-build/abigen}
+WORK=${CGF_ABI_DIFF_WORK:-build/abi-differential}
+COUNT=${CGF_ABI_DIFF_COUNT:-40}
+FIRST=${CGF_ABI_DIFF_SEED:-1}
+# Overridable so an anti-vacuity probe (point $CGF at /bin/false and every
+# signature must be reported) does not write reproducers into the repo.
+REPRO=${CGF_ABI_DIFF_REPRO:-tests/abi_differential/repro}
+
+[ -x "$ABIGEN" ] || {
+    echo "abi_differential: $ABIGEN not built" >&2
+    exit 1
+}
+
+target=${CGF_ABI_DIFF_TARGET:-x86_64-linux-gnu}
+case $target in
+x86_64-linux-gnu)
+    REF=${CGF_ABI_DIFF_REF:-gcc}
+    RUN=${CGF_ABI_DIFF_RUN:-}
+    ;;
+arm64-linux)
+    REF=${CGF_ABI_DIFF_REF:-aarch64-linux-gnu-gcc}
+    RUN=${CGF_ABI_DIFF_RUN:-"qemu-aarch64-static -L /usr/aarch64-linux-gnu"}
+    ;;
+*)
+    echo "abi_differential: no reference compiler wired for $target" >&2
+    exit 1
+    ;;
+esac
+
+command -v "$REF" >/dev/null 2>&1 || {
+    echo "HARNESS_SKIP suite=abi-differential test=all count=1 reason=\"$REF not found\""
+    exit 0
+}
+if [ -n "$RUN" ]; then
+    set -- $RUN
+    command -v "$1" >/dev/null 2>&1 || {
+        echo "HARNESS_SKIP suite=abi-differential test=all count=1 reason=\"$1 not found\""
+        exit 0
+    }
+fi
+
+rm -rf "$WORK"
+mkdir -p "$WORK" "$REPRO"
+
+# Build one direction and run it. Echoes the exit status; 0 is agreement.
+# `which` selects who compiles the CALLER; the other side gets the callee.
+try_pair() {
+    dir=$1
+    which=$2
+    rm -f "$dir/a.o" "$dir/b.o" "$dir/prog"
+
+    if [ "$which" = cgf-caller ]; then
+        "$CGF" --target="$target" -I"$dir" -c -o "$dir/a.o" "$dir/caller.c" \
+            >"$dir/build.log" 2>&1 || return 90
+        "$REF" -std=c11 -I"$dir" -c -o "$dir/b.o" "$dir/callee.c" \
+            >>"$dir/build.log" 2>&1 || return 91
+    else
+        "$REF" -std=c11 -I"$dir" -c -o "$dir/a.o" "$dir/caller.c" \
+            >"$dir/build.log" 2>&1 || return 91
+        "$CGF" --target="$target" -I"$dir" -c -o "$dir/b.o" "$dir/callee.c" \
+            >>"$dir/build.log" 2>&1 || return 90
+    fi
+    # The REFERENCE compiler links: it owns the crt and libc for its target,
+    # and the object layout is what is under test, not the link line.
+    "$REF" -static -o "$dir/prog" "$dir/a.o" "$dir/b.o" \
+        >>"$dir/build.log" 2>&1 || return 92
+    if [ -n "$RUN" ]; then
+        $RUN "$dir/prog" >/dev/null 2>&1
+    else
+        "$dir/prog" >/dev/null 2>&1
+    fi
+}
+
+# Regenerate sources from a descriptor and test both directions.
+# Returns 0 when both agree.
+check_desc() {
+    d=$1
+    "$ABIGEN" --emit "$d/desc.txt" --out "$d" >/dev/null 2>&1 || return 0
+    try_pair "$d" cgf-caller || return 1
+    try_pair "$d" cgf-callee || return 1
+    return 0
+}
+
+# Shrink while the failure survives. Two reductions, applied to a fixpoint:
+# drop one argument, and replace one composite with its first member (which
+# `abigen --simplify` performs, since it owns the descriptor grammar). Plain
+# text surgery -- the reason the generator emits a descriptor at all is that
+# shrinking never has to re-derive its random state.
+minimize() {
+    d=$1
+    work=$d/min
+    rm -rf "$work"
+    mkdir -p "$work/t"
+    cp "$d/desc.txt" "$work/desc.txt"
+    changed=1
+    while [ "$changed" = 1 ]; do
+        changed=0
+
+        n=$(grep -c '^A ' "$work/desc.txt" 2>/dev/null || true)
+        [ -n "$n" ] || n=0
+        i=1
+        while [ "$i" -le "$n" ]; do
+            awk -v skip="$i" '/^A /{k++; if (k==skip) next} {print}' \
+                "$work/desc.txt" >"$work/t/desc.txt"
+            if check_desc "$work/t"; then
+                i=$((i + 1))
+            else
+                cp "$work/t/desc.txt" "$work/desc.txt"
+                changed=1
+                n=$((n - 1))
+            fi
+        done
+
+        # Composite simplification: --simplify K unwraps the K'th composite
+        # by one level, and exits nonzero when K is out of range.
+        k=0
+        while "$ABIGEN" --simplify "$k" --emit "$work/desc.txt" \
+            >"$work/t/desc.txt" 2>/dev/null; do
+            if check_desc "$work/t"; then
+                k=$((k + 1))
+            else
+                cp "$work/t/desc.txt" "$work/desc.txt"
+                changed=1
+            fi
+        done
+    done
+    cp "$work/desc.txt" "$d/minimal.txt"
+}
+
+checked=0
+failed=0
+seed=$FIRST
+end=$((FIRST + COUNT))
+while [ "$seed" -lt "$end" ]; do
+    d=$WORK/s$seed
+    mkdir -p "$d"
+    "$ABIGEN" --seed "$seed" >"$d/desc.txt"
+    if check_desc "$d"; then
+        checked=$((checked + 1))
+        seed=$((seed + 1))
+        continue
+    fi
+    echo "abi_differential: DISAGREEMENT at seed $seed ($target)" >&2
+    echo "--- signature:" >&2
+    cat "$d/desc.txt" >&2
+    minimize "$d"
+    echo "--- 1-minimal:" >&2
+    cat "$d/minimal.txt" >&2
+    out=$REPRO/${target}-seed$seed
+    mkdir -p "$out"
+    cp "$d/minimal.txt" "$out/desc.txt"
+    "$ABIGEN" --emit "$out/desc.txt" --out "$out" >/dev/null 2>&1 || true
+    echo "abi_differential: reproducer written to $out" >&2
+    failed=$((failed + 1))
+    seed=$((seed + 1))
+done
+
+if [ "$failed" -ne 0 ]; then
+    echo "abi_differential: $failed of $((checked + failed)) signatures disagree" >&2
+    exit 1
+fi
+echo "abi_differential: $checked signatures agree with $REF on $target," \
+    "both directions"
