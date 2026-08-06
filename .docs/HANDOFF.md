@@ -499,12 +499,33 @@ Large frames are now CLOSED, and the shape of it is worth keeping:
 That fix closed three spill-all entries and unpinned `big_frame`, so the
 ORDINARY arm64 ledger is empty at 53/53 and spill-all is 45/53.
 
+The spill-all lane then found EIGHT more, and all of them are fixed too --
+three distinct causes, none reachable by the ordinary lane:
+
+1. **A read-modify-write def took a FRESH scratch** instead of the one its
+   own reload had just filled. `movk` is the only RMW opcode and it appears
+   only inside a multi-instruction constant materialization, so the symptom
+   is a silently WRONG CONSTANT. **`test_a64_regalloc_movk_reads_its_destination`
+   already existed and passed the whole time** -- it pins that ops[0] counts
+   as a use in LIVENESS. The bug was in the REWRITE. A test that checks the
+   analysis and not the transform leaves exactly this gap; the missing half
+   is now pinned and was confirmed to fail without the fix.
+2. **A spilled INDIRECT CALLEE** was substituted with no scratch and no
+   reload, quietly becoming x0 -- `blr x0`, branching to whatever the first
+   argument left there. `marshal_calls` pre-colours a call's arguments and
+   result but NOT its callee, so it is the one value on a call that can spill.
+   The comment in the rewrite said "every one of them is pre-coloured by now",
+   which was true of the three it listed and false of the fourth.
+3. **The `va_start` expansion hardcoded x16** on the grounds that "nothing is
+   live in it between instructions" -- true, but the va_list pointer it writes
+   THROUGH is an operand of that very instruction, so a spilled one was
+   reloaded into the same register and destroyed before the stores.
+
+**Both ledgers are now empty: 54/54 ordinary and 54/54 under spill-all.**
+
 ### What remains
 
-**1. The FP-under-spill cluster and the two integer ones.** Eight entries.
-Get evidence before naming a cause — see the ledger's own note.
-
-**2. afs-as instruction coverage** — unpins the four fixtures in
+**1. afs-as instruction coverage** — unpins the four fixtures in
 `scripts/a64_objdiff_lane.sh`'s `UNENCODABLE` list and closes Sprint 49 DoD
 gate 1. Needs `mneg`, `smull`, `ucvtf`, `fcvtzu`,
 `ldar`/`ldaxr`/`stlxr`/`clrex`, and NEON vector operands in the submodule's
@@ -513,10 +534,10 @@ arm64 encoder. Measured, not guessed: afs-as DOES take `ldr q`/`str q`/
 vectors, `umov`, or `mov v0.d[1], x0`. NEON also unblocks inlining
 `__negtf2`. Rust work, upstream PR + submodule bump (§7).
 
-**3. Two Sprint 49 gates need job steps, not engineering:** the char-sign
-corpus and the 4-thread atomics hammer do not run on the NATIVE arm64
-runner, which is real hardware already sitting in CI. See the DoD audit
-table at the end of the Sprint 49 file.
+**2. Sprint 50 (arm64-macos) is UNBLOCKED.** The standing caution -- do not
+start it until the backend gaps close, because a new object format plus a new
+ABI on the same isel/regalloc makes every failure ambiguous -- no longer
+applies. Both ledgers are empty and Sprint 49 is six of seven gates.
 
 ### THE trap that bit three times in one session
 
