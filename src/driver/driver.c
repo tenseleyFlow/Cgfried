@@ -1882,8 +1882,11 @@ int driver_main(int argc, char **argv)
                                 lres.term_signal);
                     /* Sprint 27: afs-ld's dynamic ELF lane is
                      * experimental (data imports need COPY relocations,
-                     * a later upstream rung — LD-ELF-001). */
+                     * a later upstream rung — LD-ELF-001). The advice is
+                     * ELF-ONLY: arm64-macos refuses -static outright, so
+                     * offering it there sends the reader in a circle. */
                     if (!a.static_link &&
+                        cgf_target_host().kind != CGF_TARGET_ARM64_MACOS &&
                         cgf_toolchain_resolve(cgf_target_host()).use_afs_ld)
                         fprintf(stderr, "cgfried: note: afs-ld's dynamic ELF "
                                         "lane is experimental; retry with "

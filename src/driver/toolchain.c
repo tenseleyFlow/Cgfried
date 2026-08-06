@@ -863,7 +863,12 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             return false;
         }
         VecStr_push(out, tc.ld_path);
-        VecStr_push(out, "-dynamic");
+        /* ld64 takes `-dynamic` and clang passes it, so the system lane
+         * mirrors the reference invocation. afs-ld rejects the flag, and it
+         * carries no information either way: an executable is dynamic here
+         * unless -static, which arm64-macos refuses outright above. */
+        if (!tc.use_afs_ld)
+            VecStr_push(out, "-dynamic");
         VecStr_push(out, "-arch");
         VecStr_push(out, "arm64");
         /* Both versions are REQUIRED by ld64: the first is the deployment
