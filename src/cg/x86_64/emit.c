@@ -541,6 +541,14 @@ void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
     buf_printf(out, "\t.p2align\t4\n");
     buf_printf(out, "\t.type\t%s, @function\n", f->name);
     buf_printf(out, "%s:\n", f->name);
+    /* A LOCAL alias for the entry, used by the .eh_frame FDE. Naming the
+     * global symbol there emits a PC32 relocation against an interposable
+     * symbol, and ld refuses that outright when making a shared object
+     * ("can not be used when making a shared object; recompile with
+     * -fPIC") -- so no object we produced could go into a .so, on any
+     * target, and nothing noticed because we had never built one. gcc emits
+     * the same local-label indirection for the same reason. */
+    buf_printf(out, ".Lfb%u:\n", fidx);
     if (f->debug_lines)
         buf_printf(out, ".Lloc_%u_0:\n", fidx);
     for (bi = 0; bi < f->nblocks; bi++) {

@@ -387,6 +387,7 @@ static void emit_eh_frame(TargetSpec target, const IrModule *m, u32 nfuncs,
                     "\t.long\t0\n");
     emit_byte_list(out, cie, sizeof(cie));
     buf_printf(out, ".Lcie_end:\n");
+    (void)m; /* FDEs name local labels now, not the function symbols */
     for (i = 0; i < nfuncs; i++) {
         buf_printf(out,
                    ".Lfde%u:\n"
@@ -394,9 +395,9 @@ static void emit_eh_frame(TargetSpec target, const IrModule *m, u32 nfuncs,
                    ".Lfde%u_start:\n"
                    ".Lfde%u_cie:\n"
                    "\t.long\t.Lfde%u_cie-.Lcie0\n"
-                   "\t.long\t%s-.\n"
-                   "\t.long\t.Lfe%u_0-%s\n",
-                   i, i, i, i, i, i, m->funcs[i].name, i, m->funcs[i].name);
+                   "\t.long\t.Lfb%u-.\n"
+                   "\t.long\t.Lfe%u_0-.Lfb%u\n",
+                   i, i, i, i, i, i, i, i, i);
         emit_byte_list(out, fde, sizeof(fde));
         buf_printf(out, ".Lfde%u_end:\n", i);
     }
