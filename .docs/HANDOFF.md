@@ -47,14 +47,21 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   sniff in target-dependent code.
 - **`_Thread_local` works** on both Linux targets (local-exec). It did not,
   silently, for fifty sprints — see §1b.
-- The arm64 e2e corpus is **55/55**, and **55/55 again under
+- **VLAs work on both targets**, as of the deferral reckoning (§1b-1). They
+  did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
+  function that also passed arguments on the stack. Multidimensional VLAs
+  and pointers-to-VLA were wrong too.
+- The arm64 e2e corpus is **57/57**, and **57/57 again under
   `CGF_SPILL_ALL=1`**. Keep both green; the spill lane exists because exactly
   one fixture at one level once caught a stale NZCV producer index.
 - Verified at the end of the Sprint 51 session, sequentially and locally
   (never two suites at once — §1b-2): gcc and clang `make test` both rc=0,
   **625 unit tests / 4,263,106 assertions**, 514 and 477 fixture profiles,
   arm64 corpus and spill-all 55/55 each, ABI differential 304/304 per Linux
-  target in both directions.
+  target in both directions. Re-verified after the VLA campaign: same unit
+  counts, 516 and 477 fixture profiles, arm64 corpus and spill-all **57/57**
+  each, musl warning lane unchanged at 716/1361 parsed / 645 deferred / 186
+  oracle-matched / zero false positives.
 - `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
   arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
   with the bundled afs-as into ELF objects byte-identical to
@@ -548,55 +555,65 @@ The user's standing position, stated explicitly: *"I'm generally not
 comfortable leaving deferrals sitting around for long periods."* The plan
 below was agreed with that in mind. Do it in this order.
 
-### STEP 1 — the deferral reckoning (mostly done; findings below)
+### STEPS 1 and 2 — DONE. What they found is the reason to keep the habit.
 
-A deferral naming a CLOSED sprint is worse than an open one: it is a lie in
-the ledger, and nobody reading the roadmap will ever find it. Nine such sites
-exist. **They were audited by REACHABILITY, not by reading**, and the result
-is that almost all are dead defensive messages — with one glaring exception.
+Commits `9ac0686`, `6858686`, `0593cea`, `d48ead5`, `0bf917e`.
 
-| site | says | reachable? |
+The plan called STEP 1 a renaming job. **It was audited by REACHABILITY —
+compile a program that should hit each message — never by reading**, and
+that is the entire lesson: eight of the nine were dead defensive text, and
+the ninth was a missing C feature that then implicated four more defects.
+
+| what | where | how it read before |
 |---|---|---|
-| `src/cg/arm64/regalloc.c:1334` | Sprint 49 | **YES — see STEP 2** |
-| `src/cg/arm64/isel.c:81,1082,1225,1625` | Sprint 49 | no (f128 arith/conv and dynamic memcpy all work) |
-| `src/cg/arm64/isel.c:2115` | Sprint 51 | not yet — needs `vector_size`, which is Sprint 55 |
-| `src/cg/x86_64/isel.c:241` | Sprint 23 | no (SSE2 FP landed in 23) |
-| `src/cg/x86_64/isel.c:2570,2601` | Sprint 24 | no (dynamic memcpy works) |
+| arm64 ICEd on **every VLA** | `cg/arm64/regalloc.c` | "lands in Sprint 49", two sprints closed |
+| x86 **silently miscompiled** a VLA in any function that also passed args on the stack | `cg/x86_64/regalloc.c` | no diagnostic at all |
+| **2-D VLAs** wrong on both targets at every level | `lower/expr.c` | no diagnostic at all |
+| **pointer to VLA** (`char (*p)[n]`) computed its stride in a non-dominating block | `lower/stmt.c` | IR verify check 1 |
+| two more passes **dropped call-argument provenance** | `opt/inline.c`, `opt/loop_tree.c` | IR verify check 9 |
 
-So the reckoning is a RENAMING job plus one real fix. Delete the dead
-messages or renumber them to a live sprint; do not leave any of them saying a
-closed sprint number.
+Details worth keeping:
 
-Reproduce the audit with:
+- **The honest ICE was hiding the silent wrong answer.** x86's dynamic
+  alloca handed back the new `rsp` as the object's base, while outgoing
+  stack arguments are stored at `[rsp + k]` against that same `rsp` — so an
+  argument list overwrote the first `out_args` bytes of the VLA. Both
+  backends now reserve the 16-rounded outgoing area BELOW the object.
+- **A VLA element's static layout size is 0**, so the dedicated subscript
+  path in `lower/expr.c` scaled every row index of `int m[r][c]` by a
+  literal zero and every row aliased row 0. `sizeof(m)` and `sizeof(m[0])`
+  stayed correct throughout — they reach the runtime size by another route —
+  so nothing that checked sizes could see it. `ptr_index` (the `p + n` path)
+  had always been right; only the shortcut was not.
+- **C17 6.7.6.2p4**: the size expression of a VLA type is evaluated at the
+  DECLARATION, whether or not an object is created. `char (*p)[width]`
+  declares a pointer, so nothing walking array chains saw a VLA.
+- Two gates found things I did not: **the musl warning lane** caught the
+  pointer-to-VLA regression as a one-TU drop in its parsed count, and **the
+  arm64 MIR verifier** rejected `sub sp, sp, xN` outright — encoding 31 is
+  XZR in the shifted-register form and the emitter has no extended form —
+  instead of letting it assemble into nonsense.
+
+**How all of it survived, and this generalizes**: the arm64 e2e corpus is
+the x86 corpus re-run under qemu, and **no program in it used a VLA**. The
+VLA fixtures stop at IR/MIR level, where the arm64 backend never sees them.
+A corpus inherited from another target covers only what that target's
+authors happened to write. Two executed programs now cover the shapes
+(`tests/corpus/x86_64/int/vla_{calls,shapes}.c`); the arm64 corpus went
+55 -> 57 and spill-all likewise, both ledgers still empty.
+
+**The preventive**: `scripts/check_deferrals.sh` is in `make test`. No
+message in `src/` may defer to a sprint at or below `ci/closed_sprints.txt`.
+The roadmap is not in the repo, so that file is the in-tree source of truth
+and raising it when a sprint closes forces the audit. Anti-vacuity checked:
+set to 51 it catches the driver's live `-g on arm64` deferral.
+
+Reproduce the audit any time with:
 
 ```sh
-grep -rn 'lands in Sprint \(1[0-9]\|2[0-9]\|3[0-9]\|4[0-9]\|5[01]\)\b' src/
+grep -rn 'lands\? in Sprint [0-9]*' src/      # then check ci/closed_sprints.txt
+sh scripts/check_deferrals.sh
 ```
-
-### STEP 2 — arm64 VLAs. THE REAL GAP, and it is user-visible
-
-```c
-int f(int n) { int a[n]; a[0] = 1; return a[0]; }
-```
-
-**ICEs on arm64-linux.** x86 compiles it fine.
-
-```
-cgfried: internal compiler error at src/cg/arm64/regalloc.c:1334:
-  arm64 regalloc: dynamic stack allocation lands in Sprint 49
-```
-
-Sprint 49 closed two sprints ago. This is core C99/C11 on a target we ship.
-
-**How it survived**, and this is the lesson: the arm64 e2e corpus is the
-x86 corpus re-run under qemu, and **no program in it uses a VLA**. The VLA
-fixtures live only at IR/MIR level (`tests/programs/lower/vla_*.c`,
-`tests/programs/mir/vla_dyn.c`) where the arm64 backend never sees them.
-A corpus inherited from another target only covers what that target's
-authors happened to write.
-
-Fix the ICE, and **add a VLA program to the executed arm64 corpus** so it
-cannot regress.
 
 ### STEP 3 — close Sprint 51: D7, which means arm64 DWARF first
 
@@ -1380,9 +1397,10 @@ half against gcc's and RUNS it, both directions.
 
 **The arm64 corpus is the x86 corpus re-run.** That is efficient and it is
 also a blind spot — it only covers what the x86 authors happened to write.
-It is why arm64 VLAs are broken and nobody noticed (§1b-1 STEP 2). When you
-fix a target-specific gap, add a program that exercises it to the EXECUTED
-corpus, not just an IR-level fixture.
+It is why arm64 VLAs stayed broken through two sprints and x86 VLAs were
+silently wrong at the same time (§1b-1). When you fix a target-specific gap,
+add a program that exercises it to the EXECUTED corpus, not just an IR-level
+fixture -- that is exactly what the VLA fixtures had failed to do.
 
 CI has three arm64 lanes: `test-arm64-native` (real `ubuntu-24.04-arm`
 hardware — leaner image, so install what you need and remember the default
@@ -1421,12 +1439,14 @@ largest cluster by far and the reason §1b-1 STEP 4 takes 55 out of order),
 
 **A deferral naming a CLOSED sprint is a lie in the ledger**, and nine of
 them existed at the end of Sprint 51. They were audited by REACHABILITY —
-compile a program that should hit each one — and the table is in §1b-1 STEP
-1. Almost all are dead defensive messages; the exception is arm64 VLAs
-(STEP 2), which is a live, user-visible ICE on a shipped target. Audit by
-reachability, never by reading: a message that looks alarming may be
-unreachable, and a message that looks routine may be the only thing standing
-between a user and standard C.
+compile a program that should hit each one — and the outcome is in §1b-1.
+Eight were dead defensive messages; the ninth was arm64 VLAs, a live
+user-visible ICE on a shipped target, and pulling on it found four more
+defects including a SILENT x86 miscompile. Audit by reachability, never by
+reading: a message that looks alarming may be unreachable, and a message
+that looks routine may be the only thing standing between a user and
+standard C. `scripts/check_deferrals.sh` now keeps the numbers honest, but
+it cannot tell reachable from dead — only you can.
 
 `-g` on arm64-linux hard-errors naming Sprint 51 — deliberate, not an
 oversight: emitting arm64 objects that silently lack a line table would break
