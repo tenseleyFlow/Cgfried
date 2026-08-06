@@ -570,6 +570,15 @@ static void check_inst_misc(V *v, const IrInst *in)
                 verr(v, 9,
                      "arg %u follows an 'anon' argument without being one", i);
             seen_anon = seen_anon || anon;
+            if ((in->ops[i].argflags & IROPF_SEXT) &&
+                (in->ops[i].argflags & IROPF_ZEXT))
+                verr(v, 9, "arg %u is both 'sext' and 'zext'", i);
+            /* The widening duty exists only for a type NARROWER than the
+             * 32-bit unit an argument register holds. */
+            if ((in->ops[i].argflags & (IROPF_SEXT | IROPF_ZEXT)) &&
+                ir_type_size((IrType)in->ops[i].type) >= 4)
+                verr(v, 9, "arg %u is %u bytes wide and cannot need widening",
+                     i, ir_type_size((IrType)in->ops[i].type));
         }
         if (in->subop == FUNCREF_INTERNAL) {
             if (in->callee >= v->m->nfuncs) {

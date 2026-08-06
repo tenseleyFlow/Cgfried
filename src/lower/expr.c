@@ -1661,6 +1661,15 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                       : 0u;
         u32 first_arg = nargs;
 
+        /* Signedness of a sub-int argument, for the one ABI that makes the
+         * caller widen it (see IROPF_SEXT). Default argument promotion has
+         * already run, so an anonymous argument is never narrow -- this
+         * only ever fires on a declared parameter. */
+        if (sem(a) && type_is_integer(sem(a)) &&
+            layout_of(lo->sema, sem(a)).size < 4)
+            anon |= conv_is_signed(lo->sema, sem(a)) ? (u8)IROPF_SEXT
+                                                     : (u8)IROPF_ZEXT;
+
         attr_ir_args[i] = nargs + 1;
 
         abi_classify_arg(lo, sem(a), &plan);

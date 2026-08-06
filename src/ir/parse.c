@@ -602,11 +602,21 @@ static bool parse_call_arg(P *p, IrOperand *slot)
         if (peek(p)->kind != T_IDENT)
             return true;
     }
-    /* `anon` is a separate FLAG, not a kind: an anonymous aggregate is both,
-     * and it rides its own byte rather than the annotation word. */
+    /* The argument FLAGS are not kinds: they compose with each other and
+     * with the annotation, and ride their own byte. The printer emits them
+     * in this order. */
     if (tok_is(peek(p), "anon")) {
         next(p);
         slot->argflags |= IROPF_ANON;
+        if (peek(p)->kind != T_IDENT)
+            return true;
+    }
+    if (tok_is(peek(p), "sext")) {
+        next(p);
+        slot->argflags |= IROPF_SEXT;
+    } else if (tok_is(peek(p), "zext")) {
+        next(p);
+        slot->argflags |= IROPF_ZEXT;
     }
     return true;
 }

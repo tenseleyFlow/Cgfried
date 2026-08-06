@@ -235,6 +235,10 @@ static void print_call_arg(Buf *out, const IrModule *m, const ValNames *vn,
     }
     if (o->argflags & IROPF_ANON)
         buf_printf(out, " anon");
+    if (o->argflags & IROPF_SEXT)
+        buf_printf(out, " sext");
+    if (o->argflags & IROPF_ZEXT)
+        buf_printf(out, " zext");
 }
 
 static void print_edge(Buf *out, const IrModule *m, const IrFunc *f,

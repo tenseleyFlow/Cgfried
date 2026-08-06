@@ -272,6 +272,14 @@ typedef enum IrOpKind {
  * is the high half of the value, and `printf("%Lf", 1.0L)` passes exactly
  * that. The byte is free padding, so nothing grows. Printed ` anon`. */
 #define IROPF_ANON 0x1u
+/* SEXT/ZEXT: the argument's C type is an integer NARROWER than 32 bits, and
+ * this is its signedness. IR integer types are signless, so a backend that
+ * must widen an argument cannot recover it. Apple's arm64 ABI makes the
+ * CALLER responsible for that widening — the callee reads w0 raw — while
+ * AAPCS64 and SysV leave the high bits unspecified and let the callee do it,
+ * so these are inert everywhere else. Printed ` sext` / ` zext`. */
+#define IROPF_SEXT 0x2u
+#define IROPF_ZEXT 0x4u
 
 typedef struct IrOperand {
     u8 kind;     /* IrOpKind */
