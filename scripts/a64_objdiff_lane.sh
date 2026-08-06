@@ -27,11 +27,11 @@ OBJCOPY=${CGF_A64_OBJCOPY:-aarch64-linux-gnu-objcopy}
 # Fixtures blocked on arm64 INSTRUCTION coverage in afs-as, not on its ELF
 # writer. Each name is followed by the mnemonics it needs; when a row is
 # fixed upstream, delete it here and the lane starts checking that fixture.
-#   atomics       ldar ldaxr stlxr clrex
-#   neon          vector register operands, ext, dup, umov
-#   review-idioms mneg smull
-#   scalar-fp     ucvtf fcvtzu
-UNENCODABLE="atomics neon review-idioms scalar-fp"
+#   neon          GNU-dialect vector register operands (v0.16b): afs-as has
+#                 the encoders but spells the arrangement on the MNEMONIC,
+#                 Apple-style (`eor.16b v0, v1, v2`), while our ELF emitter
+#                 writes the GNU form (`eor v0.16b, v1.16b, v2.16b`).
+UNENCODABLE="neon"
 
 missing=
 command -v "$AS" >/dev/null 2>&1 || missing="$missing $AS"
