@@ -83,8 +83,36 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 # timestamps, uids or modes) — two clean builds must be byte-equal.
 RT_CC ?= $(CC)
 RT_CFLAGS ?= -std=c11 -Wall -Wextra -O2 -fno-strict-aliasing -Isrc
+# RT_TARGET is evaluated when this file is PARSED, which on a fresh tree is
+# before $(BUILD)/cgfried exists -- so the fallback is what a clean checkout
+# actually uses, and it must describe the HOST. A hardcoded x86_64 fallback
+# filed the arm64 runtime under x86_64-linux-gnu/ on the native arm64 runner,
+# where the driver never looks; the corpus lane's guard caught it, but only
+# after CI went red. The names are cgf_target_names[] in src/target.c, and
+# for a NATIVE build the host IS the target (there is no --target until
+# Sprint 51). A cross build must still name it: `make RT_TARGET=arm64-linux`.
+#
+# Make conditionals rather than a shell `case`: an unescaped `)` inside
+# $(shell ...) closes the function call, so `Linux/arm64)` truncated the
+# whole expansion and RT_TARGET came out EMPTY.
+RT_HOST_SYS := $(shell uname -s)
+RT_HOST_MACHINE := $(shell uname -m)
+RT_HOST_TARGET := x86_64-linux-gnu
+ifeq ($(RT_HOST_SYS),Linux)
+  ifneq (,$(filter aarch64 arm64,$(RT_HOST_MACHINE)))
+    RT_HOST_TARGET := arm64-linux
+  endif
+endif
+ifeq ($(RT_HOST_SYS),Darwin)
+  ifneq (,$(filter aarch64 arm64,$(RT_HOST_MACHINE)))
+    RT_HOST_TARGET := arm64-macos
+  endif
+endif
+ifeq ($(RT_HOST_SYS),FreeBSD)
+  RT_HOST_TARGET := x86_64-freebsd
+endif
 RT_TARGET := $(shell $(BUILD)/cgfried -dumpmachine 2>/dev/null || \
-                     echo x86_64-linux-gnu)
+                     echo $(RT_HOST_TARGET))
 RT_SRC := $(sort $(wildcard src/rt/*.c))
 # Sprint 49: the arm64 fp128 entry points ARE softfp. Sprint 15 kept that
 # core library-clean (no arena, no diagnostics, no sema) exactly so it could

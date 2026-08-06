@@ -747,6 +747,28 @@ spells arm64 `aarch64-linux-gnu`; the closed target set calls it
 `arm64-linux`. `cgf_target_multiarch()` exists for exactly that, with a
 unit test asserting the two differ.
 
+### 3.8 `RT_TARGET` is evaluated at PARSE time (Sprint 49 follow-up)
+
+`RT_TARGET := $(shell $(BUILD)/cgfried -dumpmachine || echo ...)` runs when
+make reads the Makefile — which on a fresh checkout is **before the compiler
+it probes exists**. So the fallback is not an edge case; it is what every
+clean build uses. It was hardcoded `x86_64-linux-gnu`, which on the native
+arm64 runner filed the arm64 runtime under `x86_64-linux-gnu/` where the
+driver never looks, and every long-double program failed to link. It is now
+derived from `uname`, because for a native build the host IS the target. A
+cross build must still say `make RT_TARGET=arm64-linux` — the corpus lane
+does.
+
+Two smaller traps found fixing it:
+
+- **An unescaped `)` inside `$(shell ...)` closes the function call.** A
+  shell `case` with `Linux/arm64)` truncated the expansion and `RT_TARGET`
+  came out EMPTY — silently, producing `build//libcgf_rt.a`. Use make
+  conditionals, or check `make -p | grep '^RT_TARGET'` before believing it.
+- The corpus lane's "no libcgf_rt.a beside $CGF" guard is what turned this
+  from two mysterious fixture failures into one sentence naming the cause.
+  Guards that name a build gap earn their keep.
+
 ## 4. Architectural laws (violating these is a silent miscompile)
 
 These are written in the code as comments; they are repeated here
