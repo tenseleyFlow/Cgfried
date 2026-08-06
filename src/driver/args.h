@@ -165,6 +165,10 @@ typedef struct {
      * bad_value so the diagnostic can list what IS known: a cross build that
      * picked the wrong machine is the expensive mistake here. */
     const char *bad_target;
+    /* --sysroot=<dir>: the root the TARGET's headers, libraries and crt
+     * objects live under. Cross-compiling is only half the job without it --
+     * the other half is not accidentally linking against the host's. */
+    const char *sysroot;
     char suggest[64];            /* "; did you mean '-o'?" payload, or "" */
     const char *missing_arg;     /* option lacking its argument, or NULL */
     const char *bad_value;       /* option whose value did not parse */

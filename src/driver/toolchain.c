@@ -660,10 +660,16 @@ const char *cgf_macos_sdk_bad_override(void)
  * that is exactly why a stack buffer survived testing on Arch. */
 static char crt_multiarch_dir[128];
 
-static size_t crt_default_dirs_for(TargetSpec t, const char **out)
+/* Under --sysroot every row is relative to that root instead of to `/`.
+ * The buffers are file-scope for the same lifetime reason the multiarch one
+ * is: cgf_probe_crt_dir_in returns whichever entry matched. */
+static char crt_rooted[CRT_DIR_MAX][512];
+
+static size_t crt_default_dirs_for(TargetSpec t, const char *sysroot,
+                                   const char **out)
 {
     const char *multiarch = cgf_target_multiarch(t);
-    size_t n = 0;
+    size_t n = 0, i;
 
     if (multiarch) {
         snprintf(crt_multiarch_dir, sizeof(crt_multiarch_dir), "/usr/lib/%s",
@@ -673,6 +679,12 @@ static size_t crt_default_dirs_for(TargetSpec t, const char **out)
     out[n++] = "/usr/lib64"; /* Fedora/RHEL */
     out[n++] = "/usr/lib";   /* Arch/generic */
     out[n++] = "/lib";       /* fallback */
+    if (!sysroot || !sysroot[0])
+        return n;
+    for (i = 0; i < n; i++) {
+        snprintf(crt_rooted[i], sizeof(crt_rooted[i]), "%s%s", sysroot, out[i]);
+        out[i] = crt_rooted[i];
+    }
     return n;
 }
 
@@ -721,7 +733,7 @@ const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
 {
     ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
     const char *table[CRT_DIR_MAX];
-    size_t ntable = crt_default_dirs_for(cgf_target_selected(), table);
+    size_t ntable = crt_default_dirs_for(cgf_target_selected(), NULL, table);
     const char *dir =
         cgf_probe_crt_dir_in(tc.crt_dir, NULL, 0, table, ntable, NULL);
 
@@ -948,7 +960,7 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     if (want_crts || want_libs) {
         Buf searched;
         const char *table[CRT_DIR_MAX];
-        size_t ntable = crt_default_dirs_for(t, table);
+        size_t ntable = crt_default_dirs_for(t, da->sysroot, table);
 
         buf_init(&searched);
         crtdir =
@@ -965,6 +977,11 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     }
 
     VecStr_push(out, tc.ld_path);
+    /* GNU ld resolves every -L and every default search path against this,
+     * which is what stops a cross link from silently picking up the host's
+     * libc. Mach-O's spelling is -syslibroot, already emitted above. */
+    if (da->sysroot && da->sysroot[0] && !tc.use_afs_ld)
+        VecStr_push(out, joined2(ar, "--sysroot=", da->sysroot));
     if (tc.use_afs_ld)
         VecStr_push(out, "-melf_x86_64"); /* select its ELF arm */
     if (da->static_link)

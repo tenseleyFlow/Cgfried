@@ -73,6 +73,42 @@ for t in x86_64-linux-gnu arm64-linux arm64-macos x86_64-linux-musl \
     printf '%s %s\n' "$t" "$(cksum <"$WORK/$t.s" | cut -d' ' -f1,2)"
 done >"$WORK/manifest"
 
+# --sysroot is the other half of cross-compiling: choosing the target is
+# useless if the headers still come from the host. Proved by construction --
+# a header that exists ONLY under the fake root, so finding it cannot be an
+# accident of the host's /usr/include.
+root=$WORK/sysroot
+rm -rf "$root"
+mkdir -p "$root/usr/include"
+echo '#define CGF_SYSROOT_MARKER 4242' >"$root/usr/include/cgf_probe.h"
+cat >"$WORK/sysroot_user.c" <<'SRC'
+#include <cgf_probe.h>
+int marker(void) { return CGF_SYSROOT_MARKER; }
+SRC
+if "$CGF" -fsyntax-only "$WORK/sysroot_user.c" 2>/dev/null; then
+    echo "cross_determinism: the sysroot header resolved WITHOUT --sysroot;" >&2
+    echo "  the probe is vacuous" >&2
+    exit 1
+fi
+if ! "$CGF" --sysroot="$root" -fsyntax-only "$WORK/sysroot_user.c"; then
+    echo "cross_determinism: --sysroot did not reach the header search" >&2
+    exit 1
+fi
+# ...and the crt probe, which is what a cross LINK needs. A header-free TU
+# on purpose: with a bogus root the include search would fail first and the
+# test would pass for the wrong reason.
+echo 'int main(void) { return 0; }' >"$WORK/bare.c"
+if "$CGF" --sysroot=/nonexistent/root -o "$WORK/never" \
+    "$WORK/bare.c" 2>"$WORK/crt.err"; then
+    echo "cross_determinism: linking against a bogus sysroot succeeded" >&2
+    exit 1
+fi
+if ! grep -q '/nonexistent/root/usr/lib/crt1.o' "$WORK/crt.err"; then
+    echo "cross_determinism: the crt probe ignored --sysroot; it searched:" >&2
+    cat "$WORK/crt.err" >&2
+    exit 1
+fi
+
 if [ -n "$REF" ]; then
     if ! diff -u "$REF" "$WORK/manifest"; then
         echo "cross_determinism: output DEPENDS ON THE HOST -- some path" >&2
@@ -80,9 +116,11 @@ if [ -n "$REF" ]; then
         echo "  cgf_target_selected(); see scripts/check_target_seam.sh" >&2
         exit 1
     fi
-    echo "cross_determinism: 5 targets byte-identical to the reference host"
+    echo "cross_determinism: 5 targets byte-identical to the reference host;" \
+        "--sysroot reaches headers and crt"
     exit 0
 fi
 
 cat "$WORK/manifest"
-echo "cross_determinism: 5 targets compiled; manifest above" >&2
+echo "cross_determinism: 5 targets compiled and --sysroot verified;" \
+    "manifest above" >&2

@@ -1025,8 +1025,15 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
              * under an SDK root that only `xcrun` knows. target.c owns the
              * ORDER (it owns every target's) and the driver owns the ROOT,
              * because probing it is a subprocess and target.c is pure. */
+            /* --sysroot wins: an explicit root is the whole point of a
+             * cross build, and silently preferring a probe over what the
+             * user named is how you compile against the host's headers
+             * while believing otherwise. macOS's SDK is a sysroot by
+             * another name, so it is the fallback rather than a parallel
+             * mechanism. */
             const char *sysroot =
-                cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS
+                a->sysroot ? a->sysroot
+                : cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS
                     ? cgf_probe_macos_sdk()
                     : NULL;
             size_t i;
