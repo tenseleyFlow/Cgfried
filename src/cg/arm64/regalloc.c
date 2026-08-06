@@ -995,9 +995,17 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
              * twenty-four. A composite is already an eightbyte scalar or a
              * pointer by the time it reaches here, so its own alignment
              * never enters -- AAPCS64 C.12/C.13 are unamended and lowering
-             * has applied them. Measured against clang. */
-            u32 slot_bytes =
-                apple ? ir_type_size(arg->type) : (sf == A64_SF128 ? 16u : 8u);
+             * has applied them. Measured against clang.
+             *
+             * ANONYMOUS arguments are exempt and keep their eightbyte:
+             * rows 1 and 3 are separate rules and packing the varargs area
+             * puts every argument after the first where the callee will not
+             * look. Landing row 3 without this exemption silently regressed
+             * row 1, which no test caught because the macOS programs have
+             * no automated lane yet -- see tests/macos/run.sh. */
+            u32 slot_bytes = apple && !(arg->argflags & IROPF_ANON)
+                                 ? ir_type_size(arg->type)
+                                 : (sf == A64_SF128 ? 16u : 8u);
 
             w.nsaa = (w.nsaa + slot_bytes - 1u) & ~(slot_bytes - 1u);
             store = mk_out_arg_store(arg->value, sf, w.nsaa, slot_bytes);

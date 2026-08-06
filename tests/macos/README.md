@@ -4,17 +4,21 @@ Divergence-table evidence for Sprint 50. Each program pairs a Cgfried
 translation unit with a **clang** one, because an ABI bug that both halves
 share is invisible: the two must disagree for the test to mean anything.
 
-There is no automated lane yet — deliverable D6 owns that, and it needs the
-macOS CI runner. Until then these run by hand on nomad-1. The recipe, for
-each pair, is:
+**Run them with `sh tests/macos/run.sh [path/to/cgfried]`, on the Mac.** It
+skips loudly anywhere else. There is no CI runner yet — deliverable D6 owns
+that — but the script exists because verifying these by hand once each is
+exactly how divergence-table row 3 silently regressed row 1: packing the
+stack tail at natural size also packed the VARARGS area, putting every
+anonymous argument after the first where the callee never looks. Nothing
+caught it for two commits.
+
+To sync and build first:
 
 ```sh
 rsync -az --exclude 'build*/' --exclude '.git/' --exclude 'target/' \
     ./ nomad-1:/tmp/cgfried-s50/
-ssh nomad-1 "sh -c 'cd /tmp/cgfried-s50 && make -j18 build/cgfried'"
-ssh nomad-1 "sh -c 'cd /tmp/cgfried-s50/tests/macos &&
-    ../../build/cgfried -S -o t.s <ours>.c && clang -c -o t.o t.s &&
-    clang -o t t.o <theirs>.c && ./t'"
+ssh nomad-1 "sh -c 'cd /tmp/cgfried-s50 && make -j18 build/cgfried &&
+    CGF_AS=0 sh tests/macos/run.sh build/cgfried'"
 ```
 
 `cgf -c` needs an assembler and `cargo` is missing on nomad-1, so the bundled
@@ -31,6 +35,7 @@ files locally and rsync them rather than heredoc-ing them across.
 | `vaboth.c` | 1 | both halves ours, at -O0/-O1/-O2 | `tally=55`, `dsum=4.00` |
 | `rows23.c` + `rows23_defs.c` | 2, 3 | our CALLER widens sub-32-bit arguments and packs the stack tail at natural size | `ext4=65280`, `pack5=4556199` |
 | `rev23.c` + `rev23_main.c` | 2, 3 | our CALLEE reads that packed tail at the same offsets | `ext4x=65280`, `pack5x=4556199` |
+| `gotlink.c` + `gotlink_defs.c` | — | every UNDEFINED symbol goes through the GOT, a function's address included | `ext_data=41 via_ptr=41`, `arr3=30 s.c=33`, `fn=99 same=1`, `def=1000 stat=2000` |
 | `rows47.c` (alone) | 4, 5, 7 | signed `char`, `long double` == `double` incl. libc `%Lf`, `wchar_t` is `int` | `row4 char=-1`, `row5 sizeof=8 ...`, `row7 wchar=4`, `row5 pct_Lf=3.1415926536 -0.5000000000` |
 
 The two constants are worth keeping honest: `65280` and `4556199` were
