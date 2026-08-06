@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -442,7 +443,11 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
 
         if (arm)
             argv[an++] = arm;
-    } else {
+    } else if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS) {
+        /* GNU-as only. macOS `as` is a clang driver and rejects the flag
+         * outright ("unknown argument"), which surfaced as an ICE blaming
+         * our own assembly. Mach-O has no SHF_COMPRESSED anyway, so there
+         * is nothing here to ask for. */
         argv[an++] = "--nocompress-debug-sections";
     }
     argv[an++] = s_path;
@@ -533,6 +538,93 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
  * that drags in a GCC-version-specific path; if a link ever fails on
  * __dso_handle, that is THIS gap — document, don't silently add).
  * Non-PIE only in v0.1.0: always crt1.o, never Scrt1.o (Sprint 51). */
+
+/* --- macOS SDK discovery (Sprint 50) --------------------------------------
+ *
+ * There is no /usr/include on a modern macOS: the headers and the .tbd stubs
+ * both live inside an SDK whose path moves with Xcode. `xcrun --show-sdk-path`
+ * is the only supported way to find it, so this is the one place the compiler
+ * runs a subprocess to LEARN something rather than to do work.
+ *
+ * Probed once per driver run and cached, including the failure — a machine
+ * with no command-line tools must not pay for the fork on every file, and
+ * must get the same answer for every file.
+ *
+ * CGF_SDKROOT overrides it. A set-but-wrong override FAILS rather than
+ * falling through to the probe, the same debuggability contract CGF_CRT_DIR
+ * follows: silently ignoring an override is how you debug the wrong SDK. */
+static bool sdk_probed;
+static const char *sdk_path;
+
+static const char *capture_first_line(const char *const argv[])
+{
+    static char line[1024];
+    posix_spawn_file_actions_t fa;
+    pid_t pid;
+    int pipefd[2], status, rc;
+    size_t n = 0;
+
+    if (pipe(pipefd) != 0)
+        return NULL;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 1);
+    /* stderr to /dev/null: "xcrun: error: ..." is not our diagnostic, and a
+     * machine without the tools would otherwise print it per compile. */
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
+    posix_spawn_file_actions_addclose(&fa, pipefd[1]);
+    rc = posix_spawnp(&pid, argv[0], &fa, NULL, (char *const *)argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(pipefd[1]);
+    if (rc != 0) {
+        close(pipefd[0]);
+        return NULL;
+    }
+    for (;;) {
+        ssize_t got = read(pipefd[0], line + n, sizeof(line) - 1 - n);
+
+        if (got < 0 && errno == EINTR)
+            continue;
+        if (got <= 0)
+            break;
+        n += (size_t)got;
+        if (n >= sizeof(line) - 1)
+            break;
+    }
+    close(pipefd[0]);
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        return NULL;
+    line[n] = 0;
+    line[strcspn(line, "\n")] = 0;
+    return line[0] ? line : NULL;
+}
+
+const char *cgf_probe_macos_sdk(void)
+{
+    static const char *const argv[] = {"xcrun", "--show-sdk-path", NULL};
+    const char *ov;
+
+    if (sdk_probed)
+        return sdk_path;
+    sdk_probed = true;
+    ov = cgf_env("CGF_SDKROOT");
+    if (ov && ov[0]) {
+        sdk_path = ov;
+        return sdk_path;
+    }
+    {
+        const char *p = capture_first_line(argv);
+        static char buf[1024];
+
+        if (p && access(p, X_OK) == 0) {
+            snprintf(buf, sizeof(buf), "%s", p);
+            sdk_path = buf;
+        }
+    }
+    return sdk_path;
+}
 
 /* Sprint 27 probe table, first stat() hit for crt1.o wins. Order is the
  * distro-layout ladder from the sprint file; overrides (CGF_CRT_DIR,
@@ -732,6 +824,7 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     ToolchainConfig tc = cgf_toolchain_resolve(t);
     const char *crtdir = NULL;
     const char *dl = cgf_target_dynamic_linker(t);
+    bool macho = t.kind == CGF_TARGET_ARM64_MACOS;
     const char *rt;
     const char *outname = da->output ? da->output : "a.out";
     bool want_crts = !da->nostdlib && !da->nostartfiles;
@@ -745,6 +838,70 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
         fprintf(stderr, "cgfried: error: bundled afs-ld not built; run 'make "
                         "tools' or unset CGF_LD to use the system linker\n");
         return false;
+    }
+    if (macho) {
+        /* Mach-O has no crt at all: dyld enters at LC_MAIN, an offset to
+         * main's atom that the linker synthesizes. There is nothing to
+         * probe and nothing to place, which is why the whole crt ladder
+         * below is skipped rather than given an empty table. */
+        const char *sdk = cgf_probe_macos_sdk();
+
+        if (da->static_link) {
+            /* Not a gap to fill later: Apple ships no static libSystem and
+             * a statically linked binary is not a supported macOS product.
+             * Say so instead of failing inside ld with a symbol list. */
+            fprintf(stderr, "cgfried: error: -static is not supported on "
+                            "arm64-macos; macOS has no static libSystem and "
+                            "dyld is not optional\n");
+            return false;
+        }
+        if (!sdk && want_libs) {
+            fprintf(stderr, "cgfried: error: no macOS SDK found; "
+                            "`xcrun --show-sdk-path` failed\n");
+            fprintf(stderr, "cgfried: note: install the Command Line Tools "
+                            "('xcode-select --install') or set CGF_SDKROOT\n");
+            return false;
+        }
+        VecStr_push(out, tc.ld_path);
+        VecStr_push(out, "-dynamic");
+        VecStr_push(out, "-arch");
+        VecStr_push(out, "arm64");
+        /* Both versions are REQUIRED by ld64: the first is the deployment
+         * minimum written into LC_BUILD_VERSION, the second the SDK the
+         * objects were built against. The emitter's `.build_version macos,
+         * 11, 0` must agree with the minimum or ld warns. */
+        VecStr_push(out, "-platform_version");
+        VecStr_push(out, "macos");
+        VecStr_push(out, "11.0");
+        VecStr_push(out, "11.0");
+        if (sdk) {
+            VecStr_push(out, "-syslibroot");
+            VecStr_push(out, sdk);
+        }
+        VecStr_push(out, "-o");
+        VecStr_push(out, outname);
+        for (i = 0; i < da->lib_dirs.len; i++)
+            VecStr_push(out, joined2(ar, "-L", da->lib_dirs.data[i]));
+        for (i = 0; i < da->link_inputs.len; i++) {
+            const LinkInput *li = &da->link_inputs.data[i];
+
+            if (!li->val)
+                continue;
+            if (li->kind == LINK_LIB)
+                VecStr_push(out, joined2(ar, "-l", li->val));
+            else
+                VecStr_push(out, li->val);
+        }
+        if (want_libs) {
+            const char *rt2 = locate_rt_archive(t);
+
+            if (rt2)
+                VecStr_push(out, rt2);
+            /* libSystem IS libc here, and it resolves through a .tbd text
+             * stub in the SDK rather than a dylib on the host. */
+            VecStr_push(out, "-lSystem");
+        }
+        return true;
     }
     if (want_crts || want_libs) {
         Buf searched;
@@ -853,7 +1010,10 @@ void cgf_echo_as_plan(const char *s_path, const char *o_path)
 
         if (arm)
             argv[n++] = arm;
-    } else {
+    } else if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS) {
+        /* Must mirror cgf_assemble exactly: -### promises the plan that
+         * WOULD run, so a flag added on one side and not the other makes
+         * the plan a lie. */
         argv[n++] = "--nocompress-debug-sections";
     }
     argv[n++] = s_path;

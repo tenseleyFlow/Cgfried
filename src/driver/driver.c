@@ -1017,9 +1017,46 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                                 "or set CGF_INCLUDE_DIR\n");
             }
         }
-        pp.n_system += cgf_target_system_include_dirs(
-            cgf_target_host(), pp.system_dirs + pp.n_system,
-            PP_MAX_DIRS - pp.n_system);
+        {
+            const char *dirs[8];
+            size_t n = cgf_target_system_include_dirs(cgf_target_host(), dirs,
+                                                      CGF_ARRAY_LEN(dirs));
+            /* macOS keeps no /usr/include: the whole system header set lives
+             * under an SDK root that only `xcrun` knows. target.c owns the
+             * ORDER (it owns every target's) and the driver owns the ROOT,
+             * because probing it is a subprocess and target.c is pure. */
+            const char *sysroot =
+                cgf_target_host().kind == CGF_TARGET_ARM64_MACOS
+                    ? cgf_probe_macos_sdk()
+                    : NULL;
+            size_t i;
+
+            /* Process-global and identical for every TU, so it is built
+             * once rather than per file: the SDK cannot change mid-run. */
+            static char rooted[CGF_ARRAY_LEN(dirs)][1024];
+
+            for (i = 0; i < n && pp.n_system < PP_MAX_DIRS; i++) {
+                if (sysroot) {
+                    snprintf(rooted[i], sizeof(rooted[i]), "%s%s", sysroot,
+                             dirs[i]);
+                    pp.system_dirs[pp.n_system++] = rooted[i];
+                } else {
+                    pp.system_dirs[pp.n_system++] = dirs[i];
+                }
+            }
+            if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS && !sysroot) {
+                static bool warned;
+
+                if (!warned) {
+                    warned = true;
+                    fprintf(stderr, "cgfried: warning: no macOS SDK found; "
+                                    "`xcrun --show-sdk-path` failed\n");
+                    fprintf(stderr,
+                            "cgfried: note: install the Command Line Tools "
+                            "('xcode-select --install') or set CGF_SDKROOT\n");
+                }
+            }
+        }
     }
 
     if (strcmp(job->path, "-") == 0) {

@@ -151,3 +151,10 @@ void cgf_report_include_search(FILE *out);
 const char *cgf_env(const char *name);
 
 #endif
+
+/* The macOS SDK root, or NULL. Probed once per driver run via
+ * `xcrun --show-sdk-path`; CGF_SDKROOT overrides it and a set-but-wrong
+ * override fails rather than falling through to the probe. Headers and the
+ * libSystem stub both live inside it — there is no /usr/include on a modern
+ * macOS — so this is a prerequisite for both preprocessing and linking. */
+const char *cgf_probe_macos_sdk(void);

@@ -50,8 +50,31 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
             buf_printf(out, "#define linux 1\n#define unix 1\n");
         break;
     case CGF_TARGET_ARM64_MACOS:
-        buf_printf(out, "#define __aarch64__ 1\n#define __APPLE__ 1\n"
-                        "#define __MACH__ 1\n");
+        /* Apple's headers dispatch on `__arm64__`, NOT on `__aarch64__`:
+         * sys/cdefs.h `#error Unsupported architecture` and
+         * machine/_types.h `#error architecture not supported` both test
+         * only the Apple spelling, so `#include <stdio.h>` fails on the
+         * first line without it. Both spellings ship because third-party
+         * code tests either.
+         *
+         * The minimum OS version appears in THREE places that must agree:
+         * here, the emitter's `.build_version macos, 11, 0`, and the
+         * linker's `-platform_version macos 11.0`. Availability.h reads
+         * this one.
+         *
+         * NOT defined, deliberately: __APPLE_CC__ and
+         * __apple_build_version__. They are compiler-identity macros, and
+         * a header that sees them assumes Apple-clang extensions — the
+         * same reason __GNUC__ stays absent until Sprint 55. */
+        buf_printf(out,
+                   "#define __arm64__ 1\n#define __arm64 1\n"
+                   "#define __aarch64__ 1\n#define __AARCH64EL__ 1\n"
+                   "#define __ARM64_ARCH_8__ 1\n#define __AARCH64_SIMD__ 1\n"
+                   "#define __AARCH64_CMODEL_SMALL__ 1\n"
+                   "#define __APPLE__ 1\n#define __MACH__ 1\n"
+                   "#define __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ "
+                   "110000\n"
+                   "#define __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__ 110000\n");
         break;
     case CGF_TARGET_X86_64_FREEBSD:
         buf_printf(out, "#define __x86_64__ 1\n#define __x86_64 1\n"
@@ -380,6 +403,18 @@ size_t cgf_target_system_include_dirs(TargetSpec t, const char **out,
         out[2] = "/usr/include";
         return 3;
     case CGF_TARGET_ARM64_MACOS:
+        /* macOS has NO /usr/include. Every system header lives inside an
+         * SDK whose path moves with Xcode and can only be learned by
+         * running `xcrun`, which is a subprocess and therefore cannot
+         * happen in this file — target.c is pure by construction. The
+         * driver asks cgf_probe_macos_sdk() and prepends the root to the
+         * two suffixes below, so the ORDER still lives here with every
+         * other target's. */
+        if (max < 2)
+            return 0;
+        out[0] = "/usr/local/include";
+        out[1] = "/usr/include";
+        return 2;
     case CGF_TARGET_X86_64_FREEBSD:
         if (max < 2)
             return 0;
