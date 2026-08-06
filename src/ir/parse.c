@@ -564,7 +564,8 @@ static bool parse_typed(P *p, IrOperand *slot)
 }
 
 /* A call argument: typed operand plus an optional ABI annotation
- * (`byval(N)`, `sret(N)`, `pair_xy(N)`), stored in operand.b. */
+ * (`byval(N)`, `sret(N)`, `pair_xy(N)`), then an optional ` anon`, all
+ * stored in operand.b. The printer emits them in that order. */
 static bool parse_call_arg(P *p, IrOperand *slot)
 {
     u32 kind = 0;
@@ -585,19 +586,29 @@ static bool parse_call_arg(P *p, IrOperand *slot)
         kind = IR_ARG_PAIR_SI;
     else if (tok_is(peek(p), "pair_ss"))
         kind = IR_ARG_PAIR_SS;
-    else
-        return true;
-    next(p);
-    if (!expect(p, T_LP, "'(' after the argument annotation"))
-        return false;
-    {
-        Tok *sz = expect(p, T_INT, "the annotated byte size");
-
-        if (!sz)
+    if (kind) {
+        next(p);
+        if (!expect(p, T_LP, "'(' after the argument annotation"))
             return false;
-        slot->b = ir_arg_annot(kind, (u32)sz->ival);
+        {
+            Tok *sz = expect(p, T_INT, "the annotated byte size");
+
+            if (!sz)
+                return false;
+            slot->b = ir_arg_annot(kind, (u32)sz->ival);
+        }
+        if (!expect(p, T_RP, "')'"))
+            return false;
+        if (peek(p)->kind != T_IDENT)
+            return true;
     }
-    return expect(p, T_RP, "')'") != NULL;
+    /* `anon` is a separate FLAG, not a kind: an anonymous aggregate is both,
+     * and it rides its own byte rather than the annotation word. */
+    if (tok_is(peek(p), "anon")) {
+        next(p);
+        slot->argflags |= IROPF_ANON;
+    }
+    return true;
 }
 
 /* Count the comma-separated items between the current '(' and its

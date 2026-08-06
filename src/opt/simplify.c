@@ -667,6 +667,8 @@ static IrOperand resolve_inst_operand(IrOperand op,
     if (call_operand && (old.kind == IROP_VALUE || old.kind == IROP_SYMBOL) &&
         ir_arg_kind(old.b) != IR_ARG_NONE)
         op.b = old.b;
+    if (call_operand)
+        op.argflags = old.argflags;
     return op;
 }
 

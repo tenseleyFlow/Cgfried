@@ -233,6 +233,8 @@ static void print_call_arg(Buf *out, const IrModule *m, const ValNames *vn,
     default:
         break;
     }
+    if (o->argflags & IROPF_ANON)
+        buf_printf(out, " anon");
 }
 
 static void print_edge(Buf *out, const IrModule *m, const IrFunc *f,

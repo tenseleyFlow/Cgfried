@@ -767,8 +767,9 @@ static bool str_eq(const char *a, const char *b)
 
 static bool operand_eq(const IrOperand *a, const IrOperand *b)
 {
-    return a->kind == b->kind && a->type == b->type && a->sym == b->sym &&
-           a->a == b->a && a->b == b->b;
+    return a->kind == b->kind && a->type == b->type &&
+           a->argflags == b->argflags && a->sym == b->sym && a->a == b->a &&
+           a->b == b->b;
 }
 
 static bool inst_eq(const IrInst *a, const IrInst *b)

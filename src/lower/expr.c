@@ -1217,9 +1217,8 @@ static IrOperand lower_va_arg_apple(Lower *lo, AstNode *e, IrOperand ap)
             ir_build2(&lo->b, IR_AND, IRT_I64, ir_op_value(lo->fn, up),
                       lower_i64(-(i64)l.align));
 
-        at = ir_op_value(
-            lo->fn,
-            ir_build1(&lo->b, IR_BITCAST, IRT_PTR, ir_op_value(lo->fn, masked)));
+        at = ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                           ir_op_value(lo->fn, masked)));
         slot = ((u64)l.size + (u64)l.align - 1) & ~((u64)l.align - 1);
     }
     next = ir_build_ptradd(&lo->b, at, lower_i64((i64)slot));
@@ -1455,12 +1454,12 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
          * pointer -- and copying it is the ONLY way to get an independent
          * cursor there, since its va_list is not an array and assignment
          * would alias rather than decay. */
-        ir_build_memcpy(&lo->b, ap, src,
-                        lower_i64(lo->sema->target.kind == CGF_TARGET_ARM64_MACOS
-                                      ? 8
-                                      : lower_is_aapcs64(lo) ? 32
-                                                             : 24),
-                        8, 0);
+        ir_build_memcpy(
+            &lo->b, ap, src,
+            lower_i64(lo->sema->target.kind == CGF_TARGET_ARM64_MACOS ? 8
+                      : lower_is_aapcs64(lo)                          ? 32
+                                                                      : 24),
+            8, 0);
         return;
     }
     default: /* va_end: the SysV va_end is a no-op — nothing at all */
@@ -1654,6 +1653,13 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         AstNode *a = e->args[i];
         AbiArg plan;
         IrOperand av = lower_rvalue(lo, a);
+        /* The named/anonymous boundary is knowable ONLY here: the IR records
+         * that a callee is variadic, never where its prototype stopped. An
+         * unprototyped callee has no boundary to record. */
+        u8 anon = fty && fty->variadic && fty->has_proto && i >= fty->nparams
+                      ? (u8)IROPF_ANON
+                      : 0u;
+        u32 first_arg = nargs;
 
         attr_ir_args[i] = nargs + 1;
 
@@ -1709,6 +1715,11 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             args[nargs++] = av;
             break;
         }
+        /* One C argument can become two operands (an EIGHTBYTES aggregate);
+         * both halves are equally anonymous. */
+        if (anon)
+            for (; first_arg < nargs; first_arg++)
+                args[first_arg].argflags |= anon;
     }
 
     {

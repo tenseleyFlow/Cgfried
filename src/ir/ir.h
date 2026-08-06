@@ -258,13 +258,34 @@ typedef enum IrOpKind {
     IROP_UNDEF
 } IrOpKind;
 
+/* Call-argument provenance, carried in IrOperand.argflags.
+ *
+ * ANON: this operand fills an ANONYMOUS parameter — it lands past the
+ * callee's last named one. IRF_CALL_VARIADIC says the callee is variadic; it
+ * does not say where the named parameters stop, and only the front end ever
+ * knew. Apple's arm64 ABI needs the boundary because it passes every
+ * anonymous argument on the STACK while a named one of the same type goes in
+ * a register: the same call shape, two placements.
+ *
+ * It lives in its own byte rather than in the ABI-annotation word `b`
+ * because `b` is NOT free on every operand kind — on an f80/f128 fconst it
+ * is the high half of the value, and `printf("%Lf", 1.0L)` passes exactly
+ * that. The byte is free padding, so nothing grows. Printed ` anon`. */
+#define IROPF_ANON 0x1u
+
 typedef struct IrOperand {
-    u8 kind; /* IrOpKind */
-    u8 type; /* IrType */
-    u32 sym; /* IROP_SYMBOL: module symbol index */
-    u64 a;   /* VALUE: id | ICONST: bits | FCONST: bits lo | SYMBOL: addend */
-    u64 b;   /* FCONST: bits hi (f80/f128); else 0 */
+    u8 kind;     /* IrOpKind */
+    u8 type;     /* IrType */
+    u8 argflags; /* IROPF_*; call arguments only, zero elsewhere */
+    u32 sym;     /* IROP_SYMBOL: module symbol index */
+    u64 a; /* VALUE: id | ICONST: bits | FCONST: bits lo | SYMBOL: addend */
+    u64 b; /* FCONST: bits hi (f80/f128); else 0 */
 } IrOperand;
+
+/* argflags occupies padding that already existed between `type` and `sym`.
+ * If this ever fails, the field stopped being free and the trade needs
+ * re-deciding rather than silently costing 8 bytes per operand. */
+_Static_assert(sizeof(IrOperand) == 24, "IrOperand grew past 24 bytes");
 
 /* One outgoing CFG edge: a target block plus the arguments the branch
  * passes to its parameters. condbr has two of these, switch has 1+N. */

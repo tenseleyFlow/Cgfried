@@ -550,11 +550,27 @@ static void check_inst_misc(V *v, const IrInst *in)
                  in->ops[i].sym, v->m->nsyms);
     }
     if (in->op == IR_CALL) {
+        bool seen_anon = false;
+
         if (ir_type_is_vector((IrType)in->type))
             verr(v, 4, "vector call results have no Sprint 36 ABI");
         for (i = in->subop == FUNCREF_INDIRECT ? 1u : 0u; i < in->nops; i++)
             if (ir_type_is_vector((IrType)in->ops[i].type))
                 verr(v, 4, "vector call arguments have no Sprint 36 ABI");
+        /* The anonymous parameters are a SUFFIX of the argument list, and
+         * only a variadic callee has any. A gap would mean the boundary was
+         * computed per-argument rather than once. */
+        for (i = in->subop == FUNCREF_INDIRECT ? 1u : 0u; i < in->nops; i++) {
+            bool anon = (in->ops[i].argflags & IROPF_ANON) != 0;
+
+            if (anon && !(in->flags & IRF_CALL_VARIADIC))
+                verr(v, 9, "arg %u is 'anon' on a call that is not marked 'va'",
+                     i);
+            if (seen_anon && !anon)
+                verr(v, 9,
+                     "arg %u follows an 'anon' argument without being one", i);
+            seen_anon = seen_anon || anon;
+        }
         if (in->subop == FUNCREF_INTERNAL) {
             if (in->callee >= v->m->nfuncs) {
                 verr(v, 9, "call to internal function %u; module has %u",
