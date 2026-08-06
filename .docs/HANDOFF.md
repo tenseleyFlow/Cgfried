@@ -440,6 +440,24 @@ corpus on nomad-1" cannot close before then.** Decide deliberately whether to
 pull Sprint 55's attribute parser forward or to close Sprint 50 with that gate
 named and open; do not discover this a third time.
 
+### A silent miscompile found while starting D5
+
+**`_Thread_local` had never been lowered.** It parsed, typed and recorded
+correctly and then became an ordinary global — every thread shared one copy.
+Four threads each incrementing one a thousand times printed 1000 in main where
+gcc prints 0, with no diagnostic. Not target-specific: no target ever had it.
+
+It is now a hard error at lowering (`877fa48`), skipping the analysis module
+so `-fsyntax-only`/`-fdump-sema` and the five `sema16/tls_*.c` fixtures keep
+working. Nothing regressed — musl sweep and safe-dogfood unchanged.
+`.docs/audits/tls-debt.md` has the five pieces (TLS-001..005) and the
+measurement. **It is a hard prerequisite for Sprint 58**: the runtime uses
+`_Thread_local` and the bootstrap flips the runtime to cgf.
+
+Deciding whether to spend a deliverable on it is task #101. Local-exec alone
+covers everything the current non-PIE output model can produce, and it needs a
+thread-pointer read in IR/MIR plus afs-as relocation support.
+
 ### What is left in Sprint 50
 
 - **#98 tail**: nothing required for the system-ld lane. afs-ld (`CGF_LD=1`)
