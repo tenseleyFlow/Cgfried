@@ -357,6 +357,11 @@ typedef struct A64Func {
     bool variadic;   /* needs the AAPCS64 register save area */
     u32 va_named_gp; /* general registers the named parameters consumed */
     u32 va_named_fp; /* vector registers the named parameters consumed */
+    /* Bytes of incoming stack occupied by NAMED parameters. va_list.__stack
+     * must start past them, or the first anonymous argument reads the last
+     * named one. Zero for the common case where every named argument fit in
+     * registers. */
+    u32 va_named_stack;
     /* 16-byte constants, as {lo, hi} pairs. binary128 has no immediate form
      * -- no movz sequence reaches a q register and no fmov immediate covers
      * 128 bits -- so an f128 literal, and the sign mask fneg needs, are

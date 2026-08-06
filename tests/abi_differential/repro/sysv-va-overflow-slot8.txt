@@ -1,0 +1,4 @@
+R d
+A f
+V s(d,i,l,s(i,l,f),h)
+V s(s(a(15,c)),i)

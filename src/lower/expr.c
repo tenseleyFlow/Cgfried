@@ -1023,6 +1023,7 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
     bool fp_path = false;
     bool indirect = false;
     i64 nslots = 1;
+    i64 hfa_leaf = 0; /* HFA leaf width in bytes; 0 when not an HFA */
     i64 bump;
     i64 top_off, offs_off;
     BlockId join, stack;
@@ -1047,11 +1048,14 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
         break;
     case ABI_ARG_HFA:
         /* Each leaf occupies its own 16-byte q slot in the save area, so the
-         * aggregate is NOT contiguous there and reassembly must gather leaf
-         * by leaf. Erroring beats reading three floats out of a 48-byte
-         * window as if they were adjacent. */
-        lower_unimplemented(lo, e->span,
-                            "va_arg of a homogeneous floating aggregate", 49);
+         * aggregate is NOT contiguous there: three floats sit at +0, +16 and
+         * +32, not at +0, +4, +8. The register path gathers them leaf by leaf
+         * below. Everything else about the walk is the ordinary FP one --
+         * each leaf spends a v-register, so the offset advances by 16 apiece.
+         */
+        fp_path = true;
+        nslots = plan.n;
+        hfa_leaf = (i64)ir_type_size(plan.t[0]);
         break;
     default:
         /* Over 16 bytes: the caller passed a POINTER, so the slot holds an
@@ -1100,6 +1104,45 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
                 ir_build_ptradd(&lo->b, top, ir_op_value(lo->fn, wide));
             IrOperand from_reg = ir_op_value(lo->fn, at);
 
+            if (hfa_leaf && nslots > 1) {
+                /* Gather the leaves out of their 16-byte q slots into a
+                 * contiguous temporary at the leaf width. The same reshaping
+                 * the SysV path needs for a multi-eightbyte SSE aggregate,
+                 * and for the same reason: a save area is laid out by
+                 * REGISTER, not by object. */
+                ValueId tmp = ir_build_alloca_typed(
+                    &lo->b, lower_i64(nslots * hfa_leaf),
+                    l.align > 8 ? (u32)l.align : 8, lower_efftype(lo, t));
+                IrType lt = hfa_leaf == 4 ? IRT_F32 : IRT_F64;
+                i64 k;
+
+                for (k = 0; k < nslots; k++) {
+                    Lvalue src, dst;
+                    IrOperand sp = ir_op_value(lo->fn, at);
+                    IrOperand dp = ir_op_value(lo->fn, tmp);
+                    IrOperand leaf;
+
+                    if (k) {
+                        sp = ir_op_value(
+                            lo->fn,
+                            ir_build_ptradd(&lo->b, sp, lower_i64(k * 16)));
+                        dp = ir_op_value(
+                            lo->fn, ir_build_ptradd(&lo->b, dp,
+                                                    lower_i64(k * hfa_leaf)));
+                    }
+                    memset(&src, 0, sizeof(src));
+                    src.addr = sp;
+                    src.unit = lt;
+                    src.align = (u32)hfa_leaf;
+                    leaf = lower_load(lo, src);
+                    memset(&dst, 0, sizeof(dst));
+                    dst.addr = dp;
+                    dst.unit = lt;
+                    dst.align = (u32)hfa_leaf;
+                    lower_store(lo, dst, leaf);
+                }
+                from_reg = ir_op_value(lo->fn, tmp);
+            }
             va_store_u32(lo, ap, offs_off, ir_op_value(lo->fn, bumped));
             ir_build_br(&lo->b, join, &from_reg, 1);
         }
@@ -1258,84 +1301,192 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
     {
         TypeLayout l = layout_of(lo->sema, t);
         bool is_agg = lower_is_aggregate(t);
-        bool fp_path = false;
         u32 n = 1;
         bool reg_ok = true;
+        /* Eightbytes PER CLASS rather than a single "is this the FP path"
+         * flag. An aggregate can need both banks at once, and the flag could
+         * not say so -- which is why every mixed pair used to be pushed to
+         * the overflow area, where the caller had not put it. */
+        i64 ngp = 0, nfp = 0;
 
         abi_classify_arg(lo, t, &plan);
         if (plan.kind == ABI_ARG_SCALAR) {
             IrType st = lower_irtype(lo, t);
 
             if (st == IRT_F32 || st == IRT_F64)
-                fp_path = true;
+                nfp = 1;
             else if (st == IRT_F80 || st == IRT_F128)
                 reg_ok = false; /* long double: always the overflow area */
+            else
+                ngp = 1;
         } else if (plan.kind == ABI_ARG_EIGHTBYTES) {
-            bool all_int = true;
-            bool all_sse = true;
             u32 k;
 
             n = plan.n;
             for (k = 0; k < plan.n; k++) {
                 if (plan.t[k] == IRT_F64)
-                    all_int = false;
+                    nfp++;
                 else
-                    all_sse = false;
+                    ngp++;
             }
-            if (all_sse)
-                fp_path = true;
-            else if (!all_int)
-                reg_ok = false; /* mixed eightbytes: overflow (corner —
-                                   noted for Sprint 50's revisit) */
         } else {
             reg_ok = false; /* MEMORY class: no register branch at all */
         }
+        if (!ngp && !nfp)
+            reg_ok = false;
 
         {
             BlockId join = lower_new_block(lo, "va.join");
             ValueId addr = ir_block_param(lo->m, lo->fn, join, IRT_PTR);
-            i64 field = fp_path ? 4 : 0;
-            i64 bump = fp_path ? 16 * (i64)n : 8 * (i64)n;
-            i64 limit = fp_path ? 176 - 16 * (i64)n : 48 - 8 * (i64)n;
-            u64 slot = l.size <= 8 ? 8 : (l.size + 15) & ~15ull;
+            /* SysV 3.5.7: the overflow cursor advances by the size rounded up
+             * to EIGHT. Sixteen is the PRE-alignment for a type whose own
+             * alignment exceeds 8, which the overflow path below applies
+             * separately -- rounding the advance to 16 as well left a hole
+             * before the next anonymous argument. Invisible with one MEMORY
+             * vararg, because only the SECOND one reads from a cursor the
+             * first moved. Both arm64 va_arg paths already round to 8. */
+            u64 slot = ((u64)l.size + 7) & ~7ull;
 
             if (reg_ok) {
                 BlockId reg = lower_new_block(lo, "va.reg");
                 BlockId mem = lower_new_block(lo, "va.mem");
-                Lvalue offlv;
-                IrOperand off;
+                IrOperand gp_off, fp_off;
+                IrOperand cond;
 
-                memset(&offlv, 0, sizeof(offlv));
-                offlv.addr = va_field_addr(lo, ap, field);
-                offlv.unit = IRT_I32;
-                offlv.align = 4;
-                off = lower_load(lo, offlv);
-                {
-                    ValueId c = ir_build_icmp(&lo->b, ICMP_ULE, off,
-                                              ir_op_iconst(IRT_I32, limit));
+                /* An aggregate can need BOTH banks (`struct { double d; short
+                 * s; }` is one SSE eightbyte and one INTEGER), and it goes to
+                 * the registers only if there is room in each. Forcing every
+                 * mixed pair to the overflow area -- the corner this file used
+                 * to defer -- reads from where the caller never wrote it. */
+                if (ngp) {
+                    Lvalue lv;
 
-                    ir_build_condbr(&lo->b, ir_op_value(lo->fn, c), reg, NULL,
-                                    0, mem, NULL, 0);
+                    memset(&lv, 0, sizeof(lv));
+                    lv.addr = va_field_addr(lo, ap, 0);
+                    lv.unit = IRT_I32;
+                    lv.align = 4;
+                    gp_off = lower_load(lo, lv);
                 }
+                if (nfp) {
+                    Lvalue lv;
+
+                    memset(&lv, 0, sizeof(lv));
+                    lv.addr = va_field_addr(lo, ap, 4);
+                    lv.unit = IRT_I32;
+                    lv.align = 4;
+                    fp_off = lower_load(lo, lv);
+                }
+                {
+                    ValueId c;
+                    bool have = false;
+
+                    memset(&c, 0, sizeof(c));
+                    if (ngp) {
+                        c = ir_build_icmp(&lo->b, ICMP_ULE, gp_off,
+                                          ir_op_iconst(IRT_I32, 48 - 8 * ngp));
+                        have = true;
+                    }
+                    if (nfp) {
+                        ValueId cf = ir_build_icmp(
+                            &lo->b, ICMP_ULE, fp_off,
+                            ir_op_iconst(IRT_I32, 176 - 16 * nfp));
+
+                        c = have ? ir_build2(&lo->b, IR_AND, IRT_I32,
+                                             ir_op_value(lo->fn, c),
+                                             ir_op_value(lo->fn, cf))
+                                 : cf;
+                    }
+                    cond = ir_op_value(lo->fn, c);
+                }
+                ir_build_condbr(&lo->b, cond, reg, NULL, 0, mem, NULL, 0);
+
                 lower_at(lo, reg);
                 {
                     Lvalue rsalv;
-                    IrOperand rsa;
-                    ValueId wide, sum, bumped;
-                    IrOperand from_reg;
+                    IrOperand rsa, gp_base, fp_base, from_reg;
+                    i64 gp_seen = 0, fp_seen = 0;
+                    u32 k;
 
                     memset(&rsalv, 0, sizeof(rsalv));
                     rsalv.addr = va_field_addr(lo, ap, 16);
                     rsalv.unit = IRT_PTR;
                     rsalv.align = 8;
                     rsa = lower_load(lo, rsalv);
-                    wide = ir_build1(&lo->b, IR_ZEXT, IRT_I64, off);
-                    sum =
-                        ir_build_ptradd(&lo->b, rsa, ir_op_value(lo->fn, wide));
-                    bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, off,
-                                       ir_op_iconst(IRT_I32, bump));
-                    va_store_u32(lo, ap, field, ir_op_value(lo->fn, bumped));
-                    from_reg = ir_op_value(lo->fn, sum);
+                    if (ngp) {
+                        ValueId w = ir_build1(&lo->b, IR_ZEXT, IRT_I64, gp_off);
+
+                        gp_base = ir_op_value(
+                            lo->fn, ir_build_ptradd(&lo->b, rsa,
+                                                    ir_op_value(lo->fn, w)));
+                    }
+                    if (nfp) {
+                        ValueId w = ir_build1(&lo->b, IR_ZEXT, IRT_I64, fp_off);
+
+                        fp_base = ir_op_value(
+                            lo->fn, ir_build_ptradd(&lo->b, rsa,
+                                                    ir_op_value(lo->fn, w)));
+                    }
+
+                    if (n == 1) {
+                        /* One eightbyte: the save area slot IS the value. */
+                        from_reg = nfp ? fp_base : gp_base;
+                    } else {
+                        /* Several: GATHER. The GP half packs eightbytes at
+                         * 8, the FP half gives each xmm its own SIXTEEN, and
+                         * a mixed aggregate interleaves the two -- so the
+                         * value is never contiguous in the save area and a
+                         * straight 16-byte read picks up padding. AAPCS64
+                         * gathers HFA leaves out of their q slots for the
+                         * same reason. */
+                        ValueId tmp =
+                            ir_build_alloca_typed(&lo->b, lower_i64((i64)n * 8),
+                                                  8, lower_efftype(lo, t));
+
+                        for (k = 0; k < n; k++) {
+                            bool kfp = plan.kind == ABI_ARG_EIGHTBYTES &&
+                                       plan.t[k] == IRT_F64;
+                            IrOperand sp = kfp ? fp_base : gp_base;
+                            IrOperand dp = ir_op_value(lo->fn, tmp);
+                            i64 soff = kfp ? fp_seen++ * 16 : gp_seen++ * 8;
+                            Lvalue src, dst;
+                            IrOperand word;
+
+                            if (soff)
+                                sp = ir_op_value(
+                                    lo->fn, ir_build_ptradd(&lo->b, sp,
+                                                            lower_i64(soff)));
+                            if (k)
+                                dp = ir_op_value(
+                                    lo->fn,
+                                    ir_build_ptradd(&lo->b, dp,
+                                                    lower_i64((i64)k * 8)));
+                            memset(&src, 0, sizeof(src));
+                            src.addr = sp;
+                            src.unit = IRT_I64;
+                            src.align = 8;
+                            word = lower_load(lo, src);
+                            memset(&dst, 0, sizeof(dst));
+                            dst.addr = dp;
+                            dst.unit = IRT_I64;
+                            dst.align = 8;
+                            lower_store(lo, dst, word);
+                        }
+                        from_reg = ir_op_value(lo->fn, tmp);
+                    }
+
+                    /* Both cursors advance, each by its own class's count. */
+                    if (ngp) {
+                        ValueId b = ir_build2(&lo->b, IR_IADD, IRT_I32, gp_off,
+                                              ir_op_iconst(IRT_I32, 8 * ngp));
+
+                        va_store_u32(lo, ap, 0, ir_op_value(lo->fn, b));
+                    }
+                    if (nfp) {
+                        ValueId b = ir_build2(&lo->b, IR_IADD, IRT_I32, fp_off,
+                                              ir_op_iconst(IRT_I32, 16 * nfp));
+
+                        va_store_u32(lo, ap, 4, ir_op_value(lo->fn, b));
+                    }
                     ir_build_br(&lo->b, join, &from_reg, 1);
                 }
                 lower_at(lo, mem);

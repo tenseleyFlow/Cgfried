@@ -345,13 +345,16 @@ void test_abi_aapcs64_vs_sysv_contrast(TestCtx *t)
     abi_close(&f);
 }
 
-/* abi_arg_regs is what va_start's constants and the register caps are
- * computed from, so its accounting must match the plans exactly. */
+/* abi_arg_place is what va_start's constants and the register caps are
+ * computed from -- it both places an argument and charges it -- so its
+ * accounting must match the plans exactly. It replaced a second, parallel
+ * counter that missed the general register an INDIRECT aggregate spends;
+ * the S(64) row below is the one that caught it. */
 void test_abi_aapcs64_reg_accounting(TestCtx *t)
 {
     AbiFix f;
     AbiArg got;
-    u32 gp, fp;
+    AbiBudget b;
     Type *ty;
 
     abi_open(&f,
@@ -362,17 +365,44 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
 
     ty = tag_type(&f, "H4");
     abi_classify_arg(&f.lo, ty, &got);
-    gp = fp = 0;
-    abi_arg_regs(&got, &gp, &fp);
-    T_ASSERT_EQ_INT(t, (int)gp, 0);
-    T_ASSERT_EQ_INT(t, (int)fp, 4); /* four v-regs, one per leaf */
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b);
+    T_ASSERT_EQ_INT(t, (int)b.gp, 0);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 4); /* four v-regs, one per leaf */
 
     ty = tag_type(&f, "P");
     abi_classify_arg(&f.lo, ty, &got);
-    gp = fp = 0;
-    abi_arg_regs(&got, &gp, &fp);
-    T_ASSERT_EQ_INT(t, (int)gp, 2);
-    T_ASSERT_EQ_INT(t, (int)fp, 0);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b);
+    T_ASSERT_EQ_INT(t, (int)b.gp, 2);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 0);
+
+    /* Over 16 bytes: AAPCS64 passes the ADDRESS of a caller-made copy, and
+     * that address costs one general register. */
+    ty = tag_type(&f, "S");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_BYVAL);
+    T_ASSERT_EQ_INT(t, (int)b.gp, 1);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 0);
+
+    /* Two four-leaf HFAs fill v0-v7 exactly; a third has nowhere to go and
+     * is stacked WHOLE rather than split across the last registers and
+     * memory. */
+    abi_budget_init(&f.lo, &b, NULL);
+    ty = tag_type(&f, "H4");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_arg_place(&f.lo, &got, &b);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_HFA);
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_arg_place(&f.lo, &got, &b);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_HFA);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 8);
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_arg_place(&f.lo, &got, &b);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 8);
 
     abi_close(&f);
 }

@@ -146,19 +146,27 @@ minimize() {
     while [ "$changed" = 1 ]; do
         changed=0
 
-        n=$(grep -c '^A ' "$work/desc.txt" 2>/dev/null || true)
-        [ -n "$n" ] || n=0
-        i=1
-        while [ "$i" -le "$n" ]; do
-            awk -v skip="$i" '/^A /{k++; if (k==skip) next} {print}' \
-                "$work/desc.txt" >"$work/t/desc.txt"
-            if check_desc "$work/t"; then
-                i=$((i + 1))
-            else
-                cp "$work/t/desc.txt" "$work/desc.txt"
-                changed=1
-                n=$((n - 1))
-            fi
+        # Drop arguments, fixed and anonymous alike. Dropping only `A` lines
+        # left a "1-minimal" reproducer carrying three untouched variadic
+        # arguments, which is not minimal and hides which one matters.
+        # abigen rejects a variadic descriptor with no fixed argument, so
+        # such a reduction fails to emit and is rejected on its own.
+        for kind in A V; do
+            n=$(grep -c "^$kind " "$work/desc.txt" 2>/dev/null || true)
+            [ -n "$n" ] || n=0
+            i=1
+            while [ "$i" -le "$n" ]; do
+                awk -v skip="$i" -v k="$kind" \
+                    '$1 == k {seen++; if (seen == skip) next} {print}' \
+                    "$work/desc.txt" >"$work/t/desc.txt"
+                if check_desc "$work/t"; then
+                    i=$((i + 1))
+                else
+                    cp "$work/t/desc.txt" "$work/desc.txt"
+                    changed=1
+                    n=$((n - 1))
+                fi
+            done
         done
 
         # Composite simplification: --simplify K unwraps the K'th composite

@@ -669,9 +669,20 @@ static void lower_function(Lower *lo, AstNode *def)
     memset(pannots, 0, sizeof(pannots));
     if (hidden)
         ptypes[nir_params++] = IRT_PTR;
-    lo->named_gp = 0;
-    lo->named_fp = 0;
     abi_budget_init(lo, &budget, &aret);
+    /* named_gp/named_fp ARE the budget: va_start seeds its offsets from what
+     * the named arguments consumed, which is exactly what the placement walk
+     * is already tracking. They used to be a second, parallel count that
+     * missed two cases -- a MEMORY-return hidden pointer (rdi on SysV) and,
+     * on AAPCS64, the general register an indirect aggregate's pointer
+     * occupies. The second made a callee with a large struct parameter seed
+     * __gr_offs at -64 where gcc uses -56, so its first anonymous integer
+     * came out of x0. The save area itself stored x1-x7 correctly, which is
+     * how two sources of truth hide from each other. The assignment is
+     * repeated after every parameter AND made here, so that a function with
+     * no named parameters at all does not inherit the previous one's. */
+    lo->named_gp = budget.gp;
+    lo->named_fp = budget.fp;
     for (i = 0; i < (ft->params ? ft->nparams : def->nparam_syms) && i < 64;
          i++) {
         AbiArg *a = &plans[nplans++];
@@ -718,13 +729,10 @@ static void lower_function(Lower *lo, AstNode *def)
                 any_annot = true;
             }
             ptypes[nir_params++] = st;
-            if (st == IRT_F32 || st == IRT_F64) {
-                lo->named_fp++;
+            if (st == IRT_F32 || st == IRT_F64)
                 budget.fp++;
-            } else if (st != IRT_F80 && st != IRT_F128) {
-                lo->named_gp++;
+            else if (st != IRT_F80 && st != IRT_F128)
                 budget.gp++;
-            }
             break;
         }
         case ABI_ARG_EIGHTBYTES:
@@ -732,7 +740,8 @@ static void lower_function(Lower *lo, AstNode *def)
             /* Both travel as N bit-carrying scalars; only the leaf TYPE and
              * stride differ, and a->t[] already carries the types. An HFA's
              * leaves are f32/f64 and land in v0-v3, an eightbyte pair's are
-             * i64 and land in x0-x7 -- abi_arg_regs knows which queue. */
+             * i64 and land in x0-x7; abi_arg_place has already charged
+             * whichever queue each one spends. */
             u32 k;
 
             for (k = 0; k < a->n; k++) {
@@ -745,7 +754,6 @@ static void lower_function(Lower *lo, AstNode *def)
                 }
                 ptypes[nir_params++] = a->t[k];
             }
-            abi_arg_regs(a, &lo->named_gp, &lo->named_fp);
             break;
         }
         default: /* BYVAL and STACK */
@@ -760,6 +768,8 @@ static void lower_function(Lower *lo, AstNode *def)
             ptypes[nir_params++] = IRT_PTR;
             break;
         }
+        lo->named_gp = budget.gp;
+        lo->named_fp = budget.fp;
     }
 
     lo->fn =

@@ -7,6 +7,87 @@ clean error naming its sprint, never an ICE and never a silent wrong answer.
 |---|---|---|---|---|
 | ABI-001 | HFA arguments and returns (v0-v3) | arm64-linux, arm64-macos | Sprint 51 cross-determinism probe | **CLOSED** |
 | ABI-002 | An aggregate that does not fit is split across registers and stack | x86_64 (all), arm64-linux, arm64-macos | Sprint 51 ABI differential | **CLOSED** |
+| ABI-003 | Six varargs defects, and two deferrals that became reachable | x86_64 (all), arm64-linux | Sprint 51 ABI differential, varargs generation | **CLOSED** |
+| ABI-004 | An ANONYMOUS aggregate is not passed by value in the varargs area | arm64-macos | Sprint 51 ABI differential on nomad-1 | **OPEN** |
+
+## ABI-004 — Apple anonymous aggregates — OPEN
+
+24 of 304 generated signatures disagree with clang on arm64-macos, and every
+single minimized reproducer is the same shape: a COMPOSITE anonymous
+argument. Scalars are clean.
+
+    R v  A d  V s(a(17,c))          17 bytes -- indirect on AAPCS64
+    R v  A f  V s(f,f,f)            an HFA
+    R d  A h  V s(i,c,d,c)          a mixed 24-byte aggregate
+
+Apple's varargs area holds every anonymous argument BY VALUE and contiguous
+-- Sprint 50 measured exactly that against clang and recorded it. What is
+missing is that the classifier still shapes an anonymous aggregate the way a
+NAMED one is shaped, so it reaches the backend either as an indirect pointer
+(over 16 bytes) or as HFA leaves, and the marshaller then gives each leaf its
+own eightbyte slot. A three-float HFA occupies 24 bytes of varargs area where
+clang uses 16.
+
+The fix is almost certainly to classify an anonymous aggregate on
+arm64-macos as `ABI_ARG_STACK`, which ABI-002 introduced and which already
+means precisely "by value on the stack, whole". The provenance needed to
+recognize it -- `IROPF_ANON` -- has been on the operand since Sprint 50.
+
+Not attempted here because it needs a Mac in the loop to verify and this
+sprint's verified surface was already large. arm64-linux and x86_64 are
+unaffected: AAPCS64 and SysV place anonymous arguments exactly as named ones,
+which is the whole reason this is Apple-only.
+
+## ABI-003 — varargs — CLOSED in Sprint 51
+
+Teaching the generator to emit a variadic tail found six defects in one
+afternoon, four on SysV and two on AAPCS64. Every one is in the CALLEE:
+`va_arg` is where an ABI's register save area stops being a formality.
+
+**SysV.**
+
+1. `va_start`'s `gp_offset` counted the named arguments but not the hidden
+   pointer of a MEMORY return, which really does occupy `rdi`. A large-struct
+   -returning variadic function read its first anonymous integer back out of
+   the caller's sret pointer.
+2. The overflow cursor advanced by the size rounded up to SIXTEEN. Sixteen is
+   the pre-alignment for a type whose own alignment exceeds 8; the advance
+   rounds to EIGHT. Invisible with one MEMORY vararg, because only the second
+   reads from a cursor the first moved. Both arm64 paths already had it right.
+3. A multi-eightbyte all-SSE aggregate was read as 16 contiguous bytes out of
+   the FP save area, where each xmm owns a SIXTEEN-byte slot -- so the second
+   eightbyte was the first one's padding. It has to be gathered.
+4. A MIXED pair (`struct { double d; short s; }`, one SSE eightbyte and one
+   INTEGER) was pushed to the overflow area, where the caller never put it.
+   This was the corner the file itself deferred, with a comment. Fixing it
+   meant replacing the single "is this the FP path" flag with a count PER
+   CLASS, because an aggregate can need both banks at once and a boolean
+   cannot say so.
+
+**AAPCS64.** Both were reachable only through work landed in this same sprint,
+which is its own lesson about when to re-run a differential.
+
+5. `named_gp`/`named_fp` were a second count maintained in parallel with the
+   placement walk, and they missed the general register that an INDIRECT
+   aggregate's pointer occupies. A callee taking a large struct seeded
+   `__gr_offs` at -64 where gcc uses -56, so its first anonymous integer came
+   out of `x0`. The save area itself stored `x1`-`x7` correctly, which is
+   exactly how two sources of truth hide from each other. They are now one:
+   `named_gp` IS the budget.
+6. `va_arg` of an HFA hard-errored (a Sprint 49 deferral) and a variadic
+   function with stack-passed NAMED parameters ICEd (a Sprint 48 one). Both
+   are closed here. The first is the same gather as SysV finding 3 -- leaves
+   sit one per 16-byte `q` slot, not adjacent. The second needed `__stack` to
+   start past the named stack arguments, which selection already computes as
+   `nsaa`; ABI-002's stacked HFA made it common rather than exotic.
+
+Neither deferral was a wrong answer -- both were clean errors naming their
+sprint, which is why they survived so long and why that policy is worth
+keeping. The differential reports them as disagreements because a compile
+failure IS one.
+
+**Coverage.** 304 signatures per target (300 generated plus the checked-in
+reproducers), both directions, clean on x86_64 and arm64-linux.
 
 ## ABI-002 — register exhaustion splits an aggregate — CLOSED in Sprint 51
 

@@ -29,3 +29,35 @@ sources from it deterministically.
 Both bugs failed in BOTH directions, which is the tell for a self-consistent
 convention error: our caller and our callee agreed with each other and neither
 agreed with gcc. A same-compiler test cannot see that.
+
+Varargs (ABI-003). Every one of these is a CALLEE bug: va_arg is where a
+register save area stops being a formality.
+
+  sysv-va-sret-gp-offset
+      va_start's gp_offset skipped the hidden pointer of a MEMORY return,
+      which really does occupy rdi, so the first anonymous integer came back
+      as the caller's sret pointer.
+
+  sysv-va-overflow-slot8
+      The overflow cursor advanced by the size rounded to SIXTEEN. Sixteen is
+      the pre-alignment for an over-aligned type; the advance rounds to
+      EIGHT. Needs two MEMORY varargs to show: only the second reads from a
+      cursor the first moved.
+
+  sysv-va-sse-pair-gather
+      Two SSE eightbytes were read as 16 contiguous bytes out of the FP save
+      area, where each xmm owns a SIXTEEN-byte slot. The second eightbyte was
+      the first one's padding.
+
+  sysv-va-mixed-pair
+      struct { double; short; } is one SSE eightbyte and one INTEGER. It was
+      pushed to the overflow area, where the caller never put it.
+
+  aapcs64-va-indirect-named
+      __gr_offs was seeded from a count that missed the general register an
+      indirect aggregate's pointer occupies: -64 where gcc uses -56.
+
+  aapcs64-va-hfa, aapcs64-va-stacked-named
+      Two deferrals that ABI-002 made reachable. HFA leaves sit one per
+      16-byte q slot and must be gathered; __stack must start past any named
+      parameter that was itself stacked.

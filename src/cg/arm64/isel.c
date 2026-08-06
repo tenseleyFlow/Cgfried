@@ -2073,10 +2073,6 @@ static void bind_params(Isel *is, const IrFunc *ir)
             add_operand(load, reg_op(dst));
             add_operand(load, mem);
             nsaa += slot_bytes;
-            if (ir->variadic)
-                CGF_ICE("arm64 isel: a variadic function with stack-passed "
-                        "named parameters needs __stack biased past them "
-                        "(Sprint 48)");
             continue;
         }
         {
@@ -2090,6 +2086,11 @@ static void bind_params(Isel *is, const IrFunc *ir)
     }
     is->func->va_named_gp = ngrn;
     is->func->va_named_fp = nsrn;
+    /* Whatever the named parameters took off the incoming stack, __stack has
+     * to skip. Rounded to 8 because the anonymous area is eightbyte-slotted.
+     * This used to hard-error; it became reachable far more often once an
+     * oversubscribed HFA started being stacked (ABI-002). */
+    is->func->va_named_stack = (nsaa + 7u) & ~7u;
 }
 
 A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,

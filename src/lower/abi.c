@@ -372,30 +372,3 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b)
     }
     a->kind = (u8)ABI_ARG_STACK;
 }
-
-void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp)
-{
-    u32 i;
-
-    switch (a->kind) {
-    case ABI_ARG_BYVAL:
-        /* SysV: a memory argument consumes no register. AAPCS64 spends
-         * one GPR on the pointer — the caller counts that where it walks
-         * the IR, since the pointer is an ordinary ptr-typed argument
-         * there rather than an annotation-only one. */
-        return;
-    case ABI_ARG_HFA:
-        *fp += a->n;
-        return;
-    case ABI_ARG_EIGHTBYTES:
-        for (i = 0; i < a->n; i++) {
-            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64)
-                (*fp)++;
-            else
-                (*gp)++;
-        }
-        return;
-    default:
-        return; /* SCALAR: the caller counts from the IR type */
-    }
-}

@@ -1623,7 +1623,7 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
             if (cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
                 A64Inst st;
 
-                emit_add_imm(&rb, scratch, A64_X29, vr_top);
+                emit_add_imm(&rb, scratch, A64_X29, vr_top + f->va_named_stack);
                 st = mk_store_at(scratch, ap, 0, false);
                 rb_put(&rb, &st);
                 continue;
@@ -1639,9 +1639,13 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
                 A64Inst st = mk_store_at(scratch, ap, 16, false);
 
                 rb_put(&rb, &st);
-                /* __stack is the first incoming stack argument, which is the
-                 * top of the frame when no named parameter was stacked —
-                 * selection hard-errors on the case where one was. */
+                /* __stack is the first ANONYMOUS incoming stack argument.
+                 * That is the top of the frame only when no named parameter
+                 * was stacked; when one was, it sits past them. Selection
+                 * used to hard-error here instead. */
+                if (f->va_named_stack)
+                    emit_add_imm(&rb, scratch, A64_X29,
+                                 vr_top + f->va_named_stack);
                 st = mk_store_at(scratch, ap, 0, false);
                 rb_put(&rb, &st);
             }

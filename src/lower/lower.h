@@ -309,10 +309,6 @@ typedef struct AbiRet {
 void abi_classify_arg(Lower *lo, Type *t, AbiArg *out);
 void abi_classify_ret(Lower *lo, Type *t, AbiRet *out);
 
-/* gp/fp register consumption of one classified argument (for va_start's
- * gp_offset/fp_offset constants and the 6/8 register caps). */
-void abi_arg_regs(const AbiArg *a, u32 *gp, u32 *fp);
-
 /* The running argument-register budget for ONE call or definition. Both psABIs
  * make placement depend on what earlier arguments already consumed, so
  * classification alone cannot decide where an argument goes -- see
