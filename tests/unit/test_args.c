@@ -504,8 +504,29 @@ void test_args_deferred_flags(TestCtx *t)
     T_ASSERT(t, a.deferred && strcmp(a.deferred, "-shared") == 0);
     T_ASSERT(t, strstr(a.deferred_sprint, "Sprint 51") != NULL);
     args_free(&a);
+    /* -fPIC/-fPIE are IMPLEMENTED as of Sprint 51 and no longer deferred.
+     * -fpic and -fPIC are the same flag here: neither current target has a
+     * small-GOT variant to distinguish them. */
     PARSE(a, &ar, (char *)"-fPIC", (char *)"t.c");
-    T_ASSERT(t, a.deferred && strcmp(a.deferred, "-fPIC") == 0);
+    T_ASSERT(t, !a.deferred);
+    T_ASSERT(t, a.fpic && !a.fpie);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-fpic", (char *)"t.c");
+    T_ASSERT(t, a.fpic);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-fPIE", (char *)"t.c");
+    T_ASSERT(t, a.fpie && !a.fpic);
+    args_free(&a);
+    /* Negation, and last-one-wins. */
+    PARSE(a, &ar, (char *)"-fPIC", (char *)"-fno-pic", (char *)"t.c");
+    T_ASSERT(t, !a.fpic);
+    args_free(&a);
+    /* -pie/-no-pie are LINK flags and say nothing about codegen. */
+    PARSE(a, &ar, (char *)"-pie", (char *)"t.c");
+    T_ASSERT(t, a.link_pie && !a.no_pie && !a.fpic && !a.fpie);
+    args_free(&a);
+    PARSE(a, &ar, (char *)"-pie", (char *)"-no-pie", (char *)"t.c");
+    T_ASSERT(t, a.no_pie && !a.link_pie);
     args_free(&a);
     PARSE(a, &ar, (char *)"-flto", (char *)"t.c");
     T_ASSERT(t, a.deferred && strstr(a.deferred_sprint, "v0.1.0") != NULL);

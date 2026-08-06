@@ -261,7 +261,7 @@ void test_x64_vector_transport_and_forced_spill(TestCtx *t)
     vec_init(&f);
     m = parse_vec(&f, src);
     T_ASSERT(t, m && ir_verify(f.dc, m));
-    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena) : NULL;
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
     T_ASSERT(t, xf != NULL);
     if (xf) {
         u32 v;
@@ -320,7 +320,7 @@ static void check_vec_codegen_case(TestCtx *t, const VecCgCase *c)
     m = parse_vec(&f, (const char *)src.data);
     T_ASSERT(t, m != NULL);
     T_ASSERT(t, m && ir_verify(f.dc, m));
-    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena) : NULL;
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
     T_ASSERT(t, xf != NULL);
     if (xf) {
         T_ASSERT_EQ_INT(t, x64_mir_verify(xf, f.dc), 0);
@@ -423,7 +423,7 @@ void test_x64_vector_edge_copy_cycle(TestCtx *t)
     vec_init(&f);
     m = parse_vec(&f, src);
     T_ASSERT(t, m && ir_verify(f.dc, m));
-    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena) : NULL;
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
     T_ASSERT(t, xf != NULL);
     if (xf) {
         buf_init(&mir);
@@ -463,7 +463,7 @@ void test_x64_vector_spill_alignment_with_odd_saved_push(TestCtx *t)
     vec_init(&f);
     m = parse_vec(&f, src);
     T_ASSERT(t, m && ir_verify(f.dc, m));
-    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena) : NULL;
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
     T_ASSERT(t, xf != NULL);
     if (xf) {
         x64_regalloc(xf);
@@ -512,7 +512,7 @@ void test_x64_align16_alloca_with_odd_saved_push(TestCtx *t)
     vec_init(&f);
     m = parse_vec(&f, src);
     T_ASSERT(t, m && ir_verify(f.dc, m));
-    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena) : NULL;
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
     T_ASSERT(t, xf != NULL);
     if (xf) {
         x64_regalloc(xf);

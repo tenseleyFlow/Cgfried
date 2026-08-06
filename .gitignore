@@ -13,6 +13,7 @@
 !.docs/audits/debug-info-debt.md
 !.docs/audits/tls-debt.md
 !.docs/audits/abi-debt.md
+!.docs/audits/afs-as-pic-debt.md
 CLAUDE.md
 AGENTS.md
 build/

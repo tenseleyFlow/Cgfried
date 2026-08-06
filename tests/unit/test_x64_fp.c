@@ -54,7 +54,7 @@ static void run_func(TestCtx *t, IrType ret, FillFn fill, const void *u,
     e = ir_block_new(m, f, "entry");
     ir_builder_at(&b, m, f, e);
     fill(&b, u);
-    xf = x64_isel_function(m, f, &a);
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
     T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
     x64_regalloc(xf);
     T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
