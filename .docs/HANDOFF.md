@@ -1,7 +1,8 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–49
-are complete and CI-green. This file is the *transferable* part of what
+You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–50 are
+complete; **Sprint 51 is at 6 of 7** and §1b-1 says exactly what to do next
+and in what order. This file is the *transferable* part of what
 was learned building them: the traps that cost real debugging time, the
 invariants that look like style but are load-bearing, and the ritual the
 work follows. It is not a substitute for the sprint files — it is the
@@ -34,11 +35,26 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–49 complete; Phases 1–9 closed.** Sprint 49's DoD is 5 of 7
-  gates met as written — see §1b for the arm64 backend gaps still open and
-  §1c for the judgement calls behind how they were sequenced. Phase 10 (second backend and
-  targets) is under way on top of the completed preprocessor, frontend, sema,
-  IR, x86_64 backend, driver, optimizer, warnings, and memory-safety phases.
+- **Sprints 0–50 complete; Phases 1–9 closed. Sprint 51 is at 6 of 7** — see
+  §1b for what landed and §1b-1 for the ordered plan of what is next. Phase
+  10 (second backend and targets) is under way on top of the completed
+  preprocessor, frontend, sema, IR, x86_64 backend, driver, optimizer,
+  warnings, and memory-safety phases.
+- **`--target=` and `--sysroot=` exist now** (Sprint 51 D1) over the closed
+  five-target set, so the compiler's architecture is no longer the target.
+  `cgf_target_selected()` is the target, `cgf_target_host()` is the host, and
+  `scripts/check_target_seam.sh` gates the split. Do not reintroduce a host
+  sniff in target-dependent code.
+- **`_Thread_local` works** on both Linux targets (local-exec). It did not,
+  silently, for fifty sprints — see §1b.
+- The arm64 e2e corpus is **55/55**, and **55/55 again under
+  `CGF_SPILL_ALL=1`**. Keep both green; the spill lane exists because exactly
+  one fixture at one level once caught a stale NZCV producer index.
+- Verified at the end of the Sprint 51 session, sequentially and locally
+  (never two suites at once — §1b-2): gcc and clang `make test` both rc=0,
+  **625 unit tests / 4,263,106 assertions**, 514 and 477 fixture profiles,
+  arm64 corpus and spill-all 55/55 each, ABI differential 304/304 per Linux
+  target in both directions.
 - `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
   arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
   with the bundled afs-as into ELF objects byte-identical to
@@ -378,77 +394,288 @@ deferred with zero memory diagnostics.
 
 ---
 
-## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 51 next; Sprint 50 CLOSED)
+## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 51 at 6 of 7)
 
 **Sprint 50 (arm64-macos) is CLOSED**: three DoD gates met as written, three
-partial with the reason named and ticketed. Nothing is recorded as met that
-is not. The gate-by-gate audit is at the end of
-`.docs/sprints/10-backend-arm64/s50-arm64-macos.md`.
+partial with the reason named and ticketed. The gate-by-gate audit is at the
+end of `.docs/sprints/10-backend-arm64/s50-arm64-macos.md`.
 
-What works, on real Apple hardware and in CI:
+**Sprint 51 is at 6 of 7 deliverables.** D1 (host/target split, `--target=`,
+`--sysroot=`), D2 (PIC/PIE per architecture, `-shared`), D3 (TLS), D4 (musl
+and FreeBSD bring-up), D5, and D6 (the ABI differential) have landed and are
+verified. **D7 (the cross-target DWARF differential) is BLOCKED** — see
+below, it is not a harness task.
+
+### Sprint 50 (arm64-macos), still true and still needing its lanes run
 
 - The Mach-O dialect, the whole seven-row Apple divergence table, SDK
   discovery, the ld64 link recipe, and afs-ld as the second link lane.
 - **The Mach-O object differential: 10 objects identical to Apple's
   assembler on section bytes, relocations AND symbols, nothing pinned.**
-- `codesign --verify` on both linkers' products -- each ad-hoc signs.
+- `codesign --verify` on both linkers' products — each ad-hoc signs.
 - `tests/macos/run.sh` (7 programs x 2 linkers, signatures checked) and
   `scripts/macho_objdiff_lane.sh`, both run by a `macos-15` CI job that
   fails if either lane SKIPS.
 
 **Run both macOS lanes after any emitter change.** They skip loudly off
-arm64 Darwin, so on Linux you get nothing.
+arm64 Darwin, so on Linux you get nothing — and the ABI differential's
+arm64-macos mode is a third lane that only exists there (§7b has the sync
+recipe).
 
-### The three open tickets, and they are all scheduling
+### The open tickets, and what changed
 
 - **#100 hosted macOS compilation** needs Sprint 55. Apple's `sys/cdefs.h`
-  uses `__attribute__` UNCONDITIONALLY -- it does not guard on `__GNUC__`
-  the way glibc does, so the trick that makes hosted Linux work does not
-  apply -- and `__DARWIN_ALIAS` needs `__asm` labels. Neither can be faked:
-  dropping every attribute is wrong the moment one is `packed`, `aligned` or
-  `noreturn`. DECIDED: close Sprint 50 with the gap named rather than pull a
-  frontend sprint forward. The arm64-macos corpus is freestanding-only until
-  then.
-- **#101 thread-local storage** was never implemented on ANY target and was
-  a silent miscompile until this sprint made it a hard error. DECIDED: its
-  own rung AFTER Sprint 51, because PIC lands there and makes the dynamic
-  models testable. `.docs/audits/tls-debt.md` has the five pieces. **Hard
-  prerequisite for Sprint 58** -- the runtime uses `_Thread_local` and the
-  bootstrap compiles the runtime with cgf.
-- **#93 variable DIEs** (`.docs/audits/debug-info-debt.md`) is proposed for
-  Sprint 51, which already owns arm64 DWARF.
+  uses `__attribute__` UNCONDITIONALLY — it does not guard on `__GNUC__` the
+  way glibc does, so the trick that makes hosted Linux work does not apply —
+  and `__DARWIN_ALIAS` needs `__asm` labels. Neither can be faked: dropping
+  every attribute is wrong the moment one is `packed`, `aligned` or
+  `noreturn`. **Sprint 51 widened this to 2 of 5 targets**: x86_64-freebsd
+  is blocked the same way. The arm64-macos and FreeBSD corpora are
+  freestanding-only until Sprint 55, which is a large part of why §1b-1
+  takes 55 out of order.
+- **#101 thread-local storage — CLOSED for local-exec on both Linux
+  targets** this session (§1b). TLS-003 (Mach-O), TLS-004 (afs-as
+  relocations) and TLS-005 (initial-exec/general-dynamic) remain in
+  `.docs/audits/tls-debt.md`. Still a **hard prerequisite for Sprint 58**:
+  the runtime uses `_Thread_local` and the bootstrap compiles the runtime
+  with cgf, so TLS-004 must land before the bootstrap can use the bundled
+  assembler.
+- **#93 variable DIEs** (`.docs/audits/debug-info-debt.md`) and **#105 arm64
+  DWARF** are the same area; #105 is the blocker (§1b-1 STEP 3).
+- **#104 ABI-004** is new — Apple anonymous aggregates, diagnosed and
+  ledgered, see above.
 
-### Next: Sprint 51, cross-compilation and the ABI differential
+### What the ABI differential is, and why it earns its keep
 
-It is also the unblock for two things above: the cross-sign proof that
-Sprint 50's gate 4 left open, and the PIC that TLS's dynamic models need.
+`tests/tools/abigen.c` + `scripts/abi_differential_lane.sh`. A seeded
+generator emits a function signature as a TEXT DESCRIPTOR, then a matched
+caller/callee pair. The lane compiles one half with cgf and the other with
+the reference compiler, links them, and runs — **both directions, every
+time**. Three targets: x86_64 (gcc), arm64-linux (aarch64-linux-gnu-gcc under
+qemu), arm64-macos (clang, on nomad-1).
 
-## 1b-2. Process traps from the Sprint 50 session
+Run it:
 
-**Backticks in a `git commit -m` message are COMMAND SUBSTITUTION.** Four
-terms were eaten from a commit message, leaving a paragraph that read as
-nonsense, and the shell helpfully printed `command not found: l_`. Write the
-message to a file and use `-F` whenever it contains code punctuation.
+```sh
+make test-abi-diff                       # both Linux targets
+CGF_ABI_DIFF_TARGET=arm64-linux CGF_ABI_DIFF_COUNT=300 \
+  sh scripts/abi_differential_lane.sh build/cgfried
+```
 
-**A guard that names one TARGET where it means the ARCHITECTURE.** The `-g`
-check named `CGF_TARGET_ARM64_LINUX` only, so an arm64-macos build fell
-through into the x86 CFI encoder and died with `non-x86 target 2` instead of
-the intended diagnostic. Whenever you write a target comparison, ask whether
-the fact is about the target or the machine.
+The descriptor form is what makes minimization tractable: shrinking is text
+surgery (drop an argument line, unwrap a composite one level) and never has
+to re-derive the generator's random state. Minimized reproducers live in
+`tests/abi_differential/repro/` and the lane replays **all eleven** before it
+generates anything.
 
-**Do not edit files while a verification run is executing them.** A shell
-read `a64_corpus_lane.sh` mid-write and produced `eeds: command not found`.
-Two runs were corrupted this way before the lesson stuck.
+**THE DIAGNOSTIC WORTH INTERNALIZING.** When a signature disagrees, look at
+WHICH DIRECTION fails:
 
-**`pgrep -f 'make test'` inside a shell whose own command line contains
-`make test` matches ITSELF and never terminates.** Two monitors deadlocked on
-this. Prefer a command that exits when the work is done (`run_in_background`)
-over a loop polling for the work's absence; if you must poll, watch for a
-file marker rather than a process name.
+- one direction  -> a placement bug on that side;
+- **both directions -> a shared assumption.** Our caller and our callee agree
+  with each other and neither agrees with the reference. `ours x ours` passes,
+  so no same-compiler test can ever see it.
 
-**Pin the CI run ID when arming a monitor.** A monitor that polls
-`gh run list --limit 1` drifts onto whatever run is newest and starts
-reporting someone else's push. Two had to be stopped mid-session for this.
+That tell has now appeared four times in three sprints (ABI-001's HFA return,
+Sprint 50's row 3, ABI-002, ABI-003). Check it first.
+
+### What it found (all closed, all in `.docs/audits/abi-debt.md`)
+
+- **ABI-002** — an aggregate that cannot be placed ENTIRELY in registers goes
+  entirely to memory; we committed eightbytes one at a time and split them.
+  AAPCS64 additionally PINS the exhausted bank at 8. Placement depends on the
+  type AND everything before it, so classification alone cannot decide it:
+  `abi_budget_init`/`abi_arg_place` is now one shared service that both
+  argument walks call, because those two walks disagreeing IS the failure
+  mode.
+- **ABI-003** — six varargs defects, found the moment the generator learned
+  variadic tails. All six in the CALLEE. Three are one fact: **a register
+  save area is laid out BY REGISTER, not by object**, so multi-eightbyte SSE
+  aggregates and HFA leaves must be GATHERED out of 16-byte slots rather than
+  read contiguously, and a mixed SSE+INTEGER pair needs both banks at once
+  (a single "is this the FP path" boolean could not say so, and pushed every
+  mixed pair to the overflow area). Two long-standing Sprint 48/49 deferrals
+  fell out with them.
+- **ABI-004 — OPEN.** arm64-macos is 24/304 and every minimal is a COMPOSITE
+  anonymous argument. Apple holds anonymous arguments in the varargs area BY
+  VALUE and contiguous; the classifier still shapes an anonymous aggregate
+  like a named one. **Caller-only** — `lower_va_arg_apple` already reads
+  contiguously. Marking it `ABI_ARG_STACK` at the call site covers up to 32
+  bytes via the `ceil(size/8)` leaf re-plan; anything larger needs the arm64
+  marshaller to honour `IROPF_ONSTACK` on a byval POINTER, which it does not
+  yet. A checked-in fixture (`sysv-va-overflow-slot8`) is its standing
+  witness: 10 of the 11 pass on macOS and that one does not.
+
+### D3, thread-local storage — landed this session
+
+`_Thread_local` had parsed and typed correctly since Sprint 16 and NEVER
+LOWERED. Until Sprint 50 it became an ordinary global and every thread shared
+one copy — four threads incrementing one a thousand times each printed 1000
+where gcc printed 0, with no diagnostic anywhere.
+
+- `IrGlobal.is_tls` carries it, round-trips as ` tls`. It is a property of the
+  OBJECT, not of any reference, so backends ask the module (`ir_sym_is_tls`)
+  rather than threading it through operands.
+- x86_64: `.tdata`/`.tbss` with the T flag, `@tls_object`, STT_TLS symbols
+  matching gcc. The address is BUILT, not folded into each access —
+  `movq %fs:0` then `leaq sym@tpoff` (R_X86_64_TPOFF32) — so one code path
+  serves loads, stores and address-of, and an addend rides the lea's
+  displacement where a relocation cannot carry it. `fold_addr` refuses a
+  thread-local for the same reason it refuses a GOT symbol.
+- arm64: `mrs tpidr_el0` + `:tprel_hi12:` / `:tprel_lo12_nc:`.
+- **AN ORDERING RULE, arm64-only.** gas rejects a TLS relocation naming a
+  symbol it has not yet seen DEFINED in a TLS section ("Accessing `x` as
+  thread-local object"). Functions precede data in our output, so
+  thread-locals are emitted FIRST — what gcc does. A `.type ... @tls_object`
+  declaration up front is NOT enough. x86 gas accepts either order, so this
+  presented as a codegen bug until the emitted text was read.
+- Two boundaries are clean errors, not guesses: an EXTERN thread-local emits
+  no global so nothing downstream can tell it is thread-local (answering "it
+  is not" is the original silent miscompile) — it needs initial-exec,
+  TLS-005; and the BUNDLED assembler has no `%fs:`/`@tpoff`/TPOFF32
+  (TLS-004), so the driver says so and points at `CGF_AS=0` rather than
+  letting afs-as reject correct assembly and calling it "a cgf emission bug".
+- **The test that matters runs four threads** and requires main to still see
+  0 — `tests/programs/tls/tls_threads_are_separate.c`, `OPT_EQ: all`, run
+  natively on x86_64 and under qemu on arm64. Section spellings prove nothing
+  about semantics.
+
+---
+
+## 1b-1. THE NEXT WORK, in the order it should be done
+
+The user's standing position, stated explicitly: *"I'm generally not
+comfortable leaving deferrals sitting around for long periods."* The plan
+below was agreed with that in mind. Do it in this order.
+
+### STEP 1 — the deferral reckoning (mostly done; findings below)
+
+A deferral naming a CLOSED sprint is worse than an open one: it is a lie in
+the ledger, and nobody reading the roadmap will ever find it. Nine such sites
+exist. **They were audited by REACHABILITY, not by reading**, and the result
+is that almost all are dead defensive messages — with one glaring exception.
+
+| site | says | reachable? |
+|---|---|---|
+| `src/cg/arm64/regalloc.c:1334` | Sprint 49 | **YES — see STEP 2** |
+| `src/cg/arm64/isel.c:81,1082,1225,1625` | Sprint 49 | no (f128 arith/conv and dynamic memcpy all work) |
+| `src/cg/arm64/isel.c:2115` | Sprint 51 | not yet — needs `vector_size`, which is Sprint 55 |
+| `src/cg/x86_64/isel.c:241` | Sprint 23 | no (SSE2 FP landed in 23) |
+| `src/cg/x86_64/isel.c:2570,2601` | Sprint 24 | no (dynamic memcpy works) |
+
+So the reckoning is a RENAMING job plus one real fix. Delete the dead
+messages or renumber them to a live sprint; do not leave any of them saying a
+closed sprint number.
+
+Reproduce the audit with:
+
+```sh
+grep -rn 'lands in Sprint \(1[0-9]\|2[0-9]\|3[0-9]\|4[0-9]\|5[01]\)\b' src/
+```
+
+### STEP 2 — arm64 VLAs. THE REAL GAP, and it is user-visible
+
+```c
+int f(int n) { int a[n]; a[0] = 1; return a[0]; }
+```
+
+**ICEs on arm64-linux.** x86 compiles it fine.
+
+```
+cgfried: internal compiler error at src/cg/arm64/regalloc.c:1334:
+  arm64 regalloc: dynamic stack allocation lands in Sprint 49
+```
+
+Sprint 49 closed two sprints ago. This is core C99/C11 on a target we ship.
+
+**How it survived**, and this is the lesson: the arm64 e2e corpus is the
+x86 corpus re-run under qemu, and **no program in it uses a VLA**. The VLA
+fixtures live only at IR/MIR level (`tests/programs/lower/vla_*.c`,
+`tests/programs/mir/vla_dyn.c`) where the arm64 backend never sees them.
+A corpus inherited from another target only covers what that target's
+authors happened to write.
+
+Fix the ICE, and **add a VLA program to the executed arm64 corpus** so it
+cannot regress.
+
+### STEP 3 — close Sprint 51: D7, which means arm64 DWARF first
+
+D7 wants cross-target `addr2line` agreement vs gcc on sampled PCs. It is NOT
+a harness task:
+
+- `-g` on arm64-linux is still a hard error ("`-g on arm64-linux lands in
+  Sprint 51`", `src/driver/driver.c`);
+- `src/cg/x86_64/debug.c` (453 lines) hand-encodes an FDE program **against
+  the always-rbp x86 prologue** — it literally matches `push %rbp` /
+  `mov %rsp,%rbp` by opcode and ICEs otherwise.
+
+The line-table encoder is largely target-neutral (it consumes MIR source
+locations); the CFI half is not — arm64 opens with `stp x29,x30` pre-indexed,
+so the FDE program and its prologue recognizer both need an arm64 path.
+Task #105 carries this.
+
+### STEP 4 — Sprint 55, deliberately OUT of numerical order
+
+This is the dedicated deferral campaign. **18 deferrals point at Sprint 55**,
+and it is the blocker for hosted compilation on macOS AND FreeBSD (2 of 5
+targets, task #100) plus the musl campaign. Taking 52-54 (compile speed,
+codegen quality, perf gates) first would mean optimizing a compiler that
+cannot yet build the programs it is meant to be measured on. Record the
+reordering in the sprint index when you do it.
+
+---
+
+## 1b-2. Process traps from the Sprint 50/51 sessions
+
+**THE ASSEMBLER ROUTING TRAP — it has now bitten three times.** cgf's default
+assembler is the BUNDLED afs-as. Any lane that invokes `cgf` directly must
+say `CGF_AS=0` (host target) or `CGF_AS_PATH=<cross as>` (cross target) when
+afs-as is not built — and a Rust-free CI job never builds one.
+
+- Sprint 49's native arm64 lane lost three rounds to it.
+- **It is what made CI red for seven consecutive runs.**
+  `tests/cross/determinism.sh` compiles and LINKS in its crt-probe check, died
+  at "assembler not found" before the probe ran, and then reported *"the crt
+  probe ignored --sysroot"* — because it only greps for the path it wanted to
+  see. The check's bug, not the driver's: **a check that greps for success
+  must distinguish "looked and found the wrong thing" from "never got that
+  far."** Both the routing and the message are fixed.
+- The ABI lane would have lost its first CI run the same way; its routing is
+  now INSIDE the lane rather than left to the caller, verified by hiding
+  afs-as and running both targets.
+
+**Reproduce CI's Rust-free condition instead of guessing:**
+
+```sh
+mv afs-as/target/release/afs-as /tmp/  &&  mv afs-ld/target/release/afs-ld /tmp/
+make test          # this is what CI actually runs
+mv /tmp/afs-as ... # put them back
+```
+
+Hide BOTH or the `debug-notools` skip ledger will not match and you will chase
+a phantom.
+
+**Two full `make test` runs concurrently on this box produce failures that do
+not reproduce sequentially** ("could not run produced binary", timing gates).
+Verify ONE AT A TIME. Concurrency also produced a spectacular false positive:
+ppfuzz hardcoded `build/fuzz-work/case.c` regardless of `BUILD`, so two trees
+overwrote each other's input between the write and the two spawns and the
+differential reported **128 diffs that reproduce nowhere**. Fixed (the scratch
+dir now sits beside the binary), but the lesson stands.
+
+**The fuzz digest hashes CORPUS CONTENTS.** Adding, removing or EDITING a
+fixture moves it. Re-pin `ci/fuzz_sequence_digest.txt` LAST, after the
+fixtures are final — re-pinning mid-edit just means doing it twice.
+
+**`rsync --exclude 'build*'` matches any path component**, so it silently
+omitted `src/ir/build.c` and the remote link failed on three missing symbols.
+Anchor the exclusions (`/build`, `/build-*`).
+
+**`pkill -f <pattern>` matches your own shell** when the pattern appears in
+its command line. It killed the session's own commands twice. Use a PID file
+or match more narrowly.
+
+---
 
 ## 1c. Concerns and judgement calls worth inheriting
 
@@ -1125,9 +1352,11 @@ with two already fixed and recorded).
 The host constraint is GONE (2026-08-04): `aarch64-linux-gnu-gcc` and
 `qemu-user-static` are installed. arm64 can be built AND executed here.
 
-There is no `--target` flag until Sprint 51, so **the compiler's own
-architecture IS the target**. To exercise the arm64 backend you must
-cross-BUILD the compiler:
+**`--target=` exists as of Sprint 51**, so an arm64 object no longer requires
+cross-BUILDING the compiler — `cgf --target=arm64-linux -c` works from the
+native binary, which is how the ABI differential drives it. The corpus lane
+still cross-builds, because it wants an arm64 compiler running under qemu
+(two levels of emulation) rather than a cross-compiler:
 
 ```sh
 make CC=aarch64-linux-gnu-gcc BUILD=build-a64 build-a64/cgfried
@@ -1137,38 +1366,71 @@ sh scripts/a64_corpus_lane.sh      # does this for you, then runs the corpus
 Under qemu the compiler's own `execve` of `as`/`ld` reaches the HOST, so
 they must be routed by absolute path (`CGF_AS_PATH`, `CGF_LD_PATH`,
 `CGF_CRT_DIR`) or you silently get x86 objects. `scripts/a64_corpus_lane.sh`
-builds that wrapper; copy it rather than re-deriving it.
+builds that wrapper; copy it rather than re-deriving it. **`CGF_AS=0` is NOT
+the answer for a cross target** — it means "system as", which is the host's.
 
 `scripts/qemu-run.sh` is the ONE place that knows how to run a foreign
 binary. It is a passthrough on an arm64 host, which is what lets a single
 lane serve both. It exits **125** when it cannot run at all — distinct from
 any corpus exit code, so "could not run" never reads as "ran and failed".
 
-`clang --target=aarch64-linux-gnu -O1 -S` remains the ABI oracle: AAPCS64 is
-a published contract, so which register a composite lands in is not a
-compiler preference.
+`clang --target=aarch64-linux-gnu -O1 -S` remains the ABI oracle, and since
+Sprint 51 the **ABI differential** (§1b) is the stronger one: it links our
+half against gcc's and RUNS it, both directions.
+
+**The arm64 corpus is the x86 corpus re-run.** That is efficient and it is
+also a blind spot — it only covers what the x86 authors happened to write.
+It is why arm64 VLAs are broken and nobody noticed (§1b-1 STEP 2). When you
+fix a target-specific gap, add a program that exercises it to the EXECUTED
+corpus, not just an IR-level fixture.
 
 CI has three arm64 lanes: `test-arm64-native` (real `ubuntu-24.04-arm`
 hardware — leaner image, so install what you need and remember the default
 assembler is the BUNDLED afs-as, i.e. pass `CGF_AS=0` in a Rust-free job),
-`test-arm64-qemu`, and the object differential inside `toolchain`.
+`test-arm64-qemu` (which also runs the ABI differential at 250 signatures per
+arch), and the object differential inside `toolchain`.
+
+**nomad-1 (Darwin arm64) has the full Apple toolchain AND cargo.** Remote
+commands need `sh -lc` — it defaults to fish, and a non-interactive `sh -c`
+does not get Homebrew's PATH. That single fact was misread as "cargo is
+missing" for an entire sprint. Sync with anchored excludes:
+
+```sh
+rsync -a --delete --exclude '/build' --exclude '/build-*' --exclude '/.git' \
+  --exclude '/afs-as/target' --exclude '/afs-ld/target' ./ nomad-1:/tmp/cgfried-s51/
+ssh nomad-1 'sh -lc "cd /tmp/cgfried-s51 && make -j8 build/cgfried build/abigen"'
+```
+
+`make all` FAILS on macOS — `src/rt/fp128.c` needs `mode(TF)`, which Apple
+clang lacks on arm64. Build the specific targets you need.
 
 ## 8. Deferrals you will trip over
 
-`grep -rn "Sprint 55" src/` and friends — every deferral names its
-sprint in the diagnostic. The counts below are from Sprint 49 and drift as
-work lands; re-grep rather than trusting them. Note the arm64 backend now
-defers a few things to **Sprint 51** that used to say Sprint 49 (vector and
-f80 function ABI in `src/cg/arm64/isel.c`), and `-g` on arm64-linux
-hard-errors naming Sprint 51 because Sprint 29's DWARF emitter is x86-only —
-that is deliberate, not an oversight: emitting arm64 objects that silently
-lack a line table would break the `-g` contract without saying so.
+Every deferral names its sprint in the diagnostic:
 
-Current counts: **Sprint 55** (22 sites: GNU
-`__attribute__`, `typeof`, `__builtin_types_compatible_p`,
-`__builtin_choose_expr`), **Sprint 51** (6: `-shared`/`-fPIC`/`-fpie`),
-**Sprint 49** (6: arm64 fp128 soft-float bodies), **Sprint 57** (2:
-cross-TU sema). `_Complex` is out of v0.1.0 entirely.
+```sh
+grep -rn 'lands in Sprint' src/ | sed 's/.*Sprint \([0-9]*\).*/\1/' | sort -n | uniq -c
+```
+
+Counts drift; re-grep rather than trusting a number written here. As of the
+Sprint 51 session the shape is: **Sprint 55** (~18 — GNU `__attribute__`,
+`typeof`, `__builtin_types_compatible_p`, `__builtin_choose_expr`; the
+largest cluster by far and the reason §1b-1 STEP 4 takes 55 out of order),
+**Sprint 23** (~13), **Sprint 19** (~9), **Sprint 57** (cross-TU sema).
+`_Complex` is out of v0.1.0 entirely.
+
+**A deferral naming a CLOSED sprint is a lie in the ledger**, and nine of
+them existed at the end of Sprint 51. They were audited by REACHABILITY —
+compile a program that should hit each one — and the table is in §1b-1 STEP
+1. Almost all are dead defensive messages; the exception is arm64 VLAs
+(STEP 2), which is a live, user-visible ICE on a shipped target. Audit by
+reachability, never by reading: a message that looks alarming may be
+unreachable, and a message that looks routine may be the only thing standing
+between a user and standard C.
+
+`-g` on arm64-linux hard-errors naming Sprint 51 — deliberate, not an
+oversight: emitting arm64 objects that silently lack a line table would break
+the `-g` contract without saying so. See §1b-1 STEP 3.
 
 ---
 
@@ -1204,6 +1466,9 @@ make BUILD=build test-safe-mode
 make BUILD=build safe-dogfood
 make BUILD=build test-a64-mir
 make BUILD=build test-a64-asm-diff   # both afs-as + GNU as in CI toolchain job
+make BUILD=build test-a64-corpus     # 55 e2e fixtures under qemu
+make BUILD=build test-a64-spill-all  # the same, every interval spilled
+make BUILD=build test-abi-diff       # ABI differential, both Linux targets
 make BUILD=build check-ub-division
 make BUILD=build bench-safe
 make BUILD=build test-mem-fanalyzer       # optional GCC 10+ comparator
@@ -1211,10 +1476,27 @@ make BUILD=build musl-sweep               # pinned 733/1361 analyzed, <90s
 make BUILD=build check-format-matrix
 CGF_TEST_CC=build/cgfried build/cgf-test --profile linux-x86_64 tests/programs
 
+# the ABI differential at soak scale (a disagreement is an ABI bug):
+CGF_ABI_DIFF_TARGET=arm64-linux CGF_ABI_DIFF_COUNT=300 \
+  sh scripts/abi_differential_lane.sh build/cgfried
+# on nomad-1, for arm64-macos (clang is the reference; gcc has no darwin/arm64):
+ssh nomad-1 'sh -lc "cd /tmp/cgfried-s51 && CGF_ABI_DIFF_TARGET=arm64-macos \
+  CGF_ABIGEN=build/abigen sh scripts/abi_differential_lane.sh build/cgfried"'
+
+# reproduce CI's Rust-free condition BEFORE blaming CI (§1b-2):
+mv afs-as/target/release/afs-as /tmp/ && mv afs-ld/target/release/afs-ld /tmp/
+make test        # hide BOTH or the debug-notools skip ledger will not match
+
 # CI:
 gh run list --limit 3
 gh run watch <id> --exit-status
-gh api repos/tenseleyFlow/Cgfried/actions/jobs/<job-id>/logs   # failed-job detail
+gh api repos/tenseleyFlow/Cgfried/actions/jobs/<job-id>/logs \
+  --allow-escape-sequences        # `gh run view --log` returns NOTHING here
+gh workflow run ci                # push events raised during an Actions
+                                  # outage are LOST; re-trigger by hand
+curl -s https://www.githubstatus.com/api/v2/components.json | \
+  python3 -c "import sys,json;print([c['status'] for c in \
+  json.load(sys.stdin)['components'] if c['name']=='Actions'][0])"
 ```
 
 Useful env knobs (all read in `toolchain.c`, the single `getenv` site):
