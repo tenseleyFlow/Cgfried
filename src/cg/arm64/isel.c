@@ -49,6 +49,8 @@ typedef struct Isel {
      * sret-SHAPED: the callee writes through a hidden pointer. The buffer
      * that pointer names is ours, and `ret` loads the pair out of it. */
     A64Reg pair_ret_buf;
+    u32 hfa_leaves; /* nonzero: this function returns an HFA in v0-v(n-1) */
+    A64Sf hfa_sf;   /* its leaf width */
 } Isel;
 
 static A64Sf sf_of(IrType type)
@@ -1848,21 +1850,29 @@ static void select_inst(Isel *is, const IrInst *ir)
         A64Inst *ret;
 
         if (is->pair_ret_buf.id) {
-            /* x0:x1 out of the buffer the hidden pointer named. */
-            static const u8 regs[2] = {A64_X0, A64_X1};
-            u32 half;
+            /* The value comes out of the buffer the hidden pointer named.
+             * A 16-byte composite goes in x0:x1; an HFA goes in v0-v3 with
+             * its own leaf width. Same shape, different register file --
+             * which is precisely why IR_ABIRET_HFA_* had to be tellable
+             * apart from IR_ABIRET_SRET. */
+            bool hfa = ir->nops == 0 && is->hfa_leaves != 0;
+            u32 n = hfa ? is->hfa_leaves : 2;
+            A64Sf lsf = hfa ? is->hfa_sf : A64_SF64;
+            u32 lsize = hfa ? (is->hfa_sf == A64_SF32 ? 4u : 8u) : 8u;
+            u32 k;
 
-            for (half = 0; half < 2; half++) {
+            for (k = 0; k < n; k++) {
                 A64Reg out =
-                    a64_newv_fixed(is->func, A64RC_GP, A64_SF64, regs[half]);
-                A64Inst *load = emit(is, A64_OP_LOAD, A64_SF64);
+                    a64_newv_fixed(is->func, hfa ? A64RC_FP : A64RC_GP, lsf,
+                                   (u8)((hfa ? A64_V0 : A64_X0) + k));
+                A64Inst *load = emit(is, A64_OP_LOAD, lsf);
                 A64Operand mem;
 
                 memset(&mem, 0, sizeof(mem));
                 mem.kind = A64O_MEM;
                 mem.mem.base = is->pair_ret_buf;
-                mem.mem.offset = (i64)(8 * half);
-                mem.mem.size = 8;
+                mem.mem.offset = (i64)(lsize * k);
+                mem.mem.size = (u8)lsize;
                 mem.mem.mode = A64_ADDR_SCALED;
                 add_operand(load, reg_op(out));
                 add_operand(load, mem);
@@ -2013,6 +2023,11 @@ static void bind_params(Isel *is, const IrFunc *ir)
             add_operand(slot, imm_op(16));
             add_operand(slot, imm_op(8));
             is->pair_ret_buf = dst;
+            if (ir->abi_ret >= IR_ABIRET_HFA_F32) {
+                is->hfa_leaves = ir->abi_ret_n;
+                is->hfa_sf =
+                    ir->abi_ret == IR_ABIRET_HFA_F32 ? A64_SF32 : A64_SF64;
+            }
             continue;
         }
         if (i == 0 && hidden_ret) {

@@ -662,9 +662,8 @@ static void lower_function(Lower *lo, AstNode *def)
     /* The SysV plan: return first (a hidden pointer goes in slot 0),
      * then each parameter expands per its classification. */
     abi_classify_ret(lo, ft->base, &aret);
-    if (abi_ret_unsupported(lo, &aret, sym->span))
-        return;
-    hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
+    hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR ||
+             aret.kind == ABI_RET_HFA;
     memset(pannots, 0, sizeof(pannots));
     if (hidden)
         ptypes[nir_params++] = IRT_PTR;
@@ -707,7 +706,12 @@ static void lower_function(Lower *lo, AstNode *def)
                 lo->named_gp++;
             break;
         }
-        case ABI_ARG_EIGHTBYTES: {
+        case ABI_ARG_EIGHTBYTES:
+        case ABI_ARG_HFA: {
+            /* Both travel as N bit-carrying scalars; only the leaf TYPE and
+             * stride differ, and a->t[] already carries the types. An HFA's
+             * leaves are f32/f64 and land in v0-v3, an eightbyte pair's are
+             * i64 and land in x0-x7 -- abi_arg_regs knows which queue. */
             u32 k;
 
             for (k = 0; k < a->n; k++)
@@ -736,6 +740,7 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->fn->variadic = ft->variadic;
     lo->fn->unprototyped = !ft->has_proto;
     lo->fn->abi_ret = aret.ir_abi;
+    lo->fn->abi_ret_n = (u8)aret.n;
     lo->fn->loc = ir_intern_span(lo->m, def->span);
     lo->fn->cgf_attrs =
         lower_clone_cgf_attrs(lo, sym->cgf_attrs, attr_ir_args, nplans);
@@ -782,28 +787,40 @@ static void lower_function(Lower *lo, AstNode *def)
 
             if (!psym) {
                 /* Unnamed slot: still consumes its IR params. */
-                pi += a && a->kind == ABI_ARG_EIGHTBYTES ? a->n : 1;
+                pi += a && (a->kind == ABI_ARG_EIGHTBYTES ||
+                            a->kind == ABI_ARG_HFA)
+                          ? a->n
+                          : 1;
                 continue;
             }
-            if (a && a->kind == ABI_ARG_EIGHTBYTES) {
-                u64 rounded = (u64)a->n * 8;
+            if (a &&
+                (a->kind == ABI_ARG_EIGHTBYTES || a->kind == ABI_ARG_HFA)) {
+                /* The mirror of the call site: N incoming scalars are
+                 * written back into one local at the LEAF stride. Eight for
+                 * an eightbyte pair; the leaf width for an HFA, which is 4
+                 * when the leaves are floats. */
+                u64 stride =
+                    a->kind == ABI_ARG_HFA ? (u64)ir_type_size(a->t[0]) : 8u;
+                u64 rounded = (u64)a->n * stride;
+                u32 salign = a->align > (u32)stride ? a->align : (u32)stride;
                 ValueId slot = ir_build_alloca_typed(
-                    &lo->b, lower_i64((i64)rounded),
-                    a->align > 8 ? a->align : 8, lower_efftype(lo, psym->type));
+                    &lo->b, lower_i64((i64)rounded), salign,
+                    lower_efftype(lo, psym->type));
                 u32 k;
 
                 for (k = 0; k < a->n; k++) {
                     IrOperand dst = ir_op_value(lo->fn, slot);
 
                     if (k) {
-                        ValueId p2 = ir_build_ptradd(
-                            &lo->b, ir_op_value(lo->fn, slot), lower_i64(8));
+                        ValueId p2 =
+                            ir_build_ptradd(&lo->b, ir_op_value(lo->fn, slot),
+                                            lower_i64((i64)(stride * k)));
 
                         dst = ir_op_value(lo->fn, p2);
                     }
                     ir_build_store_typed(
                         &lo->b, ir_op_value(lo->fn, lo->fn->param_vals[pi + k]),
-                        dst, 8, 0, lower_efftype(lo, psym->type));
+                        dst, (u32)stride, 0, lower_efftype(lo, psym->type));
                 }
                 ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
                 pi += a->n;

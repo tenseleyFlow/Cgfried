@@ -934,6 +934,8 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
     ArgWalk w;
     A64CallArg *kept;
     A64Reg pair_dest = {0, 0};
+    u32 hfa_leaves = 0; /* nonzero: pair_dest is filled from v0-v(n-1) */
+    u32 hfa_leaf = 0;   /* ...each this many bytes wide */
     /* AAPCS64 fills the register queues with named and anonymous arguments
      * alike; Apple stops at the last named one. Sprint 51 replaces the host
      * sniff with the driver's selected target. */
@@ -954,6 +956,19 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         A64Sf sf = a64_type_sf(arg->type);
         u8 phys = A64_REG_NONE;
 
+        if (kind == IR_ARG_HFA) {
+            /* Same shape as a pair -- the destination pointer is IR
+             * bookkeeping and consumes no register -- but the value comes
+             * back in v0-v(n-1) at the LEAF width, not in x0:x1. Letting
+             * this fall into the pair branch below is what made our CALLER
+             * read the wrong registers while our CALLEE was already right,
+             * which only a mixed link in BOTH directions can catch. */
+            pair_dest = arg->value;
+            hfa_leaves = ir_arg_hfa_n(arg->abi_annot);
+            hfa_leaf =
+                hfa_leaves ? ir_arg_size(arg->abi_annot) / hfa_leaves : 0;
+            continue;
+        }
         if (kind >= IR_ARG_PAIR_II) {
             /* The IR keeps a 9-16 byte composite return sret-SHAPED, but
              * AAPCS64 passes no pointer for it: the pair comes back in
@@ -1042,23 +1057,26 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         /* Reading x0/x1 physically is safe exactly here: an interval that
          * crosses a call is already confined to callee-saved registers, and
          * these stores precede every definition after the call. */
-        static const u8 regs[2] = {A64_X0, A64_X1};
-        u32 half;
+        u32 n = hfa_leaves ? hfa_leaves : 2;
+        u32 width = hfa_leaves ? hfa_leaf : 8;
+        u8 base = hfa_leaves ? A64_V0 : A64_X0;
+        A64Sf lsf = width == 4 ? A64_SF32 : A64_SF64;
+        u32 k;
 
         rb_put(rb, in);
-        for (half = 0; half < 2; half++) {
+        for (k = 0; k < n; k++) {
             A64Inst st;
 
             memset(&st, 0, sizeof(st));
             st.op = A64_OP_STORE;
-            st.sf = A64_SF64;
+            st.sf = (u8)lsf;
             st.nops = 2;
             st.ops[0].kind = A64O_REG;
-            st.ops[0].reg = phys_reg(regs[half]);
+            st.ops[0].reg = phys_reg((u8)(base + k));
             st.ops[1].kind = A64O_MEM;
             st.ops[1].mem.base = pair_dest;
-            st.ops[1].mem.offset = (i64)(8 * half);
-            st.ops[1].mem.size = 8;
+            st.ops[1].mem.offset = (i64)(width * k);
+            st.ops[1].mem.size = (u8)width;
             st.ops[1].mem.mode = A64_ADDR_SCALED;
             rb_put(rb, &st);
         }

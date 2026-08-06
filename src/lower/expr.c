@@ -1635,9 +1635,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         fty = sem(e->lhs)->base;
     ret = fty ? fty->base : sem(e);
     abi_classify_ret(lo, ret, &aret);
-    if (abi_ret_unsupported(lo, &aret, e->span))
-        return ir_op_undef(IRT_I32);
-    hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR;
+    hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR ||
+             aret.kind == ABI_RET_HFA;
 
     /* Left-to-right: the callee expression evaluates before any
      * argument (only observable for indirect calls). */
@@ -1648,7 +1647,9 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     if (hidden) {
         sret_tmp = lower_temp(lo, ret);
         args[nargs] = ir_op_value(lo->fn, sret_tmp);
-        args[nargs].b = ir_arg_annot(aret.arg_annot, aret.size);
+        args[nargs].b = aret.arg_annot == IR_ARG_HFA
+                            ? ir_arg_annot_hfa(aret.size, aret.n)
+                            : ir_arg_annot(aret.arg_annot, aret.size);
         nargs++;
     }
     for (i = 0; i < e->nargs && nargs + 2 <= 130; i++) {
@@ -1676,11 +1677,16 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
 
         abi_classify_arg(lo, sem(a), &plan);
         switch (plan.kind) {
-        case ABI_ARG_EIGHTBYTES: {
-            /* The value travels as 1-2 bit-carrying scalars. Stage
-             * through an eightbyte-rounded temp so the second load never
-             * reads past the object. */
-            u64 rounded = (u64)plan.n * 8;
+        case ABI_ARG_EIGHTBYTES:
+        case ABI_ARG_HFA: {
+            /* The value travels as N bit-carrying scalars. Stage through a
+             * temp rounded to N strides so the last load never reads past
+             * the object. The STRIDE is the leaf width: 8 for an eightbyte
+             * pair, 4 or 8 for an HFA whose leaves are floats or doubles.
+             * Using 8 for an HFA of floats would gather every other leaf. */
+            u64 stride =
+                plan.kind == ABI_ARG_HFA ? (u64)ir_type_size(plan.t[0]) : 8u;
+            u64 rounded = (u64)plan.n * stride;
             ValueId tmp = ir_build_alloca_typed(&lo->b, lower_i64((i64)rounded),
                                                 plan.align > 8 ? plan.align : 8,
                                                 lower_efftype(lo, sem(a)));
@@ -1693,8 +1699,9 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 IrOperand addr = ir_op_value(lo->fn, tmp);
 
                 if (k) {
-                    ValueId p2 = ir_build_ptradd(
-                        &lo->b, ir_op_value(lo->fn, tmp), lower_i64(8));
+                    ValueId p2 =
+                        ir_build_ptradd(&lo->b, ir_op_value(lo->fn, tmp),
+                                        lower_i64((i64)(stride * k)));
 
                     addr = ir_op_value(lo->fn, p2);
                 }
@@ -1702,7 +1709,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 lv.addr = addr;
                 lv.unit = plan.t[k];
                 lv.etype = lower_efftype(lo, sem(a));
-                lv.align = 8;
+                lv.align = (u32)stride;
                 args[nargs++] = lower_load(lo, lv);
             }
             break;
