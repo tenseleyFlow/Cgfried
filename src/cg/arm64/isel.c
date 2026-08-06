@@ -1,5 +1,7 @@
 #include "cg/arm64/mir.h"
 
+#include "target.h"
+
 #include <string.h>
 
 /* Sprint 47 selects ABI-neutral SSA into pre-register-allocation A64 MIR.
@@ -1977,6 +1979,7 @@ static void bind_params(Isel *is, const IrFunc *ir)
 {
     u32 ngrn = 0, nsrn = 0, nsaa = 0;
     u32 i;
+    bool apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
     /* Sprint 19 shapes an aggregate return as a hidden POINTER parameter 0 --
      * the SysV convention, spelled into the IR. AAPCS64 disagrees twice, and
      * the difference is on the CALLEE side only (call lowering already gets
@@ -2028,16 +2031,22 @@ static void bind_params(Isel *is, const IrFunc *ir)
         if (phys == A64_REG_NONE) {
             A64Inst *load = emit(is, A64_OP_LOAD, sf);
             A64Operand mem;
+            /* Row 3, the callee's half: Apple packs each stack argument at
+             * its natural size and alignment, so reading eightbyte slots
+             * here finds the NEXT argument. marshal_call computes the same
+             * walk on the other side; the two must not drift. */
+            u32 slot_bytes = apple ? ir_type_size(ty) : 8u;
 
+            nsaa = (nsaa + slot_bytes - 1u) & ~(slot_bytes - 1u);
             memset(&mem, 0, sizeof(mem));
             mem.kind = A64O_MEM;
             mem.mem.base = a64_phys(A64_X29);
             mem.mem.offset = (i64)nsaa;
             mem.mem.mode = A64_ADDR_INCOMING;
-            mem.mem.size = 8;
+            mem.mem.size = (u8)slot_bytes;
             add_operand(load, reg_op(dst));
             add_operand(load, mem);
-            nsaa += 8;
+            nsaa += slot_bytes;
             if (ir->variadic)
                 CGF_ICE("arm64 isel: a variadic function with stack-passed "
                         "named parameters needs __stack biased past them "

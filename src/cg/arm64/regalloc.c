@@ -866,13 +866,53 @@ static A64Inst mk_move(bool fp, A64Sf sf, A64Reg dst, A64Reg src)
     return in;
 }
 
+/* Apple row 2: widen a sub-32-bit argument into its argument register.
+ * Unsigned is one AND with a byte/halfword mask; signed is the LSL/ASR pair
+ * the selector already uses for IR_SEXT, through a scratch so neither
+ * instruction reads its own destination. Both run before liveness, so a
+ * fresh vreg here is ordinary. */
+static void emit_arg_extend(A64Func *f, Rb *rb, A64Reg slot,
+                            const A64CallArg *arg)
+{
+    u32 bits = ir_type_size((IrType)arg->type) * 8;
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.nops = 3;
+    in.sf = A64_SF32; /* a w-register write zeroes bits 32..63 */
+    in.ops[0].kind = A64O_REG;
+    in.ops[1].kind = A64O_REG;
+    in.ops[2].kind = A64O_IMM;
+    if (arg->argflags & IROPF_ZEXT) {
+        in.op = A64_OP_AND;
+        in.ops[0].reg = slot;
+        in.ops[1].reg = arg->value;
+        in.ops[2].imm = (i64)(((u64)1 << bits) - 1);
+        rb_put(rb, &in);
+        return;
+    }
+    {
+        A64Reg tmp = a64_newv_width(f, A64RC_GP, A64_SF32);
+
+        in.op = A64_OP_LSL;
+        in.ops[0].reg = tmp;
+        in.ops[1].reg = arg->value;
+        in.ops[2].imm = (i64)(32u - bits);
+        rb_put(rb, &in);
+        in.op = A64_OP_ASR;
+        in.ops[0].reg = slot;
+        in.ops[1].reg = tmp;
+        rb_put(rb, &in);
+    }
+}
+
 /* An outgoing stack argument is addressed from SP, and SP has not moved yet:
  * the offsets are relative to the base of the outgoing area, which frame
  * finalization places at SP+0 after the prologue's single subtraction. */
-static A64Inst mk_out_arg_store(A64Reg value, A64Sf sf, u32 offset)
+static A64Inst mk_out_arg_store(A64Reg value, A64Sf sf, u32 offset, u32 bytes)
 {
     A64Inst in;
-    u8 size = (u8)(sf == A64_SF128 ? 16 : 8);
+    u8 size = (u8)bytes;
 
     memset(&in, 0, sizeof(in));
     in.op = A64_OP_STORE;
@@ -948,22 +988,38 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         }
         if (phys == A64_REG_NONE) {
             A64Inst store;
+            /* AAPCS64 gives every stack argument a full eightbyte, so only
+             * a 16-byte binary128 needs more. Apple's ABI instead packs each
+             * one at its NATURAL size and alignment, which is why a
+             * (char, char, short) tail there is four bytes and not
+             * twenty-four. A composite is already an eightbyte scalar or a
+             * pointer by the time it reaches here, so its own alignment
+             * never enters -- AAPCS64 C.12/C.13 are unamended and lowering
+             * has applied them. Measured against clang. */
+            u32 slot_bytes =
+                apple ? ir_type_size(arg->type) : (sf == A64_SF128 ? 16u : 8u);
 
-            /* AAPCS64 B.3: an argument's stack slot inherits its natural
-             * alignment, so a 16-byte binary128 cannot sit at an odd
-             * eightbyte. Everything else this backend passes is <= 8. */
-            if (sf == A64_SF128)
-                w.nsaa = (w.nsaa + 15u) & ~15u;
-            store = mk_out_arg_store(arg->value, sf, w.nsaa);
+            w.nsaa = (w.nsaa + slot_bytes - 1u) & ~(slot_bytes - 1u);
+            store = mk_out_arg_store(arg->value, sf, w.nsaa, slot_bytes);
             rb_put(rb, &store);
-            w.nsaa += sf == A64_SF128 ? 16u : 8u;
+            w.nsaa += slot_bytes;
             continue;
         }
         {
             A64Reg slot = fixed_vreg(f, fp ? A64RC_FP : A64RC_GP, sf, phys);
-            A64Inst move = mk_move(fp, sf, slot, arg->value);
 
-            rb_put(rb, &move);
+            /* Apple makes the CALLER widen an argument narrower than 32
+             * bits; AAPCS64 leaves the high bits unspecified and puts that
+             * duty on the callee. A cgf callee still widens defensively,
+             * which is correct under both -- but a clang callee on macos
+             * reads w0 raw, so skipping this is a silent wrong answer. */
+            if (apple && (arg->argflags & (IROPF_SEXT | IROPF_ZEXT))) {
+                emit_arg_extend(f, rb, slot, arg);
+            } else {
+                A64Inst move = mk_move(fp, sf, slot, arg->value);
+
+                rb_put(rb, &move);
+            }
             kept[nkept] = *arg;
             kept[nkept].value = slot;
             nkept++;
