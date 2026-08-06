@@ -339,9 +339,20 @@ int main(int argc, char **argv)
      * Inherited by every spawn. */
     setenv("SOURCE_DATE_EPOCH", "1000000000", 1);
 
-    snprintf(work, sizeof(work), "%s/fuzz-work", "build");
-    mkdir("build", 0777);
-    mkdir(work, 0777);
+    /* The scratch file lives beside THIS ppfuzz binary, not in a hardcoded
+     * "build". Two trees (a gcc lane and a clang lane, say) otherwise share
+     * one build/fuzz-work/case.c: each overwrites the other's input between
+     * the write and the two spawns, and the differential reports a flood of
+     * diffs that reproduce nowhere. It cost a full re-run to disbelieve 128
+     * of them. */
+    {
+        const char *slash = strrchr(argv[0], '/');
+        int dlen = slash ? (int)(slash - argv[0]) : 1;
+
+        snprintf(work, sizeof(work), "%.*s/fuzz-work", dlen,
+                 slash ? argv[0] : ".");
+        mkdir(work, 0777);
+    }
 
     for (it = 0; it < iters; it++) {
         u64 seed = seed0 + it;

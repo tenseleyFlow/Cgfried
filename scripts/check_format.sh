@@ -32,8 +32,12 @@ if [ -z "$BIN" ]; then
 fi
 
 # tests/runner/meta/ holds fixture DATA (directive bytes are load-bearing),
-# not code — never formatted.
+# not code — never formatted. tests/fuzz/{findings,crashes}/ is generator
+# OUTPUT: mutated C whose exact bytes are the artifact, and reformatting it
+# would destroy the reproducer. A finding left in the tree made this gate
+# fail on the fuzzer's own output rather than on any code anyone wrote.
 find src tests/runner tests/unit tests/fuzz \( -name '*.c' -o -name '*.h' \) \
-    ! -path 'tests/runner/meta/*' | sort |
+    ! -path 'tests/runner/meta/*' ! -path 'tests/fuzz/findings/*' \
+    ! -path 'tests/fuzz/crashes/*' | sort |
     xargs "$BIN" --dry-run -Werror
 echo "check_format: clean ($BIN)"

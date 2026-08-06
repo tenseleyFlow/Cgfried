@@ -17,8 +17,9 @@
 # Targets and their reference compilers:
 #   x86_64-linux-gnu   gcc, natively
 #   arm64-linux        aarch64-linux-gnu-gcc, run under qemu
-# arm64-macos needs clang on a Mac (nomad-1) and x86_64-freebsd needs a VM;
-# both are driven by their own lanes rather than folded in here.
+#   arm64-macos        clang, ON a Mac -- gcc does not target darwin/arm64
+# x86_64-linux-musl and x86_64-freebsd need a musl gcc and a VM respectively;
+# neither is wired yet.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -43,6 +44,9 @@ REPRO=${CGF_ABI_DIFF_REPRO:-tests/abi_differential/repro}
 }
 
 target=${CGF_ABI_DIFF_TARGET:-x86_64-linux-gnu}
+# Static where it exists: it takes the dynamic loader out of the picture and
+# makes a qemu run self-contained. macOS has no static libSystem and clears it.
+LINKFLAGS=-static
 case $target in
 x86_64-linux-gnu)
     REF=${CGF_ABI_DIFF_REF:-gcc}
@@ -51,6 +55,21 @@ x86_64-linux-gnu)
 arm64-linux)
     REF=${CGF_ABI_DIFF_REF:-aarch64-linux-gnu-gcc}
     RUN=${CGF_ABI_DIFF_RUN:-"qemu-aarch64-static -L /usr/aarch64-linux-gnu"}
+    ;;
+arm64-macos)
+    # Run this ON a Mac. gcc does not target darwin/arm64, so clang is the
+    # reference, and macOS has no static libSystem to link against.
+    REF=${CGF_ABI_DIFF_REF:-clang}
+    RUN=${CGF_ABI_DIFF_RUN:-}
+    LINKFLAGS=
+    case $(uname -s):$(uname -m) in
+    Darwin:arm64) ;;
+    *)
+        echo "HARNESS_SKIP suite=abi-differential test=all count=1" \
+            "reason=\"arm64-macos needs a Mac\""
+        exit 0
+        ;;
+    esac
     ;;
 *)
     echo "abi_differential: no reference compiler wired for $target" >&2
@@ -93,7 +112,7 @@ try_pair() {
     fi
     # The REFERENCE compiler links: it owns the crt and libc for its target,
     # and the object layout is what is under test, not the link line.
-    "$REF" -static -o "$dir/prog" "$dir/a.o" "$dir/b.o" \
+    "$REF" $LINKFLAGS -o "$dir/prog" "$dir/a.o" "$dir/b.o" \
         >>"$dir/build.log" 2>&1 || return 92
     if [ -n "$RUN" ]; then
         $RUN "$dir/prog" >/dev/null 2>&1
