@@ -1,5 +1,6 @@
 // ENV: CGF_AS=0
 // FLAGS: -lpthread
+// OPT_EQ: all
 // CHECK: main counter=0
 // EXIT_CODE: 0
 // THE test that matters: spelling the sections right proves nothing about
