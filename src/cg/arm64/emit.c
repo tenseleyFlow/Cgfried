@@ -372,6 +372,45 @@ static void emit_pair(Emit *e, const A64Inst *in, bool store)
     buf_printf(e->out, "\n");
 }
 
+/* Whether a symbol is DEFINED by this translation unit. The module carries
+ * a body for every function it defines and an entry for every global it
+ * defines; anything named only through the symbol table is external. Mach-O
+ * needs the distinction because an undefined symbol is only reachable
+ * through the GOT. */
+static bool sym_defined_here(const Emit *e, const char *name)
+{
+    u32 i;
+
+    if (!e->m)
+        return false;
+    for (i = 0; i < e->m->nglobals; i++)
+        if (strcmp(e->m->globals[i].name, name) == 0)
+            return true;
+    for (i = 0; i < e->m->nfuncs; i++)
+        if (strcmp(e->m->funcs[i].name, name) == 0)
+            return true;
+    return false;
+}
+
+/* An addend applied AFTER a GOT load, where it cannot ride the relocation.
+ * `add`/`sub` take a 12-bit immediate, optionally shifted left by 12, so two
+ * instructions cover +/- 16MiB; no C object offset comes close. */
+static void emit_addr_addend(Emit *e, const char *reg, i64 addend)
+{
+    const char *op = addend < 0 ? "sub" : "add";
+    u64 mag = addend < 0 ? (u64)(-(addend + 1)) + 1u : (u64)addend;
+
+    if (mag >> 24)
+        CGF_ICE("arm64 emit: address addend %lld does not fit two adds",
+                (long long)addend);
+    if (mag & 0xfffu)
+        buf_printf(e->out, "\t%s\t%s, %s, #%llu\n", op, reg, reg,
+                   (unsigned long long)(mag & 0xfffu));
+    if (mag >> 12)
+        buf_printf(e->out, "\t%s\t%s, %s, #%llu, lsl #12\n", op, reg, reg,
+                   (unsigned long long)(mag >> 12));
+}
+
 /* `adrp` plus `add #:lo12:` — see the file header for why the load-folded
  * form is deliberately not used. */
 static void emit_addr(Emit *e, const A64Inst *in)
@@ -408,6 +447,26 @@ static void emit_addr(Emit *e, const A64Inst *in)
     /* Same pair, different punctuation: Mach-O spells the halves `@PAGE`
      * and `@PAGEOFF` where ELF uses a bare symbol and `#:lo12:`. */
     if (e->apple) {
+        /* ...unless the symbol is not DEFINED here, in which case Mach-O
+         * routes it through the GOT even in a non-PIC build, and the pair
+         * becomes adrp + LOAD rather than adrp + add. This is not an
+         * optimization: ld64 emits no relocation that would let a direct
+         * `add` reach an undefined symbol, so getting it wrong does not
+         * produce a slower program, it produces a link error or a wrong
+         * address. It applies to a function's ADDRESS as well as to data;
+         * a direct `bl` is unaffected. Measured against clang. */
+        if (in->ops[1].kind == A64O_SYM &&
+            !sym_defined_here(e, sym_name(e, in->ops[1].id))) {
+            /* An addend cannot ride a GOT relocation -- the slot holds the
+             * symbol's base address and nothing else -- so it becomes a
+             * separate add after the load, which is what clang does too. */
+            buf_printf(e->out, "\tadrp\t%s, %s@GOTPAGE\n", reg, sym);
+            buf_printf(e->out, "\tldr\t%s, [%s, %s@GOTPAGEOFF]\n", reg, reg,
+                       sym);
+            if (addend[0])
+                emit_addr_addend(e, reg, in->ops[2].imm);
+            return;
+        }
         buf_printf(e->out, "\tadrp\t%s, %s%s@PAGE\n", reg, sym, addend);
         buf_printf(e->out, "\tadd\t%s, %s, %s%s@PAGEOFF\n", reg, reg, sym,
                    addend);
