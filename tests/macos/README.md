@@ -21,12 +21,25 @@ ssh nomad-1 "sh -c 'cd /tmp/cgfried-s50 && make -j18 build/cgfried &&
     CGF_AS=0 sh tests/macos/run.sh build/cgfried'"
 ```
 
-`cgf -c` needs an assembler and `cargo` is missing on nomad-1, so the bundled
-afs-as is unavailable there: go through `-S` and let clang assemble.
+The lane drives the full toolchain: the bundled afs-as assembles, and every
+program is linked twice, once with the system ld64 and once with afs-ld
+(`CGF_LD=1`). Both products must run correctly and pass `codesign --verify`.
+
+`scripts/macho_objdiff_lane.sh` is the companion: it assembles each fixture
+with afs-as *and* Apple's assembler and requires the two objects to agree on
+section bytes, relocations and symbols. Run both after any emitter change.
 
 nomad-1's login shell is **fish**, which has no `do ... done` — wrap every
 remote command in `sh -c`. Quoting through ssh + fish + sh is lossy; write
 files locally and rsync them rather than heredoc-ing them across.
+
+**A non-interactive `sh -c` there does not get Homebrew's PATH.** That is how
+"cargo is missing on nomad-1" got into the handoff and stayed for a sprint:
+`command -v cargo` failed because `/opt/homebrew/bin` was absent and the
+stale `~/.cargo/bin` rustup shims are broken symlinks. Prefix
+`export PATH=/opt/homebrew/bin:$PATH` when a remote command needs brew's
+tools, and check what the *interactive* shell sees before concluding
+something is not installed.
 
 | pair | row | what it proves | expected |
 |---|---|---|---|
