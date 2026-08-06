@@ -60,8 +60,10 @@ typedef struct Emit {
  * are minted by lowering with ELF-shaped `.L` names. Prefixing those blindly
  * gives `_.Lstr.0`, which assembles but is neither a C identifier nor
  * assembler-local, so it would reach the Mach-O symbol table as clutter.
- * They become `L`-prefixed instead, which is the assembler-temporary form
- * ld64 never emits. */
+ * They become `l_`-prefixed instead -- the private-extern form clang uses for
+ * exactly these (`l_.str`), which ld64 resolves and then strips. A capital
+ * `L` would make them assembler TEMPORARIES, forcing a section-relative
+ * relocation that afs-as does not resolve. */
 static const char *msym(Emit *e, const char *name)
 {
     char *slot;
@@ -71,24 +73,37 @@ static const char *msym(Emit *e, const char *name)
     slot = e->symbuf[e->symslot];
     e->symslot = (e->symslot + 1) % 4;
     if (name[0] == '.' && name[1] == 'L')
-        snprintf(slot, sizeof(e->symbuf[0]), "L%s", name + 2);
+        snprintf(slot, sizeof(e->symbuf[0]), "l_%s", name + 2);
     else
         snprintf(slot, sizeof(e->symbuf[0]), "_%s", name);
     return slot;
 }
 
-/* The local-label prefix.
+/* `L` and `l_` are NOT interchangeable on Mach-O, and which one is right
+ * depends on what REFERENCES the label. ELF spells both `.L`.
  *
- * `L` and `l_` are NOT interchangeable on Mach-O. `L...` is an ASSEMBLER
- * temporary that never reaches the symbol table; `l_...` is a private extern
- * the assembler emits and the LINKER later strips. Branch targets must be
- * the former -- Apple's assembler rejects a conditional branch to `l_f0_2`
- * with "conditional branch requires assembler-local label", which is exactly
- * what the first draft here produced. clang's own basic-block labels are
- * `LBB0_2` for the same reason. */
-static const char *mlocal(const Emit *e)
+ * `L...` is an ASSEMBLER temporary that never reaches the symbol table, so a
+ * relocation against it has to be resolved section-relative. `l_...` is a
+ * private extern: it reaches the object and the LINKER strips it later.
+ *
+ * A BRANCH TARGET must be the former. Apple's assembler rejects a
+ * conditional branch to `l_f0_2` with "conditional branch requires
+ * assembler-local label", which is what the first draft here produced;
+ * clang's own basic-block labels are `LBB0_2` for the same reason.
+ *
+ * Anything a RELOCATION names -- a string literal, the constant pool -- is
+ * the latter. clang writes `l_.str`. Apple's assembler accepts capital `L`
+ * there too, which is why it went unnoticed, but afs-as does not resolve a
+ * section-relative Mach-O relocation and rejects it with "missing relocation
+ * symbol 'Lstr.0'". Matching clang is both the fix and the right idiom. */
+static const char *mlabel(const Emit *e)
 {
     return e->apple ? "L" : ".L";
+}
+
+static const char *mprivate(const Emit *e)
+{
+    return e->apple ? "l_" : ".L";
 }
 
 static const char *rn(A64Reg r, u8 sf)
@@ -159,13 +174,13 @@ static void poper(Emit *e, const A64Operand *o, u8 sf)
         pmem(e, &o->mem, sf);
         break;
     case A64O_LABEL:
-        buf_printf(e->out, "%sf%u_%u", mlocal(e), e->fidx, o->id);
+        buf_printf(e->out, "%sf%u_%u", mlabel(e), e->fidx, o->id);
         break;
     case A64O_SYM:
         buf_printf(e->out, "%s", msym(e, sym_name(e, o->id)));
         break;
     case A64O_CPOOL:
-        buf_printf(e->out, "%scp%u_%u", mlocal(e), e->fidx, o->id - 1);
+        buf_printf(e->out, "%scp%u_%u", mprivate(e), e->fidx, o->id - 1);
         break;
     default:
         CGF_ICE("arm64 emit: operand kind %u has no spelling", o->kind);
@@ -424,7 +439,7 @@ static void emit_addr(Emit *e, const A64Inst *in)
         (in->ops[1].kind != A64O_SYM && in->ops[1].kind != A64O_CPOOL))
         CGF_ICE("arm64 emit: malformed global address");
     if (in->ops[1].kind == A64O_CPOOL) {
-        snprintf(cplabel, sizeof(cplabel), "%scp%u_%u", mlocal(e), e->fidx,
+        snprintf(cplabel, sizeof(cplabel), "%scp%u_%u", mprivate(e), e->fidx,
                  in->ops[1].id - 1);
         sym = cplabel;
     } else {
@@ -962,7 +977,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
         const A64Block *b = &f->blocks[bi];
 
         if (bi)
-            buf_printf(out, "%sf%u_%u:\n", mlocal(&e), fidx, bi + 1);
+            buf_printf(out, "%sf%u_%u:\n", mlabel(&e), fidx, bi + 1);
         for (i = 0; i < b->n; i++)
             emit_inst(&e, &b->insts[i], bi + 2);
     }
@@ -979,7 +994,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                                 : "\t.section\t.rodata\n");
         buf_printf(out, "\t.p2align\t4\n");
         for (i = 0; i < f->ncpool; i++) {
-            buf_printf(out, "%scp%u_%u:\n", mlocal(&e), fidx, i);
+            buf_printf(out, "%scp%u_%u:\n", mprivate(&e), fidx, i);
             buf_printf(out, "\t.quad\t%llu\n",
                        (unsigned long long)f->cpool[2 * i]);
             buf_printf(out, "\t.quad\t%llu\n",
