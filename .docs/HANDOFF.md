@@ -380,75 +380,107 @@ deferred with zero memory diagnostics.
 
 ## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 50, arm64-macos)
 
-**Sprint 49 is CLOSED at 7 of 7 gates**, all verified in CI. Both arm64
-corpus ledgers are empty (54/54 ordinary, 54/54 under `CGF_SPILL_ALL=1`), the
-object differential is 20 identical with nothing pinned, and the char-sign
-corpus plus the four-thread ll/sc atomics hammer execute on real arm64
-hardware. Nothing there is outstanding.
+**Sprint 49 is CLOSED at 7 of 7 gates.** Both arm64 corpus ledgers are empty
+(54/54 ordinary, 54/54 under `CGF_SPILL_ALL=1`), the object differential is 20
+identical with nothing pinned, and the char-sign corpus plus the four-thread
+ll/sc atomics hammer execute on real arm64 hardware. Nothing there is
+outstanding.
 
-**Sprint 50 (arm64-macos) is IN PROGRESS.** Tasks #94-#99 break it down.
-Read `.docs/sprints/10-backend-arm64/s50-arm64-macos.md`; its centerpiece is
-the seven-row Apple divergence table.
+**Sprint 50 (arm64-macos) is IN PROGRESS.** Tasks #94-#99 break it down. Read
+`.docs/sprints/10-backend-arm64/s50-arm64-macos.md` — its implementation-notes
+section at the bottom is written as the work lands and is the honest record.
 
-### What already works, verified ON HARDWARE
+### Done, verified ON HARDWARE
 
-`hello, world` runs on Apple silicon. So do globals, statics, BSS and string
-relocations, and a variadic CALLEE mixed-linked against a clang caller
-(`sum=45`, nine anonymous arguments).
+**Deliverable 1 (the Mach-O dialect) and deliverable 2 (the whole seven-row
+divergence table) are CLOSED.** Deliverable 3's linking half is closed too:
+`cgf hello.c -o hello && ./hello` runs on nomad-1 through our own driver.
 
-- **D1, the Mach-O dialect, is DONE** (`54736ed`). One flag on `Emit`, not a
-  second emitter -- the instruction printer is identical and duplicating it
-  to change punctuation is how the two drift apart.
-- **Row 1's CALLEE half is DONE** (`944e850`). `va_list` is a plain `char *`,
-  va_arg is a cursor bump, no register save area.
+- **D1** (`54736ed`): ONE flag on `Emit`, not a second emitter. Symbols take a
+  leading underscore; halves are `@PAGE`/`@PAGEOFF`; sections are
+  `__TEXT,__text,regular,pure_instructions`; Mach-O has NEITHER `.type` NOR
+  `.size`; zero data is `.zerofill SEG,SECT,name,size,align`, which replaces
+  the label AND the body; `.build_version` opens and
+  `.subsections_via_symbols` closes, the latter REQUIRED because ld64's atom
+  model assumes it.
+- **Row 1, varargs** (`944e850`, `d959bc8`, `16c96f0`). Apple's `va_list` is a
+  plain `char *` and deliberately NOT the one-element array the other targets
+  use: that wrapper is what makes a callee advance its CALLER's cursor, and
+  Apple's is an ordinary object. The caller half needed an IR change — the IR
+  marked a call variadic but never said WHICH arguments were anonymous, and
+  only the front end ever knew. It rides a new `IrOperand.argflags` byte.
+- **Rows 2-3** (`0f69781`, `14adba9`): the caller widens sub-32-bit arguments
+  and packs the stack tail at natural size. Both rows are SYMMETRIC and only
+  the caller half is obvious — see the trap below.
+- **Rows 4-7** (`baf8c91`): already held from Sprints 14/28/48; the work was
+  the evidence, since three of the four are silent when wrong.
+- **D3 linking + D4 signing** (`52d62a0`): SDK discovery via
+  `xcrun --show-sdk-path`, the ld64 recipe, `-lSystem`, LC_MAIN entry,
+  `-static` hard-errors. `codesign --verify` passes with NO work of ours —
+  modern ld64 ad-hoc signs every arm64 binary it produces.
 
-### THE remaining half of row 1, and its design
+### THE BLOCKER — read this before planning the next chunk
 
-The CALLER still passes anonymous arguments in registers, so
-`printf("%d", x)` prints garbage while `puts(s)` is fine. That asymmetry is
-the cleanest demonstration of row 1 there is -- keep it as the reproducer.
+With the SDK reachable, `#include <stdio.h>` immediately needs **two Sprint 55
+features**, and this is a genuine sequencing coupling that the sprint file did
+not anticipate:
 
-The blocker is that **the IR marks a call variadic but never says WHICH
-arguments are anonymous**. `IRF_CALL_VARIADIC` is a bool; x86 SysV only ever
-needed that plus an xmm count. Apple needs the named-parameter boundary.
+1. **Unconditional `__attribute__`.** AGENTS.md records that `__GNUC__` stays
+   undefined so glibc's headers neutralize `__attribute__` themselves. **Apple's
+   `sys/cdefs.h` does not guard on `__GNUC__` at all** — it assumes a
+   clang-or-gcc compiler outright. The trick does not apply here.
+2. **`__asm("_name")` labels.** `__DARWIN_ALIAS` renames `fopen` and friends
+   through an asm label on the declaration.
 
-`IrInst` is 48 bytes and static-asserted, so do NOT grow it. The fit is the
-mechanism that already exists: per-argument ABI annotations in
-`IrOperand.b`, read by `ir_arg_kind`, which currently uses values 0-6 of a
-3-bit field. **Add `IR_ARG_ANON = 7`**, set by lowering at the site that
-already computes ABI plans (`src/lower/abi.c` is THE psABI site), and read by
-`marshal_call` in `src/cg/arm64/regalloc.c` exactly where it reads
-`byval`/`sret` today. Zero bytes added.
+Neither can be faked. Silently dropping every `__attribute__` is wrong the
+moment one is `packed`, `aligned` or `noreturn` — which is exactly why Sprint
+43 made non-`cgf_` attributes a hard error rather than a no-op. **The
+arm64-macos corpus is freestanding-only until Sprint 55, and DoD 1's "full e2e
+corpus on nomad-1" cannot close before then.** Decide deliberately whether to
+pull Sprint 55's attribute parser forward or to close Sprint 50 with that gate
+named and open; do not discover this a third time.
 
-It touches the IR round-trip contract -- `print.c`, `parse.c`, `verify.c`,
-`struct_eq` -- so budget for that and re-run the `-emit-ir` self-check, which
-is id-exact and will catch a mistake immediately.
+### What is left in Sprint 50
 
-### The two oracles -- this is what makes Sprint 50 tractable
+- **#98 tail**: nothing required for the system-ld lane. afs-ld (`CGF_LD=1`)
+  is the flagship lane and needs `cargo`, which nomad-1 does not have.
+- **#99**: TLV thread-locals, the reloc differential vs clang, and the macOS
+  CI runner. The differential is the one that will find things — `tests/macos/`
+  already holds the mixed-link programs and a README with the exact recipe.
+- **NOT yet implemented and it will bite**: on Mach-O ALL extern data goes
+  through the GOT even non-PIC (`_ext@GOTPAGE`/`@GOTPAGEOFF`), while defined
+  globals stay direct. Only same-TU globals have been exercised, so the first
+  fixture referencing an extern variable hits it.
 
-**1. clang on the LINUX box targets Apple arm64.** No Mac round trip needed
-for ABI questions:
+### The traps this sprint actually produced
 
-```sh
-clang -target arm64-apple-macos11 -O1 -S -o - t.c    # assembly
-clang -target arm64-apple-macos11 -c  -o t.o    t.c  # a real Mach-O object
-```
+- **A symmetric ABI rule has two halves and only one is obvious.** Row 3's
+  caller half went in, our caller packed correctly, and our callee still read
+  eightbyte slots — so a Cgfried-to-Cgfried call agreed with ITSELF and clang's
+  caller did not. **Every fixture in `tests/macos/` is a MIXED link for this
+  reason**: two halves sharing a bug are indistinguishable from two halves that
+  are right.
+- **Duplicated logic rots silently.** FIVE optimizer passes each carried their
+  own copy of "re-attach a call argument's annotation across a replacement";
+  three dropped the new `argflags` field the day it was added. `safe-dogfood`
+  caught it by compiling the compiler with itself. They now share
+  `ir_arg_carry_provenance`.
+- **Growing the fixture corpus re-rolls the fuzzer's mutation stream**, which
+  found a PRE-EXISTING ICE (seed 148, block-scope `int a[];`). Expect a digest
+  re-pin and possibly a real bug whenever you add fixtures.
+- **A guard keyed on the wrong axis.** `--nocompress-debug-sections` is
+  GNU-as-only; macOS `as` is a clang driver and rejects it, which surfaced as
+  an ICE blaming our own assembly. The `-###` plan builder needed the same
+  gate — a flag on one side and not the other makes the plan a lie.
 
-`llvm-objdump`, `llvm-readobj`, `llvm-otool`, `llvm-nm` are all present under
-`/usr/lib/llvm*/bin/`. **Measure clang before implementing.** Every rule in
-row 1 came from reading its output rather than the ABI document: 8-byte slots
-even for a char, aggregates in the varargs area BY VALUE (one `ldp` for a
-16-byte struct), `__int128` forcing the cursor to 16 first, and `long double`
-in an ordinary 8-byte slot.
+### The two oracles
 
-**2. nomad-1 over the tailnet** is Darwin arm64, macOS 26.4.1, with
-`clang`/`ld`/`codesign`/`otool` and the SDK at
-`/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`. **`cargo` is MISSING**,
-which blocks only the afs-as/afs-ld lanes -- the sprint's second phase by
-design, so sequencing is unaffected.
+**1. clang on THIS Linux box** targets `arm64-apple-macos11` and emits real
+Mach-O (`llvm-objdump`/`otool`/`readobj` all present), so ABI questions need no
+Mac round trip. Every row above was MEASURED this way before it was written.
 
-The compiler builds there with NO source changes and reports
-`-dumpmachine arm64-macos`.
+**2. nomad-1 over the tailnet** is Darwin arm64 with the full Apple toolchain.
+`cargo` is MISSING, which blocks only the afs-as/afs-ld lanes.
 
 ```sh
 rsync -az --exclude 'build*/' --exclude '.git/' --exclude 'target/' \
@@ -460,36 +492,29 @@ Two remote traps, both of which cost time:
 
 - **nomad-1's login shell is fish**, which has no `do ... done`. Wrap every
   remote command in `sh -c '...'`.
-- **Quoting dies through ssh + fish + sh.** A `printf` with `\\n` arrived as
-  a literal newline and produced a syntax error. Write the file locally and
-  `scp` it instead of heredoc-ing it through three layers.
+- **Quoting dies through ssh + fish + sh.** A `printf` with `\\n` arrived as a
+  literal newline. Write the file locally and `scp` it.
+
+`cgf -c` needs an assembler and afs-as cannot be built there, so go through
+`-S` and let clang assemble — or pass `CGF_AS=0` to use the system one.
 
 ### Mach-O details that only real assembly caught
 
-- **`l_` is LINKER-private, not assembler-local.** Apple's assembler rejects
-  a conditional branch to one: "conditional branch requires assembler-local
-  label". Block labels must be capital `L`, which is why clang writes
-  `LBB0_2`. `l_` survives to the object and ld64 strips it later; `L` never
-  reaches the symbol table at all.
-- Anonymous globals arrive from lowering with ELF-shaped `.L` names. They
-  must become `L`, not `_.L` -- `msym()` special-cases that.
-- **ALL extern data goes through the GOT on Mach-O**, even non-PIC:
-  `_ext@GOTPAGE` / `@GOTPAGEOFF` then a load, while DEFINED globals stay
-  direct. Confirmed against clang. **NOT YET IMPLEMENTED** -- the emitter
-  currently emits a direct adrp/add for everything, which is why only
-  same-TU globals have been exercised. This will bite the first fixture that
-  references an extern variable.
-- `.zerofill SEG,SECT,name,size,align` replaces the label AND the body; it is
-  `__DATA,__common` for external and `__DATA,__bss` for internal.
-- Mach-O has NEITHER `.type` NOR `.size`.
-- `.subsections_via_symbols` is REQUIRED, not cosmetic: ld64's atom model and
-  dead-strip both assume it.
+- **`l_` is LINKER-private, not assembler-local.** Apple's assembler rejects a
+  conditional branch to one. Block labels must be capital `L`, which is why
+  clang writes `LBB0_2`.
+- Anonymous globals arrive from lowering with ELF-shaped `.L` names and must
+  become `L`, not `_.L`.
+- **Apple's headers dispatch on `__arm64__`, not `__aarch64__`.**
+- **The minimum OS version lives in THREE places that must agree**: the
+  predefine table, `.build_version macos, 11, 0`, and `-platform_version macos
+  11.0`.
 
 ### Sequencing discipline the sprint states, and why
 
 Bring up against **system as/ld FIRST**, afs-as/afs-ld second. It isolates
 compiler bugs from toolchain-routing bugs. Do not invert it because cargo is
-missing on nomad-1 -- that ordering was the plan anyway.
+missing on nomad-1 — that ordering was the plan anyway.
 
 ## 1b-2. Process traps from the Sprint 50 session
 
