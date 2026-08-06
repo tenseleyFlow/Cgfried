@@ -60,12 +60,13 @@ const char *ir_rmw_name(u8 k)
 /* IrAbiRet spellings for the func-header `abi(...)` marker and the pair
  * call-arg annotations; index = enum value. */
 static const char *const abi_ret_names[] = {
-    "none", "sret", "pair_ii", "pair_is", "pair_si", "pair_ss",
+    "none",    "sret",    "pair_ii", "pair_is",
+    "pair_si", "pair_ss", "hfa_f32", "hfa_f64",
 };
 
 const char *ir_abi_ret_name(u8 k)
 {
-    if (k > IR_ABIRET_PAIR_SS)
+    if (k > IR_ABIRET_HFA_F64)
         CGF_ICE("ir printer: bad abi_ret %u", k);
     return abi_ret_names[k];
 }
@@ -221,6 +222,9 @@ static void print_call_arg(Buf *out, const IrModule *m, const ValNames *vn,
     switch (kind) {
     case IR_ARG_BYVAL:
         buf_printf(out, " byval(%u)", ir_arg_size(o->b));
+        break;
+    case IR_ARG_HFA:
+        buf_printf(out, " hfa(%u,%u)", ir_arg_size(o->b), ir_arg_hfa_n(o->b));
         break;
     case IR_ARG_SRET:
     case IR_ARG_PAIR_II:
@@ -542,7 +546,10 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " unproto");
     if (f->linkage == IRLINK_INTERNAL)
         buf_printf(out, " internal");
-    if (f->abi_ret != IR_ABIRET_NONE)
+    if (f->abi_ret >= IR_ABIRET_HFA_F32)
+        buf_printf(out, " abi(%s,%u)", ir_abi_ret_name(f->abi_ret),
+                   f->abi_ret_n);
+    else if (f->abi_ret != IR_ABIRET_NONE)
         buf_printf(out, " abi(%s)", ir_abi_ret_name(f->abi_ret));
     if (f->calls_setjmp)
         buf_printf(out, " setjmp");

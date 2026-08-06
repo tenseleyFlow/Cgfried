@@ -586,6 +586,8 @@ static bool parse_call_arg(P *p, IrOperand *slot)
         kind = IR_ARG_PAIR_SI;
     else if (tok_is(peek(p), "pair_ss"))
         kind = IR_ARG_PAIR_SS;
+    else if (tok_is(peek(p), "hfa"))
+        kind = IR_ARG_HFA;
     if (kind) {
         next(p);
         if (!expect(p, T_LP, "'(' after the argument annotation"))
@@ -595,7 +597,18 @@ static bool parse_call_arg(P *p, IrOperand *slot)
 
             if (!sz)
                 return false;
-            slot->b = ir_arg_annot(kind, (u32)sz->ival);
+            if (kind == IR_ARG_HFA) {
+                Tok *n;
+
+                if (!expect(p, T_COMMA, "',' before the HFA leaf count"))
+                    return false;
+                n = expect(p, T_INT, "the HFA leaf count");
+                if (!n)
+                    return false;
+                slot->b = ir_arg_annot_hfa((u32)sz->ival, (u32)n->ival);
+            } else {
+                slot->b = ir_arg_annot(kind, (u32)sz->ival);
+            }
         }
         if (!expect(p, T_RP, "')'"))
             return false;
@@ -1439,6 +1452,7 @@ static bool parse_func(P *p)
     bool setjmp_marker = false;
     bool contract_marker = false;
     u8 abi_ret = IR_ABIRET_NONE;
+    u8 abi_ret_n = 0;
     IrFunc *f;
     u32 i;
 
@@ -1522,7 +1536,7 @@ static bool parse_func(P *p)
             u8 k;
             bool found = false;
 
-            for (k = IR_ABIRET_SRET; k <= IR_ABIRET_PAIR_SS; k++)
+            for (k = IR_ABIRET_SRET; k <= IR_ABIRET_HFA_F64; k++)
                 if (tok_is(an, ir_abi_ret_name(k))) {
                     abi_ret = k;
                     found = true;
@@ -1532,6 +1546,17 @@ static bool parse_func(P *p)
                      an->s);
                 return false;
             }
+        }
+        /* An HFA carries its leaf COUNT: `abi(hfa_f32,3)`. */
+        if (abi_ret >= IR_ABIRET_HFA_F32) {
+            Tok *n;
+
+            if (!expect(p, T_COMMA, "',' before the HFA leaf count"))
+                return false;
+            n = expect(p, T_INT, "the HFA leaf count");
+            if (!n)
+                return false;
+            abi_ret_n = (u8)n->ival;
         }
         if (!expect(p, T_RP, "')'"))
             return false;
@@ -1550,6 +1575,7 @@ static bool parse_func(P *p)
     f->variadic = variadic;
     f->unprototyped = unprototyped;
     f->abi_ret = abi_ret;
+    f->abi_ret_n = abi_ret_n;
     if (internal_marker)
         f->linkage = IRLINK_INTERNAL;
     f->calls_setjmp = setjmp_marker;

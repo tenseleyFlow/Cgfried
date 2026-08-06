@@ -447,6 +447,16 @@ typedef enum IrAbiRet {
     IR_ABIRET_PAIR_IS,
     IR_ABIRET_PAIR_SI,
     IR_ABIRET_PAIR_SS,
+    /* AAPCS64 only: 1-4 HOMOGENEOUS floating leaves come back in v0-v3 and
+     * NO hidden pointer is passed. The IR keeps the sret SHAPE exactly as
+     * the pairs do -- a hidden ptr parameter the callee builds into -- and
+     * this value plus IrFunc.abi_ret_n carries the register truth.
+     *
+     * It must be distinguishable from IR_ABIRET_SRET, which is why the
+     * classifier's original `ir_abi = SRET` placeholder could not stand:
+     * sret passes a pointer in x8 and an HFA passes nothing at all. */
+    IR_ABIRET_HFA_F32,
+    IR_ABIRET_HFA_F64,
 } IrAbiRet;
 
 /* Per-call-argument ABI annotation, carried in IrOperand.b (VALUE and
@@ -462,6 +472,16 @@ typedef enum IrAbiRet {
 #define IR_ARG_PAIR_IS 4u
 #define IR_ARG_PAIR_SI 5u
 #define IR_ARG_PAIR_SS 6u
+/* AAPCS64 HFA return: same sret SHAPE (a hidden pointer the callee builds
+ * into) but NO pointer is passed at runtime and the value comes back in
+ * v0-v3. The leaf COUNT rides bits 35..37; the leaf size is size/count,
+ * because an HFA is homogeneous by definition and has no interior padding.
+ * Distinguishing it from IR_ARG_SRET matters at the CALL site, where sret
+ * really does spend x8 on a pointer and an HFA spends nothing. */
+#define IR_ARG_HFA 7u
+#define ir_arg_hfa_n(b) ((u32)(((b) >> 35) & 0x7u))
+#define ir_arg_annot_hfa(size, n)                                              \
+    (((u64)IR_ARG_HFA << 32) | ((u64)(n) << 35) | (u64)(u32)(size))
 #define ir_arg_annot(kind, size) (((u64)(kind) << 32) | (u64)(u32)(size))
 #define ir_arg_kind(b) ((u32)((b) >> 32) & 0x7u)
 #define ir_arg_size(b) ((u32)(b))
@@ -477,6 +497,7 @@ typedef struct IrFunc {
     u32 loc;       /* function definition location; 0 when unavailable */
     u8 ret;        /* IrType */
     u8 abi_ret;    /* IrAbiRet */
+    u8 abi_ret_n;  /* HFA only: leaf count, 1-4 (printed inside abi(...)) */
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);
                       defaults EXTERNAL, printed ` internal` otherwise */
     bool variadic; /* printed as ', ...' after the last parameter */

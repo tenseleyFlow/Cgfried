@@ -865,7 +865,8 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->nparams != y->nparams || x->nblocks != y->nblocks ||
             x->nvals != y->nvals || x->variadic != y->variadic ||
             x->unprototyped != y->unprototyped || x->abi_ret != y->abi_ret ||
-            x->linkage != y->linkage || x->calls_setjmp != y->calls_setjmp ||
+            x->abi_ret_n != y->abi_ret_n || x->linkage != y->linkage ||
+            x->calls_setjmp != y->calls_setjmp ||
             x->fp_contract != y->fp_contract)
             return false;
         for (j = 0; j < x->nparams; j++) {
