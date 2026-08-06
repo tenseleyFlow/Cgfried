@@ -684,21 +684,24 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     char comp_dir[4096];
     FILE *f;
 
-    if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
-        fprintf(stderr, "cgfried: error: arm64-macos Mach-O emission lands "
-                        "in Sprint 50\n");
-        return CGF_EXIT_COMPILE;
-    }
-    if (cgf_target_host().kind == CGF_TARGET_ARM64_LINUX) {
+    if (cgf_target_host().kind == CGF_TARGET_ARM64_LINUX ||
+        cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
         if (a->debug_level) {
             /* Sprint 29's DWARF emitter is x86-only. Emitting arm64 objects
              * that silently lack the line table would break the -g contract
-             * without saying so; Sprint 51 joins arm64 to the differential. */
-            fprintf(stderr, "cgfried: error: -g on arm64-linux lands in "
-                            "Sprint 51\n");
+             * without saying so; Sprint 51 joins arm64 to the differential.
+             * Ledgered as DBG-005 in .docs/audits/debug-info-debt.md.
+             *
+             * The condition names the ARCHITECTURE, not one target: the x86
+             * CFI encoder ICEs on any arm64 module, so a macos build that
+             * reached it died with "non-x86 target 2" rather than a
+             * diagnostic. */
+            fprintf(stderr, "cgfried: error: -g on %s lands in Sprint 51\n",
+                    cgf_target_name(cgf_target_host()));
             return CGF_EXIT_COMPILE;
         }
         buf_init(&b);
+        a64_emit_file_prologue(&b);
         for (i = 0; i < m->nfuncs; i++) {
             A64Func *af = a64_isel_function(m, &m->funcs[i], arena);
 
@@ -714,6 +717,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
             a64_emit_function(af, m, i, m->funcs[i].linkage, &b);
         }
         a64_emit_globals(m, &b);
+        a64_emit_file_epilogue(&b);
         goto emit_tail;
     }
 

@@ -425,6 +425,9 @@ void a64_regalloc(A64Func *f);
 void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out);
 void a64_emit_globals(const IrModule *m, Buf *out);
+/* Mach-O file bookends; no-ops on ELF targets. */
+void a64_emit_file_prologue(Buf *out);
+void a64_emit_file_epilogue(Buf *out);
 u32 a64_liveness_words(const A64Func *f);
 void a64_liveness(const A64Func *f, u64 *live_in, u64 *live_out);
 bool a64_reg_is_callee_saved_gp(u8 reg);

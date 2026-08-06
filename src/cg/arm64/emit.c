@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "diag.h"
+#include "target.h"
 #include "util/buf.h"
 
 /* Sprint 49: post-allocation A64 MIR to GNU-syntax aarch64 assembly.
@@ -26,13 +27,69 @@
  * wrong address. The add form always works, so correctness first; the fold is
  * an optimization with a precondition the emitter cannot check locally. */
 
+/* Mach-O and ELF disagree about spelling, not about instructions.
+ *
+ *   symbols        Apple prefixes every C identifier with `_`
+ *   page-relative  `sym@PAGE` / `sym@PAGEOFF` vs `:lo12:`
+ *   sections       `__TEXT,__text,regular,pure_instructions` vs `.text`
+ *   size and type  Mach-O has NEITHER `.type` nor `.size`
+ *   zero data      `.zerofill SEG,SECT,name,size,align` vs `.bss` + `.zero`
+ *   local labels   `l_` vs `.L`
+ *   file scope     `.build_version` first, `.subsections_via_symbols` last
+ *
+ * One flag rather than a second emitter: the instruction printer below is
+ * identical on both, and duplicating it to change punctuation is how the two
+ * drift apart. */
 typedef struct Emit {
     Buf *out;
     const A64Func *f;
     const IrModule *m;
     u32 fidx;
     u32 atomic_seq; /* names the labels inside each expanded ll/sc loop */
+    bool apple;     /* Mach-O spelling; otherwise ELF */
+    /* Symbol names are consumed by printf-style format strings, some of
+     * which take two at once, so the `_` prefix needs somewhere to live.
+     * A small ring keeps the call sites unchanged. */
+    char symbuf[4][192];
+    u32 symslot;
 } Emit;
+
+/* The target's spelling of `name`.
+ *
+ * Anonymous globals -- string literals, local statics, compound literals --
+ * are minted by lowering with ELF-shaped `.L` names. Prefixing those blindly
+ * gives `_.Lstr.0`, which assembles but is neither a C identifier nor
+ * assembler-local, so it would reach the Mach-O symbol table as clutter.
+ * They become `L`-prefixed instead, which is the assembler-temporary form
+ * ld64 never emits. */
+static const char *msym(Emit *e, const char *name)
+{
+    char *slot;
+
+    if (!e->apple)
+        return name;
+    slot = e->symbuf[e->symslot];
+    e->symslot = (e->symslot + 1) % 4;
+    if (name[0] == '.' && name[1] == 'L')
+        snprintf(slot, sizeof(e->symbuf[0]), "L%s", name + 2);
+    else
+        snprintf(slot, sizeof(e->symbuf[0]), "_%s", name);
+    return slot;
+}
+
+/* The local-label prefix.
+ *
+ * `L` and `l_` are NOT interchangeable on Mach-O. `L...` is an ASSEMBLER
+ * temporary that never reaches the symbol table; `l_...` is a private extern
+ * the assembler emits and the LINKER later strips. Branch targets must be
+ * the former -- Apple's assembler rejects a conditional branch to `l_f0_2`
+ * with "conditional branch requires assembler-local label", which is exactly
+ * what the first draft here produced. clang's own basic-block labels are
+ * `LBB0_2` for the same reason. */
+static const char *mlocal(const Emit *e)
+{
+    return e->apple ? "L" : ".L";
+}
 
 static const char *rn(A64Reg r, u8 sf)
 {
@@ -102,13 +159,13 @@ static void poper(Emit *e, const A64Operand *o, u8 sf)
         pmem(e, &o->mem, sf);
         break;
     case A64O_LABEL:
-        buf_printf(e->out, ".Lf%u_%u", e->fidx, o->id);
+        buf_printf(e->out, "%sf%u_%u", mlocal(e), e->fidx, o->id);
         break;
     case A64O_SYM:
-        buf_printf(e->out, "%s", sym_name(e, o->id));
+        buf_printf(e->out, "%s", msym(e, sym_name(e, o->id)));
         break;
     case A64O_CPOOL:
-        buf_printf(e->out, ".Lcp%u_%u", e->fidx, o->id - 1);
+        buf_printf(e->out, "%scp%u_%u", mlocal(e), e->fidx, o->id - 1);
         break;
     default:
         CGF_ICE("arm64 emit: operand kind %u has no spelling", o->kind);
@@ -328,11 +385,11 @@ static void emit_addr(Emit *e, const A64Inst *in)
         (in->ops[1].kind != A64O_SYM && in->ops[1].kind != A64O_CPOOL))
         CGF_ICE("arm64 emit: malformed global address");
     if (in->ops[1].kind == A64O_CPOOL) {
-        snprintf(cplabel, sizeof(cplabel), ".Lcp%u_%u", e->fidx,
+        snprintf(cplabel, sizeof(cplabel), "%scp%u_%u", mlocal(e), e->fidx,
                  in->ops[1].id - 1);
         sym = cplabel;
     } else {
-        sym = sym_name(e, in->ops[1].id);
+        sym = msym(e, sym_name(e, in->ops[1].id));
     }
     reg = rn(in->ops[0].reg, A64_SF64);
     /* An address constant may carry an addend -- `&g.member`, `&arr[k]`, or
@@ -347,6 +404,14 @@ static void emit_addr(Emit *e, const A64Inst *in)
         if (in->ops[2].imm)
             snprintf(addend, sizeof(addend), "%+lld",
                      (long long)in->ops[2].imm);
+    }
+    /* Same pair, different punctuation: Mach-O spells the halves `@PAGE`
+     * and `@PAGEOFF` where ELF uses a bare symbol and `#:lo12:`. */
+    if (e->apple) {
+        buf_printf(e->out, "\tadrp\t%s, %s%s@PAGE\n", reg, sym, addend);
+        buf_printf(e->out, "\tadd\t%s, %s, %s%s@PAGEOFF\n", reg, reg, sym,
+                   addend);
+        return;
     }
     buf_printf(e->out, "\tadrp\t%s, %s%s\n", reg, sym, addend);
     buf_printf(e->out, "\tadd\t%s, %s, #:lo12:%s%s\n", reg, reg, sym, addend);
@@ -366,13 +431,14 @@ static void emit_call(Emit *e, const A64Inst *in)
         if (!e->m || c->callee_id >= e->m->nfuncs)
             CGF_ICE("arm64 emit: internal callee %u is out of range",
                     c->callee_id);
-        buf_printf(e->out, "\tbl\t%s\n", e->m->funcs[c->callee_id].name);
+        buf_printf(e->out, "\tbl\t%s\n",
+                   msym(e, e->m->funcs[c->callee_id].name));
         return;
     default:
         if (!e->m || c->callee_id >= e->m->nsyms)
             CGF_ICE("arm64 emit: external callee %u is out of range",
                     c->callee_id);
-        buf_printf(e->out, "\tbl\t%s\n", e->m->syms[c->callee_id]);
+        buf_printf(e->out, "\tbl\t%s\n", msym(e, e->m->syms[c->callee_id]));
         return;
     }
 }
@@ -810,31 +876,39 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
 
     if (!f->allocated)
         CGF_ICE("arm64 emit: '%s' reached emission unallocated", f->name);
+    memset(&e, 0, sizeof(e));
     e.out = out;
     e.f = f;
     e.m = m;
     e.fidx = fidx;
     e.atomic_seq = 0;
+    e.apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
 
-    buf_printf(out, "\t.text\n");
+    buf_printf(out, e.apple
+                        ? "\t.section\t__TEXT,__text,regular,pure_instructions\n"
+                        : "\t.text\n");
     if (linkage != IRLINK_INTERNAL)
-        buf_printf(out, "\t.globl\t%s\n", f->name);
-    else
+        buf_printf(out, "\t.globl\t%s\n", msym(&e, f->name));
+    else if (!e.apple)
         buf_printf(out, "\t.local\t%s\n", f->name);
     /* Every A64 instruction is four bytes, so the natural function alignment
      * is 4; GNU as would otherwise leave the previous section's alignment. */
     buf_printf(out, "\t.p2align\t2\n");
-    buf_printf(out, "\t.type\t%s, @function\n", f->name);
-    buf_printf(out, "%s:\n", f->name);
+    /* Mach-O has no `.type` and no `.size`: a symbol's extent comes from
+     * `.subsections_via_symbols` and the next symbol, not a directive. */
+    if (!e.apple)
+        buf_printf(out, "\t.type\t%s, @function\n", f->name);
+    buf_printf(out, "%s:\n", msym(&e, f->name));
     for (bi = 0; bi < f->nblocks; bi++) {
         const A64Block *b = &f->blocks[bi];
 
         if (bi)
-            buf_printf(out, ".Lf%u_%u:\n", fidx, bi + 1);
+            buf_printf(out, "%sf%u_%u:\n", mlocal(&e), fidx, bi + 1);
         for (i = 0; i < b->n; i++)
             emit_inst(&e, &b->insts[i], bi + 2);
     }
-    buf_printf(out, "\t.size\t%s, .-%s\n", f->name, f->name);
+    if (!e.apple)
+        buf_printf(out, "\t.size\t%s, .-%s\n", f->name, f->name);
 
     /* The 16-byte constant pool, after the body so the .text run stays
      * contiguous. `.p2align 4` is not needed by the load -- adrp/add
@@ -842,10 +916,11 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
      * normal memory -- but a 16-byte datum that straddles a cache line for
      * no reason is worth one directive. */
     if (f->ncpool) {
-        buf_printf(out, "\t.section\t.rodata\n");
+        buf_printf(out, e.apple ? "\t.section\t__TEXT,__const\n"
+                                : "\t.section\t.rodata\n");
         buf_printf(out, "\t.p2align\t4\n");
         for (i = 0; i < f->ncpool; i++) {
-            buf_printf(out, ".Lcp%u_%u:\n", fidx, i);
+            buf_printf(out, "%scp%u_%u:\n", mlocal(&e), fidx, i);
             buf_printf(out, "\t.quad\t%llu\n",
                        (unsigned long long)f->cpool[2 * i]);
             buf_printf(out, "\t.quad\t%llu\n",
@@ -861,7 +936,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
  * and escape spelling is exactly where assemblers disagree. Relocations are
  * eight-byte `.quad sym+addend` splices; zero runs of sixteen or more
  * collapse to `.zero`. Identical in shape to the x86 emitter on purpose. */
-static void emit_image(const IrModule *m, const IrGlobal *g, Buf *out)
+static void emit_image(Emit *e, const IrModule *m, const IrGlobal *g, Buf *out)
 {
     u64 off = 0;
     u32 ri = 0;
@@ -870,7 +945,7 @@ static void emit_image(const IrModule *m, const IrGlobal *g, Buf *out)
         if (ri < g->nrelocs && g->relocs[ri].offset == off) {
             const IrReloc *r = &g->relocs[ri++];
 
-            buf_printf(out, "\t.quad\t%s", m->syms[r->symbol]);
+            buf_printf(out, "\t.quad\t%s", msym(e, m->syms[r->symbol]));
             if (r->addend)
                 buf_printf(out, "%+lld", (long long)r->addend);
             buf_printf(out, "\n");
@@ -895,9 +970,32 @@ static void emit_image(const IrModule *m, const IrGlobal *g, Buf *out)
     }
 }
 
+/* Mach-O file-scope bookends. `.subsections_via_symbols` is REQUIRED, not
+ * cosmetic: ld64's atom model and its dead-strip both assume every function
+ * and datum is its own subsection, which is what that directive asserts. */
+void a64_emit_file_prologue(Buf *out)
+{
+    if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS)
+        return;
+    buf_printf(out, "\t.build_version macos, 11, 0\n");
+}
+
+void a64_emit_file_epilogue(Buf *out)
+{
+    if (cgf_target_host().kind != CGF_TARGET_ARM64_MACOS)
+        return;
+    buf_printf(out, "\t.subsections_via_symbols\n");
+}
+
 void a64_emit_globals(const IrModule *m, Buf *out)
 {
+    Emit e;
     u32 i;
+
+    memset(&e, 0, sizeof(e));
+    e.out = out;
+    e.m = m;
+    e.apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
 
     for (i = 0; i < m->nglobals; i++) {
         const IrGlobal *g = &m->globals[i];
@@ -907,23 +1005,50 @@ void a64_emit_globals(const IrModule *m, Buf *out)
         for (a = g->align; a > 1; a >>= 1)
             p2++;
         if (g->is_tentative) {
-            buf_printf(out, "\t.comm\t%s,%llu,%u\n", g->name,
-                       (unsigned long long)g->size, g->align);
+            /* A tentative definition is Mach-O's __common, reached through
+             * .zerofill rather than .comm -- and it still needs its .globl,
+             * which .comm implies on ELF. */
+            if (e.apple) {
+                buf_printf(out, "\t.globl\t%s\n", msym(&e, g->name));
+                buf_printf(out, "\t.zerofill\t__DATA,__common,%s,%llu,%u\n",
+                           msym(&e, g->name), (unsigned long long)g->size, p2);
+            } else {
+                buf_printf(out, "\t.comm\t%s,%llu,%u\n", g->name,
+                           (unsigned long long)g->size, g->align);
+            }
             continue;
         }
-        if (g->linkage == IRLINK_INTERNAL)
-            buf_printf(out, "\t.local\t%s\n", g->name);
+        if (g->linkage == IRLINK_INTERNAL) {
+            /* Mach-O has no `.local`: a symbol is internal precisely by NOT
+             * being declared .globl. */
+            if (!e.apple)
+                buf_printf(out, "\t.local\t%s\n", g->name);
+        } else {
+            buf_printf(out, "\t.globl\t%s\n", msym(&e, g->name));
+        }
+        /* Zero-initialized data is a DIRECTIVE on Mach-O, not a section plus
+         * a run of zero bytes, and it carries its own name/size/alignment --
+         * so it replaces the label and the body both. */
+        if (e.apple && !g->init) {
+            buf_printf(out, "\t.zerofill\t__DATA,%s,%s,%llu,%u\n",
+                       g->linkage == IRLINK_INTERNAL ? "__bss" : "__common",
+                       msym(&e, g->name), (unsigned long long)g->size, p2);
+            continue;
+        }
+        if (e.apple)
+            buf_printf(out, "\t.section\t__DATA,__data\n");
         else
-            buf_printf(out, "\t.globl\t%s\n", g->name);
-        buf_printf(out, "\t.section\t%s\n", g->init ? ".data" : ".bss");
+            buf_printf(out, "\t.section\t%s\n", g->init ? ".data" : ".bss");
         buf_printf(out, "\t.p2align\t%u\n", p2);
-        buf_printf(out, "\t.type\t%s, @object\n", g->name);
-        buf_printf(out, "\t.size\t%s, %llu\n", g->name,
-                   (unsigned long long)g->size);
-        buf_printf(out, "%s:\n", g->name);
+        if (!e.apple) {
+            buf_printf(out, "\t.type\t%s, @object\n", g->name);
+            buf_printf(out, "\t.size\t%s, %llu\n", g->name,
+                       (unsigned long long)g->size);
+        }
+        buf_printf(out, "%s:\n", msym(&e, g->name));
         if (!g->init)
             buf_printf(out, "\t.zero\t%llu\n", (unsigned long long)g->size);
         else
-            emit_image(m, g, out);
+            emit_image(&e, m, g, out);
     }
 }
