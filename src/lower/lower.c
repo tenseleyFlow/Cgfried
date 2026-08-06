@@ -498,6 +498,20 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     IrGlobal *g;
     TypeLayout l;
 
+    /* _Thread_local PARSES and types correctly and then lowers to an
+     * ordinary global, which is a SILENT MISCOMPILE: every thread shares one
+     * copy. A four-thread program that increments a thread-local a thousand
+     * times each prints 1000 in main where gcc prints 0, with no diagnostic
+     * anywhere. Refuse it rather than emit a plausible wrong answer -- the
+     * same rule Sprint 28 applied to the runtime's unimplemented entry
+     * points, and for the same reason: nothing distinguishes a plausible
+     * value from a correct one.
+     *
+     * Nothing here is target-specific; no target ever had thread-local
+     * storage. Sprint 50 owns it because its D5 is the first deliverable to
+     * name _Thread_local at all. See .docs/audits/tls-debt.md. */
+    if (sym->tls && !lo->include_inline_defs)
+        lower_unimplemented(lo, sym->span, "thread-local storage", 50);
     if (sym->def_kind == DEF_NONE)
         return; /* extern declaration: referenced via the symbol table */
     if (!sym->type || !layout_is_complete_for_size(sym->type))
