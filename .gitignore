@@ -14,6 +14,7 @@
 !.docs/audits/tls-debt.md
 !.docs/audits/abi-debt.md
 !.docs/audits/afs-as-pic-debt.md
+!.docs/audits/freebsd-vm.md
 CLAUDE.md
 AGENTS.md
 build/
