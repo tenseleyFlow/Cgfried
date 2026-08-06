@@ -324,3 +324,57 @@ jobs:
           cat debug-info.log
           [ "$s" -eq 0 ]
           sh ci/check_skips.sh debug debug-info.log
+
+  # Sprint 50 D6: arm64 Darwin. The ABI programs and the Mach-O object
+  # differential both need a real Mac -- an ABI bug that clang and cgfried
+  # share is invisible, and the differential compares our assembler against
+  # Apple's. Both lanes skip loudly off arm64 Darwin, so this runner is the
+  # only place they actually execute.
+  #
+  # Hosted programs are NOT compiled here: Apple's headers use __attribute__
+  # unconditionally and __DARWIN_ALIAS needs asm labels, both Sprint 55.
+  # Everything below is freestanding by construction.
+  macos-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: submodules (https mirror of the SSH URLs)
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cache cargo + tool targets
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            afs-as/target
+            afs-ld/target
+          key: macos-tools-v1-${{ hashFiles('.gitmodules') }}-${{ github.sha }}
+          restore-keys: |
+            macos-tools-v1-${{ hashFiles('.gitmodules') }}-
+            macos-tools-v1-
+      - run: make tools
+      - run: make -j3 build/cgfried
+      - name: the target must actually be arm64-macos
+        run: |
+          got=$(./build/cgfried -dumpmachine)
+          test "$got" = arm64-macos || {
+            echo "runner produced $got, not arm64-macos" >&2
+            exit 1
+          }
+      - name: ABI programs, both linkers, signatures checked
+        run: |
+          sh tests/macos/run.sh build/cgfried > macos-lane.log 2>&1 || s=$?
+          cat macos-lane.log
+          [ "${s:-0}" -eq 0 ]
+          # The lane skips loudly off arm64 Darwin. On this runner a skip
+          # means it did not run, which must fail rather than read as green.
+          ! grep -q HARNESS_SKIP macos-lane.log
+      - name: Mach-O object differential vs Apple's assembler
+        run: |
+          sh scripts/macho_objdiff_lane.sh build/cgfried > macho-objdiff.log 2>&1 || s=$?
+          cat macho-objdiff.log
+          [ "${s:-0}" -eq 0 ]
+          ! grep -q HARNESS_SKIP macho-objdiff.log
