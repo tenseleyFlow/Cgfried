@@ -1704,6 +1704,10 @@ static bool parse_global(P *p)
         next(p);
         g->is_tentative = true;
     }
+    if (tok_is(peek(p), "tls")) {
+        next(p);
+        g->is_tls = true;
+    }
     if (tok_is(peek(p), "init")) {
         Tok *blob;
         u64 i;

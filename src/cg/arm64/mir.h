@@ -176,6 +176,11 @@ typedef enum A64Op {
     A64_OP_CSET,
     A64_OP_CSETM,
     A64_OP_ADDR,
+    /* Sprint 51: the address of a THREAD-LOCAL, local-exec model. Expanded
+     * at emission into the thread-pointer read plus the two halves of the
+     * offset, because it is three instructions rather than the ordinary
+     * two and none of them is an adrp. */
+    A64_OP_TLSADDR,
     A64_OP_LOAD,
     A64_OP_STORE,
     A64_OP_LDP,
@@ -449,6 +454,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
 void a64_emit_globals(const IrModule *m, Buf *out);
 /* Mach-O file bookends; no-ops on ELF targets. */
 void a64_emit_file_prologue(Buf *out);
+void a64_emit_tls_decls(const IrModule *m, Buf *out);
 void a64_emit_file_epilogue(Buf *out);
 u32 a64_liveness_words(const A64Func *f);
 void a64_liveness(const A64Func *f, u64 *live_in, u64 *live_out);

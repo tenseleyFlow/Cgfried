@@ -597,6 +597,8 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
                    link_names[g->linkage]);
         if (g->is_tentative)
             buf_printf(out, " tentative");
+        if (g->is_tls)
+            buf_printf(out, " tls");
         if (g->init) {
             /* x-prefixed so a digit-leading image lexes as one ident */
             buf_printf(out, " init x");

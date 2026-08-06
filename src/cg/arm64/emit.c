@@ -856,6 +856,31 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
     case A64_OP_ADDR:
         emit_addr(e, in);
         return;
+    case A64_OP_TLSADDR: {
+        /* Local-exec on AAPCS64. The thread pointer is an architectural
+         * register rather than a segment base, and the offset arrives in two
+         * 12-bit halves:
+         *
+         *     mrs xN, tpidr_el0
+         *     add xN, xN, #:tprel_hi12:sym, lsl #12
+         *     add xN, xN, #:tprel_lo12_nc:sym
+         *
+         * R_AARCH64_TLSLE_ADD_TPREL_HI12 and ..._LO12_NC. `_nc` is
+         * no-check: the pair is only correct together, so the low half must
+         * not complain about the bits the high half carries. */
+        const char *reg = rn(in->ops[0].reg, A64_SF64);
+        const char *sym = e->m->syms[in->ops[1].id - 1];
+
+        buf_printf(e->out, "\tmrs\t%s, tpidr_el0\n", reg);
+        buf_printf(e->out, "\tadd\t%s, %s, #:tprel_hi12:%s, lsl #12\n", reg,
+                   reg, sym);
+        buf_printf(e->out, "\tadd\t%s, %s, #:tprel_lo12_nc:%s\n", reg, reg,
+                   sym);
+        if (in->nops > 2 && in->ops[2].imm)
+            buf_printf(e->out, "\tadd\t%s, %s, #%lld\n", reg, reg,
+                       (long long)in->ops[2].imm);
+        return;
+    }
     case A64_OP_CALL:
         emit_call(e, in);
         return;
@@ -1086,6 +1111,14 @@ void a64_emit_file_prologue(Buf *out)
     buf_printf(out, "\t.build_version macos, 11, 0\n");
 }
 
+static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls);
+
+/* The thread-locals, emitted BEFORE any function. See the filter's comment. */
+void a64_emit_tls_decls(const IrModule *m, Buf *out)
+{
+    a64_emit_globals_filtered(m, out, true);
+}
+
 void a64_emit_file_epilogue(Buf *out)
 {
     if (cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS)
@@ -1093,7 +1126,13 @@ void a64_emit_file_epilogue(Buf *out)
     buf_printf(out, "\t.subsections_via_symbols\n");
 }
 
-void a64_emit_globals(const IrModule *m, Buf *out)
+/* Globals, filtered by thread-locality. The two groups are emitted at
+ * different POINTS in the file: gas tracks whether a symbol is thread-local
+ * and rejects a TLS relocation against one it has not yet seen defined in a
+ * TLS section ("Accessing `x' as thread-local object"). Functions come
+ * before data here, so the thread-locals have to go first -- which is
+ * exactly the order gcc emits them in. */
+static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
 {
     Emit e;
     u32 i;
@@ -1107,6 +1146,9 @@ void a64_emit_globals(const IrModule *m, Buf *out)
         const IrGlobal *g = &m->globals[i];
         u32 p2 = 0;
         u32 a;
+
+        if (g->is_tls != tls)
+            continue;
 
         for (a = g->align; a > 1; a >>= 1)
             p2++;
@@ -1143,11 +1185,20 @@ void a64_emit_globals(const IrModule *m, Buf *out)
         }
         if (e.apple)
             buf_printf(out, "\t.section\t__DATA,__data\n");
+        else if (g->is_tls)
+            /* The T flag is what marks a section thread-local; the linker
+             * lays these out as the TEMPLATE each new thread is given, and
+             * gas needs to have seen the definition before it will accept a
+             * TLS relocation naming the symbol. */
+            buf_printf(out, "\t.section\t%s\n",
+                       g->init ? ".tdata,\"awT\",@progbits"
+                               : ".tbss,\"awT\",@nobits");
         else
             buf_printf(out, "\t.section\t%s\n", g->init ? ".data" : ".bss");
         buf_printf(out, "\t.p2align\t%u\n", p2);
         if (!e.apple) {
-            buf_printf(out, "\t.type\t%s, @object\n", g->name);
+            buf_printf(out, "\t.type\t%s, %s\n", g->name,
+                       g->is_tls ? "@tls_object" : "@object");
             buf_printf(out, "\t.size\t%s, %llu\n", g->name,
                        (unsigned long long)g->size);
         }
@@ -1157,4 +1208,9 @@ void a64_emit_globals(const IrModule *m, Buf *out)
         else
             emit_image(&e, m, g, out);
     }
+}
+
+void a64_emit_globals(const IrModule *m, Buf *out)
+{
+    a64_emit_globals_filtered(m, out, false);
 }

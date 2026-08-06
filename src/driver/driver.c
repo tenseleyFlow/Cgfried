@@ -721,6 +721,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                                    : A64_PIC_NONE);
         buf_init(&b);
         a64_emit_file_prologue(&b);
+        a64_emit_tls_decls(m, &b);
         for (i = 0; i < m->nfuncs; i++) {
             A64Func *af = a64_isel_function(m, &m->funcs[i], arena);
 
@@ -795,6 +796,31 @@ emit_tail:
     /* -c / link-mode object: write the .s beside the output
      * (deterministic name; kept on failure so the ICE is reproducible),
      * assemble, clean up. */
+    /* THE bundled-assembler gap for thread-local storage. The assembly we
+     * produce is correct and gas assembles it; afs-as has neither the `%fs:`
+     * segment override nor the `@tpoff` operand nor R_X86_64_TPOFF32
+     * (TLS-004). Left alone, it rejects the text and the driver reports "the
+     * assembler rejected cgfried-generated assembly ... this is a cgf
+     * emission bug" -- which blames the wrong component for a gap we know
+     * about. Say what is actually true, and what to do about it. */
+    {
+        ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
+        u32 gi;
+
+        if (tc.use_afs_as)
+            for (gi = 0; gi < m->nglobals; gi++) {
+                if (!m->globals[gi].is_tls)
+                    continue;
+                fprintf(stderr,
+                        "cgfried: error: '%s' uses thread-local storage, "
+                        "which the bundled assembler cannot encode yet "
+                        "(TLS-004); build with CGF_AS=0 to use the system "
+                        "assembler\n",
+                        job->path);
+                buf_free(&b);
+                return CGF_EXIT_COMPILE;
+            }
+    }
     snprintf(s_path, sizeof(s_path), "%s.cgf.s", job->out);
     f = fopen(s_path, "wb");
     if (!f) {

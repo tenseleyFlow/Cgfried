@@ -583,6 +583,11 @@ typedef struct IrGlobal {
     u32 align;
     u8 linkage; /* IrLinkage */
     bool is_tentative;
+    /* _Thread_local: one copy PER THREAD. It is a property of the OBJECT,
+     * not of any reference to it, so it rides the global and every backend
+     * asks the module rather than threading it through operands. Printed
+     * ` tls`. */
+    bool is_tls;
     u8 *init; /* Sprint 15 byte image; NULL = zeroinit / BSS */
     IrReloc *relocs;
     u32 nrelocs;
@@ -827,6 +832,7 @@ typedef struct IrSymBinding {
 } IrSymBinding;
 
 IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index);
+bool ir_sym_is_tls(const IrModule *m, u32 sym_index);
 
 /* Snapshot every function's count into out[m->nfuncs]. */
 void ir_snapshot_volatile(const IrModule *m, u32 *out);

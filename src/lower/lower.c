@@ -498,27 +498,33 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     IrGlobal *g;
     TypeLayout l;
 
-    /* _Thread_local PARSES and types correctly and then lowers to an
-     * ordinary global, which is a SILENT MISCOMPILE: every thread shares one
-     * copy. A four-thread program that increments a thread-local a thousand
-     * times each prints 1000 in main where gcc prints 0, with no diagnostic
-     * anywhere. Refuse it rather than emit a plausible wrong answer -- the
-     * same rule Sprint 28 applied to the runtime's unimplemented entry
-     * points, and for the same reason: nothing distinguishes a plausible
-     * value from a correct one.
-     *
-     * Nothing here is target-specific; no target ever had thread-local
-     * storage. Sprint 50 owns it because its D5 is the first deliverable to
-     * name _Thread_local at all. See .docs/audits/tls-debt.md. */
-    if (sym->tls && !lo->include_inline_defs)
-        lower_unimplemented(lo, sym->span, "thread-local storage", 50);
-    if (sym->def_kind == DEF_NONE)
-        return; /* extern declaration: referenced via the symbol table */
+    if (sym->def_kind == DEF_NONE) {
+        /* An extern declaration is referenced through the symbol table and
+         * emits no global -- which means a backend asking "is this symbol
+         * thread-local?" cannot tell, and answering "no" is the very silent
+         * miscompile this work removed. The local-exec model only reaches a
+         * definition in THIS translation unit anyway; an extern one needs
+         * initial-exec, which is TLS-005. Refuse rather than guess. */
+        if (sym->tls && !lo->include_inline_defs)
+            lower_unimplemented(
+                lo, sym->span,
+                "a reference to an extern _Thread_local (the initial-exec "
+                "model)",
+                51);
+        return;
+    }
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
     l = layout_of(lo->sema, sym->type);
     g = ir_global_new(lo->m, sym->name);
     g->align = (u32)(l.align ? l.align : 1);
+    /* _Thread_local is a property of the OBJECT: one copy per thread, in
+     * .tdata/.tbss, reached through the thread pointer rather than by an
+     * ordinary address. Until Sprint 51 this was a hard error, because
+     * lowering it to a plain global is a SILENT MISCOMPILE -- four threads
+     * incrementing one a thousand times each printed 1000 where gcc printed
+     * 0, with no diagnostic anywhere. See .docs/audits/tls-debt.md. */
+    g->is_tls = sym->tls;
     g->linkage =
         sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
     switch (sym->def_kind) {

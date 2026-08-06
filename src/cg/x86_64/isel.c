@@ -299,6 +299,35 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
         X64VReg r = newv(is);
         X64Inst *in;
 
+        if (ir_sym_is_tls(is->m, o->sym + 1)) {
+            /* Local-exec. A thread-local has no ordinary address, so the
+             * address is BUILT: read the thread pointer out of %fs:0, then
+             * add the symbol's link-time offset from it.
+             *
+             *     movq %fs:0, %r
+             *     leaq sym@tpoff(%r), %r2
+             *
+             * Materializing the address rather than folding `%fs:sym@tpoff`
+             * into every access keeps one code path for loads, stores and
+             * address-of alike. An addend rides the lea's displacement,
+             * where a relocation cannot carry it. */
+            X64VReg base = newv(is);
+            X64Inst *tp = emit(is, X64_OP_MOV, X64_Q);
+
+            tp->def = base;
+            tp->a.kind = X64O_MEM;
+            tp->a.mem.seg_fs = true;
+            tp->a.mem.scale = 1;
+
+            in = emit(is, X64_OP_LEA, X64_Q);
+            in->def = r;
+            in->a.kind = X64O_MEM;
+            in->a.mem.base = base;
+            in->a.mem.scale = 1;
+            in->a.mem.tpoff_sym = o->sym + 1;
+            in->a.mem.disp = (i32)(i64)o->a;
+            return r;
+        }
         if (sym_data_needs_got(is, o->sym + 1)) {
             /* The GOT slot holds the address, so this is a LOAD, and the
              * addend cannot ride the relocation -- it becomes a separate
@@ -357,9 +386,14 @@ static X64Mem fold_addr(Isel *is, const IrOperand *addr)
     memset(&mem, 0, sizeof(mem));
     mem.scale = 1;
     if (addr->kind == IROP_SYMBOL) {
-        if (sym_data_needs_got(is, addr->sym + 1)) {
+        if (sym_data_needs_got(is, addr->sym + 1) ||
+            ir_sym_is_tls(is->m, addr->sym + 1)) {
             /* Two indirections cannot fold into one operand: the GOT load
-             * has to happen first, and to_vreg already knows how. */
+             * has to happen first, and to_vreg already knows how. A
+             * thread-local is the same shape -- its address is BUILT from
+             * the thread pointer, so folding the bare symbol here would
+             * emit an ordinary absolute reference and quietly read the
+             * wrong thread's copy. */
             mem.base = to_vreg(is, addr);
             mem.scale = 1;
             return mem;

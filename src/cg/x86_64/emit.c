@@ -85,6 +85,24 @@ typedef struct Emit {
 
 static void pmem_att(Emit *e, const X64Mem *m)
 {
+    if (m->seg_fs) {
+        /* The thread pointer itself. %fs:0 holds the TCB address on x86-64
+         * Linux, and every thread-local is at a fixed offset from it. */
+        buf_printf(e->out, "%%fs:%d", m->disp);
+        return;
+    }
+    if (m->tpoff_sym) {
+        /* `sym@tpoff(%base)`: the link-time offset of a thread-local from
+         * the thread pointer, added to the thread pointer in %base.
+         * R_X86_64_TPOFF32, resolved by the linker because only it knows the
+         * final layout of the initial TLS block. */
+        buf_printf(e->out, "%s@tpoff", e->m->syms[m->tpoff_sym - 1]);
+        if (m->disp)
+            buf_printf(e->out, "%+d", m->disp);
+        if (m->base.v)
+            buf_printf(e->out, "(%%%s)", regn(m->base.v, X64_Q));
+        return;
+    }
     if (m->rip_sym) {
         buf_printf(e->out, "%s", e->m->syms[m->rip_sym - 1]);
         if (m->disp)
@@ -643,21 +661,30 @@ void x64_emit_globals(const IrModule *m, Buf *out)
 
         for (a = g->align; a > 1; a >>= 1)
             p2++;
-        if (g->is_tentative) {
+        if (g->is_tentative && !g->is_tls) {
             /* -fcommon tentative: the linker merges. */
             buf_printf(out, "\t.comm\t%s,%llu,%u\n", g->name,
                        (unsigned long long)g->size, g->align);
             continue;
         }
         if (!g->init) {
-            /* zero-initialized: BSS. */
+            /* zero-initialized: BSS -- .tbss for a thread-local, whose
+             * initial image is the TEMPLATE each new thread is given rather
+             * than storage anyone writes to directly. The T flag is what
+             * marks a section thread-local to the linker.
+             *
+             * A tentative thread-local cannot go through .comm, which has no
+             * way to say "thread-local"; it becomes an ordinary .tbss
+             * definition, which is what gcc does too. */
             if (g->linkage == IRLINK_INTERNAL)
                 buf_printf(out, "\t.local\t%s\n", g->name);
             else
                 buf_printf(out, "\t.globl\t%s\n", g->name);
-            buf_printf(out, "\t.section\t.bss\n");
+            buf_printf(out, "\t.section\t%s\n",
+                       g->is_tls ? ".tbss,\"awT\",@nobits" : ".bss");
             buf_printf(out, "\t.p2align\t%u\n", p2);
-            buf_printf(out, "\t.type\t%s, @object\n", g->name);
+            buf_printf(out, "\t.type\t%s, %s\n", g->name,
+                       g->is_tls ? "@tls_object" : "@object");
             buf_printf(out, "\t.size\t%s, %llu\n", g->name,
                        (unsigned long long)g->size);
             buf_printf(out, "%s:\n\t.zero\t%llu\n", g->name,
@@ -668,9 +695,13 @@ void x64_emit_globals(const IrModule *m, Buf *out)
             buf_printf(out, "\t.local\t%s\n", g->name);
         else
             buf_printf(out, "\t.globl\t%s\n", g->name);
-        buf_printf(out, "\t.data\n");
+        if (g->is_tls)
+            buf_printf(out, "\t.section\t.tdata,\"awT\",@progbits\n");
+        else
+            buf_printf(out, "\t.data\n");
         buf_printf(out, "\t.p2align\t%u\n", p2);
-        buf_printf(out, "\t.type\t%s, @object\n", g->name);
+        buf_printf(out, "\t.type\t%s, %s\n", g->name,
+                   g->is_tls ? "@tls_object" : "@object");
         buf_printf(out, "\t.size\t%s, %llu\n", g->name,
                    (unsigned long long)g->size);
         buf_printf(out, "%s:\n", g->name);

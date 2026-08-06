@@ -765,6 +765,23 @@ static bool str_eq(const char *a, const char *b)
     return strcmp(a, b) == 0;
 }
 
+/* Is this symbol a thread-local OBJECT? Asked by every backend at the point
+ * it would otherwise materialize an ordinary address, because a thread-local
+ * has no ordinary address -- it has an offset from the thread pointer. */
+bool ir_sym_is_tls(const IrModule *m, u32 sym_index)
+{
+    const char *name;
+    u32 i;
+
+    if (!m || !sym_index || sym_index > m->nsyms)
+        return false;
+    name = m->syms[sym_index - 1];
+    for (i = 0; i < m->nglobals; i++)
+        if (strcmp(m->globals[i].name, name) == 0)
+            return m->globals[i].is_tls;
+    return false;
+}
+
 IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index)
 {
     IrSymBinding b = {false, true};
@@ -846,7 +863,7 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
 
         if (!str_eq(x->name, y->name) || x->size != y->size ||
             x->align != y->align || x->linkage != y->linkage ||
-            x->is_tentative != y->is_tentative ||
+            x->is_tentative != y->is_tentative || x->is_tls != y->is_tls ||
             (x->init == NULL) != (y->init == NULL) || x->nrelocs != y->nrelocs)
             return false;
         if (x->init && x->size && memcmp(x->init, y->init, x->size) != 0)

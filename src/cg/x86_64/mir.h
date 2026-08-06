@@ -239,6 +239,20 @@ typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
      * materializes an address -- a preemptible object cannot be reached in
      * one instruction, which is why isel, not the emitter, decides. */
     bool rip_got;
+    /* Sprint 51, thread-local storage (local-exec). A thread-local has no
+     * ordinary address: it has an OFFSET from the thread pointer, which on
+     * x86-64 Linux lives at %fs:0.
+     *
+     *   seg_fs     the operand IS the segment base -- `%fs:0`, no base, no
+     *              index, no symbol. One mov reads the thread pointer.
+     *   tpoff_sym  module symbol index + 1, spelled `sym@tpoff` and used as
+     *              the DISPLACEMENT beside a base register. Unlike rip_sym
+     *              it therefore coexists with base, which is the whole point
+     *              -- `lea tv@tpoff(%rax)` adds the link-time offset to the
+     *              thread pointer already in %rax. Exclusive with rip_sym
+     *              and cpool. */
+    bool seg_fs;
+    u32 tpoff_sym;
     u32 cpool; /* Sprint 23: X64Func.consts index + 1 (rodata
                   constants: FP literals, sign/abs masks).
                   Exclusive with base/index/rip_sym. */
