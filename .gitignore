@@ -10,6 +10,7 @@
 .docs/audits/*
 !.docs/audits/xfail-debt.md
 !.docs/audits/afsld-elf-debt.md
+!.docs/audits/debug-info-debt.md
 CLAUDE.md
 AGENTS.md
 build/
