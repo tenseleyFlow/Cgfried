@@ -474,17 +474,37 @@ Only one cluster is diagnosed, and the ledger says so rather than guessing:
   inspection, so it is not obviously marshalling.
 - **Two integer programs fault or answer wrongly.** Undiagnosed.
 
+Large frames are now CLOSED, and the shape of it is worth keeping:
+
+- `A64_FRAME_PREINDEX_MAX` was 512. stp/ldp pre/post-index and scaled
+  offsets share ONE field, a signed 7-bit value scaled by 8, so the range is
+  **[-512, +504] — asymmetric**. 512 is legal for the prologue's
+  `stp x29, x30, [sp, #-512]!` and illegal for the epilogue's matching
+  `ldp x29, x30, [sp], #512`. The trigger is a frame of EXACTLY 512, which is
+  **one 16-byte step wide**: 496 takes a different immediate and 528 takes the
+  separate sub-sp path. `int/big_frame.c` at 8000 bytes never touches the form
+  at all. `tests/corpus/x86_64/int/frame_512.c` pins the exact size, and I
+  confirmed it fails with the constant put back before trusting it.
+- `sub sp, sp, #4096` was NOT a bug — gas encodes the implicit `lsl #12`
+  itself. The real second site was frame-object addressing:
+  `add xN, x29, #8024` is neither <= 4095 nor a multiple of 4096. It now
+  splits into two ADDs, high part first, exactly as `emit_sp_adjust` has
+  always split the stack adjustment. No scratch is needed because `dst` is
+  being DEFINED by that instruction.
+- `A64_ADDR_MATERIALIZE` is a SIGNAL from `a64_isel_addr` meaning "no
+  addressing form fits"; it must never reach an instruction, but `pmem`
+  printed the offset anyway, so a survivor read as an ASSEMBLER complaint.
+  The MIR verifier now rejects it.
+
+That fix closed three spill-all entries and unpinned `big_frame`, so the
+ORDINARY arm64 ledger is empty at 53/53 and spill-all is 45/53.
+
 ### What remains
 
-**1. Large frames.** The verified cluster above. Fix `A64_FRAME_PREINDEX_MAX`
-to 504, teach the emitter the `lsl #12` add/sub form, and give frame-object
-addressing past 4095 a materialized base. Test at each boundary
-(504/512/4095/4096), not just past all of them.
+**1. The FP-under-spill cluster and the two integer ones.** Eight entries.
+Get evidence before naming a cause — see the ledger's own note.
 
-**2. The FP-under-spill cluster and the two integer ones.** Get evidence
-before naming a cause.
-
-**3. afs-as instruction coverage** — unpins the four fixtures in
+**2. afs-as instruction coverage** — unpins the four fixtures in
 `scripts/a64_objdiff_lane.sh`'s `UNENCODABLE` list and closes Sprint 49 DoD
 gate 1. Needs `mneg`, `smull`, `ucvtf`, `fcvtzu`,
 `ldar`/`ldaxr`/`stlxr`/`clrex`, and NEON vector operands in the submodule's
@@ -493,7 +513,7 @@ arm64 encoder. Measured, not guessed: afs-as DOES take `ldr q`/`str q`/
 vectors, `umov`, or `mov v0.d[1], x0`. NEON also unblocks inlining
 `__negtf2`. Rust work, upstream PR + submodule bump (§7).
 
-**4. Two Sprint 49 gates need job steps, not engineering:** the char-sign
+**3. Two Sprint 49 gates need job steps, not engineering:** the char-sign
 corpus and the 4-thread atomics hammer do not run on the NATIVE arm64
 runner, which is real hardware already sitting in CI. See the DoD audit
 table at the end of the Sprint 49 file.
