@@ -378,180 +378,50 @@ deferred with zero memory diagnostics.
 
 ---
 
-## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 50, arm64-macos)
+## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 51 next; Sprint 50 CLOSED)
 
-**Sprint 49 is CLOSED at 7 of 7 gates.** Both arm64 corpus ledgers are empty
-(54/54 ordinary, 54/54 under `CGF_SPILL_ALL=1`), the object differential is 20
-identical with nothing pinned, and the char-sign corpus plus the four-thread
-ll/sc atomics hammer execute on real arm64 hardware. Nothing there is
-outstanding.
+**Sprint 50 (arm64-macos) is CLOSED**: three DoD gates met as written, three
+partial with the reason named and ticketed. Nothing is recorded as met that
+is not. The gate-by-gate audit is at the end of
+`.docs/sprints/10-backend-arm64/s50-arm64-macos.md`.
 
-**Sprint 50 (arm64-macos) is IN PROGRESS.** Tasks #94-#99 break it down. Read
-`.docs/sprints/10-backend-arm64/s50-arm64-macos.md` — its implementation-notes
-section at the bottom is written as the work lands and is the honest record.
+What works, on real Apple hardware and in CI:
 
-### Done, verified ON HARDWARE
+- The Mach-O dialect, the whole seven-row Apple divergence table, SDK
+  discovery, the ld64 link recipe, and afs-ld as the second link lane.
+- **The Mach-O object differential: 10 objects identical to Apple's
+  assembler on section bytes, relocations AND symbols, nothing pinned.**
+- `codesign --verify` on both linkers' products -- each ad-hoc signs.
+- `tests/macos/run.sh` (7 programs x 2 linkers, signatures checked) and
+  `scripts/macho_objdiff_lane.sh`, both run by a `macos-15` CI job that
+  fails if either lane SKIPS.
 
-**Deliverable 1 (the Mach-O dialect) and deliverable 2 (the whole seven-row
-divergence table) are CLOSED.** Deliverable 3's linking half is closed too:
-`cgf hello.c -o hello && ./hello` runs on nomad-1 through our own driver.
+**Run both macOS lanes after any emitter change.** They skip loudly off
+arm64 Darwin, so on Linux you get nothing.
 
-- **D1** (`54736ed`): ONE flag on `Emit`, not a second emitter. Symbols take a
-  leading underscore; halves are `@PAGE`/`@PAGEOFF`; sections are
-  `__TEXT,__text,regular,pure_instructions`; Mach-O has NEITHER `.type` NOR
-  `.size`; zero data is `.zerofill SEG,SECT,name,size,align`, which replaces
-  the label AND the body; `.build_version` opens and
-  `.subsections_via_symbols` closes, the latter REQUIRED because ld64's atom
-  model assumes it.
-- **Row 1, varargs** (`944e850`, `d959bc8`, `16c96f0`). Apple's `va_list` is a
-  plain `char *` and deliberately NOT the one-element array the other targets
-  use: that wrapper is what makes a callee advance its CALLER's cursor, and
-  Apple's is an ordinary object. The caller half needed an IR change — the IR
-  marked a call variadic but never said WHICH arguments were anonymous, and
-  only the front end ever knew. It rides a new `IrOperand.argflags` byte.
-- **Rows 2-3** (`0f69781`, `14adba9`): the caller widens sub-32-bit arguments
-  and packs the stack tail at natural size. Both rows are SYMMETRIC and only
-  the caller half is obvious — see the trap below.
-- **Rows 4-7** (`baf8c91`): already held from Sprints 14/28/48; the work was
-  the evidence, since three of the four are silent when wrong.
-- **D3 linking + D4 signing** (`52d62a0`): SDK discovery via
-  `xcrun --show-sdk-path`, the ld64 recipe, `-lSystem`, LC_MAIN entry,
-  `-static` hard-errors. `codesign --verify` passes with NO work of ours —
-  modern ld64 ad-hoc signs every arm64 binary it produces.
+### The three open tickets, and they are all scheduling
 
-### THE BLOCKER — read this before planning the next chunk
+- **#100 hosted macOS compilation** needs Sprint 55. Apple's `sys/cdefs.h`
+  uses `__attribute__` UNCONDITIONALLY -- it does not guard on `__GNUC__`
+  the way glibc does, so the trick that makes hosted Linux work does not
+  apply -- and `__DARWIN_ALIAS` needs `__asm` labels. Neither can be faked:
+  dropping every attribute is wrong the moment one is `packed`, `aligned` or
+  `noreturn`. DECIDED: close Sprint 50 with the gap named rather than pull a
+  frontend sprint forward. The arm64-macos corpus is freestanding-only until
+  then.
+- **#101 thread-local storage** was never implemented on ANY target and was
+  a silent miscompile until this sprint made it a hard error. DECIDED: its
+  own rung AFTER Sprint 51, because PIC lands there and makes the dynamic
+  models testable. `.docs/audits/tls-debt.md` has the five pieces. **Hard
+  prerequisite for Sprint 58** -- the runtime uses `_Thread_local` and the
+  bootstrap compiles the runtime with cgf.
+- **#93 variable DIEs** (`.docs/audits/debug-info-debt.md`) is proposed for
+  Sprint 51, which already owns arm64 DWARF.
 
-With the SDK reachable, `#include <stdio.h>` immediately needs **two Sprint 55
-features**, and this is a genuine sequencing coupling that the sprint file did
-not anticipate:
+### Next: Sprint 51, cross-compilation and the ABI differential
 
-1. **Unconditional `__attribute__`.** AGENTS.md records that `__GNUC__` stays
-   undefined so glibc's headers neutralize `__attribute__` themselves. **Apple's
-   `sys/cdefs.h` does not guard on `__GNUC__` at all** — it assumes a
-   clang-or-gcc compiler outright. The trick does not apply here.
-2. **`__asm("_name")` labels.** `__DARWIN_ALIAS` renames `fopen` and friends
-   through an asm label on the declaration.
-
-Neither can be faked. Silently dropping every `__attribute__` is wrong the
-moment one is `packed`, `aligned` or `noreturn` — which is exactly why Sprint
-43 made non-`cgf_` attributes a hard error rather than a no-op. **The
-arm64-macos corpus is freestanding-only until Sprint 55, and DoD 1's "full e2e
-corpus on nomad-1" cannot close before then.** Decide deliberately whether to
-pull Sprint 55's attribute parser forward or to close Sprint 50 with that gate
-named and open; do not discover this a third time.
-
-### A silent miscompile found while starting D5
-
-**`_Thread_local` had never been lowered.** It parsed, typed and recorded
-correctly and then became an ordinary global — every thread shared one copy.
-Four threads each incrementing one a thousand times printed 1000 in main where
-gcc prints 0, with no diagnostic. Not target-specific: no target ever had it.
-
-It is now a hard error at lowering (`877fa48`), skipping the analysis module
-so `-fsyntax-only`/`-fdump-sema` and the five `sema16/tls_*.c` fixtures keep
-working. Nothing regressed — musl sweep and safe-dogfood unchanged.
-`.docs/audits/tls-debt.md` has the five pieces (TLS-001..005) and the
-measurement. **It is a hard prerequisite for Sprint 58**: the runtime uses
-`_Thread_local` and the bootstrap flips the runtime to cgf.
-
-Deciding whether to spend a deliverable on it is task #101. Local-exec alone
-covers everything the current non-PIE output model can produce, and it needs a
-thread-pointer read in IR/MIR plus afs-as relocation support.
-
-### What is left in Sprint 50
-
-- **#98 tail**: nothing required for the system-ld lane. afs-ld (`CGF_LD=1`)
-  is the flagship lane and needs `cargo`, which nomad-1 does not have.
-- **#99**, and both halves are BLOCKED — recorded so it is not re-derived.
-  The reloc differential is afs-as vs system-as on the same `.s` (the Mach-O
-  twin of `a64_objdiff_lane.sh`), so it needs afs-as on a Mac, and `cargo` is
-  absent from nomad-1. It could run on LINUX instead — afs-as builds here and
-  clang here assembles `arm64-apple-macos` Mach-O — except that producing
-  arm64-macos assembly needs a Mac-targeted cgfried, i.e. Sprint 51's
-  `--target`. Pinning golden `.s` files is not a substitute: the lane would
-  test the assemblers while going stale against the emitter. Unblocks on
-  EITHER cargo-on-nomad-1 or Sprint 51. The macOS CI runner needs a GitHub
-  arm64 Darwin runner; `tests/macos/run.sh` is already the lane body.
-- **#101**, thread-local storage, is now its own task — see below.
-- The GOT gap is CLOSED (`ff9bd75`): an undefined symbol goes through
-  `@GOTPAGE`/`@GOTPAGEOFF` with a LOAD, a defined one stays direct, and it
-  applies to a function's ADDRESS as much as to data. An addend cannot ride a
-  GOT relocation and becomes a separate add.
-- **Run `sh tests/macos/run.sh build/cgfried` on the Mac after ANY backend
-  change.** Seven mixed-link programs, exact output compared. It exists
-  because row 3 silently regressed row 1 for two commits — see the traps
-  below.
-
-### The traps this sprint actually produced
-
-- **A fixture verified by hand once is not a test.** Landing row 3
-  (natural-size stack packing) also packed the VARARGS area, which regressed
-  row 1: every anonymous argument after the first went where the callee never
-  looks, so `printf("%d %d", a, b)` printed `a` and then garbage. It survived
-  two commits because the macOS programs had each been run once, by hand, at
-  the moment they were written. `tests/macos/run.sh` is the answer. There is
-  still no CI runner (D6), and it still catches regressions.
-- **A symmetric ABI rule has two halves and only one is obvious.** Row 3's
-  caller half went in, our caller packed correctly, and our callee still read
-  eightbyte slots — so a Cgfried-to-Cgfried call agreed with ITSELF and clang's
-  caller did not. **Every fixture in `tests/macos/` is a MIXED link for this
-  reason**: two halves sharing a bug are indistinguishable from two halves that
-  are right.
-- **Duplicated logic rots silently.** FIVE optimizer passes each carried their
-  own copy of "re-attach a call argument's annotation across a replacement";
-  three dropped the new `argflags` field the day it was added. `safe-dogfood`
-  caught it by compiling the compiler with itself. They now share
-  `ir_arg_carry_provenance`.
-- **Growing the fixture corpus re-rolls the fuzzer's mutation stream**, which
-  found a PRE-EXISTING ICE (seed 148, block-scope `int a[];`). Expect a digest
-  re-pin and possibly a real bug whenever you add fixtures.
-- **A guard keyed on the wrong axis.** `--nocompress-debug-sections` is
-  GNU-as-only; macOS `as` is a clang driver and rejects it, which surfaced as
-  an ICE blaming our own assembly. The `-###` plan builder needed the same
-  gate — a flag on one side and not the other makes the plan a lie.
-
-### The two oracles
-
-**1. clang on THIS Linux box** targets `arm64-apple-macos11` and emits real
-Mach-O (`llvm-objdump`/`otool`/`readobj` all present), so ABI questions need no
-Mac round trip. Every row above was MEASURED this way before it was written.
-
-**2. nomad-1 over the tailnet** is Darwin arm64 with the full Apple toolchain.
-`cargo` is MISSING, which blocks only the afs-as/afs-ld lanes.
-
-```sh
-rsync -az --exclude 'build*/' --exclude '.git/' --exclude 'target/' \
-    ./ nomad-1:/tmp/cgfried-s50/
-ssh nomad-1 "sh -c 'cd /tmp/cgfried-s50 && make -j18 build/cgfried'"
-```
-
-Two remote traps, both of which cost time:
-
-- **nomad-1's login shell is fish**, which has no `do ... done`. Wrap every
-  remote command in `sh -c '...'`.
-- **Quoting dies through ssh + fish + sh.** A `printf` with `\\n` arrived as a
-  literal newline. Write the file locally and `scp` it.
-
-`cgf -c` needs an assembler and afs-as cannot be built there, so go through
-`-S` and let clang assemble — or pass `CGF_AS=0` to use the system one.
-
-### Mach-O details that only real assembly caught
-
-- **`l_` is LINKER-private, not assembler-local.** Apple's assembler rejects a
-  conditional branch to one. Block labels must be capital `L`, which is why
-  clang writes `LBB0_2`.
-- Anonymous globals arrive from lowering with ELF-shaped `.L` names and must
-  become `L`, not `_.L`.
-- **Apple's headers dispatch on `__arm64__`, not `__aarch64__`.**
-- **The minimum OS version lives in THREE places that must agree**: the
-  predefine table, `.build_version macos, 11, 0`, and `-platform_version macos
-  11.0`.
-
-### Sequencing discipline the sprint states, and why
-
-Bring up against **system as/ld FIRST**, afs-as/afs-ld second. It isolates
-compiler bugs from toolchain-routing bugs. Do not invert it because cargo is
-missing on nomad-1 — that ordering was the plan anyway.
+It is also the unblock for two things above: the cross-sign proof that
+Sprint 50's gate 4 left open, and the PIC that TLS's dynamic models need.
 
 ## 1b-2. Process traps from the Sprint 50 session
 
