@@ -31,3 +31,36 @@ The second is why this lane is distro-differential in nature: Arch and
 Ubuntu glibc take different paths through the same archive. Podman
 verification (ubuntu:24.04, glibc 2.39) is the cheap way to check a
 static-link change before CI does.
+
+## LD-ELF-006 — debug sections in third-party input objects
+
+afs-ld applies relocations to `.debug_*` sections of its inputs and rejects
+Alpine musl's crt objects and `libc.a`:
+
+```
+afs-ld: error: crt1.o: section '.debug_info' relocation 17 has invalid
+        r_offset 0xe2: 4-byte write exceeds section size 0xc7
+```
+
+`readelf -S` shows that section carrying flag `C` — `SHF_COMPRESSED`. The
+size is the COMPRESSED one while relocation offsets name the uncompressed
+image, so every offset past the compressed length looks out of range. This is
+the same fact Sprint 29 recorded when it started passing
+`--nocompress-debug-sections` to gas for OUR objects; the difference is that
+a prebuilt third-party object cannot be re-assembled.
+
+Isolated exactly: `strip --strip-debug` on the crt objects and `libc.a` makes
+afs-ld link a static musl binary that runs. Nothing else in the chain needed
+changing, so the linking itself is sound.
+
+Either fix works upstream, and skipping is the cheaper one:
+
+1. **Skip non-alloc sections** that the output will not carry. A static link
+   does not need `.debug_info` from `crt1.o` to be correct; worst case the
+   product loses that object's debug info, which is what `--strip-debug`
+   already implies.
+2. Decode `SHF_COMPRESSED` on input.
+
+Until then `scripts/musl_cross_lane.sh` links its afs-ld leg against a
+debug-stripped copy of the sysroot, so the lane stays honest about what
+afs-ld can and cannot do rather than skipping it.

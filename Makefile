@@ -351,6 +351,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/check_no_host_fpu.sh
 	CGF_CROSS_WORK=$(BUILD)/cross-determinism \
 	    sh tests/cross/determinism.sh $(BUILD)/cgfried >/dev/null
+	CGF_MUSL_CROSS_WORK=$(BUILD)/musl-cross \
+	    sh scripts/musl_cross_lane.sh $(BUILD)/cgfried
 	sh scripts/a64_va_list_diff.sh
 	$(MAKE) BUILD=$(BUILD) $(BUILD)/a64mir
 	sh scripts/a64_exec_lane.sh $(BUILD)/a64mir
