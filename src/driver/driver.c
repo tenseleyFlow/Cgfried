@@ -711,19 +711,14 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                     cgf_target_name(cgf_target_selected()));
             return CGF_EXIT_COMPILE;
         }
-        if (a->fpic || a->fpie) {
-            /* Sprint 51 landed PIC on x86_64 first. arm64 needs the
-             * :got:/:got_lo12: adrp+ldr pair, and afs-as has never had that
-             * syntax exercised by an emitter. Accepting the flag and
-             * emitting position-DEPENDENT code would promise a semantics we
-             * do not deliver -- the link would succeed and the program
-             * would be wrong only once loaded at a different address. */
-            fprintf(stderr,
-                    "cgfried: error: -fPIC/-fPIE on %s is not implemented "
-                    "yet: lands in Sprint 51 (x86_64 is done)\n",
-                    cgf_target_name(cgf_target_selected()));
-            return CGF_EXIT_COMPILE;
-        }
+        /* Mach-O routes every undefined symbol through the GOT whatever the
+         * level, so the flag changes nothing there; ELF gets the
+         * :got:/:got_lo12: pair. */
+        a64_emit_set_pic(cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS
+                             ? A64_PIC_NONE
+                         : a->fpic ? A64_PIC_FULL
+                         : a->fpie ? A64_PIC_PIE
+                                   : A64_PIC_NONE);
         buf_init(&b);
         a64_emit_file_prologue(&b);
         for (i = 0; i < m->nfuncs; i++) {
@@ -1581,6 +1576,17 @@ int driver_main(int argc, char **argv)
         diag_emit(dc, DIAG_ERROR, no_span,
                   "-fsafe requires -fcgf-safe; remove -fno-cgf-safe or "
                   "compile without -fsafe");
+        status = CGF_EXIT_COMPILE;
+    } else if (a.shared && !a.fpic) {
+        /* An argument-consistency error, knowable from the flags alone, so
+         * it belongs here with the other flag conflicts rather than inside
+         * the link-line builder -- which would report it as a LINK failure
+         * (exit 2) for something no linker was ever asked to do.
+         *
+         * gcc warns and proceeds, producing a shared object with text
+         * relocations that may or may not load. The whole point of the flag
+         * is code that can be mapped anywhere. */
+        diag_emit(dc, DIAG_ERROR, no_span, "-shared needs -fPIC");
         status = CGF_EXIT_COMPILE;
     } else if (a.fsafe_warning_conflict) {
         diag_emit(dc, DIAG_ERROR, no_span,

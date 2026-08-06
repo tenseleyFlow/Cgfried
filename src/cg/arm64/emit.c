@@ -392,6 +392,16 @@ static void emit_pair(Emit *e, const A64Inst *in, bool store)
  * defines; anything named only through the symbol table is external. Mach-O
  * needs the distinction because an undefined symbol is only reachable
  * through the GOT. */
+/* Set once per module by the driver, before any function is emitted. A
+ * parameter on every emit entry point would thread it through half a dozen
+ * signatures that have nothing else to do with it. */
+static A64PicLevel g_pic;
+
+void a64_emit_set_pic(A64PicLevel pic)
+{
+    g_pic = pic;
+}
+
 static bool sym_defined_here(const Emit *e, const char *name)
 {
     u32 i;
@@ -486,6 +496,28 @@ static void emit_addr(Emit *e, const A64Inst *in)
         buf_printf(e->out, "\tadd\t%s, %s, %s%s@PAGEOFF\n", reg, reg, sym,
                    addend);
         return;
+    }
+    /* ELF, position-independent: the same adrp pair, but the second half is
+     * a LOAD from the GOT slot rather than an add of the low bits. It costs
+     * no extra instruction, which is why this lives in the emitter while the
+     * x86 equivalent had to be in isel -- there, folding a preemptible
+     * symbol into a memory operand is what stops being legal.
+     *
+     * Full PIC covers every external symbol, defined here or not: a
+     * definition in this module is still interposable. PIE covers only
+     * undefined ones -- measured against aarch64 gcc, which differs from
+     * x86 gcc on exactly this row. */
+    if (g_pic != A64_PIC_NONE && in->ops[1].kind == A64O_SYM) {
+        IrSymBinding b = ir_sym_binding(e->m, in->ops[1].id);
+
+        if (b.external && (g_pic == A64_PIC_FULL || !b.defined_here)) {
+            buf_printf(e->out, "\tadrp\t%s, :got:%s\n", reg, sym);
+            buf_printf(e->out, "\tldr\t%s, [%s, #:got_lo12:%s]\n", reg, reg,
+                       sym);
+            if (addend[0])
+                emit_addr_addend(e, reg, in->ops[2].imm);
+            return;
+        }
     }
     buf_printf(e->out, "\tadrp\t%s, %s%s\n", reg, sym, addend);
     buf_printf(e->out, "\tadd\t%s, %s, #:lo12:%s%s\n", reg, reg, sym, addend);

@@ -423,6 +423,22 @@ void a64_mir_print(const A64Func *f, Buf *out);
 int a64_mir_verify(const A64Func *f, DiagCtx *dc);
 A64Func *a64_isel_function(const IrModule *m, const IrFunc *f, Arena *a);
 void a64_regalloc(A64Func *f);
+/* Position-independence for the ELF targets. Mach-O needs no level: it has
+ * routed every undefined symbol through the GOT since Sprint 50 regardless.
+ *
+ * The two levels differ exactly as they do on x86, but the PIE row does NOT
+ * agree between the architectures and that is measured, not assumed: aarch64
+ * gcc uses the GOT for an UNDEFINED extern under -fPIE where x86 gcc emits
+ * plain (%rip). Generalising from one architecture to the other would have
+ * been wrong in both directions. */
+typedef enum A64PicLevel {
+    A64_PIC_NONE,
+    A64_PIC_PIE,
+    A64_PIC_FULL
+} A64PicLevel;
+
+void a64_emit_set_pic(A64PicLevel pic);
+
 void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out);
 void a64_emit_globals(const IrModule *m, Buf *out);
