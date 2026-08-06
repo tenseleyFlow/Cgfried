@@ -26,6 +26,15 @@ CGF=${1:-build/cgfried}
 REF=${2:-}
 WORK=${CGF_CROSS_WORK:-build/cross-determinism}
 
+# Only the crt-probe check below assembles anything; everything else is -S or
+# -fsyntax-only. But cgf's default assembler is the BUNDLED afs-as, and a
+# Rust-free job never builds one, so that check died at "assembler not found"
+# before the crt probe ever ran -- and then blamed --sysroot, because it only
+# greps for the path it wanted to see. It is the host's own target, so the
+# system assembler is the right one.
+AS_ENV=
+[ -x afs-as/target/release/afs-as ] || AS_ENV="CGF_AS=0"
+
 # One TU per property that is known to differ by target: char signedness,
 # long-double format and calling convention, aggregate classification,
 # varargs shape, and the object dialect itself.
@@ -98,9 +107,16 @@ fi
 # on purpose: with a bogus root the include search would fail first and the
 # test would pass for the wrong reason.
 echo 'int main(void) { return 0; }' >"$WORK/bare.c"
-if "$CGF" --sysroot=/nonexistent/root -o "$WORK/never" \
+if env $AS_ENV "$CGF" --sysroot=/nonexistent/root -o "$WORK/never" \
     "$WORK/bare.c" 2>"$WORK/crt.err"; then
     echo "cross_determinism: linking against a bogus sysroot succeeded" >&2
+    exit 1
+fi
+# Distinguish "the probe searched the wrong place" from "we never got as far
+# as the probe". Both used to print the same misleading message.
+if grep -q 'assembler not found' "$WORK/crt.err"; then
+    echo "cross_determinism: no assembler, so the crt probe never ran" >&2
+    cat "$WORK/crt.err" >&2
     exit 1
 fi
 if ! grep -q '/nonexistent/root/usr/lib/crt1.o' "$WORK/crt.err"; then
