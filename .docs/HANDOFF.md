@@ -462,9 +462,17 @@ thread-pointer read in IR/MIR plus afs-as relocation support.
 
 - **#98 tail**: nothing required for the system-ld lane. afs-ld (`CGF_LD=1`)
   is the flagship lane and needs `cargo`, which nomad-1 does not have.
-- **#99**: TLV thread-locals, the reloc differential vs clang, and the macOS
-  CI runner. The differential is the one that will find things — `tests/macos/`
-  already holds the mixed-link programs and a README with the exact recipe.
+- **#99**, and both halves are BLOCKED — recorded so it is not re-derived.
+  The reloc differential is afs-as vs system-as on the same `.s` (the Mach-O
+  twin of `a64_objdiff_lane.sh`), so it needs afs-as on a Mac, and `cargo` is
+  absent from nomad-1. It could run on LINUX instead — afs-as builds here and
+  clang here assembles `arm64-apple-macos` Mach-O — except that producing
+  arm64-macos assembly needs a Mac-targeted cgfried, i.e. Sprint 51's
+  `--target`. Pinning golden `.s` files is not a substitute: the lane would
+  test the assemblers while going stale against the emitter. Unblocks on
+  EITHER cargo-on-nomad-1 or Sprint 51. The macOS CI runner needs a GitHub
+  arm64 Darwin runner; `tests/macos/run.sh` is already the lane body.
+- **#101**, thread-local storage, is now its own task — see below.
 - The GOT gap is CLOSED (`ff9bd75`): an undefined symbol goes through
   `@GOTPAGE`/`@GOTPAGEOFF` with a LOAD, a defined one stays direct, and it
   applies to a function's ADDRESS as much as to data. An addend cannot ride a
