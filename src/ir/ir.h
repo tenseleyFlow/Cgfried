@@ -782,6 +782,16 @@ bool ir_verify_report(DiagCtx *dc, const IrModule *m, char *why,
  * calls the check after — a mismatch under CGF_VERIFY_AFTER_EACH is an
  * ICE naming the pass. */
 u32 ir_count_volatile_ops(const IrFunc *f);
+/* How a module symbol binds, which is what decides GOT/PLT routing under
+ * position-independent code. Both backends need it and both were about to
+ * grow their own copy. */
+typedef struct IrSymBinding {
+    bool defined_here; /* this module carries the body or the storage */
+    bool external;     /* visible outside the module (may be preempted) */
+} IrSymBinding;
+
+IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index);
+
 /* Snapshot every function's count into out[m->nfuncs]. */
 void ir_snapshot_volatile(const IrModule *m, u32 *out);
 /* True iff current counts match `before`; on false, *bad_func gets the

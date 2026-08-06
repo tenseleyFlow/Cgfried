@@ -169,6 +169,21 @@ typedef struct {
      * objects live under. Cross-compiling is only half the job without it --
      * the other half is not accidentally linking against the host's. */
     const char *sysroot;
+    /* Position-independence. -fpic and -fPIC are the SAME here: neither
+     * current target has a small-GOT variant to distinguish. The two levels
+     * differ in what may be preempted -- under PIC a global DEFINED in this
+     * TU can still be interposed by another shared object, so it goes
+     * through the GOT; under PIE the executable's definition always wins and
+     * only undefined symbols need one.
+     *
+     * PIE is OFF by default, matching UPSTREAM gcc-8 rather than the
+     * PIE-default gcc that Arch and Debian ship: the parity baseline is
+     * upstream. -pie and -no-pie are explicit and are LINK flags; -fpie
+     * implies nothing about linking. */
+    bool fpic;                   /* -fPIC/-fpic: full position independence */
+    bool fpie;                   /* -fPIE/-fpie: executable-scoped */
+    bool link_pie;               /* -pie */
+    bool no_pie;                 /* -no-pie */
     char suggest[64];            /* "; did you mean '-o'?" payload, or "" */
     const char *missing_arg;     /* option lacking its argument, or NULL */
     const char *bad_value;       /* option whose value did not parse */

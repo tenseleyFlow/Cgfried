@@ -47,7 +47,56 @@ typedef struct Isel {
     /* flags tracking within the current block */
     u32 last_flags_inst; /* index+1 of last DEFS_FLAGS inst; 0 = none */
     u32 last_flags_val;  /* the icmp ValueId it computed for, or 0 */
+    X64PicLevel pic;
 } Isel;
+
+/* DATA: does reaching this object need the GOT?
+ *
+ * Only under full PIC, and only for external linkage. A global this module
+ * defines can still be interposed by another shared object, so reading the
+ * local copy when the program means the interposed one is a silent wrong
+ * answer -- which is why `defined_here` does NOT excuse it.
+ *
+ * PIE does not need the GOT at all, and this was wrong in the first draft.
+ * Everything in an executable resolves within one module: the linker binds a
+ * direct pcrel reference, and data that really lives in a shared object gets
+ * a COPY relocation. Measured against gcc, which emits plain `(%rip)` under
+ * -fPIE even for an UNDEFINED extern. Routing it through the GOT would still
+ * be correct, just slower -- but parity with gcc is the baseline.
+ *
+ * Visibility attributes (Sprint 55) would let `hidden` behave local under
+ * full PIC; until they exist the conservative answer is the correct one. */
+static bool sym_data_needs_got(const Isel *is, u32 sym_index)
+{
+    if (is->pic != X64_PIC_FULL)
+        return false;
+    return ir_sym_binding(is->m, sym_index).external;
+}
+
+/* CALLS: does this call go through the PLT?
+ *
+ * Under full PIC, every external call does -- including one to a function
+ * this module DEFINES, because that definition is interposable too. gcc
+ * emits `call def_fn@PLT` for exactly that reason, and only
+ * -fno-semantic-interposition relaxes it.
+ *
+ * Under PIE, a defined function is reached directly and an undefined one
+ * still needs the stub.
+ *
+ * We emit @PLT and let the linker build the stub; we never emit a
+ * GOT-indirect call ourselves, which keeps lazy-versus-now binding the
+ * linker's decision rather than ours. */
+static bool sym_call_needs_plt(const Isel *is, u32 sym_index)
+{
+    IrSymBinding b;
+
+    if (is->pic == X64_PIC_NONE)
+        return false;
+    b = ir_sym_binding(is->m, sym_index);
+    if (!b.external)
+        return false;
+    return is->pic == X64_PIC_FULL || !b.defined_here;
+}
 
 static X64VReg newv(Isel *is)
 {
@@ -248,8 +297,31 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
     case IROP_SYMBOL: {
         /* 64-bit absolute addresses never fold: RIP-relative lea. */
         X64VReg r = newv(is);
-        X64Inst *in = emit(is, X64_OP_LEA, X64_Q);
+        X64Inst *in;
 
+        if (sym_data_needs_got(is, o->sym + 1)) {
+            /* The GOT slot holds the address, so this is a LOAD, and the
+             * addend cannot ride the relocation -- it becomes a separate
+             * lea once the base is in hand. */
+            in = emit(is, X64_OP_MOV, X64_Q);
+            in->def = r;
+            in->a.kind = X64O_MEM;
+            in->a.mem.rip_sym = o->sym + 1;
+            in->a.mem.rip_got = true;
+            if ((i64)o->a) {
+                X64VReg off = newv(is);
+                X64Inst *add = emit(is, X64_OP_LEA, X64_Q);
+
+                add->def = off;
+                add->a.kind = X64O_MEM;
+                add->a.mem.base = r;
+                add->a.mem.scale = 1;
+                add->a.mem.disp = (i32)(i64)o->a;
+                return off;
+            }
+            return r;
+        }
+        in = emit(is, X64_OP_LEA, X64_Q);
         in->def = r;
         in->a.kind = X64O_MEM;
         in->a.mem.rip_sym = o->sym + 1;
@@ -285,6 +357,13 @@ static X64Mem fold_addr(Isel *is, const IrOperand *addr)
     memset(&mem, 0, sizeof(mem));
     mem.scale = 1;
     if (addr->kind == IROP_SYMBOL) {
+        if (sym_data_needs_got(is, addr->sym + 1)) {
+            /* Two indirections cannot fold into one operand: the GOT load
+             * has to happen first, and to_vreg already knows how. */
+            mem.base = to_vreg(is, addr);
+            mem.scale = 1;
+            return mem;
+        }
         mem.rip_sym = addr->sym + 1;
         mem.disp = (i32)(i64)addr->a;
         return mem;
@@ -1692,8 +1771,17 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             } else if (in->subop == FUNCREF_EXTERNAL) {
                 x->a.kind = X64O_MEM;
                 x->a.mem.rip_sym = in->callee + 1;
+                if (sym_call_needs_plt(is, in->callee + 1))
+                    x->flags |= X64IF_CALL_PLT;
             } else {
                 x->table = in->callee + 1; /* internal func index */
+                /* An INTERNAL funcref means the module carries the body, not
+                 * that the symbol is unpreemptible: an external-linkage
+                 * definition can still be interposed, so full PIC routes it
+                 * through the PLT as well. gcc does the same. */
+                if (is->pic == X64_PIC_FULL &&
+                    is->m->funcs[in->callee].linkage != IRLINK_INTERNAL)
+                    x->flags |= X64IF_CALL_PLT;
             }
             for (k = 0; k < nargx; k++)
                 x64_add_xuse(is->xf, x, argx[k].r, argx[k].fixed);
@@ -2636,7 +2724,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     }
 }
 
-X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
+X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
+                           X64PicLevel pic)
 {
     Isel is;
     X64Func *xf = arena_alloc(a, sizeof(X64Func), _Alignof(X64Func));
@@ -2658,6 +2747,7 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a)
     is.m = m;
     is.f = f;
     is.xf = xf;
+    is.pic = pic;
     is.vals =
         arena_alloc(a, (f->nvals + 1) * sizeof(ValInfo), _Alignof(ValInfo));
     memset(is.vals, 0, (f->nvals + 1) * sizeof(ValInfo));

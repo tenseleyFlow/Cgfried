@@ -765,6 +765,33 @@ static bool str_eq(const char *a, const char *b)
     return strcmp(a, b) == 0;
 }
 
+IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index)
+{
+    IrSymBinding b = {false, true};
+    const char *name;
+    u32 i;
+
+    if (!m || !sym_index || sym_index > m->nsyms)
+        return b;
+    name = m->syms[sym_index - 1];
+    for (i = 0; i < m->nglobals; i++) {
+        if (strcmp(m->globals[i].name, name) == 0) {
+            b.defined_here = true;
+            b.external = m->globals[i].linkage != IRLINK_INTERNAL;
+            return b;
+        }
+    }
+    for (i = 0; i < m->nfuncs; i++) {
+        if (strcmp(m->funcs[i].name, name) == 0) {
+            b.defined_here = true;
+            b.external = m->funcs[i].linkage != IRLINK_INTERNAL;
+            return b;
+        }
+    }
+    /* Not defined here: undefined symbols are external by definition. */
+    return b;
+}
+
 void ir_arg_carry_provenance(IrOperand *fresh, const IrOperand *old)
 {
     if (ir_arg_kind(old->b) != IR_ARG_NONE)

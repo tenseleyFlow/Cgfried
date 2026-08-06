@@ -986,7 +986,9 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
         VecStr_push(out, "-melf_x86_64"); /* select its ELF arm */
     if (da->static_link)
         VecStr_push(out, "-static");
-    else if (dl) {
+    else if (da->link_pie)
+        VecStr_push(out, "-pie");
+    if (!da->static_link && dl) {
         VecStr_push(out, "-dynamic-linker");
         VecStr_push(out, dl);
     }
@@ -1008,7 +1010,11 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     if (crtdir)
         VecStr_push(out, joined2(ar, "-L", crtdir));
     if (want_crts) {
-        VecStr_push(out, joined2(ar, crtdir, "/crt1.o"));
+        /* Scrt1.o is crt1.o built PIC. A PIE that starts through the
+         * non-PIC one gets a text relocation in _start and either fails to
+         * link or refuses to load, depending on the linker's mood. */
+        VecStr_push(out,
+                    joined2(ar, crtdir, da->link_pie ? "/Scrt1.o" : "/crt1.o"));
         VecStr_push(out, joined2(ar, crtdir, "/crti.o"));
     }
     for (i = 0; i < da->link_inputs.len; i++) {

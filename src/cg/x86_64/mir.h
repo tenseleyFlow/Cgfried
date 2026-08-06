@@ -215,6 +215,11 @@ typedef enum X64Op {
 #define X64IF_DEFS_FLAGS 0x2
 #define X64IF_USES_FLAGS 0x4
 #define X64IF_LOCK 0x8 /* emit a `lock` prefix before the mnemonic */
+/* CALL only: route through the PLT (`call sym@PLT`). Under full PIC this is
+ * true even for a function this MODULE defines, because that definition is
+ * interposable too -- so it cannot be inferred from the FUNCREF kind, which
+ * is exactly the mistake the first draft made. */
+#define X64IF_CALL_PLT 0x10
 
 typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
     X64VReg base, index; /* either may be invalid */
@@ -228,9 +233,15 @@ typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
     u32 rip_sym;         /* module symbol index + 1; 0 = none.
                             EXCLUSIVE with base/index: 64-bit absolute
                             addresses never fold — RIP-relative always */
-    u32 cpool;           /* Sprint 23: X64Func.consts index + 1 (rodata
-                            constants: FP literals, sign/abs masks).
-                            Exclusive with base/index/rip_sym. */
+    /* Sprint 51: this RIP reference names the symbol's GOT SLOT rather
+     * than the symbol, so the emitter spells `sym@GOTPCREL(%rip)` and the
+     * access is a LOAD OF THE ADDRESS. Only ever set on a mov that
+     * materializes an address -- a preemptible object cannot be reached in
+     * one instruction, which is why isel, not the emitter, decides. */
+    bool rip_got;
+    u32 cpool; /* Sprint 23: X64Func.consts index + 1 (rodata
+                  constants: FP literals, sign/abs masks).
+                  Exclusive with base/index/rip_sym. */
 } X64Mem;
 
 typedef enum X64OperandKind {
@@ -333,7 +344,19 @@ void x64_add_xuse(X64Func *f, X64Inst *in, X64VReg r, u8 fixed);
 
 /* --- the shared backend interface (src/cg/cg.h re-exports these) --------- */
 
-X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a);
+/* `pic` selects position-independent addressing. The two levels differ in
+ * what may be PREEMPTED: under full PIC a global defined in this module can
+ * still be interposed by another shared object and must go through the GOT,
+ * while under PIE the executable's own definition always wins and only
+ * undefined symbols need one. */
+typedef enum X64PicLevel {
+    X64_PIC_NONE,
+    X64_PIC_PIE,
+    X64_PIC_FULL
+} X64PicLevel;
+
+X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
+                           X64PicLevel pic);
 void x64_mir_print(const X64Func *f, Buf *out);
 /* Returns the number of violations reported (0 = clean). */
 int x64_mir_verify(const X64Func *f, DiagCtx *dc);

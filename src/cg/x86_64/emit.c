@@ -89,7 +89,12 @@ static void pmem_att(Emit *e, const X64Mem *m)
         buf_printf(e->out, "%s", e->m->syms[m->rip_sym - 1]);
         if (m->disp)
             buf_printf(e->out, "%+d", m->disp);
-        buf_printf(e->out, "(%%rip)");
+        /* @GOTPCREL names the symbol's GOT SLOT. Plain GOTPCREL rather than
+         * GOTPCRELX: a relaxation-capable linker turns the load back into an
+         * lea where it can prove the symbol is local, and choosing the
+         * relaxable spelling ourselves would only duplicate that judgement
+         * with less information. isel guarantees no addend rides here. */
+        buf_printf(e->out, "%s(%%rip)", m->rip_got ? "@GOTPCREL" : "");
         return;
     }
     if (m->cpool) {
@@ -319,10 +324,13 @@ static void emit_inst(Emit *e, const X64Inst *in, u32 bi, u32 next_bb)
         if (in->a.kind == X64O_VREG) {
             buf_printf(e->out, "\tcall\t*%%%s\n", regn(in->a.r.v, X64_Q));
         } else if (in->a.kind == X64O_MEM && in->a.mem.rip_sym) {
-            buf_printf(e->out, "\tcall\t%s\n",
-                       e->m->syms[in->a.mem.rip_sym - 1]);
+            buf_printf(e->out, "\tcall\t%s%s\n",
+                       e->m->syms[in->a.mem.rip_sym - 1],
+                       (in->flags & X64IF_CALL_PLT) ? "@PLT" : "");
         } else if (in->table) {
-            buf_printf(e->out, "\tcall\t%s\n", e->m->funcs[in->table - 1].name);
+            buf_printf(e->out, "\tcall\t%s%s\n",
+                       e->m->funcs[in->table - 1].name,
+                       (in->flags & X64IF_CALL_PLT) ? "@PLT" : "");
         } else {
             CGF_ICE("x64 emit: call without a target");
         }

@@ -664,6 +664,17 @@ static bool debug_comp_dir(char *out, size_t cap)
  * modes assemble it through the routed assembler, and an assembler
  * rejection of OUR text is an ICE quoting the offending line. Linking
  * happens in driver_main AFTER every TU compiled — never here. */
+/* -fPIC wins over -fpie when both appear: full PIC is the stronger promise
+ * and the one that is correct under either linkage. */
+static X64PicLevel pic_level_of(const DriverArgs *a)
+{
+    if (a->fpic)
+        return X64_PIC_FULL;
+    if (a->fpie)
+        return X64_PIC_PIE;
+    return X64_PIC_NONE;
+}
+
 static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                         const DriverArgs *a, const CompileJob *job)
 {
@@ -700,6 +711,19 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                     cgf_target_name(cgf_target_selected()));
             return CGF_EXIT_COMPILE;
         }
+        if (a->fpic || a->fpie) {
+            /* Sprint 51 landed PIC on x86_64 first. arm64 needs the
+             * :got:/:got_lo12: adrp+ldr pair, and afs-as has never had that
+             * syntax exercised by an emitter. Accepting the flag and
+             * emitting position-DEPENDENT code would promise a semantics we
+             * do not deliver -- the link would succeed and the program
+             * would be wrong only once loaded at a different address. */
+            fprintf(stderr,
+                    "cgfried: error: -fPIC/-fPIE on %s is not implemented "
+                    "yet: lands in Sprint 51 (x86_64 is done)\n",
+                    cgf_target_name(cgf_target_selected()));
+            return CGF_EXIT_COMPILE;
+        }
         buf_init(&b);
         a64_emit_file_prologue(&b);
         for (i = 0; i < m->nfuncs; i++) {
@@ -726,7 +750,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         xfuncs = arena_alloc(arena, m->nfuncs * sizeof(X64Func *),
                              _Alignof(X64Func *));
     for (i = 0; i < m->nfuncs; i++) {
-        X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
+        X64Func *xf =
+            x64_isel_function(m, &m->funcs[i], arena, pic_level_of(a));
 
         if (x64_mir_verify(xf, dc))
             CGF_ICE("isel produced MIR the verifier rejects for '@%s'",
@@ -845,7 +870,8 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
             continue;
         }
         {
-            X64Func *xf = x64_isel_function(m, &m->funcs[i], arena);
+            X64Func *xf =
+                x64_isel_function(m, &m->funcs[i], arena, X64_PIC_NONE);
 
             if (x64_mir_verify(xf, dc))
                 CGF_ICE("isel produced MIR the verifier rejects for '@%s'",

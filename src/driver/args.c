@@ -110,6 +110,8 @@ enum {
     F_FGENERAL,
     F_DEBUG_G,
     F_SHARED,
+    F_LINK_PIE,
+    F_LINK_NO_PIE,
     F_PIC,
     F_DIR_L,
     F_LIB,
@@ -716,12 +718,20 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
             }
             break;
         }
-        if (strcmp(val, "pic") == 0 || strcmp(val, "PIC") == 0 ||
-            strcmp(val, "pie") == 0 || strcmp(val, "PIE") == 0) {
-            if (!da->deferred) {
-                da->deferred = s;
-                da->deferred_sprint = "lands in Sprint 51";
-            }
+        if (strcmp(val, "pic") == 0 || strcmp(val, "PIC") == 0) {
+            da->fpic = true;
+            break;
+        }
+        if (strcmp(val, "pie") == 0 || strcmp(val, "PIE") == 0) {
+            da->fpie = true;
+            break;
+        }
+        if (strcmp(val, "no-pic") == 0 || strcmp(val, "no-PIC") == 0) {
+            da->fpic = false;
+            break;
+        }
+        if (strcmp(val, "no-pie") == 0 || strcmp(val, "no-PIE") == 0) {
+            da->fpie = false;
             break;
         }
         VecStr_push(&da->warn_unrecognized, s);
@@ -740,6 +750,14 @@ static bool h_deferred(DriverArgs *da, const FlagSpec *fs, const char *val)
     case F_SHARED:
         da->deferred = "-shared";
         da->deferred_sprint = "lands in Sprint 51";
+        break;
+    case F_LINK_PIE:
+        da->link_pie = true;
+        da->no_pie = false;
+        break;
+    case F_LINK_NO_PIE:
+        da->no_pie = true;
+        da->link_pie = false;
         break;
     }
     return true;
@@ -894,6 +912,8 @@ static const FlagSpec args_flag_table[] = {
     /* debug / deferred */
     {"-g", ARG_JOINED, h_debug, F_DEBUG_G},
     {"-shared", ARG_NONE, h_deferred, F_SHARED},
+    {"-pie", ARG_NONE, h_deferred, F_LINK_PIE},
+    {"-no-pie", ARG_NONE, h_deferred, F_LINK_NO_PIE},
     /* link */
     {"-L", ARG_EITHER, h_dir, F_DIR_L},
     {"-l", ARG_EITHER, h_link, F_LIB},
