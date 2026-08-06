@@ -160,7 +160,11 @@ typedef struct {
     VecInput inputs;
 
     /* --- parse outcome (driver_main renders the diagnostics) --- */
-    const char *unknown_opt;     /* first unknown non--f/-W option, or NULL */
+    const char *unknown_opt; /* first unknown non--f/-W option, or NULL */
+    /* --target= naming something outside the closed set. Kept separate from
+     * bad_value so the diagnostic can list what IS known: a cross build that
+     * picked the wrong machine is the expensive mistake here. */
+    const char *bad_target;
     char suggest[64];            /* "; did you mean '-o'?" payload, or "" */
     const char *missing_arg;     /* option lacking its argument, or NULL */
     const char *bad_value;       /* option whose value did not parse */

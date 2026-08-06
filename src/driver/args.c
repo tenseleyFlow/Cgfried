@@ -2,6 +2,8 @@
 #include <string.h>
 
 #include "driver/args.h"
+
+#include "target.h"
 #include "util/arena.h"
 #include "util/dlev.h"
 #include "warn/warn.h"
@@ -30,6 +32,7 @@ enum {
     F_PRINT_SEARCH,
     F_PRINT_PROG,
     F_PRINT_FILE,
+    F_TARGET,
     F_VERBOSE,
     F_DRY_RUN,
     F_MODE_E,
@@ -218,6 +221,14 @@ static bool h_info(DriverArgs *da, const FlagSpec *fs, const char *val)
         break;
     case F_PRINT_FILE:
         da->print_file = val;
+        break;
+    case F_TARGET:
+        /* A closed set, matched EXACTLY -- there is no triple parser on
+         * purpose. A parser that half-understands an unfamiliar triple and
+         * degrades to a default is the failure a closed enum exists to
+         * prevent: it would cross-compile silently for the wrong machine. */
+        if (!cgf_target_select(val) && !da->bad_target)
+            da->bad_target = val;
         break;
     case F_VERBOSE:
         da->verbose = true;
@@ -791,6 +802,7 @@ static const FlagSpec args_flag_table[] = {
     {"-print-search-dirs", ARG_NONE, h_info, F_PRINT_SEARCH},
     {"-print-prog-name=", ARG_JOINED, h_info, F_PRINT_PROG},
     {"-print-file-name=", ARG_JOINED, h_info, F_PRINT_FILE},
+    {"--target=", ARG_JOINED, h_info, F_TARGET},
     {"-v", ARG_NONE, h_info, F_VERBOSE},
     {"-###", ARG_NONE, h_info, F_DRY_RUN},
     /* modes and outputs */

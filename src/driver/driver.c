@@ -620,7 +620,7 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
      * through the same softfp core, so legalizing earlier would hide
      * constant operations behind opaque calls. A no-op on x86_64, whose
      * long double is x87 f80 and selects natively. */
-    lower_legalize_f128(m, cgf_target_host());
+    lower_legalize_f128(m, cgf_target_selected());
     if (!ir_verify_report(m->dc, m, why, sizeof(why))) {
         if (cfg.dump_bad_ir) {
             FILE *df = fopen(cfg.dump_bad_ir, "wb");
@@ -684,8 +684,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     char comp_dir[4096];
     FILE *f;
 
-    if (cgf_target_host().kind == CGF_TARGET_ARM64_LINUX ||
-        cgf_target_host().kind == CGF_TARGET_ARM64_MACOS) {
+    if (cgf_target_selected().kind == CGF_TARGET_ARM64_LINUX ||
+        cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
         if (a->debug_level) {
             /* Sprint 29's DWARF emitter is x86-only. Emitting arm64 objects
              * that silently lack the line table would break the -g contract
@@ -697,7 +697,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
              * reached it died with "non-x86 target 2" rather than a
              * diagnostic. */
             fprintf(stderr, "cgfried: error: -g on %s lands in Sprint 51\n",
-                    cgf_target_name(cgf_target_host()));
+                    cgf_target_name(cgf_target_selected()));
             return CGF_EXIT_COMPILE;
         }
         buf_init(&b);
@@ -749,7 +749,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         buf_free(&b);
         return CGF_EXIT_IO;
     }
-    x64_emit_debug_sections(cgf_target_host(), arena, m, xfuncs, m->nfuncs,
+    x64_emit_debug_sections(cgf_target_selected(), arena, m, xfuncs, m->nfuncs,
                             job->path, comp_dir, a->debug_level != 0, &b);
 
 emit_tail:
@@ -827,7 +827,7 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
 {
     u32 i;
     Buf b;
-    TargetKind target = cgf_target_host().kind;
+    TargetKind target = cgf_target_selected().kind;
 
     buf_init(&b);
     for (i = 0; i < m->nfuncs; i++) {
@@ -1019,14 +1019,14 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         }
         {
             const char *dirs[8];
-            size_t n = cgf_target_system_include_dirs(cgf_target_host(), dirs,
-                                                      CGF_ARRAY_LEN(dirs));
+            size_t n = cgf_target_system_include_dirs(
+                cgf_target_selected(), dirs, CGF_ARRAY_LEN(dirs));
             /* macOS keeps no /usr/include: the whole system header set lives
              * under an SDK root that only `xcrun` knows. target.c owns the
              * ORDER (it owns every target's) and the driver owns the ROOT,
              * because probing it is a subprocess and target.c is pure. */
             const char *sysroot =
-                cgf_target_host().kind == CGF_TARGET_ARM64_MACOS
+                cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS
                     ? cgf_probe_macos_sdk()
                     : NULL;
             size_t i;
@@ -1044,7 +1044,8 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                     pp.system_dirs[pp.n_system++] = dirs[i];
                 }
             }
-            if (cgf_target_host().kind == CGF_TARGET_ARM64_MACOS && !sysroot) {
+            if (cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS &&
+                !sysroot) {
                 static bool warned;
 
                 const char *bad = cgf_macos_sdk_bad_override();
@@ -1126,7 +1127,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         while (pp_next(&pp, &t))
             PpTokVecD_push(&collected, t);
         tl = lex_convert(&pp, collected.data, (u32)collected.len, &lang,
-                         cgf_target_host(), arena);
+                         cgf_target_selected(), arena);
         if (a->dump_tokens)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
@@ -1151,7 +1152,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
 
                 sema_install_renderer();
                 sema_init(&sema, arena, dc, &interner, &lang,
-                          cgf_target_host());
+                          cgf_target_selected());
                 /* -fno-common is the DEFAULT (gcc 10 semantics; the gcc 8
                  * parity baseline defaulted to -fcommon — Sprint 26
                  * locked the flip, documented in --help). */
@@ -1358,7 +1359,7 @@ static void dep_side_path(const DriverArgs *a, const char *src, char *out,
 
 static int print_prog_name(const DriverArgs *a)
 {
-    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_host());
+    ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
     const char *name = a->print_prog;
     char resolved[4096];
 
@@ -1512,6 +1513,14 @@ int driver_main(int argc, char **argv)
             diag_emit(dc, DIAG_ERROR, no_span,
                       "unrecognized command-line option '%s'", a.unknown_opt);
         status = CGF_EXIT_COMPILE;
+    } else if (a.bad_target) {
+        int ti;
+
+        diag_emit(dc, DIAG_ERROR, no_span, "unknown target '%s'", a.bad_target);
+        for (ti = 0; ti < CGF_TARGET_COUNT; ti++)
+            diag_emit(dc, DIAG_NOTE, no_span, "known target: %s",
+                      cgf_target_names[ti]);
+        status = CGF_EXIT_COMPILE;
     } else if (a.missing_arg) {
         diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",
                   a.missing_arg);
@@ -1555,11 +1564,11 @@ int driver_main(int argc, char **argv)
             fputs(help_text[k], stdout);
     } else if (a.show_version) {
         printf("cgfried %s (%s)\n", CGF_VERSION,
-               cgf_target_name(cgf_target_host()));
+               cgf_target_name(cgf_target_selected()));
     } else if (a.show_dumpversion) {
         printf("%s\n", CGF_VERSION);
     } else if (a.show_dumpmachine) {
-        printf("%s\n", cgf_target_name(cgf_target_host()));
+        printf("%s\n", cgf_target_name(cgf_target_selected()));
     } else if (a.print_search_dirs) {
         status = print_search_dirs(&a);
     } else if (a.print_prog) {
@@ -1864,8 +1873,8 @@ int driver_main(int argc, char **argv)
             if (a.fsafe && !a.dry_run && !safe_link_inputs_ok(&a)) {
                 if (status == CGF_EXIT_OK)
                     status = CGF_EXIT_LINK;
-            } else if (!toolchain_build_link_argv(&a, cgf_target_host(), &arena,
-                                                  &ldargv)) {
+            } else if (!toolchain_build_link_argv(&a, cgf_target_selected(),
+                                                  &arena, &ldargv)) {
                 /* crt/route failure: link-phase error, exit 2 (the
                  * diagnostic named every probed path already). */
                 if (status == CGF_EXIT_OK)
@@ -1900,8 +1909,8 @@ int driver_main(int argc, char **argv)
                      * ELF-ONLY: arm64-macos refuses -static outright, so
                      * offering it there sends the reader in a circle. */
                     if (!a.static_link &&
-                        cgf_target_host().kind != CGF_TARGET_ARM64_MACOS &&
-                        cgf_toolchain_resolve(cgf_target_host()).use_afs_ld)
+                        cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS &&
+                        cgf_toolchain_resolve(cgf_target_selected()).use_afs_ld)
                         fprintf(stderr, "cgfried: note: afs-ld's dynamic ELF "
                                         "lane is experimental; retry with "
                                         "-static or unset CGF_LD\n");
