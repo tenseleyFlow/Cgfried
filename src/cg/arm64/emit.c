@@ -884,9 +884,9 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
     e.atomic_seq = 0;
     e.apple = cgf_target_host().kind == CGF_TARGET_ARM64_MACOS;
 
-    buf_printf(out, e.apple
-                        ? "\t.section\t__TEXT,__text,regular,pure_instructions\n"
-                        : "\t.text\n");
+    buf_printf(out,
+               e.apple ? "\t.section\t__TEXT,__text,regular,pure_instructions\n"
+                       : "\t.text\n");
     if (linkage != IRLINK_INTERNAL)
         buf_printf(out, "\t.globl\t%s\n", msym(&e, f->name));
     else if (!e.apple)
