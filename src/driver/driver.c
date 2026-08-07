@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "cg/arm64/debug.h"
 #include "cg/cg.h"
 #include "cg/x86_64/debug.h"
 #include "diag.h"
@@ -691,23 +692,23 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     Buf b;
     u32 i;
     X64Func **xfuncs = NULL;
+    A64Func **afuncs = NULL;
     char s_path[528];
     char comp_dir[4096];
     FILE *f;
 
     if (cgf_target_selected().kind == CGF_TARGET_ARM64_LINUX ||
         cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
-        if (a->debug_level) {
-            /* Sprint 29's DWARF emitter is x86-only. Emitting arm64 objects
-             * that silently lack the line table would break the -g contract
-             * without saying so; Sprint 51 joins arm64 to the differential.
-             * Ledgered as DBG-005 in .docs/audits/debug-info-debt.md.
-             *
-             * The condition names the ARCHITECTURE, not one target: the x86
-             * CFI encoder ICEs on any arm64 module, so a macos build that
-             * reached it died with "non-x86 target 2" rather than a
-             * diagnostic. */
-            fprintf(stderr, "cgfried: error: -g on %s lands in Sprint 51\n",
+        if (a->debug_level &&
+            cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
+            /* arm64-linux emits DWARF and .eh_frame now. Mach-O does not:
+             * Apple uses compact unwind rather than .eh_frame, and __debug_*
+             * sections plus a dSYM flow are their own piece of work.
+             * Emitting objects that silently lack the line table would break
+             * the -g contract without saying so. Ledgered as DBG-005. */
+            fprintf(stderr,
+                    "cgfried: error: -g on %s is not supported; Mach-O "
+                    "compact unwind and dSYM generation are unimplemented\n",
                     cgf_target_name(cgf_target_selected()));
             return CGF_EXIT_COMPILE;
         }
@@ -722,6 +723,9 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         buf_init(&b);
         a64_emit_file_prologue(&b);
         a64_emit_tls_decls(m, &b);
+        afuncs =
+            arena_alloc(arena, (m->nfuncs ? m->nfuncs : 1) * sizeof(*afuncs),
+                        _Alignof(A64Func *));
         for (i = 0; i < m->nfuncs; i++) {
             A64Func *af = a64_isel_function(m, &m->funcs[i], arena);
 
@@ -734,9 +738,30 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                 CGF_ICE("arm64 regalloc produced MIR the verifier rejects "
                         "for '@%s'",
                         m->funcs[i].name);
+            /* AFTER regalloc, like x86: the label ordinals must survive
+             * every rewrite, and the frame pass is the last one. */
+            if (a->debug_level)
+                a64_debug_prepare(af);
+            afuncs[i] = af;
             a64_emit_function(af, m, i, m->funcs[i].linkage, &b);
         }
         a64_emit_globals(m, &b);
+        /* Mach-O has no .eh_frame -- it uses compact unwind, which is its own
+         * piece of work -- so CFI and DWARF stay ELF-only for now. */
+        if (cgf_target_selected().kind == CGF_TARGET_ARM64_LINUX) {
+            comp_dir[0] = '\0';
+            if (a->debug_level && !debug_comp_dir(comp_dir, sizeof(comp_dir))) {
+                fprintf(stderr,
+                        "cgfried: error: cannot determine current directory: "
+                        "%s\n",
+                        strerror(errno));
+                buf_free(&b);
+                return CGF_EXIT_IO;
+            }
+            a64_emit_debug_sections(cgf_target_selected(), arena, m, afuncs,
+                                    m->nfuncs, job->path, comp_dir,
+                                    a->debug_level != 0, &b);
+        }
         a64_emit_file_epilogue(&b);
         goto emit_tail;
     }

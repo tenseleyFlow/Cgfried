@@ -1030,14 +1030,26 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
     if (!e.apple)
         buf_printf(out, "\t.type\t%s, @function\n", f->name);
     buf_printf(out, "%s:\n", msym(&e, f->name));
+    /* A LOCAL alias for the entry, named by the .eh_frame FDE. Naming the
+     * global symbol there emits a PC-relative relocation against an
+     * interposable symbol, which ld refuses when making a shared object --
+     * the same reason x86 grew this label. */
+    buf_printf(out, "%sfb%u:\n", mlabel(&e), fidx);
+    if (f->debug_lines)
+        buf_printf(out, "%sloc_%u_0:\n", mlabel(&e), fidx);
     for (bi = 0; bi < f->nblocks; bi++) {
         const A64Block *b = &f->blocks[bi];
 
         if (bi)
             buf_printf(out, "%sf%u_%u:\n", mlabel(&e), fidx, bi + 1);
-        for (i = 0; i < b->n; i++)
+        for (i = 0; i < b->n; i++) {
+            if (f->debug_lines && b->insts[i].debug_label)
+                buf_printf(out, "%sloc_%u_%u:\n", mlabel(&e), fidx,
+                           b->insts[i].debug_label);
             emit_inst(&e, &b->insts[i], bi + 2);
+        }
     }
+    buf_printf(out, "%sfe%u_0:\n", mlabel(&e), fidx);
     if (!e.apple)
         buf_printf(out, "\t.size\t%s, .-%s\n", f->name, f->name);
 

@@ -1853,16 +1853,26 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
      * the stack, the outgoing area owns SP+0 — the callee reads its stack
      * arguments from exactly there — so the pair moves up and the frame is
      * allocated by a separate subtraction. */
+    /* Recorded for .eh_frame: which shape ran, and how many instructions
+     * precede the pair store. The pre-indexed form adjusts SP and saves in
+     * ONE instruction, so the CFA change and the register rules take effect
+     * together; the separate form moves SP first and the two steps need
+     * different advance_loc values. See a64_emit_eh_frame. */
+    f->cfi_frame = fr->total;
+    f->cfi_pair_off = fr->base;
     if (fr->base == 0 && fr->total <= A64_FRAME_PREINDEX_MAX) {
         A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
                              -(i64)fr->total, A64_ADDR_PRE);
 
+        f->cfi_pre_insns = 0;
         rb_put(&rb, &in);
     } else {
         A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
                              (i64)fr->base, A64_ADDR_SCALED);
+        u32 before = rb.n;
 
         emit_sp_adjust(&rb, A64_OP_SUB, fr->total);
+        f->cfi_pre_insns = (u8)(rb.n - before);
         rb_put(&rb, &in);
     }
     {

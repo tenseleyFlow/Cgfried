@@ -335,6 +335,7 @@ typedef struct A64Inst {
     A64CallInfo *call; /* A64_OP_CALL only; arena-owned */
     u32 flags_src;     /* producer index in this block for USES_NZCV */
     u32 loc;
+    u32 debug_label; /* prepared post-RA: .Lloc_<func>_<id>, 0 = none */
 } A64Inst;
 
 typedef struct A64Block {
@@ -375,6 +376,14 @@ typedef struct A64Func {
     u64 *cpool;
     u32 ncpool, cap_cpool;
     const IrModule *m;
+    bool debug_lines; /* -g: emit .Lloc_ labels around location transitions */
+    /* What .eh_frame needs to describe this prologue. Unlike x86, whose FDE
+     * program is the same sixteen bytes for every function, the AArch64 one
+     * depends on the frame SIZE -- so the prologue records its own shape
+     * rather than the CFI encoder re-deriving which branch ran. */
+    u32 cfi_frame;    /* total frame bytes; CFA is sp+cfi_frame after entry */
+    u32 cfi_pair_off; /* byte offset of the saved x29/x30 pair from new sp */
+    u8 cfi_pre_insns; /* instructions before the pair store; 0 = pre-indexed */
 } A64Func;
 
 typedef enum A64MovKind {

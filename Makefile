@@ -73,7 +73,8 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         test-mem-fanalyzer bench-safe \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
-        check-ub-division test-a64-asm-diff test-a64-mir test-a64-corpus \
+        check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
+        test-a64-corpus \
         test-a64-spill-all test-a64-char-sign test-abi-diff \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
         asan ubsan
@@ -261,6 +262,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/s36_isa_driver.sh $(BUILD)/cgfried ci/check_isa.sh
 	$(MAKE) BUILD=$(BUILD) check-ub-division
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-a64-mir
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-a64-debug
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-a64-asm-diff
 	$(AS_LANE) sh scripts/strict_alias_diff.sh $(BUILD)/cgfried
 	$(AS_LANE) CGF_SPILL_ALL=1 CGF_TEST_CC=$(BUILD)/cgfried \
@@ -425,6 +427,12 @@ test-a64-char-sign: $(BUILD)/cgf-test
 test-a64-mir: $(BUILD)/a64mir
 	CGF_A64_MIR_WORK=$(BUILD)/a64-mir-lane \
 	    sh scripts/a64_mir_lane.sh $(BUILD)/a64mir
+
+# Cross tools only -- it reads objects and never runs one -- so unlike the
+# corpus lane this belongs in `make test` on an x86 host.
+test-a64-debug: $(BUILD)/cgfried
+	CGF_A64_DEBUG_WORK=$(BUILD)/a64-debug-lane \
+	    sh scripts/a64_debug_lane.sh $(BUILD)/cgfried
 
 test-a64-asm-diff: $(BUILD)/a64_objbytes $(BUILD)/a64_logimm_gen
 	CGF_A64_OBJBYTES=$(BUILD)/a64_objbytes \
