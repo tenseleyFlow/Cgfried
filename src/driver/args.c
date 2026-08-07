@@ -993,6 +993,13 @@ static InputKind kind_from_ext(const char *path)
         return IN_ASM_PP;
     if (strcmp(dot, ".cgfir") == 0)
         return IN_CGFIR;
+    /* gcc dispatches .h to the compiler as a header to PRECOMPILE, and its
+     * product never reaches the linker. Without a row here it fell to the
+     * catch-all below and `cgf main.c foo.h -o p` handed a HEADER to ld:
+     * "file format not recognized; treating as linker script". Reported by
+     * a user whose identical gcc command line worked. */
+    if (strcmp(dot, ".h") == 0)
+        return IN_HEADER;
     return IN_LINK; /* .o/.a/anything else: link input, in position */
 }
 
@@ -1023,7 +1030,7 @@ static void add_input(DriverArgs *da, const char *path)
         li.val = path;
         VecLink_push(&da->link_inputs, li);
         in.link_slot = (int)da->link_inputs.len - 1;
-    } else if (in.kind != IN_CGFIR) {
+    } else if (in.kind != IN_CGFIR && in.kind != IN_HEADER) {
         /* A compiled TU's object claims its argv position in the link
          * stream now; the path is filled in after compiling. */
         li.kind = LINK_OBJ;

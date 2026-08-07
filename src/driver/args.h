@@ -23,6 +23,7 @@ typedef enum {
     IN_ASM,     /* .s: assemble only */
     IN_ASM_PP,  /* .S: preprocess, then assemble */
     IN_CGFIR,   /* .cgfir: IR round-trip path (cgf extension) */
+    IN_HEADER,  /* .h: a C header. Checked, never linked -- see add_input */
     IN_LINK,    /* .o/.a/anything else: link input, kept in position */
 } InputKind;
 

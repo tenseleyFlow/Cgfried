@@ -1717,6 +1717,57 @@ int driver_main(int argc, char **argv)
                         no_span, "%s: input file unused", in->path);
                 continue;
             }
+            if (in->kind == IN_HEADER && !a.mode_E) {
+                /* gcc compiles a .h input as a header to PRECOMPILE, writing
+                 * a .gch that the LINKER never sees -- only the .c objects
+                 * link. We do not implement precompiled headers, so the
+                 * faithful and useful half is to CHECK the header (someone
+                 * handing one to a compiler wants its diagnostics) and
+                 * produce nothing.
+                 *
+                 * A local copy of the args rather than a per-job override:
+                 * the mode flags are read at half a dozen points inside the
+                 * compile, and forcing them once here cannot leave one of
+                 * them out of step.
+                 *
+                 * -E is deliberately NOT special-cased -- gcc preprocesses a
+                 * header to stdout like any other source, and falling
+                 * through gives exactly that. */
+                DriverArgs ha = a;
+
+                /* `-c foo.h` asks for a PRODUCT and gcc writes foo.h.gch.
+                 * Exiting 0 having written nothing is the silent-stub
+                 * failure mode this compiler refuses everywhere else, so
+                 * say so. In link mode the header is incidental -- the
+                 * program still gets built, which is what was asked -- and
+                 * a line there would be noise on the common accident of
+                 * listing every project file. */
+                if (a.compile_obj || a.emit_asm)
+                    fprintf(stderr,
+                            "cgfried: warning: %s: precompiled headers are "
+                            "not implemented; the header was checked and no "
+                            "output was produced\n",
+                            in->path);
+                ha.syntax_only = true;
+                ha.compile_obj = false;
+                ha.link_exe = false;
+                ha.emit_asm = false;
+                ha.emit_ir = false;
+                ha.emit_mir = false;
+                ha.dep_side = false;
+                job.out = NULL;
+                if (a.dry_run) {
+                    echo_compile_step("-fsyntax-only", in->path, NULL);
+                } else {
+                    rc = run_preprocess(&arena, dc, &ha, &job);
+                    if (rc != CGF_EXIT_OK) {
+                        any_fail = true;
+                        if (status == CGF_EXIT_OK)
+                            status = rc;
+                    }
+                }
+                continue;
+            }
 
             /* Where does this input's product land? */
             if (a.mode_E || a.syntax_only || a.dump_tokens || a.dump_ast ||

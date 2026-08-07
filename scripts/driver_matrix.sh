@@ -310,6 +310,31 @@ pfe=$("$CGF_ABS" -print-file-name=no-such-file.o) &&
 "$CGF_ABS" -print-search-dirs | grep -q '^install: ' ||
     probe_fail "-print-search-dirs shape"
 
+# A .h on the command line goes to the COMPILER, never to the linker. gcc
+# dispatches it as a header to precompile and hands only the .c objects to
+# ld; with no `.h` row in the extension dispatch it reached the link stream
+# instead and ld reported "file format not recognized; treating as linker
+# script" on a header. Reported by a user whose identical gcc command line
+# worked. The corpus half is tests/programs/driver/header_input_not_linked.c;
+# what needs a raw command line is `-c header`, which the runner cannot
+# express because it always appends its own input and -o.
+printf 'int hp(void);\n' > "$WORK/probe_hdr.h"
+hw=$("$CGF_ABS" -c "$WORK/probe_hdr.h" 2>&1)
+case "$hw" in
+*"precompiled headers are not implemented"*) ;;
+*) probe_fail "-c on a header should say precompiled headers are not
+implemented, got: $hw" ;;
+esac
+# ...and having said so, it must leave nothing behind pretending otherwise.
+[ -e "$WORK/probe_hdr.h.gch" ] || [ -e "$WORK/probe_hdr.o" ] &&
+    probe_fail "-c on a header produced an output file"
+# A BROKEN header still has to fail, or the check above is satisfied by a
+# driver that ignores headers entirely.
+printf 'int hp(void)\n' > "$WORK/probe_bad.h"
+if "$CGF_ABS" -c "$WORK/probe_bad.h" >/dev/null 2>&1; then
+    probe_fail "a syntactically broken header was accepted"
+fi
+
 cd "$ROOT"
 if [ "$fails" -ne 0 ]; then
     echo "driver_matrix: $fails failure(s) across $rows rows" >&2
