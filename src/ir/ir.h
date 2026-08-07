@@ -523,6 +523,8 @@ typedef struct IrFunc {
     u8 ret;        /* IrType */
     u8 abi_ret;    /* IrAbiRet */
     u8 abi_ret_n;  /* HFA only: leaf count, 1-4 (printed inside abi(...)) */
+    bool is_weak;  /* the `weak` attribute, on a FUNCTION */
+    u8 visibility; /* GnuVisibility */
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);
                       defaults EXTERNAL, printed ` internal` otherwise */
     bool variadic; /* printed as ', ...' after the last parameter */
@@ -598,7 +600,12 @@ typedef struct IrGlobal {
      * asks the module rather than threading it through operands. Printed
      * ` tls`. */
     bool is_tls;
-    u8 *init; /* Sprint 15 byte image; NULL = zeroinit / BSS */
+    /* GNU symbol attributes, same reasoning as is_tls: a property of the
+     * OBJECT, so it rides the global and the backend asks the module.
+     * Printed ` weak` and ` visibility(hidden)`. */
+    bool is_weak;
+    u8 visibility; /* GnuVisibility */
+    u8 *init;      /* Sprint 15 byte image; NULL = zeroinit / BSS */
     IrReloc *relocs;
     u32 nrelocs;
 } IrGlobal;

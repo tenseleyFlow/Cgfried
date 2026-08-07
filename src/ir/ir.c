@@ -864,6 +864,7 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
         if (!str_eq(x->name, y->name) || x->size != y->size ||
             x->align != y->align || x->linkage != y->linkage ||
             x->is_tentative != y->is_tentative || x->is_tls != y->is_tls ||
+            x->is_weak != y->is_weak || x->visibility != y->visibility ||
             (x->init == NULL) != (y->init == NULL) || x->nrelocs != y->nrelocs)
             return false;
         if (x->init && x->size && memcmp(x->init, y->init, x->size) != 0)
@@ -883,8 +884,8 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->nvals != y->nvals || x->variadic != y->variadic ||
             x->unprototyped != y->unprototyped || x->abi_ret != y->abi_ret ||
             x->abi_ret_n != y->abi_ret_n || x->linkage != y->linkage ||
-            x->calls_setjmp != y->calls_setjmp ||
-            x->fp_contract != y->fp_contract)
+            x->calls_setjmp != y->calls_setjmp || x->is_weak != y->is_weak ||
+            x->visibility != y->visibility || x->fp_contract != y->fp_contract)
             return false;
         for (j = 0; j < x->nparams; j++) {
             u64 xa = x->param_annots ? x->param_annots[j] : 0;

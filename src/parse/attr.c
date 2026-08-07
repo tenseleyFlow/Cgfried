@@ -3,6 +3,34 @@
 #include "parse/parse.h"
 #include "warn/warn.h"
 
+void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
+{
+    if (!src)
+        return;
+    dst->weak |= src->weak;
+    /* Last visibility wins, which is gcc's rule; an unspecified one never
+     * clears a specified one. */
+    if (src->visibility)
+        dst->visibility = src->visibility;
+}
+
+const char *gnu_visibility_name(u8 vis)
+{
+    switch ((GnuVisibility)vis) {
+    case GNU_VIS_DEFAULT:
+        return "default";
+    case GNU_VIS_HIDDEN:
+        return "hidden";
+    case GNU_VIS_PROTECTED:
+        return "protected";
+    case GNU_VIS_INTERNAL:
+        return "internal";
+    case GNU_VIS_UNSPEC:
+        break;
+    }
+    return "";
+}
+
 const char *cgf_attr_name(CgfAttrKind kind)
 {
     static const char *const names[CGF_ATTR_COUNT] = {
@@ -80,6 +108,60 @@ static void skip_parens(Parser *p)
  * file for the one question that decides every row. */
 typedef enum { GA_IGNORE, GA_UNSAFE, GA_UNKNOWN } GnuAttrClass;
 
+/* `packed` and `__packed__` are one attribute. Headers use the underscored
+ * spelling precisely so a macro named `packed` cannot capture it, so every
+ * comparison has to see through it. */
+static bool gnu_attr_is(const char *spelling, const char *bare)
+{
+    size_t n = strlen(spelling);
+    size_t b = strlen(bare);
+
+    if (strcmp(spelling, bare) == 0)
+        return true;
+    return n == b + 4 && strncmp(spelling, "__", 2) == 0 &&
+           strncmp(spelling + 2, bare, b) == 0 &&
+           strcmp(spelling + 2 + b, "__") == 0;
+}
+
+/* visibility("default"|"hidden"|"protected"|"internal"). The argument is a
+ * STRING rather than an identifier, and an unknown one is an error rather
+ * than a silent default -- picking a visibility nobody asked for is the
+ * linkage equivalent of ignoring the attribute outright. */
+static void parse_visibility(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    const Token *arg;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "attribute 'visibility' requires an argument");
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_STRING || !arg->str.bytes) {
+        parse_error(p, arg, "'visibility' takes a string argument");
+    } else if (strcmp((const char *)arg->str.bytes, "default") == 0) {
+        gnu->visibility = GNU_VIS_DEFAULT;
+        p->pos++;
+    } else if (strcmp((const char *)arg->str.bytes, "hidden") == 0) {
+        gnu->visibility = GNU_VIS_HIDDEN;
+        p->pos++;
+    } else if (strcmp((const char *)arg->str.bytes, "protected") == 0) {
+        gnu->visibility = GNU_VIS_PROTECTED;
+        p->pos++;
+    } else if (strcmp((const char *)arg->str.bytes, "internal") == 0) {
+        gnu->visibility = GNU_VIS_INTERNAL;
+        p->pos++;
+    } else {
+        parse_error(p, arg,
+                    "unknown visibility '%s'; expected \"default\", "
+                    "\"hidden\", \"protected\" or \"internal\"",
+                    (const char *)arg->str.bytes);
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
 static GnuAttrClass gnu_attr_class(const char *spelling)
 {
     /* `__packed__` and `packed` are the same attribute. Headers use the
@@ -109,7 +191,7 @@ static GnuAttrClass gnu_attr_class(const char *spelling)
     return GA_UNKNOWN;
 }
 
-CgfAttr *parse_cgf_attributes(Parser *p)
+CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
 {
     const Token *kw = parse_peek(p);
     CgfAttr *head = NULL;
@@ -159,7 +241,13 @@ CgfAttr *parse_cgf_attributes(Parser *p)
                 else if (strncmp(name->spelling, "cgf_", 4) == 0)
                     parse_error(p, name, "unknown cgf_ attribute '%s'",
                                 name->spelling);
-                else {
+                else if (gnu && gnu_attr_is(name->spelling, "weak")) {
+                    gnu->weak = true;
+                    valid = false;
+                } else if (gnu && gnu_attr_is(name->spelling, "visibility")) {
+                    parse_visibility(p, name, gnu);
+                    valid = false;
+                } else {
                     switch (gnu_attr_class(name->spelling)) {
                     case GA_IGNORE:
                     case GA_UNKNOWN:

@@ -1729,6 +1729,19 @@ static void declare_one(Sema *s, AstNode *d)
         warn_at_ex(s->lang->warnings, WARN_VLA, d->span, WARN_SUPPRESS_IN_MACRO,
                    "variable length array '%s' is used", d->name);
 
+    /* UNION across declarations, not replacement: an attribute on any
+     * declaration of a symbol applies to the symbol. gcc's rule, and the
+     * one musl's weak_alias pattern depends on -- the attribute and the
+     * definition are routinely in different places. */
+    gnu_attrs_merge(&sym->gnu, &d->gnu);
+    if (sym->gnu.weak && sym->linkage == LINK_INTERNAL) {
+        /* A static symbol has no binding for the linker to weaken, and gcc
+         * says so rather than emitting a .weak that does nothing. */
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'weak' attribute ignored on a symbol with internal linkage");
+        sym->gnu.weak = false;
+    }
+
     if (d->storage & AST_SC_THREAD_LOCAL) {
         sym->tls = true;
         if (is_func) {

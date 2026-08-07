@@ -43,11 +43,17 @@ predefine.
 
 ## Implemented
 
-Empty for now. Rows land here as the work does, each with its fixture, and
-`check_gnu_tiers.sh` fails if a row names a fixture that is not there.
-
 | extension | fixture | consumer |
 |---|---|---|
+| `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
+| `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
+
+Both are verified against the ELF symbol table rather than the emitted
+directive: `readelf -sW` agrees with gcc on binding and visibility for every
+symbol, on x86_64 AND arm64, and `weak`'s fixture links a strong definition
+over the weak one so the linker's choice — not the directive — is what
+passes. A compiler can emit `.weak` and still get the binding wrong; only the
+symbol table says otherwise.
 
 ## Parsed and ignored
 

@@ -999,6 +999,20 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
     emit_simple(e, in, mn, sf);
 }
 
+/* GNU symbol attributes. ELF only: Mach-O spells weak binding
+ * `.weak_definition` and has no `.hidden` at all (visibility there is
+ * `.private_extern`), so rather than guess a mapping this emits nothing on
+ * Apple -- the attributes are already refused for that target's hosted
+ * builds, and a wrong directive is worse than an absent one. */
+static void a64_symbol_attrs(const Emit *e, Buf *out, const char *name,
+                             u8 visibility)
+{
+    if (e->apple)
+        return;
+    if (visibility && visibility != GNU_VIS_DEFAULT)
+        buf_printf(out, "\t.%s\t%s\n", gnu_visibility_name(visibility), name);
+}
+
 void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out)
 {
@@ -1019,9 +1033,15 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                e.apple ? "\t.section\t__TEXT,__text,regular,pure_instructions\n"
                        : "\t.text\n");
     if (linkage != IRLINK_INTERNAL)
-        buf_printf(out, "\t.globl\t%s\n", msym(&e, f->name));
+        buf_printf(out,
+                   (!e.apple && fidx < m->nfuncs && m->funcs[fidx].is_weak)
+                       ? "\t.weak\t%s\n"
+                       : "\t.globl\t%s\n",
+                   msym(&e, f->name));
     else if (!e.apple)
         buf_printf(out, "\t.local\t%s\n", f->name);
+    a64_symbol_attrs(&e, out, f->name,
+                     fidx < m->nfuncs ? m->funcs[fidx].visibility : 0);
     /* Every A64 instruction is four bytes, so the natural function alignment
      * is 4; GNU as would otherwise leave the previous section's alignment. */
     buf_printf(out, "\t.p2align\t2\n");
@@ -1184,8 +1204,12 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
             if (!e.apple)
                 buf_printf(out, "\t.local\t%s\n", g->name);
         } else {
-            buf_printf(out, "\t.globl\t%s\n", msym(&e, g->name));
+            buf_printf(out,
+                       (!e.apple && g->is_weak) ? "\t.weak\t%s\n"
+                                                : "\t.globl\t%s\n",
+                       msym(&e, g->name));
         }
+        a64_symbol_attrs(&e, out, g->name, g->visibility);
         /* Zero-initialized data is a DIRECTIVE on Mach-O, not a section plus
          * a run of zero bytes, and it carries its own name/size/alignment --
          * so it replaces the label and the body both. */

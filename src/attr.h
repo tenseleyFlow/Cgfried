@@ -31,4 +31,35 @@ struct CgfAttr {
 
 const char *cgf_attr_name(CgfAttrKind kind);
 
+/* The GNU attributes this compiler IMPLEMENTS, in the form the rest of it
+ * needs. Deliberately NOT a list like CgfAttr: those are memsafe ownership
+ * contracts attached to parameters, while these are SYMBOL PROPERTIES, and
+ * every one is a fact some backend has to emit. Flattening them here is what
+ * lets a backend ask the module -- the same shape `is_tls` already uses, and
+ * for the same reason: the property belongs to the object, not to any
+ * reference to it.
+ *
+ * Which attributes may live here is not a free choice: an attribute earns a
+ * field only when ignoring it would change layout, linkage or behaviour.
+ * src/parse/gnu_attrs.def carries that classification. */
+typedef enum {
+    GNU_VIS_UNSPEC = 0, /* nothing said; ordinary ELF default binding */
+    GNU_VIS_DEFAULT,
+    GNU_VIS_HIDDEN,
+    GNU_VIS_PROTECTED,
+    GNU_VIS_INTERNAL
+} GnuVisibility;
+
+typedef struct GnuDeclAttrs {
+    bool weak;
+    u8 visibility; /* GnuVisibility */
+} GnuDeclAttrs;
+
+/* Attributes accumulate across the specifier and declarator positions of one
+ * declaration, so merging is union rather than replacement: a prefix
+ * `weak` and a suffix `visibility("hidden")` on one declaration say both. */
+void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src);
+
+const char *gnu_visibility_name(u8 vis);
+
 #endif

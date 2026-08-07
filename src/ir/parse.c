@@ -344,6 +344,35 @@ static Tok *expect(P *p, TokKind k, const char *what)
     return t;
 }
 
+/* ` visibility(hidden)` on a global or a function. Absent means unspecified,
+ * which is not the same as "default": an explicit default(1) survives the
+ * round trip distinctly, because gcc lets a declaration say `default` to
+ * override a -fvisibility= command-line setting. */
+static u8 parse_visibility_suffix(P *p)
+{
+    Tok *v;
+
+    if (!tok_is(peek(p), "visibility"))
+        return GNU_VIS_UNSPEC;
+    next(p);
+    if (!expect(p, T_LP, "'(' after 'visibility'"))
+        return GNU_VIS_UNSPEC;
+    v = next(p);
+    if (!v)
+        return GNU_VIS_UNSPEC;
+    (void)expect(p, T_RP, "')' after visibility");
+    if (tok_is(v, "default"))
+        return GNU_VIS_DEFAULT;
+    if (tok_is(v, "hidden"))
+        return GNU_VIS_HIDDEN;
+    if (tok_is(v, "protected"))
+        return GNU_VIS_PROTECTED;
+    if (tok_is(v, "internal"))
+        return GNU_VIS_INTERNAL;
+    perr(p, v, "unknown visibility in IR text");
+    return GNU_VIS_UNSPEC;
+}
+
 static const char *tok_name(P *p, const Tok *t)
 {
     return arena_strndup(p->arena, t->s, t->len);
@@ -1452,6 +1481,8 @@ static bool parse_func(P *p)
     u32 nparams = 0;
     bool variadic = false;
     bool unprototyped = false;
+    bool fn_weak = false;
+    u8 fn_visibility = GNU_VIS_UNSPEC;
     bool internal_marker = false;
     bool setjmp_marker = false;
     bool contract_marker = false;
@@ -1532,6 +1563,11 @@ static bool parse_func(P *p)
         next(p);
         internal_marker = true;
     }
+    if (tok_is(peek(p), "weak")) {
+        next(p);
+        fn_weak = true;
+    }
+    fn_visibility = parse_visibility_suffix(p);
     if (tok_is(peek(p), "abi")) {
         Tok *an;
 
@@ -1583,6 +1619,8 @@ static bool parse_func(P *p)
     f = ir_func_new(p->m, tok_name(p, nm), ret, ptypes, nparams);
     f->variadic = variadic;
     f->unprototyped = unprototyped;
+    f->is_weak = fn_weak;
+    f->visibility = fn_visibility;
     f->abi_ret = abi_ret;
     f->abi_ret_n = abi_ret_n;
     if (internal_marker)
@@ -1708,6 +1746,11 @@ static bool parse_global(P *p)
         next(p);
         g->is_tls = true;
     }
+    if (tok_is(peek(p), "weak")) {
+        next(p);
+        g->is_weak = true;
+    }
+    g->visibility = parse_visibility_suffix(p);
     if (tok_is(peek(p), "init")) {
         Tok *blob;
         u64 i;

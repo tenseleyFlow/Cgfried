@@ -42,6 +42,8 @@ rows_of()
             line = $0
             sub(/^\|[ \t]*/, "", line)
             sub(/[ \t]*\|.*$/, "", line)
+            gsub(/`/, "", line)
+            gsub(/^[ \t]+|[ \t]+$/, "", line)
             if (line == "extension") next
             if (line == "") next
             print line

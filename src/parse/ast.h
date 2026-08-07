@@ -185,6 +185,10 @@ struct AstNode {
     u32 func_specs;     /* AST_FS_* */
     AstNode *init;      /* initializer, or NULL */
     CgfAttr *cgf_attrs; /* ownership attributes, immutable/source-ordered */
+    /* Implemented GNU attributes, merged from BOTH positions: a prefix
+     * attribute binds to every declarator of the declaration, a suffix one
+     * only to its own. */
+    GnuDeclAttrs gnu;
     /* _Alignas: either an expression (`_Alignas(16)`) or a type-name
      * (`_Alignas(double)`). Only one is set. Constraints are sema's — the
      * parser records what was written. */

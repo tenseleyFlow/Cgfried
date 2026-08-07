@@ -538,6 +538,21 @@ static void emit_inst(Emit *e, const X64Inst *in, u32 bi, u32 next_bb)
 /* --- function emission ------------------------------------------------------
  */
 
+/* GNU symbol attributes, emitted next to the binding directive they modify.
+ *
+ * `.weak` REPLACES `.globl` rather than joining it: gas takes whichever came
+ * last, so emitting both happens to work in one order and silently does not
+ * in the other. Emitting exactly one removes the question.
+ *
+ * Visibility is independent of binding and stacks on top. `default` emits
+ * nothing -- it IS the default, and saying so explicitly only matters
+ * against a -fvisibility= command line, which this compiler does not have. */
+static void emit_symbol_attrs(Buf *out, const char *name, u8 visibility)
+{
+    if (visibility && visibility != GNU_VIS_DEFAULT)
+        buf_printf(out, "\t.%s\t%s\n", gnu_visibility_name(visibility), name);
+}
+
 void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out)
 {
@@ -552,10 +567,19 @@ void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
     e.fidx = fidx;
 
     buf_printf(out, "\t.text\n");
-    if (linkage != IRLINK_INTERNAL)
-        buf_printf(out, "\t.globl\t%s\n", f->name);
-    else
-        buf_printf(out, "\t.local\t%s\n", f->name);
+    /* The GNU attributes live on the IrFunc, not the MIR one: they are
+     * properties of the SYMBOL, and MIR is about instructions. fidx is the
+     * module index the driver already passes alongside the linkage. */
+    {
+        const IrFunc *irf = fidx < m->nfuncs ? &m->funcs[fidx] : NULL;
+        bool weak = irf && irf->is_weak;
+
+        if (linkage != IRLINK_INTERNAL)
+            buf_printf(out, weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n", f->name);
+        else
+            buf_printf(out, "\t.local\t%s\n", f->name);
+        emit_symbol_attrs(out, f->name, irf ? irf->visibility : 0);
+    }
     buf_printf(out, "\t.p2align\t4\n");
     buf_printf(out, "\t.type\t%s, @function\n", f->name);
     buf_printf(out, "%s:\n", f->name);
@@ -679,7 +703,9 @@ void x64_emit_globals(const IrModule *m, Buf *out)
             if (g->linkage == IRLINK_INTERNAL)
                 buf_printf(out, "\t.local\t%s\n", g->name);
             else
-                buf_printf(out, "\t.globl\t%s\n", g->name);
+                buf_printf(out, g->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
+                           g->name);
+            emit_symbol_attrs(out, g->name, g->visibility);
             buf_printf(out, "\t.section\t%s\n",
                        g->is_tls ? ".tbss,\"awT\",@nobits" : ".bss");
             buf_printf(out, "\t.p2align\t%u\n", p2);
@@ -694,7 +720,9 @@ void x64_emit_globals(const IrModule *m, Buf *out)
         if (g->linkage == IRLINK_INTERNAL)
             buf_printf(out, "\t.local\t%s\n", g->name);
         else
-            buf_printf(out, "\t.globl\t%s\n", g->name);
+            buf_printf(out, g->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
+                       g->name);
+        emit_symbol_attrs(out, g->name, g->visibility);
         if (g->is_tls)
             buf_printf(out, "\t.section\t.tdata,\"awT\",@progbits\n");
         else

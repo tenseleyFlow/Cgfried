@@ -525,6 +525,8 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
      * incrementing one a thousand times each printed 1000 where gcc printed
      * 0, with no diagnostic anywhere. See .docs/audits/tls-debt.md. */
     g->is_tls = sym->tls;
+    g->is_weak = sym->gnu.weak;
+    g->visibility = sym->gnu.visibility;
     g->linkage =
         sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
     switch (sym->def_kind) {
@@ -793,6 +795,8 @@ static void lower_function(Lower *lo, AstNode *def)
         lower_clone_cgf_attrs(lo, sym->cgf_attrs, attr_ir_args, nplans);
     if (sym->linkage == LINK_INTERNAL)
         lo->fn->linkage = IRLINK_INTERNAL;
+    lo->fn->is_weak = sym->gnu.weak;
+    lo->fn->visibility = sym->gnu.visibility;
     if (any_annot) {
         lo->fn->param_annots =
             arena_alloc(lo->m->arena, nir_params * sizeof(u64), _Alignof(u64));

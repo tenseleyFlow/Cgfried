@@ -550,6 +550,10 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " unproto");
     if (f->linkage == IRLINK_INTERNAL)
         buf_printf(out, " internal");
+    if (f->is_weak)
+        buf_printf(out, " weak");
+    if (f->visibility)
+        buf_printf(out, " visibility(%s)", gnu_visibility_name(f->visibility));
     if (f->abi_ret >= IR_ABIRET_HFA_F32)
         buf_printf(out, " abi(%s,%u)", ir_abi_ret_name(f->abi_ret),
                    f->abi_ret_n);
@@ -599,6 +603,11 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
             buf_printf(out, " tentative");
         if (g->is_tls)
             buf_printf(out, " tls");
+        if (g->is_weak)
+            buf_printf(out, " weak");
+        if (g->visibility)
+            buf_printf(out, " visibility(%s)",
+                       gnu_visibility_name(g->visibility));
         if (g->init) {
             /* x-prefixed so a digit-leading image lexes as one ident */
             buf_printf(out, " init x");

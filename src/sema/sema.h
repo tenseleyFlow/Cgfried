@@ -180,6 +180,10 @@ struct Symbol {
     u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
     u32 writes; /* assignments after declaration; initializer is not one */
     bool tls;   /* _Thread_local */
+    /* Implemented GNU attributes. Merged across declarations like the
+     * inline matrix is: a plain declaration followed by a `weak` one
+     * says weak, because the two declarations are one symbol. */
+    GnuDeclAttrs gnu;
     bool is_main;
     u32 func_specs; /* AST_FS_*, ORed across declarations */
     /* Inline bookkeeping (6.7.4p7): the decision needs EVERY declaration,

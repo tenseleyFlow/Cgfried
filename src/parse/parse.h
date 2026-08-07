@@ -162,7 +162,7 @@ bool parse_at_unknown_type(Parser *p);
  * consumes one complete __attribute__((...)) construct; check_bans allow
  * concat copies both inputs so prefix attributes can be reused safely by
  * sibling declarators. */
-CgfAttr *parse_cgf_attributes(Parser *p);
+CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu);
 CgfAttr *parse_cgf_attrs_concat(Parser *p, const CgfAttr *a, const CgfAttr *b);
 
 #endif
