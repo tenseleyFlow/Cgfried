@@ -103,7 +103,26 @@ CgfAttr *parse_cgf_attributes(Parser *p)
         } else {
             p->pos++;
             if (!attr_kind(name->spelling, &kind)) {
-                if (strncmp(name->spelling, "cgf_", 4) == 0)
+                /* Two attributes are REFUSED rather than deferred: they
+                 * would create types the rest of the compiler has no axis
+                 * for, so accepting and ignoring either one miscompiles
+                 * silently. docs/gnu-extensions.md carries the rationale;
+                 * this is the code half of that contract. */
+                if (strcmp(name->spelling, "mode") == 0 ||
+                    strcmp(name->spelling, "__mode__") == 0)
+                    parse_error(p, name,
+                                "the 'mode' attribute is not supported: it "
+                                "selects a machine mode independent of the C "
+                                "type, and this compiler has no such axis "
+                                "(docs/gnu-extensions.md)");
+                else if (strcmp(name->spelling, "vector_size") == 0 ||
+                         strcmp(name->spelling, "__vector_size__") == 0)
+                    parse_error(p, name,
+                                "the 'vector_size' attribute is not "
+                                "supported: it would create vector types "
+                                "with no SysV or AAPCS64 parameter contract "
+                                "(docs/gnu-extensions.md)");
+                else if (strncmp(name->spelling, "cgf_", 4) == 0)
                     parse_error(p, name, "unknown cgf_ attribute '%s'",
                                 name->spelling);
                 else

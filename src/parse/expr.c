@@ -203,8 +203,9 @@ static AstNode *parse_primary_expr(Parser *p)
     if (parse_at_punct(p, PUNCT_AMPAMP) &&
         parse_peek_n(p, 1)->kind == TOK_IDENT) {
         parse_error(p, t,
-                    "the GNU address-of-label operator '&&' is not yet "
-                    "supported (lands in Sprint 55)");
+                    "the GNU address-of-label operator '&&' is not "
+                    "supported; computed goto is outside the v0.1.0 scope "
+                    "contract (docs/gnu-extensions.md)");
         p->pos += 2;
         return expr_new(p, AST_ERROR, t->span);
     }

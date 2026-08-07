@@ -1593,6 +1593,21 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
          * typedef, and what makes the following `T x;` an error. */
         parse_scope_declare(p, n->name, (s.storage & AST_SC_TYPEDEF) != 0);
 
+        /* A function type followed by a brace where a definition is NOT
+         * allowed is a NESTED FUNCTION, which gcc implements with an
+         * executable trampoline on the stack. Refused, and named: without
+         * this the declarator simply ran out and reported "expected ';'
+         * after declaration", which tells the reader nothing about why. */
+        if (!allow_func_def && type_is_function(n->type) &&
+            parse_at_punct(p, PUNCT_LBRACE)) {
+            parse_error(p, parse_peek(p),
+                        "nested functions are not supported: gcc implements "
+                        "them with an executable trampoline on the stack, "
+                        "which is outside the v0.1.0 scope contract "
+                        "(docs/gnu-extensions.md)");
+            n->poisoned = true;
+        }
+
         /* A function DEFINITION: `{` (or a K&R declaration list) follows. */
         if (allow_func_def && !first && type_is_function(n->type) &&
             (parse_at_punct(p, PUNCT_LBRACE) || parse_at_decl_specs(p))) {

@@ -280,7 +280,8 @@ static AstNode *parse_goto(Parser *p)
     p->pos++;
     if (parse_at_punct(p, PUNCT_STAR)) {
         parse_error(p, parse_peek(p),
-                    "computed goto is a GNU extension (lands in Sprint 55)");
+                    "computed goto is not supported; it is outside the "
+                    "v0.1.0 scope contract (docs/gnu-extensions.md)");
         while (!parse_at_punct(p, PUNCT_SEMI) && parse_peek(p)->kind != TOK_EOF)
             p->pos++;
         parse_eat_punct(p, PUNCT_SEMI);
@@ -380,21 +381,57 @@ AstNode *parse_stmt(Parser *p)
         }
         case KW_ASM:
         case KW_ALT_ASM:
-        case KW_ALT_ASM2:
-            if (p->lang->safe_mode) {
-                AstNode *n = stmt_new(p, AST_ERROR, t->span);
+        case KW_ALT_ASM2: {
+            AstNode *n = stmt_new(p, AST_ERROR, t->span);
+            u32 k = 1;
 
+            if (p->lang->safe_mode) {
                 parse_error(p, t,
                             "-fsafe rejects inline asm; move the asm into "
                             "a non-safe TU and call it");
-                while (!parse_at_punct(p, PUNCT_SEMI) &&
-                       parse_peek(p)->kind != TOK_EOF)
-                    p->pos++;
-                parse_eat_punct(p, PUNCT_SEMI);
-                n->poisoned = true;
-                return n;
+            } else {
+                /* Qualifiers may precede the parenthesis in any order and
+                 * any number; `goto` is the one that changes the CONSTRUCT
+                 * rather than decorating it. */
+                while (parse_peek_n(p, k)->kind == TOK_KEYWORD &&
+                       (parse_peek_n(p, k)->kw == KW_VOLATILE ||
+                        parse_peek_n(p, k)->kw == KW_ALT_VOLATILE ||
+                        parse_peek_n(p, k)->kw == KW_INLINE ||
+                        parse_peek_n(p, k)->kw == KW_ALT_INLINE ||
+                        parse_peek_n(p, k)->kw == KW_ALT_INLINE2))
+                    k++;
+                if (parse_peek_n(p, k)->kind == TOK_KEYWORD &&
+                    parse_peek_n(p, k)->kw == KW_GOTO)
+                    parse_error(p, t,
+                                "'asm goto' is not supported; jumping out of "
+                                "an asm block needs control-flow edges the IR "
+                                "verifier could only trust rather than check "
+                                "(docs/gnu-extensions.md)");
+                else
+                    parse_error(p, t,
+                                "inline asm is not yet supported (lands in "
+                                "Sprint 55)");
             }
-            break;
+            /* Recover past the whole construct either way: the template is
+             * a string and the operand lists are parenthesized, so scanning
+             * to the semicolon at depth 0 is enough and always advances. */
+            {
+                int depth = 0;
+
+                while (parse_peek(p)->kind != TOK_EOF) {
+                    if (parse_at_punct(p, PUNCT_LPAREN))
+                        depth++;
+                    else if (parse_at_punct(p, PUNCT_RPAREN))
+                        depth--;
+                    else if (depth == 0 && parse_at_punct(p, PUNCT_SEMI))
+                        break;
+                    p->pos++;
+                }
+                parse_eat_punct(p, PUNCT_SEMI);
+            }
+            n->poisoned = true;
+            return n;
+        }
         default:
             break;
         }
