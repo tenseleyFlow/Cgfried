@@ -47,13 +47,47 @@ predefine.
 |---|---|---|
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
+| `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
 
-Both are verified against the ELF symbol table rather than the emitted
-directive: `readelf -sW` agrees with gcc on binding and visibility for every
+The two symbol-property rows are verified against the ELF symbol table rather
+than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
 symbol, on x86_64 AND arm64, and `weak`'s fixture links a strong definition
 over the weak one so the linker's choice — not the directive — is what
 passes. A compiler can emit `.weak` and still get the binding wrong; only the
 symbol table says otherwise.
+
+`packed` is proved differently, because layout is not a symbol property. Its
+numbers were measured off gcc BEFORE any code was written
+(`.docs/audits/packed-layout.md`), the generated layout differential now emits
+packed structs and packed members so 2,000 random records per run are compared
+against gcc, and a corpus program executes misaligned reads and writes on both
+targets at every optimization level.
+
+Three things about `packed` are worth stating because each is a way to get it
+wrong while looking right:
+
+- **It drops the RECORD's alignment as well as its members'.** Force the member
+  offsets alone and every offset a reader checks is correct while `sizeof`
+  keeps its tail padding. Injecting exactly that bug drops the layout
+  differential from 400/400 to 277/400, and it fails on `_Alignof`, not on an
+  offset.
+- **Position decides what it binds to.** A trailing attribute packs the record,
+  and so does one between the keyword and the tag -- but a LEADING one, before
+  the keyword, gcc silently ignores. Reading all three the same way packs types
+  nobody asked to pack.
+- **On x86-64 it changes how the struct is PASSED.** The psABI puts an
+  aggregate with unaligned fields in MEMORY however small it is, and the test
+  is the field OFFSET rather than the record's alignment: `struct { int b; }
+  packed` is 1-aligned, has every field at its natural offset, and gcc passes
+  it in a register. Mixed links against gcc agree in both directions on
+  x86_64 and arm64-linux.
+
+Packed BIT-FIELDS are rule 5 of that audit and are NOT implemented; a bit-field
+in a packed struct is a hard error naming the gap, because half of packed
+applied silently is the failure mode this document exists to prevent. An
+`_Atomic` member of a packed struct is refused for good: arm64's exclusive
+instructions require natural alignment, and an atomic that quietly is not one
+is worse than a diagnostic.
 
 ## Parsed and ignored
 
@@ -88,8 +122,7 @@ incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
 `alias`, `aligned`, `cleanup`, `constructor`, `destructor`, `gnu_inline`,
-`may_alias`, `packed`, `returns_twice`, `section`, `transparent_union`,
-`used`, `visibility`, `weak`.
+`may_alias`, `returns_twice`, `section`, `transparent_union`, `used`.
 
 Three of those sit here against this sprint's original tiering, because the
 ignore-safety question overruled it:

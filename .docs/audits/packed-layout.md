@@ -55,6 +55,58 @@ hard error until rule 5 lands**. Implementing half of packed silently would
 give a bitfield-bearing packed struct the wrong layout with no diagnostic,
 which is the failure mode the whole tier table exists to prevent.
 
+## What landed, and what did not
+
+Rules 1-4 are implemented and rule 5 is not. A bit-field in a packed struct is
+a HARD ERROR naming the gap, so the half that is missing cannot be applied
+silently. An `_Atomic` member of a packed struct is refused permanently rather
+than pending: arm64's exclusive instructions require natural alignment, and an
+atomic that quietly is not one is worse than a diagnostic.
+
+Beyond the layout rules, two things had to change that this file did not
+anticipate:
+
+**The SysV classifier.** The psABI puts an aggregate that "contains unaligned
+fields" in MEMORY however small it is, and nothing implemented that clause
+because nothing could reach it before packed. gcc confirms the rule AND its
+boundary: `struct { char a; float x; float y; } packed` goes to the stack,
+while `struct { int b; } packed` -- alignment 1, every field still at its
+natural offset -- travels in an ordinary integer register. So the test is the
+field OFFSET, not the record's alignment. AAPCS64 needs no equivalent: its
+placement is size-based, and aarch64-gcc still passes a packed two-float struct
+as an HFA in `s0`/`s1`.
+
+**The alignment a member access CLAIMS.** `lv_of` takes it from the type, so a
+packed `int` at offset 1 was claiming 4. The IR verifier calls under-alignment
+honest and over-alignment an error, so lowering now clamps to 1 for a packed
+member and for any member of a packed record.
+
+### Ledgered limit: PACKED-001
+
+The clamp is per-access, so it does not follow a chain: in `p.in.x`, where `in`
+is a NAMED struct member of a packed record, the access to `x` is typed against
+`struct Inner` -- which is not packed -- and still claims the natural
+alignment. The offset is correct; only the claim is optimistic.
+
+Nothing consumes an over-claimed load alignment today, which is why this is a
+ledger entry rather than a bug: x86 emits `movdqu` for every vector move, and
+the arm64 backend reads the alignment field only for `alloca`. The real fix is
+to thread an lvalue's alignment through the member chain, and it should land
+with whatever first needs alignment-directed instruction selection.
+
+### The trap that makes hosted fixtures useless
+
+glibc's `<sys/cdefs.h>` does `#define __attribute__(xyz)` when `__GNUC__` is
+undefined, and `__GNUC__` stays undefined until the END of Sprint 55. A fixture
+that includes any system header therefore has its attributes deleted by the
+preprocessor and passes no matter what layout does. The first draft of this
+work "disagreed with gcc on every row" for exactly that reason, and every
+packed fixture is freestanding because of it.
+
+The same fact is a warning about the reverse direction: the day `__GNUC__` is
+defined, glibc stops neutralizing and every attribute in every system header
+becomes live at once.
+
 ## Verifying it
 
 `scripts/layout_diff.sh` is the oracle and needs no new machinery: it emits
@@ -66,3 +118,16 @@ The one thing the generator must NOT do until rule 5 lands is emit a packed
 struct containing a bitfield — it would hit the hard error rather than
 produce a disagreement, which reads as a lane failure rather than as the
 honest refusal it is.
+
+That is now done: a generated record is packed one time in three and any
+member may carry its own `packed`, with bit-fields suppressed in a packed
+record. 2,000 records across five seeds agree with gcc, and 189 of every 400
+generated files contain a `packed` — checked, because a differential that
+generates none of the construct it was extended for is the vacuous pass this
+project keeps re-finding.
+
+The gate was then MUTATED before being trusted: forcing the member offsets
+while letting the record keep its alignment — precisely the trap named in rule
+2 — drops the lane from 400/400 to 277/400, and it fails on `_Alignof` rather
+than on any offset. That is the whole reason the fixtures assert alignment and
+`sizeof` and not just offsets.
