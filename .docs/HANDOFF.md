@@ -644,7 +644,20 @@ reordering in the sprint index when you do it.
 
 ## 1b-2. Process traps from the Sprint 50/51 sessions
 
-**THE ASSEMBLER ROUTING TRAP — it has now bitten three times.** cgf's default
+**READ THE CI LOG BEFORE BLAMING THE INFRASTRUCTURE.** Four consecutive
+runs (`c26dc62`, `07f18cc`, `dcc27d0`, `4d55d69`) were recorded here as "the
+Actions outage created no runs". Runs WERE created and WERE failing, on a
+bug of ours, for days. `gh run view <id> --log` returns nothing in this
+environment; use:
+
+```sh
+gh run view <id> --json jobs --jq '.jobs[] | select(.conclusion!="success") | .name'
+gh api repos/tenseleyFlow/Cgfried/actions/jobs/<job-id>/logs --allow-escape-sequences
+```
+
+**THE ASSEMBLER ROUTING TRAP — it has now bitten FOUR times**, the last one
+being those four red runs: `scripts/musl_cross_lane.sh` invoked `cgf`
+directly and never routed its own assembler. cgf's default
 assembler is the BUNDLED afs-as. Any lane that invokes `cgf` directly must
 say `CGF_AS=0` (host target) or `CGF_AS_PATH=<cross as>` (cross target) when
 afs-as is not built — and a Rust-free CI job never builds one.
