@@ -615,30 +615,69 @@ grep -rn 'lands\? in Sprint [0-9]*' src/      # then check ci/closed_sprints.txt
 sh scripts/check_deferrals.sh
 ```
 
-### STEP 3 — close Sprint 51: D7, which means arm64 DWARF first
+### STEPS 3 and 4 — DONE. **SPRINT 51 IS CLOSED**, all seven deliverables.
 
-D7 wants cross-target `addr2line` agreement vs gcc on sampled PCs. It is NOT
-a harness task:
+`246fe90`, `7977dca`, `ec32b34`, `6a28c43`, plus `359e9d9` for ABI-004.
 
-- `-g` on arm64-linux is still a hard error ("`-g on arm64-linux lands in
-  Sprint 51`", `src/driver/driver.c`);
-- `src/cg/x86_64/debug.c` (453 lines) hand-encodes an FDE program **against
-  the always-rbp x86 prologue** — it literally matches `push %rbp` /
-  `mov %rsp,%rbp` by opcode and ICEs otherwise.
+**ci/closed_sprints.txt is now 51.** Raising it is the ratchet working:
+it FORCES an audit of anything still naming 51, and the only such deferral
+was the `-g` gate, which the DWARF work removed. Nothing needed renumbering.
 
-The line-table encoder is largely target-neutral (it consumes MIR source
-locations); the CFI half is not — arm64 opens with `stp x29,x30` pre-indexed,
-so the FDE program and its prologue recognizer both need an arm64 path.
-Task #105 carries this.
+**D7 (arm64 DWARF).** The seam was smaller than this file predicted --
+`A64Inst` already carried `loc` -- so `src/cg/debug.{c,h}` takes an ordered
+`CgDebugRow` sequence and both backends feed it. Proven inert on landing:
+15 assembly outputs with `-g`/`-g3`/`-O2 -g` byte-identical to the previous
+compiler, plus the 81-check x86 lane.
 
-### STEP 4 — Sprint 55, deliberately OUT of numerical order
+**CFI genuinely did not share, and the reason is worth keeping.** x86's FDE
+is sixteen FIXED bytes because the prologue always moves the CFA by 16.
+AArch64 allocates the whole frame in its first instruction, so the FDE
+carries the frame size and no two functions share a program -- which is why
+`frame_emit_prologue` records its own shape rather than the encoder
+re-deriving which branch ran. Three CIE fields differ from x86 and EACH
+would corrupt an unwind silently if copied: code alignment 4 (not 1),
+return-address register x30 (not the synthetic 16), initial CFA naming SP as
+register 31. `scripts/a64_debug_lane.sh` checks all three, verified by
+mutation.
 
-This is the dedicated deferral campaign. **18 deferrals point at Sprint 55**,
-and it is the blocker for hosted compilation on macOS AND FreeBSD (2 of 5
-targets, task #100) plus the musl campaign. Taking 52-54 (compile speed,
-codegen quality, perf gates) first would mean optimizing a compiler that
-cannot yet build the programs it is meant to be measured on. Record the
-reordering in the sprint index when you do it.
+That lane reuses `tests/debug/dwarf_lines.c`, the x86 lane's fixture,
+deliberately: a line table is a claim about SOURCE, so both targets must
+resolve the same markers to the same lines. That IS D7's cross-target
+agreement, and reusing the fixture made it free. Cross tools only -- nothing
+runs -- so it lives in `make test` on an x86 host.
+
+**ABI-004 closed at 315/315** with clang on nomad-1, from 24/304
+disagreeing. Read the ledger entry: it was WRONG TWICE and both corrections
+came from measuring clang, not from reading the note. See
+`.docs/audits/abi-debt.md`.
+
+**A cheaper future**, recorded because it changes a plan already written
+down: `src/cg/debug.c` is now the ONE line-table and CU-DIE emitter for
+every target, so DBG-001..004 (the variable DIEs behind the linker
+diagnostic in task #93) get written ONCE rather than per backend.
+`.docs/audits/debug-info-debt.md` has been corrected to say so.
+
+### NEXT — Sprint 55, deliberately OUT of numerical order
+
+This is the dedicated deferral campaign and the agreed next step. **28
+deferrals point at it** -- by far the largest cluster -- and it is the
+blocker for HOSTED compilation on macOS AND FreeBSD (2 of 5 targets, task
+#100) plus the musl campaign in Sprint 57.
+
+Taking 52-54 (compile speed, codegen quality, perf gates) first would mean
+benchmarking a compiler that cannot yet build the programs it is meant to be
+measured on. Record the reordering in the sprint index when you start.
+
+The argument is not only deferral count. Four of the seven defects this
+session came from GATES rather than planned work -- the musl lane, the IR
+verifier, the fuzzer, and reading a CI log. Sprints 56 (torture) and 57
+(compile-the-world) are the ones that attack that blind spot systematically,
+and 55 is their prerequisite. So 55 first is the unlock for the sprints most
+likely to find what we cannot currently see.
+
+Open and NOT blocking 55: #93 (variable DIEs, now cheaper), #102 (afs-as
+@GOTPCREL/@PLT), #108 (a void expression is accepted where a scalar
+condition is required -- a missing diagnostic, not a crash).
 
 ---
 
