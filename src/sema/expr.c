@@ -1000,6 +1000,18 @@ static AstNode *expr_call(Sema *s, AstNode *e)
         AstNode *arg = conv_decay(s, expr(s, e->args[i]));
 
         e->args[i] = arg;
+        /* An argument is a VALUE, and void has none. The prototyped path
+         * below catches this as an assignment mismatch, but an unprototyped
+         * or variadic call has nothing to assign to -- `r(f())` where f
+         * returns void reached lowering and ICEd on "lower_irtype on
+         * non-scalar type kind 0". Found by the frontend fuzzer, seed 27852.
+         * gcc's wording. */
+        if (!quiet(arg, NULL) && arg->sem_type &&
+            arg->sem_type->kind == TY_VOID) {
+            err(s, arg->span, "invalid use of void expression");
+            e->args[i] = poison(s, arg);
+            continue;
+        }
         if (ft->has_proto && i < ft->nparams) {
             AssignCtx ctx;
 
