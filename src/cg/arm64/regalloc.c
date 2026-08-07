@@ -36,8 +36,14 @@
  *   x29      frame pointer, reserved (no -fomit-frame-pointer in v0.1.0).
  *   x30      link register, clobbered by every bl; the prologue saves it.
  *   SP       never allocatable.
- *   v0-v28   allocatable; v8-v15 are callee-saved but ONLY their low 64 bits.
- *   v29-v31  RESERVED as FP reload scratches (FCSEL is def + two sources).
+ *   v0-v27   allocatable; v8-v15 are callee-saved but ONLY their low 64 bits.
+ *   v28-v31  RESERVED as FP reload scratches. FOUR, not three, for the same
+ *            reason the GP side has four: FMADD/FMSUB are a destination plus
+ *            THREE register sources, so one instruction can need three
+ *            reloads and a spilled-def home at once. The pool was sized 3 for
+ *            FCSEL (def + two sources) and stayed there when fp-contract
+ *            started forming FMAs, so `a * b + c` at -Ofast under
+ *            CGF_SPILL_ALL=1 ran the pool dry and ICEd.
  *
  * The d8-d15 rule: AAPCS64 obliges the callee to preserve d8-d15, i.e. bits
  * 0-63 of v8-v15. The upper halves are caller-saved. So (a) the prologue
@@ -48,11 +54,12 @@
  * values inherit it rather than rediscovering it. */
 
 #define A64_NGP_SCRATCH 4
-#define A64_NFP_SCRATCH 3
+#define A64_NFP_SCRATCH 4
 
 static const u8 gp_scratch[A64_NGP_SCRATCH] = {A64_X16, A64_X17, A64_X15,
                                                A64_X14};
-static const u8 fp_scratch[A64_NFP_SCRATCH] = {A64_V31, A64_V30, A64_V29};
+static const u8 fp_scratch[A64_NFP_SCRATCH] = {A64_V31, A64_V30, A64_V29,
+                                               A64_V28};
 
 /* Caller-saved first: they are free in a leaf range, and a call-crossing
  * interval is steered to the callee-saved tail by reg_usable anyway. */
@@ -70,10 +77,10 @@ static const u8 gp_order[] = {
 #define A64_NGP ((u32)(sizeof(gp_order) / sizeof(gp_order[0])))
 
 static const u8 fp_order[] = {
-    A64_V0,  A64_V1,  A64_V2,  A64_V3,  A64_V4,  A64_V5,  A64_V6,  A64_V7,
-    A64_V16, A64_V17, A64_V18, A64_V19, A64_V20, A64_V21, A64_V22, A64_V23,
-    A64_V24, A64_V25, A64_V26, A64_V27, A64_V28, A64_V8,  A64_V9,  A64_V10,
-    A64_V11, A64_V12, A64_V13, A64_V14, A64_V15,
+    A64_V0,  A64_V1,  A64_V2,  A64_V3,  A64_V4,  A64_V5,  A64_V6,
+    A64_V7,  A64_V16, A64_V17, A64_V18, A64_V19, A64_V20, A64_V21,
+    A64_V22, A64_V23, A64_V24, A64_V25, A64_V26, A64_V27, A64_V8,
+    A64_V9,  A64_V10, A64_V11, A64_V12, A64_V13, A64_V14, A64_V15,
 };
 #define A64_NFP ((u32)(sizeof(fp_order) / sizeof(fp_order[0])))
 
