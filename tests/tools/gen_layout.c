@@ -68,22 +68,43 @@ static const char *const bf_types[] = {
     "int",  "unsigned int",  "long",  "unsigned long"};
 static const u32 bf_bits[] = {8, 8, 16, 16, 32, 32, 64, 64};
 
-static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth)
+/* The one place this file spells the attribute: it is generated C TEXT rather
+ * than a declaration of our own, which is what the ban is about. */
+static const char PACKED_SPELLING[] =
+    " __attribute__((__packed__))"; /* check_bans allow */
+
+/* Member-level `packed` -- rule 4: the same rule applied to one member. It is
+ * spelled with the underscored form because that is what real headers use. */
+static const char *member_packed(Prng *rng)
+{
+    return prng_below(rng, 8) == 0 ? PACKED_SPELLING : "";
+}
+
+/* `no_bitfields` is set for a PACKED record. Rule 5 of
+ * .docs/audits/packed-layout.md -- packed bitfields allocate with no
+ * storage-unit alignment -- is not implemented, and the compiler refuses that
+ * combination by name, so generating one would read as a lane failure rather
+ * than as the honest refusal it is. */
+static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth,
+                        bool no_bitfields)
 {
     u32 pick = prng_below(rng, 100);
 
+    if (no_bitfields && pick >= 60 && pick < 90)
+        pick = prng_below(rng, 60);
     if (pick < 45) {
         /* A plain scalar. */
         const char *ty =
             scalars[prng_below(rng, (u32)(sizeof(scalars) / sizeof(*scalars)))];
 
-        buf_printf(b, "  %s m%u;\n", ty, idx);
+        buf_printf(b, "  %s m%u%s;\n", ty, idx, member_packed(rng));
     } else if (pick < 60) {
         /* An array — the stride check rides on these. */
         const char *ty =
             scalars[prng_below(rng, (u32)(sizeof(scalars) / sizeof(*scalars)))];
 
-        buf_printf(b, "  %s m%u[%u];\n", ty, idx, 1 + prng_below(rng, 4));
+        buf_printf(b, "  %s m%u[%u]%s;\n", ty, idx, 1 + prng_below(rng, 4),
+                   member_packed(rng));
     } else if (pick < 90) {
         /* A bitfield, occasionally unnamed or zero-width — the two forms
          * with their own rules (no alignment contribution, and forcing
@@ -110,7 +131,7 @@ static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth)
         buf_printf(b, "  struct {\n");
         for (k = 0; k < n; k++) {
             buf_printf(b, "  ");
-            emit_member(rng, b, idx * 10 + k, depth + 1);
+            emit_member(rng, b, idx * 10 + k, depth + 1, no_bitfields);
         }
         /* A nested aggregate needs a named member for the same reason the
          * outer one does. */
@@ -150,6 +171,7 @@ int main(int argc, char **argv)
         u32 nmembers;
         u32 k;
         bool is_union;
+        bool packed;
 
         rng.s = seed0 + f;
         if (rng.s == 0)
@@ -161,16 +183,17 @@ int main(int argc, char **argv)
                    (unsigned long long)(seed0 + f));
         is_union = prng_below(&rng, 5) == 0;
         nmembers = 1 + prng_below(&rng, 5);
+        packed = prng_below(&rng, 3) == 0;
         buf_printf(&b, "%s S {\n", is_union ? "union" : "struct");
         for (k = 0; k < nmembers; k++)
-            emit_member(&rng, &b, k, 0);
+            emit_member(&rng, &b, k, 0, packed);
         /* At least one NAMED member, always: a struct made only of
          * unnamed bitfields is the GNU no-named-member extension (gcc
          * gives it size 0), not valid ISO C, and this differential is
          * about agreeing on VALID layouts. The extension has its own
          * fixture. */
         buf_printf(&b, "  int last_named;\n");
-        buf_printf(&b, "};\n");
+        buf_printf(&b, "} %s;\n", packed ? PACKED_SPELLING : "");
 
         snprintf(path, sizeof(path), "%s/s%05llu.c", outdir,
                  (unsigned long long)f);

@@ -53,6 +53,13 @@ typedef enum {
 typedef struct GnuDeclAttrs {
     bool weak;
     u8 visibility; /* GnuVisibility */
+    /* `packed` on a MEMBER declaration. The record-level spelling never
+     * reaches here: the parser hands it straight to the record it follows,
+     * because only the parser can tell a trailing attribute (which packs the
+     * record) from a leading one (which gcc ignores). Anything still carrying
+     * `packed` when a declaration is finished is therefore misplaced, and the
+     * declaration path warns rather than silently dropping it. */
+    bool packed;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

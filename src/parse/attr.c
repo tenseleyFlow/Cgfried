@@ -8,6 +8,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     if (!src)
         return;
     dst->weak |= src->weak;
+    dst->packed |= src->packed;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)
@@ -106,7 +107,7 @@ static void skip_parens(Parser *p)
 
 /* The GNU attribute classification, from src/parse/gnu_attrs.def. See that
  * file for the one question that decides every row. */
-typedef enum { GA_IGNORE, GA_UNSAFE, GA_UNKNOWN } GnuAttrClass;
+typedef enum { GA_IMPLEMENTED, GA_IGNORE, GA_UNSAFE, GA_UNKNOWN } GnuAttrClass;
 
 /* `packed` and `__packed__` are one attribute. Headers use the underscored
  * spelling precisely so a macro named `packed` cannot capture it, so every
@@ -241,14 +242,28 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                 else if (strncmp(name->spelling, "cgf_", 4) == 0)
                     parse_error(p, name, "unknown cgf_ attribute '%s'",
                                 name->spelling);
-                else if (gnu && gnu_attr_is(name->spelling, "weak")) {
-                    gnu->weak = true;
-                    valid = false;
-                } else if (gnu && gnu_attr_is(name->spelling, "visibility")) {
-                    parse_visibility(p, name, gnu);
-                    valid = false;
-                } else {
+                else {
                     switch (gnu_attr_class(name->spelling)) {
+                    case GA_IMPLEMENTED:
+                        /* `gnu` is NULL wherever the caller has nowhere to
+                         * put a symbol property -- a parameter, say. gcc
+                         * warns there rather than erroring, so fall through
+                         * to the ignored path and say so. */
+                        if (gnu && gnu_attr_is(name->spelling, "weak")) {
+                            gnu->weak = true;
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "visibility")) {
+                            parse_visibility(p, name, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "packed")) {
+                            gnu->packed = true;
+                            break;
+                        }
+                        warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,
+                                "'%s' attribute ignored", name->spelling);
+                        break;
                     case GA_IGNORE:
                     case GA_UNKNOWN:
                         /* gcc's own behaviour and its own flag: accept, and

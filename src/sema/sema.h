@@ -71,6 +71,10 @@ struct Member {
     u32 bit_width;
     u64 container_size;
     u64 align_override; /* _Alignas on the member, 0 = none */
+    /* `packed`, from the member's own attribute OR from the record's. Layout
+     * reads exactly this field, so member-level and record-level packing are
+     * the same rule applied to a different set of members. */
+    bool packed;
     bool laid_out;
 
     Member *next;
@@ -101,6 +105,11 @@ struct TagDecl {
                               later member walk recurses forever (found by
                               the fuzzer, seed 1773) */
     u64 align_override;    /* _Alignas on the record, 0 = none */
+    bool packed;           /* the record carries `packed`: every member is
+                              placed at alignment 1 and the record's own
+                              alignment drops to 1 with it -- forgetting the
+                              second half gives right offsets and wrong
+                              sizeof (.docs/audits/packed-layout.md) */
     Span span;
     Type *type; /* the one Type node that names this tag */
 };

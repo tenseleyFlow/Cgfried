@@ -203,6 +203,12 @@ struct AstNode {
     /* AST_RECORD_DECL / AST_ENUM_DECL */
     bool is_union;
     bool is_definition;
+    /* `packed` bound to THIS record definition. Only the parser can decide
+     * that: gcc packs a record for a trailing attribute (`struct S {...}
+     * __attr__((packed));`) and for one between the keyword and the tag, but
+     * silently ignores a LEADING one, and by the time sema sees a GnuDeclAttrs
+     * the three positions are indistinguishable. */
+    bool packed;
     const char *tag;   /* NULL when anonymous */
     AstNode **members; /* AST_DECL / AST_STATIC_ASSERT / nested records */
     u32 nmembers;

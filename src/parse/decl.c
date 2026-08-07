@@ -515,11 +515,25 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 s->other_base = ABT_VA_LIST;
                 goto consumed;
             case KW_ATTRIBUTE:
-            case KW_ATTRIBUTE2:
+            case KW_ATTRIBUTE2: {
+                /* `packed` is collected into a fresh set rather than straight
+                 * into s->gnu, because WHERE it appeared decides what it packs
+                 * and this is the only place that still knows. Following a
+                 * record DEFINITION it packs that record; anywhere else it
+                 * stays on the declaration, where a member claims it and every
+                 * other declaration warns that it was ignored. */
+                GnuDeclAttrs here = {0};
+
                 s->cgf_attrs = parse_cgf_attrs_concat(
-                    p, s->cgf_attrs, parse_cgf_attributes(p, &s->gnu));
+                    p, s->cgf_attrs, parse_cgf_attributes(p, &here));
+                if (here.packed && s->record && s->record->is_definition) {
+                    s->record->packed = true;
+                    here.packed = false;
+                }
+                gnu_attrs_merge(&s->gnu, &here);
                 s->saw_any = true;
                 continue;
+            }
             case KW_ALIGNAS: {
                 /* `_Alignas(N)` or `_Alignas(type-name)`. It is an
                  * alignment SPECIFIER, so it may appear anywhere in the
@@ -797,13 +811,18 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         prm.cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2)) {
             /* A scratch sink: an implemented attribute on a PARAMETER has
-             * nowhere to go (sema rejects them), and letting it reach the
-             * specifier soup would leak one parameter's `weak` onto the
-             * whole declaration. */
+             * nowhere to go, and letting it reach the specifier soup would
+             * leak one parameter's `weak` onto the whole declaration. It is
+             * still SAID rather than dropped -- gcc warns here, and a silent
+             * drop is the failure mode the tier table exists to prevent. */
             GnuDeclAttrs param_gnu = {0};
+            const Token *at = parse_peek(p);
 
             prm.cgf_attrs = parse_cgf_attrs_concat(
                 p, prm.cgf_attrs, parse_cgf_attributes(p, &param_gnu));
+            if (param_gnu.packed || param_gnu.weak || param_gnu.visibility)
+                warn_at(p->lang->warnings, WARN_ATTRIBUTES, at->span,
+                        "attribute ignored on a function parameter");
         }
         if (prm.name)
             parse_scope_declare(p, prm.name, false);
@@ -1012,6 +1031,16 @@ static AstNode *parse_record_specifier(Parser *p, bool is_union)
     NodeVec members = {NULL, 0, 0};
 
     rec->is_union = is_union;
+    /* `struct __attr__((packed)) S { ... };` -- the attribute sits between the
+     * keyword and the tag and binds to the record. Measured against gcc, as
+     * is the negative: a LEADING attribute, before the keyword, is ignored. */
+    while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2)) {
+        GnuDeclAttrs inner = {0};
+
+        parse_cgf_attributes(p, &inner);
+        if (inner.packed)
+            rec->packed = true;
+    }
     if (parse_peek(p)->kind == TOK_IDENT ||
         (parse_peek(p)->kind == TOK_KEYWORD &&
          !parse_at_punct(p, PUNCT_LBRACE) && false)) {

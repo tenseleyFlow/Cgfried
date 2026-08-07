@@ -12,11 +12,14 @@ LC_ALL=C
 export LC_ALL
 
 # These bans govern OUR OWN source. Exempt: imported third-party corpora
-# (tests/fixtures/) and the corpus fixtures under tests/programs/ — those
-# are C programs we COMPILE, so of course they may contain the constructs
-# we refuse to write ourselves.
+# (tests/fixtures/) and the fixtures under tests/programs/ and tests/corpus/ —
+# those are C programs we COMPILE, so of course they may contain the
+# constructs we refuse to write ourselves. tests/corpus/ was missing from this
+# list until the first packed program landed there; the rule always covered
+# it, the pattern just did not.
 files=$(find src tests \( -name '*.c' -o -name '*.h' \) \
-    ! -path 'tests/fixtures/*' ! -path 'tests/programs/*' | sort)
+    ! -path 'tests/fixtures/*' ! -path 'tests/programs/*' \
+    ! -path 'tests/corpus/*' | sort)
 status=0
 
 hits=$(printf '%s\n' "$files" |

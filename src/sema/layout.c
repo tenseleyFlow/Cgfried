@@ -132,6 +132,14 @@ static void layout_struct(Sema *s, TagDecl *tag)
         }
         ml = layout_of(s, m->type);
         malign = ml.align;
+        /* `packed` drops the member's alignment to 1. The record's own
+         * alignment then falls out of the same loop, because `align` only
+         * ever rises to a member's requirement -- which is the half that is
+         * easy to miss: force the offsets alone and the offsets are right
+         * while sizeof keeps its tail padding. Measured against gcc in
+         * .docs/audits/packed-layout.md. */
+        if (m->packed)
+            malign = 1;
         /* _Alignas on a member raises BOTH its own placement and the
          * record's alignment (6.7.5): the record must be aligned strictly
          * enough that every member lands where it asked to. */
@@ -217,6 +225,11 @@ static void layout_union(Sema *s, TagDecl *tag)
             continue;
         ml = layout_of(s, m->type);
         m->container_size = ml.size;
+        /* A packed UNION keeps every member's SIZE -- they all start at 0, so
+         * nothing can be misplaced -- and loses only its alignment. gcc:
+         * `union { char a; double d; } packed` is 8 bytes, aligned 1. */
+        if (m->packed)
+            ml.align = 1;
         if (m->is_bitfield) {
             /* Every union member starts at bit 0. A ZERO-WIDTH bitfield
              * occupies no storage at all — it exists only to force the
@@ -399,6 +412,60 @@ static void classify_into(Sema *s, Type *t, u64 off, AbiClass cls[2],
         cls[idx + 1] = merge(cls[idx + 1], cls[idx]);
 }
 
+/* psABI 3.2.3 rule 1, the clause packed makes reachable: an aggregate that
+ * "contains unaligned fields" is MEMORY regardless of size. Verified against
+ * gcc, including the NEGATIVE -- `struct { int b; } packed` has alignment 1
+ * yet every field sits at its natural offset, and gcc passes it in a register.
+ * So the test is the OFFSET, not the record's alignment.
+ *
+ * `off` accumulates through nesting, which is what catches a packed struct
+ * embedded at an odd offset in an ordinary one. */
+static bool has_unaligned_field(Sema *s, Type *t, u64 off)
+{
+    if (!t || !layout_is_complete_for_size(t))
+        return false;
+    switch (t->kind) {
+    case TY_STRUCT:
+    case TY_UNION: {
+        Member *m;
+
+        if (!t->tag || !t->tag->complete)
+            return false;
+        layout_record(s, t);
+        for (m = t->tag->members; m; m = m->next) {
+            u64 moff;
+
+            if (!m->type || !layout_is_complete_for_size(m->type))
+                continue;
+            moff = off + m->offset;
+            /* A bitfield's byte offset says nothing about alignment; its
+             * container is the record's business, not the classifier's. */
+            if (!m->is_bitfield) {
+                TypeLayout ml = layout_of(s, m->type);
+
+                if (ml.align && moff % ml.align != 0)
+                    return true;
+            }
+            if (has_unaligned_field(s, m->type, moff))
+                return true;
+        }
+        return false;
+    }
+    case TY_ARRAY: {
+        TypeLayout el = layout_of(s, t->base);
+
+        /* Elements are naturally spaced, so checking the FIRST checks all:
+         * if element 0 is aligned every later one is, and if it is not,
+         * element 0 already proved the aggregate unaligned. */
+        if (el.align && off % el.align != 0)
+            return true;
+        return t->size ? has_unaligned_field(s, t->base, off) : false;
+    }
+    default:
+        return false;
+    }
+}
+
 int layout_classify_sysv(Sema *s, Type *t, AbiClass out[2])
 {
     TypeLayout tl;
@@ -413,6 +480,8 @@ int layout_classify_sysv(Sema *s, Type *t, AbiClass out[2])
      * psABI's SSE/SSEUP exception is only reachable through __m256 and
      * __m512, which are outside our surface. */
     if (tl.size > 16)
+        return -1;
+    if (has_unaligned_field(s, t, 0))
         return -1;
     n = tl.size > 8 ? 2 : 1;
 

@@ -278,6 +278,9 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     u32 i;
 
     tag->defining = true;
+    /* Set BEFORE the member walk: add_member consults it, so that a record's
+     * own `packed` and a member's are one rule with one implementation. */
+    tag->packed = rec->packed;
 
     for (i = 0; i < rec->nmembers; i++) {
         const AstNode *m = rec->members[i];
@@ -477,6 +480,32 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         }
         mem->span = m->span;
         mem->align_override = member_align;
+        mem->packed = tag->packed || m->gnu.packed;
+        if (mem->packed) {
+            /* Rule 5 of .docs/audits/packed-layout.md -- packed bitfields
+             * allocate bit-contiguously with no storage-unit alignment -- is
+             * NOT implemented, and half of packed applied silently is the one
+             * failure mode the whole tier table exists to prevent. */
+            if (mem->is_bitfield) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "a bit-field in a packed struct is not yet "
+                          "supported: packed bit-fields allocate without "
+                          "storage-unit alignment, which this compiler does "
+                          "not implement yet (docs/gnu-extensions.md)");
+            }
+            /* Ordinary unaligned loads and stores are fine on both targets;
+             * the exclusive instructions that implement _Atomic on arm64 are
+             * not. An atomic that silently is not one is worse than an
+             * error. */
+            if (mt && (mt->quals & CGF_QUAL_ATOMIC)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "an _Atomic member of a packed struct is not "
+                          "supported: the atomic instructions require natural "
+                          "alignment (docs/gnu-extensions.md)");
+            }
+        }
         if (*last)
             (*last)->next = mem;
         else
@@ -1734,6 +1763,14 @@ static void declare_one(Sema *s, AstNode *d)
      * one musl's weak_alias pattern depends on -- the attribute and the
      * definition are routinely in different places. */
     gnu_attrs_merge(&sym->gnu, &d->gnu);
+    if (sym->gnu.packed) {
+        /* Reaching an ORDINARY declaration means the attribute named neither
+         * a record definition nor a member, so there is nothing to pack.
+         * gcc's own wording, and gcc's own flag. */
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'packed' attribute ignored");
+        sym->gnu.packed = false;
+    }
     if (sym->gnu.weak && sym->linkage == LINK_INTERNAL) {
         /* A static symbol has no binding for the linker to weaken, and gcc
          * says so rather than emitting a .weak that does nothing. */

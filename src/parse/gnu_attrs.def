@@ -10,6 +10,11 @@
  *              own flag and default-on, so `-Wno-attributes` works the way
  *              a user expects).
  *
+ *   GA_IMPLEMENTED  The semantics are real. The row exists so this table
+ *              stays the whole truth about the attribute surface -- an
+ *              implemented attribute left classified GA_UNSAFE would read as
+ *              refused, and the tier doc would drift from the code.
+ *
  *   GA_UNSAFE  Ignoring changes LAYOUT, LINKAGE or observable behaviour.
  *              Hard error until implemented. `packed` silently ignored is
  *              the wrong struct layout; `weak` ignored is the wrong symbol
@@ -57,6 +62,13 @@ GA(sentinel, GA_IGNORE)
 GA(unused, GA_IGNORE)
 GA(warn_unused_result, GA_IGNORE)
 
+/* --- implemented: the semantics are real ------------------------------- */
+/* Intercepted by name in parse_cgf_attributes before the class is consulted;
+ * the rows are here so this table remains the whole attribute surface. */
+GA(packed, GA_IMPLEMENTED)
+GA(visibility, GA_IMPLEMENTED)
+GA(weak, GA_IMPLEMENTED)
+
 /* --- NOT safe to ignore: layout, linkage, or behaviour ------------------ */
 GA(alias, GA_UNSAFE)
 GA(aligned, GA_UNSAFE)
@@ -70,7 +82,6 @@ GA(gnu_inline, GA_UNSAFE)
  * the optimizer applying TBAA where the author said it must not -- a
  * miscompile, and a subtle one. */
 GA(may_alias, GA_UNSAFE)
-GA(packed, GA_UNSAFE)
 /* returns_twice is the setjmp property: ignoring it lets the optimizer
  * assume single-entry, which is exactly the assumption setjmp breaks. */
 GA(returns_twice, GA_UNSAFE)
@@ -83,5 +94,3 @@ GA(section, GA_UNSAFE)
 GA(transparent_union, GA_UNSAFE)
 /* `used` keeps a symbol the IPO pass would otherwise delete. */
 GA(used, GA_UNSAFE)
-GA(visibility, GA_UNSAFE)
-GA(weak, GA_UNSAFE)

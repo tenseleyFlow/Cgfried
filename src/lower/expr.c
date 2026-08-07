@@ -365,6 +365,12 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         }
         if (!m->is_bitfield) {
             lv = lv_of(lo, addr_plus(lo, base, (i64)off), sem(e));
+            /* lv_of takes the alignment from the TYPE, which a packed member
+             * does not have: `int b` at offset 1 is 1-aligned. The verifier
+             * calls under-alignment honest and over-alignment an error, so
+             * the claim has to come down. */
+            if (m->packed || (rec->tag && rec->tag->packed))
+                lv.align = 1;
             if (rec->kind == TY_UNION)
                 lv.etype = ETYPE_UNION;
             return lv;
