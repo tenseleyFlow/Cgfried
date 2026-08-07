@@ -10,8 +10,4 @@
 # to fix or reword some deferrals in the same commit, which is the point.
 #
 # One bare integer, comments and blank lines ignored.
-#
-# 50: Sprint 51 is still open (D7, the cross-target DWARF differential), so
-# `-g on <target> lands in Sprint 51` in src/driver/driver.c is an honest
-# forward reference rather than a stale one.
-50
+51
