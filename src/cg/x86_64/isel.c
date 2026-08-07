@@ -2600,9 +2600,10 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Inst *x;
 
         if (in->ops[2].kind != IROP_ICONST || in->ops[1].kind != IROP_ICONST)
-            CGF_ICE("x86_64 isel: memset with a non-constant size or byte (the C "
-                    "front end always emits constants; a dynamic size "
-                    "belongs in a libc call)");
+            CGF_ICE(
+                "x86_64 isel: memset with a non-constant size or byte (the C "
+                "front end always emits constants; a dynamic size "
+                "belongs in a libc call)");
         dst = to_vreg(is, &in->ops[0]);
         byte = in->ops[1].a & 0xff;
         pat = byte * 0x0101010101010101ull;
