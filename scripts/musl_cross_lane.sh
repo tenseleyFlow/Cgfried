@@ -76,17 +76,43 @@ SRC
 want="42/musl len=7 ld=16"
 pass=0
 
-# system ld, then afs-ld. The assembler is the bundled afs-as in both:
-# musl's static posture needs no PIC, so nothing here trips the @GOTPCREL
-# gap that blocks PIC through afs-as (.docs/audits/afs-as-pic-debt.md).
-for ld in system afs; do
+# THE ASSEMBLER ROUTING TRAP, fourth appearance -- and the first time it
+# reached CI's `make test` rather than a side lane. cgf's default assembler
+# is the BUNDLED afs-as, which a Rust-free job never builds, so a lane that
+# invokes cgf directly must resolve its own assembler instead of leaving it
+# to whoever calls it. This one did not, and the `test` job died at
+# "assembler not found" from the day the lane landed.
+#
+# Falling back to the system assembler keeps the system-ld leg REAL in the
+# Rust-free job rather than skipping the whole lane; musl's static posture
+# needs no PIC, so nothing here trips the @GOTPCREL gap that blocks PIC
+# through afs-as (.docs/audits/afs-as-pic-debt.md).
+as_env=
+if [ ! -x afs-as/target/release/afs-as ]; then
+    if ! command -v as >/dev/null 2>&1; then
+        echo "HARNESS_SKIP suite=musl-cross test=all count=1" \
+            "reason=\"no afs-as (make tools) and no system assembler\""
+        exit 0
+    fi
+    as_env=0
+fi
+
+# The afs-ld leg needs BOTH bundled tools; skip just that leg, loudly.
+legs="system afs"
+if [ -n "$as_env" ] || [ ! -x afs-ld/target/release/afs-ld ]; then
+    echo "HARNESS_SKIP suite=musl-cross test=afs-ld-leg count=1" \
+        "reason=\"afs-as/afs-ld not built (make tools); system-ld leg still ran\""
+    legs=system
+fi
+
+for ld in $legs; do
     out=$WORK/probe.$ld
     if [ "$ld" = afs ]; then
         CGF_LD=1 "$CGF" --target=x86_64-linux-musl --sysroot="$nodbg" \
             -static -o "$out" "$WORK/probe.c"
     else
-        "$CGF" --target=x86_64-linux-musl --sysroot="$root" \
-            -static -o "$out" "$WORK/probe.c"
+        CGF_AS=${as_env:-} "$CGF" --target=x86_64-linux-musl \
+            --sysroot="$root" -static -o "$out" "$WORK/probe.c"
     fi
     got=$("$out")
     if [ "$got" != "$want" ]; then
@@ -101,5 +127,9 @@ for ld in system afs; do
     pass=$((pass + 1))
 done
 
+# Name the legs that actually ran. "system ld + afs-ld" printed unchanged
+# after the afs leg skipped would be the vacuous-pass family all over again:
+# a green line asserting coverage the run did not have.
 echo "musl_cross: $pass static musl binaries cross-compiled from" \
-    "$(uname -m) glibc and executed (system ld + afs-ld)"
+    "$(uname -m) glibc and executed ($(echo "$legs" | sed 's/system/system ld/;
+        s/ afs/ + afs-ld/'))"
