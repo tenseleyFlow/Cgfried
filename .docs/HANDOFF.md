@@ -688,9 +688,15 @@ fixtures are final — re-pinning mid-edit just means doing it twice.
 omitted `src/ir/build.c` and the remote link failed on three missing symbols.
 Anchor the exclusions (`/build`, `/build-*`).
 
-**`pkill -f <pattern>` matches your own shell** when the pattern appears in
-its command line. It killed the session's own commands twice. Use a PID file
-or match more narrowly.
+**`pkill -f` / `pgrep -f <pattern>` match shells you did not mean.** Three
+separate incidents. `pkill -f 'BUILD=build-s51-v'` killed the session's own
+command, twice, because the pattern was in that shell's command line. Then a
+`while pgrep -f 'BUILD=build-s52c'; do sleep; done` wait loop hung forever:
+a LEFTOVER wrapper shell from an earlier command still carried that string,
+so the condition could never go false. Waiting on `pgrep -f` is waiting on
+"no process anywhere mentions this text", which is not the same as "the job
+finished". Use a PID, a sentinel file, or the harness's own completion
+notification.
 
 ---
 
