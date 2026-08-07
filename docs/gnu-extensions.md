@@ -11,7 +11,7 @@ Every extension sits in exactly one of three tiers.
 | tier | meaning |
 |---|---|
 | **implemented** | the semantics are real, and there is at least one fixture proving it |
-| **parsed-ignored** | accepted so surrounding code compiles, but has NO effect; always warns under `-Wcgf-ignored-attribute` |
+| **parsed-ignored** | accepted so surrounding code compiles, but has NO effect; always warns under `-Wattributes` |
 | **refused** | a hard error at parse time, naming what it would take |
 
 There is no fourth tier, and in particular there is no *silently* ignored
@@ -52,11 +52,49 @@ Empty for now. Rows land here as the work does, each with its fixture, and
 ## Parsed and ignored
 
 Accepted so the surrounding declaration compiles; no semantic effect. Each
-warns once per occurrence under `-Wcgf-ignored-attribute`, which `-Wextra`
-enables.
+warns under **`-Wattributes`** — gcc's own flag for this, on by default, so a
+build system that already passes `-Wno-attributes` gets silence from us too.
+
+Membership is decided by ONE question, and `src/parse/gnu_attrs.def` is the
+table: *what happens if we ignore it?* If the cost is a diagnostic or a
+missed optimization, it belongs here. If it changes layout, linkage or
+observable behaviour, it does not — it is implemented or it is a hard error.
+
+An attribute this compiler has never heard of is also accepted and warned,
+exactly as gcc does. A compiler that rejects a name it does not know cannot
+read next year's headers.
 
 | extension | why ignoring is safe | consumer |
 |---|---|---|
+| `unused`, `used`-adjacent hints | affect diagnostics only | everywhere |
+| `format`, `format_arg` | Sprint 39's builtin table already covers the libc functions that matter | glibc, musl |
+| `pure`, `const`, `malloc`, `leaf`, `noclone`, `flatten` | optimization licenses; declining one is always conservative | glibc, curl |
+| `noreturn` | we merely fail to learn a call does not return: costs flow precision, cannot make a correct program wrong | everywhere |
+| `deprecated`, `warn_unused_result`, `nonnull`, `sentinel`, `nonstring`, `diagnose_if`, `access`, `alloc_size`, `alloc_align` | diagnostics only | glibc |
+| `always_inline`, `noinline`, `hot`, `cold`, `artificial`, `no_instrument_function` | inliner and placement hints | glibc, musl |
+| `nothrow` | C has no exceptions | glibc |
+
+### Not yet implemented, and therefore refused rather than ignored
+
+These change layout, linkage or behaviour. Until their semantics land they
+are a hard error naming the attribute — which is what makes implementing them
+incrementally safe: at every point the compiler either does the right thing or
+refuses, never quietly the wrong one.
+
+`alias`, `aligned`, `cleanup`, `constructor`, `destructor`, `gnu_inline`,
+`may_alias`, `packed`, `returns_twice`, `section`, `transparent_union`,
+`used`, `visibility`, `weak`.
+
+Three of those sit here against this sprint's original tiering, because the
+ignore-safety question overruled it:
+
+- **`transparent_union`** changes how the union is *passed* — the first
+  member's convention, not the union's. Ignoring it is an ABI mismatch. It
+  does not appear in musl, so refusing costs nothing.
+- **`may_alias`** switches *off* type-based aliasing for a type. Ignoring it
+  leaves the optimizer applying TBAA exactly where the author said it must
+  not, which is a subtle miscompile.
+- **`used`** keeps a symbol the IPO pass would otherwise delete.
 
 ## Refused
 

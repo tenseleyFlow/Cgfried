@@ -1,0 +1,87 @@
+/* The GNU attribute table. One row per attribute, X-macro'd into the
+ * classification switch. Sorted by name.
+ *
+ *   GA(name, class)
+ *
+ * THE CLASS IS DECIDED BY ONE QUESTION: what happens if we ignore it?
+ *
+ *   GA_IGNORE  Ignoring costs a diagnostic or a missed optimization, never
+ *              a wrong answer. Accepted, warned under -Wattributes (gcc's
+ *              own flag and default-on, so `-Wno-attributes` works the way
+ *              a user expects).
+ *
+ *   GA_UNSAFE  Ignoring changes LAYOUT, LINKAGE or observable behaviour.
+ *              Hard error until implemented. `packed` silently ignored is
+ *              the wrong struct layout; `weak` ignored is the wrong symbol
+ *              binding; `cleanup` ignored means the function never runs.
+ *              Every one of those links and then misbehaves, which is the
+ *              failure mode docs/gnu-extensions.md exists to prevent.
+ *
+ * A row moves from GA_UNSAFE to implemented when its semantics land, and
+ * the same commit adds its row to the implemented table in
+ * docs/gnu-extensions.md -- check_gnu_tiers.sh enforces the fixture.
+ *
+ * Attributes NOT listed here are unknown: accepted and warned, exactly as
+ * gcc does, because a compiler that hard-errors on an attribute it has
+ * never heard of cannot read next year's headers. */
+
+/* --- safe to ignore: diagnostics and optimization hints ----------------- */
+GA(access, GA_IGNORE)
+GA(alloc_align, GA_IGNORE)
+GA(alloc_size, GA_IGNORE)
+GA(always_inline, GA_IGNORE)
+GA(artificial, GA_IGNORE)
+GA(cold, GA_IGNORE)
+GA(const, GA_IGNORE)
+GA(deprecated, GA_IGNORE)
+GA(diagnose_if, GA_IGNORE)
+GA(flatten, GA_IGNORE)
+GA(format, GA_IGNORE)
+GA(format_arg, GA_IGNORE)
+GA(hot, GA_IGNORE)
+GA(leaf, GA_IGNORE)
+GA(malloc, GA_IGNORE)
+GA(no_instrument_function, GA_IGNORE)
+GA(noclone, GA_IGNORE)
+GA(noinline, GA_IGNORE)
+GA(nonnull, GA_IGNORE)
+GA(nonstring, GA_IGNORE)
+/* Ignoring noreturn is CONSERVATIVE: we merely fail to learn that a call
+ * does not return, which costs flow-analysis precision and can produce a
+ * spurious "control reaches end of non-void function". It cannot make a
+ * correct program wrong. */
+GA(noreturn, GA_IGNORE)
+GA(nothrow, GA_IGNORE)
+GA(pure, GA_IGNORE)
+GA(sentinel, GA_IGNORE)
+GA(unused, GA_IGNORE)
+GA(warn_unused_result, GA_IGNORE)
+
+/* --- NOT safe to ignore: layout, linkage, or behaviour ------------------ */
+GA(alias, GA_UNSAFE)
+GA(aligned, GA_UNSAFE)
+GA(cleanup, GA_UNSAFE)
+GA(constructor, GA_UNSAFE)
+GA(destructor, GA_UNSAFE)
+/* gnu_inline selects the C89 inline semantics rather than C99's, which
+ * decides whether a definition emits a symbol at all. */
+GA(gnu_inline, GA_UNSAFE)
+/* may_alias switches OFF type-based aliasing for a type. Ignoring it leaves
+ * the optimizer applying TBAA where the author said it must not -- a
+ * miscompile, and a subtle one. */
+GA(may_alias, GA_UNSAFE)
+GA(packed, GA_UNSAFE)
+/* returns_twice is the setjmp property: ignoring it lets the optimizer
+ * assume single-entry, which is exactly the assumption setjmp breaks. */
+GA(returns_twice, GA_UNSAFE)
+GA(section, GA_UNSAFE)
+/* transparent_union changes how the union is PASSED -- the first member's
+ * convention rather than the union's. Ignoring it is an ABI mismatch, so it
+ * is refused despite the sprint's initial parsed-ignored tiering; that tier
+ * was assigned before this table asked the ignore-safety question. It does
+ * not appear in musl. */
+GA(transparent_union, GA_UNSAFE)
+/* `used` keeps a symbol the IPO pass would otherwise delete. */
+GA(used, GA_UNSAFE)
+GA(visibility, GA_UNSAFE)
+GA(weak, GA_UNSAFE)

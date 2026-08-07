@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "parse/parse.h"
+#include "warn/warn.h"
 
 const char *cgf_attr_name(CgfAttrKind kind)
 {
@@ -75,6 +76,39 @@ static void skip_parens(Parser *p)
     }
 }
 
+/* The GNU attribute classification, from src/parse/gnu_attrs.def. See that
+ * file for the one question that decides every row. */
+typedef enum { GA_IGNORE, GA_UNSAFE, GA_UNKNOWN } GnuAttrClass;
+
+static GnuAttrClass gnu_attr_class(const char *spelling)
+{
+    /* `__packed__` and `packed` are the same attribute. Headers use the
+     * underscored spelling precisely so a macro named `packed` cannot
+     * capture it, so both must classify identically. */
+    char norm[64];
+    size_t n = strlen(spelling);
+
+    if (n > 4 && strncmp(spelling, "__", 2) == 0 &&
+        strcmp(spelling + n - 2, "__") == 0) {
+        n -= 4;
+        if (n >= sizeof(norm))
+            return GA_UNKNOWN;
+        memcpy(norm, spelling + 2, n);
+        norm[n] = '\0';
+    } else {
+        if (n >= sizeof(norm))
+            return GA_UNKNOWN;
+        memcpy(norm, spelling, n + 1);
+    }
+
+#define GA(name, cls)                                                          \
+    if (strcmp(norm, #name) == 0)                                              \
+        return cls;
+#include "parse/gnu_attrs.def"
+#undef GA
+    return GA_UNKNOWN;
+}
+
 CgfAttr *parse_cgf_attributes(Parser *p)
 {
     const Token *kw = parse_peek(p);
@@ -125,8 +159,31 @@ CgfAttr *parse_cgf_attributes(Parser *p)
                 else if (strncmp(name->spelling, "cgf_", 4) == 0)
                     parse_error(p, name, "unknown cgf_ attribute '%s'",
                                 name->spelling);
-                else
-                    saw_non_cgf = true;
+                else {
+                    switch (gnu_attr_class(name->spelling)) {
+                    case GA_IGNORE:
+                    case GA_UNKNOWN:
+                        /* gcc's own behaviour and its own flag: accept, and
+                         * say so under -Wattributes (on by default, so
+                         * -Wno-attributes works as a reader expects). An
+                         * unknown attribute is accepted rather than refused
+                         * because a compiler that rejects a name it has
+                         * never heard of cannot read next year's headers. */
+                        warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,
+                                "'%s' attribute directive ignored",
+                                name->spelling);
+                        break;
+                    case GA_UNSAFE:
+                        parse_error(p, name,
+                                    "the '%s' attribute is not yet "
+                                    "implemented, and ignoring it would "
+                                    "change layout, linkage or behaviour "
+                                    "rather than just a diagnostic "
+                                    "(docs/gnu-extensions.md)",
+                                    name->spelling);
+                        break;
+                    }
+                }
                 valid = false;
             }
         }
@@ -192,10 +249,6 @@ CgfAttr *parse_cgf_attributes(Parser *p)
     parse_expect_punct(p, PUNCT_RPAREN,
                        "after '__attribute__'"); /* check_bans allow */
 
-    if (saw_non_cgf)
-        parse_error(p, kw,
-                    "GNU '__attribute__' " /* check_bans allow */
-                    "is not yet supported for non-cgf attributes "
-                    "(lands in Sprint 55)");
+    (void)saw_non_cgf; /* every non-cgf attribute is classified above */
     return head;
 }
