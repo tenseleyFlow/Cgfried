@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "cg/debug.h"
 #include "cg/x86_64/debug.h"
 #include "unit.h"
 #include "util/arena.h"
@@ -34,28 +35,28 @@ void test_x64_dwarf_leb_boundaries(TestCtx *t)
     static const u8 sn65[] = {191, 127};
     u8 out[10];
 
-    assert_bytes(t, out, x64_dwarf_uleb(0, out), u0, sizeof(u0));
-    assert_bytes(t, out, x64_dwarf_uleb(127, out), u127, sizeof(u127));
-    assert_bytes(t, out, x64_dwarf_uleb(128, out), u128, sizeof(u128));
-    assert_bytes(t, out, x64_dwarf_sleb(63, out), s63, sizeof(s63));
-    assert_bytes(t, out, x64_dwarf_sleb(64, out), s64, sizeof(s64));
-    assert_bytes(t, out, x64_dwarf_sleb(-8, out), sn8, sizeof(sn8));
-    assert_bytes(t, out, x64_dwarf_sleb(-64, out), sn64, sizeof(sn64));
-    assert_bytes(t, out, x64_dwarf_sleb(-65, out), sn65, sizeof(sn65));
+    assert_bytes(t, out, cg_dwarf_uleb(0, out), u0, sizeof(u0));
+    assert_bytes(t, out, cg_dwarf_uleb(127, out), u127, sizeof(u127));
+    assert_bytes(t, out, cg_dwarf_uleb(128, out), u128, sizeof(u128));
+    assert_bytes(t, out, cg_dwarf_sleb(63, out), s63, sizeof(s63));
+    assert_bytes(t, out, cg_dwarf_sleb(64, out), s64, sizeof(s64));
+    assert_bytes(t, out, cg_dwarf_sleb(-8, out), sn8, sizeof(sn8));
+    assert_bytes(t, out, cg_dwarf_sleb(-64, out), sn64, sizeof(sn64));
+    assert_bytes(t, out, cg_dwarf_sleb(-65, out), sn65, sizeof(sn65));
 }
 
-void test_x64_dwarf_special_opcode_boundaries(TestCtx *t)
+void test_cg_dwarf_special_opcode_boundaries(TestCtx *t)
 {
     u8 op = 0;
 
-    T_ASSERT(t, x64_dwarf_special(-5, 0, &op));
+    T_ASSERT(t, cg_dwarf_special(-5, 0, &op));
     T_ASSERT_EQ_INT(t, op, 13);
-    T_ASSERT(t, x64_dwarf_special(-5, 17, &op));
+    T_ASSERT(t, cg_dwarf_special(-5, 17, &op));
     T_ASSERT_EQ_INT(t, op, 251);
-    T_ASSERT(t, !x64_dwarf_special(-6, 0, &op));
-    T_ASSERT(t, !x64_dwarf_special(9, 0, &op));
-    T_ASSERT(t, !x64_dwarf_special(0, 17, &op));
-    T_ASSERT(t, !x64_dwarf_special(0, 18, &op));
+    T_ASSERT(t, !cg_dwarf_special(-6, 0, &op));
+    T_ASSERT(t, !cg_dwarf_special(9, 0, &op));
+    T_ASSERT(t, !cg_dwarf_special(0, 17, &op));
+    T_ASSERT(t, !cg_dwarf_special(0, 18, &op));
 }
 
 void test_x64_debug_label_transitions(TestCtx *t)
