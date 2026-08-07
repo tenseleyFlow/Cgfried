@@ -47,6 +47,17 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   sniff in target-dependent code.
 - **`_Thread_local` works** on both Linux targets (local-exec). It did not,
   silently, for fifty sprints — see §1b.
+- **Sprint 51 is CLOSED** (all seven deliverables) and **Sprint 55 is under
+  way** — see §1b-1. `ci/closed_sprints.txt` is 51; raising it forced an
+  audit and found only the `-g` gate the DWARF work had already removed.
+- **arm64-linux emits DWARF and `.eh_frame`**; `addr2line` resolves a linked
+  executable. `src/cg/debug.c` is now the ONE line-table and CU-DIE emitter
+  for every target, which also makes task #93's variable DIEs a write-once
+  job rather than per-backend.
+- **The GNU attribute surface is classified** by what ignoring each one
+  costs; `weak` and `visibility` are implemented and agree with gcc's symbol
+  table on both targets. `packed` is measured and specified but NOT
+  implemented — `.docs/audits/packed-layout.md`.
 - **VLAs work on both targets**, as of the deferral reckoning (§1b-1). They
   did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
   function that also passed arguments on the stack. Multidimensional VLAs
@@ -657,27 +668,84 @@ every target, so DBG-001..004 (the variable DIEs behind the linker
 diagnostic in task #93) get written ONCE rather than per backend.
 `.docs/audits/debug-info-debt.md` has been corrected to say so.
 
-### NEXT — Sprint 55, deliberately OUT of numerical order
+### SPRINT 55 IS UNDER WAY. Read this before touching it.
 
-This is the dedicated deferral campaign and the agreed next step. **28
-deferrals point at it** -- by far the largest cluster -- and it is the
-blocker for HOSTED compilation on macOS AND FreeBSD (2 of 5 targets, task
-#100) plus the musl campaign in Sprint 57.
+Taken out of numerical order on purpose: 28 deferrals pointed at it, it
+blocks HOSTED compilation on macOS and FreeBSD, and Sprints 56/57 need it.
+Commits `3ef9741`, `78019c8`, `f7f17fb`, `194258c` — all CI-green.
 
-Taking 52-54 (compile speed, codegen quality, perf gates) first would mean
-benchmarking a compiler that cannot yet build the programs it is meant to be
-measured on. Record the reordering in the sprint index when you start.
+**THE ORGANIZING IDEA, and it decides everything else.** One question:
+*what happens if we ignore this attribute?*
 
-The argument is not only deferral count. Four of the seven defects this
-session came from GATES rather than planned work -- the musl lane, the IR
-verifier, the fuzzer, and reading a CI log. Sprints 56 (torture) and 57
-(compile-the-world) are the ones that attack that blind spot systematically,
-and 55 is their prerequisite. So 55 first is the unlock for the sprints most
-likely to find what we cannot currently see.
+- cost is a diagnostic or a missed optimization → accept, warn under
+  `-Wattributes` (gcc's own flag; its default is flipped to ON to match)
+- changes LAYOUT, LINKAGE or BEHAVIOUR → hard error until implemented
+- never heard of it → accept and warn, exactly as gcc does, because a
+  compiler that rejects unknown names cannot read next year's headers
 
-Open and NOT blocking 55: #93 (variable DIEs, now cheaper), #102 (afs-as
-@GOTPCREL/@PLT), #108 (a void expression is accepted where a scalar
-condition is required -- a missing diagnostic, not a crash).
+`src/parse/gnu_attrs.def` is the table and carries the reasoning per row.
+This is what makes the rest landable ONE ATTRIBUTE AT A TIME: at every
+point the compiler either does the right thing or refuses, never quietly
+the wrong one. Do not weaken it for convenience.
+
+It also overruled the sprint file's own tiering three times, each a real
+miscompile avoided — `transparent_union` (changes how a union is PASSED,
+so ignoring it is an ABI mismatch), `may_alias` (ignoring leaves TBAA
+applied exactly where the author forbade it), `used` (keeps a symbol IPO
+would delete).
+
+**Landed:** the tier table `docs/gnu-extensions.md` + `check_gnu_tiers.sh`
+in `make test`; the refused tier (asm goto, computed goto, `&&label`,
+nested functions, mode, vector_size — each naming what it would take); the
+classification; and `weak` + `visibility` implemented end to end.
+
+**NEXT: `packed`.** The spec is already measured and committed —
+`.docs/audits/packed-layout.md`. Read it first; it exists because the sprint
+says to pin gcc's numbers BEFORE writing code, and the numbers contain the
+trap:
+
+> packed drops the RECORD's alignment as well as its members'.
+
+Force member offsets without that and you get the right offsets and the
+wrong `sizeof`, because tail padding survives — and offsets are what a
+reader checks first, so it looks correct. Also measured: `aligned(N)`
+COMPOSES with packed rather than conflicting, and packed bitfields allocate
+bit-contiguously (6 bytes where the unpacked control is 8).
+
+Order, and it matters: rules 1-4 are one change to the member loop in
+`src/sema/layout.c`. Rule 5 touches the bitfield container logic that
+Sprint 14 records as ALREADY having produced two bugs. So land 1-4, and
+**keep a packed struct containing a bitfield a hard error until rule 5**.
+Half of packed applied silently is the exact failure the tier table exists
+to prevent.
+
+Verify with `scripts/layout_diff.sh` — it needs no new machinery. It emits
+`_Static_assert` lines built from OUR numbers and hands them to gcc, so gcc
+accepting the file IS the proof. Extend `tests/tools/gen_layout.c` to emit
+packed structs, but NOT packed structs containing bitfields until rule 5
+lands, or the lane hits the hard error and reads as a failure rather than
+the honest refusal it is.
+
+After packed: `aligned` (17 uses in /usr/include), then `alias`, `section`,
+and the `constructor`/`destructor`/`cleanup` group. Then D2 extended asm,
+D4 statement expressions + typeof, and D5 `__GNUC__` LAST — defining it is
+a PROMISE that the implemented set has to back.
+
+### Two habits that earned their place this session
+
+**Verify against the ARTIFACT, not the instruction.** `weak`/`visibility`
+looked correct in the emitted assembly while arm64 emitted `GLOBAL` where
+gcc emitted `WEAK`; one `readelf -sW` diff against `aarch64-linux-gnu-gcc`
+found it. Same shape as the ABI differential linking and RUNNING both
+halves rather than comparing assembly, and as `layout_diff` letting gcc's
+own constraint checker be the oracle.
+
+**Mutate every new gate before trusting it.** THREE gates written this
+session were wrong or vacuous on first run — `check_gnu_tiers.sh` twice
+(once genuinely red, once from its own backtick handling) and a probe in
+`driver_matrix.sh`. A green gate you have never seen fail is not evidence.
+Related trap, hit three times: `cmd | head` reports HEAD's exit status, so
+`rc=$?` after a pipe says nothing about the command.
 
 ---
 
