@@ -8,58 +8,80 @@ clean error naming its sprint, never an ICE and never a silent wrong answer.
 | ABI-001 | HFA arguments and returns (v0-v3) | arm64-linux, arm64-macos | Sprint 51 cross-determinism probe | **CLOSED** |
 | ABI-002 | An aggregate that does not fit is split across registers and stack | x86_64 (all), arm64-linux, arm64-macos | Sprint 51 ABI differential | **CLOSED** |
 | ABI-003 | Six varargs defects, and two deferrals that became reachable | x86_64 (all), arm64-linux | Sprint 51 ABI differential, varargs generation | **CLOSED** |
-| ABI-004 | An ANONYMOUS aggregate is not passed by value in the varargs area | arm64-macos | Sprint 51 ABI differential on nomad-1 | **OPEN** |
+| ABI-004 | An ANONYMOUS aggregate's shape in the varargs area | arm64-macos | Sprint 51 ABI differential on nomad-1 | **CLOSED** |
 
-## ABI-004 — Apple anonymous aggregates — OPEN
+## ABI-004 — Apple anonymous aggregates — CLOSED
 
-24 of 304 generated signatures disagree with clang on arm64-macos, and every
-single minimized reproducer is the same shape: a COMPOSITE anonymous
-argument. Scalars are clean.
+**315 signatures agree with clang on arm64-macos, both directions** (304
+generated + the 11 checked-in reproducers), verified on nomad-1. It was 24 of
+304 disagreeing, every reproducer a COMPOSITE anonymous argument.
 
-    R v  A d  V s(a(17,c))          17 bytes -- indirect on AAPCS64
-    R v  A f  V s(f,f,f)            an HFA
-    R d  A h  V s(i,c,d,c)          a mixed 24-byte aggregate
+### This entry was wrong twice, and both corrections came from measuring
 
-Apple's varargs area holds every anonymous argument BY VALUE and contiguous
--- Sprint 50 measured exactly that against clang and recorded it. What is
-missing is that the classifier still shapes an anonymous aggregate the way a
-NAMED one is shaped, so it reaches the backend either as an indirect pointer
-(over 16 bytes) or as HFA leaves, and the marshaller then gives each leaf its
-own eightbyte slot. A three-float HFA occupies 24 bytes of varargs area where
-clang uses 16.
+The original text said *"Apple's varargs area holds every anonymous argument
+BY VALUE and contiguous"* and *"it is CALLER-ONLY ... there is no matching
+callee change"*. Neither survived contact with clang.
 
-### Where the fix goes
+**Anonymity removes the REGISTER, never the shape.** Measured against clang
+targeting arm64-apple-macos:
 
-It is CALLER-ONLY. `lower_va_arg_apple` is already a plain cursor bump that
-reads the aggregate contiguously and rounds the advance to 8, which is right;
-the caller is what puts the bytes somewhere else. So there is no matching
-callee change, and `ours x clang` in the other direction should stay green
-throughout.
+| argument | clang |
+|---|---|
+| `struct{char[8]}` | `str x0, [sp]` — by value, 8 bytes |
+| `struct{float x 3}` (HFA) | `str x8,[sp]` + `str w8,[sp,#8]` — by value, 12 |
+| `struct{char[16]}` | `stp x0, x1, [sp]` — by value, 16 |
+| `struct{double x 3}` (HFA, 24B) | `str d0` + `stp d1,d2,[sp,#8]` — by value |
+| `struct{char[17]}` | `add x8, sp, #8` + `str x8, [sp]` — **INDIRECT** |
 
-Anonymity is known only at the call site, where `lower_call` already computes
-`IROPF_ANON`. Marking such an argument `ABI_ARG_STACK` there gets most of the
-way: `abi_arg_place` re-plans a stacked aggregate into `ceil(size/8)`
-eightbyte leaves, the marshaller gives each anonymous leaf a full eightbyte,
-and a three-float HFA then occupies the 16 bytes clang uses instead of 24.
+So an HFA goes by value at ANY size, and a non-HFA over 16 bytes goes
+indirect exactly as a named one does. Implementing the entry as written --
+forcing every anonymous aggregate by value -- passed a 40-byte struct by
+value where clang passes a pointer. That is a fresh miscompile, and it would
+have failed BOTH directions, which is this ledger's own signature for a
+shared assumption.
 
-The catch is size. That re-plan caps at `ABI_MAX_LEAVES` (4), so it covers an
-aggregate up to 32 bytes and no further. A larger anonymous aggregate needs
-the OTHER stacked shape -- a byval pointer carrying `IROPF_ONSTACK`, which
-means "copy the pointee onto the stack" -- and the arm64 marshaller does not
-implement that yet; it honours `onstack` only on leaves. That is the real
-work, and it is backend work.
+**And the callee needed the mirror.** After the caller fix the standing
+witness `sysv-va-overflow-slot8` still failed, and its two anonymous
+arguments are both >16-byte non-HFA -- the case deliberately left alone.
+clang's callee loads the POINTER out of the slot and reads through it, while
+advancing the cursor by 8:
 
-Not attempted here: it needs a Mac in the loop to verify, and this sprint's
-verified surface was already large. arm64-linux and x86_64 are unaffected --
-AAPCS64 and SysV place anonymous arguments exactly as named ones, which is
-the whole reason this is Apple-only.
+    ldr x8, [x29, #16]     ; the pointer out of the slot
+    ldr q0, [x8]           ; 20 bytes THROUGH it
 
-The checked-in fixtures already carry a standing witness: 10 of the 11 pass
-on arm64-macos and `sysv-va-overflow-slot8` does not, because it happens to
-pass two composite anonymous arguments. The other varargs fixtures pass
-there, which is itself informative -- they are SysV save-area shapes, and
-Apple's all-stack rule has no save area to get wrong. Closing ABI-004 should
-take that fixture green without touching the rest.
+versus the 24-byte HFA one function along, which advances by 24 and reads in
+place. `lower_va_arg_apple` took the by-value path for EVERY aggregate, so it
+read a pointer's bytes as though they were the struct and advanced the cursor
+by the struct size instead of 8.
+
+### What actually shipped
+
+Two halves, both asking `abi_classify_arg` rather than re-deriving the rule,
+so they cannot drift:
+
+- **Caller** (`abi_arg_place`, new `anon` flag): an anonymous EIGHTBYTES or
+  HFA argument is re-planned as `ceil(size/8)` eightbytes. That fixes leaf
+  GRANULARITY, which was the only real defect -- the marshaller gives each
+  anonymous leaf a full eightbyte, so a three-FLOAT HFA occupied 24 bytes
+  where clang uses 12 in a 16-byte slot. When the leaves are already 8 bytes
+  wide the re-plan is a no-op on the layout. `ABI_ARG_BYVAL` is deliberately
+  absent: it is already a pointer.
+- **Callee** (`lower_va_arg_apple`): a `ABI_ARG_BYVAL` aggregate dereferences
+  the slot once and advances the cursor by 8.
+
+The 4-leaf plan cap cannot bite: Apple's `long double` is `double`, so the
+widest HFA is four doubles -- exactly 32 bytes, exactly 4 eightbytes.
+
+`anon` is knowable only at a call site (the IR records that a callee is
+variadic, never where its prototype stopped), so it is a flag rather than a
+property of the type, and the DEFINITION walk always passes false. x86_64 and
+arm64-linux are untouched by construction -- both psABIs place an anonymous
+argument exactly as a named one, which is the whole reason this was
+Apple-only.
+
+`test_abi_apple_anonymous_shape` pins all five rows above without needing a
+Mac, including the named/anonymous contrast on one type, so the flag is
+proven to be what changed the answer.
 
 ## ABI-003 — varargs — CLOSED in Sprint 51
 

@@ -288,12 +288,75 @@ void abi_budget_init(Lower *lo, AbiBudget *b, const AbiRet *ret)
         b->gp = 1;
 }
 
-void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b)
+/* Re-plan an aggregate as ceil(size/8) eightbyte leaves: on the stack it is
+ * just BYTES, no leaf keeps a register class, and the size rounds up to a
+ * multiple of 8. Both facts then fall out of the existing N-leaf machinery --
+ * a stacked HFA of three floats occupies 16 bytes, not the 12 its leaves
+ * would suggest.
+ *
+ * The leaf TYPE still records which bank ran out, because the backend has to
+ * pin the same one. Moving 8 bytes of float through an f64 is a pure bit copy
+ * on arm64; FP load/store never canonicalizes. */
+static bool abi_replan_as_eightbytes(AbiArg *a, bool fp_bank)
+{
+    u32 words = (a->size + 7u) / 8u;
+    IrType leaf = fp_bank ? IRT_F64 : IRT_I64;
+    u32 k;
+
+    if (words > ABI_MAX_LEAVES)
+        return false;
+    a->n = (u8)(words ? words : 1);
+    for (k = 0; k < a->n; k++)
+        a->t[k] = leaf;
+    a->kind = (u8)ABI_ARG_STACK;
+    return true;
+}
+
+void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
 {
     u32 need_gp = 0;
     u32 need_fp = 0;
     u32 i;
     bool aapcs = target_is_aapcs64(lo, (Span){0});
+
+    /* ABI-004. On Apple an anonymous argument never takes a register, but its
+     * SHAPE still follows the ordinary composite rule -- measured against
+     * clang targeting arm64-apple-macos, because the ledger's summary of
+     * Sprint 50 ("every anonymous argument by value") is true only of the
+     * ones that would have travelled in registers:
+     *
+     *   struct{char[8]}       str  x0, [sp]              by value,  8 bytes
+     *   struct{float x 3}     str  x8, [sp] + str w8,#8  by value, 12 bytes
+     *   struct{char[16]}      stp  x0, x1, [sp]          by value, 16 bytes
+     *   struct{double x 3}    str  d0 + stp d1,d2        by value, 24 bytes
+     *   struct{char[17]}      add  x8, sp, #8; str x8    INDIRECT, a pointer
+     *
+     * So an HFA goes by value at any size and a non-HFA over 16 bytes goes
+     * indirect exactly as a NAMED one does -- which is why ABI_ARG_BYVAL is
+     * absent below. It is already a pointer, and the marshaller already puts
+     * it in the varargs area without spending a register.
+     *
+     * What was wrong is only the leaf granularity: the marshaller gives each
+     * anonymous leaf a full eightbyte, so a three-FLOAT HFA occupied 24 bytes
+     * where clang uses 12 in a 16-byte slot. Merging the leaves into
+     * ceil(size/8) eightbytes fixes that and coincides with the natural
+     * layout when the leaves are already 8 bytes wide.
+     *
+     * The 4-leaf cap cannot bite here: Apple's long double is double, so the
+     * widest HFA is four doubles -- exactly 32 bytes, exactly 4 eightbytes.
+     *
+     * Register budget deliberately untouched: an anonymous argument neither
+     * takes nor exhausts a register, so it must not pin a bank the way an
+     * over-large NAMED aggregate does below. */
+    if (anon && lo->sema->target.kind == CGF_TARGET_ARM64_MACOS &&
+        (a->kind == ABI_ARG_EIGHTBYTES || a->kind == ABI_ARG_HFA)) {
+        if (!abi_replan_as_eightbytes(a, false))
+            CGF_ICE("abi_arg_place: anonymous aggregate of %u bytes needs "
+                    "more than the %u-leaf plan; Apple's widest HFA is four "
+                    "doubles, so this should be unreachable",
+                    a->size, (unsigned)ABI_MAX_LEAVES);
+        return;
+    }
 
     switch (a->kind) {
     case ABI_ARG_HFA:
@@ -348,27 +411,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b)
     if (need_gp)
         b->gp = 8;
 
-    /* On the stack an aggregate is just BYTES: no leaf keeps a register
-     * class, and the size rounds up to a multiple of 8. Re-planning it as
-     * ceil(size/8) eightbyte leaves makes both facts fall out of the
-     * existing N-leaf machinery -- a stacked HFA of three floats occupies
-     * 16 bytes, not the 12 its leaves would suggest.
-     *
-     * The leaf TYPE still records which bank ran out, because the backend
-     * has to pin the same one. Moving 8 bytes of float through an f64 is a
-     * pure bit copy on arm64; FP load/store never canonicalizes. */
-    {
-        u32 words = (a->size + 7u) / 8u;
-        IrType leaf = need_fp ? IRT_F64 : IRT_I64;
-        u32 k;
-
-        if (words > ABI_MAX_LEAVES)
-            CGF_ICE("abi_arg_place: stacked aggregate of %u bytes needs %u "
-                    "eightbytes, over the %u-leaf plan",
-                    a->size, words, (unsigned)ABI_MAX_LEAVES);
-        a->n = (u8)(words ? words : 1);
-        for (k = 0; k < a->n; k++)
-            a->t[k] = leaf;
-    }
-    a->kind = (u8)ABI_ARG_STACK;
+    if (!abi_replan_as_eightbytes(a, need_fp != 0))
+        CGF_ICE("abi_arg_place: stacked aggregate of %u bytes needs %u "
+                "eightbytes, over the %u-leaf plan",
+                a->size, (a->size + 7u) / 8u, (unsigned)ABI_MAX_LEAVES);
 }

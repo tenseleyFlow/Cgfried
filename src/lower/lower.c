@@ -715,7 +715,7 @@ static void lower_function(Lower *lo, AstNode *def)
          * same sequence as the call site in expr.c: an aggregate that the
          * caller stacked because the bank was full is one the callee has to
          * read off the stack. */
-        abi_arg_place(lo, a, &budget);
+        abi_arg_place(lo, a, &budget, false);
         /* Mirror of the call site: on AAPCS64 a stacked aggregate is
          * eightbyte leaves the callee reads off the stack; on SysV it is
          * the byval pointer form, which already means the same thing. */

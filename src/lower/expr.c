@@ -1242,12 +1242,26 @@ static IrOperand lower_va_cursor(Lower *lo, AstNode *e)
  *     value  = *(T *)cursor
  *     *ap    = cursor + round_up(sizeof(T), 8)
  *
- * Slots are 8 bytes even for a char, and an aggregate sits in the varargs
- * area BY VALUE rather than behind a pointer -- clang reads a 16-byte struct
- * with a single `ldp` straight out of it. The alignment step matters only
- * for 16-aligned types; clang emits the and/orr dance for __int128 and
- * nothing at all for double, and `long double` takes an ordinary 8-byte slot
- * because Apple makes it a double.
+ * Slots are 8 bytes even for a char. The alignment step matters only for
+ * 16-aligned types; clang emits the and/orr dance for __int128 and nothing at
+ * all for double, and `long double` takes an ordinary 8-byte slot because
+ * Apple makes it a double.
+ *
+ * AN AGGREGATE IS NOT ALWAYS BY VALUE. Anonymity removes the register, never
+ * the shape: an HFA and anything <= 16 bytes sits in the varargs area
+ * directly (clang reads a 16-byte struct with a single `ldp` straight out of
+ * it), but a non-HFA over 16 bytes is INDIRECT there exactly as it is in a
+ * register -- the slot holds a POINTER, the cursor advances by 8, and the
+ * value is read through it:
+ *
+ *     ldr x8, [x29, #16]     // the pointer out of the slot
+ *     ldr q0, [x8]           // 20 bytes THROUGH it
+ *
+ * versus the 24-byte HFA one function along, which advances by 24 and reads
+ * in place. Treating every aggregate as by-value read a pointer's bytes as
+ * though they were the struct. The ABI ledger recorded this gap as
+ * caller-only; it is not, and `abi_classify_arg` is asked rather than
+ * re-deriving the rule, so the two halves cannot drift.
  *
  * `ap` is a plain `char *` OBJECT here, not the one-element array the other
  * two targets use, so the cursor is read and written through `ap` itself. */
@@ -1256,16 +1270,25 @@ static IrOperand lower_va_arg_apple(Lower *lo, AstNode *e, IrOperand ap)
     Type *t = sem(e);
     TypeLayout l = layout_of(lo->sema, t);
     u64 slot = ((u64)l.size + 7) & ~7ull;
+    bool indirect = false;
     Lvalue cur;
     IrOperand at;
     ValueId next;
 
+    if (lower_is_aggregate(t)) {
+        AbiArg plan;
+
+        abi_classify_arg(lo, t, &plan);
+        indirect = plan.kind == ABI_ARG_BYVAL;
+        if (indirect)
+            slot = 8; /* the slot holds a pointer, not the object */
+    }
     memset(&cur, 0, sizeof(cur));
     cur.addr = ap;
     cur.unit = IRT_PTR;
     cur.align = 8;
     at = lower_load(lo, cur);
-    if (l.align > 8) {
+    if (l.align > 8 && !indirect) {
         ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, at);
         ValueId up =
             ir_build2(&lo->b, IR_IADD, IRT_I64, ir_op_value(lo->fn, as_i),
@@ -1280,6 +1303,18 @@ static IrOperand lower_va_arg_apple(Lower *lo, AstNode *e, IrOperand ap)
     }
     next = ir_build_ptradd(&lo->b, at, lower_i64((i64)slot));
     lower_store(lo, cur, ir_op_value(lo->fn, next));
+    if (indirect) {
+        /* The slot held the caller's pointer: dereference it once, and the
+         * object it names is what gets copied out below. The cursor has
+         * already advanced by the 8 bytes the pointer occupied. */
+        Lvalue slotlv;
+
+        memset(&slotlv, 0, sizeof(slotlv));
+        slotlv.addr = at;
+        slotlv.unit = IRT_PTR;
+        slotlv.align = 8;
+        at = lower_load(lo, slotlv);
+    }
     /* `at` is the ADDRESS of the argument; the contract is the value. An
      * aggregate is copied out because the varargs area is the caller's
      * memory and the callee may not alias it. */
@@ -1853,7 +1888,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
          * may turn a register-class aggregate into a stacked one. The
          * DEFINITION walk in lower.c runs the identical sequence -- if the
          * two ever diverge, the halves of a call disagree silently. */
-        abi_arg_place(lo, &plan, &budget);
+        abi_arg_place(lo, &plan, &budget, (anon & (u8)IROPF_ANON) != 0);
         if (plan.kind == ABI_ARG_SCALAR) {
             IrType st = lower_irtype(lo, sem(a));
 

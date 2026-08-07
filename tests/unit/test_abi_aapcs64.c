@@ -366,14 +366,14 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     ty = tag_type(&f, "H4");
     abi_classify_arg(&f.lo, ty, &got);
     abi_budget_init(&f.lo, &b, NULL);
-    abi_arg_place(&f.lo, &got, &b);
+    abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)b.gp, 0);
     T_ASSERT_EQ_INT(t, (int)b.fp, 4); /* four v-regs, one per leaf */
 
     ty = tag_type(&f, "P");
     abi_classify_arg(&f.lo, ty, &got);
     abi_budget_init(&f.lo, &b, NULL);
-    abi_arg_place(&f.lo, &got, &b);
+    abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)b.gp, 2);
     T_ASSERT_EQ_INT(t, (int)b.fp, 0);
 
@@ -382,7 +382,7 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     ty = tag_type(&f, "S");
     abi_classify_arg(&f.lo, ty, &got);
     abi_budget_init(&f.lo, &b, NULL);
-    abi_arg_place(&f.lo, &got, &b);
+    abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_BYVAL);
     T_ASSERT_EQ_INT(t, (int)b.gp, 1);
     T_ASSERT_EQ_INT(t, (int)b.fp, 0);
@@ -393,16 +393,94 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     abi_budget_init(&f.lo, &b, NULL);
     ty = tag_type(&f, "H4");
     abi_classify_arg(&f.lo, ty, &got);
-    abi_arg_place(&f.lo, &got, &b);
+    abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_HFA);
     abi_classify_arg(&f.lo, ty, &got);
-    abi_arg_place(&f.lo, &got, &b);
+    abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_HFA);
     T_ASSERT_EQ_INT(t, (int)b.fp, 8);
     abi_classify_arg(&f.lo, ty, &got);
-    abi_arg_place(&f.lo, &got, &b);
+    abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
     T_ASSERT_EQ_INT(t, (int)b.fp, 8);
+
+    abi_close(&f);
+}
+
+/* ABI-004: what ANONYMITY changes on Apple, and what it does not.
+ *
+ * Every row here was measured against clang targeting arm64-apple-macos --
+ * the ledger's summary ("Apple holds every anonymous argument by value")
+ * is true only of the ones that would otherwise have travelled in
+ * registers, and implementing it as written passed a 40-byte struct by
+ * value where clang passes a pointer.
+ *
+ * The rule: anonymity removes the REGISTER, never the shape. An HFA goes by
+ * value at any size, a non-HFA over 16 bytes goes indirect exactly as a
+ * named one does, and the register budget is untouched either way. The
+ * eightbyte re-plan exists only to fix LEAF GRANULARITY: a three-float HFA
+ * occupied 24 bytes where clang uses 12 in a 16-byte slot. */
+void test_abi_apple_anonymous_shape(TestCtx *t)
+{
+    AbiFix f;
+    AbiArg got;
+    AbiBudget b;
+    Type *ty;
+
+    abi_open(&f,
+             "struct F3 { float a, b, c; };\n"  /* 12B HFA  */
+             "struct D3 { double a, b, c; };\n" /* 24B HFA  */
+             "struct C16 { char x[16]; };\n"    /* 16B      */
+             "struct C17 { char x[17]; };\n",   /* 17B      */
+             CGF_TARGET_ARM64_MACOS);
+
+    /* A three-FLOAT HFA: three 4-byte leaves become two eightbytes, so it
+     * occupies the 16 bytes clang gives it and not 24. This is the whole
+     * defect. */
+    ty = tag_type(&f, "F3");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b, true);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
+    T_ASSERT_EQ_INT(t, (int)got.n, 2);
+    /* Anonymous spends NO register, in either bank. */
+    T_ASSERT_EQ_INT(t, (int)b.gp, 0);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 0);
+
+    /* Named, the same type is an HFA in three v-regs -- proving the flag is
+     * what changed the answer and not the type. */
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b, false);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_HFA);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 3);
+
+    /* A 24-byte HFA of DOUBLES stays by value: size does not decide it,
+     * HFA-ness does. Its leaves are already 8 bytes, so the re-plan is a
+     * no-op on the layout -- three eightbytes, 24 bytes, exactly clang. */
+    ty = tag_type(&f, "D3");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b, true);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
+    T_ASSERT_EQ_INT(t, (int)got.n, 3);
+
+    /* Exactly 16 bytes, not an HFA: by value, two eightbytes. */
+    ty = tag_type(&f, "C16");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b, true);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
+    T_ASSERT_EQ_INT(t, (int)got.n, 2);
+
+    /* One byte more and it goes INDIRECT -- a pointer in the varargs area,
+     * the same shape a named one takes. Re-planning this as eightbytes is
+     * the miscompile the measurement caught. */
+    ty = tag_type(&f, "C17");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    abi_arg_place(&f.lo, &got, &b, true);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_BYVAL);
 
     abi_close(&f);
 }

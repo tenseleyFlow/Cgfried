@@ -332,7 +332,16 @@ bool abi_is_aapcs64(Lower *lo);
  * charge it to the budget. May REWRITE a->kind: an aggregate that cannot be
  * placed entirely in registers is passed entirely in memory instead. Every
  * walk over an argument list must call this, or the two halves of a call
- * disagree. */
-void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b);
+ * disagree.
+ *
+ * `anon` says this is an argument past the callee's prototype. It is knowable
+ * ONLY at a call site -- the IR records that a callee is variadic, never where
+ * its prototype stopped -- so it arrives as a flag rather than as a property
+ * of the type, and the DEFINITION walk always passes false. That asymmetry is
+ * deliberate: a definition has no anonymous parameters, so the two walks stay
+ * identical for everything else, which is what keeps the halves of a call in
+ * agreement. Only Apple treats an anonymous argument differently (ABI-004);
+ * AAPCS64 and SysV place it exactly as a named one. */
+void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon);
 
 #endif
