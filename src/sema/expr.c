@@ -1253,6 +1253,18 @@ static AstNode *expr(Sema *s, AstNode *e)
                 type_to_str(s->arena, to));
             return poison(s, e);
         }
+        /* 6.5.4p2 constrains BOTH sides: the OPERAND must be scalar too.
+         * Only the target was checked, so `(int)r()` on a struct-returning
+         * `r` typed cleanly and then ICEd in lowering on a non-scalar IR
+         * type — found by the frontend fuzzer, seed 9241. A cast to void is
+         * exempt: it discards the value whatever its type, and `(void)s` on
+         * a struct is ordinary C. */
+        if (to->kind != TY_VOID && op->sem_type &&
+            !type_is_arithmetic(op->sem_type) && op->sem_type->kind != TY_PTR) {
+            err(s, e->span, "cannot cast from non-scalar type '%s'",
+                type_to_str(s->arena, op->sem_type));
+            return poison(s, e);
+        }
         return e;
     }
     case AST_EXPR_GENERIC:
