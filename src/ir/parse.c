@@ -1484,6 +1484,7 @@ static bool parse_func(P *p)
     bool fn_weak = false;
     u8 fn_visibility = GNU_VIS_UNSPEC;
     u32 fn_align = 0;
+    bool fn_used = false;
     bool internal_marker = false;
     bool setjmp_marker = false;
     bool contract_marker = false;
@@ -1569,6 +1570,10 @@ static bool parse_func(P *p)
         fn_weak = true;
     }
     fn_visibility = parse_visibility_suffix(p);
+    if (tok_is(peek(p), "used")) {
+        next(p);
+        fn_used = true;
+    }
     if (tok_is(peek(p), "align")) {
         Tok *av;
 
@@ -1636,6 +1641,7 @@ static bool parse_func(P *p)
     f->is_weak = fn_weak;
     f->visibility = fn_visibility;
     f->align = fn_align;
+    f->is_used = fn_used;
     f->abi_ret = abi_ret;
     f->abi_ret_n = abi_ret_n;
     if (internal_marker)
@@ -1802,6 +1808,10 @@ static bool parse_global(P *p)
     if (tok_is(peek(p), "weak")) {
         next(p);
         g->is_weak = true;
+    }
+    if (tok_is(peek(p), "used")) {
+        next(p);
+        g->is_used = true;
     }
     g->visibility = parse_visibility_suffix(p);
     if (tok_is(peek(p), "init")) {

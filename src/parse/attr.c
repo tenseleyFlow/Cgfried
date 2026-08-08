@@ -18,6 +18,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     dst->aligned_conflict |= src->aligned_conflict;
     if (src->alias_target)
         dst->alias_target = src->alias_target;
+    dst->used |= src->used;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)
@@ -333,6 +334,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "alias")) {
                             parse_alias_attr(p, name, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "used")) {
+                            gnu->used = true;
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

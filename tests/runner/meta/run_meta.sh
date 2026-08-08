@@ -101,7 +101,7 @@ out1=$("$RUNNER" --profile meta "$here" 2>&1)
 code1=$?
 [ "$code1" -eq 1 ] || fail "full dir: exit $code1, expected 1"
 case $out1 in
-*"total=56 pass=20 fail=20 xfail=1 xpass=1 skip=1 config=13"*) ;;
+*"total=58 pass=21 fail=21 xfail=1 xpass=1 skip=1 config=13"*) ;;
 *) fail "full dir: unexpected summary: $(printf '%s' "$out1" | tail -1)" ;;
 esac
 out2=$("$RUNNER" --profile meta "$here" 2>&1)

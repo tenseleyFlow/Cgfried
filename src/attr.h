@@ -86,6 +86,13 @@ typedef struct GnuDeclAttrs {
      * a linker problem -- which is what keeps it a purely local fact.
      * Interned, so it compares by pointer like every other name. */
     const char *alias_target;
+    /* `used`: keep the symbol even though nothing in this translation unit
+     * references it. It is a property of the OBJECT or FUNCTION, and the
+     * consumer is whatever would otherwise delete it -- today that is the IPO
+     * pass, which reaches only functions. Carried for globals too, so the flag
+     * is already right the day global dead-stripping lands rather than being
+     * remembered then. */
+    bool used;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

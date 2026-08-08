@@ -601,6 +601,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
      * 0, with no diagnostic anywhere. See .docs/audits/tls-debt.md. */
     g->is_tls = sym->tls;
     g->is_weak = sym->gnu.weak;
+    g->is_used = sym->gnu.used;
     g->visibility = sym->gnu.visibility;
     g->linkage =
         sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
@@ -871,6 +872,7 @@ static void lower_function(Lower *lo, AstNode *def)
     if (sym->linkage == LINK_INTERNAL)
         lo->fn->linkage = IRLINK_INTERNAL;
     lo->fn->is_weak = sym->gnu.weak;
+    lo->fn->is_used = sym->gnu.used;
     lo->fn->visibility = sym->gnu.visibility;
     /* `aligned` on a FUNCTION aligns the CODE. Sema folded it into the same
      * field an object's alignment uses, because it is the same attribute in a

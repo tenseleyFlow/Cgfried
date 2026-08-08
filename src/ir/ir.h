@@ -527,6 +527,9 @@ typedef struct IrFunc {
      * 0 means "the backend's default", which is not the same as 1 -- every
      * emitter already pads function entries and must keep doing so. */
     u32 align;
+    /* `used`: nothing here references it, keep it anyway. Consumed by IPO's
+     * reachability, which is the only thing that deletes a whole function. */
+    bool is_used;
     bool is_weak;  /* the `weak` attribute, on a FUNCTION */
     u8 visibility; /* GnuVisibility */
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);
@@ -608,6 +611,7 @@ typedef struct IrGlobal {
      * OBJECT, so it rides the global and the backend asks the module.
      * Printed ` weak` and ` visibility(hidden)`. */
     bool is_weak;
+    bool is_used;  /* the `used` attribute, on an OBJECT */
     u8 visibility; /* GnuVisibility */
     u8 *init;      /* Sprint 15 byte image; NULL = zeroinit / BSS */
     IrReloc *relocs;

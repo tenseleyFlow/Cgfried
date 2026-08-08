@@ -556,6 +556,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " visibility(%s)", gnu_visibility_name(f->visibility));
     if (f->align)
         buf_printf(out, " align(%u)", f->align);
+    if (f->is_used)
+        buf_printf(out, " used");
     if (f->abi_ret >= IR_ABIRET_HFA_F32)
         buf_printf(out, " abi(%s,%u)", ir_abi_ret_name(f->abi_ret),
                    f->abi_ret_n);
@@ -624,6 +626,8 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
             buf_printf(out, " tls");
         if (g->is_weak)
             buf_printf(out, " weak");
+        if (g->is_used)
+            buf_printf(out, " used");
         if (g->visibility)
             buf_printf(out, " visibility(%s)",
                        gnu_visibility_name(g->visibility));

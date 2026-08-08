@@ -599,6 +599,58 @@ static bool buf_contains(const Buf *b, const char *needle)
 /* IR_CHECK-NOT: the text must appear NOWHERE in the output. Returns the
  * first violated directive, or NULL. Order-independent by design —
  * an absence has no position. */
+/* The .s counterpart of find_forbidden: the first ASM_CHECK-NOT whose text
+ * appears in the produced assembly, or NULL.
+ *
+ * It reuses ASM_CHECK's own line normalization and `{{ERE}}` handling rather
+ * than doing a raw substring search, so the two directives agree on what
+ * "appears" means -- a negative that matched differently from its positive
+ * would be a trap rather than a check. Order-independent by design: an absence
+ * has no position.
+ *
+ * This is what makes "the symbol was DROPPED" assertable at all. A positive
+ * check cannot express it, and without it a `used` fixture passes whether or
+ * not anything is ever removed. */
+static const Directive *find_forbidden_asm(const DirectiveSet *ds,
+                                           const Buf *text, const char *target)
+{
+    size_t d;
+
+    for (d = 0; d < ds->ndirs; d++) {
+        const Directive *dir = &ds->dirs[d];
+        char pat[512], ere[1024];
+        regex_t rx;
+        size_t pos = 0;
+        bool hit = false;
+
+        if (dir->kind != DIR_ASM_CHECK_NOT)
+            continue;
+        if (dir->selector && !directive_selector_matches(dir->selector, target))
+            continue;
+        norm_ws(dir->value, strlen(dir->value), pat, sizeof(pat));
+        if (!asm_pattern_to_ere(pat, ere, sizeof(ere)))
+            return dir; /* malformed {{...}} reads as violated */
+        if (regcomp(&rx, ere, REG_EXTENDED | REG_NOSUB) != 0)
+            return dir;
+        while (pos < text->len && !hit) {
+            size_t eol = pos;
+            char line[2048];
+
+            while (eol < text->len && text->data[eol] != '\n')
+                eol++;
+            norm_ws((const char *)text->data + pos, eol - pos, line,
+                    sizeof(line));
+            if (regexec(&rx, line, 0, NULL, 0) == 0)
+                hit = true;
+            pos = eol + 1;
+        }
+        regfree(&rx);
+        if (hit)
+            return dir;
+    }
+    return NULL;
+}
+
 static const Directive *find_forbidden(const DirectiveSet *ds, const Buf *out)
 {
     size_t d;
@@ -1011,6 +1063,8 @@ have_compile:
             if (!miss && s_mode)
                 miss = match_asm_checks(ds, &comp.out, r->target);
             hit = find_forbidden(ds, &comp.out);
+            if (!hit && s_mode)
+                hit = find_forbidden_asm(ds, &comp.out, r->target);
             if (miss) {
                 if (!quiet) {
                     printf("FAIL %s: CHECK not matched in order (line %u): "
@@ -1020,9 +1074,12 @@ have_compile:
                 }
             } else if (hit) {
                 if (!quiet) {
-                    printf("FAIL %s: IR_CHECK-NOT text present (line %u): "
+                    printf("FAIL %s: %s text present (line %u): "
                            "%s\n",
-                           id, (unsigned)hit->line, hit->value);
+                           id,
+                           hit->kind == DIR_ASM_CHECK_NOT ? "ASM_CHECK-NOT"
+                                                          : "IR_CHECK-NOT",
+                           (unsigned)hit->line, hit->value);
                     print_detail("compiler stdout", &comp.out);
                 }
             } else {
@@ -1084,12 +1141,24 @@ have_compile:
             buf_append(&abuf, atext, alen);
             {
                 const Directive *amiss = match_asm_checks(ds, &abuf, r->target);
+                const Directive *aforbid;
 
                 if (amiss) {
                     if (!quiet) {
                         printf("FAIL %s: ASM_CHECK not matched (line "
                                "%u): %s\n",
                                id, (unsigned)amiss->line, amiss->value);
+                        print_detail("assembly", &abuf);
+                    }
+                    buf_free(&abuf);
+                    return OUT_FAIL;
+                }
+                aforbid = find_forbidden_asm(ds, &abuf, r->target);
+                if (aforbid) {
+                    if (!quiet) {
+                        printf("FAIL %s: ASM_CHECK-NOT matched (line "
+                               "%u): %s\n",
+                               id, (unsigned)aforbid->line, aforbid->value);
                         print_detail("assembly", &abuf);
                     }
                     buf_free(&abuf);

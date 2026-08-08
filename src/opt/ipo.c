@@ -147,6 +147,12 @@ Callgraph *ipo_callgraph_build(IrModule *m)
             }
         }
     }
+    /* `used` says to keep the function even though nothing here references
+     * it -- the same fact an alias target has, arrived at from the source
+     * instead of from a `.set`, so it seeds the same root set. */
+    for (ai = 0; ai < m->nfuncs; ai++)
+        if (m->funcs[ai].is_used)
+            g->address_taken[ai] = true;
     /* An ALIAS retains its target without any instruction naming it, and
      * without a relocation either -- the reference is a `.set` the assembler
      * resolves. A static function reachable only through an alias was deleted

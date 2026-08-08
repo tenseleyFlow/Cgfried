@@ -66,6 +66,8 @@ GA(warn_unused_result, GA_IGNORE)
 /* Intercepted by name in parse_cgf_attributes before the class is consulted;
  * the rows are here so this table remains the whole attribute surface. */
 GA(alias, GA_IMPLEMENTED)
+/* `used` keeps a symbol the IPO pass would otherwise delete. */
+GA(used, GA_IMPLEMENTED)
 GA(aligned, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
 GA(visibility, GA_IMPLEMENTED)
@@ -92,5 +94,3 @@ GA(section, GA_UNSAFE)
  * was assigned before this table asked the ignore-safety question. It does
  * not appear in musl. */
 GA(transparent_union, GA_UNSAFE)
-/* `used` keeps a symbol the IPO pass would otherwise delete. */
-GA(used, GA_UNSAFE)

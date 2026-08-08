@@ -50,6 +50,7 @@ predefine.
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/programs/gnu/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
+| `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -152,6 +153,28 @@ it as a cgf emission bug, blaming the wrong component. That keeps aliases out
 of `tests/corpus`, which the arm64 lane re-runs, so arm64 *execution* coverage
 waits on that row.
 
+`used` keeps a symbol nothing in the translation unit references. It reaches
+the same root set an `alias` target does, from the other direction — one is
+said in the source, the other implied by a `.set` the callgraph cannot see — so
+they share the code.
+
+Its fixture is built on a NEGATIVE, and that is the point: a positive check
+passes whether or not anything is ever dropped, so it would go green on a
+compiler that removes nothing. `ASM_CHECK-NOT` was added for it, because an
+absence is not expressible with a positive check and "the symbol was DROPPED"
+is the claim under test. `-O2` is required — at `-O0` nothing is removed and
+both survive.
+
+Adding that directive walked straight into F-S22-MIRCHECK a second time: it
+parsed, validated, and was silently dropped, because a new kind must also be
+listed in `directive.c`'s `add_dir`. The mutated fixture caught it; nothing
+else would have. Meta fixtures now pin both directions.
+
+One honest divergence: we keep an unreferenced static OBJECT that gcc drops.
+Nothing dead-strips globals here yet, so `used` on an object is carried through
+IR but currently changes nothing. The flag is plumbed anyway, so it is already
+right the day global dead-stripping lands rather than being remembered then.
+
 ## Parsed and ignored
 
 Accepted so the surrounding declaration compiles; no semantic effect. Each
@@ -185,9 +208,9 @@ incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
 `cleanup`, `constructor`, `destructor`, `gnu_inline`, `may_alias`,
-`returns_twice`, `section`, `transparent_union`, `used`.
+`returns_twice`, `section`, `transparent_union`.
 
-Three of those sit here against this sprint's original tiering, because the
+Two of those sit here against this sprint's original tiering, because the
 ignore-safety question overruled it:
 
 - **`transparent_union`** changes how the union is *passed* — the first
@@ -196,7 +219,6 @@ ignore-safety question overruled it:
 - **`may_alias`** switches *off* type-based aliasing for a type. Ignoring it
   leaves the optimizer applying TBAA exactly where the author said it must
   not, which is a subtle miscompile.
-- **`used`** keeps a symbol the IPO pass would otherwise delete.
 
 ## Refused
 

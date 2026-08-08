@@ -26,6 +26,7 @@ static const DirectiveName directive_table[] = {
     {"OFAST_DIVERGENCE_OK", DIR_OFAST_DIVERGENCE_OK},
     {"ASM_CHECK", DIR_ASM_CHECK},
     {"IR_CHECK", DIR_IR_CHECK},
+    {"ASM_CHECK-NOT", DIR_ASM_CHECK_NOT},
     {"IR_CHECK-NOT", DIR_IR_CHECK_NOT},
     {"MIR_CHECK", DIR_MIR_CHECK},
 };
@@ -299,7 +300,8 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
             }
             d.selector = sel;
         } else if (sel_len != 0 &&
-                   (hit->kind == DIR_ASM_CHECK || hit->kind == DIR_CHECK)) {
+                   (hit->kind == DIR_ASM_CHECK ||
+                    hit->kind == DIR_ASM_CHECK_NOT || hit->kind == DIR_CHECK)) {
             /* ASM_CHECK has taken a target selector since Sprint 25 (asm
              * text is inherently per-target). Sprint 49 extends it to CHECK,
              * because RUNTIME output legitimately diverges too: plain char is
@@ -321,11 +323,12 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
 
         switch (hit->kind) {
         case DIR_CHECK:
-        case DIR_ASM_CHECK:    /* Sprint 24: vs the produced .s text */
-        case DIR_IR_CHECK:     /* Sprint 17: CHECK semantics against the
-                                  -emit-ir reprint of a fixture */
-        case DIR_MIR_CHECK:    /* Sprint 21: vs -emit-mir stdout */
-        case DIR_IR_CHECK_NOT: /* Sprint 18: the text must NOT appear */
+        case DIR_ASM_CHECK:     /* Sprint 24: vs the produced .s text */
+        case DIR_IR_CHECK:      /* Sprint 17: CHECK semantics against the
+                                   -emit-ir reprint of a fixture */
+        case DIR_MIR_CHECK:     /* Sprint 21: vs -emit-mir stdout */
+        case DIR_ASM_CHECK_NOT: /* the text must NOT appear in the .s */
+        case DIR_IR_CHECK_NOT:  /* Sprint 18: the text must NOT appear */
         case DIR_ERROR_EXPECTED:
         case DIR_WARNING_EXPECTED:
         case DIR_DIVERGES_GCC8:
@@ -563,10 +566,17 @@ static void parse_line(Parser *p, const char *line, size_t len, u32 line_no)
          * all of Sprint 21 — MIR_CHECK directives parsed, validated, and
          * were then silently DROPPED, so the nine MIR goldens asserted
          * nothing. A meta fixture now pins that an unmatched MIR_CHECK
-         * fails. */
+         * fails.
+         *
+         * It happened AGAIN with DIR_ASM_CHECK_NOT, caught only because the
+         * new directive was mutated before being trusted -- a fixture whose
+         * negative names a symbol that IS present still passed. Adding a kind
+         * here is not optional, and the omission is invisible: everything
+         * parses, validates, and asserts nothing. */
         if (hit->kind == DIR_CHECK || hit->kind == DIR_IR_CHECK ||
             hit->kind == DIR_MIR_CHECK || hit->kind == DIR_ASM_CHECK ||
-            hit->kind == DIR_IR_CHECK_NOT || hit->kind == DIR_ERROR_EXPECTED ||
+            hit->kind == DIR_ASM_CHECK_NOT || hit->kind == DIR_IR_CHECK_NOT ||
+            hit->kind == DIR_ERROR_EXPECTED ||
             hit->kind == DIR_WARNING_EXPECTED || hit->kind == DIR_XFAIL ||
             hit->kind == DIR_WARN_CHECK || hit->kind == DIR_DIVERGES_GCC8 ||
             hit->kind == DIR_SKIP || hit->kind == DIR_ENV ||
