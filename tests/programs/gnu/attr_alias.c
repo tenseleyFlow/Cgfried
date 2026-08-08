@@ -1,15 +1,15 @@
-// ENV: CGF_AS=0
 // OPT_EQ: all
 // EXIT_CODE: 0
-// `alias`, executed.
+// `alias`, executed through the BUNDLED assembler -- no `CGF_AS=0` here, which
+// is the point: afs-as PR #28 implements `.set` for x86, so this exercises the
+// real default path rather than routing around it.
 //
-// It routes around the BUNDLED assembler because afs-as does not implement
-// `.set` (AS-SET-001) -- the same shape as the TLS fixtures and TLS-004. That
-// also keeps it OUT of tests/corpus, which the arm64 lane re-runs through
-// afs-as, so arm64 EXECUTION coverage for aliases waits on that row. The
-// arm64 emission path is verified by hand against the cross assembler in the
-// meantime, and it is where the first bug showed up: `.weak_definition` is
-// Mach-O's spelling and ELF's assembler rejects it.
+// It stays OUT of tests/corpus because the arm64 lane re-runs that directory
+// through afs-as, whose arm64 path still reads `.set` as an ABSOLUTE
+// assignment and rejects a label target (AS-SET-002). arm64 EXECUTION coverage
+// for aliases waits on that row; the arm64 EMISSION path is verified by hand
+// against the cross assembler, and it is where the first bug showed up --
+// `.weak_definition` is Mach-O's spelling and ELF's assembler rejects it.
 //
 // The -O2 case is the one worth keeping: `s_real` is reachable ONLY through
 // its alias, and an alias reference is a `.set` rather than a relocation, so

@@ -65,7 +65,7 @@ Until then `scripts/musl_cross_lane.sh` links its afs-ld leg against a
 debug-stripped copy of the sysroot, so the lane stays honest about what
 afs-ld can and cannot do rather than skipping it.
 
-## AS-SET-001 — afs-as has no `.set`
+## AS-SET-001 — afs-as had no `.set` (x86) — CLOSED
 
 Filed by the `alias` attribute (Sprint 55). `alias` emits
 
@@ -85,6 +85,34 @@ reject correct assembly and reporting it as a cgf emission bug — the same
 treatment TLS-004 already has, and for the same reason: the error must name
 the component that is actually missing something.
 
-What it needs: `.set NAME, EXPR` assigning a symbol the value, section, type
-and binding of its target. gas resolves a `.set` whose target appears later in
-the file, so the directive cannot assume the target is already defined.
+CLOSED by upstream PR #28 (merged `fb50d2f`) for the **x86** path. Three things
+the gas differential caught while landing it, worth keeping because each is a
+way to be wrong while looking right:
+
+- the alias must also be a known LOCAL label before relocations resolve, or a
+  call to it keeps a symbol relocation where gas folds the section symbol --
+  the object still links and RUNS correctly, so only the relocation list shows
+  it;
+- gas gives the alias the target's SIZE, not zero;
+- but not by copying the size EXPRESSION: `.size f, .-f` is measured from its
+  own directive's position and an alias has none. A 5-case synthetic suite
+  using a constant `.size` passed while real compiler output failed.
+
+## AS-SET-002 — afs-as has no symbol `.set` on the arm64 path
+
+The arm64 and Mach-O paths use a DIFFERENT parser and assembler from x86
+(`src/parse.rs` + `src/assemble.rs` versus `src/x86/`), and there `.set` means
+an ABSOLUTE assignment: `.set alias, label` is rejected with "absolute symbol
+'alias' must resolve to an absolute value". PR #28 deliberately did not touch
+it -- the two pipelines share nothing here, and a change to the main one is its
+own piece of work with its own differential.
+
+Consequence: `alias` works on x86 through the bundled assembler and is refused
+by name on arm64, so `tests/programs/gnu/attr_alias.c` stays out of
+`tests/corpus` (which the arm64 lane re-runs) and arm64 EXECUTION coverage for
+aliases waits on this row.
+
+What it needs: in the main parser, a `.set` whose right-hand side names a
+DEFINED LABEL rather than an absolute expression should become a symbol alias
+with the target's section, offset, type and size -- the same semantics PR #28
+gave x86, resolved after layout because gas accepts a forward reference.

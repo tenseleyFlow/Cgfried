@@ -143,13 +143,14 @@ Verified against the ELF symbol table rather than the directives: type
 every alias, and the executed fixture proves an alias and its target are the
 same object rather than a copy.
 
-**The bundled assembler does not implement `.set`** (AS-SET-001), so the
-fixture routes to the system assembler with `CGF_AS=0` and the driver refuses
-the afs-as path by name — the TLS-004 treatment, for the same reason: left
-alone, afs-as rejects correct assembly and the driver reports it as a cgf
-emission bug, blaming the wrong component. It also keeps aliases out of
-`tests/corpus`, which the arm64 lane re-runs through afs-as, so arm64
-*execution* coverage waits on that row.
+The bundled assembler gained `.set` for x86 in upstream PR #28, so the fixture
+runs on the real default path. Its **arm64** path is a different parser and
+assembler entirely, and there `.set` still means an *absolute* assignment
+(AS-SET-002) — so the driver refuses that combination by name, the TLS-004
+treatment: left alone, afs-as rejects correct assembly and the driver reports
+it as a cgf emission bug, blaming the wrong component. That keeps aliases out
+of `tests/corpus`, which the arm64 lane re-runs, so arm64 *execution* coverage
+waits on that row.
 
 ## Parsed and ignored
 

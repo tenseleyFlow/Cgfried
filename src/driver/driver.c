@@ -830,6 +830,7 @@ emit_tail:
      * about. Say what is actually true, and what to do about it. */
     {
         ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
+        TargetKind tk = cgf_target_selected().kind;
         u32 gi;
 
         if (tc.use_afs_as)
@@ -845,18 +846,21 @@ emit_tail:
                 buf_free(&b);
                 return CGF_EXIT_COMPILE;
             }
-        /* The same gap, for the same reason, one attribute later: an `alias`
-         * emits `.set`, which afs-as does not implement (AS-SET-001). Its own
-         * rejection says the x86 dialect "grows only with corpus evidence" --
-         * this is that evidence, and the row is filed. Until it lands, say
-         * which component is missing what rather than letting the driver
-         * report a correct emission as a cgf bug. */
-        if (tc.use_afs_as && m->naliases) {
+        /* `alias` emits `.set NAME, TARGET`. The bundled assembler implements
+         * it for x86 (upstream PR #28) but not on the arm64 path, where `.set`
+         * still means an ABSOLUTE assignment and a label target is rejected
+         * (AS-SET-002). Scoped to the target that actually lacks it rather
+         * than refused everywhere -- and said out loud, because otherwise
+         * afs-as rejects correct assembly and the driver reports its own
+         * emission as the bug. */
+        if (tc.use_afs_as && m->naliases && tk != CGF_TARGET_X86_64_LINUX_GNU &&
+            tk != CGF_TARGET_X86_64_LINUX_MUSL &&
+            tk != CGF_TARGET_X86_64_FREEBSD) {
             fprintf(stderr,
                     "cgfried: error: '%s' uses the 'alias' attribute, which "
                     "emits '.set' -- the bundled assembler does not implement "
-                    "it yet (AS-SET-001); build with CGF_AS=0 to use the "
-                    "system assembler\n",
+                    "it on this target yet (AS-SET-002); build with CGF_AS=0 "
+                    "to use the system assembler\n",
                     job->path);
             buf_free(&b);
             return CGF_EXIT_COMPILE;
