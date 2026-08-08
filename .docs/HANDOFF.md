@@ -50,18 +50,29 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - **Sprint 51 is CLOSED** (all seven deliverables) and **Sprint 55 is under
   way** — see §1b-1. `ci/closed_sprints.txt` is 51; raising it forced an
   audit and found only the `-g` gate the DWARF work had already removed.
+- **EIGHT GNU attributes are implemented**: `weak`, `visibility`, `packed`,
+  `aligned`, `alias`, `used`, `__asm__("name")` labels, `section`. §1b-1 has
+  what each one taught and, under THE PICK, what to do next and why.
 - **arm64-linux emits DWARF and `.eh_frame`**; `addr2line` resolves a linked
   executable. `src/cg/debug.c` is now the ONE line-table and CU-DIE emitter
   for every target, which also makes task #93's variable DIEs a write-once
   job rather than per-backend.
 - **The GNU attribute surface is classified** by what ignoring each one
   costs; `weak` and `visibility` are implemented and agree with gcc's symbol
-  table on both targets. **`packed` is implemented** (rules 1-4;
-  `.docs/audits/packed-layout.md`), and **`aligned` is measured and specified
-  but NOT implemented** — `.docs/audits/aligned-layout.md`.
+  table on both targets. **`packed` and `aligned` are both implemented**
+  (`.docs/audits/packed-layout.md`, `.docs/audits/aligned-layout.md` — each
+  records what the measuring found that the plan had not anticipated).
 - **`_Alignas` on an OBJECT works.** It did not, on any target, for the whole
   project: ISO C11 6.7.5 validated and then discarded. Members had worked
   since Sprint 14, which is what hid it.
+- **afs-as PR #28 is merged and the submodule is bumped** (`fb50d2f`): `.set`
+  works on the x86 path, so `alias` compiles through the BUNDLED assembler.
+  Its arm64 path is a separate parser and assembler and still lacks it —
+  AS-SET-002, recipe in `.docs/audits/afsld-elf-debt.md`.
+- **Known-wrong-but-shipping, and the ONLY two of that kind**: const globals
+  go in `.data` rather than `.rodata`, and a void expression is accepted where
+  a scalar condition is required (task #108). Everything else open is a NAMED
+  refusal, which is a legitimate resting state — see §1b-1's THE PICK.
 - **VLAs work on both targets**, as of the deferral reckoning (§1b-1). They
   did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
   function that also passed arguments on the stack. Multidimensional VLAs
@@ -676,101 +687,109 @@ diagnostic in task #93) get written ONCE rather than per backend.
 
 Taken out of numerical order on purpose: 28 deferrals pointed at it, it
 blocks HOSTED compilation on macOS and FreeBSD, and Sprints 56/57 need it.
-Commits `3ef9741`, `78019c8`, `f7f17fb`, `194258c`, `32c156d`, `5b3976a`,
-`f9724fc`, `28b2501` — all CI-green.
 
 **THE ORGANIZING IDEA, and it decides everything else.** One question:
 *what happens if we ignore this attribute?*
 
-- cost is a diagnostic or a missed optimization → accept, warn under
+- cost is a diagnostic or a missed optimization -> accept, warn under
   `-Wattributes` (gcc's own flag; its default is flipped to ON to match)
-- changes LAYOUT, LINKAGE or BEHAVIOUR → hard error until implemented
-- never heard of it → accept and warn, exactly as gcc does, because a
-  compiler that rejects unknown names cannot read next year's headers
+- changes LAYOUT, LINKAGE or BEHAVIOUR -> hard error until implemented
+- never heard of it -> accept and warn, exactly as gcc does, because a
+  compiler that rejects a name it has never heard of cannot read next
+  year's headers
 
-`src/parse/gnu_attrs.def` is the table and carries the reasoning per row.
-This is what makes the rest landable ONE ATTRIBUTE AT A TIME: at every
-point the compiler either does the right thing or refuses, never quietly
-the wrong one. Do not weaken it for convenience.
+`src/parse/gnu_attrs.def` is that table and `docs/gnu-extensions.md` is its
+prose, gated by `scripts/check_gnu_tiers.sh`.
 
-It also overruled the sprint file's own tiering three times, each a real
-miscompile avoided — `transparent_union` (changes how a union is PASSED,
-so ignoring it is an ABI mismatch), `may_alias` (ignoring leaves TBAA
-applied exactly where the author forbade it), `used` (keeps a symbol IPO
-would delete).
+#### EIGHT implemented, and what each one taught
 
-**Landed:** the tier table `docs/gnu-extensions.md` + `check_gnu_tiers.sh`
-in `make test`; the refused tier (asm goto, computed goto, `&&label`,
-nested functions, mode, vector_size — each naming what it would take); the
-classification; and `weak` + `visibility` implemented end to end.
+`weak`, `visibility`, `packed`, `aligned`, `alias`, `used`, `__asm__("name")`
+labels, `section`.
 
-**`packed` LANDED** (rules 1-4; `32c156d`). The audit's trap was real:
-packed drops the RECORD's alignment as well as its members', and forcing the
-offsets alone gives right offsets and wrong `sizeof`. Injecting exactly that
-bug takes the layout differential 400/400 -> 277/400, failing on `_Alignof`
-and never on an offset — which is why the fixtures assert alignment and size,
-not only offsets. Bitfields (rule 5) and `_Atomic` members refuse by name.
+- **`packed`**: drops the RECORD's alignment as well as its members'. Force
+  the offsets alone and every offset a reader checks is right while `sizeof`
+  keeps its tail padding. Injecting exactly that takes the layout differential
+  400/400 -> 277/400, failing on `_Alignof` and never on an offset.
+- **`aligned`**: the INVERSE of `_Alignas` -- it only ever RAISES, so a weaker
+  request is silently declined and `aligned(1)` is NOT a spelling of `packed`.
+- **`alias`**: two bugs only a real LINK showed. IPO deleted a static function
+  reachable only through its alias (a `.set` is not a relocation, so the
+  callgraph never saw it), and `.weak_definition` is Mach-O's spelling that
+  ELF rejects.
+- **`used`**: reaches the same IPO root set an alias target does, from the
+  other direction.
+- **asm labels**: rename the SYMBOL; the C identifier stays for source and
+  diagnostics, which is why `lower_link_name` is a separate accessor. One of
+  the TWO blockers for hosted macOS -- `__DARWIN_ALIAS` uses it.
+- **`section`**: a named section forces PROGBITS, so an UNINITIALIZED object
+  there gets real bytes rather than a `.bss` reservation -- otherwise it lands
+  outside the section the author named.
 
-Three things measurement found that the audit had not anticipated, all now in
-`.docs/audits/packed-layout.md`: position decides binding (trailing and
-keyword-adjacent pack the record, a LEADING attribute gcc ignores); the SysV
-classifier puts an aggregate with unaligned FIELDS in MEMORY and the test is
-the field OFFSET, not the record's alignment; and a packed member access was
-claiming its type's alignment, now clamped (chained case ledgered PACKED-001).
+#### THE PICK, if you are asking what to do next
 
-**NEXT: `aligned`.** Measured and committed at
-`.docs/audits/aligned-layout.md` — read it first. The headline is the
-opposite of `_Alignas`:
+**Sort the open items first, because they are not the same kind of thing.**
 
-> `aligned` only ever RAISES. Asking for less than the natural alignment is
-> silently declined, so `aligned(1)` is NOT a spelling of `packed`.
+*Named refusals -- LEAVE THEM.* Sprint 53's over-aligned stack objects,
+SEC-MACHO-001, and the six still-refused attributes all fail loudly and say
+what is missing. That is the tier table's whole point. Closing them is feature
+work, not gap-closing.
 
-Every consumer already exists, because the `_Alignas` object work built them:
-record is `TagDecl.align_override`, member is `Member.align_override`, object
-is `Symbol.align_override` -> `lower_object_align`. All three already compare
-with `>`, so rule 1 needs no new logic — only the value has to arrive. What is
-missing is the FUNCTION position (`IrFunc` has no alignment field and both
-emitters hardcode the padding before a function label) and the argument
-grammar (gcc takes a constant expression; the `cgf_` parser takes only an
-integer token — `_Alignas` already parses a full conditional-expression and
-folds it in sema, which is the honest path to reuse).
+*Silently wrong today -- these are the real ones.* Only two:
 
-**Two silent miscompiles were found while PREPARING `aligned`, before a line
-of it was written** (`28b2501`), which is the argument for measuring first:
-`_Alignas` on an OBJECT did nothing on every target — ISO C11, not a GNU
-extension, validated and then discarded at the call site — and under it,
-arm64 aligned a frame object's END where the expansion recovers its START,
-while x86_64 silently under-aligned over-aligned stack objects that arm64 had
-refused by name since Sprint 48. Members had worked since Sprint 14, which is
-precisely what hid all of it: the feature demonstrably worked, just not on
-objects.
+1. **`.rodata` -- MY PICK.** Const globals go in `.data`. Every `const`
+   global in every program sits in a WRITABLE segment. It is also the root of
+   the `"aw"` vs `"a"` divergence documented under `section`, so fixing it
+   RETIRES that entry instead of leaving a permanent footnote. Self-contained:
+   a read-only flag on `IrGlobal`, set from the type's constness at lowering,
+   consumed by two emitters.
+   **MEASURE FIRST:** gcc puts a const global whose initializer contains a
+   RELOCATION into `.data.rel.ro` under PIC, not `.rodata`. Get that wrong and
+   `-shared` builds hand the dynamic linker a read-only segment it must write.
+2. **Task #108** -- a void expression accepted where a scalar condition is
+   required. Small, and adjacent to the void-conditional typing fixed this
+   session.
 
-The fixture for any of this must check the ADDRESS at run time. `_Alignof`
-answers from the TYPE and was correct throughout — it cannot tell a placed
-object from a misplaced one.
+*Coverage, not correctness.* **AS-SET-002** blocks arm64 EXECUTION coverage for
+aliases; the recipe including the cursor trap is in
+`.docs/audits/afsld-elf-debt.md`, so it is a focused change now rather than an
+exploration. **PACKED-001** should stay open: nothing consumes an over-claimed
+load alignment today, and the evidence for that is recorded rather than
+assumed.
 
-After `aligned`: `alias`, `section`,
-and the `constructor`/`destructor`/`cleanup` group. Then D2 extended asm,
-D4 statement expressions + typeof, and D5 `__GNUC__` LAST — defining it is
-a PROMISE that the implemented set has to back.
+After those: `constructor`/`destructor`/`cleanup` as a group (they share the
+"runs outside main" story and need `.init_array`), then D2 extended asm, D4
+statement expressions + typeof, and **D5 `__GNUC__` LAST**.
 
-### Two habits that earned their place this session
+#### D5 IS A PROMISE, AND ONE FACT GOVERNS EVERY FIXTURE UNTIL THEN
 
-**Verify against the ARTIFACT, not the instruction.** `weak`/`visibility`
-looked correct in the emitted assembly while arm64 emitted `GLOBAL` where
-gcc emitted `WEAK`; one `readelf -sW` diff against `aarch64-linux-gnu-gcc`
-found it. Same shape as the ABI differential linking and RUNNING both
-halves rather than comparing assembly, and as `layout_diff` letting gcc's
-own constraint checker be the oracle.
+While `__GNUC__` is undefined, glibc's `sys/cdefs.h` does
+`#define __attribute__(xyz)`. **No hosted fixture can test any attribute** --
+the preprocessor deletes it and the fixture passes no matter what the compiler
+does. The first packed comparison "disagreed with gcc on every row" for exactly
+this. EVERY attribute fixture is freestanding.
 
-**Mutate every new gate before trusting it.** THREE gates written this
-session were wrong or vacuous on first run — `check_gnu_tiers.sh` twice
-(once genuinely red, once from its own backtick handling) and a probe in
-`driver_matrix.sh`. A green gate you have never seen fail is not evidence.
-Related trap, hit three times: `cmd | head` reports HEAD's exit status, so
-`rc=$?` after a pipe says nothing about the command.
+The reverse is the D5 risk: the day `__GNUC__` is defined, every attribute in
+every system header goes live at once. The implemented table is the obligation
+list.
 
----
+#### HABITS THAT PAID, REPEATEDLY
+
+- **Measure gcc BEFORE writing code.** It overruled the sprint's own tiering
+  three times, and preparing `aligned` is what uncovered `_Alignas` on an
+  object doing nothing at all.
+- **Check the ARTIFACT, not the instruction.** `readelf -sW` vs the emitted
+  directive; the ADDRESS at run time vs `_Alignof`, which answers from the TYPE
+  and is correct even when placement is wrong; linking and RUNNING vs reading
+  assembly -- both `alias` bugs were invisible until a real link.
+- **Mutate every new gate before trusting it.** Three gates this session were
+  wrong or vacuous on first run, including one I wrote (`ASM_CHECK-NOT`) that
+  walked straight into F-S22-MIRCHECK: a new directive kind must ALSO be listed
+  in `directive.c`'s `add_dir` or it parses, validates, and asserts nothing.
+- **A local green suite is not the fuzz job.** `make test` runs a 2,000-
+  iteration smoke; CI runs 100,000 under sanitizers. That 50x gap caught a real
+  ICE (seed 76632). Run the full 100k locally before pushing anything that adds
+  a fixture to `tests/programs`.
+
 
 ## 1b-2. Process traps from the Sprint 50/51 sessions
 
