@@ -230,6 +230,25 @@ u32 ir_sym(IrModule *m, const char *name)
     return m->nsyms++;
 }
 
+IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target)
+{
+    IrAlias *a;
+
+    if (m->naliases == m->cap_aliases) {
+        u32 nc = m->cap_aliases ? m->cap_aliases * 2 : 4;
+
+        m->aliases = grow(m->arena, m->aliases, m->naliases, nc,
+                          sizeof(IrAlias), _Alignof(IrAlias));
+        m->cap_aliases = nc;
+    }
+    a = &m->aliases[m->naliases++];
+    memset(a, 0, sizeof(*a));
+    a->name = name;
+    a->target = target;
+    ir_sym(m, name); /* referenceable, exactly like a global */
+    return a;
+}
+
 IrGlobal *ir_global_new(IrModule *m, const char *name)
 {
     IrGlobal *g;
@@ -847,16 +866,35 @@ static bool inst_eq(const IrInst *a, const IrInst *b)
     return true;
 }
 
+IrAlias *ir_alias_find(IrModule *m, const char *name)
+{
+    u32 i;
+
+    for (i = 0; i < m->naliases; i++)
+        if (str_eq(m->aliases[i].name, name))
+            return &m->aliases[i];
+    return NULL;
+}
+
 bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
 {
     u32 i, j;
 
     if (a->nfuncs != b->nfuncs || a->nglobals != b->nglobals ||
-        a->nsyms != b->nsyms)
+        a->nsyms != b->nsyms || a->naliases != b->naliases)
         return false;
     for (i = 0; i < a->nsyms; i++)
         if (!str_eq(a->syms[i], b->syms[i]))
             return false;
+    for (i = 0; i < a->naliases; i++) {
+        const IrAlias *x = &a->aliases[i];
+        const IrAlias *y = &b->aliases[i];
+
+        if (!str_eq(x->name, y->name) || !str_eq(x->target, y->target) ||
+            x->linkage != y->linkage || x->is_weak != y->is_weak ||
+            x->visibility != y->visibility)
+            return false;
+    }
     for (i = 0; i < a->nglobals; i++) {
         const IrGlobal *x = &a->globals[i];
         const IrGlobal *y = &b->globals[i];

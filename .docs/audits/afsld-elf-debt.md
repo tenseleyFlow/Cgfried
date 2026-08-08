@@ -64,3 +64,27 @@ Either fix works upstream, and skipping is the cheaper one:
 Until then `scripts/musl_cross_lane.sh` links its afs-ld leg against a
 debug-stripped copy of the sysroot, so the lane stays honest about what
 afs-ld can and cannot do rather than skipping it.
+
+## AS-SET-001 — afs-as has no `.set`
+
+Filed by the `alias` attribute (Sprint 55). `alias` emits
+
+    .globl  alias_fn
+    .set    alias_fn,real_fn
+
+and afs-as rejects `.set` with "unsupported directive — the x86 dialect grows
+only with corpus evidence". This IS that evidence: `alias` is musl's
+`weak_alias` idiom, so the campaign needs it.
+
+Both targets are affected — the arm64 lane assembles through afs-as too, which
+is why `tests/programs/gnu/attr_alias.c` carries `ENV: CGF_AS=0` and lives
+outside `tests/corpus`. arm64 EXECUTION coverage for aliases waits on this row.
+
+The driver refuses the afs-as path by name rather than letting the assembler
+reject correct assembly and reporting it as a cgf emission bug — the same
+treatment TLS-004 already has, and for the same reason: the error must name
+the component that is actually missing something.
+
+What it needs: `.set NAME, EXPR` assigning a symbol the value, section, type
+and binding of its target. gas resolves a `.set` whose target appears later in
+the file, so the directive cannot assume the target is already defined.

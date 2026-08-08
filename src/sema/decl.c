@@ -1859,6 +1859,19 @@ static void declare_one(Sema *s, AstNode *d)
     if (alignas_req > sym->align_override)
         sym->align_override = alignas_req;
 
+    if (d->gnu.alias_target) {
+        /* Interned HERE: the parser has no interner, and this is the one
+         * place that needs pointer identity against other symbol names. */
+        sym->alias_target = intern_str(
+            s->interner, intern_cstr(s->interner, d->gnu.alias_target));
+        sym->alias_span = d->span;
+        /* An alias DEFINES its name -- it emits a symbol -- but has no body
+         * and no initializer of its own, so nothing downstream should treat
+         * it as a tentative definition to be zero-filled. */
+        sym->defined = true;
+        sym->tentative = false;
+    }
+
     if (d->storage & AST_SC_THREAD_LOCAL) {
         sym->tls = true;
         if (is_func) {
@@ -2649,10 +2662,49 @@ static void finish_symbol(Sema *s, Symbol *sym)
                         : DEF_ZERO_INIT;
 }
 
+/* An alias's TARGET must be defined in this translation unit -- gcc's rule,
+ * and the one that makes an alias a purely local fact the emitter can settle
+ * with a single `.set`. It is an END-OF-TU question for the same reason the
+ * inline matrix is: the target may be defined after the alias that names it.
+ *
+ * A `defined` FUNCTION and a `defined` OBJECT both qualify; another alias does
+ * not, because chaining would need a resolution order this deliberately has
+ * none of. */
+static void check_alias_targets(Sema *s, Symbol *chain)
+{
+    Symbol *sym;
+
+    for (sym = chain; sym; sym = sym->next) {
+        Symbol *t;
+        bool ok = false;
+
+        if (!sym->alias_target)
+            continue;
+        for (t = chain; t; t = t->next) {
+            if (t->name != sym->alias_target || t->ns != NS_ORDINARY)
+                continue;
+            if (t->alias_target)
+                break; /* an alias of an alias: refused below by name */
+            if (t->defined || t->def_kind != DEF_NONE)
+                ok = true;
+            break;
+        }
+        if (!ok) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, sym->alias_span,
+                      "'%s' is aliased to '%s', which is not defined in this "
+                      "translation unit",
+                      sym->name, sym->alias_target);
+        }
+    }
+}
+
 void sema_finish(Sema *s)
 {
-    if (s->file_scope)
+    if (s->file_scope) {
         finish_symbol(s, s->file_scope->ordinary);
+        check_alias_targets(s, s->file_scope->ordinary);
+    }
 }
 
 void sema_run(Sema *s, AstNode *tu)

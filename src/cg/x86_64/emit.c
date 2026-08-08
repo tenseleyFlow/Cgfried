@@ -679,6 +679,22 @@ void x64_emit_globals(const IrModule *m, Buf *out)
 {
     u32 i;
 
+    /* Aliases first: `.set` needs no section and no alignment, and emitting
+     * them before any `.data`/`.bss` switch keeps the output free of a
+     * section change that means nothing. gas resolves a `.set` whose target
+     * appears later in the file, so the order is free. */
+    for (i = 0; i < m->naliases; i++) {
+        const IrAlias *a = &m->aliases[i];
+
+        /* An INTERNAL alias gets no binding directive at all -- gcc emits a
+         * bare `.set`, and adding `.local` would be a claim the target's own
+         * `.local` already makes. */
+        if (a->linkage != IRLINK_INTERNAL)
+            buf_printf(out, a->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
+                       a->name);
+        emit_symbol_attrs(out, a->name, a->visibility);
+        buf_printf(out, "\t.set\t%s,%s\n", a->name, a->target);
+    }
     for (i = 0; i < m->nglobals; i++) {
         const IrGlobal *g = &m->globals[i];
         u32 p2 = 0;

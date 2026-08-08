@@ -1711,6 +1711,44 @@ out:
 
 /* --- globals ------------------------------------------------------------- */
 
+/* `alias @name = @target LINKAGE [weak] [visibility(V)]` */
+static bool parse_alias(P *p)
+{
+    Tok *nm;
+    Tok *tg;
+    Tok *lk;
+    IrAlias *a;
+    u8 linkage = IRLINK_EXTERNAL;
+
+    nm = expect(p, T_AIDENT, "an alias name");
+    if (!nm)
+        return false;
+    if (!expect(p, T_EQ, "'=' after the alias name"))
+        return false;
+    tg = expect(p, T_AIDENT, "an alias target");
+    if (!tg)
+        return false;
+    lk = next(p);
+    if (tok_is(lk, "internal"))
+        linkage = IRLINK_INTERNAL;
+    else if (tok_is(lk, "external"))
+        linkage = IRLINK_EXTERNAL;
+    else if (tok_is(lk, "common"))
+        linkage = IRLINK_COMMON;
+    else {
+        perr(p, lk, "expected a linkage (internal/external/common)");
+        return false;
+    }
+    a = ir_alias_new(p->m, tok_name(p, nm), tok_name(p, tg));
+    a->linkage = linkage;
+    if (tok_is(peek(p), "weak")) {
+        next(p);
+        a->is_weak = true;
+    }
+    a->visibility = parse_visibility_suffix(p);
+    return true;
+}
+
 static bool parse_global(P *p)
 {
     Tok *nm = expect(p, T_AIDENT, "the global's name");
@@ -1897,6 +1935,10 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             if (!nm)
                 goto fail;
             ir_sym(m, tok_name(&p, nm));
+        } else if (tok_is(t, "alias")) {
+            next(&p);
+            if (!parse_alias(&p))
+                goto fail;
         } else if (tok_is(t, "global")) {
             next(&p);
             if (!parse_global(&p))
@@ -1906,7 +1948,7 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             if (!parse_func(&p))
                 goto fail;
         } else {
-            perr(&p, t, "expected 'sym', 'global', or 'func'");
+            perr(&p, t, "expected 'sym', 'alias', 'global', or 'func'");
             goto fail;
         }
     }

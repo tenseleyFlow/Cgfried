@@ -195,6 +195,11 @@ struct Symbol {
      * their alignment VALIDATED and then discarded, so `_Alignas(64) int g`
      * emitted `.p2align 2` and the address was not 64-aligned at run time. */
     u64 align_override;
+    /* `alias("target")`: this symbol is a NAME for another one defined in the
+     * same TU. Interned at the point sema resolves it, so it compares by
+     * pointer with every other symbol name. */
+    const char *alias_target;
+    Span alias_span; /* where the attribute was written, for the diagnostic */
     /* Implemented GNU attributes. Merged across declarations like the
      * inline matrix is: a plain declaration followed by a `weak` one
      * says weak, because the two declarations are one symbol. */

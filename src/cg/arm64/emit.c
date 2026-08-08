@@ -1250,5 +1250,34 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
 
 void a64_emit_globals(const IrModule *m, Buf *out)
 {
+    Emit e;
+    u32 i;
+
+    memset(&e, 0, sizeof(e));
+    e.out = out;
+    e.m = m;
+    e.apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
+    /* Aliases need no section and no alignment, so they precede the data.
+     * Mach-O spells the symbol with a leading underscore exactly as every
+     * other symbol does; `.set` itself is the same directive on both. */
+    for (i = 0; i < m->naliases; i++) {
+        const IrAlias *a = &m->aliases[i];
+
+        if (a->linkage != IRLINK_INTERNAL) {
+            /* `.weak_definition` is MACH-O's spelling and ELF's assembler
+             * rejects it outright; ELF wants `.weak`, exactly as x86 emits.
+             * Copying the Apple form into the ELF path is why this lane exists
+             * at all -- the assembler caught it on the first real link. */
+            if (a->is_weak)
+                buf_printf(
+                    out, e.apple ? "\t.weak_definition\t%s\n" : "\t.weak\t%s\n",
+                    msym(&e, a->name));
+            else
+                buf_printf(out, "\t.globl\t%s\n", msym(&e, a->name));
+        }
+        a64_symbol_attrs(&e, out, a->name, a->visibility);
+        buf_printf(out, "\t.set\t%s,%s\n", msym(&e, a->name),
+                   msym(&e, a->target));
+    }
     a64_emit_globals_filtered(m, out, false);
 }

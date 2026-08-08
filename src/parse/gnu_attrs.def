@@ -65,13 +65,13 @@ GA(warn_unused_result, GA_IGNORE)
 /* --- implemented: the semantics are real ------------------------------- */
 /* Intercepted by name in parse_cgf_attributes before the class is consulted;
  * the rows are here so this table remains the whole attribute surface. */
+GA(alias, GA_IMPLEMENTED)
 GA(aligned, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
 GA(visibility, GA_IMPLEMENTED)
 GA(weak, GA_IMPLEMENTED)
 
 /* --- NOT safe to ignore: layout, linkage, or behaviour ------------------ */
-GA(alias, GA_UNSAFE)
 GA(cleanup, GA_UNSAFE)
 GA(constructor, GA_UNSAFE)
 GA(destructor, GA_UNSAFE)

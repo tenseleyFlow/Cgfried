@@ -636,6 +636,22 @@ typedef struct IrMemLayout {
 /* The module symbol table: every name the IR can reference — globals,
  * external functions, string-literal objects. Insertion-ordered (the
  * determinism law); IROP_SYMBOL/IrReloc/FUNCREF_EXTERNAL index into it. */
+/* An `alias` symbol: a NAME for an object or function defined elsewhere in
+ * this module. It is neither an IrGlobal (no size, no initializer, occupies no
+ * storage of its own) nor an IrFunc (no body), so it gets its own list rather
+ * than a flag that every consumer of those two would have to learn to skip.
+ *
+ * gcc REQUIRES the target to be defined in the same translation unit -- an
+ * alias to an undefined symbol is an error, not a linker problem -- which is
+ * what keeps this a purely local fact and lets the emitter write one `.set`. */
+typedef struct IrAlias {
+    const char *name;   /* interned */
+    const char *target; /* interned; defined in THIS module */
+    u8 linkage;         /* IrLinkage */
+    bool is_weak;
+    u8 visibility; /* GnuVisibility */
+} IrAlias;
+
 typedef struct IrModule {
     Arena *arena;
     DiagCtx *dc;
@@ -657,6 +673,9 @@ typedef struct IrModule {
     IrMemLayout *mem_layouts;
     u32 nmem_layouts;
     u32 cap_mem_layouts;
+    IrAlias *aliases;
+    u32 naliases;
+    u32 cap_aliases;
 } IrModule;
 
 /* --- construction (src/ir/ir.c, src/ir/build.c) -------------------------- */
@@ -668,6 +687,8 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
 IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
 IrGlobal *ir_global_new(IrModule *m, const char *name);
+IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target);
+IrAlias *ir_alias_find(IrModule *m, const char *name);
 IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,
                     const IrType *params, u32 nparams);
 BlockId ir_block_new(IrModule *m, IrFunc *f, const char *name);

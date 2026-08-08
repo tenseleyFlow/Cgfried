@@ -115,7 +115,7 @@ Callgraph *ipo_callgraph_build(IrModule *m)
 {
     Callgraph *g = zalloc(1, sizeof(*g));
     Tarjan t;
-    u32 fi, bi;
+    u32 fi, bi, ai;
 
     g->nnodes = m->nfuncs;
     g->edges = zalloc((size_t)g->nnodes * g->nnodes, sizeof(bool));
@@ -146,6 +146,21 @@ Callgraph *ipo_callgraph_build(IrModule *m)
                         mark_symbol_operand(m, g, &in->edges[ei].args[oi]);
             }
         }
+    }
+    /* An ALIAS retains its target without any instruction naming it, and
+     * without a relocation either -- the reference is a `.set` the assembler
+     * resolves. A static function reachable only through an alias was deleted
+     * as dead at -O2 and the `.set` dangled into "undefined reference", which
+     * is the one failure mode that only shows up at LINK time. */
+    for (ai = 0; ai < m->naliases; ai++) {
+        u32 k;
+
+        for (k = 0; k < m->nfuncs; k++)
+            if (m->funcs[k].name == m->aliases[ai].target ||
+                strcmp(m->funcs[k].name, m->aliases[ai].target) == 0) {
+                g->address_taken[k] = true;
+                break;
+            }
     }
     /* Function-pointer tables retain an address without an instruction. */
     for (fi = 0; fi < m->nglobals; fi++) {

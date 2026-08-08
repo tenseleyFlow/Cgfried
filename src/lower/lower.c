@@ -531,11 +531,48 @@ u32 lower_auto_align(Lower *lo, const Symbol *sym, u64 natural, Span span)
 
 /* --- file-scope objects --------------------------------------------------- */
 
+/* Aliases, objects and functions alike, in ONE pass. An alias is neither an
+ * IrGlobal (no storage, no initializer) nor an IrFunc (no body), and the two
+ * declaration shapes reach lowering through different loops -- an object alias
+ * is a SYM_VAR the global loop sees, a function alias a SYM_FUNC it skips. One
+ * pass keyed on `alias_target` is what stops that difference from becoming two
+ * half-implementations.
+ *
+ * Sema has already proved every target is defined in this TU, so nothing here
+ * can produce a dangling `.set`. */
+static void lower_aliases(Lower *lo, Sema *sema, AstNode *tu)
+{
+    u32 i;
+
+    for (i = 0; i < tu->ndecls; i++) {
+        AstNode *d = tu->decls[i];
+        Symbol *sym;
+        IrAlias *a;
+
+        if (!d || d->kind != AST_DECL || !d->name)
+            continue;
+        if (d->storage & AST_SC_TYPEDEF)
+            continue;
+        sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
+        if (!sym || !sym->alias_target)
+            continue;
+        if (ir_alias_find(lo->m, sym->name))
+            continue; /* a redeclaration names the same alias once */
+        a = ir_alias_new(lo->m, sym->name, sym->alias_target);
+        a->linkage =
+            sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
+        a->is_weak = sym->gnu.weak;
+        a->visibility = sym->gnu.visibility;
+    }
+}
+
 static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
 {
     IrGlobal *g;
     TypeLayout l;
 
+    if (sym->alias_target)
+        return; /* emitted by lower_aliases; occupies no storage of its own */
     if (sym->def_kind == DEF_NONE) {
         /* An extern declaration is referenced through the symbol table and
          * emits no global -- which means a backend asking "is this symbol
@@ -1020,6 +1057,7 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
      * symbol table). The DEF_INIT initializer may sit on any one of the
      * symbol's declarations, so pair symbols with their initializing
      * decl first. */
+    lower_aliases(&lo, sema, tu);
     for (i = 0; i < tu->ndecls; i++) {
         AstNode *d = tu->decls[i];
         Symbol *sym;

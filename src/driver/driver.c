@@ -845,6 +845,22 @@ emit_tail:
                 buf_free(&b);
                 return CGF_EXIT_COMPILE;
             }
+        /* The same gap, for the same reason, one attribute later: an `alias`
+         * emits `.set`, which afs-as does not implement (AS-SET-001). Its own
+         * rejection says the x86 dialect "grows only with corpus evidence" --
+         * this is that evidence, and the row is filed. Until it lands, say
+         * which component is missing what rather than letting the driver
+         * report a correct emission as a cgf bug. */
+        if (tc.use_afs_as && m->naliases) {
+            fprintf(stderr,
+                    "cgfried: error: '%s' uses the 'alias' attribute, which "
+                    "emits '.set' -- the bundled assembler does not implement "
+                    "it yet (AS-SET-001); build with CGF_AS=0 to use the "
+                    "system assembler\n",
+                    job->path);
+            buf_free(&b);
+            return CGF_EXIT_COMPILE;
+        }
     }
     snprintf(s_path, sizeof(s_path), "%s.cgf.s", job->out);
     f = fopen(s_path, "wb");

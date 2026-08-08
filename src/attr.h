@@ -80,6 +80,12 @@ typedef struct GnuDeclAttrs {
      * failure mode docs/gnu-extensions.md exists to prevent, so sema refuses
      * by name instead. Vanishingly rare in real code. */
     bool aligned_conflict;
+    /* `alias("target")`: this declaration DEFINES a name for a symbol defined
+     * elsewhere in the same translation unit. gcc requires the target to be
+     * defined here -- an alias to an undefined symbol is an error rather than
+     * a linker problem -- which is what keeps it a purely local fact.
+     * Interned, so it compares by pointer like every other name. */
+    const char *alias_target;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

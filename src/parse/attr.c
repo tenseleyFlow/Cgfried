@@ -16,6 +16,8 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
         dst->aligned_bare = src->aligned_bare;
     }
     dst->aligned_conflict |= src->aligned_conflict;
+    if (src->alias_target)
+        dst->alias_target = src->alias_target;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)
@@ -200,6 +202,33 @@ static void parse_aligned(Parser *p, GnuDeclAttrs *gnu)
     }
 }
 
+/* alias("target"). The argument is a STRING holding a symbol name. Token
+ * spellings arrive pre-interned but a string literal's BYTES do not, and the
+ * parser holds no interner, so this is arena-owned here and interned by sema
+ * at the one place that needs pointer identity: the symbol lookup. */
+static void parse_alias_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    const Token *arg;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "attribute 'alias' requires a target name");
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_STRING || !arg->str.bytes) {
+        parse_error(p, arg,
+                    "'alias' takes a string argument naming the "
+                    "symbol to alias");
+    } else {
+        gnu->alias_target =
+            arena_strdup(p->arena, (const char *)arg->str.bytes);
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
 static GnuAttrClass gnu_attr_class(const char *spelling)
 {
     /* `__packed__` and `packed` are the same attribute. Headers use the
@@ -300,6 +329,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "aligned")) {
                             parse_aligned(p, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "alias")) {
+                            parse_alias_attr(p, name, gnu);
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

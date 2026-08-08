@@ -49,6 +49,7 @@ predefine.
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
+| `alias` | `tests/programs/gnu/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -115,6 +116,41 @@ correctly in a struct. The second was found by the layout differential on its
 first run with generated `aligned` attributes — 11 disagreements per 400, every
 one a union.
 
+`alias` gives one symbol a second name. The target must be DEFINED in the same
+translation unit — gcc's rule, and the reason an alias needs no cross-TU
+machinery: the emitter settles it with one `.set` and there is no way to
+produce a dangling symbol. It is checked at end of TU, because the target may
+be defined after the alias that names it.
+
+`IrAlias` is its own module list rather than a flag on a global or a function,
+since an alias is neither: no storage, no initializer, no body. Both
+declaration shapes — an object alias is a `SYM_VAR`, a function alias a
+`SYM_FUNC` the global loop skips — go through one lowering pass keyed on the
+target, which is what stops the difference becoming two half-implementations.
+
+Two bugs it found, both only visible at LINK time:
+
+- **IPO deleted a static function reachable only through its alias.** An alias
+  reference is a `.set`, not a relocation, so nothing in the callgraph saw it.
+  Alias targets are address-taken roots now. The symptom was `undefined
+  reference` at `-O2` and nothing at all at `-O0`.
+- **`.weak_definition` is Mach-O's spelling** and ELF's assembler rejects it;
+  ELF wants `.weak`. Copied from the Apple path into the shared one, caught by
+  the first real arm64 assembly.
+
+Verified against the ELF symbol table rather than the directives: type
+(`FUNC`/`OBJECT`) and binding (`GLOBAL`/`LOCAL`/`WEAK`) agree with gcc for
+every alias, and the executed fixture proves an alias and its target are the
+same object rather than a copy.
+
+**The bundled assembler does not implement `.set`** (AS-SET-001), so the
+fixture routes to the system assembler with `CGF_AS=0` and the driver refuses
+the afs-as path by name — the TLS-004 treatment, for the same reason: left
+alone, afs-as rejects correct assembly and the driver reports it as a cgf
+emission bug, blaming the wrong component. It also keeps aliases out of
+`tests/corpus`, which the arm64 lane re-runs through afs-as, so arm64
+*execution* coverage waits on that row.
+
 ## Parsed and ignored
 
 Accepted so the surrounding declaration compiles; no semantic effect. Each
@@ -147,7 +183,7 @@ are a hard error naming the attribute — which is what makes implementing them
 incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
-`alias`, `cleanup`, `constructor`, `destructor`, `gnu_inline`, `may_alias`,
+`cleanup`, `constructor`, `destructor`, `gnu_inline`, `may_alias`,
 `returns_twice`, `section`, `transparent_union`, `used`.
 
 Three of those sit here against this sprint's original tiering, because the

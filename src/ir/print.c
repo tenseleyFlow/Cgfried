@@ -593,6 +593,23 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
 
     for (i = 0; i < m->nsyms; i++)
         buf_printf(out, "sym @%s\n", m->syms[i]);
+    /* Aliases before globals: an alias names a target defined LATER in the
+     * file as often as earlier, and the parser resolves targets by name at the
+     * end anyway, so the order is a readability choice rather than a
+     * constraint. Keeping them first groups the whole symbol surface. */
+    for (i = 0; i < m->naliases; i++) {
+        const IrAlias *a = &m->aliases[i];
+        static const char *const alink[] = {"internal", "external", "common"};
+
+        buf_printf(out, "alias @%s = @%s %s", a->name, a->target,
+                   alink[a->linkage]);
+        if (a->is_weak)
+            buf_printf(out, " weak");
+        if (a->visibility)
+            buf_printf(out, " visibility(%s)",
+                       gnu_visibility_name(a->visibility));
+        buf_printf(out, "\n");
+    }
     for (i = 0; i < m->nglobals; i++) {
         const IrGlobal *g = &m->globals[i];
         static const char *const link_names[] = {"internal", "external",
