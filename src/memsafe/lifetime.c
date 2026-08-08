@@ -1354,8 +1354,8 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                          const IrInst *call, BlockId block)
 {
     const char *name = call_name(result->module, call);
-    const MsAllocFamily *family = ms_alloc_family_lookup(name);
-    const MsLibSummary *lib = name ? ms_lib_summary_lookup(name) : NULL;
+    const MsAllocFamily *family = ms_alloc_family_for_call(name, call);
+    const MsLibSummary *lib = ms_lib_summary_for_call(name, call);
     const AllocSite *created = alias_alloc_site(result->alias, call);
     Span loc = ir_inst_span(result->module, call);
     IrOperand operand;
@@ -2149,7 +2149,7 @@ static void context_alias_seeds(Arena *arena, IrModule *module,
         for (in = function->blocks[bi].first; in; in = in->next) {
             const MsSummary *s = ms_summary_for_call(summaries, in);
             const char *callee_name = call_name(module, in);
-            const MsLibSummary *lib = ms_lib_summary_lookup(callee_name);
+            const MsLibSummary *lib = ms_lib_summary_for_call(callee_name, in);
             u32 p;
 
             cap++;
@@ -2174,7 +2174,7 @@ static void context_alias_seeds(Arena *arena, IrModule *module,
         for (in = function->blocks[bi].first; in; in = in->next) {
             const MsSummary *s = ms_summary_for_call(summaries, in);
             const char *callee_name = call_name(module, in);
-            const MsLibSummary *lib = ms_lib_summary_lookup(callee_name);
+            const MsLibSummary *lib = ms_lib_summary_for_call(callee_name, in);
             if (ms_alloc_seed_for_call(module, in, &allocs[na]))
                 na++;
             else if ((s && s->returns_ownership &&
@@ -2251,7 +2251,7 @@ ms_analyze_function_with_summaries(Arena *arena, IrModule *module,
         const IrInst *call = alias_alloc_site_call(site);
         const char *name = call_name(module, call);
 
-        result->families[i] = ms_alloc_family_lookup(name);
+        result->families[i] = ms_alloc_family_for_call(name, call);
         if (name &&
             (!strcmp(name, "malloc") || !strcmp(name, "calloc") ||
              !strcmp(name, "realloc") || !strcmp(name, "reallocarray") ||

@@ -53,6 +53,114 @@ const MsAllocFamily *ms_alloc_family_lookup(const char *name)
     return NULL;
 }
 
+/* A table row is a contract about a SHAPE, not merely about a name.  Both
+ * tables selected rows by strcmp alone, so a call that merely forgot an
+ * #include -- `strcpy(buf, "")` with no <string.h>, whose implicit
+ * declaration returns int -- had the row's pointer facts attached to an
+ * integer result, and the alias service's validator refused them as an ICE
+ * on ordinary C.  gcc rejects the same mismatch by name
+ * (-Wbuiltin-declaration-mismatch), and Sprint 39's format table already
+ * selects rows on a compatible signature; these are that rule for the
+ * memory tables.  On any disagreement the row does not apply and the callee
+ * stays an unknown external, which is conservative by construction.
+ * Found by the frontend fuzzer, seed 64271. */
+static u32 ms_call_first_arg(const IrInst *call)
+{
+    return call->subop == FUNCREF_INDIRECT ? 1u : 0u;
+}
+
+static u32 ms_call_nargs(const IrInst *call)
+{
+    u32 first = ms_call_first_arg(call);
+
+    return call->nops > first ? call->nops - first : 0u;
+}
+
+static bool ms_call_arg_is_ptr(const IrInst *call, u32 index)
+{
+    return index < ms_call_nargs(call) &&
+           call->ops[ms_call_first_arg(call) + index].type == IRT_PTR;
+}
+
+/* An extent ordinal is read as an integer byte count. */
+static bool ms_call_arg_is_scalar(const IrInst *call, u32 index)
+{
+    return index < ms_call_nargs(call) &&
+           call->ops[ms_call_first_arg(call) + index].type != IRT_PTR;
+}
+
+static bool ms_call_returns_ptr(const IrInst *call)
+{
+    return call->result.v != 0 && call->type == IRT_PTR;
+}
+
+static bool alloc_family_fits_call(const MsAllocFamily *family,
+                                   const IrInst *call)
+{
+    if (family->alloc_out_arg != MS_NO_ARG) {
+        if (!ms_call_arg_is_ptr(call, family->alloc_out_arg))
+            return false;
+    } else if (family->allocates && family->returns_ownership &&
+               !ms_call_returns_ptr(call)) {
+        return false;
+    }
+    if (family->frees_arg != MS_NO_ARG &&
+        !ms_call_arg_is_ptr(call, family->frees_arg))
+        return false;
+    if (family->size_arg != MS_NO_ARG &&
+        !ms_call_arg_is_scalar(call, family->size_arg))
+        return false;
+    if (family->size_arg2 != MS_NO_ARG &&
+        !ms_call_arg_is_scalar(call, family->size_arg2))
+        return false;
+    return true;
+}
+
+static bool lib_summary_fits_call(const MsLibSummary *lib, const IrInst *call)
+{
+    u64 ptr_args =
+        lib->deref_mask | lib->write_mask | lib->escape_mask | lib->free_mask;
+    u32 i;
+
+    if ((lib->return_alias >= 0 || lib->returns_ownership) &&
+        !ms_call_returns_ptr(call))
+        return false;
+    if (lib->return_alias >= 0)
+        ptr_args |= 1ull << (u32)lib->return_alias;
+    for (i = 0; i < 64; i++)
+        if ((ptr_args & (1ull << i)) && !ms_call_arg_is_ptr(call, i))
+            return false;
+    if (lib->write_size_arg >= 0 &&
+        !ms_call_arg_is_scalar(call, (u32)lib->write_size_arg))
+        return false;
+    if (lib->write_size_arg2 >= 0 &&
+        !ms_call_arg_is_scalar(call, (u32)lib->write_size_arg2))
+        return false;
+    return true;
+}
+
+const MsAllocFamily *ms_alloc_family_for_call(const char *name,
+                                              const IrInst *call)
+{
+    const MsAllocFamily *family = ms_alloc_family_lookup(name);
+
+    if (!family || !call || call->op != IR_CALL ||
+        !alloc_family_fits_call(family, call))
+        return NULL;
+    return family;
+}
+
+const MsLibSummary *ms_lib_summary_for_call(const char *name,
+                                            const IrInst *call)
+{
+    const MsLibSummary *lib = ms_lib_summary_lookup(name);
+
+    if (!lib || !call || call->op != IR_CALL ||
+        !lib_summary_fits_call(lib, call))
+        return NULL;
+    return lib;
+}
+
 bool ms_alloc_seed_for_call(const IrModule *module, const IrInst *call,
                             AliasAllocSeed *out)
 {
@@ -61,7 +169,7 @@ bool ms_alloc_seed_for_call(const IrModule *module, const IrInst *call,
     if (!module || !call || !out || call->op != IR_CALL ||
         call->subop != FUNCREF_EXTERNAL || call->callee >= module->nsyms)
         return false;
-    family = ms_alloc_family_lookup(module->syms[call->callee]);
+    family = ms_alloc_family_for_call(module->syms[call->callee], call);
     if (!family || !family->allocates)
         return false;
     out->call = call;

@@ -115,6 +115,11 @@ typedef struct MsAllocFamily {
 } MsAllocFamily;
 
 const MsAllocFamily *ms_alloc_family_lookup(const char *name);
+/* Name lookup plus a compatible-shape check against the call actually being
+ * analyzed.  Prefer these over the bare lookups: a row selected by name
+ * alone attaches pointer facts to an incompatible declaration. */
+const MsAllocFamily *ms_alloc_family_for_call(const char *name,
+                                              const IrInst *call);
 bool ms_alloc_seed_for_call(const IrModule *module, const IrInst *call,
                             AliasAllocSeed *out);
 u32 ms_alias_alloc_seeds(Arena *arena, const IrModule *module,
@@ -195,6 +200,8 @@ const MsSummary *ms_summary_get(const MsSummarySet *set, u32 function);
 const MsSummary *ms_summary_for_call(const MsSummarySet *set,
                                      const IrInst *call);
 const MsLibSummary *ms_lib_summary_lookup(const char *name);
+const MsLibSummary *ms_lib_summary_for_call(const char *name,
+                                            const IrInst *call);
 /* UINT32_MAX for non-variadic rows; otherwise the first variadic argument. */
 u32 ms_lib_summary_variadic_from(const MsLibSummary *summary);
 void ms_summary_dump(const MsSummarySet *set, FILE *out);

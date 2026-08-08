@@ -231,6 +231,15 @@ void test_memsafe_alias_seed_translation(TestCtx *t)
     IrFunc function = {0};
     IrBlock block = {0};
     IrInst malloc_call = {0}, free_call = {0}, posix_call = {0};
+    IrInst mismatch_call = {0};
+    /* A row is selected by shape as well as by name, so these synthetic
+     * calls must carry the operands a real one does: a bare {0} call has no
+     * arguments and no result, which is not what any of these look like. */
+    IrOperand malloc_args[1] = {{IROP_ICONST, IRT_I64, 0, 0, 8, 0}};
+    IrOperand free_args[1] = {{IROP_VALUE, IRT_PTR, 0, 0, 1, 0}};
+    IrOperand posix_args[3] = {{IROP_VALUE, IRT_PTR, 0, 0, 2, 0},
+                               {IROP_ICONST, IRT_I64, 0, 0, 16, 0},
+                               {IROP_ICONST, IRT_I64, 0, 0, 32, 0}};
     const char *syms[] = {"malloc", "free", "posix_memalign"};
     AliasAllocSeed seed, *seeds = NULL;
 
@@ -240,14 +249,24 @@ void test_memsafe_alias_seed_translation(TestCtx *t)
     malloc_call.op = IR_CALL;
     malloc_call.subop = FUNCREF_EXTERNAL;
     malloc_call.callee = 0;
+    malloc_call.result.v = 3;
+    malloc_call.type = IRT_PTR;
+    malloc_call.nops = 1;
+    malloc_call.ops = malloc_args;
     malloc_call.next = &free_call;
     free_call.op = IR_CALL;
     free_call.subop = FUNCREF_EXTERNAL;
     free_call.callee = 1;
+    free_call.nops = 1;
+    free_call.ops = free_args;
     free_call.next = &posix_call;
     posix_call.op = IR_CALL;
     posix_call.subop = FUNCREF_EXTERNAL;
     posix_call.callee = 2;
+    posix_call.result.v = 4;
+    posix_call.type = IRT_I32;
+    posix_call.nops = 3;
+    posix_call.ops = posix_args;
     block.first = &malloc_call;
     block.last = &posix_call;
     function.blocks = &block;
@@ -267,6 +286,26 @@ void test_memsafe_alias_seed_translation(TestCtx *t)
     T_ASSERT(t, seeds != NULL);
     T_ASSERT(t, seeds[0].call == &malloc_call);
     T_ASSERT(t, seeds[1].call == &posix_call);
+
+    /* Same name, incompatible shape: an implicitly declared malloc returns
+     * int, so it is not the allocator the row describes and must not become
+     * an allocation site. Attaching the row anyway handed the alias service
+     * a pointer fact about an integer result, which it refused as an ICE.
+     * Frontend fuzzer, seed 64271. */
+    mismatch_call.op = IR_CALL;
+    mismatch_call.subop = FUNCREF_EXTERNAL;
+    mismatch_call.callee = 0;
+    mismatch_call.result.v = 5;
+    mismatch_call.type = IRT_I32;
+    mismatch_call.nops = 1;
+    mismatch_call.ops = malloc_args;
+    T_ASSERT(t, ms_alloc_family_lookup("malloc") != NULL);
+    T_ASSERT(t, ms_alloc_family_for_call("malloc", &mismatch_call) == NULL);
+    T_ASSERT(t, ms_alloc_family_for_call("malloc", &malloc_call) != NULL);
+    T_ASSERT(t, !ms_alloc_seed_for_call(&module, &mismatch_call, &seed));
+    /* strcpy's return_alias needs a pointer result and pointer arguments. */
+    T_ASSERT(t, ms_lib_summary_lookup("strcpy") != NULL);
+    T_ASSERT(t, ms_lib_summary_for_call("strcpy", &mismatch_call) == NULL);
     arena_free_all(&arena);
 }
 

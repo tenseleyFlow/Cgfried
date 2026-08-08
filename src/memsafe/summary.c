@@ -462,7 +462,7 @@ static bool returned_call_proves_ownership(const MsSummarySet *set,
         return callee->returns_ownership &&
                (!callee->top || callee->annot_returns_owned);
     if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms)
-        lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
+        lib = ms_lib_summary_for_call(set->module->syms[call->callee], call);
     return (lib && lib->returns_ownership) ||
            (ms_alloc_seed_for_call(set->module, call, &seed) &&
             seed.owns_result);
@@ -480,7 +480,7 @@ static bool returned_call_must_own(const MsSummarySet *set, const IrInst *call)
     if (callee)
         return callee->annot_returns_owned || callee->must_return_ownership;
     if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms)
-        lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
+        lib = ms_lib_summary_for_call(set->module->syms[call->callee], call);
     return (lib && lib->returns_ownership) ||
            (ms_alloc_seed_for_call(set->module, call, &seed) &&
             seed.owns_result);
@@ -515,7 +515,7 @@ static void collect_alias_seeds(Arena *arena, IrModule *module, IrFunc *func,
                 continue;
             if (in->op == IR_CALL && in->subop == FUNCREF_EXTERNAL &&
                 in->callee < module->nsyms)
-                lib = ms_lib_summary_lookup(module->syms[in->callee]);
+                lib = ms_lib_summary_for_call(module->syms[in->callee], in);
             if (s) {
                 for (p = 0; p < s->nparams; p++)
                     if (!s->annot_returns_owned &&
@@ -542,7 +542,7 @@ static void collect_alias_seeds(Arena *arena, IrModule *module, IrFunc *func,
                 continue;
             if (in->op == IR_CALL && in->subop == FUNCREF_EXTERNAL &&
                 in->callee < module->nsyms)
-                lib = ms_lib_summary_lookup(module->syms[in->callee]);
+                lib = ms_lib_summary_for_call(module->syms[in->callee], in);
             if (ms_alloc_seed_for_call(module, in, &allocs[na]))
                 na++;
             else if (s && s->returns_ownership &&
@@ -582,8 +582,9 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
     if (call_within_scc(cg, active_scc, call))
         return;
     if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms) {
-        lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
-        family = ms_alloc_family_lookup(set->module->syms[call->callee]);
+        lib = ms_lib_summary_for_call(set->module->syms[call->callee], call);
+        family =
+            ms_alloc_family_for_call(set->module->syms[call->callee], call);
     }
     if (call->subop == FUNCREF_INDIRECT ||
         (!callee && !lib && !(family && family->allocates))) {
@@ -663,7 +664,7 @@ static bool summary_call_must_free_arg(const MsSummarySet *set,
     if (callee)
         return arg < callee->nparams && callee->params[arg].must_free;
     if (call->subop == FUNCREF_EXTERNAL && call->callee < set->module->nsyms)
-        lib = ms_lib_summary_lookup(set->module->syms[call->callee]);
+        lib = ms_lib_summary_for_call(set->module->syms[call->callee], call);
     return lib && arg < 64 && (lib->free_mask & (1ull << arg)) != 0;
 }
 
