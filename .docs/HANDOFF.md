@@ -73,13 +73,32 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   go in `.data` rather than `.rodata`, and a void expression is accepted where
   a scalar condition is required (task #108). Everything else open is a NAMED
   refusal, which is a legitimate resting state — see §1b-1's THE PICK.
+- **The memory summary tables now select on SHAPE, not on the name alone.**
+  Both matched a callee with `strcmp` and nothing else, so `strcpy(buf, "")`
+  with no `#include` — whose implicit declaration returns int — attached the
+  row's pointer facts to an integer result and ICEd in the alias validator.
+  Three ICEs, two tables, pre-existing since at least Sprint 47; found by the
+  100k fuzz lane gating unrelated work (seed 64271). Sprint 39's format table
+  had always done this correctly; gcc calls the mismatch
+  `-Wbuiltin-declaration-mismatch`. **Any new table keyed on a libc name owes
+  the same check**, and its fixture owes BOTH directions — dropping a row is
+  the safe answer, so a too-strict gate disables the analysis silently.
+- **Do not run the two arm64 lanes in parallel.** `tests/runner/main.c` builds
+  every scratch path from a literal `build/test-work/` rather than from its
+  own BUILD tree, so `make -j test-a64-corpus test-a64-spill-all` has both
+  clobbering the same files and fails nearly the whole corpus with "the
+  assembler rejected cgfried-generated assembly … line 0". It is a false
+  failure and reproduces nowhere sequentially — same shape as the ppfuzz
+  `build/fuzz-work/case.c` bug (task #110). This is the second time a shared
+  hardcoded scratch path has manufactured a spectacular phantom result.
 - **VLAs work on both targets**, as of the deferral reckoning (§1b-1). They
   did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
   function that also passed arguments on the stack. Multidimensional VLAs
   and pointers-to-VLA were wrong too.
-- The arm64 e2e corpus is **57/57**, and **57/57 again under
+- The arm64 e2e corpus is **61/61**, and **61/61 again under
   `CGF_SPILL_ALL=1`**. Keep both green; the spill lane exists because exactly
-  one fixture at one level once caught a stale NZCV producer index.
+  one fixture at one level once caught a stale NZCV producer index. Run them
+  ONE AT A TIME — see the shared-scratch trap above.
 - Verified at the end of the Sprint 51 session, sequentially and locally
   (never two suites at once — §1b-2): gcc and clang `make test` both rc=0,
   **625 unit tests / 4,263,106 assertions**, 514 and 477 fixture profiles,
@@ -87,7 +106,11 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   target in both directions. Re-verified after the VLA campaign: same unit
   counts, 516 and 477 fixture profiles, arm64 corpus and spill-all **57/57**
   each, musl warning lane unchanged at 716/1361 parsed / 645 deferred / 186
-  oracle-matched / zero false positives.
+  oracle-matched / zero false positives. Re-verified again after `section` and
+  the summary-table shape gate: gcc and clang `make test` both rc=0 at **626
+  unit tests / 4,263,123 assertions** and 477 fixture profiles, arm64 corpus
+  and spill-all **61/61** each, memsafe 90/90 + interproc 50/50 + foundation
+  14, safe-mode 56/56, e2ediff 10/10, a64 objdiff 20 identical / 0 pinned.
 - `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
   arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
   with the bundled afs-as into ELF objects byte-identical to
