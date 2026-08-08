@@ -116,3 +116,35 @@ What it needs: in the main parser, a `.set` whose right-hand side names a
 DEFINED LABEL rather than an absolute expression should become a symbol alias
 with the target's section, offset, type and size -- the same semantics PR #28
 gave x86, resolved after layout because gas accepts a forward reference.
+
+### Recipe, from an attempt that got two thirds of the way
+
+Explored and then reverted rather than half-landed. Three things are settled,
+so this is a focused change rather than another exploration:
+
+1. **The parse-time preview must defer a lone-symbol RHS.**
+   `scan_absolute_assignments` evaluates every `.set` BEFORE labels exist and
+   rejects a non-absolute one outright, which is what makes `.set alias, real`
+   fail on arm64 while x86 handles it. Adding an arm for
+   `Some(Err(_)) if matches!(&expr, Expr::Symbol(_))` that drops the symbol
+   instead of erroring is correct and small -- parsing genuinely cannot tell a
+   label from an absolute symbol, so the question belongs at resolution.
+
+2. **`Expr::Symbol(name)` is exactly the test**, checked against
+   `self.labels` at resolution time, where both are available. Only a LONE
+   symbol qualifies: `.set a, b + 1` names no single object and stays an
+   absolute assignment, which is gas's behaviour too.
+
+3. **THE TRAP: do NOT remove the entry from `absolute_assignments`.**
+   `activate_absolute_definition` walks that vector with a CURSOR
+   (`next_absolute_assignment`), once per `.set` in the emission pass, and
+   checks the name at each step. Partitioning by removal desynchronizes it and
+   fails with "missing resolved absolute assignment" -- and the parallel
+   `assignment_locations` list has to be filtered identically or a later error
+   names the wrong statement. Mark the entry as an alias in place (a parallel
+   `Option<String>` of targets, or an enum element) and let the cursor skip it.
+
+The alias APPLICATION is already proven by PR #28: copy the target's
+(section, offset) into `labels`, inherit `kind`, and take the size from the
+target's RESOLVED value rather than its `.size` expression, which is measured
+from its own directive's position.
