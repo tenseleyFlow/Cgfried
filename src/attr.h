@@ -104,6 +104,14 @@ typedef struct GnuDeclAttrs {
      * Arena-owned rather than interned, like `alias_target`, because a string
      * literal's bytes are not interned and the parser holds no interner. */
     const char *asm_name;
+    /* `section("name")`: which output section this object or function lands
+     * in. Arena-owned like the other string-valued ones.
+     *
+     * It is not only a directive change -- an UNINITIALIZED object in a named
+     * section emits real bytes rather than going to .bss, because the section
+     * the author named is where the bytes must be. gcc: `.section .s,"aw"`
+     * then `.zero 4`, never a common or a .bss reservation. */
+    const char *section_name;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

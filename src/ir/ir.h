@@ -530,6 +530,9 @@ typedef struct IrFunc {
     /* `used`: nothing here references it, keep it anyway. Consumed by IPO's
      * reachability, which is the only thing that deletes a whole function. */
     bool is_used;
+    /* `section("name")` on a FUNCTION: which output section its code lands in.
+     * NULL means the backend's default. */
+    const char *section;
     bool is_weak;  /* the `weak` attribute, on a FUNCTION */
     u8 visibility; /* GnuVisibility */
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);
@@ -611,7 +614,11 @@ typedef struct IrGlobal {
      * OBJECT, so it rides the global and the backend asks the module.
      * Printed ` weak` and ` visibility(hidden)`. */
     bool is_weak;
-    bool is_used;  /* the `used` attribute, on an OBJECT */
+    bool is_used; /* the `used` attribute, on an OBJECT */
+    /* `section("name")` on an OBJECT. A named section also forces real bytes:
+     * an uninitialized object there is PROGBITS, not a .bss reservation, since
+     * the section the author named is where the bytes must be. */
+    const char *section;
     u8 visibility; /* GnuVisibility */
     u8 *init;      /* Sprint 15 byte image; NULL = zeroinit / BSS */
     IrReloc *relocs;

@@ -876,6 +876,15 @@ IrAlias *ir_alias_find(IrModule *m, const char *name)
     return NULL;
 }
 
+/* Both NULL, or both present and equal. A section name is optional, so a
+ * plain str_eq would deref a NULL on the common case. */
+static bool str_eq_opt(const char *a, const char *b)
+{
+    if (!a || !b)
+        return a == b;
+    return str_eq(a, b);
+}
+
 bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
 {
     u32 i, j;
@@ -903,7 +912,7 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->align != y->align || x->linkage != y->linkage ||
             x->is_tentative != y->is_tentative || x->is_tls != y->is_tls ||
             x->is_weak != y->is_weak || x->visibility != y->visibility ||
-            x->is_used != y->is_used ||
+            x->is_used != y->is_used || !str_eq_opt(x->section, y->section) ||
             (x->init == NULL) != (y->init == NULL) || x->nrelocs != y->nrelocs)
             return false;
         if (x->init && x->size && memcmp(x->init, y->init, x->size) != 0)
@@ -926,7 +935,7 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->calls_setjmp != y->calls_setjmp || x->is_weak != y->is_weak ||
             x->visibility != y->visibility ||
             x->fp_contract != y->fp_contract || x->align != y->align ||
-            x->is_used != y->is_used)
+            x->is_used != y->is_used || !str_eq_opt(x->section, y->section))
             return false;
         for (j = 0; j < x->nparams; j++) {
             u64 xa = x->param_annots ? x->param_annots[j] : 0;

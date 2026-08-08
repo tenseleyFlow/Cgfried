@@ -1030,9 +1030,24 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
     e.atomic_seq = 0;
     e.apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
 
-    buf_printf(out,
-               e.apple ? "\t.section\t__TEXT,__text,regular,pure_instructions\n"
-                       : "\t.text\n");
+    {
+        const IrFunc *sf = fidx < m->nfuncs ? &m->funcs[fidx] : NULL;
+
+        /* `section("name")` names an ELF section. Mach-O's spelling is
+         * SEGMENT,SECTION with attributes, so a single ELF-shaped name cannot
+         * be reused there; refused by name rather than mangled into something
+         * that assembles and lands somewhere else. */
+        if (sf && sf->section && e.apple)
+            CGF_ICE("arm64-macos: section(\"%s\") needs the Mach-O "
+                    "SEGMENT,SECTION spelling (SEC-MACHO-001)",
+                    sf->section);
+        if (sf && sf->section)
+            buf_printf(out, "\t.section\t%s,\"ax\",@progbits\n", sf->section);
+        else
+            buf_printf(out, e.apple ? "\t.section\t__TEXT,__text,regular,"
+                                      "pure_instructions\n"
+                                    : "\t.text\n");
+    }
     if (linkage != IRLINK_INTERNAL)
         buf_printf(out,
                    (!e.apple && fidx < m->nfuncs && m->funcs[fidx].is_weak)
@@ -1231,7 +1246,15 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
             buf_printf(out, "\t.section\t%s\n",
                        g->init ? ".tdata,\"awT\",@progbits"
                                : ".tbss,\"awT\",@nobits");
-        else
+        else if (g->section) {
+            if (e.apple)
+                CGF_ICE("arm64-macos: section(\"%s\") needs the Mach-O "
+                        "SEGMENT,SECTION spelling (SEC-MACHO-001)",
+                        g->section);
+            /* A named section forces PROGBITS even when the object has no
+             * initializer: the bytes belong where the author put them. */
+            buf_printf(out, "\t.section\t%s,\"aw\"\n", g->section);
+        } else
             buf_printf(out, "\t.section\t%s\n", g->init ? ".data" : ".bss");
         buf_printf(out, "\t.p2align\t%u\n", p2);
         if (!e.apple) {

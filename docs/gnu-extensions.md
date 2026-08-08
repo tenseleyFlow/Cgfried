@@ -52,6 +52,7 @@ predefine.
 | `alias` | `tests/programs/gnu/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
 | `__asm__("name")` labels | `tests/programs/gnu/asm_label.c` | Apple's `__DARWIN_ALIAS`, glibc symbol versioning |
+| `section` | `tests/programs/gnu/attr_section.c` | kernel-style tables, init arrays, embedded layouts |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -197,6 +198,32 @@ freestanding-only.
 The same keywords open an inline-asm STATEMENT, which is still refused; only
 the position tells the two constructs apart.
 
+`section("name")` places an object or function in a named output section.
+Functions take `"ax"`, data `"aw"`, matching gcc.
+
+Two things it is easy to get wrong:
+
+- **A named section forces PROGBITS.** An *uninitialized* object there gets
+  real bytes — gcc emits `.section .s,"aw"` then `.zero 4` — rather than a
+  `.bss` reservation or a `.comm`, because the section the author named is
+  where the bytes must be. Leaving it in `.bss` puts it outside the section
+  entirely, which the fixture would catch and a directive check would not.
+- **The fixture checks the ADDRESS**, against the linker's
+  `__start_NAME`/`__stop_NAME` bounds, not the emitted directive. A
+  `.section` line proves what was emitted; where the object *lands* is the
+  claim under test, and it is what real consumers (kernel tables, init arrays)
+  depend on.
+
+One divergence, and it is pre-existing rather than introduced here: gcc gives a
+`const` object's named section `"a"` where we give `"aw"`. We place const
+globals in `.data` today and have no `.rodata` for them at all, so this is
+consistent with existing behaviour; the missing `.rodata` is a separate gap.
+
+**SEC-MACHO-001**: Mach-O spells a named section `SEGMENT,SECTION` with
+attributes, so an ELF-shaped name cannot be reused there. arm64-macos refuses
+by name rather than mangling it into something that assembles and lands
+somewhere else.
+
 ## Parsed and ignored
 
 Accepted so the surrounding declaration compiles; no semantic effect. Each
@@ -230,7 +257,7 @@ incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
 `cleanup`, `constructor`, `destructor`, `gnu_inline`, `may_alias`,
-`returns_twice`, `section`, `transparent_union`.
+`returns_twice`, `transparent_union`.
 
 Two of those sit here against this sprint's original tiering, because the
 ignore-safety question overruled it:

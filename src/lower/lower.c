@@ -613,6 +613,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     g->is_tls = sym->tls;
     g->is_weak = sym->gnu.weak;
     g->is_used = sym->gnu.used;
+    g->section = sym->section_name;
     g->visibility = sym->gnu.visibility;
     g->linkage =
         sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
@@ -885,6 +886,7 @@ static void lower_function(Lower *lo, AstNode *def)
         lo->fn->linkage = IRLINK_INTERNAL;
     lo->fn->is_weak = sym->gnu.weak;
     lo->fn->is_used = sym->gnu.used;
+    lo->fn->section = sym->section_name;
     lo->fn->visibility = sym->gnu.visibility;
     /* `aligned` on a FUNCTION aligns the CODE. Sema folded it into the same
      * field an object's alignment uses, because it is the same attribute in a

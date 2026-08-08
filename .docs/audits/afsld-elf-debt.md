@@ -148,3 +148,16 @@ The alias APPLICATION is already proven by PR #28: copy the target's
 (section, offset) into `labels`, inherit `kind`, and take the size from the
 target's RESOLVED value rather than its `.size` expression, which is measured
 from its own directive's position.
+
+## SEC-MACHO-001 — `section("name")` has no Mach-O spelling yet
+
+ELF takes a bare section name; Mach-O takes `SEGMENT,SECTION` plus attributes
+(`__DATA,__mysec,regular`). One ELF-shaped string cannot serve both, so
+arm64-macos refuses `section(...)` by name rather than mangling it into
+something that assembles and lands somewhere else.
+
+What it needs: a mapping from a bare name to a segment/section pair, or a
+documented rule that the attribute's argument is spelled per-target. gcc on
+Darwin requires the author to write the Mach-O form, which is the simpler
+answer and matches "the name is emitted verbatim" — the refusal should become
+a pass-through once the Mach-O corpus needs it.

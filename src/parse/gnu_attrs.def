@@ -70,6 +70,7 @@ GA(alias, GA_IMPLEMENTED)
 GA(used, GA_IMPLEMENTED)
 GA(aligned, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
+GA(section, GA_IMPLEMENTED)
 GA(visibility, GA_IMPLEMENTED)
 GA(weak, GA_IMPLEMENTED)
 
@@ -87,7 +88,6 @@ GA(may_alias, GA_UNSAFE)
 /* returns_twice is the setjmp property: ignoring it lets the optimizer
  * assume single-entry, which is exactly the assumption setjmp breaks. */
 GA(returns_twice, GA_UNSAFE)
-GA(section, GA_UNSAFE)
 /* transparent_union changes how the union is PASSED -- the first member's
  * convention rather than the union's. Ignoring it is an ABI mismatch, so it
  * is refused despite the sprint's initial parsed-ignored tiering; that tier

@@ -203,6 +203,7 @@ struct Symbol {
      * unchanged -- source references still resolve by it -- and only what the
      * linker sees is renamed. NULL means "use the identifier". */
     const char *asm_name;
+    const char *section_name; /* `section("...")` */
     Span alias_span; /* where the attribute was written, for the diagnostic */
     /* Implemented GNU attributes. Merged across declarations like the
      * inline matrix is: a plain declaration followed by a `weak` one

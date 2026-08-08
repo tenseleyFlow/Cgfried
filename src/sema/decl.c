@@ -1859,6 +1859,10 @@ static void declare_one(Sema *s, AstNode *d)
     if (alignas_req > sym->align_override)
         sym->align_override = alignas_req;
 
+    if (d->gnu.section_name)
+        sym->section_name = intern_str(
+            s->interner, intern_cstr(s->interner, d->gnu.section_name));
+
     if (d->gnu.asm_name)
         sym->asm_name =
             intern_str(s->interner, intern_cstr(s->interner, d->gnu.asm_name));

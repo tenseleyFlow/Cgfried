@@ -567,7 +567,14 @@ void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
     e.m = m;
     e.fidx = fidx;
 
-    buf_printf(out, "\t.text\n");
+    {
+        const IrFunc *sf = fidx < m->nfuncs ? &m->funcs[fidx] : NULL;
+
+        if (sf && sf->section)
+            buf_printf(out, "\t.section\t%s,\"ax\",@progbits\n", sf->section);
+        else
+            buf_printf(out, "\t.text\n");
+    }
     /* The GNU attributes live on the IrFunc, not the MIR one: they are
      * properties of the SYMBOL, and MIR is about instructions. fidx is the
      * module index the driver already passes alongside the linkage. */
@@ -675,6 +682,29 @@ static void emit_image(const IrModule *m, const IrGlobal *g, Buf *out)
     }
 }
 
+/* The section a global lands in. `section("name")` replaces the default and
+ * takes "aw": we place const globals in .data today, so a named data section
+ * being writable is consistent with that rather than a new divergence -- the
+ * missing .rodata is a separate, pre-existing gap.
+ *
+ * The name also forces PROGBITS. gcc emits `.section .s,"aw"` then `.zero 4`
+ * for an UNINITIALIZED object there rather than a .bss reservation or a
+ * .comm, because the section the author named is where the bytes must be. */
+static void emit_global_section(Buf *out, const IrGlobal *g, bool zero_init)
+{
+    if (g->section) {
+        buf_printf(out, "\t.section\t%s,\"aw\"\n", g->section);
+        return;
+    }
+    if (zero_init)
+        buf_printf(out, "\t.section\t%s\n",
+                   g->is_tls ? ".tbss,\"awT\",@nobits" : ".bss");
+    else if (g->is_tls)
+        buf_printf(out, "\t.section\t.tdata,\"awT\",@progbits\n");
+    else
+        buf_printf(out, "\t.data\n");
+}
+
 void x64_emit_globals(const IrModule *m, Buf *out)
 {
     u32 i;
@@ -702,7 +732,7 @@ void x64_emit_globals(const IrModule *m, Buf *out)
 
         for (a = g->align; a > 1; a >>= 1)
             p2++;
-        if (g->is_tentative && !g->is_tls) {
+        if (g->is_tentative && !g->is_tls && !g->section) {
             /* -fcommon tentative: the linker merges. */
             buf_printf(out, "\t.comm\t%s,%llu,%u\n", g->name,
                        (unsigned long long)g->size, g->align);
@@ -723,8 +753,7 @@ void x64_emit_globals(const IrModule *m, Buf *out)
                 buf_printf(out, g->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
                            g->name);
             emit_symbol_attrs(out, g->name, g->visibility);
-            buf_printf(out, "\t.section\t%s\n",
-                       g->is_tls ? ".tbss,\"awT\",@nobits" : ".bss");
+            emit_global_section(out, g, true);
             buf_printf(out, "\t.p2align\t%u\n", p2);
             buf_printf(out, "\t.type\t%s, %s\n", g->name,
                        g->is_tls ? "@tls_object" : "@object");
@@ -740,10 +769,7 @@ void x64_emit_globals(const IrModule *m, Buf *out)
             buf_printf(out, g->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
                        g->name);
         emit_symbol_attrs(out, g->name, g->visibility);
-        if (g->is_tls)
-            buf_printf(out, "\t.section\t.tdata,\"awT\",@progbits\n");
-        else
-            buf_printf(out, "\t.data\n");
+        emit_global_section(out, g, false);
         buf_printf(out, "\t.p2align\t%u\n", p2);
         buf_printf(out, "\t.type\t%s, %s\n", g->name,
                    g->is_tls ? "@tls_object" : "@object");

@@ -21,6 +21,8 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     dst->used |= src->used;
     if (src->asm_name)
         dst->asm_name = src->asm_name;
+    if (src->section_name)
+        dst->section_name = src->section_name;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)
@@ -232,6 +234,29 @@ static void parse_alias_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
     parse_eat_punct(p, PUNCT_RPAREN);
 }
 
+/* section("name"). One string, taken verbatim: a section name is not an
+ * identifier and `.note.GNU-stack` style names are ordinary. */
+static void parse_section_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    const Token *arg;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "attribute 'section' requires a section name");
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_STRING || !arg->str.bytes) {
+        parse_error(p, arg, "'section' takes a string naming the section");
+    } else {
+        gnu->section_name =
+            arena_strdup(p->arena, (const char *)arg->str.bytes);
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
 static GnuAttrClass gnu_attr_class(const char *spelling)
 {
     /* `__packed__` and `packed` are the same attribute. Headers use the
@@ -340,6 +365,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "used")) {
                             gnu->used = true;
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "section")) {
+                            parse_section_attr(p, name, gnu);
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,
