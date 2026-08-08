@@ -70,8 +70,25 @@ static const u32 bf_bits[] = {8, 8, 16, 16, 32, 32, 64, 64};
 
 /* The one place this file spells the attribute: it is generated C TEXT rather
  * than a declaration of our own, which is what the ban is about. */
+static const char ALIGNED_FMT[] =
+    " __attribute__((__aligned__(%u)))"; /* check_bans allow */
+
 static const char PACKED_SPELLING[] =
     " __attribute__((__packed__))"; /* check_bans allow */
+
+/* `aligned(N)` on a member. N is drawn from BOTH sides of a typical natural
+ * alignment on purpose: the rule that separates `aligned` from `_Alignas` is
+ * that a weaker request is silently DECLINED, and a generator that only ever
+ * asks for more never exercises the decline. */
+static const char *member_aligned(Prng *rng, char *buf, size_t cap)
+{
+    static const unsigned pow2[] = {1, 2, 4, 8, 16};
+
+    if (prng_below(rng, 6) != 0)
+        return "";
+    snprintf(buf, cap, ALIGNED_FMT, pow2[prng_below(rng, 5)]);
+    return buf;
+}
 
 /* Member-level `packed` -- rule 4: the same rule applied to one member. It is
  * spelled with the underscored form because that is what real headers use. */
@@ -97,14 +114,24 @@ static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth,
         const char *ty =
             scalars[prng_below(rng, (u32)(sizeof(scalars) / sizeof(*scalars)))];
 
-        buf_printf(b, "  %s m%u%s;\n", ty, idx, member_packed(rng));
+        {
+            char ab[64];
+
+            buf_printf(b, "  %s m%u%s%s;\n", ty, idx, member_packed(rng),
+                       member_aligned(rng, ab, sizeof(ab)));
+        }
     } else if (pick < 60) {
         /* An array — the stride check rides on these. */
         const char *ty =
             scalars[prng_below(rng, (u32)(sizeof(scalars) / sizeof(*scalars)))];
 
-        buf_printf(b, "  %s m%u[%u]%s;\n", ty, idx, 1 + prng_below(rng, 4),
-                   member_packed(rng));
+        {
+            char ab[64];
+            u32 n = 1 + prng_below(rng, 4);
+
+            buf_printf(b, "  %s m%u[%u]%s%s;\n", ty, idx, n, member_packed(rng),
+                       member_aligned(rng, ab, sizeof(ab)));
+        }
     } else if (pick < 90) {
         /* A bitfield, occasionally unnamed or zero-width — the two forms
          * with their own rules (no alignment contribution, and forcing
@@ -193,7 +220,16 @@ int main(int argc, char **argv)
          * about agreeing on VALID layouts. The extension has its own
          * fixture. */
         buf_printf(&b, "  int last_named;\n");
-        buf_printf(&b, "} %s;\n", packed ? PACKED_SPELLING : "");
+        {
+            char ra[64];
+            static const unsigned pow2[] = {1, 2, 4, 8, 16, 32};
+
+            ra[0] = '\0';
+            if (prng_below(&rng, 3) == 0)
+                snprintf(ra, sizeof(ra), ALIGNED_FMT,
+                         pow2[prng_below(&rng, 6)]);
+            buf_printf(&b, "} %s%s;\n", packed ? PACKED_SPELLING : "", ra);
+        }
 
         snprintf(path, sizeof(path), "%s/s%05llu.c", outdir,
                  (unsigned long long)f);

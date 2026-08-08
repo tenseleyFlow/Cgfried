@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "diag.h"
+#include "ir/ir.h"
 #include "util/sort.h"
 
 static void bit_set(u64 *words, u32 bit)
@@ -277,4 +278,21 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
     free(used);
     free(active);
     free(order);
+}
+
+/* Alignment is a byte count in the source and an EXPONENT in the directive, so
+ * the conversion happens exactly once, here. A request below the backend's own
+ * default is declined -- `aligned` only ever raises -- and a non-power-of-two
+ * cannot arrive, sema having rejected it. */
+unsigned cg_func_p2align(const struct IrFunc *irf, unsigned dflt)
+{
+    unsigned p2 = 0;
+    u32 want;
+
+    if (!irf || !irf->align)
+        return dflt;
+    want = irf->align;
+    while ((1u << p2) < want && p2 < 31)
+        p2++;
+    return p2 > dflt ? p2 : dflt;
 }

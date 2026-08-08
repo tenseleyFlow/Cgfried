@@ -1,3 +1,4 @@
+#include "cg/shared.h"
 #include "cg/x86_64/mir.h"
 
 #include <string.h>
@@ -579,8 +580,8 @@ void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
         else
             buf_printf(out, "\t.local\t%s\n", f->name);
         emit_symbol_attrs(out, f->name, irf ? irf->visibility : 0);
+        buf_printf(out, "\t.p2align\t%u\n", cg_func_p2align(irf, 4));
     }
-    buf_printf(out, "\t.p2align\t4\n");
     buf_printf(out, "\t.type\t%s, @function\n", f->name);
     buf_printf(out, "%s:\n", f->name);
     /* A LOCAL alias for the entry, used by the .eh_frame FDE. Naming the

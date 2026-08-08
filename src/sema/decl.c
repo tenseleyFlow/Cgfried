@@ -12,6 +12,7 @@
 
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
 static u64 check_alignas(Sema *s, AstNode *d, Type *type);
+static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
 
 /* --- constant folding ---------------------------------------------------- */
 
@@ -281,6 +282,15 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     /* Set BEFORE the member walk: add_member consults it, so that a record's
      * own `packed` and a member's are one rule with one implementation. */
     tag->packed = rec->packed;
+    if (rec->record_aligned_expr || rec->record_aligned_bare) {
+        GnuDeclAttrs ra = {0};
+
+        ra.aligned_expr = rec->record_aligned_expr;
+        ra.aligned_bare = rec->record_aligned_bare;
+        /* Straight into the field layout already consults with `>`, which is
+         * exactly the only-ever-raises rule. */
+        tag->align_override = gnu_aligned_value(s, &ra, rec->span);
+    }
 
     for (i = 0; i < rec->nmembers; i++) {
         const AstNode *m = rec->members[i];
@@ -479,7 +489,11 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             }
         }
         mem->span = m->span;
-        mem->align_override = member_align;
+        {
+            u64 ga = gnu_aligned_value(s, &m->gnu, m->span);
+
+            mem->align_override = member_align > ga ? member_align : ga;
+        }
         mem->packed = tag->packed || m->gnu.packed;
         if (mem->packed) {
             /* Rule 5 of .docs/audits/packed-layout.md -- packed bitfields
@@ -1452,6 +1466,55 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
  * WEAKEN an alignment, it may not appear on a typedef, a bitfield, a
  * parameter or a `register` object, and the value must be a power of two.
  * Returns the requested alignment, or 0 for "none". */
+/* Folds an `aligned(N)` argument. Shared by all four positions -- record,
+ * member, object, function -- because four copies would drift and the drift is
+ * invisible until one position disagrees with another.
+ *
+ * The RULE that separates it from `_Alignas`: it only ever RAISES. Every
+ * caller stores into an align_override field that is consumed with `>`, so a
+ * request weaker than natural is declined by the consumer rather than being an
+ * error here. That is why `aligned(1)` is not a spelling of `packed`.
+ *
+ * Returns 0 for "nothing requested", which is also what a zero or unfoldable
+ * argument yields -- the diagnostic is emitted at the point of failure. */
+static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
+{
+    i64 want = 0;
+
+    if (!g)
+        return 0;
+    if (g->aligned_conflict) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "more than one 'aligned' attribute on one declaration is "
+                  "not supported (gcc takes the largest)");
+        return 0;
+    }
+    if (g->aligned_bare) {
+        /* gcc's BIGGEST_ALIGNMENT, measured as 16 on x86-64 AND arm64-linux.
+         * That is a different notion from max_align_t's alignment, but the two
+         * coincide at 16 on all five targets, so this reuses the existing
+         * field rather than adding a near-duplicate one. Split them the day a
+         * target disagrees -- and it will be visible, because the bare form is
+         * fixture-pinned per target. */
+        return cgf_target_layout(s->target).max_align;
+    }
+    if (!g->aligned_expr)
+        return 0;
+    if (!enum_fold(s, g->aligned_expr, &want))
+        return 0; /* already reported */
+    if (want == 0)
+        return 0;
+    if (want < 0 || (want & (want - 1)) != 0) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "requested alignment %lld is not a power of two",
+                  (long long)want);
+        return 0;
+    }
+    return (u64)want;
+}
+
 static u64 check_alignas(Sema *s, AstNode *d, Type *type)
 {
     u64 natural;
@@ -1782,7 +1845,17 @@ static void declare_one(Sema *s, AstNode *d)
 
     /* MAX across declarations, like the inline matrix: two declarations of
      * one object are one object, and _Alignas may only ever RAISE. Before
-     * this the value was computed, validated and dropped on the floor. */
+     * this the value was computed, validated and dropped on the floor.
+     *
+     * `aligned` folds into the same field. The two spellings differ in what a
+     * WEAKENING means -- a constraint violation for _Alignas, a silent decline
+     * for aligned -- and taking the max is both. */
+    {
+        u64 ga = gnu_aligned_value(s, &d->gnu, d->span);
+
+        if (ga > alignas_req)
+            alignas_req = ga;
+    }
     if (alignas_req > sym->align_override)
         sym->align_override = alignas_req;
 

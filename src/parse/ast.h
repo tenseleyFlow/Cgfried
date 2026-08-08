@@ -209,6 +209,14 @@ struct AstNode {
      * silently ignores a LEADING one, and by the time sema sees a GnuDeclAttrs
      * the three positions are indistinguishable. */
     bool packed;
+    /* `aligned(N)` bound to THIS record definition, by the same positional
+     * rule as `packed` and measured the same way: a trailing attribute and one
+     * between the keyword and the tag both align the record, a LEADING one gcc
+     * ignores. Unlike packed, an attribute that lands on the DECLARATION
+     * instead is meaningful there -- it aligns the object -- so nothing is
+     * warned about, it simply stays where it is. */
+    AstNode *record_aligned_expr;
+    bool record_aligned_bare;
     const char *tag;   /* NULL when anonymous */
     AstNode **members; /* AST_DECL / AST_STATIC_ASSERT / nested records */
     u32 nmembers;

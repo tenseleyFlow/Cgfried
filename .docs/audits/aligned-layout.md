@@ -2,7 +2,8 @@
 
 Same discipline as `.docs/audits/packed-layout.md`: the numbers come from
 running gcc on this machine before any code was written, not from the manual.
-`aligned` is the next row of `docs/gnu-extensions.md`'s refused tier.
+It was the next row of `docs/gnu-extensions.md`'s refused tier; it is now
+implemented, and the sections below record what the measuring found.
 
 ```c
 #define A(n) __attribute__((aligned(n)))
@@ -60,21 +61,57 @@ The `_Alignas` object work (commit `28b2501`) built every consumer this needs:
 Each of those already implements "only ever raises" with a `>` comparison, so
 rule 1 needs no new logic — only the value has to arrive.
 
-## What is NOT in place
+## What landed
 
-**The function position.** `IrFunc` has no alignment field, and both emitters
-hardcode the padding before a function label (`src/cg/x86_64/emit.c` writes
-`.p2align 4`). One `u32 align` on `IrFunc`, printed and round-tripped like
-`is_weak`/`visibility` already are, plus a max at the two emit sites.
+All four positions, both targets, verified by execution rather than by reading
+directives. `IrFunc.align` carries the function position and round-trips as
+` align(N)`; `cg_func_p2align` is the one place a byte count becomes a
+directive exponent, shared so the two emitters cannot drift on a rule that
+belongs to the attribute rather than to either backend.
 
-**The argument grammar.** gcc accepts a constant expression, so
-`aligned(sizeof(long))` and `aligned(2 * 8)` are legal. The `cgf_` attribute
-parser only takes an integer-constant token. Accepting a literal and
-hard-erroring on anything else is a defensible first cut ONLY if the error
-names the limitation; silently taking the wrong alignment is the failure mode
-the tier table exists to prevent. `_Alignas` already parses a full
-conditional-expression and folds it in sema — reusing that path is the honest
-version and is probably not much more work.
+The argument is folded in sema as a constant expression, which the audit called
+"probably not much more work" and which was correct: `aligned(4 * 8)` works,
+and a literal-only parser would have rejected it.
+
+**The layout differential found a bug on its first run with generated
+`aligned` attributes: 11 disagreements per 400, every one a UNION.**
+`layout_union` never read `align_override` at all, so an alignment on a union
+member was silently ignored for BOTH spellings while working correctly in a
+struct — `_Alignas` had the same hole. Mutating the fix back out reproduces the
+failure, so the lane genuinely covers it. 213 of every 400 generated files now
+carry an `aligned`, and 91 are unions.
+
+### A second arm64 frame bug, under the first
+
+`csr_size` is the base a frame object's offset is measured from, and the fix
+above assumed it was a multiple of 16 because the prologue stores register
+PAIRS. It is not: `16 + ngp * 8 + nfp * 8` rounded to **8**, so an ODD number
+of saved registers leaves it at 8 mod 16 and every 16-aligned object above it
+lands 8 bytes out. The witness had `x29/x30` plus a lone `x19` — csr_size 24,
+and `add x0, x29, #24` for an object that asked for 16.
+
+x86_64 already reserves that gap, for vector homes and the variadic save area.
+arm64 did not, and nothing noticed because until `_Alignas` reached an alloca
+no frame object had ever asked for more than its type's natural alignment.
+Rounding to 16 costs nothing: the whole frame is rounded to 16 regardless, so
+it only moves where the slack sits.
+
+It failed WITHOUT `CGF_SPILL_ALL=1` and passed WITH it — the reverse of the
+usual direction, and a reminder that the spill lane is a second sample rather
+than a superset.
+
+## What was NOT in place, and now is
+
+**The function position.** Done as sketched: one `u32 align` on `IrFunc`,
+printed and round-tripped like `is_weak`/`visibility`, plus a max at the two
+emit sites through the shared helper.
+
+**The argument grammar.** Done the honest way: the parser records a
+conditional-expression and sema folds it with the same evaluator `_Alignas`
+uses. The one corner that refuses rather than guesses is TWO `aligned`
+attributes on one declaration — gcc takes the largest, only one expression fits
+in `GnuDeclAttrs`, and quietly keeping the wrong one is the failure mode the
+tier table exists to prevent.
 
 ## Verifying it
 

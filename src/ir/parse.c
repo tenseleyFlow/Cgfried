@@ -1483,6 +1483,7 @@ static bool parse_func(P *p)
     bool unprototyped = false;
     bool fn_weak = false;
     u8 fn_visibility = GNU_VIS_UNSPEC;
+    u32 fn_align = 0;
     bool internal_marker = false;
     bool setjmp_marker = false;
     bool contract_marker = false;
@@ -1568,6 +1569,19 @@ static bool parse_func(P *p)
         fn_weak = true;
     }
     fn_visibility = parse_visibility_suffix(p);
+    if (tok_is(peek(p), "align")) {
+        Tok *av;
+
+        next(p);
+        if (!expect(p, T_LP, "'(' after 'align'"))
+            return false;
+        av = expect(p, T_INT, "a function alignment");
+        if (!av)
+            return false;
+        fn_align = (u32)av->ival;
+        if (!expect(p, T_RP, "')' after the function alignment"))
+            return false;
+    }
     if (tok_is(peek(p), "abi")) {
         Tok *an;
 
@@ -1621,6 +1635,7 @@ static bool parse_func(P *p)
     f->unprototyped = unprototyped;
     f->is_weak = fn_weak;
     f->visibility = fn_visibility;
+    f->align = fn_align;
     f->abi_ret = abi_ret;
     f->abi_ret_n = abi_ret_n;
     if (internal_marker)

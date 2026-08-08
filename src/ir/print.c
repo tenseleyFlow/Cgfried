@@ -554,6 +554,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " weak");
     if (f->visibility)
         buf_printf(out, " visibility(%s)", gnu_visibility_name(f->visibility));
+    if (f->align)
+        buf_printf(out, " align(%u)", f->align);
     if (f->abi_ret >= IR_ABIRET_HFA_F32)
         buf_printf(out, " abi(%s,%u)", ir_abi_ret_name(f->abi_ret),
                    f->abi_ret_n);

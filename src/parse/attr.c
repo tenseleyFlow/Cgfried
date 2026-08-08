@@ -9,6 +9,13 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
         return;
     dst->weak |= src->weak;
     dst->packed |= src->packed;
+    if (src->aligned_expr || src->aligned_bare) {
+        if (dst->aligned_expr || dst->aligned_bare)
+            dst->aligned_conflict = true;
+        dst->aligned_expr = src->aligned_expr;
+        dst->aligned_bare = src->aligned_bare;
+    }
+    dst->aligned_conflict |= src->aligned_conflict;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)
@@ -163,6 +170,36 @@ static void parse_visibility(Parser *p, const Token *name, GnuDeclAttrs *gnu)
     parse_eat_punct(p, PUNCT_RPAREN);
 }
 
+/* `aligned` or `aligned(N)`. The argument is a constant EXPRESSION, not a
+ * literal -- `aligned(sizeof(long))` and `aligned(2 * BLK)` both appear in real
+ * headers -- so it is recorded and folded in sema by the evaluator `_Alignas`
+ * already uses. The bare form is the target's biggest alignment, resolved in
+ * sema for the same reason every other target fact is: the parser is not the
+ * place that knows. */
+static void parse_aligned(Parser *p, GnuDeclAttrs *gnu)
+{
+    if (!parse_at_punct(p, PUNCT_LPAREN)) {
+        gnu->aligned_bare = true;
+        if (gnu->aligned_expr)
+            gnu->aligned_conflict = true;
+        gnu->aligned_expr = NULL;
+        return;
+    }
+    p->pos++; /* '(' */
+    if (gnu->aligned_expr || gnu->aligned_bare)
+        gnu->aligned_conflict = true;
+    gnu->aligned_bare = false;
+    gnu->aligned_expr = parse_cond_expr(p);
+    if (!parse_eat_punct(p, PUNCT_RPAREN)) {
+        parse_error(p, parse_peek(p),
+                    "expected ')' after the 'aligned' argument");
+        while (!parse_at_punct(p, PUNCT_RPAREN) &&
+               parse_peek(p)->kind != TOK_EOF)
+            p->pos++;
+        parse_eat_punct(p, PUNCT_RPAREN);
+    }
+}
+
 static GnuAttrClass gnu_attr_class(const char *spelling)
 {
     /* `__packed__` and `packed` are the same attribute. Headers use the
@@ -259,6 +296,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "packed")) {
                             gnu->packed = true;
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "aligned")) {
+                            parse_aligned(p, gnu);
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

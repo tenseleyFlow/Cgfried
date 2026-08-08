@@ -50,6 +50,8 @@ typedef enum {
     GNU_VIS_INTERNAL
 } GnuVisibility;
 
+struct AstNode;
+
 typedef struct GnuDeclAttrs {
     bool weak;
     u8 visibility; /* GnuVisibility */
@@ -60,6 +62,24 @@ typedef struct GnuDeclAttrs {
      * `packed` when a declaration is finished is therefore misplaced, and the
      * declaration path warns rather than silently dropping it. */
     bool packed;
+    /* `aligned(N)`. The argument is a constant EXPRESSION -- gcc accepts
+     * `aligned(sizeof(long))` and headers use it -- so the parser records the
+     * expression and sema folds it with the same evaluator `_Alignas` uses.
+     * `aligned_bare` is the no-argument form, which gcc defines as the
+     * target's biggest alignment (measured: 16 on x86-64 AND arm64-linux).
+     *
+     * Unlike `_Alignas`, `aligned` only ever RAISES: asking for less than the
+     * natural alignment is silently declined rather than being a constraint
+     * violation, so `aligned(1)` is NOT a spelling of `packed`. Every consumer
+     * of an align_override field already compares with `>`, which is exactly
+     * that rule. */
+    struct AstNode *aligned_expr;
+    bool aligned_bare;
+    /* Two `aligned` attributes on ONE declaration. gcc takes the maximum;
+     * only one expression fits here, and quietly keeping the wrong one is the
+     * failure mode docs/gnu-extensions.md exists to prevent, so sema refuses
+     * by name instead. Vanishingly rare in real code. */
+    bool aligned_conflict;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

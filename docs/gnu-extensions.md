@@ -48,6 +48,7 @@ predefine.
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
+| `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -89,6 +90,31 @@ applied silently is the failure mode this document exists to prevent. An
 instructions require natural alignment, and an atomic that quietly is not one
 is worse than a diagnostic.
 
+`aligned` is the inverse of `_Alignas` in the one way that matters:
+
+- **It only ever RAISES.** A request weaker than the natural alignment is
+  silently declined, where `_Alignas` makes the same request a constraint
+  violation (6.7.5p4). So **`aligned(1)` is not a spelling of `packed`** — the
+  member stays at its natural offset. Every consumer stores into an
+  `align_override` field read with `>`, which is exactly that rule.
+- All four positions work: record (trailing, and between the keyword and the
+  tag — a LEADING attribute gcc ignores, same as `packed`), member, object and
+  function. The function position aligns the CODE and both emitters take the
+  max against their own default padding.
+- The argument is a constant EXPRESSION, not a literal. `aligned(4 * 8)` and
+  `aligned(sizeof(long))` appear in real headers, so it is folded in sema by
+  the evaluator `_Alignas` already uses. The no-argument form is the target's
+  biggest alignment, measured as 16 on x86-64 and arm64-linux.
+- It COMPOSES with `packed` rather than conflicting: packed forces the member
+  offsets, aligned sets the record's alignment, and the size rounds up to it.
+
+Landing it found two things nothing else had: `_Alignas` on an OBJECT did
+nothing at all on any target, and `layout_union` never read `align_override`,
+so an alignment on a union MEMBER was ignored for both spellings while working
+correctly in a struct. The second was found by the layout differential on its
+first run with generated `aligned` attributes — 11 disagreements per 400, every
+one a union.
+
 ## Parsed and ignored
 
 Accepted so the surrounding declaration compiles; no semantic effect. Each
@@ -121,8 +147,8 @@ are a hard error naming the attribute — which is what makes implementing them
 incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
-`alias`, `aligned`, `cleanup`, `constructor`, `destructor`, `gnu_inline`,
-`may_alias`, `returns_twice`, `section`, `transparent_union`, `used`.
+`alias`, `cleanup`, `constructor`, `destructor`, `gnu_inline`, `may_alias`,
+`returns_twice`, `section`, `transparent_union`, `used`.
 
 Three of those sit here against this sprint's original tiering, because the
 ignore-safety question overruled it:

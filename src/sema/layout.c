@@ -230,6 +230,13 @@ static void layout_union(Sema *s, TagDecl *tag)
          * `union { char a; double d; } packed` is 8 bytes, aligned 1. */
         if (m->packed)
             ml.align = 1;
+        /* An _Alignas or `aligned` on a union MEMBER raises the union's own
+         * alignment, exactly as it does in a struct. layout_union never read
+         * align_override at all, so both spellings were silently ignored here
+         * while working in a struct -- found by the layout differential the
+         * first time it generated `aligned` on a union member. */
+        if (m->align_override > ml.align)
+            ml.align = m->align_override;
         if (m->is_bitfield) {
             /* Every union member starts at bit 0. A ZERO-WIDTH bitfield
              * occupies no storage at all — it exists only to force the

@@ -1,4 +1,5 @@
 #include "cg/arm64/mir.h"
+#include "cg/shared.h"
 
 #include <string.h>
 
@@ -1044,7 +1045,8 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                      fidx < m->nfuncs ? m->funcs[fidx].visibility : 0);
     /* Every A64 instruction is four bytes, so the natural function alignment
      * is 4; GNU as would otherwise leave the previous section's alignment. */
-    buf_printf(out, "\t.p2align\t2\n");
+    buf_printf(out, "\t.p2align\t%u\n",
+               cg_func_p2align(fidx < m->nfuncs ? &m->funcs[fidx] : NULL, 2));
     /* Mach-O has no `.type` and no `.size`: a symbol's extent comes from
      * `.subsections_via_symbols` and the next symbol, not a directive. */
     if (!e.apple)

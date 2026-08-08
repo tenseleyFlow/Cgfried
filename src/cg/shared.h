@@ -63,4 +63,12 @@ typedef struct CgLinearScanPolicy {
 void cg_linear_scan(CgInterval *intervals, u32 nvregs,
                     const CgLinearScanPolicy *policy, CgSpillSlots *slots);
 
+struct IrFunc;
+
+/* A function's `.p2align` exponent: the backend's own default, RAISED by any
+ * `aligned(N)` on the function. Shared so the two emitters cannot drift on a
+ * rule that is neither of theirs -- it belongs to the attribute. `irf` may be
+ * NULL (a function with no IR entry keeps the default). */
+unsigned cg_func_p2align(const struct IrFunc *irf, unsigned dflt);
+
 #endif

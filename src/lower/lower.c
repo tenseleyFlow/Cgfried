@@ -835,6 +835,11 @@ static void lower_function(Lower *lo, AstNode *def)
         lo->fn->linkage = IRLINK_INTERNAL;
     lo->fn->is_weak = sym->gnu.weak;
     lo->fn->visibility = sym->gnu.visibility;
+    /* `aligned` on a FUNCTION aligns the CODE. Sema folded it into the same
+     * field an object's alignment uses, because it is the same attribute in a
+     * different position; the backends take the max against their own default
+     * padding, so 0 here means "whatever you already do". */
+    lo->fn->align = (u32)sym->align_override;
     if (any_annot) {
         lo->fn->param_annots =
             arena_alloc(lo->m->arena, nir_params * sizeof(u64), _Alignof(u64));

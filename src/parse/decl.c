@@ -530,6 +530,16 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                     s->record->packed = true;
                     here.packed = false;
                 }
+                if ((here.aligned_expr || here.aligned_bare) && s->record &&
+                    s->record->is_definition) {
+                    /* Measured: `struct S {...} aligned(16) v;` aligns the
+                     * RECORD (and v inherits it), while `struct S w
+                     * aligned(16);` on an already-defined tag aligns only w. */
+                    s->record->record_aligned_expr = here.aligned_expr;
+                    s->record->record_aligned_bare = here.aligned_bare;
+                    here.aligned_expr = NULL;
+                    here.aligned_bare = false;
+                }
                 gnu_attrs_merge(&s->gnu, &here);
                 s->saw_any = true;
                 continue;
@@ -1040,6 +1050,10 @@ static AstNode *parse_record_specifier(Parser *p, bool is_union)
         parse_cgf_attributes(p, &inner);
         if (inner.packed)
             rec->packed = true;
+        if (inner.aligned_expr || inner.aligned_bare) {
+            rec->record_aligned_expr = inner.aligned_expr;
+            rec->record_aligned_bare = inner.aligned_bare;
+        }
     }
     if (parse_peek(p)->kind == TOK_IDENT ||
         (parse_peek(p)->kind == TOK_KEYWORD &&

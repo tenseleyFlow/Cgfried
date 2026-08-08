@@ -519,10 +519,14 @@ typedef enum IrAbiRet {
 typedef struct IrFunc {
     struct IrModule *module; /* owning module; enables source-log helpers */
     const char *name;        /* interned */
-    u32 loc;       /* function definition location; 0 when unavailable */
-    u8 ret;        /* IrType */
-    u8 abi_ret;    /* IrAbiRet */
-    u8 abi_ret_n;  /* HFA only: leaf count, 1-4 (printed inside abi(...)) */
+    u32 loc;      /* function definition location; 0 when unavailable */
+    u8 ret;       /* IrType */
+    u8 abi_ret;   /* IrAbiRet */
+    u8 abi_ret_n; /* HFA only: leaf count, 1-4 (printed inside abi(...)) */
+    /* `aligned(N)` on a FUNCTION: the code's alignment, printed ` align(N)`.
+     * 0 means "the backend's default", which is not the same as 1 -- every
+     * emitter already pads function entries and must keep doing so. */
+    u32 align;
     bool is_weak;  /* the `weak` attribute, on a FUNCTION */
     u8 visibility; /* GnuVisibility */
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);

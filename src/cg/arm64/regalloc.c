@@ -1343,9 +1343,10 @@ static i32 frame_object_assign(CgSpillSlots *slots, u32 size, u32 align)
      *
      * For every ordinary C type sizeof is a multiple of alignof, so the two
      * agreed and nothing noticed. `_Alignas` is what breaks the tie, and it
-     * never reached an alloca until it was wired up. csr_size is a multiple of
-     * 16 (the prologue stores register PAIRS) and align is capped at 16, so
-     * adding it back cannot disturb the result. */
+     * never reached an alloca until it was wired up. csr_size is rounded to
+     * 16 where the frame is finalized -- it is NOT naturally a multiple of 16,
+     * an odd saved-register count leaves it at 8 mod 16 -- and align is capped
+     * at 16, so adding it back cannot disturb the result. */
     raw = ((u32)(-slots->next_offset) + align - 1) & ~(align - 1);
     raw += size;
     slots->next_offset = -(i32)raw;
@@ -2047,7 +2048,17 @@ static void frame_finalize(Ra *ra)
         CGF_ICE("arm64 regalloc: impossible callee-saved count");
     fr.base = f->out_args;
     fr.csr_size = 16 + fr.ngp * 8 + fr.nfp * 8;
-    fr.csr_size = (fr.csr_size + 7) & ~7u;
+    /* Round to 16, not 8. Frame objects are placed at `csr_size + offset`, so
+     * this is the base their alignment is measured from -- an ODD number of
+     * saved registers leaves csr_size at 8 mod 16 and every 16-aligned object
+     * above it lands 8 bytes out. x86_64 already reserves this gap for the
+     * same reason (vector homes and the variadic save area); arm64 did not,
+     * and nothing noticed because until `_Alignas` reached an alloca no frame
+     * object had ever asked for more than its type's natural alignment.
+     *
+     * The 8 bytes are never wasted in practice: a64_frame_total rounds the
+     * whole frame to 16 anyway, so this only moves where the slack sits. */
+    fr.csr_size = (fr.csr_size + 15) & ~15u;
     frame_assign_allocas(f, &ra->slots);
     fr.local_top = (u32)(-ra->slots.next_offset);
     fr.total = a64_frame_total(fr.base + fr.csr_size, fr.local_top,
