@@ -189,6 +189,12 @@ struct Symbol {
     u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
     u32 writes; /* assignments after declaration; initializer is not one */
     bool tls;   /* _Thread_local */
+    /* _Alignas on the OBJECT, 0 = none. Merged across declarations by MAX,
+     * which is what makes a raise legal and a weakening impossible. Members
+     * have had this since Sprint 14 as Member.align_override; objects had
+     * their alignment VALIDATED and then discarded, so `_Alignas(64) int g`
+     * emitted `.p2align 2` and the address was not 64-aligned at run time. */
+    u64 align_override;
     /* Implemented GNU attributes. Merged across declarations like the
      * inline matrix is: a plain declaration followed by a `weak` one
      * says weak, because the two declarations are one symbol. */

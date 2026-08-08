@@ -1666,6 +1666,7 @@ static void declare_one(Sema *s, AstNode *d)
     bool static_init;
     bool file_scope = s->scope->kind == SCOPE_FILE;
     bool had_prior_prototype = false;
+    u64 alignas_req;
 
     if (!d || !d->name)
         return;
@@ -1674,7 +1675,7 @@ static void declare_one(Sema *s, AstNode *d)
 
     type = type_from_ast(s, d->type, d->span);
     is_func = type && type->kind == TY_FUNC;
-    (void)check_alignas(s, d, type);
+    alignas_req = check_alignas(s, d, type);
 
     /* Completion event: an unsized array with an initializer takes its
      * size from that initializer. Doing it before the incomplete-type
@@ -1778,6 +1779,12 @@ static void declare_one(Sema *s, AstNode *d)
                 "'weak' attribute ignored on a symbol with internal linkage");
         sym->gnu.weak = false;
     }
+
+    /* MAX across declarations, like the inline matrix: two declarations of
+     * one object are one object, and _Alignas may only ever RAISE. Before
+     * this the value was computed, validated and dropped on the floor. */
+    if (alignas_req > sym->align_override)
+        sym->align_override = alignas_req;
 
     if (d->storage & AST_SC_THREAD_LOCAL) {
         sym->tls = true;

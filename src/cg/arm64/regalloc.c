@@ -1336,8 +1336,18 @@ static i32 frame_object_assign(CgSpillSlots *slots, u32 size, u32 align)
                 align);
     if (!size)
         size = 1;
-    raw = (u32)(-slots->next_offset) + size;
-    raw = (raw + align - 1) & ~(align - 1);
+    /* Align the object's START, not its end. The expansion below recovers the
+     * start as `csr_size + raw - size`, so rounding `raw` (which includes the
+     * size) leaves the start at a multiple of align MINUS size -- misaligned
+     * whenever size is not itself a multiple of align.
+     *
+     * For every ordinary C type sizeof is a multiple of alignof, so the two
+     * agreed and nothing noticed. `_Alignas` is what breaks the tie, and it
+     * never reached an alloca until it was wired up. csr_size is a multiple of
+     * 16 (the prologue stores register PAIRS) and align is capped at 16, so
+     * adding it back cannot disturb the result. */
+    raw = ((u32)(-slots->next_offset) + align - 1) & ~(align - 1);
+    raw += size;
     slots->next_offset = -(i32)raw;
     slots->count++;
     return slots->next_offset;

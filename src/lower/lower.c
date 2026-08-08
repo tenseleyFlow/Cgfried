@@ -491,6 +491,44 @@ static u32 lower_anon_global(Lower *lo, const AstNode *e)
     }
 }
 
+/* An object's alignment is its type's, RAISED by any _Alignas. _Alignas may
+ * only ever raise (6.7.5p4 rejects a weakening outright, and check_alignas
+ * already diagnosed it), so max is the whole rule.
+ *
+ * It lives in one place because it was previously in none: every object path
+ * -- file-scope global, function-local static, automatic slot -- took the
+ * TYPE's alignment and dropped the declaration's. `_Alignas(64) int g;`
+ * emitted `.p2align 2` and the address was not 64-aligned at run time, with
+ * no diagnostic anywhere. */
+u32 lower_object_align(const Symbol *sym, u64 natural)
+{
+    u64 a = natural ? natural : 1;
+
+    if (sym && sym->align_override > a)
+        a = sym->align_override;
+    return (u32)a;
+}
+
+/* The automatic case has a ceiling the static ones do not: the frame base is
+ * 16-aligned, so aligning an offset within it cannot deliver more. A realigned
+ * frame is Sprint 53. Refused HERE rather than in the backend because this is
+ * valid C meeting an unimplemented feature -- the backend's ICE says "this is
+ * a bug in cgfried", which is the wrong thing to tell someone who wrote a
+ * correct program. The backend checks stay as unreachable backstops. */
+u32 lower_auto_align(Lower *lo, const Symbol *sym, u64 natural, Span span)
+{
+    u32 a = lower_object_align(sym, natural);
+
+    if (a > 16) {
+        lower_unimplemented(lo, span,
+                            "an automatic object aligned more strictly than "
+                            "16 bytes (the frame would have to be realigned)",
+                            53);
+        return 16;
+    }
+    return a;
+}
+
 /* --- file-scope objects --------------------------------------------------- */
 
 static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
@@ -517,7 +555,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
         return;
     l = layout_of(lo->sema, sym->type);
     g = ir_global_new(lo->m, sym->name);
-    g->align = (u32)(l.align ? l.align : 1);
+    g->align = lower_object_align(sym, l.align);
     /* _Thread_local is a property of the OBJECT: one copy per thread, in
      * .tdata/.tbss, reached through the thread pointer rather than by an
      * ordinary address. Until Sprint 51 this was a hard error, because

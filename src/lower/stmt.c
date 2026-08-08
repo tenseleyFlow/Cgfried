@@ -165,7 +165,7 @@ static void lower_local_static(Lower *lo, Symbol *sym, AstNode *init)
     snprintf(buf, sizeof(buf), "%s.%u", sym->name, lo->nlocal_static++);
     l = layout_of(lo->sema, sym->type);
     g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
-    g->align = (u32)(l.align ? l.align : 1);
+    g->align = lower_object_align(sym, l.align);
     g->linkage = IRLINK_INTERNAL;
     g->size = l.size;
     if (init) {
@@ -257,9 +257,10 @@ static void lower_one_decl(Lower *lo, AstNode *d)
     slot = lower_local_slot(lo, sym);
     if (!slot.v) {
         l = layout_of(lo->sema, sym->type);
-        slot = ir_build_alloca_typed(
-            &lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-            (u32)(l.align ? l.align : 1), lower_efftype(lo, sym->type));
+        slot =
+            ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
+                                  lower_auto_align(lo, sym, l.align, d->span),
+                                  lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
     }
     if (d->init) {
@@ -308,7 +309,7 @@ static void prebind_one_decl(Lower *lo, AstNode *d)
         return;
     l = layout_of(lo->sema, sym->type);
     slot = ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-                                 (u32)(l.align ? l.align : 1),
+                                 lower_auto_align(lo, sym, l.align, d->span),
                                  lower_efftype(lo, sym->type));
     lower_bind_local(lo, sym, slot);
 }

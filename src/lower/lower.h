@@ -344,4 +344,13 @@ bool abi_is_aapcs64(Lower *lo);
  * AAPCS64 and SysV place it exactly as a named one. */
 void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon);
 
+/* An object's alignment is its type's, raised by any _Alignas on the
+ * declaration. One helper so the global, static-local and automatic
+ * paths cannot drift -- they did: every one of them ignored _Alignas. */
+u32 lower_object_align(const struct Symbol *sym, u64 natural);
+/* The automatic-storage form: same rule, plus the 16-byte frame ceiling,
+ * which it refuses by name rather than under-aligning. */
+u32 lower_auto_align(Lower *lo, const struct Symbol *sym, u64 natural,
+                     Span span);
+
 #endif

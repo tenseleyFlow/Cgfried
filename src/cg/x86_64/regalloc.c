@@ -1090,6 +1090,20 @@ static void frame_finalize(Ra *ra)
                 u32 size = in->b.imm > 0 ? (u32)in->b.imm : 1;
                 u32 align = in->table ? in->table : 1;
 
+                /* The frame base is only 16-aligned, so aligning the OFFSET
+                 * cannot deliver more than 16 in absolute terms -- it would
+                 * produce a 64-aligned offset from a 16-aligned base and call
+                 * it a 64-aligned object. Honouring this needs a realigned
+                 * frame, which is Sprint 53.
+                 *
+                 * arm64 has refused this since Sprint 48 while x86 silently
+                 * under-aligned, and nothing noticed because _Alignas never
+                 * reached an alloca at all until it was wired up. An honest
+                 * refusal on one target hiding a wrong answer on the other is
+                 * exactly the shape the VLA reckoning found. */
+                if (align > 16)
+                    CGF_ICE("x86_64 regalloc: over-aligned stack objects land "
+                            "in Sprint 53");
                 raw = (raw + size + align - 1) & ~(align - 1);
                 in->a.mem.base = physreg(X64_RBP);
                 in->a.mem.disp = -(i32)(frame_bias + raw);
