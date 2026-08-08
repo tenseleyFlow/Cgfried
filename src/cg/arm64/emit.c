@@ -1,4 +1,5 @@
 #include "cg/arm64/mir.h"
+#include "cg/data.h"
 #include "cg/shared.h"
 
 #include <string.h>
@@ -1160,12 +1161,13 @@ void a64_emit_file_prologue(Buf *out)
     buf_printf(out, "\t.build_version macos, 11, 0\n");
 }
 
-static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls);
+static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
+                                      bool pic);
 
 /* The thread-locals, emitted BEFORE any function. See the filter's comment. */
 void a64_emit_tls_decls(const IrModule *m, Buf *out)
 {
-    a64_emit_globals_filtered(m, out, true);
+    a64_emit_globals_filtered(m, out, true, false);
 }
 
 void a64_emit_file_epilogue(Buf *out)
@@ -1181,7 +1183,8 @@ void a64_emit_file_epilogue(Buf *out)
  * TLS section ("Accessing `x' as thread-local object"). Functions come
  * before data here, so the thread-locals have to go first -- which is
  * exactly the order gcc emits them in. */
-static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
+static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
+                                      bool pic)
 {
     Emit e;
     u32 i;
@@ -1201,7 +1204,7 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
 
         for (a = g->align; a > 1; a >>= 1)
             p2++;
-        if (g->is_tentative) {
+        if (g->is_tentative && !g->is_const) {
             /* A tentative definition is Mach-O's __common, reached through
              * .zerofill rather than .comm -- and it still needs its .globl,
              * which .comm implies on ELF. */
@@ -1230,23 +1233,13 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
         /* Zero-initialized data is a DIRECTIVE on Mach-O, not a section plus
          * a run of zero bytes, and it carries its own name/size/alignment --
          * so it replaces the label and the body both. */
-        if (e.apple && !g->init) {
+        if (e.apple && !g->init && !g->is_const) {
             buf_printf(out, "\t.zerofill\t__DATA,%s,%s,%llu,%u\n",
                        g->linkage == IRLINK_INTERNAL ? "__bss" : "__common",
                        msym(&e, g->name), (unsigned long long)g->size, p2);
             continue;
         }
-        if (e.apple)
-            buf_printf(out, "\t.section\t__DATA,__data\n");
-        else if (g->is_tls)
-            /* The T flag is what marks a section thread-local; the linker
-             * lays these out as the TEMPLATE each new thread is given, and
-             * gas needs to have seen the definition before it will accept a
-             * TLS relocation naming the symbol. */
-            buf_printf(out, "\t.section\t%s\n",
-                       g->init ? ".tdata,\"awT\",@progbits"
-                               : ".tbss,\"awT\",@nobits");
-        else if (g->section) {
+        if (g->section) {
             if (e.apple)
                 CGF_ICE("arm64-macos: section(\"%s\") needs the Mach-O "
                         "SEGMENT,SECTION spelling (SEC-MACHO-001)",
@@ -1254,8 +1247,41 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
             /* A named section forces PROGBITS even when the object has no
              * initializer: the bytes belong where the author put them. */
             buf_printf(out, "\t.section\t%s,\"aw\"\n", g->section);
-        } else
-            buf_printf(out, "\t.section\t%s\n", g->init ? ".data" : ".bss");
+        } else {
+            /* Both dialects of the ONE shared rule. Mach-O spells .rodata
+             * `__TEXT,__const` and .data.rel.ro `__DATA,__const`, which is
+             * what clang emits for arm64-apple-macos. The T flag is what
+             * marks an ELF section thread-local; the linker lays those out as
+             * the TEMPLATE each new thread is given, and gas needs to have
+             * seen the definition before it will accept a TLS relocation
+             * naming the symbol. */
+            switch (cg_global_segment(g, pic)) {
+            case CG_SEG_TDATA:
+                buf_printf(out, "\t.section\t.tdata,\"awT\",@progbits\n");
+                break;
+            case CG_SEG_TBSS:
+                buf_printf(out, "\t.section\t.tbss,\"awT\",@nobits\n");
+                break;
+            case CG_SEG_RODATA:
+                buf_printf(out, e.apple ? "\t.section\t__TEXT,__const\n"
+                                        : "\t.section\t.rodata\n");
+                break;
+            case CG_SEG_DATA_REL_RO:
+                buf_printf(out,
+                           e.apple
+                               ? "\t.section\t__DATA,__const\n"
+                               : "\t.section\t.data.rel.ro,\"aw\",@progbits\n");
+                break;
+            case CG_SEG_BSS:
+                buf_printf(out, e.apple ? "\t.section\t__DATA,__data\n"
+                                        : "\t.section\t.bss\n");
+                break;
+            case CG_SEG_DATA:
+                buf_printf(out, e.apple ? "\t.section\t__DATA,__data\n"
+                                        : "\t.section\t.data\n");
+                break;
+            }
+        }
         buf_printf(out, "\t.p2align\t%u\n", p2);
         if (!e.apple) {
             buf_printf(out, "\t.type\t%s, %s\n", g->name,
@@ -1271,7 +1297,7 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls)
     }
 }
 
-void a64_emit_globals(const IrModule *m, Buf *out)
+void a64_emit_globals(const IrModule *m, Buf *out, bool pic)
 {
     Emit e;
     u32 i;
@@ -1302,5 +1328,5 @@ void a64_emit_globals(const IrModule *m, Buf *out)
         buf_printf(out, "\t.set\t%s,%s\n", msym(&e, a->name),
                    msym(&e, a->target));
     }
-    a64_emit_globals_filtered(m, out, false);
+    a64_emit_globals_filtered(m, out, false, pic);
 }

@@ -1,3 +1,4 @@
+#include "cg/data.h"
 #include "cg/shared.h"
 #include "cg/x86_64/mir.h"
 
@@ -683,29 +684,44 @@ static void emit_image(const IrModule *m, const IrGlobal *g, Buf *out)
 }
 
 /* The section a global lands in. `section("name")` replaces the default and
- * takes "aw": we place const globals in .data today, so a named data section
- * being writable is consistent with that rather than a new divergence -- the
- * missing .rodata is a separate, pre-existing gap.
+ * takes "aw" -- an explicitly named section is the author's decision, and
+ * gcc does not make it read-only for a const object either.
  *
  * The name also forces PROGBITS. gcc emits `.section .s,"aw"` then `.zero 4`
  * for an UNINITIALIZED object there rather than a .bss reservation or a
- * .comm, because the section the author named is where the bytes must be. */
-static void emit_global_section(Buf *out, const IrGlobal *g, bool zero_init)
+ * .comm, because the section the author named is where the bytes must be.
+ *
+ * Everything else defers to cg_global_segment, which both backends share so
+ * they cannot disagree about which segment a global belongs in. */
+static void emit_global_section(Buf *out, const IrGlobal *g, bool pic)
 {
     if (g->section) {
         buf_printf(out, "\t.section\t%s,\"aw\"\n", g->section);
         return;
     }
-    if (zero_init)
-        buf_printf(out, "\t.section\t%s\n",
-                   g->is_tls ? ".tbss,\"awT\",@nobits" : ".bss");
-    else if (g->is_tls)
+    switch (cg_global_segment(g, pic)) {
+    case CG_SEG_TBSS:
+        buf_printf(out, "\t.section\t.tbss,\"awT\",@nobits\n");
+        break;
+    case CG_SEG_TDATA:
         buf_printf(out, "\t.section\t.tdata,\"awT\",@progbits\n");
-    else
+        break;
+    case CG_SEG_BSS:
+        buf_printf(out, "\t.section\t.bss\n");
+        break;
+    case CG_SEG_RODATA:
+        buf_printf(out, "\t.section\t.rodata\n");
+        break;
+    case CG_SEG_DATA_REL_RO:
+        buf_printf(out, "\t.section\t.data.rel.ro,\"aw\",@progbits\n");
+        break;
+    case CG_SEG_DATA:
         buf_printf(out, "\t.data\n");
+        break;
+    }
 }
 
-void x64_emit_globals(const IrModule *m, Buf *out)
+void x64_emit_globals(const IrModule *m, Buf *out, bool pic)
 {
     u32 i;
 
@@ -732,8 +748,10 @@ void x64_emit_globals(const IrModule *m, Buf *out)
 
         for (a = g->align; a > 1; a >>= 1)
             p2++;
-        if (g->is_tentative && !g->is_tls && !g->section) {
-            /* -fcommon tentative: the linker merges. */
+        if (g->is_tentative && !g->is_tls && !g->section && !g->is_const) {
+            /* -fcommon tentative: the linker merges. A CONST tentative is
+             * excluded because .comm has no way to ask for read-only
+             * storage; gcc gives it a real .rodata definition. */
             buf_printf(out, "\t.comm\t%s,%llu,%u\n", g->name,
                        (unsigned long long)g->size, g->align);
             continue;
@@ -753,7 +771,7 @@ void x64_emit_globals(const IrModule *m, Buf *out)
                 buf_printf(out, g->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
                            g->name);
             emit_symbol_attrs(out, g->name, g->visibility);
-            emit_global_section(out, g, true);
+            emit_global_section(out, g, pic);
             buf_printf(out, "\t.p2align\t%u\n", p2);
             buf_printf(out, "\t.type\t%s, %s\n", g->name,
                        g->is_tls ? "@tls_object" : "@object");
@@ -769,7 +787,7 @@ void x64_emit_globals(const IrModule *m, Buf *out)
             buf_printf(out, g->is_weak ? "\t.weak\t%s\n" : "\t.globl\t%s\n",
                        g->name);
         emit_symbol_attrs(out, g->name, g->visibility);
-        emit_global_section(out, g, false);
+        emit_global_section(out, g, pic);
         buf_printf(out, "\t.p2align\t%u\n", p2);
         buf_printf(out, "\t.type\t%s, %s\n", g->name,
                    g->is_tls ? "@tls_object" : "@object");

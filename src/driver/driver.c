@@ -667,6 +667,14 @@ static bool debug_comp_dir(char *out, size_t cap)
  * happens in driver_main AFTER every TU compiled — never here. */
 /* -fPIC wins over -fpie when both appear: full PIC is the stronger promise
  * and the one that is correct under either linkage. */
+/* The PIC question for DATA PLACEMENT is broader than the flag: a target
+ * that is always position-independent always needs the loader-written
+ * segment. */
+static bool data_is_pic(const DriverArgs *a)
+{
+    return a->fpic || a->fpie || cgf_target_always_pic(cgf_target_selected());
+}
+
 static X64PicLevel pic_level_of(const DriverArgs *a)
 {
     if (a->fpic)
@@ -745,7 +753,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
             afuncs[i] = af;
             a64_emit_function(af, m, i, m->funcs[i].linkage, &b);
         }
-        a64_emit_globals(m, &b);
+        a64_emit_globals(m, &b, data_is_pic(a));
         /* Mach-O has no .eh_frame -- it uses compact unwind, which is its own
          * piece of work -- so CFI and DWARF stay ELF-only for now. */
         if (cgf_target_selected().kind == CGF_TARGET_ARM64_LINUX) {
@@ -786,7 +794,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         xfuncs[i] = xf;
         x64_emit_function(xf, m, i, m->funcs[i].linkage, &b);
     }
-    x64_emit_globals(m, &b);
+    x64_emit_globals(m, &b, data_is_pic(a));
     comp_dir[0] = '\0';
     if (a->debug_level && !debug_comp_dir(comp_dir, sizeof(comp_dir))) {
         fprintf(stderr,

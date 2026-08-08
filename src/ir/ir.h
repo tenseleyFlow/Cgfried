@@ -615,6 +615,13 @@ typedef struct IrGlobal {
      * Printed ` weak` and ` visibility(hidden)`. */
     bool is_weak;
     bool is_used; /* the `used` attribute, on an OBJECT */
+    /* The OBJECT's own type is const-qualified, so its bytes belong in a
+     * read-only section. Same reasoning as is_tls: a property of the object,
+     * carried on the global rather than rediscovered per backend. Note this
+     * is the object's OWN qualifier looked through array-element
+     * qualification (6.7.3p9), never a const MEMBER of a non-const record --
+     * gcc puts `struct { const int x; } s;` in .data. Printed ` const`. */
+    bool is_const;
     /* `section("name")` on an OBJECT. A named section also forces real bytes:
      * an uninitialized object there is PROGBITS, not a .bss reservation, since
      * the section the author named is where the bytes must be. */

@@ -491,6 +491,29 @@ static u32 lower_anon_global(Lower *lo, const AstNode *e)
     }
 }
 
+/* Is THIS OBJECT read-only for the life of the process, so its bytes belong
+ * in .rodata rather than .data?
+ *
+ * The qualifier is looked for through array element types, because 6.7.3p9
+ * puts it there: `const char a[4]` is an array (unqualified) OF const char,
+ * so reading quals off the array node alone finds nothing and the object
+ * lands in writable memory. gcc puts it in .rodata, and an array is the most
+ * common const global there is -- a lookup table.
+ *
+ * It deliberately does NOT recurse into record members: a const member does
+ * not make the object const, and gcc agrees, putting
+ * `struct { const int x; } s;` in .data. That is the whole rule -- the
+ * object's own qualifier and nothing else. */
+static bool lower_object_is_const(const Type *t)
+{
+    while (t && t->kind == TY_ARRAY) {
+        if (t->quals & CGF_QUAL_CONST)
+            return true;
+        t = t->base;
+    }
+    return t && (t->quals & CGF_QUAL_CONST) != 0;
+}
+
 /* An object's alignment is its type's, RAISED by any _Alignas. _Alignas may
  * only ever raise (6.7.5p4 rejects a weakening outright, and check_alignas
  * already diagnosed it), so max is the whole rule.
@@ -613,6 +636,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     g->is_tls = sym->tls;
     g->is_weak = sym->gnu.weak;
     g->is_used = sym->gnu.used;
+    g->is_const = lower_object_is_const(sym->type);
     g->section = sym->section_name;
     g->visibility = sym->gnu.visibility;
     g->linkage =

@@ -460,7 +460,7 @@ void a64_emit_set_pic(A64PicLevel pic);
 
 void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out);
-void a64_emit_globals(const IrModule *m, Buf *out);
+void a64_emit_globals(const IrModule *m, Buf *out, bool pic);
 /* Mach-O file bookends; no-ops on ELF targets. */
 void a64_emit_file_prologue(Buf *out);
 void a64_emit_tls_decls(const IrModule *m, Buf *out);

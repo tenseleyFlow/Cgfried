@@ -1813,6 +1813,10 @@ static bool parse_global(P *p)
         next(p);
         g->is_used = true;
     }
+    if (tok_is(peek(p), "const")) {
+        next(p);
+        g->is_const = true;
+    }
     g->visibility = parse_visibility_suffix(p);
     if (tok_is(peek(p), "init")) {
         Tok *blob;

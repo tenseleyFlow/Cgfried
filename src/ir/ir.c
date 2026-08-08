@@ -912,7 +912,8 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->align != y->align || x->linkage != y->linkage ||
             x->is_tentative != y->is_tentative || x->is_tls != y->is_tls ||
             x->is_weak != y->is_weak || x->visibility != y->visibility ||
-            x->is_used != y->is_used || !str_eq_opt(x->section, y->section) ||
+            x->is_used != y->is_used || x->is_const != y->is_const ||
+            !str_eq_opt(x->section, y->section) ||
             (x->init == NULL) != (y->init == NULL) || x->nrelocs != y->nrelocs)
             return false;
         if (x->init && x->size && memcmp(x->init, y->init, x->size) != 0)

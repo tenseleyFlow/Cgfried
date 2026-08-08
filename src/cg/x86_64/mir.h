@@ -432,6 +432,6 @@ u32 x64_frame_align_pad(u32 pushes_after_rbp, u32 raw_bytes);
 void x64_emit_function(const X64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out);
 /* Globals: Sprint 19 byte images + reloc lists, emitted numerically. */
-void x64_emit_globals(const IrModule *m, Buf *out);
+void x64_emit_globals(const IrModule *m, Buf *out, bool pic);
 
 #endif

@@ -174,7 +174,7 @@ int main(int argc, char **argv)
         a64_mir_print(f, &out);
     }
     if (asm_mode)
-        a64_emit_globals(module, &out);
+        a64_emit_globals(module, &out, false);
     if (reg31_mode && !print_reg31(&arena, dc, &out)) {
         buf_free(&out);
         free(source);

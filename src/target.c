@@ -483,6 +483,15 @@ const char *cgf_target_dynamic_linker(TargetSpec t)
  * `arm64-linux`. The crt probe and the system include path both key off
  * this, and hardcoding the x86 tuple is exactly how a native arm64 link
  * failed to find crt1.o. */
+/* macOS has no non-PIC mode: dyld rebases every image, so a pointer in an
+ * initializer is written at load time even without -fPIC. Getting this wrong
+ * puts such an object in __TEXT,__const -- read-only AND code-signed -- which
+ * is a stronger failure than the ELF version of the same mistake. */
+bool cgf_target_always_pic(TargetSpec t)
+{
+    return t.kind == CGF_TARGET_ARM64_MACOS;
+}
+
 const char *cgf_target_multiarch(TargetSpec t)
 {
     switch (t.kind) {

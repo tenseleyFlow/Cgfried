@@ -173,7 +173,7 @@ static void emit_once(Arena *a, DiagCtx *dc, Buf *out)
     xf = x64_isel_function(m, f, a, X64_PIC_NONE);
     x64_regalloc(xf);
     x64_emit_function(xf, m, 0, IRLINK_EXTERNAL, out);
-    x64_emit_globals(m, out);
+    x64_emit_globals(m, out, false);
 }
 
 void test_x64_emit_determinism(TestCtx *t)

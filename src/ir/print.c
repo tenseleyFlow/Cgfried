@@ -630,6 +630,8 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
             buf_printf(out, " weak");
         if (g->is_used)
             buf_printf(out, " used");
+        if (g->is_const)
+            buf_printf(out, " const");
         if (g->section)
             buf_printf(out, " section(%s)", g->section);
         if (g->visibility)
