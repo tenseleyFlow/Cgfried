@@ -199,6 +199,10 @@ struct Symbol {
      * same TU. Interned at the point sema resolves it, so it compares by
      * pointer with every other symbol name. */
     const char *alias_target;
+    /* `__asm__("name")`: the LINKER name for this symbol. The C identifier is
+     * unchanged -- source references still resolve by it -- and only what the
+     * linker sees is renamed. NULL means "use the identifier". */
+    const char *asm_name;
     Span alias_span; /* where the attribute was written, for the diagnostic */
     /* Implemented GNU attributes. Merged across declarations like the
      * inline matrix is: a plain declaration followed by a `weak` one

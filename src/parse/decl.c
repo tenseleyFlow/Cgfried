@@ -248,6 +248,44 @@ static u32 qual_bit(Keyword kw)
     return 0;
 }
 
+/* `__asm__("name")` after a declarator renames the SYMBOL. It sits where an
+ * attribute sits and is read the same way, but it is not an attribute: it
+ * takes one string and replaces the linker name outright.
+ *
+ * Apple's headers depend on it -- `__DARWIN_ALIAS` renames `fopen` and friends
+ * -- and it cannot be faked, which is why hosted macOS waits on it. The name
+ * is emitted VERBATIM: `_fopen$UNIX2003` is a real one, `$` and all. */
+static void parse_asm_label(Parser *p, GnuDeclAttrs *gnu)
+{
+    const Token *kw = parse_peek(p);
+    const Token *arg;
+
+    p->pos++; /* asm / __asm__ / __asm */
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, kw, "expected '(' after '%s'", kw->spelling);
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_STRING || !arg->str.bytes) {
+        parse_error(p, arg, "an asm label takes a string naming the symbol");
+    } else {
+        gnu->asm_name = arena_strdup(p->arena, (const char *)arg->str.bytes);
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_expect_punct(p, PUNCT_RPAREN, "after the asm label");
+}
+
+/* True at an asm label in DECLARATOR-suffix position. The same keywords open
+ * an inline-asm STATEMENT, which is a different construct entirely; only the
+ * position tells them apart. */
+static bool parse_at_asm_label(Parser *p)
+{
+    return parse_at_kw(p, KW_ASM) || parse_at_kw(p, KW_ALT_ASM) ||
+           parse_at_kw(p, KW_ALT_ASM2);
+}
+
 static AstNode *parse_record_specifier(Parser *p, bool is_union);
 static AstNode *parse_enum_specifier(Parser *p);
 static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
@@ -1635,9 +1673,17 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->type = parse_declarator(p, bt, &n->name, false);
         n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         gnu_attrs_merge(&n->gnu, &s.gnu);
-        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
-            n->cgf_attrs = parse_cgf_attrs_concat(
-                p, n->cgf_attrs, parse_cgf_attributes(p, &n->gnu));
+        /* The asm label sits between the declarator and any attributes, and
+         * gcc accepts attributes on either side of it, so both are read in a
+         * loop rather than in a fixed order. */
+        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2) ||
+               parse_at_asm_label(p)) {
+            if (parse_at_asm_label(p))
+                parse_asm_label(p, &n->gnu);
+            else
+                n->cgf_attrs = parse_cgf_attrs_concat(
+                    p, n->cgf_attrs, parse_cgf_attributes(p, &n->gnu));
+        }
         if (implicit_int)
             warn_implicit_int(p, n->span, n->name);
 

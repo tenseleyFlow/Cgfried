@@ -1859,6 +1859,10 @@ static void declare_one(Sema *s, AstNode *d)
     if (alignas_req > sym->align_override)
         sym->align_override = alignas_req;
 
+    if (d->gnu.asm_name)
+        sym->asm_name =
+            intern_str(s->interner, intern_cstr(s->interner, d->gnu.asm_name));
+
     if (d->gnu.alias_target) {
         /* Interned HERE: the parser has no interner, and this is the one
          * place that needs pointer identity against other symbol names. */

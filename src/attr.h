@@ -93,6 +93,17 @@ typedef struct GnuDeclAttrs {
      * is already right the day global dead-stripping lands rather than being
      * remembered then. */
     bool used;
+    /* `__asm__("name")` after a declarator: the SYMBOL this declaration names
+     * is spelled exactly this, whatever the C identifier is. Everything the
+     * linker sees uses it -- the definition's label, and every reference.
+     *
+     * It is a GNU extension rather than an attribute, but it belongs here for
+     * the same reason `weak` does: it is a property of the symbol, decided at
+     * the declaration and consumed by whatever emits or references it.
+     *
+     * Arena-owned rather than interned, like `alias_target`, because a string
+     * literal's bytes are not interned and the parser holds no interner. */
+    const char *asm_name;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

@@ -304,7 +304,7 @@ static u32 global_sym_index(Lower *lo, Symbol *sym)
     if (hit)
         return *hit - 1;
     {
-        u32 idx = ir_sym(lo->m, sym->name);
+        u32 idx = ir_sym(lo->m, lower_link_name(sym));
 
         ptrmap_put_u32(lo, &lo->globals, sym, idx + 1);
         return idx;
@@ -529,6 +529,17 @@ u32 lower_auto_align(Lower *lo, const Symbol *sym, u64 natural, Span span)
     return a;
 }
 
+/* The name the LINKER sees. `__asm__("name")` replaces it outright; the C
+ * identifier stays for source references and for diagnostics, which is why
+ * this is a separate accessor rather than a rewrite of Symbol.name -- an
+ * error message must still say what the programmer wrote. */
+const char *lower_link_name(const Symbol *sym)
+{
+    if (!sym)
+        return NULL;
+    return sym->asm_name ? sym->asm_name : sym->name;
+}
+
 /* --- file-scope objects --------------------------------------------------- */
 
 /* Aliases, objects and functions alike, in ONE pass. An alias is neither an
@@ -591,7 +602,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
     l = layout_of(lo->sema, sym->type);
-    g = ir_global_new(lo->m, sym->name);
+    g = ir_global_new(lo->m, lower_link_name(sym));
     g->align = lower_object_align(sym, l.align);
     /* _Thread_local is a property of the OBJECT: one copy per thread, in
      * .tdata/.tbss, reached through the thread pointer rather than by an
@@ -626,7 +637,8 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     }
     /* The global's symbol index was interned by ir_global_new; record the
      * mapping so expression references resolve to the same index. */
-    ptrmap_put_u32(lo, &lo->globals, sym, ir_sym(lo->m, sym->name) + 1);
+    ptrmap_put_u32(lo, &lo->globals, sym,
+                   ir_sym(lo->m, lower_link_name(sym)) + 1);
 }
 
 /* --- function lowering ---------------------------------------------------- */
@@ -857,7 +869,7 @@ static void lower_function(Lower *lo, AstNode *def)
     }
 
     lo->fn =
-        ir_func_new(lo->m, sym->name,
+        ir_func_new(lo->m, lower_link_name(sym),
                     aret.kind == ABI_RET_SCALAR  ? lower_irtype(lo, ft->base)
                     : aret.kind == ABI_RET_SMALL ? aret.small_t
                                                  : IRT_VOID,

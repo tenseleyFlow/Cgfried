@@ -60,8 +60,14 @@ fixture_of()
             if ($0 ~ /^\|[- |]*\|$/) next
             n = split($0, f, "|")
             name = f[2]; fix = f[3]
-            gsub(/^[ \t`]+|[ \t`]+$/, "", name)
-            gsub(/^[ \t`]+|[ \t`]+$/, "", fix)
+            # Strip ALL backticks, not just the outer ones: rows_of does, and
+            # a name with an INTERIOR pair -- `__asm__("name")` labels -- then
+            # read differently here and reported a missing fixture for a row
+            # whose fixture exists. The two must normalize identically.
+            gsub(/`/, "", name)
+            gsub(/`/, "", fix)
+            gsub(/^[ \t]+|[ \t]+$/, "", name)
+            gsub(/^[ \t]+|[ \t]+$/, "", fix)
             if (name == want) print fix
         }
     ' "$DOC"

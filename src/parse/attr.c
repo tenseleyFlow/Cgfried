@@ -19,6 +19,8 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     if (src->alias_target)
         dst->alias_target = src->alias_target;
     dst->used |= src->used;
+    if (src->asm_name)
+        dst->asm_name = src->asm_name;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)

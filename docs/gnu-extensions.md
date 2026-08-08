@@ -51,6 +51,7 @@ predefine.
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/programs/gnu/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
+| `__asm__("name")` labels | `tests/programs/gnu/asm_label.c` | Apple's `__DARWIN_ALIAS`, glibc symbol versioning |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -174,6 +175,27 @@ One honest divergence: we keep an unreferenced static OBJECT that gcc drops.
 Nothing dead-strips globals here yet, so `used` on an object is carried through
 IR but currently changes nothing. The flag is plumbed anyway, so it is already
 right the day global dead-stripping lands rather than being remembered then.
+
+An **asm label** — `__asm__("name")` after a declarator — renames the SYMBOL.
+The C identifier is unchanged, so source references and diagnostics still use
+what the programmer wrote; only what the linker sees changes. That is why
+`lower_link_name` is a separate accessor rather than a rewrite of
+`Symbol.name`: an error message must still say the identifier.
+
+It is not an attribute, but it lives in the same structure for the same reason
+`weak` does — a property of the symbol, decided at the declaration and consumed
+by whatever emits or references it. The name is emitted VERBATIM and is not
+validated as an identifier: `_fopen$UNIX2003` is a real Darwin symbol, `$` and
+all.
+
+**This is the one that hosted macOS was waiting on.** Apple's `sys/cdefs.h`
+uses `__attribute__` with no `__GNUC__` gate to hide behind, and
+`__DARWIN_ALIAS` renames `fopen` and friends through exactly this mechanism.
+Neither half can be faked, which is why the arm64-macos corpus has been
+freestanding-only.
+
+The same keywords open an inline-asm STATEMENT, which is still refused; only
+the position tells the two constructs apart.
 
 ## Parsed and ignored
 
