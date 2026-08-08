@@ -56,8 +56,12 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   job rather than per-backend.
 - **The GNU attribute surface is classified** by what ignoring each one
   costs; `weak` and `visibility` are implemented and agree with gcc's symbol
-  table on both targets. `packed` is measured and specified but NOT
-  implemented — `.docs/audits/packed-layout.md`.
+  table on both targets. **`packed` is implemented** (rules 1-4;
+  `.docs/audits/packed-layout.md`), and **`aligned` is measured and specified
+  but NOT implemented** — `.docs/audits/aligned-layout.md`.
+- **`_Alignas` on an OBJECT works.** It did not, on any target, for the whole
+  project: ISO C11 6.7.5 validated and then discarded. Members had worked
+  since Sprint 14, which is what hid it.
 - **VLAs work on both targets**, as of the deferral reckoning (§1b-1). They
   did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
   function that also passed arguments on the stack. Multidimensional VLAs
@@ -672,7 +676,8 @@ diagnostic in task #93) get written ONCE rather than per backend.
 
 Taken out of numerical order on purpose: 28 deferrals pointed at it, it
 blocks HOSTED compilation on macOS and FreeBSD, and Sprints 56/57 need it.
-Commits `3ef9741`, `78019c8`, `f7f17fb`, `194258c` — all CI-green.
+Commits `3ef9741`, `78019c8`, `f7f17fb`, `194258c`, `32c156d`, `5b3976a`,
+`f9724fc`, `28b2501` — all CI-green.
 
 **THE ORGANIZING IDEA, and it decides everything else.** One question:
 *what happens if we ignore this attribute?*
@@ -699,34 +704,52 @@ in `make test`; the refused tier (asm goto, computed goto, `&&label`,
 nested functions, mode, vector_size — each naming what it would take); the
 classification; and `weak` + `visibility` implemented end to end.
 
-**NEXT: `packed`.** The spec is already measured and committed —
-`.docs/audits/packed-layout.md`. Read it first; it exists because the sprint
-says to pin gcc's numbers BEFORE writing code, and the numbers contain the
-trap:
+**`packed` LANDED** (rules 1-4; `32c156d`). The audit's trap was real:
+packed drops the RECORD's alignment as well as its members', and forcing the
+offsets alone gives right offsets and wrong `sizeof`. Injecting exactly that
+bug takes the layout differential 400/400 -> 277/400, failing on `_Alignof`
+and never on an offset — which is why the fixtures assert alignment and size,
+not only offsets. Bitfields (rule 5) and `_Atomic` members refuse by name.
 
-> packed drops the RECORD's alignment as well as its members'.
+Three things measurement found that the audit had not anticipated, all now in
+`.docs/audits/packed-layout.md`: position decides binding (trailing and
+keyword-adjacent pack the record, a LEADING attribute gcc ignores); the SysV
+classifier puts an aggregate with unaligned FIELDS in MEMORY and the test is
+the field OFFSET, not the record's alignment; and a packed member access was
+claiming its type's alignment, now clamped (chained case ledgered PACKED-001).
 
-Force member offsets without that and you get the right offsets and the
-wrong `sizeof`, because tail padding survives — and offsets are what a
-reader checks first, so it looks correct. Also measured: `aligned(N)`
-COMPOSES with packed rather than conflicting, and packed bitfields allocate
-bit-contiguously (6 bytes where the unpacked control is 8).
+**NEXT: `aligned`.** Measured and committed at
+`.docs/audits/aligned-layout.md` — read it first. The headline is the
+opposite of `_Alignas`:
 
-Order, and it matters: rules 1-4 are one change to the member loop in
-`src/sema/layout.c`. Rule 5 touches the bitfield container logic that
-Sprint 14 records as ALREADY having produced two bugs. So land 1-4, and
-**keep a packed struct containing a bitfield a hard error until rule 5**.
-Half of packed applied silently is the exact failure the tier table exists
-to prevent.
+> `aligned` only ever RAISES. Asking for less than the natural alignment is
+> silently declined, so `aligned(1)` is NOT a spelling of `packed`.
 
-Verify with `scripts/layout_diff.sh` — it needs no new machinery. It emits
-`_Static_assert` lines built from OUR numbers and hands them to gcc, so gcc
-accepting the file IS the proof. Extend `tests/tools/gen_layout.c` to emit
-packed structs, but NOT packed structs containing bitfields until rule 5
-lands, or the lane hits the hard error and reads as a failure rather than
-the honest refusal it is.
+Every consumer already exists, because the `_Alignas` object work built them:
+record is `TagDecl.align_override`, member is `Member.align_override`, object
+is `Symbol.align_override` -> `lower_object_align`. All three already compare
+with `>`, so rule 1 needs no new logic — only the value has to arrive. What is
+missing is the FUNCTION position (`IrFunc` has no alignment field and both
+emitters hardcode the padding before a function label) and the argument
+grammar (gcc takes a constant expression; the `cgf_` parser takes only an
+integer token — `_Alignas` already parses a full conditional-expression and
+folds it in sema, which is the honest path to reuse).
 
-After packed: `aligned` (17 uses in /usr/include), then `alias`, `section`,
+**Two silent miscompiles were found while PREPARING `aligned`, before a line
+of it was written** (`28b2501`), which is the argument for measuring first:
+`_Alignas` on an OBJECT did nothing on every target — ISO C11, not a GNU
+extension, validated and then discarded at the call site — and under it,
+arm64 aligned a frame object's END where the expansion recovers its START,
+while x86_64 silently under-aligned over-aligned stack objects that arm64 had
+refused by name since Sprint 48. Members had worked since Sprint 14, which is
+precisely what hid all of it: the feature demonstrably worked, just not on
+objects.
+
+The fixture for any of this must check the ADDRESS at run time. `_Alignof`
+answers from the TYPE and was correct throughout — it cannot tell a placed
+object from a misplaced one.
+
+After `aligned`: `alias`, `section`,
 and the `constructor`/`destructor`/`cleanup` group. Then D2 extended asm,
 D4 statement expressions + typeof, and D5 `__GNUC__` LAST — defining it is
 a PROMISE that the implemented set has to back.

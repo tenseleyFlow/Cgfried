@@ -16,6 +16,7 @@
 !.docs/audits/afs-as-pic-debt.md
 !.docs/audits/freebsd-vm.md
 !.docs/audits/packed-layout.md
+!.docs/audits/aligned-layout.md
 CLAUDE.md
 AGENTS.md
 build/
