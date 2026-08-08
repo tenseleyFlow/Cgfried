@@ -665,7 +665,20 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
         e->sem_type = conv_uac(s, &e->mid, &e->rhs);
         return e;
     }
-    if (at->kind == TY_VOID && bt->kind == TY_VOID) {
+    /* 6.5.15p3 allows a void conditional only when BOTH arms are void, but
+     * gcc and clang both accept ONE void arm and give the whole expression
+     * void type -- `g ? a : b()` compiles, and using its value is what earns
+     * "void value not ignored as it ought to be". Matching that is the
+     * deliverable: erroring here rejects code that builds everywhere else.
+     *
+     * Handling only the both-void case left one-sided void falling through to
+     * the pointer/integer arm below, which treated `void` as the integer side
+     * and gave the CONDITIONAL a pointer type while one arm produced no value
+     * at all. Lowering then asked for the IR type of void: "lower_irtype on
+     * non-scalar type kind 0". Frontend fuzzer, seed 76632. The arithmetic
+     * case had the milder version of the same bug -- a hard error where gcc
+     * is silent. */
+    if (at->kind == TY_VOID || bt->kind == TY_VOID) {
         e->sem_type = type_basic(TY_VOID);
         return e;
     }

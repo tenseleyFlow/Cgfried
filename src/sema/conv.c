@@ -548,10 +548,11 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
         rt->kind == TY_STRUCT || rt->kind == TY_UNION) {
         if (type_compatible(conv_strip_quals(s, lhs), conv_strip_quals(s, rt)))
             return true;
-        assign_diag(s, DIAG_ERROR, rhs->span, ctx, "error", lhs, rt);
+        assign_diag(s, DIAG_ERROR, rhs->span, ctx, "incompatible types", lhs,
+                    rt);
         return false;
     }
 
-    assign_diag(s, DIAG_ERROR, rhs->span, ctx, "error", lhs, rt);
+    assign_diag(s, DIAG_ERROR, rhs->span, ctx, "incompatible types", lhs, rt);
     return false;
 }
