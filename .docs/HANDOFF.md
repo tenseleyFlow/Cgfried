@@ -69,10 +69,19 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   works on the x86 path, so `alias` compiles through the BUNDLED assembler.
   Its arm64 path is a separate parser and assembler and still lacks it —
   AS-SET-002, recipe in `.docs/audits/afsld-elf-debt.md`.
-- **Known-wrong-but-shipping, and the ONLY two of that kind**: const globals
-  go in `.data` rather than `.rodata`, and a void expression is accepted where
-  a scalar condition is required (task #108). Everything else open is a NAMED
-  refusal, which is a legitimate resting state — see §1b-1's THE PICK.
+- **Known-wrong-but-shipping is now ONE item**: a void expression is accepted
+  where a scalar condition is required (task #108). Everything else open is a
+  NAMED refusal, which is a legitimate resting state — see §1b-1's THE PICK.
+- **Const globals reach read-only memory**, as of the `.rodata` work. One
+  shared rule (`cg_global_segment`) both backends call: const with no
+  relocation is `.rodata`, const with one is `.rodata` without PIC and
+  `.data.rel.ro` with it, because under PIC the loader must WRITE that word.
+  Mach-O spells the pair `__TEXT,__const` / `__DATA,__const`. **macOS is
+  always position-independent** whatever the flags say
+  (`cgf_target_always_pic`) — getting that wrong puts a loader-written
+  pointer in `__TEXT`, which is read-only AND code-signed. Constness is the
+  object's own qualifier looked through ARRAY-ELEMENT qualification (6.7.3p9);
+  a const member of a non-const record does not count, matching gcc.
 - **The memory summary tables now select on SHAPE, not on the name alone.**
   Both matched a callee with `strcmp` and nothing else, so `strcpy(buf, "")`
   with no `#include` — whose implicit declaration returns int — attached the
