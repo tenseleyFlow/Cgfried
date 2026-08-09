@@ -134,6 +134,24 @@ typedef struct GnuDeclAttrs {
     bool destructor;
     struct AstNode *ctor_priority;
     struct AstNode *dtor_priority;
+    /* `cleanup(func)`: run `func(&var)` when the variable's scope exits, on
+     * every ordinary path out — fall-through, `return`, `break`, `continue`
+     * and a `goto` that leaves the scope. Automatic block-scope variables
+     * only; anywhere else there is no scope exit to hang it on, and gcc
+     * warns and drops it.
+     *
+     * The name is an IDENTIFIER, not an expression and not a string: gcc
+     * rejects `cleanup(&f)` with its own dedicated "cleanup argument not an
+     * identifier", and rejects a function POINTER variable with "cleanup
+     * argument not a function". So this holds an interned identifier
+     * spelling, resolved against the ordinary namespace in sema.
+     *
+     * A MEASURED DIVERGENCE from every other field in this struct: two
+     * `cleanup` attributes on one declaration do NOT union — the LAST one
+     * wins, and gcc emits no diagnostic for the one it discards. Verified by
+     * execution: `((cleanup(a), cleanup(b)))` runs only `b`. Merging these
+     * like `weak` would run both, which is a behaviour gcc never produces. */
+    const char *cleanup_fn;
     /* `section("name")`: which output section this object or function lands
      * in. Arena-owned like the other string-valued ones.
      *
@@ -148,6 +166,11 @@ typedef struct GnuDeclAttrs {
  * declaration, so merging is union rather than replacement: a prefix
  * `weak` and a suffix `visibility("hidden")` on one declaration say both. */
 void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src);
+
+/* True if anything here is a property of a SYMBOL. For the one position that
+ * has no symbol to hang one on — a function parameter — which is otherwise a
+ * silent drop. Enumerates every field, like gnu_attrs_merge. */
+bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g);
 
 const char *gnu_visibility_name(u8 vis);
 

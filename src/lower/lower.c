@@ -707,11 +707,36 @@ static bool compound_has_vla(const AstNode *s)
     return false;
 }
 
-/* The label pre-pass also records, per label, the innermost enclosing
- * VLA-bearing compound — the goto restore walks the runtime scope stack
- * down to exactly that compound (sema's VM jump rules already proved the
- * label's chain is a subset of every goto's chain). */
-static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain)
+/* The label pre-pass also records, per label, TWO enclosing compounds, and
+ * the difference between them is load-bearing:
+ *
+ *   label_vla    the innermost VLA-BEARING compound. A goto's stack restore
+ *                walks down to exactly that one (sema's VM jump rules already
+ *                proved the label's chain is a subset of every goto's chain).
+ *   label_scope  the whole CHAIN of enclosing compounds, VLA or not. A goto's
+ *                CLEANUP calls walk down to the innermost compound common to
+ *                that chain and the goto's own scope stack.
+ *
+ * Neither shortcut works for cleanups, and each failed differently:
+ *
+ * - Reusing label_vla is wrong because it is FILTERED to VLA-bearing
+ *   compounds, so in a function with no VLA it is NULL for every label and
+ *   the walk runs off the top of the stack.
+ * - Recording only the innermost compound is wrong because C permits jumping
+ *   INTO a cleanup scope, and then the label's compound is not on the goto's
+ *   stack at all — so the walk again runs off the top.
+ *
+ * Both produce the same symptom: an outer cleanup running TWICE, once at the
+ * goto and again when its scope really ends. Both were caught by executing a
+ * fixture against gcc rather than by reading this code.
+ *
+ * THE VLA SIBLING NEEDS NONE OF THIS, and the reason is not that it is
+ * simpler: 6.8.6.1p1 FORBIDS jumping into the scope of a variably-modified
+ * declaration, and sema enforces it, so the label's VLA compound is always on
+ * the goto's stack. `cleanup` has no such rule — gcc compiles the jump — so
+ * the general answer is the only correct one here. */
+static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain,
+                           LabelScope *scope_chain)
 {
     u32 i;
 
@@ -726,19 +751,25 @@ static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain)
         b = ir_block_new(lo->m, lo->fn, arena_strdup(lo->arena, buf));
         lower_u32map_put(lo, &lo->labels, s->name, strlen(s->name), b.v);
         strmap_put(&lo->label_vla, s->name, strlen(s->name), (void *)vla_chain);
-        collect_labels(lo, s->body, vla_chain);
+        strmap_put(&lo->label_scope, s->name, strlen(s->name),
+                   (void *)scope_chain);
+        collect_labels(lo, s->body, vla_chain, scope_chain);
         return;
     }
     case AST_STMT_COMPOUND: {
         const AstNode *inner = compound_has_vla(s) ? s : vla_chain;
+        LabelScope *here =
+            arena_alloc(lo->arena, sizeof(LabelScope), _Alignof(LabelScope));
 
+        here->compound = s;
+        here->prev = scope_chain;
         for (i = 0; i < s->nitems; i++)
-            collect_labels(lo, s->items[i], inner);
+            collect_labels(lo, s->items[i], inner, here);
         return;
     }
     case AST_STMT_IF:
-        collect_labels(lo, s->body, vla_chain);
-        collect_labels(lo, s->rhs, vla_chain);
+        collect_labels(lo, s->body, vla_chain, scope_chain);
+        collect_labels(lo, s->rhs, vla_chain, scope_chain);
         return;
     case AST_STMT_SWITCH:
     case AST_STMT_WHILE:
@@ -746,7 +777,7 @@ static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain)
     case AST_STMT_FOR:
     case AST_STMT_CASE:
     case AST_STMT_DEFAULT:
-        collect_labels(lo, s->body, vla_chain);
+        collect_labels(lo, s->body, vla_chain, scope_chain);
         return;
     default:
         return;
@@ -949,7 +980,7 @@ static void lower_function(Lower *lo, AstNode *def)
     strmap_init(&lo->labels);
     lo->loops = NULL;
     lo->switches = NULL;
-    lo->vla_scopes = NULL;
+    lo->scopes = NULL;
     lo->fname = sym->name;
     lo->sret = hidden ? lo->fn->param_vals[0] : VALUE_INVALID;
     lo->cur_abi_ret = &aret;
@@ -959,7 +990,11 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->next_dead_region = 0;
 
     entry = ir_block_new(lo->m, lo->fn, "entry");
-    collect_labels(lo, def->body, NULL);
+    /* The function body compound is the OUTERMOST scope, and passing it as
+     * the initial scope_chain is what stops a goto to a function-top-level
+     * label from running that scope's cleanups: they run when the body itself
+     * ends, exactly once. */
+    collect_labels(lo, def->body, NULL, NULL);
     ir_builder_set_span(&lo->b, (Span){0});
     lower_at(lo, entry);
 
@@ -1113,6 +1148,7 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
     strmap_init(&lo.string_pool);
     strmap_init(&lo.vla_sizes);
     strmap_init(&lo.label_vla);
+    strmap_init(&lo.label_scope);
     ve = cgf_env("CGF_VERIFY_AFTER_EACH");
     lo.verify_each = ve && strcmp(ve, "1") == 0;
 
@@ -1185,6 +1221,7 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
     strmap_free(&lo.string_pool);
     strmap_free(&lo.vla_sizes);
     strmap_free(&lo.label_vla);
+    strmap_free(&lo.label_scope);
     return lo.failed ? NULL : lo.m;
 }
 

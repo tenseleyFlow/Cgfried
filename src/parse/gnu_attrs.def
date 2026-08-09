@@ -16,9 +16,10 @@
  *              refused, and the tier doc would drift from the code.
  *
  *   GA_UNSAFE  Ignoring changes LAYOUT, LINKAGE or observable behaviour.
- *              Hard error until implemented. `packed` silently ignored is
- *              the wrong struct layout; `weak` ignored is the wrong symbol
- *              binding; `cleanup` ignored means the function never runs.
+ *              Hard error until implemented. `transparent_union` ignored is
+ *              the wrong parameter ABI; `gnu_inline` ignored decides whether
+ *              a definition emits a symbol at all; `may_alias` ignored leaves
+ *              the optimizer applying TBAA where the author said it must not.
  *              Every one of those links and then misbehaves, which is the
  *              failure mode docs/gnu-extensions.md exists to prevent.
  *
@@ -69,6 +70,7 @@ GA(alias, GA_IMPLEMENTED)
 /* `used` keeps a symbol the IPO pass would otherwise delete. */
 GA(used, GA_IMPLEMENTED)
 GA(aligned, GA_IMPLEMENTED)
+GA(cleanup, GA_IMPLEMENTED)
 GA(constructor, GA_IMPLEMENTED)
 GA(destructor, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
@@ -77,9 +79,6 @@ GA(visibility, GA_IMPLEMENTED)
 GA(weak, GA_IMPLEMENTED)
 
 /* --- NOT safe to ignore: layout, linkage, or behaviour ------------------ */
-GA(cleanup, GA_UNSAFE)
-GA(constructor, GA_UNSAFE)
-GA(destructor, GA_UNSAFE)
 /* gnu_inline selects the C89 inline semantics rather than C99's, which
  * decides whether a definition emits a symbol at all. */
 GA(gnu_inline, GA_UNSAFE)

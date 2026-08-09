@@ -494,6 +494,13 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
 
             mem->align_override = member_align > ga ? member_align : ga;
         }
+        /* A member is destroyed with the object that contains it, not at a
+         * scope exit, so there is no edge for a cleanup call to sit on. gcc
+         * warns and drops it; the same is true of a typedef, which the
+         * ordinary declaration path handles. */
+        if (m->gnu.cleanup_fn)
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, m->span,
+                    "'cleanup' attribute ignored");
         mem->packed = tag->packed || m->gnu.packed;
         if (mem->packed) {
             /* Rule 5 of .docs/audits/packed-layout.md -- packed bitfields
@@ -1577,6 +1584,80 @@ static void check_ctor_dtor(Sema *s, Symbol *sym, AstNode *d)
     }
 }
 
+/* `cleanup(func)` runs `func(&var)` when the variable's scope exits, so it
+ * needs a scope to exit and an object to take the address of. An automatic
+ * block-scope variable is the only declaration that has both: a global, a
+ * static local, a `_Thread_local` and a parameter all outlive every scope
+ * exit that could fire it, and gcc drops the attribute with a warning rather
+ * than erroring, so a header carrying one on the wrong declaration still
+ * compiles.
+ *
+ * THE ARGUMENT CHECK IS THE ORDINARY CALL CHECK, deliberately. gcc reports a
+ * cleanup function taking `long *` for an `int` variable as the everyday
+ * incompatible-pointer diagnostic, not as a bespoke signature complaint, and
+ * an array variable reports `int (*)[3]` — the real type of `&var`. Writing a
+ * dedicated comparison here would drift from the one in expr.c and would
+ * report a different sentence for the same mistake; synthesizing the argument
+ * and handing it to conv_assignable cannot. */
+static void check_cleanup(Sema *s, Symbol *sym, AstNode *d, bool file_scope)
+{
+    Symbol *fn;
+    Type *ft;
+
+    if (!sym->gnu.cleanup_fn)
+        return;
+    if (sym->kind != SYM_VAR || sym->is_param || file_scope ||
+        (d->storage & (AST_SC_STATIC | AST_SC_EXTERN | AST_SC_THREAD_LOCAL))) {
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'cleanup' attribute ignored");
+        sym->gnu.cleanup_fn = NULL;
+        return;
+    }
+
+    fn = scope_lookup(s->scope, sym->gnu.cleanup_fn, NS_ORDINARY);
+    /* One diagnostic for both "no such name" and "that name is not a
+     * function", which is gcc's own wording and its own conflation: an
+     * undeclared identifier here reports THIS rather than the ordinary
+     * undeclared-identifier error, and a function POINTER variable reports it
+     * too — `cleanup` takes a function, and a pointer to one is not it. */
+    if (!fn || fn->kind != SYM_FUNC) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "cleanup argument not a function");
+        sym->gnu.cleanup_fn = NULL;
+        return;
+    }
+
+    ft = fn->type;
+    if (ft && ft->kind == TY_FUNC && ft->has_proto) {
+        if (ft->nparams != 1) {
+            /* gcc's arity wording, from the ordinary call path. */
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "too %s arguments to function '%s'; expected %u, have 1",
+                      ft->nparams < 1 ? "many" : "few", fn->name,
+                      (unsigned)ft->nparams);
+            sym->gnu.cleanup_fn = NULL;
+            return;
+        }
+        if (sym->type) {
+            /* The synthetic `&var`. It exists only to be type-checked and is
+             * never lowered — lowering builds the address from the variable's
+             * own slot — so it needs a type and a span and nothing else. */
+            AstNode *addr = ast_new(s->arena, AST_EXPR_UNARY, d->span);
+            AssignCtx ctx;
+
+            addr->sem_type = type_ptr(s->arena, sym->type);
+            memset(&ctx, 0, sizeof(ctx));
+            ctx.kind = ACTX_ARG;
+            ctx.arg_index = 1;
+            ctx.callee = fn->name;
+            conv_assignable(s, ft->params[0], &addr, ctx);
+        }
+    }
+    sym->cleanup_fn = fn;
+}
+
 static u64 check_alignas(Sema *s, AstNode *d, Type *type)
 {
     u64 natural;
@@ -1969,6 +2050,7 @@ static void declare_one(Sema *s, AstNode *d)
             s->interner, intern_cstr(s->interner, d->gnu.section_name));
 
     check_ctor_dtor(s, sym, d);
+    check_cleanup(s, sym, d, file_scope);
 
     if (d->gnu.asm_name)
         sym->asm_name =

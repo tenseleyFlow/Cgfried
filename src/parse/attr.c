@@ -28,6 +28,11 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
         dst->ctor_priority = src->ctor_priority;
     if (src->dtor_priority)
         dst->dtor_priority = src->dtor_priority;
+    /* LAST WINS, not union, and the difference is observable: gcc runs only
+     * the last `cleanup` named on a declaration and says nothing about the
+     * others (measured by execution). See attr.h. */
+    if (src->cleanup_fn)
+        dst->cleanup_fn = src->cleanup_fn;
     if (src->asm_name)
         dst->asm_name = src->asm_name;
     if (src->section_name)
@@ -36,6 +41,24 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
      * clears a specified one. */
     if (src->visibility)
         dst->visibility = src->visibility;
+}
+
+/* Did this declaration say anything that is a SYMBOL property? Callers with
+ * nowhere to put one — a function parameter is the only such position — use
+ * this to say so rather than dropping it silently.
+ *
+ * It lives beside gnu_attrs_merge deliberately: both must enumerate every
+ * field, so a new attribute that forgets one forgets the other in the same
+ * glance. Enumerating only the three fields that existed when the parameter
+ * path was written is exactly how `aligned`, `alias`, `used`, `section`,
+ * `constructor`, `destructor` and the asm label all came to be dropped there
+ * without a word. */
+bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
+{
+    return g->weak || g->packed || g->visibility || g->used ||
+           g->aligned_expr || g->aligned_bare || g->constructor ||
+           g->destructor || g->alias_target || g->asm_name || g->section_name ||
+           g->cleanup_fn;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -270,6 +293,35 @@ static void parse_alias_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
     parse_eat_punct(p, PUNCT_RPAREN);
 }
 
+/* cleanup(func). The argument is strictly an IDENTIFIER — not an expression,
+ * not a string. gcc has a dedicated diagnostic for each way of getting that
+ * wrong, and the two are genuinely different checks: `cleanup(&f)` is
+ * "argument not an identifier" (a grammar failure, caught here), while
+ * `cleanup(fp)` naming a function POINTER is "argument not a function" (a
+ * lookup failure, caught in sema once the name resolves).
+ *
+ * The spelling is interned already — identifier tokens arrive that way — so
+ * unlike `alias` and `section` this needs no arena copy. */
+static void parse_cleanup_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    const Token *arg;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "attribute 'cleanup' requires a function name");
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_IDENT) {
+        parse_error(p, arg, "cleanup argument not an identifier");
+    } else {
+        gnu->cleanup_fn = arg->spelling;
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
 /* section("name"). One string, taken verbatim: a section name is not an
  * identifier and `.note.GNU-stack` style names are ordinary. */
 static void parse_section_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
@@ -413,6 +465,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "destructor")) {
                             parse_ctor_dtor(p, false, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "cleanup")) {
+                            parse_cleanup_attr(p, name, gnu);
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

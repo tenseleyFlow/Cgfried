@@ -118,12 +118,12 @@ static void lower_vla_sizes_in_decl(Lower *lo, Type *t)
 
 /* Restores the OUTERMOST live token among the scopes from the innermost
  * up to (but excluding) `stop` — one restore subsumes the inner ones. */
-static void vla_restore_until(Lower *lo, VlaScope *stop)
+static void vla_restore_until(Lower *lo, LexScope *stop)
 {
-    VlaScope *sc;
+    LexScope *sc;
     ValueId outer = VALUE_INVALID;
 
-    for (sc = lo->vla_scopes; sc && sc != stop; sc = sc->prev)
+    for (sc = lo->scopes; sc && sc != stop; sc = sc->prev)
         if (sc->token.v)
             outer = sc->token;
     if (outer.v)
@@ -136,10 +136,10 @@ static void vla_restore_for_goto(Lower *lo, const char *label)
 {
     void *hit = strmap_get(&lo->label_vla, label, strlen(label));
     const AstNode *target = hit; /* innermost VLA compound at the label */
-    VlaScope *sc;
+    LexScope *sc;
     ValueId outer = VALUE_INVALID;
 
-    for (sc = lo->vla_scopes; sc; sc = sc->prev) {
+    for (sc = lo->scopes; sc; sc = sc->prev) {
         if (sc->compound == target)
             break;
         if (sc->token.v)
@@ -147,6 +147,99 @@ static void vla_restore_for_goto(Lower *lo, const char *label)
     }
     if (outer.v)
         ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, outer));
+}
+
+/* --- cleanup scope machinery ------------------------------------------------
+ *
+ * `cleanup` shares the scope chain with the VLA machinery above and shares
+ * NOTHING else. A restore of the outermost token subsumes the inner ones; a
+ * cleanup call subsumes nothing, so every scope being left runs every one of
+ * its variables. And `return`, which deliberately restores no VLA token
+ * because the epilogue reclaims the frame, must run EVERY cleanup — there is
+ * no epilogue equivalent for a function call. */
+
+static void cleanup_register(Lower *lo, Symbol *sym, ValueId slot, Span span)
+{
+    ScopeCleanup *c;
+
+    if (!sym->cleanup_fn || !lo->scopes || !slot.v)
+        return;
+    c = arena_alloc(lo->arena, sizeof(ScopeCleanup), _Alignof(ScopeCleanup));
+    c->slot = slot;
+    c->fn = sym->cleanup_fn;
+    c->span = span;
+    /* PREPEND: walking forward then yields reverse declaration order, which
+     * is the order gcc runs them in (measured by execution, not read). */
+    c->next = lo->scopes->cleanups;
+    lo->scopes->cleanups = c;
+}
+
+/* One scope's calls, in list order. The argument is the variable's own slot:
+ * `&var` is the alloca, so no address is computed and nothing can have moved
+ * it. Sema already proved the call type-checks. */
+static void cleanup_run_scope(Lower *lo, const LexScope *sc)
+{
+    const ScopeCleanup *c;
+
+    for (c = sc->cleanups; c; c = c->next) {
+        IrOperand arg = ir_op_value(lo->fn, c->slot);
+        u32 fidx;
+
+        ir_builder_set_span(&lo->b, c->span);
+        if (lower_internal_func(lo, c->fn, &fidx))
+            (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_INTERNAL, fidx, &arg,
+                                1);
+        else
+            (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                                lower_global_sym(lo, c->fn), &arg, 1);
+    }
+}
+
+/* Every scope from the innermost up to (but excluding) `stop`. Passing NULL
+ * leaves the whole function, which is what `return` does. */
+static void cleanup_run_until(Lower *lo, const LexScope *stop)
+{
+    const LexScope *sc;
+
+    for (sc = lo->scopes; sc && sc != stop; sc = sc->prev)
+        cleanup_run_scope(lo, sc);
+}
+
+/* goto: the scopes actually LEFT are those between here and the innermost
+ * compound COMMON to the goto and the label. Scopes the label is still inside
+ * are not left, and run later at their own end — measured: a `goto` out of two
+ * nested scopes runs those two now and the enclosing one at the end of the
+ * function.
+ *
+ * "Common", not "the label's own", because C permits jumping INTO a cleanup
+ * scope (gcc compiles it; see attr_cleanup_jump_in.c). Stopping at the label's
+ * innermost compound works only when that compound is on the goto's stack,
+ * which a jump inward makes false — and then the walk runs off the top and
+ * fires every enclosing cleanup twice. The VLA sibling can take that shortcut
+ * because 6.8.6.1p1 forbids the jump that would break it; this cannot. */
+static void cleanup_run_for_goto(Lower *lo, const char *label)
+{
+    void *hit = strmap_get(&lo->label_scope, label, strlen(label));
+    const LabelScope *target = hit;
+    const LexScope *sc;
+
+    for (sc = lo->scopes; sc; sc = sc->prev) {
+        const LabelScope *t;
+
+        for (t = target; t; t = t->prev)
+            if (t->compound == sc->compound)
+                return; /* the common ancestor: everything from here is kept */
+        cleanup_run_scope(lo, sc);
+    }
+}
+
+/* Both obligations of one scope, in the only order that works: the call
+ * receives a pointer into storage the restore is about to release. */
+static void scope_exit_here(Lower *lo, const LexScope *sc)
+{
+    cleanup_run_scope(lo, sc);
+    if (sc->token.v)
+        ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, sc->token));
 }
 
 /* --- local declarations --------------------------------------------------- */
@@ -220,12 +313,13 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         while (elem->kind == TY_ARRAY)
             elem = elem->base;
         el = layout_of(lo->sema, elem);
-        if (lo->vla_scopes && !lo->vla_scopes->token.v)
-            lo->vla_scopes->token = ir_build_stacksave(&lo->b);
+        if (lo->scopes && !lo->scopes->token.v)
+            lo->scopes->token = ir_build_stacksave(&lo->b);
         slot =
             ir_build_alloca_typed(&lo->b, bytes, (u32)(el.align ? el.align : 1),
                                   lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
+        cleanup_register(lo, sym, slot, d->span);
         if (lo->auto_var_init != LOWER_AUTO_VAR_INIT_NONE &&
             !(d->storage & AST_SC_THREAD_LOCAL)) {
             i64 byte =
@@ -263,6 +357,11 @@ static void lower_one_decl(Lower *lo, AstNode *d)
                                   lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
     }
+    /* AFTER the slot exists and BEFORE the initializer runs. The order
+     * matters for neither the call nor the store, but registering here means
+     * a variable whose own initializer jumps away still has its cleanup
+     * recorded -- which is what the scope exit will look for. */
+    cleanup_register(lo, sym, slot, d->span);
     if (d->init) {
         Symbol *saved_init = lo->initializing_sym;
         AstNode *self = d->init;
@@ -495,7 +594,7 @@ static void lower_switch(Lower *lo, AstNode *s)
      * case label, which opens its block. */
     brk.break_target = join;
     brk.continue_target = BLOCK_INVALID; /* continue skips switch entries */
-    brk.vla_mark = lo->vla_scopes;
+    brk.scope_mark = lo->scopes;
     brk.prev = lo->loops;
     lo->loops = &brk;
     ctx.prev = lo->switches;
@@ -542,18 +641,19 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         return;
     switch (s->kind) {
     case AST_STMT_COMPOUND: {
-        VlaScope scope;
+        LexScope scope;
 
         scope.token = VALUE_INVALID;
         scope.compound = s;
-        scope.prev = lo->vla_scopes;
-        lo->vla_scopes = &scope;
+        scope.cleanups = NULL;
+        scope.prev = lo->scopes;
+        lo->scopes = &scope;
         for (i = 0; i < s->nitems; i++)
             lower_stmt(lo, s->items[i]);
-        /* Normal fall-out: rewind this scope's VLAs (if any). */
-        if (scope.token.v && !lo->terminated)
-            ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, scope.token));
-        lo->vla_scopes = scope.prev;
+        /* Normal fall-out: run this scope's cleanups, then rewind its VLAs. */
+        if (!lo->terminated)
+            scope_exit_here(lo, &scope);
+        lo->scopes = scope.prev;
         return;
     }
     case AST_STMT_DECL:
@@ -605,7 +705,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         mark_config_branch(lo, s->lhs);
         lc.break_target = exit_;
         lc.continue_target = header;
-        lc.vla_mark = lo->vla_scopes;
+        lc.scope_mark = lo->scopes;
         lc.prev = lo->loops;
         lo->loops = &lc;
         lower_at(lo, body);
@@ -627,7 +727,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         lower_branch_to(lo, body);
         lc.break_target = exit_;
         lc.continue_target = cond; /* continue re-tests, per 6.8.6.2 */
-        lc.vla_mark = lo->vla_scopes;
+        lc.scope_mark = lo->scopes;
         lc.prev = lo->loops;
         lo->loops = &lc;
         lower_at(lo, body);
@@ -644,8 +744,20 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
     case AST_STMT_FOR: {
         BlockId header, body, step, exit_;
         LoopCtx lc;
+        LexScope scope;
 
         ensure_open_block(lo, "dead");
+        /* The for-init declaration lives in the FOR statement's own scope,
+         * not the enclosing block's: `for (int i C = 1; ...)` runs i's
+         * cleanup when the loop ends, before the next statement (measured).
+         * The body's compound pushes a second scope inside this one, so a
+         * `break` correctly runs the body's cleanups and not the init's —
+         * lc.scope_mark is taken AFTER this push for exactly that reason. */
+        scope.token = VALUE_INVALID;
+        scope.compound = s;
+        scope.cleanups = NULL;
+        scope.prev = lo->scopes;
+        lo->scopes = &scope;
         /* The C99 for-init clause is either an expression statement or a
          * BARE declaration node — the parser stores the declaration
          * directly, not wrapped in AST_STMT_DECL (the same trap sema
@@ -673,7 +785,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         }
         lc.break_target = exit_;
         lc.continue_target = step; /* the STEP block, not the header */
-        lc.vla_mark = lo->vla_scopes;
+        lc.scope_mark = lo->scopes;
         lc.prev = lo->loops;
         lo->loops = &lc;
         lower_at(lo, body);
@@ -685,6 +797,11 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             (void)lower_rvalue(lo, s->rhs);
         lower_branch_to(lo, header);
         lower_at(lo, exit_);
+        /* The loop's exit block is inside the for's scope: a for-init
+         * cleanup runs on the way out, however the loop ended. */
+        if (!lo->terminated)
+            scope_exit_here(lo, &scope);
+        lo->scopes = scope.prev;
         return;
     }
     case AST_STMT_SWITCH:
@@ -724,6 +841,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         if (hit) {
             BlockId b = {*hit};
 
+            cleanup_run_for_goto(lo, s->name);
             vla_restore_for_goto(lo, s->name);
             ir_build_br(&lo->b, b, NULL, 0);
             lo->terminated = true;
@@ -735,7 +853,8 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
 
         ensure_open_block(lo, "dead");
         if (lc) {
-            vla_restore_until(lo, lc->vla_mark);
+            cleanup_run_until(lo, lc->scope_mark);
+            vla_restore_until(lo, lc->scope_mark);
             ir_build_br(&lo->b, lc->break_target, NULL, 0);
             if (lc->continue_target.v == 0)
                 ir_branch_mark_flow_provenance(&lo->b);
@@ -750,32 +869,43 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         while (lc && lc->continue_target.v == 0)
             lc = lc->prev; /* skip switch entries */
         if (lc) {
-            vla_restore_until(lo, lc->vla_mark);
+            cleanup_run_until(lo, lc->scope_mark);
+            vla_restore_until(lo, lc->scope_mark);
             ir_build_br(&lo->b, lc->continue_target, NULL, 0);
             lo->terminated = true;
         }
         return;
     }
-    case AST_STMT_RETURN:
+    case AST_STMT_RETURN: {
         /* No stackrestore on return: the epilogue's frame teardown
          * subsumes every live VLA token (and longjmp likewise unwinds
-         * frames wholesale — tokens die with them). */
+         * frames wholesale — tokens die with them). `cleanup` is the
+         * opposite: a call has no epilogue equivalent, so every enclosing
+         * scope runs here.
+         *
+         * THE RETURN VALUE IS MATERIALIZED BEFORE THE CLEANUPS RUN, which is
+         * observable and was measured rather than assumed: a cleanup that
+         * overwrites its variable does NOT change what `return x` returns.
+         * That is why this computes an operand in every branch and emits ONE
+         * `ret` at the end — with the cleanups spliced between — instead of
+         * returning from each branch, where one missed branch would silently
+         * skip them. */
+        IrOperand rv;
+        bool have_rv = false;
+
+        memset(&rv, 0, sizeof(rv));
         ensure_open_block(lo, "dead");
         if (lo->cur_return_type && lo->cur_return_type->kind == TY_VOID) {
             /* Sema already warned about `return expr` here. Preserve its
              * side effects while keeping warning-only IR verifier-valid. */
             if (s->lhs)
                 (void)lower_rvalue(lo, s->lhs);
-            ir_build_ret(&lo->b, NULL);
         } else if (!s->lhs) {
             /* A missing value is a warning. Scalar and small-aggregate IR
              * functions nevertheless require a return operand. */
-            if (lo->fn->ret == IRT_VOID) {
-                ir_build_ret(&lo->b, NULL);
-            } else {
-                IrOperand undef = ir_op_undef((IrType)lo->fn->ret);
-
-                ir_build_ret(&lo->b, &undef);
+            if (lo->fn->ret != IRT_VOID) {
+                rv = ir_op_undef((IrType)lo->fn->ret);
+                have_rv = true;
             }
         } else if (lo->sret.v) {
             /* SRET/PAIR aggregate return: memcpy into the hidden result
@@ -786,9 +916,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
 
             lower_memcpy_aggregate(lo, ir_op_value(lo->fn, lo->sret), src,
                                    s->lhs->sem_type, (u32)l.align, 0);
-            ir_build_ret(&lo->b, NULL);
-        } else if (s->lhs && lo->cur_abi_ret &&
-                   lo->cur_abi_ret->kind == ABI_RET_SMALL) {
+        } else if (lo->cur_abi_ret && lo->cur_abi_ret->kind == ABI_RET_SMALL) {
             /* One-eightbyte aggregate: the VALUE travels as a
              * bit-carrying i64/f64. Load through an 8-byte staging slot
              * when the object is shorter than the load. */
@@ -796,7 +924,6 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             AbiRet *ar = lo->cur_abi_ret;
             IrOperand from = src;
             Lvalue lv;
-            IrOperand v;
 
             if (ar->size < 8) {
                 ValueId tmp = ir_build_alloca(&lo->b, lower_i64(8), 8);
@@ -809,15 +936,17 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             lv.addr = from;
             lv.unit = ar->small_t;
             lv.align = 8;
-            v = lower_load(lo, lv);
-            ir_build_ret(&lo->b, &v);
-        } else if (s->lhs) {
-            IrOperand v = lower_rvalue(lo, s->lhs);
-
-            ir_build_ret(&lo->b, &v);
+            rv = lower_load(lo, lv);
+            have_rv = true;
+        } else {
+            rv = lower_rvalue(lo, s->lhs);
+            have_rv = true;
         }
+        cleanup_run_until(lo, NULL);
+        ir_build_ret(&lo->b, have_rv ? &rv : NULL);
         lo->terminated = true;
         return;
+    }
     default:
         return;
     }

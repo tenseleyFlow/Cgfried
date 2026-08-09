@@ -204,6 +204,12 @@ struct Symbol {
      * linker sees is renamed. NULL means "use the identifier". */
     const char *asm_name;
     const char *section_name; /* `section("...")` */
+    /* `cleanup(func)`, RESOLVED. The attribute records a name; this is the
+     * function it named, so lowering never repeats a lookup. NULL unless the
+     * variable is an automatic block-scope object that passed every check —
+     * an ignored or ill-typed `cleanup` leaves it NULL, which is what makes
+     * "emit a call iff this is set" the whole of the lowering rule. */
+    struct Symbol *cleanup_fn;
     /* Folded `constructor`/`destructor` priorities. Only meaningful when the
      * matching gnu.constructor / gnu.destructor flag is set; CGF_INIT_PRIORITY_
      * DEFAULT otherwise, which is also what the unprioritized form means. */

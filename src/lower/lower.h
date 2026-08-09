@@ -55,22 +55,59 @@ typedef struct Lvalue {
     u32 align;
 } Lvalue;
 
-/* One VLA-bearing lexical scope: the stacksave token (0 until the first
- * VLA declares) and the compound it belongs to. Exits restore the
- * OUTERMOST live token among the scopes they leave — restoring the
- * outermost subsumes every inner one. `return` restores nothing (the
- * epilogue's frame teardown subsumes it) and longjmp needs nothing (the
- * stack unwinds wholesale; tokens die with the frames). */
-typedef struct VlaScope {
+/* One `cleanup(func)` variable, recorded when its declaration lowers.
+ * PREPENDED to its scope's list, so walking the list forward yields REVERSE
+ * declaration order — which is the order the calls must run in. */
+typedef struct ScopeCleanup {
+    ValueId slot;      /* the variable's alloca: the `&var` argument */
+    struct Symbol *fn; /* the function to call */
+    Span span;         /* the declaration, for the call's source location */
+    struct ScopeCleanup *next;
+} ScopeCleanup;
+
+/* One lexical scope. Two independent scope-exit obligations ride on it and
+ * they behave DIFFERENTLY, which is why this is one record with two lists
+ * rather than two stacks:
+ *
+ *  - VLA storage. The stacksave token is 0 until the scope's first VLA
+ *    declares. An exit restores the OUTERMOST live token among the scopes it
+ *    leaves, because one restore subsumes every inner one. `return` restores
+ *    NOTHING — the epilogue's frame teardown subsumes it — and longjmp needs
+ *    nothing, since the stack unwinds wholesale and tokens die with frames.
+ *
+ *  - `cleanup` calls. Every scope being left runs EVERY one of its variables,
+ *    innermost scope first and reverse declaration order within a scope; no
+ *    call subsumes another. `return` runs all of them, which is exactly where
+ *    the two rules diverge.
+ *
+ * Where a scope owes both, the CALLS COME FIRST: a cleanup function receives
+ * a pointer to its variable, and for a VLA that pointer is into the storage
+ * the restore is about to release. */
+typedef struct LexScope {
     ValueId token;
     const AstNode *compound;
-    struct VlaScope *prev;
-} VlaScope;
+    ScopeCleanup *cleanups;
+    struct LexScope *prev;
+} LexScope;
+
+/* The chain of compounds enclosing a label, innermost first, built by the
+ * label pre-pass. Nodes are shared structurally: every label inside one
+ * compound points at the same node, so the whole function costs one node per
+ * nesting level rather than one per label.
+ *
+ * A goto needs the whole CHAIN, not just the innermost entry, because C
+ * permits jumping INTO a cleanup scope. The scopes actually left are those
+ * between the goto and the innermost compound COMMON to both sides, and
+ * finding a common ancestor takes both chains. */
+typedef struct LabelScope {
+    const AstNode *compound;
+    struct LabelScope *prev;
+} LabelScope;
 
 typedef struct LoopCtx {
     BlockId break_target;
-    BlockId continue_target;   /* BLOCK_INVALID in a switch entry */
-    struct VlaScope *vla_mark; /* scopes above this survive break/continue */
+    BlockId continue_target;     /* BLOCK_INVALID in a switch entry */
+    struct LexScope *scope_mark; /* scopes above this survive break/continue */
     struct LoopCtx *prev;
 } LoopCtx;
 
@@ -105,10 +142,11 @@ typedef struct Lower {
     Strmap labels;   /* label name -> BlockId (function scope, pre-pass) */
     LoopCtx *loops;
     SwitchCtx *switches;
-    VlaScope *vla_scopes; /* innermost first */
-    Strmap vla_sizes;     /* Type* -> ValueId of the cached byte size */
-    Strmap label_vla;     /* label name -> innermost VLA compound (AST) */
-    ValueId sret;         /* hidden aggregate-return pointer, or 0 */
+    LexScope *scopes;   /* innermost first */
+    Strmap vla_sizes;   /* Type* -> ValueId of the cached byte size */
+    Strmap label_vla;   /* label name -> innermost VLA compound (AST) */
+    Strmap label_scope; /* label name -> innermost enclosing compound (AST) */
+    ValueId sret;       /* hidden aggregate-return pointer, or 0 */
     const char *fname;
     /* Sprint 19 ABI state for the CURRENT function. */
     struct AbiRet *cur_abi_ret; /* how `return e` leaves the function */
