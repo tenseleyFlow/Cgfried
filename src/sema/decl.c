@@ -1515,6 +1515,68 @@ static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
     return (u64)want;
 }
 
+/* Fold and range-check one `constructor`/`destructor` priority.
+ *
+ * The range is gcc's, and so is the split within it: 0..65535 is legal, but
+ * 0..100 are reserved for the implementation and merely warn. NULL is the
+ * unprioritized form. Measured: gcc emits the SAME plain `.init_array` for the
+ * bare form and for an explicit 65535, so the default is not a sentinel
+ * standing in for "none" -- it is a real priority that happens to be the top
+ * of the range. */
+static u16 gnu_ctor_priority(Sema *s, AstNode *expr, bool is_ctor, Span span)
+{
+    i64 want = 0;
+
+    if (!expr)
+        return (u16)CGF_INIT_PRIORITY_DEFAULT;
+    if (!enum_fold(s, expr, &want))
+        return (u16)CGF_INIT_PRIORITY_DEFAULT; /* already reported */
+    if (want < 0 || want > (i64)CGF_INIT_PRIORITY_DEFAULT) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "%s priorities must be integers from 0 to %u inclusive",
+                  is_ctor ? "constructor" : "destructor",
+                  CGF_INIT_PRIORITY_DEFAULT);
+        return (u16)CGF_INIT_PRIORITY_DEFAULT;
+    }
+    if (want <= (i64)CGF_INIT_PRIORITY_RESERVED_MAX)
+        warn_at(s->lang->warnings, WARN_PRIO_CTOR_DTOR, span,
+                "%s priorities from 0 to %u are reserved for the "
+                "implementation",
+                is_ctor ? "constructor" : "destructor",
+                CGF_INIT_PRIORITY_RESERVED_MAX);
+    return (u16)want;
+}
+
+/* `constructor`/`destructor` name a function to run around `main`. On anything
+ * else there is nothing to run, and gcc says so and drops the attribute rather
+ * than erroring -- so a header that puts one on the wrong declaration still
+ * compiles. */
+static void check_ctor_dtor(Sema *s, Symbol *sym, AstNode *d)
+{
+    bool on_function = sym->kind == SYM_FUNC;
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        bool is_ctor = i == 0;
+        bool *flag = is_ctor ? &sym->gnu.constructor : &sym->gnu.destructor;
+        AstNode *expr =
+            is_ctor ? sym->gnu.ctor_priority : sym->gnu.dtor_priority;
+        u16 *slot = is_ctor ? &sym->ctor_prio : &sym->dtor_prio;
+
+        if (!*flag)
+            continue;
+        if (!on_function) {
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "'%s' attribute ignored",
+                    is_ctor ? "constructor" : "destructor");
+            *flag = false;
+            continue;
+        }
+        *slot = gnu_ctor_priority(s, expr, is_ctor, d->span);
+    }
+}
+
 static u64 check_alignas(Sema *s, AstNode *d, Type *type)
 {
     u64 natural;
@@ -1719,6 +1781,49 @@ static void append_valid_attrs(Sema *s, Symbol *sym, const AstNode *d,
     sym->cgf_attrs = head;
 }
 
+/* Carry every SYMBOL PROPERTY from a redeclaration onto the symbol that
+ * survives it.
+ *
+ * declare_one always builds a fresh Symbol and validates the declaration's
+ * attributes onto it; when a prior declaration exists, that fresh symbol is
+ * discarded and `prev` is what lowering reads (`d->sym = prev`). Everything
+ * decided on the fresh one therefore has to be moved across, and until this
+ * function existed none of it was: `weak`, `used`, `aligned`, `section` and
+ * `__asm__` labels were ALL silently dropped whenever the attribute sat on a
+ * definition that had a plain prior declaration --
+ *
+ *     void f(void);
+ *     [[weak-attribute]] void f(void) { }      -> emitted GLOBAL, not WEAK
+ *
+ * which is exactly musl's weak_alias shape, and precisely the case the comment
+ * on gnu_attrs_merge claims to handle. The bug was invisible because every
+ * fixture wrote the attribute and the definition together.
+ *
+ * The rule per field is the one that field already documents: union for the
+ * flags, MAX for alignment (it may only ever raise), last-wins for the
+ * string-valued ones. An alias also carries its defining side effects, since
+ * naming a target is what makes the declaration a definition. */
+static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
+{
+    gnu_attrs_merge(&prev->gnu, &fresh->gnu);
+    if (fresh->align_override > prev->align_override)
+        prev->align_override = fresh->align_override;
+    if (fresh->section_name)
+        prev->section_name = fresh->section_name;
+    if (fresh->asm_name)
+        prev->asm_name = fresh->asm_name;
+    if (fresh->gnu.constructor)
+        prev->ctor_prio = fresh->ctor_prio;
+    if (fresh->gnu.destructor)
+        prev->dtor_prio = fresh->dtor_prio;
+    if (fresh->alias_target) {
+        prev->alias_target = fresh->alias_target;
+        prev->alias_span = fresh->alias_span;
+        prev->defined = true;
+        prev->tentative = false;
+    }
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     Type *type;
@@ -1862,6 +1967,8 @@ static void declare_one(Sema *s, AstNode *d)
     if (d->gnu.section_name)
         sym->section_name = intern_str(
             s->interner, intern_cstr(s->interner, d->gnu.section_name));
+
+    check_ctor_dtor(s, sym, d);
 
     if (d->gnu.asm_name)
         sym->asm_name =
@@ -2028,6 +2135,7 @@ static void declare_one(Sema *s, AstNode *d)
             prev->any_decl_extern || (d->storage & AST_SC_EXTERN) != 0;
         if (d->storage & AST_SC_THREAD_LOCAL)
             prev->tls = true;
+        carry_symbol_attrs(prev, sym);
         append_valid_attrs(s, prev, d, type);
         merge_redeclaration(s, prev, sym, d->storage);
         d->sym = prev; /* lowering resolves the DECL to its symbol */
