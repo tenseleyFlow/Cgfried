@@ -1192,9 +1192,55 @@ every open item is either a named refusal or a deliberate deferral.
 
 **NEXT, in order:**
 
-1. **D4 statement expressions + `typeof`** and the rest of that list.
+1. **D4 -- UNDER WAY.** Statement expressions are DONE; §0c has the state of
+   the rest of the list, and **task #122 is the single biggest lever left in
+   the sprint**.
 2. **D5 `__GNUC__` -- LAST, and read the section below before starting it.**
 3. **Then Sprints 52, 53, 54** -- compile speed, codegen quality, perf gates.
+
+---
+
+## 0c. D4 IN PROGRESS — what is done, and the one-line fix worth the most
+
+**A SURVEY BEFORE IMPLEMENTING FOUND TWO ITEMS ALREADY WORKING.** `[0]`
+arrays and `__builtin_constant_p` need nothing; the sprint file lists them
+because it was written before they landed incidentally. Probe the list before
+planning it -- 13 one-line compiles answered it.
+
+**DONE: statement expressions `({ ... })`.** Value is the last EXPRESSION
+STATEMENT; a trailing declaration or a trailing `if` makes the whole thing
+void; empty `({ })` is legal; file scope is refused as gcc refuses it. A
+`cleanup` variable inside runs at the statement expression's OWN `}` -- after
+the value is materialized, before the enclosing expression continues, pinned
+as `CTT` in `tests/corpus/x86_64/int/stmt_expr.c`. All measured against gcc
+first; the plausible alternative ordering passes every test that does not
+observe ordering.
+
+Landing it retired THREE obsolete refusal assertions, each caught by a gate
+that is exactly enforced in both directions -- a `tests/programs` fixture, a
+unit-test line (CONVERTED rather than deleted, since the file-scope case is
+still an error), and two c-testsuite ledger rows, taking that differential
+from **215 to 217 agreeing**. Note `00214.c`'s ledger reason blamed
+`__builtin_expect` "lands in Sprint 28", long closed: **`check_deferrals.sh`
+scans `src/`, not test ledgers**, so deferral rot hides there.
+
+**NEXT AND LARGEST: task #122.** `asm` accepts `volatile` and `__volatile__`
+but not `__volatile` -- the middle GNU spelling, no trailing underscores.
+`KW_ALT_VOLATILE2` ALREADY EXISTS in `keywords.def`; it is simply missing from
+the two qualifier loops in `src/parse/stmt.c`, while its exact sibling
+`KW_ALT_INLINE2` is present in one of them. The enumeration hazard again.
+
+musl's `arch/x86_64/atomic_arch.h` uses it, so it blocks every TU that
+includes atomics: fixing it takes the memory sweep from **1084 to 1276 of
+1361** analyzed, deferrals 277 -> 85.
+
+**It is deliberately NOT committed**, and the reason generalizes: the
+newly-parsed TUs surface NINE warning false positives across six checkers,
+and the musl warn lane's ORACLE (host gcc 16) now FAILS on three files where
+the gcc 8 parity baseline merely warns -- gcc 14 made an implicit function
+declaration an error, and `-Dweak=` strips the declarations musl relies on.
+Both patches are preserved and the task carries the evidence. Do the oracle
+severity fix first, then the nine.
 
 **D2 IS DONE** -- basic and extended asm both, on both targets. §0b is its
 record, including the three bugs the operand slice turned up in code that was
