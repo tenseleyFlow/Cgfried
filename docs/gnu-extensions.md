@@ -54,6 +54,7 @@ predefine.
 | `__asm__("name")` labels | `tests/programs/gnu/asm_label.c` | Apple's `__DARWIN_ALIAS`, glibc symbol versioning |
 | `section` | `tests/programs/gnu/attr_section.c` | kernel-style tables, init arrays, embedded layouts |
 | `constructor` / `destructor` | `tests/corpus/x86_64/int/attr_ctor_dtor.c` | glibc, library self-registration, test frameworks |
+| `cleanup` | `tests/corpus/x86_64/int/attr_cleanup.c` | systemd's `_cleanup_` idiom, glibc, scope-guard patterns in C |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -259,7 +260,7 @@ are a hard error naming the attribute — which is what makes implementing them
 incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
-`cleanup`, `gnu_inline`, `may_alias`, `returns_twice`, `transparent_union`.
+`gnu_inline`, `may_alias`, `returns_twice`, `transparent_union`.
 
 Two of those sit here against this sprint's original tiering, because the
 ignore-safety question overruled it:
@@ -322,6 +323,29 @@ edge from its scope: fallthrough, `return`, `break`, `continue`, `goto` out.
 It does NOT run when a `longjmp` unwinds past it. That is gcc's behaviour and
 the C standard's, and it is worth stating because it surprises people who
 expect destructor semantics.
+
+Four more `cleanup` rules, each measured against gcc by execution rather than
+read, and each a way to be wrong while the common case still works:
+
+- **The return value is materialized before the cleanups run.** A cleanup
+  that overwrites its variable does not change what `return x` returns.
+- **A for-init variable belongs to the `for`,** not the enclosing block: its
+  cleanup runs when the loop ends.
+- **A `goto` out runs only the scopes it actually leaves.** Enclosing scopes
+  the label is still inside run later, at their own end.
+- **Two `cleanup` attributes on one declaration: the last wins,** silently.
+  This is the one field of `GnuDeclAttrs` that does not union across a
+  declaration, because unioning would run both and gcc runs one.
+
+Jumping *into* a cleanup scope past the declaration is accepted, and the
+cleanup then runs on a never-initialized variable. gcc accepts it silently and
+so do we; **clang rejects it** the way C++ rejects jumping past a destructor.
+That divergence is recorded rather than resolved — adopting clang's rule would
+be a new diagnostic, not a bug fix.
+
+`cleanup` applies to automatic block-scope variables only. On a global, a
+static local, a `_Thread_local`, a parameter, a struct member or a typedef
+there is no scope exit to hang the call on, and gcc warns and drops it.
 
 **Statement expressions and lifetime.** The value of `({ ... })` is the value
 of its last *expression statement*; if the last item is a declaration or a

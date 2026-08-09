@@ -3,45 +3,52 @@
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU extensions)
-is under way** — **ten** attributes implemented, and §1b-1's *WHERE THE WORK
-IS* says exactly what to do next and in what order. **Known-wrong-but-shipping
-is ZERO**: every open item is a named refusal or a deliberate deferral, listed
-there. `trunk` is green across all 14 CI jobs.
+is under way** — **eleven** attributes implemented, and §1b-1's *WHERE THE
+WORK IS* says exactly what to do next and in what order.
+**Known-wrong-but-shipping is ZERO**: every open item is a named refusal or a
+deliberate deferral, listed there. `trunk` is green across all 14 CI jobs.
 
-**NEXT: `cleanup`**, then D2 extended asm, D4 statement expressions +
-`typeof`, and **D5 `__GNUC__` LAST** — the day it is defined, every
-`__attribute__` in every system header goes live at once.
+**NEXT: D2 extended asm**, then D4 statement expressions + `typeof`, and
+**D5 `__GNUC__` LAST** — the day it is defined, every `__attribute__` in every
+system header goes live at once.
 
-`cleanup` is FULLY MEASURED already; start from the contract below rather than
-re-deriving it. It is the odd member of its group: `constructor`/`destructor`
-are `.init_array` entries, while `cleanup` fires at SCOPE EXIT and is therefore
-a lowering problem across every path out of a block.
+**`cleanup` is DONE** (the eleventh attribute, and the first that is a
+LOWERING feature rather than a symbol property). What it taught, because two
+of these cost real debugging time:
 
-- **Applies to automatic block-scope variables ONLY.** On a global, a static
-  local or a PARAMETER, gcc warns `'cleanup' attribute ignored` and drops it —
-  the same treatment `constructor`-on-a-non-function gets.
-- **The argument is `&var`, and the check is the ORDINARY call type-check.** A
-  cleanup function taking `long *` for an `int` variable gives the normal
-  incompatible-pointer diagnostic; one taking `int` gives int-conversion. So
-  reuse call typing rather than growing a bespoke signature check. A
-  non-function or undeclared argument is the dedicated error `cleanup argument
-  not a function`. A non-void return is accepted and ignored.
-- **Exit edges, all confirmed by execution:** reverse declaration order within
-  a scope; fallthrough; `return` runs EVERY enclosing scope innermost-first;
-  `goto` out runs only the scopes it actually leaves (outer ones still run
-  later at their own end); `break` and `continue` both run the loop body's.
-  Not run when `longjmp` unwinds past.
-- **A hazard gcc does not diagnose:** `goto` INTO a cleanup scope past the
-  declaration is accepted silently, and the cleanup then runs on a
-  never-initialized variable. Worth a fixture, and possibly a warning of ours.
-- **THE IMPLEMENTATION LEAD:** Sprint 20 already built this traversal for VLA
-  `stackrestore` — `VlaScope` in `src/lower/stmt.c` has the `prev` chain, a
-  `compound` pointer, a `label_vla` map for `goto`, and `vla_mark` on
-  `LoopCtx` for break/continue. `cleanup` needs the SAME walk with two
-  differences: `return` must emit calls (stackrestore deliberately emits
-  nothing there, since the epilogue subsumes it), and each scope emits one
-  call PER VARIABLE in reverse declaration order rather than a single
-  outermost-subsumes restore.
+- **It reuses Sprint 20's VLA scope chain and shares none of its rules.**
+  `VlaScope` is `LexScope` now, with two lists. A restore of the outermost
+  token subsumes the inner ones; a cleanup call subsumes nothing. `return`
+  restores NO VLA token (the epilogue reclaims the frame) and must run EVERY
+  cleanup (a call has no epilogue equivalent). Where a scope owes both, the
+  CALLS COME FIRST — the pointer handed to a cleanup is into storage the
+  restore releases.
+- **TWO BUGS IN THE NEW CODE, both the same shape**, both found by executing
+  against gcc rather than by reading: a `goto` walk that ran off the top of
+  the scope stack and fired an enclosing cleanup TWICE. The first reused
+  `label_vla`, which is FILTERED to VLA-bearing compounds and is therefore
+  NULL for every label in a function with no VLA. The second recorded only the
+  label's innermost compound, which a jump INTO a scope leaves off the goto's
+  stack entirely. The answer is the label's whole CHAIN and the innermost
+  COMMON compound. **The VLA sibling needs neither fix because 6.8.6.1p1
+  forbids the jump that would break it** — an adjacent feature's shortcut can
+  be correct only because a language rule protects it, so check for that rule
+  before copying the shortcut.
+- **A MUTATION CHECK THAT DID NOT COMPILE REPORTED PASS.** The injected bug
+  left an unused variable, `-Werror` failed the build, make kept the previous
+  binary, and `>/dev/null 2>&1` hid all of it — so the check ran the
+  UNMUTATED compiler and passed, which reads exactly like "this fixture does
+  not catch that bug". **Never suppress the build output of a mutation
+  check.** Same family as `rsync -a` preserving an old mtime so make skips the
+  rebuild, which happened in the same session.
+- **A pre-existing silent drop, for SEVEN attributes.** The function-parameter
+  path warned only if `packed || weak || visibility` — the three that existed
+  when it was written — so `aligned`, `alias`, `used`, `section`,
+  `constructor`, `destructor` and the asm label had been dropped there without
+  a word. `gnu_attrs_any_symbol_property` now enumerates every field and sits
+  beside `gnu_attrs_merge`, which carries the same obligation. Bug #116's
+  shape exactly: **any list that must name every attribute is a silent-drop
+  waiting to happen — put it next to the other one.**
 
 This file is the *transferable* part of what was learned building all of it:
 the traps that cost real debugging time, the invariants that look like style
@@ -93,10 +100,10 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - **Sprint 51 is CLOSED** (all seven deliverables) and **Sprint 55 is under
   way** — see §1b-1. `ci/closed_sprints.txt` is 51; raising it forced an
   audit and found only the `-g` gate the DWARF work had already removed.
-- **TEN GNU attributes are implemented**: `weak`, `visibility`, `packed`,
+- **ELEVEN GNU attributes are implemented**: `weak`, `visibility`, `packed`,
   `aligned`, `alias`, `used`, `__asm__("name")` labels, `section`,
-  `constructor`, `destructor`. §1b-1 has what each one taught, and *WHERE THE
-  WORK IS* has what to do next and why.
+  `constructor`, `destructor`, `cleanup`. §1b-1 has what each one taught, and
+  *WHERE THE WORK IS* has what to do next and why.
 - **Two bugs that had SHIPPED were found by adding the tenth**, and the second
   is the one to remember. `section` was printed in the IR text and parsed
   nowhere, so `-emit-ir` ICEd on any program using it. And **every symbol
@@ -826,10 +833,10 @@ blocks HOSTED compilation on macOS and FreeBSD, and Sprints 56/57 need it.
 `src/parse/gnu_attrs.def` is that table and `docs/gnu-extensions.md` is its
 prose, gated by `scripts/check_gnu_tiers.sh`.
 
-#### EIGHT implemented, and what each one taught
+#### ELEVEN implemented, and what each one taught
 
 `weak`, `visibility`, `packed`, `aligned`, `alias`, `used`, `__asm__("name")`
-labels, `section`.
+labels, `section`, `constructor`, `destructor`, `cleanup`.
 
 - **`packed`**: drops the RECORD's alignment as well as its members'. Force
   the offsets alone and every offset a reader checks is right while `sizeof`
@@ -849,6 +856,15 @@ labels, `section`.
 - **`section`**: a named section forces PROGBITS, so an UNINITIALIZED object
   there gets real bytes rather than a `.bss` reservation -- otherwise it lands
   outside the section the author named.
+- **`constructor`/`destructor`**: 65535 is the DEFAULT, not a maximum -- gcc
+  emits the same plain `.init_array` for the bare form and for an explicit
+  65535. A LOWER priority runs FIRST, and the destructor order is the exact
+  mirror. Adding them found that EVERY symbol attribute was dropped on a
+  definition with a prior plain declaration (bug #116).
+- **`cleanup`**: the only LOWERING one. Its scope walk is not the VLA walk
+  even though it shares the chain -- see the header for the two bugs that
+  taught it, and for why the VLA shortcut is safe only because 6.8.6.1p1
+  forbids the jump that would break it.
 
 #### WHERE THE WORK IS, AND WHAT TO DO NEXT
 
@@ -862,20 +878,10 @@ every open item is either a named refusal or a deliberate deferral.
 
 **NEXT, in order:**
 
-1. **`cleanup`.** `constructor` and `destructor` are DONE (see the header for
-   what measuring gcc turned up, including a divergence we keep deliberately).
-   Grouping all three turned out to be the wrong instinct: the first two are
-   `.init_array` entries and share everything, while `cleanup` fires at SCOPE
-   EXIT and shares nothing with them -- it is a lowering problem across every
-   path out of a block. **Its full contract is already measured and written
-   out in the header; start from there, do not re-derive it.** The lead worth
-   having: Sprint 20 built this exact traversal for VLA `stackrestore`, so
-   `VlaScope` in `src/lower/stmt.c` already has the scope chain, the goto
-   label map and the loop marks.
-2. **D2 extended asm** (`asm` with operand constraints). The refused tier's
+1. **D2 extended asm** (`asm` with operand constraints). The refused tier's
    biggest row and the one real programs hit next.
-3. **D4 statement expressions + `typeof`**.
-4. **D5 `__GNUC__` -- LAST, and read the section below before starting it.**
+2. **D4 statement expressions + `typeof`**.
+3. **D5 `__GNUC__` -- LAST, and read the section below before starting it.**
 
 **STILL OPEN, sorted by what kind of thing they are:**
 
