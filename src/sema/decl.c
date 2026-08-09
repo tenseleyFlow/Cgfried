@@ -2500,8 +2500,20 @@ static void sema_stmt(Sema *s, AstNode *st)
     case AST_STMT_SWITCH:
     case AST_STMT_WHILE:
     case AST_STMT_DO:
-        if (st->lhs)
+        if (st->lhs) {
             st->lhs = sema_expr(s, st->lhs);
+            /* `switch` takes the STRICTER rule: 6.8.4.2p1 requires an INTEGER
+             * controlling expression, so a float or a pointer is out even
+             * though both are scalars. Nothing enforced it -- a switch on a
+             * pointer, a float or a struct reached lowering and died in the
+             * IR verifier with "'switch' scrutinizes an integer", reported as
+             * "this is a bug in cgfried" against a program that is simply
+             * invalid C. Frontend fuzzer, seed 47924. */
+            if (st->kind == AST_STMT_SWITCH)
+                sema_require_switch_integer(s, st->lhs);
+            else
+                sema_require_scalar(s, st->lhs);
+        }
         if (st->kind == AST_STMT_SWITCH) {
             VmDecl *saved_sw = s->vm_switch_chain;
 
@@ -2530,8 +2542,10 @@ static void sema_stmt(Sema *s, AstNode *st)
             else
                 sema_stmt(s, st->lhs);
         }
-        if (st->mid)
+        if (st->mid) {
             st->mid = sema_expr(s, st->mid);
+            sema_require_scalar(s, st->mid);
+        }
         if (st->rhs)
             st->rhs = sema_expr(s, st->rhs);
         sema_mark_discarded_update(st->rhs);

@@ -315,6 +315,11 @@ bool type_is_basic(const Type *t);
 bool type_is_integer(const Type *t);
 bool type_is_arithmetic(const Type *t);
 bool type_is_complete(const Type *t);
+/* The C11 scalar-operand constraint, shared by `!`, `&&`, `||`, `?:` and
+ * every controlling expression. Call it after conv_decay. */
+bool sema_require_scalar(Sema *s, const AstNode *e);
+/* The stricter `switch` rule: 6.8.4.2p1 wants an INTEGER. */
+bool sema_require_switch_integer(Sema *s, const AstNode *e);
 /* C11 6.2.7 compatibility. Basic types are compatible only when their
  * kinds are IDENTICAL: `int` and `long` are incompatible even where they
  * have the same width, and `char`/`signed char`/`unsigned char` are three

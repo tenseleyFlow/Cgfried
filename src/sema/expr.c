@@ -309,6 +309,8 @@ static AstNode *expr_unary(Sema *s, AstNode *e)
         return e;
     case PUNCT_BANG:
         e->lhs = conv_decay(s, op);
+        if (!sema_require_scalar(s, e->lhs))
+            return poison(s, e);
         /* `!` yields int, not _Bool — this is C, not C++. */
         e->sem_type = type_basic(TY_INT);
         e->is_lvalue = false;
@@ -499,8 +501,19 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
     }
 
     if (e->op == PUNCT_AMPAMP || e->op == PUNCT_PIPEPIPE) {
+        bool lhs_ok;
+        bool rhs_ok;
+
         e->lhs = conv_decay(s, lhs);
         e->rhs = conv_decay(s, rhs);
+        /* BOTH operands are checked and BOTH are reported: a second mistake
+         * on the right must not be hidden by one on the left. Separate
+         * calls rather than `&&`, which would short-circuit the second
+         * check away. */
+        lhs_ok = sema_require_scalar(s, e->lhs);
+        rhs_ok = sema_require_scalar(s, e->rhs);
+        if (!lhs_ok || !rhs_ok)
+            return poison(s, e);
         e->sem_type = type_basic(TY_INT); /* int, not _Bool */
         e->is_lvalue = false;
         return e;
@@ -641,6 +654,61 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
 /* 6.5.15. The pointer rules are where gcc's RECOVERY matters: a mismatch
  * is a warning with a `void *` result, not an error, and real code
  * depends on that. */
+/* C11 requires SCALAR type -- arithmetic or pointer, 6.2.5p21 -- for the
+ * operand of `!` (6.5.3.3p1), both operands of `&&` and `||` (6.5.13p2,
+ * 6.5.14p2), the first operand of `?:` (6.5.15p2), and every controlling
+ * expression (6.8.4.1p1 for `if`, 6.8.5p2 for the loops).
+ *
+ * None of it was checked, and the two ways it went wrong were both SILENT.
+ * A void operand became `icmp ne i32 undef, 0`, so the branch was taken on an
+ * undef and an optimizer could resolve it either way. An aggregate operand
+ * became `icmp ne ptr @s, 0` -- the address of the object, never null -- so
+ * `if (s)` compiled to `if (1)`. Neither produced a diagnostic.
+ *
+ * Call it AFTER conv_decay: an array or function operand is a pointer by
+ * then, and both are legal conditions.
+ *
+ * Returns true when the operand is acceptable. An already-poisoned or
+ * untyped operand returns true so the original error is the only one. */
+bool sema_require_scalar(Sema *s, const AstNode *e)
+{
+    const Type *t = e ? e->sem_type : NULL;
+
+    if (!t || e->poisoned)
+        return true;
+    if (type_is_arithmetic(t) || t->kind == TY_PTR)
+        return true;
+    /* An ARRAY or FUNCTION operand converts to a pointer (6.3.2.1p3/p4) and
+     * is therefore a legal condition. The expression paths below decay before
+     * asking, but a STATEMENT condition is typed without decaying, so `if
+     * (arr)` arrives here still an array -- and rejecting it would refuse
+     * correct C. Lowering is already right about these: it compares the
+     * object's ADDRESS against null, which for an array or a function is
+     * never null, so the condition is always true, exactly as C requires. */
+    if (t->kind == TY_ARRAY || t->kind == TY_FUNC)
+        return true;
+    if (t->kind == TY_VOID)
+        /* gcc's wording, which is the one people recognize. */
+        err(s, e->span, "void value not ignored as it ought to be");
+    else
+        err(s, e->span, "used value of type '%s' where scalar is required",
+            type_to_str(s->arena, t));
+    return false;
+}
+
+/* 6.8.4.2p1: a `switch` controlling expression shall have INTEGER type --
+ * stricter than the scalar rule above, since a pointer and a float are both
+ * scalars and neither may be switched on. gcc's wording. */
+bool sema_require_switch_integer(Sema *s, const AstNode *e)
+{
+    const Type *t = e ? e->sem_type : NULL;
+
+    if (!t || e->poisoned || type_is_integer(t))
+        return true;
+    err(s, e->span, "switch quantity not an integer");
+    return false;
+}
+
 static AstNode *expr_cond(Sema *s, AstNode *e)
 {
     AstNode *c = expr(s, e->lhs);
@@ -650,6 +718,8 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
     Type *bt;
 
     e->lhs = conv_decay(s, c);
+    if (!sema_require_scalar(s, e->lhs))
+        return poison(s, e);
     a = expr(s, e->mid);
     b = expr(s, e->rhs);
     e->mid = a = conv_decay(s, a);
