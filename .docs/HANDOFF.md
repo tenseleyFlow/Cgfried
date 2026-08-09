@@ -116,14 +116,20 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `-Wbuiltin-declaration-mismatch`. **Any new table keyed on a libc name owes
   the same check**, and its fixture owes BOTH directions — dropping a row is
   the safe answer, so a too-strict gate disables the analysis silently.
-- **Do not run the two arm64 lanes in parallel.** `tests/runner/main.c` builds
-  every scratch path from a literal `build/test-work/` rather than from its
-  own BUILD tree, so `make -j test-a64-corpus test-a64-spill-all` has both
-  clobbering the same files and fails nearly the whole corpus with "the
-  assembler rejected cgfried-generated assembly … line 0". It is a false
-  failure and reproduces nowhere sequentially — same shape as the ppfuzz
-  `build/fuzz-work/case.c` bug (task #110). This is the second time a shared
-  hardcoded scratch path has manufactured a spectacular phantom result.
+- **The runner's scratch is per-invocation now** (was task #110). It
+  defaults to a directory beside the runner binary, so two BUILD trees are
+  isolated without asking, and `CGF_TEST_WORK` overrides it — needed because
+  the two arm64 lanes share one `$(BUILD)/cgf-test`, which the binary's own
+  location cannot separate. `make -j test-a64-corpus test-a64-spill-all` now
+  gives 63/63 twice; it used to fail nearly the whole corpus with "the
+  assembler rejected cgfried-generated assembly … line 0". check_bans keeps
+  the literal out. **Third instance of this shape** after ppfuzz's 128 phantom
+  findings; `tests/unit/` still has a benign one (task #113).
+- **FREEZE THE TREE while a verification run is in flight.** Editing or
+  rebuilding under a running `make test` produces results from a tree that
+  never existed. It cost two discarded runs in one session — both mine, not
+  the harness's — and the tell is a lane failing in a way that does not
+  reproduce.
 - **VLAs work on both targets**, as of the deferral reckoning (§1b-1). They
   did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
   function that also passed arguments on the stack. Multidimensional VLAs
