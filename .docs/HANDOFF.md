@@ -65,10 +65,17 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - **`_Alignas` on an OBJECT works.** It did not, on any target, for the whole
   project: ISO C11 6.7.5 validated and then discarded. Members had worked
   since Sprint 14, which is what hid it.
-- **afs-as PR #28 is merged and the submodule is bumped** (`fb50d2f`): `.set`
-  works on the x86 path, so `alias` compiles through the BUNDLED assembler.
-  Its arm64 path is a separate parser and assembler and still lacks it —
-  AS-SET-002, recipe in `.docs/audits/afsld-elf-debt.md`.
+- **`.set` works on BOTH afs-as paths** — PR #28 for x86 (`fb50d2f`), PR #29
+  for arm64 and Mach-O (`a6690e2`). AS-SET-002 is CLOSED, the driver's by-name
+  refusal is gone, and `attr_alias.c` lives in `tests/corpus` so aliases
+  EXECUTE on arm64 through the bundled assembler.
+- **A ledgered recipe is a hypothesis, not a plan.** AS-SET-002's was wrong in
+  its first step (the deferral it prescribed already existed; the real gap was
+  one variant in `may_resolve_with_labels`) and right in its trap (the
+  emission cursor). Re-measure before trusting a recipe you wrote earlier —
+  and REBUILD first: the first reproduction ran a stale
+  `afs-as/target/release/afs-as` and reported an error the source no longer
+  produces.
 - **Known-wrong-but-shipping is now ONE item**: a void expression is accepted
   where a scalar condition is required (task #108). Everything else open is a
   NAMED refusal, which is a legitimate resting state — see §1b-1's THE PICK.
