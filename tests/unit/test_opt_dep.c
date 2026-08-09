@@ -176,8 +176,13 @@ void test_dep_distinct_bases_and_may_alias_bases(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
-void test_dep_ptr_recognizer_accepts_k_i_plus_c_and_rejects_nonaffine(
-    TestCtx *t)
+/* NAME LENGTH IS LOAD-BEARING. gen_unit_registry.sh matches
+ * `^void test_...(TestCtx *` on ONE line, so a declaration long enough for
+ * clang-format to wrap disappears from the registry and the test never runs.
+ * This one was wrapped and dead; `--list` said 627 while the sources declare
+ * 628. Keep it short enough to stay on one line -- check_unit_registry.sh now
+ * fails the build rather than letting the next one go quiet. */
+void test_dep_ptr_recognizer_affine_vs_nonaffine(TestCtx *t)
 {
     DepFix fix;
     IrModule *m;

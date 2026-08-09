@@ -234,6 +234,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	@if [ ! -x afs-as/target/release/afs-as ]; then \
 	    echo "test: afs-as unbuilt; exec lanes use system gas (CGF_AS=0)"; fi
 	$(BUILD)/unit_tests
+	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
 	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
 	    > $(BUILD)/programs.log 2>&1; s=$$?; \
