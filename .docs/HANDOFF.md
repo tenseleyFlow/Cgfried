@@ -76,9 +76,26 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   and REBUILD first: the first reproduction ran a stale
   `afs-as/target/release/afs-as` and reported an error the source no longer
   produces.
-- **Known-wrong-but-shipping is now ONE item**: a void expression is accepted
-  where a scalar condition is required (task #108). Everything else open is a
-  NAMED refusal, which is a legitimate resting state — see §1b-1's THE PICK.
+- **Known-wrong-but-shipping is now ZERO.** Everything open is a NAMED
+  refusal, which is a legitimate resting state — see §1b-1's THE PICK.
+- **Controlling expressions are constrained** (was task #108, and it was
+  bigger than its title). All twelve scalar positions — `if`/`while`/`do`/
+  `for`, `?:`, `&&`, `||`, `!` — were unchecked for BOTH void and aggregate
+  operands, and both failures were silent: a void operand became
+  `icmp ne i32 undef, 0` (branch on an undef), an aggregate became
+  `icmp ne ptr @s, 0` (an address, never null, so `if (1)`). `switch` takes
+  the stricter integer rule; a pointer or float there used to reach lowering
+  and ICE in the IR verifier.
+- **THE EXEMPTION IS THE HARD HALF of any new constraint.** `if (arr)` and
+  `if (fn)` are legal — an array or function converts to a pointer — but a
+  STATEMENT condition is typed WITHOUT decaying, so they arrive undecayed and
+  the first draft rejected correct C. Lowering was already right about them
+  (that address is never null, so the condition is always true), which is why
+  the `_ok` fixture EXECUTES rather than only compiling.
+- **Never grep for a word that appears in both success and failure.** I
+  checked whether `switch` was already covered with `grep -c error`, saw a
+  non-zero count, and excluded it — the count was the ICE's own
+  "internal compiler error" line. The 100k fuzz found what that missed.
 - **Const globals reach read-only memory**, as of the `.rodata` work. One
   shared rule (`cg_global_segment`) both backends call: const with no
   relocation is `.rodata`, const with one is `.rodata` without PIC and
