@@ -21,7 +21,15 @@
  *
  * OPERANDS ARE A SEPARATE SLICE and are refused by name until the register
  * allocator can honour their constraints -- see tests/programs/gnu/
- * asm_operands_refused.c. */
+ * asm_operands_refused.c.
+ *
+ * THE TEMPLATES ARE PER-TARGET, because an asm template IS target-specific
+ * assembly -- that is the whole point of the construct. This file lives in
+ * tests/corpus, which the arm64 lane re-runs under qemu, so an x86-only
+ * template here fails there with `unknown mnemonic addl`. Selecting on
+ * __x86_64__ / __aarch64__ is exactly what portable code with inline asm
+ * does, and it makes this fixture cover BOTH backends rather than being
+ * excluded from one. */
 extern int printf(const char *, ...);
 
 /* The template names its own SECTION, which is what a real file-scope asm
@@ -31,6 +39,21 @@ extern int printf(const char *, ...);
  * disassembles `.text` against a closed instruction allow-list, and the
  * bytes of `.quad 4242` decode to `adc %al,(%rax)`. The gate caught the
  * first draft of this fixture doing exactly that. */
+#if defined(__x86_64__)
+#define CGF_BUMP "addl $1, cgf_asm_counter(%rip)"
+#elif defined(__aarch64__)
+/* No RIP-relative addressing: the address is built with adrp + add, and x9
+ * is call-clobbered so an operand-free template may use it freely. */
+#define CGF_BUMP                                                               \
+    "adrp x9, cgf_asm_counter\n"                                               \
+    "\tadd x9, x9, :lo12:cgf_asm_counter\n"                                    \
+    "\tldr w10, [x9]\n"                                                        \
+    "\tadd w10, w10, #1\n"                                                     \
+    "\tstr w10, [x9]"
+#else
+#error "no inline-asm template for this target"
+#endif
+
 __asm__(".section .rodata\n"
         "\t.globl cgf_asm_marker\n"
         "\t.p2align 3\n"
@@ -54,8 +77,8 @@ int main(void)
      * passing through unexamined working as designed -- the assembler
      * reports on the programmer's text, and the driver no longer calls that
      * a cgf emission bug. */
-    __asm__ __volatile__("addl $1, cgf_asm_counter(%rip)");
-    __asm__ __volatile__("addl $1, cgf_asm_counter(%rip)");
+    __asm__ __volatile__(CGF_BUMP);
+    __asm__ __volatile__(CGF_BUMP);
     printf("marker=%ld counter=%d ok\n", cgf_asm_marker, cgf_asm_counter);
     return 0;
 }
