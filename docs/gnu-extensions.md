@@ -53,6 +53,7 @@ predefine.
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
 | `__asm__("name")` labels | `tests/programs/gnu/asm_label.c` | Apple's `__DARWIN_ALIAS`, glibc symbol versioning |
 | `section` | `tests/programs/gnu/attr_section.c` | kernel-style tables, init arrays, embedded layouts |
+| `constructor` / `destructor` | `tests/corpus/x86_64/int/attr_ctor_dtor.c` | glibc, library self-registration, test frameworks |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -258,8 +259,7 @@ are a hard error naming the attribute — which is what makes implementing them
 incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
-`cleanup`, `constructor`, `destructor`, `gnu_inline`, `may_alias`,
-`returns_twice`, `transparent_union`.
+`cleanup`, `gnu_inline`, `may_alias`, `returns_twice`, `transparent_union`.
 
 Two of those sit here against this sprint's original tiering, because the
 ignore-safety question overruled it:
@@ -291,6 +291,31 @@ silently rather than fail loudly.
 fine, but the exclusive instructions that implement `_Atomic` are not. An
 `_Atomic` member of a packed struct is therefore a hard error rather than a
 slow path — the alternative is an atomic that silently is not one.
+
+**`constructor`/`destructor` priorities.** The argument is a constant
+expression in `0..65535`; outside that is an error, and `0..100` are reserved
+for the implementation and warn under `-Wprio-ctor-dtor`. The top of the range
+is also the DEFAULT — gcc emits the same unnumbered `.init_array` for a bare
+`constructor` and for `constructor(65535)`, so the two are one request.
+Numbered sections sort ahead of the plain one, so a lower number runs *first*;
+`.fini_array` is laid out identically and walked in reverse, making the
+destructor order the exact mirror. One function may be both, and gets an entry
+in each array.
+
+**We keep a priority gcc drops.** When the attribute lands on a definition
+whose earlier declaration carried none, gcc keeps the constructor-ness and
+silently discards the priority — measured on 8.5 and 16.1, so it is entrenched
+rather than a regression; clang gets it right. Attributes here merge as a union
+across declarations of one symbol, so ours survives.
+`tests/programs/gnu/attr_ctor_prio_survives_decl.c` pins it by *executing*,
+because ordering is the only thing a priority is for.
+
+**`destructor` is refused on arm64-macos.** Mach-O has no `.fini_array`: clang
+implements the attribute by synthesizing a wrapper that calls
+`__cxa_atexit(f, 0, &__dso_handle)` and registering that as an initializer.
+Constructors work — a direct entry in `__DATA,__mod_init_func` — but their
+priorities order entries within one object only, since ld64 does not sort that
+section. clang has the same limitation.
 
 **`cleanup` and `longjmp`.** A `cleanup` function runs on every ordinary exit
 edge from its scope: fallthrough, `return`, `break`, `continue`, `goto` out.

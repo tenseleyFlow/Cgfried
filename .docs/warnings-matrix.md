@@ -280,6 +280,7 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Wnewline-eof | -Wnewline-eof | done | tests/unit/test_pp_lex.c |
 | -Wnull-character | -Wnull-character | done | tests/programs/pp/fuzz_embedded_nul.c |
 | -Wpointer-compared-to-zero-with-relational | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wprio-ctor-dtor | — | done | tests/programs/gnu/attr_ctor_reserved_prio.c |
 | -Wstatic-in-inline | -Wstatic-in-inline | done | tests/programs/sema16/inline_constraints.c |
 | -Wtentative-definition-array | — | done | tests/warn/pragma/migrated_policy.c |
 | -Wtypedef-redefinition | -Wtypedef-redefinition | done | tests/warn/pragma/migrated_policy.c |
