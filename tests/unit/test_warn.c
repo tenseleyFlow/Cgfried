@@ -122,6 +122,7 @@ void test_warn_metadata_groups(TestCtx *t)
                                        "unknown-pragmas",
                                        "unused",
                                        "unused-but-set-variable",
+                                       "unused-const-variable",
                                        "unused-function",
                                        "unused-label",
                                        "unused-local-typedefs",
@@ -148,7 +149,7 @@ void test_warn_metadata_groups(TestCtx *t)
     size_t i, nwall = 0, nextra = 0;
     const char *prev = "";
 
-    T_ASSERT_EQ_INT(t, sizeof(wall) / sizeof(wall[0]), 48);
+    T_ASSERT_EQ_INT(t, sizeof(wall) / sizeof(wall[0]), 49);
     T_ASSERT_EQ_INT(t, sizeof(extra) / sizeof(extra[0]), 16);
     for (i = 0; i < warn_info_count(); i++) {
         const WarnInfo *info = warn_info_at(i);

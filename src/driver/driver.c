@@ -1230,6 +1230,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         lang.pedantic = a->pedantic;
         lang.fwrapv = a->fwrapv;
         lang.safe_mode = a->fsafe;
+        lang.freestanding = a->freestanding;
         lang.warnings = warnings;
         while (pp_next(&pp, &t))
             PpTokVecD_push(&collected, t);

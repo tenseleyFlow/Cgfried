@@ -1591,6 +1591,19 @@ void warn_format_check_call(WarnCtx *w, Sema *s, const AstNode *call)
 
     if (!w || !s || !call || call->kind != AST_EXPR_CALL)
         return;
+    /* -ffreestanding: NO HOSTED LIBRARY MAY BE ASSUMED, so the standard
+     * names carry no standard meaning and the builtin table does not apply.
+     * gcc does exactly this -- `snprintf("a%d\0", x)` warns hosted and is
+     * silent under -ffreestanding, measured both ways -- and the reasoning
+     * is sound: in a freestanding TU `snprintf` is whatever the program
+     * defines, and checking its first argument as a printf format is a
+     * guess. An explicit `format` attribute would still apply.
+     *
+     * This is the whole of musl's dcngettext.c divergence: the sweep
+     * compiles with -ffreestanding, gcc therefore says nothing about a
+     * format string containing an embedded NUL, and we said something. */
+    if (s->lang && s->lang->freestanding)
+        return;
     callee = strip_wrappers(call->lhs, false);
     if (!callee || callee->kind != AST_EXPR_IDENT || !callee->sym)
         return;

@@ -451,6 +451,97 @@ static bool successor_immediately_terminates(const CaseEntry *entry)
             (first->kind == AST_STMT_RETURN && first->lhs == NULL));
 }
 
+/* gcc points at the INNERMOST statement that actually completes normally,
+ * not at the outer one that contains it. musl's wordexp.c is
+ *
+ *     if (a) { ...; break; } else if (b) break;
+ *   case '`':
+ *
+ * where the outer `if` starts on line 75 and the `else if` that really falls
+ * through is on line 79 -- gcc says 79 and we said 75. Same warning, wrong
+ * finger. Walking to the arm that can complete normally fixes it, and the
+ * result is a better diagnostic quite apart from the parity. */
+static AstNode *fallthrough_anchor(AstNode *st)
+{
+    if (!st)
+        return NULL;
+    switch (st->kind) {
+    case AST_STMT_COMPOUND:
+        if (st->nitems) {
+            AstNode *inner = fallthrough_anchor(st->items[st->nitems - 1]);
+
+            if (inner)
+                return inner;
+        }
+        return st;
+    case AST_STMT_IF:
+        /* An `else` arm that completes normally is where control leaves. */
+        if (st->rhs && !stmt_terminates(st->rhs)) {
+            AstNode *inner = fallthrough_anchor(st->rhs);
+
+            if (inner)
+                return inner;
+        }
+        return st;
+    case AST_STMT_LABEL:
+        return fallthrough_anchor(st->body);
+    default:
+        return st;
+    }
+}
+
+/* A CASE LABEL INSIDE A STATICALLY-DEAD BRANCH IS NEVER FALLEN INTO. musl's
+ * iconv.c uses the idiom directly:
+ *
+ *     c = *(wchar_t *)*in;
+ *     if (0) {
+ *   case UTF_32BE:
+ *
+ * Control that reaches `if (0)` skips the body entirely, so the label is
+ * reachable only by the switch's own jump and there is no fallthrough --
+ * gcc says nothing, and it is right.
+ *
+ * THE TEST IS ON THE LABEL'S ANCESTORS, not on the statement before it. The
+ * segment scanner has already descended into the `if` by the time the label
+ * is found, so the preceding statement is `c = *(wchar_t *)*in;` and the
+ * `if (0)` is nowhere in hand -- a first version checked that and never
+ * fired. Walking down from the switch body tracking deadness is what
+ * actually answers the question, and it keeps `if (0) { } case X:` -- where
+ * the label is a SIBLING and really is fallen into -- warning. */
+static bool label_in_dead_arm(Sema *s, AstNode *st, const AstNode *label,
+                              bool dead)
+{
+    u32 i;
+
+    if (!st || !label)
+        return false;
+    if (st == label)
+        return dead;
+    if (st->kind == AST_STMT_IF && st->lhs) {
+        ConstValue cv = constexpr_eval(s, st->lhs, CE_FOLD);
+        bool body_dead = dead, else_dead = dead;
+
+        if (cv.kind == CV_INT) {
+            if (cv.i == 0)
+                body_dead = true;
+            else
+                else_dead = true;
+        }
+        return label_in_dead_arm(s, st->body, label, body_dead) ||
+               label_in_dead_arm(s, st->rhs, label, else_dead);
+    }
+    /* A nested switch owns its own labels; do not walk into one. */
+    if (st->kind == AST_STMT_SWITCH)
+        return false;
+    if (label_in_dead_arm(s, st->body, label, dead) ||
+        label_in_dead_arm(s, st->rhs, label, dead))
+        return true;
+    for (i = 0; i < st->nitems; i++)
+        if (label_in_dead_arm(s, st->items[i], label, dead))
+            return true;
+    return false;
+}
+
 static void warn_switch_fallthrough(Sema *s, Preprocessor *pp, AstNode *sw)
 {
     CaseEntry *head = NULL, *tail = NULL, *current = NULL, *entry;
@@ -465,6 +556,7 @@ static void warn_switch_fallthrough(Sema *s, Preprocessor *pp, AstNode *sw)
 
         if (!entry->substantive || !entry->last ||
             stmt_terminates(entry->last) ||
+            label_in_dead_arm(s, sw->body, entry->next->node, false) ||
             successor_immediately_terminates(entry->next))
             continue;
         for (comment_index = 0; pp; comment_index++) {
@@ -480,8 +572,13 @@ static void warn_switch_fallthrough(Sema *s, Preprocessor *pp, AstNode *sw)
         }
         if (comment_matches)
             continue;
-        warn_at(s->lang->warnings, WARN_IMPLICIT_FALLTHROUGH, entry->last->span,
-                "this statement may fall through");
+        {
+            AstNode *at = fallthrough_anchor(entry->last);
+
+            warn_at(s->lang->warnings, WARN_IMPLICIT_FALLTHROUGH,
+                    (at ? at : entry->last)->span,
+                    "this statement may fall through");
+        }
     }
 }
 

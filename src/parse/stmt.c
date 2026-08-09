@@ -396,6 +396,7 @@ AstNode *parse_stmt(Parser *p)
                 while (parse_peek_n(p, k)->kind == TOK_KEYWORD &&
                        (parse_peek_n(p, k)->kw == KW_VOLATILE ||
                         parse_peek_n(p, k)->kw == KW_ALT_VOLATILE ||
+                        parse_peek_n(p, k)->kw == KW_ALT_VOLATILE2 ||
                         parse_peek_n(p, k)->kw == KW_INLINE ||
                         parse_peek_n(p, k)->kw == KW_ALT_INLINE ||
                         parse_peek_n(p, k)->kw == KW_ALT_INLINE2))
@@ -417,7 +418,8 @@ AstNode *parse_stmt(Parser *p)
 
                     for (j = 1; j < k; j++)
                         if (parse_peek_n(p, j)->kw == KW_VOLATILE ||
-                            parse_peek_n(p, j)->kw == KW_ALT_VOLATILE)
+                            parse_peek_n(p, j)->kw == KW_ALT_VOLATILE ||
+                            parse_peek_n(p, j)->kw == KW_ALT_VOLATILE2)
                             a->asm_volatile = true;
                     p->pos += k; /* asm and its qualifiers */
                     if (parse_asm_body(p, a)) {

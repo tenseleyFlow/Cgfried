@@ -91,6 +91,12 @@ typedef struct LangOpts {
                       this bit for dialect-sensitive syntax */
     bool fwrapv;   /* signed arithmetic wraps: suppress IR no-wrap provenance */
     bool safe_mode; /* -fsafe policy diagnostics at syntax-only boundaries */
+    /* -ffreestanding: no hosted library may be assumed. gcc stops treating
+     * the standard names as builtins here, so `snprintf` is just a function
+     * and its format string is NOT checked without an explicit
+     * `format` attribute -- measured, and it is why musl's dcngettext.c
+     * diverged. A freestanding `snprintf` may be anything at all. */
+    bool freestanding;
     /* -ffp-contract. gcc's DEFAULT is fast in -std=gnu* and off in ISO
      * -std=c*, which is a language policy; whether contraction actually
      * happens additionally requires optimization, because gcc contracts in

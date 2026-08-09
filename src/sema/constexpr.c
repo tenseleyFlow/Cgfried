@@ -158,7 +158,17 @@ Sf constexpr_float_literal(Sema *s, AstNode *e)
                 "floating constant exceeds range of '%s'",
                 type_to_str(s->arena, e->sem_type));
         e->fp_range_diagnosed = true;
-    } else if (st.underflow && st.inexact && !e->fp_range_diagnosed) {
+    } else if (st.underflow && st.inexact && sf_is_zero(v) &&
+               !e->fp_range_diagnosed) {
+        /* TRUNCATED TO ZERO MEANS ZERO. A constant that lands on a SUBNORMAL
+         * has underflowed and is inexact and is still a perfectly good
+         * value: musl's <float.h> spells DBL_TRUE_MIN as
+         * 4.94065645841246544177e-324, the smallest subnormal double, and we
+         * warned on the very macro whose job is to name it. gcc is silent
+         * there and warns for 1e-400, which really is zero -- both measured.
+         *
+         * Checking the RESULT rather than the status flags is the fix: the
+         * flags say how the rounding went, not what came out. */
         warn_at(s->lang->warnings, WARN_OVERFLOW, e->span,
                 "floating constant truncated to zero");
         e->fp_range_diagnosed = true;

@@ -2897,9 +2897,20 @@ static void finish_symbol(Sema *s, Symbol *sym)
      * those translation units parse. */
     if (sym->linkage == LINK_INTERNAL && (sym->defined || sym->tentative) &&
         !sym->reads && !(sym->type && (sym->type->quals & CGF_QUAL_VOLATILE)))
-        warn_at_ex(s->lang->warnings, WARN_UNUSED_VARIABLE, sym->span,
-                   WARN_SUPPRESS_IN_MACRO, "'%s' defined but not used",
-                   sym->name);
+        /* A CONST object gets its OWN flag. gcc reports an unused static
+         * const under -Wunused-const-variable= and an unused static
+         * non-const under -Wunused-variable, both enabled by -Wall in C --
+         * measured. Reporting the const one under the wrong flag makes
+         * -Wno-unused-const-variable do nothing, which is the whole reason
+         * gcc split them: a header full of `static const` tables is a
+         * different judgement call from an unused mutable global.
+         * musl's fork.c is the file that showed it. */
+        warn_at_ex(s->lang->warnings,
+                   (sym->type && (sym->type->quals & CGF_QUAL_CONST))
+                       ? WARN_UNUSED_CONST_VARIABLE
+                       : WARN_UNUSED_VARIABLE,
+                   sym->span, WARN_SUPPRESS_IN_MACRO,
+                   "'%s' defined but not used", sym->name);
 
     /* Tentative resolution (6.9.2p2): at end of TU a tentative becomes a
      * definition with zero initializer. Under -fcommon (gcc 8's default)

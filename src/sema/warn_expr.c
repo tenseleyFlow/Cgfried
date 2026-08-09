@@ -255,6 +255,116 @@ static bool promoted_from_narrow_unsigned(Sema *s, AstNode *e)
     return layout_of(s, t).size < layout_of(s, type_basic(TY_INT)).size;
 }
 
+/* A conservative value range for a small class of integer expressions, in
+ * i64. Returns false for "unknown"; a true result means the expression's
+ * value is provably within [*lo, *hi].
+ *
+ * THIS EXISTS TO PROVE NON-NEGATIVITY, nothing more, which is why the
+ * catalogue is deliberately tiny: a narrow type's own width, a folded
+ * constant, a 0/1-valued logical result, and the operators that combine
+ * them without changing sign. gcc reaches the same conclusions through
+ * full value-range propagation; we need only the corner that keeps
+ * -Wsign-compare quiet on code that is obviously fine.
+ *
+ * Both musl sites that motivated it are here:
+ *   iconv.c    `c < 4*map[-1]`         -- a product of a narrow unsigned
+ *   strftime.c `d >= (*p=='C'?3:5)`    -- a conditional of two constants
+ *
+ * Bounds are capped at +/-2^31 so a product cannot overflow i64; anything
+ * wider is reported unknown rather than guessed. */
+#define RANGE_CAP 2147483647LL
+
+static bool int_range(Sema *s, AstNode *e, i64 *lo, i64 *hi, u32 depth)
+{
+    ConstValue cv;
+    i64 alo, ahi, blo, bhi;
+    Type *t;
+
+    if (!e || depth > 8)
+        return false;
+    e = source_expr(e);
+    if (!e || !e->sem_type)
+        return false;
+
+    if (int_constant(s, e, &cv)) {
+        i64 v = conv_is_signed(s, cv.type) ? signed_value(s, &cv) : (i64)cv.i;
+
+        if (v < -RANGE_CAP || v > RANGE_CAP)
+            return false;
+        *lo = *hi = v;
+        return true;
+    }
+    if (boolean_valued(e)) {
+        *lo = 0;
+        *hi = 1;
+        return true;
+    }
+    if (e->kind == AST_EXPR_BINARY) {
+        switch (e->op) {
+        case PUNCT_PLUS:
+        case PUNCT_STAR:
+            if (!int_range(s, e->lhs, &alo, &ahi, depth + 1) ||
+                !int_range(s, e->rhs, &blo, &bhi, depth + 1))
+                return false;
+            if (e->op == PUNCT_PLUS) {
+                *lo = alo + blo;
+                *hi = ahi + bhi;
+            } else {
+                i64 p[4];
+                u32 i;
+
+                p[0] = alo * blo;
+                p[1] = alo * bhi;
+                p[2] = ahi * blo;
+                p[3] = ahi * bhi;
+                *lo = *hi = p[0];
+                for (i = 1; i < 4; i++) {
+                    if (p[i] < *lo)
+                        *lo = p[i];
+                    if (p[i] > *hi)
+                        *hi = p[i];
+                }
+            }
+            return *lo >= -RANGE_CAP && *hi <= RANGE_CAP;
+        default:
+            return false;
+        }
+    }
+    if (e->kind == AST_EXPR_COND) {
+        /* The join of the two arms. `c ? 3 : 5` is [3,5]. */
+        if (!int_range(s, e->mid ? e->mid : e->lhs, &alo, &ahi, depth + 1) ||
+            !int_range(s, e->rhs, &blo, &bhi, depth + 1))
+            return false;
+        *lo = alo < blo ? alo : blo;
+        *hi = ahi > bhi ? ahi : bhi;
+        return true;
+    }
+    /* An UNSIGNED type narrower than int spans 0..2^n-1 and promotes to a
+     * signed int that still cannot be negative -- the original rule, now one
+     * case among several. */
+    t = e->sem_type;
+    if (type_is_integer(t) && !conv_is_signed(s, t)) {
+        u32 bits = conv_int_bits(s, t);
+
+        if (bits == 0 || bits >= 32)
+            return false;
+        *lo = 0;
+        *hi = (i64)1 << bits;
+        return true;
+    }
+    return false;
+}
+
+/* The whole point of int_range: is this operand certainly not negative? */
+static bool provably_nonnegative(Sema *s, AstNode *e)
+{
+    i64 lo, hi;
+
+    if (promoted_from_narrow_unsigned(s, e) || boolean_valued(e))
+        return true;
+    return int_range(s, e, &lo, &hi, 0) && lo >= 0;
+}
+
 static void warn_sign_compare(Sema *s, AstNode *e)
 {
     Type *lt = promoted_original_type(s, e->lhs);
@@ -273,13 +383,9 @@ static void warn_sign_compare(Sema *s, AstNode *e)
         return;
     if (conv_is_signed(s, rt) && constant_nonnegative(s, source_expr(e->rhs)))
         return;
-    if (conv_is_signed(s, lt) && promoted_from_narrow_unsigned(s, e->lhs))
+    if (conv_is_signed(s, lt) && provably_nonnegative(s, e->lhs))
         return;
-    if (conv_is_signed(s, rt) && promoted_from_narrow_unsigned(s, e->rhs))
-        return;
-    if (conv_is_signed(s, lt) && boolean_valued(e->lhs))
-        return;
-    if (conv_is_signed(s, rt) && boolean_valued(e->rhs))
+    if (conv_is_signed(s, rt) && provably_nonnegative(s, e->rhs))
         return;
     /* GCC suppresses equality/inequality when the unsigned side is a
      * constant representable by the signed side.  Relational comparisons

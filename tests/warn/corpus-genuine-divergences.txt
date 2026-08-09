@@ -15,3 +15,20 @@ include/math.h:19 overflow
 # Newly visible because extended asm made this translation unit parse; the
 # divergence itself is older than that work.
 src/network/lookup_name.c:137 maybe-uninitialized
+
+# `ret` really is uninitialized when the switch matches no case: it is
+# declared `ssize_t ret;` with no initializer, the switch on `op` has no
+# `default:`, and `op` arrives from a caller-populated `args->op`.  musl only
+# ever passes LIO_WRITE / LIO_READ / O_SYNC / O_DSYNC, which is true of its
+# callers and not provable from this translation unit.  GCC's
+# -Wmaybe-uninitialized does not fire; ours does, and ours is right.
+#
+# Exactly the shape already recorded for lookup_name.c above, and triaged for
+# the same reason: suppressing a true warning to make a gate pass is how a
+# warning engine stops being worth running.  Two lines because the value is
+# read twice -- `at.ret = ret;` and `at.err = ret<0 ? errno : 0;`.
+#
+# Newly visible because __volatile made this translation unit parse; the
+# divergence itself is older than that work.
+src/aio/aio.c:274 maybe-uninitialized
+src/aio/aio.c:275 maybe-uninitialized

@@ -1,18 +1,21 @@
 sources 1361
-parsed 1067
-deferred 294
+parsed 1259
+deferred 102
 oracle-failures 0
-genuine-warnings 273
-genuine-location-divergences 2
+genuine-warnings 414
+genuine-location-divergences 4
 false-positives 0
-genuine implicit-fallthrough 10 oracle-matched
-genuine maybe-uninitialized 1 oracle-matched
+genuine address 2 oracle-matched
+genuine implicit-fallthrough 21 oracle-matched
+genuine implicit-function-declaration 4 oracle-matched
+genuine maybe-uninitialized 3 oracle-matched
 genuine overflow 1 oracle-matched
-genuine parentheses 23 oracle-matched
-genuine sign-compare 100 oracle-matched
+genuine parentheses 41 oracle-matched
+genuine sign-compare 142 oracle-matched
 genuine type-limits 2 oracle-matched
-genuine unused-but-set-variable 4 oracle-matched
-genuine unused-function 19 oracle-matched
+genuine unused-but-set-variable 5 oracle-matched
+genuine unused-const-variable 1 oracle-matched
+genuine unused-function 45 oracle-matched
 genuine unused-label 2 oracle-matched
-genuine unused-parameter 110 oracle-matched
-genuine unused-variable 1 oracle-matched
+genuine unused-parameter 143 oracle-matched
+genuine unused-variable 2 oracle-matched
