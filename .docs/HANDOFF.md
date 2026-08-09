@@ -217,6 +217,15 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   e2ediff 10/10, a64 objdiff 20 identical / 0 pinned, x86 objdiff 38/38,
   c-testsuite 215/220 with 0 new, 100k sanitized fuzz 0 findings, safe-dogfood
   102 TUs / zero exemptions. All 14 CI jobs green on `trunk`.
+- **After `cleanup`** (both lanes rerun end to end, sequentially): gcc and
+  clang `make test` both rc=0, **626 unit tests / 4,263,124 assertions**,
+  565 program fixtures, 477/477 warning, 90/90 memsafe + 50/50 interproc,
+  56/56 safe-mode, objdiff 38/38, e2ediff 10/10, c-testsuite 215/220 with
+  0 new, musl unchanged at 716 parsed / 645 deferred / 186 oracle-matched /
+  zero false positives, **arm64 corpus and spill-all 66/66 each with both
+  ledgers still empty**, and a sanitized 100k frontend fuzz at 0 findings
+  (digest repinned to `076a1a46ac3703b4` for the 8 new corpus files; both
+  binaries checked for `__asan_init` before the run was believed).
 - `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
   arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
   with the bundled afs-as into ELF objects byte-identical to
