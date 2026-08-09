@@ -956,6 +956,57 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
     }
 }
 
+/* A GNU statement expression. Its body is an ordinary compound statement and
+ * gets an ordinary LexScope -- what is NOT ordinary is the ORDER at the end:
+ *
+ *     THE VALUE IS MATERIALIZED BEFORE THE SCOPE'S CLEANUPS RUN.
+ *
+ * Measured, not assumed. With `int r = tail(({ CLEANUP c = 1; 5; })) + ...`,
+ * gcc prints `cleanup(1)` BEFORE `tail(5)`: the 5 is computed, the scope
+ * exits, and only then does the enclosing expression continue. Running the
+ * cleanups first would hand the caller a value read out of storage the
+ * cleanup had already been given a chance to clobber; running them later
+ * would leak them past the `}` the programmer wrote.
+ *
+ * Exactly the shape AST_STMT_RETURN needed for `cleanup`, and for the same
+ * reason -- which is why that one computes its operand in every branch and
+ * emits ONE `ret` with the cleanups spliced in. */
+IrOperand lower_stmt_expr(Lower *lo, AstNode *e)
+{
+    AstNode *body = e ? e->lhs : NULL;
+    AstNode *last = NULL;
+    IrOperand v;
+    LexScope scope;
+    u32 i, n, upto;
+
+    memset(&v, 0, sizeof(v));
+    v.kind = IROP_NONE; /* a void `({ ... })` yields nothing */
+    if (!body || body->kind != AST_STMT_COMPOUND)
+        return v;
+    n = body->nitems;
+    /* The value is the last item, and ONLY if it is an expression statement:
+     * a trailing declaration or a trailing `if` makes the whole thing void,
+     * which sema has already typed. */
+    if (n && body->items[n - 1] && body->items[n - 1]->kind == AST_STMT_EXPR &&
+        body->items[n - 1]->lhs)
+        last = body->items[n - 1];
+    upto = last ? n - 1 : n;
+
+    scope.token = VALUE_INVALID;
+    scope.compound = body;
+    scope.cleanups = NULL;
+    scope.prev = lo->scopes;
+    lo->scopes = &scope;
+    for (i = 0; i < upto; i++)
+        lower_stmt(lo, body->items[i]);
+    if (last && !lo->terminated)
+        v = lower_rvalue(lo, last->lhs);
+    if (!lo->terminated)
+        scope_exit_here(lo, &scope);
+    lo->scopes = scope.prev;
+    return v;
+}
+
 void lower_stmt(Lower *lo, AstNode *s)
 {
     Span saved;

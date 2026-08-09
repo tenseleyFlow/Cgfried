@@ -57,6 +57,7 @@ predefine.
 | `cleanup` | `tests/corpus/x86_64/int/attr_cleanup.c` | systemd's `_cleanup_` idiom, glibc, scope-guard patterns in C |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
 | extended `asm` — operands, constraints, clobbers | `tests/corpus/x86_64/int/asm_operands.c` | musl syscall wrappers and atomics; every libc's `arch/` |
+| statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -353,6 +354,16 @@ there is no scope exit to hang the call on, and gcc warns and drops it.
 
 **Statement expressions and lifetime.** The value of `({ ... })` is the value
 of its last *expression statement*; if the last item is a declaration or a
-non-expression statement the whole thing has type `void`. Temporaries created
-inside live until the end of the enclosing full expression, not the end of the
-statement expression.
+non-expression statement the whole thing has type `void`, and using it where a
+value is wanted is an error (gcc: "void value not ignored as it ought to be").
+An empty `({ })` is legal and void. A braced group is refused at file scope,
+where gcc refuses it too.
+
+A `cleanup` variable declared inside runs at the statement expression's OWN
+closing brace — **after** the value is materialized and **before** the
+enclosing full expression continues. Measured against gcc, because the
+plausible alternative (defer the cleanups to the end of the enclosing
+expression) passes every test that does not observe ordering, and getting it
+backwards hands the caller a value read out of storage the cleanup was already
+given a chance to clobber. `tests/corpus/x86_64/int/stmt_expr.c` pins the
+order as `CTT`.

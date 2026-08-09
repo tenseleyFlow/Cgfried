@@ -2332,6 +2332,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             CGF_ICE("offsetof did not fold at lowering");
         return ir_op_iconst(lower_irtype(lo, sem(e)), (i64)cv.i);
     }
+    case AST_EXPR_STMT:
+        return lower_stmt_expr(lo, e);
     default:
         CGF_ICE("lower_rvalue: unhandled expr kind %d", (int)e->kind);
     }

@@ -538,6 +538,12 @@ void sema_install_renderer(void);
 /* Converts an AST type chain to a semantic Type. Exposed for unit tests. */
 Type *sema_type_from_ast(Sema *s, const AstType *at, Span span);
 
+/* Types one statement. Exposed for exactly ONE caller: the GNU statement
+ * expression `({ ... })`, where a STATEMENT hangs below an EXPRESSION and
+ * sema/expr.c must therefore reach the statement walker in sema/decl.c. The
+ * compound pushes its own scope, matching what the parser did. */
+void sema_stmt_in_expr(Sema *s, AstNode *st);
+
 /* An array with no bound COMPLETED by its initializer (6.7.9p22), returning
  * the sized type or `t` unchanged when the deduction does not apply. TWO
  * callers with the same rule and no reason to differ: a declaration

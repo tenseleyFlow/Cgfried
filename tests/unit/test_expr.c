@@ -346,8 +346,12 @@ void test_expr_deferrals_and_errors(TestCtx *t)
 {
     /* Deferred GNU forms must hard-error naming their sprint — never
      * parse silently as something else. */
-    expr_bad(t, "int f(int a) { return a ?: 1; }\n");     /* omitted mid */
-    expr_bad(t, "int f(void) { return ({ 1; }); }\n");    /* stmt expr */
+    expr_bad(t, "int f(int a) { return a ?: 1; }\n"); /* omitted mid */
+    /* Statement expressions LAND in Sprint 55 -- what stays an error is the
+     * FILE-SCOPE use, which gcc rejects too ("braced-group within expression
+     * allowed only inside a function"). The accepting cases are pinned by
+     * tests/corpus/x86_64/int/stmt_expr.c, which EXECUTES them. */
+    expr_bad(t, "int g = ({ 1; });\n");
     expr_bad(t, "int f(int a) { return _Alignof a; }\n"); /* GNU alignof */
     expr_bad(t, "void f(void *p) { goto *p; }\n");        /* computed goto */
     /* `&&lab` — the address-of-label operator. `&&` is a single token, so

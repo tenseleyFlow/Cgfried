@@ -12,7 +12,5 @@
 #   file that needed it agrees with gcc and its entry is gone.
 #
 00210.c  XD-S10-GNUEXT  GNU '__attribute__' is not yet supported (lands in Sprint 55)
-00213.c  XD-S10-GNUEXT  GNU statement expressions are not yet supported (lands in Sprint 55)
-00214.c  XD-S10-BUILTIN  '__builtin_expect' is not yet supported (the compiler builtins land in Sprint 28)
 00216.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)
 00219.c  XD-S10-BUILTIN  '__builtin_va_list' is not yet supported (the compiler builtins land in Sprint 28)

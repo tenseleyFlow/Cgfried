@@ -231,6 +231,10 @@ IrOperand lower_cond(Lower *lo, AstNode *e);
 /* --- statements (src/lower/stmt.c) ---------------------------------------- */
 
 void lower_stmt(Lower *lo, AstNode *s);
+/* A GNU statement expression `({ ... })`. Lives in stmt.c because it needs
+ * LexScope and scope_exit_here; called from lower_rvalue, because the thing
+ * it produces is a VALUE. */
+IrOperand lower_stmt_expr(Lower *lo, AstNode *e);
 /* Runtime initializer walk for automatic objects: zero-fills aggregates,
  * then evaluates and stores each element in SOURCE ORDER (the §1 law).
  * Mirrors constexpr.c's fill() cursor semantics exactly — including the

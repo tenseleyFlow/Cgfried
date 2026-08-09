@@ -60,6 +60,12 @@ typedef enum AstKind {
                                AST_EXPR_OFFSETOF_BASE placeholder (Sprint 28) */
     AST_EXPR_OFFSETOF_BASE, /* the anchor a designator chain bottoms out
                                on; never evaluated, never typed */
+    AST_EXPR_STMT,          /* GNU `({ ... })`: lhs is an AST_STMT_COMPOUND.
+                               Its VALUE is the last item if that item is an
+                               AST_STMT_EXPR, and `void` otherwise -- a
+                               trailing declaration or a trailing `if` both
+                               make it void, which gcc reports as "void value
+                               not ignored". Measured, not assumed. */
 
     /* Statements (C11 6.8). */
     AST_STMT_COMPOUND, /* { items... } */

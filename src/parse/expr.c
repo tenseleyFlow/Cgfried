@@ -212,15 +212,44 @@ static AstNode *parse_primary_expr(Parser *p)
 
     if (parse_at_punct(p, PUNCT_LPAREN)) {
         /* A GNU statement expression `({ ... })` is a paren immediately
-         * followed by a brace. Diagnose it here rather than letting the
-         * expression parser produce a confusing cascade. */
+         * followed by a brace. Recognizing it HERE, before the ordinary
+         * parenthesized-expression path, is what keeps `(` unambiguous: a
+         * cast, a compound literal, a parenthesized expression and this all
+         * start the same way, and only the next token separates them. */
         if (parse_peek_n(p, 1)->kind == TOK_PUNCT &&
             parse_peek_n(p, 1)->punct == PUNCT_LBRACE) {
-            parse_error(p, t,
-                        "GNU statement expressions are not yet supported "
-                        "(lands in Sprint 55)");
-            p->pos++;
-            return expr_new(p, AST_ERROR, t->span);
+            /* gcc: "braced-group within expression allowed only inside a
+             * function". At file scope there is no block to run, and the
+             * initializer it would feed must be a constant anyway.
+             *
+             * The group is PARSED ANYWAY and then discarded, rather than
+             * bailing at the '('. Bailing leaves `{ 1; }` for the
+             * declaration parser and produces a second, meaningless
+             * "expected ';'" -- consuming the construct we just recognized
+             * is what keeps one mistake to one diagnostic. */
+            bool at_file_scope = p->scope_depth == 0;
+
+            p->pos++; /* '(' — the '{' stays for parse_compound_stmt */
+            if (!parse_depth_enter(p, t))
+                return parse_error_node(p, t->span);
+            n = expr_new(p, AST_EXPR_STMT, t->span);
+            /* parse_compound_stmt does NOT push a scope (Sprint 10's
+             * contract), so the scope is ours to open and close -- and it
+             * MUST exist, or a declaration inside would leak into the
+             * enclosing block and shadow it for the rest of the function. */
+            parse_scope_enter(p);
+            n->lhs = parse_compound_stmt(p);
+            parse_scope_leave(p);
+            parse_depth_leave(p);
+            parse_expect_close(p, PUNCT_RPAREN, t->span,
+                               "after a statement expression");
+            if (at_file_scope) {
+                parse_error(p, t,
+                            "a braced-group within an expression is allowed "
+                            "only inside a function");
+                return expr_new(p, AST_ERROR, t->span);
+            }
+            return parse_poison_from(n, n->lhs);
         }
         p->pos++;
         if (!parse_depth_enter(p, t))

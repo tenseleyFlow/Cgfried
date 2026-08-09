@@ -1456,6 +1456,28 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = true;
         return e;
     }
+    case AST_EXPR_STMT: {
+        /* THE VALUE IS THE LAST ITEM, AND ONLY IF THAT ITEM IS AN EXPRESSION
+         * STATEMENT. A trailing declaration or a trailing `if` both make the
+         * whole thing `void` -- gcc reports either as "void value not
+         * ignored as it ought to be", measured on all three shapes before
+         * this was written. An empty `({ })` is legal and void.
+         *
+         * NOT an lvalue: gcc rejects `({ int a; a; }) = 1`, so the result is
+         * a value even when the last expression was an lvalue. */
+        AstNode *last = NULL;
+
+        sema_stmt_in_expr(s, e->lhs);
+        if (e->lhs && e->lhs->kind == AST_STMT_COMPOUND && e->lhs->nitems)
+            last = e->lhs->items[e->lhs->nitems - 1];
+        if (last && last->kind == AST_STMT_EXPR && last->lhs &&
+            last->lhs->sem_type)
+            e->sem_type = last->lhs->sem_type;
+        else
+            e->sem_type = type_basic(TY_VOID);
+        e->is_lvalue = false;
+        return e;
+    }
     case AST_ERROR:
         return poison(s, e);
     default:

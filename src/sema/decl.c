@@ -2625,6 +2625,11 @@ static void sema_mark_discarded_update(AstNode *e)
  * declarations inside, because block scope and the 6.2.2p4 linkage rule
  * are this sprint's business. Expression typing is Sprint 13 and
  * control-flow sema is Sprint 16. */
+void sema_stmt_in_expr(Sema *s, AstNode *st)
+{
+    sema_stmt(s, st);
+}
+
 static void sema_stmt(Sema *s, AstNode *st)
 {
     u32 i;
