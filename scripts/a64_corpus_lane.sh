@@ -186,7 +186,12 @@ fi
 # therefore the only ones that assert the target's char signedness. The
 # runner needs CGF_TEST_TARGET to pick the right half; without it every
 # targeted CHECK silently applies to the wrong architecture.
+# CGF_TEST_WORK keeps this lane's scratch to itself. The ordinary and
+# spill-all lanes share ONE $(BUILD)/cgf-test, so the runner's default --
+# scratch beside its own binary -- is the same directory for both, and
+# running them together made each overwrite the other's .s and .o mid-flight.
 CGF_TEST_CC="$WORK/cgf-a64" \
+    CGF_TEST_WORK="$WORK/test-work" \
     CGF_TEST_RUN="$PWD/scripts/qemu-run.sh" \
     CGF_TEST_TARGET=arm64-linux \
     CGF_TEST_TIMEOUT=${CGF_A64_TIMEOUT:-120} \

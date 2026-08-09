@@ -118,5 +118,19 @@ if [ "$markers" -lt 2 ]; then
     status=1
 fi
 
+# The test runner's scratch directory is NEVER a literal path. Two runners
+# writing the same files is how a lane reports a failure that reproduces
+# nowhere: `make -j test-a64-corpus test-a64-spill-all` shares one cgf-test
+# and failed nearly the whole corpus with "the assembler rejected
+# cgfried-generated assembly ... line 0", and the ppfuzz version of the same
+# bug reported 128 differential findings that were one overwritten file.
+# The path comes from CGF_TEST_WORK, else from beside the runner binary.
+hits=$(grep -n 'build/test-work' tests/runner/*.c || true)
+if [ -n "$hits" ]; then
+    echo "check_bans: the runner's scratch dir must not be a literal path:" >&2
+    printf '%s\n' "$hits" >&2
+    status=1
+fi
+
 [ "$status" -eq 0 ] && echo "check_bans: clean"
 exit "$status"

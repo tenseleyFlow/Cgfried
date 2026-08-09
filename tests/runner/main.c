@@ -44,6 +44,10 @@ typedef struct {
     Strmap ledger; /* known XF-ids */
     bool ledger_loaded;
     const char *ledger_path;
+    /* Scratch directory for produced .s/.o/binaries. NEVER a literal: two
+     * runners writing the same paths is how a lane reports a spectacular
+     * failure that reproduces nowhere. */
+    const char *work;
     Counts counts;
 } Runner;
 
@@ -666,12 +670,39 @@ static const Directive *find_forbidden(const DirectiveSet *ds, const Buf *out)
     return NULL;
 }
 
-static void mkdir_p2(const char *a, const char *b)
+/* Create the scratch directory, and its parent when the path has one. Only
+ * one level of parent is needed: every caller names either a directory beside
+ * the runner binary or a lane's own work directory, both one deep. */
+static void mkdir_work(const char *path)
 {
-    if (mkdir(a, 0777) != 0 && errno != EEXIST)
-        CGF_ICE("mkdir %s failed: %s", a, strerror(errno));
-    if (mkdir(b, 0777) != 0 && errno != EEXIST)
-        CGF_ICE("mkdir %s failed: %s", b, strerror(errno));
+    const char *slash = strrchr(path, '/');
+
+    if (slash && slash != path) {
+        char parent[512];
+        size_t n = (size_t)(slash - path);
+
+        if (n >= sizeof(parent))
+            CGF_ICE("scratch path too long: %s", path);
+        memcpy(parent, path, n);
+        parent[n] = '\0';
+        if (mkdir(parent, 0777) != 0 && errno != EEXIST)
+            CGF_ICE("mkdir %s failed: %s", parent, strerror(errno));
+    }
+    if (mkdir(path, 0777) != 0 && errno != EEXIST)
+        CGF_ICE("mkdir %s failed: %s", path, strerror(errno));
+}
+
+/* "<dir of argv[0]>/test-work" -- the ppfuzz rule, scratch beside the binary
+ * that uses it, so two BUILD trees running the suite at once cannot write the
+ * same files. A bare name with no slash means the runner was found on PATH;
+ * "." is then the only honest answer. */
+static const char *work_dir_beside(Arena *arena, const char *argv0)
+{
+    const char *slash = argv0 ? strrchr(argv0, '/') : NULL;
+
+    if (!slash)
+        return "test-work";
+    return aprintf(arena, "%.*s/test-work", (int)(slash - argv0), argv0);
 }
 
 typedef enum { OUT_PASS, OUT_FAIL } Outcome;
@@ -760,9 +791,8 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
         buf_init(&observation->stdout_buf);
     }
 
-    binpath =
-        aprintf(&r->arena, "build/test-work/%s_%s.bin", t->suite, t->name);
-    spath = aprintf(&r->arena, "build/test-work/%s_%s.s", t->suite, t->name);
+    binpath = aprintf(&r->arena, "%s/%s_%s.bin", r->work, t->suite, t->name);
+    spath = aprintf(&r->arena, "%s/%s_%s.s", r->work, t->suite, t->name);
 
     /* .cgfir fixtures go through `cgf -emit-ir` (parse -> verify ->
      * reprint); the compiler's stdout is the result under test, matched
@@ -837,9 +867,8 @@ static Outcome run_pipeline(Runner *r, const TestFile *t,
                 char *brk = strstr(cursor, "// TU-BREAK");
                 size_t piece_len =
                     brk ? (size_t)(brk - cursor) : strlen(cursor);
-                char *tupath =
-                    aprintf(&r->arena, "build/test-work/%s_%s.tu%d.c", t->suite,
-                            t->name, tu);
+                char *tupath = aprintf(&r->arena, "%s/%s_%s.tu%d.c", r->work,
+                                       t->suite, t->name, tu);
                 FILE *tf = fopen(tupath, "wb");
                 SpawnResult one;
                 char *targv[8];
@@ -1434,6 +1463,21 @@ int main(int argc, char **argv)
      * `ASM_CHECK(x86_64-linux-gnu):` to arm64 assembly. */
     r.target = getenv("CGF_TEST_TARGET") ? getenv("CGF_TEST_TARGET")
                                          : cgf_target_name(cgf_target_host());
+    /* The scratch directory. It used to be one hardcoded path, so ANY two
+     * concurrent runners collided: two BUILD trees running `make test` at
+     * once, or `make -j test-a64-corpus test-a64-spill-all`, which share one
+     * $(BUILD)/cgf-test and failed nearly the whole corpus with "the
+     * assembler rejected cgfried-generated assembly ... line 0" -- a false
+     * failure that reproduces nowhere sequentially. Same shape as the ppfuzz
+     * scratch bug, which reported 128 differential findings that were all one
+     * file being overwritten between processes.
+     *
+     * Default: beside the runner binary, so a per-tree BUILD is isolated
+     * without anyone asking. CGF_TEST_WORK overrides it, which is what lets
+     * two lanes SHARING one binary keep separate scratch. */
+    r.work = getenv("CGF_TEST_WORK");
+    if (!r.work || !r.work[0])
+        r.work = work_dir_beside(&r.arena, argv[0]);
     r.default_timeout = DEFAULT_TIMEOUT_SECS;
     r.ledger_path = getenv("CGF_TEST_XFAIL_LEDGER")
                         ? getenv("CGF_TEST_XFAIL_LEDGER")
@@ -1468,7 +1512,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    mkdir_p2("build", "build/test-work");
+    mkdir_work(r.work);
 
     for (i = 0; (size_t)i < tests.len; i++)
         run_test(&r, &tests.data[i]);
