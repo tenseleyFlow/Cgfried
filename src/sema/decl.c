@@ -2862,8 +2862,18 @@ static void finish_symbol(Sema *s, Symbol *sym)
     if (sym->kind != SYM_VAR)
         return;
 
+    /* A FILE-SCOPE VOLATILE is exempt, and only at file scope: gcc warns
+     * for an unused `volatile int` local but not for one at file scope,
+     * where the object is a hardware register or a location another agent
+     * reads and its mere existence is the point. Measured -- musl's
+     *
+     *     static FILE *volatile dummy = 0;
+     *
+     * in fflush.c and __stdio_exit.c is exactly this, and it is what the
+     * zero-false-positive musl gate caught the moment extended asm made
+     * those translation units parse. */
     if (sym->linkage == LINK_INTERNAL && (sym->defined || sym->tentative) &&
-        !sym->reads)
+        !sym->reads && !(sym->type && (sym->type->quals & CGF_QUAL_VOLATILE)))
         warn_at_ex(s->lang->warnings, WARN_UNUSED_VARIABLE, sym->span,
                    WARN_SUPPRESS_IN_MACRO, "'%s' defined but not used",
                    sym->name);
@@ -2945,9 +2955,42 @@ static void check_alias_targets(Sema *s, Symbol *chain)
     }
 }
 
+/* An ALIAS IS A USE of its target, and it is the only kind of use that
+ * appears in no expression: `.set` names the target, so nothing in the tree
+ * references it. Without this, musl's
+ *
+ *     static FILE *volatile dummy = 0;
+ *     weak_alias(dummy, __stdout_used);
+ *
+ * warns "'dummy' defined but not used" where gcc is silent -- and the same
+ * blind spot hits -Wunused-function for the far commoner
+ * `weak_alias(impl, pub)` shape.
+ *
+ * This must run BEFORE finish_symbol, which is what emits those warnings.
+ * It is the same fact IPO learned separately: an alias target is a root,
+ * because a `.set` is not a relocation and no callgraph edge exists. Two
+ * passes needed the fact and each discovered it the hard way. */
+static void mark_alias_targets_used(Symbol *chain)
+{
+    Symbol *sym;
+
+    for (sym = chain; sym; sym = sym->next) {
+        Symbol *t;
+
+        if (!sym->alias_target)
+            continue;
+        for (t = chain; t; t = t->next)
+            if (t->name == sym->alias_target && t->ns == NS_ORDINARY) {
+                t->reads++;
+                break;
+            }
+    }
+}
+
 void sema_finish(Sema *s)
 {
     if (s->file_scope) {
+        mark_alias_targets_used(s->file_scope->ordinary);
         finish_symbol(s, s->file_scope->ordinary);
         check_alias_targets(s, s->file_scope->ordinary);
     }

@@ -196,6 +196,65 @@ static void warn_unused_value(Sema *s, AstNode *e)
             "expression result unused");
 }
 
+/* True when an expression's result is a BOOLEAN 0 or 1 by construction: the
+ * logical and relational operators all yield int 0 or int 1 (6.5.3.3p5,
+ * 6.5.8p6, 6.5.9p3, 6.5.13p3, 6.5.14p3), so the value can never be negative
+ * however it is compared.
+ *
+ * gcc suppresses -Wsign-compare on these, and musl's fopencookie.c leans on
+ * it directly: `remain > !!f->buf_size` with an unsigned `remain`. */
+static bool boolean_valued(AstNode *e)
+{
+    e = source_expr(e);
+    if (!e)
+        return false;
+    if (e->kind == AST_EXPR_UNARY && e->op == PUNCT_BANG)
+        return true;
+    if (e->kind != AST_EXPR_BINARY)
+        return false;
+    switch (e->op) {
+    case PUNCT_LT:
+    case PUNCT_GT:
+    case PUNCT_LE:
+    case PUNCT_GE:
+    case PUNCT_EQEQ:
+    case PUNCT_NOTEQ:
+    case PUNCT_AMPAMP:
+    case PUNCT_PIPEPIPE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* True when an operand's value is provably non-negative because PROMOTION
+ * put it there: an unsigned type narrower than int widens to int without
+ * changing its range, so `unsigned char` spans 0..255 and `unsigned short`
+ * 0..65535 -- every value representable, none of them negative.
+ *
+ * gcc suppresses -Wsign-compare on exactly this, and musl leans on it: the
+ * whole of intscan.c compares `val[c]` (an unsigned char through a pointer)
+ * against an `unsigned base`. Seven of those in one file were the largest
+ * cluster the zero-false-positive musl gate reported when extended asm made
+ * the file parse.
+ *
+ * The test is the ORIGINAL type, not the promoted one -- promoted_original_
+ * type already returns the promoted type, which is where the information
+ * that it was ever unsigned is lost. */
+static bool promoted_from_narrow_unsigned(Sema *s, AstNode *e)
+{
+    Type *t;
+
+    e = source_expr(e);
+    if (!e || !e->sem_type)
+        return false;
+    t = e->sem_type;
+    if (!type_is_integer(t) || conv_is_signed(s, t))
+        return false;
+    /* Narrower than int, so promotion cannot make it negative. */
+    return layout_of(s, t).size < layout_of(s, type_basic(TY_INT)).size;
+}
+
 static void warn_sign_compare(Sema *s, AstNode *e)
 {
     Type *lt = promoted_original_type(s, e->lhs);
@@ -213,6 +272,14 @@ static void warn_sign_compare(Sema *s, AstNode *e)
     if (conv_is_signed(s, lt) && constant_nonnegative(s, source_expr(e->lhs)))
         return;
     if (conv_is_signed(s, rt) && constant_nonnegative(s, source_expr(e->rhs)))
+        return;
+    if (conv_is_signed(s, lt) && promoted_from_narrow_unsigned(s, e->lhs))
+        return;
+    if (conv_is_signed(s, rt) && promoted_from_narrow_unsigned(s, e->rhs))
+        return;
+    if (conv_is_signed(s, lt) && boolean_valued(e->lhs))
+        return;
+    if (conv_is_signed(s, rt) && boolean_valued(e->rhs))
         return;
     /* GCC suppresses equality/inequality when the unsigned side is a
      * constant representable by the signed side.  Relational comparisons

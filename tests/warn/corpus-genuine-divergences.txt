@@ -2,3 +2,16 @@
 # compilers.  GCC attributes it to the immediate asuint64 macro definition at
 # src/internal/libm.h:192; CGF retains the inner spelling location here.
 include/math.h:19 overflow
+
+# `family` really is uninitialized on the switch's default path: musl relies
+# on `rr` being one of RR_A / RR_AAAA, which is true of its callers and not
+# provable from this translation unit.  Our note says exactly that --
+# "'family' is uninitialized when this branch takes the default path" -- and
+# GCC's -Wmaybe-uninitialized simply does not fire here.  Ours is the correct
+# diagnostic and GCC's silence is the miss, so this is triaged rather than
+# suppressed: weakening a true warning to make a gate pass is how a warning
+# engine stops being worth running.
+#
+# Newly visible because extended asm made this translation unit parse; the
+# divergence itself is older than that work.
+src/network/lookup_name.c:137 maybe-uninitialized
