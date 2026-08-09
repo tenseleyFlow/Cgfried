@@ -741,6 +741,28 @@ static void mark_escapes(AliasCtx *c)
                 for (; oi < in->nops; oi++)
                     if (in->ops[oi].type == IRT_PTR)
                         mark_operand_escaped(c, in->ops[oi]);
+            } else if (in->op == IR_ASM) {
+                /* A template is opaque, so a pointer handed to one may be
+                 * stored anywhere -- exactly a call's rule, and for the same
+                 * reason. Both DIRECTIONS count: an INPUT can be published,
+                 * and an OUTPUT operand is an ADDRESS the template writes
+                 * through (see ir.h), so it is a pointer this function no
+                 * longer solely owns either.
+                 *
+                 * NO FIXTURE REACHES THIS ROW, and that is recorded rather
+                 * than hidden. The -Wmem-leak false positive on
+                 * `p = malloc(16); asm("" :: "r"(p));` is fixed by the
+                 * IR_ASM row in memsafe/lifetime.c, which is what the
+                 * lifetime lattice reads; removing this one leaves the
+                 * memsafe suite at 91/91. It stays because alias_escapes has
+                 * OTHER clients (DSE's escaped-exit-state rule), and
+                 * answering "did not escape" for a pointer a template was
+                 * handed is a latent wrong answer whether or not a test
+                 * reaches it today. Escaping MORE is always the safe
+                 * direction here. */
+                for (oi = 0; oi < in->nops; oi++)
+                    if (in->ops[oi].type == IRT_PTR)
+                        mark_operand_escaped(c, in->ops[oi]);
             } else if (in->op == IR_RET && in->nops == 1 &&
                        in->ops[0].type == IRT_PTR) {
                 mark_operand_escaped(c, in->ops[0]);

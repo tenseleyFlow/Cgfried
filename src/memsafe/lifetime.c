@@ -1653,6 +1653,27 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
                                      "stored into escaping memory here");
         }
         break;
+    case IR_ASM: {
+        /* A template is OPAQUE, so an asm is an unknown call for ownership:
+         * every pointer it is handed may be stored anywhere, and an output
+         * operand is an ADDRESS the template writes through (see ir.h), so
+         * both directions escape. Without this row
+         * `p = malloc(16); asm("" :: "r"(p));` is diagnosed a LEAK, which is
+         * a false positive on the shape every libc's arch/ directory uses.
+         *
+         * alias.c's mark_escapes needs the SAME row and is not a substitute
+         * for it -- that one keeps the points-to service honest, this one is
+         * what the lifetime lattice reads. Fixing only alias.c leaves the
+         * warning exactly where it was; measured. */
+        u32 oi;
+
+        for (oi = 0; oi < in->nops; oi++)
+            if (in->ops[oi].type == IRT_PTR)
+                transition_reachable(result, path, in->ops[oi], MS_ACT_ESCAPE,
+                                     loc, MS_EV_ESCAPE,
+                                     "passed to inline asm here");
+        break;
+    }
     case IR_VA_START:
         if (in->nops >= 1)
             /* SysV va_start fills the pointer fields after lowering has
