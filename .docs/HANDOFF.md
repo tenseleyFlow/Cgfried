@@ -3,17 +3,14 @@
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU extensions)
-is under way** — **eleven** attributes implemented, and §1b-1's *WHERE THE
-WORK IS* says exactly what to do next and in what order.
+is under way** — **eleven** attributes plus **D1 and D2 complete**, and
+§1b-1's *WHERE THE WORK IS* says exactly what to do next and in what order.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
-refusal or a deliberate deferral. `trunk` (`4a9f7b39`) is green across all 14
-CI jobs. That claim is about SHIPPED code: there is uncommitted work in the
-tree with a known bug in it, and §0b is the first thing to read.
+refusal or a deliberate deferral.
 
-**NEXT: FINISH D2's OPERAND SLICE — there is UNCOMMITTED WORK IN THE TREE
-and one known bug in it. Read §0b before anything else.** Then D4 statement
-expressions + `typeof`, and **D5 `__GNUC__` LAST** — the day it is defined,
-every `__attribute__` in every system header goes live at once.
+**NEXT: D4** — statement expressions + `typeof` and the rest of that list —
+and **D5 `__GNUC__` LAST**, because the day it is defined every
+`__attribute__` in every system header goes live at once.
 
 That order is locked and also recorded in the assistant's project memory
 (`sprint-order`). After D5, circle back to the sprints that were skipped:
@@ -29,12 +26,12 @@ translation units parsing.**
 
 ---
 
-## 0b. THE UNCOMMITTED D2 OPERAND WORK — start here
+## 0b. D2, EXTENDED ASM — DONE. What it cost, and what it found.
 
-**`trunk` is at `4a9f7b39` and is green across all 14 CI jobs.** Everything
-described in this section is WORKING-TREE ONLY, so there is nothing broken to
-back out — but there is also real, mostly-working code that should not be
-thrown away.
+**`cgf` compiles inline asm with operands, constraints and clobbers on both
+targets.** The interesting part of this section is not the feature: it is that
+the operand slice turned up **three bugs in code that was not the operand
+slice**, and that the one bug IN it was invisible to every lane but one.
 
 ### What works
 
@@ -47,10 +44,10 @@ Extended asm with operands, on BOTH targets, matching gcc at -O0/-O1/-O2/-Os:
   `d` inputs and `rcx`/`r11`/`memory` clobbers, making a real `write(2)`.
 - arm64 the same matrix, verified against `aarch64-linux-gnu-gcc` under qemu.
 
-### THE BUG, and it is the one thing standing between here and a commit
+### THE BUG IN IT: an asm operand cannot be spilled, and only one lane looks
 
-**`CGF_SPILL_ALL=1` is wrong on both targets.** Every spilled asm operand
-reloads into the SAME scratch register:
+**`CGF_SPILL_ALL=1` was wrong on BOTH targets.** Every spilled asm operand
+reloaded into the same scratch register:
 
 ```
 	movq	-32(%rbp), %r11      <- input a reloaded into r11
@@ -59,46 +56,84 @@ reloads into the SAME scratch register:
 	movl %r11d, %r11d            <- all three operands are one register
 ```
 
-x86 prints `2 8` where `11 7` is right; arm64 prints outright garbage.
-Reproduce:
+x86 printed `2 8` where `11 7` is right.
 
-```sh
-CGF_SPILL_ALL=1 build-a64dev/cgfried -O0 -o /tmp/x tests/programs/gnu/asm_operands.c && /tmp/x
-```
+**The fix is an ALLOCATOR FEATURE, not a patch at the reload site**, and that
+distinction is the whole lesson. An operand constrained `"r"` must BE in a
+register; x86 has exactly two scratches to reload through, so three register
+operands cannot be satisfied by reloading AT ALL. No cleverness at the reload
+site can produce a register that does not exist. `CgInterval.no_spill`
+(`src/cg/shared.h`) says so, and `cg_linear_scan` honours it in three places
+that all had to agree: `spill_all` skips such an interval, eviction refuses to
+pick one as a victim, and the spill-vs-evict heuristic inverts for it —
+someone else goes, whatever the relative lengths. Both backends set it from a
+`collect_no_spill` pass over their own `ASM` instructions.
 
-Cause: the post-RA physicalization in `src/cg/x86_64/regalloc.c` calls
-`sub_use(ra, &rb, &nx[xi].r, 0)` for every asm xuse, and side 0 is always
-`SCRATCH_A` (r11). The arm64 arm in `src/cg/arm64/regalloc.c` already takes a
-distinct scratch per operand via `take_scratch`, but arm64 is wrong for a
-second reason not yet diagnosed.
+If the pool ever genuinely runs out there is a backstop ICE naming inline-asm
+register pressure. gcc reports that case as *"'asm' operand has impossible
+constraints"* and we cannot, because the allocator holds no diagnostic context
+and no span; reaching it needs more simultaneously-live register operands than
+the machine has allocatable registers.
 
-**THE FIX IS AN ALLOCATOR FEATURE, not a patch at the reload site.** An asm
-operand constrained `"r"` must BE in a register, and x86 has only two
-scratches (`SCRATCH_A` r11, `SCRATCH_B` r10) to reload into — three register
-operands cannot be satisfied by reloading at all. So asm operand intervals
-must be UNSPILLABLE. `CgInterval` (src/cg/shared.h) carries `fixed` and
-`phys` but no "must get a register" flag, and `cg_linear_scan`'s `spill_all`
-path (src/cg/shared.c ~line 219) currently exempts only pre-coloured
-intervals. Add that flag, honour it in both the spill_all path and ordinary
-spilling, and set it from both backends for asm operands.
+**Mutation-verified**: putting the `spill_all` guard back reproduces
+`4 102 77 9 10 6 2 8` exactly — the original wrong answer, not merely *a*
+failure.
 
-### A CLAIM I DOCUMENTED THIS SESSION THAT IS FALSE — fix the words too
+### A CLAIM I HAD DOCUMENTED WAS FALSE. Both copies are now corrected.
 
 I wrote that early clobber is IMPLIED by this allocator, reasoning that
 `cg_intervals_build` extends a def and a use at one instruction point to that
 same point, so an output can never share a register with an input. **That is
-true of ordinary allocation and FALSE in the spill path**, where operands are
-reloaded into a small fixed scratch set and genuinely do collide. The wrong
-claim is written in two places and both must be corrected when the fix lands:
+true of ordinary allocation and was FALSE in the spill path**, where operands
+were reloaded into a small fixed scratch set and genuinely collided. It is
+true again now, but for a reason that had to be BUILT rather than one that
+came for free — `no_spill` keeps asm operands out of that path entirely. The
+corrected wording is in `tests/corpus/x86_64/int/asm_operands.c` and the
+`case IR_ASM:` comment in `src/cg/x86_64/isel.c`.
 
-- `tests/programs/gnu/asm_operands.c` — the long comment block
-- `src/cg/x86_64/isel.c` — the `case IR_ASM:` comment
+**The fixture MOVED to `tests/corpus/x86_64/int/` as part of the fix**, and
+that is the durable half. `tests/corpus` is run under `CGF_SPILL_ALL=1` on
+x86_64 AND under both arm64 lanes, so the fixture now executes in three places
+that spill everything. In `tests/programs` it executed in none of them, which
+is exactly why a bug on both targets survived a green suite.
 
-### Everything else uncommitted, and why
+### THE THREE BUGS IT FOUND ELSEWHERE — none of them in the asm code
 
-- **Three warning-engine fixes**, all pre-existing bugs that extended asm
-  merely made REACHABLE by parsing more of musl, each verified against gcc
-  directly (`src/sema/decl.c`, `src/sema/warn_expr.c`):
+**An asm ESCAPES the pointers it is handed, and the memory analysis did not
+know it.** `char *p = malloc(16); asm("" :: "r"(p));` was diagnosed
+**-Wmem-leak** — a false positive on the shape every libc's `arch/` directory
+uses, in a checker whose whole contract is proof-only. A template is opaque
+exactly as an unknown call is, and both directions count: an input can be
+published, and an output operand is an ADDRESS the template writes through.
+
+**TWO places enumerate instructions here and I fixed the wrong one first.**
+`alias.c`'s `mark_escapes` was missing `IR_ASM` and is the one that LOOKS
+responsible; adding it changed nothing, because the leak check reads the
+lifetime lattice in `memsafe/lifetime.c`, whose own `process_inst` switch had
+no `IR_ASM` case either. Both rows are in now, and the alias one carries a
+comment saying no fixture reaches it — it stays because `alias_escapes` has
+other clients and escaping MORE is the safe direction, not because anything
+proves it necessary. **I had already written the fix up as the alias row
+before running the suite**; the suite is what corrected it.
+
+**The memory-BARRIER rows do not cover this either, and that distinction is
+worth keeping.** `dce`, `dse`, `gvn`, `licm`, `dep` and `vectorize` all gained
+an `IR_ASM` row while the operand slice was being written; every one of them
+orders accesses. Ownership is a different question, and a pass can be
+perfectly ordered while still believing it owns the block. Six correct barrier
+rows did not add up to one escape row.
+
+*(The other pass that must name `IR_ASM` and does not need to: the INLINER
+copies `in->callee` verbatim, which for an asm is an index into the MODULE's
+asm table, so it stays valid across inlining. Checked rather than assumed —
+the same field means a function index on a call.)*
+
+**Three warning-engine false positives**, all pre-existing, all made
+REACHABLE by extended asm parsing 350 more musl TUs, each measured against
+**gcc 8 in the `gcc:8` container AND gcc 16** before a line was written
+(`src/sema/decl.c`, `src/sema/warn_expr.c`) — and each now carrying a fixture,
+because the musl gate is an aggregate and an aggregate cannot say WHICH rule
+regressed:
   1. an ALIAS TARGET did not count as a use, so musl's
      `weak_alias(dummy, __stdout_used)` warned "defined but not used" for
      both variables and functions. Same fact IPO learned separately.
@@ -116,13 +151,23 @@ claim is written in two places and both must be corrected when the fix lands:
   that switch's default path and our note says so; gcc's silence is the miss.
   Triaged rather than suppressed — weakening a true warning to make a gate
   pass is how a warning engine stops being worth running.
-- **New fixtures** `tests/programs/gnu/asm_operands.c` (executes; carries
-  BOTH targets' templates), `asm_mem_output.c`, `asm_two_reg_outputs_refused.c`;
+  Seven fixtures cover them: two under `sign-compare/`, two under
+  `unused-variable/` (INCLUDING the fire case for a LOCAL volatile — the
+  exemption's negative half, so widening it cannot pass silently), one under
+  `unused-function/`, and `wmem/leak/nofire-asm-escape.c` for the alias row.
+- **New fixtures** `tests/corpus/x86_64/int/asm_operands.c` (executes under
+  three spill-all lanes; carries BOTH targets' templates),
+  `tests/programs/gnu/asm_mem_output.c`, `asm_two_reg_outputs_refused.c`;
   `asm_operands_refused.c` DELETED because the form now works.
-- **`ci/fuzz_sequence_digest.txt` repinned to `54b2bec4bb2039fb` WITHOUT the
-  obligatory sanitized 100k run.** The corpus changed (a fixture moved into
-  `tests/programs`, which is in `FE_FUZZ_CORPUS`). **Run the 100k before
-  committing**, and check `nm -D` for `__asan_init` on BOTH binaries first.
+- **`scripts/s36_isa_driver.sh` repinned 83→84 corpus files and 498→504
+  object checks** — it asserts both counts exactly, in both directions, which
+  is what made the corpus move announce itself instead of silently widening
+  the ISA gate's coverage claim.
+- **`ci/fuzz_sequence_digest.txt` repinned to `403ee999ec3fb17b`** with the
+  sanitized 100k actually run (`__asan_init` confirmed present in BOTH
+  binaries first). Note the digest moved TWICE: the corpus changed once when
+  fixtures were added to `tests/programs` and again when `asm_operands.c` left
+  it for `tests/corpus`.
 
 ### Boundaries deliberately drawn, with the measurement behind them
 
@@ -132,8 +177,19 @@ claim is written in two places and both must be corrected when the fix lands:
   that is rarely what a second output is: x86_64 has 181 one-output sites
   against 27 two-output, aarch64 172 against 19, and the two-output cases are
   dominated by a MEMORY second output (`"=m"`, `"=Q"` in the atomics) which
-  consumes no register. Refused by name.
+  consumes no register. Refused by name, and it is now a row in the tier
+  table's REFUSED tier rather than a TODO in a comment.
 - `asm goto` and label lists stay refused.
+
+### THE LANE GEOMETRY THAT DECIDED THIS, worth internalizing
+
+Three lanes run `tests/corpus`: x86_64 native, x86_64 under `CGF_SPILL_ALL=1`,
+and arm64 under both. `tests/programs` gets none of the spill-all treatment.
+So **where a fixture LIVES decides which bugs it can see**, and for anything
+touching register allocation that is not a filing preference — a fixture in
+`tests/programs` is invisible to the one lane that stresses the allocator.
+The rule to carry: if the claim is about registers, the fixture goes in
+`tests/corpus` and EXECUTES.
 
 ### Build trees, and a rule I broke
 
@@ -1020,8 +1076,8 @@ Five deliverables:
 
 | | Deliverable | State |
 |---|---|---|
-| **D1** | Acceptance-tier table | **Done** — 11 implemented / 7 parsed-ignored / 6 refused, gated by `check_gnu_tiers.sh` |
-| **D2** | Extended asm | basic asm SHIPPED on both targets; operands work on both but are UNCOMMITTED with the spill-all bug of §0b |
+| **D1** | Acceptance-tier table | **Done** — 12 implemented / 7 parsed-ignored / 6 refused, gated by `check_gnu_tiers.sh` |
+| **D2** | Extended asm | **Done** — basic AND operand forms on both targets, §0b |
 | **D3** | Full `__attribute__` set | **11 of a targeted 16** |
 | **D4** | Expression/statement extensions | **Not started** |
 | **D5** | `__GNUC__` policy | **Not started** — verified undefined in BOTH `-std=gnu17` and `-std=c17` |
@@ -1033,9 +1089,9 @@ statement expressions `({...})`, `typeof` / `__auto_type`,
 array designators, case ranges `1 ... 5`, `a ?: b`, `[0]` arrays, empty
 structs, `__label__`, `__thread`, `__extension__`.
 
-Of the seven DoD gates: #1 and #6 are met; #3 and #4 are partial (asm passes
-O0–Os on both targets once §0b lands; 11 of 16 attributes, packed
-differential green at 2000/2000); #2, #5 and #7 are open.
+Of the seven DoD gates: #1, #3 and #6 are met — asm passes O0–Os on both
+targets and under every spill-all lane. #4 is partial (11 of 16 attributes,
+packed differential green at 2000/2000); #2, #5 and #7 are open.
 
 #### WHERE THE WORK IS, AND WHAT TO DO NEXT
 
@@ -1049,12 +1105,13 @@ every open item is either a named refusal or a deliberate deferral.
 
 **NEXT, in order:**
 
-0. **Finish D2's operand slice — see §0b.** The unspillable-interval flag,
-   then re-run BOTH spill-all lanes before anything else, then correct the
-   two places that state the false early-clobber claim.
 1. **D4 statement expressions + `typeof`** and the rest of that list.
 2. **D5 `__GNUC__` -- LAST, and read the section below before starting it.**
 3. **Then Sprints 52, 53, 54** -- compile speed, codegen quality, perf gates.
+
+**D2 IS DONE** -- basic and extended asm both, on both targets. §0b is its
+record, including the three bugs the operand slice turned up in code that was
+not the operand slice.
 
 **STILL OPEN, sorted by what kind of thing they are:**
 
@@ -1119,6 +1176,47 @@ destination, and `_Thread_local` had to work before either -- it does now.
 - **FREEZE THE TREE while a verification run is in flight**, and never use
   `git checkout <file>` to undo a scratch mutation in a file with uncommitted
   work -- it reverts everything. Both cost real time in one session.
+- **A LOOP LABEL IS NOT EVIDENCE.** Verifying the arm64 asm fix I wrote a
+  `for O in -O0 -O1 -O2 -Os` loop that printed the level in its output and
+  did not pass `$O` to the compile. Four identical lines, four labels, ONE
+  configuration actually tested. Same family as reading a count instead of
+  the output: the report was generated by the harness, not by the thing under
+  test.
+- **AN AGGREGATE GATE CANNOT NAME WHAT REGRESSED.** The musl zero-false-
+  positive lane is the best tool in this repo for FINDING warning bugs and a
+  poor one for holding them fixed -- it says "1066 parsed, zero false
+  positives", never which rule. Every fix it motivates gets its own fixture,
+  and an exemption gets the FIRE case too (a local `volatile` must still
+  warn), or widening the exemption later passes silently.
+- **A TEST THAT NEVER RUNS LOOKS EXACTLY LIKE A TEST THAT PASSES.** The
+  sources declared 628 unit tests and `--list` reported 627:
+  `gen_unit_registry.sh` matches `^void test_...(TestCtx *` on ONE LINE, and
+  clang-format had wrapped one declaration, so it was never registered and had
+  never run since the day it was written. **Second occurrence** -- Sprint 36
+  hit the identical trap and its note claims the count "is asserted by the
+  full suite", which was not true of any check that existed. A fix that
+  renames one test stops that instance, not the next one;
+  `scripts/check_unit_registry.sh` (in `make test`) compares DECLARED against
+  REGISTERED, because comparing the registry to itself proves nothing.
+- **`check_bans` HAS NOW BEEN WIDENED TWICE FOR THE SAME REASON.**
+  `tests/corpus/` was missing until the first packed program landed there;
+  `tests/warn/` and `tests/memsafe/` until the first fixture asserting a
+  warning ABOUT an attribute did. A fixture directory holding compiled C
+  belongs on that exemption list the day it is CREATED. Mutate after widening
+  -- an exemption that switches the gate off is silent.
+- **ZERO `FAIL` LINES IS NOT A PASS.** Three consecutive `make test` stops
+  this session -- a `-Werror` build break, `check_bans`, `check_format` --
+  produced no `FAIL` line at all, because none of them was a failing test.
+  `grep -c FAIL` would have called all three clean. Read the exit code and
+  the tail.
+- **THE SHELL HERE IS zsh, WHICH DOES NOT WORD-SPLIT.** A loop doing
+  `flags=$(sed -n '1s|// FLAGS: ||p' "$f"); cgf $flags "$f"` passes the whole
+  string as ONE argument, so every fixture came back "unrecognized
+  command-line option" -- and since the check counted `warning:` lines, that
+  read as "0 warnings, the fixture is vacuous". It was the harness. Use
+  `${=flags}` in zsh, or pass the flags explicitly. Third counting mistake of
+  one session, after a loop label that did not reach the compiler and a
+  `grep -c FAIL` on a build break.
 
 #### D5 IS A PROMISE, AND ONE FACT GOVERNS EVERY FIXTURE UNTIL THEN
 
@@ -1131,24 +1229,6 @@ this. EVERY attribute fixture is freestanding.
 The reverse is the D5 risk: the day `__GNUC__` is defined, every attribute in
 every system header goes live at once. The implemented table is the obligation
 list.
-
-#### HABITS THAT PAID, REPEATEDLY
-
-- **Measure gcc BEFORE writing code.** It overruled the sprint's own tiering
-  three times, and preparing `aligned` is what uncovered `_Alignas` on an
-  object doing nothing at all.
-- **Check the ARTIFACT, not the instruction.** `readelf -sW` vs the emitted
-  directive; the ADDRESS at run time vs `_Alignof`, which answers from the TYPE
-  and is correct even when placement is wrong; linking and RUNNING vs reading
-  assembly -- both `alias` bugs were invisible until a real link.
-- **Mutate every new gate before trusting it.** Three gates this session were
-  wrong or vacuous on first run, including one I wrote (`ASM_CHECK-NOT`) that
-  walked straight into F-S22-MIRCHECK: a new directive kind must ALSO be listed
-  in `directive.c`'s `add_dir` or it parses, validates, and asserts nothing.
-- **A local green suite is not the fuzz job.** `make test` runs a 2,000-
-  iteration smoke; CI runs 100,000 under sanitizers. That 50x gap caught a real
-  ICE (seed 76632). Run the full 100k locally before pushing anything that adds
-  a fixture to `tests/programs`.
 
 
 ## 1b-2. Process traps from the Sprint 50/51 sessions
