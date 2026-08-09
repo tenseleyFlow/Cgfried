@@ -118,9 +118,14 @@ void test_cg_shared_linear_scan_and_spill_slots(TestCtx *t)
 
     memset(iv, 0, sizeof(iv));
     memset(&policy, 0, sizeof(policy));
-    iv[1] = (CgInterval){1, 0, 10, true, 0, 0, 0};
-    iv[2] = (CgInterval){2, 1, 2, true, 0, 0, 0};
-    iv[3] = (CgInterval){3, 1, 8, true, 0, 0, 0};
+    /* DESIGNATED, so a new CgInterval field does not silently shift these.
+     * The positional form broke the day `no_spill` was added -- loudly, as it
+     * happens, because -Werror=missing-field-initializers caught it, but only
+     * because the field went at the END. One inserted in the middle would
+     * have compiled and quietly re-aimed every value. */
+    iv[1] = (CgInterval){.vreg = 1, .start = 0, .end = 10, .live = true};
+    iv[2] = (CgInterval){.vreg = 2, .start = 1, .end = 2, .live = true};
+    iv[3] = (CgInterval){.vreg = 3, .start = 1, .end = 8, .live = true};
     policy.nphys_regs = 2;
     policy.pool = shared_pool;
     policy.same_class = shared_same_class;
@@ -138,6 +143,63 @@ void test_cg_shared_linear_scan_and_spill_slots(TestCtx *t)
     T_ASSERT_EQ_INT(t, cg_spill_slot_assign(&slots, 16, 16), -32);
     T_ASSERT_EQ_INT(t, cg_spill_slot_assign(&slots, 8, 8), -40);
     T_ASSERT_EQ_INT(t, slots.count, 3);
+}
+
+/* CgInterval.no_spill: an inline-asm operand constrained "r" must END UP in a
+ * register, because the template names it and the spill path reloads through
+ * a scratch set too small to hold several operands at once. Pinned HERE, at
+ * the shared allocator, rather than only through a backend fixture -- both
+ * backends depend on the rule and neither owns it.
+ *
+ * Two cases, because the rule has two halves that fail separately:
+ * the eviction heuristic must INVERT (spill the shorter interval, which it
+ * otherwise never does), and spill_all must skip it entirely. */
+void test_cg_shared_no_spill_always_gets_a_register(TestCtx *t)
+{
+    CgInterval iv[4];
+    CgLinearScanPolicy policy;
+    CgSpillSlots slots = {0};
+
+    memset(iv, 0, sizeof(iv));
+    memset(&policy, 0, sizeof(policy));
+    policy.nphys_regs = 2;
+    policy.pool = shared_pool;
+    policy.same_class = shared_same_class;
+    policy.reg_usable = shared_reg_usable;
+    policy.spill_size = shared_spill_8;
+    policy.spill_align = shared_spill_8;
+
+    /* THE SHAPE IS THE TEST. The unspillable interval must (a) arrive when
+     * both registers are already taken, so eviction is the only way it can
+     * be served, and (b) have the LONGEST end, so the ordinary heuristic --
+     * spill whichever lives longer -- would pick IT. v3 is that interval;
+     * without the inversion it spills and the template reads a scratch.
+     *
+     * The first draft of this test used the shape from the case above, where
+     * the no_spill interval starts FIRST and therefore gets a register
+     * without any eviction at all. It passed with the inversion mutated out.
+     * Mutate every new gate. */
+    iv[1] = (CgInterval){.vreg = 1, .start = 0, .end = 2, .live = true};
+    iv[2] = (CgInterval){.vreg = 2, .start = 0, .end = 3, .live = true};
+    iv[3] = (CgInterval){
+        .vreg = 3, .start = 1, .end = 100, .live = true, .no_spill = true};
+    cg_linear_scan(iv, 3, &policy, &slots);
+    T_ASSERT(t, iv[3].phys != 0);
+    T_ASSERT_EQ_INT(t, iv[3].slot, 0);
+    T_ASSERT_EQ_INT(t, slots.count, 1); /* someone else went instead */
+
+    /* spill_all is a stress lane, not a semantics change. */
+    memset(iv, 0, sizeof(iv));
+    memset(&slots, 0, sizeof(slots));
+    policy.spill_all = true;
+    iv[1] = (CgInterval){
+        .vreg = 1, .start = 0, .end = 10, .live = true, .no_spill = true};
+    iv[2] = (CgInterval){.vreg = 2, .start = 1, .end = 2, .live = true};
+    cg_linear_scan(iv, 2, &policy, &slots);
+    T_ASSERT(t, iv[1].phys != 0);
+    T_ASSERT_EQ_INT(t, iv[1].slot, 0);
+    T_ASSERT_EQ_INT(t, iv[2].phys, 0); /* everything else still spills */
+    T_ASSERT(t, iv[2].slot != 0);
 }
 
 void test_x64_linear_scan_at_every_opt_level(TestCtx *t)

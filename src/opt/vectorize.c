@@ -238,7 +238,8 @@ static const char *analyze_body(IrModule *m, IrFunc *f, VecPlan *p,
         const char *why = NULL;
 
         if ((in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) || in->nedges ||
-            in->op == IR_CALL || in->op == IR_ATOMICRMW || in->op == IR_CMPXCHG)
+            in->op == IR_CALL || in->op == IR_ATOMICRMW ||
+            in->op == IR_CMPXCHG || in->op == IR_ASM)
             return "vec_body_op";
         if (in->op != IR_LOAD && in->op != IR_STORE)
             continue;

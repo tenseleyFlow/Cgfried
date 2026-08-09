@@ -225,6 +225,24 @@ static u32 new_block(Isel *is, const char *name)
     return ++xf->nblocks; /* 1-based */
 }
 
+/* An asm operand's width comes from its C type's BYTE SIZE, and X64Width's
+ * enumerators are those sizes, so the mapping is identity with a clamp. A
+ * 3-byte struct cannot reach here (the constraint decoder takes only scalars
+ * and addresses), but the clamp keeps a future one from selecting garbage. */
+static X64Width asm_width(u8 size)
+{
+    switch (size) {
+    case 1:
+        return X64_B;
+    case 2:
+        return X64_W;
+    case 4:
+        return X64_L;
+    default:
+        return X64_Q;
+    }
+}
+
 static X64Width width_of(IrType t)
 {
     switch (t) {
@@ -2549,18 +2567,166 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_ASM: {
-        /* No operands: the template is opaque text and needs no allocation,
-         * so it rides to emission as-is. Lowering refuses the operand form
-         * by name, so `nops` is zero here by construction -- but the check
-         * stays, because "by construction" is how a later change becomes a
-         * silent wrong answer. */
+        /* Operands become ONE instruction plus the moves around it:
+         *
+         *   <materialize each input into a vreg>
+         *   X64_OP_ASM   def = the single register output (may be 0)
+         *                xuses = every operand that needs a register, in
+         *                        IrAsm operand order, skipping that output
+         *   <store the output vreg through its address>
+         *
+         * EARLY CLOBBER NEEDS NO CODE HERE, but it is NOT free the way an
+         * earlier version of this comment said. cg_intervals_build extends
+         * a def and a use at the same instruction point to that SAME point,
+         * and intervals are hole-free and inclusive, so an output cannot
+         * share a register with an input -- WHILE BOTH HOLD REGISTERS. In
+         * the spill path that reasoning does not apply at all: reloads go
+         * through a two-register scratch set, and three `r` operands all
+         * arrived in %r11. What makes `&` implied is regalloc marking every
+         * asm operand interval CgInterval.no_spill, so no asm operand ever
+         * reaches that path. Not sharing is always safe -- gcc merely shares
+         * when it may -- so this compiler still cannot demonstrate `&`
+         * mattering, and the doc says so instead of claiming a feature.
+         *
+         * A TIED operand is the same vreg as its output, so "two operands,
+         * one location" needs no concept of its own: the move that
+         * materializes the input targets the output's vreg. */
+        const IrAsm *a = in->callee && in->callee <= is->m->nasms
+                             ? &is->m->asms[in->callee - 1]
+                             : NULL;
+        X64VReg opreg[64];
         X64Inst *x;
+        X64VReg outv = {0};
+        u32 outidx = (u32)-1;
+        u32 k;
 
-        if (in->nops)
-            CGF_ICE("x86_64 isel: an asm with operands reached selection; "
-                    "lowering was supposed to refuse it");
+        if (!a) {
+            x = emit(is, X64_OP_ASM, X64_Q);
+            x->table = in->callee;
+            break;
+        }
+        memset(opreg, 0, sizeof(opreg));
+        /* Pass 1: the register output, so a tied input can target it. */
+        for (k = 0; k < a->nops && k < 64; k++)
+            if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
+                outv = newv(is);
+                opreg[k] = outv;
+                outidx = k;
+                break;
+            }
+        /* Pass 2: everything that has to be somewhere before the asm. */
+        for (k = 0; k < a->nops && k < 64; k++) {
+            const IrAsmOp *o = &a->ops[k];
+
+            if (o->cls == ASM_CLS_IMM)
+                continue; /* no register: printed as $N */
+            if (o->is_output && o->cls != ASM_CLS_MEM)
+                continue; /* handled above; the asm defines it */
+            if (o->tied_to >= 0 && (u32)o->tied_to == outidx && outv.v) {
+                /* A TIED operand is two operands in ONE location, and how to
+                 * say that depends on whether the location is NAMED.
+                 *
+                 * Fixed (`"=a"` + `"0"`, musl's syscall): a SEPARATE vreg
+                 * pinned to the same register. It dies exactly where the
+                 * output is defined, which is the endpoint sharing the
+                 * pre-color repair explicitly permits -- the idiv handoff --
+                 * so the two never conflict.
+                 *
+                 * Unfixed (`"+r"`): the SAME vreg, because there is no
+                 * register to name and no fixed colour for the repair to
+                 * split. Reusing the same vreg in the FIXED case is what the
+                 * first draft did, and the repair then localized the def
+                 * through a tiny vreg while the input's move still targeted
+                 * the original -- the tie silently broke, the syscall read a
+                 * stale rax, and write(2) returned -ENOSYS at -O0 while -O2
+                 * happened to allocate its way out of it. */
+                const IrAsmOp *out = &a->ops[outidx];
+                X64VReg dst = outv;
+                X64VReg src;
+                X64Inst *mv;
+
+                /* THE OPERAND-ORDERING LAW: to_vreg EMITS the instructions
+                 * that materialize a constant, so it must run BEFORE the
+                 * consumer is appended. Calling it inside the assignment to
+                 * mv->a puts the materialization AFTER the move that reads
+                 * it -- which is how `movq $1, %rdx` ended up following
+                 * `movq %rdx, %rax` and the syscall read garbage. Fourth
+                 * appearance of this bug class in the backend. */
+                src = to_vreg(is, &in->ops[k]);
+                if (out->cls == ASM_CLS_FIXED)
+                    dst = newv(is);
+                mv = emit(is, X64_OP_MOV, asm_width(o->size));
+                mv->def = dst;
+                mv->a = ovreg(src);
+                if (out->cls == ASM_CLS_FIXED)
+                    mv->def_fixed = (u8)(out->reg + 1);
+                opreg[k] = dst;
+                continue;
+            }
+            /* An input, or a memory operand's ADDRESS: both are just a
+             * register the template will name.
+             *
+             * A FIXED input gets a FRESH vreg with the pin, never the IR
+             * value's own. Pinning the value's vreg pins it EVERYWHERE it is
+             * used, so one value feeding two differently-pinned operands --
+             * ordinary once mem2reg has run -- makes the allocator ICE with
+             * "constrained to two registers". Copying first is what the call
+             * path does with its argument registers, for the same reason. */
+            if (o->cls == ASM_CLS_FIXED) {
+                X64VReg src = to_vreg(is, &in->ops[k]); /* BEFORE emit */
+                X64Inst *mv = emit(is, X64_OP_MOV, asm_width(o->size));
+
+                opreg[k] = newv(is);
+                mv->def = opreg[k];
+                mv->def_fixed = (u8)(o->reg + 1);
+                mv->a = ovreg(src);
+                continue;
+            }
+            opreg[k] = to_vreg(is, &in->ops[k]);
+        }
+
         x = emit(is, X64_OP_ASM, X64_Q);
         x->table = in->callee;
+        if (outv.v) {
+            x->def = outv;
+            if (a->ops[outidx].cls == ASM_CLS_FIXED)
+                x->def_fixed = (u8)(a->ops[outidx].reg + 1);
+        }
+        for (k = 0; k < a->nops && k < 64; k++) {
+            const IrAsmOp *o = &a->ops[k];
+            u8 fixed;
+
+            if (!opreg[k].v || k == outidx)
+                continue;
+            fixed = o->cls == ASM_CLS_FIXED ? (u8)(o->reg + 1) : 0;
+            /* A tied input inherits its OUTPUT's register, not its own
+             * constraint letter: `"0"` names operand 0, and the location is
+             * whatever operand 0 got. */
+            if (o->tied_to >= 0 && (u32)o->tied_to < a->nops &&
+                a->ops[o->tied_to].cls == ASM_CLS_FIXED)
+                fixed = (u8)(a->ops[o->tied_to].reg + 1);
+            x64_add_xuse(is->xf, x, opreg[k], fixed);
+        }
+        /* NAMED REGISTER CLOBBERS ride the CALL-CLOBBER model rather than a
+         * mechanism of their own: X64IF_ASM_CLOBBERS marks the instruction
+         * and regalloc treats that point exactly as it treats a call, so an
+         * interval live across it cannot sit in a caller-saved register.
+         * That is STRONGER than the template asked for -- it protects every
+         * caller-saved register, not just the named ones -- and stronger is
+         * safe, where weaker silently corrupts. musl's syscall wrappers
+         * clobber rcx and r11, which are caller-saved anyway. */
+        if (a->nclobber_regs)
+            x->flags |= X64IF_ASM_CLOBBERS;
+        /* The output's value goes back to the C object the constraint
+         * named. Its ADDRESS is the operand -- see ir.h. */
+        if (outv.v) {
+            X64Inst *st =
+                emit(is, X64_OP_STORE, asm_width(a->ops[outidx].size));
+
+            st->a = ovreg(outv);
+            st->b.kind = X64O_MEM;
+            st->b.mem = fold_addr(is, &in->ops[outidx]);
+        }
         break;
     }
     case IR_VA_START: {

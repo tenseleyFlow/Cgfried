@@ -226,6 +226,12 @@ typedef enum X64Op {
  * interposable too -- so it cannot be inferred from the FUNCREF kind, which
  * is exactly the mistake the first draft made. */
 #define X64IF_CALL_PLT 0x10
+/* ASM only: the template names register clobbers, so treat this point the
+ * way a call is treated -- no interval live across it may sit in a
+ * caller-saved register. Deliberately STRONGER than the clobber list: it
+ * protects every caller-saved register rather than the named ones, and
+ * stronger is safe where weaker silently corrupts. */
+#define X64IF_ASM_CLOBBERS 0x20
 
 typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
     X64VReg base, index; /* either may be invalid */

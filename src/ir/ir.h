@@ -727,6 +727,11 @@ typedef struct IrAsmOp {
      * downstream needs a third concept. */
     i32 tied_to; /* operand index, or -1 */
     i64 imm;     /* ASM_CLS_IMM: the folded value */
+    /* Byte size of the C operand, so the template's `%0` prints a register
+     * of the right width -- `%eax` for an int, `%rax` for a long. Without it
+     * every operand would print 64-bit and `movl %1, %0` would assemble
+     * against the wrong register name. */
+    u8 size;
 } IrAsmOp;
 
 typedef struct IrAsm {

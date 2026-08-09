@@ -1918,17 +1918,102 @@ static void select_inst(Isel *is, const IrInst *ir)
         select_call(is, ir);
         break;
     case IR_ASM: {
-        /* No operands: opaque text, no allocation. Lowering refuses the
-         * operand form, so nops is zero by construction -- the check stays
-         * because "by construction" is how a later change becomes a silent
-         * wrong answer. */
+        /* Operand-free asm is opaque text: the index rides an immediate and
+         * emission copies the template out. With operands it needs a side
+         * record, because A64Inst carries four operands inline and an asm
+         * may name up to thirty -- the same reason a call has one.
+         *
+         * THE OPERAND-ORDERING LAW governs every line below: to_gp EMITS
+         * the instructions that materialize a value, so every operand is
+         * resolved BEFORE the asm instruction is appended. Doing it inline
+         * at the append is what put `mov x0, x1` ahead of the mov that
+         * defined x1 on the x86 side, and the syscall read garbage. */
+        const IrAsm *a = ir->callee && ir->callee <= is->module->nasms
+                             ? &is->module->asms[ir->callee - 1]
+                             : NULL;
+        A64AsmInfo *info;
+        A64AsmOp slots[64];
         A64Inst *inst;
+        A64Reg outreg = {0, 0};
+        u32 outidx = (u32)-1;
+        u32 n = 0;
+        u32 k;
 
-        if (ir->nops)
-            CGF_ICE("arm64 isel: an asm with operands reached selection; "
-                    "lowering was supposed to refuse it");
+        if (!a || !ir->nops) {
+            inst = emit(is, A64_OP_ASM, A64_SF64);
+            add_operand(inst, imm_op((i64)ir->callee));
+            break;
+        }
+        memset(slots, 0, sizeof(slots));
+        /* Pass 1: the single register output, so a tied input can target
+         * it. Lowering has already refused a second one. */
+        for (k = 0; k < a->nops && k < 64; k++)
+            if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
+                outreg =
+                    a64_newv_width(is->func, A64RC_GP,
+                                   a->ops[k].size > 4 ? A64_SF64 : A64_SF32);
+                outidx = k;
+                break;
+            }
+        /* Pass 2: materialize everything, BEFORE the asm is appended. */
+        for (k = 0; k < a->nops && k < 64; k++) {
+            const IrAsmOp *o = &a->ops[k];
+
+            slots[n].cls = o->cls;
+            slots[n].size = o->size;
+            slots[n].is_output = o->is_output;
+            if (o->cls == ASM_CLS_IMM) {
+                {
+                    A64Reg none = {0, 0};
+
+                    slots[n].reg = none;
+                }
+            } else if (o->is_output && o->cls != ASM_CLS_MEM) {
+                slots[n].reg = outreg;
+            } else if (o->tied_to >= 0 && (u32)o->tied_to == outidx &&
+                       outreg.id) {
+                /* Tied: move the input into the output's own register.
+                 * AAPCS64 has no single-letter register constraints, so an
+                 * arm64 tie is never pinned and the same-register model the
+                 * x86 side needs only for the UNFIXED case is the only case
+                 * here. */
+                A64Reg src = to_gp(is, &ir->ops[k]);
+                A64Inst *mv =
+                    emit(is, A64_OP_MOV, o->size > 4 ? A64_SF64 : A64_SF32);
+
+                add_operand(mv, reg_op(outreg));
+                add_operand(mv, reg_op(src));
+                slots[n].reg = outreg;
+            } else {
+                slots[n].reg = to_gp(is, &ir->ops[k]);
+            }
+            n++;
+        }
+
         inst = emit(is, A64_OP_ASM, A64_SF64);
         add_operand(inst, imm_op((i64)ir->callee));
+        info = arena_alloc(is->func->arena, sizeof(A64AsmInfo),
+                           _Alignof(A64AsmInfo));
+        memset(info, 0, sizeof(*info));
+        info->asm_index = ir->callee;
+        info->ops = arena_alloc(is->func->arena, n * sizeof(A64AsmOp),
+                                _Alignof(A64AsmOp));
+        memcpy(info->ops, slots, n * sizeof(A64AsmOp));
+        info->nops = n;
+        info->out = outreg;
+        info->has_out = outreg.id != 0;
+        inst->asm_info = info;
+
+        /* The output goes back to the C object its constraint named; the
+         * operand is that object's ADDRESS (see ir.h). */
+        if (info->has_out) {
+            A64Reg addr = to_gp(is, &ir->ops[outidx]);
+            A64Inst *st = emit(is, A64_OP_STORE,
+                               a->ops[outidx].size > 4 ? A64_SF64 : A64_SF32);
+
+            add_operand(st, reg_op(outreg));
+            add_operand(st, mem_op(addr, 0, a->ops[outidx].size > 4 ? 8 : 4));
+        }
         break;
     }
     case IR_VA_START: {

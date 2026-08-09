@@ -56,6 +56,7 @@ predefine.
 | `constructor` / `destructor` | `tests/corpus/x86_64/int/attr_ctor_dtor.c` | glibc, library self-registration, test frameworks |
 | `cleanup` | `tests/corpus/x86_64/int/attr_cleanup.c` | systemd's `_cleanup_` idiom, glibc, scope-guard patterns in C |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
+| extended `asm` — operands, constraints, clobbers | `tests/corpus/x86_64/int/asm_operands.c` | musl syscall wrappers and atomics; every libc's `arch/` |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -200,8 +201,9 @@ uses `__attribute__` with no `__GNUC__` gate to hide behind, and
 Neither half can be faked, which is why the arm64-macos corpus has been
 freestanding-only.
 
-The same keywords open an inline-asm STATEMENT, which is still refused; only
-the position tells the two constructs apart.
+The same keywords open an inline-asm STATEMENT, a different construct that
+only POSITION tells apart from a label — and it is implemented, basic and
+extended forms both.
 
 `section("name")` places an object or function in a named output section.
 Functions take `"ax"`, data `"aw"`, matching gcc.
@@ -282,7 +284,7 @@ silently rather than fail loudly.
 | extension | why | who actually needs it |
 |---|---|---|
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
-| `asm` WITH operands or clobbers | the constraints need per-operand register allocation — early-clobber live ranges, matching constraints and fixed pre-coloring — and selecting without it assembles and then reads the wrong registers | musl syscalls, atomics; the next slice |
+| two REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so a second register output means widening `CgMirView` rather than adding a case. Counting musl's sites for our two targets says that is rarely what a second output is: x86_64 has 181 one-output against 27 two-output, aarch64 172 against 19, and the two-output cases are dominated by a MEMORY second output, which consumes no register and IS supported | Linux's `__cmpxchg` shapes; no musl TU we compile |
 | `mode(...)` attribute | selects a machine mode independent of the C type; our type system has no such axis | glibc `__int128` corners only |
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |

@@ -575,6 +575,15 @@ int a64_mir_verify(const A64Func *f, DiagCtx *dc)
                         call->indirect.id == (u32)A64_SP + 1)
                         A64_BAD("indirect call target cannot be SP");
                 }
+            } else if (inst->op == A64_OP_ASM) {
+                /* The side-record slot is a UNION: an instruction is a call
+                 * or an asm, never both. The check below still earns its
+                 * keep for every OTHER opcode, so it is narrowed rather
+                 * than dropped -- it caught this arm the moment asm started
+                 * using the slot. */
+                if (inst->asm_info &&
+                    inst->asm_info->asm_index != (u32)inst->ops[0].imm)
+                    A64_BAD("asm side record disagrees with its index");
             } else if (inst->call) {
                 A64_BAD("non-call instruction carries call metadata");
             }

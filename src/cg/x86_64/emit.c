@@ -179,14 +179,175 @@ static void emit1(Emit *e, const char *op, const X64Operand *o, u8 w)
  * indents only the first line. Tabbing after every newline instead keeps a
  * template's own layout from surviving, and a template that indents itself
  * (musl's do) then comes out doubly indented. */
-static void emit_inline_asm(Emit *e, u32 asm_index)
+/* An asm operand's C byte size as an X64Width; the enumerators ARE the byte
+ * sizes, so this is identity with a clamp. */
+static u8 asm_w(u8 size)
+{
+    switch (size) {
+    case 1:
+        return X64_B;
+    case 2:
+        return X64_W;
+    case 4:
+        return X64_L;
+    default:
+        return X64_Q;
+    }
+}
+
+/* Where operand k ended up, reconstructed from the post-RA instruction.
+ *
+ * The CONVENTION is isel's and both sides must agree: the single register
+ * output (if any) is the instruction's `def`, and every other operand that
+ * needs a register appears in `xuses` in IrAsm operand order. Immediates
+ * take no register and are skipped on both sides, so the walk stays in
+ * step. Getting this wrong is the "off-by-one corrupts every multi-operand
+ * asm" pitfall, which is why the walk is one loop rather than two indexes. */
+static bool asm_operand_reg(const X64Inst *in, const IrAsm *a, u32 k, u8 *reg)
+{
+    u32 xi = 0;
+    u32 j;
+
+    for (j = 0; j < a->nops; j++) {
+        const IrAsmOp *o = &a->ops[j];
+        bool is_reg_out = o->is_output && o->cls != ASM_CLS_MEM;
+
+        if (o->cls == ASM_CLS_IMM)
+            continue;
+        if (is_reg_out) {
+            if (j == k) {
+                if (!in->def.v)
+                    return false;
+                *reg = (u8)(in->def.v - 1);
+                return true;
+            }
+            continue;
+        }
+        if (j == k) {
+            if (xi >= in->nxuses || !in->xuses[xi].r.v)
+                return false;
+            *reg = (u8)(in->xuses[xi].r.v - 1);
+            return true;
+        }
+        xi++;
+    }
+    return false;
+}
+
+/* One operand, in the form the template asked for. */
+static void asm_print_operand(Emit *e, const X64Inst *in, const IrAsm *a, u32 k,
+                              u8 width_override)
+{
+    const IrAsmOp *o = &a->ops[k];
+    u8 reg;
+
+    if (o->cls == ASM_CLS_IMM) {
+        buf_printf(e->out, "$%lld", (long long)o->imm);
+        return;
+    }
+    if (!asm_operand_reg(in, a, k, &reg)) {
+        buf_printf(e->out, "<bad-asm-operand-%u>", k);
+        return;
+    }
+    if (o->cls == ASM_CLS_MEM) {
+        /* A memory operand names the ADDRESS register; the template writes
+         * it as an ordinary memory reference. */
+        buf_printf(e->out, "(%%%s)", regn(reg + 1u, X64_Q));
+        return;
+    }
+    buf_printf(
+        e->out, "%%%s",
+        regn(reg + 1u, width_override ? width_override : asm_w(o->size)));
+}
+
+/* An inline-asm template, with its operands substituted.
+ *
+ * BASIC asm (no colon anywhere in the source construct) passes `%` through
+ * untouched -- there are no operands for it to name -- which is gcc's rule
+ * and is decided at parse time, not here.
+ *
+ * The escapes, all measured against gcc:
+ *   %%      a literal percent
+ *   %0..%9  operand N, at its C type's width
+ *   %b %w %k %q  operand N as 8/16/32/64-bit
+ *   %[name] the operand declared with that symbolic name
+ * An unknown escape is passed through rather than guessed at: the template
+ * belongs to the programmer and the assembler is the one entitled to
+ * complain about it. */
+static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
 {
     const IrAsm *a;
+    const char *c;
 
     if (!asm_index || asm_index > e->m->nasms)
         return;
     a = &e->m->asms[asm_index - 1];
-    buf_printf(e->out, "#APP\n\t%s\n#NO_APP\n", a->tmpl);
+    if (a->is_basic) {
+        buf_printf(e->out, "#APP\n\t%s\n#NO_APP\n", a->tmpl);
+        return;
+    }
+    buf_printf(e->out, "#APP\n\t");
+    for (c = a->tmpl; *c; c++) {
+        u8 wover = 0;
+
+        if (*c != '%') {
+            buf_printf(e->out, "%c", *c);
+            continue;
+        }
+        c++;
+        if (*c == '%') {
+            buf_printf(e->out, "%%");
+            continue;
+        }
+        if (*c == 'b' || *c == 'w' || *c == 'k' || *c == 'q') {
+            wover = *c == 'b'   ? X64_B
+                    : *c == 'w' ? X64_W
+                    : *c == 'k' ? X64_L
+                                : X64_Q;
+            c++;
+        }
+        if (*c == '[') {
+            const char *nm = c + 1;
+            const char *end = nm;
+            u32 j;
+
+            while (*end && *end != ']')
+                end++;
+            for (j = 0; j < a->nops; j++)
+                if (a->ops[j].name &&
+                    strncmp(a->ops[j].name, nm, (size_t)(end - nm)) == 0 &&
+                    a->ops[j].name[end - nm] == '\0')
+                    break;
+            if (j < a->nops)
+                asm_print_operand(e, in, a, j, wover);
+            else
+                buf_printf(e->out, "<unknown-asm-operand>");
+            c = *end ? end : end - 1;
+            continue;
+        }
+        if (*c >= '0' && *c <= '9') {
+            u32 k = (u32)(*c - '0');
+
+            if (k < a->nops)
+                asm_print_operand(e, in, a, k, wover);
+            else
+                buf_printf(e->out, "<asm-operand-%u-out-of-range>", k);
+            continue;
+        }
+        /* Not an escape we know: the template's own text. */
+        buf_printf(e->out, "%%");
+        if (wover)
+            buf_printf(e->out, "%c",
+                       wover == X64_B   ? 'b'
+                       : wover == X64_W ? 'w'
+                       : wover == X64_L ? 'k'
+                                        : 'q');
+        if (*c)
+            buf_printf(e->out, "%c", *c);
+        else
+            c--;
+    }
+    buf_printf(e->out, "\n#NO_APP\n");
 }
 
 static void emit0(Emit *e, const char *op)
@@ -357,7 +518,7 @@ static void emit_inst(Emit *e, const X64Inst *in, u32 bi, u32 next_bb)
         emit0(e, "ud2");
         break;
     case X64_OP_ASM:
-        emit_inline_asm(e, in->table);
+        emit_inline_asm(e, in, in->table);
         break;
     case X64_OP_PUSH:
         emit1(e, "pushq", &in->a, X64_Q);

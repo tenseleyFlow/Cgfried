@@ -23,6 +23,15 @@ typedef struct CgInterval {
     u32 vreg;
     u32 start, end; /* inclusive global instruction points */
     bool live;
+    /* MUST end up in a register: spilling it produces no correct code at
+     * all, so the allocator evicts someone else rather than spill it and
+     * `spill_all` skips it. The one client is an inline-asm operand
+     * constrained `"r"`: the template NAMES the register, and a reload
+     * cannot stand in because the two scratch registers a spill path
+     * reloads through cannot hold three operands at once -- every one of
+     * them lands in the same scratch and the template reads one value
+     * three times, silently. */
+    bool no_spill;
     u8 fixed; /* backend physical register id + 1; zero = unconstrained */
     u8 phys;  /* backend physical register id + 1; zero = spilled */
     i32 slot; /* target frame displacement; zero = not spilled */

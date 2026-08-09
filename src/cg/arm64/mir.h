@@ -328,6 +328,28 @@ typedef struct A64CallInfo {
     u32 nargs;
 } A64CallInfo;
 
+/* One inline-asm operand at MIR level. The CLASS and the C byte SIZE are
+ * what emission needs -- the size chooses `%w0` against `%x0`, which x86 has
+ * no equivalent of because its widths ride the mnemonic suffix instead. */
+typedef struct A64AsmOp {
+    A64Reg reg; /* invalid for an immediate */
+    u8 cls;     /* IrAsmClass */
+    u8 size;    /* C operand byte size */
+    bool is_output;
+} A64AsmOp;
+
+/* Inline asm with operands. A side record for the same reason a call has
+ * one: A64Inst carries four operands inline and an asm may name up to
+ * thirty, so the alternative is a four-operand ceiling nobody could explain
+ * to someone writing a syscall wrapper. */
+typedef struct A64AsmInfo {
+    u32 asm_index; /* 1-based IrModule.asms */
+    A64AsmOp *ops; /* in IrAsm operand order */
+    u32 nops;
+    A64Reg out;   /* the single register output; invalid when none */
+    bool has_out; /* `out` is meaningful */
+} A64AsmInfo;
+
 typedef struct A64Inst {
     u16 op;
     u8 sf;     /* destination/operation width */
@@ -336,8 +358,15 @@ typedef struct A64Inst {
     u8 cond;
     u8 nops;
     A64Operand ops[4];
-    A64CallInfo *call; /* A64_OP_CALL only; arena-owned */
-    u32 flags_src;     /* producer index in this block for USES_NZCV */
+    /* An instruction is a CALL or an ASM, never both, so the two side
+     * records share a slot -- the same reasoning ir.h gives for align and
+     * callee. Reading the wrong arm is a type error the union makes
+     * visible rather than a silent reinterpretation. */
+    union {
+        A64CallInfo *call;    /* A64_OP_CALL only; arena-owned */
+        A64AsmInfo *asm_info; /* A64_OP_ASM with operands; arena-owned */
+    };
+    u32 flags_src; /* producer index in this block for USES_NZCV */
     u32 loc;
     u32 debug_label; /* prepared post-RA: .Lloc_<func>_<id>, 0 = none */
 } A64Inst;
@@ -465,7 +494,8 @@ void a64_emit_set_pic(A64PicLevel pic);
 void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out);
 void a64_emit_globals(const IrModule *m, Buf *out, bool pic);
-void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index);
+void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index,
+                       const A64AsmInfo *info);
 /* Mach-O file bookends; no-ops on ELF targets. */
 void a64_emit_file_prologue(Buf *out);
 void a64_emit_tls_decls(const IrModule *m, Buf *out);

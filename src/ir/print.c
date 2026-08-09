@@ -515,7 +515,12 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
             buf_printf(out, " ");
             print_quoted(out, a->ops[i].constraint);
             buf_printf(out, " ");
-            print_atom(out, m, vn, &in->ops[i]);
+            /* TYPED, because asm operands are not all one type: an output is
+             * an ADDRESS while an input is a value, and constant folding can
+             * turn an input into an iconst of its own width. The first draft
+             * printed bare atoms and the parser assumed ptr for all of them,
+             * so an optimized `"+r"` broke the round-trip self-check. */
+            print_typed(out, m, vn, &in->ops[i]);
         }
         if (a && (a->clobbers_memory || a->clobbers_cc || a->nclobber_regs)) {
             buf_printf(out, ", clobbers");

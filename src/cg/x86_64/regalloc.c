@@ -312,7 +312,10 @@ static void build_intervals(Ra *ra)
         for (i = 0; i < b->n; i++) {
             const X64Inst *in = &b->insts[i];
 
-            if (in->op == X64_OP_CALL) {
+            /* An asm that names register clobbers is a call for this
+             * purpose: see X64IF_ASM_CLOBBERS. */
+            if (in->op == X64_OP_CALL ||
+                (in->op == X64_OP_ASM && (in->flags & X64IF_ASM_CLOBBERS))) {
                 if (ra->ncalls >= ra->call_cap)
                     CGF_ICE("regalloc: call-site capacity accounting failed");
                 ra->call_pts[ra->ncalls++] = p + i;
@@ -371,6 +374,35 @@ static void collect_fixed(Ra *ra)
                             in->xuses[k].r.v);
                 it->fixed = in->xuses[k].fixed;
             }
+        }
+    }
+}
+
+/* An asm operand constrained to a register MUST get one. The template
+ * names it by number, and the spill path reloads through exactly two
+ * scratches (SCRATCH_A, SCRATCH_B), so three register operands cannot all
+ * be reloaded -- they collide in one scratch and the template silently
+ * reads one value three times. Marking the intervals unspillable is the
+ * allocator's answer; a smarter reload site is not one, because there is
+ * no register left to reload into. */
+static void collect_no_spill(Ra *ra)
+{
+    const X64Func *f = ra->f;
+    u32 bi, i, k;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const X64Block *b = &f->blocks[bi];
+
+        for (i = 0; i < b->n; i++) {
+            const X64Inst *in = &b->insts[i];
+
+            if (in->op != X64_OP_ASM)
+                continue;
+            if (in->def.v)
+                ra->iv[in->def.v].no_spill = true;
+            for (k = 0; k < in->nxuses; k++)
+                if (in->xuses[k].r.v)
+                    ra->iv[in->xuses[k].r.v].no_spill = true;
         }
     }
 }
@@ -715,8 +747,40 @@ static void rewrite(Ra *ra)
             }
             in.a.fixed = 0;
             in.b.fixed = 0;
-            in.xuses = NULL; /* implicit in the encoding post-RA */
-            in.nxuses = 0;
+            /* xuses are normally dropped here because for a CALL they are
+             * implicit in the ABI -- the encoding says nothing about which
+             * registers held the arguments, and nothing downstream needs to
+             * know. AN ASM IS THE EXCEPTION: its template NAMES its
+             * operands, so emission has to know which register each one
+             * landed in. Physicalize them in place and keep the list. */
+            if (in.op == X64_OP_ASM && in.nxuses) {
+                X64XUse *nx =
+                    arena_alloc(ra->f->arena, in.nxuses * sizeof(X64XUse),
+                                _Alignof(X64XUse));
+                u32 xi;
+
+                memcpy(nx, in.xuses, in.nxuses * sizeof(X64XUse));
+                for (xi = 0; xi < in.nxuses; xi++) {
+                    /* collect_no_spill guarantees every asm operand holds a
+                     * register, so sub_use here can only be a substitution
+                     * and never a reload. Say so rather than assume it: the
+                     * reload path routes every operand through SCRATCH_A,
+                     * which made all three of them %r11 and had the template
+                     * read one value three times -- silently, and only under
+                     * CGF_SPILL_ALL. A loud failure is the only version of
+                     * that bug a test can distinguish from success. */
+                    if (nx[xi].r.v && !ra->iv[nx[xi].r.v].phys)
+                        CGF_ICE("regalloc: asm operand v%u was spilled; asm "
+                                "operand intervals must be no_spill",
+                                nx[xi].r.v);
+                    sub_use(ra, &rb, &nx[xi].r, 0);
+                    nx[xi].fixed = 0;
+                }
+                in.xuses = nx;
+            } else {
+                in.xuses = NULL;
+                in.nxuses = 0;
+            }
 
             /* marker expansion (operands above are already physical) */
             if (in.op == X64_OP_STACKSAVE) {
@@ -1366,6 +1430,10 @@ void x64_regalloc(X64Func *f)
         }
     }
 
+    /* After the repair loop settles: the intervals allocation sees are the
+     * ones the last build_intervals produced, and repair can retarget an
+     * asm operand onto a fresh vreg. */
+    collect_no_spill(&ra);
     linear_scan(&ra);
     rewrite(&ra);
     x64_twoaddr_fixup(f);

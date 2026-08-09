@@ -180,6 +180,14 @@ static u32 a64_inst_def(const A64Inst *in)
 {
     if (in->op == A64_OP_CALL)
         return in->call ? vreg_of(in->call->result) : 0u;
+    /* An asm's operands live in its side record, exactly like a call's.
+     * Miss this and its output looks defined by nothing while its inputs
+     * look used by nothing -- the liveness is quietly wrong rather than
+     * absent, which is the trap Sprint 48 recorded for A64CallInfo. */
+    if (in->op == A64_OP_ASM)
+        return in->asm_info && in->asm_info->has_out
+                   ? vreg_of(in->asm_info->out)
+                   : 0u;
     if (in->op == A64_OP_LDP) {
         /* LDP defines two registers and the shared view carries one. The
          * pairing peephole is not in the compilation pipeline (Sprint 47
@@ -207,6 +215,22 @@ static u32 a64_inst_uses(const A64Inst *in, u32 *out, u32 cap)
             push_use(out, cap, &n, in->call->indirect);
             for (k = 0; k < in->call->nargs; k++)
                 push_use(out, cap, &n, in->call->args[k].value);
+        }
+        return n;
+    }
+    if (in->op == A64_OP_ASM) {
+        if (in->asm_info) {
+            u32 k;
+
+            for (k = 0; k < in->asm_info->nops; k++) {
+                const A64AsmOp *o = &in->asm_info->ops[k];
+
+                /* The output is a DEF, not a use; a memory operand's
+                 * address register and every input are uses. */
+                if (o->is_output && o->cls != ASM_CLS_MEM)
+                    continue;
+                push_use(out, cap, &n, o->reg);
+            }
         }
         return n;
     }
@@ -321,6 +345,8 @@ static u32 compute_max_uses(const A64Func *f)
 
             if (in->op == A64_OP_CALL && in->call)
                 n = in->call->nargs + 1;
+            else if (in->op == A64_OP_ASM && in->asm_info)
+                n = in->asm_info->nops;
             else
                 n = 4 + 2 * 4; /* four operands, each possibly a MEM */
             if (n > max)
@@ -371,6 +397,41 @@ void a64_liveness(const A64Func *f, u64 *live_in, u64 *live_out)
 }
 
 /* --- call points ---------------------------------------------------------- */
+
+/* An asm operand constrained to a register MUST get one: the template names
+ * it by number, and no reload can stand in, because the scratch registers a
+ * spill path reloads through are a small fixed set and several operands
+ * would land in the same one. Marking the intervals unspillable is the
+ * allocator's answer -- see CgInterval.no_spill. */
+static void collect_no_spill(Ra *ra)
+{
+    u32 bi, ii, k;
+
+    for (bi = 0; bi < ra->f->nblocks; bi++) {
+        const A64Block *b = &ra->f->blocks[bi];
+
+        for (ii = 0; ii < b->n; ii++) {
+            const A64Inst *in = &b->insts[ii];
+            const A64AsmInfo *info;
+
+            if (in->op != A64_OP_ASM || !in->asm_info)
+                continue;
+            info = in->asm_info;
+            if (info->has_out) {
+                u32 v = vreg_of(info->out);
+
+                if (v)
+                    ra->iv[v].no_spill = true;
+            }
+            for (k = 0; k < info->nops; k++) {
+                u32 v = vreg_of(info->ops[k].reg);
+
+                if (v)
+                    ra->iv[v].no_spill = true;
+            }
+        }
+    }
+}
 
 static void collect_calls(Ra *ra)
 {
@@ -650,6 +711,43 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
         rb.source_loc = in.loc;
         rw->gp_next = 0;
         rw->fp_next = 0;
+
+        if (in.op == A64_OP_ASM && in.asm_info) {
+            /* An asm's operands live on its side record, like a call's --
+             * but unlike a call's they are NOT pre-coloured: AAPCS64 has no
+             * single-letter register constraints, so every one is an
+             * ordinary vreg that can spill.
+             *
+             * THEY ARE NOT RELOADED EITHER, and that took a bug to learn.
+             * The first draft reloaded each spilled operand into its own
+             * scratch, which is already better than sharing one -- and still
+             * wrong, because the scratch set is small and fixed and an asm
+             * may name thirty operands. `"r"` means "in a register", so the
+             * answer is that these intervals never spill at all:
+             * collect_no_spill marks them and CgInterval.no_spill makes the
+             * shared allocator honour it. What is left here is the check,
+             * because an operand that reached this point without a register
+             * would otherwise be substituted to x0 -- silently, and only
+             * under CGF_SPILL_ALL. */
+            A64AsmInfo *info = in.asm_info;
+            u32 k;
+
+            for (k = 0; k < info->nops; k++) {
+                A64AsmOp *o = &info->ops[k];
+                u32 v = vreg_of(o->reg);
+
+                if (v && !ra->iv[v].phys)
+                    CGF_ICE("arm64 regalloc: asm operand v%u was spilled; asm "
+                            "operand intervals must be no_spill",
+                            v);
+            }
+            for (k = 0; k < info->nops; k++)
+                sub_reg(rw, &info->ops[k].reg, 0);
+            sub_reg(rw, &info->out, 0);
+            rb.map[ii] = rb.n;
+            rb_put(&rb, &in);
+            continue;
+        }
 
         if (in.op == A64_OP_CALL) {
             /* Arguments and the result live on the side record; every one of
@@ -2112,6 +2210,7 @@ void a64_regalloc(A64Func *f)
             if (f->vfixed[v] && ra.iv[v].live)
                 ra.iv[v].fixed = f->vfixed[v];
     }
+    collect_no_spill(&ra);
     collect_calls(&ra);
     linear_scan(&ra);
 

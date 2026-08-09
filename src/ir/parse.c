@@ -1060,7 +1060,7 @@ static bool parse_asm_inst(P *p)
         if (!t)
             return false;
         ops[n].constraint = t->s;
-        if (!parse_atom(p, IRT_PTR, &vals[n]))
+        if (!parse_typed(p, &vals[n]))
             return false;
         n++;
     }

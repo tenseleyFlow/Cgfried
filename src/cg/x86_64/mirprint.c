@@ -443,12 +443,32 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                                   f->name, bi + 1, i, regs[ri].v);
                         bad++;
                     }
-                if (in->def_fixed || in->a.fixed || in->b.fixed || in->nxuses) {
+                /* An ASM keeps its xuses past allocation, and ONLY an asm:
+                 * its template names its operands, so emission needs to
+                 * know which register each one landed in, where a call's
+                 * argument registers are implicit in the ABI. The `fixed`
+                 * annotations must still be gone -- those are requests for
+                 * the allocator, and one surviving means it did not run. */
+                if (in->def_fixed || in->a.fixed || in->b.fixed ||
+                    (in->nxuses && in->op != X64_OP_ASM)) {
                     diag_emit(dc, DIAG_ERROR, sp,
                               "mir verify @%s bb%u:%u: constraint "
                               "annotation survived allocation",
                               f->name, bi + 1, i);
                     bad++;
+                }
+                if (in->op == X64_OP_ASM) {
+                    u32 xi;
+
+                    for (xi = 0; xi < in->nxuses; xi++)
+                        if (in->xuses[xi].fixed) {
+                            diag_emit(dc, DIAG_ERROR, sp,
+                                      "mir verify @%s bb%u:%u: an asm "
+                                      "operand kept its fixed-register "
+                                      "request past allocation",
+                                      f->name, bi + 1, i);
+                            bad++;
+                        }
                 }
                 if (in->op == X64_OP_ALLOCA_DYN || in->op == X64_OP_STACKSAVE ||
                     in->op == X64_OP_STACKRESTORE || in->op == X64_OP_READREG ||

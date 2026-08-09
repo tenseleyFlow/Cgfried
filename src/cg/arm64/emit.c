@@ -890,7 +890,7 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
         buf_printf(e->out, "\tret\n");
         return;
     case A64_OP_ASM:
-        a64_emit_asm_text(e->out, e->m, (u32)in->ops[0].imm);
+        a64_emit_asm_text(e->out, e->m, (u32)in->ops[0].imm, in->asm_info);
         return;
     case A64_OP_BR:
         buf_printf(e->out, "\tbr\t%s\n", rn(in->ops[0].reg, A64_SF64));
@@ -1173,11 +1173,109 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
  * MNEMONICS here would mean maintaining a second assembler that disagrees
  * with the real one. ONE leading tab then the template verbatim, which is
  * what gcc does -- it indents only the first line. */
-void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index)
+/* One operand, in the form the template asked for.
+ *
+ * ARM64 SPELLS ITS WIDTHS IN THE REGISTER NAME (`w0` against `x0`) where x86
+ * puts them in the mnemonic suffix, so the width modifiers mean something
+ * different here: gcc's arm64 `%w0`/`%x0` SELECT the name, and there is no
+ * `%b`/`%k`. A bare `%0` gets the operand's own C width, which is what
+ * `add %w0, %w1, #3` on ints relies on. */
+static void a64_asm_operand(Buf *out, const IrModule *m, const A64AsmInfo *info,
+                            u32 k, u8 sf_override)
 {
+    const IrAsm *a = &m->asms[info->asm_index - 1];
+    const A64AsmOp *o;
+    u8 sf;
+
+    if (k >= info->nops) {
+        buf_printf(out, "<asm-operand-%u-out-of-range>", k);
+        return;
+    }
+    o = &info->ops[k];
+    if (o->cls == ASM_CLS_IMM) {
+        buf_printf(out, "#%lld", (long long)a->ops[k].imm);
+        return;
+    }
+    if (!o->reg.id) {
+        buf_printf(out, "<bad-asm-operand-%u>", k);
+        return;
+    }
+    if (o->cls == ASM_CLS_MEM) {
+        buf_printf(out, "[%s]", rn(o->reg, A64_SF64));
+        return;
+    }
+    sf = sf_override ? sf_override : (u8)(o->size > 4 ? A64_SF64 : A64_SF32);
+    buf_printf(out, "%s", rn(o->reg, sf));
+}
+
+/* An inline-asm template. Basic asm (no colon in the source construct) passes
+ * `%` through untouched -- gcc's rule, decided at parse time. With operands
+ * the escapes are `%%`, `%0..%9`, `%w0`/`%x0` for an explicit width, and
+ * `%[name]`. An unknown escape passes through: the template belongs to the
+ * programmer and the assembler is entitled to complain about it. */
+void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index,
+                       const A64AsmInfo *info)
+{
+    const IrAsm *a;
+    const char *c;
+
     if (!asm_index || asm_index > m->nasms)
         return;
-    buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->asms[asm_index - 1].tmpl);
+    a = &m->asms[asm_index - 1];
+    if (a->is_basic || !info || !info->nops) {
+        buf_printf(out, "#APP\n\t%s\n#NO_APP\n", a->tmpl);
+        return;
+    }
+    buf_printf(out, "#APP\n\t");
+    for (c = a->tmpl; *c; c++) {
+        u8 sfo = 0;
+
+        if (*c != '%') {
+            buf_printf(out, "%c", *c);
+            continue;
+        }
+        c++;
+        if (*c == '%') {
+            buf_printf(out, "%%");
+            continue;
+        }
+        if ((*c == 'w' || *c == 'x') && c[1] &&
+            ((c[1] >= '0' && c[1] <= '9') || c[1] == '[')) {
+            sfo = (u8)(*c == 'w' ? A64_SF32 : A64_SF64);
+            c++;
+        }
+        if (*c == '[') {
+            const char *nm = c + 1;
+            const char *end = nm;
+            u32 j;
+
+            while (*end && *end != ']')
+                end++;
+            for (j = 0; j < a->nops; j++)
+                if (a->ops[j].name &&
+                    strncmp(a->ops[j].name, nm, (size_t)(end - nm)) == 0 &&
+                    a->ops[j].name[end - nm] == '\0')
+                    break;
+            if (j < a->nops)
+                a64_asm_operand(out, m, info, j, sfo);
+            else
+                buf_printf(out, "<unknown-asm-operand>");
+            c = *end ? end : end - 1;
+            continue;
+        }
+        if (*c >= '0' && *c <= '9') {
+            a64_asm_operand(out, m, info, (u32)(*c - '0'), sfo);
+            continue;
+        }
+        buf_printf(out, "%%");
+        if (sfo)
+            buf_printf(out, "%c", sfo == A64_SF32 ? 'w' : 'x');
+        if (*c)
+            buf_printf(out, "%c", *c);
+        else
+            c--;
+    }
+    buf_printf(out, "\n#NO_APP\n");
 }
 
 /* The thread-locals, emitted BEFORE any function. See the filter's comment. */

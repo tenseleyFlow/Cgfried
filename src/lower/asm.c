@@ -253,27 +253,7 @@ void lower_asm(Lower *lo, AstNode *s)
     u32 n = 0;
     u32 nclob = 0;
     u32 i;
-
-    /* THE OPERAND FORM IS REFUSED BY NAME until the backend can allocate
-     * for it. Selecting something plausible instead -- putting every operand
-     * in a scratch register and hoping the template agrees -- is precisely
-     * the failure mode docs/gnu-extensions.md exists to prevent: it
-     * assembles, links, and then reads the wrong registers.
-     *
-     * The refusal lives HERE rather than in the backend because the
-     * backend's only refusal is CGF_ICE, whose text says "this is a bug in
-     * cgfried" -- the wrong thing to tell someone who wrote correct C. Same
-     * correction _Alignas and `destructor` forced. */
-    if (s->asm_nops || s->asm_nclobbers) {
-        asm_error(lo, s->span,
-                  "inline asm with operands or clobbers is not implemented "
-                  "yet: the constraints need per-operand register allocation "
-                  "(early-clobber ranges, matching constraints and fixed "
-                  "registers), and selecting without it would assemble and "
-                  "then read the wrong registers. Operand-free asm works "
-                  "(docs/gnu-extensions.md)");
-        return;
-    }
+    bool seen_reg_output = false;
 
     memset(&a, 0, sizeof(a));
     a.tmpl = s->asm_tmpl ? s->asm_tmpl : "";
@@ -294,6 +274,55 @@ void lower_asm(Lower *lo, AstNode *s)
         op->is_output = is_out;
         if (!decode_constraint(lo, op, op->constraint, is_out, src->span))
             return;
+        if (src->expr && src->expr->sem_type) {
+            TypeLayout l = layout_of(lo->sema, src->expr->sem_type);
+
+            op->size = (u8)(l.size > 8 ? 8 : (l.size ? l.size : 1));
+        } else {
+            op->size = 8;
+        }
+        /* ONE REGISTER OUTPUT, and the boundary is measured rather than
+         * guessed. An IR instruction defines at most one value and the
+         * shared MIR view reports one def per instruction, so a second
+         * register output would mean widening that interface across both
+         * backends. Counting musl's asm sites for OUR two targets says the
+         * second output is almost always a MEMORY one (`"=m"`, `"=Q"` in
+         * the atomics), which consumes no register at all: x86_64 has 181
+         * one-output sites and 27 two-output, and aarch64 172 and 19, with
+         * the two-output cases dominated by that shape. So one register
+         * output plus any number of memory outputs covers the campaign,
+         * and a second REGISTER output is refused by name. */
+        if (is_out && op->cls != ASM_CLS_MEM) {
+            if (seen_reg_output) {
+                asm_error(lo, src->span,
+                          "an asm with more than one register output is not "
+                          "supported yet: an IR instruction defines one "
+                          "value, so a second would need the shared MIR "
+                          "view widened. A memory output (\"=m\") is "
+                          "unaffected (docs/gnu-extensions.md)");
+                return;
+            }
+            seen_reg_output = true;
+        }
+        if (op->cls == ASM_CLS_IMM) {
+            /* `i` and `n` require an assemble-time constant, so the operand
+             * must FOLD -- and a diagnostic beats emitting `$0`, which is
+             * what an unpopulated field silently produced in the first
+             * draft: `"i"(100)` added zero and the fixture read 2 for 102. */
+            ConstValue cv = constexpr_eval(lo->sema, src->expr, CE_ICE);
+
+            if (cv.kind != CV_INT) {
+                asm_error(lo, src->span,
+                          "an asm operand with constraint \"%s\" must be an "
+                          "integer constant expression",
+                          op->constraint);
+                return;
+            }
+            op->imm = (i64)cv.i;
+            vals[n] = ir_op_iconst(IRT_I64, (i64)cv.i);
+            n++;
+            continue;
+        }
         if (is_out) {
             /* The ADDRESS of the output object; the backend stores through
              * it once the template has run. */

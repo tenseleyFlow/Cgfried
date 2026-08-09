@@ -310,8 +310,13 @@ static u64 scalar_size(IrType type)
 
 static bool is_barrier(const IrInst *in)
 {
+    /* IR_ASM is opaque and WRITES THROUGH its output address, which no
+     * analysis here can see -- the write lives in the template. Omitting
+     * this row let a load after the asm be forwarded from a store before
+     * it, so `asm("addl $5, %0" : "+r"(n))` returned n unchanged at -O2
+     * while -O0 was correct. */
     return in->op == IR_CALL || in->op == IR_ATOMICRMW ||
-           in->op == IR_CMPXCHG ||
+           in->op == IR_CMPXCHG || in->op == IR_ASM ||
            (in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) != 0;
 }
 

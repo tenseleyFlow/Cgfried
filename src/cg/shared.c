@@ -216,7 +216,9 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
             active[nactive++] = cur;
             continue;
         }
-        if (policy->spill_all) {
+        /* `spill_all` is a stress lane, not a semantics change: an interval
+         * that CANNOT be spilled still allocates normally under it. */
+        if (policy->spill_all && !cur->no_spill) {
             spill(cur, policy, slots);
             continue;
         }
@@ -249,7 +251,7 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
                 CgInterval *cand = active[k];
                 u8 reg;
 
-                if (cand->fixed || !cand->phys ||
+                if (cand->fixed || cand->no_spill || !cand->phys ||
                     !policy->same_class(policy->ctx, cand->vreg, cur->vreg))
                     continue;
                 reg = (u8)(cand->phys - 1);
@@ -259,7 +261,10 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
                 if (!far || cand->end > far->end)
                     far = cand;
             }
-            if (far && far->end > cur->end) {
+            /* The usual heuristic spills whichever of the two lives longer.
+             * An unspillable interval overrides it: someone else goes,
+             * whatever the lengths. */
+            if (far && (far->end > cur->end || cur->no_spill)) {
                 cur->phys = far->phys;
                 far->phys = 0;
                 spill(far, policy, slots);
@@ -268,6 +273,18 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
                         active[k] = cur;
                         break;
                     }
+            } else if (cur->no_spill) {
+                /* Nothing evictable and no free register: the asm asked for
+                 * more registers at once than the target has. gcc reports
+                 * this as "'asm' operand has impossible constraints"; we
+                 * cannot, because the allocator holds no diagnostic context
+                 * and no span. Reaching it needs more simultaneously-live
+                 * register operands than the machine has allocatable
+                 * registers, which lower_asm caps against -- so this is the
+                 * backstop for that cap, not the reporting site. */
+                CGF_ICE("linear scan: v%u must be in a register and none is "
+                        "available (inline asm register pressure)",
+                        cur->vreg);
             } else {
                 spill(cur, policy, slots);
             }
