@@ -146,6 +146,44 @@ gained one TU and three sign-compare warnings, all oracle-matched.
 expectation gcc-verified before pinning" exists for exactly that, and without
 running gcc first I would have pinned a wrong expectation into the corpus.
 
+### AND A SIXTH, FOUND BY PROBING THE FIFTH'S EDGES
+
+Checking what else the bound-deduction fix might touch turned up that **a
+file-scope compound literal could not be a static initializer at all**, in
+any form -- gcc accepts every one:
+
+```c
+static struct S val   = (struct S){1, 2};     /* aggregate value  */
+static struct S *addr = &(struct S){3, 4};    /* worked already   */
+static int *sized     = (int[3]){5, 6, 7};    /* array, decays    */
+static int *unsized   = (int[]){8, 9};
+```
+
+Pre-existing, independent of the deduction work (it reproduces on the
+pre-change compiler and for the SIZED form too), and **two bugs wearing one
+symptom**, which is why fixing the diagnosed half would have left the
+complaint standing:
+
+- the ARRAY forms decay to an address, and `constexpr`'s `eval` had NO
+  compound-literal case at all, so only the explicit `&(T){...}` route ever
+  reached the address-constant code;
+- the AGGREGATE form is an IMAGE rather than an address, and the
+  static-initializer check in `declare_one` validated it as a SCALAR
+  constant -- asking `eval` for a value the literal does not have.
+
+**The audit is the part worth keeping.** I first wrote this up as "a rule on
+the explicit path, missing on the implicit-decay path", generalizing from the
+`lower_scalar_convert` bug. That was WRONG and measuring disproved it: an
+array VARIABLE and a string literal both come through implicit decay
+correctly at file scope. The gap was one missing case, not a class, and a
+grep finds only four decay-aware sites in the tree. **A pattern inferred from
+two instances is a hypothesis; check before telling anyone to go hunting.**
+
+The carve-out is deliberately narrow and pinned by negatives: `= f()`,
+`= other_struct`, an automatic-storage literal, an incompatible literal type,
+and a pointer to an automatic array all still reject, matching gcc's verdict
+on every one.
+
 ### THE THREE BUGS IT FOUND ELSEWHERE — none of them in the asm code
 
 **An asm ESCAPES the pointers it is handed, and the memory analysis did not
