@@ -4,12 +4,11 @@
 // is the point: afs-as PR #28 implements `.set` for x86, so this exercises the
 // real default path rather than routing around it.
 //
-// It stays OUT of tests/corpus because the arm64 lane re-runs that directory
-// through afs-as, whose arm64 path still reads `.set` as an ABSOLUTE
-// assignment and rejects a label target (AS-SET-002). arm64 EXECUTION coverage
-// for aliases waits on that row; the arm64 EMISSION path is verified by hand
-// against the cross assembler, and it is where the first bug showed up --
-// `.weak_definition` is Mach-O's spelling and ELF's assembler rejects it.
+// It lives in tests/corpus so the arm64 lane re-runs it through afs-as, which
+// implements `.set` on both paths now (AS-SET-002, upstream PR #29). Until
+// then the arm64 half was EMISSION-only and verified by hand, which is where
+// the first bug showed up -- `.weak_definition` is Mach-O's spelling and
+// ELF's assembler rejects it.
 //
 // The -O2 case is the one worth keeping: `s_real` is reachable ONLY through
 // its alias, and an alias reference is a `.set` rather than a relocation, so

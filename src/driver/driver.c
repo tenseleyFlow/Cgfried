@@ -838,7 +838,6 @@ emit_tail:
      * about. Say what is actually true, and what to do about it. */
     {
         ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
-        TargetKind tk = cgf_target_selected().kind;
         u32 gi;
 
         if (tc.use_afs_as)
@@ -854,25 +853,6 @@ emit_tail:
                 buf_free(&b);
                 return CGF_EXIT_COMPILE;
             }
-        /* `alias` emits `.set NAME, TARGET`. The bundled assembler implements
-         * it for x86 (upstream PR #28) but not on the arm64 path, where `.set`
-         * still means an ABSOLUTE assignment and a label target is rejected
-         * (AS-SET-002). Scoped to the target that actually lacks it rather
-         * than refused everywhere -- and said out loud, because otherwise
-         * afs-as rejects correct assembly and the driver reports its own
-         * emission as the bug. */
-        if (tc.use_afs_as && m->naliases && tk != CGF_TARGET_X86_64_LINUX_GNU &&
-            tk != CGF_TARGET_X86_64_LINUX_MUSL &&
-            tk != CGF_TARGET_X86_64_FREEBSD) {
-            fprintf(stderr,
-                    "cgfried: error: '%s' uses the 'alias' attribute, which "
-                    "emits '.set' -- the bundled assembler does not implement "
-                    "it on this target yet (AS-SET-002); build with CGF_AS=0 "
-                    "to use the system assembler\n",
-                    job->path);
-            buf_free(&b);
-            return CGF_EXIT_COMPILE;
-        }
     }
     snprintf(s_path, sizeof(s_path), "%s.cgf.s", job->out);
     f = fopen(s_path, "wb");

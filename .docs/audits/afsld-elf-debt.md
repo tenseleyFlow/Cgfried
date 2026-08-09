@@ -98,56 +98,49 @@ way to be wrong while looking right:
   own directive's position and an alias has none. A 5-case synthetic suite
   using a constant `.size` passed while real compiler output failed.
 
-## AS-SET-002 — afs-as has no symbol `.set` on the arm64 path
+## AS-SET-002 — afs-as has no symbol `.set` on the arm64 path — **CLOSED**
 
-The arm64 and Mach-O paths use a DIFFERENT parser and assembler from x86
-(`src/parse.rs` + `src/assemble.rs` versus `src/x86/`), and there `.set` means
-an ABSOLUTE assignment: `.set alias, label` is rejected with "absolute symbol
-'alias' must resolve to an absolute value". PR #28 deliberately did not touch
-it -- the two pipelines share nothing here, and a change to the main one is its
-own piece of work with its own differential.
+Closed by upstream PR #29 (merged `a6690e2`, submodule bumped). The arm64 and
+Mach-O paths are a different parser and assembler from x86, and there `.set`
+meant an ABSOLUTE assignment only, so `.set alias, real` was rejected with
+"absolute symbol 'alias' must resolve to an absolute value". PR #28 had given
+the x86 dialect aliases; #29 is the same semantics for the other pipeline.
 
-Consequence: `alias` works on x86 through the bundled assembler and is refused
-by name on arm64, so `tests/programs/gnu/attr_alias.c` stays out of
-`tests/corpus` (which the arm64 lane re-runs) and arm64 EXECUTION coverage for
-aliases waits on this row.
+The driver's by-name refusal is gone and `tests/programs/gnu/attr_alias.c`
+moved to `tests/corpus/x86_64/int/`, so the arm64 lane executes it: 63/63 and
+63/63 under `CGF_SPILL_ALL=1`.
 
-What it needs: in the main parser, a `.set` whose right-hand side names a
-DEFINED LABEL rather than an absolute expression should become a symbol alias
-with the target's section, offset, type and size -- the same semantics PR #28
-gave x86, resolved after layout because gas accepts a forward reference.
+Four things worth keeping, all found by measuring gas rather than reading:
 
-### Recipe, from an attempt that got two thirds of the way
+1. **The parser cannot decide which form a `.set` is.** It runs before any
+   label exists, so a lone-symbol right-hand side is ambiguous between an
+   alias and an absolute chain. A non-absolute result is now DEFERRED and the
+   assembler decides where `self.labels` is final. `.set A, 5` / `.set B, A`
+   must still give B the value 5, and that boundary has its own test.
+2. **THE CURSOR TRAP, confirmed.** An alias entry stays in
+   `absolute_assignments` and is MARKED rather than removed:
+   `activate_absolute_definition` walks that vector with a cursor, one step
+   per `.set` in the emission pass, so partitioning it desynchronizes the
+   cursor and fails with "missing resolved absolute assignment".
+3. **Type and SIZE inherit at emission, not at placement.** `.size real,
+   .-real` is measured from its own directive's position and an alias has no
+   directive of its own; resolving any earlier reports size 0, which looks
+   right in a disassembly and is wrong in the symbol table.
+4. **Equal-address symbols break ties on DEFINITION order, not name.** An
+   alias shares its target's address exactly and gas emits the target first,
+   so sorting those two by name put `alias` before `real`. This changed a
+   shared code path, and the 20-object arm64 differential is what proved it
+   safe.
 
-Explored and then reverted rather than half-landed. Three things are settled,
-so this is a focused change rather than another exploration:
+One deliberate divergence, documented in the upstream test: gas ACCEPTS
+`.set a, undefined` and silently drops `a` from the symbol table; we reject it
+and name the missing target. Nothing the compiler emits reaches that case —
+an `alias` attribute requires its target defined in the same translation unit.
 
-1. **The parse-time preview must defer a lone-symbol RHS.**
-   `scan_absolute_assignments` evaluates every `.set` BEFORE labels exist and
-   rejects a non-absolute one outright, which is what makes `.set alias, real`
-   fail on arm64 while x86 handles it. Adding an arm for
-   `Some(Err(_)) if matches!(&expr, Expr::Symbol(_))` that drops the symbol
-   instead of erroring is correct and small -- parsing genuinely cannot tell a
-   label from an absolute symbol, so the question belongs at resolution.
-
-2. **`Expr::Symbol(name)` is exactly the test**, checked against
-   `self.labels` at resolution time, where both are available. Only a LONE
-   symbol qualifies: `.set a, b + 1` names no single object and stays an
-   absolute assignment, which is gas's behaviour too.
-
-3. **THE TRAP: do NOT remove the entry from `absolute_assignments`.**
-   `activate_absolute_definition` walks that vector with a CURSOR
-   (`next_absolute_assignment`), once per `.set` in the emission pass, and
-   checks the name at each step. Partitioning by removal desynchronizes it and
-   fails with "missing resolved absolute assignment" -- and the parallel
-   `assignment_locations` list has to be filtered identically or a later error
-   names the wrong statement. Mark the entry as an alias in place (a parallel
-   `Option<String>` of targets, or an enum element) and let the cursor skip it.
-
-The alias APPLICATION is already proven by PR #28: copy the target's
-(section, offset) into `labels`, inherit `kind`, and take the size from the
-target's RESOLVED value rather than its `.size` expression, which is measured
-from its own directive's position.
+PROCESS NOTE: the first reproduction used the prebuilt `target/release/afs-as`,
+which was STALE, and reported a different error than the source produces. Same
+family as `build/a64mir` being a separate make target. Rebuild before
+believing a diagnostic.
 
 ## SEC-MACHO-001 — `section("name")` has no Mach-O spelling yet
 

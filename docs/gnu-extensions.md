@@ -49,7 +49,7 @@ predefine.
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
-| `alias` | `tests/programs/gnu/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
+| `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
 | `__asm__("name")` labels | `tests/programs/gnu/asm_label.c` | Apple's `__DARWIN_ALIAS`, glibc symbol versioning |
 | `section` | `tests/programs/gnu/attr_section.c` | kernel-style tables, init arrays, embedded layouts |
@@ -146,14 +146,16 @@ Verified against the ELF symbol table rather than the directives: type
 every alias, and the executed fixture proves an alias and its target are the
 same object rather than a copy.
 
-The bundled assembler gained `.set` for x86 in upstream PR #28, so the fixture
-runs on the real default path. Its **arm64** path is a different parser and
-assembler entirely, and there `.set` still means an *absolute* assignment
-(AS-SET-002) — so the driver refuses that combination by name, the TLS-004
-treatment: left alone, afs-as rejects correct assembly and the driver reports
-it as a cgf emission bug, blaming the wrong component. That keeps aliases out
-of `tests/corpus`, which the arm64 lane re-runs, so arm64 *execution* coverage
-waits on that row.
+The bundled assembler gained `.set` for x86 in upstream PR #28 and for arm64
+and Mach-O in PR #29 (AS-SET-002, now closed), so the fixture runs on the real
+default path on every target and lives in `tests/corpus`, which the arm64 lane
+re-runs — aliases execute on arm64 through the bundled assembler rather than
+routing around it.
+
+The two `.set` forms are told apart by whether the right-hand side is a lone
+symbol that is not itself a `.set` name, and that decision cannot be made
+while parsing, which runs before any label exists. `.set A, 5` / `.set B, A`
+still gives B the value 5.
 
 `used` keeps a symbol nothing in the translation unit references. It reaches
 the same root set an `alias` target does, from the other direction — one is
