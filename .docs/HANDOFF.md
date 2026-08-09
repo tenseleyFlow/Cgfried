@@ -97,6 +97,55 @@ x86_64 AND under both arm64 lanes, so the fixture now executes in three places
 that spill everything. In `tests/programs` it executed in none of them, which
 is exactly why a bug on both targets survived a green suite.
 
+### CI CAUGHT A FIFTH BUG THE LOCAL SUITE DID NOT, and it was two bugs
+
+**`memsafe-musl-zero-fp` failed on the first push** with an ICE
+(`lower_irtype on non-scalar type kind 17`, which is `TY_ARRAY`) compiling
+musl's `src/network/res_msend.c`. **The local gap was mine: there are TWO
+musl lanes and I ran only one.** `test-musl-warnings` and the memory sweep
+(`musl_mem_warn.sh`, the `musl-sweep` target) compile different TU sets, and
+a green warning sweep says nothing about the memory one.
+
+A STACK TRACE found it in one step where reading would have taken many --
+`break cgf_ice; run; bt` showed `lower_local_init` calling itself, which is
+the compound-literal path. The trigger is musl's
+
+```c
+.msg_iov = (struct iovec [2]){
+    { .iov_base = (u8[]){ ql>>8, ql }, .iov_len = 2 },
+```
+
+and it turned out to be **two pre-existing bugs stacked, both reachable from
+ordinary C with no extension of any kind**:
+
+1. **The ICE.** An array-typed operand reached `lower_scalar_convert`. The
+   array-to-pointer decay rule existed ONLY at `AST_EXPR_CAST` -- fine for a
+   decay sema materialized as a cast node, useless for one that arrives
+   without it, which an initializer element does. The rule now lives in
+   `lower_scalar_convert` itself, so every caller inherits it instead of the
+   two that happened to be known.
+2. **A SILENT WRONG ANSWER THE ICE WAS HIDING.** With the crash fixed the
+   fixture printed 183, then 167 -- varying per run, i.e. uninitialized
+   stack. `(u8[]){a,b}` **never had its bound deduced from its
+   initializer**: `sizeof((int[]){1,2})` reported "incomplete type", and a
+   NESTED one allocated too small and stored only its first element.
+   `array_size_from_init` had existed for declarations since Sprint 9 and the
+   compound-literal path never called it; `sema_array_complete_from_init` is
+   now the one rule with two callers.
+
+**Third time in this project that an honest ICE sat on top of a silent
+miscompile** (after the VLA reckoning and `_Alignas`). Fixing the crash is
+where the search STARTS.
+
+The payoff is large: the musl memory sweep went **733 -> 1084 of 1361 TUs
+analyzed**, deferrals 628 -> 277, still zero diagnostics; the warning sweep
+gained one TU and three sign-compare warnings, all oracle-matched.
+
+**AND THE PROJECT'S OWN RULE CAUGHT ME.** I wrote the regression fixture's
+`CHECK` line from prediction -- `4` where gcc prints `4660`. "Every corpus
+expectation gcc-verified before pinning" exists for exactly that, and without
+running gcc first I would have pinned a wrong expectation into the corpus.
+
 ### THE THREE BUGS IT FOUND ELSEWHERE — none of them in the asm code
 
 **An asm ESCAPES the pointers it is handed, and the memory analysis did not
