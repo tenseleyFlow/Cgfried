@@ -58,6 +58,7 @@ predefine.
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
 | extended `asm` — operands, constraints, clobbers | `tests/corpus/x86_64/int/asm_operands.c` | musl syscall wrappers and atomics; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
+| `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every

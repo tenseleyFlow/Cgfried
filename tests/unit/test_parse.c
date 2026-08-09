@@ -390,7 +390,12 @@ void test_parse_deferrals_name_sprints(TestCtx *t)
     ParseFix f;
 
     /* No silent stubs: every deferral names its sprint. */
-    (void)parse_src(&f, "typeof(int) x;\n", STD_GNU17);
+    /* `typeof` LANDED in Sprint 55. What stays an error is the bare
+     * spelling in an ISO mode -- it is a keyword only in gnu modes, which
+     * is gcc's rule too (-std=c17 rejects `typeof`, accepts `__typeof__`;
+     * both measured). The accepting cases execute in
+     * tests/corpus/x86_64/int/typeof_auto_type.c. */
+    (void)parse_src(&f, "typeof(int) x;\n", STD_C17);
     T_ASSERT(t, f.errors >= 1);
     pfix_free(&f);
 

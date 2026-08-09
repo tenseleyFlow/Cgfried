@@ -218,6 +218,9 @@ typedef struct {
     AstNode *record;
     AstType *atomic_inner; /* `_Atomic(type-name)`: the full inner chain */
     bool atomic_specifier; /* `_Atomic(T)` rather than bare `_Atomic` */
+    /* ABT_TYPEOF: exactly one is set, decided by one token of lookahead. */
+    AstNode *typeof_expr;
+    AstType *typeof_type;
     /* _Alignas, as written; sema checks the constraints. */
     AstNode *alignas_expr;
     AstType *alignas_type;
@@ -228,6 +231,30 @@ typedef struct {
     bool saw_non_storage;
     bool bad;
 } SpecSoup;
+
+/* THE SOUP'S TYPE-IDENTITY FIELDS, IN ONE PLACE. Six different sites build
+ * an ATY_BASE out of a SpecSoup -- a declaration, a parameter, a member, a
+ * type-name, a bare `struct S;`, a typedef -- and each one used to copy the
+ * fields by hand. Adding `typeof` meant adding two lines to all six, and
+ * patching only the first is exactly why `typeof(int) b = 1;` resolved to
+ * TY_ERROR while `sizeof(typeof(a))` worked: the declaration path had the
+ * operand and the others did not.
+ *
+ * Same shape as gnu_attrs_any_symbol_property, add_dir and
+ * ir_arg_carry_provenance: a list that must name every field forgets one.
+ * The NEXT specifier that carries data forgets none of them or all of them.
+ *
+ * `quals` is deliberately NOT here -- the AST_EMPTY_DECL site does not
+ * take them, and that is a real difference rather than an oversight. */
+static void soup_fill_identity(AstType *bt, const SpecSoup *s)
+{
+    bt->typedef_name = s->typedef_name;
+    bt->record = s->record;
+    bt->atomic_specifier = s->atomic_specifier;
+    bt->atomic_inner = s->atomic_inner;
+    bt->typeof_expr = s->typeof_expr;
+    bt->typeof_type = s->typeof_type;
+}
 
 static bool kw_is_qualifier(Keyword kw)
 {
@@ -538,11 +565,39 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
             case KW_TYPEOF:
             case KW_ALT_TYPEOF:
             case KW_ALT_TYPEOF2:
-                parse_error(p, t,
-                            "GNU extension 'typeof' is not yet "
-                            "supported (lands in Sprint 55)");
-                s->bad = true;
-                goto consumed;
+                /* `typeof (` then EITHER a type-name OR an expression, and
+                 * the one-token lookahead that separates a cast from a call
+                 * separates them here too -- parse_at_type_name is the same
+                 * predicate, so the two constructs cannot drift apart.
+                 *
+                 * The expression is parsed UNEVALUATED: `typeof(f())` does
+                 * not call f. Same flag _Generic and sizeof use, and for the
+                 * same reason -- lowering must never see the side effects of
+                 * an operand the language says is not evaluated. */
+                p->pos++;
+                s->n_other++;
+                s->other_base = ABT_TYPEOF;
+                s->saw_any = true;
+                parse_expect_punct(p, PUNCT_LPAREN, "after 'typeof'");
+                if (parse_at_type_name(p)) {
+                    s->typeof_type = parse_type_name(p);
+                } else {
+                    p->unevaluated++;
+                    s->typeof_expr = parse_expr(p);
+                    p->unevaluated--;
+                }
+                parse_expect_close(p, PUNCT_RPAREN, t->span,
+                                   "after the typeof operand");
+                continue;
+            case KW_AUTO_TYPE:
+                /* The type is the INITIALIZER's, so there is nothing to
+                 * record here beyond the fact -- sema resolves it once the
+                 * initializer has been typed. */
+                p->pos++;
+                s->n_other++;
+                s->other_base = ABT_AUTO_TYPE;
+                s->saw_any = true;
+                continue;
             case KW_ALT_BUILTIN_VA_LIST:
                 /* Lexed as a KEYWORD by the Sprint 8 table, so it never
                  * reaches the identifier path below — our own shipped
@@ -744,6 +799,7 @@ bool parse_at_decl_specs(Parser *p)
     case KW_TYPEOF:
     case KW_ALT_TYPEOF:
     case KW_ALT_TYPEOF2:
+    case KW_AUTO_TYPE:
     case KW_ALT_BUILTIN_VA_LIST:
     case KW_ATTRIBUTE:
     case KW_ATTRIBUTE2:
@@ -840,11 +896,8 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
                         "invalid storage class in function parameter");
         base = ast_type_new(p->arena, ATY_BASE, start->span);
         base->base = soup_resolve(p, &s, start);
-        base->typedef_name = s.typedef_name;
-        base->record = s.record;
+        soup_fill_identity(base, &s);
         base->quals = s.quals;
-        base->atomic_specifier = s.atomic_specifier;
-        base->atomic_inner = s.atomic_inner;
         /* 6.7.5p2: an alignment specifier may not appear on a parameter.
          * Checked HERE rather than in sema because a parameter is an
          * AstParam, not an AstNode, so there is nowhere to carry the
@@ -1184,11 +1237,8 @@ static AstNode *parse_member_decl(Parser *p)
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
 
         bt->base = base_kind;
-        bt->typedef_name = s.typedef_name;
-        bt->record = s.record;
+        soup_fill_identity(bt, &s);
         bt->quals = s.quals;
-        bt->atomic_specifier = s.atomic_specifier;
-        bt->atomic_inner = s.atomic_inner;
         n->type = bt;
         n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         gnu_attrs_merge(&n->gnu, &s.gnu);
@@ -1215,11 +1265,8 @@ static AstNode *parse_member_decl(Parser *p)
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
 
         bt->base = base_kind;
-        bt->typedef_name = s.typedef_name;
-        bt->record = s.record;
+        soup_fill_identity(bt, &s);
         bt->quals = s.quals;
-        bt->atomic_specifier = s.atomic_specifier;
-        bt->atomic_inner = s.atomic_inner;
 
         n->has_alignas = s.has_alignas;
         n->alignas_expr = s.alignas_expr;
@@ -1435,11 +1482,8 @@ AstType *parse_type_name(Parser *p)
     }
     base = ast_type_new(p->arena, ATY_BASE, start->span);
     base->base = soup_resolve(p, &s, start);
-    base->typedef_name = s.typedef_name;
-    base->record = s.record;
+    soup_fill_identity(base, &s);
     base->quals = s.quals;
-    base->atomic_specifier = s.atomic_specifier;
-    base->atomic_inner = s.atomic_inner;
     if (s.storage)
         parse_error(p, start, "a type name cannot have a storage class");
     /* Abstract declarator: the name is optional, and a type-name that DOES
@@ -1646,8 +1690,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         AstNode *n = ast_new(p->arena, AST_EMPTY_DECL, start->span);
         n->type = ast_type_new(p->arena, ATY_BASE, start->span);
         n->type->base = base_kind;
-        n->type->record = s.record;
-        n->type->typedef_name = s.typedef_name;
+        soup_fill_identity(n->type, &s);
         n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         gnu_attrs_merge(&n->gnu, &s.gnu);
         /* No declarator followed, so a tag here is a FORWARD DECLARATION
@@ -1666,11 +1709,8 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
 
         bt->base = base_kind;
-        bt->typedef_name = s.typedef_name;
-        bt->record = s.record;
+        soup_fill_identity(bt, &s);
         bt->quals = s.quals;
-        bt->atomic_specifier = s.atomic_specifier;
-        bt->atomic_inner = s.atomic_inner;
         n->storage = s.storage;
         n->func_specs = s.func_specs;
         n->has_alignas = s.has_alignas;

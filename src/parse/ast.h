@@ -139,6 +139,18 @@ typedef enum AstBaseType {
     ABT_RECORD,  /* struct/union: `record` points at the AST_RECORD_DECL */
     ABT_ENUM,    /* `record` points at the AST_ENUM_DECL */
     ABT_TYPEDEF, /* `typedef_name` names it */
+    /* GNU `typeof(x)`. Exactly ONE of typeof_expr / typeof_type is set:
+     * the operand is either an EXPRESSION or a TYPE NAME, and the same
+     * one-token lookahead that separates a cast from a call separates
+     * them here. The expression is parsed UNEVALUATED -- `typeof(f())`
+     * does not call f, measured. */
+    ABT_TYPEOF,
+    /* GNU `__auto_type`: the type comes from the INITIALIZER, so it is
+     * resolved in sema where the initializer has been typed. Unlike
+     * typeof it applies lvalue conversion, so `const int c;
+     * __auto_type k = c;` gives a MUTABLE int -- measured, and the
+     * opposite of what typeof does with the same operand. */
+    ABT_AUTO_TYPE,
 } AstBaseType;
 
 typedef enum AstTypeKind {
@@ -170,7 +182,10 @@ struct AstType {
     AstType *atomic_inner;
     bool atomic_specifier;
     const char *typedef_name; /* ABT_TYPEDEF */
-    AstNode *record;          /* ABT_RECORD / ABT_ENUM */
+    /* ABT_TYPEOF: exactly one of these is non-NULL. */
+    AstNode *typeof_expr;
+    AstType *typeof_type;
+    AstNode *record; /* ABT_RECORD / ABT_ENUM */
     u32 quals;
 
     /* ATY_PTR */

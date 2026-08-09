@@ -58,6 +58,10 @@ const char *ast_base_type_name(AstBaseType b)
         return "int"; /* implicit int */
     case ABT_VA_LIST:
         return "__builtin_va_list";
+    case ABT_TYPEOF:
+        return "typeof(...)";
+    case ABT_AUTO_TYPE:
+        return "__auto_type";
     case ABT_VOID:
         return "void";
     case ABT_CHAR:

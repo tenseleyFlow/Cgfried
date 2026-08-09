@@ -66,6 +66,9 @@ CGF_KEYWORD(KW_ASM, "asm", KWG_GNU)
 
 CGF_KEYWORD(KW_ALT_TYPEOF, "__typeof__", KWG_ALT)
 CGF_KEYWORD(KW_ALT_TYPEOF2, "__typeof", KWG_ALT)
+/* gcc 7+. A type SPECIFIER whose type comes from the initializer;
+ * __-spelled, so a keyword in every mode like its neighbours. */
+CGF_KEYWORD(KW_AUTO_TYPE, "__auto_type", KWG_ALT)
 CGF_KEYWORD(KW_ALT_INLINE, "__inline__", KWG_ALT)
 CGF_KEYWORD(KW_ALT_INLINE2, "__inline", KWG_ALT)
 CGF_KEYWORD(KW_ALT_ASM, "__asm__", KWG_ALT)

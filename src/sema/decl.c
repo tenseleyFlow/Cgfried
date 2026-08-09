@@ -697,6 +697,32 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
                          quals_from_ast, since the spelling set it */
     }
     switch (at->base) {
+    case ABT_TYPEOF: {
+        /* THE TYPE IS THE OPERAND'S, QUALIFIERS AND ALL. `const int c;
+         * typeof(c) k;` gives a CONST k -- gcc rejects `k = 3` with
+         * "assignment of read-only variable", measured. And no decay: an
+         * array operand keeps its array type, which is why
+         * `int arr[4]; typeof(arr) a2;` has sizeof 16.
+         *
+         * The expression was parsed UNEVALUATED, so typing it here cannot
+         * emit side effects; `typeof(f())` calls nothing. */
+        if (at->typeof_type)
+            return sema_type_from_ast(s, at->typeof_type, span);
+        if (at->typeof_expr) {
+            AstNode *e = sema_expr(s, at->typeof_expr);
+
+            if (e && e->sem_type)
+                return e->sem_type;
+        }
+        return type_basic(TY_ERROR);
+    }
+    case ABT_AUTO_TYPE:
+        /* Resolved by the DECLARATION, which is the only place the
+         * initializer is in hand. Reaching here means __auto_type appeared
+         * somewhere with no initializer to deduce from -- a type name, a
+         * parameter, a member -- and the declaration path has already said
+         * so. */
+        return type_basic(TY_ERROR);
     case ABT_NONE:
     case ABT_INT:
         return type_basic(TY_INT);
@@ -1938,6 +1964,7 @@ static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
 
 static void declare_one(Sema *s, AstNode *d)
 {
+    bool auto_type_decl;
     Type *type;
     Symbol *sym;
     Symbol *prev;
@@ -1953,7 +1980,60 @@ static void declare_one(Sema *s, AstNode *d)
     if (d->poisoned)
         return; /* Sprint 11: never diagnose about a poisoned subtree */
 
-    type = type_from_ast(s, d->type, d->span);
+    /* __auto_type: THE TYPE IS THE INITIALIZER'S, so it can only be resolved
+     * here, where the initializer is in hand -- type_from_ast has no way to
+     * reach it and returns TY_ERROR for the specifier on purpose.
+     *
+     * LVALUE CONVERSION IS THE POINT, and it is where __auto_type parts
+     * company with typeof: `const int c; __auto_type k = c;` gives a MUTABLE
+     * int, while `typeof(c) k` gives a const one. Both measured against gcc
+     * -- assuming they agreed would have been wrong.
+     *
+     * gcc's three constraints, measured: an initializer is required, the
+     * declarator must be a PLAIN IDENTIFIER (`__auto_type *p` is rejected),
+     * and only one declarator may share the specifier. */
+    {
+        /* Walk to the BASE. `__auto_type *p` wraps the specifier in an
+         * ATY_PTR, so testing the outermost node misses it -- and missing
+         * it means TY_ERROR reaches lowering as an ICE instead of gcc's
+         * "requires a plain identifier as declarator". */
+        const AstType *bt = d->type;
+
+        while (bt && bt->kind != ATY_BASE)
+            bt = bt->next;
+        auto_type_decl = bt && bt->base == ABT_AUTO_TYPE;
+    }
+    if (auto_type_decl) {
+        if (!d->init) {
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "'__auto_type' requires an initialized data "
+                      "declaration");
+            s->nerrors++;
+            type = type_basic(TY_ERROR);
+        } else if (d->type->kind != ATY_BASE) {
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "'__auto_type' requires a plain identifier as "
+                      "declarator");
+            s->nerrors++;
+            type = type_basic(TY_ERROR);
+        } else {
+            AstNode *init = d->init;
+
+            if (init->kind == AST_INIT_LIST) {
+                diag_emit(s->dc, DIAG_ERROR, d->span,
+                          "'__auto_type' cannot deduce a type from a braced "
+                          "initializer list");
+                s->nerrors++;
+                type = type_basic(TY_ERROR);
+            } else {
+                d->init = init = conv_lvalue(s, sema_expr(s, init));
+                type = init && init->sem_type ? init->sem_type
+                                              : type_basic(TY_ERROR);
+            }
+        }
+    } else {
+        type = type_from_ast(s, d->type, d->span);
+    }
     is_func = type && type->kind == TY_FUNC;
     alignas_req = check_alignas(s, d, type);
 
