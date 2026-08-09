@@ -538,6 +538,14 @@ void sema_install_renderer(void);
 /* Converts an AST type chain to a semantic Type. Exposed for unit tests. */
 Type *sema_type_from_ast(Sema *s, const AstType *at, Span span);
 
+/* An array with no bound COMPLETED by its initializer (6.7.9p22), returning
+ * the sized type or `t` unchanged when the deduction does not apply. TWO
+ * callers with the same rule and no reason to differ: a declaration
+ * (`int a[] = {1,2,3}`) and a COMPOUND LITERAL (`(int[]){1,2,3}`). The
+ * literal did not do it for years, so `sizeof((int[]){1,2})` reported an
+ * incomplete type and a nested one stored only its first element. */
+Type *sema_array_complete_from_init(Sema *s, Type *t, const AstNode *init);
+
 /* The __builtin_va_list type: `struct { unsigned gp_offset, fp_offset;
  * void *overflow_arg_area, *reg_save_area; }[1]` — an ARRAY type, so it
  * decays when passed (the classic va_list portability trap, on purpose:

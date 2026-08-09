@@ -1433,6 +1433,21 @@ static AstNode *expr(Sema *s, AstNode *e)
             expr_init_list(s, e->init);
         else if (e->init)
             e->init = expr(s, e->init);
+        /* AN UNSIZED ARRAY LITERAL TAKES ITS BOUND FROM THE INITIALIZER, the
+         * same 6.7.9p22 completion a declaration gets -- 6.5.2.5p4 says the
+         * literal's type is the type-name's, and for an array of unknown size
+         * that is what the initializer list determines.
+         *
+         * Missing for years, because the two shapes fail differently and
+         * neither is loud: `sizeof((int[]){1,2})` reported "incomplete type",
+         * while a NESTED literal lowered an alloca too small and stored only
+         * its first element -- reading uninitialized stack for the rest, with
+         * no diagnostic. musl's res_msend.c has exactly that nesting and only
+         * began reaching lowering when extended asm made its includes parse.
+         *
+         * Done AFTER the initializer is typed, since counting a designated
+         * item folds its index. */
+        t = sema_array_complete_from_init(s, t, e->init);
         /* A compound literal IS an lvalue — `(int[]){1,2}[0]` and
          * `&(struct S){0}` both depend on that. Its storage duration was
          * decided by the parser from the scope it appeared in (Sprint 10);

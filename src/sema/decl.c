@@ -1149,6 +1149,26 @@ static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
     return true;
 }
 
+/* The shared completion, so a declaration and a compound literal cannot
+ * drift. Returns `t` unchanged when the rule does not apply -- no type, not
+ * an array, already sized, a VLA, or no initializer to count. */
+Type *sema_array_complete_from_init(Sema *s, Type *t, const AstNode *init)
+{
+    Type *sized;
+    u64 n;
+
+    if (!t || t->kind != TY_ARRAY || t->has_size || t->is_vla || !init)
+        return t;
+    if (!array_size_from_init(s, init, &n))
+        return t;
+    sized = type_array(s->arena, t->base);
+    sized->quals = t->quals;
+    sized->has_size = true;
+    sized->size = n;
+    sized->size_expr = t->size_expr;
+    return sized;
+}
+
 static Member *init_find_member(Type *t, const char *name)
 {
     Member *m;
@@ -1929,20 +1949,7 @@ static void declare_one(Sema *s, AstNode *d)
     /* Completion event: an unsized array with an initializer takes its
      * size from that initializer. Doing it before the incomplete-type
      * check below is what makes `int a[] = {1,2,3};` legal. */
-    if (type && type->kind == TY_ARRAY && !type->has_size && !type->is_vla &&
-        d->init) {
-        u64 n;
-
-        if (array_size_from_init(s, d->init, &n)) {
-            Type *sized = type_array(s->arena, type->base);
-
-            sized->quals = type->quals;
-            sized->has_size = true;
-            sized->size = n;
-            sized->size_expr = type->size_expr;
-            type = sized;
-        }
-    }
+    type = sema_array_complete_from_init(s, type, d->init);
 
     if (d->storage & AST_SC_TYPEDEF) {
         sym = sym_new(s, d->name, SYM_TYPEDEF, NS_ORDINARY, type, d->span);

@@ -149,7 +149,22 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
         return v;
     if (to->kind == TY_VOID)
         return v; /* value discarded; nothing to emit */
-    ft = lower_irtype(lo, from);
+    /* AN ARRAY OR FUNCTION SOURCE HAS ALREADY DECAYED: whatever produced `v`
+     * yielded an ADDRESS, so the conversion starts from a pointer even though
+     * the TYPE still says array. The rule lived only at AST_EXPR_CAST, which
+     * covers a decay that sema materialized as a cast node and misses one
+     * that arrives without it -- an initializer element does:
+     *
+     *     .iov_base = (unsigned char[]){ n >> 8, n }
+     *
+     * inside a nested compound literal reached lower_scalar_convert with
+     * from->kind == TY_ARRAY and ICEd in lower_irtype. Putting the rule at
+     * this choke point means every caller inherits it rather than the two
+     * that happen to be known. musl's res_msend.c is the real program;
+     * tests/programs/init_compound_array_decay.c is the reduction. */
+    ft = (from->kind == TY_ARRAY || from->kind == TY_FUNC)
+             ? IRT_PTR
+             : lower_irtype(lo, from);
     tt = lower_irtype(lo, to);
     fint = !type_is_fp(from);
     tint = !type_is_fp(to);
