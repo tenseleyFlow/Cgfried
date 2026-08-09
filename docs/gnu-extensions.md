@@ -55,6 +55,7 @@ predefine.
 | `section` | `tests/programs/gnu/attr_section.c` | kernel-style tables, init arrays, embedded layouts |
 | `constructor` / `destructor` | `tests/corpus/x86_64/int/attr_ctor_dtor.c` | glibc, library self-registration, test frameworks |
 | `cleanup` | `tests/corpus/x86_64/int/attr_cleanup.c` | systemd's `_cleanup_` idiom, glibc, scope-guard patterns in C |
+| basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
@@ -281,6 +282,7 @@ silently rather than fail loudly.
 | extension | why | who actually needs it |
 |---|---|---|
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
+| `asm` WITH operands or clobbers | the constraints need per-operand register allocation — early-clobber live ranges, matching constraints and fixed pre-coloring — and selecting without it assembles and then reads the wrong registers | musl syscalls, atomics; the next slice |
 | `mode(...)` attribute | selects a machine mode independent of the C type; our type system has no such axis | glibc `__int128` corners only |
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |
