@@ -889,6 +889,9 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
     case A64_OP_RET:
         buf_printf(e->out, "\tret\n");
         return;
+    case A64_OP_ASM:
+        a64_emit_asm_text(e->out, e->m, (u32)in->ops[0].imm);
+        return;
     case A64_OP_BR:
         buf_printf(e->out, "\tbr\t%s\n", rn(in->ops[0].reg, A64_SF64));
         return;
@@ -1164,6 +1167,19 @@ void a64_emit_file_prologue(Buf *out)
 static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
                                       bool pic);
 
+/* An inline-asm template, copied out VERBATIM between #APP/#NO_APP markers --
+ * gcc's markers, which gas uses to relax its parsing and afs-as takes as
+ * ordinary `#` comments. Copying unexamined is the contract: validating the
+ * MNEMONICS here would mean maintaining a second assembler that disagrees
+ * with the real one. ONE leading tab then the template verbatim, which is
+ * what gcc does -- it indents only the first line. */
+void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index)
+{
+    if (!asm_index || asm_index > m->nasms)
+        return;
+    buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->asms[asm_index - 1].tmpl);
+}
+
 /* The thread-locals, emitted BEFORE any function. See the filter's comment. */
 void a64_emit_tls_decls(const IrModule *m, Buf *out)
 {
@@ -1352,6 +1368,12 @@ void a64_emit_globals(const IrModule *m, Buf *out, bool pic)
     e.out = out;
     e.m = m;
     e.apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
+    /* File-scope asm, verbatim and first: it routinely DEFINES symbols the
+     * rest of the file references, and emitting it before any section switch
+     * leaves the template in control of its own section. */
+    for (i = 0; i < m->nfile_asms; i++) {
+        buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->file_asms[i]);
+    }
     /* Aliases need no section and no alignment, so they precede the data.
      * Mach-O spells the symbol with a leading underscore exactly as every
      * other symbol does; `.set` itself is the same directive on both. */

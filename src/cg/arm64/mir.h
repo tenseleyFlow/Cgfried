@@ -214,6 +214,10 @@ typedef enum A64Op {
     A64_OP_ALLOCA_DYN,
     A64_OP_STACKSAVE,
     A64_OP_STACKRESTORE,
+    /* Inline asm, no operands; ops[0] is an immediate carrying the 1-based
+     * IrModule.asms index.
+     * The operand form is refused in lowering -- see src/lower/asm.c. */
+    A64_OP_ASM,
     A64_OP_VASTART,
     /* Two pseudo-instructions, each expanded at EMISSION into a complete
      * ll/sc loop. They stay single instructions through allocation on
@@ -461,6 +465,7 @@ void a64_emit_set_pic(A64PicLevel pic);
 void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
                        u8 linkage, Buf *out);
 void a64_emit_globals(const IrModule *m, Buf *out, bool pic);
+void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index);
 /* Mach-O file bookends; no-ops on ELF targets. */
 void a64_emit_file_prologue(Buf *out);
 void a64_emit_tls_decls(const IrModule *m, Buf *out);

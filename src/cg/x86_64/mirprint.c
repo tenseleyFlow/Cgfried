@@ -89,6 +89,7 @@ static const char *const op_names[] = {
     "readreg",
     "argld",
     "arglea",
+    "asm",
     "vastart",
     /* x87 (f80 only; load-op-store, locally balanced) */
     "fld",

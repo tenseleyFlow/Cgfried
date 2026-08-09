@@ -167,6 +167,28 @@ static void emit1(Emit *e, const char *op, const X64Operand *o, u8 w)
     buf_printf(e->out, "\n");
 }
 
+/* An inline-asm template, copied out VERBATIM between #APP/#NO_APP markers.
+ *
+ * The markers are gcc's, and gas uses them to switch to a slower mode that
+ * tolerates anything; afs-as accepts them as ordinary `#` comments (verified
+ * before adopting them). Copying the text unexamined is the contract: the
+ * template is the programmer's, and validating its MNEMONICS here would mean
+ * maintaining a second assembler that disagrees with the real one.
+ *
+ * ONE leading tab, then the template verbatim -- measured against gcc, which
+ * indents only the first line. Tabbing after every newline instead keeps a
+ * template's own layout from surviving, and a template that indents itself
+ * (musl's do) then comes out doubly indented. */
+static void emit_inline_asm(Emit *e, u32 asm_index)
+{
+    const IrAsm *a;
+
+    if (!asm_index || asm_index > e->m->nasms)
+        return;
+    a = &e->m->asms[asm_index - 1];
+    buf_printf(e->out, "#APP\n\t%s\n#NO_APP\n", a->tmpl);
+}
+
 static void emit0(Emit *e, const char *op)
 {
     buf_printf(e->out, "\t%s\n", op);
@@ -333,6 +355,9 @@ static void emit_inst(Emit *e, const X64Inst *in, u32 bi, u32 next_bb)
         break;
     case X64_OP_UD2:
         emit0(e, "ud2");
+        break;
+    case X64_OP_ASM:
+        emit_inline_asm(e, in->table);
         break;
     case X64_OP_PUSH:
         emit1(e, "pushq", &in->a, X64_Q);
@@ -757,6 +782,15 @@ static void emit_init_array(const IrModule *m, Buf *out)
 void x64_emit_globals(const IrModule *m, Buf *out, bool pic)
 {
     u32 i;
+
+    /* File-scope asm, verbatim and first. It routinely DEFINES symbols the
+     * rest of the file references, and gas resolves a forward reference, so
+     * position is free -- but emitting it before any section switch keeps
+     * the template in control of its own section, which is what a `.globl`
+     * plus a definition needs. */
+    for (i = 0; i < m->nfile_asms; i++) {
+        buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->file_asms[i]);
+    }
 
     /* Aliases first: `.set` needs no section and no alignment, and emitting
      * them before any `.data`/`.bss` switch keeps the output free of a

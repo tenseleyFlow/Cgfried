@@ -1157,6 +1157,14 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
      * symbol's declarations, so pair symbols with their initializing
      * decl first. */
     lower_aliases(&lo, sema, tu);
+    /* File-scope basic asm, in SOURCE order. gcc emits the text verbatim
+     * between the functions it sits between; we emit it all before them,
+     * which is the same thing for every use it has (a symbol definition, an
+     * entry stub) and avoids threading source position through emission. */
+    for (i = 0; i < tu->ndecls; i++)
+        if (tu->decls[i] && tu->decls[i]->kind == AST_STMT_ASM)
+            ir_module_add_file_asm(
+                lo.m, tu->decls[i]->asm_tmpl ? tu->decls[i]->asm_tmpl : "");
     for (i = 0; i < tu->ndecls; i++) {
         AstNode *d = tu->decls[i];
         Symbol *sym;

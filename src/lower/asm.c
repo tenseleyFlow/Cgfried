@@ -254,6 +254,27 @@ void lower_asm(Lower *lo, AstNode *s)
     u32 nclob = 0;
     u32 i;
 
+    /* THE OPERAND FORM IS REFUSED BY NAME until the backend can allocate
+     * for it. Selecting something plausible instead -- putting every operand
+     * in a scratch register and hoping the template agrees -- is precisely
+     * the failure mode docs/gnu-extensions.md exists to prevent: it
+     * assembles, links, and then reads the wrong registers.
+     *
+     * The refusal lives HERE rather than in the backend because the
+     * backend's only refusal is CGF_ICE, whose text says "this is a bug in
+     * cgfried" -- the wrong thing to tell someone who wrote correct C. Same
+     * correction _Alignas and `destructor` forced. */
+    if (s->asm_nops || s->asm_nclobbers) {
+        asm_error(lo, s->span,
+                  "inline asm with operands or clobbers is not implemented "
+                  "yet: the constraints need per-operand register allocation "
+                  "(early-clobber ranges, matching constraints and fixed "
+                  "registers), and selecting without it would assemble and "
+                  "then read the wrong registers. Operand-free asm works "
+                  "(docs/gnu-extensions.md)");
+        return;
+    }
+
     memset(&a, 0, sizeof(a));
     a.tmpl = s->asm_tmpl ? s->asm_tmpl : "";
     a.is_basic = s->asm_basic;

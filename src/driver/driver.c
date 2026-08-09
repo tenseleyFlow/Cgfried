@@ -891,6 +891,26 @@ emit_tail:
                     quoted[q++] = b.data[p++];
                 quoted[q] = '\0';
             }
+            /* AN INLINE-ASM TEMPLATE IS THE PROGRAMMER'S TEXT, not ours.
+             * The template passes through unexamined by contract -- checking
+             * its mnemonics here would mean maintaining a second assembler
+             * that disagrees with the real one -- so when a module contains
+             * any asm, a rejection is at least as likely to be that text as
+             * an emission bug, and claiming "this is a cgf emission bug"
+             * sends the reader to debug the wrong component. Report it as an
+             * ordinary error naming the possibility instead of an ICE. */
+            if (m->nasms || m->nfile_asms) {
+                fprintf(stderr,
+                        "cgfried: error: the assembler rejected the assembly "
+                        "for '%s' (kept at '%s', line %u: \"%s\").\n"
+                        "cgfried: note: this translation unit contains inline "
+                        "asm, whose template is passed through verbatim; if "
+                        "the line above is from a template, the assembler is "
+                        "reporting on that text\n",
+                        job->path, s_path, bad_line, quoted);
+                buf_free(&b);
+                return CGF_EXIT_COMPILE;
+            }
             CGF_ICE("the assembler rejected cgfried-generated assembly "
                     "(kept at '%s', line %u: \"%s\") — this is a cgf "
                     "emission bug",

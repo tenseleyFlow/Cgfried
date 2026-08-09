@@ -2548,6 +2548,21 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         x->a = ovreg(s);
         break;
     }
+    case IR_ASM: {
+        /* No operands: the template is opaque text and needs no allocation,
+         * so it rides to emission as-is. Lowering refuses the operand form
+         * by name, so `nops` is zero here by construction -- but the check
+         * stays, because "by construction" is how a later change becomes a
+         * silent wrong answer. */
+        X64Inst *x;
+
+        if (in->nops)
+            CGF_ICE("x86_64 isel: an asm with operands reached selection; "
+                    "lowering was supposed to refuse it");
+        x = emit(is, X64_OP_ASM, X64_Q);
+        x->table = in->callee;
+        break;
+    }
     case IR_VA_START: {
         /* Marker: only frame-finalize knows where the register save
          * area and the first unnamed stack argument live. */

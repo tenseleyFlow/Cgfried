@@ -1917,6 +1917,20 @@ static void select_inst(Isel *is, const IrInst *ir)
     case IR_CALL:
         select_call(is, ir);
         break;
+    case IR_ASM: {
+        /* No operands: opaque text, no allocation. Lowering refuses the
+         * operand form, so nops is zero by construction -- the check stays
+         * because "by construction" is how a later change becomes a silent
+         * wrong answer. */
+        A64Inst *inst;
+
+        if (ir->nops)
+            CGF_ICE("arm64 isel: an asm with operands reached selection; "
+                    "lowering was supposed to refuse it");
+        inst = emit(is, A64_OP_ASM, A64_SF64);
+        add_operand(inst, imm_op((i64)ir->callee));
+        break;
+    }
     case IR_VA_START: {
         /* The three pointer fields need the frame size, so the marker
          * survives to frame finalization; lowering has already stored the

@@ -179,6 +179,12 @@ typedef enum X64Op {
                        a mov (or nothing when def landed there). */
     X64_OP_ARGLD,   /* def <- incoming stack arg at [rbp+16+b.imm] */
     X64_OP_ARGLEA,  /* def <- ADDRESS rbp+16+b.imm (byval/f80 params) */
+    /* Inline asm, no operands. `table` is the 1-based IrModule.asms index;
+     * emission copies the template out verbatim. THE OPERAND FORM IS NOT
+     * THIS OP: it needs per-operand pre-coloring, early-clobber ranges and
+     * multi-register defs, which is regalloc work, and lowering refuses it
+     * by name until that lands rather than selecting something plausible. */
+    X64_OP_ASM,
     X64_OP_VASTART, /* a = va_list ptr: frame-finalize stores the
                        overflow_arg_area and reg_save_area pointers */
     /* --- Sprint 23: x87, the ONLY sanctioned x87 (f80). Values live in
