@@ -1,12 +1,22 @@
 # HANDOFF — read this before touching anything
 
-You are picking up **Cgfried**, a from-scratch C17 compiler. Sprints 0–50 are
-complete; **Sprint 51 is at 6 of 7** and §1b-1 says exactly what to do next
-and in what order. This file is the *transferable* part of what
-was learned building them: the traps that cost real debugging time, the
-invariants that look like style but are load-bearing, and the ritual the
-work follows. It is not a substitute for the sprint files — it is the
-thing that stops you re-learning what already hurt.
+You are picking up **Cgfried**, a from-scratch C17 compiler.
+
+**WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU extensions)
+is under way** — eight attributes implemented, and §1b-1's *WHERE THE WORK IS*
+says exactly what to do next and in what order. **Known-wrong-but-shipping is
+ZERO**: every open item is a named refusal or a deliberate deferral, listed
+there. `trunk` is green across all 14 CI jobs.
+
+**NEXT:** `constructor`/`destructor`/`cleanup` as a group, then D2 extended
+asm, D4 statement expressions + `typeof`, and **D5 `__GNUC__` LAST** — the day
+it is defined, every `__attribute__` in every system header goes live at once.
+
+This file is the *transferable* part of what was learned building all of it:
+the traps that cost real debugging time, the invariants that look like style
+but are load-bearing, and the ritual the work follows. It is not a substitute
+for the sprint files — it is the thing that stops you re-learning what already
+hurt.
 
 ---
 
@@ -35,11 +45,13 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ## 1. Current position
 
-- **Sprints 0–50 complete; Phases 1–9 closed. Sprint 51 is at 6 of 7** — see
-  §1b for what landed and §1b-1 for the ordered plan of what is next. Phase
-  10 (second backend and targets) is under way on top of the completed
-  preprocessor, frontend, sema, IR, x86_64 backend, driver, optimizer,
-  warnings, and memory-safety phases.
+- **Sprints 0–51 CLOSED; Phases 1–9 closed. Sprint 55 is UNDER WAY** — see
+  §1b-1's *WHERE THE WORK IS* for the resume point. Phase 10 (second backend
+  and targets) is under way on top of the completed preprocessor, frontend,
+  sema, IR, x86_64 backend, driver, optimizer, warnings, and memory-safety
+  phases. Sprint 55 was taken OUT OF NUMERICAL ORDER because 28 deferrals
+  pointed at it and it blocks hosted compilation on macOS and FreeBSD plus
+  the musl campaign (Sprint 57) that precedes the bootstrap (Sprint 58).
 - **`--target=` and `--sysroot=` exist now** (Sprint 51 D1) over the closed
   five-target set, so the compiler's architecture is no longer the target.
   `cgf_target_selected()` is the target, `cgf_target_host()` is the host, and
@@ -52,7 +64,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   audit and found only the `-g` gate the DWARF work had already removed.
 - **EIGHT GNU attributes are implemented**: `weak`, `visibility`, `packed`,
   `aligned`, `alias`, `used`, `__asm__("name")` labels, `section`. §1b-1 has
-  what each one taught and, under THE PICK, what to do next and why.
+  what each one taught, and *WHERE THE WORK IS* has what to do next and why.
 - **arm64-linux emits DWARF and `.eh_frame`**; `addr2line` resolves a linked
   executable. `src/cg/debug.c` is now the ONE line-table and CU-DIE emitter
   for every target, which also makes task #93's variable DIEs a write-once
@@ -77,7 +89,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   `afs-as/target/release/afs-as` and reported an error the source no longer
   produces.
 - **Known-wrong-but-shipping is now ZERO.** Everything open is a NAMED
-  refusal, which is a legitimate resting state — see §1b-1's THE PICK.
+  refusal or a deliberate deferral — see §1b-1's *WHERE THE WORK IS*.
 - **Controlling expressions are constrained** (was task #108, and it was
   bigger than its title). All twelve scalar positions — `if`/`while`/`do`/
   `for`, `?:`, `&&`, `||`, `!` — were unchecked for BOTH void and aggregate
@@ -134,10 +146,10 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   did not: arm64 ICEd on every one and x86 silently miscompiled any VLA in a
   function that also passed arguments on the stack. Multidimensional VLAs
   and pointers-to-VLA were wrong too.
-- The arm64 e2e corpus is **61/61**, and **61/61 again under
+- The arm64 e2e corpus is **63/63**, and **63/63 again under
   `CGF_SPILL_ALL=1`**. Keep both green; the spill lane exists because exactly
-  one fixture at one level once caught a stale NZCV producer index. Run them
-  ONE AT A TIME — see the shared-scratch trap above.
+  one fixture at one level once caught a stale NZCV producer index. They may
+  now be run in PARALLEL — each gets its own scratch (task #110).
 - Verified at the end of the Sprint 51 session, sequentially and locally
   (never two suites at once — §1b-2): gcc and clang `make test` both rc=0,
   **625 unit tests / 4,263,106 assertions**, 514 and 477 fixture profiles,
@@ -145,11 +157,15 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
   target in both directions. Re-verified after the VLA campaign: same unit
   counts, 516 and 477 fixture profiles, arm64 corpus and spill-all **57/57**
   each, musl warning lane unchanged at 716/1361 parsed / 645 deferred / 186
-  oracle-matched / zero false positives. Re-verified again after `section` and
-  the summary-table shape gate: gcc and clang `make test` both rc=0 at **626
-  unit tests / 4,263,123 assertions** and 477 fixture profiles, arm64 corpus
-  and spill-all **61/61** each, memsafe 90/90 + interproc 50/50 + foundation
-  14, safe-mode 56/56, e2ediff 10/10, a64 objdiff 20 identical / 0 pinned.
+  oracle-matched / zero false positives. **Latest full local verification**
+  (after `section`, the summary-table shape gate, `.rodata`, AS-SET-002, the
+  scalar/switch constraints and the runner scratch): gcc and clang
+  `make test` both rc=0 at **626 unit tests / 4,263,123 assertions**, arm64
+  corpus and spill-all **63/63** each AND 63/63 with both lanes run in
+  PARALLEL, memsafe 90/90 + interproc 50/50 + foundation 14, safe-mode 56/56,
+  e2ediff 10/10, a64 objdiff 20 identical / 0 pinned, x86 objdiff 38/38,
+  c-testsuite 215/220 with 0 new, 100k sanitized fuzz 0 findings, safe-dogfood
+  102 TUs / zero exemptions. All 14 CI jobs green on `trunk`.
 - `cgf hello.c -o hello && ./hello` works on **x86_64-linux AND
   arm64-linux**. On arm64 the compiler emits its own assembly, assembles it
   with the bundled afs-as into ELF objects byte-identical to
@@ -489,17 +505,17 @@ deferred with zero memory diagnostics.
 
 ---
 
-## 1b. WHERE THE WORK IS RIGHT NOW (Sprint 51 at 6 of 7)
+## 1b. HOW SPRINTS 50 AND 51 GOT HERE (both CLOSED; background)
 
 **Sprint 50 (arm64-macos) is CLOSED**: three DoD gates met as written, three
 partial with the reason named and ticketed. The gate-by-gate audit is at the
 end of `.docs/sprints/10-backend-arm64/s50-arm64-macos.md`.
 
-**Sprint 51 is at 6 of 7 deliverables.** D1 (host/target split, `--target=`,
-`--sysroot=`), D2 (PIC/PIE per architecture, `-shared`), D3 (TLS), D4 (musl
-and FreeBSD bring-up), D5, and D6 (the ABI differential) have landed and are
-verified. **D7 (the cross-target DWARF differential) is BLOCKED** — see
-below, it is not a harness task.
+**Sprint 51 is CLOSED, all seven deliverables.** D1 (host/target split,
+`--target=`, `--sysroot=`), D2 (PIC/PIE per architecture, `-shared`), D3
+(TLS), D4 (musl and FreeBSD bring-up), D5, D6 (the ABI differential) and D7
+(arm64 DWARF line tables + `.eh_frame` CFI). What follows is the record of
+how it got there; the LIVE work is Sprint 55 — see §1b-1.
 
 ### Sprint 50 (arm64-macos), still true and still needing its lanes run
 
@@ -638,6 +654,9 @@ where gcc printed 0, with no diagnostic anywhere.
 ---
 
 ## 1b-1. THE NEXT WORK, in the order it should be done
+
+**Sprint 55 is the live one.** Skip to *WHERE THE WORK IS* below for the
+resume point; the STEPS above it are the closed Sprint 51 record.
 
 The user's standing position, stated explicitly: *"I'm generally not
 comfortable leaving deferrals sitting around for long periods."* The plan
@@ -787,40 +806,93 @@ labels, `section`.
   there gets real bytes rather than a `.bss` reservation -- otherwise it lands
   outside the section the author named.
 
-#### THE PICK, if you are asking what to do next
+#### WHERE THE WORK IS, AND WHAT TO DO NEXT
 
-**Sort the open items first, because they are not the same kind of thing.**
+**Everything that was silently wrong is fixed. Start from a clean slate.**
+
+Closed in the session that wrote this: `section` (the 8th attribute), the
+memory-summary shape gate, `.rodata`, AS-SET-002 (afs-as PR #29, so aliases
+EXECUTE on arm64), the scalar/switch controlling-expression constraints, and
+the runner's per-invocation scratch. **Known-wrong-but-shipping is ZERO** --
+every open item is either a named refusal or a deliberate deferral.
+
+**NEXT, in order:**
+
+1. **`constructor` / `destructor` / `cleanup`**, as a GROUP. They share the
+   "runs outside `main`" story and need `.init_array`/`.fini_array`, so doing
+   them together means writing that machinery once. `cleanup` is the odd one
+   -- it runs at SCOPE EXIT, not at exit(), so it is a lowering problem
+   (every path out of the block, including `goto` and `return`) rather than
+   a section problem. Measure gcc's `.init_array` ordering and priority
+   argument before writing anything.
+2. **D2 extended asm** (`asm` with operand constraints). The refused tier's
+   biggest row and the one real programs hit next.
+3. **D4 statement expressions + `typeof`**.
+4. **D5 `__GNUC__` -- LAST, and read the section below before starting it.**
+
+**STILL OPEN, sorted by what kind of thing they are:**
 
 *Named refusals -- LEAVE THEM.* Sprint 53's over-aligned stack objects,
-SEC-MACHO-001, and the six still-refused attributes all fail loudly and say
-what is missing. That is the tier table's whole point. Closing them is feature
-work, not gap-closing.
+SEC-MACHO-001 (`section` on Mach-O needs a SEGMENT,SECTION pair),
+PACKED-001, and the six still-refused attributes all fail loudly and say what
+is missing. That is the tier table working. Closing them is feature work, not
+gap-closing, and PACKED-001 in particular should stay open: nothing consumes
+an over-claimed load alignment today, and the evidence for that is recorded
+rather than assumed.
 
-*Silently wrong today -- these are the real ones.* Only two:
+*Real but not urgent.*
+- **Task #93 -- `-g` emits no variable DIEs**, so a debugger cannot name a
+  data symbol's source line. A genuine `-g` gap and a substantial standalone
+  DWARF piece; `src/cg/debug.c` being the ONE shared emitter now makes it a
+  write-once job rather than per-backend.
+- **Task #112 -- an explicitly zero-initialized global goes to `.data`**
+  where gcc uses `.bss`. Cosmetic (file size), both writable, values correct.
+  If you take it: a CONST all-zero object must keep real `.rodata` bytes,
+  never `.bss`, because `.bss` is writable.
+- **Task #113 -- unit tests write helper files to a fixed scratch path.**
+  The benign remnant of #110: fixed filenames, identical content, `EEXIST`
+  tolerated. Worth doing only if a third instance appears or either test
+  starts writing content that varies per run.
+- **Task #102 -- afs-as lacks x86_64 `@GOTPCREL`/`@PLT` operand syntax**, so
+  `-fPIC` on x86 needs `CGF_AS=0`. Upstream work.
 
-1. **`.rodata` -- MY PICK.** Const globals go in `.data`. Every `const`
-   global in every program sits in a WRITABLE segment. It is also the root of
-   the `"aw"` vs `"a"` divergence documented under `section`, so fixing it
-   RETIRES that entry instead of leaving a permanent footnote. Self-contained:
-   a read-only flag on `IrGlobal`, set from the type's constness at lowering,
-   consumed by two emitters.
-   **MEASURE FIRST:** gcc puts a const global whose initializer contains a
-   RELOCATION into `.data.rel.ro` under PIC, not `.rodata`. Get that wrong and
-   `-shared` builds hand the dynamic linker a read-only segment it must write.
-2. **Task #108** -- a void expression accepted where a scalar condition is
-   required. Small, and adjacent to the void-conditional typing fixed this
-   session.
+*The musl campaign (Sprint 57) and the bootstrap (Sprint 58)* are the real
+destination, and `_Thread_local` had to work before either -- it does now.
 
-*Coverage, not correctness.* **AS-SET-002** blocks arm64 EXECUTION coverage for
-aliases; the recipe including the cursor trap is in
-`.docs/audits/afsld-elf-debt.md`, so it is a focused change now rather than an
-exploration. **PACKED-001** should stay open: nothing consumes an over-claimed
-load alignment today, and the evidence for that is recorded rather than
-assumed.
+#### HABITS THAT PAID, REPEATEDLY
 
-After those: `constructor`/`destructor`/`cleanup` as a group (they share the
-"runs outside main" story and need `.init_array`), then D2 extended asm, D4
-statement expressions + typeof, and **D5 `__GNUC__` LAST**.
+- **Measure gcc BEFORE writing code.** It overruled the sprint's own tiering
+  three times; preparing `aligned` uncovered `_Alignas` on an object doing
+  nothing at all; and measuring PIC levels for `.rodata` caught that macOS is
+  unconditionally position-independent, where `__TEXT` is read-only AND
+  code-signed.
+- **Check the ARTIFACT, not the instruction.** `readelf -sW` vs the emitted
+  directive; the ADDRESS at run time vs `_Alignof`, which answers from the
+  TYPE and is right even when placement is wrong; a SIGSEGV on write vs a
+  `.section .rodata` line; linking and RUNNING vs reading assembly.
+- **NEVER grep for a word that appears in both success and failure.** I
+  checked whether `switch` was already constrained with `grep -c error`, saw a
+  non-zero count, and excluded it -- the count was the ICE's own
+  "internal compiler error" line, and the code then carried a comment
+  asserting something false.
+- **Mutate every new gate before trusting it.** Several gates have been
+  vacuous on first run, including `ASM_CHECK-NOT`, which walked into
+  F-S22-MIRCHECK: a new directive kind must ALSO be listed in `directive.c`'s
+  `add_dir` or it parses, validates, and asserts nothing.
+- **THE EXEMPTION IS THE HARD HALF of any new constraint.** Both constraints
+  added recently nearly rejected correct C -- `(void)f()` for the cast rule,
+  `if (arr)` and `if (fn)` for the scalar rule. Write the `_ok` fixture
+  first, and make it EXECUTE when the claim is a runtime one.
+- **A local green suite is not the fuzz job.** `make test` runs a 2,000-
+  iteration smoke; CI runs 100,000 under sanitizers. That gap has now caught
+  two real ICEs (seeds 76632 and 47924). Run the full 100k locally before
+  pushing anything that touches `tests/programs` -- and note that re-pinning
+  the digest CHANGES THE MUTATION SEQUENCE, so a corpus edit is never inert.
+- **A ledgered recipe is a hypothesis.** AS-SET-002's was wrong in its first
+  step and right in its trap. Re-measure before trusting one you wrote.
+- **FREEZE THE TREE while a verification run is in flight**, and never use
+  `git checkout <file>` to undo a scratch mutation in a file with uncommitted
+  work -- it reverts everything. Both cost real time in one session.
 
 #### D5 IS A PROMISE, AND ONE FACT GOVERNS EVERY FIXTURE UNTIL THEN
 
