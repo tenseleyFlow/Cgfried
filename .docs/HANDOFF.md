@@ -8,9 +8,31 @@ WORK IS* says exactly what to do next and in what order.
 **Known-wrong-but-shipping is ZERO**: every open item is a named refusal or a
 deliberate deferral, listed there. `trunk` is green across all 14 CI jobs.
 
-**NEXT: D2 extended asm**, then D4 statement expressions + `typeof`, and
-**D5 `__GNUC__` LAST** — the day it is defined, every `__attribute__` in every
-system header goes live at once.
+**NEXT: D2's OPERAND SLICE** (per-operand register allocation), then D4
+statement expressions + `typeof`, and **D5 `__GNUC__` LAST** — the day it is
+defined, every `__attribute__` in every system header goes live at once.
+
+**D2's first half is DONE.** The grammar, sema, `IrAsm` and the `-emit-ir`
+round trip all land, and BASIC asm executes on both targets at every level:
+`__asm__("nop")`, `asm volatile`, and file-scope asm defining real symbols.
+The operand form is REFUSED BY NAME in lowering.
+
+What the operand slice needs, and where to start:
+
+- **Per-operand register allocation.** Early-clobber live ranges, matching
+  constraints, fixed pre-coloring, and multi-register defs. The x86 `xuses`
+  mechanism carries implicit USES for calls; asm also needs implicit DEFS,
+  which is the one genuinely new piece.
+- **Start from the early-clobber fixture.** Drop the `&` from `"=&r"` in
+  `asm("movl $1, %0\n\taddl %1, %0" : "=&r"(o) : "r"(a))` and **gcc itself
+  returns 2 where 11 is correct**, deterministically at -O0 and -O2. That is
+  the wrong answer the whole slice exists to prevent, and it is already a
+  runnable program.
+- **The four optimizer rows are already in place** (dce, dse, licm, dep) and
+  are NOT observable until operands land — without the DCE one, an
+  operand-carrying asm is dropped and SCCP ICEs on the dangling use.
+- **`+` is already desugared** in lowering into an output plus a tied input,
+  so the allocator sees only matching constraints, never a third concept.
 
 **`cleanup` is DONE** (the eleventh attribute, and the first that is a
 LOWERING feature rather than a symbol property). What it taught, because two
@@ -100,6 +122,11 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 - **Sprint 51 is CLOSED** (all seven deliverables) and **Sprint 55 is under
   way** — see §1b-1. `ci/closed_sprints.txt` is 51; raising it forced an
   audit and found only the `-g` gate the DWARF work had already removed.
+- **Inline asm: BASIC works, operands refused by name.** An asm template is
+  TARGET-SPECIFIC ASSEMBLY, so a fixture in `tests/corpus` — which the arm64
+  lanes re-run under qemu — must select on `__x86_64__`/`__aarch64__` or it
+  cannot pass there. Mine did not, and both lanes said `unknown mnemonic
+  addl`.
 - **ELEVEN GNU attributes are implemented**: `weak`, `visibility`, `packed`,
   `aligned`, `alias`, `used`, `__asm__("name")` labels, `section`,
   `constructor`, `destructor`, `cleanup`. §1b-1 has what each one taught, and
