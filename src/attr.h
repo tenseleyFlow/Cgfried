@@ -52,6 +52,14 @@ typedef enum {
 
 struct AstNode;
 
+/* The priority an unprioritized `constructor`/`destructor` gets, and the top
+ * of the legal range. Measured, and the two facts are the same fact: gcc emits
+ * the plain unnumbered `.init_array` for BOTH `constructor` and
+ * `constructor(65535)`, so 65535 is not merely the maximum, it IS the default.
+ * 0..100 are reserved for the implementation and warn. */
+#define CGF_INIT_PRIORITY_DEFAULT 65535u
+#define CGF_INIT_PRIORITY_RESERVED_MAX 100u
+
 typedef struct GnuDeclAttrs {
     bool weak;
     u8 visibility; /* GnuVisibility */
@@ -104,6 +112,28 @@ typedef struct GnuDeclAttrs {
      * Arena-owned rather than interned, like `alias_target`, because a string
      * literal's bytes are not interned and the parser holds no interner. */
     const char *asm_name;
+    /* `constructor` / `destructor`: run this function before `main` or after
+     * it returns. They are INDEPENDENT flags rather than one enum because
+     * a combined `((constructor, destructor))` on one function is legal and
+     * emits both entries (measured).
+     *
+     * The priority is a constant EXPRESSION, not a literal -- gcc folds
+     * `constructor(sizeof(long) * 20)` to 160 -- so it is recorded here and
+     * folded in sema by the same evaluator `aligned` uses. NULL is the
+     * unprioritized form, which gcc spells as the plain `.init_array` and
+     * which is also what priority 65535 produces.
+     *
+     * A GCC BUG WE DELIBERATELY DO NOT REPLICATE: when the attribute sits on a
+     * definition that has a prior plain declaration, gcc keeps the
+     * constructor-ness and SILENTLY DROPS THE PRIORITY -- stable from 8.5
+     * through 16.1, and clang gets it right. gnu_attrs_merge unions like every
+     * other field here, so the priority survives; docs/gnu-extensions.md
+     * records the divergence. Quietly discarding an ordering the author asked
+     * for is precisely the failure mode this table exists to prevent. */
+    bool constructor;
+    bool destructor;
+    struct AstNode *ctor_priority;
+    struct AstNode *dtor_priority;
     /* `section("name")`: which output section this object or function lands
      * in. Arena-owned like the other string-valued ones.
      *

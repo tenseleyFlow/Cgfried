@@ -150,8 +150,14 @@ Callgraph *ipo_callgraph_build(IrModule *m)
     /* `used` says to keep the function even though nothing here references
      * it -- the same fact an alias target has, arrived at from the source
      * instead of from a `.set`, so it seeds the same root set. */
+    /* `constructor`/`destructor` are the same shape once more: nothing in the
+     * module calls one, and the backend's .init_array entry is a relocation
+     * the callgraph cannot see. Deleting one would compile and link and simply
+     * never run -- exactly the alias failure, minus the link error that made
+     * that one visible. */
     for (ai = 0; ai < m->nfuncs; ai++)
-        if (m->funcs[ai].is_used)
+        if (m->funcs[ai].is_used || m->funcs[ai].is_ctor ||
+            m->funcs[ai].is_dtor)
             g->address_taken[ai] = true;
     /* An ALIAS retains its target without any instruction naming it, and
      * without a relocation either -- the reference is a `.set` the assembler

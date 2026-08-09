@@ -1297,6 +1297,52 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
     }
 }
 
+/* `constructor`/`destructor` entries. `.xword` is the arm64 spelling of the
+ * 8-byte absolute pointer x86 writes as `.quad`, and as there it is the same
+ * under every PIC mode -- the link turns it into a RELATIVE relocation.
+ *
+ * Mach-O keeps constructors in `__DATA,__mod_init_func` and DESTRUCTORS
+ * nowhere: clang synthesizes a wrapper function that calls
+ * `__cxa_atexit(f, 0, &__dso_handle)` and registers THAT as an initializer.
+ * That is real machinery rather than a dialect difference, so it is refused by
+ * name instead of being emitted into a section the loader never reads -- a
+ * destructor that silently never runs is the failure this file's tier rules
+ * exist to prevent. Priorities on Mach-O order entries WITHIN this object
+ * only, because ld64 does not sort the section; clang has the same limit. */
+static void a64_emit_init_array(Emit *e, const IrModule *m, Buf *out)
+{
+    u32 i;
+    int pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        bool want_ctor = pass == 0;
+
+        for (i = 0; i < m->nfuncs; i++) {
+            const IrFunc *f = &m->funcs[i];
+            char sec[32];
+
+            if (want_ctor ? !f->is_ctor : !f->is_dtor)
+                continue;
+            if (e->apple) {
+                /* An unreachable backstop: lowering already refused this with
+                 * a real diagnostic, which is what a user must see. */
+                if (!want_ctor)
+                    CGF_ICE("arm64-macos: destructor reached emission");
+                buf_printf(
+                    out, "\t.section\t__DATA,__mod_init_func,mod_init_funcs\n");
+                buf_printf(out, "\t.p2align\t3\n");
+                buf_printf(out, "\t.quad\t%s\n", msym(e, f->name));
+                continue;
+            }
+            cg_init_array_section(sec, sizeof(sec), want_ctor,
+                                  want_ctor ? f->ctor_prio : f->dtor_prio);
+            buf_printf(out, "\t.section\t%s,\"aw\"\n", sec);
+            buf_printf(out, "\t.p2align\t3\n");
+            buf_printf(out, "\t.xword\t%s\n", f->name);
+        }
+    }
+}
+
 void a64_emit_globals(const IrModule *m, Buf *out, bool pic)
 {
     Emit e;
@@ -1329,4 +1375,5 @@ void a64_emit_globals(const IrModule *m, Buf *out, bool pic)
                    msym(&e, a->target));
     }
     a64_emit_globals_filtered(m, out, false, pic);
+    a64_emit_init_array(&e, m, out);
 }

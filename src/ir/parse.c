@@ -33,6 +33,12 @@ typedef enum TokKind {
     T_AIDENT, /* @name */
     T_INT,    /* [+-]?digits, value in ival as i64 bits */
     T_HEX,    /* 0x..., value in ival */
+    /* "..." — a quoted byte string. A section name is the only user today,
+     * and it needs one: `.note.GNU-stack` does not lex as an identifier here
+     * (no leading '.', no '-'), and a section name is an arbitrary string
+     * rather than a name in any of this format's namespaces. Only \" and \\
+     * are escapes, the same two ISO gives _Pragma's destringize. */
+    T_STR,
     T_LP,
     T_RP,
     T_LB,
@@ -173,6 +179,45 @@ static bool lex_all(P *p, const char *src)
             }
             t.kind = T_IDENT;
             t.len = (u32)(c - s);
+        } else if (*c == '"') {
+            /* Decoded into the arena as we go, so `s`/`len` name the VALUE
+             * rather than the spelling; nothing downstream has to know the
+             * bytes were ever quoted. */
+            const char *open = c;
+            char *dst;
+            u32 n = 0;
+
+            c++;
+            col++;
+            dst = arena_alloc(p->arena, strlen(c) + 1, 1);
+            while (*c && *c != '"') {
+                if (*c == '\\' && (c[1] == '"' || c[1] == '\\')) {
+                    c++;
+                    col++;
+                }
+                if (*c == '\n') {
+                    Tok bad = t;
+
+                    bad.len = 1;
+                    perr(p, &bad, "a newline inside a quoted string");
+                    return false;
+                }
+                dst[n++] = *c++;
+                col++;
+            }
+            if (*c != '"') {
+                Tok bad = t;
+
+                bad.len = (u32)(c - open);
+                perr(p, &bad, "unterminated string");
+                return false;
+            }
+            c++;
+            col++;
+            dst[n] = '\0';
+            t.kind = T_STR;
+            t.s = dst;
+            t.len = n;
         } else if (*c == '%' || *c == '@') {
             const char *s = c;
             char intro = *c;
@@ -376,6 +421,52 @@ static u8 parse_visibility_suffix(P *p)
 static const char *tok_name(P *p, const Tok *t)
 {
     return arena_strndup(p->arena, t->s, t->len);
+}
+
+/* ` section("name")`. Shared by the function and global headers so the two
+ * cannot drift -- printing it in both and parsing it in neither is what made
+ * -emit-ir ICE on every program using the attribute. */
+static bool parse_section_marker(P *p, const char **out)
+{
+    Tok *nm;
+
+    if (!tok_is(peek(p), "section"))
+        return true;
+    next(p);
+    if (!expect(p, T_LP, "'(' after 'section'"))
+        return false;
+    nm = expect(p, T_STR, "a quoted section name");
+    if (!nm)
+        return false;
+    *out = arena_strndup(p->arena, nm->s, nm->len);
+    return expect(p, T_RP, "')' after the section name") != NULL;
+}
+
+/* ` constructor` / ` constructor(N)`, and the destructor spelling. The bare
+ * form means CGF_INIT_PRIORITY_DEFAULT, which the printer omits for exactly
+ * that reason -- it is the priority the attribute's own bare form carries. */
+static bool parse_ctor_marker(P *p, const char *kw, bool *flag, u16 *prio)
+{
+    if (!tok_is(peek(p), kw))
+        return true;
+    next(p);
+    *flag = true;
+    *prio = (u16)CGF_INIT_PRIORITY_DEFAULT;
+    if (peek(p)->kind != T_LP)
+        return true;
+    next(p);
+    {
+        Tok *pv = expect(p, T_INT, "a priority");
+
+        if (!pv)
+            return false;
+        if (pv->ival > CGF_INIT_PRIORITY_DEFAULT) {
+            perr(p, pv, "%s priority out of range", kw);
+            return false;
+        }
+        *prio = (u16)pv->ival;
+    }
+    return expect(p, T_RP, "')' after the priority") != NULL;
 }
 
 static int lookup_type(const Tok *t)
@@ -1485,6 +1576,11 @@ static bool parse_func(P *p)
     u8 fn_visibility = GNU_VIS_UNSPEC;
     u32 fn_align = 0;
     bool fn_used = false;
+    const char *fn_section = NULL;
+    bool fn_ctor = false;
+    bool fn_dtor = false;
+    u16 fn_ctor_prio = (u16)CGF_INIT_PRIORITY_DEFAULT;
+    u16 fn_dtor_prio = (u16)CGF_INIT_PRIORITY_DEFAULT;
     bool internal_marker = false;
     bool setjmp_marker = false;
     bool contract_marker = false;
@@ -1587,6 +1683,12 @@ static bool parse_func(P *p)
         if (!expect(p, T_RP, "')' after the function alignment"))
             return false;
     }
+    if (!parse_section_marker(p, &fn_section))
+        return false;
+    if (!parse_ctor_marker(p, "constructor", &fn_ctor, &fn_ctor_prio))
+        return false;
+    if (!parse_ctor_marker(p, "destructor", &fn_dtor, &fn_dtor_prio))
+        return false;
     if (tok_is(peek(p), "abi")) {
         Tok *an;
 
@@ -1642,6 +1744,11 @@ static bool parse_func(P *p)
     f->visibility = fn_visibility;
     f->align = fn_align;
     f->is_used = fn_used;
+    f->section = fn_section;
+    f->is_ctor = fn_ctor;
+    f->is_dtor = fn_dtor;
+    f->ctor_prio = fn_ctor_prio;
+    f->dtor_prio = fn_dtor_prio;
     f->abi_ret = abi_ret;
     f->abi_ret_n = abi_ret_n;
     if (internal_marker)
@@ -1817,6 +1924,8 @@ static bool parse_global(P *p)
         next(p);
         g->is_const = true;
     }
+    if (!parse_section_marker(p, &g->section))
+        return false;
     g->visibility = parse_visibility_suffix(p);
     if (tok_is(peek(p), "init")) {
         Tok *blob;

@@ -533,6 +533,19 @@ typedef struct IrFunc {
     /* `section("name")` on a FUNCTION: which output section its code lands in.
      * NULL means the backend's default. */
     const char *section;
+    /* `constructor` / `destructor`: run around `main`. Independent, because
+     * one function may be both. The priorities are only meaningful when the
+     * matching flag is set, and CGF_INIT_PRIORITY_DEFAULT is a real priority
+     * rather than a sentinel -- gcc emits the same unnumbered section for the
+     * bare form and for an explicit 65535.
+     *
+     * Like `is_used`, these make the function an IPO ROOT: nothing in the
+     * module references a constructor, and the entry the backend emits is a
+     * relocation the callgraph cannot see. */
+    bool is_ctor;
+    bool is_dtor;
+    u16 ctor_prio;
+    u16 dtor_prio;
     bool is_weak;  /* the `weak` attribute, on a FUNCTION */
     u8 visibility; /* GnuVisibility */
     u8 linkage;    /* IrLinkage (Sprint 24: .globl vs .local emission);

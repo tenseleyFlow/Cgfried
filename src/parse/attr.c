@@ -19,6 +19,15 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     if (src->alias_target)
         dst->alias_target = src->alias_target;
     dst->used |= src->used;
+    /* Union, priority included. gcc drops the priority when the attribute
+     * arrives on a definition whose earlier declaration had none; keeping it
+     * is the deliberate divergence recorded in attr.h. */
+    dst->constructor |= src->constructor;
+    dst->destructor |= src->destructor;
+    if (src->ctor_priority)
+        dst->ctor_priority = src->ctor_priority;
+    if (src->dtor_priority)
+        dst->dtor_priority = src->dtor_priority;
     if (src->asm_name)
         dst->asm_name = src->asm_name;
     if (src->section_name)
@@ -207,6 +216,33 @@ static void parse_aligned(Parser *p, GnuDeclAttrs *gnu)
     }
 }
 
+/* `constructor` / `destructor`, each with an optional priority. The argument
+ * is a constant EXPRESSION for the same reason `aligned`'s is: gcc folds
+ * `constructor(sizeof(long) * 20)` to 160, and a literal-only parser would
+ * reject real code. Recorded here, folded and range-checked in sema. */
+static void parse_ctor_dtor(Parser *p, bool is_ctor, GnuDeclAttrs *gnu)
+{
+    AstNode **slot = is_ctor ? &gnu->ctor_priority : &gnu->dtor_priority;
+
+    if (is_ctor)
+        gnu->constructor = true;
+    else
+        gnu->destructor = true;
+
+    if (!parse_at_punct(p, PUNCT_LPAREN))
+        return; /* the bare form: default priority */
+    p->pos++;   /* '(' */
+    *slot = parse_cond_expr(p);
+    if (!parse_eat_punct(p, PUNCT_RPAREN)) {
+        parse_error(p, parse_peek(p), "expected ')' after the '%s' priority",
+                    is_ctor ? "constructor" : "destructor");
+        while (!parse_at_punct(p, PUNCT_RPAREN) &&
+               parse_peek(p)->kind != TOK_EOF)
+            p->pos++;
+        parse_eat_punct(p, PUNCT_RPAREN);
+    }
+}
+
 /* alias("target"). The argument is a STRING holding a symbol name. Token
  * spellings arrive pre-interned but a string literal's BYTES do not, and the
  * parser holds no interner, so this is arena-owned here and interned by sema
@@ -369,6 +405,14 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "section")) {
                             parse_section_attr(p, name, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "constructor")) {
+                            parse_ctor_dtor(p, true, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "destructor")) {
+                            parse_ctor_dtor(p, false, gnu);
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

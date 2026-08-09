@@ -721,6 +721,39 @@ static void emit_global_section(Buf *out, const IrGlobal *g, bool pic)
     }
 }
 
+/* The `.init_array`/`.fini_array` entries, one 8-byte absolute pointer per
+ * constructor or destructor.
+ *
+ * The entry is a plain `.quad f` with an absolute R_X86_64_64 relocation, and
+ * measurably the SAME under -fno-pic, -fPIE and -fPIC: for a PIE or a shared
+ * object the link turns it into R_X86_64_RELATIVE, which is the loader's job
+ * rather than ours. So unlike `.rodata`, there is no PIC split to get wrong.
+ *
+ * Emitted after the globals so the section switch lands at the end of the file
+ * and no later data emission has to switch back. */
+static void emit_init_array(const IrModule *m, Buf *out)
+{
+    u32 i;
+    int pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        bool want_ctor = pass == 0;
+
+        for (i = 0; i < m->nfuncs; i++) {
+            const IrFunc *f = &m->funcs[i];
+            char sec[32];
+
+            if (want_ctor ? !f->is_ctor : !f->is_dtor)
+                continue;
+            cg_init_array_section(sec, sizeof(sec), want_ctor,
+                                  want_ctor ? f->ctor_prio : f->dtor_prio);
+            buf_printf(out, "\t.section\t%s,\"aw\"\n", sec);
+            buf_printf(out, "\t.p2align\t3\n");
+            buf_printf(out, "\t.quad\t%s\n", f->name);
+        }
+    }
+}
+
 void x64_emit_globals(const IrModule *m, Buf *out, bool pic)
 {
     u32 i;
@@ -796,4 +829,5 @@ void x64_emit_globals(const IrModule *m, Buf *out, bool pic)
         buf_printf(out, "%s:\n", g->name);
         emit_image(m, g, out);
     }
+    emit_init_array(m, out);
 }

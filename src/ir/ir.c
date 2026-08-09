@@ -936,7 +936,10 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->calls_setjmp != y->calls_setjmp || x->is_weak != y->is_weak ||
             x->visibility != y->visibility ||
             x->fp_contract != y->fp_contract || x->align != y->align ||
-            x->is_used != y->is_used || !str_eq_opt(x->section, y->section))
+            x->is_used != y->is_used || !str_eq_opt(x->section, y->section) ||
+            x->is_ctor != y->is_ctor || x->is_dtor != y->is_dtor ||
+            (x->is_ctor && x->ctor_prio != y->ctor_prio) ||
+            (x->is_dtor && x->dtor_prio != y->dtor_prio))
             return false;
         for (j = 0; j < x->nparams; j++) {
             u64 xa = x->param_annots ? x->param_annots[j] : 0;

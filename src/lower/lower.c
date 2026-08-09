@@ -911,6 +911,29 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->fn->is_weak = sym->gnu.weak;
     lo->fn->is_used = sym->gnu.used;
     lo->fn->section = sym->section_name;
+    lo->fn->is_ctor = sym->gnu.constructor;
+    lo->fn->is_dtor = sym->gnu.destructor;
+    lo->fn->ctor_prio = sym->ctor_prio;
+    lo->fn->dtor_prio = sym->dtor_prio;
+    /* Mach-O has no .fini_array. clang implements `destructor` there by
+     * synthesizing a wrapper that calls __cxa_atexit(f, 0, &__dso_handle) and
+     * registering THAT as an initializer -- real machinery, not a dialect
+     * difference -- so it is refused until that lands.
+     *
+     * Refused HERE rather than in the emitter, and the distinction is not
+     * cosmetic: the backend's only refusal is CGF_ICE, whose text says "this is
+     * a bug in cgfried", which is the wrong thing to tell someone who wrote
+     * correct C. Same correction the over-aligned stack object got. */
+    if (lo->fn->is_dtor &&
+        cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
+        if (!lo->failed)
+            diag_emit(lo->dc, DIAG_ERROR, def->span,
+                      "the 'destructor' attribute is not supported on "
+                      "arm64-macos: Mach-O has no .fini_array, and a "
+                      "destructor there must be registered with __cxa_atexit "
+                      "(docs/gnu-extensions.md)");
+        lo->failed = true;
+    }
     lo->fn->visibility = sym->gnu.visibility;
     /* `aligned` on a FUNCTION aligns the CODE. Sema folded it into the same
      * field an object's alignment uses, because it is the same attribute in a

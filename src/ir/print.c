@@ -149,6 +149,21 @@ static ValNames vn_build(Arena *a, const IrFunc *f)
     return vn;
 }
 
+/* A section name is an arbitrary byte string -- `.note.GNU-stack` is ordinary
+ * and does not lex as an identifier -- so it is QUOTED, with the same two
+ * escapes ISO gives _Pragma's destringize. Printing it bare is what left
+ * `section` unparseable and made -emit-ir ICE on any program using it. */
+static void print_quoted(Buf *out, const char *s)
+{
+    buf_printf(out, "\"");
+    for (; *s; s++) {
+        if (*s == '"' || *s == '\\')
+            buf_printf(out, "\\");
+        buf_printf(out, "%c", *s);
+    }
+    buf_printf(out, "\"");
+}
+
 static void print_val(Buf *out, const ValNames *vn, u32 id)
 {
     if (id == 0 || id > vn->nvals || vn->num[id] == VN_NONE)
@@ -558,8 +573,26 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " align(%u)", f->align);
     if (f->is_used)
         buf_printf(out, " used");
-    if (f->section)
-        buf_printf(out, " section(%s)", f->section);
+    if (f->section) {
+        buf_printf(out, " section(");
+        print_quoted(out, f->section);
+        buf_printf(out, ")");
+    }
+    /* The priority is printed only when it is not the default, mirroring what
+     * the attribute itself means and keeping every existing golden unchanged.
+     */
+    if (f->is_ctor) {
+        if (f->ctor_prio == CGF_INIT_PRIORITY_DEFAULT)
+            buf_printf(out, " constructor");
+        else
+            buf_printf(out, " constructor(%u)", f->ctor_prio);
+    }
+    if (f->is_dtor) {
+        if (f->dtor_prio == CGF_INIT_PRIORITY_DEFAULT)
+            buf_printf(out, " destructor");
+        else
+            buf_printf(out, " destructor(%u)", f->dtor_prio);
+    }
     if (f->abi_ret >= IR_ABIRET_HFA_F32)
         buf_printf(out, " abi(%s,%u)", ir_abi_ret_name(f->abi_ret),
                    f->abi_ret_n);
@@ -632,8 +665,11 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
             buf_printf(out, " used");
         if (g->is_const)
             buf_printf(out, " const");
-        if (g->section)
-            buf_printf(out, " section(%s)", g->section);
+        if (g->section) {
+            buf_printf(out, " section(");
+            print_quoted(out, g->section);
+            buf_printf(out, ")");
+        }
         if (g->visibility)
             buf_printf(out, " visibility(%s)",
                        gnu_visibility_name(g->visibility));

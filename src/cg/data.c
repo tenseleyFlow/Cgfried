@@ -1,5 +1,7 @@
 #include "cg/data.h"
 
+#include <stdio.h>
+
 /* THE RULE, measured against gcc on x86_64 AND aarch64, at -fno-pic, -fPIE
  * and -fPIC (both targets agree on every row):
  *
@@ -45,4 +47,20 @@ CgDataSeg cg_global_segment(const IrGlobal *g, bool pic)
         return CG_SEG_RODATA;
     }
     return zero_init ? CG_SEG_BSS : CG_SEG_DATA;
+}
+
+/* The default priority is NOT a sentinel meaning "unprioritized": gcc emits
+ * the plain unnumbered section for the bare `constructor` and for an explicit
+ * `constructor(65535)` alike, so the two really are the same request. The
+ * linker places numbered sections ahead of the plain one, which is why a
+ * priority orders a function BEFORE the unprioritized ones rather than after.
+ */
+void cg_init_array_section(char *buf, size_t bufsz, bool is_ctor, u16 prio)
+{
+    const char *base = is_ctor ? ".init_array" : ".fini_array";
+
+    if (prio == (u16)CGF_INIT_PRIORITY_DEFAULT)
+        snprintf(buf, bufsz, "%s", base);
+    else
+        snprintf(buf, bufsz, "%s.%05u", base, (unsigned)prio);
 }

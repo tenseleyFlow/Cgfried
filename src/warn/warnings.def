@@ -119,6 +119,11 @@ W(WARN_POINTER_COMPARED_TO_ZERO_WITH_RELATIONAL, "pointer-compared-to-zero-with-
 W(WARN_POINTER_SIGN, "pointer-sign", WG_ALL, WD_WALL, WL_WARN)
 W(WARN_POINTER_TO_INT_CAST, "pointer-to-int-cast", WG_NONE, WD_OFF, WL_WARN)
 W(WARN_PRAGMAS, "pragmas", WG_NONE, WD_ON, WL_WARN)
+/* A registry SUPPLEMENT: gcc 8 emits this warning unconditionally, with no
+ * flag to turn it off. gcc 9 gave it this spelling, and every diagnostic here
+ * needs an id to be controllable at all -- so we take the modern name rather
+ * than shipping a warning a user cannot silence. */
+W(WARN_PRIO_CTOR_DTOR, "prio-ctor-dtor", WG_CGF_EXT, WD_ON, WL_WARN)
 W(WARN_REDUNDANT_DECLS, "redundant-decls", WG_NONE, WD_OFF, WL_WARN)
 W(WARN_RESTRICT, "restrict", WG_ALL, WD_WALL, WL_WARN)
 W(WARN_RETURN_LOCAL_ADDR, "return-local-addr", WG_NONE, WD_ON, WL_WARN)

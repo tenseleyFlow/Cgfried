@@ -69,6 +69,8 @@ GA(alias, GA_IMPLEMENTED)
 /* `used` keeps a symbol the IPO pass would otherwise delete. */
 GA(used, GA_IMPLEMENTED)
 GA(aligned, GA_IMPLEMENTED)
+GA(constructor, GA_IMPLEMENTED)
+GA(destructor, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
 GA(section, GA_IMPLEMENTED)
 GA(visibility, GA_IMPLEMENTED)

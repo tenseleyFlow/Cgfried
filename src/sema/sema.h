@@ -204,6 +204,11 @@ struct Symbol {
      * linker sees is renamed. NULL means "use the identifier". */
     const char *asm_name;
     const char *section_name; /* `section("...")` */
+    /* Folded `constructor`/`destructor` priorities. Only meaningful when the
+     * matching gnu.constructor / gnu.destructor flag is set; CGF_INIT_PRIORITY_
+     * DEFAULT otherwise, which is also what the unprioritized form means. */
+    u16 ctor_prio;
+    u16 dtor_prio;
     Span alias_span; /* where the attribute was written, for the diagnostic */
     /* Implemented GNU attributes. Merged across declarations like the
      * inline matrix is: a plain declaration followed by a `weak` one
