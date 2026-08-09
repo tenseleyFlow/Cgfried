@@ -407,14 +407,38 @@ AstNode *parse_stmt(Parser *p)
                                 "an asm block needs control-flow edges the IR "
                                 "verifier could only trust rather than check "
                                 "(docs/gnu-extensions.md)");
-                else
-                    parse_error(p, t,
-                                "inline asm is not yet supported (lands in "
-                                "Sprint 55)");
+                else {
+                    /* A real parse. The qualifiers scanned above decorate
+                     * the construct; `volatile` is the one with meaning,
+                     * and `inline` on an asm is a size hint we record
+                     * nowhere because ignoring it costs nothing. */
+                    AstNode *a = stmt_new(p, AST_STMT_ASM, t->span);
+                    u32 j;
+
+                    for (j = 1; j < k; j++)
+                        if (parse_peek_n(p, j)->kw == KW_VOLATILE ||
+                            parse_peek_n(p, j)->kw == KW_ALT_VOLATILE)
+                            a->asm_volatile = true;
+                    p->pos += k; /* asm and its qualifiers */
+                    if (parse_asm_body(p, a)) {
+                        parse_expect_punct(p, PUNCT_SEMI,
+                                           "after an asm statement");
+                        return a;
+                    }
+                    /* Fall through to the recovery scan below. */
+                }
             }
             /* Recover past the whole construct either way: the template is
              * a string and the operand lists are parenthesized, so scanning
-             * to the semicolon at depth 0 is enough and always advances. */
+             * to the semicolon outside the parentheses is enough and always
+             * advances.
+             *
+             * The depth test is `<= 0`, not `== 0`, because the body parser
+             * can now fail INSIDE the parentheses -- a label list is the
+             * live case -- and the scan then meets the closing ')' first and
+             * drives the counter negative. With `== 0` it never stopped, ate
+             * the rest of the function and reported a missing '}' on top of
+             * the real diagnostic. */
             {
                 int depth = 0;
 
@@ -423,7 +447,7 @@ AstNode *parse_stmt(Parser *p)
                         depth++;
                     else if (parse_at_punct(p, PUNCT_RPAREN))
                         depth--;
-                    else if (depth == 0 && parse_at_punct(p, PUNCT_SEMI))
+                    else if (depth <= 0 && parse_at_punct(p, PUNCT_SEMI))
                         break;
                     p->pos++;
                 }

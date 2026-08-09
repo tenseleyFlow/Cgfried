@@ -323,7 +323,8 @@ static bool memory_state_barrier(const IrInst *in)
 {
     return in->op == IR_CALL || in->op == IR_ATOMICRMW ||
            in->op == IR_CMPXCHG || in->op == IR_VA_START ||
-           in->op == IR_STACKSAVE || in->op == IR_STACKRESTORE;
+           in->op == IR_STACKSAVE || in->op == IR_STACKRESTORE ||
+           in->op == IR_ASM;
 }
 
 static bool load_unclobbered(AliasCtx *alias, const IrFunc *f, const Loop *loop,

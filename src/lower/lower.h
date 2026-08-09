@@ -210,6 +210,10 @@ IrModule *lower_translation_unit_for_flow(Arena *arena, DiagCtx *dc, Sema *sema,
  * no "materialize" instruction) and computed values arrive as IROP_VALUE.
  * An aggregate-typed rvalue is the ADDRESS of the object/temporary. */
 Lvalue lower_lvalue(Lower *lo, AstNode *e); /* address; no load */
+
+/* src/lower/asm.c */
+void lower_asm(Lower *lo, AstNode *s);
+bool lower_asm_clobber_reg(const char *name, u8 *out);
 IrOperand lower_rvalue(Lower *lo, AstNode *e);
 /* Stores through an lvalue; returns the RESULT VALUE of an assignment,
  * which for a bitfield is the stored value re-narrowed (masked and, for

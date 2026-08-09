@@ -116,6 +116,11 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def);
  * entry point (6.6). */
 AstNode *parse_expr(Parser *p);
 AstNode *parse_assign_expr(Parser *p);
+
+/* src/parse/asm.c: everything from the '(' of an asm construct to its
+ * matching ')'. The caller consumes the keyword and its qualifiers, so the
+ * same body parser serves the statement form and file-scope basic asm. */
+bool parse_asm_body(Parser *p, AstNode *n);
 AstNode *parse_cond_expr(Parser *p);
 
 /* Statements. `parse_compound_stmt` does NOT push a scope — the caller

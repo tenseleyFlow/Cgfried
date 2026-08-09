@@ -424,7 +424,7 @@ static bool is_pinned(const IrInst *in)
     return (in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) != 0 ||
            in->op == IR_ATOMICRMW || in->op == IR_CMPXCHG ||
            in->op == IR_VA_START || in->op == IR_STACKSAVE ||
-           in->op == IR_STACKRESTORE;
+           in->op == IR_STACKRESTORE || in->op == IR_ASM;
 }
 
 static bool supported_body_op(const IrInst *in)

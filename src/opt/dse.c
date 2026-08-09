@@ -140,6 +140,11 @@ static bool is_barrier(const IrInst *in)
     case IR_STACKRESTORE:
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
+    /* A `"memory"` clobber means exactly this barrier, and an asm without
+     * one still writes its outputs through addresses this pass cannot
+     * follow. Treating every asm as a barrier is the conservative reading
+     * and the only one that is right without parsing the template. */
+    case IR_ASM:
         return true;
     default:
         return false;

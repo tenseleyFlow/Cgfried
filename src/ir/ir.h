@@ -190,6 +190,21 @@ typedef enum IrOp {
      * chosen over a two-result instruction the IR cannot express. */
     IR_ATOMICRMW,
     IR_CMPXCHG,
+    /* Inline assembly (Sprint 55). The instruction carries an index into
+     * IrModule.asms rather than the template text, because the text and the
+     * per-operand constraints are ONE record that every consumer needs
+     * whole: the printer, the parser, the register allocator and the
+     * emitter all read the same IrAsm.
+     *
+     * IR_ASM never defines a value. C asm can have SEVERAL outputs and an
+     * IR instruction defines at most one, so outputs travel as ADDRESS
+     * operands: the backend allocates a register per the constraint, runs
+     * the template, then stores that register through the address. The
+     * constraint is still honoured -- `=r` really is in a register while
+     * the template runs -- and the model needs no tuple type. The cost is
+     * that an asm output variable is address-taken and so never promoted
+     * out of memory; ASM-001 records it. */
+    IR_ASM,
     /* terminators */
     IR_RET,
     IR_BR,
@@ -683,6 +698,50 @@ typedef struct IrAlias {
     u8 visibility; /* GnuVisibility */
 } IrAlias;
 
+/* How a constraint letter resolved, decided in lowering because the letters
+ * are TARGET vocabulary: `r` means the same everywhere, `d` is rdx on x86-64
+ * and a d-register on arm64. The backend sees a class, never a letter. */
+typedef enum {
+    ASM_CLS_REG,   /* any allocatable GP register */
+    ASM_CLS_FPREG, /* any allocatable FP/vector register (x / w) */
+    ASM_CLS_FIXED, /* one named physical register (a b c d S D, or a clobber) */
+    ASM_CLS_MEM,   /* a memory operand */
+    ASM_CLS_IMM    /* an assemble-time constant */
+} IrAsmClass;
+
+typedef struct IrAsmOp {
+    const char *constraint; /* as spelled, for diagnostics and round-trip */
+    const char *name;       /* [symbolic] name, or NULL */
+    u8 cls;                 /* IrAsmClass */
+    u8 reg;                 /* ASM_CLS_FIXED: the target's register number */
+    bool is_output;
+    /* Early clobber (`&`): this output may be written BEFORE the template
+     * finishes reading its inputs, so it must not share a register with
+     * any of them. Missing this is the classic silent wrong-answer
+     * generator -- gcc itself returns 2 rather than 11 for the fixture in
+     * tests/programs/gnu/ when the `&` is dropped. */
+    bool early_clobber;
+    /* Matching constraint (`"0"`): this input must land exactly where that
+     * output did. `+` desugars to an output plus one of these BEFORE the
+     * allocator runs, so two operands name one location and nothing
+     * downstream needs a third concept. */
+    i32 tied_to; /* operand index, or -1 */
+    i64 imm;     /* ASM_CLS_IMM: the folded value */
+} IrAsmOp;
+
+typedef struct IrAsm {
+    const char *tmpl;
+    IrAsmOp *ops; /* outputs first, then inputs: the template's %0 order */
+    u32 nops;
+    u32 noutputs;
+    bool is_basic;    /* no colon: `%` reaches the assembler verbatim */
+    bool is_volatile; /* never deleted, even with unused outputs */
+    bool clobbers_memory;
+    bool clobbers_cc;
+    u8 *clobber_regs; /* named register clobbers, target register numbers */
+    u32 nclobber_regs;
+} IrAsm;
+
 typedef struct IrModule {
     Arena *arena;
     DiagCtx *dc;
@@ -705,6 +764,16 @@ typedef struct IrModule {
     u32 nmem_layouts;
     u32 cap_mem_layouts;
     IrAlias *aliases;
+    /* Inline-asm records, referenced by IR_ASM instructions through a
+     * 1-based index in the instruction's `callee` slot. */
+    IrAsm *asms;
+    u32 nasms;
+    u32 cap_asms;
+    /* File-scope basic asm, in source order, emitted verbatim between
+     * functions the way gcc does. */
+    const char **file_asms;
+    u32 nfile_asms;
+    u32 cap_file_asms;
     u32 naliases;
     u32 cap_aliases;
 } IrModule;
@@ -718,6 +787,8 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
 IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
 IrGlobal *ir_global_new(IrModule *m, const char *name);
+u32 ir_asm_new(IrModule *m, const IrAsm *a); /* returns the 1-based index */
+void ir_module_add_file_asm(IrModule *m, const char *text);
 IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target);
 IrAlias *ir_alias_find(IrModule *m, const char *name);
 IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,
@@ -806,6 +877,7 @@ void ir_build_switch(IrBuilder *b, IrOperand x, BlockId defblk,
 void ir_build_unreachable(IrBuilder *b);
 /* `va_start ptr` — see the IrOp comment for what codegen fills. */
 void ir_build_va_start(IrBuilder *b, IrOperand ap);
+void ir_build_asm(IrBuilder *b, u32 asm_index, const IrOperand *ops, u32 nops);
 ValueId ir_build_stacksave(IrBuilder *b);
 void ir_build_stackrestore(IrBuilder *b, IrOperand tok);
 /* seq_cst RMW: returns the OLD value; val/result type = t (int only). */

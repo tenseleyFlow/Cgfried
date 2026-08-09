@@ -1829,6 +1829,28 @@ AstNode *parse_translation_unit(Parser *p)
             break;
         /* Bound the panic window to one top-level declaration. */
         p->recovering = false;
+        /* File-scope basic asm: `asm("...");` between declarations. It has
+         * no operands by definition -- there is nothing at file scope for
+         * an operand to name -- so the body parser's basic path handles it
+         * and anything else reports there. gcc emits the string verbatim
+         * into the output, which is how musl's crt files place their entry
+         * stubs. */
+        if (parse_at_kw(p, KW_ASM) || parse_at_kw(p, KW_ALT_ASM) ||
+            parse_at_kw(p, KW_ALT_ASM2)) {
+            AstNode *a = ast_new(p->arena, AST_STMT_ASM, parse_peek(p)->span);
+
+            p->pos++;
+            if (parse_asm_body(p, a)) {
+                parse_expect_punct(p, PUNCT_SEMI, "after file-scope asm");
+                if (!a->asm_basic)
+                    parse_error(p, parse_peek(p),
+                                "file-scope asm takes no operands");
+                NodeVec_push(&decls, a);
+            } else {
+                p->pos++;
+            }
+            continue;
+        }
         d = parse_declaration(p, true);
 
         if (d)

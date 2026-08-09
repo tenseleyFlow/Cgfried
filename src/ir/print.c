@@ -43,7 +43,8 @@ static const char *const op_names[] = {
     "memset",      "call",        "select",       "vsplat",     "vextract",
     "vreduce_add", "vreduce_mul", "vreduce_and",  "vreduce_or", "vreduce_xor",
     "va_start",    "stacksave",   "stackrestore", "atomicrmw",  "cmpxchg",
-    "ret",         "br",          "condbr",       "switch",     "unreachable",
+    "asm",         "ret",         "br",           "condbr",     "switch",
+    "unreachable",
 };
 
 static const char *const rmw_names[] = {
@@ -149,17 +150,36 @@ static ValNames vn_build(Arena *a, const IrFunc *f)
     return vn;
 }
 
-/* A section name is an arbitrary byte string -- `.note.GNU-stack` is ordinary
- * and does not lex as an identifier -- so it is QUOTED, with the same two
- * escapes ISO gives _Pragma's destringize. Printing it bare is what left
- * `section` unparseable and made -emit-ir ICE on any program using it. */
+/* An arbitrary byte string, QUOTED. A section name needs it because
+ * `.note.GNU-stack` does not lex as an identifier -- printing it bare is what
+ * left `section` unparseable and made -emit-ir ICE on any program using it.
+ *
+ * NEWLINE AND TAB ARE ESCAPED TOO, which the section case never needed and
+ * the asm case cannot do without: an asm template is routinely multi-line
+ * (`"movl %1, %0\n\taddl $1, %0"`), and a raw newline inside a quoted string
+ * would end the instruction's LINE in a line-oriented format. The IR parser
+ * decodes exactly these four. */
 static void print_quoted(Buf *out, const char *s)
 {
     buf_printf(out, "\"");
     for (; *s; s++) {
-        if (*s == '"' || *s == '\\')
-            buf_printf(out, "\\");
-        buf_printf(out, "%c", *s);
+        switch (*s) {
+        case '"':
+            buf_printf(out, "\\\"");
+            break;
+        case '\\':
+            buf_printf(out, "\\\\");
+            break;
+        case '\n':
+            buf_printf(out, "\\n");
+            break;
+        case '\t':
+            buf_printf(out, "\\t");
+            break;
+        default:
+            buf_printf(out, "%c", *s);
+            break;
+        }
     }
     buf_printf(out, "\"");
 }
@@ -470,6 +490,44 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         buf_printf(out, "stackrestore ");
         print_atom(out, m, vn, &in->ops[0]);
         break;
+    case IR_ASM: {
+        /* The whole record prints inline rather than as a reference into a
+         * module-level table, so one line of IR text is one asm and the
+         * round-trip needs no side channel. */
+        const IrAsm *a = in->callee && in->callee <= m->nasms
+                             ? &m->asms[in->callee - 1]
+                             : NULL;
+        u32 i;
+
+        buf_printf(out, "asm");
+        if (a && a->is_volatile)
+            buf_printf(out, " volatile");
+        if (a && a->is_basic)
+            buf_printf(out, " basic");
+        buf_printf(out, " ");
+        print_quoted(out, a ? a->tmpl : "");
+        for (i = 0; a && i < a->nops; i++) {
+            buf_printf(out, ", %s", a->ops[i].is_output ? "out" : "in");
+            if (a->ops[i].early_clobber)
+                buf_printf(out, "&");
+            if (a->ops[i].tied_to >= 0)
+                buf_printf(out, "=%d", a->ops[i].tied_to);
+            buf_printf(out, " ");
+            print_quoted(out, a->ops[i].constraint);
+            buf_printf(out, " ");
+            print_atom(out, m, vn, &in->ops[i]);
+        }
+        if (a && (a->clobbers_memory || a->clobbers_cc || a->nclobber_regs)) {
+            buf_printf(out, ", clobbers");
+            if (a->clobbers_memory)
+                buf_printf(out, " memory");
+            if (a->clobbers_cc)
+                buf_printf(out, " cc");
+            for (i = 0; i < a->nclobber_regs; i++)
+                buf_printf(out, " r%u", (unsigned)a->clobber_regs[i]);
+        }
+        break;
+    }
     case IR_ATOMICRMW:
         buf_printf(out, "atomicrmw %s %s ", rmw_names[in->subop],
                    type_names[in->type]);

@@ -78,9 +78,20 @@ typedef enum AstKind {
     AST_STMT_CASE,   /* case lhs : body */
     AST_STMT_DEFAULT,
     AST_STMT_DECL, /* a declaration used as a block item; lhs is the decl */
+    AST_STMT_ASM,  /* asm [quals] ( template [: out [: in [: clobbers]]] ) */
 
     AST_ERROR, /* poison; Sprint 11 owns recovery */
 } AstKind;
+
+/* One extended-asm operand. The constraint is kept as SPELLED and decoded
+ * per target, because the letters are target vocabulary: `r` means the same
+ * thing everywhere but `d` is rdx on x86-64 and a d-register on arm64. */
+typedef struct AsmOperand {
+    const char *constraint; /* the raw string, minus nothing */
+    const char *name;       /* [symbolic] name, or NULL */
+    struct AstNode *expr;   /* the C operand; an lvalue for outputs */
+    Span span;
+} AsmOperand;
 
 /* Storage classes and function specifiers, as SPELLED. */
 #define AST_SC_TYPEDEF 0x01
@@ -286,6 +297,21 @@ struct AstNode {
     /* AST_TRANSLATION_UNIT */
     AstNode **decls;
     u32 ndecls;
+
+    /* AST_STMT_ASM. `asm_basic` is the whole difference between the two
+     * dialects and it is decided by PUNCTUATION, not by operand counts: a
+     * template with no colon after it is BASIC and its `%` characters pass
+     * through verbatim, while `asm("..." : : )` with three empty lists is
+     * EXTENDED and processes them. Measured against gcc -- `asm("%%eax")`
+     * emits `%%eax` and `asm("%%eax" : : )` emits `%eax`. */
+    const char *asm_tmpl;
+    AsmOperand *asm_ops; /* outputs first, then inputs: gcc's %0 numbering */
+    u32 asm_nops;
+    u32 asm_noutputs;
+    const char **asm_clobbers;
+    u32 asm_nclobbers;
+    bool asm_volatile;
+    bool asm_basic;
 };
 
 AstNode *ast_new(Arena *a, AstKind k, Span sp);

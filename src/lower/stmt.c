@@ -660,6 +660,10 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         ensure_open_block(lo, "dead");
         lower_local_decl(lo, s->lhs);
         return;
+    case AST_STMT_ASM:
+        ensure_open_block(lo, "dead");
+        lower_asm(lo, s);
+        return;
     case AST_STMT_EXPR:
         ensure_open_block(lo, "dead");
         (void)lower_rvalue(lo, s->lhs);

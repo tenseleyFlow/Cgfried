@@ -18,6 +18,18 @@ static bool dce_root(const IrInst *in)
     case IR_STACKRESTORE:
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
+    /* An asm is opaque: nothing here can prove what its template does, and
+     * lowering already made every asm with no outputs volatile, which is
+     * gcc's rule. IR_ASM produces no SSA value, so this row is the only
+     * thing keeping one alive.
+     *
+     * MEASURED, because the first reading of the evidence was wrong: with
+     * this row removed, an OPERAND-carrying asm is dropped and SCCP then
+     * ICEs on the dangling use ("use references invalid value 0"). An
+     * operand-FREE asm survives either way today, so the row is not
+     * observable until the operand slice lands -- which is exactly when it
+     * would otherwise be discovered by a crash. */
+    case IR_ASM:
     case IR_RET:
     case IR_BR:
     case IR_CONDBR:

@@ -2424,6 +2424,11 @@ static void sema_decl(Sema *s, AstNode *d)
         if (d->type)
             (void)type_from_ast(s, d->type, d->span);
         return;
+    case AST_STMT_ASM:
+        /* File-scope basic asm declares nothing and names nothing: the text
+         * is opaque to every pass and reaches the emitter verbatim. The
+         * parser already rejected the operand form here. */
+        return;
     case AST_STATIC_ASSERT: {
         i64 v;
 
@@ -2627,6 +2632,35 @@ static void sema_stmt(Sema *s, AstNode *st)
             sema_stmt(s, st->items[i]);
         scope_pop(s);
         s->vm_chain = saved;
+        return;
+    }
+    case AST_STMT_ASM: {
+        /* Type the operand expressions; the constraint letters are decoded
+         * in lowering, where the target is known. An OUTPUT must be a
+         * modifiable lvalue for the same reason the left of `=` must be:
+         * the asm assigns to it. */
+        u32 k;
+
+        for (k = 0; k < st->asm_nops; k++) {
+            AstNode *e = st->asm_ops[k].expr;
+
+            if (!e)
+                continue;
+            st->asm_ops[k].expr = e = sema_expr(s, e);
+            if (k >= st->asm_noutputs || !e->sem_type)
+                continue;
+            if (!e->is_lvalue) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, e->span,
+                          "an asm output operand must be an lvalue");
+            } else if (e->sem_type->quals & CGF_QUAL_CONST) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, e->span,
+                          "an asm output operand must be modifiable, and "
+                          "'%s' is const-qualified",
+                          type_to_str(s->arena, e->sem_type));
+            }
+        }
         return;
     }
     case AST_STMT_DECL:

@@ -230,6 +230,35 @@ u32 ir_sym(IrModule *m, const char *name)
     return m->nsyms++;
 }
 
+/* The record is COPIED into the module: lowering builds it on the stack from
+ * the AST and the module owns it for the rest of the pipeline. The returned
+ * index is 1-based so that 0 keeps meaning "no record", matching every other
+ * index in this file. */
+u32 ir_asm_new(IrModule *m, const IrAsm *a)
+{
+    if (m->nasms == m->cap_asms) {
+        u32 nc = m->cap_asms ? m->cap_asms * 2 : 4;
+
+        m->asms = grow(m->arena, m->asms, m->nasms, nc, sizeof(IrAsm),
+                       _Alignof(IrAsm));
+        m->cap_asms = nc;
+    }
+    m->asms[m->nasms++] = *a;
+    return m->nasms;
+}
+
+void ir_module_add_file_asm(IrModule *m, const char *text)
+{
+    if (m->nfile_asms == m->cap_file_asms) {
+        u32 nc = m->cap_file_asms ? m->cap_file_asms * 2 : 4;
+
+        m->file_asms = grow(m->arena, m->file_asms, m->nfile_asms, nc,
+                            sizeof(const char *), _Alignof(const char *));
+        m->cap_file_asms = nc;
+    }
+    m->file_asms[m->nfile_asms++] = text;
+}
+
 IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target)
 {
     IrAlias *a;

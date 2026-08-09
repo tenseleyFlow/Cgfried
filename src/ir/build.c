@@ -510,6 +510,19 @@ void ir_build_stackrestore(IrBuilder *b, IrOperand tok)
     in->nops = 1;
 }
 
+/* Inline asm. `asm_index` is the 1-based IrModule.asms index; the operands
+ * are in the template's %0 order, outputs (as ADDRESSES) first. */
+void ir_build_asm(IrBuilder *b, u32 asm_index, const IrOperand *ops, u32 nops)
+{
+    IrInst *in = append(b, IR_ASM, IRT_VOID, false);
+
+    in->callee = asm_index;
+    if (nops) {
+        in->ops = copy_ops(b->m, ops, nops);
+        in->nops = nops;
+    }
+}
+
 ValueId ir_build_atomicrmw(IrBuilder *b, IrAtomicRmw op, IrType t,
                            IrOperand ptr, IrOperand val)
 {

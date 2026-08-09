@@ -191,6 +191,24 @@ static bool lex_all(P *p, const char *src)
             col++;
             dst = arena_alloc(p->arena, strlen(c) + 1, 1);
             while (*c && *c != '"') {
+                /* The four escapes print_quoted emits. `\n` and `\t` are
+                 * DECODED rather than passed through because an asm
+                 * template really contains those bytes -- passing the
+                 * two-character spelling would hand the assembler a
+                 * backslash-n and round-tripping would then differ from
+                 * the original. */
+                if (*c == '\\' && c[1] == 'n') {
+                    dst[n++] = '\n';
+                    c += 2;
+                    col += 2;
+                    continue;
+                }
+                if (*c == '\\' && c[1] == 't') {
+                    dst[n++] = '\t';
+                    c += 2;
+                    col += 2;
+                    continue;
+                }
                 if (*c == '\\' && (c[1] == '"' || c[1] == '\\')) {
                     c++;
                     col++;
@@ -945,6 +963,129 @@ static bool parse_etype(P *p, u8 *out)
     return false;
 }
 
+/* An IR_ASM instruction, matching print.c's rendering exactly:
+ *
+ *   asm [volatile] [basic] "template"
+ *       [, (out|in)[&][=N] "constraint" <atom>]...
+ *       [, clobbers [memory] [cc] [rK]...]
+ *
+ * The whole record is inline rather than a reference into a module table, so
+ * one line of IR text is one asm and the round trip needs no side channel.
+ * Registers print as rK because the NUMBER is what the backend consumes; the
+ * letter that produced it was target vocabulary and is already decoded. */
+static bool parse_asm_inst(P *p)
+{
+    IrAsm a;
+    IrAsmOp ops[64];
+    IrOperand vals[64];
+    u8 clob[64];
+    u32 n = 0;
+    u32 nclob = 0;
+    IrInst *in;
+    Tok *t;
+
+    memset(&a, 0, sizeof(a));
+    if (tok_is(peek(p), "volatile")) {
+        next(p);
+        a.is_volatile = true;
+    }
+    if (tok_is(peek(p), "basic")) {
+        next(p);
+        a.is_basic = true;
+    }
+    t = expect(p, T_STR, "an asm template string");
+    if (!t)
+        return false;
+    a.tmpl = t->s;
+
+    while (peek(p)->kind == T_COMMA) {
+        next(p);
+        if (tok_is(peek(p), "clobbers")) {
+            next(p);
+            for (;;) {
+                Tok *c = peek(p);
+
+                if (tok_is(c, "memory")) {
+                    next(p);
+                    a.clobbers_memory = true;
+                } else if (tok_is(c, "cc")) {
+                    next(p);
+                    a.clobbers_cc = true;
+                } else if (c->kind == T_IDENT && c->len > 1 && c->s[0] == 'r' &&
+                           c->s[1] >= '0' && c->s[1] <= '9') {
+                    {
+                        u32 v = 0;
+                        u32 k;
+
+                        for (k = 1; k < c->len; k++)
+                            v = v * 10 + (u32)(c->s[k] - '0');
+                        if (nclob < 64)
+                            clob[nclob++] = (u8)v;
+                    }
+                    next(p);
+                } else {
+                    break;
+                }
+            }
+            continue;
+        }
+        if (n >= 64) {
+            perr(p, peek(p), "too many asm operands");
+            return false;
+        }
+        memset(&ops[n], 0, sizeof(ops[n]));
+        ops[n].tied_to = -1;
+        if (tok_is(peek(p), "out")) {
+            ops[n].is_output = true;
+        } else if (!tok_is(peek(p), "in")) {
+            perr(p, peek(p), "expected 'out' or 'in' for an asm operand");
+            return false;
+        }
+        next(p);
+        if (peek(p)->kind == T_IDENT && peek(p)->len == 1 &&
+            peek(p)->s[0] == '&') {
+            next(p);
+            ops[n].early_clobber = true;
+        }
+        if (peek(p)->kind == T_EQ) {
+            Tok *iv;
+
+            next(p);
+            iv = expect(p, T_INT, "a tied operand index");
+            if (!iv)
+                return false;
+            ops[n].tied_to = (i32)iv->ival;
+        }
+        t = expect(p, T_STR, "an asm operand constraint");
+        if (!t)
+            return false;
+        ops[n].constraint = t->s;
+        if (!parse_atom(p, IRT_PTR, &vals[n]))
+            return false;
+        n++;
+    }
+    if (n) {
+        a.ops = arena_alloc(p->arena, n * sizeof(IrAsmOp), _Alignof(IrAsmOp));
+        memcpy(a.ops, ops, n * sizeof(IrAsmOp));
+    }
+    a.nops = n;
+    for (a.noutputs = 0; a.noutputs < n && ops[a.noutputs].is_output;)
+        a.noutputs++;
+    if (nclob) {
+        a.clobber_regs = arena_alloc(p->arena, nclob, 1);
+        memcpy(a.clobber_regs, clob, nclob);
+        a.nclobber_regs = nclob;
+    }
+    in = inst_append(p, IR_ASM, IRT_VOID, NULL);
+    in->callee = ir_asm_new(p->m, &a);
+    if (n) {
+        in->ops = ops_alloc(p, n);
+        in->nops = n;
+        memcpy(in->ops, vals, n * sizeof(IrOperand));
+    }
+    return true;
+}
+
 static bool parse_inst(P *p)
 {
     Tok *res = NULL;
@@ -971,6 +1112,7 @@ static bool parse_inst(P *p)
     case IR_MEMSET:
     case IR_VA_START:
     case IR_STACKRESTORE:
+    case IR_ASM:
     case IR_RET:
     case IR_BR:
     case IR_CONDBR:
@@ -1339,6 +1481,8 @@ static bool parse_inst(P *p)
         in->ops = ops_alloc(p, 1);
         in->nops = 1;
         return parse_atom(p, IRT_PTR, &in->ops[0]);
+    case IR_ASM:
+        return parse_asm_inst(p);
     case IR_ATOMICRMW: {
         Tok *kt = expect(p, T_IDENT, "an atomicrmw operation");
         int rk = -1;
