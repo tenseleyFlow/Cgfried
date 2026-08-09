@@ -623,6 +623,51 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         v.anon = e; /* lowering materializes the .rodata object */
         return v;
     }
+    case AST_EXPR_COMPOUND_LIT: {
+        /* AN ARRAY LITERAL AT FILE SCOPE IS AN ADDRESS CONSTANT WITHOUT AN
+         * EXPLICIT `&`, exactly as an array designator is one line below and
+         * a string literal is one case above -- the array decays, and what
+         * it decays to is the address of an object with static storage
+         * duration (6.5.2.5p5).
+         *
+         * `&(int[3]){1,2,3}` already worked, because the address-of case
+         * further down handles a compound literal operand. `(int[3]){1,2,3}`
+         * did not, because `eval` had NO compound-literal case at all, so
+         * the implicit decay had nothing to reach. That is the whole bug:
+         * NOT a general hole in implicit decay, which an array VARIABLE and
+         * a string literal both come through correctly.
+         *
+         * ARRAY ONLY. A struct or union literal used as a VALUE
+         * (`static struct S x = (struct S){1,2};`) is an aggregate image
+         * rather than an address, and answering with an address here would
+         * turn a clean error into a wrong initializer. It is still rejected,
+         * and still deliberately, until the aggregate-image path learns the
+         * same shape. */
+        ConstValue v;
+
+        if (!e->sem_type || e->sem_type->kind != TY_ARRAY) {
+            ce_error(s, m, e->span, "this is not a constant expression");
+            return cv_error();
+        }
+        if (!e->is_static_storage) {
+            ce_error(s, m, e->span,
+                     "initializer element is not computable at load time: "
+                     "the compound literal has automatic storage duration");
+            return cv_error();
+        }
+        if (m != CE_ADDR && m != CE_FOLD) {
+            ce_error(s, m, e->span,
+                     "a compound literal is not an integer constant "
+                     "expression");
+            return cv_error();
+        }
+        memset(&v, 0, sizeof(v));
+        v.kind = CV_ADDR;
+        v.type = e->sem_type;
+        v.sym = NULL;
+        v.anon = e; /* lowering materializes the anonymous object */
+        return v;
+    }
     case AST_EXPR_PAREN:
         return eval(s, e->lhs, m);
     case AST_EXPR_IDENT: {
@@ -1389,6 +1434,20 @@ static void fill(InitCtx *c, Type *t, AstNode *init, u64 off)
 {
     if (!t || !init)
         return;
+    /* INITIALIZING AN AGGREGATE FROM A COMPOUND LITERAL OF ITS OWN TYPE is
+     * initializing it from that literal's braces:
+     *
+     *     static struct S x = (struct S){ 1, 2 };
+     *
+     * gcc accepts it and emits the same .data bytes as `= { 1, 2 }`. Only
+     * for an AGGREGATE target -- a POINTER target takes the literal's
+     * ADDRESS instead, which is the decay case in eval() and reaches here
+     * through fill_scalar, so unwrapping there would silently store the
+     * pointee where a pointer belongs. */
+    if (init->kind == AST_EXPR_COMPOUND_LIT && init->init &&
+        (t->kind == TY_ARRAY || t->kind == TY_STRUCT || t->kind == TY_UNION) &&
+        init->sem_type && type_compatible(init->sem_type, t))
+        init = init->init;
     switch (t->kind) {
     case TY_ARRAY:
         fill_array(c, t, init, off);

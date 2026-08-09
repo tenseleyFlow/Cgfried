@@ -1481,8 +1481,19 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
      * constant may not name an automatic object, which is the check that
      * keeps a stack address out of .data. This runs after typing because
      * an address constant needs its identifiers resolved first. */
+    /* A COMPOUND LITERAL initializing an AGGREGATE is not a scalar constant
+     * and must not be checked as one: `static struct S x = (struct S){1,2}`
+     * is the literal's braces, folded into the object's image by
+     * constexpr_eval_initializer, exactly as `= {1,2}` is. Checking it here
+     * asked eval() for a value the literal does not have and rejected valid
+     * C. The carve-out is deliberately narrow -- any OTHER non-list
+     * initializer for an aggregate (`= f()`, `= other_struct`) still comes
+     * through and still errors. */
     if (is_static_init && d->init->kind != AST_INIT_LIST && target &&
-        target->kind != TY_ERROR && target->kind != TY_ARRAY) {
+        target->kind != TY_ERROR && target->kind != TY_ARRAY &&
+        !(d->init->kind == AST_EXPR_COMPOUND_LIT &&
+          (target->kind == TY_STRUCT || target->kind == TY_UNION) &&
+          d->init->sem_type && type_compatible(d->init->sem_type, target))) {
         ConstValue cv = constexpr_eval(
             s, d->init, target->kind == TY_PTR ? CE_ADDR : CE_ARITH);
         (void)cv; /* constexpr_eval reports the specific reason itself */
