@@ -868,7 +868,13 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
 
             prm.cgf_attrs = parse_cgf_attrs_concat(
                 p, prm.cgf_attrs, parse_cgf_attributes(p, &param_gnu));
-            if (param_gnu.packed || param_gnu.weak || param_gnu.visibility)
+            /* Any symbol property, not a hand-listed three: see
+             * gnu_attrs_any_symbol_property. gcc splits this finer — `used`,
+             * `constructor`, `alias` and `cleanup` warn while `aligned` and
+             * `section` are errors — but a parameter cannot carry any of them
+             * either way, so one warning covers the position and is the
+             * accepting direction of the two. */
+            if (gnu_attrs_any_symbol_property(&param_gnu))
                 warn_at(p->lang->warnings, WARN_ATTRIBUTES, at->span,
                         "attribute ignored on a function parameter");
         }
