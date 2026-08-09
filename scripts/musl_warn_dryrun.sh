@@ -92,8 +92,19 @@ while IFS= read -r file; do
         "$file" >/dev/null 2>"$diag"; then
         parsed=$((parsed + 1))
         printf '%s\n' "$file" >> "$WORK/parsed-sources.txt"
+        # THE ORACLE MUST BEHAVE LIKE THE PARITY BASELINE, which is gcc 8.
+        # gcc 14 made an implicit function declaration an ERROR by default,
+        # and `-Dweak=` strips the very declarations musl relies on, so a
+        # modern host oracle FAILS on files gcc 8 merely warns about
+        # (verified in the gcc:8 container: exit.c warns, rc=0). Those files
+        # were invisible until the compiler could parse them; the day it
+        # could, three of them turned into "oracle failed" and the lane
+        # rightly refused to score them. Restoring the gcc 8 severity is the
+        # fix -- the WARNING still appears and is still compared.
         if ! "$ORACLE" -std=gnu17 -S -o "$WORK/oracle-out.s" \
             -ffreestanding -nostdinc \
+            -Wno-error=implicit-function-declaration \
+            -Wno-error=implicit-int -Wno-error=int-conversion \
             -Wall -Wextra -D_XOPEN_SOURCE=700 -DFEATURES_H \
             -U__GNUC__ \
             '-D__attribute__(x)=' '-Dweak=' '-Dhidden=' \
