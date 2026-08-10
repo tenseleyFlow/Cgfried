@@ -102,7 +102,8 @@ static bool bodies_identical(const MacroDef *a, const MacroDef *b)
     u32 i;
 
     if (a->is_function != b->is_function || a->is_variadic != b->is_variadic ||
-        a->nparams != b->nparams || a->body_len != b->body_len)
+        a->va_name != b->va_name || a->nparams != b->nparams ||
+        a->body_len != b->body_len)
         return false;
     for (i = 0; i < a->nparams; i++)
         if (a->params[i] != b->params[i]) /* interned: pointer compare */
@@ -133,8 +134,8 @@ static bool loc_is_builtin_file(Preprocessor *pp, SrcLoc loc)
            strcmp(pp->files[f - 1]->path, "<built-in>") == 0;
 }
 
-/* Is body[i] (an IDENT) a parameter? Returns index, nparams for
- * __VA_ARGS__ in a variadic, or -1. */
+/* Is body[i] (an IDENT) a parameter? Returns index, nparams for the
+ * variadic tail (`__VA_ARGS__` or GNU's exclusive named spelling), or -1. */
 static int find_param(const MacroDef *m, const PpToken *t)
 {
     u16 k;
@@ -144,8 +145,13 @@ static int find_param(const MacroDef *m, const PpToken *t)
     for (k = 0; k < m->nparams; k++)
         if (m->params[k] == t->spelling)
             return (int)k;
-    if (m->is_variadic && strcmp(t->spelling, "__VA_ARGS__") == 0)
-        return (int)m->nparams;
+    if (m->is_variadic) {
+        bool matches = m->va_name ? t->spelling == m->va_name
+                                  : strcmp(t->spelling, "__VA_ARGS__") == 0;
+
+        if (matches)
+            return (int)m->nparams;
+    }
     return -1;
 }
 
@@ -197,15 +203,6 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
                 break;
             }
             if (!first) {
-                if (toks[i].kind == PPTOK_PUNCT &&
-                    toks[i].punct == PUNCT_ELLIPSIS && i > 0 &&
-                    toks[i - 1].kind == PPTOK_IDENT) {
-                    /* `#define M(a, rest...)`: GNU named variadics. */
-                    pp_diag_at(pp, DIAG_ERROR, toks[i].loc, toks[i].len,
-                               "GNU named variadic macro parameters are not "
-                               "yet supported" LANDS_IN_SPRINT(55));
-                    return;
-                }
                 if (toks[i].kind != PPTOK_PUNCT ||
                     toks[i].punct != PUNCT_COMMA) {
                     pp_diag_at(pp, DIAG_ERROR, toks[i].loc, toks[i].len,
@@ -239,6 +236,11 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
                            "list");
                 return;
             }
+            if (strcmp(toks[i].spelling, "__VA_ARGS__") == 0) {
+                pp_diag_at(pp, DIAG_ERROR, toks[i].loc, toks[i].len,
+                           "__VA_ARGS__ cannot be used as a macro parameter");
+                return;
+            }
             {
                 u16 k;
                 for (k = 0; k < nparams; k++) {
@@ -249,6 +251,26 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
                         return;
                     }
                 }
+            }
+            if (i + 1 < n && toks[i + 1].kind == PPTOK_PUNCT &&
+                toks[i + 1].punct == PUNCT_ELLIPSIS) {
+                /* GNU `name...` is the variadic tail itself, not a fixed
+                 * parameter aliasing __VA_ARGS__. It therefore keeps
+                 * nparams unchanged and occupies the established tail slot. */
+                m->is_variadic = true;
+                m->va_name = toks[i].spelling;
+                pp_pedwarn_at(pp, WARN_VARIADIC_MACROS, toks[i].loc,
+                              toks[i].len,
+                              "ISO C does not permit named variadic macros");
+                i += 2;
+                if (i >= n || toks[i].kind != PPTOK_PUNCT ||
+                    toks[i].punct != PUNCT_RPAREN) {
+                    pp_diag_at(pp, DIAG_ERROR, toks[i < n ? i : n - 1].loc, 1,
+                               "'...' must be the last macro parameter");
+                    return;
+                }
+                i++;
+                break;
             }
             if (nparams == CGF_ARRAY_LEN(params)) {
                 pp_diag_at(pp, DIAG_ERROR, toks[i].loc, toks[i].len,
@@ -277,10 +299,15 @@ void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n)
         u32 b;
         for (b = 0; b < m->body_len; b++) {
             const PpToken *bt = &m->body[b];
-            if (bt->kind == PPTOK_IDENT && !m->is_variadic &&
-                strcmp(bt->spelling, "__VA_ARGS__") == 0) {
-                pp_diag_at(pp, DIAG_ERROR, bt->loc, bt->len,
-                           "__VA_ARGS__ is only valid in a variadic macro");
+            if (bt->kind == PPTOK_IDENT &&
+                strcmp(bt->spelling, "__VA_ARGS__") == 0 &&
+                (!m->is_variadic || m->va_name)) {
+                pp_diag_at(
+                    pp, DIAG_ERROR, bt->loc, bt->len,
+                    m->va_name
+                        ? "__VA_ARGS__ is not available in a named variadic "
+                          "macro"
+                        : "__VA_ARGS__ is only valid in a variadic macro");
                 return;
             }
             if (bt->kind != PPTOK_PUNCT)

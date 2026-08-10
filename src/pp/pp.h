@@ -240,6 +240,9 @@ typedef struct MacroDef {
     u8 builtin_kind; /* MacroBuiltinKind */
     u16 nparams;
     const char **params; /* interned names */
+    /* GNU `name...` tail. NULL means the standard `__VA_ARGS__` spelling;
+     * either form occupies the existing variadic slot at index nparams. */
+    const char *va_name;
     PpToken *body;
     u32 body_len;
 } MacroDef;

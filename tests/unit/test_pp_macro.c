@@ -14,6 +14,7 @@ typedef struct {
     int errors;
     int warnings;
     Span last_span;
+    WarnId last_warn_id;
 } MacFix;
 
 static void count_sink(void *user, const Diag *d, const DiagCtx *dc)
@@ -23,8 +24,10 @@ static void count_sink(void *user, const Diag *d, const DiagCtx *dc)
     (void)dc;
     if (d->level == DIAG_ERROR || d->level == DIAG_FATAL)
         f->errors++;
-    else if (d->level == DIAG_WARNING)
+    else if (d->level == DIAG_WARNING) {
         f->warnings++;
+        f->last_warn_id = d->warn_id;
+    }
     f->last_span = d->span;
 }
 
@@ -104,6 +107,74 @@ void test_pp_macro_table(TestCtx *t)
     T_ASSERT_EQ_INT(t, m->body_len, 4); /* ( x ) obj_like */
 
     T_ASSERT(t, pp_macro_lookup(&f.pp, "NEVER_DEFINED") == NULL);
+    mfix_free(&f);
+}
+
+void test_pp_gnu_named_variadic_table_and_diagnostics(TestCtx *t)
+{
+    MacFix f;
+    const MacroDef *m;
+
+    mfix_init(&f);
+    run_pp(&f,
+           "#define ONE(args...) args\n"
+           "#define TWO(x, rest...) x rest\n",
+           NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    m = pp_macro_lookup(&f.pp, "ONE");
+    T_ASSERT(t, m && m->is_function && m->is_variadic);
+    T_ASSERT_EQ_INT(t, m->nparams, 0);
+    T_ASSERT_EQ_STR(t, m->va_name, "args");
+    m = pp_macro_lookup(&f.pp, "TWO");
+    T_ASSERT(t, m && m->is_function && m->is_variadic);
+    T_ASSERT_EQ_INT(t, m->nparams, 1);
+    T_ASSERT_EQ_STR(t, m->params[0], "x");
+    T_ASSERT_EQ_STR(t, m->va_name, "rest");
+    mfix_free(&f);
+
+    /* The variadic spelling is part of redefinition identity even when the
+     * replacement lists contain no parameter reference. */
+    mfix_init(&f);
+    run_pp(&f, "#define M(rest...) body\n#define M(...) body\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_MACRO_REDEFINED);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#define M(rest...) body\n#define M(rest...) body\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    mfix_free(&f);
+
+    /* A named tail REPLACES __VA_ARGS__; the two spellings never alias. */
+    mfix_init(&f);
+    run_pp(&f, "#define BAD(rest...) __VA_ARGS__\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#define BAD(__VA_ARGS__) x\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#define BAD(rest..., x) x\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#define BAD(x, x...) x\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    T_ASSERT(t, warn_flag(f.pp.warn, "-pedantic"));
+    run_pp(&f, "#define PEDANTIC(rest...) rest\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_VARIADIC_MACROS);
     mfix_free(&f);
 }
 
@@ -289,6 +360,19 @@ static void expect_pp(TestCtx *t, MacFix *f, const char *src, const char *want)
                got, want);
     t->assertions++;
     mfix_free(f);
+}
+
+void test_pp_gnu_named_variadic_expansion(TestCtx *t)
+{
+    MacFix f;
+
+    expect_pp(t, &f, "#define M(args...) f(args)\nM(1,2)\n", "f(1,2)");
+    expect_pp(t, &f, "#define N(x, rest...) g(x, rest)\nN(9,8,7)\n",
+              "g(9, 8,7)");
+    expect_pp(t, &f, "#define S(rest...) #rest\nS(a, b)\n", "\"a, b\"");
+    expect_pp(t, &f, "#define Z(rest...) h(rest)\nZ()\n", "h()");
+    expect_pp(t, &f, "#define O(...) args __VA_ARGS__\nO(4)\n", "args 4");
+    expect_pp(t, &f, "#define G(x, rest...) h(x, ##rest)\nG(1)\n", "h(1)");
 }
 
 void test_pp_placemarker_table(TestCtx *t)
