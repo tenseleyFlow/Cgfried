@@ -92,7 +92,7 @@ typedef enum AstKind {
     AST_STMT_BREAK,
     AST_STMT_RETURN, /* return lhs (lhs may be NULL) */
     AST_STMT_LABEL,  /* name : body */
-    AST_STMT_CASE,   /* case lhs : body */
+    AST_STMT_CASE,   /* case lhs : body, or GNU `case lhs ... rhs :` */
     AST_STMT_DEFAULT,
     AST_STMT_DECL, /* a declaration used as a block item; lhs is the decl */
     AST_STMT_ASM,  /* asm [quals] ( template [: out [: in [: clobbers]]] ) */
@@ -223,6 +223,11 @@ struct AstNode {
     /* AST_EXPR_TYPES_COMPATIBLE / AST_EXPR_CHOOSE_EXPR: sema's answer. */
     bool types_compatible;
     bool choose_taken;
+    /* AST_EXPR_COND: the GNU `a ?: b` form, whose middle operand IS the
+     * condition -- evaluated EXACTLY ONCE (measured both ways with a call
+     * counter). `mid` stays NULL, and this flag says that is deliberate
+     * rather than a poisoned parse, so every consumer can tell them apart. */
+    bool cond_omits_mid;
 
     /* AST_DECL / AST_FUNC_DEF */
     const char *name;

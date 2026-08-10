@@ -249,9 +249,16 @@ void ast_expr_render(const AstNode *e, Buf *out)
     case AST_EXPR_COND:
         buf_printf(out, "(");
         ast_expr_render(e->lhs, out);
-        buf_printf(out, " ? ");
-        ast_expr_render(e->mid, out);
-        buf_printf(out, " : ");
+        /* The GNU form prints as it was written -- rendering it as
+         * `a ? a : b` would claim two evaluations of `a`, which is the one
+         * thing this form promises not to do. */
+        if (e->cond_omits_mid) {
+            buf_printf(out, " ?: ");
+        } else {
+            buf_printf(out, " ? ");
+            ast_expr_render(e->mid, out);
+            buf_printf(out, " : ");
+        }
         ast_expr_render(e->rhs, out);
         buf_printf(out, ")");
         return;

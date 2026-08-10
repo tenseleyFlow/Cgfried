@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "parse/parse.h"
+#include "warn/warn.h"
 
 /* The C11 6.5 expression grammar: one function per precedence level, named
  * after its subclause. Nothing here type-checks or folds — `_Generic`
@@ -524,8 +525,13 @@ static AstNode *parse_unary_expr(Parser *p)
      * The DECLARATION position (`__extension__ int g(void);`) already
      * worked -- decl.c has had the specifier case since Sprint 9. */
     if (t->kind == TOK_KEYWORD && t->kw == KW_EXTENSION) {
+        AstNode *inner;
+
         p->pos++;
-        return parse_cast_expr(p);
+        p->extension_depth++;
+        inner = parse_cast_expr(p);
+        p->extension_depth--;
+        return inner;
     }
     if (is_unary_op(t)) {
         AstNode *n = expr_new(p, AST_EXPR_UNARY, t->span);
@@ -667,15 +673,23 @@ AstNode *parse_cond_expr(Parser *p)
         AstNode *n;
 
         p->pos++;
-        if (parse_at_punct(p, PUNCT_COLON))
-            parse_error(p, q,
-                        "the GNU '?:' form with an omitted middle operand is "
-                        "not yet supported (lands in Sprint 55)");
         n = expr_new(p, AST_EXPR_COND, q->span);
         n->lhs = cond;
-        /* The middle operand is a FULL expression — `a ? b, c : d` is
-         * legal and that comma IS the comma operator. */
-        n->mid = parse_expr(p);
+        /* GNU `a ?: b`: the middle operand is omitted and the CONDITION
+         * supplies the value, evaluated exactly once. `mid` stays NULL and
+         * the flag marks that as intentional -- a poisoned parse can also
+         * leave it NULL, and the two must not be confused. */
+        if (parse_at_punct(p, PUNCT_COLON)) {
+            n->cond_omits_mid = true;
+            if (!p->extension_depth)
+                warn_at(p->lang->warnings, WARN_PEDANTIC, q->span,
+                        "ISO C forbids omitting the middle term of a '?:' "
+                        "expression");
+        } else {
+            /* The middle operand is a FULL expression — `a ? b, c : d` is
+             * legal and that comma IS the comma operator. */
+            n->mid = parse_expr(p);
+        }
         parse_expect_punct(p, PUNCT_COLON, "in a conditional expression");
         /* Right-associative: a?b:c?d:e is a?b:(c?d:e). */
         n->rhs = parse_cond_expr(p);

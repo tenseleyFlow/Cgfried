@@ -872,10 +872,19 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         if (c.kind == CV_ERROR)
             return c;
         /* Only the TAKEN branch is evaluated, so `1 ? 0 : 1/0` is a valid
-         * constant expression. */
+         * constant expression.
+         *
+         * GNU `a ?: b` has no middle to evaluate: the condition's own value
+         * IS the result, and it is already in hand. Re-evaluating e->lhs
+         * would be correct here (a constant expression has no side effects
+         * to duplicate) but returning `c` says what the form MEANS. */
         if (c.kind == CV_FLOAT)
-            return eval(s, sf_is_zero(c.f) ? e->rhs : e->mid, m);
-        return eval(s, c.i ? e->mid : e->rhs, m);
+            return sf_is_zero(c.f)
+                       ? eval(s, e->rhs, m)
+                       : (e->cond_omits_mid ? c : eval(s, e->mid, m));
+        if (!c.i)
+            return eval(s, e->rhs, m);
+        return e->cond_omits_mid ? c : eval(s, e->mid, m);
     }
     case AST_EXPR_CAST: {
         ConstValue o = eval(s, e->lhs, m == CE_ICE ? CE_ARITH : m);

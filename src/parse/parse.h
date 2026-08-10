@@ -61,7 +61,13 @@ typedef struct Parser {
      * declared as typedefs in FILE scope, so later uses simply parse; this
      * set exists so the same name is never diagnosed twice. */
     ScopeEntry *unknown_types;
-    u32 unevaluated;    /* >0 inside sizeof/_Alignof/_Generic controllers */
+    u32 unevaluated; /* >0 inside sizeof/_Alignof/_Generic controllers */
+    /* >0 inside the operand of `__extension__`, whose ONLY job is to
+     * suppress the pedwarns its operand would provoke -- gcc warns for
+     * `a ?: b` under -pedantic and is silent for `__extension__ (a ?: b)`,
+     * measured. Parse-time only: a pedwarn raised later, in sema, cannot
+     * see this and is a known gap rather than a claim. */
+    u32 extension_depth;
     u32 switch_depth;   /* `case`/`default` outside a switch is an error */
     u32 loop_depth;     /* `continue` outside a loop is an error */
     u32 break_depth;    /* loops AND switches both accept `break` */

@@ -714,15 +714,27 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
     AstNode *c = expr(s, e->lhs);
     AstNode *a;
     AstNode *b;
+    AstNode **midp;
     Type *at;
     Type *bt;
 
     e->lhs = conv_decay(s, c);
     if (!sema_require_scalar(s, e->lhs))
         return poison(s, e);
-    a = expr(s, e->mid);
+    /* GNU `a ?: b`: the condition IS the middle operand, so every place
+     * below that would convert the middle converts the CONDITION instead.
+     * One pointer rather than a branch per site -- there are three, and a
+     * fourth would be added without noticing.
+     *
+     * Converting the condition is safe because the result type is a
+     * conversion of both arms: it can only widen `a`, and widening maps
+     * zero to zero and nonzero to nonzero, so testing the converted value
+     * asks the same question the source did. */
+    midp = e->cond_omits_mid ? &e->lhs : &e->mid;
+    if (!e->cond_omits_mid)
+        *midp = expr(s, e->mid);
     b = expr(s, e->rhs);
-    e->mid = a = conv_decay(s, a);
+    *midp = a = conv_decay(s, *midp);
     e->rhs = b = conv_decay(s, b);
     if (quiet(a, b) || quiet(c, NULL))
         return poison(s, e);
@@ -732,7 +744,7 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
     e->is_lvalue = false;
 
     if (type_is_arithmetic(at) && type_is_arithmetic(bt)) {
-        e->sem_type = conv_uac(s, &e->mid, &e->rhs);
+        e->sem_type = conv_uac(s, midp, &e->rhs);
         return e;
     }
     /* 6.5.15p3 allows a void conditional only when BOTH arms are void, but
@@ -795,7 +807,7 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
             if (is_ptr(at))
                 e->rhs = conv_cast(s, e->rhs, ptype);
             else
-                e->mid = conv_cast(s, e->mid, ptype);
+                *midp = conv_cast(s, *midp, ptype);
             e->sem_type = ptype;
             return e;
         }
@@ -810,7 +822,7 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
         if (is_ptr(at))
             e->rhs = conv_cast(s, e->rhs, ptype);
         else
-            e->mid = conv_cast(s, e->mid, ptype);
+            *midp = conv_cast(s, *midp, ptype);
         e->sem_type = ptype;
         return e;
     }

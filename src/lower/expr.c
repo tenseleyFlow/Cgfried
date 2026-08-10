@@ -476,16 +476,32 @@ static IrOperand lower_logical(Lower *lo, AstNode *e)
 
 static IrOperand lower_ternary(Lower *lo, AstNode *e)
 {
-    IrOperand c = lower_cond(lo, e->lhs);
-    BlockId tb = lower_new_block(lo, "cond.then");
-    BlockId eb = lower_new_block(lo, "cond.else");
-    BlockId join = lower_new_block(lo, "cond.join");
+    /* GNU `a ?: b` evaluates `a` EXACTLY ONCE -- measured with a call
+     * counter on both the taken and the untaken path. So the condition is
+     * lowered to a VALUE first and the then-arm reuses that value; lowering
+     * `e->lhs` twice would call the function twice, which no test of the
+     * result alone can detect. */
+    IrOperand shared = ir_op_undef(IRT_I32);
+    IrOperand c;
+    BlockId tb;
+    BlockId eb;
+    BlockId join;
     Type *rt = sem(e);
     bool is_void = rt && rt->kind == TY_VOID;
     bool is_agg = lower_is_aggregate(rt);
     ValueId agg_tmp = VALUE_INVALID;
     ValueId res = VALUE_INVALID;
     IrOperand v;
+
+    if (e->cond_omits_mid) {
+        shared = lower_rvalue(lo, e->lhs);
+        c = truth_ne(lo, shared, sem(e->lhs));
+    } else {
+        c = lower_cond(lo, e->lhs);
+    }
+    tb = lower_new_block(lo, "cond.then");
+    eb = lower_new_block(lo, "cond.else");
+    join = lower_new_block(lo, "cond.join");
 
     if (is_agg)
         agg_tmp = lower_temp(lo, rt); /* one temp, both arms memcpy in */
@@ -495,7 +511,7 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
     ir_build_condbr(&lo->b, c, tb, NULL, 0, eb, NULL, 0);
 
     lower_at(lo, tb);
-    v = lower_rvalue(lo, e->mid);
+    v = e->cond_omits_mid ? shared : lower_rvalue(lo, e->mid);
     if (is_agg) {
         TypeLayout l = layout_of(lo->sema, rt);
 
