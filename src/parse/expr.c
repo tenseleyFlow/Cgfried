@@ -514,6 +514,19 @@ static AstNode *parse_unary_expr(Parser *p)
 {
     const Token *t = parse_peek(p);
 
+    /* `__extension__ expr` -- SWALLOWED. Its only job is to suppress the
+     * pedwarns its operand would provoke, and a construct that pedwarns is
+     * one we either accept or reject on its own merits; there is nothing
+     * for the marker itself to do. gcc treats it as a no-op prefix on any
+     * expression, so it binds like a unary operator and its operand is a
+     * cast-expression.
+     *
+     * The DECLARATION position (`__extension__ int g(void);`) already
+     * worked -- decl.c has had the specifier case since Sprint 9. */
+    if (t->kind == TOK_KEYWORD && t->kw == KW_EXTENSION) {
+        p->pos++;
+        return parse_cast_expr(p);
+    }
     if (is_unary_op(t)) {
         AstNode *n = expr_new(p, AST_EXPR_UNARY, t->span);
 

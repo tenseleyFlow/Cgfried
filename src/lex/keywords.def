@@ -60,6 +60,11 @@ CGF_KEYWORD(KW_GENERIC, "_Generic", KWG_C11)
 CGF_KEYWORD(KW_NORETURN, "_Noreturn", KWG_C11)
 CGF_KEYWORD(KW_STATIC_ASSERT, "_Static_assert", KWG_C11)
 CGF_KEYWORD(KW_THREAD_LOCAL, "_Thread_local", KWG_C11)
+/* gcc's spelling of the same storage class, and a keyword in EVERY mode
+ * like the other __-spelled aliases -- musl and glibc both write it. It is
+ * an ALIAS, not a variant: everything downstream sees AST_SC_THREAD_LOCAL
+ * and cannot tell which spelling produced it. */
+CGF_KEYWORD(KW_ALT_THREAD, "__thread", KWG_ALT)
 
 CGF_KEYWORD(KW_TYPEOF, "typeof", KWG_GNU)
 CGF_KEYWORD(KW_ASM, "asm", KWG_GNU)

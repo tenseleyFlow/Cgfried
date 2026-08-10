@@ -456,7 +456,8 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 continue;
             }
             if (kw != KW_TYPEDEF && kw != KW_EXTERN && kw != KW_STATIC &&
-                kw != KW_AUTO && kw != KW_REGISTER && kw != KW_THREAD_LOCAL)
+                kw != KW_AUTO && kw != KW_REGISTER && kw != KW_THREAD_LOCAL &&
+                kw != KW_ALT_THREAD)
                 s->saw_non_storage = true;
             switch (kw) {
             case KW_TYPEDEF:
@@ -474,6 +475,7 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
             case KW_REGISTER:
                 add_storage(p, s, AST_SC_REGISTER, t, "register");
                 goto consumed;
+            case KW_ALT_THREAD:
             case KW_THREAD_LOCAL:
                 add_storage(p, s, AST_SC_THREAD_LOCAL, t, "_Thread_local");
                 goto consumed;
@@ -765,6 +767,7 @@ bool parse_at_decl_specs(Parser *p)
     case KW_STATIC:
     case KW_AUTO:
     case KW_REGISTER:
+    case KW_ALT_THREAD:
     case KW_THREAD_LOCAL:
     case KW_INLINE:
     case KW_ALT_INLINE:
