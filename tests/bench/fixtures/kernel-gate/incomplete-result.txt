@@ -1,0 +1,2 @@
+floor.icount=5
+floor.text=32

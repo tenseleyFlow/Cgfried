@@ -1,0 +1,5 @@
+floor.icount=5
+floor.padding=0
+percent.icount=200
+percent.padding=3
+percent.text=800

@@ -74,6 +74,10 @@ BENCH_WARMUP ?= $(if $(filter 1,$(BENCH_SKIP_TIME)),0,1)
 BENCH_RESULTS ?= $(BUILD)/bench/results.txt
 BENCH_HOST_CLASS ?= ci
 BENCH_BASELINE ?= .benchmarks/baseline-$(RT_HOST_TARGET).$(BENCH_HOST_CLASS).txt
+KERNEL_X86_RESULT ?= $(BUILD)/bench/kernels-x86_64-linux-gnu.txt
+KERNEL_A64_RESULT ?= $(BUILD)/bench/kernels-arm64-linux.txt
+KERNEL_X86_GOLDEN := .benchmarks/golden/kernels-x86_64-linux-gnu.txt
+KERNEL_A64_GOLDEN := .benchmarks/golden/kernels-arm64-linux.txt
 
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
@@ -92,7 +96,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
         test-mem-runtime test-mem-autofix test-safe-mode safe-dogfood \
         test-mem-fanalyzer bench-safe \
-        test-bench bench bench-gate \
+        test-bench test-kernels kernels bench bench-gate \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
@@ -552,6 +556,7 @@ test-bench: $(BUILD)/cgfried $(BUILD)/timeit $(BUILD)/timeit-math-test
 	sh tests/bench/timeit_test.sh $(BUILD)/timeit
 	$(BUILD)/timeit-math-test
 	sh tests/bench/benchmark_gate_test.sh
+	sh tests/bench/kernel_static_test.sh
 	CGF_STATS_WORK=$(BUILD)/stats-smoke \
 	    sh scripts/stats_smoke.sh $(BUILD)/cgfried
 	CGF_BENCH_TEST_WORK=$(BUILD)/bench-test sh tests/bench/corpus_test.sh
@@ -569,6 +574,24 @@ bench: $(BUILD)/cgfried $(BUILD)/timeit
 bench-gate: bench
 	BENCH_SKIP_TIME=$(BENCH_SKIP_TIME) sh scripts/benchmark_gate.sh \
 	    $(BENCH_BASELINE) $(BENCH_RESULTS)
+
+# Static kernel counts are deterministic and therefore safe on shared hosts.
+# Runtime comparisons remain an explicit fleet-only visibility lane.
+kernels: $(BUILD)/cgfried
+	@mkdir -p $(BUILD)/bench
+	CGF_KERNEL_WORK=$(BUILD)/kernel-static/x86_64-linux-gnu \
+	    sh scripts/kernel-static.sh $(BUILD)/cgfried x86_64-linux-gnu \
+	    $(KERNEL_X86_RESULT) $(KERNEL_X86_GOLDEN)
+	CGF_KERNEL_WORK=$(BUILD)/kernel-static/arm64-linux \
+	    sh scripts/kernel-static.sh $(BUILD)/cgfried arm64-linux \
+	    $(KERNEL_A64_RESULT) $(KERNEL_A64_GOLDEN)
+
+test-kernels: $(BUILD)/cgfried $(BUILD)/cgf-test
+	sh tests/bench/kernel_static_test.sh
+	$(MAKE) kernels
+	CGF_AS=0 CGF_TEST_CC=$(BUILD)/cgfried \
+	    CGF_TEST_WORK=$(BUILD)/kernel-opt-eq $(BUILD)/cgf-test \
+	    --profile linux-x86_64 tests/bench/kernels
 
 # Optional local comparison: records both verdicts without treating GCC's
 # analyzer as an oracle for Cgfried's narrower default policy.
