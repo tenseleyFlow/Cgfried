@@ -2307,19 +2307,31 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         return ir_op_value(lo->fn, sret_tmp);
     if (aret.kind == ABI_RET_SMALL) {
         /* The eightbyte came back as a scalar; give the expression layer
-         * the ADDRESS it expects for an aggregate value. */
+         * the ADDRESS it expects for an aggregate value. A sub-eightbyte
+         * aggregate needs a full-width staging slot: storing the ABI i64
+         * directly into its typed temporary would overwrite adjacent frame
+         * storage. */
         TypeLayout l = layout_of(lo->sema, ret);
+        u32 wire_size = ir_type_size(aret.small_t);
         ValueId tmp =
             ir_build_alloca_typed(&lo->b, lower_i64((i64)l.size), (u32)l.align,
                                   lower_efftype(lo, ret));
+        ValueId store_tmp = tmp;
         Lvalue lv;
 
+        if (l.size < wire_size)
+            store_tmp =
+                ir_build_alloca(&lo->b, lower_i64((i64)wire_size), wire_size);
         memset(&lv, 0, sizeof(lv));
-        lv.addr = ir_op_value(lo->fn, tmp);
+        lv.addr = ir_op_value(lo->fn, store_tmp);
         lv.unit = aret.small_t;
-        lv.etype = lower_efftype(lo, ret);
-        lv.align = (u32)l.align;
+        lv.etype = store_tmp.v == tmp.v ? lower_efftype(lo, ret) : 0;
+        lv.align = store_tmp.v == tmp.v ? (u32)l.align : wire_size;
         lower_store(lo, lv, ir_op_value(lo->fn, rv));
+        if (store_tmp.v != tmp.v)
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp),
+                                   ir_op_value(lo->fn, store_tmp), ret,
+                                   (u32)l.align, 0);
         return ir_op_value(lo->fn, tmp);
     }
     if (!ret || ret->kind == TY_VOID)

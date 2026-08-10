@@ -175,6 +175,31 @@ void test_abi_classification_table(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_small_return_call_uses_wire_staging(TestCtx *t)
+{
+    AbiFix f;
+
+    T_ASSERT(t, run_abi(&f, "struct S1 { signed char x; };\n"
+                            "struct S2 { short x; };\n"
+                            "struct S4 { int x; };\n"
+                            "struct S1 r1(void);\n"
+                            "struct S2 r2(void);\n"
+                            "struct S4 r4(void);\n"
+                            "int use(void) {\n"
+                            "  return r1().x + r2().x + r4().x;\n"
+                            "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "call i64 @r1()") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "call i64 @r2()") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "call i64 @r4()") != NULL);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "alloca 8, align 8"), 3);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "memcpy"), 3);
+    T_ASSERT(t, strstr(atxt(&f), "alloca 1, align 1") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "alloca 2, align 2") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "alloca 4, align 4") != NULL);
+    abi_free(&f);
+}
+
 void test_abi_two_eightbyte_reassembly(TestCtx *t)
 {
     AbiFix f;

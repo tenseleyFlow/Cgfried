@@ -15,7 +15,14 @@ struct PtrmapSlot {
 
 static size_t pointer_hash(const void *key)
 {
-    u64 x = (u64)(uintptr_t)key;
+    u64 x = 0;
+
+    _Static_assert(sizeof(key) <= sizeof(x), "pointer hash storage too small");
+
+    /* Read the pointer's object representation instead of converting its
+     * value to an integer. This keeps the compiler's own -fsafe dogfood free
+     * of non-round-trip pointer casts while preserving identity hashing. */
+    memcpy(&x, &key, sizeof(key));
 
     /* MurmurHash3's finalizer disperses the alignment-zero low bits common to
      * arena pointers. The layout is process-local and never iterated. */
