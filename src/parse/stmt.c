@@ -377,6 +377,29 @@ AstNode *parse_stmt(Parser *p)
             return parse_return(p);
         case KW_GOTO:
             return parse_goto(p);
+        case KW_LOCAL_LABEL: {
+            /* REFUSED by name rather than accepted as an ordinary label.
+             * The point of `__label__` is that the name is scoped to the
+             * BLOCK, so two sibling blocks may each declare `done`. Our
+             * labels have function scope and are interned by the lexer,
+             * with label_find comparing POINTERS -- so block scoping means
+             * mangling, and the parser holds no interner to mangle with
+             * (see the note at src/parse/attr.c). Treating it as a plain
+             * label would compile the single-use case and report
+             * "duplicate label" on the sibling-block case gcc accepts,
+             * which is rejecting valid code while looking implemented. */
+            AstNode *n = stmt_new(p, AST_ERROR, t->span);
+
+            parse_error(p, t,
+                        "'__label__' block-scoped labels are not supported; "
+                        "our labels have function scope "
+                        "(docs/gnu-extensions.md)");
+            while (!parse_at_punct(p, PUNCT_SEMI) &&
+                   parse_peek(p)->kind != TOK_EOF)
+                p->pos++;
+            parse_eat_punct(p, PUNCT_SEMI);
+            return n;
+        }
         case KW_CASE:
             return parse_case(p);
         case KW_DEFAULT:

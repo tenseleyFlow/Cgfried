@@ -330,17 +330,29 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
         }
         /* 6.7.2.1 requires a non-empty member list, and an unnamed
          * bitfield does not make one: `struct { int :0; }` has no named
-         * member and gcc gives it size ZERO as a GNU extension. Sizes of
-         * zero break the "distinct objects have distinct addresses"
-         * property that later passes assume, so this errors and names the
-         * sprint that would relax it rather than inventing a size.
+         * member and gcc gives it size ZERO as a GNU extension.
          * (`struct { int :5; }` is the same case — gcc's size 1 there is
-         * incidental; both are the no-named-member extension.) */
+         * incidental; both are the no-named-member extension.)
+         *
+         * REFUSED, not deferred. Sprint 55 examined it and declined, and
+         * the deciding fact is gcc's own behaviour rather than ours:
+         * `struct E arr[3];` gives `&arr[0] == &arr[1]`, MEASURED. So the
+         * extension does not merely add a size of zero, it breaks the
+         * "distinct objects have distinct addresses" property that the
+         * shared alias service and the memory-safety lattice are both
+         * built on -- allocation sites there are separated by byte-offset
+         * hulls, and two objects at one address with zero extent are
+         * exactly what those hulls cannot express.
+         *
+         * Demand was measured before deciding: musl 0, glibc's C headers 0
+         * (every hit under /usr/include is C++), Linux uapi 1, inside the
+         * __DECLARE_FLEX_ARRAY macro. See docs/gnu-extensions.md. */
         if (!any_named) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, rec->span,
-                      "a struct or union must have at least one named member "
-                      "(the GNU no-named-member extension lands in Sprint 55)");
+                      "a struct or union must have at least one named member; "
+                      "the GNU no-named-member extension is not supported "
+                      "(docs/gnu-extensions.md)");
         }
     }
 }

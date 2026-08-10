@@ -88,6 +88,11 @@ CGF_KEYWORD(KW_ALT_SIGNED, "__signed__", KWG_ALT)
 CGF_KEYWORD(KW_ATTRIBUTE, "__attribute__", KWG_ALT)
 CGF_KEYWORD(KW_ATTRIBUTE2, "__attribute", KWG_ALT)
 CGF_KEYWORD(KW_EXTENSION, "__extension__", KWG_ALT)
+/* A keyword ONLY so the refusal can name it. Without a row here it reaches
+ * the expression grammar as an ordinary identifier and reports "expected an
+ * expression but found '__label__'", which tells the programmer nothing
+ * about what is unsupported. See docs/gnu-extensions.md, refused tier. */
+CGF_KEYWORD(KW_LOCAL_LABEL, "__label__", KWG_ALT)
 CGF_KEYWORD(KW_ALT_ALIGNOF, "__alignof__", KWG_ALT)
 CGF_KEYWORD(KW_ALT_ALIGNOF2, "__alignof", KWG_ALT)
 CGF_KEYWORD(KW_ALT_LABEL, "__label__", KWG_ALT)

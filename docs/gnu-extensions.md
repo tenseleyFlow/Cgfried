@@ -295,6 +295,8 @@ silently rather than fail loudly.
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |
 | computed goto (`&&label`, `goto *p`) | out of the v0.1.0 scope contract | interpreters; not our corpora |
+| `__label__` (block-scoped labels) | our labels have FUNCTION scope and are interned by the lexer, with `label_find` comparing pointers, so block scoping means mangling and the parser holds no interner to mangle with. Accepting it as an ordinary label would compile the single-use case and report "duplicate label" on the sibling-block case gcc accepts — rejecting valid code while looking implemented | musl 0 uses, glibc headers 0; only clang's own sources |
+| empty struct / union (`struct E {}`, `struct { int :0; }`) | gcc gives these size ZERO, and `struct E arr[3]` then has `&arr[0] == &arr[1]` — measured. That breaks the "distinct objects have distinct addresses" property the shared alias service and the memory-safety lattice are both built on: allocation sites there are separated by byte-offset hulls, which cannot express two objects at one address with zero extent | musl 0, glibc's C headers 0 (every `/usr/include` hit is C++), Linux uapi 1 inside `__DECLARE_FLEX_ARRAY` |
 
 ## Notes that are easy to get wrong
 

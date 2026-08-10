@@ -104,20 +104,30 @@ check_refused()
     token=$1
     label=$2
 
-    grep -rq -- "$token" src/ 2>/dev/null ||
+    # The token must appear in a STRING LITERAL, not merely somewhere in
+    # src/. A comment explaining the refusal contains the same words, so a
+    # bare grep passes whether or not the diagnostic still exists -- which
+    # made the first version of the __label__ and empty-struct rows
+    # VACUOUS: mutating the message away left the gate green.
+    grep -rq -- "\"[^\"]*$token" src/ 2>/dev/null ||
+        grep -rq -- "$token[^\"]*\"" src/ 2>/dev/null ||
         fail "refused row '$label' has no refusal left in src/ (token: $token)"
 }
 
 printf '%s\n' "$refused" | grep -q 'asm goto' &&
     check_refused 'asm goto' 'asm goto'
 printf '%s\n' "$refused" | grep -q 'mode' &&
-    check_refused 'mode(' 'mode attribute'
+    check_refused "'mode' attribute is not supported" 'mode attribute'
 printf '%s\n' "$refused" | grep -q 'vector_size' &&
     check_refused 'vector_size' 'vector_size'
 printf '%s\n' "$refused" | grep -q 'nested functions' &&
     check_refused 'nested function' 'nested functions'
 printf '%s\n' "$refused" | grep -q 'computed goto' &&
     check_refused 'computed goto' 'computed goto'
+printf '%s\n' "$refused" | grep -q '__label__' &&
+    check_refused 'block-scoped labels' '__label__'
+printf '%s\n' "$refused" | grep -q 'empty struct' &&
+    check_refused 'no-named-member' 'empty struct / union'
 
 # One extension, one tier.
 dup=$(printf '%s\n%s\n%s\n' "$implemented" "$ignored" "$refused" |
