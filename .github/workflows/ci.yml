@@ -331,7 +331,8 @@ jobs:
           sh ci/check_skips.sh toolchain toolchain.log
       - name: "x86_64-hello-world: THE milestone (Sprint 25)"
         run: |
-          make -j"$(nproc)" build/cgfried build/cgf build/cgf-test
+          # The corpus includes _Float128 operations lowered to libcgf_rt.
+          make -j"$(nproc)" build/cgfried build/cgf build/cgf-test rt
           printf 'int printf(const char *, ...);\nint main(void) { printf("hello, world\\n"); return 0; }\n' > hello.c
           ./build/cgf hello.c -o hello
           ./hello
