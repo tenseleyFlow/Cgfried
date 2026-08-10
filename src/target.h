@@ -80,6 +80,16 @@ const char *cgf_target_multiarch(TargetSpec t);
  * by the loader rather than fixed at link time. */
 bool cgf_target_always_pic(TargetSpec t);
 
+/* True where the exact-width 64-bit types are `long long` rather than
+ * `long` — Darwin's choice, every ELF target's opposite. It decides
+ * `__INT64_TYPE__`/`__UINT64_TYPE__` and therefore the RESULT TYPE of
+ * `__builtin_bswap64`, which is `uint64_t` by definition. Both consumers
+ * ask here rather than each testing the target kind, because the two
+ * answering differently is a divergence nothing executes: `unsigned long`
+ * and `unsigned long long` are both 64 bits everywhere we target, so only
+ * -Wformat and __builtin_types_compatible_p can see the disagreement. */
+bool cgf_target_int64_is_longlong(TargetSpec t);
+
 const char *cgf_target_name(TargetSpec t);
 
 /* ELF dynamic-linker path for the target; NULL for arm64-macos (dyld,

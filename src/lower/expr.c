@@ -1744,6 +1744,62 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
          * fake metadata bit now would be a claim we cannot honor. */
         *out = lower_rvalue(lo, e->args[0]);
         return true;
+    case SEMA_BUILTIN_BSWAP16:
+    case SEMA_BUILTIN_BSWAP32:
+    case SEMA_BUILTIN_BSWAP64: {
+        /* Byte-reverse as shifts, masks and ors.
+         *
+         * NO DEDICATED IR OPCODE, and the reason is the enumeration
+         * hazard rather than laziness: the IR has no unary integer op at
+         * all today (negate is `isub 0,x`, complement is `xor -1`), so
+         * this would be the first, and 17 files switch on the opcode set
+         * -- both selectors, the printer, parser, verifier, and the alias,
+         * memsafe and dependence analyses that each enumerate it again.
+         *
+         * The cost is MEASURED, not hand-waved: a runtime bswap64 is 64
+         * x86 instructions at -O2 where gcc emits `bswap` and two moves.
+         * A CONSTANT one is already identical to gcc -- the optimizer
+         * folds the whole tree to one immediate -- and glibc's byteswap.h
+         * reaches this only through its out-of-line inline functions.
+         * Recognizing the tree as x86 `bswap` / arm64 `rev` is Sprint 53's
+         * peephole work. This is a missed optimization with a number on
+         * it, not a correctness gap.
+         *
+         * Sema converted the argument to the exact-width unsigned type,
+         * so the shifts below are all in that width and `lshr` never
+         * brings in bits from above it. */
+        unsigned bytes = sema_builtin_bswap_bytes((u16)e->op);
+        IrType t = bytes == 2 ? IRT_I16 : bytes == 4 ? IRT_I32 : IRT_I64;
+        IrOperand x = lower_rvalue(lo, e->args[0]);
+        IrOperand acc;
+        unsigned i;
+
+        for (i = 0; i < bytes; i++) {
+            unsigned from = 8u * i, to = 8u * (bytes - 1u - i);
+            IrOperand b = x;
+            ValueId v;
+
+            if (from) {
+                v = ir_build2(&lo->b, IR_LSHR, t, b,
+                              ir_op_iconst(t, (i64)from));
+                b = ir_op_value(lo->fn, v);
+            }
+            v = ir_build2(&lo->b, IR_AND, t, b, ir_op_iconst(t, 0xff));
+            b = ir_op_value(lo->fn, v);
+            if (to) {
+                v = ir_build2(&lo->b, IR_SHL, t, b, ir_op_iconst(t, (i64)to));
+                b = ir_op_value(lo->fn, v);
+            }
+            if (i == 0) {
+                acc = b;
+            } else {
+                v = ir_build2(&lo->b, IR_OR, t, acc, b);
+                acc = ir_op_value(lo->fn, v);
+            }
+        }
+        *out = acc;
+        return true;
+    }
     case SEMA_BUILTIN_ALLOCA: {
         /* 16-byte alignment: max_align_t's, so the block is usable for
          * any object the caller puts there. Sprint 20's dynamic alloca

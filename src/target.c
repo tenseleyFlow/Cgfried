@@ -163,13 +163,18 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
      * site). Values verified against gcc -dM on x86_64-linux-gnu. */
     {
         /* int64_t is `long` on the LP64 ELF targets and `long long` on
-         * Darwin; the literal suffix follows the type. */
+         * Darwin; the literal suffix follows the type. That one choice
+         * comes from cgf_target_int64_is_longlong because sema asks the
+         * same question for __builtin_bswap64's result type, which IS
+         * uint64_t -- and two copies could disagree with nothing to
+         * catch them, since both spellings are 64 bits on every target
+         * we have. Only -Wformat and types_compatible_p can see it. */
+        bool ll64 = cgf_target_int64_is_longlong(t);
         bool darwin = t.kind == CGF_TARGET_ARM64_MACOS;
-        const char *i64 = darwin ? "long long int" : "long int";
-        const char *u64 =
-            darwin ? "long long unsigned int" : "long unsigned int";
-        const char *sfx = darwin ? "LL" : "L";
-        const char *usfx = darwin ? "ULL" : "UL";
+        const char *i64 = ll64 ? "long long int" : "long int";
+        const char *u64 = ll64 ? "long long unsigned int" : "long unsigned int";
+        const char *sfx = ll64 ? "LL" : "L";
+        const char *usfx = ll64 ? "ULL" : "UL";
         /* int_fastN_t: glibc/musl/FreeBSD widen 16/32/64 to `long`;
          * Darwin keeps the natural widths. The sprint file flags this
          * as the row most likely to be hardcoded wrong. */
@@ -488,6 +493,11 @@ const char *cgf_target_dynamic_linker(TargetSpec t)
  * puts such an object in __TEXT,__const -- read-only AND code-signed -- which
  * is a stronger failure than the ELF version of the same mistake. */
 bool cgf_target_always_pic(TargetSpec t)
+{
+    return t.kind == CGF_TARGET_ARM64_MACOS;
+}
+
+bool cgf_target_int64_is_longlong(TargetSpec t)
 {
     return t.kind == CGF_TARGET_ARM64_MACOS;
 }

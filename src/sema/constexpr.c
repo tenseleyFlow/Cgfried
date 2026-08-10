@@ -995,9 +995,26 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             return cv_error();
         return cv_int(s, e->sem_type, off);
     }
+    case AST_EXPR_CALL: {
+        /* The byte swaps are the only calls that fold. gcc accepts them
+         * where an ICE is required -- `static int a[__builtin_bswap16(
+         * 0x0100)]` and `enum { E = __builtin_bswap32(1) }` both compile
+         * -- so refusing here would reject code glibc's headers write.
+         * Everything else is a call and is not constant. */
+        unsigned bytes = sema_builtin_bswap_bytes((u16)e->op);
+
+        if (bytes && e->nargs == 1) {
+            ConstValue a = eval(s, e->args[0], m);
+
+            if (a.kind != CV_INT)
+                return cv_error();
+            return cv_int(s, e->sem_type, cgf_bswap(a.i, bytes));
+        }
+        ce_error(s, m, e->span, "this is not a constant expression");
+        return cv_error();
+    }
     case AST_EXPR_INDEX:
     case AST_EXPR_MEMBER:
-    case AST_EXPR_CALL:
         ce_error(s, m, e->span, "this is not a constant expression");
         return cv_error();
     case AST_ERROR:

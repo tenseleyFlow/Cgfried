@@ -13,7 +13,16 @@
  *   BK_DOUBLE   double result
  *   BK_FLOAT    float result
  *   BK_ARG0     same type as argument 0 (after promotion)
+ *   BK_U16      uint16_t result AND parameter
+ *   BK_U32      uint32_t result AND parameter
+ *   BK_U64      uint64_t result AND parameter
  *   BK_SPECIAL  sema types it by hand
+ *
+ * The BK_U* rules are the only ones that also constrain the ARGUMENT:
+ * these builtins have real prototypes, so the argument converts as if by
+ * assignment. That is observable — gcc warns "unsigned conversion from
+ * 'int' to 'short unsigned int' changes value" for
+ * __builtin_bswap16(0x11223344) and then swaps the TRUNCATED 0x3344.
  *
  * Names NOT in this table keep the parser's honest deferral. Adding a
  * row is the only way to make a builtin real — there is deliberately no
@@ -48,6 +57,14 @@ B(inf, INF, 0, BK_DOUBLE)
 B(inff, INFF, 0, BK_FLOAT)
 B(nan, NAN, 1, BK_DOUBLE)
 B(nanf, NANF, 1, BK_FLOAT)
+
+/* byte swaps (glibc's <bits/byteswap.h> calls these directly once
+ * __GNUC__ is defined). They lower to shifts, masks and ors -- see the
+ * comment at their case in src/lower/expr.c for why there is no IR
+ * opcode and what that costs. */
+B(bswap16, BSWAP16, 1, BK_U16)
+B(bswap32, BSWAP32, 1, BK_U32)
+B(bswap64, BSWAP64, 1, BK_U64)
 
 /* constant-expression queries */
 B(constant_p, CONSTANT_P, 1, BK_INT)

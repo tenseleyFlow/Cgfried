@@ -597,8 +597,29 @@ typedef enum {
     BK_DOUBLE,
     BK_FLOAT,
     BK_ARG0,
+    BK_U16,
+    BK_U32,
+    BK_U64,
     BK_SPECIAL
 } BuiltinKind;
+
+/* The exact-width unsigned type a BK_U* row names, or NULL for any other
+ * rule. It is BOTH the parameter and the result type, so the one function
+ * answers for both -- a second copy is how the argument comes to be
+ * converted to one type and the result typed as another. */
+Type *sema_builtin_uint_type(Sema *s, int kind);
+
+/* How many bytes a __builtin_bswap* marker reverses, or 0 when the marker
+ * is not one of them. TWO consumers compute the swap independently -- the
+ * constant folder on a u64 and the lowering as IR shifts -- and this is
+ * the one place that says which width each marker means, because a table
+ * in each is how a third row comes to be added to only one of them. */
+unsigned sema_builtin_bswap_bytes(u16 marker);
+
+/* The reversal itself, on the low `bytes` bytes of `v`. Shared so the
+ * folder and any other constant path cannot drift; lowering necessarily
+ * builds IR instead, and its fixture pins it against this. */
+u64 cgf_bswap(u64 v, unsigned bytes);
 
 /* Table lookup by spelling AFTER the "__builtin_" prefix. Returns the
  * marker (0 when the name is not a builtin we implement) and fills the

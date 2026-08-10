@@ -501,6 +501,49 @@ u16 sema_builtin_lookup(const char *suffix, int *nargs, int *kind)
     return 0;
 }
 
+/* The exact-width unsigned type a BK_U* row names. 8/16/32 are the same
+ * spelling on every target we have; 64 is `unsigned long long` on Darwin
+ * and `unsigned long` everywhere else, and that fact lives in target.c so
+ * the predefined __UINT64_TYPE__ and this cannot disagree. */
+Type *sema_builtin_uint_type(Sema *s, int kind)
+{
+    switch (kind) {
+    case BK_U16:
+        return type_basic(TY_USHORT);
+    case BK_U32:
+        return type_basic(TY_UINT);
+    case BK_U64:
+        return type_basic(cgf_target_int64_is_longlong(s->target) ? TY_ULLONG
+                                                                  : TY_ULONG);
+    default:
+        return NULL;
+    }
+}
+
+unsigned sema_builtin_bswap_bytes(u16 marker)
+{
+    switch (marker) {
+    case SEMA_BUILTIN_BSWAP16:
+        return 2;
+    case SEMA_BUILTIN_BSWAP32:
+        return 4;
+    case SEMA_BUILTIN_BSWAP64:
+        return 8;
+    default:
+        return 0;
+    }
+}
+
+u64 cgf_bswap(u64 v, unsigned bytes)
+{
+    u64 r = 0;
+    unsigned i;
+
+    for (i = 0; i < bytes; i++)
+        r |= ((v >> (8u * i)) & 0xffu) << (8u * (bytes - 1u - i));
+    return r;
+}
+
 /* Anonymous-member-transparent lookup used by the offsetof folder (the
  * one in sema/expr.c is file-static and returns the innermost Member;
  * this only answers "is the name reachable from here"). */

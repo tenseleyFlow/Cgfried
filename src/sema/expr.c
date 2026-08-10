@@ -1030,6 +1030,19 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     conv_assignable(s, type_basic(TY_ULONG), &e->args[size_arg],
                                     bctx);
                 }
+                /* A BK_U* builtin has a real prototype, so its argument
+                 * converts as if by assignment -- and that is OBSERVABLE:
+                 * __builtin_bswap16(0x11223344) truncates to 0x3344 and
+                 * swaps THAT, with gcc's -Woverflow on the way. Promoting
+                 * it instead would swap the wrong bytes. */
+                {
+                    Type *ut = sema_builtin_uint_type(s, kind);
+
+                    if (ut && e->nargs > 0) {
+                        bctx.arg_index = 1;
+                        conv_assignable(s, ut, &e->args[0], bctx);
+                    }
+                }
             }
             e->op = b;
             e->is_lvalue = false;
@@ -1060,6 +1073,11 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                  * argument, promoted (gcc types it long). */
                 e->sem_type =
                     e->nargs ? e->args[0]->sem_type : type_basic(TY_LONG);
+                break;
+            case BK_U16:
+            case BK_U32:
+            case BK_U64:
+                e->sem_type = sema_builtin_uint_type(s, kind);
                 break;
             case BK_SPECIAL:
                 e->sem_type = type_basic(TY_INT);
