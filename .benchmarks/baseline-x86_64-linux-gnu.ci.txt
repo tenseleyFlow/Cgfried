@@ -1,0 +1,15 @@
+# Sprint 52 shared-runner RSS baseline seed.
+# host_class=ci target=x86_64-linux-gnu
+# calibration_host=kasumi date=2026-08-10T19:20:08Z
+# cgf_rev=0e35848334c2237da41e03ea8a6c0b51c045e3da cgf_tree=exported-commit
+# host_os=Linux-7.1.5-1-cachyos cpu=11th-Gen-Intel-Core-i9-11900K logical_cpus=16
+# protocol=runs=10,warmup=1 governor=performance load1=0.19
+# Timing is intentionally absent: shared CI invokes the gate with
+# BENCH_SKIP_TIME=1. The first Actions run verifies this conservative RSS seed;
+# subsequent baseline changes follow the reviewed baseline-update ritual.
+# sqlite=sqlite-amalgamation-3500400 sha3=9145255e83da6529e70121ee4d7a4c88fe83ca4511da0c9ed13d10842df36782
+# self=cgfried-src-0e35848334c2237da41e03ea8a6c0b51c045e3da:105-files
+# many_tu=cgf-many-tu-v1:500x200
+sqlite3.maxrss_kb_max=499924
+self.maxrss_kb_max=1059216
+many-tu.maxrss_kb_max=1377672

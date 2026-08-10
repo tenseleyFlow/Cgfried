@@ -1,0 +1,61 @@
+# Sprint 52 Kasumi fleet baseline.
+# host=kasumi host_class=kasumi target=x86_64-linux-gnu
+# date=2026-08-10T19:20:08Z
+# cgf_rev=0e35848334c2237da41e03ea8a6c0b51c045e3da cgf_tree=exported-commit
+# host_os=Linux-7.1.5-1-cachyos cpu=11th-Gen-Intel-Core-i9-11900K logical_cpus=16
+# protocol=runs=10,warmup=1 governor=performance load1=0.19
+# sqlite=sqlite-amalgamation-3500400 sha3=9145255e83da6529e70121ee4d7a4c88fe83ca4511da0c9ed13d10842df36782
+# self=cgfried-src-0e35848334c2237da41e03ea8a6c0b51c045e3da:105-files
+# many_tu=cgf-many-tu-v1:500x200
+# musl=deferred reference-clone-unavailable until Sprint 57
+sqlite3.wall_ms_median=628.543740
+sqlite3.wall_ms_mad=1.459307
+sqlite3.user_ms_median=589.877000
+sqlite3.sys_ms_median=36.948500
+sqlite3.maxrss_kb_max=499924
+sqlite3.stat.arena.ast.peak_kb=507968
+sqlite3.stat.arena.ast.blocks=6
+sqlite3.stat.arena.ast.waste_pct=20
+sqlite3.stat.arena.ir.peak_kb=0
+sqlite3.stat.arena.ir.blocks=0
+sqlite3.stat.arena.ir.waste_pct=0
+sqlite3.stat.intern.lookups=1274107
+sqlite3.stat.intern.hits=1213971
+sqlite3.stat.intern.hit_pct=95
+sqlite3.stat.pp.includes=185
+sqlite3.stat.pp.guard_skips=102
+sqlite3.stat.pp.tokens=695638
+self.wall_ms_median=977.238377
+self.wall_ms_mad=1.280261
+self.user_ms_median=873.292000
+self.sys_ms_median=101.127500
+self.maxrss_kb_max=1059216
+self.stat.arena.ast.peak_kb=1048512
+self.stat.arena.ast.blocks=14
+self.stat.arena.ast.waste_pct=3
+self.stat.arena.ir.peak_kb=0
+self.stat.arena.ir.blocks=0
+self.stat.arena.ir.waste_pct=0
+self.stat.intern.lookups=4176925
+self.stat.intern.hits=3700422
+self.stat.intern.hit_pct=88
+self.stat.pp.includes=7534
+self.stat.pp.guard_skips=5427
+self.stat.pp.tokens=1648126
+many-tu.wall_ms_median=653.950790
+many-tu.wall_ms_mad=1.038290
+many-tu.user_ms_median=573.253500
+many-tu.sys_ms_median=77.830000
+many-tu.maxrss_kb_max=1377672
+many-tu.stat.arena.ast.peak_kb=2097088
+many-tu.stat.arena.ast.blocks=15
+many-tu.stat.arena.ast.waste_pct=35
+many-tu.stat.arena.ir.peak_kb=0
+many-tu.stat.arena.ir.blocks=0
+many-tu.stat.arena.ir.waste_pct=0
+many-tu.stat.intern.lookups=3183000
+many-tu.stat.intern.hits=2783500
+many-tu.stat.intern.hit_pct=87
+many-tu.stat.pp.includes=1000
+many-tu.stat.pp.guard_skips=0
+many-tu.stat.pp.tokens=2346000
