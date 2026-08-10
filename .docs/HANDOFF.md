@@ -97,6 +97,17 @@ units parsing.
    written: its token `mode(` never appears in that refusal at all. All
    seven rows are mutation-verified now.
 
+**A LANE-CONTENTION TRAP THAT LOOKS LIKE A COMPILER BUG.** The sanitized
+100k came back with EIGHT "hang (spawn timeout)" findings, which the harness
+wrote into `tests/fuzz/crashes/` where their presence fails the build. Not
+one was real: every case compiles in under 15ms on both the plain and the
+sanitized compiler, four of the eight are EMPTY FILES, and the seeds run in
+consecutive runs (35990-35993). The cause was mine -- I ran the two musl
+sweeps concurrently with the fuzz run, which is the rule this file already
+states. **A fuzz finding whose only symptom is a TIMEOUT is a claim about
+the machine as much as about the compiler**: reproduce it standalone before
+believing it, and check whether the input is even non-empty.
+
 **REFUSING IS A RESULT.** Both refusals rest on measurement, and the empty-
 struct one is the sharper: gcc gives them size zero, and `struct E arr[3]`
 then has `&arr[0] == &arr[1]`. So the extension does not add a size, it
