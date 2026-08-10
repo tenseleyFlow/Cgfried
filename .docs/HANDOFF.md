@@ -188,9 +188,40 @@ keeping:
 optimization licenses where a user's lie becomes a miscompile, which is a
 different risk class from a missed diagnostic. They stay parsed-ignored.
 
+### D5 — the obligation list, MEASURED before starting
+
+**D5 is not "define a macro".** Simulated with `-D__GNUC__=8
+-D__GNUC_MINOR__=3` against real glibc headers on x86_64: most headers
+already compile clean, and there are exactly THREE blockers. The long list
+of syntax errors a naive run produces is CASCADE from the first one —
+compile each header alone and take only its first error.
+
+1. **`mode(__word__)`** on `typedef int register_t` in `sys/types.h`, which
+   blocks `<stdlib.h>` and much else transitively. It sits in our REFUSED
+   tier, whose note claimed "glibc `__int128` corners only" — **disproven**:
+   a grep of all `/usr/include` finds exactly ONE mode use in glibc and it
+   is this one. The INTEGER modes are tractable (replace the type with an
+   integer of that width and the same signedness — our type system does have
+   that axis); vector and float modes are what the refusal really covers.
+2. **`_Float128`** — `math.h`'s `#define _Mdouble_ _Float128`. **NOT
+   AVOIDABLE BY CHOOSING A VERSION**: glibc gates `__HAVE_FLOAT128` on
+   `__GNUC_PREREQ(4, 3)` for x86_64, so anything we could claim turns it on.
+   Verified both ways — at `__GNUC__` 4.2 `math.h` compiles, at 4.3 it does
+   not. softfp already does binary128 and `libcgf_rt` already ships the
+   `__*tf3` entry points for arm64, so an x86 `_Float128` is soft-float
+   through the same runtime; bounded, but a new floating type.
+3. **`__builtin_bswap16/32/64`** — `bits/byteswap.h`. The smallest of the
+   three: rows in `builtins.def` plus lowering.
+
+**These three ARE the promise's unpaid balance.** This document's own rule is
+that defining `__GNUC__` is a promise, and "answering yes and then rejecting
+one of gcc 8's extensions is worse than answering no". arm64-macos and
+FreeBSD have their own lists, not yet measured.
+
 ### Then, in order
 
-1. **D5 `__GNUC__` — the last deliverable of Sprint 55.**
+1. **D5 `__GNUC__` — the last deliverable of Sprint 55**, with the three
+   items above as its real scope.
 2. **D5 `__GNUC__` — LAST, and only after D3.** The day it is defined every
    `__attribute__` in every system header goes live at once, and **D3's
    implemented column IS D5's obligation checklist**. That is why the

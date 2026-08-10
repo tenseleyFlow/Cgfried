@@ -295,7 +295,7 @@ silently rather than fail loudly.
 |---|---|---|
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
 | two REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so a second register output means widening `CgMirView` rather than adding a case. Counting musl's sites for our two targets says that is rarely what a second output is: x86_64 has 181 one-output against 27 two-output, aarch64 172 against 19, and the two-output cases are dominated by a MEMORY second output, which consumes no register and IS supported | Linux's `__cmpxchg` shapes; no musl TU we compile |
-| `mode(...)` attribute | selects a machine mode independent of the C type; our type system has no such axis | glibc `__int128` corners only |
+| `mode(...)` attribute | selects a machine mode independent of the C type; our type system has no such axis | **CORRECTED BY MEASUREMENT:** not "`__int128` corners" — a grep of all of `/usr/include` finds exactly ONE use in glibc, `__mode__(__word__)` on `register_t` in `sys/types.h`, and it blocks `<stdlib.h>` the moment `__GNUC__` is defined. The INTEGER modes are tractable (replace the type with an integer of that width and the same signedness); vector and float modes are what the "no such axis" claim really covers. See D5's obligation list |
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |
 | computed goto (`&&label`, `goto *p`) | out of the v0.1.0 scope contract | interpreters; not our corpora |
