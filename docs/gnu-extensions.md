@@ -61,6 +61,8 @@ predefine.
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
+| case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
+| `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
