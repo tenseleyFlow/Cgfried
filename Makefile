@@ -60,6 +60,7 @@ IRFUZZ_OBJ := $(BUILD)/tests/fuzz/ir_fuzz.o $(LIB_OBJ)
 # harness can pin median/MAD arithmetic instead of timing the scheduler.
 TIMEIT_OBJ := $(BUILD)/tests/bench/timeit.o
 TIMEIT_LIB_OBJ := $(BUILD)/tests/bench/timeit_lib.o
+TIMEIT_MATH_TEST_OBJ := $(BUILD)/tests/bench/timeit_math_test.o
 
 # Corpus identity is part of every performance number. A source or flag bump
 # must change this pin and land with a separately reviewed baseline update.
@@ -85,7 +86,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(TIMEIT_LIB_OBJ) \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ) $(TIMEIT_OBJ) $(TIMEIT_LIB_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ) $(TIMEIT_OBJ) $(TIMEIT_LIB_OBJ) $(TIMEIT_MATH_TEST_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
@@ -224,6 +225,9 @@ $(BUILD)/unit_tests: $(sort $(UNIT_OBJ))
 
 $(BUILD)/timeit: $(TIMEIT_OBJ)
 	$(CC) $(CFLAGS) -o $@ $(TIMEIT_OBJ)
+
+$(BUILD)/timeit-math-test: $(TIMEIT_MATH_TEST_OBJ) $(TIMEIT_LIB_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(TIMEIT_MATH_TEST_OBJ) $(TIMEIT_LIB_OBJ)
 
 $(TIMEIT_LIB_OBJ): tests/bench/timeit.c tests/bench/timeit.h | $(DIRS)
 	$(CC) $(CFLAGS) -DCGF_TIMEIT_NO_MAIN -c -o $@ $<
@@ -544,8 +548,9 @@ bench-safe: $(BUILD)/cgfried rt
 
 # Fast, deterministic infrastructure checks belong in `make test`; the actual
 # benchmark protocol stays explicit so normal tests never depend on host load.
-test-bench: $(BUILD)/cgfried $(BUILD)/timeit
+test-bench: $(BUILD)/cgfried $(BUILD)/timeit $(BUILD)/timeit-math-test
 	sh tests/bench/timeit_test.sh $(BUILD)/timeit
+	$(BUILD)/timeit-math-test
 	sh tests/bench/benchmark_gate_test.sh
 	CGF_STATS_WORK=$(BUILD)/stats-smoke \
 	    sh scripts/stats_smoke.sh $(BUILD)/cgfried
@@ -696,7 +701,7 @@ clean:
                $(A64MIR_OBJ:.o=.d) \
                $(A64_LOGIMM_GEN_OBJ:.o=.d) \
                $(FPDIFF_OBJ:.o=.d) $(TIMEIT_OBJ:.o=.d) \
-               $(TIMEIT_LIB_OBJ:.o=.d))
+               $(TIMEIT_LIB_OBJ:.o=.d) $(TIMEIT_MATH_TEST_OBJ:.o=.d))
 
 check-format-matrix:
 	CGF_FORMAT_MATRIX_WORK=$(BUILD)/format-matrix-check \

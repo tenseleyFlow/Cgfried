@@ -28,7 +28,7 @@ expect_status() {
 
 [ -x "$timeit" ] || fail "not executable: $timeit"
 
-"$timeit" -n 3 -w 2 -o "$tmp/raw.txt" -- /bin/true >"$tmp/summary.txt"
+"$timeit" -n 3 -w 2 -o "$tmp/raw.txt" -- true >"$tmp/summary.txt"
 sed 's/=.*//' "$tmp/summary.txt" >"$tmp/keys.txt"
 cat >"$tmp/expected-keys.txt" <<'EOF'
 wall_ms_median
@@ -59,10 +59,22 @@ if ! awk '
     fail "raw samples were not numbered exactly 1 through 3"
 fi
 
-expect_status invalid-run-count 2 "$timeit" -n 0 -- /bin/true
-expect_status missing-separator 2 "$timeit" -n 1 /bin/true
+expect_status invalid-run-count 2 "$timeit" -n 0 -- true
+expect_status invalid-timeout 2 "$timeit" -t 0 -- true
+expect_status missing-separator 2 "$timeit" -n 1 true
 expect_status child-exit 7 "$timeit" -n 1 -w 0 -- /bin/sh -c 'exit 7'
 expect_status child-signal 143 "$timeit" -n 1 -w 0 -- /bin/sh -c \
     'kill -TERM $$'
+# The measured child expands $! and $1.
+# shellcheck disable=SC2016
+expect_status timeout 124 "$timeit" -n 1 -w 0 -t 1 -- /bin/sh -c \
+    'sh -c "while :; do :; done" & echo $! >"$1"; while :; do :; done' \
+    cgf-timeout "$tmp/timeout-descendant.pid"
+grep -F 'timeit: timeout after 1 seconds' "$tmp/timeout.err" >/dev/null ||
+    fail 'timeout lacked a diagnostic'
+descendant_pid=$(cat "$tmp/timeout-descendant.pid")
+if kill -0 "$descendant_pid" 2>/dev/null; then
+    fail "timeout left descendant $descendant_pid alive"
+fi
 
-echo "timeit_test: metrics, raw samples, usage, and child status passed"
+echo "timeit_test: metrics, raw samples, usage, child status, and timeout passed"

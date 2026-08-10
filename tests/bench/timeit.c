@@ -1,9 +1,14 @@
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE
+#else
 #define _GNU_SOURCE
+#endif
 
 #include "timeit.h"
 
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,10 +92,19 @@ long cgf_timeit_maxrss_kb(long raw_maxrss, int raw_is_bytes)
 
 #ifndef CGF_TIMEIT_NO_MAIN
 
+static volatile sig_atomic_t timeit_timed_out;
+
+static void handle_timeout(int signal_number)
+{
+    (void)signal_number;
+    timeit_timed_out = 1;
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
-            "usage: %s [-n RUNS] [-w WARMUP] [-o OUTFILE] -- cmd args...\n",
+            "usage: %s [-n RUNS] [-w WARMUP] [-t SECONDS] "
+            "[-o OUTFILE] -- cmd args...\n",
             program);
 }
 
@@ -134,6 +148,8 @@ static int run_child(char **command, TimeitSample *sample)
     const clockid_t clock_id = CLOCK_MONOTONIC;
 #endif
 
+    if (timeit_timed_out)
+        return 124;
     if (clock_gettime(clock_id, &start) != 0) {
         perror("timeit: clock_gettime");
         return 2;
@@ -144,13 +160,30 @@ static int run_child(char **command, TimeitSample *sample)
         return 2;
     }
     if (child == 0) {
+        (void)setpgid(0, 0);
         execvp(command[0], command);
         perror("timeit: execvp");
         _exit(127);
     }
+    (void)setpgid(child, child);
     do {
         waited = wait4(child, &status, 0, &usage);
-    } while (waited < 0 && errno == EINTR);
+    } while (waited < 0 && errno == EINTR && !timeit_timed_out);
+    if (timeit_timed_out) {
+        int saved_errno = errno;
+
+        if (waited != child) {
+            if (kill(-child, SIGKILL) != 0 && errno != ESRCH)
+                perror("timeit: kill process group");
+            if (kill(child, SIGKILL) != 0 && errno != ESRCH)
+                perror("timeit: kill child");
+            do {
+                waited = wait4(child, &status, 0, &usage);
+            } while (waited < 0 && errno == EINTR);
+        }
+        errno = saved_errno;
+        return 124;
+    }
     if (waited < 0) {
         perror("timeit: wait4");
         return 2;
@@ -190,12 +223,14 @@ static int write_raw_sample(FILE *out, size_t index, const TimeitSample *sample)
 
 int main(int argc, char **argv)
 {
-    size_t runs = 10, warmups = 1, i;
+    size_t runs = 10, warmups = 1, timeout_seconds = 0, i;
     const char *output_path = NULL;
     TimeitSample *samples = NULL;
     double *wall = NULL, *user = NULL, *sys = NULL;
     double wall_median, wall_mad, user_median, sys_median;
     FILE *raw = NULL;
+    struct sigaction old_alarm;
+    int timeout_installed = 0;
     long maxrss = 0;
     int argi = 1;
     int result = 2;
@@ -207,6 +242,11 @@ int main(int argc, char **argv)
             argi += 2;
         } else if (strcmp(argv[argi], "-w") == 0 && argi + 1 < argc) {
             if (!parse_count(argv[argi + 1], 1, &warmups))
+                goto bad_usage;
+            argi += 2;
+        } else if (strcmp(argv[argi], "-t") == 0 && argi + 1 < argc) {
+            if (!parse_count(argv[argi + 1], 0, &timeout_seconds) ||
+                timeout_seconds > UINT_MAX)
                 goto bad_usage;
             argi += 2;
         } else if (strcmp(argv[argi], "-o") == 0 && argi + 1 < argc) {
@@ -240,15 +280,37 @@ int main(int argc, char **argv)
         }
     }
 
+    if (timeout_seconds != 0) {
+        struct sigaction action;
+
+        memset(&action, 0, sizeof(action));
+        action.sa_handler = handle_timeout;
+        sigemptyset(&action.sa_mask);
+        if (sigaction(SIGALRM, &action, &old_alarm) != 0) {
+            perror("timeit: sigaction");
+            goto cleanup;
+        }
+        timeout_installed = 1;
+        alarm((unsigned int)timeout_seconds);
+    }
+
     for (i = 0; i < warmups; i++) {
         result = run_child(&argv[argi], NULL);
-        if (result != 0)
+        if (result != 0) {
+            if (timeit_timed_out)
+                fprintf(stderr, "timeit: timeout after %zu seconds\n",
+                        timeout_seconds);
             goto cleanup;
+        }
     }
     for (i = 0; i < runs; i++) {
         result = run_child(&argv[argi], &samples[i]);
-        if (result != 0)
+        if (result != 0) {
+            if (timeit_timed_out)
+                fprintf(stderr, "timeit: timeout after %zu seconds\n",
+                        timeout_seconds);
             goto cleanup;
+        }
         wall[i] = samples[i].wall_ms;
         user[i] = samples[i].user_ms;
         sys[i] = samples[i].sys_ms;
@@ -286,6 +348,13 @@ int main(int argc, char **argv)
 bad_usage:
     usage(argv[0]);
 cleanup:
+    if (timeout_installed) {
+        alarm(0);
+        if (sigaction(SIGALRM, &old_alarm, NULL) != 0 && result == 0) {
+            perror("timeit: restore sigaction");
+            result = 2;
+        }
+    }
     if (raw && fclose(raw) != 0 && result == 0) {
         perror("timeit: close");
         result = 2;

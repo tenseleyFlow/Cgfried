@@ -76,11 +76,11 @@ if [ "$governor" != unavailable ] && [ "$governor" != performance ]; then
     echo "bench: WARNING: CPU governor is '$governor', not 'performance'; result is provenance-only" >&2
 fi
 
-host=$(hostname 2>/dev/null || uname -n)
+host=$(hostname -s 2>/dev/null || uname -n)
 date_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 if [ -n "${CGF_BENCH_REV:-}" ]; then
     rev=$CGF_BENCH_REV
-    tree_state=${CGF_BENCH_TREE_STATE:-exported}
+    tree_state=${CGF_BENCH_TREE_STATE:-exported-commit}
 elif git -C "$ROOT" rev-parse HEAD >/dev/null 2>&1; then
     rev=$(git -C "$ROOT" rev-parse HEAD)
     if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
@@ -126,8 +126,17 @@ run_lane()
     lane_start=$(date +%s)
 
     # CGF_STATS is inherited through timeit by the directly-exec'd compiler.
-    if ! CGF_STATS=1 "$TIMEIT" -n "$RUNS" -w "$WARMUP" -o "$raw" -- \
-        "$CGF" "$@" >"$metrics" 2>"$stderr_file"; then
+    if [ "$host" = nomad-1 ]; then
+        timeit_status=0
+        CGF_STATS=1 "$TIMEIT" -t 300 -n "$RUNS" -w "$WARMUP" \
+            -o "$raw" -- "$CGF" "$@" >"$metrics" 2>"$stderr_file" ||
+            timeit_status=$?
+    else
+        timeit_status=0
+        CGF_STATS=1 "$TIMEIT" -n "$RUNS" -w "$WARMUP" -o "$raw" -- \
+            "$CGF" "$@" >"$metrics" 2>"$stderr_file" || timeit_status=$?
+    fi
+    if [ "$timeit_status" -ne 0 ]; then
         echo "bench: timed lane '$lane' failed; see $stderr_file" >&2
         return 1
     fi
@@ -222,14 +231,36 @@ elif [ ! -x "$MUSL_REF/configure" ]; then
     musl_detail=reference-clone-unavailable
 else
     MUSL_BUILD=$(mktemp -d "$WORK/musl-build.XXXXXX")
-    if (cd "$MUSL_BUILD" && "$MUSL_REF/configure" --disable-shared \
-        --prefix="$MUSL_BUILD/install" >>"$MUSL_LOG" 2>&1 && \
-        make -j1 CC="$CGF" >>"$MUSL_LOG" 2>&1); then
+    musl_build_status=0
+    if [ "$host" = nomad-1 ]; then
+        # The measured child expands these deliberately exported variables.
+        # shellcheck disable=SC2016
+        CGF_MUSL_BUILD=$MUSL_BUILD CGF_MUSL_CC=$CGF \
+            CGF_MUSL_CONFIGURE=$MUSL_REF/configure \
+            CGF_MUSL_LOG=$MUSL_LOG "$TIMEIT" -t 300 -n 1 -w 0 -- \
+            /bin/sh -c '
+                cd "$CGF_MUSL_BUILD" &&
+                CC="$CGF_MUSL_CC" "$CGF_MUSL_CONFIGURE" --disable-shared \
+                    --prefix="$CGF_MUSL_BUILD/install" \
+                    >>"$CGF_MUSL_LOG" 2>&1 &&
+                make -j1 CC="$CGF_MUSL_CC" >>"$CGF_MUSL_LOG" 2>&1
+            ' >"$WORK/musl-time.metrics" 2>>"$MUSL_LOG" || musl_build_status=$?
+    else
+        (cd "$MUSL_BUILD" && CC="$CGF" "$MUSL_REF/configure" \
+            --disable-shared --prefix="$MUSL_BUILD/install" \
+            >>"$MUSL_LOG" 2>&1 && make -j1 CC="$CGF" \
+            >>"$MUSL_LOG" 2>&1) || musl_build_status=$?
+    fi
+    if [ "$musl_build_status" -eq 0 ]; then
         musl_status=build-green-ungated
         musl_detail=full-build
     else
         musl_status=deferred
-        musl_detail=$(sed -n '/error:/ { s/[[:space:]][[:space:]]*/ /g; p; q; }' "$MUSL_LOG")
+        if grep -q '^timeit: timeout after 300 seconds$' "$MUSL_LOG"; then
+            musl_detail=timeout-300s
+        else
+            musl_detail=$(sed -n '/error:/ { s/[[:space:]][[:space:]]*/ /g; p; q; }' "$MUSL_LOG")
+        fi
         [ -n "$musl_detail" ] || musl_detail=build-failed-see-log
     fi
 fi

@@ -19,7 +19,9 @@ compiler in a shell.  The default protocol discards one warmup and records ten
 samples.  It reports wall median and median absolute deviation (MAD), user and
 system medians, and maximum resident set size.  Raw samples remain under
 `build/bench/raw/`.  Linux `wait4` reports RSS in KiB while macOS reports bytes;
-`timeit` normalizes both to KiB.
+`timeit` normalizes both to KiB. Its optional `-t SECONDS` deadline covers the
+whole warmup-and-sample batch and kills the measured process group on expiry;
+the Nomad thermal lane uses it to enforce the five-minute batch cap.
 
 Every result records both `cgf_rev` and `cgf_tree`. A normal checkout is
 marked `clean` or `dirty`; an exact exported commit used for an isolated fleet
