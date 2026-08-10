@@ -3,8 +3,10 @@
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU
-extensions) is under way and is the live work.** D1, D2 and most of D4 are
-done; the tier table reads **16 implemented / 7 parsed-ignored / 6 refused**.
+extensions) is under way and is the live work.** D1, D2 and **D4** are done;
+the tier table reads **18 implemented / 7 parsed-ignored / 8 refused**.
+**D3 (the last 5 attributes) is the only implementation work left before
+D5.**
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
@@ -34,7 +36,7 @@ units parsing.
 | 1. tier table, every row fixtured, CI-gated | **met** — 16/7/6, `check_gnu_tiers.sh` |
 | 2. musl `syscall_arch.h` + `src/internal/` compile clean | **met** — verified directly |
 | 3. extended asm O0–Os both targets + early-clobber execute fixture | **met** |
-| 4. **16 attributes** with semantics tests + packed differential | **11 of 16** ← D3 |
+| 4. **16 attributes** with semantics tests + packed differential | **11 of 16** ← D3, the only implementation work left |
 | 5. `__GNUC__=8` in gnu17, absent in c17, both fixtured | **open** ← D5, LAST |
 | 6. deferred constructs hard-error naming the sprint | **met** |
 | 7. zero new warnings building cgf itself; bootstrap lanes green | **met** |
@@ -59,7 +61,54 @@ units parsing.
 - `[0]` arrays and `__builtin_constant_p` — **already worked**, found by a
   13-line survey before any planning. PROBE THE LIST BEFORE PLANNING IT.
 
-### D4 — what is LEFT, with the semantics already measured
+### D4 IS CLOSED. What the last four items cost, and what they found
+
+- **case ranges** `case lo ... hi:` — `fbf381d7`. Ranges do NOT enter the IR
+  switch value table (`case 0 ... 1000000` would be a million entries); each
+  becomes one bounds test, `d = scrut - lo` then unsigned `d <= hi - lo`.
+  The wrap is what makes a negative range work.
+- **`a ?: b`** — `2b669d91`, plus the two `-pedantic` pedwarns gcc emits for
+  it and for case ranges, plus the `__extension__` suppression they require.
+- **`__label__` and empty structs — REFUSED** (`f5ce6442`), with the reason
+  MEASURED rather than argued. See below; this is the interesting part.
+- **`__builtin_offsetof` array designators and `,##__VA_ARGS__` ALREADY
+  WORKED.** Found by a survey before any planning — the same lesson `[0]`
+  arrays taught. PROBE THE LIST BEFORE PLANNING IT; it is now 4 for 4.
+
+**THE THREE THINGS WORTH CARRYING FORWARD:**
+
+1. **Implementing case ranges found THREE pre-existing gaps in switch label
+   checking, two of them REQUIRED diagnostics** (task #123). `case 1:` twice
+   and `default:` twice were both accepted silently, picking the first. They
+   land with ranges because overlap between two ranges, between a range and
+   a plain label, and between two plain labels are the same question about
+   the same intervals — one list answers all three. The out-of-range case
+   label (`-Wswitch-outside-range`) is still open.
+2. **THE ENUMERATION HAZARD, again, in the lowering.** Three loops had to
+   agree on which cases are table entries; I taught the sizing loop about
+   ranges and not the filling loop, so the array was sized for the singles
+   and written with all of them. The overflow corrupted the arena and IR
+   verify reported a branch to block id 3894. One predicate now.
+3. **A GATE I ADDED WAS VACUOUS, and fixing it found an older one.**
+   `check_gnu_tiers`'s refused-row check grepped src/ for a token, and the
+   COMMENT explaining a refusal contains the same words — so mutating the
+   message away left the gate green. Tightening it to require the token in a
+   STRING LITERAL exposed that the `mode` row had been vacuous since it was
+   written: its token `mode(` never appears in that refusal at all. All
+   seven rows are mutation-verified now.
+
+**REFUSING IS A RESULT.** Both refusals rest on measurement, and the empty-
+struct one is the sharper: gcc gives them size zero, and `struct E arr[3]`
+then has `&arr[0] == &arr[1]`. So the extension does not add a size, it
+breaks the distinct-address property the shared alias service and the
+memory-safety lattice are both built on. Demand was measured first — musl 0,
+glibc's C headers 0 (every `/usr/include` hit is C++), Linux uapi 1 inside
+`__DECLARE_FLEX_ARRAY`. Its old message named Sprint 55, the sprint that
+examined and declined it, so `check_deferrals` would have flagged it at
+close: **a deferral to the CURRENT sprint must be resolved before it ends,
+in one direction or the other.**
+
+### The historical D4 list, with the semantics that were measured
 
 **Do not re-derive these. They are gcc-measured and some are
 counterintuitive.**
@@ -85,7 +134,8 @@ counterintuitive.**
 
 ### Then, in order
 
-1. **D3** — the last 5 attributes. DoD 4 wants 16.
+1. **D3** — the last 5 attributes. DoD 4 wants 16. **This is now the only
+   D-item with implementation work left**; D1, D2 and D4 are closed.
 2. **D5 `__GNUC__` — LAST, and only after D3.** The day it is defined every
    `__attribute__` in every system header goes live at once, and **D3's
    implemented column IS D5's obligation checklist**. That is why the
