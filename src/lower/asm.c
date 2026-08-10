@@ -175,6 +175,16 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             op->cls = ASM_CLS_IMM;
             saw_class = true;
             continue;
+        case 'N':
+            /* x86 N is an unsigned 8-bit immediate. Keep the exact spelling
+             * narrow here: a string such as rN is an ALTERNATIVE constraint,
+             * and choosing between its classes needs the same expression-
+             * aware path as Nd below rather than "last letter wins". */
+            if (asm_target_is_arm64() || strcmp(op->constraint, "N") != 0)
+                break;
+            op->cls = ASM_CLS_IMM;
+            saw_class = true;
+            continue;
         case 'g':
             /* r, m or i. We take the register reading, which is always a
              * legal choice for `g` and is what gcc picks for a value in a
@@ -244,6 +254,105 @@ static bool constraint_has(const char *c, char want)
     return false;
 }
 
+static u32 tied_input_count(const IrAsmOp *ops, u32 n, u32 output)
+{
+    u32 count = 0;
+    u32 i;
+
+    for (i = 0; i < n; i++)
+        if (!ops[i].is_output && ops[i].tied_to == (i32)output)
+            count++;
+    return count;
+}
+
+/* The shared MIR view still has one def, but x86 can soundly carry a narrow
+ * second-output shape without changing it: a FIXED output with exactly one
+ * matching input has that input reserve the physical register at the asm,
+ * then the backend READREG-captures the new value immediately afterwards.
+ * This is glibc <sys/io.h>'s =D/=c + 0/1 shape. An unfixed extra output has
+ * nowhere to record the allocator's choice, and an unmatched fixed output
+ * has nothing keeping its register occupied while the template runs. */
+static bool validate_register_outputs(Lower *lo, const AstNode *s,
+                                      const IrAsmOp *ops, u32 n)
+{
+    u32 register_outputs = 0;
+    u32 i, j;
+
+    for (i = 0; i < s->asm_noutputs && i < n; i++) {
+        const IrAsmOp *op = &ops[i];
+
+        if (op->cls == ASM_CLS_MEM)
+            continue;
+        register_outputs++;
+        if (op->cls == ASM_CLS_FIXED)
+            for (j = 0; j < i; j++)
+                if (ops[j].is_output && ops[j].cls == ASM_CLS_FIXED &&
+                    ops[j].reg == op->reg) {
+                    asm_error(lo, s->asm_ops[i].span,
+                              "asm outputs %u and %u both require the same "
+                              "fixed register; two distinct outputs cannot "
+                              "occupy one location",
+                              (unsigned)j, (unsigned)i);
+                    return false;
+                }
+        if (register_outputs == 1)
+            continue;
+        if (asm_target_is_arm64()) {
+            asm_error(lo, s->asm_ops[i].span,
+                      "an asm with more than one register output is not "
+                      "supported on arm64 yet");
+            return false;
+        }
+        if (op->cls != ASM_CLS_FIXED || tied_input_count(ops, n, i) != 1) {
+            asm_error(lo, s->asm_ops[i].span,
+                      "an asm with more than one register output is not "
+                      "supported yet unless every extra output names one "
+                      "fixed x86 register and has exactly one matching "
+                      "input; a general extra output would require another "
+                      "MIR def (docs/gnu-extensions.md)");
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool reg_in_list(const u8 *regs, u32 n, u8 reg)
+{
+    u32 i;
+
+    for (i = 0; i < n; i++)
+        if (regs[i] == reg)
+            return true;
+    return false;
+}
+
+static bool validate_operand_clobbers(Lower *lo, const AstNode *s,
+                                      const IrAsmOp *ops, u32 n,
+                                      const u8 *clobregs, u32 nclob)
+{
+    u32 i;
+
+    for (i = 0; i < n; i++) {
+        const IrAsmOp *op = &ops[i];
+        const IrAsmOp *fixed = op;
+        Span span;
+
+        if (op->tied_to >= 0 && (u32)op->tied_to < n)
+            fixed = &ops[op->tied_to];
+        if (fixed->cls != ASM_CLS_FIXED ||
+            !reg_in_list(clobregs, nclob, fixed->reg))
+            continue;
+        span = i < s->asm_nops ? s->asm_ops[i].span
+                               : s->asm_ops[(u32)op->tied_to].span;
+        asm_error(lo, span,
+                  "asm operand %u requires register %u, which is also named "
+                  "in the clobber list",
+                  (unsigned)i, (unsigned)fixed->reg);
+        return false;
+    }
+    return true;
+}
+
 void lower_asm(Lower *lo, AstNode *s)
 {
     IrAsm a;
@@ -253,7 +362,6 @@ void lower_asm(Lower *lo, AstNode *s)
     u32 n = 0;
     u32 nclob = 0;
     u32 i;
-    bool seen_reg_output = false;
 
     memset(&a, 0, sizeof(a));
     a.tmpl = s->asm_tmpl ? s->asm_tmpl : "";
@@ -266,14 +374,34 @@ void lower_asm(Lower *lo, AstNode *s)
     for (i = 0; i < s->asm_nops && n < 64; i++) {
         const AsmOperand *src = &s->asm_ops[i];
         bool is_out = i < s->asm_noutputs;
+        bool nd_immediate = false;
         IrAsmOp *op = &ops[n];
 
         memset(op, 0, sizeof(*op));
         op->constraint = src->constraint ? src->constraint : "";
         op->name = src->name;
         op->is_output = is_out;
-        if (!decode_constraint(lo, op, op->constraint, is_out, src->span))
+        /* glibc's <sys/io.h> uses x86 "Nd": choose N for an unsigned
+         * 8-bit constant and d (%rdx) otherwise. This is a real alternative,
+         * not two cumulative class letters. CE_FOLD is deliberately silent:
+         * a variable is not an error because the d arm accepts it. */
+        if (!asm_target_is_arm64() && !is_out &&
+            strcmp(op->constraint, "Nd") == 0) {
+            ConstValue cv = constexpr_eval(lo->sema, src->expr, CE_FOLD);
+
+            op->tied_to = -1;
+            if (cv.kind == CV_INT && cv.i <= 255) {
+                op->cls = ASM_CLS_IMM;
+                op->imm = (i64)cv.i;
+                nd_immediate = true;
+            } else {
+                op->cls = ASM_CLS_FIXED;
+                op->reg = 2; /* rdx */
+            }
+        } else if (!decode_constraint(lo, op, op->constraint, is_out,
+                                      src->span)) {
             return;
+        }
         if (src->expr && src->expr->sem_type) {
             TypeLayout l = layout_of(lo->sema, src->expr->sem_type);
 
@@ -281,41 +409,31 @@ void lower_asm(Lower *lo, AstNode *s)
         } else {
             op->size = 8;
         }
-        /* ONE REGISTER OUTPUT, and the boundary is measured rather than
-         * guessed. An IR instruction defines at most one value and the
-         * shared MIR view reports one def per instruction, so a second
-         * register output would mean widening that interface across both
-         * backends. Counting musl's asm sites for OUR two targets says the
-         * second output is almost always a MEMORY one (`"=m"`, `"=Q"` in
-         * the atomics), which consumes no register at all: x86_64 has 181
-         * one-output sites and 27 two-output, and aarch64 172 and 19, with
-         * the two-output cases dominated by that shape. So one register
-         * output plus any number of memory outputs covers the campaign,
-         * and a second REGISTER output is refused by name. */
-        if (is_out && op->cls != ASM_CLS_MEM) {
-            if (seen_reg_output) {
-                asm_error(lo, src->span,
-                          "an asm with more than one register output is not "
-                          "supported yet: an IR instruction defines one "
-                          "value, so a second would need the shared MIR "
-                          "view widened. A memory output (\"=m\") is "
-                          "unaffected (docs/gnu-extensions.md)");
-                return;
-            }
-            seen_reg_output = true;
-        }
         if (op->cls == ASM_CLS_IMM) {
             /* `i` and `n` require an assemble-time constant, so the operand
              * must FOLD -- and a diagnostic beats emitting `$0`, which is
              * what an unpopulated field silently produced in the first
              * draft: `"i"(100)` added zero and the fixture read 2 for 102. */
-            ConstValue cv = constexpr_eval(lo->sema, src->expr, CE_ICE);
+            ConstValue cv;
+
+            if (nd_immediate) {
+                vals[n] = ir_op_iconst(IRT_I64, op->imm);
+                n++;
+                continue;
+            }
+            cv = constexpr_eval(lo->sema, src->expr, CE_ICE);
 
             if (cv.kind != CV_INT) {
                 asm_error(lo, src->span,
                           "an asm operand with constraint \"%s\" must be an "
                           "integer constant expression",
                           op->constraint);
+                return;
+            }
+            if (strcmp(op->constraint, "N") == 0 && cv.i > 255) {
+                asm_error(lo, src->span,
+                          "an asm operand with constraint \"N\" must be an "
+                          "unsigned 8-bit integer constant");
                 return;
             }
             op->imm = (i64)cv.i;
@@ -358,6 +476,9 @@ void lower_asm(Lower *lo, AstNode *s)
         n++;
     }
 
+    if (!validate_register_outputs(lo, s, ops, n))
+        return;
+
     for (i = 0; i < s->asm_nclobbers; i++) {
         const char *c = s->asm_clobbers[i];
         u8 reg;
@@ -367,7 +488,7 @@ void lower_asm(Lower *lo, AstNode *s)
         } else if (strcmp(c, "cc") == 0) {
             a.clobbers_cc = true;
         } else if (lower_asm_clobber_reg(c, &reg)) {
-            if (nclob < 64)
+            if (nclob < 64 && !reg_in_list(clobregs, nclob, reg))
                 clobregs[nclob++] = reg;
         } else {
             asm_error(lo, s->span,
@@ -378,6 +499,9 @@ void lower_asm(Lower *lo, AstNode *s)
             return;
         }
     }
+
+    if (!validate_operand_clobbers(lo, s, ops, n, clobregs, nclob))
+        return;
 
     if (n) {
         a.ops = arena_alloc(lo->arena, n * sizeof(IrAsmOp), _Alignof(IrAsmOp));

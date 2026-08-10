@@ -2667,10 +2667,11 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         /* Operands become ONE instruction plus the moves around it:
          *
          *   <materialize each input into a vreg>
-         *   X64_OP_ASM   def = the single register output (may be 0)
+         *   X64_OP_ASM   def = the primary register output (may be 0)
          *                xuses = every operand that needs a register, in
          *                        IrAsm operand order, skipping that output
-         *   <store the output vreg through its address>
+         *   <READREG-capture every extra fixed register output>
+         *   <store all output vregs through their addresses>
          *
          * EARLY CLOBBER NEEDS NO CODE HERE, but it is NOT free the way an
          * earlier version of this comment said. cg_intervals_build extends
@@ -2685,13 +2686,16 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          * when it may -- so this compiler still cannot demonstrate `&`
          * mattering, and the doc says so instead of claiming a feature.
          *
-         * A TIED operand is the same vreg as its output, so "two operands,
-         * one location" needs no concept of its own: the move that
-         * materializes the input targets the output's vreg. */
+         * A TIED operand reserves its output's location. The primary
+         * unfixed output can use the same vreg; fixed outputs use a fresh
+         * pre-coloured input vreg, and extra fixed outputs are captured with
+         * READREG immediately after the asm. */
         const IrAsm *a = in->callee && in->callee <= is->m->nasms
                              ? &is->m->asms[in->callee - 1]
                              : NULL;
         X64VReg opreg[64];
+        X64VReg outval[64];
+        X64VReg clobval[64];
         X64Inst *x;
         X64VReg outv = {0};
         u32 outidx = (u32)-1;
@@ -2703,7 +2707,11 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             break;
         }
         memset(opreg, 0, sizeof(opreg));
-        /* Pass 1: the register output, so a tied input can target it. */
+        memset(outval, 0, sizeof(outval));
+        memset(clobval, 0, sizeof(clobval));
+        /* Pass 1: the primary register output, so a tied input can target
+         * the instruction's one real def. Lowering permits later register
+         * outputs only when they are fixed and have one matching input. */
         for (k = 0; k < a->nops && k < 64; k++)
             if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
                 outv = newv(is);
@@ -2719,7 +2727,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 continue; /* no register: printed as $N */
             if (o->is_output && o->cls != ASM_CLS_MEM)
                 continue; /* handled above; the asm defines it */
-            if (o->tied_to >= 0 && (u32)o->tied_to == outidx && outv.v) {
+            if (o->tied_to >= 0 && (u32)o->tied_to < a->nops &&
+                a->ops[o->tied_to].is_output &&
+                a->ops[o->tied_to].cls != ASM_CLS_MEM) {
                 /* A TIED operand is two operands in ONE location, and how to
                  * say that depends on whether the location is NAMED.
                  *
@@ -2737,8 +2747,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                  * the original -- the tie silently broke, the syscall read a
                  * stale rax, and write(2) returned -ENOSYS at -O0 while -O2
                  * happened to allocate its way out of it. */
-                const IrAsmOp *out = &a->ops[outidx];
-                X64VReg dst = outv;
+                u32 tied = (u32)o->tied_to;
+                const IrAsmOp *out = &a->ops[tied];
+                X64VReg dst;
                 X64VReg src;
                 X64Inst *mv;
 
@@ -2750,8 +2761,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                  * `movq %rdx, %rax` and the syscall read garbage. Fourth
                  * appearance of this bug class in the backend. */
                 src = to_vreg(is, &in->ops[k]);
-                if (out->cls == ASM_CLS_FIXED)
+                if (tied == outidx && out->cls != ASM_CLS_FIXED) {
+                    dst = outv;
+                } else {
+                    /* Every fixed tie gets a FRESH vreg. Pinning src would
+                     * pin the IR value globally; for an extra output this
+                     * vreg is also what reserves the physical register at
+                     * the atomic ASM point until READREG captures it. */
                     dst = newv(is);
+                }
                 mv = emit(is, X64_OP_MOV, asm_width(o->size));
                 mv->def = dst;
                 mv->a = ovreg(src);
@@ -2782,6 +2800,21 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             opreg[k] = to_vreg(is, &in->ops[k]);
         }
 
+        /* A named clobber must exclude its EXACT register, including the
+         * callee-saved set. The blanket call-point model below excludes all
+         * caller-saved registers from live-through values, but by design it
+         * attracts those values to rbx/r12-r15. A tiny READREG -> ASM xuse
+         * sentinel reserves the named physical register at this instruction;
+         * its value is irrelevant and the marker normally rewrites away. */
+        for (k = 0; k < a->nclobber_regs && k < 64; k++) {
+            X64Inst *rr;
+
+            clobval[k] = newv(is);
+            rr = emit(is, X64_OP_READREG, X64_Q);
+            rr->def = clobval[k];
+            rr->def_fixed = (u8)(a->clobber_regs[k] + 1);
+        }
+
         x = emit(is, X64_OP_ASM, X64_Q);
         x->table = in->callee;
         if (outv.v) {
@@ -2804,25 +2837,45 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 fixed = (u8)(a->ops[o->tied_to].reg + 1);
             x64_add_xuse(is->xf, x, opreg[k], fixed);
         }
-        /* NAMED REGISTER CLOBBERS ride the CALL-CLOBBER model rather than a
-         * mechanism of their own: X64IF_ASM_CLOBBERS marks the instruction
-         * and regalloc treats that point exactly as it treats a call, so an
-         * interval live across it cannot sit in a caller-saved register.
-         * That is STRONGER than the template asked for -- it protects every
-         * caller-saved register, not just the named ones -- and stronger is
-         * safe, where weaker silently corrupts. musl's syscall wrappers
-         * clobber rcx and r11, which are caller-saved anyway. */
+        for (k = 0; k < a->nclobber_regs && k < 64; k++)
+            x64_add_xuse(is->xf, x, clobval[k], (u8)(a->clobber_regs[k] + 1));
+        /* Keep the conservative CALL-CLOBBER model as well: a live-through
+         * value avoids every caller-saved register, while the exact sentinels
+         * above cover named callee-saved registers too. */
         if (a->nclobber_regs)
             x->flags |= X64IF_ASM_CLOBBERS;
-        /* The output's value goes back to the C object the constraint
-         * named. Its ADDRESS is the operand -- see ir.h. */
-        if (outv.v) {
-            X64Inst *st =
-                emit(is, X64_OP_STORE, asm_width(a->ops[outidx].size));
+        if (outv.v)
+            outval[outidx] = outv;
+        /* Capture EVERY extra output before even computing a store address.
+         * Until READREG creates a live value, only the matching input keeps
+         * the physical register occupied at the ASM point; address folding
+         * inserted here could otherwise reuse and overwrite (for example)
+         * rcx before its output was observed. */
+        for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++) {
+            const IrAsmOp *o = &a->ops[k];
+            X64Inst *rr;
 
-            st->a = ovreg(outv);
+            if (!o->is_output || o->cls == ASM_CLS_MEM || k == outidx)
+                continue;
+            if (o->cls != ASM_CLS_FIXED)
+                CGF_ICE("x86_64 isel: extra asm output is not fixed");
+            outval[k] = newv(is);
+            rr = emit(is, X64_OP_READREG, asm_width(o->size));
+            rr->def = outval[k];
+            rr->def_fixed = (u8)(o->reg + 1);
+        }
+        /* Register outputs go back to the C objects their constraints
+         * named. Their ADDRESSES are the IR operands -- see ir.h. Memory
+         * outputs were written by the template itself and need no store. */
+        for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++) {
+            X64Inst *st;
+
+            if (!outval[k].v)
+                continue;
+            st = emit(is, X64_OP_STORE, asm_width(a->ops[k].size));
+            st->a = ovreg(outval[k]);
             st->b.kind = X64O_MEM;
-            st->b.mem = fold_addr(is, &in->ops[outidx]);
+            st->b.mem = fold_addr(is, &in->ops[k]);
         }
         break;
     }

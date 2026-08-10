@@ -61,7 +61,7 @@ predefine.
 | `nonnull(...)`, bare `nonnull` | `tests/programs/gnu/attr_nonnull.c` | glibc (`memcpy`, `strlen`, most of `string.h`) |
 | `noreturn` | `tests/programs/gnu/attr_noreturn.c` | glibc's `__assert_fail`/`abort`, musl, every fatal-error helper |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
-| extended `asm` — operands, constraints, clobbers | `tests/corpus/x86_64/int/asm_operands.c` | musl syscall wrappers and atomics; every libc's `arch/` |
+| extended `asm` — operands, constraints, exact register clobbers, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_multi_fixed.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
@@ -295,7 +295,7 @@ silently rather than fail loudly.
 | extension | why | who actually needs it |
 |---|---|---|
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
-| two REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so a second register output means widening `CgMirView` rather than adding a case. Counting musl's sites for our two targets says that is rarely what a second output is: x86_64 has 181 one-output against 27 two-output, aarch64 172 against 19, and the two-output cases are dominated by a MEMORY second output, which consumes no register and IS supported | Linux's `__cmpxchg` shapes; no musl TU we compile |
+| arbitrary extra REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so another allocator-chosen output means widening `CgMirView`. Memory outputs are supported, as are x86 fixed-register extras with exactly one matching input: that input reserves the location and a post-asm `READREG` captures it, covering glibc `<sys/io.h>`. General `=r` extras and every arm64 multi-register-output form remain refused | Linux's allocator-chosen `__cmpxchg` shapes; no musl TU we compile |
 | non-integer `mode(...)` — `TI`, `SF`/`DF`/`XF`/`TF`, `V*` | each names a type this compiler does not have: a 128-bit integer, a floating type chosen by width (which would silently disagree with the target's own `float`/`double`/`long double` — x86-64's is x87 80-bit, so `TF` is not it), or a vector with no SysV/AAPCS64 parameter contract. The INTEGER modes are implemented; see that row | glibc uses exactly one mode in all of `/usr/include`, and it is an integer one |
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |

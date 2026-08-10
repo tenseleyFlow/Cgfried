@@ -149,9 +149,10 @@ static void rb_commit(Rb *rb, X64Block *b)
 /* --- operand walking -------------------------------------------------------
  */
 
-/* A call can carry 6 GP + 8 xmm arg uses plus AL on top of its operands,
- * so the walk buffer is sized for the worst case. */
-#define MAX_USES 24
+/* Inline asm can carry 64 ordinary operands plus 64 exact-register clobber
+ * sentinels. Silently truncating this walk drops liveness constraints and
+ * turns pressure into wrong code, so size for that declared maximum. */
+#define MAX_USES 128
 
 static u32 inst_uses(const X64Inst *in, X64VReg out[MAX_USES])
 {
@@ -1100,9 +1101,23 @@ static void frame_finalize(Ra *ra)
     for (bi = 0; bi < f->nblocks; bi++) {
         const X64Block *b = &f->blocks[bi];
 
-        for (i = 0; i < b->n; i++)
-            if (b->insts[i].def.v && b->insts[i].def.v <= X64_REG_COUNT)
-                touched[b->insts[i].def.v - 1] = true;
+        for (i = 0; i < b->n; i++) {
+            const X64Inst *in = &b->insts[i];
+            u32 xi;
+
+            if (in->def.v && in->def.v <= X64_REG_COUNT)
+                touched[in->def.v - 1] = true;
+            /* A pre-asm READREG clobber sentinel normally disappears during
+             * rewrite when it is already in its fixed register. Its physical
+             * ASM xuse survives, and must still make a clobbered callee-saved
+             * register part of this function's save/restore set. Marking all
+             * physical asm xuses is conservative and also covers fixed
+             * operands whose defining copy was coalesced away. */
+            if (in->op == X64_OP_ASM)
+                for (xi = 0; xi < in->nxuses; xi++)
+                    if (in->xuses[xi].r.v && in->xuses[xi].r.v <= X64_REG_COUNT)
+                        touched[in->xuses[xi].r.v - 1] = true;
+        }
     }
     for (k = 0; k < X64_REG_COUNT; k++)
         if (touched[k] && is_callee_saved((u8)k))
