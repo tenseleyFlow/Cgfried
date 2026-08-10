@@ -4,8 +4,12 @@
 #include "lower/lower.h"
 #include "parse/parse.h"
 #include "unit.h"
+
 #include "util/arena.h"
 #include "warn/warn.h"
+
+#define TEST_GNU_ATTRIBUTE                                                     \
+    "__attribute__" /* check_bans allow: compiler input, not host C */
 
 typedef struct {
     Arena arena;
@@ -184,16 +188,17 @@ void test_lower_effective_type_classes(TestCtx *t)
 void test_lower_may_alias_types_use_wildcard_effective_type(TestCtx *t)
 {
     static const char src[] =
-        "typedef int alias_int __attribute__((may_alias));\n"
-        "struct __attribute__((__may_alias__)) S { int x; };\n"
-        "typedef int alias_array[2] __attribute__((may_alias));\n"
-        "struct __attribute__((may_alias)) Forward;\n"
+        "typedef int alias_int " TEST_GNU_ATTRIBUTE "((may_alias));\n"
+        "struct " TEST_GNU_ATTRIBUTE "((__may_alias__)) S { int x; };\n"
+        "typedef int alias_array[2] " TEST_GNU_ATTRIBUTE "((may_alias));\n"
+        "struct " TEST_GNU_ATTRIBUTE "((may_alias)) Forward;\n"
         "struct Forward { int x; };\n"
-        "typedef int alias_unsized[] __attribute__((may_alias));\n"
+        "typedef int alias_unsized[] " TEST_GNU_ATTRIBUTE "((may_alias));\n"
         "alias_unsized completed = { 1 };\n"
-        "struct __attribute__((may_alias)) Bits { unsigned x : 3; };\n"
+        "struct " TEST_GNU_ATTRIBUTE "((may_alias)) Bits { unsigned x : 3; };\n"
         "struct PlainTag { int x; };\n"
-        "typedef struct PlainTag TagAlias __attribute__((may_alias));\n"
+        "typedef struct PlainTag TagAlias " TEST_GNU_ATTRIBUTE
+        "((may_alias));\n"
         "int td(alias_int *p) { return *p; }\n"
         "int rec(struct S *p) { return p->x; }\n"
         "int arr(alias_array *p) { return (*p)[0]; }\n"
