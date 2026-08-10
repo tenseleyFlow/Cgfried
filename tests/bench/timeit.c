@@ -100,10 +100,13 @@ static void handle_sigchld(int signal_number)
 {
     unsigned char byte = 0;
     int saved_errno = errno;
+    ssize_t write_result;
 
     (void)signal_number;
-    if (child_signal_pipe[1] >= 0)
-        (void)write(child_signal_pipe[1], &byte, 1);
+    if (child_signal_pipe[1] >= 0) {
+        write_result = write(child_signal_pipe[1], &byte, 1);
+        (void)write_result;
+    }
     errno = saved_errno;
 }
 
