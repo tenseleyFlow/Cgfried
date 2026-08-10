@@ -72,6 +72,7 @@ GA(aligned, GA_IMPLEMENTED)
 GA(cleanup, GA_IMPLEMENTED)
 GA(constructor, GA_IMPLEMENTED)
 GA(destructor, GA_IMPLEMENTED)
+GA(gnu_inline, GA_IMPLEMENTED)
 GA(mode, GA_IMPLEMENTED)
 GA(may_alias, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
@@ -80,9 +81,6 @@ GA(visibility, GA_IMPLEMENTED)
 GA(weak, GA_IMPLEMENTED)
 
 /* --- NOT safe to ignore: layout, linkage, or behaviour ------------------ */
-/* gnu_inline selects the C89 inline semantics rather than C99's, which
- * decides whether a definition emits a symbol at all. */
-GA(gnu_inline, GA_UNSAFE)
 /* returns_twice is the setjmp property: ignoring it lets the optimizer
  * assume single-entry, which is exactly the assumption setjmp breaks. */
 GA(returns_twice, GA_UNSAFE)

@@ -2274,6 +2274,18 @@ static void declare_one(Sema *s, AstNode *d)
         warn_at_ex(s->lang->warnings, WARN_VLA, d->span, WARN_SUPPRESS_IN_MACRO,
                    "variable length array '%s' is used", d->name);
 
+    /* `gnu_inline` only has meaning on an inline FUNCTION declaration.
+     * Keeping it on a plain prototype would be worse than merely missing a
+     * warning: a later definition could inherit it and select the opposite
+     * emission rule. gcc warns and drops it at the declaration where it is
+     * misplaced. */
+    if (d->gnu.gnu_inline &&
+        (!is_func || (d->func_specs & AST_FS_INLINE) == 0)) {
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'gnu_inline' attribute ignored");
+        d->gnu.gnu_inline = false;
+    }
+
     /* UNION across declarations, not replacement: an attribute on any
      * declaration of a symbol applies to the symbol. gcc's rule, and the
      * one musl's weak_alias pattern depends on -- the attribute and the
@@ -2471,9 +2483,25 @@ static void declare_one(Sema *s, AstNode *d)
     sym->func_specs = d->func_specs;
     sym->all_decls_inline = (d->func_specs & AST_FS_INLINE) != 0;
     sym->any_decl_extern = (d->storage & AST_SC_EXTERN) != 0;
+    sym->func_def_inline =
+        d->kind == AST_FUNC_DEF && (d->func_specs & AST_FS_INLINE) != 0;
+    sym->func_def_extern =
+        d->kind == AST_FUNC_DEF && (d->storage & AST_SC_EXTERN) != 0;
 
     prev = scope_lookup_local(s->scope, d->name, NS_ORDINARY);
     if (prev) {
+        /* Once an inline declaration selects GNU89 semantics, every later
+         * inline declaration must say the same thing. A prior NON-inline
+         * prototype is intentionally exempt: that is the shape glibc uses. */
+        if (is_func && (d->func_specs & AST_FS_INLINE) &&
+            (prev->func_specs & AST_FS_INLINE) &&
+            prev->gnu.gnu_inline != sym->gnu.gnu_inline) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "'gnu_inline' attribute disagrees with an earlier "
+                      "inline declaration of '%s'",
+                      d->name);
+        }
         /* The inline decision needs EVERY declaration (6.7.4p7), so the
          * surviving symbol accumulates across the merge. */
         prev->func_specs |= d->func_specs;
@@ -2481,6 +2509,8 @@ static void declare_one(Sema *s, AstNode *d)
             prev->all_decls_inline && (d->func_specs & AST_FS_INLINE) != 0;
         prev->any_decl_extern =
             prev->any_decl_extern || (d->storage & AST_SC_EXTERN) != 0;
+        prev->func_def_inline |= sym->func_def_inline;
+        prev->func_def_extern |= sym->func_def_extern;
         if (d->storage & AST_SC_THREAD_LOCAL)
             prev->tls = true;
         carry_symbol_attrs(prev, sym);
@@ -3249,6 +3279,11 @@ static void finish_symbol(Sema *s, Symbol *sym)
             sym->inline_kind = INL_NONE;
         else if (sym->linkage == LINK_INTERNAL)
             sym->inline_kind = INL_STATIC;
+        else if (sym->gnu.gnu_inline && sym->func_def_inline &&
+                 sym->func_def_extern)
+            sym->inline_kind = INL_INLINE_DEF; /* GNU extern inline: no body */
+        else if (sym->gnu.gnu_inline && sym->func_def_inline)
+            sym->inline_kind = INL_EXTERN_INLINE; /* GNU plain inline emits */
         else if (sym->all_decls_inline && !sym->any_decl_extern)
             sym->inline_kind = INL_INLINE_DEF; /* do NOT emit here */
         else

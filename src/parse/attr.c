@@ -9,6 +9,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     if (!src)
         return;
     dst->weak |= src->weak;
+    dst->gnu_inline |= src->gnu_inline;
     dst->packed |= src->packed;
     if (src->aligned_expr || src->aligned_bare) {
         if (dst->aligned_expr || dst->aligned_bare)
@@ -76,7 +77,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
  * without a word. */
 bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
 {
-    return g->weak || g->packed || g->visibility || g->used ||
+    return g->weak || g->gnu_inline || g->packed || g->visibility || g->used ||
            g->aligned_expr || g->aligned_bare || g->constructor ||
            g->destructor || g->alias_target || g->asm_name || g->section_name ||
            g->cleanup_fn || g->deprecated || g->warn_unused_result ||
@@ -663,6 +664,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                          * to the ignored path and say so. */
                         if (gnu && gnu_attr_is(name->spelling, "weak")) {
                             gnu->weak = true;
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "gnu_inline")) {
+                            gnu->gnu_inline = true;
                             break;
                         }
                         if (gnu && gnu_attr_is(name->spelling, "visibility")) {

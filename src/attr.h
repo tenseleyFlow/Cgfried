@@ -60,6 +60,13 @@ struct AstNode;
 
 typedef struct GnuDeclAttrs {
     bool weak;
+    /* `gnu_inline`: apply GNU89 emission semantics to an inline definition
+     * even when the translation unit otherwise uses C99-or-newer rules.
+     * This is a symbol property because headers routinely put it on one
+     * declaration and the body on another. Sema still records the actual
+     * definition's storage class separately: a prior `extern` declaration
+     * must not turn a later plain definition into an extern-inline one. */
+    bool gnu_inline;
     u8 visibility; /* GnuVisibility */
     /* `packed` on a MEMBER declaration. The record-level spelling never
      * reaches here: the parser hands it straight to the record it follows,

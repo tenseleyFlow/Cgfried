@@ -237,11 +237,16 @@ struct Symbol {
      * so these accumulate and sema_finish computes inline_kind. */
     bool all_decls_inline; /* every declaration so far had `inline` */
     bool any_decl_extern;  /* any declaration had `extern` */
-    u8 inline_kind;        /* InlineKind, valid after sema_finish */
-    u8 def_kind;           /* DefKind, valid after sema_finish */
-    i64 enum_value;        /* SYM_ENUM_CONST */
-    TagDecl *tag;          /* SYM_TAG */
-    CgfAttr *cgf_attrs;    /* merged ownership contract, source-ordered */
+    /* Storage/specifiers on the actual body, kept separate from the merged
+     * declaration facts above. GNU inline semantics turn on the definition's
+     * own `extern`, not an unrelated prototype's. */
+    bool func_def_inline;
+    bool func_def_extern;
+    u8 inline_kind;     /* InlineKind, valid after sema_finish */
+    u8 def_kind;        /* DefKind, valid after sema_finish */
+    i64 enum_value;     /* SYM_ENUM_CONST */
+    TagDecl *tag;       /* SYM_TAG */
+    CgfAttr *cgf_attrs; /* merged ownership contract, source-ordered */
 
     Symbol *next; /* intrusive chain within one scope, newest first */
 };

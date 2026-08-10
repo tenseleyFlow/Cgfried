@@ -110,6 +110,8 @@ static void inline_is(TestCtx *t, const char *src, int want, const char *label)
 
 void test_s16_inline_matrix(TestCtx *t)
 {
+    S16Fix f;
+
     /* The four rows. */
     inline_is(t, "inline int f(void) { return 1; }\n", INL_INLINE_DEF,
               "all-inline no-extern");
@@ -137,6 +139,40 @@ void test_s16_inline_matrix(TestCtx *t)
      * emit and nothing to suppress. */
     inline_is(t, "inline int f(void);\nint g(void) { return f(); }\n", INL_NONE,
               "inline declaration without definition");
+
+    /* GNU89 semantics invert the two external-definition rows while a
+     * static inline remains an ordinary internal definition. The actual
+     * definition's storage class wins over unrelated prior prototypes. */
+    inline_is(t,
+              "extern inline __attribute((gnu_inline)) int f(void) "
+              "{ return 1; }\n",
+              INL_INLINE_DEF, "GNU extern inline does not emit");
+    inline_is(t,
+              "int f(void);\nextern inline __attribute((gnu_inline)) "
+              "int f(void) { return 1; }\n",
+              INL_INLINE_DEF, "prior prototype does not flip GNU extern");
+    inline_is(t,
+              "inline __attribute((gnu_inline)) int f(void) "
+              "{ return 1; }\n",
+              INL_EXTERN_INLINE, "GNU plain inline emits");
+    inline_is(t,
+              "static inline __attribute((gnu_inline)) int f(void) "
+              "{ return 1; }\n",
+              INL_STATIC, "GNU static inline stays internal");
+
+    run16(&f, "__attribute((gnu_inline)) int f(void);\n", true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT(t, sym16(&f, "f") && !sym16(&f, "f")->gnu.gnu_inline);
+    s16_free(&f);
+
+    run16(&f,
+          "inline int f(void);\n"
+          "extern inline __attribute((gnu_inline)) int f(void) "
+          "{ return 1; }\n",
+          true);
+    T_ASSERT(t, f.errors > 0);
+    s16_free(&f);
 }
 
 void test_s16_tentative_resolution(TestCtx *t)
