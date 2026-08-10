@@ -117,7 +117,9 @@ typedef struct LoopCtx {
 typedef struct SwitchCase {
     const AstNode *stmt; /* the AST_STMT_CASE / AST_STMT_DEFAULT node */
     BlockId block;
-    i64 value; /* case value; unused for default */
+    i64 value; /* case value (range LOW end); unused for default */
+    i64 hi;    /* GNU `case lo ... hi:` high end, inclusive; else == value */
+    bool is_range;
     bool is_default;
     struct SwitchCase *next;
 } SwitchCase;

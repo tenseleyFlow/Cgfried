@@ -313,6 +313,27 @@ static AstNode *parse_case(Parser *p)
     /* The value is a constant expression, stored unevaluated: Sprint 15
      * folds it, and only then can duplicate labels be diagnosed. */
     n->lhs = parse_cond_expr(p);
+    /* GNU case ranges: `case lo ... hi:`, INCLUSIVE at both ends. The end
+     * rides `rhs`, which AST_STMT_CASE does not otherwise use, so a plain
+     * label is exactly the old node with rhs == NULL and every consumer
+     * that only reads lhs stays correct.
+     *
+     * The spaces are not a style choice: `1...3` is ONE pp-number token
+     * (a pp-number may contain '.'), so the lexer rejects it as a malformed
+     * number before the parser ever sees a range -- which is also what gcc
+     * does, and why its manual writes the spaces. */
+    if (parse_peek(p)->kind == TOK_PUNCT &&
+        parse_peek(p)->punct == PUNCT_ELLIPSIS) {
+        /* Under -pedantic gcc says this in EVERY -std, gnu17 included --
+         * measured, because the obvious guess is that a gnu mode would be
+         * silent. `__extension__` cannot reach here: gcc rejects it before
+         * a `case` label outright, so there is nothing to suppress. */
+        warn_at(p->lang->warnings, WARN_PEDANTIC, parse_peek(p)->span,
+                "ISO C does not support range expressions in switch "
+                "statements before C2Y");
+        p->pos++;
+        n->rhs = parse_cond_expr(p);
+    }
     parse_expect_punct(p, PUNCT_COLON, "after a 'case' label");
     n->body = parse_stmt(p);
     return n;

@@ -278,6 +278,13 @@ typedef struct Sema {
     struct VmLabel *vm_labels;
     struct VmGoto *vm_gotos;
     struct VmDecl *vm_switch_chain;
+    /* The label set of the INNERMOST switch, for 6.8.4.2p3 (no two case
+     * constants alike) and p2 (at most one default). It is a stack because
+     * a nested switch owns its own labels, and it is ONE list rather than
+     * a separate one per check: overlap between two ranges, between a
+     * range and a plain label, and between two plain labels are the same
+     * question asked of the same intervals. */
+    struct SwitchLabels *switch_labels;
     bool in_switch;
     /* True while walking the body of a candidate INLINE DEFINITION (all
      * declarations so far inline, none extern, external linkage): 6.7.4p3

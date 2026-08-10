@@ -475,6 +475,19 @@ static void lower_local_decl(Lower *lo, AstNode *d)
             lower_one_decl(lo, d->items[i]);
 }
 
+/* Does this case belong in the IR switch's VALUE TABLE, or is it a range
+ * that gets a bounds test instead? THREE loops need this answer -- the one
+ * that sizes the table, the one that fills it, and the one that emits the
+ * range tests -- and they must agree exactly. They did not on the first
+ * draft: the sizing loop learned about ranges and the filling loop did not,
+ * so the array was sized for the singles and written with all of them. The
+ * overflow corrupted the arena and the IR verifier reported a branch to
+ * block id 3894. Hence one predicate, not three conditions. */
+static bool case_in_table(const SwitchCase *c)
+{
+    return !c->is_range;
+}
+
 /* --- switch: the case-collecting pre-pass ----------------------------------
  */
 
@@ -497,6 +510,16 @@ static void collect_cases(Lower *lo, SwitchCtx *ctx, AstNode *s)
             ConstValue cv = constexpr_eval(lo->sema, s->lhs, CE_FOLD);
 
             c->value = cv.kind == CV_INT ? (i64)cv.i : 0;
+            c->hi = c->value;
+            if (s->rhs) {
+                ConstValue hv = constexpr_eval(lo->sema, s->rhs, CE_FOLD);
+
+                c->hi = hv.kind == CV_INT ? (i64)hv.i : c->value;
+                /* Sema rejected the reversed form; a range that survives
+                 * to here is non-empty, and a one-value range is just a
+                 * plain label wearing the syntax. */
+                c->is_range = c->hi != c->value;
+            }
         }
         c->block =
             lower_new_block(lo, c->is_default ? "sw.default" : "sw.case");
@@ -550,11 +573,44 @@ static void lower_switch(Lower *lo, AstNode *s)
     for (c = ctx.cases; c; c = c->next) {
         if (c->is_default)
             defblk = c->block;
-        else
+        else if (case_in_table(c))
             ncases++;
     }
     if (defblk.v == 0)
         defblk = join; /* no default: fall past the switch */
+
+    /* GNU case RANGES do not enter the IR switch table. Expanding
+     * `case 0 ... 1000000:` into a million entries is not an option, and
+     * the table is a list of values by construction, so each range becomes
+     * one bounds test ahead of the table instead:
+     *
+     *     d = scrut - lo;  if ((unsigned)d <= hi - lo) goto case;
+     *
+     * ONE subtract and ONE unsigned compare, whatever the range's width --
+     * the wrap is exactly what makes a value below `lo` come out huge and
+     * fail. Ranges are tested in SOURCE order, which is observable only if
+     * two could match, and sema has already made that an error.
+     *
+     * Codegen quality for a switch that is mostly ranges (a chain of
+     * compares where gcc may build a table) is Sprint 53's business; this
+     * is correct at every level and bounded in size. */
+    for (c = ctx.cases; c; c = c->next) {
+        BlockId next;
+        u64 span;
+        ValueId d, t;
+
+        if (c->is_default || case_in_table(c))
+            continue;
+        next = lower_new_block(lo, "sw.range.next");
+        span = (u64)c->hi - (u64)c->value;
+        d = ir_build2(&lo->b, IR_ISUB, scrut.type, scrut,
+                      ir_op_iconst(scrut.type, c->value));
+        t = ir_build_icmp(&lo->b, ICMP_ULE, ir_op_value(lo->b.f, d),
+                          ir_op_iconst(scrut.type, (i64)span));
+        ir_build_condbr(&lo->b, ir_op_value(lo->b.f, t), c->block, NULL, 0,
+                        next, NULL, 0);
+        lower_at(lo, next);
+    }
 
     /* The IR terminator carries a SORTED case table (backends choose
      * jump-table vs tree from it; the IR just keeps it canonical). */
@@ -568,7 +624,7 @@ static void lower_switch(Lower *lo, AstNode *s)
         u32 i, j;
 
         for (c = ctx.cases; c; c = c->next)
-            if (!c->is_default) {
+            if (!c->is_default && case_in_table(c)) {
                 vals[n] = c->value;
                 blks[n] = c->block;
                 n++;

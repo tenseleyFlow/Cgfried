@@ -2701,6 +2701,102 @@ static void sema_mark_discarded_update(AstNode *e)
         ident->sym->reads--;
 }
 
+/* --- switch label bookkeeping (6.8.4.2p2-p3, and GNU case ranges) --------
+ *
+ * ONE interval list answers three questions that are really one question:
+ * two plain labels alike, a range overlapping a plain label, and two ranges
+ * overlapping are all "do these intervals intersect". A plain `case k` is
+ * the interval [k, k], so it needs no separate path -- which is the point,
+ * because two paths asking the same question are two paths that drift.
+ *
+ * Comparison happens in the domain of the PROMOTED CONTROLLING TYPE, per
+ * 6.8.4.2p5: the constant is converted to that type first. That is not a
+ * detail -- `case -1:` under `switch (unsigned x)` is UINT_MAX, and must
+ * collide with `case 0xFFFFFFFF:` and not with anything near zero. */
+
+typedef struct SwitchLabel {
+    u64 lo, hi; /* inclusive, already converted; sign-extended if signed */
+    Span span;
+    struct SwitchLabel *next;
+} SwitchLabel;
+
+typedef struct SwitchLabels {
+    SwitchLabel *labels;
+    u32 bits;         /* width of the promoted controlling type */
+    bool is_unsigned; /* its signedness -- the comparison domain */
+    bool have_default;
+    Span default_span;
+    struct SwitchLabels *prev;
+} SwitchLabels;
+
+static u64 sw_low_mask(u32 bits)
+{
+    return bits >= 64 ? UINT64_MAX : ((1ull << bits) - 1);
+}
+
+/* 6.8.4.2p5's conversion, as a bit pattern. Signed targets are
+ * sign-extended so a plain (i64) comparison is correct for them. */
+static u64 sw_convert(const SwitchLabels *sw, u64 v)
+{
+    u64 m = sw_low_mask(sw->bits);
+    u64 x = v & m;
+
+    if (!sw->is_unsigned && sw->bits && sw->bits < 64 &&
+        (x & (1ull << (sw->bits - 1))))
+        x |= ~m;
+    return x;
+}
+
+static bool sw_le(const SwitchLabels *sw, u64 a, u64 b)
+{
+    return sw->is_unsigned ? a <= b : (i64)a <= (i64)b;
+}
+
+/* Register one case label -- a plain one arrives as the degenerate range
+ * [v, v] -- after checking it against every label already seen. */
+static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
+{
+    SwitchLabels *sw = s->switch_labels;
+    SwitchLabel *e, *n;
+    u64 lo = sw_convert(sw, raw_lo);
+    u64 hi = sw_convert(sw, raw_hi);
+
+    /* A reversed range matches nothing. gcc warns and drops it, which is
+     * the only coherent reading -- registering it would make a later label
+     * inside the reversed span collide with an interval that can never be
+     * taken. */
+    if (!sw_le(sw, lo, hi)) {
+        diag_emit_warn(s->dc, DIAG_WARNING, st->span, WARN_SWITCH_EMPTY_RANGE,
+                       "empty range specified");
+        return;
+    }
+    for (e = sw->labels; e; e = e->next) {
+        if (!sw_le(sw, e->lo, hi) || !sw_le(sw, lo, e->hi))
+            continue; /* disjoint */
+        s->nerrors++;
+        /* gcc picks the wording from the label BEING ADDED alone, not from
+         * the pair -- measured, because the obvious reading is the pair.
+         * `case 3 ... 3:` colliding with a wide range gets the SINGLE
+         * wording, because after folding it spans one value. */
+        if (lo != hi) {
+            diag_emit(s->dc, DIAG_ERROR, st->span,
+                      "duplicate (or overlapping) case value");
+            diag_emit(s->dc, DIAG_NOTE, e->span,
+                      "this is the first entry overlapping that value");
+        } else {
+            diag_emit(s->dc, DIAG_ERROR, st->span, "duplicate case value");
+            diag_emit(s->dc, DIAG_NOTE, e->span, "previously used here");
+        }
+        return; /* one report per label; the value is still not registered */
+    }
+    n = arena_alloc(s->arena, sizeof(SwitchLabel), _Alignof(SwitchLabel));
+    n->lo = lo;
+    n->hi = hi;
+    n->span = st->span;
+    n->next = sw->labels;
+    sw->labels = n;
+}
+
 /* Statement WALK, not statement sema: we descend only to reach the
  * declarations inside, because block scope and the 6.2.2p4 linkage rule
  * are this sprint's business. Expression typing is Sprint 13 and
@@ -2843,9 +2939,24 @@ static void sema_stmt(Sema *s, AstNode *st)
         }
         if (st->kind == AST_STMT_SWITCH) {
             VmDecl *saved_sw = s->vm_switch_chain;
+            SwitchLabels sw;
 
+            memset(&sw, 0, sizeof(sw));
+            /* The comparison domain for every label of THIS switch. A
+             * nested switch pushes its own, so an inner `case` can never
+             * be measured against an outer switch's type. */
+            if (st->lhs && st->lhs->sem_type &&
+                type_is_integer(st->lhs->sem_type)) {
+                Type *pt = conv_promote_type(s, st->lhs->sem_type);
+
+                sw.bits = conv_int_bits(s, pt);
+                sw.is_unsigned = !conv_is_signed(s, pt);
+            }
+            sw.prev = s->switch_labels;
+            s->switch_labels = &sw;
             s->vm_switch_chain = s->vm_chain;
             sema_stmt(s, st->body);
+            s->switch_labels = sw.prev;
             s->vm_switch_chain = saved_sw;
             return;
         }
@@ -2882,13 +2993,37 @@ static void sema_stmt(Sema *s, AstNode *st)
     case AST_STMT_CASE:
     case AST_STMT_DEFAULT:
         if (st->kind == AST_STMT_CASE && st->lhs) {
-            i64 cv;
+            i64 cv, cv_hi = 0;
+            bool ok;
 
             st->lhs = sema_expr(s, st->lhs);
             /* Case labels are integer constant expressions; Sprint 15
              * gave us the evaluator, so duplicate checking is possible
-             * now — but the VALUE check that matters here is the VM one. */
-            (void)sema_require_ice(s, st->lhs, &cv, "a case label");
+             * now — and 6.8.4.2p3 makes it a REQUIRED diagnostic. */
+            ok = sema_require_ice(s, st->lhs, &cv, "a case label");
+            if (st->rhs) {
+                st->rhs = sema_expr(s, st->rhs);
+                ok &= sema_require_ice(s, st->rhs, &cv_hi,
+                                       "the end of a case range");
+            }
+            if (ok && s->switch_labels)
+                sema_switch_add_case(s, st, (u64)cv,
+                                     st->rhs ? (u64)cv_hi : (u64)cv);
+        } else if (st->kind == AST_STMT_DEFAULT && s->switch_labels) {
+            SwitchLabels *sw = s->switch_labels;
+
+            /* 6.8.4.2p2: at most one default. Silently keeping the first
+             * is how a typo'd second one disappears. */
+            if (sw->have_default) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, st->span,
+                          "multiple default labels in one switch");
+                diag_emit(s->dc, DIAG_NOTE, sw->default_span,
+                          "this is the first default label");
+            } else {
+                sw->have_default = true;
+                sw->default_span = st->span;
+            }
         }
         /* A switch jumps from its controlling expression to each label:
          * a case inside a VM scope the switch itself is outside of would

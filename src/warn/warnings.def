@@ -148,6 +148,12 @@ W(WARN_STRINGOP_OVERFLOW, "stringop-overflow", WG_NONE, WD_ON, WL_WARN)
 W(WARN_STRINGOP_TRUNCATION, "stringop-truncation", WG_ALL, WD_WALL, WL_WARN)
 W(WARN_SWITCH, "switch", WG_ALL, WD_WALL, WL_WARN)
 W(WARN_SWITCH_DEFAULT, "switch-default", WG_NONE, WD_OFF, WL_WARN)
+/* A registry SUPPLEMENT, and unlike prio-ctor-dtor there was no modern name
+ * to adopt: gcc 8 and gcc 16 both say "empty range specified" with no flag,
+ * and clang says "empty case range specified" with none either. A warning a
+ * user cannot silence is the thing this registry exists to prevent, so the
+ * name is ours -- spelled to sit with the other switch rows. */
+W(WARN_SWITCH_EMPTY_RANGE, "switch-empty-range", WG_CGF_EXT, WD_ON, WL_WARN)
 W(WARN_SWITCH_ENUM, "switch-enum", WG_NONE, WD_OFF, WL_WARN)
 W(WARN_SWITCH_UNREACHABLE, "switch-unreachable", WG_NONE, WD_OFF, WL_WARN)
 W(WARN_TAUTOLOGICAL_COMPARE, "tautological-compare", WG_ALL, WD_WALL, WL_WARN)
