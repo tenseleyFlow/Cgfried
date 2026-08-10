@@ -388,12 +388,14 @@ void test_expr_builtins_defer(TestCtx *t)
     expr_ok(t, "struct S { int a; double b; };\n"
                "unsigned long f(void){ "
                "return __builtin_offsetof(struct S, b); }\n");
-    /* No row: still deferred, and the GNU type queries name Sprint 55.
-     * (Arity and offsetof member checks are SEMA's — this fixture only
-     * parses — so they live in tests/programs/builtins/.) */
+    /* The GNU type queries LANDED in Sprint 55 and now parse. */
+    expr_ok(t,
+            "int f(void){ return __builtin_types_compatible_p(int, int); }\n");
+    expr_ok(t, "int f(void){ return __builtin_choose_expr(1, 2, 3); }\n");
+    /* No row: still deferred. (Arity and offsetof member checks are SEMA's
+     * — this fixture only parses — so they live in
+     * tests/programs/builtins/.) */
     expr_bad(t, "int f(void){ return __builtin_clz(8); }\n");
-    expr_bad(t,
-             "int f(void){ return __builtin_types_compatible_p(int, int); }\n");
     /* A designator is required, not an arbitrary expression. */
     expr_bad(t, "struct S { int a; };\n"
                 "unsigned long f(void){ "

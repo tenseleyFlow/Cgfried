@@ -166,22 +166,48 @@ static AstNode *parse_primary_expr(Parser *p)
          * recognizes the name); every OTHER `__builtin_*` spelling is
          * compiler magic we have not implemented — defer loudly, naming
          * the sprint that lands it. */
+        /* `__builtin_types_compatible_p(T1, T2)` -- TWO type names, no
+         * expression, so like va_arg and offsetof it cannot ride the
+         * ordinary call path. */
+        if (strcmp(t->spelling, "__builtin_types_compatible_p") == 0) {
+            n = expr_new(p, AST_EXPR_TYPES_COMPATIBLE, t->span);
+            p->pos++;
+            parse_expect_punct(p, PUNCT_LPAREN,
+                               "after '__builtin_types_compatible_p'");
+            n->type = parse_type_name(p);
+            parse_expect_punct(p, PUNCT_COMMA, "between the two type names");
+            n->type2 = parse_type_name(p);
+            parse_expect_punct(p, PUNCT_RPAREN, "after the second type name");
+            return n;
+        }
+        /* `__builtin_choose_expr(cond, a, b)`. BOTH arms are parsed and
+         * both are TYPED -- only the selected one is evaluated. The
+         * unselected arm is deliberately NOT parsed unevaluated: gcc
+         * diagnoses a bad member access or a wrong-arity call there, so
+         * suppressing the typing would accept code gcc rejects. */
+        if (strcmp(t->spelling, "__builtin_choose_expr") == 0) {
+            n = expr_new(p, AST_EXPR_CHOOSE_EXPR, t->span);
+            p->pos++;
+            parse_expect_punct(p, PUNCT_LPAREN,
+                               "after '__builtin_choose_expr'");
+            n->lhs = parse_assign_expr(p);
+            parse_expect_punct(p, PUNCT_COMMA,
+                               "after the __builtin_choose_expr condition");
+            n->mid = parse_assign_expr(p);
+            parse_expect_punct(p, PUNCT_COMMA,
+                               "between the __builtin_choose_expr arms");
+            n->rhs = parse_assign_expr(p);
+            parse_expect_punct(p, PUNCT_RPAREN,
+                               "after the __builtin_choose_expr arms");
+            return n;
+        }
         if (parse_is_builtin_name(t->spelling) &&
             !parse_is_known_builtin(t->spelling)) {
             int sprint = 55;
 
-            /* The GNU type-query extensions are Sprint 55's; anything
-             * else has no home yet and says so. */
-            if (strcmp(t->spelling, "__builtin_types_compatible_p") == 0 ||
-                strcmp(t->spelling, "__builtin_choose_expr") == 0)
-                parse_error(p, t,
-                            "'%s' is a GNU type-query extension and lands "
-                            "in Sprint %d",
-                            t->spelling, sprint);
-            else
-                parse_error(p, t,
-                            "'%s' is not a builtin this compiler implements",
-                            t->spelling);
+            (void)sprint;
+            parse_error(p, t, "'%s' is not a builtin this compiler implements",
+                        t->spelling);
             p->pos++;
             return expr_new(p, AST_ERROR, t->span);
         }

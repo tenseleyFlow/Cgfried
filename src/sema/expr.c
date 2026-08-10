@@ -1364,6 +1364,63 @@ static AstNode *expr(Sema *s, AstNode *e)
     }
     case AST_EXPR_GENERIC:
         return expr_generic(s, e);
+    case AST_EXPR_TYPES_COMPATIBLE: {
+        /* An int 0/1 constant. TWO measured rules decide it:
+         *
+         *  - TOP-LEVEL QUALIFIERS ARE IGNORED. `(const int, int)` is 1.
+         *  - ARRAYS DO NOT DECAY. `(char *, char[3])` is 0, unlike every
+         *    other context where an array in a value position becomes a
+         *    pointer -- this builtin asks about the TYPES as written.
+         *
+         * Both from gcc directly. It folds here rather than in constexpr
+         * because the answer is a property of two types and nothing later
+         * needs the operands. */
+        Type *a = sema_type_from_ast(s, e->type, e->span);
+        Type *b = sema_type_from_ast(s, e->type2, e->span);
+        /* conv_strip_quals, not type_qualify(...,0): the latter RETURNS THE
+         * TYPE UNCHANGED when asked for zero qualifiers, so `const int` and
+         * `int` stayed distinct and the answer was 0 where gcc says 1. */
+        Type *ua = a ? conv_strip_quals(s, a) : NULL;
+        Type *ub = b ? conv_strip_quals(s, b) : NULL;
+
+        e->sem_type = type_basic(TY_INT);
+        e->is_lvalue = false;
+        e->types_compatible = ua && ub && type_compatible(ua, ub);
+        return e;
+    }
+    case AST_EXPR_CHOOSE_EXPR: {
+        /* BOTH ARMS ARE TYPED; only the selected one is evaluated.
+         *
+         * The sprint file says the unselected arm is "untype-checked beyond
+         * parse" and that is WRONG -- gcc diagnoses a bad member access, an
+         * undeclared identifier and a wrong-arity call there, all measured.
+         * Typing both is therefore the parity-correct behaviour AND the
+         * safer one: a macro whose dead arm is nonsense is a bug the author
+         * wants told about.
+         *
+         * The RESULT is the selected arm entirely -- its type, its lvalue-
+         * ness and its value. */
+        i64 cond = 0;
+
+        e->lhs = expr(s, e->lhs);
+        e->mid = expr(s, e->mid);
+        e->rhs = expr(s, e->rhs);
+        if (!sema_require_ice(s, e->lhs, &cond,
+                              "the first argument to "
+                              "'__builtin_choose_expr'")) {
+            e->sem_type = type_basic(TY_ERROR);
+            return e;
+        }
+        e->choose_taken = cond != 0;
+        {
+            AstNode *sel = e->choose_taken ? e->mid : e->rhs;
+
+            e->sem_type =
+                sel && sel->sem_type ? sel->sem_type : type_basic(TY_ERROR);
+            e->is_lvalue = sel ? sel->is_lvalue : false;
+        }
+        return e;
+    }
     case AST_EXPR_VA_ARG: {
         /* __builtin_va_arg(ap, T): the value is a T rvalue; ap types and
          * decays (array va_list -> record pointer). Checking that ap

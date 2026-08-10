@@ -2332,6 +2332,15 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             CGF_ICE("offsetof did not fold at lowering");
         return ir_op_iconst(lower_irtype(lo, sem(e)), (i64)cv.i);
     }
+    case AST_EXPR_TYPES_COMPATIBLE:
+        /* Sema already answered; this is a plain int constant. */
+        return ir_op_iconst(IRT_I32, e->types_compatible ? 1 : 0);
+    case AST_EXPR_CHOOSE_EXPR:
+        /* ONLY THE SELECTED ARM IS LOWERED. The other was typed -- gcc
+         * diagnoses errors in it -- but never evaluated, so none of its
+         * side effects may be emitted. That is the whole difference between
+         * this and `?:`. */
+        return lower_rvalue(lo, e->choose_taken ? e->mid : e->rhs);
     case AST_EXPR_STMT:
         return lower_stmt_expr(lo, e);
     default:

@@ -678,6 +678,18 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         v.anon = e; /* lowering materializes the anonymous object */
         return v;
     }
+    case AST_EXPR_TYPES_COMPATIBLE:
+        /* A CONSTANT, which is the whole point of the builtin: it exists to
+         * be used in an array bound, a `?:` selector or a _Static_assert.
+         * Sema already computed the answer; without this row the value was
+         * a perfectly good int that no constant context would accept, and
+         * `int a[__builtin_types_compatible_p(int,int) ? 4 : 1];` failed at
+         * file scope with "variably modified type". */
+        return cv_int(s, type_basic(TY_INT), e->types_compatible ? 1 : 0);
+    case AST_EXPR_CHOOSE_EXPR:
+        /* The SELECTED arm, and only that one. Folding the other would
+         * evaluate an expression the language says is not evaluated. */
+        return eval(s, e->choose_taken ? e->mid : e->rhs, m);
     case AST_EXPR_PAREN:
         return eval(s, e->lhs, m);
     case AST_EXPR_IDENT: {

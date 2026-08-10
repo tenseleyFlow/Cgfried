@@ -60,12 +60,23 @@ typedef enum AstKind {
                                AST_EXPR_OFFSETOF_BASE placeholder (Sprint 28) */
     AST_EXPR_OFFSETOF_BASE, /* the anchor a designator chain bottoms out
                                on; never evaluated, never typed */
-    AST_EXPR_STMT,          /* GNU `({ ... })`: lhs is an AST_STMT_COMPOUND.
-                               Its VALUE is the last item if that item is an
-                               AST_STMT_EXPR, and `void` otherwise -- a
-                               trailing declaration or a trailing `if` both
-                               make it void, which gcc reports as "void value
-                               not ignored". Measured, not assumed. */
+    /* `__builtin_types_compatible_p(T1, T2)`: TWO type names and no
+     * expression at all, so it needs its own form exactly as va_arg and
+     * offsetof do. Folds to an int 0/1 in sema; usable as an array bound. */
+    AST_EXPR_TYPES_COMPATIBLE, /* type = T1, type2 = T2 */
+    /* `__builtin_choose_expr(cond, a, b)`. The condition is an INTEGER
+     * CONSTANT EXPRESSION and the result is the SELECTED arm -- type and
+     * value both. The unselected arm is NOT evaluated but IS type-checked;
+     * gcc rejects a bad member access, an undeclared identifier and a
+     * wrong-arity call there, all measured. The sprint file said
+     * "untype-checked beyond parse" and was wrong. */
+    AST_EXPR_CHOOSE_EXPR, /* lhs = cond, mid = a, rhs = b */
+    AST_EXPR_STMT,        /* GNU `({ ... })`: lhs is an AST_STMT_COMPOUND.
+                             Its VALUE is the last item if that item is an
+                             AST_STMT_EXPR, and `void` otherwise -- a
+                             trailing declaration or a trailing `if` both
+                             make it void, which gcc reports as "void value
+                             not ignored". Measured, not assumed. */
 
     /* Statements (C11 6.8). */
     AST_STMT_COMPOUND, /* { items... } */
@@ -209,10 +220,16 @@ struct AstNode {
     AstKind kind;
     Span span;
     bool poisoned;
+    /* AST_EXPR_TYPES_COMPATIBLE / AST_EXPR_CHOOSE_EXPR: sema's answer. */
+    bool types_compatible;
+    bool choose_taken;
 
     /* AST_DECL / AST_FUNC_DEF */
     const char *name;
     AstType *type;
+    /* AST_EXPR_TYPES_COMPATIBLE: the SECOND type name. `type` holds the
+     * first, so the pair rides the node the same way va_arg's does. */
+    AstType *type2;
     u32 storage;        /* AST_SC_* */
     u32 func_specs;     /* AST_FS_* */
     AstNode *init;      /* initializer, or NULL */
