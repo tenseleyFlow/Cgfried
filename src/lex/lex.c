@@ -96,8 +96,8 @@ Keyword lex_keyword_lookup(const char *spelling, const LangOpts *lang)
     size_t i;
 
     /* Linear over ~70 entries, only for identifiers; the interner makes
-     * the strcmp cheap (equal pointers hit first). Sprint 52 may make
-     * this a perfect hash if profiling says so. */
+     * the strcmp cheap (equal pointers hit first). Sprint 52 profiling found
+     * scope lookup, not this table, to be the actionable quadratic hot spot. */
     for (i = 0; i < CGF_ARRAY_LEN(kw_table); i++) {
         if (strcmp(kw_table[i].spelling, spelling) == 0)
             return group_active((KwGroup)kw_table[i].group, lang)

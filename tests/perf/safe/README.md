@@ -1,6 +1,6 @@
-# `-fcgf-safe` interim microbenchmarks
+# `-fcgf-safe` microbenchmarks
 
-This directory is Sprint 44's small pre-Sprint-52 benchmark set. It covers
+This directory is Sprint 44's small runtime-overhead benchmark set. It covers
 allocation/free churn, pointer chasing, and library-copy-heavy code. The
 `bench` mode of `scripts/safe_runtime.sh` compiles each program twice and
 prints elapsed-time and maximum-RSS ratios for `-fcgf-safe` against the same
@@ -8,9 +8,11 @@ compiler without instrumentation. A small Linux `wait4` helper records both
 metrics without depending on a particular external `time` executable.
 
 The Sprint 44 budgets are `< 2.5x` elapsed time and `< 2x` maximum RSS. The
-numbers are advisory until Sprint 52 supplies warmups, repetitions, noise
-control, and stable CI hosts; the script reports an over-budget result but
-does not hide or weaken a runtime check to improve it.
+numbers remain advisory because this lane measures runtime-instrumentation
+overhead, while Sprint 52's committed protocol and gates measure compiler
+throughput and compiler RSS. The script reports an over-budget result but does
+not hide or weaken a runtime check to improve it; Sprint 54 owns integrating
+runtime-performance gates into the full lattice.
 
 Recorded 2026-08-03 on the Sprint 44 GCC build (one `wait4` sample per
 program):

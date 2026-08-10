@@ -32,8 +32,10 @@ cmp "$WORK/off.out" "$WORK/on.out" || {
     exit 1
 }
 
-# Wall time via the shell's own timer; median-of-3 would need a real timer
-# harness (Sprint 52 owns that). Two runs each, report the better.
+# This historical Sprint-7 microbenchmark deliberately retains its quick
+# two-sample shell timer. The reproducible median/MAD harness for committed
+# compile-speed baselines is tests/bench/timeit.c; this script is a focused
+# include-guard diagnostic rather than a baseline gate.
 time_it() {
     start=$(date +%s%N)
     env "$@" "$CGF" -E -I"$WORK" "$WORK/all.c" > /dev/null

@@ -2,19 +2,21 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-10): Sprints 0–51 and Sprint 55 are CLOSED.**
-Sprint 55 was completed out of numerical order; its tier table now reads
+**WHERE THINGS STAND (2026-08-10): Sprints 0–52 and Sprint 55 are CLOSED.**
+Sprint 52's timer, benchmark corpora, deterministic stats, profile-guided
+scope index, fleet/CI baselines, and RSS-only shared-runner gate are complete.
+Sprint 55 was completed out of numerical order; its tier table remains
 **29 implemented / 6 parsed-ignored / 8 refused**. The next work is
-**Sprint 52 (compile speed and memory)**, followed by Sprints 53 and 54.
-§0a is the authoritative resume point and carries the fresh closeout
-evidence. The old D5 notes in §0b are retained only as implementation history.
+**Sprint 53 (codegen quality — peepholes and the kernel suite)**, followed by
+Sprint 54. §0a is the authoritative resume point. The old D5 notes in §0b
+are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-Proceed in numerical order through the deferred performance phase: **52
-(compile speed and memory), 53 (codegen quality — peepholes and the kernel
-suite), 54 (performance gates in CI)**.
+Proceed in numerical order through the remaining performance phase: **53
+(codegen quality — peepholes and the kernel suite), then 54 (performance gates
+in CI)**.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -23,63 +25,81 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## 0a. RESUME HERE — Sprint 52, compile speed and memory
+## 0a. RESUME HERE — Sprint 53, codegen quality
 
-Sprint 55 is closed in this checkout. Start by reading
-`.docs/sprints/11-performance/s52-compile-speed.md`; do not resume any item in
-the historical D5 section below. Sprint 52's first deliverables are the
-zero-dependency `timeit` tool, benchmark corpora, deterministic `CGF_STATS=1`
-instrumentation, and committed per-target memory/performance baselines.
+Sprint 52 is closed in this checkout. Start by reading
+`.docs/sprints/11-performance/s53-codegen-quality.md`; do not resume any item
+in the historical D5 section below. The first Sprint-53 slice is the
+checksummed `tests/bench/kernels/` corpus plus deterministic, symbol-bounded
+static instruction-count/text-size measurement. Establish pre-optimization
+x86_64-linux and arm64-linux goldens before changing either backend. Then use
+those kernels to drive the post-RA peephole and cross-block addressing-mode
+work; every flags-sensitive transform needs a firing and a flags-live negative
+fixture.
 
-### Sprint 55 closure
+### Sprint 52 closure
 
-The final D5 tranche completed the GNU 8.3 identity contract and the system-
-header/ABI surface that identity enables:
+- `tests/bench/timeit.c` is a strict C11/POSIX, dependency-free timer with raw
+  samples, wall median/MAD, user/sys medians, Linux/macOS RSS normalization,
+  nonzero-child propagation, and an absolute whole-batch timeout. SIGCHLD is
+  routed through a self-pipe, so the earlier alarm-versus-wait race is closed;
+  timeout tests prove descendants are killed and reaped.
+- `scripts/bench.sh` measures official SQLite 3.50.4, all 105 non-runtime
+  compiler sources, and a deterministic 500x200-line many-TU corpus in fixed
+  order. The musl lane is defined and records its deferred reason; its gate
+  intentionally activates in Sprint 57.
+- `CGF_STATS=1` emits exactly four deterministic stderr records (AST arena,
+  IR arena, interner, preprocessor). Double-run and artifact tests prove the
+  flag cannot perturb output.
+- `scripts/benchmark_gate.sh` rejects >20% RSS everywhere and >30% wall or
+  combined CPU on fleet hosts. Missing, duplicate, malformed, and negative
+  metrics fail closed. `BENCH_SKIP_TIME=1` skips only timing; a seeded RSS
+  regression still fails.
+- The first profile found the real quadratic path: linear semantic-scope
+  lookup consumed 83.03% of instructions on 10,000 declarations. Arena-backed
+  pointer indexes preserve the existing deterministic declaration chains and
+  cut Callgrind instructions 602,520,093→107,101,294 (-82.22%) and wall
+  median 719.293→21.565 ms (-97.00%). The before/after attribution is in
+  `.benchmarks/profiles/s52-scope-index.txt`.
+- Instrumentation refuted the other speculative work: SQLite interner hits
+  were 95%, self AST-arena waste was 3%, and shared vectors already grow
+  geometrically. No pre-seeding, arena retuning, or vector rewrite landed.
 
-- `__GNUC__=8`, `__GNUC_MINOR__=3`, and `__GNUC_PATCHLEVEL__=0` exist only in
-  GNU language modes; `__USER_LABEL_PREFIX__` and GNU inline identity follow
-  the selected target and language mode.
-- GNU named variadic macros plus `__builtin_va_arg_pack()` and
-  `__builtin_va_arg_pack_len()` are implemented, including a runtime forwarding
-  witness with 70 aggregate arguments.
-- Darwin asm labels preserve their exact external spelling in IR and emitted
-  Mach-O assembly.
-- `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, and `_Float128` are handled
-  through lexing, parsing, sema, constexpr evaluation, layout, lowering, and
-  dumps, including glibc compatibility typedefs and pedantic diagnostics.
-- x86-64 SysV binary128 scalar/one-member-aggregate varargs and full-width XMM
-  save slots are fixed; arm64-macos HFA classification is target-aware.
-- ARM64 large outgoing call frames and instruction-accurate CFI are covered in
-  both ordinary and forced-spill lanes.
+### Accepted Sprint 52 baseline (Kasumi)
 
-### Fresh closeout evidence
+Exact revision `0e35848334c2237da41e03ea8a6c0b51c045e3da`, ten runs after
+one warmup, `performance` governor, `load1=0.19`:
+
+| lane | wall median | wall MAD | user median | sys median | max RSS |
+|---|---:|---:|---:|---:|---:|
+| SQLite | 628.544 ms | 1.459 ms | 589.877 ms | 36.949 ms | 499,924 KiB |
+| self | 977.238 ms | 1.280 ms | 873.292 ms | 101.128 ms | 1,059,216 KiB |
+| many-TU | 653.951 ms | 1.038 ms | 573.254 ms | 77.830 ms | 1,377,672 KiB |
+
+The full fleet gate passed nine comparisons; the CI-shaped baseline passed
+all three RSS comparisons. The governor was restored after measurement.
+
+### Fresh Sprint 52 acceptance evidence
 
 | gate | result |
 |---|---|
-| full GCC suite | 646 unit tests / 4,263,603 assertions; 595/595 programs; 98/98 x86 corpus; exit 0 |
-| full Clang suite | same counts and all differential/integration gates; exit 0 |
-| ARM64 corpus | 82/82 ordinary and 82/82 forced-spill |
-| GNU tier table | 29 implemented / 6 parsed-ignored / 8 refused |
-| PP differential | 74 comparisons, zero diffs in both oracle modes |
-| c-testsuite differential | 217 agree / 3 known divergences |
-| musl warning sweep | 1259/1361 parsed; 102 pinned deferrals; 414 oracle warnings; zero false positives |
-| musl memory sweep | 1276/1361 analyzed; 85 pinned deferrals; zero `-Wmem` diagnostics; 25s |
-| sanitizer suite | full `make test-san` exit 0; no ASan/UBSan report |
-| frontend robustness | exact seeds 1–100000, zero findings; mutation digest `06e1ce539d1b8360` |
+| full GCC suite | 652 unit tests / 4,283,640 assertions; 595/595 programs; 98/98 x86 corpus; all integration/differential/fuzz-smoke lanes; exit 0 |
+| full Clang suite | same counts and complete suite; exit 0 |
+| benchmark suite | timer/math/timeout, gate matrix, corpus determinism, stats determinism, and scope-index regression all green |
+| native arm64-macos timer | strict build, shell suite, and math test green; `/usr/bin/true` RSS normalized to 1,280 KiB |
+| sanitizer suite | fresh isolated full ASan+UBSan `make test` run; all lanes exit 0 with no sanitizer report |
+| code review | adversarial review found zero actionable correctness issues after the SIGCHLD timeout hardening |
 
-The 100k robustness run used four isolated working directories and an
-unsanitized harness driving the sanitizer-built compiler. This preserves
-ASan/UBSan/LSan coverage in the compiler while avoiding two harness-only
-environment problems: a shared temporary filename across parallel harnesses
-and LeakSanitizer's inability to run in a ptrace-managed harness process.
-Every range (1, 25001, 50001, 75001; 25,000 iterations each) exited 0, and
-`scripts/check_fuzz_crashes.sh` was clean afterward.
+The shared-runner workflow now has an isolated `bench-rss` job, while macOS
+builds and executes only the timer's portable test surface. Do not loosen the
+Kasumi/CI baselines to repair host noise: baseline changes remain separate,
+reviewed commits with old→new metrics and a concrete reason.
 
 ### Checkout hygiene
 
 `afs-as` and `afs-ld` remain dirty from pre-existing submodule work, and the
 many untracked `build-*` directories are local artifacts. Do not stage or
-delete them as part of Sprint 52. `AGENTS.md`, `CLAUDE.md`, and
+delete them as part of Sprint 53. `AGENTS.md`, `CLAUDE.md`, and
 `.docs/sprints/` remain ignored local project memory; `.docs/HANDOFF.md` is
 tracked.
 

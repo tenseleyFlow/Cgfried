@@ -128,7 +128,7 @@ Intrusive declaration chains remain the sole iteration path, preserving
 shadowing and deterministic declaration-order dumps.
 
 Current instrumentation also answered the planned tuning questions: SQLite's
-interner hit rate is 95%, and the self lane's AST-arena waste is 2%, so neither
+interner hit rate is 95%, and the self lane's AST-arena waste is 3%, so neither
 the `<90%` interner trigger nor the `>25%` self-arena trigger fired.  No
 speculative pre-seeding or block-size change was made.
 
