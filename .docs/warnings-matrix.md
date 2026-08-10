@@ -282,6 +282,7 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Wpointer-compared-to-zero-with-relational | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wprio-ctor-dtor | — | done | tests/programs/gnu/attr_ctor_reserved_prio.c |
 | -Wstatic-in-inline | -Wstatic-in-inline | done | tests/programs/sema16/inline_constraints.c |
+| -Wswitch-empty-range | — | done | tests/programs/gnu/warn_switch_empty_range.c |
 | -Wtentative-definition-array | — | done | tests/warn/pragma/migrated_policy.c |
 | -Wtypedef-redefinition | -Wtypedef-redefinition | done | tests/warn/pragma/migrated_policy.c |
 | -Wunknown-warning-option | -Wunknown-warning-option | done | tests/programs/driver/wbogus_warns.c |
