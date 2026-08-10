@@ -12,6 +12,7 @@ Requires any C11 compiler, GNU make, and a POSIX environment.
 ```sh
 make            # builds build/cgfried (and the short alias build/cgf)
 make test       # unit tests + driver smoke checks
+make bench      # reproducible compile-speed/RSS protocol
 make install    # PREFIX=/usr/local by default
 ```
 
@@ -21,6 +22,9 @@ in [docs/fast-math.md](docs/fast-math.md).
 
 Warning flag precedence, promotion, diagnostic pragmas, and system-header
 suppression are documented in [docs/warnings.md](docs/warnings.md).
+
+Compile-speed/RSS measurement, profiling, and baseline policy are documented
+in [docs/performance.md](docs/performance.md).
 
 ## Toolchain
 
@@ -53,9 +57,10 @@ commit breaks every fresh clone and CI):
 
 ## Status
 
-Early scaffolding. The driver answers `--version`/`--help`; compilation of C
-sources is under active development. See `.docs/sprints/` (local) for the
-roadmap.
+Sprints 0–52 and Sprint 55 are complete. C17 preprocessing, parsing, semantic
+analysis, optimization, x86-64/ARM64 code generation, ELF/Mach-O targets,
+warnings, and the memory-safety ladder are implemented. See `.docs/sprints/`
+(local) for the remaining roadmap to v0.1.0.
 
 ## License
 

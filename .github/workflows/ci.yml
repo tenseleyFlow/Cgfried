@@ -167,6 +167,29 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test-san
 
+  # Shared runners are too noisy for timing truth. Sprint 52 still gates RSS
+  # here and the seeded fixture step proves that BENCH_SKIP_TIME bypasses only
+  # timing: a 21% RSS regression must continue to fail.
+  bench-rss:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: build, measure, and gate RSS
+        run: |
+          CGF_BENCH_FORCE=1 CGF_BENCH_SKIP_MUSL=1 \
+            BENCH_SKIP_TIME=1 make CC=gcc bench-gate
+      - name: prove timing skip and RSS enforcement
+        run: |
+          BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
+            tests/bench/fixtures/gate/baseline.txt \
+            tests/bench/fixtures/gate/skip-time.txt
+          if BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
+              tests/bench/fixtures/gate/baseline.txt \
+              tests/bench/fixtures/gate/fail-rss-21.txt; then
+            echo 'seeded RSS regression unexpectedly passed' >&2
+            exit 1
+          fi
+
   memsafe-foundation:
     runs-on: ubuntu-latest
     steps:
@@ -378,7 +401,11 @@ jobs:
             macos-tools-v1-${{ hashFiles('.gitmodules') }}-
             macos-tools-v1-
       - run: make tools
-      - run: make -j3 build/cgfried
+      - run: make -j3 build/cgfried build/timeit build/timeit-math-test
+      - name: Sprint 52 timer profile
+        run: |
+          sh tests/bench/timeit_test.sh build/timeit
+          build/timeit-math-test
       - name: the target must actually be arm64-macos
         run: |
           got=$(./build/cgfried -dumpmachine)
