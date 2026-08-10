@@ -1,0 +1,8 @@
+self.wall_ms_median=100
+self.user_ms_median=60
+self.sys_ms_median=40
+self.maxrss_kb_max=1210
+sqlite3.wall_ms_median=200
+sqlite3.user_ms_median=150
+sqlite3.sys_ms_median=50
+sqlite3.maxrss_kb_max=2000

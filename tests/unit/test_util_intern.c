@@ -21,6 +21,8 @@ void test_intern_ids(TestCtx *t)
     T_ASSERT_EQ_STR(t, intern_str(&in, id_foo), "foo");
     T_ASSERT_EQ_STR(t, intern_str(&in, id_bar), "bar");
     T_ASSERT_EQ_INT(t, intern_count(&in), 2);
+    T_ASSERT_EQ_INT(t, intern_lookups(&in), 3);
+    T_ASSERT_EQ_INT(t, intern_hits(&in), 1);
     intern_free(&in);
     arena_free_all(&a);
 }

@@ -1,0 +1,2 @@
+self.maxrss_kb_max=1000
+sqlite3.maxrss_kb_max=2000

@@ -12,6 +12,8 @@ void intern_init(Interner *in, Arena *arena)
     in->len = 0;
     in->cap = 0;
     in->arena = arena;
+    in->lookups = 0;
+    in->hits = 0;
     /* Reserve id 0 as invalid. */
     if (in->cap == 0) {
         in->cap = 64;
@@ -23,11 +25,15 @@ void intern_init(Interner *in, Arena *arena)
 
 u32 intern(Interner *in, const char *s, size_t len)
 {
-    u32 *hit = strmap_get(&in->map, s, len);
+    u32 *hit;
     const char *copy;
 
-    if (hit)
+    in->lookups++;
+    hit = strmap_get(&in->map, s, len);
+    if (hit) {
+        in->hits++;
         return *hit;
+    }
 
     if (in->len > 0xFFFFFFFFu)
         CGF_ICE("interner overflow: more than 2^32 distinct strings");
@@ -60,6 +66,16 @@ size_t intern_count(const Interner *in)
     return in->len - 1;
 }
 
+size_t intern_lookups(const Interner *in)
+{
+    return in->lookups;
+}
+
+size_t intern_hits(const Interner *in)
+{
+    return in->hits;
+}
+
 void intern_free(Interner *in)
 {
     strmap_free(&in->map);
@@ -67,4 +83,6 @@ void intern_free(Interner *in)
     in->strs = NULL;
     in->len = 0;
     in->cap = 0;
+    in->lookups = 0;
+    in->hits = 0;
 }

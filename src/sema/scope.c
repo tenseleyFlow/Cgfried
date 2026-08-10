@@ -17,8 +17,9 @@
  * shadowing declaration is simply found first and nothing has to be
  * removed on scope exit. That also means src/sema/ makes no heap
  * allocation at all — leak-freedom by construction rather than by
- * discipline. Lookup is linear within a scope; the graphs are small and
- * Sprint 57's musl campaign is where a hash index would earn its keep. */
+ * discipline. Sprint 52 adds arena-backed pointer indexes beside the chains:
+ * lookup is expected O(1), while declaration-order output still walks only
+ * the deterministic chains. */
 
 void sema_init(Sema *s, Arena *ar, DiagCtx *dc, Interner *in,
                const LangOpts *lang, TargetSpec target)
@@ -37,6 +38,8 @@ Scope *scope_push(Sema *s, ScopeKind k)
     Scope *sc = arena_alloc(s->arena, sizeof(Scope), _Alignof(Scope));
 
     memset(sc, 0, sizeof(*sc));
+    ptrmap_init(&sc->ordinary_index, s->arena);
+    ptrmap_init(&sc->tag_index, s->arena);
     sc->kind = k;
     sc->parent = s->scope;
     s->scope = sc;
@@ -89,21 +92,12 @@ void scope_pop(Sema *s)
     s->scope = s->scope->parent;
 }
 
-static Symbol *chain_for(Scope *sc, Namespace ns)
-{
-    return ns == NS_TAG ? sc->tags : sc->ordinary;
-}
-
 Symbol *scope_lookup_local(Scope *sc, const char *name, Namespace ns)
 {
-    Symbol *sym;
-
     if (!sc || !name)
         return NULL;
-    for (sym = chain_for(sc, ns); sym; sym = sym->next)
-        if (sym->name == name) /* interned: pointer compare */
-            return sym;
-    return NULL;
+    return ptrmap_get(ns == NS_TAG ? &sc->tag_index : &sc->ordinary_index,
+                      name);
 }
 
 Symbol *scope_lookup(Scope *sc, const char *name, Namespace ns)
@@ -154,9 +148,13 @@ Symbol *scope_declare(Sema *s, Symbol *sym)
     if (sym->ns == NS_TAG) {
         sym->next = sc->tags;
         sc->tags = sym;
+        if (sym->name)
+            ptrmap_put(&sc->tag_index, sym->name, sym);
     } else {
         sym->next = sc->ordinary;
         sc->ordinary = sym;
+        if (sym->name)
+            ptrmap_put(&sc->ordinary_index, sym->name, sym);
     }
     return sym;
 }

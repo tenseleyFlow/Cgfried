@@ -25,7 +25,7 @@ export LC_ALL
 files=$(find src tests \( -name '*.c' -o -name '*.h' \) \
     ! -path 'tests/fixtures/*' ! -path 'tests/programs/*' \
     ! -path 'tests/corpus/*' ! -path 'tests/warn/*' \
-    ! -path 'tests/memsafe/*' | sort)
+    ! -path 'tests/memsafe/*' ! -path 'tests/bench/corpus/*' | sort)
 status=0
 
 hits=$(printf '%s\n' "$files" |

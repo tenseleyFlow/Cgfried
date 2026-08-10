@@ -16,6 +16,8 @@ typedef struct {
     size_t len;
     size_t cap;
     Arena *arena;
+    size_t lookups;
+    size_t hits;
 } Interner;
 
 void intern_init(Interner *in, Arena *arena);
@@ -23,6 +25,8 @@ u32 intern(Interner *in, const char *s, size_t len);
 u32 intern_cstr(Interner *in, const char *s);
 const char *intern_str(const Interner *in, u32 id);
 size_t intern_count(const Interner *in); /* excludes the reserved id 0 */
-void intern_free(Interner *in);          /* map only; strings are arena-owned */
+size_t intern_lookups(const Interner *in);
+size_t intern_hits(const Interner *in);
+void intern_free(Interner *in); /* map only; strings are arena-owned */
 
 #endif

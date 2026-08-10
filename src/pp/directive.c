@@ -1511,6 +1511,7 @@ bool pp_next(Preprocessor *pp, PpToken *out)
                 pp->npass = 0;
                 pp->pass_pos = 0;
             }
+            pp->tokens_emitted++;
             return true;
         }
 
@@ -1548,6 +1549,7 @@ bool pp_next(Preprocessor *pp, PpToken *out)
                 continue;
         }
         *out = t;
+        pp->tokens_emitted++;
         return true;
     }
 }

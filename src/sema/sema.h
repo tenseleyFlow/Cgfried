@@ -8,6 +8,7 @@
 #include "util/arena.h"
 #include "util/base.h"
 #include "util/intern.h"
+#include "util/ptrmap.h"
 #include "util/softfp.h"
 
 /* The semantic core: the Type graph, the scope stack over C's four
@@ -280,6 +281,8 @@ struct Scope {
      * construction rather than by discipline. */
     Symbol *ordinary;
     Symbol *tags;
+    Ptrmap ordinary_index; /* interned name -> newest ordinary symbol */
+    Ptrmap tag_index;      /* interned name -> newest tag symbol */
     Scope *parent;
 };
 

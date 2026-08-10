@@ -816,6 +816,36 @@ bool warn_memsafe_needed(const WarnCtx *w)
     return false;
 }
 
+static bool is_memsafe_autofix_warning(WarnId id)
+{
+    return id == WARN_MEM_NULL_CHECK || id == WARN_MEM_SIZEOF_MISMATCH ||
+           id == WARN_MEM_UNBOUNDED_COPY;
+}
+
+bool warn_memsafe_autofix_needed(const WarnCtx *w)
+{
+    static const WarnId ids[] = {
+        WARN_MEM_NULL_CHECK,
+        WARN_MEM_SIZEOF_MISMATCH,
+        WARN_MEM_UNBOUNDED_COPY,
+    };
+    Span none = {0};
+    size_t i;
+
+    if (!w || w->inhibit)
+        return false;
+    for (i = 0; i < CGF_ARRAY_LEN(ids); i++)
+        if (warn_enabled(w, ids[i], none))
+            return true;
+    /* Pragmas can enable an otherwise-off autofix checker after seq 0. */
+    for (i = 0; i < w->events_len; i++)
+        if (w->events[i].kind == EV_SET &&
+            is_memsafe_autofix_warning(w->events[i].id) &&
+            w->events[i].classification != WARN_PRAGMA_IGNORED)
+            return true;
+    return false;
+}
+
 bool warn_mem_strict_enabled(const WarnCtx *w)
 {
     Span none = {0};

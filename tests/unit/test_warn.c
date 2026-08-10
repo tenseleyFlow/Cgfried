@@ -452,7 +452,9 @@ void test_warn_memsafe_policy(TestCtx *t)
     T_ASSERT(t, !warn_enabled(w, WARN_MEM_SUGGEST_ANNOTATIONS, (Span){0}));
     T_ASSERT(t, !warn_enabled(w, WARN_MEM_UNBOUNDED_COPY, (Span){0}));
     T_ASSERT(t, warn_memsafe_needed(w));
+    T_ASSERT(t, !warn_memsafe_autofix_needed(w));
     T_ASSERT(t, !warn_mem_strict_enabled(w));
+    T_ASSERT(t, !warn_memsafe_autofix_needed(NULL));
     T_ASSERT(t, !warn_mem_strict_enabled(NULL));
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wmem-leak"), WARN_MEM_LEAK);
     T_ASSERT_EQ_INT(t, warn_pragma_option_id("-Wmem-annotation-mismatch"),
@@ -464,17 +466,20 @@ void test_warn_memsafe_policy(TestCtx *t)
     for (i = 0; i < CGF_ARRAY_LEN(proof_ids); i++)
         T_ASSERT(t, !warn_enabled(w, proof_ids[i], (Span){0}));
     T_ASSERT(t, !warn_memsafe_needed(w));
+    T_ASSERT(t, !warn_memsafe_autofix_needed(w));
 
     T_ASSERT(t, warn_flag(w, "-Wmem-use-after-free"));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_USE_AFTER_FREE, (Span){0}));
     T_ASSERT(t, warn_memsafe_needed(w));
     T_ASSERT(t, warn_flag(w, "-Wmem-strict"));
     T_ASSERT(t, warn_mem_strict_enabled(w));
+    T_ASSERT(t, warn_memsafe_autofix_needed(w));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_NULL_CHECK, (Span){0}));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_SIZEOF_MISMATCH, (Span){0}));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_UNBOUNDED_COPY, (Span){0}));
     T_ASSERT(t, warn_flag(w, "-Wno-mem-strict"));
     T_ASSERT(t, !warn_mem_strict_enabled(w));
+    T_ASSERT(t, !warn_memsafe_autofix_needed(w));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_USE_AFTER_FREE, (Span){0}));
     T_ASSERT(t, warn_flag(w, "-Wmem-realloc-zero"));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_REALLOC_ZERO, (Span){0}));
@@ -502,8 +507,18 @@ void test_warn_memsafe_policy(TestCtx *t)
     T_ASSERT(t, warn_flag(w, "-Wno-mem"));
     warn_pragma_set(w, 10, WARN_MEM_LEAK, WARN_PRAGMA_WARNING);
     T_ASSERT(t, warn_memsafe_needed(w));
+    T_ASSERT(t, !warn_memsafe_autofix_needed(w));
     T_ASSERT(t, !warn_enabled(w, WARN_MEM_LEAK, (Span){.seq = 5}));
     T_ASSERT(t, warn_enabled(w, WARN_MEM_LEAK, (Span){.seq = 10}));
+    arena_free_all(&a);
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wno-mem"));
+    warn_pragma_set(w, 10, WARN_MEM_NULL_CHECK, WARN_PRAGMA_WARNING);
+    T_ASSERT(t, warn_memsafe_autofix_needed(w));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_NULL_CHECK, (Span){.seq = 5}));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_NULL_CHECK, (Span){.seq = 10}));
     arena_free_all(&a);
 }
 

@@ -20,6 +20,10 @@ void arena_init(Arena *a)
 {
     a->head = NULL;
     a->next_block_size = ARENA_FIRST_BLOCK;
+    a->peak_bytes = 0;
+    a->reserved_bytes = 0;
+    a->requested_bytes = 0;
+    a->block_count = 0;
 }
 
 static ArenaBlock *arena_new_block(Arena *a, size_t min_payload, size_t align)
@@ -43,6 +47,10 @@ static ArenaBlock *arena_new_block(Arena *a, size_t min_payload, size_t align)
     b->used = 0;
     b->align = block_align;
     a->head = b;
+    a->reserved_bytes += alloc_size;
+    a->block_count++;
+    if (a->reserved_bytes > a->peak_bytes)
+        a->peak_bytes = a->reserved_bytes;
     /* Geometric growth caps the block count at O(log total). */
     if (a->next_block_size < cap)
         a->next_block_size = cap;
@@ -57,6 +65,7 @@ void *arena_alloc(Arena *a, size_t size, size_t align)
 
     if (align == 0 || (align & (align - 1)) != 0)
         CGF_ICE("arena_alloc: alignment %zu is not a power of two", align);
+    a->requested_bytes += size;
 
     if (b && align <= b->align) {
         aligned = (b->used + align - 1) & ~(align - 1);
@@ -86,6 +95,17 @@ char *arena_strdup(Arena *a, const char *s)
     return arena_strndup(a, s, strlen(s));
 }
 
+ArenaStats arena_stats(const Arena *a)
+{
+    ArenaStats stats;
+
+    stats.peak_bytes = a->peak_bytes;
+    stats.reserved_bytes = a->reserved_bytes;
+    stats.requested_bytes = a->requested_bytes;
+    stats.block_count = a->block_count;
+    return stats;
+}
+
 void arena_free_all(Arena *a)
 {
     ArenaBlock *b = a->head;
@@ -98,4 +118,8 @@ void arena_free_all(Arena *a)
     }
     a->head = NULL;
     a->next_block_size = ARENA_FIRST_BLOCK;
+    a->peak_bytes = 0;
+    a->reserved_bytes = 0;
+    a->requested_bytes = 0;
+    a->block_count = 0;
 }

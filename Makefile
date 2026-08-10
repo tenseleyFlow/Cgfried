@@ -55,6 +55,25 @@ FEFUZZ_OBJ := $(BUILD)/tests/fuzz/fuzz_frontend.o \
               $(BUILD)/tests/runner/spawn.o $(LIB_OBJ)
 IRFUZZ_OBJ := $(BUILD)/tests/fuzz/ir_fuzz.o $(LIB_OBJ)
 
+# Sprint 52's host measurement tool is deliberately standalone. The second
+# object compiles the same pure statistics helpers without main so the unit
+# harness can pin median/MAD arithmetic instead of timing the scheduler.
+TIMEIT_OBJ := $(BUILD)/tests/bench/timeit.o
+TIMEIT_LIB_OBJ := $(BUILD)/tests/bench/timeit_lib.o
+
+# Corpus identity is part of every performance number. A source or flag bump
+# must change this pin and land with a separately reviewed baseline update.
+SQLITE_AMALGAMATION_VERSION := 3500400
+SQLITE_AMALGAMATION_SHA3 := 9145255e83da6529e70121ee4d7a4c88fe83ca4511da0c9ed13d10842df36782
+SQLITE_AMALGAMATION_CKSUM := 2703132855:9282866
+
+BENCH_SKIP_TIME ?= 0
+BENCH_RUNS ?= $(if $(filter 1,$(BENCH_SKIP_TIME)),1,10)
+BENCH_WARMUP ?= $(if $(filter 1,$(BENCH_SKIP_TIME)),0,1)
+BENCH_RESULTS ?= $(BUILD)/bench/results.txt
+BENCH_HOST_CLASS ?= ci
+BENCH_BASELINE ?= .benchmarks/baseline-$(RT_HOST_TARGET).$(BENCH_HOST_CLASS).txt
+
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
 # stale registry would silently drop new tests.
@@ -63,14 +82,16 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(UNIT_TEST_SRC:%.c=$(BUILD)/%.o) \
             $(BUILD)/gen/unit_registry.o \
             $(BUILD)/tests/runner/directive.o \
+            $(TIMEIT_LIB_OBJ) \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ) $(TIMEIT_OBJ) $(TIMEIT_LIB_OBJ)) $(BUILD)/gen/)
 
 .PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
         test-mem-runtime test-mem-autofix test-safe-mode safe-dogfood \
         test-mem-fanalyzer bench-safe \
+        test-bench bench bench-gate \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
@@ -127,7 +148,7 @@ RT_OBJ := $(patsubst src/rt/%.c,$(BUILD)/rt/%.o,$(RT_SRC)) \
           $(patsubst src/util/%.c,$(BUILD)/rt/shared_%.o,$(RT_SHARED_SRC))
 RT_LIB := $(BUILD)/$(RT_TARGET)/libcgf_rt.a
 
-all: $(BUILD)/cgfried $(BUILD)/cgf rt
+all: $(BUILD)/cgfried $(BUILD)/cgf $(BUILD)/timeit rt
 
 .PHONY: rt
 rt: $(RT_LIB)
@@ -201,6 +222,12 @@ $(BUILD)/ppfuzz: $(sort $(FUZZ_OBJ))
 $(BUILD)/unit_tests: $(sort $(UNIT_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(UNIT_OBJ))
 
+$(BUILD)/timeit: $(TIMEIT_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(TIMEIT_OBJ)
+
+$(TIMEIT_LIB_OBJ): tests/bench/timeit.c tests/bench/timeit.h | $(DIRS)
+	$(CC) $(CFLAGS) -DCGF_TIMEIT_NO_MAIN -c -o $@ $<
+
 $(BUILD)/gen/unit_registry.c: scripts/gen_unit_registry.sh $(UNIT_TEST_SRC) \
                               | $(BUILD)/gen/
 	sh scripts/gen_unit_registry.sh $@ $(UNIT_TEST_SRC)
@@ -235,6 +262,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    echo "test: afs-as unbuilt; exec lanes use system gas (CGF_AS=0)"; fi
 	$(BUILD)/unit_tests
 	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bench
 	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
 	    > $(BUILD)/programs.log 2>&1; s=$$?; \
@@ -514,6 +542,29 @@ bench-safe: $(BUILD)/cgfried rt
 	CC='$(CC)' CGF_SAFE_WORK=$(BUILD)/safe-bench \
 	    sh scripts/safe_runtime.sh $(BUILD)/cgfried $(BUILD) bench
 
+# Fast, deterministic infrastructure checks belong in `make test`; the actual
+# benchmark protocol stays explicit so normal tests never depend on host load.
+test-bench: $(BUILD)/cgfried $(BUILD)/timeit
+	sh tests/bench/timeit_test.sh $(BUILD)/timeit
+	sh tests/bench/benchmark_gate_test.sh
+	CGF_STATS_WORK=$(BUILD)/stats-smoke \
+	    sh scripts/stats_smoke.sh $(BUILD)/cgfried
+	CGF_BENCH_TEST_WORK=$(BUILD)/bench-test sh tests/bench/corpus_test.sh
+	CGF_SCOPE_TEST_WORK=$(BUILD)/scope-index-test \
+	    sh tests/bench/scope_index_test.sh $(BUILD)/cgfried
+
+bench: $(BUILD)/cgfried $(BUILD)/timeit
+	BUILD=$(abspath $(BUILD)) \
+	CGF_BENCH_RUNS=$(BENCH_RUNS) CGF_BENCH_WARMUP=$(BENCH_WARMUP) \
+	CGF_BENCH_RESULTS=$(abspath $(BENCH_RESULTS)) \
+	CGF_SQLITE_VERSION=$(SQLITE_AMALGAMATION_VERSION) \
+	CGF_SQLITE_SHA3=$(SQLITE_AMALGAMATION_SHA3) \
+	CGF_SQLITE_CKSUM=$(SQLITE_AMALGAMATION_CKSUM) sh scripts/bench.sh
+
+bench-gate: bench
+	BENCH_SKIP_TIME=$(BENCH_SKIP_TIME) sh scripts/benchmark_gate.sh \
+	    $(BENCH_BASELINE) $(BENCH_RESULTS)
+
 # Optional local comparison: records both verdicts without treating GCC's
 # analyzer as an oracle for Cgfried's narrower default policy.
 test-mem-fanalyzer: $(BUILD)/cgfried
@@ -644,7 +695,8 @@ clean:
                $(OBJDIFF_OBJ:.o=.d) $(A64_OBJBYTES_OBJ:.o=.d) \
                $(A64MIR_OBJ:.o=.d) \
                $(A64_LOGIMM_GEN_OBJ:.o=.d) \
-               $(FPDIFF_OBJ:.o=.d))
+               $(FPDIFF_OBJ:.o=.d) $(TIMEIT_OBJ:.o=.d) \
+               $(TIMEIT_LIB_OBJ:.o=.d))
 
 check-format-matrix:
 	CGF_FORMAT_MATRIX_WORK=$(BUILD)/format-matrix-check \

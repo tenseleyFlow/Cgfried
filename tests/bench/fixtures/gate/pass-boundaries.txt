@@ -1,0 +1,9 @@
+self.wall_ms_median=130
+self.user_ms_median=78
+self.sys_ms_median=52
+self.maxrss_kb_max=1200
+sqlite3.wall_ms_median=260
+sqlite3.user_ms_median=195
+sqlite3.sys_ms_median=65
+sqlite3.maxrss_kb_max=2400
+host=fixture-result

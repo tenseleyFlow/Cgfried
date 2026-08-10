@@ -157,6 +157,7 @@ static const char *const help_text[] = {
     "  CGF_CRT_DIR       crt object discovery override\n"
     "  CGF_PP_DUMP_TOKENS  with -E: dump one token per line (testing)\n"
     "  CGF_PP_DUMP_GUARD   with -E: dump include-guard shapes (testing)\n"
+    "  CGF_STATS=1          deterministic arena/interner/PP counts on stderr\n"
     "  CGF_MEMSAFE_DUMP=1  dump memory-analysis states and traces\n"
     "                    plus -fcgf-safe check-discharge totals to stderr\n"
     "  CGF_SAFE_ABORT=trap  trap instead of abort after a runtime finding\n"
@@ -213,6 +214,76 @@ typedef struct {
     Buf *dep_text;          /* non-NULL: the -M depfile lands here */
     const char *dep_target; /* default depfile target (no -MT/-MQ given) */
 } CompileJob;
+
+/* One process-wide aggregation unit. Multi-input invocations report once,
+ * which is the only shape useful to a benchmark gate: per-TU lines would make
+ * the metric count depend on batching rather than on compiler work. */
+typedef struct {
+    bool enabled;
+    u64 intern_lookups;
+    u64 intern_hits;
+    u64 pp_includes;
+    u64 pp_guard_skips;
+    u64 pp_tokens;
+} DriverStats;
+
+static void driver_stats_finish_pp(DriverStats *stats, Preprocessor *pp,
+                                   Interner *interner)
+{
+    if (stats && stats->enabled) {
+        stats->intern_lookups += (u64)intern_lookups(interner);
+        stats->intern_hits += (u64)intern_hits(interner);
+        stats->pp_includes += pp->inc_opened;
+        stats->pp_guard_skips += pp->inc_guard_skipped;
+        stats->pp_tokens += pp->tokens_emitted;
+    }
+    pp_end(pp);
+    intern_free(interner);
+    pp_loc_free(&pp->loc);
+    strmap_free(&pp->macros);
+}
+
+static unsigned arena_waste_pct(ArenaStats stats)
+{
+    size_t waste;
+
+    if (stats.reserved_bytes == 0)
+        return 0;
+    waste = stats.reserved_bytes - stats.requested_bytes;
+    return (unsigned)((waste * 100u) / stats.reserved_bytes);
+}
+
+static void driver_stats_print(const DriverStats *stats, const Arena *ast,
+                               const Arena *ir)
+{
+    ArenaStats as, is;
+    u64 hit_pct;
+
+    if (!stats->enabled)
+        return;
+    as = arena_stats(ast);
+    is = arena_stats(ir);
+    hit_pct = stats->intern_lookups
+                  ? (stats->intern_hits * 100u) / stats->intern_lookups
+                  : 0;
+    /* peak_kb rounds upward: a nonempty arena must never report a zero peak.
+     * requested_bytes excludes alignment gaps and unused block tails, so
+     * waste_pct is the allocator-tuning signal rather than payload usage. */
+    fprintf(stderr, "stat: arena.ast peak_kb=%zu blocks=%zu waste_pct=%u\n",
+            (as.peak_bytes + 1023u) / 1024u, as.block_count,
+            arena_waste_pct(as));
+    fprintf(stderr, "stat: arena.ir peak_kb=%zu blocks=%zu waste_pct=%u\n",
+            (is.peak_bytes + 1023u) / 1024u, is.block_count,
+            arena_waste_pct(is));
+    fprintf(stderr, "stat: intern lookups=%llu hits=%llu hit_pct=%llu\n",
+            (unsigned long long)stats->intern_lookups,
+            (unsigned long long)stats->intern_hits,
+            (unsigned long long)hit_pct);
+    fprintf(stderr, "stat: pp includes=%llu guard_skips=%llu tokens=%llu\n",
+            (unsigned long long)stats->pp_includes,
+            (unsigned long long)stats->pp_guard_skips,
+            (unsigned long long)stats->pp_tokens);
+}
 
 /* fwrite of a possibly-empty Buf: glibc declares fwrite's first arg
  * nonnull, so an empty Buf (data NULL, len 0) is UB — the recurring
@@ -1073,8 +1144,9 @@ static bool read_stdin(Buf *b)
 
 /* The per-TU pipeline: preprocess, then as much of lex/parse/sema/lower/
  * codegen as the mode asks for. -E text lands in job->pp_text. */
-static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
-                          const CompileJob *job)
+static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
+                          const DriverArgs *a, const CompileJob *job,
+                          DriverStats *stats)
 {
     Interner interner;
     Preprocessor pp;
@@ -1209,9 +1281,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
 
         if (!read_stdin(&sb)) {
             fprintf(stderr, "cgfried: error: cannot read stdin\n");
-            intern_free(&interner);
-            pp_loc_free(&pp.loc);
-            strmap_free(&pp.macros);
+            driver_stats_finish_pp(stats, &pp, &interner);
             return CGF_EXIT_IO;
         }
         sf =
@@ -1221,9 +1291,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         sf = pp_source_load(&pp, job->path);
     }
     if (!sf) {
-        intern_free(&interner);
-        pp_loc_free(&pp.loc);
-        strmap_free(&pp.macros);
+        driver_stats_finish_pp(stats, &pp, &interner);
         return CGF_EXIT_IO;
     }
     cmdline = build_cmdline_file(&pp, a);
@@ -1325,7 +1393,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                          * flow lowering also retains inline bodies that an
                          * emission module may legitimately omit. */
                         IrModule *analysis = lower_translation_unit_for_flow(
-                            arena, dc, &sema, tu);
+                            ir_arena, dc, &sema, tu);
 
                         verify_generated_module(dc, analysis, job->path);
                         if (analysis && need_flow)
@@ -1349,7 +1417,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                         LowerOptions lower_options = driver_lower_options(a);
 
                         m = lower_translation_unit_with_options(
-                            arena, dc, &sema, tu, &lower_options);
+                            ir_arena, dc, &sema, tu, &lower_options);
                         verify_generated_module(dc, m, job->path);
                     }
                     if (m && !diag_had_error(dc))
@@ -1368,23 +1436,20 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
                     }
                     if (m && want_ir_output && !diag_had_error(dc)) {
                         if (a->emit_mir) {
-                            int rc = emit_mir_print(arena, dc, m);
+                            int rc = emit_mir_print(ir_arena, dc, m);
 
                             (void)rc;
                         } else if (a->emit_asm || a->compile_obj ||
                                    a->link_exe) {
-                            int rc = run_emit_asm(arena, dc, m, a, job);
+                            int rc = run_emit_asm(ir_arena, dc, m, a, job);
 
                             if (rc != CGF_EXIT_OK) {
                                 PpTokVecD_free(&collected);
-                                pp_end(&pp);
-                                intern_free(&interner);
-                                pp_loc_free(&pp.loc);
-                                strmap_free(&pp.macros);
+                                driver_stats_finish_pp(stats, &pp, &interner);
                                 return rc;
                             }
                         } else if (a->emit_ir) {
-                            int rc = emit_ir_print(arena, dc, m, job->path);
+                            int rc = emit_ir_print(ir_arena, dc, m, job->path);
 
                             (void)rc;
                         }
@@ -1395,10 +1460,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
         if (job->dep_text && !diag_had_error(dc))
             cgf_deps_write(job->dep_text, a, arena, job->dep_target, &pp);
         PpTokVecD_free(&collected);
-        pp_end(&pp);
-        intern_free(&interner);
-        pp_loc_free(&pp.loc);
-        strmap_free(&pp.macros);
+        driver_stats_finish_pp(stats, &pp, &interner);
         return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
     }
 
@@ -1442,10 +1504,7 @@ static int run_preprocess(Arena *arena, DiagCtx *dc, const DriverArgs *a,
 
     if (job->dep_text && !diag_had_error(dc))
         cgf_deps_write(job->dep_text, a, arena, job->dep_target, &pp);
-    pp_end(&pp);
-    intern_free(&interner);
-    pp_loc_free(&pp.loc);
-    strmap_free(&pp.macros);
+    driver_stats_finish_pp(stats, &pp, &interner);
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
 }
 
@@ -1601,6 +1660,8 @@ int driver_main(int argc, char **argv)
 {
     static const Span no_span = {0};
     Arena arena;
+    Arena ast_arena;
+    Arena ir_arena;
     DiagCtx *dc;
     WarnCtx *command_warn;
     DriverArgs a;
@@ -1608,21 +1669,28 @@ int driver_main(int argc, char **argv)
     int status = CGF_EXIT_OK;
     size_t k;
     bool command_line_warning_error;
+    DriverStats stats = {0};
 
+    arena_init(&arena);
+    arena_init(&ast_arena);
+    arena_init(&ir_arena);
+    stats.enabled = env_is_one("CGF_STATS");
     if (argc < 2) {
         fprintf(stderr, "usage: cgfried [options] file...\n");
         fprintf(stderr, "try 'cgfried --help' for the option list\n");
+        driver_stats_print(&stats, &ast_arena, &ir_arena);
+        arena_free_all(&ir_arena);
+        arena_free_all(&ast_arena);
+        arena_free_all(&arena);
         return CGF_EXIT_COMPILE;
     }
 
-    arena_init(&arena);
     dc = diag_ctx_new(&arena);
     a = args_parse(&arena, argc, argv);
     diag_render_options.parseable_fixits = a.diagnostics_parseable_fixits;
     diag_set_sink(dc, (DiagSink){driver_diag_render, &diag_render_options});
     diag_set_max_errors(dc, a.max_errors);
     command_warn = driver_warn_ctx(&arena, dc, &a);
-
     for (k = 0; k < a.warn_unrecognized.len; k++)
         warn_at(command_warn, WARN_UNKNOWN_WARNING_OPTION, no_span,
                 "unrecognized command-line option '%s'",
@@ -1773,7 +1841,7 @@ int driver_main(int argc, char **argv)
             if (in->kind == IN_CGFIR) {
                 if (a.emit_ir || a.emit_mir) {
                     rc = a.dry_run ? CGF_EXIT_OK
-                                   : run_emit_ir(&arena, dc, &a, &job);
+                                   : run_emit_ir(&ir_arena, dc, &a, &job);
                 } else {
                     fprintf(stderr,
                             "cgfried: error: %s: .cgfir input needs -emit-ir "
@@ -1836,7 +1904,8 @@ int driver_main(int argc, char **argv)
                 if (a.dry_run) {
                     echo_compile_step("-fsyntax-only", in->path, NULL);
                 } else {
-                    rc = run_preprocess(&arena, dc, &ha, &job);
+                    rc = run_preprocess(&ast_arena, &ir_arena, dc, &ha, &job,
+                                        &stats);
                     if (rc != CGF_EXIT_OK) {
                         any_fail = true;
                         if (status == CGF_EXIT_OK)
@@ -1928,7 +1997,8 @@ int driver_main(int argc, char **argv)
                 }
                 if (a.verbose)
                     echo_compile_step("-E", in->path, NULL);
-                rc = run_preprocess(&arena, dc, &a, &job);
+                rc =
+                    run_preprocess(&ast_arena, &ir_arena, dc, &a, &job, &stats);
                 if (rc == CGF_EXIT_OK && job.dep_text) {
                     if (a.dep_file) {
                         FILE *df = fopen(a.dep_file, "wb");
@@ -2021,7 +2091,8 @@ int driver_main(int argc, char **argv)
                         echo_compile_step("-S", in->path, s_tmp);
                     }
                 }
-                rc = run_preprocess(&arena, dc, &a, &job);
+                rc =
+                    run_preprocess(&ast_arena, &ir_arena, dc, &a, &job, &stats);
                 if (rc == CGF_EXIT_OK && a.dep_side) {
                     char dpath[512];
                     FILE *df;
@@ -2153,7 +2224,10 @@ done:
                       report.conflicts,
                       report.conflicts == 1 ? " was" : "s were");
     }
+    driver_stats_print(&stats, &ast_arena, &ir_arena);
     args_free(&a);
+    arena_free_all(&ir_arena);
+    arena_free_all(&ast_arena);
     arena_free_all(&arena);
     return status;
 }

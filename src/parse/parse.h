@@ -4,6 +4,7 @@
 #include "lex/lex.h"
 #include "parse/ast.h"
 #include "pp/pp.h"
+#include "util/ptrmap.h"
 
 /* THE typedef ambiguity is resolved AT PARSE TIME by an in-parser scope
  * stack mapping identifier -> typedef-ness (chibicc's shape: a linked list
@@ -22,8 +23,9 @@ typedef struct ScopeEntry {
 } ScopeEntry;
 
 typedef struct ParseScope {
-    ScopeEntry *ordinary; /* ordinary identifiers (vars, typedefs, enums) */
-    ScopeEntry *tags;     /* struct/union/enum tags — separate namespace */
+    ScopeEntry *ordinary;  /* ordinary identifiers (vars, typedefs, enums) */
+    ScopeEntry *tags;      /* struct/union/enum tags — separate namespace */
+    Ptrmap ordinary_index; /* interned name -> newest ordinary entry */
     struct ParseScope *parent;
 } ParseScope;
 

@@ -88,6 +88,7 @@ unsigned warn_implicit_fallthrough_level(const WarnCtx *w);
 bool warn_maybe_uninitialized_strict(const WarnCtx *w);
 bool warn_flow_needed(const WarnCtx *w);
 bool warn_memsafe_needed(const WarnCtx *w);
+bool warn_memsafe_autofix_needed(const WarnCtx *w);
 bool warn_mem_strict_enabled(const WarnCtx *w);
 void warn_flow_module(WarnCtx *w, const struct IrModule *module);
 

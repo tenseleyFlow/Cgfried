@@ -998,6 +998,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
         implicit->linkage = LINK_EXTERNAL;
         implicit->next = s->file_scope->ordinary;
         s->file_scope->ordinary = implicit;
+        ptrmap_put(&s->file_scope->ordinary_index, implicit->name, implicit);
         if (std_is_c99_or_later(s->lang->std))
             warn_pedwarn_at(s->lang->warnings,
                             WARN_IMPLICIT_FUNCTION_DECLARATION, e->lhs->span,

@@ -886,7 +886,8 @@ void memsafe_autofix_translation_unit(WarnCtx *warn, Sema *sema, AstNode *tu,
     Autofix a;
     u32 i;
 
-    if (!warn || !sema || !tu || !pp || tu->kind != AST_TRANSLATION_UNIT)
+    if (!warn || !sema || !tu || !pp || tu->kind != AST_TRANSLATION_UNIT ||
+        !warn_memsafe_autofix_needed(warn))
         return;
     a.warn = warn;
     a.sema = sema;

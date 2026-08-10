@@ -1,0 +1,63 @@
+# Sprint 52 targeted optimization: interned-name scope indexes
+# host=satoyama target=x86_64-linux-gnu date=2026-08-10
+# kernel=Linux-7.1.5-arch1-2 governor=powersave
+# base_revision=a3496045376134276bbac686697f257fddc1e385
+# tree_state=dirty Sprint-52 development snapshots anchored at base_revision
+# corpus=scripts/gen-scope-stress.sh, 10000 file-scope declarations
+# flags=-Wno-mem -Wno-return-type -fsyntax-only
+# before=instrumented pre-index snapshot (build-s52-new)
+# after=arena-backed Ptrmap indexes (build-s52-opt)
+# perf was unavailable on this host. Callgrind 3.25.1 supplied deterministic
+# instruction-level attribution; scripts/profile.sh remains the fleet ritual.
+
+[callgrind.before]
+instructions=602520093
+scope_lookup=250155040 # 41.52%
+scope_lookup_local=250125022 # 41.51%
+strcmp=20500228 # 3.40%
+lex_keyword_lookup=9622278 # 1.60%
+strmap_probe=5516750 # 0.92%
+pp_lex_token=5441872 # 0.90%
+pp_loc_at=5008178 # 0.83%
+pp_skip_splice=4814056 # 0.80%
+pp_source_add_buffer=3480001 # 0.58%
+sema_declare_one=3090311 # 0.51%
+
+[callgrind.after]
+instructions=107101294
+strcmp=20521169 # 19.16%
+lex_keyword_lookup=9622278 # 8.98%
+strmap_probe=5515490 # 5.15%
+pp_lex_token=5441872 # 5.08%
+pp_loc_at=5008178 # 4.68%
+pp_skip_splice=4814056 # 4.49%
+pp_source_add_buffer=3480001 # 3.25%
+sema_declare_one=3090311 # 2.89%
+pp_span=2670890 # 2.49%
+lex_convert=2461319 # 2.30%
+ptrmap_probe=2129579 # 1.99%
+scope_lookup=250058 # 0.23%
+
+[timeit.before]
+runs=5
+warmup=1
+wall_ms_median=719.292588
+wall_ms_mad=2.749488
+user_ms_median=706.936000
+sys_ms_median=7.950000
+maxrss_kb_max=19824
+
+[timeit.after]
+runs=5
+warmup=1
+wall_ms_median=21.564823
+wall_ms_mad=0.270783
+user_ms_median=15.182000
+sys_ms_median=6.091000
+maxrss_kb_max=20820
+
+[result]
+instruction_reduction_pct=82.22
+wall_reduction_pct=97.00
+noise_floor_pct=1.26 # after MAD / after median
+verdict=well-above-noise-floor

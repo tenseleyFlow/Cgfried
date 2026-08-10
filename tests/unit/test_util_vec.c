@@ -11,7 +11,9 @@ void test_vec_growth(TestCtx *t)
     for (i = 0; i < 100; i++)
         VecInt_push(&v, i);
     T_ASSERT_EQ_INT(t, v.len, 100);
-    T_ASSERT(t, v.cap >= 100); /* 8 -> 16 -> 32 -> 64 -> 128: >3 regrowths */
+    /* The compile-performance audit pins geometric rather than per-token
+     * growth: 8 -> 16 -> 32 -> 64 -> 128 for these 100 pushes. */
+    T_ASSERT_EQ_INT(t, v.cap, 128);
     for (i = 0; i < 100; i++)
         T_ASSERT_EQ_INT(t, v.data[i], i);
     VecInt_free(&v);

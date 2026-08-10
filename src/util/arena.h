@@ -12,7 +12,22 @@ typedef struct ArenaBlock ArenaBlock;
 typedef struct Arena {
     ArenaBlock *head;
     size_t next_block_size;
+    /* Sprint 52 measurement counters. `peak_bytes` is the maximum reserved
+     * payload; `requested_bytes` excludes block tails and alignment gaps so
+     * their cost remains visible as waste. Keeping the accounting in the
+     * allocator makes every client, including future ones, measurable. */
+    size_t peak_bytes;
+    size_t reserved_bytes;
+    size_t requested_bytes;
+    size_t block_count;
 } Arena;
+
+typedef struct ArenaStats {
+    size_t peak_bytes;
+    size_t reserved_bytes;
+    size_t requested_bytes;
+    size_t block_count;
+} ArenaStats;
 
 void arena_init(Arena *a);
 /* align must be a power of two (ICE otherwise): a misaligned pointer load is
@@ -20,6 +35,7 @@ void arena_init(Arena *a);
 void *arena_alloc(Arena *a, size_t size, size_t align);
 char *arena_strdup(Arena *a, const char *s);
 char *arena_strndup(Arena *a, const char *s, size_t n);
+ArenaStats arena_stats(const Arena *a);
 void arena_free_all(Arena *a);
 
 #endif

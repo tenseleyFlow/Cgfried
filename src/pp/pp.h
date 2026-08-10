@@ -428,6 +428,7 @@ typedef struct Preprocessor {
     u32 inc_opened;
     u32 inc_guard_skipped;
     u32 inc_once_skipped;
+    u64 tokens_emitted; /* post-expansion tokens delivered by pp_next */
 
     /* Pending -E passthrough tokens (#pragma lines). */
     PpToken *pass;

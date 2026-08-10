@@ -32,3 +32,25 @@ void test_arena_strdup(TestCtx *t)
     T_ASSERT_EQ_STR(t, arena_strndup(&a, "", 0), "");
     arena_free_all(&a);
 }
+
+void test_arena_stats(TestCtx *t)
+{
+    Arena a;
+    ArenaStats before, after;
+
+    arena_init(&a);
+    before = arena_stats(&a);
+    T_ASSERT_EQ_INT(t, before.peak_bytes, 0);
+    T_ASSERT_EQ_INT(t, before.block_count, 0);
+    (void)arena_alloc(&a, 17, 1);
+    (void)arena_alloc(&a, 33, 16);
+    after = arena_stats(&a);
+    T_ASSERT(t, after.peak_bytes >= 64u * 1024u);
+    T_ASSERT_EQ_INT(t, after.reserved_bytes, after.peak_bytes);
+    T_ASSERT_EQ_INT(t, after.requested_bytes, 50);
+    T_ASSERT_EQ_INT(t, after.block_count, 1);
+    arena_free_all(&a);
+    after = arena_stats(&a);
+    T_ASSERT_EQ_INT(t, after.peak_bytes, 0);
+    T_ASSERT_EQ_INT(t, after.requested_bytes, 0);
+}

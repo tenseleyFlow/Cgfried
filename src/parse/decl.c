@@ -152,6 +152,7 @@ void parse_scope_enter(Parser *p)
         arena_alloc(p->arena, sizeof(ParseScope), _Alignof(ParseScope));
 
     memset(s, 0, sizeof(*s));
+    ptrmap_init(&s->ordinary_index, p->arena);
     s->parent = p->scope;
     p->scope = s;
 }
@@ -176,6 +177,7 @@ void parse_scope_declare(Parser *p, const char *name, bool is_typedef)
      * one — which is what makes `typedef int T; { T T; }` work. */
     e->next = p->scope->ordinary;
     p->scope->ordinary = e;
+    ptrmap_put(&p->scope->ordinary_index, name, e);
 }
 
 bool parse_is_typedef_name(Parser *p, const char *name)
@@ -183,10 +185,10 @@ bool parse_is_typedef_name(Parser *p, const char *name)
     ParseScope *s;
 
     for (s = p->scope; s; s = s->parent) {
-        ScopeEntry *e;
-        for (e = s->ordinary; e; e = e->next)
-            if (e->name == name) /* interned: pointer compare */
-                return e->is_typedef;
+        ScopeEntry *e = ptrmap_get(&s->ordinary_index, name);
+
+        if (e)
+            return e->is_typedef;
     }
     return false;
 }
@@ -1722,6 +1724,7 @@ static void declare_unknown_type(Parser *p, const Token *id)
     e->is_typedef = true;
     e->next = file_scope->ordinary;
     file_scope->ordinary = e;
+    ptrmap_put(&file_scope->ordinary_index, e->name, e);
 }
 
 /* Does an identifier here start a declaration whose type name we do not
