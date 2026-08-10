@@ -346,7 +346,17 @@ void test_expr_deferrals_and_errors(TestCtx *t)
 {
     /* Deferred GNU forms must hard-error naming their sprint — never
      * parse silently as something else. */
-    expr_bad(t, "int f(int a) { return a ?: 1; }\n"); /* omitted mid */
+    /* `a ?: b` LANDED in Sprint 55 and now parses. The boundary that
+     * remains is a -pedantic PEDWARN, not a parse error, so it cannot be
+     * pinned here -- expr_bad asks whether the parser rejected the text.
+     * It is pinned in tests/programs/parse/err_omitted_middle.c, together
+     * with the __extension__ suppression, which is the half that would
+     * otherwise regress silently. */
+    expr_ok(t, "int f(int a) { return a ?: 1; }\n");
+    /* `__label__` is REFUSED, deliberately and not pending: block-scoped
+     * labels need mangling and our labels are interned with pointer
+     * comparison. docs/gnu-extensions.md carries the reasoning. */
+    expr_bad(t, "int f(int x){ __label__ d; if(x) goto d; d: return 1; }\n");
     /* Statement expressions LAND in Sprint 55 -- what stays an error is the
      * FILE-SCOPE use, which gcc rejects too ("braced-group within expression
      * allowed only inside a function"). The accepting cases are pinned by
