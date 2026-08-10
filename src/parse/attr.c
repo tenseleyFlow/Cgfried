@@ -42,6 +42,9 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
      * from whichever declaration supplied one. */
     dst->deprecated |= src->deprecated;
     dst->warn_unused_result |= src->warn_unused_result;
+    dst->noreturn |= src->noreturn;
+    dst->nonnull_all |= src->nonnull_all;
+    dst->nonnull_mask |= src->nonnull_mask;
     if (src->has_format) {
         dst->has_format = true;
         dst->fmt_family = src->fmt_family;
@@ -72,7 +75,7 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
            g->aligned_expr || g->aligned_bare || g->constructor ||
            g->destructor || g->alias_target || g->asm_name || g->section_name ||
            g->cleanup_fn || g->deprecated || g->warn_unused_result ||
-           g->has_format;
+           g->has_format || g->nonnull_all || g->nonnull_mask || g->noreturn;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -405,6 +408,33 @@ static const char *gnu_attr_norm_name(const char *spelling, char *buf,
     return spelling;
 }
 
+/* nonnull, or nonnull(1,2,...). The bare form means EVERY pointer
+ * parameter, which is why it gets its own flag rather than an empty mask. */
+static void parse_nonnull_attr(Parser *p, GnuDeclAttrs *gnu)
+{
+    if (!parse_at_punct(p, PUNCT_LPAREN)) {
+        gnu->nonnull_all = true;
+        return;
+    }
+    p->pos++;
+    for (;;) {
+        const Token *n = parse_peek(p);
+        long v;
+
+        if (n->kind != TOK_INT_CONST)
+            break;
+        v = strtol(n->spelling, NULL, 0);
+        if (v >= 1 && v <= 64)
+            gnu->nonnull_mask |= 1ull << (v - 1);
+        p->pos++;
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
 /* format(archetype, string-index, first-to-check).
  *
  * The archetype is an IDENTIFIER, and headers spell it three ways for the
@@ -595,6 +625,14 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "format")) {
                             parse_format_attr(p, name, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "nonnull")) {
+                            parse_nonnull_attr(p, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "noreturn")) {
+                            gnu->noreturn = true;
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

@@ -58,6 +58,8 @@ predefine.
 | `deprecated`, `deprecated("msg")` | `tests/programs/gnu/attr_deprecated.c` | glibc, every library retiring an API |
 | `warn_unused_result` | `tests/programs/gnu/attr_warn_unused_result.c` | glibc (`read`, `write`, `realloc`), curl, anything whose result must be checked |
 | `format(archetype, m, n)` | `tests/programs/gnu/attr_format.c` | every project with its own `printf` wrapper; glibc, curl, systemd |
+| `nonnull(...)`, bare `nonnull` | `tests/programs/gnu/attr_nonnull.c` | glibc (`memcpy`, `strlen`, most of `string.h`) |
+| `noreturn` | `tests/programs/gnu/attr_noreturn.c` | glibc's `__assert_fail`/`abort`, musl, every fatal-error helper |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
 | extended `asm` — operands, constraints, clobbers | `tests/corpus/x86_64/int/asm_operands.c` | musl syscall wrappers and atomics; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
@@ -260,8 +262,7 @@ read next year's headers.
 | `unused`, `used`-adjacent hints | affect diagnostics only | everywhere |
 | `format_arg` | the returned string's format is the caller's to check, and the caller's own `format` attribute already does it | glibc |
 | `pure`, `const`, `malloc`, `leaf`, `noclone`, `flatten` | optimization licenses; declining one is always conservative | glibc, curl |
-| `noreturn` | we merely fail to learn a call does not return: costs flow precision, cannot make a correct program wrong | everywhere |
-| `nonnull`, `sentinel`, `nonstring`, `diagnose_if`, `access`, `alloc_size`, `alloc_align` | diagnostics only | glibc |
+| `sentinel`, `nonstring`, `diagnose_if`, `access`, `alloc_size`, `alloc_align` | diagnostics only | glibc |
 | `always_inline`, `noinline`, `hot`, `cold`, `artificial`, `no_instrument_function` | inliner and placement hints | glibc, musl |
 | `nothrow` | C has no exceptions | glibc |
 

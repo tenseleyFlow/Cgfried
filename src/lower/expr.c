@@ -1861,7 +1861,11 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             "abort", "exit", "_Exit", "quick_exit", "longjmp", "siglongjmp"};
         size_t ni;
 
-        call_noreturn = (callee->func_specs & AST_FS_NORETURN) != 0;
+        /* C11 `_Noreturn` and the GNU attribute are the same fact, decided
+         * in ONE place alongside the library-name list rather than becoming
+         * a second mechanism. */
+        call_noreturn =
+            (callee->func_specs & AST_FS_NORETURN) != 0 || callee->gnu.noreturn;
         for (ni = 0; !call_noreturn && callee->linkage == LINK_EXTERNAL &&
                      ni < CGF_ARRAY_LEN(known);
              ni++)

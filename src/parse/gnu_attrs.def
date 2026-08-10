@@ -50,13 +50,13 @@ GA(malloc, GA_IGNORE)
 GA(no_instrument_function, GA_IGNORE)
 GA(noclone, GA_IGNORE)
 GA(noinline, GA_IGNORE)
-GA(nonnull, GA_IGNORE)
+GA(nonnull, GA_IMPLEMENTED)
 GA(nonstring, GA_IGNORE)
 /* Ignoring noreturn is CONSERVATIVE: we merely fail to learn that a call
  * does not return, which costs flow-analysis precision and can produce a
  * spurious "control reaches end of non-void function". It cannot make a
  * correct program wrong. */
-GA(noreturn, GA_IGNORE)
+GA(noreturn, GA_IMPLEMENTED)
 GA(nothrow, GA_IGNORE)
 GA(pure, GA_IGNORE)
 GA(sentinel, GA_IGNORE)

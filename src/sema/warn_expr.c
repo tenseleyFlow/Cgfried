@@ -614,6 +614,66 @@ static void warn_precedence(Sema *s, AstNode *e)
     }
 }
 
+/* `nonnull`: a null pointer CONSTANT passed where the callee said one may
+ * never go. Only a constant -- proving a runtime pointer non-null is the
+ * memory-safety engine's job, not a syntactic warning's.
+ *
+ * The bare form means every POINTER parameter, so it needs the callee's
+ * prototype; the listed form does not, but using the same walk for both
+ * keeps one notion of "argument N". */
+/* A null pointer VALUE, which is deliberately wider than 6.3.2.3p3's null
+ * pointer CONSTANT. `(int *)0` is not an NPC by the standard's definition
+ * -- only a zero ICE, or one cast to `void *`, qualifies -- yet gcc warns
+ * for it here, measured. Both spellings mean the same thing to a reader, so
+ * stripping an explicit pointer cast before the NPC test is what matches.
+ *
+ * conv_is_npc itself stays strict: its other caller decides the TYPE of a
+ * conditional expression, where the standard's narrow rule is the correct
+ * one. Widening it there would change what `c ? (int *)0 : 1` means. */
+static bool arg_is_null_pointer(Sema *s, AstNode *a)
+{
+    AstNode *core = strip_implicit(a);
+
+    while (core && core->kind == AST_EXPR_CAST && core->sem_type &&
+           core->sem_type->kind == TY_PTR)
+        core = strip_implicit(core->lhs);
+    return core && conv_is_npc(s, core);
+}
+
+static void warn_nonnull(Sema *s, AstNode *e)
+{
+    AstNode *callee = strip_implicit(e->lhs);
+    Type *ft;
+    Symbol *sym;
+    u32 i;
+
+    if (!callee || callee->kind != AST_EXPR_IDENT)
+        return;
+    sym = callee->sym;
+    if (!sym || (!sym->gnu.nonnull_all && !sym->gnu.nonnull_mask))
+        return;
+    ft = callee->sem_type;
+    if (ft && ft->kind == TY_PTR)
+        ft = ft->base;
+    for (i = 0; i < e->nargs && i < 64; i++) {
+        bool listed = (sym->gnu.nonnull_mask >> i) & 1u;
+
+        if (!listed && sym->gnu.nonnull_all) {
+            /* The bare form applies to POINTER parameters only, so it needs
+             * the prototype to know which those are. */
+            listed = ft && ft->kind == TY_FUNC && ft->has_proto &&
+                     i < ft->nparams && ft->params[i] &&
+                     ft->params[i]->kind == TY_PTR;
+        }
+        if (!listed || !e->args[i])
+            continue;
+        if (!arg_is_null_pointer(s, e->args[i]))
+            continue;
+        warn_at(s->lang->warnings, WARN_NONNULL, e->args[i]->span,
+                "argument %u null where non-null expected", (unsigned)(i + 1));
+    }
+}
+
 /* `warn_unused_result`: the callee asked to be told when its value is
  * thrown away.
  *
@@ -705,6 +765,8 @@ static void check_expr(Sema *s, AstNode *e, unsigned context)
         break;
     case AST_EXPR_CALL: {
         Type *callee_type = e->lhs ? e->lhs->sem_type : NULL;
+
+        warn_nonnull(s, e);
 
         if (callee_type && callee_type->kind == TY_PTR)
             callee_type = callee_type->base;

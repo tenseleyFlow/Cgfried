@@ -203,6 +203,28 @@ typedef struct GnuDeclAttrs {
     u8 fmt_family; /* FmtFamily, kept as u8 to avoid the include */
     u8 fmt_arg;
     u8 fmt_first_vararg;
+    /* `nonnull(1,2,...)`, or bare `nonnull`.
+     *
+     * The BARE form is not "no positions", it is EVERY pointer parameter --
+     * measured: `nonnull` on `f(int *p, int *q)` warns for a null in either
+     * slot. So the two forms need separate state; a zero mask would
+     * otherwise be indistinguishable from "all". Positions are 1-based to
+     * match gcc's diagnostic, and the mask covers 1..64, which is past any
+     * real signature. */
+    bool nonnull_all;
+    u64 nonnull_mask;
+    /* `noreturn`: this call does not come back.
+     *
+     * The only one of D3's five that feeds ANALYSIS rather than emitting a
+     * diagnostic of its own, and its value is measured in FALSE POSITIVES
+     * REMOVED: without it, a function ending in a call to a noreturn callee
+     * draws "control reaches end of non-void function", and a variable set
+     * on every path that does not die draws "may be used uninitialized".
+     * gcc is silent for both.
+     *
+     * It joins C11 `_Noreturn` and the hardcoded library-name list at ONE
+     * decision in lower_call, rather than becoming a second mechanism. */
+    bool noreturn;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one
