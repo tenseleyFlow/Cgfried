@@ -2,15 +2,14 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU extensions)
-is under way** — **eleven** attributes plus **D1 and D2 complete**, and
-§1b-1's *WHERE THE WORK IS* says exactly what to do next and in what order.
+**WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU
+extensions) is under way and is the live work.** D1, D2 and most of D4 are
+done; the tier table reads **16 implemented / 7 parsed-ignored / 6 refused**.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-**NEXT: D4** — statement expressions + `typeof` and the rest of that list —
-and **D5 `__GNUC__` LAST**, because the day it is defined every
-`__attribute__` in every system header goes live at once.
+**READ §0a FIRST.** It is the resume point: what is done, what is next, and
+the measurements already taken so you do not re-derive them.
 
 That order is locked and also recorded in the assistant's project memory
 (`sprint-order`). After D5, circle back to the sprints that were skipped:
@@ -20,9 +19,136 @@ work, which is why they were safe to defer behind a correctness blocker.
 
 Sprint 55 itself came out of numerical order because its own file says
 campaign sprints 56–59 consume it, 28 deferrals pointed at it, and it blocks
-HOSTED compilation on macOS and FreeBSD. That was confirmed empirically this
-session: **extended asm alone took musl from 716 to 1066 of 1361
-translation units parsing.**
+HOSTED compilation on macOS and FreeBSD. Confirmed empirically: extended asm
+and `__volatile` together took musl from **716 to 1259 of 1361** translation
+units parsing.
+
+---
+
+## 0a. RESUME HERE — Sprint 55 D4, and what is left
+
+### Sprint 55 against its own Definition of Done
+
+| DoD | state |
+|---|---|
+| 1. tier table, every row fixtured, CI-gated | **met** — 16/7/6, `check_gnu_tiers.sh` |
+| 2. musl `syscall_arch.h` + `src/internal/` compile clean | **met** — verified directly |
+| 3. extended asm O0–Os both targets + early-clobber execute fixture | **met** |
+| 4. **16 attributes** with semantics tests + packed differential | **11 of 16** ← D3 |
+| 5. `__GNUC__=8` in gnu17, absent in c17, both fixtured | **open** ← D5, LAST |
+| 6. deferred constructs hard-error naming the sprint | **met** |
+| 7. zero new warnings building cgf itself; bootstrap lanes green | **met** |
+
+### D4 — what is DONE
+
+- statement expressions `({ ... })` — `56a94d14`
+- `typeof` / `__typeof__` / `__typeof` + `__auto_type` — `2245382c`
+- `__builtin_types_compatible_p` / `__builtin_choose_expr` — `4d433873`
+- `__thread`, `__extension__` — `tests/corpus/x86_64/int/gnu_thread_extension.c`.
+  `__thread` is a pure ALIAS: it produces the same `AST_SC_THREAD_LOCAL` as
+  `_Thread_local`, proved by diffing the emitted assembly for both spellings
+  (**byte-identical**). `__extension__` is SWALLOWED at the top of
+  `parse_unary_expr`; the declaration position has worked since Sprint 9.
+  **The fixture needs `// ENV: CGF_AS=0`** — the bundled assembler has
+  neither `%fs:` nor `@tpoff` on x86 (TLS-004) and the driver refuses by
+  name. That line is INERT on arm64, where the lane sets `CGF_AS_PATH` and
+  an explicit path beats a mode, so the fixture still executes through the
+  bundled assembler there. Its absence is what made the first full run come
+  back 89/90 under both compilers with arm64 clean — an asymmetry that reads
+  like an x86 codegen bug and is really assembler routing.
+- `[0]` arrays and `__builtin_constant_p` — **already worked**, found by a
+  13-line survey before any planning. PROBE THE LIST BEFORE PLANNING IT.
+
+### D4 — what is LEFT, with the semantics already measured
+
+**Do not re-derive these. They are gcc-measured and some are
+counterintuitive.**
+
+- **case ranges** `case 1 ... 3:` — inclusive at BOTH ends. A REVERSED range
+  (`3 ... 1`) is a gcc **warning** ("empty range specified"), not an error.
+  A single-value range (`1 ... 1`) is fine.
+- **`a ?: b`** — the left operand is evaluated **exactly once**, on both the
+  true and false paths (measured with a call counter both ways). The refusal
+  is at `src/parse/expr.c` in the `PUNCT_QUESTION` case.
+- **empty struct / union** — `sizeof` is **0**. ⚠ **READ THE EXISTING
+  COMMENT AT `src/sema/decl.c` (`any_named`) BEFORE IMPLEMENTING.** Whoever
+  wrote it refused zero sizes deliberately: they break the "distinct objects
+  have distinct addresses" property later passes assume. This is the one
+  remaining D4 item with a documented hazard — check what layout, alias
+  analysis and the memory-safety engine do with a zero-extent object rather
+  than assuming gcc's acceptance settles it.
+- **`__label__`** — local labels; parser + scope work.
+- **`__builtin_offsetof` array designators** — separate, smaller.
+- **`,##__VA_ARGS__`** comma-swallow — a Sprint 5 deferral, and the only
+  item that is PREPROCESSOR work. The sprint file corrects itself here: gcc
+  accepts it in ALL modes, so match gcc.
+
+### Then, in order
+
+1. **D3** — the last 5 attributes. DoD 4 wants 16.
+2. **D5 `__GNUC__` — LAST, and only after D3.** The day it is defined every
+   `__attribute__` in every system header goes live at once, and **D3's
+   implemented column IS D5's obligation checklist**. That is why the
+   ordering is not arbitrary.
+3. **Sprints 52, 53, 54.**
+
+### THE VERIFICATION RITUAL, and the one lever that saves an hour
+
+Before anything lands: gcc `make test`, clang `make test`, BOTH arm64 lanes
+(`test-a64-corpus`, `test-a64-spill-all`), and — whenever the fuzz digest is
+repinned — a sanitized 100k (`ASAN_OPTIONS=detect_leaks=0`, and check
+`nm -D` for `__asan_init` on BOTH binaries first).
+
+**`tests/corpus` IS FREE; `tests/programs` COSTS ~20 MINUTES.**
+`FE_FUZZ_CORPUS` is `tests/fixtures tests/programs`, so ANY add/delete there
+moves the mutation digest and obligates the full 100k. The type-query
+builtins alone cost THREE of those. An EXECUTABLE fixture belongs in
+`tests/corpus` — it runs on x86_64, under `CGF_SPILL_ALL=1`, and under both
+arm64 lanes, and costs nothing. Only compile-FAILURE fixtures need
+`tests/programs`. **Batch the remaining D4 items into one verification
+pass.**
+
+Run the suites ONE AT A TIME (two at once on this box produce failures that
+do not reproduce), and never edit `src/` while a chain is in flight — it
+rebuilds from source.
+
+### WHAT KEEPS BITING, in the order it bit
+
+1. **THE ENUMERATION HAZARD.** A list that must name every case forgets one.
+   Six sites built an `ATY_BASE` from a specifier soup and I patched one —
+   `typeof(int) b = 1;` resolved to TY_ERROR while `sizeof(typeof(a))`
+   worked. Fix is always ONE helper, never N+1 lines: `soup_fill_identity`,
+   `ir_arg_carry_provenance`, `gnu_attrs_any_symbol_property`. Same shape
+   found `__volatile` missing from two asm-qualifier loops while its sibling
+   `__inline` was present — that one gated every musl TU with atomics.
+2. **A CHECK THAT CANNOT TELL "VERIFIED" FROM "NEVER RAN."** A mutation
+   whose injected bug did not compile reported PASS. `grep -c FAIL` called
+   three build/gate failures clean. A loop label printed `-O2` while never
+   passing `$O`. **zsh does not word-split** an unquoted expansion, so
+   `cgf $flags file` sent one argument and every fixture answered
+   "unrecognized option" — read as "silent, therefore vacuous". READ THE
+   OUTPUT, NOT A COUNT OF IT. **PROVE THE BINARY IS THE ONE YOU CHANGED** —
+   compare its mtime to `date`; that caught two stale-binary reads.
+3. **MEASURE gcc BEFORE WRITING CODE.** It has overruled the sprint file
+   FOUR times this sprint, most recently on `__builtin_choose_expr` — the
+   file said the unselected arm is "untype-checked beyond parse" and gcc
+   type-checks it. Implementing as written would accept code gcc rejects,
+   and no good-faith fixture would catch it because every natural test puts
+   a VALID expression in the dead arm.
+4. **A PLAUSIBLE CALL THAT DOES NOTHING.** `type_qualify(t, 0)` returns the
+   type UNCHANGED when asked for zero qualifiers — it adds, it does not set.
+   `types_compatible_p(const int, int)` answered 0 until `conv_strip_quals`
+   replaced it. Likewise a first dead-branch rule tested the statement
+   BEFORE a case label when the scanner had already descended past it: it
+   compiled, passed everything, and never fired.
+5. **AN OBSOLETE REFUSAL ASSERTION PER FEATURE.** Five so far. FOUR were
+   CONVERTED to pin a boundary that still errors (file-scope `({...})`;
+   `typeof` in ISO mode; `__builtin_clz` having no table row); ONE was
+   deleted because nothing remained. The gate tells you a boundary MOVED;
+   deciding whether one REMAINS is judgment.
+6. **`.docs/sprints/` IS GITIGNORED AND MUST NEVER BE COMMITTED.** `git add`
+   refuses it and suggests `-f`. Do not take that hint. Sprint-file
+   corrections stay local; record them in the commit message instead.
 
 ---
 
@@ -1377,7 +1503,7 @@ gh run view <id> --json jobs --jq '.jobs[] | select(.conclusion!="success") | .n
 gh api repos/tenseleyFlow/Cgfried/actions/jobs/<job-id>/logs --allow-escape-sequences
 ```
 
-**THE ASSEMBLER ROUTING TRAP — it has now bitten FOUR times**, the last one
+**THE ASSEMBLER ROUTING TRAP — it has now bitten FIVE times**, the fourth
 being those four red runs: `scripts/musl_cross_lane.sh` invoked `cgf`
 directly and never routed its own assembler. cgf's default
 assembler is the BUNDLED afs-as. Any lane that invokes `cgf` directly must
@@ -1395,6 +1521,17 @@ afs-as is not built — and a Rust-free CI job never builds one.
 - The ABI lane would have lost its first CI run the same way; its routing is
   now INSIDE the lane rather than left to the caller, verified by hiding
   afs-as and running both targets.
+- **The FIFTH is the interesting one, because it wore a different face.**
+  The first `__thread` corpus fixture came back 89/90 under BOTH host
+  compilers with **arm64 clean at 74/74** — which reads like an x86 codegen
+  bug, since a feature working on the harder target and failing on the
+  easier one is the wrong way round. It was routing: the bundled assembler
+  has no `%fs:`/`@tpoff` on x86 (TLS-004) and the driver refuses BY NAME,
+  while arm64's `:tprel_hi12:` has been in afs-as since Sprint 51. The
+  fixture needs `// ENV: CGF_AS=0`, which is inert on arm64 because the lane
+  sets `CGF_AS_PATH` and an explicit path beats a mode. **A per-target
+  split in a result is evidence about the TOOLCHAIN at least as often as
+  about the compiler** — read the stderr before reading the codegen.
 
 **Reproduce CI's Rust-free condition instead of guessing:**
 
