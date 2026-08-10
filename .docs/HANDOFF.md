@@ -4,9 +4,9 @@ You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU
 extensions) is under way and is the live work.** D1, D2 and **D4** are done;
-the tier table reads **21 implemented / 7 parsed-ignored / 8 refused**.
-**D3 is under way: 14 of DoD 4's 16 attributes**, with `nonnull` and
-`noreturn` left before D5.
+the tier table reads **23 implemented / 6 parsed-ignored / 8 refused**.
+**D1, D2, D3 and D4 are ALL CLOSED. Only D5 (`__GNUC__`) remains**, and it
+was always meant to go last.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
@@ -36,7 +36,7 @@ units parsing.
 | 1. tier table, every row fixtured, CI-gated | **met** — 16/7/6, `check_gnu_tiers.sh` |
 | 2. musl `syscall_arch.h` + `src/internal/` compile clean | **met** — verified directly |
 | 3. extended asm O0–Os both targets + early-clobber execute fixture | **met** |
-| 4. **16 attributes** with semantics tests + packed differential | **14 of 16** ← D3, `nonnull` + `noreturn` left |
+| 4. **16 attributes** with semantics tests + packed differential | **met** — 16 of 16 |
 | 5. `__GNUC__=8` in gnu17, absent in c17, both fixtured | **open** ← D5, LAST |
 | 6. deferred constructs hard-error naming the sprint | **met** |
 | 7. zero new warnings building cgf itself; bootstrap lanes green | **met** |
@@ -143,7 +143,7 @@ counterintuitive.**
   item that is PREPROCESSOR work. The sprint file corrects itself here: gcc
   accepts it in ALL modes, so match gcc.
 
-### D3 — 14 of 16, and what the three cost
+### D3 IS CLOSED — 16 of 16
 
 `deprecated`, `warn_unused_result` and `format` landed in `87e4bd39`, all
 byte-identical to gcc 16. They were chosen together because each is a
@@ -167,25 +167,30 @@ invisible and its absence read as "gcc is silent here". **A filtered slice
 of a compiler's output is not a measurement.** The legal position is AFTER
 the name, and our parser did not accept attributes there at all.
 
-### What is LEFT in D3, with the shape already known
+`nonnull` and `noreturn` followed in `f1af918f`, and each had one fact worth
+keeping:
 
-- **`nonnull(1,2,...)`** — `WARN_NONNULL` exists. Warn when a null pointer
-  constant is passed at a listed 1-based position. The index-list parse is
-  the same shape `format` already does. gcc: "argument 1 null where
-  non-null expected".
-- **`noreturn`** — the only one of the five that feeds ANALYSIS rather than
-  emitting its own diagnostic: `src/warn/flow.c` currently hardcodes a
-  library noreturn-name list, and the attribute should generalize it.
-  Measure what it changes in `-Wreturn-type` and maybe-uninitialized before
-  wiring it.
+- **bare `nonnull` is not "no positions", it is EVERY POINTER PARAMETER**,
+  so the two forms carry separate state — a zero mask would be
+  indistinguishable from "all". And `(int *)0` is NOT a null pointer
+  constant by 6.3.2.3p3, yet gcc warns for it, so the check strips an
+  explicit pointer cast while `conv_is_npc` stays strict for its other
+  caller (which decides the TYPE of a conditional and needs the narrow
+  rule).
+- **`noreturn`'s value is FALSE POSITIVES REMOVED**, not a diagnostic
+  added: a function ending in a call that never returns drew "control
+  reaches end of non-void function", and a variable set on every surviving
+  path drew "may be used uninitialized". It joins C11 `_Noreturn` and the
+  library-name list at ONE decision rather than becoming a second
+  mechanism.
 
-`malloc`, `pure` and `const` are deliberately NOT in the set: they are
+`malloc`, `pure` and `const` are deliberately NOT implemented: they are
 optimization licenses where a user's lie becomes a miscompile, which is a
-different risk class from a missed diagnostic.
+different risk class from a missed diagnostic. They stay parsed-ignored.
 
 ### Then, in order
 
-1. **D3's last two** — `nonnull` and `noreturn`.
+1. **D5 `__GNUC__` — the last deliverable of Sprint 55.**
 2. **D5 `__GNUC__` — LAST, and only after D3.** The day it is defined every
    `__attribute__` in every system header goes live at once, and **D3's
    implemented column IS D5's obligation checklist**. That is why the
