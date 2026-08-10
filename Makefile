@@ -78,6 +78,7 @@ KERNEL_X86_RESULT ?= $(BUILD)/bench/kernels-x86_64-linux-gnu.txt
 KERNEL_A64_RESULT ?= $(BUILD)/bench/kernels-arm64-linux.txt
 KERNEL_X86_GOLDEN := .benchmarks/golden/kernels-x86_64-linux-gnu.txt
 KERNEL_A64_GOLDEN := .benchmarks/golden/kernels-arm64-linux.txt
+KERNEL_DASHBOARD ?= .benchmarks/kernels-vs-gcc.md
 
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
@@ -96,7 +97,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
         test-mem-runtime test-mem-autofix test-safe-mode safe-dogfood \
         test-mem-fanalyzer bench-safe \
-        test-bench test-kernels kernels bench bench-gate \
+        test-bench test-kernels kernels kernel-compare bench bench-gate \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
@@ -557,6 +558,7 @@ test-bench: $(BUILD)/cgfried $(BUILD)/timeit $(BUILD)/timeit-math-test
 	$(BUILD)/timeit-math-test
 	sh tests/bench/benchmark_gate_test.sh
 	sh tests/bench/kernel_static_test.sh
+	sh tests/bench/kernel_compare_test.sh
 	CGF_STATS_WORK=$(BUILD)/stats-smoke \
 	    sh scripts/stats_smoke.sh $(BUILD)/cgfried
 	CGF_BENCH_TEST_WORK=$(BUILD)/bench-test sh tests/bench/corpus_test.sh
@@ -592,6 +594,10 @@ test-kernels: $(BUILD)/cgfried $(BUILD)/cgf-test
 	CGF_AS=0 CGF_TEST_CC=$(BUILD)/cgfried \
 	    CGF_TEST_WORK=$(BUILD)/kernel-opt-eq $(BUILD)/cgf-test \
 	    --profile linux-x86_64 tests/bench/kernels
+
+kernel-compare: $(BUILD)/cgfried
+	CGF_KERNEL_COMPARE_WORK=$(BUILD)/kernel-compare \
+	    sh scripts/kernel-compare.sh $(KERNEL_DASHBOARD)
 
 # Optional local comparison: records both verdicts without treating GCC's
 # analyzer as an oracle for Cgfried's narrower default policy.
