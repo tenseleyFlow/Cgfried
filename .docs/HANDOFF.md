@@ -3,10 +3,11 @@
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU
-extensions) is the live work, and D1, D2, D3 and D4 are all CLOSED.** The
-tier table reads **23 implemented / 6 parsed-ignored / 8 refused**.
-**Only D5 (`__GNUC__`) remains.** It was always meant to go last, and §0a is
-its scope — already measured, so do not re-derive it.
+extensions) is the live work; D1, D2, D3 and D4 are CLOSED and D5 is
+PARTLY DONE — three of its blockers have landed, a fourth is open.** The
+tier table reads **26 implemented / 6 parsed-ignored / 8 refused**.
+§0a is the resume point and carries the measurements, so do not re-derive
+them. **Sprint 55 is NOT closed.**
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -26,107 +27,125 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ## 0a. RESUME HERE — D5, `__GNUC__`
 
+**THREE of D5's blockers are DONE and pushed. A FOURTH was found by
+widening the probe, and it is the next task.** Sprint 55 is NOT closed.
+
+| blocker | state |
+|---|---|
+| 1. `__builtin_bswap16/32/64` | **DONE** — `b8631a90` |
+| 2. integer `mode(M)` | **DONE** — `faf0bbcd`; took the header probe from 1/19 clean to 18/19 |
+| 3. `_Float128` | **DONE** — `de84d2e2`; `math.h` compiles, bit-identical to gcc at every level |
+| 4. **GNU named variadic macros** | **NOT STARTED** ← next; fully measured below |
+| 5. the `__GNUC__` predefine itself | LAST, after 4 |
+
 ### THE ONE THING TO UNDERSTAND FIRST
 
 **Defining `__GNUC__` is a PROMISE, not a predefine.** glibc's
-`sys/cdefs.h` gates dozens of declarations on it; today, with it undefined,
-glibc *neutralizes* `__attribute__` itself (`#define __attribute__(xyz)`),
-which is why every attribute fixture in the tree is freestanding and why
-hosted compilation works at all right now. **The day `__GNUC__` is defined,
-every attribute in every system header goes live at once**, and this
-document's own rule applies: *answering yes and then rejecting one of gcc
-8's extensions is worse than answering no.*
+`sys/cdefs.h` gates dozens of declarations on it; today, with it
+undefined, glibc *neutralizes* `__attribute__` itself, which is why every
+attribute fixture in the tree is freestanding. **The day `__GNUC__` is
+defined, every attribute in every system header goes live at once**, and
+answering yes and then rejecting one of gcc 8's extensions is worse than
+answering no. That is why the predefine goes in LAST.
 
-That is why D5 is last: **D3's implemented column IS D5's obligation
-checklist**, and D3 only just closed.
+### BLOCKER 4 — GNU named variadic macros. Everything below is measured.
 
-### D5's ACTUAL SCOPE — three blockers, measured, not guessed
+`#define M(args...)` and `#define M(fmt, rest...)`. Blocks `netdb.h`,
+`arpa/inet.h` and `sys/socket.h` — so, sockets.
 
-I simulated it with `-D__GNUC__=8 -D__GNUC_MINOR__=3 -D__GNUC_PATCHLEVEL__=0`
-against the real glibc headers on x86_64 before writing any code.
-**Most headers already compile clean.** There are exactly three blockers.
-
-**HOW TO REPRODUCE THE PROBE — and why the obvious version lies.** Including
-a dozen headers at once produces ~40 errors, and almost all of them are
-CASCADE from the first real failure (a poisoned `register_t` typedef makes
-every later declaration a syntax error). Compile **each header ALONE** and
-take only its **first** error:
+**HOW IT WAS FOUND, and the lesson:** the handoff previously said "three
+blockers, measured." That measurement covered **19** headers. Widening the
+same probe to **30** found this one. *The probe's coverage bounds its
+conclusion* — widen it again before believing four is the final number.
 
 ```sh
-C=build-d4/cgfried
+C=build-d5/cgfried
 for h in stdio stdlib string ctype errno time math limits unistd fcntl \
-         sys/types sys/stat signal pthread setjmp; do
+         sys/types sys/stat sys/mman signal pthread setjmp inttypes stdint \
+         locale assert wchar wctype dirent netdb arpa/inet sys/socket \
+         sys/wait sys/time termios poll; do
   printf '#include <%s.h>\nint main(void){return 0;}\n' "$h" > one.c
   echo "$h -> $($C -std=gnu17 -D__GNUC__=8 -D__GNUC_MINOR__=3 \
       -D__GNUC_PATCHLEVEL__=0 -fsyntax-only one.c 2>&1 |
-      grep -m1 'error:' | cut -c1-110)"
+      grep -m1 'error:' | cut -c1-100)"
 done
 ```
+Currently **27 of 30 clean**; the three failures are all this feature.
+Compile each header ALONE and take only its FIRST error — a dozen at once
+gives ~40 mostly-cascade errors.
 
-**1. `mode(__word__)` — start here or you cannot even reach the others.**
-On `typedef int register_t` in `/usr/include/sys/types.h`. It blocks
-`<stdlib.h>` and `<sys/types.h>` and, transitively, most of a hosted TU.
+**The measured semantics (gcc 16, `-std=gnu17`):**
 
-It sits in the REFUSED tier, whose note claimed *"glibc `__int128` corners
-only"*. **DISPROVEN and corrected in `docs/gnu-extensions.md` (`a04fdee6`):**
-a grep of all of `/usr/include` finds **exactly one** `mode` use in glibc and
-it is this one.
+- The name **REPLACES** `__VA_ARGS__` rather than adding to it: inside
+  `#define M(a...)`, using `__VA_ARGS__` is an ERROR ("can only appear in
+  the expansion of a C99 variadic macro"). A parameter literally named
+  `__VA_ARGS__` is the same error.
+- In a plain `#define M(...)`, the identifier `args` is just an ordinary
+  token — the name is per-macro, not global.
+- `#define M(a...)` then `#define M(...)` is a **redefinition** warning, so
+  the ISO redefinition compare must consider the variadic name.
+- The named tail must be LAST: `M(a..., b)` is "expected ')' after '...'".
+- Zero arguments works; `#` stringizes the tail (`S(3, 4)` → `"3, 4"`).
+- `-pedantic` gives `-Wvariadic-macros`, "ISO C does not permit named
+  variadic macros". **That registry id already exists**
+  (`WARN_VARIADIC_MACROS`, `WG_PEDANTIC`/`WD_PEDANTIC`/`WL_PEDWARN`), so
+  the pedwarn is free.
+- Expansions to pin: `M(1,2)` → `f(1,2)`; `N(9,8,7)` with
+  `#define N(x, rest...) g(x, rest)` → `g(9, 8,7)` (note the spacing).
 
-```sh
-grep -rhoE '__mode__ *\(\s*__[a-z_]+__\s*\)' /usr/include | sort | uniq -c
-#   -> 1 __mode__(__word__)
-```
+**THE CODE SHAPE IS FAVOURABLE — it is one index, not a second mechanism.**
+`find_param()` in `src/pp/macro.c:137` returns `m->nparams` for the
+variadic slot, and *everything* keys off that: substitution, stringize, and
+the `, ## __VA_ARGS__` comma swallow at ~line 631. So:
 
-The INTEGER modes are tractable: replace the declared type with an integer of
-that width and **the signedness of the DECLARED type**, which our type system
-does have. Measured against gcc on LP64, not assumed:
+1. `MacroDef` (`src/pp/pp.h:238`) gains an interned `va_name`, NULL meaning
+   `__VA_ARGS__`.
+2. The parameter loop (`src/pp/macro.c:~200`, where the refusal lives now)
+   accepts `IDENT ...`, sets `is_variadic` and records the name.
+3. `find_param` matches `va_name` when set **instead of** `__VA_ARGS__`
+   (measured: they are exclusive), and the `__VA_ARGS__`-outside-a-variadic
+   error at line 281 needs the same treatment.
+4. The redefinition compare must include `va_name`.
 
-```
-__word__ = 8    __QI__ = 1   __HI__ = 2   __SI__ = 4   __DI__ = 8   (bytes)
-typedef int      x __attribute__((__mode__(__QI__)))  ->  SIGNED
-typedef unsigned x __attribute__((__mode__(__QI__)))  ->  UNSIGNED
-```
-
-So the attribute supplies the WIDTH and the declaration keeps the SIGN — one
-rule, and `register_t` (`typedef int` + `__word__`) therefore lands on
-`long`, matching gcc. **Vector and float modes are what the "no such axis"
-refusal really covers** and should stay refused: that is a partial
-implementation with a deliberate, documented boundary, the same shape as
-`packed`'s bitfield rule.
-
-**2. `_Float128` — and it CANNOT be dodged by claiming a lower version.**
-`math.h` does `#define _Mdouble_ _Float128`. glibc's `bits/floatn.h` gates
-`__HAVE_FLOAT128` on `__GNUC_PREREQ(4, 3)` for x86_64, so *anything* we could
-claim turns it on. **Verified in both directions**: at `-D__GNUC__=4
--D__GNUC_MINOR__=2` `math.h` compiles clean; at 4.3+ it does not.
-
-The good news: `softfp` already does binary128, and `libcgf_rt` already ships
-the `__addtf3`/`__subtf3`/… entry points (built for arm64, whose `long
-double` IS binary128 — see Sprint 49 D4, 1400 result lines byte-identical to
-libgcc). So an x86 `_Float128` is soft-float through that same runtime. It is
-bounded, but it is a **new floating type in the type system** on a target
-where `long double` is x87 80-bit, so the two must not be conflated.
-
-**3. `__builtin_bswap16/32/64`** — `bits/byteswap.h`. The smallest; a good
-first commit. **Measured against gcc**: `__builtin_bswap16(0x1234)` is
-`0x3412` and `sizeof` its result is **2**, so the result types are
-`uint16_t`/`uint32_t`/`uint64_t`. That is **not expressible with the existing
-result-type rules** in `src/builtins.def` (`BK_ARG0` would promote bswap16's
-result to `int`), so it needs `BK_SPECIAL` or new kinds. **No new IR opcode
-is required** — shifts, masks and ors suffice. Add rows to `src/builtins.def`
-(there is deliberately no accept-anything fallback), type in sema, lower in
-`src/lower/expr.c` beside `SEMA_BUILTIN_EXPECT`.
+**The refusal names Sprint 55 itself**, so `check_deferrals` would flag it
+at close regardless: a deferral to the CURRENT sprint must be resolved
+before that sprint ends, in one direction or the other.
 
 ### D5 — what has NOT been measured yet
 
 - **arm64-macos and FreeBSD have their own lists.** Run the same per-header
-  first-error probe there before starting. Apple's `sys/cdefs.h` uses
-  `__attribute__` with NO `__GNUC__` gate at all, so its failure mode is
-  different in kind.
+  first-error probe there. Apple's `sys/cdefs.h` uses `__attribute__` with
+  NO `__GNUC__` gate at all, so its failure mode differs in kind.
 - The DoD wants `__GNUC__` **8 / 3 / 0** in gnu modes and **absent** in
-  `-std=c*` modes, both fixtured. The split is load-bearing, not cosmetic.
-- Expect the musl gates to MOVE. Both are pinned exact numbers; re-pin them
-  deliberately and say why.
+  `-std=c*` modes, both fixtured. The split is load-bearing.
+- Expect the musl gates to MOVE. Both are exact pins; re-pin deliberately
+  with a sentence of justification.
+
+### WHAT IS NOT YET VERIFIED at `de84d2e2` — do this FIRST
+
+The three blockers are implemented and each was proved against gcc
+directly. What has NOT been re-run end to end since the final
+comment-only reformat:
+
+```sh
+make BUILD=build-v-gcc   CC=gcc   test          # rc must be 0; FAIL count lies
+make BUILD=build-v-clang CC=clang test
+make test-a64-corpus && make test-a64-spill-all  # SEQUENTIALLY, never -j
+scripts/musl_warn_dryrun.sh build-v-gcc/cgfried  # exact pinned numbers
+make musl-sweep
+```
+
+The last full gcc run before that reformat was green with **zero FAIL
+lines**; the only gate that fired was `check_bans`, tripped by the literal
+`__attribute__` inside two of my own COMMENTS — now reworded, and
+`check_bans`/`check_format`/`check_gnu_tiers`/`check_deferrals` are all
+clean. So the expectation is green, but it is an expectation, not a run.
+
+**Specifically unproven:** the arm64 lanes have not seen `_Float128` or
+`mode` execute. `tests/corpus/x86_64/fp/gnu_float128.c` was written to run
+there (its rank assertion branches on `__aarch64__` precisely because the
+answer differs), and it cross-compiles clean, but it has not run under
+qemu. The clang lane has not been run at all since D5 started.
 
 ### HOUSE RULES that a compaction will drop
 
@@ -151,19 +170,21 @@ is required** — shifts, masks and ors suffice. Add rows to `src/builtins.def`
 
 ### THE NUMBERS AS OF THIS HANDOFF — what "unchanged" looks like
 
-Everything below is green on `trunk` at `a04fdee6`. If one of these MOVES
-after a D5 change, that is the signal; re-pin deliberately and say why.
+Green on `trunk` at `de84d2e2` under gcc, EXCEPT that the full chain has
+not been re-run since the last comment-only reformat -- see "WHAT IS NOT
+YET VERIFIED" below. If one of these MOVES after a change, that is the
+signal; re-pin deliberately and say why.
 
 | gate | value |
 |---|---|
-| unit tests | 628 tests / 4,263,144 assertions, 0 failures |
+| unit tests | 628 tests / 4,263,151 assertions, 0 failures |
 | x86_64 fixtures (`tests/corpus` + `tests/programs`) | **672 / 672** |
 | arm64 corpus, and under `CGF_SPILL_ALL=1` | **76 / 76** each, both ledgers EMPTY |
-| tier table (`check_gnu_tiers.sh`) | **23 implemented / 6 parsed-ignored / 8 refused** |
+| tier table (`check_gnu_tiers.sh`) | **26 implemented / 6 parsed-ignored / 8 refused** |
 | musl warning sweep | **1259 / 1361** parsed, 102 deferred, 414 oracle-matched, **zero false positives** |
 | musl memory sweep | **1276 / 1361** analyzed, 85 pinned deferrals, **zero `-Wmem` diagnostics** |
-| ISA driver (`s36_isa_driver.sh`) | 92 corpus files / 552 object checks |
-| fuzz digest | `1454aca1be9a2be0` (at `--iters 5000`) |
+| ISA driver (`s36_isa_driver.sh`) | 95 corpus files / 570 object checks |
+| fuzz digest | `fe3cdda07126f524` (at `--iters 5000`) |
 | sanitized 100k | 0 findings; `tests/fuzz/crashes/` holds only `README.md` |
 | gcc / clang `make test` | rc=0 both |
 
@@ -373,12 +394,17 @@ different risk class from a missed diagnostic. They stay parsed-ignored.
 
 ### Then, in order
 
-1. **D5** — §0a is its scope. Suggested order within it: `__builtin_bswap*`
-   (smallest, self-contained), then `mode` integer modes (unblocks
-   `<stdlib.h>`), then `_Float128` (largest). Only after all three does the
-   predefine itself go in, because until then defining it makes hosted
-   compilation WORSE than it is today.
-2. **Sprints 52, 53, 54** — compile speed, codegen quality, perf gates.
+1. **D5's blocker 4** (GNU named variadic macros), then the `__GNUC__`
+   predefine itself, then re-probe the headers on arm64-macos and FreeBSD.
+   Only after every blocker does the predefine go in, because until then
+   defining it makes hosted compilation WORSE than it is today.
+2. **Then Sprint 55 closes**, and its DoD gate 5 with it.
+3. **Sprints 52, 53, 54** — compile speed, codegen quality, perf gates.
+   All three are performance work, which is why they were safe to defer.
+   Sprint 53 also inherits a MEASURED item from D5: a runtime
+   `__builtin_bswap64` is 64 x86 instructions where gcc emits `bswap`,
+   because there is no IR opcode for it (see the comment at its case in
+   `src/lower/expr.c` for why adding one is a 17-file change).
 
 ### THE VERIFICATION RITUAL, and the one lever that saves an hour
 
