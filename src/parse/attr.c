@@ -422,9 +422,9 @@ GnuMode gnu_mode_from_name(const char *spelling)
     static const struct {
         const char *name;
         u8 mode;
-    } modes[] = {{"QI", GNU_MODE_QI},         {"HI", GNU_MODE_HI},
-                 {"SI", GNU_MODE_SI},         {"DI", GNU_MODE_DI},
-                 {"byte", GNU_MODE_BYTE},     {"word", GNU_MODE_WORD},
+    } modes[] = {{"QI", GNU_MODE_QI},          {"HI", GNU_MODE_HI},
+                 {"SI", GNU_MODE_SI},          {"DI", GNU_MODE_DI},
+                 {"byte", GNU_MODE_BYTE},      {"word", GNU_MODE_WORD},
                  {"pointer", GNU_MODE_POINTER}};
     char buf[32];
     const char *norm = gnu_attr_norm_name(spelling, buf, sizeof(buf));
@@ -644,7 +644,7 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                  * silently. docs/gnu-extensions.md carries the rationale;
                  * this is the code half of that contract. */
                 if (strcmp(name->spelling, "vector_size") == 0 ||
-                         strcmp(name->spelling, "__vector_size__") == 0)
+                    strcmp(name->spelling, "__vector_size__") == 0)
                     parse_error(p, name,
                                 "the 'vector_size' attribute is not "
                                 "supported: it would create vector types "

@@ -34,6 +34,7 @@ typedef enum {
     TY_FLOAT,
     TY_DOUBLE,
     TY_LDOUBLE,
+    TY_FLOAT128, /* _Float128: IEEE binary128, DISTINCT from long double */
     TY_PTR,
     TY_ARRAY,
     TY_FUNC,

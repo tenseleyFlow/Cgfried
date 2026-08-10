@@ -72,6 +72,8 @@ static IrType hfa_leaf_irtype(const Type *base)
         return IRT_F32;
     case TY_DOUBLE:
         return IRT_F64;
+    case TY_FLOAT128:
+        return IRT_F128;
     case TY_LDOUBLE:
         /* AAPCS64 long double is IEEE binary128 and travels in a q-reg;
          * the f128 leaf type exists, but every operation on it needs the

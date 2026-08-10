@@ -227,8 +227,8 @@ typedef struct GnuDeclAttrs {
     bool noreturn;
     /* `mode(M)` / `__mode__(__M__)`: give this declaration the integer type
      * of machine mode M, keeping the DECLARED type's signedness. Measured:
-     * `typedef int r __attribute__((__mode__(__word__)))` is exactly `long`
-     * on LP64 -- types_compatible_p says identical, not merely same-sized --
+     * a `typedef int r` carrying `__mode__(__word__)` is exactly `long` on
+     * LP64 -- types_compatible_p says identical, not merely same-sized --
      * and the unsigned spelling gives exactly `unsigned long`. So the
      * attribute supplies the WIDTH and the declaration keeps the SIGN.
      *
@@ -245,13 +245,13 @@ typedef struct GnuDeclAttrs {
 
 typedef enum {
     GNU_MODE_NONE = 0,
-    GNU_MODE_QI,      /* 1 byte */
-    GNU_MODE_HI,      /* 2 */
-    GNU_MODE_SI,      /* 4 */
-    GNU_MODE_DI,      /* 8 */
-    GNU_MODE_BYTE,    /* 1 */
-    GNU_MODE_WORD,    /* the target's word: 8 on all five */
-    GNU_MODE_POINTER  /* the target's pointer width */
+    GNU_MODE_QI,     /* 1 byte */
+    GNU_MODE_HI,     /* 2 */
+    GNU_MODE_SI,     /* 4 */
+    GNU_MODE_DI,     /* 8 */
+    GNU_MODE_BYTE,   /* 1 */
+    GNU_MODE_WORD,   /* the target's word: 8 on all five */
+    GNU_MODE_POINTER /* the target's pointer width */
 } GnuMode;
 
 /* Mode name -> GnuMode, accepting gcc's four spellings (`SI`, `__SI__`,

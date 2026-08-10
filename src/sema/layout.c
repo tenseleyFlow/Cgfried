@@ -93,6 +93,14 @@ static TypeLayout basic_layout(Sema *s, const Type *t)
         r.size = tl.ldbl_size;
         r.align = tl.ldbl_align;
         return r;
+    case TY_FLOAT128:
+        /* NOT a target question, which is the whole point of the type:
+         * _Float128 is IEEE binary128 everywhere, so it is 16/16 even on
+         * x86-64 where `long double` is x87 80-bit. The two must never
+         * share a row here or the distinction collapses. */
+        r.size = 16;
+        r.align = 16;
+        return r;
     case TY_PTR:
         r.size = tl.ptr_size;
         r.align = tl.ptr_align;
@@ -408,6 +416,16 @@ static void classify_into(Sema *s, Type *t, u64 off, AbiClass cls[2],
             cls[idx + 1] = merge(cls[idx + 1], ABI_X87UP);
         return;
     }
+    if (t->kind == TY_FLOAT128) {
+        /* psABI: __float128 is SSE in its first eightbyte and SSEUP in its
+         * second, so it travels in ONE xmm register rather than two.
+         * Measured: gcc compiles `__float128 add(__float128 a, __float128 b)`
+         * to a bare `call __addtf3`, forwarding xmm0/xmm1 untouched. */
+        cls[idx] = merge(cls[idx], ABI_SSE);
+        if (idx + 1 < neightbytes)
+            cls[idx + 1] = merge(cls[idx + 1], ABI_SSEUP);
+        return;
+    }
     if (t->kind == TY_FLOAT || t->kind == TY_DOUBLE || t->kind == TY_LDOUBLE) {
         cls[idx] = merge(cls[idx], ABI_SSE);
     } else {
@@ -533,6 +551,7 @@ static bool hfa_walk(Sema *s, Type *t, Type **base, int *count)
     case TY_FLOAT:
     case TY_DOUBLE:
     case TY_LDOUBLE:
+    case TY_FLOAT128:
         if (*base && (*base)->kind != t->kind)
             return false; /* not HOMOGENEOUS */
         *base = t;

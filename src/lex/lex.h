@@ -47,6 +47,7 @@ typedef enum FloatConstType {
     FTY_FLOAT,
     FTY_DOUBLE,
     FTY_LDOUBLE,
+    FTY_FLOAT128, /* the `q`/`Q` and `f128`/`F128` suffixes */
 } FloatConstType;
 
 typedef enum Keyword {

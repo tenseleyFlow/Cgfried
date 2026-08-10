@@ -146,6 +146,7 @@ typedef enum AstBaseType {
     ABT_FLOAT,
     ABT_DOUBLE,
     ABT_LDOUBLE,
+    ABT_FLOAT128, /* _Float128 / __float128: IEEE binary128 on every target */
     ABT_BOOL,
     ABT_RECORD,  /* struct/union: `record` points at the AST_RECORD_DECL */
     ABT_ENUM,    /* `record` points at the AST_ENUM_DECL */

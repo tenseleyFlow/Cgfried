@@ -274,6 +274,26 @@ Type *conv_uac_type(Sema *s, Type *a, Type *b)
         return type_basic(TY_ERROR);
 
     /* 1-3: any floating operand pulls the other up, widest first. */
+    /* _Float128 vs long double is a PER-TARGET question, and assuming it
+     * was not is how this first shipped wrong.
+     *
+     * Measured both ways: on x86-64, where long double is x87 80-bit,
+     * `1.0Q + 1.0L` has type _Float128 -- binary128 has strictly more
+     * range and precision. On arm64-linux, where long double IS binary128,
+     * the same expression has type LONG DOUBLE: the two formats are equal,
+     * so the standard type wins and there is nothing to convert.
+     *
+     * Keying on the format rather than the architecture also gives
+     * arm64-macos the right answer for free: its long double is a plain
+     * double, so _Float128 outranks it. */
+    if (a->kind == TY_FLOAT128 || b->kind == TY_FLOAT128) {
+        bool ld_is_binary128 =
+            cgf_target_layout(s->target).ldbl_kind == CGF_LDBL_IEEE128;
+
+        if (ld_is_binary128 && (a->kind == TY_LDOUBLE || b->kind == TY_LDOUBLE))
+            return type_basic(TY_LDOUBLE);
+        return type_basic(TY_FLOAT128);
+    }
     if (a->kind == TY_LDOUBLE || b->kind == TY_LDOUBLE)
         return type_basic(TY_LDOUBLE);
     if (a->kind == TY_DOUBLE || b->kind == TY_DOUBLE)

@@ -804,7 +804,7 @@ void sema_warn_expr(Sema *s, AstNode *expr, unsigned context)
 static bool is_floating_type(const Type *t)
 {
     return t && (t->kind == TY_FLOAT || t->kind == TY_DOUBLE ||
-                 t->kind == TY_LDOUBLE);
+                 t->kind == TY_LDOUBLE || t->kind == TY_FLOAT128);
 }
 
 static u32 floating_precision(Sema *s, const Type *t)
@@ -817,6 +817,8 @@ static u32 floating_precision(Sema *s, const Type *t)
         return 24;
     if (t->kind == TY_DOUBLE)
         return 53;
+    if (t->kind == TY_FLOAT128)
+        return 113; /* binary128 on every target, unlike long double */
     if (t->kind != TY_LDOUBLE)
         return 0;
     tl = cgf_target_layout(s->target);

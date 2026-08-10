@@ -354,16 +354,22 @@ static void rewrite_compare(IrModule *m, IrFunc *f, IrBlock *block,
 
 bool lower_f128_needs_libcalls(TargetSpec t)
 {
-    /* Keyed on the LONG DOUBLE FORMAT, not on the architecture.
+    /* EVERY target, because not one of them has binary128 hardware.
      *
-     * x86_64's long double is x87 f80, which the backend selects natively.
-     * arm64-linux's is IEEE binary128 with no hardware for it, so every
-     * operation is a libcall. arm64-macos is the same ARCHITECTURE and needs
-     * NONE of this: Apple makes long double a plain double, so f128 never
-     * enters the IR there and libcgf_rt's __addtf3 does not exist on that
-     * platform. Asking the layout removes the standing risk that a future
-     * f128 source emits a call into a runtime the target has not got. */
-    return cgf_target_layout(t).ldbl_kind == CGF_LDBL_IEEE128;
+     * This used to ask whether `long double` was binary128, which was the
+     * only way f128 could enter the IR back when arm64-linux's long double
+     * was the sole source of it. `_Float128` broke that equivalence: on
+     * x86_64 long double is x87 f80 AND f128 now appears, so keying on the
+     * long double format skipped legalization and left the backend to ICE.
+     *
+     * Making it unconditional is also simply cheaper to reason about: the
+     * pass rewrites f128 instructions and nothing else, so on a target
+     * where f128 never appears it walks the module and finds none. The
+     * runtime is target-independent -- libcgf_rt carries __addtf3 and its
+     * 23 siblings for every target, from the same softfp core the compiler
+     * folds constants with. */
+    (void)t;
+    return true;
 }
 
 void lower_legalize_f128(IrModule *m, TargetSpec t)

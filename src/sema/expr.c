@@ -1307,9 +1307,11 @@ static AstNode *expr(Sema *s, AstNode *e)
                           : literal_element_type(s, (EncPrefix)e->tok->enc);
         return e;
     case AST_EXPR_FLOAT:
-        e->sem_type = e->tok->float_type == 0   ? type_basic(TY_FLOAT)
-                      : e->tok->float_type == 1 ? type_basic(TY_DOUBLE)
-                                                : type_basic(TY_LDOUBLE);
+        e->sem_type = e->tok->float_type == FTY_FLOAT    ? type_basic(TY_FLOAT)
+                      : e->tok->float_type == FTY_DOUBLE ? type_basic(TY_DOUBLE)
+                      : e->tok->float_type == FTY_LDOUBLE
+                          ? type_basic(TY_LDOUBLE)
+                          : type_basic(TY_FLOAT128);
         return e;
     case AST_EXPR_STRING: {
         Type *arr = type_array(

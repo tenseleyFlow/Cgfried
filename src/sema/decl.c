@@ -13,8 +13,7 @@
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
 static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
-static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
-                            Span span);
+static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span);
 
 /* --- constant folding ---------------------------------------------------- */
 
@@ -776,6 +775,8 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
         return type_basic(TY_DOUBLE);
     case ABT_LDOUBLE:
         return type_basic(TY_LDOUBLE);
+    case ABT_FLOAT128:
+        return type_basic(TY_FLOAT128);
     case ABT_BOOL:
         return type_basic(TY_BOOL);
     case ABT_VA_LIST:
@@ -1607,8 +1608,8 @@ static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
 /* Apply `mode(M)` to a declaration's type, or report why it cannot be.
  *
  * The rule is one sentence, measured rather than read: the MODE supplies
- * the width and the DECLARATION supplies the signedness. `typedef int r
- * __attribute__((__mode__(__word__)))` is exactly `long` on LP64 -- gcc's
+ * the width and the DECLARATION supplies the signedness. A `typedef int r`
+ * carrying `__mode__(__word__)` is exactly `long` on LP64 -- gcc's
  * types_compatible_p says identical, not merely the same size -- and the
  * `unsigned` spelling gives exactly `unsigned long`.
  *
@@ -1626,8 +1627,8 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
 {
     static const TypeKind by_rank[] = {TY_SCHAR, TY_SHORT, TY_INT, TY_LONG,
                                        TY_LLONG};
-    static const TypeKind by_rank_u[] = {TY_UCHAR, TY_USHORT, TY_UINT,
-                                         TY_ULONG, TY_ULLONG};
+    static const TypeKind by_rank_u[] = {TY_UCHAR, TY_USHORT, TY_UINT, TY_ULONG,
+                                         TY_ULLONG};
     u64 want = 0;
     bool is_signed;
     size_t i;

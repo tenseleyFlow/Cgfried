@@ -490,6 +490,29 @@ static bool irt_vector(u8 t)
     return ir_type_is_vector((IrType)t);
 }
 
+/* A value that occupies a WHOLE xmm register and moves as 16 bytes.
+ *
+ * The 128-bit vectors, plus f128 -- `_Float128` on x86-64, where the psABI
+ * classifies it SSE+SSEUP and so passes it in one xmm, exactly like a
+ * vector. Sprint 36 already taught the register allocator, the spill path
+ * and the edge movers to handle a 16-byte xmm value; this is the predicate
+ * that lets f128 ride all of it instead of growing a parallel copy.
+ *
+ * DELIBERATELY NOT irt_vector itself. The vector ARITHMETIC paths select
+ * packed SSE2 instructions, which would be silently wrong for f128 -- a
+ * packed add is four f32 adds, not one binary128 add. f128 arithmetic never
+ * reaches isel (src/lower/f128.c turns every operation into a libcall), and
+ * keeping the predicates separate is what makes that a fact the code
+ * states rather than one a reader has to reconstruct. */
+static bool irt_xmm16(u8 t)
+{
+    return irt_vector(t) || t == IRT_F128;
+}
+
+/* Defined below, next to the other constant-pool helpers; to_vvreg needs
+ * it for the f128 literal case. */
+static u32 cpool_fconst(Isel *is, const IrOperand *o);
+
 static X64VReg to_vvreg(Isel *is, const IrOperand *o)
 {
     switch (o->kind) {
@@ -499,6 +522,23 @@ static X64VReg to_vvreg(Isel *is, const IrOperand *o)
         return is->vals[(u32)o->a].vr;
     case IROP_UNDEF:
         return newvv(is);
+    case IROP_FCONST: {
+        /* f128 ONLY. The vector types have no constant operand form -- a
+         * vector constant is built with vsplat -- so this case did not
+         * exist until _Float128 gave the 16-byte xmm class a literal.
+         * There is no 128-bit FP immediate, so it loads from the pool. */
+        X64VReg d;
+        X64Inst *x;
+
+        if (o->type != IRT_F128)
+            CGF_ICE("x86_64 isel: vector constants require vsplat/load");
+        d = newvv(is);
+        x = emit(is, X64_OP_VLOAD, X64_X);
+        x->def = d;
+        x->a.kind = X64O_MEM;
+        x->a.mem.cpool = cpool_fconst(is, o);
+        return d;
+    }
     default:
         CGF_ICE("x86_64 isel: vector constants require vsplat/load");
     }
@@ -538,6 +578,8 @@ static u32 cpool_fconst(Isel *is, const IrOperand *o)
         return x64_cpool_intern(is->xf, o->a & 0xffffffffull, 0, 4, 4);
     if (o->type == IRT_F64)
         return x64_cpool_intern(is->xf, o->a, 0, 8, 8);
+    if (o->type == IRT_F128)
+        return x64_cpool_intern(is->xf, o->a, o->b, 16, 16);
     /* f80: 10 data bytes in a 16-byte 16-aligned slot */
     return x64_cpool_intern(is->xf, o->a, o->b, 10, 16);
 }
@@ -1171,7 +1213,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_LOAD: {
-        if (irt_vector(in->type)) {
+        if (irt_xmm16(in->type)) {
             X64VReg d = newvv(is);
             X64Mem mem = fold_addr(is, &in->ops[0]);
             X64Inst *x = emit(is, X64_OP_VLOAD, X64_X);
@@ -1221,7 +1263,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         break;
     }
     case IR_STORE: {
-        if (irt_vector(in->ops[0].type)) {
+        if (irt_xmm16(in->ops[0].type)) {
             X64VReg v = to_vvreg(is, &in->ops[0]);
             X64Mem mem = fold_addr(is, &in->ops[1]);
             X64Inst *x = emit(is, X64_OP_VSTORE, X64_X);
@@ -1443,6 +1485,18 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 X64VReg a = f80_addr(is, &in->ops[0]);
 
                 x87_mem(is, X64_OP_X87_FLD, X64_T, a, 0);
+            } else if (rt == IRT_F128) {
+                /* SSE+SSEUP comes back in the whole of xmm0, so the move
+                 * must be the 16-byte one. */
+                X64VReg r = newvv(is);
+                X64VReg sv = to_vvreg(is, &in->ops[0]);
+
+                x = emit(is, X64_OP_VMOV, X64_X);
+                x->def = r;
+                x->def_fixed = X64_XMM0 + 1;
+                x->a = ovreg(sv);
+                retregs[nret] = r;
+                retfix[nret++] = X64_XMM0 + 1;
             } else if (irt_sse(rt)) {
                 X64VReg r = newvf(is);
                 X64VReg sv = to_fvreg(is, &in->ops[0]);
@@ -1626,7 +1680,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         u32 first = in->subop == FUNCREF_INDIRECT ? 1 : 0;
         u32 gp = 0, fp = 0, off = 0;
         u32 stk_off[64];
-        u8 in_reg[64]; /* 0 stack, 1 gp, 2 xmm, 3 skipped-pair-ptr */
+        /* 0 stack, 1 gp, 2 xmm (8 bytes), 3 skipped-pair-ptr,
+         * 4 xmm-16 (an f128: SSE+SSEUP, a WHOLE xmm).
+         *
+         * 3 IS TAKEN, and pass 2b deliberately has no branch for it --
+         * a skipped pair pointer emits nothing. f128 first reused that
+         * value and every pair-returning call started moving a GP vreg
+         * with a 16-byte vector move; the MIR verifier's register-bank
+         * check caught it. Read this line before adding the next one. */
+        u8 in_reg[64];
         u8 reg_slot[64];
         const IrOperand *pairp = NULL;
         u64 pair_ann = 0;
@@ -1668,6 +1730,20 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 in_reg[idx] = 0;
                 stk_off[idx] = off;
                 off += 16;
+                continue;
+            }
+            if (o->type == IRT_F128) {
+                /* SSE+SSEUP: one WHOLE xmm register, or 16 bytes of stack
+                 * at 16-byte alignment when the eight are used up. */
+                if (fp < 8) {
+                    in_reg[idx] = 4;
+                    reg_slot[idx] = (u8)fp++;
+                } else {
+                    off = (off + 15) & ~15u;
+                    in_reg[idx] = 0;
+                    stk_off[idx] = off;
+                    off += 16;
+                }
                 continue;
             }
             if (irt_sse(o->type) ||
@@ -1789,6 +1865,20 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->a = av;
                 argx[nargx].r = t;
                 argx[nargx++].fixed = fix;
+            } else if (in_reg[idx] == 4) {
+                /* Whole-register move: VMOV is the 16-byte form, so the
+                 * upper eightbyte (the SSEUP half) travels too. FMOV would
+                 * move 8 bytes and silently drop half the value. */
+                X64VReg t = newvv(is);
+                u8 fix = (u8)(X64_XMM0 + reg_slot[idx] + 1);
+                X64VReg sv = to_vvreg(is, o);
+
+                x = emit(is, X64_OP_VMOV, X64_X);
+                x->def = t;
+                x->def_fixed = fix;
+                x->a = ovreg(sv);
+                argx[nargx].r = t;
+                argx[nargx++].fixed = fix;
             } else if (in_reg[idx] == 2) {
                 X64VReg t = newvf(is);
                 u8 fix = (u8)(X64_XMM0 + reg_slot[idx] + 1);
@@ -1877,6 +1967,13 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
                 if (in->result.v)
                     is->vals[in->result.v].vr = slot;
+            } else if (in->result.v && retty == IRT_F128) {
+                X64VReg d = newvv(is);
+                X64Inst *rr = emit(is, X64_OP_READREG, X64_X);
+
+                rr->def = d;
+                rr->def_fixed = X64_XMM0 + 1;
+                is->vals[in->result.v].vr = d;
             } else if (in->result.v && irt_sse(retty)) {
                 X64VReg d = newvf(is);
                 X64Inst *rr = emit(is, X64_OP_READREG, fpw(retty));
@@ -2984,9 +3081,9 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
         new_block(&is, f->blocks[bi].name);
     for (i = 0; i < f->nparams; i++)
         is.vals[f->param_vals[i].v].vr =
-            irt_vector(f->param_types[i]) ? newvv(&is)
-            : irt_sse(f->param_types[i])  ? newvf(&is)
-                                          : newv(&is);
+            irt_xmm16(f->param_types[i]) ? newvv(&is)
+            : irt_sse(f->param_types[i]) ? newvf(&is)
+                                         : newv(&is);
     for (bi = 0; bi < f->nblocks; bi++) {
         const IrBlock *b = &f->blocks[bi];
         const IrInst *in;
@@ -2997,9 +3094,9 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
             if (pt == IRT_F80)
                 CGF_ICE("x86_64 isel: f80 block parameters violate the "
                         "memory law (lowering never emits them)");
-            is.vals[b->params[i].v].vr = irt_vector(pt) ? newvv(&is)
-                                         : irt_sse(pt)  ? newvf(&is)
-                                                        : newv(&is);
+            is.vals[b->params[i].v].vr = irt_xmm16(pt) ? newvv(&is)
+                                         : irt_sse(pt) ? newvf(&is)
+                                                       : newv(&is);
         }
         for (in = b->first; in; in = in->next) {
             u32 k, j;
@@ -3059,6 +3156,25 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
                 stack_off += 16;
                 continue;
             }
+            if (pt == IRT_F128) {
+                /* The mirror of the caller's SSE+SSEUP placement: a whole
+                 * xmm, or 16 bytes of 16-aligned stack once the eight
+                 * registers are gone. Reading it at X64_X is what carries
+                 * the upper eightbyte -- fpw() would take 8 bytes and lose
+                 * half the value with nothing to show for it. */
+                if (fpq < 8) {
+                    x = emit(&is, X64_OP_READREG, X64_X);
+                    x->def = pv;
+                    x->def_fixed = (u8)(X64_XMM0 + fpq++ + 1);
+                } else {
+                    stack_off = (stack_off + 15) & ~15u;
+                    x = emit(&is, X64_OP_ARGLD, X64_X);
+                    x->def = pv;
+                    x->b.imm = (i64)stack_off;
+                    stack_off += 16;
+                }
+                continue;
+            }
             if (irt_sse(pt)) {
                 if (fpq < 8) {
                     x = emit(&is, X64_OP_READREG, fpw(pt));
@@ -3109,7 +3225,7 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
                 if (actual.v != forward.v) {
                     X64Inst *copy;
 
-                    if (irt_vector(in->type)) {
+                    if (irt_xmm16(in->type)) {
                         copy = emit(&is, X64_OP_VMOV, X64_X);
                     } else if (irt_sse(in->type)) {
                         copy = emit(&is, X64_OP_FMOV, fpw(in->type));

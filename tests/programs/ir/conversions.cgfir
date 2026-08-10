@@ -1,7 +1,13 @@
 // IR_CHECK: sext i8 %0 to i64
 // IR_CHECK: zext i8 %0 to i16
 // IR_CHECK: trunc i64 %1 to i32
-// IR_CHECK: fpext f32 0x3F800000 to f128
+// IR_CHECK: call f128 @__extendsftf2(f32 0x3F800000)
+// The f128 row is a CALL rather than an `fpext` because -emit-ir prints
+// the module AFTER f128 legalization, and since D5 that pass runs on every
+// target rather than only where `long double` is binary128. The claim under
+// test is unchanged and arguably stronger: an f128 operand still round-trips
+// through the printer and parser with its exact bits, and now the rewrite is
+// shown to preserve them.
 // IR_CHECK: sitofp i32 %3 to f64
 // IR_CHECK: fptrunc f64 %5 to f32
 // IR_CHECK: fptosi f64 %5 to i32

@@ -266,6 +266,15 @@ void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
             t->float_type = FTY_FLOAT;
         else if ((c == 'l' || c == 'L') && i + 1 == len)
             t->float_type = FTY_LDOUBLE;
+        /* _Float128 has TWO suffixes and gcc accepts both: the historical
+         * `q` (from __float128) and the ISO TS 18661-3 `f128`. Measured:
+         * sizeof(1.0Q) and sizeof(1.0F128) are both 16. The f128 form must
+         * be tested before the bare `f`, which it is by length. */
+        else if ((c == 'q' || c == 'Q') && i + 1 == len)
+            t->float_type = FTY_FLOAT128;
+        else if ((c == 'f' || c == 'F') && len - i == 4 && sp[i + 1] == '1' &&
+                 sp[i + 2] == '2' && sp[i + 3] == '8')
+            t->float_type = FTY_FLOAT128;
         else {
             pp_diag_at(pp, DIAG_ERROR, loc, len,
                        "invalid suffix on floating constant '%s'", sp);

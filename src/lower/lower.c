@@ -145,6 +145,10 @@ IrType lower_irtype(Lower *lo, const Type *t)
         return IRT_F32;
     case TY_DOUBLE:
         return IRT_F64;
+    case TY_FLOAT128:
+        /* Binary128 on EVERY target, which is exactly how it differs from
+         * long double below. No target switch, deliberately. */
+        return IRT_F128;
     case TY_LDOUBLE:
         /* THE cross-target trap: x87-80 on x86-64, binary128 on
          * arm64-linux, plain double on arm64-macos. One switch on the
@@ -196,6 +200,7 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
         return ETYPE_F32;
     case TY_DOUBLE:
         return ETYPE_F64;
+    case TY_FLOAT128:
     case TY_LDOUBLE:
         switch (lower_irtype(lo, t)) {
         case IRT_F64:

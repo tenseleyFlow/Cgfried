@@ -1,5 +1,10 @@
 // IR_CHECK: fadd f80 0x3FFF:0x8000000000000000, 0x0001:0x0000000000000001
-// IR_CHECK: fadd f128 0x3FFF000000000000:0x0000000000000000, 0x8000000000000000:0x0000000000000001
+// IR_CHECK: call f128 @__addtf3(f128 0x3FFF000000000000:0x0000000000000000, f128 0x8000000000000000:0x0000000000000001)
+// f80 stays an `fadd` and f128 becomes a call: x86-64 selects x87 natively
+// and has no binary128 hardware, so since D5 the legalization pass runs here
+// too. Both halves still assert the two-word constant SPELLING, which is
+// what this fixture is for -- and the f128 one now also proves the rewrite
+// carries those 128 bits across unchanged.
 func void @f() {
 entry():
     %a = fadd f80 0x3FFF:0x8000000000000000, 0x0001:0x0000000000000001

@@ -600,6 +600,14 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 s->other_base = ABT_AUTO_TYPE;
                 s->saw_any = true;
                 continue;
+            case KW_FLOAT128:
+            case KW_ALT_FLOAT128:
+                /* A standalone specifier: it combines with nothing, so it
+                 * rides `n_other` and the existing conflict machinery
+                 * rejects `long _Float128` and friends for free. */
+                s->n_other++;
+                s->other_base = ABT_FLOAT128;
+                goto consumed;
             case KW_ALT_BUILTIN_VA_LIST:
                 /* Lexed as a KEYWORD by the Sprint 8 table, so it never
                  * reaches the identifier path below — our own shipped
@@ -780,6 +788,8 @@ bool parse_at_decl_specs(Parser *p)
     case KW_LONG:
     case KW_FLOAT:
     case KW_DOUBLE:
+    case KW_FLOAT128:
+    case KW_ALT_FLOAT128:
     case KW_SIGNED:
     case KW_ALT_SIGNED:
     case KW_UNSIGNED:

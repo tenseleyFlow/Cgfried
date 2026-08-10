@@ -363,11 +363,29 @@ void test_lex_float_consts(TestCtx *t)
      * retired in Sprint 15, and src/util/softfp.c now converts in the
      * TARGET's format. test_softfp.c owns the value assertions. */
 
+    /* _Float128's two suffixes. `1.0q` was pinned as an ERROR here until
+     * D5 gave the type a lexer row -- converted rather than deleted, so
+     * the boundary it guarded still has a case below. */
+    tl = lex_src(&f, "1.0q 1.0Q 1.0f128 1.0F128\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, tl.toks[0].float_type, FTY_FLOAT128);
+    T_ASSERT_EQ_INT(t, tl.toks[1].float_type, FTY_FLOAT128);
+    T_ASSERT_EQ_INT(t, tl.toks[2].float_type, FTY_FLOAT128);
+    T_ASSERT_EQ_INT(t, tl.toks[3].float_type, FTY_FLOAT128);
+    lfix_free(&f);
+
     /* A hex float REQUIRES its binary exponent. */
     lex_err(t, "0x1.8\n", STD_C17);
     lex_err(t, "1e\n", STD_C17);
-    lex_err(t, "1.0q\n", STD_C17);
     lex_err(t, "1.0df\n", STD_C17);
+    /* Still errors, and each is the reason the row above is not a blanket
+     * "any letters are a suffix": `qq` and `fq` are malformed, and `f128x`
+     * names _Float128x, an EXTENDED type gcc has and this compiler does
+     * not -- accepting its suffix while having no type for it is exactly
+     * the stub failure mode. gcc rejects all three (measured). */
+    lex_err(t, "1.0qq\n", STD_C17);
+    lex_err(t, "1.0fq\n", STD_C17);
+    lex_err(t, "1.0f128x\n", STD_C17);
 }
 
 void test_lex_spans_survive(TestCtx *t)

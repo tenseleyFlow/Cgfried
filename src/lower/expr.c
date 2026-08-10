@@ -25,7 +25,7 @@ static Type *sem(AstNode *e)
 static bool type_is_fp(const Type *t)
 {
     return t && (t->kind == TY_FLOAT || t->kind == TY_DOUBLE ||
-                 t->kind == TY_LDOUBLE);
+                 t->kind == TY_LDOUBLE || t->kind == TY_FLOAT128);
 }
 
 static bool is_signed_ty(Lower *lo, Type *t)
