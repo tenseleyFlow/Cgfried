@@ -325,6 +325,30 @@ static AstBaseType soup_resolve(Parser *p, SpecSoup *s, const Token *at)
 {
     int sign = s->n_signed - s->n_unsigned;
 
+    /* glibc's arm64 <bits/floatn.h> has an old-compiler fallback:
+     *
+     *     typedef long double _Float128;
+     *
+     * It is selected when __GNUC_PREREQ(7, 0) is false. Strict ISO modes
+     * intentionally do not predefine __GNUC__, but cgfried still provides
+     * _Float128 as a native, distinct binary128 type. Because the spelling
+     * is a keyword, the declaration reaches the soup as `long double` plus
+     * a second type specifier and has no declarator left to parse.
+     *
+     * Treat only that exact system-header declaration as a redundant typedef
+     * of the native type. Requiring the physical system origin, typedef-only
+     * storage, exact multiset, final `_Float128` token, and immediate ';'
+     * keeps user code and every real conflicting-specifier shape diagnosed. */
+    if ((at->span.origin & SPAN_ORIGIN_SYSTEM_SPELLING) &&
+        s->storage == AST_SC_TYPEDEF && s->n_other == 1 &&
+        s->other_base == ABT_FLOAT128 && s->n_long == 1 && s->n_double == 1 &&
+        !s->n_void && !s->n_char && !s->n_short && !s->n_int && !s->n_float &&
+        !s->n_signed && !s->n_unsigned && !s->n_bool && !s->quals &&
+        !s->func_specs && !s->has_alignas && p->pos > 0 &&
+        p->toks[p->pos - 1].kind == TOK_KEYWORD &&
+        p->toks[p->pos - 1].kw == KW_FLOAT128 && parse_at_punct(p, PUNCT_SEMI))
+        return ABT_FLOAT128;
+
     if (s->n_other) {
         if (s->n_void || s->n_char || s->n_short || s->n_int || s->n_long ||
             s->n_float || s->n_double || s->n_signed || s->n_unsigned ||

@@ -31,7 +31,8 @@ static void count_sink(void *user, const Diag *d, const DiagCtx *dc)
 
 VEC_DECL(PpVecP, PpToken);
 
-static AstNode *parse_src(ParseFix *f, const char *src, CStd std)
+static AstNode *parse_src_with_origin(ParseFix *f, const char *src, CStd std,
+                                      bool system_header)
 {
     DiagCtx *dc;
     DiagSink s;
@@ -60,6 +61,7 @@ static AstNode *parse_src(ParseFix *f, const char *src, CStd std)
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
+    sf->is_system = system_header;
     pp_begin(&f->pp, sf, NULL);
     while (pp_next(&f->pp, &t))
         PpVecP_push(&pv, t);
@@ -69,6 +71,11 @@ static AstNode *parse_src(ParseFix *f, const char *src, CStd std)
     parse_init(&f->ps, &tl, &f->pp, dc, &f->arena, &lang);
     tu = parse_translation_unit(&f->ps);
     return tu;
+}
+
+static AstNode *parse_src(ParseFix *f, const char *src, CStd std)
+{
+    return parse_src_with_origin(f, src, std, false);
 }
 
 static void pfix_free(ParseFix *f)
@@ -143,6 +150,41 @@ void test_parse_declarator_torture(TestCtx *t)
     decl_is(t, "long double ld;\n", "long double");
     decl_is(t, "signed char sc;\n", "signed char");
     decl_is(t, "int p[static 3];\n", "array [expr] of int");
+}
+
+void test_parse_system_float128_compat_typedef(TestCtx *t)
+{
+    ParseFix f;
+    AstNode *tu = parse_src_with_origin(&f, "typedef long double _Float128;\n",
+                                        STD_C17, true);
+
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, (int)tu->ndecls, 1);
+    T_ASSERT_EQ_INT(t, tu->decls[0]->kind, AST_EMPTY_DECL);
+    T_ASSERT_EQ_INT(t, tu->decls[0]->type->base, ABT_FLOAT128);
+    pfix_free(&f);
+
+    /* x86 glibc's sibling fallback uses the alternate native spelling.
+     * It was already accepted; pin that symmetry beside the arm64 repair. */
+    (void)parse_src_with_origin(&f, "typedef __float128 _Float128;\n", STD_C17,
+                                true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "typedef long double _Float128;\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    pfix_free(&f);
+
+    (void)parse_src_with_origin(&f, "typedef long float _Float128;\n", STD_C17,
+                                true);
+    T_ASSERT(t, f.errors > 0);
+    pfix_free(&f);
+
+    (void)parse_src_with_origin(&f, "typedef long double __float128;\n",
+                                STD_C17, true);
+    T_ASSERT(t, f.errors > 0);
+    pfix_free(&f);
 }
 
 void test_parse_typedef_ambiguity(TestCtx *t)
