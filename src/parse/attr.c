@@ -57,6 +57,10 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
      * clears a specified one. */
     if (src->visibility)
         dst->visibility = src->visibility;
+    /* Last mode wins, like visibility: gcc takes the last of two `mode`
+     * attributes on one declaration rather than erroring. */
+    if (src->mode)
+        dst->mode = src->mode;
 }
 
 /* Did this declaration say anything that is a SYMBOL property? Callers with
@@ -76,6 +80,11 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
            g->destructor || g->alias_target || g->asm_name || g->section_name ||
            g->cleanup_fn || g->deprecated || g->warn_unused_result ||
            g->has_format || g->nonnull_all || g->nonnull_mask || g->noreturn;
+}
+
+bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
+{
+    return g->mode != GNU_MODE_NONE;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -408,6 +417,90 @@ static const char *gnu_attr_norm_name(const char *spelling, char *buf,
     return spelling;
 }
 
+GnuMode gnu_mode_from_name(const char *spelling)
+{
+    static const struct {
+        const char *name;
+        u8 mode;
+    } modes[] = {{"QI", GNU_MODE_QI},         {"HI", GNU_MODE_HI},
+                 {"SI", GNU_MODE_SI},         {"DI", GNU_MODE_DI},
+                 {"byte", GNU_MODE_BYTE},     {"word", GNU_MODE_WORD},
+                 {"pointer", GNU_MODE_POINTER}};
+    char buf[32];
+    const char *norm = gnu_attr_norm_name(spelling, buf, sizeof(buf));
+    size_t i;
+
+    for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
+        if (strcmp(modes[i].name, norm) == 0)
+            return (GnuMode)modes[i].mode;
+    return GNU_MODE_NONE;
+}
+
+/* mode(M) / __mode__(__M__).
+ *
+ * Only the integer modes land. TI (128-bit), the floating modes SF/DF/XF/TF
+ * and the vector modes each name a type this compiler does not have, and
+ * gcc accepts all of them -- so each is refused BY NAME rather than
+ * silently ignored, which would give the declaration a type of the wrong
+ * size with no diagnostic. An unknown name gets gcc's own wording. */
+static void parse_mode_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    const Token *arg;
+    GnuMode m;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "expected '(' after 'mode'");
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_IDENT && arg->kind != TOK_KEYWORD) {
+        parse_error(p, arg, "expected a machine mode name");
+        while (!parse_at_punct(p, PUNCT_RPAREN) &&
+               parse_peek(p)->kind != TOK_EOF)
+            p->pos++;
+        parse_eat_punct(p, PUNCT_RPAREN);
+        return;
+    }
+    p->pos++;
+    m = gnu_mode_from_name(arg->spelling);
+    if (m == GNU_MODE_NONE) {
+        char buf[32];
+        const char *norm = gnu_attr_norm_name(arg->spelling, buf, sizeof(buf));
+
+        /* The modes gcc knows and we do not, separated from a typo: naming
+         * the missing feature is more useful than "unknown", and a typo
+         * should not read as an unimplemented type. */
+        if (strcmp(norm, "TI") == 0)
+            parse_error(p, arg,
+                        "only integer machine modes are supported: mode "
+                        "'%s' names a 128-bit integer type, which this "
+                        "compiler does not have (docs/gnu-extensions.md)",
+                        norm);
+        else if (strcmp(norm, "SF") == 0 || strcmp(norm, "DF") == 0 ||
+                 strcmp(norm, "XF") == 0 || strcmp(norm, "TF") == 0)
+            parse_error(p, arg,
+                        "only integer machine modes are supported: mode "
+                        "'%s' names a floating type, and selecting one by "
+                        "width would silently disagree with the target's "
+                        "float/double/long double (docs/gnu-extensions.md)",
+                        norm);
+        else if (norm[0] == 'V')
+            parse_error(p, arg,
+                        "only integer machine modes are supported: mode "
+                        "'%s' names a vector type, which has no SysV or "
+                        "AAPCS64 parameter contract here "
+                        "(docs/gnu-extensions.md)",
+                        norm);
+        else
+            parse_error(p, arg, "unknown machine mode '%s'", arg->spelling);
+    } else {
+        gnu->mode = (u8)m;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
 /* nonnull, or nonnull(1,2,...). The bare form means EVERY pointer
  * parameter, which is why it gets its own flag rather than an empty mask. */
 static void parse_nonnull_attr(Parser *p, GnuDeclAttrs *gnu)
@@ -550,14 +643,7 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                  * for, so accepting and ignoring either one miscompiles
                  * silently. docs/gnu-extensions.md carries the rationale;
                  * this is the code half of that contract. */
-                if (strcmp(name->spelling, "mode") == 0 ||
-                    strcmp(name->spelling, "__mode__") == 0)
-                    parse_error(p, name,
-                                "the 'mode' attribute is not supported: it "
-                                "selects a machine mode independent of the C "
-                                "type, and this compiler has no such axis "
-                                "(docs/gnu-extensions.md)");
-                else if (strcmp(name->spelling, "vector_size") == 0 ||
+                if (strcmp(name->spelling, "vector_size") == 0 ||
                          strcmp(name->spelling, "__vector_size__") == 0)
                     parse_error(p, name,
                                 "the 'vector_size' attribute is not "
@@ -584,6 +670,14 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "packed")) {
                             gnu->packed = true;
+                            break;
+                        }
+                        if (gnu_attr_is(name->spelling, "mode")) {
+                            /* Deliberately NOT gated on `gnu`: mode is a
+                             * type property, so the parameter position that
+                             * passes a scratch sink must still see it and
+                             * reject it. */
+                            parse_mode_attr(p, name, gnu);
                             break;
                         }
                         if (gnu && gnu_attr_is(name->spelling, "aligned")) {

@@ -68,6 +68,7 @@ predefine.
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
+| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` in `<sys/types.h>`, which blocks `<stdlib.h>` and most of a hosted TU once `__GNUC__` is defined |
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 
 The two symbol-property rows are verified against the ELF symbol table rather
@@ -296,7 +297,7 @@ silently rather than fail loudly.
 |---|---|---|
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
 | two REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so a second register output means widening `CgMirView` rather than adding a case. Counting musl's sites for our two targets says that is rarely what a second output is: x86_64 has 181 one-output against 27 two-output, aarch64 172 against 19, and the two-output cases are dominated by a MEMORY second output, which consumes no register and IS supported | Linux's `__cmpxchg` shapes; no musl TU we compile |
-| `mode(...)` attribute | selects a machine mode independent of the C type; our type system has no such axis | **CORRECTED BY MEASUREMENT:** not "`__int128` corners" — a grep of all of `/usr/include` finds exactly ONE use in glibc, `__mode__(__word__)` on `register_t` in `sys/types.h`, and it blocks `<stdlib.h>` the moment `__GNUC__` is defined. The INTEGER modes are tractable (replace the type with an integer of that width and the same signedness); vector and float modes are what the "no such axis" claim really covers. See D5's obligation list |
+| non-integer `mode(...)` — `TI`, `SF`/`DF`/`XF`/`TF`, `V*` | each names a type this compiler does not have: a 128-bit integer, a floating type chosen by width (which would silently disagree with the target's own `float`/`double`/`long double` — x86-64's is x87 80-bit, so `TF` is not it), or a vector with no SysV/AAPCS64 parameter contract. The INTEGER modes are implemented; see that row | glibc uses exactly one mode in all of `/usr/include`, and it is an integer one |
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |
 | computed goto (`&&label`, `goto *p`) | out of the v0.1.0 scope contract | interpreters; not our corpora |

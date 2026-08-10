@@ -933,6 +933,18 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
             if (gnu_attrs_any_symbol_property(&param_gnu))
                 warn_at(p->lang->warnings, WARN_ATTRIBUTES, at->span,
                         "attribute ignored on a function parameter");
+            /* A TYPE property cannot take the same exit. gcc gives the
+             * parameter the mode's width, so dropping it would hand the
+             * callee an `int` where the caller passed a `long` -- a
+             * silent ABI mismatch, with only a warning to show for it.
+             * AstParam carries no GnuDeclAttrs to plumb it through, so
+             * this is an honest error rather than a wrong answer. */
+            if (gnu_attrs_any_type_property(&param_gnu))
+                parse_error(p, at,
+                            "the 'mode' attribute is not supported on a "
+                            "function parameter: it would change the "
+                            "parameter's width and therefore the calling "
+                            "convention (docs/gnu-extensions.md)");
         }
         if (prm.name)
             parse_scope_declare(p, prm.name, false);

@@ -225,7 +225,41 @@ typedef struct GnuDeclAttrs {
      * It joins C11 `_Noreturn` and the hardcoded library-name list at ONE
      * decision in lower_call, rather than becoming a second mechanism. */
     bool noreturn;
+    /* `mode(M)` / `__mode__(__M__)`: give this declaration the integer type
+     * of machine mode M, keeping the DECLARED type's signedness. Measured:
+     * `typedef int r __attribute__((__mode__(__word__)))` is exactly `long`
+     * on LP64 -- types_compatible_p says identical, not merely same-sized --
+     * and the unsigned spelling gives exactly `unsigned long`. So the
+     * attribute supplies the WIDTH and the declaration keeps the SIGN.
+     *
+     * Only the INTEGER modes are here. The 128-bit, floating and vector
+     * modes are refused at parse time and stay in the refused tier: each
+     * names a type this compiler does not have, and accepting one silently
+     * would be a type of the wrong size.
+     *
+     * The parser stores the mode, not a byte count, because `word` and
+     * `pointer` are target facts and the parser has no target. Sema resolves
+     * both through the target layout. */
+    u8 mode; /* GnuMode */
 } GnuDeclAttrs;
+
+typedef enum {
+    GNU_MODE_NONE = 0,
+    GNU_MODE_QI,      /* 1 byte */
+    GNU_MODE_HI,      /* 2 */
+    GNU_MODE_SI,      /* 4 */
+    GNU_MODE_DI,      /* 8 */
+    GNU_MODE_BYTE,    /* 1 */
+    GNU_MODE_WORD,    /* the target's word: 8 on all five */
+    GNU_MODE_POINTER  /* the target's pointer width */
+} GnuMode;
+
+/* Mode name -> GnuMode, accepting gcc's four spellings (`SI`, `__SI__`,
+ * and the lowercase `word`/`__word__` family). GNU_MODE_NONE for a name
+ * that is not an integer mode -- which includes both the modes gcc knows
+ * and refuses to give us (TI, SF, V4SI) and outright typos; the caller
+ * tells them apart so the two get different diagnostics. */
+GnuMode gnu_mode_from_name(const char *spelling);
 
 /* Attributes accumulate across the specifier and declarator positions of one
  * declaration, so merging is union rather than replacement: a prefix
@@ -236,6 +270,15 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src);
  * has no symbol to hang one on — a function parameter — which is otherwise a
  * silent drop. Enumerates every field, like gnu_attrs_merge. */
 bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g);
+
+/* True if anything here changes the declaration's TYPE rather than naming a
+ * property of its symbol. The split matters at the one position that can
+ * carry neither: a function parameter drops a symbol property with a
+ * WARNING, because there is no symbol and gcc warns too, but dropping a type
+ * property there would silently change the parameter's width and therefore
+ * the ABI -- so that is an error instead. Both predicates must grow together
+ * when a field is added, which is why they sit next to each other. */
+bool gnu_attrs_any_type_property(const GnuDeclAttrs *g);
 
 const char *gnu_visibility_name(u8 vis);
 

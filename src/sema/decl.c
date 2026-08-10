@@ -13,6 +13,8 @@
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
 static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
+static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
+                            Span span);
 
 /* --- constant folding ---------------------------------------------------- */
 
@@ -453,6 +455,11 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                     break;
                 }
         }
+
+        /* A member's mode changes the RECORD's layout, so it has to land
+         * before the Member is built rather than beside the alignment
+         * override further down. */
+        mt = gnu_mode_apply(s, mt, &m->gnu, m->span);
 
         mem = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
         memset(mem, 0, sizeof(*mem));
@@ -1597,6 +1604,97 @@ static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
     return (u64)want;
 }
 
+/* Apply `mode(M)` to a declaration's type, or report why it cannot be.
+ *
+ * The rule is one sentence, measured rather than read: the MODE supplies
+ * the width and the DECLARATION supplies the signedness. `typedef int r
+ * __attribute__((__mode__(__word__)))` is exactly `long` on LP64 -- gcc's
+ * types_compatible_p says identical, not merely the same size -- and the
+ * `unsigned` spelling gives exactly `unsigned long`.
+ *
+ * Picking the FIRST basic type of that width in rank order is what makes
+ * that true: `long` and `long long` are both 8 bytes here, and gcc chooses
+ * `long`. Deriving each width from the target rather than a table is what
+ * keeps a cross-compile honest.
+ *
+ * Everything that is not an integer type is gcc's own "applied to
+ * inappropriate type" -- including a function and a pointer. gcc does
+ * accept the pointer case (a pointer is already DI, so it is a no-op
+ * there), and refusing it is the safe direction: a clean error on a
+ * construct no header in /usr/include uses, rather than a guess. */
+static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
+{
+    static const TypeKind by_rank[] = {TY_SCHAR, TY_SHORT, TY_INT, TY_LONG,
+                                       TY_LLONG};
+    static const TypeKind by_rank_u[] = {TY_UCHAR, TY_USHORT, TY_UINT,
+                                         TY_ULONG, TY_ULLONG};
+    u64 want = 0;
+    bool is_signed;
+    size_t i;
+
+    if (!g || g->mode == GNU_MODE_NONE || !t)
+        return t;
+    if (t->kind == TY_ERROR)
+        return t;
+    /* TWO KINDS OF NO, and they must not share a message. gcc REJECTS a
+     * mode on a function, a _Bool or a floating type, so those take gcc's
+     * own wording. gcc ACCEPTS it on an enum and on a pointer, and we do
+     * not -- borrowing the rejection wording there would tell the user
+     * their program is invalid C when it is only unsupported here. */
+    if (t->kind == TY_ENUM || t->kind == TY_PTR) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "the 'mode' attribute is not supported on %s: only a "
+                  "plain integer declaration can take one "
+                  "(docs/gnu-extensions.md)",
+                  t->kind == TY_ENUM ? "an enumerated type" : "a pointer");
+        return t;
+    }
+    if (!type_is_integer(t) || t->kind == TY_BOOL) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "mode applied to inappropriate type '%s'",
+                  type_to_str(s->arena, t));
+        return t;
+    }
+    switch ((GnuMode)g->mode) {
+    case GNU_MODE_QI:
+    case GNU_MODE_BYTE:
+        want = 1;
+        break;
+    case GNU_MODE_HI:
+        want = 2;
+        break;
+    case GNU_MODE_SI:
+        want = 4;
+        break;
+    case GNU_MODE_DI:
+        want = 8;
+        break;
+    case GNU_MODE_WORD:
+    case GNU_MODE_POINTER:
+        /* Both are the target's natural word on every target we have. The
+         * layout is asked rather than assumed so a future ILP32 target
+         * gets the right answer instead of a silently wide typedef. */
+        want = cgf_target_layout(s->target).ptr_size;
+        break;
+    case GNU_MODE_NONE:
+        return t;
+    }
+    is_signed = conv_is_signed(s, t);
+    for (i = 0; i < sizeof(by_rank) / sizeof(by_rank[0]); i++) {
+        Type *cand = type_basic(is_signed ? by_rank[i] : by_rank_u[i]);
+
+        if (layout_of(s, cand).size == want)
+            return type_qualify(s->arena, cand, t->quals);
+    }
+    s->nerrors++;
+    diag_emit(s->dc, DIAG_ERROR, span,
+              "no integer type of %llu bytes exists on this target",
+              (unsigned long long)want);
+    return t;
+}
+
 /* Fold and range-check one `constructor`/`destructor` priority.
  *
  * The range is gcc's, and so is the split within it: 0..65535 is legal, but
@@ -2074,6 +2172,11 @@ static void declare_one(Sema *s, AstNode *d)
     } else {
         type = type_from_ast(s, d->type, d->span);
     }
+    /* Before anything reads the type -- alignment, completeness, layout,
+     * the symbol -- because `mode` REPLACES it. A typedef, an object and a
+     * function all arrive here; the function is what gnu_mode_apply's
+     * inappropriate-type error catches, matching gcc. */
+    type = gnu_mode_apply(s, type, &d->gnu, d->span);
     is_func = type && type->kind == TY_FUNC;
     alignas_req = check_alignas(s, d, type);
 

@@ -116,8 +116,8 @@ check_refused()
 
 printf '%s\n' "$refused" | grep -q 'asm goto' &&
     check_refused 'asm goto' 'asm goto'
-printf '%s\n' "$refused" | grep -q 'mode' &&
-    check_refused "'mode' attribute is not supported" 'mode attribute'
+printf '%s\n' "$refused" | grep -q 'non-integer .mode' &&
+    check_refused 'only integer machine modes are supported' 'non-integer mode'
 printf '%s\n' "$refused" | grep -q 'vector_size' &&
     check_refused 'vector_size' 'vector_size'
 printf '%s\n' "$refused" | grep -q 'nested functions' &&
