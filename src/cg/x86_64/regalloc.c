@@ -1195,7 +1195,7 @@ static void frame_finalize(Ra *ra)
     /* Variadic: the psABI register save area (176 bytes, 16-aligned)
      * sits below the locals; va_start's reg_save_area points at its
      * base. The prologue stores rdi..r9 at +0..40 and xmm0-7 at
-     * +48..160. We store the xmm slots UNCONDITIONALLY (movsd) rather
+     * +48..160. We store the xmm slots UNCONDITIONALLY (movdqu) rather
      * than gating on AL like gcc: the va_arg expansion never reads a
      * slot whose argument was not passed, so the gate is a skipped-work
      * optimization, not correctness — call sites still SET AL for
@@ -1329,7 +1329,7 @@ static void frame_finalize(Ra *ra)
             }
             for (k = 0; k < 8; k++) {
                 p = mk_spill((u8)(X64_XMM0 + k),
-                             -(i32)save_off + (i32)(48 + 16 * k), true, X64_Q);
+                             -(i32)save_off + (i32)(48 + 16 * k), true, X64_X);
                 rb_put(&rb, &p);
             }
         }

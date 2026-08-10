@@ -261,6 +261,43 @@ AstNode *conv_promote(Sema *s, AstNode *e)
 
 /* --- usual arithmetic conversions (6.3.1.8) ------------------------------ */
 
+static u32 floating_rep_bits(Sema *s, const Type *t)
+{
+    SfFormat f = constexpr_format_of(s, t);
+
+    return (u32)f.total_bytes * 8;
+}
+
+/* GNU follows TS 18661's equal-representation tie break. Interchange
+ * `_FloatN` types win first, then standard C types, then extended
+ * `_FloatNx` types. Within the first and last groups, the larger N wins.
+ * This ordering matters whenever distinct types share a representation:
+ * `_Float64 + double` is `_Float64`, while `_Float32x + double` is
+ * `double`. */
+static int floating_equal_rank(TypeKind kind)
+{
+    switch (kind) {
+    case TY_FLOAT128:
+        return 3128;
+    case TY_FLOAT64:
+        return 3064;
+    case TY_FLOAT32:
+        return 3032;
+    case TY_LDOUBLE:
+        return 2003;
+    case TY_DOUBLE:
+        return 2002;
+    case TY_FLOAT:
+        return 2001;
+    case TY_FLOAT64X:
+        return 1064;
+    case TY_FLOAT32X:
+        return 1032;
+    default:
+        return 0;
+    }
+}
+
 /* The ordered algorithm, written out rather than shortcut. "Unsigned
  * wins" is FALSE: on LP64, `long` vs `unsigned int` yields `long`,
  * because a 64-bit long represents every unsigned int (rule d). The
@@ -275,33 +312,32 @@ Type *conv_uac_type(Sema *s, Type *a, Type *b)
     if (a->kind == TY_ERROR || b->kind == TY_ERROR)
         return type_basic(TY_ERROR);
 
-    /* 1-3: any floating operand pulls the other up, widest first. */
-    /* _Float128 vs long double is a PER-TARGET question, and assuming it
-     * was not is how this first shipped wrong.
-     *
-     * Measured both ways: on x86-64, where long double is x87 80-bit,
-     * `1.0Q + 1.0L` has type _Float128 -- binary128 has strictly more
-     * range and precision. On arm64-linux, where long double IS binary128,
-     * the same expression has type LONG DOUBLE: the two formats are equal,
-     * so the standard type wins and there is nothing to convert.
-     *
-     * Keying on the format rather than the architecture also gives
-     * arm64-macos the right answer for free: its long double is a plain
-     * double, so _Float128 outranks it. */
-    if (a->kind == TY_FLOAT128 || b->kind == TY_FLOAT128) {
-        bool ld_is_binary128 =
-            cgf_target_layout(s->target).ldbl_kind == CGF_LDBL_IEEE128;
+    /* 1-3: any floating operand pulls the other up. Compare the target
+     * representations first, then apply GNU/TS 18661's ordering when the
+     * representations are equal. The latter is why `_Float128` wins over
+     * `long double` on arm64-linux even though both are binary128. */
+    if (type_is_floating(a) || type_is_floating(b)) {
+        Type *af;
+        Type *bf;
+        u32 abits;
+        u32 bbits;
 
-        if (ld_is_binary128 && (a->kind == TY_LDOUBLE || b->kind == TY_LDOUBLE))
-            return type_basic(TY_LDOUBLE);
-        return type_basic(TY_FLOAT128);
+        if (!type_is_floating(a))
+            return type_basic(b->kind);
+        if (!type_is_floating(b))
+            return type_basic(a->kind);
+        af = type_basic(a->kind);
+        bf = type_basic(b->kind);
+        if (af->kind == bf->kind)
+            return af;
+        abits = floating_rep_bits(s, af);
+        bbits = floating_rep_bits(s, bf);
+        if (abits != bbits)
+            return abits > bbits ? af : bf;
+        return floating_equal_rank(af->kind) >= floating_equal_rank(bf->kind)
+                   ? af
+                   : bf;
     }
-    if (a->kind == TY_LDOUBLE || b->kind == TY_LDOUBLE)
-        return type_basic(TY_LDOUBLE);
-    if (a->kind == TY_DOUBLE || b->kind == TY_DOUBLE)
-        return type_basic(TY_DOUBLE);
-    if (a->kind == TY_FLOAT || b->kind == TY_FLOAT)
-        return type_basic(TY_FLOAT);
 
     /* 4: promote both, then compare rank and signedness. */
     a = conv_promote_type(s, a);

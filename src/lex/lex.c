@@ -189,7 +189,8 @@ TokenList lex_convert(Preprocessor *pp, const PpToken *toks, u32 ntoks,
         case PPTOK_PPNUM:
             if (lex_ppnum_is_float(p->spelling, p->len)) {
                 t.kind = TOK_FLOAT_CONST;
-                lex_float_const(pp, &t, p->spelling, p->len, lang, p->loc);
+                lex_float_const(pp, &t, p->spelling, p->len, lang, target,
+                                p->loc);
             } else {
                 t.kind = TOK_INT_CONST;
                 lex_int_const(pp, &t, p->spelling, p->len, lang, w, p->loc);

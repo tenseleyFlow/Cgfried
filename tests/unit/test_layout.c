@@ -133,11 +133,12 @@ void test_layout_scalars(TestCtx *t)
         u64 size;
         u64 align;
     } rows[] = {
-        {TY_BOOL, 1, 1},  {TY_CHAR, 1, 1},   {TY_SCHAR, 1, 1},
-        {TY_UCHAR, 1, 1}, {TY_SHORT, 2, 2},  {TY_USHORT, 2, 2},
-        {TY_INT, 4, 4},   {TY_UINT, 4, 4},   {TY_LONG, 8, 8},
-        {TY_ULONG, 8, 8}, {TY_LLONG, 8, 8},  {TY_ULLONG, 8, 8},
-        {TY_FLOAT, 4, 4}, {TY_DOUBLE, 8, 8},
+        {TY_BOOL, 1, 1},    {TY_CHAR, 1, 1},     {TY_SCHAR, 1, 1},
+        {TY_UCHAR, 1, 1},   {TY_SHORT, 2, 2},    {TY_USHORT, 2, 2},
+        {TY_INT, 4, 4},     {TY_UINT, 4, 4},     {TY_LONG, 8, 8},
+        {TY_ULONG, 8, 8},   {TY_LLONG, 8, 8},    {TY_ULLONG, 8, 8},
+        {TY_FLOAT, 4, 4},   {TY_DOUBLE, 8, 8},   {TY_FLOAT32, 4, 4},
+        {TY_FLOAT64, 8, 8}, {TY_FLOAT32X, 8, 8},
     };
     u32 i;
 
@@ -182,15 +183,24 @@ void test_layout_long_double_per_target(TestCtx *t)
         TypeLayout l;
 
         (void)run_lay(&f, "int x;\n", rows[i].target);
-        l = layout_of(&f.sema, type_basic(TY_LDOUBLE));
-        if (l.size != rows[i].size || l.align != rows[i].align)
-            t_fail(t, __FILE__, __LINE__,
-                   "%s: long double %llu/%llu, want %llu/%llu",
-                   cgf_target_names[rows[i].target], (unsigned long long)l.size,
-                   (unsigned long long)l.align,
-                   (unsigned long long)rows[i].size,
-                   (unsigned long long)rows[i].align);
-        t->assertions++;
+        {
+            TypeKind kinds[] = {TY_LDOUBLE, TY_FLOAT64X};
+            const char *names[] = {"long double", "_Float64x"};
+            u32 j;
+
+            for (j = 0; j < sizeof(kinds) / sizeof(kinds[0]); j++) {
+                l = layout_of(&f.sema, type_basic(kinds[j]));
+                if (l.size != rows[i].size || l.align != rows[i].align)
+                    t_fail(t, __FILE__, __LINE__,
+                           "%s: %s %llu/%llu, want %llu/%llu",
+                           cgf_target_names[rows[i].target], names[j],
+                           (unsigned long long)l.size,
+                           (unsigned long long)l.align,
+                           (unsigned long long)rows[i].size,
+                           (unsigned long long)rows[i].align);
+                t->assertions++;
+            }
+        }
         lay_free(&f);
     }
 }
@@ -383,6 +393,14 @@ void test_layout_classify_sysv(TestCtx *t)
     classify_is(t, "struct S { double d; };", 1, ABI_SSE, ABI_NO_CLASS,
                 "double");
     classify_is(t, "struct S { float f; };", 1, ABI_SSE, ABI_NO_CLASS, "float");
+    classify_is(t, "struct S { _Float32 f; };", 1, ABI_SSE, ABI_NO_CLASS,
+                "_Float32 uses the binary32 SSE class");
+    classify_is(t, "struct S { _Float64 f; };", 1, ABI_SSE, ABI_NO_CLASS,
+                "_Float64 uses the binary64 SSE class");
+    classify_is(t, "struct S { _Float32x f; };", 1, ABI_SSE, ABI_NO_CLASS,
+                "_Float32x uses the binary64 SSE class");
+    classify_is(t, "struct S { _Float64x f; };", -1, ABI_NO_CLASS, ABI_NO_CLASS,
+                "x86 _Float64x has the x87 long-double representation");
     classify_is(t, "struct S { void *p; };", 1, ABI_INTEGER, ABI_NO_CLASS,
                 "pointer is INTEGER");
     classify_is(t, "struct S { char c; };", 1, ABI_INTEGER, ABI_NO_CLASS,
@@ -447,6 +465,11 @@ void test_layout_hfa(TestCtx *t)
         {"struct S { float a, b, c, d; };", true, 4},
         {"struct S { float a, b, c, d, e; };", false, 0}, /* > 4 members */
         {"struct S { double a, b; };", true, 2},
+        {"struct S { _Float32 a, b; };", true, 2},
+        {"struct S { _Float64 a, b; };", true, 2},
+        {"struct S { _Float32x a, b; };", true, 2},
+        {"struct S { _Float64x a, b; };", true, 2},
+        {"struct S { _Float64 a; _Float32x b; };", false, 0},
         {"struct S { float a; double b; };", false, 0}, /* not homogeneous */
         {"struct S { float a; int b; };", false, 0},    /* not all float */
         {"struct S { int a, b; };", false, 0},
@@ -491,6 +514,31 @@ void test_layout_hfa(TestCtx *t)
                    rows[i].count);
         t->assertions++;
         lay_free(&f);
+    }
+
+    /* _Float64x remains its own homogeneous base type on both AArch64
+     * targets even though its representation changes from binary128 to
+     * binary64. */
+    {
+        TargetKind targets[] = {CGF_TARGET_ARM64_LINUX, CGF_TARGET_ARM64_MACOS};
+
+        for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+            bool got;
+
+            (void)run_lay(&f, "struct S { _Float64x a, b; };\n", targets[i]);
+            sym = scope_lookup(f.sema.file_scope,
+                               intern_str(&f.in, intern_cstr(&f.in, "S")),
+                               NS_TAG);
+            got = sym && sym->tag &&
+                  layout_is_hfa(&f.sema, sym->tag->type, &base, &count);
+            if (!got || count != 2 || !base || base->kind != TY_FLOAT64X)
+                t_fail(t, __FILE__, __LINE__,
+                       "%s: _Float64x hfa=%d count=%d base=%d, want 1/2/%d",
+                       cgf_target_names[targets[i]], (int)got, count,
+                       base ? (int)base->kind : -1, (int)TY_FLOAT64X);
+            t->assertions++;
+            lay_free(&f);
+        }
     }
 }
 

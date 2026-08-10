@@ -142,14 +142,18 @@ IrType lower_irtype(Lower *lo, const Type *t)
     case TY_ULLONG:
         return IRT_I64;
     case TY_FLOAT:
+    case TY_FLOAT32:
         return IRT_F32;
     case TY_DOUBLE:
+    case TY_FLOAT64:
+    case TY_FLOAT32X:
         return IRT_F64;
     case TY_FLOAT128:
         /* Binary128 on EVERY target, which is exactly how it differs from
          * long double below. No target switch, deliberately. */
         return IRT_F128;
     case TY_LDOUBLE:
+    case TY_FLOAT64X:
         /* THE cross-target trap: x87-80 on x86-64, binary128 on
          * arm64-linux, plain double on arm64-macos. One switch on the
          * target table, never a host assumption. */
@@ -202,11 +206,15 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
     case TY_ULLONG:
         return ETYPE_I64;
     case TY_FLOAT:
+    case TY_FLOAT32:
         return ETYPE_F32;
     case TY_DOUBLE:
+    case TY_FLOAT64:
+    case TY_FLOAT32X:
         return ETYPE_F64;
     case TY_FLOAT128:
     case TY_LDOUBLE:
+    case TY_FLOAT64X:
         switch (lower_irtype(lo, t)) {
         case IRT_F64:
             return ETYPE_F64;
@@ -283,6 +291,30 @@ static void ptrmap_put_u32(Lower *lo, Strmap *map, const void *key, u32 value)
     lower_u32map_put(lo, map, (const char *)&key, sizeof(key), value);
 }
 
+/* Mach-O normally adds a leading underscore at emission, while a declaration
+ * asm label is already the final assembler spelling. Encode only that target's
+ * exact names in IR; ELF has no ordinary prefix, so an asm label and an
+ * ordinary symbol with the same bytes intentionally denote the same linker
+ * symbol there. */
+static u32 lower_link_sym_index(Lower *lo, const Symbol *sym)
+{
+    const char *name = lower_link_name(sym);
+
+    if (sym && sym->asm_name && lo->sema->target.kind == CGF_TARGET_ARM64_MACOS)
+        return ir_sym_exact_asm(lo->m, name);
+    return ir_sym(lo->m, name);
+}
+
+static const char *lower_ir_link_name(Lower *lo, const Symbol *sym)
+{
+    u32 idx = lower_link_sym_index(lo, sym);
+
+    /* The lookup may grow the arena-backed table, so fetch syms only AFTER
+     * it returns. C does not sequence the base expression of `a[f()]` before
+     * f(): reading the old table pointer first used a stale allocation. */
+    return lo->m->syms[idx];
+}
+
 /* Clone source contracts into IR ownership and attach the ABI-level operand
  * index without destroying the source index used by diagnostics. */
 const CgfAttr *lower_clone_cgf_attrs(Lower *lo, const CgfAttr *attrs,
@@ -314,7 +346,7 @@ static u32 global_sym_index(Lower *lo, Symbol *sym)
     if (hit)
         return *hit - 1;
     {
-        u32 idx = ir_sym(lo->m, lower_link_name(sym));
+        u32 idx = lower_link_sym_index(lo, sym);
 
         ptrmap_put_u32(lo, &lo->globals, sym, idx + 1);
         return idx;
@@ -324,6 +356,16 @@ static u32 global_sym_index(Lower *lo, Symbol *sym)
 IrOperand lower_sym_addr(Lower *lo, Symbol *sym)
 {
     u32 *hit = ptrmap_get_u32(&lo->locals, sym);
+
+    if (sym && sym->kind == SYM_FUNC && sym->uses_va_arg_pack) {
+        if (!lo->failed)
+            diag_emit(lo->dc, DIAG_ERROR, sym->span,
+                      "cannot take the address of variadic argument-pack "
+                      "wrapper '%s'; it must be called directly",
+                      sym->name);
+        lo->failed = true;
+        return ir_op_undef(IRT_PTR);
+    }
 
     if (hit) {
         ValueId v = {*hit};
@@ -591,7 +633,10 @@ static void lower_aliases(Lower *lo, Sema *sema, AstNode *tu)
     for (i = 0; i < tu->ndecls; i++) {
         AstNode *d = tu->decls[i];
         Symbol *sym;
+        Symbol *target;
         IrAlias *a;
+        const char *name;
+        const char *target_name;
 
         if (!d || d->kind != AST_DECL || !d->name)
             continue;
@@ -600,9 +645,13 @@ static void lower_aliases(Lower *lo, Sema *sema, AstNode *tu)
         sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
         if (!sym || !sym->alias_target)
             continue;
-        if (ir_alias_find(lo->m, sym->name))
+        target = scope_lookup(sema->file_scope, sym->alias_target, NS_ORDINARY);
+        name = lower_ir_link_name(lo, sym);
+        target_name =
+            target ? lower_ir_link_name(lo, target) : sym->alias_target;
+        if (ir_alias_find(lo->m, name))
             continue; /* a redeclaration names the same alias once */
-        a = ir_alias_new(lo->m, sym->name, sym->alias_target);
+        a = ir_alias_new(lo->m, name, target_name);
         a->linkage =
             sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
         a->is_weak = sym->gnu.weak;
@@ -635,7 +684,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
     l = layout_of(lo->sema, sym->type);
-    g = ir_global_new(lo->m, lower_link_name(sym));
+    g = ir_global_new(lo->m, lower_ir_link_name(lo, sym));
     g->align = lower_object_align(sym, l.align);
     /* _Thread_local is a property of the OBJECT: one copy per thread, in
      * .tdata/.tbss, reached through the thread pointer rather than by an
@@ -672,8 +721,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     }
     /* The global's symbol index was interned by ir_global_new; record the
      * mapping so expression references resolve to the same index. */
-    ptrmap_put_u32(lo, &lo->globals, sym,
-                   ir_sym(lo->m, lower_link_name(sym)) + 1);
+    ptrmap_put_u32(lo, &lo->globals, sym, lower_link_sym_index(lo, sym) + 1);
 }
 
 /* --- function lowering ---------------------------------------------------- */
@@ -815,6 +863,11 @@ static void lower_function(Lower *lo, AstNode *def)
 
     if (!sym || !sym->type || sym->type->kind != TY_FUNC)
         return;
+    /* GNU argument packs are source-level inliner operands. The definition
+     * is specialized into every direct caller and is never emitted as a
+     * standalone body where the pack would have no supplying call site. */
+    if (sym->uses_va_arg_pack)
+        return;
     /* The Sprint 16 inline matrix: an INL_INLINE_DEF provides no external
      * definition and nothing else in this TU is forced to call it — gcc
      * emits nothing for it without an `extern` declaration, and neither
@@ -891,9 +944,9 @@ static void lower_function(Lower *lo, AstNode *def)
                 any_annot = true;
             }
             ptypes[nir_params++] = st;
-            if (st == IRT_F32 || st == IRT_F64)
+            if (type_is_floating(wire))
                 budget.fp++;
-            else if (st != IRT_F80 && st != IRT_F128)
+            else
                 budget.gp++;
             break;
         }
@@ -935,7 +988,7 @@ static void lower_function(Lower *lo, AstNode *def)
     }
 
     lo->fn =
-        ir_func_new(lo->m, lower_link_name(sym),
+        ir_func_new(lo->m, lower_ir_link_name(lo, sym),
                     aret.kind == ABI_RET_SCALAR  ? lower_irtype(lo, ft->base)
                     : aret.kind == ABI_RET_SMALL ? aret.small_t
                                                  : IRT_VOID,
@@ -1038,8 +1091,9 @@ static void lower_function(Lower *lo, AstNode *def)
                  * written back into one local at the LEAF stride. Eight for
                  * an eightbyte pair; the leaf width for an HFA, which is 4
                  * when the leaves are floats. */
-                u64 stride =
-                    a->kind == ABI_ARG_HFA ? (u64)ir_type_size(a->t[0]) : 8u;
+                u64 stride = a->kind == ABI_ARG_HFA || a->t[0] == IRT_F128
+                                 ? (u64)ir_type_size(a->t[0])
+                                 : 8u;
                 u64 rounded = (u64)a->n * stride;
                 u32 salign = a->align > (u32)stride ? a->align : (u32)stride;
                 ValueId slot = ir_build_alloca_typed(
@@ -1219,6 +1273,8 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
                 continue;
             sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
             if (!sym || !sym->type || sym->type->kind != TY_FUNC)
+                continue;
+            if (sym->uses_va_arg_pack)
                 continue;
             if (sym->inline_kind == INL_INLINE_DEF && !include_inline_defs)
                 continue; /* not emitted; calls go through the symbol */

@@ -70,6 +70,8 @@ static const char *msym(Emit *e, const char *name)
 {
     char *slot;
 
+    if (ir_sym_name_is_exact_asm(name))
+        return ir_sym_asm_spelling(name);
     if (!e->apple)
         return name;
     slot = e->symbuf[e->symslot];
@@ -871,7 +873,7 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
          * no-check: the pair is only correct together, so the low half must
          * not complain about the bits the high half carries. */
         const char *reg = rn(in->ops[0].reg, A64_SF64);
-        const char *sym = e->m->syms[in->ops[1].id - 1];
+        const char *sym = msym(e, e->m->syms[in->ops[1].id - 1]);
 
         buf_printf(e->out, "\tmrs\t%s, tpidr_el0\n", reg);
         buf_printf(e->out, "\tadd\t%s, %s, #:tprel_hi12:%s, lsl #12\n", reg,
@@ -1452,7 +1454,7 @@ static void a64_emit_init_array(Emit *e, const IrModule *m, Buf *out)
                                   want_ctor ? f->ctor_prio : f->dtor_prio);
             buf_printf(out, "\t.section\t%s,\"aw\"\n", sec);
             buf_printf(out, "\t.p2align\t3\n");
-            buf_printf(out, "\t.xword\t%s\n", f->name);
+            buf_printf(out, "\t.xword\t%s\n", msym(e, f->name));
         }
     }
 }

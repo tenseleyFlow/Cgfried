@@ -12,11 +12,13 @@
  * The grammar (parse.c accepts precisely this; the two files are a pair):
  *
  *   module  := (sym | global | func)*
- *   sym     := "sym" @name                      ; full table, index order
- *   global  := "global" @name "size" INT "align" INT linkage ["tentative"]
- *              ["init" HEX*] ("reloc" INT @name INT)*
- *   func    := "func" type @name "(" [type %name ,...] ")" "{" block+ "}"
+ *   sym     := "sym" symname                    ; full table, index order
+ *   global  := "global" symname "size" INT "align" INT linkage
+ *              ["tentative"] ["init" HEX*]
+ *              ("reloc" INT symname INT)*
+ *   func    := "func" type symname "(" [type %name ,...] ")" "{" block+ "}"
  *   block   := name "(" [type %name ,...] "):" inst*
+ *   symname := @name | @!name                    ; ! = exact asm spelling
  *
  * Per-op instruction shapes are in print_inst below; operand atoms are
  * %value, signed decimal (iconst), 0xHEX[:0xHEX] (fconst exact bits,
@@ -61,13 +63,13 @@ const char *ir_rmw_name(u8 k)
 /* IrAbiRet spellings for the func-header `abi(...)` marker and the pair
  * call-arg annotations; index = enum value. */
 static const char *const abi_ret_names[] = {
-    "none",    "sret",    "pair_ii", "pair_is",
-    "pair_si", "pair_ss", "hfa_f32", "hfa_f64",
+    "none",    "sret",    "pair_ii", "pair_is",  "pair_si",
+    "pair_ss", "hfa_f32", "hfa_f64", "hfa_f128",
 };
 
 const char *ir_abi_ret_name(u8 k)
 {
-    if (k > IR_ABIRET_HFA_F64)
+    if (k > IR_ABIRET_HFA_F128)
         CGF_ICE("ir printer: bad abi_ret %u", k);
     return abi_ret_names[k];
 }
@@ -192,6 +194,16 @@ static void print_val(Buf *out, const ValNames *vn, u32 id)
         buf_printf(out, "%%%u", vn->num[id]);
 }
 
+static void print_sym_name(Buf *out, const char *name)
+{
+    if (!name) {
+        buf_printf(out, "@?");
+        return;
+    }
+    buf_printf(out, ir_sym_name_is_exact_asm(name) ? "@!%s" : "@%s",
+               ir_sym_asm_spelling(name));
+}
+
 /* An atom: the operand payload WITHOUT its type. */
 static void print_atom(Buf *out, const IrModule *m, const ValNames *vn,
                        const IrOperand *o)
@@ -223,7 +235,7 @@ static void print_atom(Buf *out, const IrModule *m, const ValNames *vn,
         }
         break;
     case IROP_SYMBOL:
-        buf_printf(out, "@%s", o->sym < m->nsyms ? m->syms[o->sym] : "?");
+        print_sym_name(out, o->sym < m->nsyms ? m->syms[o->sym] : NULL);
         if ((i64)o->a > 0)
             buf_printf(out, "+%lld", (long long)(i64)o->a);
         else if ((i64)o->a < 0)
@@ -456,12 +468,11 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
 
         buf_printf(out, "call %s ", type_names[in->type]);
         if (in->subop == FUNCREF_INTERNAL)
-            buf_printf(out, "@%s",
-                       in->callee < m->nfuncs ? m->funcs[in->callee].name
-                                              : "?");
+            print_sym_name(
+                out, in->callee < m->nfuncs ? m->funcs[in->callee].name : NULL);
         else if (in->subop == FUNCREF_EXTERNAL)
-            buf_printf(out, "@%s",
-                       in->callee < m->nsyms ? m->syms[in->callee] : "?");
+            print_sym_name(out,
+                           in->callee < m->nsyms ? m->syms[in->callee] : NULL);
         else {
             print_atom(out, m, vn, &in->ops[0]);
             first = 1;
@@ -608,7 +619,9 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
     arena_init(&scratch);
     vn = vn_build(&scratch, f);
 
-    buf_printf(out, "func %s @%s(", type_names[f->ret], f->name);
+    buf_printf(out, "func %s ", type_names[f->ret]);
+    print_sym_name(out, f->name);
+    buf_printf(out, "(");
     for (i = 0; i < f->nparams; i++) {
         if (i)
             buf_printf(out, ", ");
@@ -691,8 +704,11 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
 {
     u32 i, j;
 
-    for (i = 0; i < m->nsyms; i++)
-        buf_printf(out, "sym @%s\n", m->syms[i]);
+    for (i = 0; i < m->nsyms; i++) {
+        buf_printf(out, "sym ");
+        print_sym_name(out, m->syms[i]);
+        buf_printf(out, "\n");
+    }
     /* Aliases before globals: an alias names a target defined LATER in the
      * file as often as earlier, and the parser resolves targets by name at the
      * end anyway, so the order is a readability choice rather than a
@@ -701,8 +717,11 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
         const IrAlias *a = &m->aliases[i];
         static const char *const alink[] = {"internal", "external", "common"};
 
-        buf_printf(out, "alias @%s = @%s %s", a->name, a->target,
-                   alink[a->linkage]);
+        buf_printf(out, "alias ");
+        print_sym_name(out, a->name);
+        buf_printf(out, " = ");
+        print_sym_name(out, a->target);
+        buf_printf(out, " %s", alink[a->linkage]);
         if (a->is_weak)
             buf_printf(out, " weak");
         if (a->visibility)
@@ -715,9 +734,10 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
         static const char *const link_names[] = {"internal", "external",
                                                  "common"};
 
-        buf_printf(out, "global @%s size %llu align %u %s", g->name,
-                   (unsigned long long)g->size, g->align,
-                   link_names[g->linkage]);
+        buf_printf(out, "global ");
+        print_sym_name(out, g->name);
+        buf_printf(out, " size %llu align %u %s", (unsigned long long)g->size,
+                   g->align, link_names[g->linkage]);
         if (g->is_tentative)
             buf_printf(out, " tentative");
         if (g->is_tls)
@@ -742,11 +762,12 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
             for (j = 0; j < g->size; j++)
                 buf_printf(out, "%02x", g->init[j]);
         }
-        for (j = 0; j < g->nrelocs; j++)
-            buf_printf(out, " reloc %llu @%s %lld",
-                       (unsigned long long)g->relocs[j].offset,
-                       m->syms[g->relocs[j].symbol],
-                       (long long)g->relocs[j].addend);
+        for (j = 0; j < g->nrelocs; j++) {
+            buf_printf(out, " reloc %llu ",
+                       (unsigned long long)g->relocs[j].offset);
+            print_sym_name(out, m->syms[g->relocs[j].symbol]);
+            buf_printf(out, " %lld", (long long)g->relocs[j].addend);
+        }
         buf_printf(out, "\n");
     }
     for (i = 0; i < m->nfuncs; i++) {

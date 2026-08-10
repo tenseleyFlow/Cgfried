@@ -801,25 +801,19 @@ void sema_warn_expr(Sema *s, AstNode *expr, unsigned context)
     check_expr(s, expr, context);
 }
 
-static bool is_floating_type(const Type *t)
-{
-    return t && (t->kind == TY_FLOAT || t->kind == TY_DOUBLE ||
-                 t->kind == TY_LDOUBLE || t->kind == TY_FLOAT128);
-}
-
 static u32 floating_precision(Sema *s, const Type *t)
 {
     TargetLayout tl;
 
     if (!t)
         return 0;
-    if (t->kind == TY_FLOAT)
+    if (t->kind == TY_FLOAT || t->kind == TY_FLOAT32)
         return 24;
-    if (t->kind == TY_DOUBLE)
+    if (t->kind == TY_DOUBLE || t->kind == TY_FLOAT64 || t->kind == TY_FLOAT32X)
         return 53;
     if (t->kind == TY_FLOAT128)
         return 113; /* binary128 on every target, unlike long double */
-    if (t->kind != TY_LDOUBLE)
+    if (t->kind != TY_LDOUBLE && t->kind != TY_FLOAT64X)
         return 0;
     tl = cgf_target_layout(s->target);
     if (tl.ldbl_kind == CGF_LDBL_IEEE128)
@@ -836,7 +830,7 @@ static bool float_constant_changes(Sema *s, AstNode *source, Type *destination)
 
     if (cv.kind != CV_FLOAT)
         return true;
-    if (is_floating_type(destination))
+    if (type_is_floating(destination))
         (void)sf_convert(cv.f, constexpr_format_of(s, cv.type),
                          constexpr_format_of(s, destination), &st);
     else
@@ -941,7 +935,7 @@ void sema_warn_implicit_conversion(Sema *s, Type *destination,
         return;
     }
 
-    if (type_is_integer(from) && is_floating_type(destination)) {
+    if (type_is_integer(from) && type_is_floating(destination)) {
         u32 value_bits =
             conv_int_bits(s, from) - (conv_is_signed(s, from) ? 1u : 0u);
 
@@ -954,7 +948,7 @@ void sema_warn_implicit_conversion(Sema *s, Type *destination,
                     type_to_str(s->arena, destination));
         return;
     }
-    if (is_floating_type(from) && type_is_integer(destination)) {
+    if (type_is_floating(from) && type_is_integer(destination)) {
         if (source->kind != AST_EXPR_FLOAT ||
             float_constant_changes(s, source, destination))
             warn_at(s->lang->warnings, WARN_CONVERSION, converted->span,
@@ -963,7 +957,7 @@ void sema_warn_implicit_conversion(Sema *s, Type *destination,
                     type_to_str(s->arena, destination));
         return;
     }
-    if (is_floating_type(from) && is_floating_type(destination) &&
+    if (type_is_floating(from) && type_is_floating(destination) &&
         floating_precision(s, destination) < floating_precision(s, from) &&
         (source->kind != AST_EXPR_FLOAT ||
          float_constant_changes(s, source, destination)))

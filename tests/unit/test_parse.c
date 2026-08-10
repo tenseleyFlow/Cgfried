@@ -31,8 +31,8 @@ static void count_sink(void *user, const Diag *d, const DiagCtx *dc)
 
 VEC_DECL(PpVecP, PpToken);
 
-static AstNode *parse_src_with_origin(ParseFix *f, const char *src, CStd std,
-                                      bool system_header)
+static AstNode *parse_src_with_options(ParseFix *f, const char *src, CStd std,
+                                       bool system_header, bool pedantic)
 {
     DiagCtx *dc;
     DiagSink s;
@@ -56,7 +56,10 @@ static AstNode *parse_src_with_origin(ParseFix *f, const char *src, CStd std,
     memset(&lang, 0, sizeof(lang));
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
+    lang.pedantic = pedantic;
     lang.warnings = warn_ctx_new(&f->arena, dc);
+    if (pedantic)
+        (void)warn_flag(lang.warnings, "pedantic");
     f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
@@ -71,6 +74,12 @@ static AstNode *parse_src_with_origin(ParseFix *f, const char *src, CStd std,
     parse_init(&f->ps, &tl, &f->pp, dc, &f->arena, &lang);
     tu = parse_translation_unit(&f->ps);
     return tu;
+}
+
+static AstNode *parse_src_with_origin(ParseFix *f, const char *src, CStd std,
+                                      bool system_header)
+{
+    return parse_src_with_options(f, src, std, system_header, false);
 }
 
 static AstNode *parse_src(ParseFix *f, const char *src, CStd std)
@@ -148,6 +157,10 @@ void test_parse_declarator_torture(TestCtx *t)
             "of int");
     decl_is(t, "unsigned long long ull;\n", "unsigned long long");
     decl_is(t, "long double ld;\n", "long double");
+    decl_is(t, "_Float32 f32;\n", "_Float32");
+    decl_is(t, "_Float64 f64;\n", "_Float64");
+    decl_is(t, "_Float32x f32x;\n", "_Float32x");
+    decl_is(t, "_Float64x f64x;\n", "_Float64x");
     decl_is(t, "signed char sc;\n", "signed char");
     decl_is(t, "int p[static 3];\n", "array [expr] of int");
 }
@@ -184,6 +197,94 @@ void test_parse_system_float128_compat_typedef(TestCtx *t)
     (void)parse_src_with_origin(&f, "typedef long double __float128;\n",
                                 STD_C17, true);
     T_ASSERT(t, f.errors > 0);
+    pfix_free(&f);
+}
+
+void test_parse_system_floatn_compat_typedefs(TestCtx *t)
+{
+    ParseFix f;
+    AstNode *tu;
+    static const struct {
+        const char *src;
+        AstBaseType want;
+    } rows[] = {{"typedef float _Float32;\n", ABT_FLOAT32},
+                {"typedef double _Float64;\n", ABT_FLOAT64},
+                {"typedef double _Float32x;\n", ABT_FLOAT32X},
+                {"typedef long double _Float64x;\n", ABT_FLOAT64X}};
+    static const char *const invalid[] = {
+        "typedef _Float64 _Float128;\n",
+        "typedef _Float32x _Float128;\n",
+        "typedef _Float128 _Float128;\n",
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        tu = parse_src_with_origin(&f, rows[i].src, STD_C17, true);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, (int)tu->ndecls, 1);
+        T_ASSERT_EQ_INT(t, tu->decls[0]->kind, AST_EMPTY_DECL);
+        T_ASSERT_EQ_INT(t, tu->decls[0]->type->base, rows[i].want);
+        pfix_free(&f);
+
+        (void)parse_src(&f, rows[i].src, STD_C17);
+        T_ASSERT(t, f.errors > 0);
+        pfix_free(&f);
+    }
+
+    (void)parse_src_with_origin(&f, "typedef float _Float64;\n", STD_C17, true);
+    T_ASSERT(t, f.errors > 0);
+    pfix_free(&f);
+
+    for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        (void)parse_src_with_origin(&f, invalid[i], STD_C17, true);
+        T_ASSERT(t, f.errors > 0);
+        pfix_free(&f);
+    }
+}
+
+void test_parse_floatn_pedantic_warnings(TestCtx *t)
+{
+    ParseFix f;
+    static const char *const types[] = {
+        "_Float32", "_Float64", "_Float32x", "_Float64x", "_Float128",
+    };
+    char src[96];
+    u32 i;
+
+    for (i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        snprintf(src, sizeof(src), "%s value;\n", types[i]);
+        (void)parse_src_with_options(&f, src, STD_C17, false, true);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, f.warnings, 1);
+        pfix_free(&f);
+
+        snprintf(src, sizeof(src), "__extension__ %s value;\n", types[i]);
+        (void)parse_src_with_options(&f, src, STD_C17, false, true);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, f.warnings, 0);
+        pfix_free(&f);
+    }
+
+    (void)parse_src_with_options(&f, "__float128 value;\n", STD_C17, false,
+                                 true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    pfix_free(&f);
+
+    (void)parse_src_with_options(&f,
+                                 "__extension__ _Float32 x = 1.0F32;\n"
+                                 "__extension__ int y = 1.0F32;\n",
+                                 STD_C17, false, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    pfix_free(&f);
+
+    (void)parse_src_with_options(&f,
+                                 "__extension__ int suppressed = 1.0F32;\n"
+                                 "int restored = 1.0F32;\n",
+                                 STD_C17, false, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
     pfix_free(&f);
 }
 
@@ -331,6 +432,10 @@ void test_parse_specifier_multisets(TestCtx *t)
     spec_bad(t, "int f(static int);\n");
     spec_bad(t, "float short fs;\n");
     spec_bad(t, "_Bool int bi;\n");
+    spec_bad(t, "long _Float32 lf;\n");
+    spec_bad(t, "unsigned _Float64 uf;\n");
+    spec_bad(t, "_Float32 _Float64 mixed;\n");
+    spec_bad(t, "_Float32x _Float32x duplicate;\n");
 
     /* _Thread_local is the ONE storage class that may pair (6.7.1p2). */
     spec_ok(t, "_Thread_local static int tls;\n");

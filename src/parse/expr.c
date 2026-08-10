@@ -110,6 +110,10 @@ static AstNode *parse_primary_expr(Parser *p)
     case TOK_FLOAT_CONST:
     case TOK_CHAR_CONST:
     case TOK_STRING:
+        if (t->kind == TOK_FLOAT_CONST && t->float_ext_suffix &&
+            !p->extension_depth)
+            warn_at(p->lang->warnings, WARN_PEDANTIC, t->span,
+                    "non-standard suffix on floating constant");
         n = expr_new(p,
                      t->kind == TOK_INT_CONST     ? AST_EXPR_INT
                      : t->kind == TOK_FLOAT_CONST ? AST_EXPR_FLOAT
@@ -133,6 +137,22 @@ static AstNode *parse_primary_expr(Parser *p)
                                "between va_arg's list and type");
             n->type = parse_type_name(p);
             parse_expect_punct(p, PUNCT_RPAREN, "after the va_arg type");
+            return n;
+        }
+        if (strcmp(t->spelling, "__builtin_va_arg_pack") == 0 ||
+            strcmp(t->spelling, "__builtin_va_arg_pack_len") == 0) {
+            bool is_len = strcmp(t->spelling, "__builtin_va_arg_pack_len") == 0;
+
+            n = expr_new(
+                p, is_len ? AST_EXPR_VA_ARG_PACK_LEN : AST_EXPR_VA_ARG_PACK,
+                t->span);
+            p->pos++;
+            parse_expect_punct(p, PUNCT_LPAREN,
+                               is_len ? "after '__builtin_va_arg_pack_len'"
+                                      : "after '__builtin_va_arg_pack'");
+            parse_expect_punct(p, PUNCT_RPAREN,
+                               is_len ? "after '__builtin_va_arg_pack_len('"
+                                      : "after '__builtin_va_arg_pack('");
             return n;
         }
         if (strcmp(t->spelling, "__builtin_setjmp") == 0) {

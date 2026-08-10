@@ -98,7 +98,8 @@ const char *cgf_target_dynamic_linker(TargetSpec t);
 
 /* Appends the target's predefined-macro `#define` lines (the gcc -dM
  * core-integer subset: arch/OS/ABI ids, type sizes, limits, byte order,
- * __SIZE_TYPE__ family). NEVER __GNUC__ — see pp_predefine_all's policy. */
+ * __SIZE_TYPE__ family, plus GNU-mode __USER_LABEL_PREFIX__). Compiler
+ * identity itself belongs to pp_predefine_all because it is dialect-scoped. */
 void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out);
 
 /* Default system include directories for the target, in search order.

@@ -169,6 +169,12 @@ void test_abi_aapcs64_hfa_table(TestCtx *t)
         {"struct S { float x, y; };", ABI_ARG_HFA, 2, IRT_F32},
         /* d0-d3 */
         {"struct S { double d[4]; };", ABI_ARG_HFA, 4, IRT_F64},
+        /* GNU FloatN types keep distinct C identities while using the
+         * corresponding AAPCS64 register views. */
+        {"struct S { _Float32 x, y; };", ABI_ARG_HFA, 2, IRT_F32},
+        {"struct S { _Float64 x, y; };", ABI_ARG_HFA, 2, IRT_F64},
+        {"struct S { _Float32x x, y; };", ABI_ARG_HFA, 2, IRT_F64},
+        {"struct S { _Float64x x, y; };", ABI_ARG_HFA, 2, IRT_F128},
         /* >16B, so a pointer to a caller copy in one GPR */
         {"struct S { double d[5]; };", ABI_ARG_BYVAL, 0, 0},
         /* mixed float/double is not homogeneous; 16B, so an x-reg pair */
@@ -182,6 +188,75 @@ void test_abi_aapcs64_hfa_table(TestCtx *t)
     };
 
     check_arg_rows(t, rows, (u32)CGF_ARRAY_LEN(rows));
+}
+
+void test_abi_aapcs64_hfa_target_float_formats(TestCtx *t)
+{
+    static const struct {
+        TargetKind target;
+        const char *body;
+        IrType leaf;
+        u8 ir_abi;
+    } rows[] = {
+        {CGF_TARGET_ARM64_LINUX, "struct S { long double x, y; };", IRT_F128,
+         IR_ABIRET_HFA_F128},
+        {CGF_TARGET_ARM64_MACOS, "struct S { long double x, y; };", IRT_F64,
+         IR_ABIRET_HFA_F64},
+        {CGF_TARGET_ARM64_LINUX, "struct S { _Float64x x, y; };", IRT_F128,
+         IR_ABIRET_HFA_F128},
+        {CGF_TARGET_ARM64_MACOS, "struct S { _Float64x x, y; };", IRT_F64,
+         IR_ABIRET_HFA_F64},
+    };
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(rows); i++) {
+        AbiFix f;
+        AbiArg arg;
+        AbiRet ret;
+        Type *ty;
+
+        abi_open(&f, rows[i].body, rows[i].target);
+        ty = tag_type(&f, "S");
+        T_ASSERT(t, ty != NULL);
+        if (ty) {
+            abi_classify_arg(&f.lo, ty, &arg);
+            T_ASSERT_EQ_INT(t, arg.kind, ABI_ARG_HFA);
+            T_ASSERT_EQ_INT(t, arg.n, 2);
+            T_ASSERT_EQ_INT(t, arg.t[0], rows[i].leaf);
+            T_ASSERT_EQ_INT(t, arg.t[1], rows[i].leaf);
+
+            abi_classify_ret(&f.lo, ty, &ret);
+            T_ASSERT_EQ_INT(t, ret.kind, ABI_RET_HFA);
+            T_ASSERT_EQ_INT(t, ret.n, 2);
+            T_ASSERT_EQ_INT(t, ret.small_t, rows[i].leaf);
+            T_ASSERT_EQ_INT(t, ret.ir_abi, rows[i].ir_abi);
+        }
+        abi_close(&f);
+    }
+}
+
+void test_abi_floatn_ir_representations(TestCtx *t)
+{
+    AbiFix f;
+
+    abi_open(&f, "int x;\n", CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, lower_irtype(&f.lo, type_basic(TY_FLOAT32)), IRT_F32);
+    T_ASSERT_EQ_INT(t, lower_irtype(&f.lo, type_basic(TY_FLOAT64)), IRT_F64);
+    T_ASSERT_EQ_INT(t, lower_irtype(&f.lo, type_basic(TY_FLOAT32X)), IRT_F64);
+    T_ASSERT_EQ_INT(t, lower_irtype(&f.lo, type_basic(TY_FLOAT64X)), IRT_F80);
+    T_ASSERT_EQ_INT(t, lower_efftype(&f.lo, type_basic(TY_FLOAT32)), ETYPE_F32);
+    T_ASSERT_EQ_INT(t, lower_efftype(&f.lo, type_basic(TY_FLOAT64)), ETYPE_F64);
+
+    f.sema.target.kind = CGF_TARGET_ARM64_LINUX;
+    T_ASSERT_EQ_INT(t, lower_irtype(&f.lo, type_basic(TY_FLOAT64X)), IRT_F128);
+    T_ASSERT_EQ_INT(t, lower_efftype(&f.lo, type_basic(TY_FLOAT64X)),
+                    ETYPE_F128);
+
+    f.sema.target.kind = CGF_TARGET_ARM64_MACOS;
+    T_ASSERT_EQ_INT(t, lower_irtype(&f.lo, type_basic(TY_FLOAT64X)), IRT_F64);
+    T_ASSERT_EQ_INT(t, lower_efftype(&f.lo, type_basic(TY_FLOAT64X)),
+                    ETYPE_F64);
+    abi_close(&f);
 }
 
 /* The size ladder, where AAPCS64 and SysV part company. */
@@ -261,6 +336,8 @@ void test_abi_aapcs64_returns(TestCtx *t)
         {"struct S { char big[64]; };", ABI_RET_SRET, 0},
         {"struct S { float x, y; };", ABI_RET_HFA, IRT_F32},
         {"struct S { double d[4]; };", ABI_RET_HFA, IRT_F64},
+        {"struct S { _Float128 q[2]; };", ABI_RET_HFA, IRT_F128},
+        {"struct S { _Float64x q[4]; };", ABI_RET_HFA, IRT_F128},
         /* >4 leaves is not an HFA, and 40 bytes is indirect. */
         {"struct S { double d[5]; };", ABI_RET_SRET, 0},
         {"union S { float f[3]; struct { float x, y, z; } v; };", ABI_RET_HFA,
@@ -289,6 +366,15 @@ void test_abi_aapcs64_returns(TestCtx *t)
         else if (rows[i].leaf && got.small_t != rows[i].leaf)
             t_fail(t, __FILE__, __LINE__, "%s: ret leaf %d, want %d",
                    rows[i].body, (int)got.small_t, (int)rows[i].leaf);
+        else if (got.kind == ABI_RET_HFA) {
+            u8 want = rows[i].leaf == IRT_F32    ? IR_ABIRET_HFA_F32
+                      : rows[i].leaf == IRT_F128 ? IR_ABIRET_HFA_F128
+                                                 : IR_ABIRET_HFA_F64;
+
+            if (got.ir_abi != want)
+                t_fail(t, __FILE__, __LINE__, "%s: IR ABI %u, want %u",
+                       rows[i].body, got.ir_abi, want);
+        }
         t->assertions++;
         abi_close(&f);
     }

@@ -34,7 +34,7 @@ static void s16_sink(void *user, const Diag *d, const DiagCtx *dc)
 
 VEC_DECL(PpVecS16, PpToken);
 
-static void run16(S16Fix *f, const char *src, bool fcommon)
+static void run16_std(S16Fix *f, const char *src, bool fcommon, CStd std)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -54,7 +54,8 @@ static void run16(S16Fix *f, const char *src, bool fcommon)
     intern_init(&f->in, &f->arena);
     pp_init(&f->pp, &f->arena, f->dc, &f->in);
     memset(&lang, 0, sizeof(lang));
-    lang.std = STD_C17;
+    lang.std = std;
+    lang.gnu_mode = std >= STD_GNU89;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
     spec.kind = CGF_TARGET_X86_64_LINUX_GNU;
@@ -70,6 +71,11 @@ static void run16(S16Fix *f, const char *src, bool fcommon)
     sema_init(&f->sema, &f->arena, f->dc, &f->in, &lang, spec);
     f->sema.fcommon = fcommon;
     sema_run(&f->sema, tu);
+}
+
+static void run16(S16Fix *f, const char *src, bool fcommon)
+{
+    run16_std(f, src, fcommon, STD_C17);
 }
 
 static void s16_free(S16Fix *f)
@@ -159,6 +165,18 @@ void test_s16_inline_matrix(TestCtx *t)
               "static inline __attribute((gnu_inline)) int f(void) "
               "{ return 1; }\n",
               INL_STATIC, "GNU static inline stays internal");
+
+    run16_std(&f, "extern inline int f(void) { return 1; }\n", true, STD_GNU89);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t,
+             sym16(&f, "f") && sym16(&f, "f")->inline_kind == INL_INLINE_DEF);
+    s16_free(&f);
+
+    run16_std(&f, "inline int f(void) { return 1; }\n", true, STD_GNU89);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, sym16(&f, "f") &&
+                    sym16(&f, "f")->inline_kind == INL_EXTERN_INLINE);
+    s16_free(&f);
 
     run16(&f, "__attribute((gnu_inline)) int f(void);\n", true);
     T_ASSERT_EQ_INT(t, f.errors, 0);

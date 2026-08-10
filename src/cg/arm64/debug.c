@@ -24,11 +24,18 @@
  *     stp x29, x30, [sp, #BASE]
  *     add x29, sp, #BASE
  *
+ * A BASE beyond the pair instruction's +504 limit adds one address step:
+ *
+ *     sub sp, sp, #TOTAL
+ *     add x16, sp, #BASE             // one or two instructions
+ *     stp x29, x30, [x16]
+ *     add x29, x16, #0
+ *
  * The pre-indexed form changes the CFA and saves both registers in ONE
  * instruction, so all three rules take effect at the same advance; the
- * separate form needs the CFA change one advance earlier. That is the only
- * structural difference between the two, and the prologue records which ran
- * rather than this file re-deriving it. */
+ * separate form needs the CFA change before any address-only setup. The
+ * prologue records both instruction counts rather than this file re-deriving
+ * which branch ran. */
 
 /* DWARF register numbers, DWARF for the ARM 64-bit Architecture 4.1:
  * x0-x30 are 0-30, SP is 31. The return address lives in x30. */
@@ -129,6 +136,8 @@ static void emit_saved_pair(Buf *out, u32 frame, u32 pair_off)
 
 static void emit_fde(Buf *out, const A64Func *f, u32 idx)
 {
+    u32 i;
+
     buf_printf(out,
                ".Lfde%u:\n"
                "\t.long\t.Lfde%u_end-.Lfde%u_start\n"
@@ -146,11 +155,23 @@ static void emit_fde(Buf *out, const A64Func *f, u32 idx)
         return;
     }
     if (f->cfi_pre_insns) {
-        /* sub sp, sp, #TOTAL happened first: the CFA moves, then the pair
-         * store one instruction later records where the registers went. */
-        buf_printf(out, "\t.byte\t%u\n", 0x40u | f->cfi_pre_insns);
-        buf_printf(out, "\t.byte\t14\n"); /* DW_CFA_def_cfa_offset */
-        emit_uleb(out, f->cfi_frame);
+        /* Each SUB changes the live CFA immediately. Collapsing a two-part
+         * 4096+remainder adjustment into one final row leaves asynchronous
+         * unwinders with CFA=sp between the instructions. */
+        for (i = 0; i < f->cfi_pre_insns; i++) {
+            if (!f->cfi_sp_offsets[i] ||
+                (i && f->cfi_sp_offsets[i] <= f->cfi_sp_offsets[i - 1]))
+                CGF_ICE("a64 CFI: invalid cumulative SP adjustment %u",
+                        f->cfi_sp_offsets[i]);
+            buf_printf(out, "\t.byte\t65\n"); /* advance_loc 1: sub */
+            buf_printf(out, "\t.byte\t14\n"); /* def_cfa_offset */
+            emit_uleb(out, f->cfi_sp_offsets[i]);
+        }
+        if (f->cfi_sp_offsets[f->cfi_pre_insns - 1] != f->cfi_frame)
+            CGF_ICE("a64 CFI: SP rows cover %u of %u frame bytes",
+                    f->cfi_sp_offsets[f->cfi_pre_insns - 1], f->cfi_frame);
+        if (f->cfi_pair_pre_insns)
+            buf_printf(out, "\t.byte\t%u\n", 0x40u | f->cfi_pair_pre_insns);
         buf_printf(out, "\t.byte\t65\n"); /* advance_loc 1: the stp */
         emit_saved_pair(out, f->cfi_frame, f->cfi_pair_off);
     } else {

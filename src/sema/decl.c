@@ -778,6 +778,14 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
         return type_basic(TY_LDOUBLE);
     case ABT_FLOAT128:
         return type_basic(TY_FLOAT128);
+    case ABT_FLOAT32:
+        return type_basic(TY_FLOAT32);
+    case ABT_FLOAT64:
+        return type_basic(TY_FLOAT64);
+    case ABT_FLOAT32X:
+        return type_basic(TY_FLOAT32X);
+    case ABT_FLOAT64X:
+        return type_basic(TY_FLOAT64X);
     case ABT_BOOL:
         return type_basic(TY_BOOL);
     case ABT_VA_LIST:
@@ -2274,6 +2282,12 @@ static void declare_one(Sema *s, AstNode *d)
         warn_at_ex(s->lang->warnings, WARN_VLA, d->span, WARN_SUPPRESS_IN_MACRO,
                    "variable length array '%s' is used", d->name);
 
+    /* GNU89 makes its inverted inline model the dialect default. In newer
+     * GNU modes it is selected declaration-by-declaration by gnu_inline,
+     * which is how glibc keeps GNU emission while compiling as gnu17. */
+    if (is_func && (d->func_specs & AST_FS_INLINE) && s->lang->std == STD_GNU89)
+        d->gnu.gnu_inline = true;
+
     /* `gnu_inline` only has meaning on an inline FUNCTION declaration.
      * Keeping it on a plain prototype would be worse than merely missing a
      * warning: a later definition could inherit it and select the opposite
@@ -2487,6 +2501,7 @@ static void declare_one(Sema *s, AstNode *d)
         d->kind == AST_FUNC_DEF && (d->func_specs & AST_FS_INLINE) != 0;
     sym->func_def_extern =
         d->kind == AST_FUNC_DEF && (d->storage & AST_SC_EXTERN) != 0;
+    sym->func_def = d->kind == AST_FUNC_DEF ? d : NULL;
 
     prev = scope_lookup_local(s->scope, d->name, NS_ORDINARY);
     if (prev) {
@@ -2511,6 +2526,8 @@ static void declare_one(Sema *s, AstNode *d)
             prev->any_decl_extern || (d->storage & AST_SC_EXTERN) != 0;
         prev->func_def_inline |= sym->func_def_inline;
         prev->func_def_extern |= sym->func_def_extern;
+        if (sym->func_def)
+            prev->func_def = sym->func_def;
         if (d->storage & AST_SC_THREAD_LOCAL)
             prev->tls = true;
         carry_symbol_attrs(prev, sym);
@@ -2527,6 +2544,69 @@ static void declare_one(Sema *s, AstNode *d)
     scope_declare(s, sym);
     d->sym = sym; /* lowering resolves the DECL to its symbol */
     sema_init_expr(s, sym->type, d, static_init);
+}
+
+/* A forwarding-pack wrapper is specialized more than once, potentially in
+ * one caller. Automatic locals are naturally fresh at each expansion, but a
+ * local static must denote ONE program-wide object and a VLA's cached size is
+ * keyed by its semantic Type node. Labels likewise belong to the containing
+ * function's one label namespace and lowering pre-collects only that
+ * function's labels. va_start would inspect the containing caller's ABI
+ * state after specialization rather than the captured pack. Refuse those
+ * shapes here instead of silently duplicating storage, reusing a stale VLA
+ * extent, branching into the caller's label map, or reading its varargs. */
+static void validate_va_pack_body_node(Sema *s, const Symbol *fn, AstNode *n)
+{
+    u32 i;
+
+    if (!n)
+        return;
+    if (n->kind == AST_STMT_GOTO || n->kind == AST_STMT_LABEL) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, n->span,
+                  "function '%s' uses a variadic argument pack and cannot "
+                  "contain labels or goto statements",
+                  fn->name);
+    }
+    if (n->kind == AST_EXPR_CALL && n->op == SEMA_BUILTIN_VA_START) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, n->span,
+                  "function '%s' uses a variadic argument pack and cannot "
+                  "also use va_start",
+                  fn->name);
+    }
+    if (n->kind == AST_DECL) {
+        Type *t = n->sem_type ? n->sem_type : (n->sym ? n->sym->type : NULL);
+
+        if ((n->storage & AST_SC_STATIC) ||
+            ((n->storage & AST_SC_THREAD_LOCAL) &&
+             !(n->storage & AST_SC_EXTERN))) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, n->span,
+                      "function '%s' uses a variadic argument pack and "
+                      "cannot contain a local static object",
+                      fn->name);
+        }
+        if (t && type_contains_vla(t)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, n->span,
+                      "function '%s' uses a variadic argument pack and "
+                      "cannot contain a variably modified declaration",
+                      fn->name);
+        }
+    }
+
+    validate_va_pack_body_node(s, fn, n->lhs);
+    validate_va_pack_body_node(s, fn, n->mid);
+    validate_va_pack_body_node(s, fn, n->rhs);
+    validate_va_pack_body_node(s, fn, n->init);
+    validate_va_pack_body_node(s, fn, n->body);
+    for (i = 0; i < n->nargs; i++)
+        validate_va_pack_body_node(s, fn, n->args[i]);
+    for (i = 0; i < n->nitems; i++)
+        validate_va_pack_body_node(s, fn, n->items[i]);
+    for (i = 0; i < n->ndesignators; i++)
+        validate_va_pack_body_node(s, fn, n->designators[i]);
 }
 
 static void sema_stmt(Sema *s, AstNode *st);
@@ -2764,6 +2844,7 @@ static void sema_decl(Sema *s, AstNode *d)
         s->cur_ret = ftype && ftype->kind == TY_FUNC ? ftype->base : NULL;
         s->cur_fname = d->name;
         s->cur_func_specs = fsym ? fsym->func_specs : d->func_specs;
+        s->cur_func = fsym;
         /* An inline-definition candidate, judged on declarations seen SO
          * FAR — which is when gcc judges it too. */
         s->cur_inline_candidate = fsym && (fsym->func_specs & AST_FS_INLINE) &&
@@ -2838,6 +2919,8 @@ static void sema_decl(Sema *s, AstNode *d)
                 sema_stmt(s, d->body);
             }
         }
+        if (fsym && fsym->uses_va_arg_pack)
+            validate_va_pack_body_node(s, fsym, d->body);
         scope_pop(s);
 
         /* Resolve the collected gotos against their labels: a jump whose
@@ -2849,6 +2932,7 @@ static void sema_decl(Sema *s, AstNode *d)
         s->cur_ret = NULL;
         s->cur_fname = NULL;
         s->cur_func_specs = 0;
+        s->cur_func = NULL;
         return;
     }
     case AST_DECL:
@@ -3449,6 +3533,80 @@ void sema_finish(Sema *s)
     }
 }
 
+static Symbol *va_pack_direct_callee(AstNode *fn)
+{
+    for (;;) {
+        if (!fn)
+            return NULL;
+        if (fn->kind == AST_EXPR_PAREN ||
+            (fn->kind == AST_EXPR_CAST && fn->implicit)) {
+            fn = fn->lhs;
+            continue;
+        }
+        if (fn->kind == AST_EXPR_UNARY && fn->op == PUNCT_STAR) {
+            fn = fn->lhs;
+            continue;
+        }
+        if (fn->kind == AST_EXPR_IDENT && fn->sym && fn->sym->kind == SYM_FUNC)
+            return fn->sym;
+        return NULL;
+    }
+}
+
+/* Whole-TU check: whether a function needs mandatory pack specialization is
+ * only known after its definition has been typed. Diagnose every use that
+ * would require a standalone address/body now, including an initializer that
+ * appeared before the definition. */
+static void check_va_pack_uses(Sema *s, AstNode *n, Symbol *current)
+{
+    u32 i;
+
+    if (!n)
+        return;
+    if (n->kind == AST_FUNC_DEF) {
+        check_va_pack_uses(s, n->body, n->sym);
+        return;
+    }
+    if (n->kind == AST_EXPR_CALL) {
+        Symbol *callee = va_pack_direct_callee(n->lhs);
+
+        if (callee && callee->uses_va_arg_pack) {
+            if (current && current->uses_va_arg_pack) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, n->span,
+                          "nested calls to variadic argument-pack wrappers "
+                          "are not supported");
+            }
+        } else {
+            check_va_pack_uses(s, n->lhs, current);
+        }
+        for (i = 0; i < n->nargs; i++)
+            check_va_pack_uses(s, n->args[i], current);
+        return;
+    }
+    if (n->kind == AST_EXPR_IDENT && n->sym && n->sym->kind == SYM_FUNC &&
+        n->sym->uses_va_arg_pack) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, n->span,
+                  "cannot take the address of variadic argument-pack "
+                  "wrapper '%s'; it must be called directly",
+                  n->sym->name);
+        return;
+    }
+
+    check_va_pack_uses(s, n->lhs, current);
+    check_va_pack_uses(s, n->mid, current);
+    check_va_pack_uses(s, n->rhs, current);
+    check_va_pack_uses(s, n->init, current);
+    check_va_pack_uses(s, n->body, current);
+    for (i = 0; i < n->nargs; i++)
+        check_va_pack_uses(s, n->args[i], current);
+    for (i = 0; i < n->nitems; i++)
+        check_va_pack_uses(s, n->items[i], current);
+    for (i = 0; i < n->ndesignators; i++)
+        check_va_pack_uses(s, n->designators[i], current);
+}
+
 void sema_run(Sema *s, AstNode *tu)
 {
     u32 i;
@@ -3457,5 +3615,7 @@ void sema_run(Sema *s, AstNode *tu)
         return;
     for (i = 0; i < tu->ndecls; i++)
         sema_decl(s, tu->decls[i]);
+    for (i = 0; i < tu->ndecls; i++)
+        check_va_pack_uses(s, tu->decls[i], NULL);
     sema_finish(s);
 }

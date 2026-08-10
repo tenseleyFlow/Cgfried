@@ -129,6 +129,29 @@ typedef struct SwitchCtx {
     struct SwitchCtx *prev;
 } SwitchCtx;
 
+/* One already-evaluated anonymous argument of a GNU forwarding wrapper.
+ * Aggregates use the ordinary lowering convention: VALUE is their address;
+ * scalar VALUEs are SSA operands. The destination call reclassifies TYPE
+ * against its own live ABI budget, so forwarding after different named
+ * arguments cannot inherit the wrapper call's register placement. */
+typedef struct VaPackArg {
+    IrOperand value;
+    Type *type;
+} VaPackArg;
+
+typedef struct VaPackContext {
+    Symbol *wrapper;
+    VaPackArg *args;
+    u32 nargs;
+    Symbol **params;
+    bool *param_constant;
+    u32 nparams;
+    LexScope *scope_mark;
+    BlockId return_target;
+    ValueId return_slot;
+    Type *return_type;
+} VaPackContext;
+
 typedef struct Lower {
     Arena *arena;
     DiagCtx *dc;
@@ -160,6 +183,9 @@ typedef struct Lower {
     u32 dead_region;            /* current contiguous unreachable source */
     u32 next_dead_region;       /* stable diagnostic region numbering */
     u8 auto_var_init;           /* LowerAutoVarInit; emission mitigation */
+    /* Non-NULL only while a GNU variadic wrapper body is being specialized
+     * into its caller. No pack marker is ever admitted to public IR. */
+    VaPackContext *va_pack;
 
     /* module-wide */
     Strmap globals;     /* Symbol* -> arena-owned u32 (sym index + 1) */

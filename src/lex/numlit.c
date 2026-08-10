@@ -203,7 +203,7 @@ too_big_decimal:
 /* --- floating constants ------------------------------------------------ */
 
 void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
-                     const LangOpts *lang, SrcLoc loc)
+                     const LangOpts *lang, TargetSpec target, SrcLoc loc)
 {
     bool hex = len > 2 && sp[0] == '0' && (sp[1] == 'x' || sp[1] == 'X');
     u32 i = hex ? 2 : 0;
@@ -216,7 +216,8 @@ void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
 
         if (c >= '0' && c <= '9') {
             saw_digit = true;
-        } else if (hex && ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+        } else if (hex && !saw_exp &&
+                   ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
             saw_digit = true;
         } else if (c == '.') {
             if (saw_dot || saw_exp) {
@@ -270,12 +271,36 @@ void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
          * `q` (from __float128) and the ISO TS 18661-3 `f128`. Measured:
          * sizeof(1.0Q) and sizeof(1.0F128) are both 16. The f128 form must
          * be tested before the bare `f`, which it is by length. */
-        else if ((c == 'q' || c == 'Q') && i + 1 == len)
+        else if ((c == 'q' || c == 'Q') && i + 1 == len) {
+            /* GCC's historical `Q` names its target `__float128` mode: a
+             * distinct binary128 type on x86, but long double on AArch64
+             * Linux. The TS 18661 `F128` suffix below is `_Float128` on
+             * both. Apple Clang retains a distinct __float128 mode. */
+            t->float_type = target.kind == CGF_TARGET_ARM64_LINUX
+                                ? FTY_LDOUBLE
+                                : FTY_FLOAT128;
+            t->float_ext_suffix = true;
+        } else if ((c == 'f' || c == 'F') && len - i == 3 && sp[i + 1] == '3' &&
+                   sp[i + 2] == '2') {
+            t->float_type = FTY_FLOAT32;
+            t->float_ext_suffix = true;
+        } else if ((c == 'f' || c == 'F') && len - i == 3 && sp[i + 1] == '6' &&
+                   sp[i + 2] == '4') {
+            t->float_type = FTY_FLOAT64;
+            t->float_ext_suffix = true;
+        } else if ((c == 'f' || c == 'F') && len - i == 4 && sp[i + 1] == '3' &&
+                   sp[i + 2] == '2' && sp[i + 3] == 'x') {
+            t->float_type = FTY_FLOAT32X;
+            t->float_ext_suffix = true;
+        } else if ((c == 'f' || c == 'F') && len - i == 4 && sp[i + 1] == '6' &&
+                   sp[i + 2] == '4' && sp[i + 3] == 'x') {
+            t->float_type = FTY_FLOAT64X;
+            t->float_ext_suffix = true;
+        } else if ((c == 'f' || c == 'F') && len - i == 4 && sp[i + 1] == '1' &&
+                   sp[i + 2] == '2' && sp[i + 3] == '8') {
             t->float_type = FTY_FLOAT128;
-        else if ((c == 'f' || c == 'F') && len - i == 4 && sp[i + 1] == '1' &&
-                 sp[i + 2] == '2' && sp[i + 3] == '8')
-            t->float_type = FTY_FLOAT128;
-        else {
+            t->float_ext_suffix = true;
+        } else {
             pp_diag_at(pp, DIAG_ERROR, loc, len,
                        "invalid suffix on floating constant '%s'", sp);
             return;

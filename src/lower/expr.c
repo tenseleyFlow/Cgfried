@@ -22,12 +22,6 @@ static Type *sem(AstNode *e)
     return e->sem_type;
 }
 
-static bool type_is_fp(const Type *t)
-{
-    return t && (t->kind == TY_FLOAT || t->kind == TY_DOUBLE ||
-                 t->kind == TY_LDOUBLE || t->kind == TY_FLOAT128);
-}
-
 static bool is_signed_ty(Lower *lo, Type *t)
 {
     return conv_is_signed(lo->sema, t);
@@ -54,7 +48,7 @@ static IrOperand truth_ne(Lower *lo, IrOperand v, Type *t)
 {
     ValueId r;
 
-    if (type_is_fp(t))
+    if (type_is_floating(t))
         r = ir_build_fcmp(&lo->b, FCMP_UNE, v, fp_zero(lo, t));
     else
         r = ir_build_icmp(&lo->b, ICMP_NE, v, ir_op_iconst((IrType)v.type, 0));
@@ -166,8 +160,8 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
              ? IRT_PTR
              : lower_irtype(lo, from);
     tt = lower_irtype(lo, to);
-    fint = !type_is_fp(from);
-    tint = !type_is_fp(to);
+    fint = !type_is_floating(from);
+    tint = !type_is_floating(to);
 
     /* _Bool is a CONVERSION, not a truncation: any nonzero maps to 1. */
     if (to->kind == TY_BOOL && !(from->kind == TY_BOOL)) {
@@ -594,7 +588,7 @@ static bool is_cmp_op(u16 op)
  * division/shift flavor). */
 static IrOp arith_op_for(Lower *lo, u16 op, Type *t)
 {
-    bool fp = type_is_fp(t);
+    bool fp = type_is_floating(t);
     bool sign = !fp && is_signed_ty(lo, t);
 
     switch (op) {
@@ -659,7 +653,7 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
         IrOperand b = lower_rvalue(lo, e->rhs);
         ValueId r;
 
-        if (type_is_fp(lt)) {
+        if (type_is_floating(lt)) {
             r = ir_build_fcmp(&lo->b, fcmp_pred_for(e->op), a, b);
         } else if (lt && lt->kind == TY_PTR && rt && rt->kind == TY_PTR) {
             r = ir_build_icmp(&lo->b, icmp_pred_for(e->op, false), a, b);
@@ -1082,16 +1076,10 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
 
     abi_classify_arg(lo, t, &plan);
     switch (plan.kind) {
-    case ABI_ARG_SCALAR: {
-        IrType st = lower_irtype(lo, t);
-
-        if (st == IRT_F32 || st == IRT_F64)
+    case ABI_ARG_SCALAR:
+        if (type_is_floating(t))
             fp_path = true;
-        else if (st == IRT_F80 || st == IRT_F128)
-            lower_unimplemented(
-                lo, e->span, "va_arg of a 128-bit floating type on arm64", 49);
         break;
-    }
     case ABI_ARG_EIGHTBYTES:
         /* A composite of 16 bytes or fewer travels in one or two general
          * registers, so its save-area image is already contiguous. */
@@ -1164,7 +1152,9 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
                 ValueId tmp = ir_build_alloca_typed(
                     &lo->b, lower_i64(nslots * hfa_leaf),
                     l.align > 8 ? (u32)l.align : 8, lower_efftype(lo, t));
-                IrType lt = hfa_leaf == 4 ? IRT_F32 : IRT_F64;
+                IrType lt = hfa_leaf == 4    ? IRT_F32
+                            : hfa_leaf == 16 ? IRT_F128
+                                             : IRT_F64;
                 i64 k;
 
                 for (k = 0; k < nslots; k++) {
@@ -1399,9 +1389,9 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
         if (plan.kind == ABI_ARG_SCALAR) {
             IrType st = lower_irtype(lo, t);
 
-            if (st == IRT_F32 || st == IRT_F64)
+            if (st == IRT_F32 || st == IRT_F64 || st == IRT_F128)
                 nfp = 1;
-            else if (st == IRT_F80 || st == IRT_F128)
+            else if (st == IRT_F80)
                 reg_ok = false; /* long double: always the overflow area */
             else
                 ngp = 1;
@@ -1410,7 +1400,7 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
 
             n = plan.n;
             for (k = 0; k < plan.n; k++) {
-                if (plan.t[k] == IRT_F64)
+                if (plan.t[k] == IRT_F64 || plan.t[k] == IRT_F128)
                     nfp++;
                 else
                     ngp++;
@@ -1534,8 +1524,9 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
                                                   8, lower_efftype(lo, t));
 
                         for (k = 0; k < n; k++) {
-                            bool kfp = plan.kind == ABI_ARG_EIGHTBYTES &&
-                                       plan.t[k] == IRT_F64;
+                            bool kfp =
+                                plan.kind == ABI_ARG_EIGHTBYTES &&
+                                (plan.t[k] == IRT_F64 || plan.t[k] == IRT_F128);
                             IrOperand sp = kfp ? fp_base : gp_base;
                             IrOperand dp = ir_op_value(lo->fn, tmp);
                             i64 soff = kfp ? fp_seen++ * 16 : gp_seen++ * 8;
@@ -1815,7 +1806,22 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
          * value that only becomes constant after inlining reads 0 —
          * documented, and the same answer gcc gives at -O0. */
         {
+            const AstNode *core = e->args[0];
             ConstValue cv = constexpr_eval(lo->sema, e->args[0], CE_FOLD);
+            u32 i;
+
+            while (core && (core->kind == AST_EXPR_PAREN ||
+                            (core->kind == AST_EXPR_CAST && core->implicit)))
+                core = core->lhs;
+            if (lo->va_pack && core && core->kind == AST_EXPR_IDENT &&
+                core->sym) {
+                for (i = 0; i < lo->va_pack->nparams; i++)
+                    if (lo->va_pack->params[i] == core->sym) {
+                        *out = ir_op_iconst(
+                            IRT_I32, lo->va_pack->param_constant[i] ? 1 : 0);
+                        return true;
+                    }
+            }
 
             *out = ir_op_iconst(
                 IRT_I32, (cv.kind == CV_INT || cv.kind == CV_FLOAT) ? 1 : 0);
@@ -1876,6 +1882,272 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
     CGF_ICE("builtin %#x has no lowering", (unsigned)e->op);
 }
 
+typedef struct CallArgBuf {
+    IrOperand *data;
+    u32 len;
+    u32 cap;
+} CallArgBuf;
+
+static void call_arg_reserve(Lower *lo, CallArgBuf *args, u32 extra)
+{
+    IrOperand *next;
+    size_t bytes;
+    u32 need, cap;
+
+    if (extra > UINT32_MAX - args->len)
+        CGF_ICE("call ABI operand count overflow");
+    need = args->len + extra;
+    if (need <= args->cap)
+        return;
+    cap = args->cap ? args->cap : 16;
+    while (cap < need) {
+        if (cap > UINT32_MAX / 2) {
+            cap = need;
+            break;
+        }
+        cap *= 2;
+    }
+    bytes = (size_t)cap * sizeof(*next);
+    if (cap && bytes / sizeof(*next) != cap)
+        CGF_ICE("call ABI operand allocation overflow");
+    next = arena_alloc(lo->arena, bytes, _Alignof(IrOperand));
+    if (args->len)
+        memcpy(next, args->data, (size_t)args->len * sizeof(*next));
+    args->data = next;
+    args->cap = cap;
+}
+
+/* Materialize ONE already-evaluated C argument in the destination call's
+ * wire form. This is deliberately shared by ordinary AST arguments and GNU
+ * forwarded-pack values: aggregate placement depends on the registers spent
+ * by earlier arguments, so a pack captured at the wrapper boundary must be
+ * classified again here, under the INNER call's budget. */
+static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
+                           bool anonymous, AbiBudget *budget, CallArgBuf *args)
+{
+    AbiArg plan;
+    u8 flags = anonymous ? (u8)IROPF_ANON : 0u;
+    u32 first_arg = args->len;
+    bool stacked = false;
+    u32 need;
+
+    /* Signedness of a sub-int argument, for the one ABI that makes the
+     * caller widen it (see IROPF_SEXT). Default argument promotion has
+     * already run, so an anonymous argument is never narrow. */
+    if (type && type_is_integer(type) && layout_of(lo->sema, type).size < 4)
+        flags |=
+            conv_is_signed(lo->sema, type) ? (u8)IROPF_SEXT : (u8)IROPF_ZEXT;
+
+    abi_classify_arg(lo, type, &plan);
+    abi_arg_place(lo, &plan, budget, anonymous);
+    if (plan.kind == ABI_ARG_SCALAR) {
+        if (type_is_floating(type))
+            budget->fp++;
+        else
+            budget->gp++;
+    }
+    if (plan.kind == ABI_ARG_STACK) {
+        plan.kind =
+            (u8)(lower_is_aapcs64(lo) ? ABI_ARG_EIGHTBYTES : ABI_ARG_BYVAL);
+        stacked = true;
+    }
+    need = plan.kind == ABI_ARG_EIGHTBYTES || plan.kind == ABI_ARG_HFA ? plan.n
+                                                                       : 1u;
+    call_arg_reserve(lo, args, need);
+
+    switch (plan.kind) {
+    case ABI_ARG_EIGHTBYTES:
+    case ABI_ARG_HFA: {
+        u64 stride = plan.kind == ABI_ARG_HFA || plan.t[0] == IRT_F128
+                         ? (u64)ir_type_size(plan.t[0])
+                         : 8u;
+        u64 rounded = (u64)plan.n * stride;
+        ValueId tmp = ir_build_alloca_typed(&lo->b, lower_i64((i64)rounded),
+                                            plan.align > 8 ? plan.align : 8,
+                                            lower_efftype(lo, type));
+        u32 k;
+
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
+                               plan.align, 0);
+        for (k = 0; k < plan.n; k++) {
+            Lvalue lv;
+            IrOperand addr = ir_op_value(lo->fn, tmp);
+
+            if (k) {
+                ValueId p2 = ir_build_ptradd(&lo->b, ir_op_value(lo->fn, tmp),
+                                             lower_i64((i64)(stride * k)));
+
+                addr = ir_op_value(lo->fn, p2);
+            }
+            memset(&lv, 0, sizeof(lv));
+            lv.addr = addr;
+            lv.unit = plan.t[k];
+            lv.etype = lower_efftype(lo, type);
+            lv.align = (u32)stride;
+            args->data[args->len++] = lower_load(lo, lv);
+        }
+        break;
+    }
+    case ABI_ARG_BYVAL:
+    case ABI_ARG_STACK: {
+        ValueId tmp = lower_temp(lo, type);
+
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
+                               plan.align, 0);
+        args->data[args->len] = ir_op_value(lo->fn, tmp);
+        args->data[args->len].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
+        if (plan.kind == ABI_ARG_STACK)
+            args->data[args->len].argflags |= (u8)IROPF_ONSTACK;
+        args->len++;
+        break;
+    }
+    default:
+        args->data[args->len++] = value;
+        break;
+    }
+    if (flags || stacked)
+        for (; first_arg < args->len; first_arg++)
+            args->data[first_arg].argflags |=
+                (u8)(flags | (stacked ? (u8)IROPF_ONSTACK : 0u));
+}
+
+static IrOperand va_pack_failed_value(Lower *lo, Type *type)
+{
+    if (!type || type->kind == TY_VOID)
+        return ir_op_undef(IRT_I32);
+    if (lower_is_aggregate(type))
+        return ir_op_undef(IRT_PTR);
+    return ir_op_undef(lower_irtype(lo, type));
+}
+
+static void bind_va_pack_param(Lower *lo, Symbol *param, IrOperand value)
+{
+    TypeLayout l;
+    ValueId slot;
+
+    if (!param || !param->type)
+        return;
+    l = layout_of(lo->sema, param->type);
+    slot = ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
+                                 (u32)(l.align ? l.align : 1),
+                                 lower_efftype(lo, param->type));
+    lower_bind_local(lo, param, slot);
+    if (lower_is_aggregate(param->type)) {
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, slot), value,
+                               param->type, (u32)l.align, 0);
+    } else {
+        ir_build_store_typed(&lo->b, value, ir_op_value(lo->fn, slot),
+                             (u32)(l.align ? l.align : 1), 0,
+                             lower_efftype(lo, param->type));
+    }
+}
+
+/* Mandatory source-level specialization for GNU argument-pack wrappers.
+ * Every outer argument is evaluated once, named parameters receive fresh
+ * local objects, and the anonymous values remain in source form until an
+ * inner call consumes the pack through lower_call_arg(). */
+static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
+                                            Symbol *wrapper)
+{
+    AstNode *def = wrapper->func_def;
+    Type *fty = wrapper->type;
+    Type *ret = fty ? fty->base : sem(call);
+    u32 nfixed = fty && fty->has_proto ? fty->nparams : 0;
+    IrOperand *values;
+    bool *constant;
+    VaPackArg *pack;
+    VaPackContext ctx;
+    TypeLayout rl = {0};
+    u32 i;
+
+    if (lo->va_pack) {
+        if (!lo->failed)
+            diag_emit(lo->dc, DIAG_ERROR, call->span,
+                      "nested calls to variadic argument-pack wrappers are "
+                      "not supported");
+        lo->failed = true;
+        return va_pack_failed_value(lo, ret);
+    }
+    if (!def || !def->body || !fty || fty->kind != TY_FUNC ||
+        call->nargs < nfixed) {
+        if (!lo->failed)
+            diag_emit(lo->dc, DIAG_ERROR, call->span,
+                      "variadic argument-pack wrapper '%s' has no usable "
+                      "inline definition",
+                      wrapper->name);
+        lo->failed = true;
+        return va_pack_failed_value(lo, ret);
+    }
+
+    values = arena_alloc(lo->arena,
+                         (call->nargs ? call->nargs : 1) * sizeof(*values),
+                         _Alignof(IrOperand));
+    constant = arena_alloc(lo->arena, (nfixed ? nfixed : 1) * sizeof(*constant),
+                           _Alignof(bool));
+    memset(constant, 0, (nfixed ? nfixed : 1) * sizeof(*constant));
+    pack = arena_alloc(lo->arena,
+                       (call->nargs > nfixed ? call->nargs - nfixed : 1) *
+                           sizeof(*pack),
+                       _Alignof(VaPackArg));
+
+    /* Cgfried's chosen argument order is left-to-right. Capture every value
+     * before executing any wrapper statement, exactly as a real call would. */
+    for (i = 0; i < call->nargs; i++) {
+        ConstValue cv = constexpr_eval(lo->sema, call->args[i], CE_FOLD);
+
+        values[i] = lower_rvalue(lo, call->args[i]);
+        if (i < nfixed)
+            constant[i] = cv.kind == CV_INT || cv.kind == CV_FLOAT;
+        else {
+            pack[i - nfixed].value = values[i];
+            pack[i - nfixed].type = sem(call->args[i]);
+        }
+    }
+    for (i = 0; i < nfixed && i < def->nparam_syms; i++)
+        bind_va_pack_param(lo, def->param_syms[i], values[i]);
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.wrapper = wrapper;
+    ctx.args = pack;
+    ctx.nargs = call->nargs - nfixed;
+    ctx.params = def->param_syms;
+    ctx.param_constant = constant;
+    ctx.nparams = def->nparam_syms;
+    ctx.scope_mark = lo->scopes;
+    ctx.return_target = lower_new_block(lo, "vapack.ret");
+    ctx.return_type = ret;
+    ctx.return_slot = VALUE_INVALID;
+    if (ret && ret->kind != TY_VOID) {
+        rl = layout_of(lo->sema, ret);
+        ctx.return_slot = ir_build_alloca_typed(
+            &lo->b, lower_i64((i64)(rl.size ? rl.size : 1)),
+            (u32)(rl.align ? rl.align : 1), lower_efftype(lo, ret));
+    }
+
+    lo->va_pack = &ctx;
+    lower_prebind_locals(lo, def->body);
+    lower_stmt(lo, def->body);
+    if (!lo->terminated)
+        ir_build_br(&lo->b, ctx.return_target, NULL, 0);
+    lo->va_pack = NULL;
+    lower_at(lo, ctx.return_target);
+
+    if (!ret || ret->kind == TY_VOID)
+        return ir_op_undef(IRT_I32);
+    if (lower_is_aggregate(ret))
+        return ir_op_value(lo->fn, ctx.return_slot);
+    {
+        Lvalue lv;
+
+        memset(&lv, 0, sizeof(lv));
+        lv.addr = ir_op_value(lo->fn, ctx.return_slot);
+        lv.unit = lower_irtype(lo, ret);
+        lv.etype = lower_efftype(lo, ret);
+        lv.align = (u32)(rl.align ? rl.align : 1);
+        return lower_load(lo, lv);
+    }
+}
+
 static IrOperand lower_call(Lower *lo, AstNode *e)
 {
     Symbol *callee;
@@ -1884,15 +2156,18 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     AbiRet aret;
     AbiBudget budget;
     bool hidden;
-    bool stacked = false;
     IrOperand fp;
-    IrOperand args[130];
-    u32 attr_ir_args[130] = {0};
-    u32 nargs = 0;
+    CallArgBuf args = {0};
+    u32 *attr_ir_args;
     ValueId sret_tmp = VALUE_INVALID;
     ValueId rv;
     u32 i;
     bool call_noreturn = false;
+
+    attr_ir_args = arena_alloc(
+        lo->arena, (e->nargs ? e->nargs : 1) * sizeof(*attr_ir_args),
+        _Alignof(u32));
+    memset(attr_ir_args, 0, (e->nargs ? e->nargs : 1) * sizeof(*attr_ir_args));
 
     /* The va_* builtins carry sema's marker instead of a callee. */
     if (e->op >= SEMA_BUILTIN_VA_START && e->op <= SEMA_BUILTIN_VA_COPY) {
@@ -1912,6 +2187,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     }
 
     callee = direct_callee(e->lhs);
+    if (callee && callee->uses_va_arg_pack)
+        return lower_va_pack_wrapper_call(lo, e, callee);
     if (callee) {
         static const char *const known[] = {
             "abort", "exit", "_Exit", "quick_exit", "longjmp", "siglongjmp"};
@@ -1950,135 +2227,40 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
 
     if (hidden) {
         sret_tmp = lower_temp(lo, ret);
-        args[nargs] = ir_op_value(lo->fn, sret_tmp);
-        args[nargs].b = aret.arg_annot == IR_ARG_HFA
-                            ? ir_arg_annot_hfa(aret.size, aret.n)
-                            : ir_arg_annot(aret.arg_annot, aret.size);
-        nargs++;
+        call_arg_reserve(lo, &args, 1);
+        args.data[args.len] = ir_op_value(lo->fn, sret_tmp);
+        args.data[args.len].b = aret.arg_annot == IR_ARG_HFA
+                                    ? ir_arg_annot_hfa(aret.size, aret.n)
+                                    : ir_arg_annot(aret.arg_annot, aret.size);
+        args.len++;
     }
     abi_budget_init(lo, &budget, &aret);
-    for (i = 0; i < e->nargs && nargs + 2 <= 130; i++) {
+    for (i = 0; i < e->nargs; i++) {
         AstNode *a = e->args[i];
-        AbiArg plan;
-        IrOperand av = lower_rvalue(lo, a);
-        /* The named/anonymous boundary is knowable ONLY here: the IR records
-         * that a callee is variadic, never where its prototype stopped. An
-         * unprototyped callee has no boundary to record. */
-        u8 anon = fty && fty->variadic && fty->has_proto && i >= fty->nparams
-                      ? (u8)IROPF_ANON
-                      : 0u;
-        u32 first_arg = nargs;
+        bool anonymous =
+            fty && fty->variadic && fty->has_proto && i >= fty->nparams;
 
-        /* Signedness of a sub-int argument, for the one ABI that makes the
-         * caller widen it (see IROPF_SEXT). Default argument promotion has
-         * already run, so an anonymous argument is never narrow -- this
-         * only ever fires on a declared parameter. */
-        if (sem(a) && type_is_integer(sem(a)) &&
-            layout_of(lo->sema, sem(a)).size < 4)
-            anon |= conv_is_signed(lo->sema, sem(a)) ? (u8)IROPF_SEXT
-                                                     : (u8)IROPF_ZEXT;
+        if (a && a->kind == AST_EXPR_VA_ARG_PACK) {
+            u32 pi;
 
-        attr_ir_args[i] = nargs + 1;
-
-        abi_classify_arg(lo, sem(a), &plan);
-        /* Placement depends on what earlier arguments already spent, so this
-         * may turn a register-class aggregate into a stacked one. The
-         * DEFINITION walk in lower.c runs the identical sequence -- if the
-         * two ever diverge, the halves of a call disagree silently. */
-        abi_arg_place(lo, &plan, &budget, (anon & (u8)IROPF_ANON) != 0);
-        if (plan.kind == ABI_ARG_SCALAR) {
-            IrType st = lower_irtype(lo, sem(a));
-
-            if (st == IRT_F32 || st == IRT_F64)
-                budget.fp++;
-            else if (st != IRT_F80 && st != IRT_F128)
-                budget.gp++;
-        }
-        /* A stacked aggregate travels as eightbyte leaves on AAPCS64 (which
-         * is what abi_arg_place re-planned it into) and as a byval pointer
-         * on SysV, where that spelling already means
-         * by-value-on-the-stack. */
-        if (plan.kind == ABI_ARG_STACK) {
-            plan.kind =
-                (u8)(lower_is_aapcs64(lo) ? ABI_ARG_EIGHTBYTES : ABI_ARG_BYVAL);
-            stacked = true;
-        } else {
-            stacked = false;
-        }
-        switch (plan.kind) {
-        case ABI_ARG_EIGHTBYTES:
-        case ABI_ARG_HFA: {
-            /* The value travels as N bit-carrying scalars. Stage through a
-             * temp rounded to N strides so the last load never reads past
-             * the object. The STRIDE is the leaf width: 8 for an eightbyte
-             * pair, 4 or 8 for an HFA whose leaves are floats or doubles.
-             * Using 8 for an HFA of floats would gather every other leaf. */
-            u64 stride =
-                plan.kind == ABI_ARG_HFA ? (u64)ir_type_size(plan.t[0]) : 8u;
-            u64 rounded = (u64)plan.n * stride;
-            ValueId tmp = ir_build_alloca_typed(&lo->b, lower_i64((i64)rounded),
-                                                plan.align > 8 ? plan.align : 8,
-                                                lower_efftype(lo, sem(a)));
-            u32 k;
-
-            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), av, sem(a),
-                                   plan.align, 0);
-            for (k = 0; k < plan.n; k++) {
-                Lvalue lv;
-                IrOperand addr = ir_op_value(lo->fn, tmp);
-
-                if (k) {
-                    ValueId p2 =
-                        ir_build_ptradd(&lo->b, ir_op_value(lo->fn, tmp),
-                                        lower_i64((i64)(stride * k)));
-
-                    addr = ir_op_value(lo->fn, p2);
-                }
-                memset(&lv, 0, sizeof(lv));
-                lv.addr = addr;
-                lv.unit = plan.t[k];
-                lv.etype = lower_efftype(lo, sem(a));
-                lv.align = (u32)stride;
-                args[nargs++] = lower_load(lo, lv);
+            if (!lo->va_pack) {
+                if (!lo->failed)
+                    diag_emit(lo->dc, DIAG_ERROR, a->span,
+                              "variadic argument pack survived without an "
+                              "inline expansion");
+                lo->failed = true;
+                continue;
             }
-            break;
-        }
-        case ABI_ARG_BYVAL:
-        case ABI_ARG_STACK: {
-            /* THE mandatory call-site copy: the callee may scribble on
-             * its parameter, and without a fresh temporary that scribble
-             * lands on the caller's object. The pointer is IR-level
-             * bookkeeping; byval(N) tells codegen to copy the pointee
-             * onto the stack.
-             *
-             * STACK shares the shape and adds `onstack`, which is inert on
-             * SysV (byval already means by-value-on-the-stack there) and is
-             * the whole distinction on AAPCS64, where a plain byval passes
-             * the ADDRESS in a general register instead. */
-            ValueId tmp = lower_temp(lo, sem(a));
+            for (pi = 0; pi < lo->va_pack->nargs; pi++) {
+                VaPackArg *pa = &lo->va_pack->args[pi];
 
-            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), av, sem(a),
-                                   plan.align, 0);
-            args[nargs] = ir_op_value(lo->fn, tmp);
-            args[nargs].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
-            if (plan.kind == ABI_ARG_STACK)
-                args[nargs].argflags |= (u8)IROPF_ONSTACK;
-            nargs++;
-            break;
+                lower_call_arg(lo, pa->type, pa->value, true, &budget, &args);
+            }
+            continue;
         }
-        default:
-            args[nargs++] = av;
-            break;
-        }
-        /* One C argument can become several operands (an EIGHTBYTES or HFA
-         * aggregate); every one of them shares the argument's provenance.
-         * A stacked aggregate must mark ALL its leaves, or the backend
-         * places the first few in registers and splits the very thing this
-         * is here to keep whole. */
-        if (anon || stacked)
-            for (; first_arg < nargs; first_arg++)
-                args[first_arg].argflags |=
-                    (u8)(anon | (stacked ? (u8)IROPF_ONSTACK : 0u));
+        attr_ir_args[i] = args.len + 1;
+        lower_call_arg(lo, sem(a), lower_rvalue(lo, a), anonymous, &budget,
+                       &args);
     }
 
     {
@@ -2090,8 +2272,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             u32 fidx;
 
             if (lower_internal_func(lo, callee, &fidx)) {
-                rv = ir_build_call(&lo->b, irret, FUNCREF_INTERNAL, fidx, args,
-                                   nargs);
+                rv = ir_build_call(&lo->b, irret, FUNCREF_INTERNAL, fidx,
+                                   args.data, args.len);
             } else {
                 u32 symidx = lower_global_sym(lo, callee);
 
@@ -2108,10 +2290,10 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                     strcmp(callee->name, "_setjmp") == 0)
                     lo->fn->calls_setjmp = true;
                 rv = ir_build_call(&lo->b, irret, FUNCREF_EXTERNAL, symidx,
-                                   args, nargs);
+                                   args.data, args.len);
             }
         } else {
-            rv = ir_build_call_indirect(&lo->b, irret, fp, args, nargs);
+            rv = ir_build_call_indirect(&lo->b, irret, fp, args.data, args.len);
         }
         /* AL protocol (Sprint 23): only the front end knows the callee's
          * C type is variadic; the call instruction carries the fact. */
@@ -2126,15 +2308,17 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     if (aret.kind == ABI_RET_SMALL) {
         /* The eightbyte came back as a scalar; give the expression layer
          * the ADDRESS it expects for an aggregate value. */
-        ValueId tmp = ir_build_alloca_typed(&lo->b, lower_i64(8), 8,
-                                            lower_efftype(lo, ret));
+        TypeLayout l = layout_of(lo->sema, ret);
+        ValueId tmp =
+            ir_build_alloca_typed(&lo->b, lower_i64((i64)l.size), (u32)l.align,
+                                  lower_efftype(lo, ret));
         Lvalue lv;
 
         memset(&lv, 0, sizeof(lv));
         lv.addr = ir_op_value(lo->fn, tmp);
         lv.unit = aret.small_t;
         lv.etype = lower_efftype(lo, ret);
-        lv.align = 8;
+        lv.align = (u32)l.align;
         lower_store(lo, lv, ir_op_value(lo->fn, rv));
         return ir_op_value(lo->fn, tmp);
     }
@@ -2154,12 +2338,12 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
 
     if (lv.is_atomic && t->kind != TY_PTR) {
         u16 op = e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS;
-        IrOperand one = type_is_fp(t)
+        IrOperand one = type_is_floating(t)
                             ? ir_op_iconst(IRT_I32, 1) /* converted below */
                             : ir_op_iconst(lower_irtype(lo, t), 1);
 
         return lower_atomic_update(lo, lv, t, op, one,
-                                   type_is_fp(t) ? type_basic(TY_INT) : t,
+                                   type_is_floating(t) ? type_basic(TY_INT) : t,
                                    e->is_postfix);
     }
     old = lower_load(lo, lv);
@@ -2172,7 +2356,7 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
             &lo->b, old, lower_i64(inc ? (i64)el.size : -(i64)el.size));
 
         nv = ir_op_value(lo->fn, r);
-    } else if (type_is_fp(t)) {
+    } else if (type_is_floating(t)) {
         Sf one;
         SfStatus st;
         SfFormat f = constexpr_format_of(lo->sema, t);
@@ -2243,7 +2427,7 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
         Type *t = sem(e);
         ValueId r;
 
-        if (type_is_fp(t))
+        if (type_is_floating(t))
             r = ir_build1(&lo->b, IR_FNEG, lower_irtype(lo, t), v);
         else
             r = build_source_arith(lo, IR_ISUB, lower_irtype(lo, t),
@@ -2263,7 +2447,7 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
         Type *t = sem(e->lhs);
         ValueId r;
 
-        if (type_is_fp(t))
+        if (type_is_floating(t))
             r = ir_build_fcmp(&lo->b, FCMP_OEQ, v, fp_zero(lo, t));
         else
             r = ir_build_icmp(&lo->b, ICMP_EQ, v,
@@ -2311,7 +2495,7 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         if (sym && sym->kind == SYM_ENUM_CONST)
             return ir_op_iconst(lower_irtype(lo, sem(e)), sym->enum_value);
         if (sym && sym->kind == SYM_FUNC)
-            return ir_op_symbol(IRT_PTR, lower_global_sym(lo, sym), 0);
+            return lower_sym_addr(lo, sym);
         if (lower_is_aggregate(sem(e)) || (sem(e) && sem(e)->kind == TY_FUNC)) {
             lv = lower_lvalue(lo, e);
             return lv.addr;
@@ -2399,6 +2583,23 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         return lower_rvalue(lo, e->mid);
     case AST_EXPR_VA_ARG:
         return lower_va_arg(lo, e);
+    case AST_EXPR_VA_ARG_PACK:
+        if (!lo->failed)
+            diag_emit(lo->dc, DIAG_ERROR, e->span,
+                      "variadic argument pack survived outside the final "
+                      "argument of an expanded call");
+        lo->failed = true;
+        return ir_op_undef(IRT_I32);
+    case AST_EXPR_VA_ARG_PACK_LEN:
+        if (!lo->va_pack) {
+            if (!lo->failed)
+                diag_emit(lo->dc, DIAG_ERROR, e->span,
+                          "variadic argument-pack length survived without "
+                          "an inline expansion");
+            lo->failed = true;
+            return ir_op_undef(IRT_I32);
+        }
+        return ir_op_iconst(IRT_I32, (i64)lo->va_pack->nargs);
     case AST_EXPR_OFFSETOF: {
         /* Always an ICE — sema typed it and the folder computed the
          * byte offset, so there is nothing to evaluate at run time. */

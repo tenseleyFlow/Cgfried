@@ -937,6 +937,46 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         return;
     }
     case AST_STMT_RETURN: {
+        if (lo->va_pack) {
+            VaPackContext *ctx = lo->va_pack;
+            Type *ret = ctx->return_type;
+
+            /* This return belongs to the specialized wrapper, not the
+             * containing IR function. Materialize the source-level result in
+             * one slot, leave only the wrapper's scopes, and join the outer
+             * call expression. */
+            ensure_open_block(lo, "dead");
+            if (!ret || ret->kind == TY_VOID) {
+                if (s->lhs)
+                    (void)lower_rvalue(lo, s->lhs);
+            } else if (s->lhs) {
+                IrOperand value = lower_rvalue(lo, s->lhs);
+                TypeLayout l = layout_of(lo->sema, ret);
+
+                if (lower_is_aggregate(ret)) {
+                    lower_memcpy_aggregate(
+                        lo, ir_op_value(lo->fn, ctx->return_slot), value, ret,
+                        (u32)l.align, 0);
+                } else {
+                    ir_build_store_typed(&lo->b, value,
+                                         ir_op_value(lo->fn, ctx->return_slot),
+                                         (u32)(l.align ? l.align : 1), 0,
+                                         lower_efftype(lo, ret));
+                }
+            } else if (!lower_is_aggregate(ret)) {
+                TypeLayout l = layout_of(lo->sema, ret);
+
+                ir_build_store_typed(&lo->b, ir_op_undef(lower_irtype(lo, ret)),
+                                     ir_op_value(lo->fn, ctx->return_slot),
+                                     (u32)(l.align ? l.align : 1), 0,
+                                     lower_efftype(lo, ret));
+            }
+            cleanup_run_until(lo, ctx->scope_mark);
+            vla_restore_until(lo, ctx->scope_mark);
+            ir_build_br(&lo->b, ctx->return_target, NULL, 0);
+            lo->terminated = true;
+            return;
+        }
         /* No stackrestore on return: the epilogue's frame teardown
          * subsumes every live VLA token (and longjmp likewise unwinds
          * frames wholesale — tokens die with them). `cleanup` is the

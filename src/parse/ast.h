@@ -53,13 +53,18 @@ typedef enum AstKind {
     AST_GENERIC_ASSOC,
     AST_EXPR_COMPOUND_LIT, /* (type){ init } */
     AST_EXPR_PAREN,
-    AST_EXPR_VA_ARG,        /* __builtin_va_arg(lhs, type) — the one call-like
-                               form whose second argument is a TYPE (Sprint 19) */
-    AST_EXPR_OFFSETOF,      /* __builtin_offsetof(type, designator): `lhs` is
-                               the designator chain built over an
-                               AST_EXPR_OFFSETOF_BASE placeholder (Sprint 28) */
-    AST_EXPR_OFFSETOF_BASE, /* the anchor a designator chain bottoms out
-                               on; never evaluated, never typed */
+    AST_EXPR_VA_ARG, /* __builtin_va_arg(lhs, type) — the one call-like
+                        form whose second argument is a TYPE (Sprint 19) */
+    /* GNU argument packs are not ordinary values. The pack form is a
+     * call-argument PLACEHOLDER that lowering expands before ABI placement;
+     * the length form is an int value supplied by that same expansion. */
+    AST_EXPR_VA_ARG_PACK,     /* __builtin_va_arg_pack() */
+    AST_EXPR_VA_ARG_PACK_LEN, /* __builtin_va_arg_pack_len() */
+    AST_EXPR_OFFSETOF,        /* __builtin_offsetof(type, designator): `lhs` is
+                                 the designator chain built over an
+                                 AST_EXPR_OFFSETOF_BASE placeholder (Sprint 28) */
+    AST_EXPR_OFFSETOF_BASE,   /* the anchor a designator chain bottoms out
+                                 on; never evaluated, never typed */
     /* `__builtin_types_compatible_p(T1, T2)`: TWO type names and no
      * expression at all, so it needs its own form exactly as va_arg and
      * offsetof do. Folds to an int 0/1 in sema; usable as an array bound. */
@@ -146,6 +151,10 @@ typedef enum AstBaseType {
     ABT_FLOAT,
     ABT_DOUBLE,
     ABT_LDOUBLE,
+    ABT_FLOAT32,
+    ABT_FLOAT64,
+    ABT_FLOAT32X,
+    ABT_FLOAT64X,
     ABT_FLOAT128, /* _Float128 / __float128: IEEE binary128 on every target */
     ABT_BOOL,
     ABT_RECORD,  /* struct/union: `record` points at the AST_RECORD_DECL */

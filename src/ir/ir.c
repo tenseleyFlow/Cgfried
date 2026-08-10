@@ -230,6 +230,28 @@ u32 ir_sym(IrModule *m, const char *name)
     return m->nsyms++;
 }
 
+u32 ir_sym_exact_asm(IrModule *m, const char *name)
+{
+    size_t n;
+    char *key;
+
+    n = strlen(name);
+    key = arena_alloc(m->arena, n + 2, 1);
+    key[0] = '!';
+    memcpy(key + 1, name, n + 1);
+    return ir_sym(m, key);
+}
+
+bool ir_sym_name_is_exact_asm(const char *name)
+{
+    return name && name[0] == '!';
+}
+
+const char *ir_sym_asm_spelling(const char *name)
+{
+    return ir_sym_name_is_exact_asm(name) ? name + 1 : name;
+}
+
 /* The record is COPIED into the module: lowering builds it on the stack from
  * the AST and the module owns it for the rest of the pipeline. The returned
  * index is 1-based so that 0 keeps meaning "no record", matching every other

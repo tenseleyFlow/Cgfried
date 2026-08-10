@@ -624,10 +624,11 @@ static void check_inst_misc(V *v, const IrInst *in)
                                  ir_type_name((IrType)in->ops[i].type),
                                  ir_type_name((IrType)cf->param_types[i]));
                         if (i == 0 && cf->abi_ret >= IR_ABIRET_HFA_F32) {
-                            /* TWO IrAbiRet values (f32/f64 leaves) share ONE
-                             * argument kind, so the enums stop running in
-                             * parallel here and the offset arithmetic below
-                             * would compute 8 for an f64 HFA. */
+                            /* The HFA IrAbiRet values (f32/f64/f128 leaves)
+                             * share ONE argument kind, so the enums stop
+                             * running in parallel here and the offset
+                             * arithmetic below would compute the wrong kind.
+                             */
                             want_kind = IR_ARG_HFA;
                         } else if (i == 0 && cf->abi_ret != IR_ABIRET_NONE) {
                             want_kind =

@@ -30,6 +30,11 @@ tier, and the same commit changes the code and the fixture.
 — impersonating the parity baseline the warning and format work already
 measure against. `-std=c*` does not define it at all.
 
+The identity includes the semantics that headers inspect alongside the
+version: GNU89 defines `__GNUC_GNU_INLINE__`, newer GNU modes define
+`__GNUC_STDC_INLINE__`, and `__USER_LABEL_PREFIX__` is empty on ELF but `_`
+on arm64-macos. Strict ISO modes define none of these GNU identity macros.
+
 That split is load-bearing rather than cosmetic. Defining `__GNUC__` is a
 PROMISE: glibc's `sys/cdefs.h` gates dozens of declarations on it, and taking
 those paths obligates us to implement what they use. The implemented table
@@ -71,7 +76,8 @@ predefine.
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` in `<sys/types.h>`, which blocks `<stdlib.h>` and most of a hosted TU once `__GNUC__` is defined |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
-| `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<math.h>`, which declares the whole `f128` family the moment `__GNUC__` is defined; the only header that needs it |
+| `__builtin_va_arg_pack()` / `__builtin_va_arg_pack_len()` | `tests/corpus/x86_64/int/gnu_va_arg_pack.c` | glibc's `<error.h>` and forwarding wrappers that preserve the caller's anonymous arguments |
+| GNU/TS 18661 floating types — `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<bits/floatn*.h>` and `<math.h>`, activated by the GCC 8 identity |
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 
 The two symbol-property rows are verified against the ELF symbol table rather
@@ -211,6 +217,14 @@ by whatever emits or references it. The name is emitted VERBATIM and is not
 validated as an identifier: `_fopen$UNIX2003` is a real Darwin symbol, `$` and
 all.
 
+On Mach-O, ordinary C names acquire the target's leading `_`, but an asm label
+is already the final assembler spelling and must not acquire it again. The IR
+therefore distinguishes an exact asm spelling from an ordinary source name;
+an asm-labeled `collision` and an ordinary C `collision` can denote the
+distinct symbols `collision` and `_collision` in one module.
+`tests/programs/gnu/asm_label_macho.c` pins both the prefix rule and that
+collision case.
+
 **This is the one that hosted macOS was waiting on.** Apple's `sys/cdefs.h`
 uses `__attribute__` with no `__GNUC__` gate to hide behind, and
 `__DARWIN_ALIAS` renames `fopen` and friends through exactly this mechanism.
@@ -220,6 +234,37 @@ freestanding-only.
 The same keywords open an inline-asm STATEMENT, a different construct that
 only POSITION tells apart from a label — and it is implemented, basic and
 extended forms both.
+
+GNU variadic argument packs are caller-specialization operands, not runtime
+`va_list` values. Cgfried expands a direct inline wrapper into each caller
+before planning the forwarded call's ABI, so GP/FP exhaustion and aggregate
+placement are recomputed for the destination call. Named and anonymous actual
+arguments are captured once, `__builtin_va_arg_pack_len()` becomes the
+call-site anonymous count, and reusing a pack does not repeat caller side
+effects. Expansion is mandatory at every optimization level; no pack
+placeholder or wrapper body reaches public IR.
+
+The current specialization boundary is deliberate and diagnostic: a pack
+wrapper must have a same-TU inline definition and be called directly. Taking
+its address, composing pack wrappers, or putting static/TLS locals, variably
+modified declarations, labels, `goto`, or `va_start` in its body is refused
+rather than cloned with the wrong identity, lifetime, or variadic state.
+
+The GNU/TS 18661 floating spellings are real, distinct C types rather than
+header-acceptance typedefs. `_Float32` uses binary32, `_Float64` and
+`_Float32x` use binary64, `_Float128` is target-independent binary128, and
+`_Float64x` follows the target's extended `long double` representation. The
+usual arithmetic conversions preserve those type identities with TS 18661's
+equal-format ordering: interchange `_FloatN` types win first, then standard C
+types, then extended `_FloatNx` types.
+
+The representation-sharing cases still use the target ABI's ordinary wire
+format. On AArch64 Linux that means `_Float64x` and `_Float128` scalar values
+occupy whole q registers and homogeneous aggregates use the corresponding
+one-to-four-register HFA rules; variadic register saves retain all 16 bytes.
+The historical `Q` suffix follows GCC's target `__float128` mode (therefore
+`long double` on AArch64 Linux), while `F128` always denotes the distinct
+`_Float128` interchange type.
 
 `section("name")` places an object or function in a named output section.
 Functions take `"ax"`, data `"aw"`, matching gcc.

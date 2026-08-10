@@ -181,11 +181,48 @@ void test_pp_gnu_named_variadic_table_and_diagnostics(TestCtx *t)
 void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
 {
     MacFix f;
+    const MacroDef *m;
 
     mfix_init(&f);
+    f.pp.std = STD_C17;
     run_pp(&f, "", NULL, 0);
     T_ASSERT(t, pp_macro_lookup(&f.pp, "__STDC__") != NULL);
     T_ASSERT(t, pp_macro_lookup(&f.pp, "__STDC_IEC_559__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_MINOR__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_PATCHLEVEL__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_STDC_INLINE__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__USER_LABEL_PREFIX__") == NULL);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    f.pp.std = STD_GNU17;
+    f.pp.gnu_mode = true;
+    run_pp(&f, "", NULL, 0);
+    m = pp_macro_lookup(&f.pp, "__GNUC__");
+    T_ASSERT(t, m && m->body_len == 1);
+    T_ASSERT_EQ_STR(t, m->body[0].spelling, "8");
+    m = pp_macro_lookup(&f.pp, "__GNUC_MINOR__");
+    T_ASSERT(t, m && m->body_len == 1);
+    T_ASSERT_EQ_STR(t, m->body[0].spelling, "3");
+    m = pp_macro_lookup(&f.pp, "__GNUC_PATCHLEVEL__");
+    T_ASSERT(t, m && m->body_len == 1);
+    T_ASSERT_EQ_STR(t, m->body[0].spelling, "0");
+    m = pp_macro_lookup(&f.pp, "__GNUC_STDC_INLINE__");
+    T_ASSERT(t, m && m->body_len == 1);
+    T_ASSERT_EQ_STR(t, m->body[0].spelling, "1");
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_GNU_INLINE__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__USER_LABEL_PREFIX__") != NULL);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    f.pp.std = STD_GNU89;
+    f.pp.gnu_mode = true;
+    run_pp(&f, "", NULL, 0);
+    m = pp_macro_lookup(&f.pp, "__GNUC_GNU_INLINE__");
+    T_ASSERT(t, m && m->body_len == 1);
+    T_ASSERT_EQ_STR(t, m->body[0].spelling, "1");
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_STDC_INLINE__") == NULL);
     mfix_free(&f);
 }
 

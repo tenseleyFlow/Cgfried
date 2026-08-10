@@ -200,6 +200,9 @@ void test_expr_postfix_chains(TestCtx *t)
     expr_is(t, "g()", "(call g [0])");
     /* Assignment inside an argument is fine — it is below the comma. */
     expr_is(t, "g(a = b, c)", "(call g [2] (a = b) c)");
+    expr_is(t, "g(a, __builtin_va_arg_pack())",
+            "(call g [2] a __builtin_va_arg_pack())");
+    expr_is(t, "__builtin_va_arg_pack_len()", "__builtin_va_arg_pack_len()");
 }
 
 void test_expr_conditional_middle_is_full_expr(TestCtx *t)

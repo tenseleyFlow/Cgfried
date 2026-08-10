@@ -97,6 +97,15 @@ static const UacRow uac_rows[] = {
     {TY_DOUBLE, TY_ULLONG, TY_DOUBLE, "double over any integer"},
     {TY_FLOAT, TY_INT, TY_FLOAT, "float over integer"},
     {TY_FLOAT, TY_ULONG, TY_FLOAT, "float over unsigned long too"},
+    {TY_FLOAT32, TY_FLOAT, TY_FLOAT32, "interchange type wins equal format"},
+    {TY_FLOAT64, TY_DOUBLE, TY_FLOAT64, "interchange type wins equal format"},
+    {TY_FLOAT32X, TY_DOUBLE, TY_DOUBLE, "standard wins over extended"},
+    {TY_FLOAT32X, TY_FLOAT64, TY_FLOAT64, "interchange wins over extended"},
+    {TY_FLOAT32, TY_FLOAT32X, TY_FLOAT32X, "wider representation wins"},
+    {TY_FLOAT64X, TY_LDOUBLE, TY_LDOUBLE, "standard wins equal format"},
+    {TY_FLOAT128, TY_LDOUBLE, TY_FLOAT128, "interchange wins equal format"},
+    {TY_FLOAT128, TY_FLOAT64X, TY_FLOAT128, "binary128 interchange wins"},
+    {TY_FLOAT64X, TY_FLOAT32X, TY_FLOAT64X, "larger extended format wins"},
 
     /* 4(a): same type after promotion. */
     {TY_INT, TY_INT, TY_INT, "identical"},
@@ -205,7 +214,45 @@ void test_conv_promotions(TestCtx *t)
     /* Floating types are untouched by the INTEGER promotions. */
     T_ASSERT(t, conv_promote_type(&f.sema, type_basic(TY_FLOAT)) ==
                     type_basic(TY_FLOAT));
+    T_ASSERT(t, conv_promote_type(&f.sema, type_basic(TY_FLOAT32)) ==
+                    type_basic(TY_FLOAT32));
+    T_ASSERT(t, conv_promote_type(&f.sema, type_basic(TY_FLOAT64)) ==
+                    type_basic(TY_FLOAT64));
+    T_ASSERT(t, conv_promote_type(&f.sema, type_basic(TY_FLOAT32X)) ==
+                    type_basic(TY_FLOAT32X));
+    T_ASSERT(t, conv_promote_type(&f.sema, type_basic(TY_FLOAT64X)) ==
+                    type_basic(TY_FLOAT64X));
     conv_fix_free(&f);
+}
+
+void test_conv_floatn_target_ties(TestCtx *t)
+{
+    ConvFix f;
+    Type *got;
+
+    conv_fix_init(&f, CGF_TARGET_X86_64_LINUX_GNU);
+    got =
+        conv_uac_type(&f.sema, type_basic(TY_FLOAT64X), type_basic(TY_DOUBLE));
+    T_ASSERT_EQ_INT(t, got->kind, TY_FLOAT64X);
+    conv_fix_free(&f);
+
+    conv_fix_init(&f, CGF_TARGET_ARM64_LINUX);
+    got =
+        conv_uac_type(&f.sema, type_basic(TY_FLOAT64X), type_basic(TY_DOUBLE));
+    T_ASSERT_EQ_INT(t, got->kind, TY_FLOAT64X);
+    conv_fix_free(&f);
+
+    conv_fix_init(&f, CGF_TARGET_ARM64_MACOS);
+    got =
+        conv_uac_type(&f.sema, type_basic(TY_FLOAT64X), type_basic(TY_DOUBLE));
+    T_ASSERT_EQ_INT(t, got->kind, TY_DOUBLE);
+    conv_fix_free(&f);
+
+    T_ASSERT(t, !type_compatible(type_basic(TY_FLOAT32), type_basic(TY_FLOAT)));
+    T_ASSERT(t,
+             !type_compatible(type_basic(TY_FLOAT64), type_basic(TY_DOUBLE)));
+    T_ASSERT(t,
+             !type_compatible(type_basic(TY_FLOAT32X), type_basic(TY_DOUBLE)));
 }
 
 /* The canonical reason sema threads a TargetSpec instead of asking the

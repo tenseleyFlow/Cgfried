@@ -244,6 +244,32 @@ void test_x64_frame_align_table(TestCtx *t)
         }
 }
 
+void test_x64_variadic_prologue_saves_whole_xmm_slots(TestCtx *t)
+{
+    Arena a;
+    X64Func *f;
+    u32 i, nstores = 0;
+
+    arena_init(&a);
+    f = mkf(&a, 1);
+    f->variadic = true;
+    put(f, 0, X64_OP_RET, X64_L);
+
+    x64_regalloc(f);
+    for (i = 0; i < f->blocks[0].n; i++) {
+        const X64Inst *in = &f->blocks[0].insts[i];
+
+        if (in->op != X64_OP_VSTORE)
+            continue;
+        nstores++;
+        T_ASSERT_EQ_INT(t, in->width, X64_X);
+        T_ASSERT(t, in->a.kind == X64O_VREG);
+        T_ASSERT(t, in->a.r.v >= X64_XMM0 + 1 && in->a.r.v <= X64_XMM7 + 1);
+    }
+    T_ASSERT_EQ_INT(t, nstores, 8);
+    arena_free_all(&a);
+}
+
 /* --- liveness on hand-built MIR ---------------------------------------------
  */
 

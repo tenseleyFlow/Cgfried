@@ -5,8 +5,8 @@
 // FLAGS: -emit-mir
 // MIR_CHECK: store.q rdi, [rbp-256]
 // MIR_CHECK: store.q r9, [rbp-216]
-// MIR_CHECK: fstore.q xmm0, [rbp-208]
-// MIR_CHECK: fstore.q xmm7, [rbp-96]
+// MIR_CHECK: vstore.x xmm0, [rbp-208]
+// MIR_CHECK: vstore.x xmm7, [rbp-96]
 // MIR_CHECK: lea.q [rbp+16]
 int sum(int n, ...) {
     __builtin_va_list ap;

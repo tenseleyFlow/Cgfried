@@ -194,6 +194,30 @@ void test_abi_two_eightbyte_reassembly(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_sysv_single_f128_aggregate_uses_one_whole_xmm(TestCtx *t)
+{
+    AbiFix f;
+
+    T_ASSERT(t, run_abi(&f, "typedef __builtin_va_list va_list;\n"
+                            "struct Q { _Float128 q; };\n"
+                            "struct Q through(struct Q q) { return q; }\n"
+                            "struct Q call(struct Q q) { return through(q); }\n"
+                            "_Float128 var(int n, ...) {\n"
+                            "  va_list ap; struct Q q;\n"
+                            "  __builtin_va_start(ap, n);\n"
+                            "  q = __builtin_va_arg(ap, struct Q);\n"
+                            "  return q.q;\n"
+                            "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "func f128 @through(f128 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "call f128 @through(f128 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "alloca 16, align 16") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "icmp ule i32 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "iadd i32 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), ", 16") != NULL);
+    abi_free(&f);
+}
+
 void test_abi_byval_single_copy(TestCtx *t)
 {
     AbiFix f;
@@ -237,6 +261,29 @@ void test_abi_va_start_constants(TestCtx *t)
                             "  __builtin_va_end(ap);\n"
                             "}\n"));
     T_ASSERT(t, strstr(atxt(&f), "store i32 48,") != NULL);
+    abi_free(&f);
+}
+
+void test_abi_floatn_default_argument_shapes(TestCtx *t)
+{
+    AbiFix f;
+
+    T_ASSERT(t, run_abi(&f, "void sink();\n"
+                            "void pass_f32(_Float32 x) { sink(x); }\n"
+                            "void pass_f64(_Float64 x) { sink(x); }\n"
+                            "void pass_f32x(_Float32x x) { sink(x); }\n"
+                            "void pass_f64x(_Float64x x) { sink(x); }\n"
+                            "void old_float(x) float x; {}\n"
+                            "void old_f32(x) _Float32 x; {}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "func void @pass_f32(f32 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "call void @sink(f32 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func void @pass_f64(f64 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func void @pass_f32x(f64 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func void @pass_f64x(f80 %0)") != NULL);
+    /* Only ordinary float receives the default float-to-double promotion. */
+    T_ASSERT(t, strstr(atxt(&f), "func void @old_float(f64 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func void @old_f32(f32 %0)") != NULL);
     abi_free(&f);
 }
 

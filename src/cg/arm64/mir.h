@@ -417,6 +417,11 @@ typedef struct A64Func {
     u32 cfi_frame;    /* total frame bytes; CFA is sp+cfi_frame after entry */
     u32 cfi_pair_off; /* byte offset of the saved x29/x30 pair from new sp */
     u8 cfi_pre_insns; /* instructions before the pair store; 0 = pre-indexed */
+    /* Cumulative bytes removed from SP after each prologue SUB. A frame can
+     * need two immediates, and asynchronous unwinders need a CFA row between
+     * them rather than only the final frame-size row. */
+    u32 cfi_sp_offsets[2];
+    u8 cfi_pair_pre_insns; /* address setup between SP adjust and pair store */
 } A64Func;
 
 typedef enum A64MovKind {

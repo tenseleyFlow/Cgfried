@@ -15,7 +15,9 @@
 // Verified by mixed link against gcc in BOTH directions under qemu. That
 // mattered: the callee half was right while the caller still read x0:x1,
 // and a same-compiler test agrees with itself either way.
-// IR_CHECK: func void @scale(ptr %0, f32 %1, f32 %2, f32 %3, f32 %4) abi(hfa_f32,3)
+// IR_CHECK: func void @scale(ptr %0, f32 %1, f32 %2, f32 %3, f32 %4)
+// abi(hfa_f32,3) IR_CHECK: func void @qswap(ptr %0, f128 %1, f128 %2)
+// abi(hfa_f128,2)
 struct V3 {
     float x, y, z;
 };
@@ -27,5 +29,16 @@ struct V3 scale(struct V3 v, float k)
     r.x = v.x * k;
     r.y = v.y * k;
     r.z = v.z * k;
+    return r;
+}
+
+struct Q2 {
+    _Float128 a, b;
+};
+
+struct Q2 qswap(struct Q2 q)
+{
+    struct Q2 r = {q.b, q.a};
+
     return r;
 }

@@ -122,7 +122,7 @@ static bool name_is_protected(const char *name)
     return strcmp(name, "defined") == 0;
 }
 
-static bool loc_is_builtin_file(Preprocessor *pp, SrcLoc loc)
+static bool loc_is_pseudo_file(Preprocessor *pp, SrcLoc loc, const char *path)
 {
     FileId f;
     u32 line, col;
@@ -131,7 +131,12 @@ static bool loc_is_builtin_file(Preprocessor *pp, SrcLoc loc)
         return false;
     pp_loc_resolve(&pp->loc, loc, &f, &line, &col);
     return f && (size_t)f <= pp->nfiles &&
-           strcmp(pp->files[f - 1]->path, "<built-in>") == 0;
+           strcmp(pp->files[f - 1]->path, path) == 0;
+}
+
+static bool loc_is_builtin_file(Preprocessor *pp, SrcLoc loc)
+{
+    return loc_is_pseudo_file(pp, loc, "<built-in>");
 }
 
 /* Is body[i] (an IDENT) a parameter? Returns index, nparams for the
@@ -362,7 +367,11 @@ void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc)
     }
     {
         const MacroDef *prev = pp_macro_lookup(pp, name);
-        if (prev && prev->is_builtin && !loc_is_builtin_file(pp, loc))
+        /* gcc deliberately permits command-line -U of a predefined macro
+         * without -Wbuiltin-macro-redefined. The pseudo-file also preserves
+         * -D/-U ordering, so distinguish it from a source #undef here. */
+        if (prev && prev->is_builtin && !loc_is_builtin_file(pp, loc) &&
+            !loc_is_pseudo_file(pp, loc, "<command-line>"))
             pp_warn_at(pp, WARN_BUILTIN_MACRO_REDEFINED, loc, (u32)strlen(name),
                        "undefining builtin macro '%s'", name);
     }
@@ -1063,12 +1072,11 @@ static void register_dynamic(Preprocessor *pp, const char *name,
     strmap_put(&pp->macros, m->name, strlen(m->name), m);
 }
 
-/* CRITICAL POLICY — no __GNUC__. glibc's sys/cdefs.h, seeing no __GNUC__,
- * expands the attribute keyword to NOTHING — exactly what we need
- * until Sprint 55 lands attribute support. Defining __GNUC__ prematurely
- * routes glibc headers into attribute / builtin / extension paths
- * we cannot satisfy and produces thousands of cascading errors. Revisit at
- * Sprint 55 (gnu modes only, with the builtins to back it). */
+/* Compiler identity is DIALECT-SCOPED. GNU modes advertise the GCC 8.3
+ * compatibility surface completed in Sprint 55; strict ISO modes deliberately
+ * do not. Defining __GNUC__ makes glibc expose attributes, inline wrappers and
+ * forwarding builtins, so this is a promise backed by the GNU tier table rather
+ * than a generic implementation marker. */
 SourceFile *pp_predefine_all(Preprocessor *pp)
 {
     Buf b;
@@ -1096,6 +1104,15 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
     case STD_C89:
     case STD_GNU89:
         break; /* undefined in C90 */
+    }
+    if (pp->gnu_mode) {
+        buf_printf(&b, "#define __GNUC__ 8\n");
+        buf_printf(&b, "#define __GNUC_MINOR__ 3\n");
+        buf_printf(&b, "#define __GNUC_PATCHLEVEL__ 0\n");
+        if (pp->std == STD_GNU89)
+            buf_printf(&b, "#define __GNUC_GNU_INLINE__ 1\n");
+        else
+            buf_printf(&b, "#define __GNUC_STDC_INLINE__ 1\n");
     }
     /* Honest scope answers (index scope contract). NO_ATOMICS is
      * deliberately absent: we ship _Atomic. */

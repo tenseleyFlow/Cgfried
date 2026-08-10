@@ -28,11 +28,12 @@
 
 typedef enum TokKind {
     T_EOF,
-    T_IDENT,  /* keyword, op, type, label, init blob */
-    T_PIDENT, /* %name */
-    T_AIDENT, /* @name */
-    T_INT,    /* [+-]?digits, value in ival as i64 bits */
-    T_HEX,    /* 0x..., value in ival */
+    T_IDENT,   /* keyword, op, type, label, init blob */
+    T_PIDENT,  /* %name */
+    T_AIDENT,  /* @name */
+    T_XAIDENT, /* @!name: exact assembler spelling */
+    T_INT,     /* [+-]?digits, value in ival as i64 bits */
+    T_HEX,     /* 0x..., value in ival */
     /* "..." — a quoted byte string. A section name is the only user today,
      * and it needs one: `.note.GNU-stack` does not lex as an identifier here
      * (no leading '.', no '-'), and a section name is an arbitrary string
@@ -112,7 +113,8 @@ static bool is_ident_start(char c)
 
 static bool is_ident_char(char c)
 {
-    return is_ident_start(c) || (c >= '0' && c <= '9') || c == '.';
+    return is_ident_start(c) || (c >= '0' && c <= '9') || c == '.' ||
+           c == '$' || c == '!';
 }
 
 static bool is_digit(char c)
@@ -239,23 +241,29 @@ static bool lex_all(P *p, const char *src)
         } else if (*c == '%' || *c == '@') {
             const char *s = c;
             char intro = *c;
+            bool exact_asm = false;
 
             c++;
             col++;
+            if (intro == '@' && *c == '!') {
+                exact_asm = true;
+                c++;
+                col++;
+            }
             while (is_ident_char(*c) || is_digit(*c)) {
                 c++;
                 col++;
             }
-            if (c - s == 1) {
+            if (c - s == (exact_asm ? 2 : 1)) {
                 Tok bad = t;
 
-                bad.len = 1;
+                bad.len = exact_asm ? 2 : 1;
                 perr(p, &bad, "expected a name after '%c'", intro);
                 return false;
             }
-            t.kind = intro == '%' ? T_PIDENT : T_AIDENT;
-            t.s = s + 1; /* name without the sigil */
-            t.len = (u32)(c - s - 1);
+            t.kind = intro == '%' ? T_PIDENT : exact_asm ? T_XAIDENT : T_AIDENT;
+            t.s = s + (exact_asm ? 2 : 1); /* name without the sigil */
+            t.len = (u32)(c - t.s);
         } else if (c[0] == '0' && c[1] == 'x') {
             const char *s = c;
             u32 nd = 0;
@@ -407,6 +415,22 @@ static Tok *expect(P *p, TokKind k, const char *what)
     return t;
 }
 
+static bool tok_is_symbol(const Tok *t)
+{
+    return t->kind == T_AIDENT || t->kind == T_XAIDENT;
+}
+
+static Tok *expect_symbol(P *p, const char *what)
+{
+    Tok *t = next(p);
+
+    if (!tok_is_symbol(t)) {
+        perr(p, t, "expected %s", what);
+        return NULL;
+    }
+    return t;
+}
+
 /* ` visibility(hidden)` on a global or a function. Absent means unspecified,
  * which is not the same as "default": an explicit default(1) survives the
  * round trip distinctly, because gcc lets a declaration say `default` to
@@ -438,6 +462,14 @@ static u8 parse_visibility_suffix(P *p)
 
 static const char *tok_name(P *p, const Tok *t)
 {
+    if (t->kind == T_XAIDENT) {
+        char *name = arena_alloc(p->arena, t->len + 2, 1);
+
+        name[0] = '!';
+        memcpy(name + 1, t->s, t->len);
+        name[t->len + 1] = '\0';
+        return name;
+    }
     return arena_strndup(p->arena, t->s, t->len);
 }
 
@@ -666,7 +698,8 @@ static bool parse_atom(P *p, IrType expected, IrOperand *slot)
             *slot = ir_op_iconst(expected, (i64)t->ival);
         }
         return true;
-    case T_AIDENT: {
+    case T_AIDENT:
+    case T_XAIDENT: {
         const char *nm = tok_name(p, t);
         i64 addend = 0;
 
@@ -1414,7 +1447,7 @@ static bool parse_inst(P *p)
             return false;
         }
         ct = peek(p);
-        indirect = ct->kind != T_AIDENT;
+        indirect = !tok_is_symbol(ct);
         if (indirect) {
             /* The pointer parses before the arg count is known, so it
              * gets a staging arena slot; if a fixup landed on it, the
@@ -1440,14 +1473,16 @@ static bool parse_inst(P *p)
                 p->fixups[p->nfixups - 1].slot == &fp[0])
                 p->fixups[p->nfixups - 1].slot = &in->ops[0];
         } else {
-            u32 *hit = strmap_get(&p->func_ids, ct->s, ct->len);
+            const char *callee_name = tok_name(p, ct);
+            u32 *hit =
+                strmap_get(&p->func_ids, callee_name, strlen(callee_name));
 
             if (hit) {
                 in->subop = FUNCREF_INTERNAL;
                 in->callee = *hit - 1;
             } else {
                 in->subop = FUNCREF_EXTERNAL;
-                in->callee = ir_sym(p->m, tok_name(p, ct));
+                in->callee = ir_sym(p->m, callee_name);
             }
         }
         for (i = 0; i < nargs; i++) {
@@ -1735,7 +1770,7 @@ static bool parse_func(P *p)
 
     if (!parse_type(p, &ret, "the return type"))
         return false;
-    nm = expect(p, T_AIDENT, "the function name");
+    nm = expect_symbol(p, "the function name");
     if (!nm)
         return false;
     if (!expect(p, T_LP, "'('"))
@@ -1846,7 +1881,7 @@ static bool parse_func(P *p)
             u8 k;
             bool found = false;
 
-            for (k = IR_ABIRET_SRET; k <= IR_ABIRET_HFA_F64; k++)
+            for (k = IR_ABIRET_SRET; k <= IR_ABIRET_HFA_F128; k++)
                 if (tok_is(an, ir_abi_ret_name(k))) {
                     abi_ret = k;
                     found = true;
@@ -1977,12 +2012,12 @@ static bool parse_alias(P *p)
     IrAlias *a;
     u8 linkage = IRLINK_EXTERNAL;
 
-    nm = expect(p, T_AIDENT, "an alias name");
+    nm = expect_symbol(p, "an alias name");
     if (!nm)
         return false;
     if (!expect(p, T_EQ, "'=' after the alias name"))
         return false;
-    tg = expect(p, T_AIDENT, "an alias target");
+    tg = expect_symbol(p, "an alias target");
     if (!tg)
         return false;
     lk = next(p);
@@ -2008,7 +2043,7 @@ static bool parse_alias(P *p)
 
 static bool parse_global(P *p)
 {
-    Tok *nm = expect(p, T_AIDENT, "the global's name");
+    Tok *nm = expect_symbol(p, "the global's name");
     Tok *t;
     IrGlobal *g;
 
@@ -2128,7 +2163,7 @@ static bool parse_global(P *p)
             if (!t)
                 return false;
             rl[g->nrelocs].offset = t->ival;
-            sym = expect(p, T_AIDENT, "the reloc symbol");
+            sym = expect_symbol(p, "the reloc symbol");
             if (!sym)
                 return false;
             rl[g->nrelocs].symbol = ir_sym(p->m, tok_name(p, sym));
@@ -2159,14 +2194,16 @@ static bool prescan_funcs(P *p)
             depth--;
         else if (depth == 0 && tok_is(&p->toks[i], "func") &&
                  p->toks[i + 1].kind == T_IDENT &&
-                 p->toks[i + 2].kind == T_AIDENT) {
+                 tok_is_symbol(&p->toks[i + 2])) {
             Tok *nm = &p->toks[i + 2];
+            const char *name = tok_name(p, nm);
+            size_t name_len = strlen(name);
 
-            if (strmap_get(&p->func_ids, nm->s, nm->len)) {
+            if (strmap_get(&p->func_ids, name, name_len)) {
                 perr(p, nm, "duplicate function '@%.*s'", (int)nm->len, nm->s);
                 return false;
             }
-            map_put_u32(p, &p->func_ids, nm->s, nm->len, ++idx);
+            map_put_u32(p, &p->func_ids, name, name_len, ++idx);
         }
     }
     return true;
@@ -2198,7 +2235,7 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             Tok *nm;
 
             next(&p);
-            nm = expect(&p, T_AIDENT, "a symbol name");
+            nm = expect_symbol(&p, "a symbol name");
             if (!nm)
                 goto fail;
             ir_sym(m, tok_name(&p, nm));

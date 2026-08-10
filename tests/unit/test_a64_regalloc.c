@@ -495,6 +495,75 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
     arena_free_all(&arena);
 }
 
+/* Pair loads/stores have only a signed seven-bit scaled displacement. A
+ * caller with more than 64 stacked eightbytes therefore cannot address its
+ * saved x29/x30 pair directly from SP: materialize SP+out_args in x16, then
+ * keep the entire callee-save area relative to the resulting x29. */
+void test_a64_regalloc_large_outgoing_frame_materializes_pair_base(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg value, res;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u32 i, ii;
+    bool saw_pair_save = false, saw_pair_restore = false;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    value = a64_newv(&f, A64RC_GP);
+    res = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_MOVZ, 2, treg(value), timm(7), treg((A64Reg){0, 0}));
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    for (i = 0; i < 600; i++)
+        a64_call_add_arg(&f, call, value, IRT_I64, 0, 0);
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    T_ASSERT(t, f.out_args > 504);
+    T_ASSERT_EQ_INT(t, f.cfi_pre_insns, 2);
+    T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[0], 4096);
+    T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[1], f.frame_bytes);
+    T_ASSERT(t, f.cfi_pair_pre_insns > 0);
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+        const A64Operand *mem;
+
+        if (cur->op != A64_OP_STP && cur->op != A64_OP_LDP)
+            continue;
+        mem = &cur->ops[2];
+        T_ASSERT(t, mem->kind == A64O_MEM);
+        if (mem->mem.mode == A64_ADDR_SCALED) {
+            T_ASSERT(t, mem->mem.offset >= -512);
+            T_ASSERT(t, mem->mem.offset <= 504);
+        }
+        if (cur->ops[0].reg.id != (u32)A64_X29 + 1 ||
+            cur->ops[1].reg.id != (u32)A64_X30 + 1)
+            continue;
+        T_ASSERT_EQ_INT(t, (long long)mem->mem.offset, 0);
+        T_ASSERT_EQ_INT(t, (long long)mem->mem.base.id,
+                        (long long)(cur->op == A64_OP_STP ? A64_X16 : A64_X29) +
+                            1);
+        if (cur->op == A64_OP_STP)
+            saw_pair_save = true;
+        else
+            saw_pair_restore = true;
+    }
+    T_ASSERT(t, saw_pair_save);
+    T_ASSERT(t, saw_pair_restore);
+    arena_free_all(&arena);
+}
+
 /* Regression: a pre-coloured argument copy must not clobber a value the
  * allocator parked in that same register.
  *
@@ -590,6 +659,7 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
     const A64Block *bb;
     A64Inst in;
     u32 ii, gp_saved = 0, fp_saved = 0, gr_top = 0, vr_top = 0;
+    u32 previous_fp = 0;
     u32 first_unnamed_gp = 0;
     bool seen_gr = false, seen_vr = false;
 
@@ -633,6 +703,12 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
             /* the named parameter's register is dead, never saved */
             T_ASSERT(t, reg != A64_X0);
         } else if (reg >= A64_V0 && reg <= A64_V7) {
+            T_ASSERT_EQ_INT(t, cur->sf, A64_SF128);
+            T_ASSERT_EQ_INT(t, cur->ops[1].mem.size, 16);
+            if (fp_saved)
+                T_ASSERT_EQ_INT(t, cur->ops[1].mem.offset,
+                                (long long)previous_fp + 16);
+            previous_fp = (u32)cur->ops[1].mem.offset;
             fp_saved++;
         }
     }

@@ -1178,7 +1178,7 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         u32 n = hfa_leaves ? hfa_leaves : 2;
         u32 width = hfa_leaves ? hfa_leaf : 8;
         u8 base = hfa_leaves ? A64_V0 : A64_X0;
-        A64Sf lsf = width == 4 ? A64_SF32 : A64_SF64;
+        A64Sf lsf = width == 4 ? A64_SF32 : width == 16 ? A64_SF128 : A64_SF64;
         u32 k;
 
         rb_put(rb, in);
@@ -1264,7 +1264,9 @@ static void marshal_calls(A64Func *f)
  *     ret
  *
  * The pre-index form scales a signed 7-bit immediate by 8, so it reaches
- * -512; a larger frame subtracts from SP first and stores at #0.
+ * -512; a larger frame subtracts from SP first and stores at #0. When the
+ * outgoing area itself exceeds the pair instruction's +504 limit, x16 first
+ * materializes SP+base and the pair is stored through it.
  *
  * Layout from the new SP upward: x29/x30, callee-saved GP, callee-saved
  * d-halves, then spill slots and static allocas. SP stays 16-byte aligned
@@ -1785,10 +1787,10 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
  * unnamed general argument sits at gr_top - 8*(8-named), which is exactly
  * where __gr_offs starts.
  *
- * The vector slots are 16 bytes apart but only their low 8 are written: a
- * variadic float or double occupies the low half of its q slot, and we are
- * little-endian only. A 128-bit variadic argument would need the full q
- * store, which arrives with NEON in Sprint 49. */
+ * The vector slots are 16 bytes apart and the prologue writes the whole q
+ * register. A variadic float or double still occupies only the low part of
+ * that slot on our little-endian targets, while binary128 needs all 16 bytes.
+ * Saving only d0-d7 silently truncated `_Float64x`/`_Float128` va_args. */
 #define A64_VA_GP_BYTES 64
 #define A64_VA_FP_BYTES 128
 #define A64_VA_SAVE_BYTES (A64_VA_GP_BYTES + A64_VA_FP_BYTES)
@@ -1829,19 +1831,19 @@ static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u32 offset,
                            bool fp)
 {
     A64Inst in;
+    u8 size = fp ? 16 : 8;
 
     memset(&in, 0, sizeof(in));
     in.op = A64_OP_STORE;
-    in.sf = A64_SF64;
+    in.sf = fp ? A64_SF128 : A64_SF64;
     in.nops = 2;
     in.ops[0].kind = A64O_REG;
     in.ops[0].reg = phys_reg((u8)value);
     in.ops[1].kind = A64O_MEM;
     in.ops[1].mem.base = phys_reg((u8)base);
     in.ops[1].mem.offset = (i64)offset;
-    in.ops[1].mem.size = 8;
-    in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, 8, false, false);
-    (void)fp; /* the register operand names the bank */
+    in.ops[1].mem.size = size;
+    in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, size, false, false);
     return in;
 }
 
@@ -1962,6 +1964,7 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
     Rb rb;
     A64Block *b = &f->blocks[0];
     u32 off, i;
+    A64PhysReg csr_base;
 
     rb_init(&rb, f->arena, b->n);
     /* The one-instruction pre-index form is only available when the saved
@@ -1976,41 +1979,63 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
      * different advance_loc values. See a64_emit_eh_frame. */
     f->cfi_frame = fr->total;
     f->cfi_pair_off = fr->base;
+    f->cfi_pair_pre_insns = 0;
+    f->cfi_sp_offsets[0] = 0;
+    f->cfi_sp_offsets[1] = 0;
     if (fr->base == 0 && fr->total <= A64_FRAME_PREINDEX_MAX) {
         A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
                              -(i64)fr->total, A64_ADDR_PRE);
 
         f->cfi_pre_insns = 0;
         rb_put(&rb, &in);
+        emit_add_imm(&rb, A64_X29, A64_SP, 0);
     } else {
-        A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
-                             (i64)fr->base, A64_ADDR_SCALED);
         u32 before = rb.n;
 
         emit_sp_adjust(&rb, A64_OP_SUB, fr->total);
         f->cfi_pre_insns = (u8)(rb.n - before);
-        rb_put(&rb, &in);
-    }
-    {
-        A64Inst mov;
+        if (f->cfi_pre_insns > CGF_ARRAY_LEN(f->cfi_sp_offsets))
+            CGF_ICE("arm64 regalloc: %u prologue SP adjustments exceed CFI "
+                    "capacity",
+                    (unsigned)f->cfi_pre_insns);
+        for (i = 0; i < f->cfi_pre_insns; i++) {
+            const A64Inst *adj = &rb.v[before + i];
 
-        memset(&mov, 0, sizeof(mov));
-        mov.op = A64_OP_ADD; /* `mov x29, sp` is the ADD-immediate alias */
-        mov.sf = A64_SF64;
-        mov.nops = 3;
-        mov.ops[0].kind = A64O_REG;
-        mov.ops[0].reg = phys_reg(A64_X29);
-        mov.ops[1].kind = A64O_REG;
-        mov.ops[1].reg = phys_reg(A64_SP);
-        mov.ops[2].kind = A64O_IMM;
-        mov.ops[2].imm = (i64)fr->base;
-        rb_put(&rb, &mov);
+            if (adj->op != A64_OP_SUB || adj->nops != 3 ||
+                adj->ops[0].kind != A64O_REG ||
+                adj->ops[0].reg.id != (u32)A64_SP + 1 ||
+                adj->ops[2].kind != A64O_IMM || adj->ops[2].imm <= 0)
+                CGF_ICE("arm64 regalloc: malformed prologue SP adjustment");
+            f->cfi_sp_offsets[i] =
+                (i ? f->cfi_sp_offsets[i - 1] : 0) + (u32)adj->ops[2].imm;
+        }
+        if (f->cfi_sp_offsets[f->cfi_pre_insns - 1] != fr->total)
+            CGF_ICE("arm64 regalloc: CFI SP adjustments cover %u of %u bytes",
+                    f->cfi_sp_offsets[f->cfi_pre_insns - 1], fr->total);
+        if (fr->base <= A64_FRAME_PREINDEX_MAX) {
+            A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
+                                 (i64)fr->base, A64_ADDR_SCALED);
+
+            rb_put(&rb, &in);
+            emit_add_imm(&rb, A64_X29, A64_SP, fr->base);
+        } else {
+            A64Inst in;
+
+            before = rb.n;
+            emit_add_imm(&rb, A64_X16, A64_SP, fr->base);
+            f->cfi_pair_pre_insns = (u8)(rb.n - before);
+            in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_X16, 0,
+                         A64_ADDR_SCALED);
+            rb_put(&rb, &in);
+            emit_add_imm(&rb, A64_X29, A64_X16, 0);
+        }
     }
-    off = fr->base + 16;
+    csr_base = A64_X29;
+    off = 16;
     for (i = 0; i + 1 < fr->ngp; i += 2, off += 16) {
         A64Inst in =
             mk_pair(A64_OP_STP, (A64PhysReg)fr->gp[i],
-                    (A64PhysReg)fr->gp[i + 1], A64_SP, off, A64_ADDR_SCALED);
+                    (A64PhysReg)fr->gp[i + 1], csr_base, off, A64_ADDR_SCALED);
 
         rb_put(&rb, &in);
     }
@@ -2018,7 +2043,7 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
         A64Inst in =
             mk_mem_op(A64_OP_STORE, A64_SF64, phys_reg(fr->gp[i]), (i32)off);
 
-        in.ops[1].mem.base = phys_reg(A64_SP);
+        in.ops[1].mem.base = phys_reg((u8)csr_base);
         in.ops[1].mem.mode = (u8)a64_isel_addr((i64)off, 8, false, false);
         rb_put(&rb, &in);
         off += 8;
@@ -2026,7 +2051,7 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
     for (i = 0; i + 1 < fr->nfp; i += 2, off += 16) {
         A64Inst in =
             mk_pair(A64_OP_STP, (A64PhysReg)fr->fp[i],
-                    (A64PhysReg)fr->fp[i + 1], A64_SP, off, A64_ADDR_SCALED);
+                    (A64PhysReg)fr->fp[i + 1], csr_base, off, A64_ADDR_SCALED);
 
         rb_put(&rb, &in);
     }
@@ -2034,7 +2059,7 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
         A64Inst in =
             mk_mem_op(A64_OP_STORE, A64_SF64, phys_reg(fr->fp[i]), (i32)off);
 
-        in.ops[1].mem.base = phys_reg(A64_SP);
+        in.ops[1].mem.base = phys_reg((u8)csr_base);
         in.ops[1].mem.mode = (u8)a64_isel_addr((i64)off, 8, false, false);
         rb_put(&rb, &in);
     }
@@ -2069,24 +2094,13 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 rb_put(&rb, &b->insts[ii]);
                 continue;
             }
-            /* Every line below addresses the frame from SP, so a VLA that
-             * moved SP invalidates all of it -- the callee-saved reloads and
-             * the final ldp alike. x29 is the one register that still knows
-             * where the frame is, so put SP back before touching anything.
-             * x29 sits `base` bytes into the frame; the subtraction cancels
-             * that, which is what makes the SP-relative offsets below valid
-             * again. */
-            if (fr->dynamic_sp) {
-                A64Inst mv = mk_add_imm(phys_reg(A64_SP), phys_reg(A64_X29), 0);
-
-                rb_put(&rb, &mv);
-                if (fr->base)
-                    emit_sp_adjust(&rb, A64_OP_SUB, fr->base);
-            }
-            off = fr->base + 16;
+            /* x29 points at the saved pair and never moves, so every
+             * callee-saved reload remains encodable even when a large
+             * outgoing area puts that pair far above SP. */
+            off = 16;
             for (i = 0; i + 1 < fr->ngp; i += 2, off += 16) {
                 A64Inst in = mk_pair(A64_OP_LDP, (A64PhysReg)fr->gp[i],
-                                     (A64PhysReg)fr->gp[i + 1], A64_SP, off,
+                                     (A64PhysReg)fr->gp[i + 1], A64_X29, off,
                                      A64_ADDR_SCALED);
 
                 rb_put(&rb, &in);
@@ -2095,7 +2109,7 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 A64Inst in = mk_mem_op(A64_OP_LOAD, A64_SF64,
                                        phys_reg(fr->gp[i]), (i32)off);
 
-                in.ops[1].mem.base = phys_reg(A64_SP);
+                in.ops[1].mem.base = phys_reg(A64_X29);
                 in.ops[1].mem.mode =
                     (u8)a64_isel_addr((i64)off, 8, false, false);
                 rb_put(&rb, &in);
@@ -2103,7 +2117,7 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
             }
             for (i = 0; i + 1 < fr->nfp; i += 2, off += 16) {
                 A64Inst in = mk_pair(A64_OP_LDP, (A64PhysReg)fr->fp[i],
-                                     (A64PhysReg)fr->fp[i + 1], A64_SP, off,
+                                     (A64PhysReg)fr->fp[i + 1], A64_X29, off,
                                      A64_ADDR_SCALED);
 
                 rb_put(&rb, &in);
@@ -2112,10 +2126,19 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 A64Inst in = mk_mem_op(A64_OP_LOAD, A64_SF64,
                                        phys_reg(fr->fp[i]), (i32)off);
 
-                in.ops[1].mem.base = phys_reg(A64_SP);
+                in.ops[1].mem.base = phys_reg(A64_X29);
                 in.ops[1].mem.mode =
                     (u8)a64_isel_addr((i64)off, 8, false, false);
                 rb_put(&rb, &in);
+            }
+            /* A VLA may have moved SP since entry. Recover the frame bottom
+             * before old x29 is reloaded and stops naming this frame. */
+            if (fr->dynamic_sp) {
+                A64Inst mv = mk_add_imm(phys_reg(A64_SP), phys_reg(A64_X29), 0);
+
+                rb_put(&rb, &mv);
+                if (fr->base)
+                    emit_sp_adjust(&rb, A64_OP_SUB, fr->base);
             }
             if (fr->base == 0 && fr->total <= A64_FRAME_PREINDEX_MAX) {
                 A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_SP,
@@ -2123,8 +2146,8 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
 
                 rb_put(&rb, &in);
             } else {
-                A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_SP,
-                                     (i64)fr->base, A64_ADDR_SCALED);
+                A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_X29, 0,
+                                     A64_ADDR_SCALED);
 
                 rb_put(&rb, &in);
                 emit_sp_adjust(&rb, A64_OP_ADD, fr->total);

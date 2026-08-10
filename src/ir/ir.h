@@ -491,6 +491,7 @@ typedef enum IrAbiRet {
      * sret passes a pointer in x8 and an HFA passes nothing at all. */
     IR_ABIRET_HFA_F32,
     IR_ABIRET_HFA_F64,
+    IR_ABIRET_HFA_F128,
 } IrAbiRet;
 
 /* Per-call-argument ABI annotation, carried in IrOperand.b (VALUE and
@@ -791,6 +792,13 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
  * front-end source provenance is preserved. */
 IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
+u32 ir_sym_exact_asm(IrModule *m, const char *name);
+/* An asm label is already in assembler spelling. IR keeps it distinct from an
+ * ordinary C symbol with the same bytes by an internal leading `!`; textual IR
+ * writes that as `@!name`, and emitters strip it instead of applying target
+ * mangling. */
+bool ir_sym_name_is_exact_asm(const char *name);
+const char *ir_sym_asm_spelling(const char *name);
 IrGlobal *ir_global_new(IrModule *m, const char *name);
 u32 ir_asm_new(IrModule *m, const IrAsm *a); /* returns the 1-based index */
 void ir_module_add_file_asm(IrModule *m, const char *text);

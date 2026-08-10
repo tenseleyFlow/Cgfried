@@ -79,14 +79,18 @@ static TypeLayout basic_layout(Sema *s, const Type *t)
         r.align = r.size;
         return r;
     case TY_FLOAT:
+    case TY_FLOAT32:
         r.size = 4;
         r.align = 4;
         return r;
     case TY_DOUBLE:
+    case TY_FLOAT64:
+    case TY_FLOAT32X:
         r.size = 8;
         r.align = 8;
         return r;
     case TY_LDOUBLE:
+    case TY_FLOAT64X:
         /* THE cross-target trap: 16/16 on x86-64 (x87 80-bit stored in 16
          * bytes) and on arm64-linux (IEEE binary128), but 8/8 on
          * arm64-macos where Apple makes long double the same as double. */
@@ -409,14 +413,16 @@ static void classify_into(Sema *s, Type *t, u64 off, AbiClass cls[2],
     if (idx < 0 || idx >= neightbytes)
         return;
 
-    if (t->kind == TY_LDOUBLE &&
+    if ((t->kind == TY_LDOUBLE || t->kind == TY_FLOAT64X) &&
         cgf_target_layout(s->target).ldbl_kind == CGF_LDBL_X87_80) {
         cls[idx] = merge(cls[idx], ABI_X87);
         if (idx + 1 < neightbytes)
             cls[idx + 1] = merge(cls[idx + 1], ABI_X87UP);
         return;
     }
-    if (t->kind == TY_FLOAT128) {
+    if (t->kind == TY_FLOAT128 ||
+        (t->kind == TY_FLOAT64X &&
+         cgf_target_layout(s->target).ldbl_kind == CGF_LDBL_IEEE128)) {
         /* psABI: __float128 is SSE in its first eightbyte and SSEUP in its
          * second, so it travels in ONE xmm register rather than two.
          * Measured: gcc compiles `__float128 add(__float128 a, __float128 b)`
@@ -426,7 +432,9 @@ static void classify_into(Sema *s, Type *t, u64 off, AbiClass cls[2],
             cls[idx + 1] = merge(cls[idx + 1], ABI_SSEUP);
         return;
     }
-    if (t->kind == TY_FLOAT || t->kind == TY_DOUBLE || t->kind == TY_LDOUBLE) {
+    if (t->kind == TY_FLOAT || t->kind == TY_DOUBLE || t->kind == TY_LDOUBLE ||
+        t->kind == TY_FLOAT32 || t->kind == TY_FLOAT64 ||
+        t->kind == TY_FLOAT32X || t->kind == TY_FLOAT64X) {
         cls[idx] = merge(cls[idx], ABI_SSE);
     } else {
         cls[idx] = merge(cls[idx], ABI_INTEGER);
@@ -552,6 +560,10 @@ static bool hfa_walk(Sema *s, Type *t, Type **base, int *count)
     case TY_DOUBLE:
     case TY_LDOUBLE:
     case TY_FLOAT128:
+    case TY_FLOAT32:
+    case TY_FLOAT64:
+    case TY_FLOAT32X:
+    case TY_FLOAT64X:
         if (*base && (*base)->kind != t->kind)
             return false; /* not HOMOGENEOUS */
         *base = t;

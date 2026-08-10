@@ -224,6 +224,29 @@ static void buf_fwrite(const Buf *b, FILE *f)
         fwrite(b->data, 1, b->len, f);
 }
 
+static const char *float_const_type_name(FloatConstType type)
+{
+    switch (type) {
+    case FTY_FLOAT:
+        return "float";
+    case FTY_DOUBLE:
+        return "double";
+    case FTY_LDOUBLE:
+        return "long double";
+    case FTY_FLOAT32:
+        return "_Float32";
+    case FTY_FLOAT64:
+        return "_Float64";
+    case FTY_FLOAT32X:
+        return "_Float32x";
+    case FTY_FLOAT64X:
+        return "_Float64x";
+    case FTY_FLOAT128:
+        return "_Float128";
+    }
+    CGF_ICE("float_const_type_name: bad type %d", (int)type);
+}
+
 /* One line per token, stable and greppable: golden --dump-tokens files
  * assert on these. Constants print their CLASSIFIED type, which is the
  * whole point of the phase-7 conversion. */
@@ -248,8 +271,8 @@ static void dump_token(const Token *t)
                lex_int_type_name((IntConstType)t->int_type));
         break;
     case TOK_FLOAT_CONST: {
-        static const char *const fnames[] = {"float", "double", "long double"};
-        printf("FLOAT_CONST %s %s\n", t->spelling, fnames[t->float_type]);
+        printf("FLOAT_CONST %s %s\n", t->spelling,
+               float_const_type_name((FloatConstType)t->float_type));
         break;
     }
     case TOK_STRING: {

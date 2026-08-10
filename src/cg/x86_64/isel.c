@@ -1679,7 +1679,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                                   X64_RCX, X64_R8,  X64_R9};
         u32 first = in->subop == FUNCREF_INDIRECT ? 1 : 0;
         u32 gp = 0, fp = 0, off = 0;
-        u32 stk_off[64];
+        u32 nargs = in->nops - first;
+        typedef struct CallArgPlan {
+            u32 stk_off;
+            u8 in_reg;
+            u8 reg_slot;
+        } CallArgPlan;
+        CallArgPlan *plans =
+            arena_alloc(is->arena, (nargs ? nargs : 1) * sizeof(*plans),
+                        _Alignof(CallArgPlan));
         /* 0 stack, 1 gp, 2 xmm (8 bytes), 3 skipped-pair-ptr,
          * 4 xmm-16 (an f128: SSE+SSEUP, a WHOLE xmm).
          *
@@ -1688,8 +1696,6 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          * value and every pair-returning call started moving a GP vreg
          * with a 16-byte vector move; the MIR verifier's register-bank
          * check caught it. Read this line before adding the next one. */
-        u8 in_reg[64];
-        u8 reg_slot[64];
         const IrOperand *pairp = NULL;
         u64 pair_ann = 0;
         X64XUse argx[16];
@@ -1698,8 +1704,6 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Inst *x;
         u32 i2;
 
-        if (in->nops - first > 64)
-            CGF_ICE("x86_64 isel: more than 64 call arguments");
         /* Pass 1: queue walk + stack layout. */
         for (i2 = first; i2 < in->nops; i2++) {
             const IrOperand *o = &in->ops[i2];
@@ -1712,7 +1716,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 /* The pair hidden pointer is IR bookkeeping only — it
                  * is NOT passed at runtime; the caller stores the
                  * register pair through it after the call. */
-                in_reg[idx] = 3;
+                plans[idx].in_reg = 3;
                 pairp = o;
                 pair_ann = ann;
                 continue;
@@ -1720,15 +1724,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             if (kind == IR_ARG_BYVAL) {
                 u32 sz = (ir_arg_size(ann) + 7) & ~7u;
 
-                in_reg[idx] = 0;
-                stk_off[idx] = off;
+                plans[idx].in_reg = 0;
+                plans[idx].stk_off = off;
                 off += sz;
                 continue;
             }
             if (o->type == IRT_F80) {
                 off = (off + 15) & ~15u;
-                in_reg[idx] = 0;
-                stk_off[idx] = off;
+                plans[idx].in_reg = 0;
+                plans[idx].stk_off = off;
                 off += 16;
                 continue;
             }
@@ -1736,12 +1740,12 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 /* SSE+SSEUP: one WHOLE xmm register, or 16 bytes of stack
                  * at 16-byte alignment when the eight are used up. */
                 if (fp < 8) {
-                    in_reg[idx] = 4;
-                    reg_slot[idx] = (u8)fp++;
+                    plans[idx].in_reg = 4;
+                    plans[idx].reg_slot = (u8)fp++;
                 } else {
                     off = (off + 15) & ~15u;
-                    in_reg[idx] = 0;
-                    stk_off[idx] = off;
+                    plans[idx].in_reg = 0;
+                    plans[idx].stk_off = off;
                     off += 16;
                 }
                 continue;
@@ -1749,21 +1753,21 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             if (irt_sse(o->type) ||
                 (o->kind == IROP_FCONST && irt_sse(o->type))) {
                 if (fp < 8) {
-                    in_reg[idx] = 2;
-                    reg_slot[idx] = (u8)fp++;
+                    plans[idx].in_reg = 2;
+                    plans[idx].reg_slot = (u8)fp++;
                 } else {
-                    in_reg[idx] = 0;
-                    stk_off[idx] = off;
+                    plans[idx].in_reg = 0;
+                    plans[idx].stk_off = off;
                     off += 8;
                 }
                 continue;
             }
             if (gp < 6) {
-                in_reg[idx] = 1;
-                reg_slot[idx] = (u8)gp++;
+                plans[idx].in_reg = 1;
+                plans[idx].reg_slot = (u8)gp++;
             } else {
-                in_reg[idx] = 0;
-                stk_off[idx] = off;
+                plans[idx].in_reg = 0;
+                plans[idx].stk_off = off;
                 off += 8;
             }
         }
@@ -1780,7 +1784,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             u64 ann =
                 (o->kind == IROP_VALUE || o->kind == IROP_SYMBOL) ? o->b : 0;
 
-            if (in_reg[idx] != 0)
+            if (plans[idx].in_reg != 0)
                 continue;
             if (ir_arg_kind(ann) == IR_ARG_BYVAL) {
                 /* Inline word copy of the pointee onto the stack (the
@@ -1807,7 +1811,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                     x->b.kind = X64O_MEM;
                     x->b.mem.rsp_rel = 1;
                     x->b.mem.scale = 1;
-                    x->b.mem.disp = (i32)(stk_off[idx] + c);
+                    x->b.mem.disp = (i32)(plans[idx].stk_off + c);
                     c += step;
                 }
                 continue;
@@ -1820,7 +1824,18 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->a.kind = X64O_MEM;
                 x->a.mem.rsp_rel = 1;
                 x->a.mem.scale = 1;
-                x->a.mem.disp = (i32)stk_off[idx];
+                x->a.mem.disp = (i32)plans[idx].stk_off;
+                continue;
+            }
+            if (o->type == IRT_F128) {
+                X64VReg fv = to_vvreg(is, o);
+
+                x = emit(is, X64_OP_VSTORE, X64_X);
+                x->a = ovreg(fv);
+                x->b.kind = X64O_MEM;
+                x->b.mem.rsp_rel = 1;
+                x->b.mem.scale = 1;
+                x->b.mem.disp = (i32)plans[idx].stk_off;
                 continue;
             }
             if (irt_sse(o->type)) {
@@ -1831,7 +1846,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->b.kind = X64O_MEM;
                 x->b.mem.rsp_rel = 1;
                 x->b.mem.scale = 1;
-                x->b.mem.disp = (i32)stk_off[idx];
+                x->b.mem.disp = (i32)plans[idx].stk_off;
                 continue;
             }
             {
@@ -1842,7 +1857,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->b.kind = X64O_MEM;
                 x->b.mem.rsp_rel = 1;
                 x->b.mem.scale = 1;
-                x->b.mem.disp = (i32)stk_off[idx];
+                x->b.mem.disp = (i32)plans[idx].stk_off;
             }
         }
         /* Pass 2b: register args (tiny fixed intervals next to the
@@ -1852,9 +1867,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             const IrOperand *o = &in->ops[i2];
             u32 idx = i2 - first;
 
-            if (in_reg[idx] == 1) {
+            if (plans[idx].in_reg == 1) {
                 X64VReg t = newv(is);
-                u8 fix = (u8)(gpq[reg_slot[idx]] + 1);
+                u8 fix = (u8)(gpq[plans[idx].reg_slot] + 1);
                 /* operands BEFORE their consumer emits — the Sprint 21
                  * ordering law (a symbol arg materializes via lea). */
                 X64Operand av = to_src(is, o, X64_Q);
@@ -1865,12 +1880,12 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->a = av;
                 argx[nargx].r = t;
                 argx[nargx++].fixed = fix;
-            } else if (in_reg[idx] == 4) {
+            } else if (plans[idx].in_reg == 4) {
                 /* Whole-register move: VMOV is the 16-byte form, so the
                  * upper eightbyte (the SSEUP half) travels too. FMOV would
                  * move 8 bytes and silently drop half the value. */
                 X64VReg t = newvv(is);
-                u8 fix = (u8)(X64_XMM0 + reg_slot[idx] + 1);
+                u8 fix = (u8)(X64_XMM0 + plans[idx].reg_slot + 1);
                 X64VReg sv = to_vvreg(is, o);
 
                 x = emit(is, X64_OP_VMOV, X64_X);
@@ -1879,9 +1894,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->a = ovreg(sv);
                 argx[nargx].r = t;
                 argx[nargx++].fixed = fix;
-            } else if (in_reg[idx] == 2) {
+            } else if (plans[idx].in_reg == 2) {
                 X64VReg t = newvf(is);
-                u8 fix = (u8)(X64_XMM0 + reg_slot[idx] + 1);
+                u8 fix = (u8)(X64_XMM0 + plans[idx].reg_slot + 1);
                 X64VReg sv = to_fvreg(is, o);
 
                 x = emit(is, X64_OP_FMOV, fpw(o->type));

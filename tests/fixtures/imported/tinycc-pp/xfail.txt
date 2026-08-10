@@ -1,3 +1,2 @@
 16 expect embeds tcc-format warning text (harness format, not conformance)
-11 GNU named variadic parameters (X,Y...) land in Sprint 55
 20 tcc spacing differs from gcc here; cgf matches gcc (verified)

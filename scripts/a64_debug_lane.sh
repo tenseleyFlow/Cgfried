@@ -107,6 +107,31 @@ checks=$((checks + 1))
 grep -q 'DW_CFA_def_cfa_register: r29' "$WORK/frames.txt" ||
     fail "no FDE re-bases the CFA onto x29"
 
+# A frame above 4095 bytes takes two SUB instructions. The CFA must move
+# after EACH one: a signal arriving between them otherwise unwinds from the
+# old SP even though the first 4096 bytes have already been removed. Decode
+# the real corpus fixture's FDE and require the intermediate row before the
+# final, larger frame-size row.
+compile -g -c tests/corpus/x86_64/int/big_frame.c \
+    -o "$WORK/big-frame.o" 2>"$WORK/big-frame.err" || {
+    cat "$WORK/big-frame.err" >&2
+    fail "large-frame -g compile"
+}
+"$READELF" --debug-dump=frames "$WORK/big-frame.o" \
+    >"$WORK/big-frame.frames" 2>/dev/null
+checks=$((checks + 1))
+awk '
+    /DW_CFA_def_cfa_offset:/ {
+        offset = $NF + 0
+        if (offset == 4096)
+            intermediate = 1
+        else if (intermediate && offset > 4096)
+            final = 1
+    }
+    END { exit !(intermediate && final) }
+' "$WORK/big-frame.frames" ||
+    fail "large-frame FDE lacks an intermediate 4096-byte CFA row"
+
 # Determinism: the same input twice, byte for byte.
 compile -g -S "$SRC" -o "$WORK/a.s" 2>/dev/null
 compile -g -S "$SRC" -o "$WORK/b.s" 2>/dev/null

@@ -458,3 +458,79 @@ void test_lower_atomic_live(TestCtx *t)
     T_ASSERT(t, strstr(txt(&f), "load i32, @a, align 4, seq_cst") != NULL);
     low_free(&f);
 }
+
+void test_lower_gnu_va_arg_pack_specializes_before_call_abi(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t, run_lower(&f, "int sink(int, ...);\n"
+                              "static inline int wrap(int n, ...) {\n"
+                              "  if (__builtin_constant_p(n))\n"
+                              "    return sink(n, __builtin_va_arg_pack()) +\n"
+                              "           __builtin_va_arg_pack_len();\n"
+                              "  return -1;\n"
+                              "}\n"
+                              "int f(void) { return wrap(1, 2, 3); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, f.m->nfuncs, 1);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @wrap") == NULL);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @sink(i32 %") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "i32 2 anon, i32 3 anon") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "vapack.ret") != NULL);
+    /* The wrapper parameter inherits constant knowledge from the literal
+     * outer actual even though it has been materialized in a local slot. */
+    T_ASSERT(t, strstr(txt(&f), "icmp ne i32 1, 0") != NULL);
+    low_free(&f);
+}
+
+void test_lower_gnu_va_arg_pack_rejects_unsafe_survivors(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t, !run_lower(&f, "int sink(int, ...);\n"
+                               "int bad(int n, ...) {\n"
+                               "  return sink(n, __builtin_va_arg_pack());\n"
+                               "}\n"));
+    T_ASSERT(t, f.errors >= 1);
+    low_free(&f);
+
+    /* Specialization runs inside the containing caller; permitting va_start
+     * here would make it inspect that caller's ABI save area instead of the
+     * arguments captured for bad(1, 2). */
+    T_ASSERT(t, !run_lower(&f, "int sink(int, ...);\n"
+                               "static inline int bad(int n, ...) {\n"
+                               "  __builtin_va_list ap;\n"
+                               "  __builtin_va_start(ap, n);\n"
+                               "  return sink(n, __builtin_va_arg_pack());\n"
+                               "}\n"
+                               "int outer(int z, ...) {\n"
+                               "  return bad(1, 2);\n"
+                               "}\n"));
+    T_ASSERT(t, f.errors >= 1);
+    low_free(&f);
+
+    T_ASSERT(t, !run_lower(&f, "int sink(int, ...);\n"
+                               "static inline int bad(int n, ...) {\n"
+                               "  static int state;\n"
+                               "  return sink(n + state,\n"
+                               "              __builtin_va_arg_pack());\n"
+                               "}\n"));
+    T_ASSERT(t, f.errors >= 1);
+    low_free(&f);
+
+    T_ASSERT(t, !run_lower(&f, "int sink(int, ...);\n"
+                               "static inline int bad(int n, ...) {\n"
+                               "  return sink(__builtin_va_arg_pack(), n);\n"
+                               "}\n"));
+    T_ASSERT(t, f.errors >= 1);
+    low_free(&f);
+
+    T_ASSERT(t, !run_lower(&f, "int sink(int, ...);\n"
+                               "static inline int bad(int n, ...) {\n"
+                               "  return sink(n, __builtin_va_arg_pack());\n"
+                               "}\n"
+                               "int (*p)(int, ...) = bad;\n"));
+    T_ASSERT(t, f.errors >= 1);
+    low_free(&f);
+}

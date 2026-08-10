@@ -946,11 +946,41 @@ static AstNode *expr_index(Sema *s, AstNode *e)
     return e;
 }
 
+/* GNU's forwarding pack is an inliner operand, not a va_list and not an
+ * expression value. It is meaningful only while typing the body of a
+ * prototyped variadic inline definition; lowering later specializes that
+ * body at each direct call and supplies the caller's anonymous arguments. */
+static bool require_va_arg_pack_wrapper(Sema *s, AstNode *e,
+                                        const char *builtin)
+{
+    Symbol *fn = s->cur_func;
+    Type *ft = fn ? fn->type : NULL;
+
+    if (!fn || fn->kind != SYM_FUNC || !ft || ft->kind != TY_FUNC) {
+        err(s, e->span, "'%s' may only appear in a function definition",
+            builtin);
+        return false;
+    }
+    if (!ft->has_proto || !ft->variadic) {
+        err(s, e->span,
+            "'%s' may only appear in a prototyped variadic function", builtin);
+        return false;
+    }
+    if ((fn->func_specs & AST_FS_INLINE) == 0) {
+        err(s, e->span, "'%s' requires an inline function definition", builtin);
+        return false;
+    }
+    fn->uses_va_arg_pack = true;
+    return true;
+}
+
 static AstNode *expr_call(Sema *s, AstNode *e)
 {
     AstNode *callee;
     Type *ft;
     u32 i;
+    u32 explicit_nargs = e->nargs;
+    bool has_va_pack = false;
     const char *callee_name = NULL;
 
     /* C89 implicit-function recovery: introduce one file-scope `int f()`
@@ -1124,7 +1154,40 @@ static AstNode *expr_call(Sema *s, AstNode *e)
     ft = ft->base;
 
     for (i = 0; i < e->nargs; i++) {
-        AstNode *arg = conv_decay(s, expr(s, e->args[i]));
+        AstNode *arg = e->args[i];
+
+        if (!arg || arg->kind != AST_EXPR_VA_ARG_PACK)
+            continue;
+        if (has_va_pack || i + 1 != e->nargs) {
+            err(s, arg->span,
+                "'__builtin_va_arg_pack()' must be the final argument of "
+                "a call");
+        }
+        has_va_pack = true;
+        explicit_nargs--;
+        arg->sem_type = type_basic(TY_VOID);
+        arg->is_lvalue = false;
+        (void)require_va_arg_pack_wrapper(s, arg, "__builtin_va_arg_pack");
+    }
+    if (has_va_pack) {
+        if (!ft->has_proto || !ft->variadic)
+            err(s, e->span,
+                "'__builtin_va_arg_pack()' may only forward to a "
+                "prototyped variadic function");
+        else if (explicit_nargs < ft->nparams)
+            err(s, e->span,
+                "'__builtin_va_arg_pack()' cannot supply named parameters: "
+                "expected at least %u explicit argument%s, have %u",
+                (unsigned)ft->nparams, ft->nparams == 1 ? "" : "s",
+                (unsigned)explicit_nargs);
+    }
+
+    for (i = 0; i < e->nargs; i++) {
+        AstNode *arg;
+
+        if (e->args[i] && e->args[i]->kind == AST_EXPR_VA_ARG_PACK)
+            continue;
+        arg = conv_decay(s, expr(s, e->args[i]));
 
         e->args[i] = arg;
         /* An argument is a VALUE, and void has none. The prototyped path
@@ -1156,22 +1219,23 @@ static AstNode *expr_call(Sema *s, AstNode *e)
         }
     }
     if (ft->has_proto) {
-        if (e->nargs < ft->nparams)
+        if (explicit_nargs < ft->nparams)
             err(s, e->span,
                 "too few arguments to function%s%s%s: expected "
                 "%u, have %u",
                 callee_name ? " '" : "", callee_name ? callee_name : "",
                 callee_name ? "'" : "", (unsigned)ft->nparams,
-                (unsigned)e->nargs);
-        else if (e->nargs > ft->nparams && !ft->variadic)
+                (unsigned)explicit_nargs);
+        else if (explicit_nargs > ft->nparams && !ft->variadic)
             err(s, e->span,
                 "too many arguments to function%s%s%s: expected "
                 "%u, have %u",
                 callee_name ? " '" : "", callee_name ? callee_name : "",
                 callee_name ? "'" : "", (unsigned)ft->nparams,
-                (unsigned)e->nargs);
+                (unsigned)explicit_nargs);
     }
-    warn_format_check_call(s->lang->warnings, s, e);
+    if (!has_va_pack)
+        warn_format_check_call(s->lang->warnings, s, e);
     e->sem_type = ft->base;
     /* A function call is never an lvalue, even returning a struct. */
     e->is_lvalue = false;
@@ -1318,11 +1382,32 @@ static AstNode *expr(Sema *s, AstNode *e)
                           : literal_element_type(s, (EncPrefix)e->tok->enc);
         return e;
     case AST_EXPR_FLOAT:
-        e->sem_type = e->tok->float_type == FTY_FLOAT    ? type_basic(TY_FLOAT)
-                      : e->tok->float_type == FTY_DOUBLE ? type_basic(TY_DOUBLE)
-                      : e->tok->float_type == FTY_LDOUBLE
-                          ? type_basic(TY_LDOUBLE)
-                          : type_basic(TY_FLOAT128);
+        switch ((FloatConstType)e->tok->float_type) {
+        case FTY_FLOAT:
+            e->sem_type = type_basic(TY_FLOAT);
+            break;
+        case FTY_DOUBLE:
+            e->sem_type = type_basic(TY_DOUBLE);
+            break;
+        case FTY_LDOUBLE:
+            e->sem_type = type_basic(TY_LDOUBLE);
+            break;
+        case FTY_FLOAT32:
+            e->sem_type = type_basic(TY_FLOAT32);
+            break;
+        case FTY_FLOAT64:
+            e->sem_type = type_basic(TY_FLOAT64);
+            break;
+        case FTY_FLOAT32X:
+            e->sem_type = type_basic(TY_FLOAT32X);
+            break;
+        case FTY_FLOAT64X:
+            e->sem_type = type_basic(TY_FLOAT64X);
+            break;
+        case FTY_FLOAT128:
+            e->sem_type = type_basic(TY_FLOAT128);
+            break;
+        }
         return e;
     case AST_EXPR_STRING: {
         Type *arr = type_array(
@@ -1467,6 +1552,20 @@ static AstNode *expr(Sema *s, AstNode *e)
         }
         return e;
     }
+    case AST_EXPR_VA_ARG_PACK:
+        /* The call path consumes this placeholder without treating it as a
+         * value. Reaching ordinary expression typing means it was written in
+         * every other (invalid) position. */
+        (void)require_va_arg_pack_wrapper(s, e, "__builtin_va_arg_pack");
+        err(s, e->span,
+            "'__builtin_va_arg_pack()' must be the final argument of a "
+            "call");
+        return poison(s, e);
+    case AST_EXPR_VA_ARG_PACK_LEN:
+        (void)require_va_arg_pack_wrapper(s, e, "__builtin_va_arg_pack_len");
+        e->sem_type = type_basic(TY_INT);
+        e->is_lvalue = false;
+        return e;
     case AST_EXPR_VA_ARG: {
         /* __builtin_va_arg(ap, T): the value is a T rvalue; ap types and
          * decays (array va_list -> record pointer). Checking that ap

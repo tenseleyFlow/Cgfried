@@ -47,6 +47,10 @@ typedef enum FloatConstType {
     FTY_FLOAT,
     FTY_DOUBLE,
     FTY_LDOUBLE,
+    FTY_FLOAT32,
+    FTY_FLOAT64,
+    FTY_FLOAT32X,
+    FTY_FLOAT64X,
     FTY_FLOAT128, /* the `q`/`Q` and `f128`/`F128` suffixes */
 } FloatConstType;
 
@@ -66,12 +70,14 @@ typedef struct StrLit {
 } StrLit;
 
 typedef struct Token {
-    u8 kind;       /* TokenKind */
-    u8 kw;         /* Keyword; KW_NONE unless kind == TOK_KEYWORD */
-    u16 punct;     /* PpPunct when kind == TOK_PUNCT */
-    u8 int_type;   /* IntConstType for INT/CHAR consts */
-    u8 float_type; /* FloatConstType for FLOAT consts */
-    u8 enc;        /* EncPrefix for char consts */
+    u8 kind;               /* TokenKind */
+    u8 kw;                 /* Keyword; KW_NONE unless kind == TOK_KEYWORD */
+    u16 punct;             /* PpPunct when kind == TOK_PUNCT */
+    u8 int_type;           /* IntConstType for INT/CHAR consts */
+    u8 float_type;         /* FloatConstType for FLOAT consts */
+    u8 enc;                /* EncPrefix for char consts */
+    bool float_ext_suffix; /* q/Q or TS 18661 F<N>[x] spelling; the parser
+                              emits its suppressible -Wpedantic diagnostic */
     Span span;
     const char *spelling; /* interned; idents/keywords/puncts and the exact
                              float spelling (see lex_fp_interim) */
@@ -144,7 +150,7 @@ const char *lex_int_type_name(IntConstType t);
 void lex_int_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
                    const LangOpts *lang, IntWidths w, SrcLoc loc);
 void lex_float_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
-                     const LangOpts *lang, SrcLoc loc);
+                     const LangOpts *lang, TargetSpec target, SrcLoc loc);
 /* True if the pp-number is a floating (not integer) constant. */
 bool lex_ppnum_is_float(const char *sp, u32 len);
 

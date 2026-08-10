@@ -58,6 +58,14 @@ const char *ast_base_type_name(AstBaseType b)
         return "int"; /* implicit int */
     case ABT_VA_LIST:
         return "__builtin_va_list";
+    case ABT_FLOAT32:
+        return "_Float32";
+    case ABT_FLOAT64:
+        return "_Float64";
+    case ABT_FLOAT32X:
+        return "_Float32x";
+    case ABT_FLOAT64X:
+        return "_Float64x";
     case ABT_FLOAT128:
         return "_Float128";
     case ABT_TYPEOF:
@@ -345,6 +353,12 @@ void ast_expr_render(const AstNode *e, Buf *out)
         buf_printf(out, "(complit%s<", e->is_static_storage ? "-static" : "");
         ast_type_render(e->type, out);
         buf_printf(out, ">[%u])", (unsigned)(e->init ? e->init->nitems : 0));
+        return;
+    case AST_EXPR_VA_ARG_PACK:
+        buf_printf(out, "__builtin_va_arg_pack()");
+        return;
+    case AST_EXPR_VA_ARG_PACK_LEN:
+        buf_printf(out, "__builtin_va_arg_pack_len()");
         return;
     case AST_INIT_LIST:
         buf_printf(out, "{%u}", (unsigned)e->nitems);

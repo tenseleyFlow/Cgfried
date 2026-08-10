@@ -22,14 +22,18 @@ SfFormat constexpr_format_of(Sema *s, const Type *t)
         return SF_BINARY64;
     switch (t->kind) {
     case TY_FLOAT:
+    case TY_FLOAT32:
         return SF_BINARY32;
     case TY_DOUBLE:
+    case TY_FLOAT64:
+    case TY_FLOAT32X:
         return SF_BINARY64;
     case TY_FLOAT128:
         /* Target-independent by definition -- that is the type's whole
          * purpose on x86-64, where long double is x87 80-bit. */
         return SF_BINARY128;
     case TY_LDOUBLE:
+    case TY_FLOAT64X:
         switch (tl.ldbl_kind) {
         case CGF_LDBL_X87_80:
             return SF_X87_80;

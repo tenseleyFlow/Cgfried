@@ -209,10 +209,16 @@ static void scope_declare_tag(Parser *p, const char *name)
 typedef struct {
     int n_void, n_char, n_short, n_int, n_long, n_float, n_double;
     int n_signed, n_unsigned, n_bool;
-    int n_other; /* struct/union/enum/typedef-name/_Atomic(T) */
+    int n_other;      /* struct/union/enum/typedef-name/_Atomic(T) */
+    u32 floatn_specs; /* exact `_FloatN`/`__float128` keyword identity */
     u32 storage;
     u32 quals;
     u32 func_specs;
+    /* Effective depth after declaration-position `__extension__` tokens.
+     * parse_decl_specs restores the caller's depth before returning; the
+     * owning declaration production reapplies this value through its full
+     * declarator/initializer and restores it at the declaration boundary. */
+    u32 extension_depth;
     AstBaseType other_base;
     const char *typedef_name;
     AstNode *record;
@@ -231,6 +237,15 @@ typedef struct {
     bool saw_non_storage;
     bool bad;
 } SpecSoup;
+
+enum {
+    FLOATN_SPEC_FLOAT32 = 1u << 0,
+    FLOATN_SPEC_FLOAT64 = 1u << 1,
+    FLOATN_SPEC_FLOAT32X = 1u << 2,
+    FLOATN_SPEC_FLOAT64X = 1u << 3,
+    FLOATN_SPEC_FLOAT128 = 1u << 4,
+    FLOATN_SPEC_ALT_FLOAT128 = 1u << 5
+};
 
 /* THE SOUP'S TYPE-IDENTITY FIELDS, IN ONE PLACE. Six different sites build
  * an ATY_BASE out of a SpecSoup -- a declaration, a parameter, a member, a
@@ -319,40 +334,75 @@ static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
                                  bool abstract_ok);
 static AstNode *parse_initializer(Parser *p);
 
+/* glibc supplies typedef fallbacks for compilers older than GCC 7. In strict
+ * modes Cgfried intentionally withholds __GNUC__, so those declarations are
+ * active even though the TS 18661 spellings are native keywords here. Accept
+ * only the exact system-header typedef shapes; user code combining a native
+ * type keyword with another specifier must still be rejected. */
+static bool is_system_float_compat_typedef(Parser *p, const SpecSoup *s,
+                                           const Token *at)
+{
+    Keyword final_kw;
+    bool exact_shape = false;
+
+    if (!(at->span.origin & SPAN_ORIGIN_SYSTEM_SPELLING) ||
+        s->storage != AST_SC_TYPEDEF || s->n_void || s->n_char || s->n_short ||
+        s->n_int || s->n_signed || s->n_unsigned || s->n_bool || s->quals ||
+        s->func_specs || s->has_alignas || p->pos == 0 ||
+        p->toks[p->pos - 1].kind != TOK_KEYWORD ||
+        !parse_at_punct(p, PUNCT_SEMI))
+        return false;
+
+    final_kw = (Keyword)p->toks[p->pos - 1].kw;
+    switch (s->other_base) {
+    case ABT_FLOAT32:
+        exact_shape = final_kw == KW_FLOAT32 && s->n_other == 1 &&
+                      s->floatn_specs == FLOATN_SPEC_FLOAT32 &&
+                      s->n_float == 1 && !s->n_double && !s->n_long;
+        break;
+    case ABT_FLOAT64:
+        exact_shape = final_kw == KW_FLOAT64 && s->n_other == 1 &&
+                      s->floatn_specs == FLOATN_SPEC_FLOAT64 &&
+                      s->n_double == 1 && !s->n_float && !s->n_long;
+        break;
+    case ABT_FLOAT32X:
+        exact_shape = final_kw == KW_FLOAT32X && s->n_other == 1 &&
+                      s->floatn_specs == FLOATN_SPEC_FLOAT32X &&
+                      s->n_double == 1 && !s->n_float && !s->n_long;
+        break;
+    case ABT_FLOAT64X:
+        exact_shape = final_kw == KW_FLOAT64X && s->n_other == 1 &&
+                      s->floatn_specs == FLOATN_SPEC_FLOAT64X &&
+                      s->n_long == 1 && s->n_double == 1 && !s->n_float;
+        break;
+    case ABT_FLOAT128:
+        exact_shape =
+            final_kw == KW_FLOAT128 &&
+            ((s->n_other == 1 && s->n_long == 1 && s->n_double == 1 &&
+              !s->n_float && s->floatn_specs == FLOATN_SPEC_FLOAT128) ||
+             (s->n_other == 2 && !s->n_long && !s->n_double && !s->n_float &&
+              s->floatn_specs ==
+                  (FLOATN_SPEC_ALT_FLOAT128 | FLOATN_SPEC_FLOAT128)));
+        break;
+    default:
+        break;
+    }
+    return exact_shape;
+}
+
 /* Reduces the collected multiset to a canonical base type (C11 6.7.2p2).
  * Order never matters; only the multiset does. */
 static AstBaseType soup_resolve(Parser *p, SpecSoup *s, const Token *at)
 {
     int sign = s->n_signed - s->n_unsigned;
 
-    /* glibc's arm64 <bits/floatn.h> has an old-compiler fallback:
-     *
-     *     typedef long double _Float128;
-     *
-     * It is selected when __GNUC_PREREQ(7, 0) is false. Strict ISO modes
-     * intentionally do not predefine __GNUC__, but cgfried still provides
-     * _Float128 as a native, distinct binary128 type. Because the spelling
-     * is a keyword, the declaration reaches the soup as `long double` plus
-     * a second type specifier and has no declarator left to parse.
-     *
-     * Treat only that exact system-header declaration as a redundant typedef
-     * of the native type. Requiring the physical system origin, typedef-only
-     * storage, exact multiset, final `_Float128` token, and immediate ';'
-     * keeps user code and every real conflicting-specifier shape diagnosed. */
-    if ((at->span.origin & SPAN_ORIGIN_SYSTEM_SPELLING) &&
-        s->storage == AST_SC_TYPEDEF && s->n_other == 1 &&
-        s->other_base == ABT_FLOAT128 && s->n_long == 1 && s->n_double == 1 &&
-        !s->n_void && !s->n_char && !s->n_short && !s->n_int && !s->n_float &&
-        !s->n_signed && !s->n_unsigned && !s->n_bool && !s->quals &&
-        !s->func_specs && !s->has_alignas && p->pos > 0 &&
-        p->toks[p->pos - 1].kind == TOK_KEYWORD &&
-        p->toks[p->pos - 1].kw == KW_FLOAT128 && parse_at_punct(p, PUNCT_SEMI))
-        return ABT_FLOAT128;
+    if (is_system_float_compat_typedef(p, s, at))
+        return s->other_base;
 
     if (s->n_other) {
-        if (s->n_void || s->n_char || s->n_short || s->n_int || s->n_long ||
-            s->n_float || s->n_double || s->n_signed || s->n_unsigned ||
-            s->n_bool) {
+        if (s->n_other > 1 || s->n_void || s->n_char || s->n_short ||
+            s->n_int || s->n_long || s->n_float || s->n_double || s->n_signed ||
+            s->n_unsigned || s->n_bool) {
             parse_error(p, at,
                         "cannot combine '%s' with another type "
                         "specifier",
@@ -454,10 +504,23 @@ static void add_storage(Parser *p, SpecSoup *s, u32 bit, const Token *at,
     s->storage |= bit;
 }
 
+static void add_floatn_spec(Parser *p, SpecSoup *s, const Token *at,
+                            AstBaseType base, u32 identity, bool pedwarn)
+{
+    s->n_other++;
+    s->other_base = base;
+    s->floatn_specs |= identity;
+    if (pedwarn && !p->extension_depth)
+        warn_at(p->lang->warnings, WARN_PEDANTIC, at->span,
+                "ISO C does not support the '%s' type before C23",
+                at->spelling);
+}
+
 /* Returns false if no specifier was consumed. */
 static bool parse_decl_specs(Parser *p, SpecSoup *s)
 {
     const Token *first = parse_peek(p);
+    u32 outer_extension_depth = p->extension_depth;
 
     memset(s, 0, sizeof(*s));
     for (;;) {
@@ -637,8 +700,26 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 /* A standalone specifier: it combines with nothing, so it
                  * rides `n_other` and the existing conflict machinery
                  * rejects `long _Float128` and friends for free. */
-                s->n_other++;
-                s->other_base = ABT_FLOAT128;
+                add_floatn_spec(p, s, t, ABT_FLOAT128,
+                                kw == KW_FLOAT128 ? FLOATN_SPEC_FLOAT128
+                                                  : FLOATN_SPEC_ALT_FLOAT128,
+                                kw == KW_FLOAT128);
+                goto consumed;
+            case KW_FLOAT32:
+                add_floatn_spec(p, s, t, ABT_FLOAT32, FLOATN_SPEC_FLOAT32,
+                                true);
+                goto consumed;
+            case KW_FLOAT64:
+                add_floatn_spec(p, s, t, ABT_FLOAT64, FLOATN_SPEC_FLOAT64,
+                                true);
+                goto consumed;
+            case KW_FLOAT32X:
+                add_floatn_spec(p, s, t, ABT_FLOAT32X, FLOATN_SPEC_FLOAT32X,
+                                true);
+                goto consumed;
+            case KW_FLOAT64X:
+                add_floatn_spec(p, s, t, ABT_FLOAT64X, FLOATN_SPEC_FLOAT64X,
+                                true);
                 goto consumed;
             case KW_ALT_BUILTIN_VA_LIST:
                 /* Lexed as a KEYWORD by the Sprint 8 table, so it never
@@ -703,7 +784,11 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 continue;
             }
             case KW_EXTENSION:
-                p->pos++; /* __extension__ just suppresses pedwarns */
+                /* Declaration-position `__extension__` scopes over the
+                 * remaining soup, including nested typeof/_Alignas operands.
+                 * `done` restores the caller's expression-level depth. */
+                p->extension_depth++;
+                p->pos++;
                 continue;
             default:
                 goto done;
@@ -750,6 +835,8 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
         goto done;
     }
 done:
+    s->extension_depth = p->extension_depth;
+    p->extension_depth = outer_extension_depth;
     (void)first;
     return s->saw_any;
 }
@@ -798,7 +885,11 @@ bool parse_at_decl_specs(Parser *p)
         if (parse_is_builtin_name(t->spelling) &&
             (parse_is_known_builtin(t->spelling) ||
              strcmp(t->spelling, "__builtin_va_arg") == 0 ||
-             strcmp(t->spelling, "__builtin_offsetof") == 0))
+             strcmp(t->spelling, "__builtin_va_arg_pack") == 0 ||
+             strcmp(t->spelling, "__builtin_va_arg_pack_len") == 0 ||
+             strcmp(t->spelling, "__builtin_offsetof") == 0 ||
+             strcmp(t->spelling, "__builtin_types_compatible_p") == 0 ||
+             strcmp(t->spelling, "__builtin_choose_expr") == 0))
             return false;
         return parse_is_typedef_name(p, t->spelling) ||
                parse_is_builtin_name(t->spelling);
@@ -824,6 +915,10 @@ bool parse_at_decl_specs(Parser *p)
     case KW_LONG:
     case KW_FLOAT:
     case KW_DOUBLE:
+    case KW_FLOAT32:
+    case KW_FLOAT64:
+    case KW_FLOAT32X:
+    case KW_FLOAT64X:
     case KW_FLOAT128:
     case KW_ALT_FLOAT128:
     case KW_SIGNED:
@@ -924,6 +1019,8 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         AstType *base;
         AstParam prm;
         const Token *start = parse_peek(p);
+        u32 outer_extension_depth = p->extension_depth;
+        bool more;
 
         if (parse_eat_punct(p, PUNCT_ELLIPSIS)) {
             fn->is_variadic = true;
@@ -936,6 +1033,7 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
                         tok_desc(start));
             break;
         }
+        p->extension_depth = s.extension_depth;
         /* 6.7.1p6: `register` is the only storage class permitted in a
          * parameter declaration.  AstParam intentionally carries no
          * storage-duration state, so reject the invalid forms before the
@@ -998,7 +1096,9 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         if (prm.name)
             parse_scope_declare(p, prm.name, false);
         ParamVec_push(&params, prm);
-        if (!parse_eat_punct(p, PUNCT_COMMA))
+        more = parse_eat_punct(p, PUNCT_COMMA);
+        p->extension_depth = outer_extension_depth;
+        if (!more)
             break;
     }
     parse_expect_punct(p, PUNCT_RPAREN, "after parameter list");
@@ -1284,6 +1384,7 @@ static AstNode *parse_member_decl(Parser *p)
     AstNode *first = NULL;
     const Token *start = parse_peek(p);
     AstBaseType base_kind;
+    u32 outer_extension_depth = p->extension_depth;
 
     if (parse_at_kw(p, KW_STATIC_ASSERT))
         return parse_static_assert(p);
@@ -1294,6 +1395,7 @@ static AstNode *parse_member_decl(Parser *p)
         p->pos++;
         return NULL;
     }
+    p->extension_depth = s.extension_depth;
     base_kind = soup_resolve(p, &s, start);
 
     if (parse_eat_punct(p, PUNCT_SEMI)) {
@@ -1323,6 +1425,7 @@ static AstNode *parse_member_decl(Parser *p)
             warn_at(p->lang->warnings, WARN_EMPTY_DECLARATION, start->span,
                     "declaration does not declare anything");
         }
+        p->extension_depth = outer_extension_depth;
         return n;
     }
 
@@ -1370,6 +1473,7 @@ static AstNode *parse_member_decl(Parser *p)
             break;
     }
     parse_expect_punct(p, PUNCT_SEMI, "after member declaration");
+    p->extension_depth = outer_extension_depth;
     return first;
 }
 
@@ -1544,6 +1648,7 @@ AstType *parse_type_name(Parser *p)
     AstType *base;
     const char *name = NULL;
     AstType *ty;
+    u32 outer_extension_depth = p->extension_depth;
 
     if (!parse_decl_specs(p, &s)) {
         parse_error(p, start, "expected a type name but found '%s'",
@@ -1552,6 +1657,7 @@ AstType *parse_type_name(Parser *p)
         base->base = ABT_INT;
         return base;
     }
+    p->extension_depth = s.extension_depth;
     base = ast_type_new(p->arena, ATY_BASE, start->span);
     base->base = soup_resolve(p, &s, start);
     soup_fill_identity(base, &s);
@@ -1563,6 +1669,7 @@ AstType *parse_type_name(Parser *p)
     ty = parse_declarator(p, base, &name, true);
     if (name)
         parse_error(p, start, "a type name cannot declare '%s'", name);
+    p->extension_depth = outer_extension_depth;
     return ty;
 }
 
@@ -1730,6 +1837,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
     AstNode *first = NULL;
     NodeVec siblings = {NULL, 0, 0};
     bool implicit_int = false;
+    u32 outer_extension_depth = p->extension_depth;
 
     if (parse_at_kw(p, KW_STATIC_ASSERT))
         return parse_static_assert(p);
@@ -1739,8 +1847,10 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
     if (!parse_decl_specs(p, &s)) {
         if (looks_like_implicit_int_decl(p)) {
             memset(&s, 0, sizeof(s));
+            s.extension_depth = outer_extension_depth;
         } else if (parse_at_unknown_type(p)) {
             memset(&s, 0, sizeof(s));
+            s.extension_depth = outer_extension_depth;
             take_unknown_type(p, &s);
         } else {
             AstNode *bad;
@@ -1752,6 +1862,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
             return bad;
         }
     }
+    p->extension_depth = s.extension_depth;
     base_kind = soup_resolve(p, &s, start);
     if (base_kind == ABT_NONE) {
         implicit_int = true;
@@ -1773,6 +1884,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         if (base_kind != ABT_RECORD && base_kind != ABT_ENUM)
             warn_at(p->lang->warnings, WARN_EMPTY_DECLARATION, start->span,
                     "declaration does not declare anything");
+        p->extension_depth = outer_extension_depth;
         return n;
     }
 
@@ -1882,6 +1994,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
                 parse_error(p, parse_peek(p), "expected a function body");
             p->scope_depth--;
             parse_scope_leave(p);
+            p->extension_depth = outer_extension_depth;
             return n;
         }
 
@@ -1910,6 +2023,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         memcpy(first->items, siblings.data, siblings.len * sizeof(AstNode *));
     }
     NodeVec_free(&siblings);
+    p->extension_depth = outer_extension_depth;
     return first;
 }
 

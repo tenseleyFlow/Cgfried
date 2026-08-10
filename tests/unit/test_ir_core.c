@@ -406,6 +406,30 @@ void test_ir_roundtrip_builder_loop(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_exact_asm_symbol_roundtrip(TestCtx *t)
+{
+    IrFix f;
+    IrModule *m;
+    static const char src[] =
+        "sym @!collision$UNIX2003\n"
+        "sym @collision$UNIX2003\n"
+        "global @!collision$UNIX2003 size 4 align 4 external\n"
+        "global @collision$UNIX2003 size 4 align 4 external\n";
+
+    fix_init(&f);
+    m = parse_ok(t, &f, src);
+    if (m) {
+        T_ASSERT_EQ_INT(t, m->nsyms, 2);
+        T_ASSERT(t, ir_sym_name_is_exact_asm(m->syms[0]));
+        T_ASSERT(t, !ir_sym_name_is_exact_asm(m->syms[1]));
+        T_ASSERT_EQ_STR(t, ir_sym_asm_spelling(m->syms[0]),
+                        "collision$UNIX2003");
+        T_ASSERT(t, strcmp(m->syms[0], m->syms[1]) != 0);
+        roundtrip(t, &f, m);
+    }
+    fix_free(&f);
+}
+
 void test_ir_parse_full_surface(TestCtx *t)
 {
     IrFix f;
@@ -443,6 +467,10 @@ void test_ir_parse_full_surface(TestCtx *t)
         "    unreachable\n"
         "done():\n"
         "    ret\n"
+        "}\n"
+        "func void @hq(ptr %out) abi(hfa_f128,2) {\n"
+        "entry():\n"
+        "    ret\n"
         "}\n";
     const IrFunc *fn;
     const IrInst *in;
@@ -454,7 +482,7 @@ void test_ir_parse_full_surface(TestCtx *t)
         return;
     }
     T_ASSERT_EQ_INT(t, m->nglobals, 2);
-    T_ASSERT_EQ_INT(t, m->nfuncs, 2);
+    T_ASSERT_EQ_INT(t, m->nfuncs, 3);
     /* sym table: declared order preserved, funcs appended after */
     T_ASSERT_EQ_STR(t, m->syms[0], "g");
     T_ASSERT_EQ_STR(t, m->syms[1], "ext");
@@ -491,6 +519,8 @@ void test_ir_parse_full_surface(TestCtx *t)
     T_ASSERT_EQ_INT(t, in->subop, FUNCREF_INDIRECT);
     T_ASSERT_EQ_INT(t, in->nops, 2);
     T_ASSERT_EQ_INT(t, in->result.v, 0); /* void: defines nothing */
+    T_ASSERT_EQ_INT(t, m->funcs[2].abi_ret, IR_ABIRET_HFA_F128);
+    T_ASSERT_EQ_INT(t, m->funcs[2].abi_ret_n, 2);
 
     roundtrip(t, &f, m);
     fix_free(&f);

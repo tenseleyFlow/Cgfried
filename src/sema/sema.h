@@ -35,6 +35,13 @@ typedef enum {
     TY_DOUBLE,
     TY_LDOUBLE,
     TY_FLOAT128, /* _Float128: IEEE binary128, DISTINCT from long double */
+    /* TS 18661 / GNU interchange and extended floating types. They remain
+     * distinct C types even where their target representation is identical
+     * to a standard type. */
+    TY_FLOAT32,
+    TY_FLOAT64,
+    TY_FLOAT32X,
+    TY_FLOAT64X,
     TY_PTR,
     TY_ARRAY,
     TY_FUNC,
@@ -242,6 +249,12 @@ struct Symbol {
      * own `extern`, not an unrelated prototype's. */
     bool func_def_inline;
     bool func_def_extern;
+    /* GNU argument-pack wrappers have no independently lowerable body: each
+     * direct call specializes this AST before the destination call's ABI is
+     * planned. Keeping the definition on the merged symbol makes calls that
+     * precede the definition work after whole-TU sema has completed. */
+    AstNode *func_def;
+    bool uses_va_arg_pack;
     u8 inline_kind;     /* InlineKind, valid after sema_finish */
     u8 def_kind;        /* DefKind, valid after sema_finish */
     i64 enum_value;     /* SYM_ENUM_CONST */
@@ -286,6 +299,7 @@ typedef struct Sema {
     Type *cur_ret;
     const char *cur_fname;
     u32 cur_func_specs;
+    Symbol *cur_func;
     /* The VM-scope jump checker (6.8.6.1p1): a goto or switch may not
      * jump INTO the scope of a variably modified object, bypassing its
      * size evaluation. The chain mirrors the lexical scope stack; labels
@@ -348,6 +362,7 @@ Type *type_tag(Arena *ar, TagDecl *tag);
 
 bool type_is_basic(const Type *t);
 bool type_is_integer(const Type *t);
+bool type_is_floating(const Type *t);
 bool type_is_arithmetic(const Type *t);
 bool type_is_complete(const Type *t);
 /* The C11 scalar-operand constraint, shared by `!`, `&&`, `||`, `?:` and

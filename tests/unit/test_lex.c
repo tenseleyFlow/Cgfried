@@ -54,8 +54,9 @@ static void lfix_free(LexFix *f)
 
 VEC_DECL(PpVecU, PpToken);
 
-/* Lexes `src` under `std` and returns the token list. */
-static TokenList lex_src(LexFix *f, const char *src, CStd std)
+/* Lexes `src` under `std` and `target` and returns the token list. */
+static TokenList lex_src_target(LexFix *f, const char *src, CStd std,
+                                TargetKind target_kind)
 {
     SourceFile *sf;
     PpVecU pv = {NULL, 0, 0};
@@ -70,7 +71,7 @@ static TokenList lex_src(LexFix *f, const char *src, CStd std)
     lang.gnu_mode = std >= STD_GNU89;
     lang.warnings = warn_ctx_new(&f->arena, f->pp.diag);
     f->pp.warn = lang.warnings;
-    target.kind = CGF_TARGET_X86_64_LINUX_GNU;
+    target.kind = target_kind;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
     pp_begin(&f->pp, sf, NULL);
@@ -79,6 +80,11 @@ static TokenList lex_src(LexFix *f, const char *src, CStd std)
     tl = lex_convert(&f->pp, pv.data, (u32)pv.len, &lang, target, &f->arena);
     PpVecU_free(&pv);
     return tl;
+}
+
+static TokenList lex_src(LexFix *f, const char *src, CStd std)
+{
+    return lex_src_target(f, src, std, CGF_TARGET_X86_64_LINUX_GNU);
 }
 
 void test_lex_keyword_std_modes(TestCtx *t)
@@ -116,6 +122,10 @@ void test_lex_keyword_std_modes(TestCtx *t)
                         modes[m].atomic_kw);
         T_ASSERT_EQ_INT(t, lex_keyword_lookup("typeof", &lang) != KW_NONE,
                         modes[m].typeof_kw);
+        T_ASSERT(t, lex_keyword_lookup("_Float32", &lang) == KW_FLOAT32);
+        T_ASSERT(t, lex_keyword_lookup("_Float64", &lang) == KW_FLOAT64);
+        T_ASSERT(t, lex_keyword_lookup("_Float32x", &lang) == KW_FLOAT32X);
+        T_ASSERT(t, lex_keyword_lookup("_Float64x", &lang) == KW_FLOAT64X);
         /* C89 core and the __-spelled variants are keywords everywhere. */
         T_ASSERT(t, lex_keyword_lookup("int", &lang) == KW_INT);
         T_ASSERT(t, lex_keyword_lookup("__typeof__", &lang) != KW_NONE);
@@ -374,18 +384,68 @@ void test_lex_float_consts(TestCtx *t)
     T_ASSERT_EQ_INT(t, tl.toks[3].float_type, FTY_FLOAT128);
     lfix_free(&f);
 
+    tl = lex_src_target(&f, "1.0Q 1.0F128\n", STD_C17, CGF_TARGET_ARM64_LINUX);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, tl.toks[0].float_type, FTY_LDOUBLE);
+    T_ASSERT_EQ_INT(t, tl.toks[1].float_type, FTY_FLOAT128);
+    lfix_free(&f);
+
+    tl = lex_src(&f,
+                 "1.0f32 1.0F32 1.0f64 1.0F64 "
+                 "1.0f32x 1.0F32x 1.0f64x 1.0F64x\n",
+                 STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, tl.toks[0].float_type, FTY_FLOAT32);
+    T_ASSERT_EQ_INT(t, tl.toks[1].float_type, FTY_FLOAT32);
+    T_ASSERT_EQ_INT(t, tl.toks[2].float_type, FTY_FLOAT64);
+    T_ASSERT_EQ_INT(t, tl.toks[3].float_type, FTY_FLOAT64);
+    T_ASSERT_EQ_INT(t, tl.toks[4].float_type, FTY_FLOAT32X);
+    T_ASSERT_EQ_INT(t, tl.toks[5].float_type, FTY_FLOAT32X);
+    T_ASSERT_EQ_INT(t, tl.toks[6].float_type, FTY_FLOAT64X);
+    T_ASSERT_EQ_INT(t, tl.toks[7].float_type, FTY_FLOAT64X);
+    lfix_free(&f);
+
+    /* Once p/P starts a hex float's exponent, A-F are no longer hex
+     * significand digits. In particular, an F<N>[x] suffix starts at F
+     * instead of being swallowed into the exponent and left as double. */
+    tl = lex_src(&f,
+                 "0x1p0f 0x1p0F "
+                 "0x1p0f32 0x1p0F32 0x1p0f64 0x1p0F64 "
+                 "0x1p0f32x 0x1p0F32x 0x1p0f64x 0x1p0F64x "
+                 "0x1p0f128 0x1p0F128\n",
+                 STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, tl.toks[0].float_type, FTY_FLOAT);
+    T_ASSERT_EQ_INT(t, tl.toks[1].float_type, FTY_FLOAT);
+    T_ASSERT_EQ_INT(t, tl.toks[2].float_type, FTY_FLOAT32);
+    T_ASSERT_EQ_INT(t, tl.toks[3].float_type, FTY_FLOAT32);
+    T_ASSERT_EQ_INT(t, tl.toks[4].float_type, FTY_FLOAT64);
+    T_ASSERT_EQ_INT(t, tl.toks[5].float_type, FTY_FLOAT64);
+    T_ASSERT_EQ_INT(t, tl.toks[6].float_type, FTY_FLOAT32X);
+    T_ASSERT_EQ_INT(t, tl.toks[7].float_type, FTY_FLOAT32X);
+    T_ASSERT_EQ_INT(t, tl.toks[8].float_type, FTY_FLOAT64X);
+    T_ASSERT_EQ_INT(t, tl.toks[9].float_type, FTY_FLOAT64X);
+    T_ASSERT_EQ_INT(t, tl.toks[10].float_type, FTY_FLOAT128);
+    T_ASSERT_EQ_INT(t, tl.toks[11].float_type, FTY_FLOAT128);
+    T_ASSERT(t, !tl.toks[0].float_ext_suffix);
+    T_ASSERT(t, tl.toks[2].float_ext_suffix);
+    T_ASSERT(t, tl.toks[11].float_ext_suffix);
+    lfix_free(&f);
+
     /* A hex float REQUIRES its binary exponent. */
     lex_err(t, "0x1.8\n", STD_C17);
     lex_err(t, "1e\n", STD_C17);
     lex_err(t, "1.0df\n", STD_C17);
-    /* Still errors, and each is the reason the row above is not a blanket
-     * "any letters are a suffix": `qq` and `fq` are malformed, and `f128x`
-     * names _Float128x, an EXTENDED type gcc has and this compiler does
-     * not -- accepting its suffix while having no type for it is exactly
-     * the stub failure mode. gcc rejects all three (measured). */
+    /* Still errors: the accepted spellings above are exact, not a blanket
+     * "any letters are a suffix" rule. */
     lex_err(t, "1.0qq\n", STD_C17);
     lex_err(t, "1.0fq\n", STD_C17);
     lex_err(t, "1.0f128x\n", STD_C17);
+    lex_err(t, "1.0f32X\n", STD_C17);
+    lex_err(t, "1.0f64xx\n", STD_C17);
+    lex_err(t, "0x1p0F16\n", STD_C17);
+    lex_err(t, "0x1p0F32X\n", STD_C17);
+    lex_err(t, "0x1p0F128x\n", STD_C17);
 }
 
 void test_lex_spans_survive(TestCtx *t)

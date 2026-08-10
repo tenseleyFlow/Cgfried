@@ -118,6 +118,17 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
         break;
     }
 
+    /* Token prefix used by gcc's __ASMNAME machinery. The emitter adds the
+     * Mach-O underscore at its symbol boundary; exposing it here lets source
+     * spell the same redirected assembler name explicitly. ELF has no user
+     * label prefix, represented by an object-like macro with an empty body. */
+    if (gnu_mode) {
+        if (t.kind == CGF_TARGET_ARM64_MACOS)
+            buf_printf(out, "#define __USER_LABEL_PREFIX__ _\n");
+        else
+            buf_printf(out, "#define __USER_LABEL_PREFIX__\n");
+    }
+
     /* LP64 core-integer subset (all five current targets agree). */
     buf_printf(out,
                "#define __LP64__ 1\n#define _LP64 1\n"

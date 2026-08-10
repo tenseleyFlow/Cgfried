@@ -44,6 +44,11 @@ static IrType eightbyte_irtype(AbiClass c)
     }
 }
 
+static bool sysv_whole_f128(int n, const AbiClass cls[2])
+{
+    return n == 2 && cls[0] == ABI_SSE && cls[1] == ABI_SSEUP;
+}
+
 /* --- AAPCS64 (Sprint 48) ---------------------------------------------------
  *
  * The parallel table against SysV, where the CONTRAST is the lesson:
@@ -65,20 +70,23 @@ static IrType eightbyte_irtype(AbiClass c)
  * backend walking these plans in order; this file only says what each
  * argument IS. */
 
-static IrType hfa_leaf_irtype(const Type *base)
+static IrType hfa_leaf_irtype(Lower *lo, const Type *base)
 {
     switch (base->kind) {
     case TY_FLOAT:
+    case TY_FLOAT32:
         return IRT_F32;
     case TY_DOUBLE:
+    case TY_FLOAT64:
+    case TY_FLOAT32X:
         return IRT_F64;
     case TY_FLOAT128:
         return IRT_F128;
     case TY_LDOUBLE:
-        /* AAPCS64 long double is IEEE binary128 and travels in a q-reg;
-         * the f128 leaf type exists, but every operation on it needs the
-         * Sprint 49 soft-float runtime. */
-        return IRT_F128;
+    case TY_FLOAT64X:
+        /* These follow the target's long-double format: binary128/q on
+         * arm64-linux, but plain double/d on arm64-macos. */
+        return lower_irtype(lo, base);
     default:
         CGF_ICE("abi: HFA base type %d is not floating", (int)base->kind);
     }
@@ -104,7 +112,7 @@ static void classify_arg_aapcs64(Lower *lo, Type *t, AbiArg *out)
         out->kind = ABI_ARG_HFA;
         out->n = (u8)leaves;
         for (i = 0; i < leaves && i < ABI_MAX_LEAVES; i++)
-            out->t[i] = hfa_leaf_irtype(base);
+            out->t[i] = hfa_leaf_irtype(lo, base);
         return;
     }
     /* Not an HFA: <=16 bytes travels in one or two general registers as
@@ -145,9 +153,10 @@ static void classify_ret_aapcs64(Lower *lo, Type *t, AbiRet *out)
          * do -- a hidden ptr parameter the callee builds into -- and
          * IrFunc.abi_ret plus abi_ret_n carry the register truth. */
         out->kind = ABI_RET_HFA;
-        out->small_t = hfa_leaf_irtype(base);
-        out->ir_abi =
-            out->small_t == IRT_F32 ? IR_ABIRET_HFA_F32 : IR_ABIRET_HFA_F64;
+        out->small_t = hfa_leaf_irtype(lo, base);
+        out->ir_abi = out->small_t == IRT_F32    ? IR_ABIRET_HFA_F32
+                      : out->small_t == IRT_F128 ? IR_ABIRET_HFA_F128
+                                                 : IR_ABIRET_HFA_F64;
         out->arg_annot = IR_ARG_HFA;
         out->n = (u32)leaves;
         return;
@@ -228,6 +237,11 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
         return;
     }
     out->kind = ABI_ARG_EIGHTBYTES;
+    if (sysv_whole_f128(n, cls)) {
+        out->n = 1;
+        out->t[0] = IRT_F128;
+        return;
+    }
     out->n = (u8)n;
     out->t[0] = eightbyte_irtype(cls[0]);
     if (n == 2)
@@ -261,6 +275,11 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
         out->kind = ABI_RET_SRET;
         out->ir_abi = IR_ABIRET_SRET;
         out->arg_annot = IR_ARG_SRET;
+        return;
+    }
+    if (sysv_whole_f128(n, cls)) {
+        out->kind = ABI_RET_SMALL;
+        out->small_t = IRT_F128;
         return;
     }
     if (n == 1) {
@@ -366,7 +385,7 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
         break;
     case ABI_ARG_EIGHTBYTES:
         for (i = 0; i < a->n; i++) {
-            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64)
+            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64 || a->t[i] == IRT_F128)
                 need_fp++;
             else
                 need_gp++;

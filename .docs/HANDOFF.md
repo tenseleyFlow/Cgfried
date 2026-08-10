@@ -2,21 +2,19 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU
-extensions) is the live work; D1, D2, D3 and D4 are CLOSED and D5 is
-PARTLY DONE — three of its blockers have landed, a fourth is open.** The
-tier table reads **26 implemented / 6 parsed-ignored / 8 refused**.
-§0a is the resume point and carries the measurements, so do not re-derive
-them. **Sprint 55 is NOT closed.**
+**WHERE THINGS STAND (2026-08-10): Sprints 0–51 and Sprint 55 are CLOSED.**
+Sprint 55 was completed out of numerical order; its tier table now reads
+**29 implemented / 6 parsed-ignored / 8 refused**. The next work is
+**Sprint 52 (compile speed and memory)**, followed by Sprints 53 and 54.
+§0a is the authoritative resume point and carries the fresh closeout
+evidence. The old D5 notes in §0b are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-After D5, circle back to the sprints that were skipped: **52 (compile speed
-and memory), 53 (codegen quality — peepholes and the kernel suite), 54
-(performance gates in CI)**. All three are performance work, which is why
-they were safe to defer behind a correctness blocker. That order is also in
-the assistant's project memory (`sprint-order`).
+Proceed in numerical order through the deferred performance phase: **52
+(compile speed and memory), 53 (codegen quality — peepholes and the kernel
+suite), 54 (performance gates in CI)**.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -25,7 +23,74 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## 0a. RESUME HERE — D5, `__GNUC__`
+## 0a. RESUME HERE — Sprint 52, compile speed and memory
+
+Sprint 55 is closed in this checkout. Start by reading
+`.docs/sprints/11-performance/s52-compile-speed.md`; do not resume any item in
+the historical D5 section below. Sprint 52's first deliverables are the
+zero-dependency `timeit` tool, benchmark corpora, deterministic `CGF_STATS=1`
+instrumentation, and committed per-target memory/performance baselines.
+
+### Sprint 55 closure
+
+The final D5 tranche completed the GNU 8.3 identity contract and the system-
+header/ABI surface that identity enables:
+
+- `__GNUC__=8`, `__GNUC_MINOR__=3`, and `__GNUC_PATCHLEVEL__=0` exist only in
+  GNU language modes; `__USER_LABEL_PREFIX__` and GNU inline identity follow
+  the selected target and language mode.
+- GNU named variadic macros plus `__builtin_va_arg_pack()` and
+  `__builtin_va_arg_pack_len()` are implemented, including a runtime forwarding
+  witness with 70 aggregate arguments.
+- Darwin asm labels preserve their exact external spelling in IR and emitted
+  Mach-O assembly.
+- `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, and `_Float128` are handled
+  through lexing, parsing, sema, constexpr evaluation, layout, lowering, and
+  dumps, including glibc compatibility typedefs and pedantic diagnostics.
+- x86-64 SysV binary128 scalar/one-member-aggregate varargs and full-width XMM
+  save slots are fixed; arm64-macos HFA classification is target-aware.
+- ARM64 large outgoing call frames and instruction-accurate CFI are covered in
+  both ordinary and forced-spill lanes.
+
+### Fresh closeout evidence
+
+| gate | result |
+|---|---|
+| full GCC suite | 646 unit tests / 4,263,603 assertions; 595/595 programs; 98/98 x86 corpus; exit 0 |
+| full Clang suite | same counts and all differential/integration gates; exit 0 |
+| ARM64 corpus | 82/82 ordinary and 82/82 forced-spill |
+| GNU tier table | 29 implemented / 6 parsed-ignored / 8 refused |
+| PP differential | 74 comparisons, zero diffs in both oracle modes |
+| c-testsuite differential | 217 agree / 3 known divergences |
+| musl warning sweep | 1259/1361 parsed; 102 pinned deferrals; 414 oracle warnings; zero false positives |
+| musl memory sweep | 1276/1361 analyzed; 85 pinned deferrals; zero `-Wmem` diagnostics; 25s |
+| sanitizer suite | full `make test-san` exit 0; no ASan/UBSan report |
+| frontend robustness | exact seeds 1–100000, zero findings; mutation digest `06e1ce539d1b8360` |
+
+The 100k robustness run used four isolated working directories and an
+unsanitized harness driving the sanitizer-built compiler. This preserves
+ASan/UBSan/LSan coverage in the compiler while avoiding two harness-only
+environment problems: a shared temporary filename across parallel harnesses
+and LeakSanitizer's inability to run in a ptrace-managed harness process.
+Every range (1, 25001, 50001, 75001; 25,000 iterations each) exited 0, and
+`scripts/check_fuzz_crashes.sh` was clean afterward.
+
+### Checkout hygiene
+
+`afs-as` and `afs-ld` remain dirty from pre-existing submodule work, and the
+many untracked `build-*` directories are local artifacts. Do not stage or
+delete them as part of Sprint 52. `AGENTS.md`, `CLAUDE.md`, and
+`.docs/sprints/` remain ignored local project memory; `.docs/HANDOFF.md` is
+tracked.
+
+---
+
+## 0b. HISTORICAL D5 IMPLEMENTATION RECORD — superseded
+
+Everything in this section records the state before Sprint 55 closed. Its
+commands, blocker states, and counts are not current instructions; §0a wins.
+
+### Former resume point — D5, `__GNUC__`
 
 **THREE of D5's blockers are DONE and pushed. A FOURTH was found by
 widening the probe, and it is the next task.** Sprint 55 is NOT closed.

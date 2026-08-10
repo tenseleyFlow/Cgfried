@@ -31,7 +31,7 @@ static void init_basics(void)
 Type *type_basic(TypeKind k)
 {
     init_basics();
-    if (k > TY_FLOAT128 && k != TY_VOID && k != TY_BOOL && k != TY_ERROR)
+    if (k > TY_FLOAT64X && k != TY_VOID && k != TY_BOOL && k != TY_ERROR)
         CGF_ICE("type_basic: %d is not a basic type", (int)k);
     return &basics[k];
 }
@@ -110,7 +110,7 @@ Type *type_tag(Arena *ar, TagDecl *tag)
 
 bool type_is_basic(const Type *t)
 {
-    return t && t->kind <= TY_FLOAT128;
+    return t && t->kind <= TY_FLOAT64X;
 }
 
 bool type_is_integer(const Type *t)
@@ -121,10 +121,14 @@ bool type_is_integer(const Type *t)
     return (t->kind >= TY_BOOL && t->kind <= TY_ULLONG) || t->kind == TY_ENUM;
 }
 
+bool type_is_floating(const Type *t)
+{
+    return t && t->kind >= TY_FLOAT && t->kind <= TY_FLOAT64X;
+}
+
 bool type_is_arithmetic(const Type *t)
 {
-    return type_is_integer(t) ||
-           (t && t->kind >= TY_FLOAT && t->kind <= TY_FLOAT128);
+    return type_is_integer(t) || type_is_floating(t);
 }
 
 bool type_is_complete(const Type *t)
@@ -348,6 +352,14 @@ static const char *basic_name(TypeKind k)
         return "long double";
     case TY_FLOAT128:
         return "_Float128";
+    case TY_FLOAT32:
+        return "_Float32";
+    case TY_FLOAT64:
+        return "_Float64";
+    case TY_FLOAT32X:
+        return "_Float32x";
+    case TY_FLOAT64X:
+        return "_Float64x";
     case TY_ERROR:
         return "<error-type>";
     default:

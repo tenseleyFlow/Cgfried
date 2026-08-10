@@ -243,3 +243,43 @@ void test_x64_emit_unreachable_ud2(TestCtx *t)
     buf_free(&out);
     arena_free_all(&a);
 }
+
+/* Source-level calls are not bounded by the number of physical argument
+ * registers. Keep the per-argument placement plan arena-sized so large
+ * variadic forwarding calls reach the ordinary outgoing-stack path. */
+void test_x64_isel_accepts_more_than_sixty_four_call_arguments(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    IrOperand args[80];
+    X64Func *xf;
+    u32 i;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    (void)ir_sym(m, "sink");
+    f = ir_func_new(m, "caller", IRT_VOID, NULL, 0);
+    ir_builder_at(&b, m, f, ir_block_new(m, f, "entry"));
+    for (i = 0; i < CGF_ARRAY_LEN(args); i++)
+        args[i] = ir_op_iconst(IRT_I64, (i64)i);
+    (void)ir_build_call(&b, IRT_VOID, FUNCREF_EXTERNAL, 0, args,
+                        CGF_ARRAY_LEN(args));
+    ir_build_ret(&b, NULL);
+
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    T_ASSERT_EQ_INT(t, (long long)xf->out_args, (80 - 6) * 8);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    x64_regalloc(xf);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}

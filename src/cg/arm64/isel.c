@@ -1868,7 +1868,10 @@ static void select_inst(Isel *is, const IrInst *ir)
             bool hfa = ir->nops == 0 && is->hfa_leaves != 0;
             u32 n = hfa ? is->hfa_leaves : 2;
             A64Sf lsf = hfa ? is->hfa_sf : A64_SF64;
-            u32 lsize = hfa ? (is->hfa_sf == A64_SF32 ? 4u : 8u) : 8u;
+            u32 lsize = hfa ? (is->hfa_sf == A64_SF32    ? 4u
+                               : is->hfa_sf == A64_SF128 ? 16u
+                                                         : 8u)
+                            : 8u;
             u32 k;
 
             for (k = 0; k < n; k++) {
@@ -2126,17 +2129,25 @@ static void bind_params(Isel *is, const IrFunc *ir)
             /* Pair: nothing arrives. The callee still needs somewhere to
              * build the value, so it allocates that somewhere itself; IR_RET
              * loads x0:x1 back out of it. */
-            A64Inst *slot = emit(is, A64_OP_ALLOCA, A64_SF64);
+            A64Inst *slot;
+            u32 size = 16;
+            u32 align = 8;
 
-            add_operand(slot, reg_op(dst));
-            add_operand(slot, imm_op(16));
-            add_operand(slot, imm_op(8));
-            is->pair_ret_buf = dst;
             if (ir->abi_ret >= IR_ABIRET_HFA_F32) {
                 is->hfa_leaves = ir->abi_ret_n;
-                is->hfa_sf =
-                    ir->abi_ret == IR_ABIRET_HFA_F32 ? A64_SF32 : A64_SF64;
+                is->hfa_sf = ir->abi_ret == IR_ABIRET_HFA_F32    ? A64_SF32
+                             : ir->abi_ret == IR_ABIRET_HFA_F128 ? A64_SF128
+                                                                 : A64_SF64;
+                align = is->hfa_sf == A64_SF32    ? 4u
+                        : is->hfa_sf == A64_SF128 ? 16u
+                                                  : 8u;
+                size = align * is->hfa_leaves;
             }
+            slot = emit(is, A64_OP_ALLOCA, A64_SF64);
+            add_operand(slot, reg_op(dst));
+            add_operand(slot, imm_op(size));
+            add_operand(slot, imm_op(align));
+            is->pair_ret_buf = dst;
             continue;
         }
         if (i == 0 && hidden_ret) {
