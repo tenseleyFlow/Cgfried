@@ -3,43 +3,226 @@
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND:** Sprints 0–51 are CLOSED. **Sprint 55 (GNU
-extensions) is under way and is the live work.** D1, D2 and **D4** are done;
-the tier table reads **23 implemented / 6 parsed-ignored / 8 refused**.
-**D1, D2, D3 and D4 are ALL CLOSED. Only D5 (`__GNUC__`) remains**, and it
-was always meant to go last.
+extensions) is the live work, and D1, D2, D3 and D4 are all CLOSED.** The
+tier table reads **23 implemented / 6 parsed-ignored / 8 refused**.
+**Only D5 (`__GNUC__`) remains.** It was always meant to go last, and §0a is
+its scope — already measured, so do not re-derive it.
+
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-**READ §0a FIRST.** It is the resume point: what is done, what is next, and
-the measurements already taken so you do not re-derive them.
+After D5, circle back to the sprints that were skipped: **52 (compile speed
+and memory), 53 (codegen quality — peepholes and the kernel suite), 54
+(performance gates in CI)**. All three are performance work, which is why
+they were safe to defer behind a correctness blocker. That order is also in
+the assistant's project memory (`sprint-order`).
 
-That order is locked and also recorded in the assistant's project memory
-(`sprint-order`). After D5, circle back to the sprints that were skipped:
-**52 (compile speed and memory), 53 (codegen quality — peepholes and the
-kernel suite), 54 (performance gates in CI)**. All three are performance
-work, which is why they were safe to defer behind a correctness blocker.
-
-Sprint 55 itself came out of numerical order because its own file says
-campaign sprints 56–59 consume it, 28 deferrals pointed at it, and it blocks
-HOSTED compilation on macOS and FreeBSD. Confirmed empirically: extended asm
-and `__volatile` together took musl from **716 to 1259 of 1361** translation
-units parsing.
+Sprint 55 came out of numerical order because campaign sprints 56–59 consume
+it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
+FreeBSD. Confirmed empirically: extended asm and `__volatile` together took
+musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## 0a. RESUME HERE — Sprint 55 D4, and what is left
+## 0a. RESUME HERE — D5, `__GNUC__`
+
+### THE ONE THING TO UNDERSTAND FIRST
+
+**Defining `__GNUC__` is a PROMISE, not a predefine.** glibc's
+`sys/cdefs.h` gates dozens of declarations on it; today, with it undefined,
+glibc *neutralizes* `__attribute__` itself (`#define __attribute__(xyz)`),
+which is why every attribute fixture in the tree is freestanding and why
+hosted compilation works at all right now. **The day `__GNUC__` is defined,
+every attribute in every system header goes live at once**, and this
+document's own rule applies: *answering yes and then rejecting one of gcc
+8's extensions is worse than answering no.*
+
+That is why D5 is last: **D3's implemented column IS D5's obligation
+checklist**, and D3 only just closed.
+
+### D5's ACTUAL SCOPE — three blockers, measured, not guessed
+
+I simulated it with `-D__GNUC__=8 -D__GNUC_MINOR__=3 -D__GNUC_PATCHLEVEL__=0`
+against the real glibc headers on x86_64 before writing any code.
+**Most headers already compile clean.** There are exactly three blockers.
+
+**HOW TO REPRODUCE THE PROBE — and why the obvious version lies.** Including
+a dozen headers at once produces ~40 errors, and almost all of them are
+CASCADE from the first real failure (a poisoned `register_t` typedef makes
+every later declaration a syntax error). Compile **each header ALONE** and
+take only its **first** error:
+
+```sh
+C=build-d4/cgfried
+for h in stdio stdlib string ctype errno time math limits unistd fcntl \
+         sys/types sys/stat signal pthread setjmp; do
+  printf '#include <%s.h>\nint main(void){return 0;}\n' "$h" > one.c
+  echo "$h -> $($C -std=gnu17 -D__GNUC__=8 -D__GNUC_MINOR__=3 \
+      -D__GNUC_PATCHLEVEL__=0 -fsyntax-only one.c 2>&1 |
+      grep -m1 'error:' | cut -c1-110)"
+done
+```
+
+**1. `mode(__word__)` — start here or you cannot even reach the others.**
+On `typedef int register_t` in `/usr/include/sys/types.h`. It blocks
+`<stdlib.h>` and `<sys/types.h>` and, transitively, most of a hosted TU.
+
+It sits in the REFUSED tier, whose note claimed *"glibc `__int128` corners
+only"*. **DISPROVEN and corrected in `docs/gnu-extensions.md` (`a04fdee6`):**
+a grep of all of `/usr/include` finds **exactly one** `mode` use in glibc and
+it is this one.
+
+```sh
+grep -rhoE '__mode__ *\(\s*__[a-z_]+__\s*\)' /usr/include | sort | uniq -c
+#   -> 1 __mode__(__word__)
+```
+
+The INTEGER modes are tractable: replace the declared type with an integer of
+that width and **the signedness of the DECLARED type**, which our type system
+does have. Measured against gcc on LP64, not assumed:
+
+```
+__word__ = 8    __QI__ = 1   __HI__ = 2   __SI__ = 4   __DI__ = 8   (bytes)
+typedef int      x __attribute__((__mode__(__QI__)))  ->  SIGNED
+typedef unsigned x __attribute__((__mode__(__QI__)))  ->  UNSIGNED
+```
+
+So the attribute supplies the WIDTH and the declaration keeps the SIGN — one
+rule, and `register_t` (`typedef int` + `__word__`) therefore lands on
+`long`, matching gcc. **Vector and float modes are what the "no such axis"
+refusal really covers** and should stay refused: that is a partial
+implementation with a deliberate, documented boundary, the same shape as
+`packed`'s bitfield rule.
+
+**2. `_Float128` — and it CANNOT be dodged by claiming a lower version.**
+`math.h` does `#define _Mdouble_ _Float128`. glibc's `bits/floatn.h` gates
+`__HAVE_FLOAT128` on `__GNUC_PREREQ(4, 3)` for x86_64, so *anything* we could
+claim turns it on. **Verified in both directions**: at `-D__GNUC__=4
+-D__GNUC_MINOR__=2` `math.h` compiles clean; at 4.3+ it does not.
+
+The good news: `softfp` already does binary128, and `libcgf_rt` already ships
+the `__addtf3`/`__subtf3`/… entry points (built for arm64, whose `long
+double` IS binary128 — see Sprint 49 D4, 1400 result lines byte-identical to
+libgcc). So an x86 `_Float128` is soft-float through that same runtime. It is
+bounded, but it is a **new floating type in the type system** on a target
+where `long double` is x87 80-bit, so the two must not be conflated.
+
+**3. `__builtin_bswap16/32/64`** — `bits/byteswap.h`. The smallest; a good
+first commit. **Measured against gcc**: `__builtin_bswap16(0x1234)` is
+`0x3412` and `sizeof` its result is **2**, so the result types are
+`uint16_t`/`uint32_t`/`uint64_t`. That is **not expressible with the existing
+result-type rules** in `src/builtins.def` (`BK_ARG0` would promote bswap16's
+result to `int`), so it needs `BK_SPECIAL` or new kinds. **No new IR opcode
+is required** — shifts, masks and ors suffice. Add rows to `src/builtins.def`
+(there is deliberately no accept-anything fallback), type in sema, lower in
+`src/lower/expr.c` beside `SEMA_BUILTIN_EXPECT`.
+
+### D5 — what has NOT been measured yet
+
+- **arm64-macos and FreeBSD have their own lists.** Run the same per-header
+  first-error probe there before starting. Apple's `sys/cdefs.h` uses
+  `__attribute__` with NO `__GNUC__` gate at all, so its failure mode is
+  different in kind.
+- The DoD wants `__GNUC__` **8 / 3 / 0** in gnu modes and **absent** in
+  `-std=c*` modes, both fixtured. The split is load-bearing, not cosmetic.
+- Expect the musl gates to MOVE. Both are pinned exact numbers; re-pin them
+  deliberately and say why.
+
+### HOUSE RULES that a compaction will drop
+
+- **Commit often, in chunks.** Terse imperative subject, under ~250 chars
+  unless the body earns more. **Never co-author. No "Generated with" or
+  session trailers.** Tests and CI are first-class.
+- **`AGENTS.md`, `CLAUDE.md` and `.docs/sprints/` are GITIGNORED and must
+  NEVER be committed.** `git add` refuses `.docs/sprints` and helpfully
+  suggests `-f` — **do not take that hint.** Sprint-file corrections stay
+  local and go in the COMMIT MESSAGE instead. `AGENTS.md` is the reality
+  snapshot and syncs to `CLAUDE.md` with `cp AGENTS.md CLAUDE.md`.
+- `.docs/audits/*.md` and `.docs/HANDOFF.md` ARE tracked, via explicit
+  gitignore negations.
+- The shell here is **fish** for the user, and the assistant's `Bash` tool
+  runs **zsh**, which does **not word-split an unquoted expansion** — `cgf
+  $flags file` passes ONE argument. Use `${=flags}`. This silently made every
+  fixture answer "unrecognized command-line option", which then read as "the
+  fixture is vacuous".
+- Task list: **#125 is D5**, and carries the same measurements as §0a. #123
+  (switch label out-of-range check) and #112 (`.bss` for an explicitly
+  zero-initialized global) are open pre-existing finds, unrelated to D5.
+
+### THE NUMBERS AS OF THIS HANDOFF — what "unchanged" looks like
+
+Everything below is green on `trunk` at `a04fdee6`. If one of these MOVES
+after a D5 change, that is the signal; re-pin deliberately and say why.
+
+| gate | value |
+|---|---|
+| unit tests | 628 tests / 4,263,144 assertions, 0 failures |
+| x86_64 fixtures (`tests/corpus` + `tests/programs`) | **672 / 672** |
+| arm64 corpus, and under `CGF_SPILL_ALL=1` | **76 / 76** each, both ledgers EMPTY |
+| tier table (`check_gnu_tiers.sh`) | **23 implemented / 6 parsed-ignored / 8 refused** |
+| musl warning sweep | **1259 / 1361** parsed, 102 deferred, 414 oracle-matched, **zero false positives** |
+| musl memory sweep | **1276 / 1361** analyzed, 85 pinned deferrals, **zero `-Wmem` diagnostics** |
+| ISA driver (`s36_isa_driver.sh`) | 92 corpus files / 552 object checks |
+| fuzz digest | `1454aca1be9a2be0` (at `--iters 5000`) |
+| sanitized 100k | 0 findings; `tests/fuzz/crashes/` holds only `README.md` |
+| gcc / clang `make test` | rc=0 both |
+
+**Expect the musl numbers to MOVE on D5** — that is the point of the
+deliverable. Both are exact pins; changing them is a deliberate act with a
+sentence of justification, not a silent re-run.
+
+### WHERE THE CODE IS, for D5's three items
+
+The attribute machinery is one table plus one record plus three functions
+that must each enumerate every field. Adding an attribute means touching all
+of these — and **`gnu_attrs_merge` and `gnu_attrs_any_symbol_property` sit
+next to each other on purpose**, because forgetting one means forgetting the
+other in the same glance (that omission is how seven attributes were once
+silently dropped on function parameters).
+
+| what | where |
+|---|---|
+| attribute classification (`GA_IMPLEMENTED`/`GA_IGNORE`/`GA_UNSAFE`/`GA_UNKNOWN`) | `src/parse/gnu_attrs.def` |
+| the parsed record | `GnuDeclAttrs` in `src/attr.h` |
+| merge across declarations | `gnu_attrs_merge`, `src/parse/attr.c` |
+| "is this a symbol property?" | `gnu_attrs_any_symbol_property`, same file |
+| per-attribute parse handlers + dispatch | `src/parse/attr.c` (`parse_*_attr`, then the `GA_IMPLEMENTED` switch) |
+| `__x__` spelling normalizer | `gnu_attr_norm_name`, `src/parse/attr.c` — shared by the classifier and the `format` archetype |
+| carried onto the Symbol | `carry_symbol_attrs` + `gnu_attrs_merge(&sym->gnu, &d->gnu)`, `src/sema/decl.c`. **`Symbol.gnu` is a whole `GnuDeclAttrs`**, so a new field rides along free |
+| builtin table | `src/builtins.def` — no accept-anything fallback by design |
+| builtin lowering | `src/lower/expr.c`, beside `SEMA_BUILTIN_EXPECT` |
+| the predefine table | `pp_predefine_all` (grep for the policy comment saying NO `__GNUC__`) |
+| binary128 today | `src/util/softfp.c`, `src/lower/f128.c`, `src/rt/` (`__*tf3`) |
+| tier table + its gate | `docs/gnu-extensions.md`, `scripts/check_gnu_tiers.sh` |
+
+**Fixture placement decides which bugs a test can see.** `tests/corpus` runs
+on x86_64, under `CGF_SPILL_ALL=1`, AND under both arm64 lanes; it is outside
+`FE_FUZZ_CORPUS`, so it costs no digest repin. `tests/programs` runs under
+none of those and costs a 100k. Executable fixture → corpus; compile-failure
+or warning-count fixture → programs.
+
+**Every fixture needs its SILENT half.** Most of these checks could fire on
+everything and still pass a firing-only test. D3's five each carry one: an
+undeprecated sibling member and enumerator, a call in a condition, a variadic
+function with no attribute and no table row, a null in an unlisted position,
+a callee that really can fall through.
 
 ### Sprint 55 against its own Definition of Done
 
 | DoD | state |
 |---|---|
-| 1. tier table, every row fixtured, CI-gated | **met** — 16/7/6, `check_gnu_tiers.sh` |
+| 1. tier table, every row fixtured, CI-gated | **met** — 23/6/8, `check_gnu_tiers.sh` |
 | 2. musl `syscall_arch.h` + `src/internal/` compile clean | **met** — verified directly |
 | 3. extended asm O0–Os both targets + early-clobber execute fixture | **met** |
 | 4. **16 attributes** with semantics tests + packed differential | **met** — 16 of 16 |
-| 5. `__GNUC__=8` in gnu17, absent in c17, both fixtured | **open** ← D5, LAST |
+| 5. `__GNUC__=8` in gnu17, absent in c17, both fixtured | **THE ONLY OPEN ONE** ← D5 |
 | 6. deferred constructs hard-error naming the sprint | **met** |
 | 7. zero new warnings building cgf itself; bootstrap lanes green | **met** |
+
+### BACKGROUND: what D4 and D3 closed, and what they found
+
+Read these only if you need the reasoning behind a decision. §0a above is the
+live work.
 
 ### D4 — what is DONE
 
@@ -188,52 +371,47 @@ keeping:
 optimization licenses where a user's lie becomes a miscompile, which is a
 different risk class from a missed diagnostic. They stay parsed-ignored.
 
-### D5 — the obligation list, MEASURED before starting
-
-**D5 is not "define a macro".** Simulated with `-D__GNUC__=8
--D__GNUC_MINOR__=3` against real glibc headers on x86_64: most headers
-already compile clean, and there are exactly THREE blockers. The long list
-of syntax errors a naive run produces is CASCADE from the first one —
-compile each header alone and take only its first error.
-
-1. **`mode(__word__)`** on `typedef int register_t` in `sys/types.h`, which
-   blocks `<stdlib.h>` and much else transitively. It sits in our REFUSED
-   tier, whose note claimed "glibc `__int128` corners only" — **disproven**:
-   a grep of all `/usr/include` finds exactly ONE mode use in glibc and it
-   is this one. The INTEGER modes are tractable (replace the type with an
-   integer of that width and the same signedness — our type system does have
-   that axis); vector and float modes are what the refusal really covers.
-2. **`_Float128`** — `math.h`'s `#define _Mdouble_ _Float128`. **NOT
-   AVOIDABLE BY CHOOSING A VERSION**: glibc gates `__HAVE_FLOAT128` on
-   `__GNUC_PREREQ(4, 3)` for x86_64, so anything we could claim turns it on.
-   Verified both ways — at `__GNUC__` 4.2 `math.h` compiles, at 4.3 it does
-   not. softfp already does binary128 and `libcgf_rt` already ships the
-   `__*tf3` entry points for arm64, so an x86 `_Float128` is soft-float
-   through the same runtime; bounded, but a new floating type.
-3. **`__builtin_bswap16/32/64`** — `bits/byteswap.h`. The smallest of the
-   three: rows in `builtins.def` plus lowering.
-
-**These three ARE the promise's unpaid balance.** This document's own rule is
-that defining `__GNUC__` is a promise, and "answering yes and then rejecting
-one of gcc 8's extensions is worse than answering no". arm64-macos and
-FreeBSD have their own lists, not yet measured.
-
 ### Then, in order
 
-1. **D5 `__GNUC__` — the last deliverable of Sprint 55**, with the three
-   items above as its real scope.
-2. **D5 `__GNUC__` — LAST, and only after D3.** The day it is defined every
-   `__attribute__` in every system header goes live at once, and **D3's
-   implemented column IS D5's obligation checklist**. That is why the
-   ordering is not arbitrary.
-3. **Sprints 52, 53, 54.**
+1. **D5** — §0a is its scope. Suggested order within it: `__builtin_bswap*`
+   (smallest, self-contained), then `mode` integer modes (unblocks
+   `<stdlib.h>`), then `_Float128` (largest). Only after all three does the
+   predefine itself go in, because until then defining it makes hosted
+   compilation WORSE than it is today.
+2. **Sprints 52, 53, 54** — compile speed, codegen quality, perf gates.
 
 ### THE VERIFICATION RITUAL, and the one lever that saves an hour
 
 Before anything lands: gcc `make test`, clang `make test`, BOTH arm64 lanes
 (`test-a64-corpus`, `test-a64-spill-all`), and — whenever the fuzz digest is
 repinned — a sanitized 100k (`ASAN_OPTIONS=detect_leaks=0`, and check
-`nm -D` for `__asan_init` on BOTH binaries first).
+`nm -D` for `__asan_init` on BOTH binaries first). For anything touching
+warnings or analysis, also `scripts/musl_warn_dryrun.sh <cgfried>` and
+`make musl-sweep`; both print exact pinned numbers.
+
+The exact commands, since three of them have a gotcha:
+
+```sh
+make BUILD=build-v-gcc   CC=gcc   test          # rc must be 0; FAIL count lies
+make BUILD=build-v-clang CC=clang test
+make test-a64-corpus && make test-a64-spill-all  # SEQUENTIALLY, never -j together
+# sanitized tree: NOT `SAN=1` -- that is not a thing. This is:
+make BUILD=build-san-d4 \
+  EXTRA_CFLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all" \
+  build-san-d4/cgfried build-san-d4/fuzz_frontend
+ASAN_OPTIONS=detect_leaks=0 ./build-san-d4/fuzz_frontend --iters 100000 \
+  ./build-san-d4/cgfried tests/fixtures tests/programs
+# the digest gate runs --iters 5000, NOT 2000. Repin with:
+./build-d4/fuzz_frontend --hash --iters 5000 ./build-d4/cgfried \
+  tests/fixtures tests/programs | awk '{print $4}' > ci/fuzz_sequence_digest.txt
+```
+
+**`make test` returning rc != 0 with ZERO `FAIL` lines is NORMAL** — it means
+a GATE failed, and gates print their own message. `grep -E "^make.*Error"`
+the log and read upward. The ones that have caught me: `check_bans` (it greps
+the WHOLE file, so the literal `__attribute__` in a COMMENT trips it),
+`check_format`, `check_warn_matrix` (every new registry row must also land in
+`.docs/warnings-matrix.md` WITH a fixture), and the fuzz digest.
 
 **`tests/corpus` IS FREE; `tests/programs` COSTS ~20 MINUTES.**
 `FE_FUZZ_CORPUS` is `tests/fixtures tests/programs`, so ANY add/delete there
@@ -241,12 +419,22 @@ moves the mutation digest and obligates the full 100k. The type-query
 builtins alone cost THREE of those. An EXECUTABLE fixture belongs in
 `tests/corpus` — it runs on x86_64, under `CGF_SPILL_ALL=1`, and under both
 arm64 lanes, and costs nothing. Only compile-FAILURE fixtures need
-`tests/programs`. **Batch the remaining D4 items into one verification
-pass.**
+`tests/programs`. **Batch a feature's fixtures into ONE verification pass.**
 
 Run the suites ONE AT A TIME (two at once on this box produce failures that
 do not reproduce), and never edit `src/` while a chain is in flight — it
-rebuilds from source.
+rebuilds from source. **This is not advisory.** Running the two musl sweeps
+alongside a 100k produced EIGHT "hang (spawn timeout)" findings, which the
+harness wrote into `tests/fuzz/crashes/` where their presence fails the
+build. Not one was real: every case compiled in under 15ms on both the plain
+and the sanitized compiler, and four of the eight were EMPTY FILES. **A fuzz
+finding whose only symptom is a TIMEOUT is a claim about the machine at least
+as much as the compiler** — reproduce it standalone before believing it.
+
+Build trees: pass `BUILD=` a RELATIVE path. An absolute one poisons the tree
+(the debug lane concatenates BUILD with the cwd, `.d` files stop matching,
+and header changes stop triggering rebuilds — the symptom was 55 clang unit
+failures reading `no tag S` that vanished on a clean tree).
 
 ### WHAT KEEPS BITING, in the order it bit
 
@@ -277,12 +465,32 @@ rebuilds from source.
    replaced it. Likewise a first dead-branch rule tested the statement
    BEFORE a case label when the scanner had already descended past it: it
    compiled, passed everything, and never fired.
-5. **AN OBSOLETE REFUSAL ASSERTION PER FEATURE.** Five so far. FOUR were
-   CONVERTED to pin a boundary that still errors (file-scope `({...})`;
-   `typeof` in ISO mode; `__builtin_clz` having no table row); ONE was
+5. **AN OBSOLETE REFUSAL ASSERTION PER FEATURE.** SEVEN so far, and they
+   come in pairs — a `tests/programs` fixture AND a unit assertion in
+   `tests/unit/test_expr.c`, which fails on a DIFFERENT run than the fixture
+   does. Most were CONVERTED to pin a boundary that still errors (file-scope
+   `({...})`; `typeof` in ISO mode; `a ?: b`'s `-pedantic` pedwarn); one was
    deleted because nothing remained. The gate tells you a boundary MOVED;
-   deciding whether one REMAINS is judgment.
-6. **`.docs/sprints/` IS GITIGNORED AND MUST NEVER BE COMMITTED.** `git add`
+   deciding whether one REMAINS is judgment. **Expect two per D5 feature.**
+6. **A FILTERED SLICE OF gcc's OUTPUT IS NOT A MEASUREMENT.** I grepped for
+   `warning:` while probing `deprecated` on an enumerator, concluded gcc does
+   not support it in C, and wrote that into a source comment. gcc had emitted
+   an *error* — my probe put the attribute BEFORE the enumerator name, which
+   gcc rejects outright — and the filter hid it. Show errors AND warnings,
+   and check the exit code. **Probe the LEGAL position before concluding
+   about a feature**; attribute placement is load-bearing in C.
+7. **A GATE YOU ADD CAN BE VACUOUS, AND FIXING IT MAY FIND AN OLDER ONE.**
+   `check_gnu_tiers`'s refused-row check grepped `src/` for a token, and the
+   COMMENT explaining a refusal contains the same words — so mutating the
+   diagnostic away left it green. Requiring the token in a STRING LITERAL
+   exposed that the `mode` row had been vacuous since it was written: its
+   token `mode(` never appears in that refusal at all. **Mutate every gate
+   you write, in both directions.**
+8. **READ THE RULE, DO NOT COPY ITS NEIGHBOUR.** I repinned the fuzz digest
+   at `--iters 2000` because that is what the line above it in the Makefile
+   used; the gate runs 5000. Two repins agreed with each other and neither
+   agreed with `make test`.
+9. **`.docs/sprints/` IS GITIGNORED AND MUST NEVER BE COMMITTED.** `git add`
    refuses it and suggests `-f`. Do not take that hint. Sprint-file
    corrections stay local; record them in the commit message instead.
 
