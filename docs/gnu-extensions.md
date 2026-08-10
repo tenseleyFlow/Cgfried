@@ -55,6 +55,9 @@ predefine.
 | `section` | `tests/programs/gnu/attr_section.c` | kernel-style tables, init arrays, embedded layouts |
 | `constructor` / `destructor` | `tests/corpus/x86_64/int/attr_ctor_dtor.c` | glibc, library self-registration, test frameworks |
 | `cleanup` | `tests/corpus/x86_64/int/attr_cleanup.c` | systemd's `_cleanup_` idiom, glibc, scope-guard patterns in C |
+| `deprecated`, `deprecated("msg")` | `tests/programs/gnu/attr_deprecated.c` | glibc, every library retiring an API |
+| `warn_unused_result` | `tests/programs/gnu/attr_warn_unused_result.c` | glibc (`read`, `write`, `realloc`), curl, anything whose result must be checked |
+| `format(archetype, m, n)` | `tests/programs/gnu/attr_format.c` | every project with its own `printf` wrapper; glibc, curl, systemd |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
 | extended `asm` — operands, constraints, clobbers | `tests/corpus/x86_64/int/asm_operands.c` | musl syscall wrappers and atomics; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
@@ -255,10 +258,10 @@ read next year's headers.
 | extension | why ignoring is safe | consumer |
 |---|---|---|
 | `unused`, `used`-adjacent hints | affect diagnostics only | everywhere |
-| `format`, `format_arg` | Sprint 39's builtin table already covers the libc functions that matter | glibc, musl |
+| `format_arg` | the returned string's format is the caller's to check, and the caller's own `format` attribute already does it | glibc |
 | `pure`, `const`, `malloc`, `leaf`, `noclone`, `flatten` | optimization licenses; declining one is always conservative | glibc, curl |
 | `noreturn` | we merely fail to learn a call does not return: costs flow precision, cannot make a correct program wrong | everywhere |
-| `deprecated`, `warn_unused_result`, `nonnull`, `sentinel`, `nonstring`, `diagnose_if`, `access`, `alloc_size`, `alloc_align` | diagnostics only | glibc |
+| `nonnull`, `sentinel`, `nonstring`, `diagnose_if`, `access`, `alloc_size`, `alloc_align` | diagnostics only | glibc |
 | `always_inline`, `noinline`, `hot`, `cold`, `artificial`, `no_instrument_function` | inliner and placement hints | glibc, musl |
 | `nothrow` | C has no exceptions | glibc |
 

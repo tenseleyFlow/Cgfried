@@ -1339,6 +1339,12 @@ static AstNode *parse_enum_specifier(Parser *p)
         item = ast_new(p->arena, AST_ENUMERATOR, id->span);
         item->name = id->spelling;
         p->pos++;
+        /* An enumerator may carry attributes, and the position is AFTER the
+         * name: gcc rejects `__attribute__((X)) EV` with "expected
+         * identifier" and accepts `EV __attribute__((X))`. Parsing them
+         * here is what lets `deprecated` reach an enumerator at all. */
+        if (parse_at_kw(p, KW_ATTRIBUTE))
+            (void)parse_cgf_attributes(p, &item->gnu);
         if (parse_eat_punct(p, PUNCT_ASSIGN))
             item->init = parse_cond_expr(p); /* the VALUE EXPRESSION */
         /* Enumerators enter the ORDINARY namespace — which is how they

@@ -160,6 +160,49 @@ typedef struct GnuDeclAttrs {
      * the author named is where the bytes must be. gcc: `.section .s,"aw"`
      * then `.zero 4`, never a common or a .bss reservation. */
     const char *section_name;
+    /* `deprecated` / `deprecated("why")`: warn at every USE of the name.
+     *
+     * Measured: the warning fires at the USE and never at the declaration,
+     * and the DEFINITION of a deprecated function is silent.
+     *
+     * A CORRECTION worth keeping, because the wrong version was written
+     * here first: an ENUMERATOR can carry it, and gcc warns for one. The
+     * first measurement said otherwise and was reading a FILTERED slice of
+     * gcc's output -- the probe put the attribute BEFORE the enumerator
+     * name, where gcc rejects it outright ("expected identifier before
+     * '__attribute__'"), and grepping only for `warning:` hid that error.
+     * The legal position is AFTER the name: `EV __attribute__((X)) = 1`.
+     *
+     * The message is a separate field rather than a defaulted string so
+     * that "has the attribute" and "has a reason" stay distinct: the
+     * no-message form prints `'f' is deprecated` and the other appends
+     * `: why`, and an empty string is the second form, not the first. */
+    bool deprecated;
+    const char *deprecated_msg;
+    /* `warn_unused_result`: warn when a call's value is discarded.
+     *
+     * THE COUNTERINTUITIVE PART, and the reason this cannot ride
+     * -Wunused-value: `(void)must()` STILL WARNS in gcc. The cast suppresses
+     * -Wunused-value and does NOT suppress this one -- measured. So the
+     * check has to look THROUGH a cast to void rather than treating it as
+     * the author's acknowledgement. */
+    bool warn_unused_result;
+    /* `format(archetype, string_index, first_to_check)`: check this
+     * function's calls the way Sprint 39 checks printf's.
+     *
+     * The three fields ARE a FmtSpec, but spelled out rather than embedding
+     * one, because attr.h is included by the parser and format.h belongs to
+     * the warning engine -- the include arrow runs one way. Sema rebuilds
+     * the spec at the one place that consumes it.
+     *
+     * `first_to_check` of 0 is the va_list form (`vprintf`-shaped): check
+     * the literal's grammar, do not inspect packed arguments. That is not a
+     * sentinel we invented -- it is what gcc's own attribute means and what
+     * FmtSpec.first_vararg already encoded. */
+    bool has_format;
+    u8 fmt_family; /* FmtFamily, kept as u8 to avoid the include */
+    u8 fmt_arg;
+    u8 fmt_first_vararg;
 } GnuDeclAttrs;
 
 /* Attributes accumulate across the specifier and declarator positions of one

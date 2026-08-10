@@ -614,6 +614,38 @@ static void warn_precedence(Sema *s, AstNode *e)
     }
 }
 
+/* `warn_unused_result`: the callee asked to be told when its value is
+ * thrown away.
+ *
+ * THE CAST TO VOID DOES NOT SUPPRESS IT. `(void)must()` still warns in gcc,
+ * which is the opposite of -Wunused-value, where the cast IS the author's
+ * acknowledgement. So this looks THROUGH a cast to void rather than
+ * treating one as consent -- and that asymmetry is the whole reason this
+ * cannot be folded into warn_unused_value. */
+static void warn_unused_result(Sema *s, AstNode *e)
+{
+    AstNode *core = strip_implicit(e);
+    AstNode *callee;
+    Symbol *sym;
+
+    while (core && (core->kind == AST_EXPR_PAREN ||
+                    (core->kind == AST_EXPR_CAST && core->sem_type &&
+                     core->sem_type->kind == TY_VOID)))
+        core = strip_implicit(core->lhs);
+    if (!core || core->kind != AST_EXPR_CALL)
+        return;
+    callee = strip_implicit(core->lhs);
+    if (!callee || callee->kind != AST_EXPR_IDENT)
+        return;
+    sym = callee->sym;
+    if (!sym || !sym->gnu.warn_unused_result)
+        return;
+    warn_at(s->lang->warnings, WARN_UNUSED_RESULT, core->span,
+            "ignoring return value of '%s' declared with attribute "
+            "'warn_unused_result'",
+            sym->name ? sym->name : "?");
+}
+
 static void check_expr(Sema *s, AstNode *e, unsigned context)
 {
     u32 i;
@@ -622,8 +654,10 @@ static void check_expr(Sema *s, AstNode *e, unsigned context)
         return;
     if (context & SEMA_WARN_EXPR_TRUTH)
         warn_truth_expr(s, e);
-    if (context & SEMA_WARN_EXPR_DISCARDED)
+    if (context & SEMA_WARN_EXPR_DISCARDED) {
         warn_unused_value(s, e);
+        warn_unused_result(s, e);
+    }
 
     switch (e->kind) {
     case AST_EXPR_UNARY:

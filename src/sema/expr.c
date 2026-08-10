@@ -126,6 +126,8 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     }
     e->sym = sym;
     e->sem_type = sym->type;
+    sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
+                         sym->gnu.deprecated_msg, e->span);
     if (sym->kind == SYM_VAR ||
         (sym->kind == SYM_FUNC && sym->name != s->cur_fname))
         sym->reads++;
@@ -897,6 +899,7 @@ static AstNode *expr_member(Sema *s, AstNode *e)
             type_to_str(s->arena, ot), e->name ? e->name : "?");
         return poison(s, e);
     }
+    sema_warn_deprecated(s, m->name, m->deprecated, m->deprecated_msg, e->span);
     /* The member inherits the OBJECT's qualifiers: a member of a const
      * struct is const, which is what stops `cs.m = 1`. */
     e->sem_type =

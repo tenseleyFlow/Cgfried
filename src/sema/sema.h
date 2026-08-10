@@ -76,6 +76,11 @@ struct Member {
      * the same rule applied to a different set of members. */
     bool packed;
     bool laid_out;
+    /* `deprecated` on the member itself. Flattened rather than a whole
+     * GnuDeclAttrs because that is what `align_override` and `packed`
+     * already do here. */
+    bool deprecated;
+    const char *deprecated_msg;
 
     Member *next;
 };
@@ -550,6 +555,10 @@ Type *sema_type_from_ast(Sema *s, const AstType *at, Span span);
  * sema/expr.c must therefore reach the statement walker in sema/decl.c. The
  * compound pushes its own scope, matching what the parser did. */
 void sema_stmt_in_expr(Sema *s, AstNode *st);
+/* `deprecated` fires at the USE, from three sites (identifier, typedef name,
+ * struct member). One helper so the message format cannot drift. */
+void sema_warn_deprecated(Sema *s, const char *name, bool deprecated,
+                          const char *msg, Span sp);
 
 /* An array with no bound COMPLETED by its initializer (6.7.9p22), returning
  * the sized type or `t` unchanged when the deduction does not apply. TWO

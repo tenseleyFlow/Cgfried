@@ -513,6 +513,8 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         if (m->gnu.cleanup_fn)
             warn_at(s->lang->warnings, WARN_ATTRIBUTES, m->span,
                     "'cleanup' attribute ignored");
+        mem->deprecated = m->gnu.deprecated;
+        mem->deprecated_msg = m->gnu.deprecated_msg;
         mem->packed = tag->packed || m->gnu.packed;
         if (mem->packed) {
             /* Rule 5 of .docs/audits/packed-layout.md -- packed bitfields
@@ -629,6 +631,7 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
                       type_basic(TY_INT), m->span);
         sym->enum_value = value;
         sym->defined = true;
+        gnu_attrs_merge(&sym->gnu, &m->gnu);
         scope_declare(s, sym);
         ((AstNode *)m)->sym = sym;
 
@@ -803,8 +806,11 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
                 ? scope_lookup(s->scope, at->typedef_name, NS_ORDINARY)
                 : NULL;
 
-        if (sym && sym->kind == SYM_TYPEDEF)
+        if (sym && sym->kind == SYM_TYPEDEF) {
+            sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
+                                 sym->gnu.deprecated_msg, at->span);
             return sym->type;
+        }
         /* The parser already diagnosed an unknown type name and recovered
          * as if it were a typedef; staying silent here honours Sprint 11's
          * one-mistake-one-diagnostic contract. */
@@ -1953,6 +1959,28 @@ static void append_valid_attrs(Sema *s, Symbol *sym, const AstNode *d,
  * flags, MAX for alignment (it may only ever raise), last-wins for the
  * string-valued ones. An alias also carries its defining side effects, since
  * naming a target is what makes the declaration a definition. */
+/* `deprecated` fires at the USE, and there are THREE kinds of use that
+ * reach it -- an ordinary identifier, a typedef name, and a struct member.
+ * One helper rather than three copies, because the message format is the
+ * thing that would drift: gcc prints `'f' is deprecated` bare and
+ * `'f' is deprecated: why` with a reason, and an empty string is still the
+ * second form.
+ *
+ * NOT called for a deprecated ENUMERATOR: gcc does not warn for one in C,
+ * measured, and a walk over every declared name would. */
+void sema_warn_deprecated(Sema *s, const char *name, bool deprecated,
+                          const char *msg, Span sp)
+{
+    if (!deprecated)
+        return;
+    if (msg)
+        warn_at(s->lang->warnings, WARN_DEPRECATED_DECLARATIONS, sp,
+                "'%s' is deprecated: %s", name ? name : "?", msg);
+    else
+        warn_at(s->lang->warnings, WARN_DEPRECATED_DECLARATIONS, sp,
+                "'%s' is deprecated", name ? name : "?");
+}
+
 static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
 {
     gnu_attrs_merge(&prev->gnu, &fresh->gnu);

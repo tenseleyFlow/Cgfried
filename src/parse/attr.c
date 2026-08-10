@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "parse/parse.h"
@@ -37,6 +38,18 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
         dst->asm_name = src->asm_name;
     if (src->section_name)
         dst->section_name = src->section_name;
+    /* Union, and the MESSAGE survives independently: gcc takes the reason
+     * from whichever declaration supplied one. */
+    dst->deprecated |= src->deprecated;
+    dst->warn_unused_result |= src->warn_unused_result;
+    if (src->has_format) {
+        dst->has_format = true;
+        dst->fmt_family = src->fmt_family;
+        dst->fmt_arg = src->fmt_arg;
+        dst->fmt_first_vararg = src->fmt_first_vararg;
+    }
+    if (src->deprecated_msg)
+        dst->deprecated_msg = src->deprecated_msg;
     /* Last visibility wins, which is gcc's rule; an unspecified one never
      * clears a specified one. */
     if (src->visibility)
@@ -58,7 +71,8 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
     return g->weak || g->packed || g->visibility || g->used ||
            g->aligned_expr || g->aligned_bare || g->constructor ||
            g->destructor || g->alias_target || g->asm_name || g->section_name ||
-           g->cleanup_fn;
+           g->cleanup_fn || g->deprecated || g->warn_unused_result ||
+           g->has_format;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -345,26 +359,125 @@ static void parse_section_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
     parse_eat_punct(p, PUNCT_RPAREN);
 }
 
-static GnuAttrClass gnu_attr_class(const char *spelling)
+/* deprecated, or deprecated("why"). The argument is OPTIONAL, which is what
+ * separates this from `section`: a bare `deprecated` is the common spelling
+ * and must not be an error. An empty string is still the with-message form
+ * -- gcc prints a trailing `: ` for it -- so presence of the token decides,
+ * not the length of the bytes. */
+static void parse_deprecated_attr(Parser *p, GnuDeclAttrs *gnu)
 {
-    /* `__packed__` and `packed` are the same attribute. Headers use the
-     * underscored spelling precisely so a macro named `packed` cannot
-     * capture it, so both must classify identically. */
-    char norm[64];
+    const Token *arg;
+
+    gnu->deprecated = true;
+    if (!parse_at_punct(p, PUNCT_LPAREN))
+        return; /* the bare form */
+    p->pos++;
+    arg = parse_peek(p);
+    if (arg->kind == TOK_STRING && arg->str.bytes) {
+        gnu->deprecated_msg =
+            arena_strdup(p->arena, (const char *)arg->str.bytes);
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
+/* `__packed__` and `packed` are the same attribute. Headers use the
+ * underscored spelling precisely so a macro named `packed` cannot capture
+ * it, so both must normalize identically -- and so must a format ARCHETYPE,
+ * which headers spell `__printf__` for exactly the same reason. Returns a
+ * pointer into `buf`, or the original spelling when it does not fit. */
+static const char *gnu_attr_norm_name(const char *spelling, char *buf,
+                                      size_t bufsz)
+{
     size_t n = strlen(spelling);
 
     if (n > 4 && strncmp(spelling, "__", 2) == 0 &&
         strcmp(spelling + n - 2, "__") == 0) {
         n -= 4;
-        if (n >= sizeof(norm))
-            return GA_UNKNOWN;
-        memcpy(norm, spelling + 2, n);
-        norm[n] = '\0';
-    } else {
-        if (n >= sizeof(norm))
-            return GA_UNKNOWN;
-        memcpy(norm, spelling, n + 1);
+        if (n >= bufsz)
+            return spelling;
+        memcpy(buf, spelling + 2, n);
+        buf[n] = '\0';
+        return buf;
     }
+    return spelling;
+}
+
+/* format(archetype, string-index, first-to-check).
+ *
+ * The archetype is an IDENTIFIER, and headers spell it three ways for the
+ * same thing -- `printf`, `__printf__` (so a macro named printf cannot
+ * capture it) and `gnu_printf` (to pick glibc's dialect over MS's). All
+ * three normalize to one family here; we implement one dialect, so
+ * distinguishing gnu_ from ms_ would be a promise we do not keep.
+ *
+ * Both indices are 1-BASED, matching gcc's diagnostics, and a
+ * first-to-check of 0 is the va_list form rather than an error. */
+static void parse_format_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    const Token *arch;
+    const char *a;
+    char abuf[64];
+    long idx[2] = {0, 0};
+    int got = 0;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "attribute 'format' requires three arguments");
+        return;
+    }
+    arch = parse_peek(p);
+    if (arch->kind != TOK_IDENT) {
+        parse_error(p, arch, "'format' archetype must be an identifier");
+    } else {
+        a = gnu_attr_norm_name(arch->spelling, abuf, sizeof(abuf));
+        p->pos++;
+        if (strcmp(a, "printf") == 0 || strcmp(a, "gnu_printf") == 0)
+            gnu->fmt_family = 0; /* FMT_PRINTF */
+        else if (strcmp(a, "scanf") == 0 || strcmp(a, "gnu_scanf") == 0)
+            gnu->fmt_family = 1; /* FMT_SCANF */
+        else if (strcmp(a, "strftime") == 0 || strcmp(a, "gnu_strftime") == 0)
+            gnu->fmt_family = 2; /* FMT_STRFTIME */
+        else if (strcmp(a, "strfmon") == 0 || strcmp(a, "gnu_strfmon") == 0)
+            gnu->fmt_family = 3; /* FMT_STRFMON */
+        else {
+            parse_error(p, arch, "unrecognized format archetype '%s'",
+                        arch->spelling);
+            while (!parse_at_punct(p, PUNCT_RPAREN) &&
+                   parse_peek(p)->kind != TOK_EOF)
+                p->pos++;
+            parse_eat_punct(p, PUNCT_RPAREN);
+            return;
+        }
+        while (got < 2 && parse_eat_punct(p, PUNCT_COMMA)) {
+            const Token *n = parse_peek(p);
+
+            if (n->kind != TOK_INT_CONST)
+                break;
+            idx[got++] = strtol(n->spelling, NULL, 0);
+            p->pos++;
+        }
+        if (got == 2 && idx[0] >= 1 && idx[0] <= 255 && idx[1] >= 0 &&
+            idx[1] <= 255) {
+            gnu->has_format = true;
+            gnu->fmt_arg = (u8)idx[0];
+            gnu->fmt_first_vararg = (u8)idx[1];
+        } else {
+            parse_error(p, name,
+                        "'format' takes an archetype and two argument "
+                        "positions");
+        }
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
+static GnuAttrClass gnu_attr_class(const char *spelling)
+{
+    char nbuf[64];
+    const char *norm = gnu_attr_norm_name(spelling, nbuf, sizeof(nbuf));
 
 #define GA(name, cls)                                                          \
     if (strcmp(norm, #name) == 0)                                              \
@@ -469,6 +582,19 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "cleanup")) {
                             parse_cleanup_attr(p, name, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "deprecated")) {
+                            parse_deprecated_attr(p, gnu);
+                            break;
+                        }
+                        if (gnu &&
+                            gnu_attr_is(name->spelling, "warn_unused_result")) {
+                            gnu->warn_unused_result = true;
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "format")) {
+                            parse_format_attr(p, name, gnu);
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,

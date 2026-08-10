@@ -1602,10 +1602,26 @@ void warn_format_check_call(WarnCtx *w, Sema *s, const AstNode *call)
      * This is the whole of musl's dcngettext.c divergence: the sweep
      * compiles with -ffreestanding, gcc therefore says nothing about a
      * format string containing an embedded NUL, and we said something. */
-    if (s->lang && s->lang->freestanding)
-        return;
     callee = strip_wrappers(call->lhs, false);
     if (!callee || callee->kind != AST_EXPR_IDENT || !callee->sym)
+        return;
+    /* AN EXPLICIT `format` ATTRIBUTE WINS, and it wins over BOTH the
+     * builtin table and -ffreestanding. Over the table because the author
+     * said what this function is and the table only guesses from a name;
+     * over freestanding because the freestanding rule is about not assuming
+     * a hosted library exists, and an attribute is not an assumption. The
+     * early-return above used to sit before this, and its own comment
+     * already promised the attribute would still apply. */
+    if (callee->sym->gnu.has_format) {
+        FmtSpec spec;
+
+        spec.family = (FmtFamily)callee->sym->gnu.fmt_family;
+        spec.fmt_arg = callee->sym->gnu.fmt_arg;
+        spec.first_vararg = callee->sym->gnu.fmt_first_vararg;
+        warn_format_check(w, s, call, &spec);
+        return;
+    }
+    if (s->lang && s->lang->freestanding)
         return;
     row = builtin_row(s->target, callee->sym->name);
     if (!rough_signature_matches(row, callee->sym))
