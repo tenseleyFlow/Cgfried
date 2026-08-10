@@ -1340,8 +1340,8 @@ static AstNode *parse_enum_specifier(Parser *p)
         item->name = id->spelling;
         p->pos++;
         /* An enumerator may carry attributes, and the position is AFTER the
-         * name: gcc rejects `__attribute__((X)) EV` with "expected
-         * identifier" and accepts `EV __attribute__((X))`. Parsing them
+         * name: gcc rejects a LEADING attribute with "expected identifier"
+         * and accepts a trailing one (`EV attr((X)) = 1`). Parsing them
          * here is what lets `deprecated` reach an enumerator at all. */
         if (parse_at_kw(p, KW_ATTRIBUTE))
             (void)parse_cgf_attributes(p, &item->gnu);

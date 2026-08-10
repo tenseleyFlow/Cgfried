@@ -169,9 +169,9 @@ typedef struct GnuDeclAttrs {
      * here first: an ENUMERATOR can carry it, and gcc warns for one. The
      * first measurement said otherwise and was reading a FILTERED slice of
      * gcc's output -- the probe put the attribute BEFORE the enumerator
-     * name, where gcc rejects it outright ("expected identifier before
-     * '__attribute__'"), and grepping only for `warning:` hid that error.
-     * The legal position is AFTER the name: `EV __attribute__((X)) = 1`.
+     * name, where gcc rejects it outright ("expected identifier before" the
+     * attribute keyword), and grepping only for `warning:` hid that error.
+     * The legal position is AFTER the name: `EV attr((X)) = 1`.
      *
      * The message is a separate field rather than a defaulted string so
      * that "has the attribute" and "has a reason" stay distinct: the
