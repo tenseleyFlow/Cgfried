@@ -206,8 +206,10 @@ AstNode *conv_decay(Sema *s, AstNode *e)
     if (t->kind == TY_ARRAY) {
         /* An array becomes a pointer to its first element, and the
          * ELEMENT's qualifiers ride along: `const char a[4]` decays to
-         * `const char *`. */
-        Type *p = type_ptr(s->arena, t->base);
+         * `const char *`. GNU may_alias on an array likewise reaches each
+         * element access; dropping it here would restore TBAA at `a[i]`. */
+        Type *elem = t->may_alias ? type_may_alias(s->arena, t->base) : t->base;
+        Type *p = type_ptr(s->arena, elem);
         AstNode *c = conv_cast(s, e, p);
 
         c->is_lvalue = false;

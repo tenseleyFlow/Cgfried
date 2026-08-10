@@ -264,6 +264,10 @@ struct AstNode {
      * silently ignores a LEADING one, and by the time sema sees a GnuDeclAttrs
      * the three positions are indistinguishable. */
     bool packed;
+    /* `may_alias` bound to this record definition. Like `packed`, position
+     * matters: between `struct` and the tag, or after the closing brace,
+     * changes the record type; a leading attribute before `struct` does not. */
+    bool may_alias;
     /* `aligned(N)` bound to THIS record definition, by the same positional
      * rule as `packed` and measured the same way: a trailing attribute and one
      * between the keyword and the tag both align the record, a LEADING one gcc

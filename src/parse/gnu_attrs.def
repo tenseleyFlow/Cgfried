@@ -18,9 +18,8 @@
  *   GA_UNSAFE  Ignoring changes LAYOUT, LINKAGE or observable behaviour.
  *              Hard error until implemented. `transparent_union` ignored is
  *              the wrong parameter ABI; `gnu_inline` ignored decides whether
- *              a definition emits a symbol at all; `may_alias` ignored leaves
- *              the optimizer applying TBAA where the author said it must not.
- *              Every one of those links and then misbehaves, which is the
+ *              a definition emits a symbol at all. Every one of those links
+ *              and then misbehaves, which is the
  *              failure mode docs/gnu-extensions.md exists to prevent.
  *
  * A row moves from GA_UNSAFE to implemented when its semantics land, and
@@ -74,6 +73,7 @@ GA(cleanup, GA_IMPLEMENTED)
 GA(constructor, GA_IMPLEMENTED)
 GA(destructor, GA_IMPLEMENTED)
 GA(mode, GA_IMPLEMENTED)
+GA(may_alias, GA_IMPLEMENTED)
 GA(packed, GA_IMPLEMENTED)
 GA(section, GA_IMPLEMENTED)
 GA(visibility, GA_IMPLEMENTED)
@@ -83,10 +83,6 @@ GA(weak, GA_IMPLEMENTED)
 /* gnu_inline selects the C89 inline semantics rather than C99's, which
  * decides whether a definition emits a symbol at all. */
 GA(gnu_inline, GA_UNSAFE)
-/* may_alias switches OFF type-based aliasing for a type. Ignoring it leaves
- * the optimizer applying TBAA where the author said it must not -- a
- * miscompile, and a subtle one. */
-GA(may_alias, GA_UNSAFE)
 /* returns_twice is the setjmp property: ignoring it lets the optimizer
  * assume single-entry, which is exactly the assumption setjmp breaks. */
 GA(returns_twice, GA_UNSAFE)

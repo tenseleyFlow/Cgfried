@@ -69,6 +69,7 @@ predefine.
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` in `<sys/types.h>`, which blocks `<stdlib.h>` and most of a hosted TU once `__GNUC__` is defined |
+| `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<math.h>`, which declares the whole `f128` family the moment `__GNUC__` is defined; the only header that needs it |
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 
@@ -276,17 +277,14 @@ are a hard error naming the attribute — which is what makes implementing them
 incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
-`gnu_inline`, `may_alias`, `returns_twice`, `transparent_union`.
+`gnu_inline`, `returns_twice`, `transparent_union`.
 
-Two of those sit here against this sprint's original tiering, because the
+One of those sits here against this sprint's original tiering, because the
 ignore-safety question overruled it:
 
 - **`transparent_union`** changes how the union is *passed* — the first
   member's convention, not the union's. Ignoring it is an ABI mismatch. It
   does not appear in musl, so refusing costs nothing.
-- **`may_alias`** switches *off* type-based aliasing for a type. Ignoring it
-  leaves the optimizer applying TBAA exactly where the author said it must
-  not, which is a subtle miscompile.
 
 ## Refused
 

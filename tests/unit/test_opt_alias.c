@@ -786,6 +786,34 @@ void test_alias_char_wildcard_precedes_type_disjointness(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_alias_unknown_effective_type_suppresses_tbaa(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrOperand p, q;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "func void @f(ptr %p, ptr %q) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    p = ir_op_value(&m->funcs[0], m->funcs[0].param_vals[0]);
+    q = ir_op_value(&m->funcs[0], m->funcs[0].param_vals[1]);
+    T_ASSERT_EQ_INT(t,
+                    alias_query(c, alias_memloc(c, p, 4, ETYPE_UNKNOWN),
+                                alias_memloc(c, q, 4, ETYPE_F32)),
+                    ALIAS_MAY);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
 void test_alias_union_blob_never_uses_type_noalias(TestCtx *t)
 {
     AliasFix f;

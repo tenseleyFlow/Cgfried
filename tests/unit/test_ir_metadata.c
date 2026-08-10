@@ -40,7 +40,7 @@ static void meta_init(MetaFix *f)
 
 VEC_DECL(MetaPpVec, PpToken);
 
-static IrModule *meta_lower(MetaFix *f, const char *src)
+static IrModule *meta_lower_std(MetaFix *f, const char *src, CStd std)
 {
     SourceFile *sf;
     MetaPpVec pv = {NULL, 0, 0};
@@ -53,7 +53,8 @@ static IrModule *meta_lower(MetaFix *f, const char *src)
     intern_init(&f->in, &f->arena);
     pp_init(&f->pp, &f->arena, f->dc, &f->in);
     memset(&lang, 0, sizeof(lang));
-    lang.std = STD_C17;
+    lang.std = std;
+    lang.gnu_mode = std >= STD_GNU89;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
@@ -70,6 +71,25 @@ static IrModule *meta_lower(MetaFix *f, const char *src)
     if (f->errors)
         return NULL;
     return lower_translation_unit(&f->arena, f->dc, &f->sema, tu);
+}
+
+static IrModule *meta_lower(MetaFix *f, const char *src)
+{
+    return meta_lower_std(f, src, STD_C17);
+}
+
+static const IrInst *meta_first_load(const IrFunc *fn, IrType type)
+{
+    u32 bi;
+
+    for (bi = 0; bi < fn->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = fn->blocks[bi].first; in; in = in->next)
+            if (in->op == IR_LOAD && in->type == type)
+                return in;
+    }
+    return NULL;
 }
 
 static void meta_pp_free(MetaFix *f)
@@ -159,6 +179,57 @@ void test_lower_effective_type_classes(TestCtx *t)
     T_ASSERT_EQ_INT(t, lower_efftype(&lo, type_ptr(&arena, type_basic(TY_INT))),
                     ETYPE_PTR);
     arena_free_all(&arena);
+}
+
+void test_lower_may_alias_types_use_wildcard_effective_type(TestCtx *t)
+{
+    static const char src[] =
+        "typedef int alias_int __attribute__((may_alias));\n"
+        "struct __attribute__((__may_alias__)) S { int x; };\n"
+        "typedef int alias_array[2] __attribute__((may_alias));\n"
+        "struct __attribute__((may_alias)) Forward;\n"
+        "struct Forward { int x; };\n"
+        "typedef int alias_unsized[] __attribute__((may_alias));\n"
+        "alias_unsized completed = { 1 };\n"
+        "struct __attribute__((may_alias)) Bits { unsigned x : 3; };\n"
+        "struct PlainTag { int x; };\n"
+        "typedef struct PlainTag TagAlias __attribute__((may_alias));\n"
+        "int td(alias_int *p) { return *p; }\n"
+        "int rec(struct S *p) { return p->x; }\n"
+        "int arr(alias_array *p) { return (*p)[0]; }\n"
+        "int complete(void) { return completed[0]; }\n"
+        "int bits(struct Bits *p) { return p->x; }\n"
+        "int fwd(struct Forward *p) { return p->x; }\n"
+        "int tag_alias(TagAlias *p) { return p->x; }\n"
+        "int plain(int *p) { return *p; }\n";
+    MetaFix f;
+    IrModule *m;
+    const IrInst *load;
+    u32 i;
+
+    meta_init(&f);
+    m = meta_lower_std(&f, src, STD_GNU17);
+    T_ASSERT(t, m != NULL);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 8);
+    if (!m || m->nfuncs != 8) {
+        meta_pp_free(&f);
+        arena_free_all(&f.arena);
+        return;
+    }
+    for (i = 0; i < 5; i++) {
+        load = meta_first_load(&m->funcs[i], IRT_I32);
+        T_ASSERT(t, load != NULL);
+        T_ASSERT_EQ_INT(t, load ? load->subop : ETYPE_COUNT, ETYPE_UNKNOWN);
+    }
+    for (i = 5; i < 8; i++) {
+        load = meta_first_load(&m->funcs[i], IRT_I32);
+        T_ASSERT(t, load != NULL);
+        T_ASSERT_EQ_INT(t, load ? load->subop : ETYPE_COUNT, ETYPE_I32);
+    }
+    T_ASSERT(t, ir_verify(f.dc, m));
+    meta_pp_free(&f);
+    arena_free_all(&f.arena);
 }
 
 void test_lower_effective_type_and_restrict_markers(TestCtx *t)

@@ -841,18 +841,25 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
  * an unnamed `union { int c; int d; };`. The search therefore recurses
  * through unnamed aggregate members — a named nested struct is NOT
  * transparent, which is why the recursion is gated on `!m->name`. */
-static Member *find_member(const Type *t, const char *name)
+static Member *find_member(const Type *t, const char *name,
+                           bool inherited_may_alias, bool *through_may_alias)
 {
     Member *m;
+    bool here_may_alias;
 
     if (!t || !t->tag)
         return NULL;
+    here_may_alias = inherited_may_alias || t->may_alias;
     for (m = t->tag->members; m; m = m->next) {
-        if (m->name == name)
+        if (m->name == name) {
+            if (through_may_alias)
+                *through_may_alias = here_may_alias;
             return m;
+        }
         if (!m->name && m->type &&
             (m->type->kind == TY_STRUCT || m->type->kind == TY_UNION)) {
-            Member *inner = find_member(m->type, name);
+            Member *inner =
+                find_member(m->type, name, here_may_alias, through_may_alias);
 
             if (inner)
                 return inner;
@@ -865,7 +872,9 @@ static AstNode *expr_member(Sema *s, AstNode *e)
 {
     AstNode *obj = expr(s, e->lhs);
     Type *ot;
+    Type *member_type;
     Member *m;
+    bool through_may_alias = false;
 
     e->lhs = obj;
     if (quiet(obj, NULL))
@@ -893,7 +902,7 @@ static AstNode *expr_member(Sema *s, AstNode *e)
             type_to_str(s->arena, ot));
         return poison(s, e);
     }
-    m = find_member(ot, e->name);
+    m = find_member(ot, e->name, false, &through_may_alias);
     if (!m) {
         err(s, e->span, "'%s' has no member named '%s'",
             type_to_str(s->arena, ot), e->name ? e->name : "?");
@@ -902,8 +911,10 @@ static AstNode *expr_member(Sema *s, AstNode *e)
     sema_warn_deprecated(s, m->name, m->deprecated, m->deprecated_msg, e->span);
     /* The member inherits the OBJECT's qualifiers: a member of a const
      * struct is const, which is what stops `cs.m = 1`. */
-    e->sem_type =
-        ot->quals ? type_qualify(s->arena, m->type, ot->quals) : m->type;
+    member_type =
+        through_may_alias ? type_may_alias(s->arena, m->type) : m->type;
+    e->sem_type = ot->quals ? type_qualify(s->arena, member_type, ot->quals)
+                            : member_type;
     /* `f().m` is not an lvalue even though it has struct type — the
      * lvalue bit has to come from the object, not from the member. */
     e->is_lvalue = e->is_arrow ? true : obj->is_lvalue;

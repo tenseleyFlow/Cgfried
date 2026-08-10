@@ -420,8 +420,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 break;
             }
             lv.align = (u32)m->container_size;
-            lv.etype = rec->kind == TY_UNION ? ETYPE_UNION
-                                             : lower_efftype(lo, m->type);
+            lv.etype =
+                rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
             lv.is_bitfield = true;
             lv.bit_shift = (u8)shift;
             lv.bit_width = (u8)m->bit_width;

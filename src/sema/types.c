@@ -62,6 +62,20 @@ Type *type_qualify(Arena *ar, const Type *t, unsigned quals)
     return q;
 }
 
+Type *type_may_alias(Arena *ar, const Type *t)
+{
+    Type *a;
+
+    if (!t || t->may_alias)
+        return (Type *)t;
+    /* Basics are process-global interned nodes, so the property must live on
+     * an arena-owned copy rather than poisoning every `int` in every TU. */
+    a = type_new(ar, t->kind);
+    *a = *t;
+    a->may_alias = true;
+    return a;
+}
+
 Type *type_ptr(Arena *ar, Type *pointee)
 {
     Type *t = type_new(ar, TY_PTR);
@@ -230,12 +244,14 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
     case TY_PTR:
         c = type_ptr(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
+        c->may_alias = a->may_alias || b->may_alias;
         return c;
     case TY_ARRAY:
         /* The size comes from whichever declaration HAS one: this is what
          * turns `int a[]; int a[10];` into `int[10]`. */
         c = type_array(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
+        c->may_alias = a->may_alias || b->may_alias;
         if (a->has_size) {
             c->has_size = true;
             c->size = a->size;
@@ -252,6 +268,7 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
 
         c = type_func(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
+        c->may_alias = a->may_alias || b->may_alias;
         if (!proto)
             return c; /* neither had one: still unprototyped */
         c->has_proto = true;
@@ -275,7 +292,7 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         return c;
     }
     default:
-        return a;
+        return a->may_alias || b->may_alias ? type_may_alias(ar, a) : a;
     }
 }
 

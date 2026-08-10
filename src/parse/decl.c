@@ -545,10 +545,18 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
             case KW_STRUCT:
             case KW_UNION: {
                 bool is_union = kw == KW_UNION;
+                bool leading_may_alias = s->gnu.may_alias;
+
                 p->pos++;
                 s->n_other++;
                 s->other_base = ABT_RECORD;
                 s->record = parse_record_specifier(p, is_union);
+                /* gcc ignores `may_alias` before the `struct` keyword. The
+                 * two effective positions are captured on the record node:
+                 * inside parse_record_specifier, or by a later pass through
+                 * this specifier loop after the closing brace. */
+                if (leading_may_alias)
+                    s->gnu.may_alias = false;
                 s->saw_any = true;
                 continue;
             }
@@ -656,6 +664,10 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 if (here.packed && s->record && s->record->is_definition) {
                     s->record->packed = true;
                     here.packed = false;
+                }
+                if (here.may_alias && s->record && s->record->is_definition) {
+                    s->record->may_alias = true;
+                    here.may_alias = false;
                 }
                 if ((here.aligned_expr || here.aligned_bare) && s->record &&
                     s->record->is_definition) {
@@ -973,12 +985,15 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
              * silent ABI mismatch, with only a warning to show for it.
              * AstParam carries no GnuDeclAttrs to plumb it through, so
              * this is an honest error rather than a wrong answer. */
-            if (gnu_attrs_any_type_property(&param_gnu))
+            if (param_gnu.mode != GNU_MODE_NONE)
                 parse_error(p, at,
                             "the 'mode' attribute is not supported on a "
                             "function parameter: it would change the "
                             "parameter's width and therefore the calling "
                             "convention (docs/gnu-extensions.md)");
+            /* A directly-written `may_alias` on a parameter declaration has
+             * no effect in gcc. The useful form is an attributed typedef in
+             * the parameter's AstType, which is preserved normally. */
         }
         if (prm.name)
             parse_scope_declare(p, prm.name, false);
@@ -1196,6 +1211,8 @@ static AstNode *parse_record_specifier(Parser *p, bool is_union)
         parse_cgf_attributes(p, &inner);
         if (inner.packed)
             rec->packed = true;
+        if (inner.may_alias)
+            rec->may_alias = true;
         if (inner.aligned_expr || inner.aligned_bare) {
             rec->record_aligned_expr = inner.aligned_expr;
             rec->record_aligned_bare = inner.aligned_bare;

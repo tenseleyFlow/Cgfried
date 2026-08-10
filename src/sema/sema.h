@@ -123,6 +123,11 @@ struct TagDecl {
 struct Type {
     TypeKind kind;
     unsigned quals;
+    /* GNU `may_alias` is a TYPE property, not a compatibility qualifier.
+     * Accesses through a type carrying it lower with wildcard effective-type
+     * metadata, while layout, ABI classification, and compatibility remain
+     * exactly those of the underlying C type. */
+    bool may_alias;
 
     Type *base; /* TY_PTR pointee / TY_ARRAY element / TY_FUNC return */
 
@@ -330,6 +335,7 @@ typedef struct VmGoto {
  * qualifier combinations multiply nodes regardless. */
 Type *type_basic(TypeKind k);
 Type *type_qualify(Arena *ar, const Type *t, unsigned quals);
+Type *type_may_alias(Arena *ar, const Type *t);
 Type *type_ptr(Arena *ar, Type *pointee);
 Type *type_array(Arena *ar, Type *elem);
 Type *type_func(Arena *ar, Type *ret);

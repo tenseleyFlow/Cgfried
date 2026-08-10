@@ -33,11 +33,9 @@ const char *cgf_attr_name(CgfAttrKind kind);
 
 /* The GNU attributes this compiler IMPLEMENTS, in the form the rest of it
  * needs. Deliberately NOT a list like CgfAttr: those are memsafe ownership
- * contracts attached to parameters, while these are SYMBOL PROPERTIES, and
- * every one is a fact some backend has to emit. Flattening them here is what
- * lets a backend ask the module -- the same shape `is_tls` already uses, and
- * for the same reason: the property belongs to the object, not to any
- * reference to it.
+ * contracts attached to parameters, while these are declaration properties.
+ * Most become facts a backend emits for a symbol; `mode` and `may_alias` are
+ * the exceptions that change the semantic Type graph instead.
  *
  * Which attributes may live here is not a free choice: an attribute earns a
  * field only when ignoring it would change layout, linkage or behaviour.
@@ -225,6 +223,12 @@ typedef struct GnuDeclAttrs {
      * It joins C11 `_Noreturn` and the hardcoded library-name list at ONE
      * decision in lower_call, rather than becoming a second mechanism. */
     bool noreturn;
+    /* `may_alias`: accesses through this TYPE do not participate in TBAA.
+     * It is useful on typedefs (`typedef int alias_int ...`) and on record
+     * definitions (`struct ... S { ... }`), where member accesses inherit it.
+     * The semantic Type graph carries the durable bit; this field is only the
+     * parser-to-sema handoff. */
+    bool may_alias;
     /* `mode(M)` / `__mode__(__M__)`: give this declaration the integer type
      * of machine mode M, keeping the DECLARED type's signedness. Measured:
      * a `typedef int r` carrying `__mode__(__word__)` is exactly `long` on
@@ -272,12 +276,11 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src);
 bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g);
 
 /* True if anything here changes the declaration's TYPE rather than naming a
- * property of its symbol. The split matters at the one position that can
- * carry neither: a function parameter drops a symbol property with a
- * WARNING, because there is no symbol and gcc warns too, but dropping a type
- * property there would silently change the parameter's width and therefore
- * the ABI -- so that is an error instead. Both predicates must grow together
- * when a field is added, which is why they sit next to each other. */
+ * property of its symbol. The split matters at positions where a type
+ * property must survive even though no backend symbol exists. Individual
+ * properties still follow gcc's placement rules: `mode` on a parameter is
+ * refused because losing it changes the ABI, while a directly-written
+ * `may_alias` there is a no-op and an attributed typedef remains effective. */
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g);
 
 const char *gnu_visibility_name(u8 vis);

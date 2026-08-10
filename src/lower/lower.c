@@ -177,6 +177,11 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
 {
     if (!t)
         return ETYPE_UNKNOWN;
+    /* UNKNOWN is the IR's conservative wildcard. Reusing it here keeps the
+     * attribute effective through IR printing/parsing and every optimizer:
+     * alias_query never derives a TBAA NoAlias proof from UNKNOWN. */
+    if (t->may_alias)
+        return ETYPE_UNKNOWN;
     switch (t->kind) {
     case TY_VOID:
     case TY_CHAR:

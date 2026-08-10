@@ -43,6 +43,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     dst->deprecated |= src->deprecated;
     dst->warn_unused_result |= src->warn_unused_result;
     dst->noreturn |= src->noreturn;
+    dst->may_alias |= src->may_alias;
     dst->nonnull_all |= src->nonnull_all;
     dst->nonnull_mask |= src->nonnull_mask;
     if (src->has_format) {
@@ -84,7 +85,7 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
 
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
 {
-    return g->mode != GNU_MODE_NONE;
+    return g->mode != GNU_MODE_NONE || g->may_alias;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -678,6 +679,14 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                              * passes a scratch sink must still see it and
                              * reject it. */
                             parse_mode_attr(p, name, gnu);
+                            break;
+                        }
+                        if (gnu_attr_is(name->spelling, "may_alias")) {
+                            /* Like mode, this is a TYPE property. Do not gate
+                             * it on a symbol-property sink: parameter and
+                             * record positions must still observe it. */
+                            if (gnu)
+                                gnu->may_alias = true;
                             break;
                         }
                         if (gnu && gnu_attr_is(name->spelling, "aligned")) {

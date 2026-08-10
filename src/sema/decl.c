@@ -283,6 +283,7 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     /* Set BEFORE the member walk: add_member consults it, so that a record's
      * own `packed` and a member's are one rule with one implementation. */
     tag->packed = rec->packed;
+    tag->type->may_alias |= rec->may_alias;
     if (rec->record_aligned_expr || rec->record_aligned_bare) {
         GnuDeclAttrs ra = {0};
 
@@ -1215,6 +1216,7 @@ Type *sema_array_complete_from_init(Sema *s, Type *t, const AstNode *init)
         return t;
     sized = type_array(s->arena, t->base);
     sized->quals = t->quals;
+    sized->may_alias = t->may_alias;
     sized->has_size = true;
     sized->size = n;
     sized->size_expr = t->size_expr;
@@ -1686,8 +1688,11 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
     for (i = 0; i < sizeof(by_rank) / sizeof(by_rank[0]); i++) {
         Type *cand = type_basic(is_signed ? by_rank[i] : by_rank_u[i]);
 
-        if (layout_of(s, cand).size == want)
-            return type_qualify(s->arena, cand, t->quals);
+        if (layout_of(s, cand).size == want) {
+            Type *mapped = type_qualify(s->arena, cand, t->quals);
+
+            return t->may_alias ? type_may_alias(s->arena, mapped) : mapped;
+        }
     }
     s->nerrors++;
     diag_emit(s->dc, DIAG_ERROR, span,
@@ -2178,6 +2183,25 @@ static void declare_one(Sema *s, AstNode *d)
      * function all arrive here; the function is what gnu_mode_apply's
      * inappropriate-type error catches, matching gcc. */
     type = gnu_mode_apply(s, type, &d->gnu, d->span);
+    /* gcc gives directly-written `may_alias` semantics on a typedef (and on
+     * record definitions, handled by complete_struct), not on an ordinary
+     * object declaration. Keeping that distinction also means a typedef of
+     * a pointer marks the pointer type without incorrectly marking its
+     * pointee. */
+    if ((d->storage & AST_SC_TYPEDEF) && d->gnu.may_alias) {
+        if (type && (type->kind == TY_STRUCT || type->kind == TY_UNION ||
+                     type->kind == TY_ENUM)) {
+            /* GCC accepts the spelling but ignores it after a tag has
+             * already named the aggregate. The effective record positions
+             * are on the definition itself, where complete_struct handles
+             * them. Treating this typedef as aliasable would retain correct
+             * code but discard TBAA proofs GCC is licensed to use. */
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "'may_alias' attribute ignored");
+        } else {
+            type = type_may_alias(s->arena, type);
+        }
+    }
     is_func = type && type->kind == TY_FUNC;
     alignas_req = check_alignas(s, d, type);
 
@@ -3291,6 +3315,7 @@ static void finish_symbol(Sema *s, Symbol *sym)
             Type *one = type_array(s->arena, sym->type->base);
 
             one->quals = sym->type->quals;
+            one->may_alias = sym->type->may_alias;
             one->has_size = true;
             one->size = 1;
             sym->type = one;
