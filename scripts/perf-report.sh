@@ -54,6 +54,128 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 : >"$tmp/metrics"
 : >"$tmp/provenance"
 
+dashboard_source=$(basename "$dashboard")
+awk -v file="$dashboard" -v source="$dashboard_source" \
+    -v provenance="$tmp/provenance" '
+    function'" "'fail(message) {
+        print "perf-report: " file ":" FNR ": " message > "/dev/stderr"; bad = 1
+    }
+    function'" "'leap_year(year) {
+        return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    }
+    function'" "'valid_timestamp(value,    year, month, day, hour, minute,
+                             second, month_days) {
+        if (length(value) != 20 || substr(value, 5, 1) != "-" ||
+            substr(value, 8, 1) != "-" || substr(value, 11, 1) != "T" ||
+            substr(value, 14, 1) != ":" || substr(value, 17, 1) != ":" ||
+            substr(value, 20, 1) != "Z")
+            return 0
+        year = substr(value, 1, 4)
+        month = substr(value, 6, 2)
+        day = substr(value, 9, 2)
+        hour = substr(value, 12, 2)
+        minute = substr(value, 15, 2)
+        second = substr(value, 18, 2)
+        if (year !~ /^[0-9][0-9][0-9][0-9]$/ ||
+            month !~ /^[0-9][0-9]$/ || day !~ /^[0-9][0-9]$/ ||
+            hour !~ /^[0-9][0-9]$/ || minute !~ /^[0-9][0-9]$/ ||
+            second !~ /^[0-9][0-9]$/)
+            return 0
+        year += 0
+        month += 0
+        day += 0
+        hour += 0
+        minute += 0
+        second += 0
+        if (year < 1 || month < 1 || month > 12 || hour > 23 ||
+            minute > 59 || second > 59)
+            return 0
+        split("31 28 31 30 31 30 31 31 30 31 30 31", month_days, " ")
+        if (leap_year(year))
+            month_days[2] = 29
+        return day >= 1 && day <= month_days[month]
+    }
+    function'" "'record(key, value,    canonical) {
+        canonical = key
+        if (canonical == "date_utc") canonical = "date"
+        else if (canonical == "timeit_protocol") canonical = "protocol"
+        if (canonical !~ /^(host|host_class|date|cgf_rev|cgf_tree|protocol)$/) {
+            fail("unrecognized dashboard provenance " key)
+            return
+        }
+        if (canonical in seen) {
+            fail("duplicate dashboard provenance " canonical)
+            return
+        }
+        if ((canonical == "host" || canonical == "host_class") &&
+            value !~ /^[A-Za-z0-9][A-Za-z0-9_.:+-]*$/) {
+            fail("invalid dashboard scope provenance")
+            return
+        }
+        if (canonical == "date" && !valid_timestamp(value)) {
+            fail("invalid dashboard date provenance")
+            return
+        }
+        if (canonical == "cgf_rev" &&
+            value !~ /^[A-Za-z0-9][A-Za-z0-9_.:+-]*$/) {
+            fail("invalid dashboard revision provenance")
+            return
+        }
+        if (canonical == "cgf_tree" && value != "clean" &&
+            value != "dirty" && value != "exported-commit" &&
+            value != "unavailable") {
+            fail("invalid dashboard tree provenance")
+            return
+        }
+        if (canonical == "protocol" &&
+            value !~ /^[A-Za-z0-9][A-Za-z0-9_.:=,+\/%;-]*$/) {
+            fail("invalid dashboard protocol provenance")
+            return
+        }
+        seen[canonical] = 1
+        value_of[canonical] = value
+    }
+    /cgf-dashboard-provenance/ {
+        line = $0
+        if (line !~ /^[[:space:]]*<!--[[:space:]]*cgf-dashboard-provenance[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]*-->[[:space:]]*$/) {
+            fail("malformed dashboard provenance")
+            next
+        }
+        sub(/^[[:space:]]*<!--[[:space:]]*cgf-dashboard-provenance[[:space:]]+/, "", line)
+        sub(/[[:space:]]*-->[[:space:]]*$/, "", line)
+        equals = index(line, "=")
+        key = substr(line, 1, equals - 1)
+        value = substr(line, equals + 1)
+        if (value !~ /^[A-Za-z0-9_.:@,+\/=%;-]+$/) {
+            fail("invalid dashboard provenance " key)
+            next
+        }
+        record(key, value)
+    }
+    END {
+        scope_count = (("host" in seen) ? 1 : 0) + (("host_class" in seen) ? 1 : 0)
+        if (scope_count != 1) {
+            print "perf-report: " file ": dashboard requires exactly one host or host_class provenance" > "/dev/stderr"
+            bad = 1
+        }
+        split("date cgf_rev cgf_tree protocol", required, " ")
+        for (i = 1; i <= 4; i++) {
+            key = required[i]
+            if (!(key in seen)) {
+                print "perf-report: " file ": dashboard lacks " key " provenance" > "/dev/stderr"
+                bad = 1
+            }
+        }
+        if (bad) exit 3
+        scope = (("host_class" in seen) ? value_of["host_class"] : value_of["host"])
+        printf "dashboard\tall-targets\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tn/a\tn/a\n", \
+            scope, source, (("host" in seen) ? value_of["host"] : "n/a"), \
+            (("host_class" in seen) ? value_of["host_class"] : "n/a"), \
+            value_of["date"], value_of["cgf_rev"], value_of["cgf_tree"], \
+            value_of["protocol"] >> provenance
+    }
+' "$dashboard" || exit $?
+
 old_ifs=$IFS
 IFS='
 '
@@ -73,6 +195,41 @@ EOF
         }
         function'" "'fail(message) {
             print "perf-report: " file ":" FNR ": " message > "/dev/stderr"; bad = 1
+        }
+        function'" "'leap_year(year) {
+            return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        }
+        function'" "'valid_timestamp(value,    year, month, day, hour, minute,
+                                 second, month_days) {
+            if (length(value) != 20 || substr(value, 5, 1) != "-" ||
+                substr(value, 8, 1) != "-" || substr(value, 11, 1) != "T" ||
+                substr(value, 14, 1) != ":" || substr(value, 17, 1) != ":" ||
+                substr(value, 20, 1) != "Z")
+                return 0
+            year = substr(value, 1, 4)
+            month = substr(value, 6, 2)
+            day = substr(value, 9, 2)
+            hour = substr(value, 12, 2)
+            minute = substr(value, 15, 2)
+            second = substr(value, 18, 2)
+            if (year !~ /^[0-9][0-9][0-9][0-9]$/ ||
+                month !~ /^[0-9][0-9]$/ || day !~ /^[0-9][0-9]$/ ||
+                hour !~ /^[0-9][0-9]$/ || minute !~ /^[0-9][0-9]$/ ||
+                second !~ /^[0-9][0-9]$/)
+                return 0
+            year += 0
+            month += 0
+            day += 0
+            hour += 0
+            minute += 0
+            second += 0
+            if (year < 1 || month < 1 || month > 12 || hour > 23 ||
+                minute > 59 || second > 59)
+                return 0
+            split("31 28 31 30 31 30 31 31 30 31 30 31", month_days, " ")
+            if (leap_year(year))
+                month_days[2] = 29
+            return day >= 1 && day <= month_days[month]
         }
         function'" "'record_provenance(key, value,    canonical) {
             canonical = key
@@ -150,6 +307,45 @@ EOF
             if (scope !~ /^[A-Za-z0-9_.:-]+$/) {
                 print "perf-report: " file ": invalid provenance scope" > "/dev/stderr"
                 bad = 1
+            }
+            for (scope_index = 1; scope_index <= 2; scope_index++) {
+                scope_key = (scope_index == 1 ? "host" : "host_class")
+                if (prov[scope_key] != "" &&
+                    prov[scope_key] !~ /^[A-Za-z0-9][A-Za-z0-9_.:+-]*$/) {
+                    print "perf-report: " file ": invalid " scope_key \
+                          " provenance" > "/dev/stderr"
+                    bad = 1
+                }
+            }
+            if (prov["date"] != "" && !valid_timestamp(prov["date"])) {
+                print "perf-report: " file ": invalid date provenance" > "/dev/stderr"
+                bad = 1
+            }
+            if (prov["cgf_rev"] != "" &&
+                prov["cgf_rev"] !~ /^[A-Za-z0-9][A-Za-z0-9_.:+-]*$/) {
+                print "perf-report: " file ": invalid revision provenance" > "/dev/stderr"
+                bad = 1
+            }
+            if (prov["cgf_tree"] != "" && prov["cgf_tree"] != "clean" &&
+                prov["cgf_tree"] != "dirty" &&
+                prov["cgf_tree"] != "exported-commit" &&
+                prov["cgf_tree"] != "unavailable") {
+                print "perf-report: " file ": invalid tree provenance" > "/dev/stderr"
+                bad = 1
+            }
+            if (prov["protocol"] != "" &&
+                prov["protocol"] !~ /^[A-Za-z0-9][A-Za-z0-9_.:=,+\/%;-]*$/) {
+                print "perf-report: " file ": invalid protocol provenance" > "/dev/stderr"
+                bad = 1
+            }
+            for (path_index = 1; path_index <= 2; path_index++) {
+                path_key = (path_index == 1 ? "sysroot_include" : "sysroot_crt")
+                if (prov[path_key] != "" &&
+                    prov[path_key] !~ /^\/[A-Za-z0-9_./:@,+-]+$/) {
+                    print "perf-report: " file ": invalid " path_key \
+                          " provenance" > "/dev/stderr"
+                    bad = 1
+                }
             }
             if (bad) exit 3
             for (key in values) {

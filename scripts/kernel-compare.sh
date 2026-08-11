@@ -36,11 +36,57 @@ cooldown=${CGF_KERNEL_COOLDOWN_SECONDS:-120}
 timeit=${CGF_KERNEL_TIMEIT:-$build/timeit}
 sysroot_include=${CGF_FLEET_SYSROOT_INCLUDE:-}
 sysroot_crt=${CGF_FLEET_SYSROOT_CRT:-}
+dashboard_scope_kind=${CGF_KERNEL_DASHBOARD_SCOPE_KIND:-host_class}
+dashboard_scope=${CGF_KERNEL_DASHBOARD_SCOPE:-target-deterministic}
+dashboard_protocol=${CGF_KERNEL_DASHBOARD_PROTOCOL:-sprint-53-static-dashboard-v1}
 
 die()
 {
     echo "$prog: $*" >&2
     exit 2
+}
+
+valid_utc_timestamp()
+{
+    awk -v timestamp="$1" '
+        function'" "'leap_year(year) {
+            return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        }
+        BEGIN {
+            if (length(timestamp) != 20 ||
+                substr(timestamp, 5, 1) != "-" ||
+                substr(timestamp, 8, 1) != "-" ||
+                substr(timestamp, 11, 1) != "T" ||
+                substr(timestamp, 14, 1) != ":" ||
+                substr(timestamp, 17, 1) != ":" ||
+                substr(timestamp, 20, 1) != "Z")
+                exit 1
+            year = substr(timestamp, 1, 4)
+            month = substr(timestamp, 6, 2)
+            day = substr(timestamp, 9, 2)
+            hour = substr(timestamp, 12, 2)
+            minute = substr(timestamp, 15, 2)
+            second = substr(timestamp, 18, 2)
+            if (year !~ /^[0-9][0-9][0-9][0-9]$/ ||
+                month !~ /^[0-9][0-9]$/ || day !~ /^[0-9][0-9]$/ ||
+                hour !~ /^[0-9][0-9]$/ || minute !~ /^[0-9][0-9]$/ ||
+                second !~ /^[0-9][0-9]$/)
+                exit 1
+            year += 0
+            month += 0
+            day += 0
+            hour += 0
+            minute += 0
+            second += 0
+            if (year < 1 || month < 1 || month > 12 || hour > 23 ||
+                minute > 59 || second > 59)
+                exit 1
+            split("31 28 31 30 31 30 31 31 30 31 30 31", month_days, " ")
+            if (leap_year(year))
+                month_days[2] = 29
+            exit !(day >= 1 && day <= month_days[month])
+        }
+    ' </dev/null
 }
 
 skip()
@@ -85,11 +131,59 @@ esac
 [ "$runs" -ge 1 ] || die "CGF_KERNEL_RUNS must be at least 1"
 [ -x "$cgf" ] || die "compiler is not executable: $cgf"
 [ -d "$kernel_dir" ] || die "kernel directory does not exist: $kernel_dir"
+case $dashboard_scope_kind in
+host | host_class) ;;
+*) die "CGF_KERNEL_DASHBOARD_SCOPE_KIND must be host or host_class" ;;
+esac
 # Deliberate splitting: these are documented whitespace-separated enum lists.
 # shellcheck disable=SC2086
 validate_words target $targets
 # shellcheck disable=SC2086
 validate_words opt $opts
+
+if [ -n "${CGF_KERNEL_DASHBOARD_REV:-}" ]; then
+    dashboard_rev=$CGF_KERNEL_DASHBOARD_REV
+else
+    dashboard_rev=$(git -C "$repo" rev-parse HEAD 2>/dev/null) ||
+        die "cannot derive dashboard revision provenance"
+fi
+if [ -n "${CGF_KERNEL_DASHBOARD_DATE_UTC:-}" ]; then
+    dashboard_date=$CGF_KERNEL_DASHBOARD_DATE_UTC
+else
+    dashboard_date=$(TZ=UTC0 git -C "$repo" show -s \
+        --date='format-local:%Y-%m-%dT%H:%M:%SZ' --format=%cd \
+        "$dashboard_rev" 2>/dev/null) ||
+        die "cannot derive dashboard date provenance"
+fi
+if [ -n "${CGF_KERNEL_DASHBOARD_TREE_STATE:-}" ]; then
+    dashboard_tree=$CGF_KERNEL_DASHBOARD_TREE_STATE
+else
+    dashboard_tree_lines=$(git -C "$repo" status --porcelain \
+        --untracked-files=normal 2>/dev/null) ||
+        die "cannot derive dashboard tree-state provenance"
+    if [ -n "$dashboard_tree_lines" ]; then
+        dashboard_tree=dirty
+    else
+        dashboard_tree=clean
+    fi
+fi
+case $dashboard_scope in
+'' | *[!A-Za-z0-9_.:+-]*) die "dashboard scope must be a nonempty Markdown-safe token" ;;
+esac
+case $dashboard_rev in
+'' | *[!A-Za-z0-9_.:+-]*) die "dashboard revision must be a nonempty Markdown-safe token" ;;
+esac
+case $dashboard_protocol in
+'' | *[!A-Za-z0-9_.:=,+/%\;-]*)
+    die "dashboard protocol must be a nonempty Markdown-safe token"
+    ;;
+esac
+valid_utc_timestamp "$dashboard_date" ||
+    die "dashboard date provenance must be a valid UTC timestamp"
+case $dashboard_tree in
+clean | dirty | exported-commit | unavailable) ;;
+*) die "dashboard tree provenance is invalid: $dashboard_tree" ;;
+esac
 
 mkdir -p "$work" "$(dirname "$output")"
 manifest=$work/kernels.txt
@@ -495,6 +589,13 @@ fi
 
 dashboard_tmp=$work/dashboard.tmp.md
 {
+    printf '<!-- cgf-dashboard-provenance %s=%s -->\n' \
+        "$dashboard_scope_kind" "$dashboard_scope"
+    printf '<!-- cgf-dashboard-provenance date_utc=%s -->\n' "$dashboard_date"
+    printf '<!-- cgf-dashboard-provenance cgf_rev=%s -->\n' "$dashboard_rev"
+    printf '<!-- cgf-dashboard-provenance cgf_tree=%s -->\n' "$dashboard_tree"
+    printf '<!-- cgf-dashboard-provenance protocol=%s -->\n' "$dashboard_protocol"
+    echo
     echo '# Cgfried kernel code-generation comparison'
     echo
     # Backticks below are Markdown literals, not shell substitutions.
@@ -503,6 +604,17 @@ dashboard_tmp=$work/dashboard.tmp.md
     echo
     echo '## Provenance'
     echo
+    # Backticks below are Markdown literals, not shell substitutions.
+    # shellcheck disable=SC2016
+    printf -- '- `dashboard.%s`: `%s`\n' "$dashboard_scope_kind" "$dashboard_scope"
+    # shellcheck disable=SC2016
+    printf -- '- `dashboard.date_utc`: `%s`\n' "$dashboard_date"
+    # shellcheck disable=SC2016
+    printf -- '- `dashboard.cgf_rev`: `%s`\n' "$dashboard_rev"
+    # shellcheck disable=SC2016
+    printf -- '- `dashboard.cgf_tree`: `%s`\n' "$dashboard_tree"
+    # shellcheck disable=SC2016
+    printf -- '- `dashboard.protocol`: `%s`\n' "$dashboard_protocol"
     while IFS='|' read -r provenance_key provenance_value; do
         # shellcheck disable=SC2016
         printf -- '- `%s`: `%s`\n' "$provenance_key" "$provenance_value"

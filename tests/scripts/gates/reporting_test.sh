@@ -131,6 +131,61 @@ grep -F 'duplicate provenance date' "$tmp/err" >/dev/null ||
     fail "release report accepted conflicting date aliases"
 grep -F 'duplicate provenance protocol' "$tmp/err" >/dev/null ||
     fail "release report accepted conflicting protocol aliases"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/dashboard-missing-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard-missing-provenance.md"
+grep -F 'dashboard requires exactly one host or host_class provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted a dashboard without provenance"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/dashboard-malformed-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard-malformed-provenance.md"
+grep -F 'malformed dashboard provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted malformed dashboard provenance"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/dashboard-duplicate-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard-duplicate-provenance.md"
+grep -F 'duplicate dashboard provenance date' "$tmp/err" >/dev/null ||
+    fail "release report accepted conflicting dashboard date aliases"
+grep -F 'duplicate dashboard provenance protocol' "$tmp/err" >/dev/null ||
+    fail "release report accepted conflicting dashboard protocol aliases"
+grep -F 'duplicate dashboard provenance cgf_tree' "$tmp/err" >/dev/null ||
+    fail "release report accepted repeated identical dashboard provenance"
+grep -F 'dashboard requires exactly one host or host_class provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted both dashboard scope forms"
+sed 's/date_utc=2026-08-02T15:00:00Z/date_utc=2026-02-30T15:00:00Z/' \
+    "$fixtures/dashboard.md" >"$tmp/dashboard-invalid-date.md"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/dashboard-invalid-date-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$tmp/dashboard-invalid-date.md"
+grep -F 'invalid dashboard date provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted an impossible dashboard date"
+sed 's/^date_utc=2026-08-10T13:00:00Z$/date_utc=not-a-date|injected/' \
+    "$fixtures/bench-hasu.current.txt" >"$tmp/invalid-date.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/invalid-date-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/invalid-date.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'invalid date provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted date delimiter injection"
+sed 's/^cgf_rev=current-hasu$/cgf_rev=current|injected/' \
+    "$fixtures/bench-hasu.current.txt" >"$tmp/invalid-revision.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/invalid-revision-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/invalid-revision.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'invalid revision provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted revision delimiter injection"
+sed 's/^cgf_tree=clean$/cgf_tree=fixture-clean/' \
+    "$fixtures/bench-hasu.current.txt" >"$tmp/invalid-tree.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/invalid-tree-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/invalid-tree.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'invalid tree provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted an unknown tree state"
+sed 's@^timeit_protocol=runs=10,warmup=1$@protocol=opts=O2,Os;whole-file-after-strip-gate=+15%;unstripped-and-sections=report-only@' \
+    "$fixtures/bench-hasu.current.txt" >"$tmp/real-protocol.txt"
+"$report" --version 0.0.1 --output "$tmp/real-protocol-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/real-protocol.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md" \
+    >"$tmp/real-protocol.out"
 expect_status 3 "$report" --version 0.0.1 --output "$tmp/bad-report.md" \
     --baseline "$fixtures/size.base.txt" --latest "$fixtures/report/bench.current.txt" \
     --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
@@ -166,4 +221,4 @@ grep -F '# Performance trend — last 90 days' "$tmp/comment-provenance-trend.md
     fail "size comment-header date provenance was not accepted"
 expect_status 3 "$trend" "$fixtures/malformed.txt"
 
-echo 'reporting_test: 13 summary, report, trend, determinism, and fail-closed cases passed'
+echo 'reporting_test: summary, report, trend, determinism, and fail-closed cases passed'

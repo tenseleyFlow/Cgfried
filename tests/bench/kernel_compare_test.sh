@@ -76,6 +76,12 @@ run_compare()
     CGF_KERNEL_TARGETS=x86_64-linux-gnu \
     CGF_KERNEL_OPTS=O2 \
     CGF_KERNEL_MIN=1 \
+    CGF_KERNEL_DASHBOARD_SCOPE_KIND=host_class \
+    CGF_KERNEL_DASHBOARD_SCOPE=fixture-deterministic \
+    CGF_KERNEL_DASHBOARD_DATE_UTC=2026-08-02T15:00:00Z \
+    CGF_KERNEL_DASHBOARD_REV=fixture-dashboard-rev \
+    CGF_KERNEL_DASHBOARD_TREE_STATE=clean \
+    CGF_KERNEL_DASHBOARD_PROTOCOL=fixture-static-dashboard-v1 \
     CGF_KERNEL_RUNTIME_INPUT=$run_runtime \
         "$compare" "$run_output" >"$run_work/stdout.txt"
 }
@@ -86,6 +92,62 @@ cmp -s "$tmp/a.md" "$tmp/b.md" || fail "static dashboard is not deterministic"
 grep -F '| tiny | -O2 |' "$tmp/a.md" >/dev/null || fail "missing static row"
 grep -F '| 1.500x |' "$tmp/a.md" >/dev/null || fail "runtime ratio is wrong"
 grep -F 'fixture-host' "$tmp/a.md" >/dev/null || fail "runtime provenance is missing"
+grep -Fx '<!-- cgf-dashboard-provenance host_class=fixture-deterministic -->' \
+    "$tmp/a.md" >/dev/null || fail "dashboard scope provenance is missing"
+grep -Fx '<!-- cgf-dashboard-provenance date_utc=2026-08-02T15:00:00Z -->' \
+    "$tmp/a.md" >/dev/null || fail "dashboard date override is missing"
+grep -Fx '<!-- cgf-dashboard-provenance cgf_rev=fixture-dashboard-rev -->' \
+    "$tmp/a.md" >/dev/null || fail "dashboard revision override is missing"
+grep -Fx '<!-- cgf-dashboard-provenance cgf_tree=clean -->' \
+    "$tmp/a.md" >/dev/null || fail "dashboard tree override is missing"
+grep -Fx '<!-- cgf-dashboard-provenance protocol=fixture-static-dashboard-v1 -->' \
+    "$tmp/a.md" >/dev/null || fail "dashboard protocol override is missing"
+# Backticks below are Markdown literals, not shell substitutions.
+# shellcheck disable=SC2016
+grep -F -- '- `dashboard.cgf_rev`: `fixture-dashboard-rev`' "$tmp/a.md" \
+    >/dev/null || fail "visible dashboard provenance is missing"
+
+if CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
+   CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-bad-scope \
+   CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
+   CGF_KERNEL_DASHBOARD_SCOPE_KIND=machine \
+       "$compare" "$tmp/bad-scope.md" >"$tmp/bad-scope.out" 2>"$tmp/bad-scope.err"; then
+    fail "invalid dashboard scope kind passed"
+fi
+grep -F 'CGF_KERNEL_DASHBOARD_SCOPE_KIND must be host or host_class' \
+    "$tmp/bad-scope.err" >/dev/null || fail "invalid dashboard scope diagnostic is missing"
+
+if CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
+   CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-bad-provenance \
+   CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
+   CGF_KERNEL_DASHBOARD_PROTOCOL='bad protocol' \
+       "$compare" "$tmp/bad-provenance.md" >"$tmp/bad-provenance.out" \
+       2>"$tmp/bad-provenance.err"; then
+    fail "unsafe dashboard provenance passed"
+fi
+grep -F 'dashboard protocol must be a nonempty Markdown-safe token' \
+    "$tmp/bad-provenance.err" >/dev/null ||
+    fail "unsafe dashboard provenance diagnostic is missing"
+
+if CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
+   CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-bad-date \
+   CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
+   CGF_KERNEL_DASHBOARD_DATE_UTC=2026-02-30T12:00:00Z \
+       "$compare" "$tmp/bad-date.md" >"$tmp/bad-date.out" 2>"$tmp/bad-date.err"; then
+    fail "invalid dashboard UTC date passed"
+fi
+grep -F 'dashboard date provenance must be a valid UTC timestamp' \
+    "$tmp/bad-date.err" >/dev/null || fail "invalid dashboard date diagnostic is missing"
+
+if CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
+   CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-bad-tree \
+   CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
+   CGF_KERNEL_DASHBOARD_TREE_STATE=fixture-clean \
+       "$compare" "$tmp/bad-tree.md" >"$tmp/bad-tree.out" 2>"$tmp/bad-tree.err"; then
+    fail "invalid dashboard tree state passed"
+fi
+grep -F 'dashboard tree provenance is invalid' "$tmp/bad-tree.err" >/dev/null ||
+    fail "invalid dashboard tree diagnostic is missing"
 
 sed 's/12[.]000000/12.008000/' "$tmp/runtime.txt" >"$tmp/runtime-hot.txt"
 mkdir -p "$tmp/work-hot"

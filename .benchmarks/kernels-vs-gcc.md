@@ -1,9 +1,20 @@
+<!-- cgf-dashboard-provenance host_class=target-deterministic -->
+<!-- cgf-dashboard-provenance date_utc=2026-08-11T01:29:19Z -->
+<!-- cgf-dashboard-provenance cgf_rev=4bdff9b3a5a11bdc4e23f90dc7bbfeaf6b1f4c28 -->
+<!-- cgf-dashboard-provenance cgf_tree=clean -->
+<!-- cgf-dashboard-provenance protocol=sprint-53-static-dashboard-v1 -->
+
 # Cgfried kernel code-generation comparison
 
 Static instruction counts cover only `kernel_run`; alignment nops are excluded. Text is the complete object `.text` size in bytes. GCC is a visibility reference, not a gate. Runtime ratios above 1.5x are marked for issue follow-up; they never fail this generator.
 
 ## Provenance
 
+- `dashboard.host_class`: `target-deterministic`
+- `dashboard.date_utc`: `2026-08-11T01:29:19Z`
+- `dashboard.cgf_rev`: `4bdff9b3a5a11bdc4e23f90dc7bbfeaf6b1f4c28`
+- `dashboard.cgf_tree`: `clean`
+- `dashboard.protocol`: `sprint-53-static-dashboard-v1`
 - `cgf`: `cgfried 0.1.0 (x86_64-linux-gnu)`
 - `x86_64-linux-gnu.gcc`: `gcc: gcc (GCC) 16.1.1 20260728`
 - `x86_64-linux-gnu.objdump`: `objdump: GNU objdump (GNU Binutils) 2.47`
