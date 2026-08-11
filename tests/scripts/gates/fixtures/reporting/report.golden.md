@@ -30,14 +30,14 @@ Generated from committed baselines, latest fleet results, static kernel goldens,
 
 ## Provenance
 
-| kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline | x86_64-linux-gnu | hasu | bench-hasu.base.txt | hasu | n/a | 2026-08-01T13:00:00Z | base-hasu | clean | runs=10,warmup=1 | /nix/store/base-glibc-dev/include | /nix/store/base-glibc/lib |
-| baseline | x86_64-linux-gnu | kasumi | bench.base.txt | kasumi | kasumi | 2026-08-01T12:00:00Z | base-kasumi | clean | runs=10,warmup=1 | n/a | n/a |
-| dashboard | all-targets | target-deterministic | dashboard.md | n/a | target-deterministic | 2026-08-02T15:00:00Z | dashboard-fixture | clean | sprint-53-static-dashboard-v1 | n/a | n/a |
-| golden | x86_64-linux-gnu | target-deterministic | golden.txt | n/a | target-deterministic | 2026-08-02T14:00:00Z | golden-fixture | clean | sprint-53-kernel-static-v1 | n/a | n/a |
-| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 | /nix/store/current-glibc-dev/include | /nix/store/current-glibc/lib |
-| latest | x86_64-linux-gnu | kasumi | bench.current.txt | kasumi | kasumi | 2026-08-10T12:00:00Z | current-kasumi | clean | runs=10,warmup=1 | n/a | n/a |
+| kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT | load1 | governor | power profile | scaling driver | energy performance preference |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | x86_64-linux-gnu | hasu | bench-hasu.base.txt | hasu | n/a | 2026-08-01T13:00:00Z | base-hasu | clean | runs=10,warmup=1 | /nix/store/base-glibc-dev/include | /nix/store/base-glibc/lib | 0.10 | powersave | performance | intel_pstate | performance |
+| baseline | x86_64-linux-gnu | kasumi | bench.base.txt | kasumi | kasumi | 2026-08-01T12:00:00Z | base-kasumi | clean | runs=10,warmup=1 | n/a | n/a | 0.25 | powersave | performance | intel_pstate | performance |
+| dashboard | all-targets | target-deterministic | dashboard.md | n/a | target-deterministic | 2026-08-02T15:00:00Z | dashboard-fixture | clean | sprint-53-static-dashboard-v1 | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| golden | x86_64-linux-gnu | target-deterministic | golden.txt | n/a | target-deterministic | 2026-08-02T14:00:00Z | golden-fixture | clean | sprint-53-kernel-static-v1 | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 | /nix/store/current-glibc-dev/include | /nix/store/current-glibc/lib | 0.40 | powersave | performance | intel_pstate | performance |
+| latest | x86_64-linux-gnu | kasumi | bench.current.txt | kasumi | kasumi | 2026-08-10T12:00:00Z | current-kasumi | clean | runs=10,warmup=1 | n/a | n/a | 0.30 | powersave | performance | intel_pstate | performance |
 
 ## Sprint 53 compiler comparison dashboard
 

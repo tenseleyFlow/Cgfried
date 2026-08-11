@@ -5,6 +5,11 @@ date_utc=2026-08-10T12:00:00Z
 cgf_rev=current-kasumi
 cgf_tree=clean
 timeit_protocol=runs=10,warmup=1
+load1=0.30
+governor=powersave
+power_profile=performance
+scaling_driver=intel_pstate
+energy_performance_preference=performance
 self.wall_ms_median=130
 self.user_ms_median=104
 self.sys_ms_median=26

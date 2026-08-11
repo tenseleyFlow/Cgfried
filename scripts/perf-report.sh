@@ -168,7 +168,7 @@ awk -v file="$dashboard" -v source="$dashboard_source" \
         }
         if (bad) exit 3
         scope = (("host_class" in seen) ? value_of["host_class"] : value_of["host"])
-        printf "dashboard\tall-targets\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tn/a\tn/a\n", \
+        printf "dashboard\tall-targets\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tn/a\tn/a\tn/a\tn/a\tn/a\tn/a\tn/a\n", \
             scope, source, (("host" in seen) ? value_of["host"] : "n/a"), \
             (("host_class" in seen) ? value_of["host_class"] : "n/a"), \
             value_of["date"], value_of["cgf_rev"], value_of["cgf_tree"], \
@@ -235,7 +235,7 @@ EOF
             canonical = key
             if (canonical == "date_utc") canonical = "date"
             else if (canonical == "timeit_protocol") canonical = "protocol"
-            if (canonical !~ /^(target|host|host_class|date|cgf_rev|cgf_tree|protocol|sysroot_include|sysroot_crt)$/)
+            if (canonical !~ /^(target|host|host_class|date|cgf_rev|cgf_tree|protocol|sysroot_include|sysroot_crt|load1|governor|power_profile|scaling_driver|energy_performance_preference)$/)
                 return
             if (canonical in prov_seen) {
                 fail("duplicate provenance " canonical)
@@ -347,6 +347,29 @@ EOF
                     bad = 1
                 }
             }
+            split("load1 governor power_profile scaling_driver energy_performance_preference", control_provenance, " ")
+            for (control_index = 1; control_index <= 5; control_index++) {
+                control_key = control_provenance[control_index]
+                control_value = prov[control_key]
+                if (prov["host"] ~ /^(kasumi|hasu|nomad-1)$/ &&
+                    control_value == "") {
+                    print "perf-report: " file ": fleet input lacks " \
+                          control_key " provenance" > "/dev/stderr"
+                    bad = 1
+                }
+                if (control_value != "" && control_key == "load1" &&
+                    control_value != "unknown" &&
+                    control_value !~ /^[0-9]+([.][0-9]+)?$/) {
+                    print "perf-report: " file ": invalid load1 provenance" > "/dev/stderr"
+                    bad = 1
+                }
+                if (control_value != "" && control_key != "load1" &&
+                    control_value !~ /^[A-Za-z0-9][A-Za-z0-9_.:+,-]*$/) {
+                    print "perf-report: " file ": invalid " control_key \
+                          " provenance" > "/dev/stderr"
+                    bad = 1
+                }
+            }
             if (bad) exit 3
             for (key in values) {
                 if (values[key] ~ /^[0-9]+([.][0-9]+)?$/ &&
@@ -356,11 +379,14 @@ EOF
                     print kind "\t" target "\t" scope "\t" key "\t" values[key] "\t" source >> metrics
             }
             printf "%s\t%s\t%s\t%s", kind, target, scope, source >> provenance
-            for (i = 1; i <= 8; i++) {
+            for (i = 1; i <= 13; i++) {
                 k = (i == 1 ? "host" : i == 2 ? "host_class" : i == 3 ? "date" :
                      i == 4 ? "cgf_rev" : i == 5 ? "cgf_tree" :
                      i == 6 ? "protocol" : i == 7 ? "sysroot_include" :
-                     "sysroot_crt")
+                     i == 8 ? "sysroot_crt" : i == 9 ? "load1" :
+                     i == 10 ? "governor" : i == 11 ? "power_profile" :
+                     i == 12 ? "scaling_driver" :
+                     "energy_performance_preference")
                 printf "\t%s", (prov[k] != "" ? prov[k] : "n/a") >> provenance
             }
             print "" >> provenance
@@ -430,9 +456,9 @@ cut -f2 "$tmp/metrics.sorted" | sort -u >"$tmp/targets"
     echo
     echo '## Provenance'
     echo
-    echo '| kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT |'
-    echo '|---|---|---|---|---|---|---|---|---|---|---|---|'
-    sort -t '	' -k1,1 -k2,2 -k3,3 -k4,4 "$tmp/provenance" | awk -F '	' '{ printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12 }'
+    echo '| kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT | load1 | governor | power profile | scaling driver | energy performance preference |'
+    echo '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
+    sort -t '	' -k1,1 -k2,2 -k3,3 -k4,4 "$tmp/provenance" | awk -F '	' '{ printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17 }'
     echo
     echo '## Sprint 53 compiler comparison dashboard'
     echo

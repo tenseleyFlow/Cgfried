@@ -4,6 +4,11 @@
 # cgf_rev=base-hasu
 # cgf_tree=clean
 # timeit_protocol=runs=10,warmup=1
+# load1=0.10
+# governor=powersave
+# power_profile=performance
+# scaling_driver=intel_pstate
+# energy_performance_preference=performance
 # sysroot_include=/nix/store/base-glibc-dev/include
 # sysroot_crt=/nix/store/base-glibc/lib
 self.maxrss_kb_max=800

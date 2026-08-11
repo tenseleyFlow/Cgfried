@@ -5,6 +5,11 @@
 # cgf_rev=base-kasumi
 # cgf_tree=clean
 # timeit_protocol=runs=10,warmup=1
+# load1=0.25
+# governor=powersave
+# power_profile=performance
+# scaling_driver=intel_pstate
+# energy_performance_preference=performance
 self.wall_ms_median=100
 self.user_ms_median=80
 self.sys_ms_median=20
