@@ -2,20 +2,22 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-10): Sprints 0–53 and Sprint 55 are CLOSED.**
-Sprint 53's 21-kernel suite, deterministic static gates, comparison dashboard,
-post-RA cleanup, cross-block address planning, and over-aligned automatic
-objects are complete. Sprint 55 was completed out of numerical order; its
-tier table remains **29 implemented / 6 parsed-ignored / 8 refused**. The next
-work is **Sprint 54 (performance gates in CI)**. §0a is the authoritative
-resume point. The old D5 notes in §0b are retained only as implementation
-history.
+**WHERE THINGS STAND (2026-08-11): Sprints 0–53 and Sprint 55 are CLOSED.
+Sprint 54's implementation is complete, but its operational soak is OPEN;
+Phase 11 is therefore still open.** The performance-gate lattice, native CI
+measurements, fleet runtime protocol, reporting, policy checks, scheduler
+integration, and controlled-power model are implemented. Sprint 55 was
+completed out of numerical order; its GNU tier table remains **29 implemented /
+6 parsed-ignored / 8 refused**. The next work is the bounded Sprint 54 fleet
+soak in §0a, not Sprint 56. The old D5 notes in §0b are retained only as
+implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-Proceed with **Sprint 54 (performance gates in CI)**, which closes the
-performance phase.
+Continue **Sprint 54 (performance gates in CI)** until the controlled fleet
+history and final report are real. Do not advance the closure ratchet or begin
+Sprint 56 early.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -24,70 +26,83 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## 0a. RESUME HERE — Sprint 54, performance gates in CI
+## 0a. RESUME HERE — Sprint 54 controlled fleet soak
 
-Sprint 53 is closed in this checkout. Start by reading
-`.docs/sprints/11-performance/s54-perf-gates-ci.md`; do not resume an item in
-the historical D5 section below. Sprint 54 turns the Sprint 52/53 measurement
-surfaces into the explicit gate lattice: binary-size gates, trial-mode fleet
-runtime gates with a MAD noise guard, step summaries, release reports, escape
-hatch auditing, and inactive Sprint 57/58 placeholders.
+The implementation is reviewed and pushed. Resume the operational evidence
+sequence below; do not reopen the gate design and do not treat pre-control
+artifacts as timing evidence.
 
-### Sprint 53 closure
+### Implemented and verified
 
-- `tests/bench/kernels/` has 21 checksummed `kernel_run` programs. Static
-  measurement is symbol-bounded and deterministic; per-target goldens enforce
-  the max(2%, 2 instructions) regression rule. The gcc dashboard regenerated
-  twice from the full 252-object matrix with identical SHA-256
-  `1b8cdccedd3e787bd5e16f35fe0a55b5d303d99e288e6e4e5145b5de0ef95b54`.
-- x86 post-RA cleanup covers self copies, cmp-zero/test, LEA multipliers,
-  proven 32-bit canonical writes, push/pop pairs, layout jumps, and setcc
-  refusion. ARM covers self copies, add-zero, identical address reuse,
-  load/store pairs, MADD, and range-proved branch layout. Both passes preserve
-  flags provenance and run to a bounded honest fixpoint.
-- Both selectors now plan address-only PTRADDs before allocation. x86 folds
-  displacements and scaled indices across blocks; ARM also folds signed and
-  unsigned i32 extensions into SXTW/UXTW memory modes.
-- The new ARM six-level execution lane exposed a pre-existing narrow-bitfield
-  extraction bug; i8/i16 containers now widen before shifts. A second
-  closeout audit found the reachable Sprint-53 refusal for automatic alignment:
-  fixed and dynamic `_Alignas` objects stronger than 16 bytes now reserve
-  slack and align the object pointer on both backends without moving the
-  stable frame anchor or weakening ABI stack alignment. Extended alignment has
-  an explicit 16 MiB ceiling: the boundary compiles for fixed and VLA objects
-  on both targets, while boundary+1 and values above `UINT32_MAX` diagnose in
-  sema instead of narrowing or reaching a backend ICE. ARM SP/address splitting
-  and CFI bookkeeping scale across the boundary's multi-instruction sequences.
+- The ten-row lattice in `doc/perf-gates.md` maps 1:1 to `ci/gates.d/`:
+  controlled-host compile time (+30%), RSS (+20%), stripped program/compiler
+  size (+15%), kernel instruction count (`max(2%, 2)`), kernel `.text` (+5%),
+  MAD-guarded runtime (+10% and beyond four MADs), report-only internals, and
+  explicit inactive Sprint 57/58 lanes.
+- Shared x86 and native ARM CI measure RSS, sizes, and kernel static metrics;
+  timing comparisons remain forbidden on shared runners. Trial gates record
+  trips without hiding infrastructure status 3. The seeded boundary proofs,
+  13/14-day state transition, escape-hatch policy, summary goldens, scoped
+  multi-host release report, and 90-day trend classifier are fixture-pinned.
+- Linux fleet controls model effective state, not a misleading raw governor:
+  `performance` is accepted directly, while active `intel_pstate` is accepted
+  as `power_profile=performance`, `governor=powersave`, and
+  `energy_performance_preference=performance`. Current artifacts require all
+  five control/load fields; partial, empty, malformed, or wrong-host evidence
+  fails with status 3. Legacy artifacts with all three new fields absent are
+  provenance-only and cannot silently enter a timing gate.
+- `make test-perf-gates`, the 46-case compile gate, the 29-case runtime gate,
+  kernel comparison tests, ShellCheck, the POSIX-shell check, formatting, and
+  `git diff --check` all passed after the control-model fixes. Independent
+  review approved the implementation and directly reproduced the two repaired
+  no-baseline/empty-field failures.
+- `scripts/bench-summary.sh`, `perf-report.sh`, and `bench-trend.sh` emit
+  deterministic Markdown with signed deltas, named thresholds, host-scoped
+  provenance, prior-report markers, and honest report-only classifications.
+  `[bench skip]` and `perf-override: #NNN` remain narrow and audited.
 
-### Accepted Sprint 53 static profile
+### Controlled deployment evidence
 
-| target | pre-sprint | post-RA control | final | total change | address slice |
-|---|---:|---:|---:|---:|---:|
-| x86_64-linux-gnu | 1,628 | 1,592 | 1,522 | -106 (-6.51%) | -70 (-4.40%), 12 kernels |
-| arm64-linux | 1,439 | 1,388 | 1,351 | -88 (-6.12%) | -37 (-2.67%), 11 kernels |
+- All three schedulers are installed with pushes enabled. Kasumi and Hasu use
+  user-systemd pre/post hooks that enter the performance profile, verify the
+  effective governor/driver/EPP tuple, and restore the saved profile even when
+  the nightly command fails. Nomad uses LaunchAgent label
+  `com.tenseleyflow.cgfried-fleet-perf` and records the Linux-only fields as
+  `unavailable`.
+- Kasumi's first controlled run is
+  `2026-08-11T065745Z-kasumi` / `-kernels` in artifact commit `106efed5`:
+  compile load 0.01, runtime load 0.35, performance profile,
+  `intel_pstate`/`powersave`, performance EPP, clean tree, no trip. The
+  artifacts compared provenance-only against the incompatible legacy
+  baselines, then were accepted byte-for-byte in the separate reviewed
+  baseline commit `b87a2789`.
+- Older Kasumi, Hasu, and Nomad artifacts collected before the new fields
+  landed remain useful deployment provenance only. They are not controlled
+  timing/runtime evidence and must not be relabelled or used to manufacture a
+  three-night history.
 
-Required address anchors all moved: x86 `matmul-64` 173→155,
-`struct-copy-heavy` 139→127, `crc32-table` 105→99; ARM `matmul-64` 135→126,
-`struct-copy-heavy` 117→115, `crc32-table` 82→77. The bitfield correctness
-repair intentionally costs +2 x86 and +6 ARM instructions relative to the
-same-backend control. Full per-kernel provenance lives in
-`.benchmarks/profiles/s53-codegen-quality.txt`.
+### Remaining Sprint 54 work — execute in this order
 
-### Fresh Sprint 53 acceptance evidence
-
-| gate | result |
-|---|---|
-| kernel gates | static fixtures 9/9; x86 and ARM goldens 21/21; x86 and QEMU ARM execution/OPT_EQ 21/21 at all six levels |
-| ARM corpus | 84/84 normal and 84/84 spill-all through compiler→assembler→linker→QEMU |
-| focused unit/backend suites | 677 tests / 4,283,938 assertions under strict GCC and Clang; exact-16-MiB fixed/VLA cases compile on x86 and ARM, while boundary+1 and above-`UINT32_MAX` requests produce ordinary diagnostics |
-| full GCC/Clang suites | both complete suites exit 0: 601/601 programs, 100/100 x86 corpus normal and spill-all, all integration/differential/fuzz-smoke/policy lanes green |
-| sanitizer suite | fresh full ASan+UBSan `make test` exits 0 with the same unit/program/corpus counts and no sanitizer diagnostic |
-| code review | optimizer review approved; final alignment-focused review approved after its sole ban-gate exemption finding was fixed |
+1. When each host's measured one-minute load is at most 0.5, collect one new
+   controlled compile/runtime pair on Hasu and Nomad. Commit the dated
+   artifacts first, then accept each host's baselines in a separate reviewed
+   exact-copy commit. Do not stop user workloads merely to lower load.
+2. Generate `.benchmarks/report-0.0.1.md` from the controlled baselines and
+   latest artifacts, generate it twice byte-identically, commit it, and record
+   its SHA-256 here. The report intentionally rejects the remaining legacy
+   fleet inputs until step 1 is complete.
+3. Let the installed schedules collect real runs on three distinct UTC dates
+   per host. The runtime gate deduplicates by calendar day; repeated same-day
+   runs cannot satisfy this requirement. Record trial-pass/trip results and
+   investigate any infrastructure status 3.
+4. Verify the final pushed commit with a fresh GitHub Actions run. Only after
+   steps 1–4 are complete may `.docs/sprints/11-performance/closeout.md` say
+   READY, `ci/closed_sprints.txt` advance from 53 to 55, and Sprint 56 begin.
 
 ### Checkout hygiene
 
-`afs-as` and `afs-ld` remain dirty from pre-existing submodule work, and the
-many untracked `build-*` directories are local artifacts. Do not stage or
+`afs-as` and `afs-ld` may remain dirty from pre-existing submodule work, and
+the many untracked `build-*` directories are local artifacts. Do not stage or
 delete them as part of Sprint 54. `AGENTS.md`, `CLAUDE.md`, and
 `.docs/sprints/` remain ignored local project memory; `.docs/HANDOFF.md` is
 tracked.

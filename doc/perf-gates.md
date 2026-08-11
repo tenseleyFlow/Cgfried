@@ -52,6 +52,24 @@ host image, linker, `afs-as`, or `afs-ld` change that moves bytes must
 rebaseline in the same commit.  Unstripped bytes and section breakdowns are
 reported so reviewers can distinguish compiler output from tool/debug churn.
 
+Every fleet compile and runtime artifact records `load1`, `governor`,
+`power_profile`, `scaling_driver`, and
+`energy_performance_preference`. Linux evidence is controlled only when load
+is at most 0.5, the power profile is `performance`, and either the governor is
+`performance` or active Intel P-state reports the effective tuple
+`governor=powersave`, `scaling_driver=intel_pstate`, and
+`energy_performance_preference=performance`. The raw `powersave` governor in
+that Intel P-state tuple is truthful and must not be relabelled.
+
+Darwin records the three Linux-only controls as `unavailable`; its governor
+may be `performance` or `unavailable`, and a numeric load above 0.5 remains
+provenance-only. Current artifacts must contain one valid value for every
+field. An older artifact may omit all three newly introduced control fields,
+in which case it is legacy provenance only; partial, empty, duplicate, or
+malformed control provenance is status 3. Timing/runtime comparisons require
+compatible complete control tuples. Loads need not be byte-identical, but
+each must remain within the controlled bound.
+
 ## Trial state
 
 All new gate classes begin in `state=trial`.  Trial runs execute the real
@@ -125,3 +143,21 @@ Performance scripts use status 0 for success, 1 for a real gate/policy
 regression, and 3 for malformed, missing, duplicate, unreadable, or otherwise
 untrustworthy input.  Trial mode may convert status 1 to a recorded success;
 it never converts status 3.
+
+## Initial deployment record
+
+Deployment began on **2026-08-11**. Native x86 and ARM baseline artifacts were
+accepted in `4be79b6e`. The early Kasumi, Hasu, and Nomad runs predate complete
+power-control provenance, so they demonstrate immutable artifact routing and
+trial reporting but are not controlled timing evidence.
+
+The complete control schema and effective Intel P-state policy landed in
+`15230a7b`; report provenance followed in `a432614c`. All three nightly
+schedules are installed. Kasumi's first controlled pair,
+`2026-08-11T065745Z-kasumi` / `-kernels`, landed in `106efed5` with load
+0.01/0.35 and the expected performance-profile Intel P-state tuple. Its
+separate reviewed exact-copy baseline commit is `b87a2789`. Hasu and Nomad
+remain deployed but await equally controlled first pairs and separate
+baseline commits. Sprint 54 stays open until each host has three distinct UTC
+nightly dates, the release report is reproducibly generated, and final CI is
+green.
