@@ -1,0 +1,4 @@
+# target=x86_64-linux-gnu
+# host_class=target-deterministic
+matmul-64.icount=102
+matmul-64.text=105

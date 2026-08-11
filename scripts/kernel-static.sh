@@ -208,6 +208,42 @@ repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)
 kernel_dir=${CGF_KERNEL_DIR:-$repo/tests/bench/kernels}
 work=${CGF_KERNEL_WORK:-$repo/build/kernel-static/$target}
 update=${CGF_UPDATE_GOLDEN:-0}
+provenance_scope=${CGF_KERNEL_PROVENANCE_SCOPE:-target-deterministic}
+provenance_protocol=${CGF_KERNEL_PROTOCOL:-sprint-53-kernel-static-v1}
+
+if [ -n "${CGF_KERNEL_REV:-}" ]; then
+    provenance_rev=$CGF_KERNEL_REV
+else
+    provenance_rev=$(git -C "$repo" rev-parse HEAD 2>/dev/null) ||
+        die "cannot derive kernel metric revision provenance"
+fi
+if [ -n "${CGF_KERNEL_DATE_UTC:-}" ]; then
+    provenance_date=$CGF_KERNEL_DATE_UTC
+else
+    provenance_date=$(TZ=UTC0 git -C "$repo" show -s --format=%cd \
+        --date=format-local:%Y-%m-%dT%H:%M:%SZ "$provenance_rev" 2>/dev/null) ||
+        die "cannot derive kernel metric date provenance"
+fi
+if [ -n "${CGF_KERNEL_TREE_STATE:-}" ]; then
+    provenance_tree=$CGF_KERNEL_TREE_STATE
+else
+    provenance_tree_lines=$(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null) ||
+        die "cannot derive kernel metric tree-state provenance"
+    if [ -n "$provenance_tree_lines" ]; then
+        provenance_tree=dirty
+    else
+        provenance_tree=clean
+    fi
+fi
+
+for provenance_value in "$provenance_scope" "$provenance_date" \
+    "$provenance_rev" "$provenance_tree" "$provenance_protocol"; do
+    case $provenance_value in
+    '' | *[!A-Za-z0-9_./:@,+-]*)
+        die "kernel metric provenance contains an unsafe or empty value"
+        ;;
+    esac
+done
 
 case "$update" in
 0|1) ;;
@@ -251,6 +287,13 @@ printf '# cgfried kernel static metrics v1\n' >"$metrics_tmp" ||
     die "cannot write temporary metrics file"
 printf '# target=%s\n' "$target" >>"$metrics_tmp" ||
     die "cannot write temporary metrics file"
+{
+    printf '# host_class=%s\n' "$provenance_scope"
+    printf '# date_utc=%s\n' "$provenance_date"
+    printf '# cgf_rev=%s\n' "$provenance_rev"
+    printf '# cgf_tree=%s\n' "$provenance_tree"
+    printf '# timeit_protocol=%s\n' "$provenance_protocol"
+} >>"$metrics_tmp" || die "cannot write temporary metric provenance"
 
 kernel_count=0
 for source in "$kernel_dir"/*.c; do

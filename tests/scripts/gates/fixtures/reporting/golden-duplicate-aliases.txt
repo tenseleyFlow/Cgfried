@@ -1,8 +1,10 @@
 # target=x86_64-linux-gnu
 # host_class=target-deterministic
 # date_utc=2026-08-02T14:00:00Z
+# date=2026-08-03T14:00:00Z
 # cgf_rev=golden-fixture
 # cgf_tree=clean
 # timeit_protocol=sprint-53-kernel-static-v1
+# protocol=conflicting-static-protocol
 matmul-64.icount=102
 matmul-64.text=105

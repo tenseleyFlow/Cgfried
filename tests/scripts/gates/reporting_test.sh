@@ -92,7 +92,7 @@ sed '/^timeit_protocol=/d' "$fixtures/bench-hasu.current.txt" \
 expect_status 3 "$report" --version 0.0.1 --output "$tmp/missing-provenance-report.md" \
     --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/missing-protocol.txt" \
     --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
-grep -F 'baseline/latest input lacks protocol provenance' "$tmp/err" >/dev/null || \
+grep -F 'input lacks protocol provenance' "$tmp/err" >/dev/null || \
     fail "release report accepted incomplete provenance"
 sed '/^sysroot_crt=/d' "$fixtures/bench-hasu.current.txt" \
     >"$tmp/incomplete-sysroot.txt"
@@ -109,6 +109,28 @@ expect_status 3 "$report" --version 0.0.1 --output "$tmp/missing-target-report.m
     --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
 grep -F 'missing unique target provenance' "$tmp/err" >/dev/null || \
     fail "baseline filename masked missing target provenance"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/missing-golden-provenance-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden-missing-provenance.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'input lacks date provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted incomplete golden provenance"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/duplicate-same-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden-duplicate-same.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'duplicate provenance target' "$tmp/err" >/dev/null ||
+    fail "release report accepted repeated identical target provenance"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/duplicate-conflict-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden-duplicate-conflict.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'duplicate provenance target' "$tmp/err" >/dev/null ||
+    fail "release report accepted conflicting target provenance"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/duplicate-alias-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$fixtures/bench-hasu.current.txt" \
+    --golden "$fixtures/golden-duplicate-aliases.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'duplicate provenance date' "$tmp/err" >/dev/null ||
+    fail "release report accepted conflicting date aliases"
+grep -F 'duplicate provenance protocol' "$tmp/err" >/dev/null ||
+    fail "release report accepted conflicting protocol aliases"
 expect_status 3 "$report" --version 0.0.1 --output "$tmp/bad-report.md" \
     --baseline "$fixtures/size.base.txt" --latest "$fixtures/report/bench.current.txt" \
     --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"

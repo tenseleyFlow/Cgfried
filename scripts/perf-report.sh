@@ -74,6 +74,19 @@ EOF
         function'" "'fail(message) {
             print "perf-report: " file ":" FNR ": " message > "/dev/stderr"; bad = 1
         }
+        function'" "'record_provenance(key, value,    canonical) {
+            canonical = key
+            if (canonical == "date_utc") canonical = "date"
+            else if (canonical == "timeit_protocol") canonical = "protocol"
+            if (canonical !~ /^(target|host|host_class|date|cgf_rev|cgf_tree|protocol|sysroot_include|sysroot_crt)$/)
+                return
+            if (canonical in prov_seen) {
+                fail("duplicate provenance " canonical)
+                return
+            }
+            prov_seen[canonical] = 1
+            prov[canonical] = value
+        }
         {
             raw = $0
             line = raw
@@ -85,13 +98,7 @@ EOF
                 if (!token_equals) continue
                 provenance_key = substr(token[part], 1, token_equals - 1)
                 provenance_value = substr(token[part], token_equals + 1)
-                if (provenance_key == "target") target = provenance_value
-                if (provenance_key ~ /^(host|host_class|date|cgf_rev|cgf_tree|protocol|sysroot_include|sysroot_crt)$/)
-                    prov[provenance_key] = provenance_value
-                else if (provenance_key == "date_utc")
-                    prov["date"] = provenance_value
-                else if (provenance_key == "timeit_protocol")
-                    prov["protocol"] = provenance_value
+                record_provenance(provenance_key, provenance_value)
             }
             equals = index(line, "=")
             if (!equals) {
@@ -113,6 +120,7 @@ EOF
             values[key] = value
         }
         END {
+            target = prov["target"]
             if (target == "") {
                 print "perf-report: " file ": missing unique target provenance" > "/dev/stderr"
                 bad = 1
@@ -122,26 +130,23 @@ EOF
                 bad = 1
             }
             scope = (prov["host_class"] != "" ? prov["host_class"] : prov["host"])
-            if ((kind == "baseline" || kind == "latest") && scope == "") {
-                print "perf-report: " file ": baseline/latest input lacks host_class or host provenance" > "/dev/stderr"
+            if (scope == "") {
+                print "perf-report: " file ": input lacks host_class or host provenance" > "/dev/stderr"
                 bad = 1
             }
-            if (kind == "baseline" || kind == "latest") {
-                split("date cgf_rev cgf_tree protocol", required_provenance, " ")
-                for (required_index = 1; required_index <= 4; required_index++) {
-                    required_key = required_provenance[required_index]
-                    if (prov[required_key] == "") {
-                        print "perf-report: " file ": baseline/latest input lacks " \
-                              required_key " provenance" > "/dev/stderr"
-                        bad = 1
-                    }
+            split("date cgf_rev cgf_tree protocol", required_provenance, " ")
+            for (required_index = 1; required_index <= 4; required_index++) {
+                required_key = required_provenance[required_index]
+                if (prov[required_key] == "") {
+                    print "perf-report: " file ": input lacks " \
+                          required_key " provenance" > "/dev/stderr"
+                    bad = 1
                 }
             }
             if ((prov["sysroot_include"] == "") != (prov["sysroot_crt"] == "")) {
                 print "perf-report: " file ": incomplete sysroot provenance" > "/dev/stderr"
                 bad = 1
             }
-            if (scope == "") scope = "static"
             if (scope !~ /^[A-Za-z0-9_.:-]+$/) {
                 print "perf-report: " file ": invalid provenance scope" > "/dev/stderr"
                 bad = 1

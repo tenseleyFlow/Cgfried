@@ -1,5 +1,10 @@
 # cgfried kernel static metrics v1
 # target=x86_64-linux-gnu
+# host_class=target-deterministic
+# date_utc=2026-08-11T01:29:19Z
+# cgf_rev=4bdff9b3a5a11bdc4e23f90dc7bbfeaf6b1f4c28
+# cgf_tree=clean
+# timeit_protocol=sprint-53-kernel-static-v1
 alloca-arena.icount=67
 alloca-arena.padding=0
 alloca-arena.text=631
