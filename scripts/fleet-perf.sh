@@ -71,6 +71,83 @@ CGF_KERNEL_COMPARE_WORK=$work \
 [ -s "$result" ] || die "kernel comparison produced no runtime artifact: $result"
 echo "$prog: wrote $result (target=$target)"
 
+current_schema_status=0
+awk -v fleet_host="$host" '
+    /^governor=/ { value["governor"] = substr($0, 10); count["governor"]++ }
+    /^load1=/ { value["load1"] = substr($0, 7); count["load1"]++ }
+    /^power_profile=/ {
+        value["power_profile"] = substr($0, 15)
+        count["power_profile"]++
+    }
+    /^scaling_driver=/ {
+        value["scaling_driver"] = substr($0, 16)
+        count["scaling_driver"]++
+    }
+    /^energy_performance_preference=/ {
+        value["energy_performance_preference"] = substr($0, 31)
+        count["energy_performance_preference"]++
+    }
+    END {
+        fields[1] = "governor"
+        fields[2] = "load1"
+        fields[3] = "power_profile"
+        fields[4] = "scaling_driver"
+        fields[5] = "energy_performance_preference"
+        for (field_index = 1; field_index <= 5; field_index++) {
+            field = fields[field_index]
+            if (count[field] != 1) {
+                print "fleet-perf: " FILENAME ": expected exactly one " field " provenance field" > "/dev/stderr"
+                bad = 1
+            } else if (value[field] !~ /^[A-Za-z0-9_.:+-]+$/) {
+                print "fleet-perf: " FILENAME ": invalid " field " provenance" > "/dev/stderr"
+                bad = 1
+            }
+        }
+        if (bad)
+            exit 3
+        if (fleet_host == "nomad-1") {
+            if (value["load1"] != "unknown" &&
+                value["load1"] !~ /^[0-9]+([.][0-9]+)?$/) {
+                print "fleet-perf: " FILENAME ": invalid nomad-1 load1 provenance" > "/dev/stderr"
+                exit 3
+            }
+            if ((value["governor"] != "performance" &&
+                 value["governor"] != "unavailable") ||
+                value["power_profile"] != "unavailable" ||
+                value["scaling_driver"] != "unavailable" ||
+                value["energy_performance_preference"] != "unavailable") {
+                print "fleet-perf: " FILENAME ": invalid nomad-1 runtime controls" > "/dev/stderr"
+                exit 3
+            }
+            if (value["load1"] != "unknown" && value["load1"] + 0 > 0.5)
+                exit 1
+        } else {
+            if (value["load1"] !~ /^[0-9]+([.][0-9]+)?$/) {
+                print "fleet-perf: " FILENAME ": Linux load1 provenance must be numeric" > "/dev/stderr"
+                exit 3
+            }
+            if (value["load1"] + 0 > 0.5 ||
+                value["power_profile"] != "performance" ||
+                !(value["governor"] == "performance" ||
+                  (value["scaling_driver"] == "intel_pstate" &&
+                   value["governor"] == "powersave" &&
+                   value["energy_performance_preference"] == "performance")))
+                exit 1
+        }
+    }
+' "$result" || current_schema_status=$?
+case $current_schema_status in
+0) ;;
+1)
+    echo "$prog: kernel-runtime provenance-only: host=$host target=$target; controlled-load/performance-power evidence and rebaseline required; gate not run"
+    echo 'fleet.runtime_gate=provenance-only' >>"$result"
+    echo 'fleet.runtime_gate_trip=no' >>"$result"
+    exit 0
+    ;;
+3) die "current runtime artifact has invalid control provenance" ;;
+*) die "current runtime control parser failed with status $current_schema_status" ;;
+esac
+
 baseline=${CGF_FLEET_RUNTIME_BASELINE:-$root/.benchmarks/baseline-kernel-runtime-$target.$host.txt}
 all_history=$work/history-all.txt
 dated_history=$work/history-dated.txt
@@ -156,7 +233,7 @@ while IFS= read -r run; do
 done <"$last_three"
 
 control_status=0
-awk -v fleet_host="$host" '
+awk -v fleet_host="$host" -v current_file="$result" '
     /^governor=/ {
         governor[FILENAME] = substr($0, 10)
         governor_count[FILENAME]++
@@ -164,6 +241,18 @@ awk -v fleet_host="$host" '
     /^load1=/ {
         load[FILENAME] = substr($0, 7)
         load_count[FILENAME]++
+    }
+    /^power_profile=/ {
+        power_profile[FILENAME] = substr($0, 15)
+        power_profile_count[FILENAME]++
+    }
+    /^scaling_driver=/ {
+        scaling_driver[FILENAME] = substr($0, 16)
+        scaling_driver_count[FILENAME]++
+    }
+    /^energy_performance_preference=/ {
+        epp[FILENAME] = substr($0, 31)
+        epp_count[FILENAME]++
     }
     END {
         baseline_file = ARGV[1]
@@ -189,6 +278,39 @@ awk -v fleet_host="$host" '
                 print "fleet-perf: " file ": Linux load1 provenance must be numeric" > "/dev/stderr"
                 schema_bad = 1
             }
+            fields[1] = "power_profile"
+            fields[2] = "scaling_driver"
+            fields[3] = "energy_performance_preference"
+            field_count[1] = power_profile_count[file]
+            field_count[2] = scaling_driver_count[file]
+            field_count[3] = epp_count[file]
+            field_value[1] = power_profile[file]
+            field_value[2] = scaling_driver[file]
+            field_value[3] = epp[file]
+            new_field_count = 0
+            for (field_index = 1; field_index <= 3; field_index++)
+                if (field_count[field_index] > 0)
+                    new_field_count++
+            if (new_field_count == 0) {
+                if (file == current_file) {
+                    print "fleet-perf: " file ": current artifact is missing new control provenance" > "/dev/stderr"
+                    schema_bad = 1
+                } else {
+                    legacy[file] = 1
+                    provenance_only = 1
+                }
+            } else {
+                complete[file] = 1
+                for (field_index = 1; field_index <= 3; field_index++) {
+                    if (field_count[field_index] != 1) {
+                        print "fleet-perf: " file ": expected exactly one " fields[field_index] " provenance field" > "/dev/stderr"
+                        schema_bad = 1
+                    } else if (field_value[field_index] !~ /^[A-Za-z0-9_.:+-]+$/) {
+                        print "fleet-perf: " file ": invalid " fields[field_index] " provenance" > "/dev/stderr"
+                        schema_bad = 1
+                    }
+                }
+            }
         }
         if (schema_bad)
             exit 3
@@ -199,14 +321,28 @@ awk -v fleet_host="$host" '
                     governor[file] != "unavailable") {
                     print "fleet-perf: " file ": nomad-1 governor must be performance or unavailable" > "/dev/stderr"
                     schema_bad = 1
-                } else if (governor[file] != governor[baseline_file]) {
-                    print "fleet-perf: " file ": governor does not match baseline" > "/dev/stderr"
-                    schema_bad = 1
                 }
-            } else if (governor[file] != "performance") {
+                if (!legacy[file] &&
+                    (power_profile[file] != "unavailable" ||
+                     scaling_driver[file] != "unavailable" ||
+                     epp[file] != "unavailable"))
+                    provenance_only = 1
+            } else if (!legacy[file] &&
+                       (power_profile[file] != "performance" ||
+                        !(governor[file] == "performance" ||
+                          (scaling_driver[file] == "intel_pstate" &&
+                           governor[file] == "powersave" &&
+                           epp[file] == "performance")))) {
                 provenance_only = 1
             }
             if (load[file] != "unknown" && load[file] + 0 > 0.5)
+                provenance_only = 1
+            if (file != baseline_file && complete[file] &&
+                complete[baseline_file] &&
+                (governor[file] != governor[baseline_file] ||
+                 power_profile[file] != power_profile[baseline_file] ||
+                 scaling_driver[file] != scaling_driver[baseline_file] ||
+                 epp[file] != epp[baseline_file]))
                 provenance_only = 1
         }
         if (schema_bad)
@@ -218,7 +354,7 @@ awk -v fleet_host="$host" '
 case $control_status in
 0) ;;
 1)
-    echo "$prog: kernel-runtime provenance-only: host=$host target=$target; controlled-load/performance-governor evidence and rebaseline required; gate not run"
+    echo "$prog: kernel-runtime provenance-only: host=$host target=$target; controlled-load/performance-power evidence and rebaseline required; gate not run"
     echo 'fleet.runtime_gate=provenance-only' >>"$result"
     echo 'fleet.runtime_gate_trip=no' >>"$result"
     exit 0

@@ -3,7 +3,8 @@
 #
 # Noise-floor contract:
 #   * refuse a 1-minute load average above 0.5 unless CGF_BENCH_FORCE=1;
-#   * record the CPU governor and warn when Linux is not in performance mode;
+#   * record the Linux profile/driver/governor/EPP state and warn when it is
+#     not an effective performance configuration;
 #   * run lanes in the fixed sqlite3, self, many-tu, musl order;
 #   * on nomad-1, cap each batch at 5 minutes and cool down for 2 minutes
 #     between corpora because the arm64 laptop thermally throttles;
@@ -72,17 +73,42 @@ if [ "$loadavg" != unknown ] && awk -v n="$loadavg" 'BEGIN { exit !(n > 0.5) }';
 fi
 
 governor=unavailable
+scaling_driver=unavailable
+energy_performance_preference=unavailable
 if [ -d /sys/devices/system/cpu ]; then
     governors=$(for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; do
         [ -r "$f" ] && cat "$f"
     done | sort -u | paste -sd, -)
     [ -n "$governors" ] && governor=$governors
+    scaling_drivers=$(for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_driver; do
+        [ -r "$f" ] && cat "$f"
+    done | sort -u | paste -sd, -)
+    [ -n "$scaling_drivers" ] && scaling_driver=$scaling_drivers
+    energy_preferences=$(for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/energy_performance_preference; do
+        [ -r "$f" ] && cat "$f"
+    done | sort -u | paste -sd, -)
+    [ -n "$energy_preferences" ] &&
+        energy_performance_preference=$energy_preferences
 fi
-if [ "$governor" != unavailable ] && [ "$governor" != performance ]; then
-    echo "bench: WARNING: CPU governor is '$governor', not 'performance'; result is provenance-only" >&2
+power_profile=unavailable
+if command -v powerprofilesctl >/dev/null 2>&1; then
+    detected_power_profile=$(powerprofilesctl get 2>/dev/null |
+        sed -n '1p' || true)
+    [ -z "$detected_power_profile" ] || power_profile=$detected_power_profile
 fi
 
 host=${CGF_FLEET_HOST:-$(hostname -s 2>/dev/null || uname -n)}
+if [ "$host" = nomad-1 ]; then
+    power_profile=unavailable
+    scaling_driver=unavailable
+    energy_performance_preference=unavailable
+elif [ "$power_profile" != performance ] ||
+     { [ "$governor" != performance ] &&
+       { [ "$scaling_driver" != intel_pstate ] ||
+         [ "$governor" != powersave ] ||
+         [ "$energy_performance_preference" != performance ]; }; }; then
+    echo "bench: WARNING: CPU controls are not in a performance configuration; result is provenance-only" >&2
+fi
 host_class=${CGF_BENCH_HOST_CLASS:-}
 date_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 if [ -n "${CGF_BENCH_REV:-}" ]; then
@@ -107,6 +133,9 @@ mkdir -p "$WORK/raw" "$WORK/stats" "$(dirname "$RESULTS")"
     [ -z "$host_class" ] || echo "host_class=$host_class"
     echo "date=$date_utc"
     echo "governor=$governor"
+    echo "power_profile=$power_profile"
+    echo "scaling_driver=$scaling_driver"
+    echo "energy_performance_preference=$energy_performance_preference"
     echo "load1=$loadavg"
     echo "cgf_rev=$rev"
     echo "cgf_tree=$tree_state"

@@ -25,6 +25,16 @@ set)
         [ -e "$governor_file" ] || continue
         printf '%s\n' "$governor" >"$governor_file"
     done
+    case $profile in
+    performance) epp=performance ;;
+    *) epp=balance_performance ;;
+    esac
+    [ -z "${FIXTURE_POWER_PROFILE_EPP_OVERRIDE:-}" ] ||
+        epp=$FIXTURE_POWER_PROFILE_EPP_OVERRIDE
+    for epp_file in "$FIXTURE_GOVERNOR_ROOT"/cpu[0-9]*/cpufreq/energy_performance_preference; do
+        [ -e "$epp_file" ] || continue
+        printf '%s\n' "$epp" >"$epp_file"
+    done
     ;;
 *) exit 2 ;;
 esac

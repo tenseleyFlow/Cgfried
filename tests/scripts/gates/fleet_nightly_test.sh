@@ -217,6 +217,10 @@ mkdir -p "$tmp/governors/cpu0/cpufreq" "$tmp/governors/cpu1/cpufreq"
 printf '%s\n' balanced >"$tmp/power-profile"
 printf '%s\n' powersave >"$tmp/governors/cpu0/cpufreq/scaling_governor"
 printf '%s\n' powersave >"$tmp/governors/cpu1/cpufreq/scaling_governor"
+printf '%s\n' acpi-cpufreq >"$tmp/governors/cpu0/cpufreq/scaling_driver"
+printf '%s\n' acpi-cpufreq >"$tmp/governors/cpu1/cpufreq/scaling_driver"
+printf '%s\n' balance_performance >"$tmp/governors/cpu0/cpufreq/energy_performance_preference"
+printf '%s\n' balance_performance >"$tmp/governors/cpu1/cpufreq/energy_performance_preference"
 FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
 FIXTURE_GOVERNOR_ROOT=$tmp/governors \
 CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
@@ -240,6 +244,61 @@ CGF_FLEET_POWER_STATE_DIR=$tmp/power-state \
     fail "performance-mode helper did not restore the prior profile"
 [ ! -e "$tmp/power-state/power-profile.kasumi" ] ||
     fail "performance-mode helper retained stale restoration state"
+
+# intel_pstate active mode intentionally keeps the raw governor at powersave;
+# its performance control is the EPP selected by power-profiles-daemon.
+mkdir -p "$tmp/intel-governors/cpu0/cpufreq" "$tmp/intel-governors/cpu1/cpufreq"
+for intel_cpu in cpu0 cpu1; do
+    printf '%s\n' powersave >"$tmp/intel-governors/$intel_cpu/cpufreq/scaling_governor"
+    printf '%s\n' intel_pstate >"$tmp/intel-governors/$intel_cpu/cpufreq/scaling_driver"
+    printf '%s\n' balance_performance >"$tmp/intel-governors/$intel_cpu/cpufreq/energy_performance_preference"
+done
+printf '%s\n' balanced >"$tmp/intel-power-profile"
+FIXTURE_POWER_PROFILE_STATE=$tmp/intel-power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/intel-governors \
+FIXTURE_POWER_PROFILE_GOVERNOR_OVERRIDE=powersave \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/intel-governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/intel-power-state \
+    "$performance_mode" enter hasu >"$tmp/intel-performance-enter.out"
+[ "$(cat "$tmp/intel-power-profile")" = performance ] &&
+[ "$(cat "$tmp/intel-governors/cpu0/cpufreq/scaling_governor")" = powersave ] &&
+[ "$(cat "$tmp/intel-governors/cpu0/cpufreq/energy_performance_preference")" = performance ] ||
+    fail "intel_pstate EPP performance mode was not accepted faithfully"
+FIXTURE_POWER_PROFILE_STATE=$tmp/intel-power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/intel-governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/intel-governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/intel-power-state \
+    "$performance_mode" leave hasu >/dev/null
+[ "$(cat "$tmp/intel-power-profile")" = balanced ] ||
+    fail "intel_pstate prior profile was not restored"
+
+# intel_pstate with a powersave governor is controlled only when EPP really
+# changed to performance; the driver name alone is not sufficient evidence.
+set +e
+FIXTURE_POWER_PROFILE_STATE=$tmp/intel-power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/intel-governors \
+FIXTURE_POWER_PROFILE_GOVERNOR_OVERRIDE=powersave \
+FIXTURE_POWER_PROFILE_EPP_OVERRIDE=balance_performance \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/intel-governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/intel-epp-mismatch-state \
+    "$performance_mode" enter hasu >"$tmp/intel-epp-mismatch.out" \
+    2>"$tmp/intel-epp-mismatch.err"
+intel_epp_status=$?
+set -e
+[ "$intel_epp_status" -eq 3 ] ||
+    fail "intel_pstate nonperformance EPP did not fail closed"
+grep -F "energy_performance_preference='balance_performance'" \
+    "$tmp/intel-epp-mismatch.err" >/dev/null ||
+    fail "intel_pstate EPP mismatch diagnostic is missing"
+FIXTURE_POWER_PROFILE_STATE=$tmp/intel-power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/intel-governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/intel-governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/intel-epp-mismatch-state \
+    "$performance_mode" leave hasu >/dev/null
 
 # Leaving without saved state is a safe no-op, including after an ExecStartPre
 # failure that happened before the state file could be created.
@@ -287,9 +346,9 @@ power_mismatch_status=$?
 set -e
 [ "$power_mismatch_status" -eq 3 ] ||
     fail "governor mismatch after performance selection did not fail closed"
-grep -F "CPU scaling governor is 'powersave', expected 'performance'" \
+grep -F "effective CPU performance state is uncontrolled" \
     "$tmp/performance-mismatch.err" >/dev/null ||
-    fail "governor mismatch diagnostic is missing"
+    fail "effective performance-state mismatch diagnostic is missing"
 [ "$(cat "$tmp/mismatch-power-state/power-profile.kasumi")" = balanced ] ||
     fail "governor mismatch lost its restoration state"
 FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \

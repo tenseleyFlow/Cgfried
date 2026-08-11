@@ -65,7 +65,6 @@ grep -Fx 'many-tu.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "many-tu lane was not measured"
 grep -Fx 'sqlite3.corpus=sqlite-amalgamation-3500400:arm64-macos-sdk-syntax-v1' \
     "$WORK/macos/results.txt" >/dev/null || fail "compatibility provenance missing"
-
 FIXTURE_SYSROOT_INCLUDE=/nix/store/fixture-glibc-dev/include \
 FIXTURE_SYSROOT_CRT=/nix/store/fixture-glibc/lib \
     run_target x86_64-linux-gnu linux
@@ -78,5 +77,9 @@ grep -Fx 'sysroot_include=/nix/store/fixture-glibc-dev/include' \
     "$WORK/linux/results.txt" >/dev/null || fail "compile include provenance missing"
 grep -Fx 'sysroot_crt=/nix/store/fixture-glibc/lib' \
     "$WORK/linux/results.txt" >/dev/null || fail "compile CRT provenance missing"
+for field in power_profile scaling_driver energy_performance_preference; do
+    [ "$(grep -c "^$field=" "$WORK/linux/results.txt")" -eq 1 ] ||
+        fail "Linux $field provenance was not emitted exactly once"
+done
 
-echo 'bench_script_test: three measured lanes preserved; macOS shim is target-scoped'
+echo 'bench_script_test: three measured lanes preserved; control provenance and macOS shim are target-scoped'

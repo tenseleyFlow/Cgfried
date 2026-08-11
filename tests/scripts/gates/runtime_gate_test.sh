@@ -6,10 +6,21 @@ export LC_ALL
 
 root=$(CDPATH='' cd "$(dirname "$0")/../../.." && pwd -P)
 gate=$root/scripts/runtime_gate.sh
-fixtures=$root/tests/scripts/gates/fixtures/runtime
+source_fixtures=$root/tests/scripts/gates/fixtures/runtime
 scratch=${TMPDIR:-/tmp}/cgf-runtime-gate-test.$$
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
-mkdir -p "$scratch"
+fixtures=$scratch/fixtures
+mkdir -p "$fixtures"
+for fixture in "$source_fixtures"/*; do
+    awk '
+        { print }
+        /^load1=/ {
+            print "power_profile=performance"
+            print "scaling_driver=acpi-cpufreq"
+            print "energy_performance_preference=performance"
+        }
+    ' "$fixture" >"$fixtures/${fixture##*/}"
+done
 
 tests=0
 
@@ -70,6 +81,9 @@ for source in baseline boundary-1 boundary-2 boundary-3; do
         -e 's/^target=x86_64-linux-gnu$/target=arm64-macos/' \
         -e 's/^governor=performance$/governor=unavailable/' \
         -e 's/^load1=0.10$/load1=unknown/' \
+        -e 's/^power_profile=performance$/power_profile=unavailable/' \
+        -e 's/^scaling_driver=acpi-cpufreq$/scaling_driver=unavailable/' \
+        -e 's/^energy_performance_preference=performance$/energy_performance_preference=unavailable/' \
         -e 's/x86_64-linux-gnu/arm64-macos/g' \
         "$fixtures/$source.txt" >"$scratch/$source-unavailable.txt"
 done
@@ -78,6 +92,24 @@ expect 0 'pass (1 comparisons, state=blocking)' \
     "$scratch/boundary-1-unavailable.txt" \
     "$scratch/boundary-2-unavailable.txt" \
     "$scratch/boundary-3-unavailable.txt"
+
+for source in baseline boundary-1 boundary-2 boundary-3; do
+    sed -e 's/^governor=performance$/governor=powersave/' \
+        -e 's/^scaling_driver=acpi-cpufreq$/scaling_driver=intel_pstate/' \
+        "$fixtures/$source.txt" >"$scratch/$source-intel-pstate.txt"
+done
+expect 0 'pass (1 comparisons, state=blocking)' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-intel-pstate.txt" \
+    "$scratch/boundary-1-intel-pstate.txt" \
+    "$scratch/boundary-2-intel-pstate.txt" \
+    "$scratch/boundary-3-intel-pstate.txt"
+
+sed 's/^load1=0.10$/load1=0.25/' "$fixtures/boundary-1.txt" \
+    >"$scratch/boundary-1-different-load.txt"
+expect 0 'pass (1 comparisons, state=blocking)' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/boundary-1-different-load.txt" "$fixtures/boundary-2.txt" \
+    "$fixtures/boundary-3.txt"
 
 # The median is 112 (>10%), but delta=12 remains inside 4*new_MAD=16.
 expect 0 'pass (1 comparisons, state=blocking)' \
@@ -130,7 +162,7 @@ expect 3 'missing timeit_protocol' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/missing-protocol.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
-expect 3 'non-nomad runtime requires governor=performance (got powersave)' \
+expect 3 'runtime power controls are not performance-controlled' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/mismatched-governor.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
@@ -138,7 +170,7 @@ for source in baseline regress-1 regress-2 regress-3; do
     sed 's/^governor=performance$/governor=powersave/' \
         "$fixtures/$source.txt" >"$scratch/$source-powersave.txt"
 done
-expect 3 'non-nomad runtime requires governor=performance (got powersave)' \
+expect 3 'runtime power controls are not performance-controlled' \
     "$gate" "$fixtures/blocking.conf" "$scratch/baseline-powersave.txt" \
     "$scratch/regress-1-powersave.txt" "$scratch/regress-2-powersave.txt" \
     "$scratch/regress-3-powersave.txt"
@@ -152,6 +184,30 @@ sed '/^load1=/d' "$fixtures/regress-1.txt" >"$scratch/missing-load.txt"
 expect 3 'missing load1' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/missing-load.txt" "$fixtures/regress-2.txt" \
+    "$fixtures/regress-3.txt"
+sed '/^power_profile=/d' "$fixtures/regress-1.txt" \
+    >"$scratch/missing-power-profile.txt"
+expect 3 'missing power_profile' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/missing-power-profile.txt" "$fixtures/regress-2.txt" \
+    "$fixtures/regress-3.txt"
+sed 's/^scaling_driver=.*$/scaling_driver=intel,pstate/' \
+    "$fixtures/regress-1.txt" >"$scratch/malformed-scaling-driver.txt"
+expect 3 'malformed scaling_driver' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/malformed-scaling-driver.txt" "$fixtures/regress-2.txt" \
+    "$fixtures/regress-3.txt"
+sed '/^energy_performance_preference=/p' "$fixtures/regress-1.txt" \
+    >"$scratch/duplicate-epp.txt"
+expect 3 'duplicate key energy_performance_preference' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/duplicate-epp.txt" "$fixtures/regress-2.txt" \
+    "$fixtures/regress-3.txt"
+sed 's/^energy_performance_preference=performance$/energy_performance_preference=balance_performance/' \
+    "$fixtures/regress-1.txt" >"$scratch/mismatched-epp.txt"
+expect 3 'energy_performance_preference does not match baseline' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/mismatched-epp.txt" "$fixtures/regress-2.txt" \
     "$fixtures/regress-3.txt"
 expect 3 'duplicate UTC run day 2026-07-08' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \

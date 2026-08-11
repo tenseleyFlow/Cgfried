@@ -330,6 +330,12 @@ function'" "'read_line(line, file, line_no,    equal, key, value, slot) {
         governors[file] = value
     } else if (key == "load1") {
         loads[file] = value
+    } else if (key == "power_profile") {
+        power_profiles[file] = value
+    } else if (key == "scaling_driver") {
+        scaling_drivers[file] = value
+    } else if (key == "energy_performance_preference") {
+        epps[file] = value
     }
     if (key ~ /[.]cgf[.]wall_ms_median$/) {
         if (!valid_number(value))
@@ -396,8 +402,9 @@ END {
             if (governors[file] != "performance" &&
                 governors[file] != "unavailable")
                 fail(file ": nomad-1 governor must be performance or unavailable")
-        } else if (governors[file] != "performance")
-            fail(file ": non-nomad runtime requires governor=performance (got " governors[file] ")")
+        } else if (governors[file] != "performance" &&
+                   governors[file] != "powersave")
+            fail(file ": non-nomad governor must be performance or powersave")
         if (file != baseline_file &&
             governors[file] != governors[baseline_file])
             fail(file ": governor does not match baseline")
@@ -412,6 +419,37 @@ END {
             fail(file ": non-nomad runtime requires numeric load1")
         else if (loads[file] + 0 > 0.5)
             fail(file ": load1 exceeds controlled limit 0.5 (got " loads[file] ")")
+        if (!(file in power_profiles))
+            fail(file ": missing power_profile")
+        else if (power_profiles[file] !~ /^[A-Za-z0-9_.:+-]+$/)
+            fail(file ": malformed power_profile")
+        if (!(file in scaling_drivers))
+            fail(file ": missing scaling_driver")
+        else if (scaling_drivers[file] !~ /^[A-Za-z0-9_.:+-]+$/)
+            fail(file ": malformed scaling_driver")
+        if (!(file in epps))
+            fail(file ": missing energy_performance_preference")
+        else if (epps[file] !~ /^[A-Za-z0-9_.:+-]+$/)
+            fail(file ": malformed energy_performance_preference")
+        if (hosts[baseline_file] == "nomad-1") {
+            if (power_profiles[file] != "unavailable" ||
+                scaling_drivers[file] != "unavailable" ||
+                epps[file] != "unavailable")
+                fail(file ": nomad-1 power controls must be unavailable")
+        } else if (power_profiles[file] != "performance" ||
+                   !(governors[file] == "performance" ||
+                     (scaling_drivers[file] == "intel_pstate" &&
+                      governors[file] == "powersave" &&
+                      epps[file] == "performance")))
+            fail(file ": runtime power controls are not performance-controlled")
+        if (file != baseline_file) {
+            if (power_profiles[file] != power_profiles[baseline_file])
+                fail(file ": power_profile does not match baseline")
+            if (scaling_drivers[file] != scaling_drivers[baseline_file])
+                fail(file ": scaling_driver does not match baseline")
+            if (epps[file] != epps[baseline_file])
+                fail(file ": energy_performance_preference does not match baseline")
+        }
     }
     if (file_count != 4)
         fail("internal file-count mismatch")

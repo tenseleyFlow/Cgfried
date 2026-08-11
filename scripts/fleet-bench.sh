@@ -50,6 +50,90 @@ self_file_count=$(sed -n 's/^self\.corpus=cgfried-src-[^:]*:\([0-9][0-9]*\)-file
     echo 'fleet-bench: result has no unique self file-count provenance' >&2
     exit 3
 }
+control_status=0
+control_state=$(awk -v expected_host="$host" '
+function'" "'fail(message) {
+    print "fleet-bench: " message > "/dev/stderr"
+    failed = 1
+}
+{
+    line = $0
+    sub(/[[:space:]]*#.*/, "", line)
+    if (line == "")
+        next
+    equals = index(line, "=")
+    if (!equals)
+        next
+    key = substr(line, 1, equals - 1)
+    value = substr(line, equals + 1)
+    if (key == "host" || key == "governor" || key == "load1" ||
+        key == "power_profile" || key == "scaling_driver" ||
+        key == "energy_performance_preference") {
+        counts[key]++
+        values[key] = value
+    }
+}
+END {
+    keys[1] = "host"
+    keys[2] = "governor"
+    keys[3] = "load1"
+    keys[4] = "power_profile"
+    keys[5] = "scaling_driver"
+    keys[6] = "energy_performance_preference"
+    for (i = 1; i <= 6; i++) {
+        key = keys[i]
+        if (counts[key] != 1 || values[key] == "")
+            fail("result has no unique " key " provenance")
+    }
+    if (failed)
+        exit 3
+    if (values["host"] != expected_host)
+        fail("result host provenance does not match fleet host (result=" \
+             values["host"] " fleet=" expected_host ")")
+    if (values["governor"] !~ /^[A-Za-z0-9_.:+-]+$/)
+        fail("result has invalid governor provenance")
+    if (values["load1"] !~ /^[0-9]+([.][0-9]+)?$/)
+        fail("result has invalid load1 provenance")
+    for (i = 4; i <= 6; i++) {
+        key = keys[i]
+        if (values[key] !~ /^[A-Za-z0-9_.:+,-]+$/)
+            fail("result has invalid " key " provenance")
+    }
+    if (expected_host == "nomad-1" &&
+        (values["power_profile"] != "unavailable" ||
+         values["scaling_driver"] != "unavailable" ||
+         values["energy_performance_preference"] != "unavailable"))
+        fail("nomad-1 control fields must be unavailable")
+    if (failed)
+        exit 3
+
+    controlled = values["load1"] + 0 <= 0.5
+    if (expected_host == "nomad-1") {
+        controlled = controlled &&
+            (values["governor"] == "performance" ||
+             values["governor"] == "unavailable")
+    } else {
+        controlled = controlled &&
+            values["power_profile"] == "performance" &&
+            (values["governor"] == "performance" ||
+             (values["scaling_driver"] == "intel_pstate" &&
+              values["governor"] == "powersave" &&
+              values["energy_performance_preference"] == "performance"))
+    }
+    if (controlled)
+        print "controlled"
+    else
+        print "provenance-only"
+}
+' "$result") || control_status=$?
+case $control_status:$control_state in
+0:controlled | 0:provenance-only) ;;
+3:*) exit 3 ;;
+*)
+    echo "fleet-bench: control provenance parser failed with status $control_status" >&2
+    exit 3
+    ;;
+esac
 baseline=$ROOT/.benchmarks/baseline-$target.$host.txt
 gate_status=0
 if [ -r "$baseline" ]; then
@@ -100,8 +184,13 @@ if [ -r "$baseline" ]; then
     fi
 else
     rss_result=warmup
-    time_result=warmup
-    gate_result=warmup
+    if [ "$control_state" = provenance-only ]; then
+        time_result=provenance-only
+        gate_result=provenance-only
+    else
+        time_result=warmup
+        gate_result=warmup
+    fi
     echo "fleet-bench: compile benchmark warmup: host=$host target=$target baseline=missing; gate not run"
 fi
 {

@@ -152,7 +152,34 @@ function'" "'check_self_corpus(values, label,    value) {
         schema_fail(label " self.corpus must expose its revision/content and file count")
 }
 
-function'" "'classify_time(values, label,    host, governor, load, controlled) {
+function'" "'check_control_fields(values, label, legacy_ok,    count, key, i,
+                              control_keys, value) {
+    control_keys[1] = "power_profile"
+    control_keys[2] = "scaling_driver"
+    control_keys[3] = "energy_performance_preference"
+    for (i = 1; i <= 3; i++)
+        if (control_keys[i] in values)
+            count++
+    if (count == 0 && legacy_ok) {
+        provenance_only = 1
+        return 0
+    }
+    if (count != 3) {
+        for (i = 1; i <= 3; i++)
+            require_provenance(control_keys[i], values, label)
+        return 0
+    }
+    for (i = 1; i <= 3; i++) {
+        key = control_keys[i]
+        value = values[key]
+        if (value !~ /^[A-Za-z0-9_.:+,-]+$/)
+            schema_fail(label " timing evidence has invalid " key " provenance")
+    }
+    return 1
+}
+
+function'" "'classify_time(values, label, have_controls,
+                       host, governor, load, controlled) {
     if (!require_provenance("host", values, label) ||
         !require_provenance("governor", values, label) ||
         !require_provenance("load1", values, label))
@@ -172,12 +199,25 @@ function'" "'classify_time(values, label,    host, governor, load, controlled) {
         schema_fail(label " timing evidence has invalid load1 provenance (got " load ")")
         return
     }
+    if (!have_controls)
+        return
+    if (host == "nomad-1" &&
+        (values["power_profile"] != "unavailable" ||
+         values["scaling_driver"] != "unavailable" ||
+         values["energy_performance_preference"] != "unavailable")) {
+        schema_fail(label " nomad-1 timing control fields must be unavailable")
+        return
+    }
     controlled = load + 0 <= 0.5
     if (host == "nomad-1")
         controlled = controlled &&
             (governor == "performance" || governor == "unavailable")
     else
-        controlled = controlled && governor == "performance"
+        controlled = controlled && values["power_profile"] == "performance" &&
+            (governor == "performance" ||
+             (values["scaling_driver"] == "intel_pstate" &&
+              governor == "powersave" &&
+              values["energy_performance_preference"] == "performance"))
     if (!controlled) {
         if (allow_provenance_only)
             provenance_only = 1
@@ -232,15 +272,25 @@ END {
     check_self_corpus(current, "result")
 
     if (!skip_time && (gate_kind == "all" || gate_kind == "time")) {
-        classify_time(baseline, "baseline")
-        classify_time(current, "result")
-        if (("governor" in baseline) && ("governor" in current) &&
-            baseline["governor"] != current["governor"]) {
-            if (allow_provenance_only)
-                provenance_only = 1
-            else
-                schema_fail("governor provenance does not match baseline (baseline=" \
-                     baseline["governor"] " result=" current["governor"] ")")
+        baseline_controls = check_control_fields(baseline, "baseline",
+                                                 allow_provenance_only)
+        current_controls = check_control_fields(current, "result", 0)
+        classify_time(baseline, "baseline", baseline_controls)
+        classify_time(current, "result", current_controls)
+        control_keys[1] = "governor"
+        control_keys[2] = "power_profile"
+        control_keys[3] = "scaling_driver"
+        control_keys[4] = "energy_performance_preference"
+        for (control_i = 1; control_i <= 4; control_i++) {
+            control_key = control_keys[control_i]
+            if ((control_key in baseline) && (control_key in current) &&
+                baseline[control_key] != current[control_key]) {
+                if (allow_provenance_only)
+                    provenance_only = 1
+                else
+                    schema_fail(control_key " provenance does not match baseline (baseline=" \
+                         baseline[control_key] " result=" current[control_key] ")")
+            }
         }
     }
 

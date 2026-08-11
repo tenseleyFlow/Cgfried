@@ -33,26 +33,42 @@ read_profile()
     printf '%s\n' "$profile"
 }
 
-verify_performance_governors()
+read_uniform_cpu_field()
 {
-    set -- "$governor_root"/cpu[0-9]*/cpufreq/scaling_governor
-    [ -r "$1" ] || die "no readable CPU scaling governors under $governor_root"
+    field=$1
+    label=$2
+    set -- "$governor_root"/cpu[0-9]*/cpufreq/"$field"
+    [ -r "$1" ] || die "no readable CPU $label values under $governor_root"
 
     observed=
-    for governor_file do
-        [ -r "$governor_file" ] || die "CPU scaling governor is not readable: $governor_file"
-        governor=$(cat "$governor_file") || die "cannot read CPU scaling governor: $governor_file"
-        case $governor in
-        '' | *[!A-Za-z0-9_-]*) die "invalid CPU scaling governor in $governor_file" ;;
+    for field_file do
+        [ -r "$field_file" ] || die "CPU $label is not readable: $field_file"
+        value=$(sed -n '1p' "$field_file") || die "cannot read CPU $label: $field_file"
+        case $value in
+        '' | *[!A-Za-z0-9_-]*) die "invalid CPU $label in $field_file" ;;
         esac
         if [ -z "$observed" ]; then
-            observed=$governor
-        elif [ "$observed" != "$governor" ]; then
-            die "CPU scaling governors disagree ('$observed' and '$governor')"
+            observed=$value
+        elif [ "$observed" != "$value" ]; then
+            die "CPU $label values disagree ('$observed' and '$value')"
         fi
     done
-    [ "$observed" = performance ] ||
-        die "CPU scaling governor is '$observed', expected 'performance'"
+    printf '%s\n' "$observed"
+}
+
+verify_performance_state()
+{
+    governor=$(read_uniform_cpu_field scaling_governor 'scaling governor')
+    [ "$governor" = performance ] && return 0
+
+    driver=$(read_uniform_cpu_field scaling_driver 'scaling driver')
+    epp=$(read_uniform_cpu_field energy_performance_preference \
+        'energy-performance preference')
+    if [ "$governor" = powersave ] && [ "$driver" = intel_pstate ] &&
+       [ "$epp" = performance ]; then
+        return 0
+    fi
+    die "effective CPU performance state is uncontrolled (governor='$governor' scaling_driver='$driver' energy_performance_preference='$epp')"
 }
 
 case $host in
@@ -86,7 +102,7 @@ if [ "$action" = enter ]; then
     "$profile_cmd" set performance >/dev/null 2>&1 ||
         die "cannot set the performance power profile"
     [ "$(read_profile)" = performance ] || die "performance power profile did not take effect"
-    verify_performance_governors
+    verify_performance_state
     echo "$prog: entered performance mode on $host"
     exit 0
 fi

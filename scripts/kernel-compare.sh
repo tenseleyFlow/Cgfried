@@ -411,6 +411,8 @@ compile_runtime_cgf()
 
 measure_runtime()
 {
+    runtime_proc_root=${CGF_KERNEL_PROC_ROOT:-/proc}
+    runtime_cpu_root=${CGF_KERNEL_SYS_CPU_ROOT:-/sys/devices/system/cpu}
     runtime_host=${CGF_KERNEL_RUNTIME_HOST:-$(hostname -s 2>/dev/null || uname -n)}
     case $runtime_host in
     kasumi | hasu | nomad-1) ;;
@@ -443,8 +445,8 @@ measure_runtime()
     esac
     [ -x "$timeit" ] || die "timer is not executable: $timeit"
 
-    if [ -r /proc/loadavg ]; then
-        IFS=' ' read -r runtime_load _rest </proc/loadavg
+    if [ -r "$runtime_proc_root/loadavg" ]; then
+        IFS=' ' read -r runtime_load _rest <"$runtime_proc_root/loadavg"
         if awk -v n="$runtime_load" 'BEGIN { exit !(n > 0.5) }'; then
             [ "${CGF_KERNEL_FORCE:-0}" = 1 ] ||
                 die "1-minute load $runtime_load exceeds 0.5 (set CGF_KERNEL_FORCE=1 for a noisy run)"
@@ -453,15 +455,42 @@ measure_runtime()
         runtime_load=unknown
     fi
     runtime_governor=unavailable
-    if [ -d /sys/devices/system/cpu ]; then
-        runtime_governors=$(for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; do
+    runtime_power_profile=unavailable
+    runtime_scaling_driver=unavailable
+    runtime_epp=unavailable
+    if [ "$runtime_target" != arm64-macos ] && [ -d "$runtime_cpu_root" ]; then
+        runtime_governors=$(for f in "$runtime_cpu_root"/cpu[0-9]*/cpufreq/scaling_governor; do
             [ -r "$f" ] && sed -n '1p' "$f"
         done | sort -u | paste -sd, -)
         [ -n "$runtime_governors" ] && runtime_governor=$runtime_governors
+        runtime_drivers=$(for f in "$runtime_cpu_root"/cpu[0-9]*/cpufreq/scaling_driver; do
+            [ -r "$f" ] && sed -n '1p' "$f"
+        done | sort -u | paste -sd, -)
+        [ -n "$runtime_drivers" ] && runtime_scaling_driver=$runtime_drivers
+        runtime_epps=$(for f in "$runtime_cpu_root"/cpu[0-9]*/cpufreq/energy_performance_preference; do
+            [ -r "$f" ] && sed -n '1p' "$f"
+        done | sort -u | paste -sd, -)
+        [ -n "$runtime_epps" ] && runtime_epp=$runtime_epps
     fi
-    if [ "$runtime_governor" != unavailable ] &&
-       [ "$runtime_governor" != performance ]; then
-        echo "$prog: WARNING: governor is '$runtime_governor'; runtime is provenance-only" >&2
+    if [ "$runtime_target" != arm64-macos ] &&
+       command -v powerprofilesctl >/dev/null 2>&1; then
+        observed_profile=$(powerprofilesctl get 2>/dev/null | sed -n '1p' || :)
+        [ -z "$observed_profile" ] || runtime_power_profile=$observed_profile
+    fi
+    if [ "$runtime_target" != arm64-macos ]; then
+        runtime_controlled=no
+        if awk -v n="$runtime_load" 'BEGIN { exit !(n ~ /^[0-9]+([.][0-9]+)?$/ && n <= 0.5) }' &&
+           [ "$runtime_power_profile" = performance ]; then
+            if [ "$runtime_governor" = performance ] ||
+               { [ "$runtime_scaling_driver" = intel_pstate ] &&
+                 [ "$runtime_governor" = powersave ] &&
+                 [ "$runtime_epp" = performance ]; }; then
+                runtime_controlled=yes
+            fi
+        fi
+        if [ "$runtime_controlled" != yes ]; then
+            echo "$prog: WARNING: runtime controls are not performance-controlled (load1=$runtime_load power_profile=$runtime_power_profile governor=$runtime_governor scaling_driver=$runtime_scaling_driver energy_performance_preference=$runtime_epp); runtime is provenance-only" >&2
+        fi
     fi
 
     runtime_stamp=$(date -u '+%Y-%m-%dT%H%M%SZ')
@@ -496,6 +525,9 @@ measure_runtime()
         echo "target=$runtime_target"
         echo "governor=$runtime_governor"
         echo "load1=$runtime_load"
+        echo "power_profile=$runtime_power_profile"
+        echo "scaling_driver=$runtime_scaling_driver"
+        echo "energy_performance_preference=$runtime_epp"
         echo "runs=$runs"
         echo "warmup=$warmup"
         echo "cgf_rev=$runtime_rev"
