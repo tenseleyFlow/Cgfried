@@ -3,11 +3,57 @@ name: ci
 on:
   push:
     branches: [trunk]
+    tags: ['v*']
   # No branches filter on pull_request: sprint PRs stack (each based on the
   # previous), and a base filter would silently skip CI on stacked PRs.
   pull_request:
 
 jobs:
+  # The escape hatches are policy, not performance measurements.  Audit them
+  # even when a valid docs-only [bench skip] suppresses the expensive jobs.
+  perf-policy:
+    runs-on: ubuntu-latest
+    outputs:
+      bench_skip: ${{ steps.policy.outputs.bench_skip }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: policy
+        name: audit performance escape hatches and gate inventory
+        env:
+          CGF_PERF_VERIFY_ISSUES: 1
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          GITHUB_EVENT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          scripts/check_bench_policy.sh --commit "$GITHUB_EVENT_COMMIT"
+          scripts/check_perf_configs.sh
+          if git show -s --format=%B "$GITHUB_EVENT_COMMIT" | grep -Fq '[bench skip]'; then
+            echo 'bench_skip=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'bench_skip=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  # Release reports are reviewed and committed before a tag is created.
+  # Tag CI regenerates the matching report and rejects absence or drift.
+  perf-report-tag:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: verify the committed release performance report
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          report=.benchmarks/report-$version.md
+          git ls-files --error-unmatch "$report"
+          make PERF_REPORT_VERSION="$version" PERF_REPORT="$report" perf-report
+          git diff --exit-code -- "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
   build-gcc:
     runs-on: ubuntu-latest
     steps:
@@ -38,9 +84,12 @@ jobs:
   # cross-and-differential work. What this job proves is the milestone and
   # the corpus, which is what DoD 2 asks for.
   test-arm64-native:
+    needs: perf-policy
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       # The arm64 runner image is leaner than ubuntu-latest and ships no
       # assembler, so `cgf hello.c` fails with "assembler not found" before
       # it reaches any codegen. libc6-dev supplies crt1.o and the headers.
@@ -53,7 +102,7 @@ jobs:
       # corpus's long-double programs fail to link on __addtf3. On a native
       # host RT_TARGET resolves by running the compiler just built.
       - name: build
-        run: make CC=gcc -j"$(nproc)" build/cgfried build/cgf build/cgf-test rt
+        run: make CC=gcc -j"$(nproc)" build/cgfried build/cgf build/cgf-test build/timeit rt
       - name: "arm64-hello-world: THE milestone"
         run: |
           printf 'int printf(const char *, ...);\nint main(void) { printf("hello, world\\n"); return 0; }\n' > hello.c
@@ -98,6 +147,41 @@ jobs:
           cat a64exec.log
           [ "$s" -eq 0 ]
           ! grep -q "skipped" a64exec.log
+      - name: Sprint 54 native ARM RSS, size, static gates, and summary
+        if: needs.perf-policy.outputs.bench_skip != 'true'
+        run: |
+          status=0
+          CGF_BENCH_FORCE=1 CGF_BENCH_SKIP_MUSL=1 \
+            CGF_BENCH_HOST_CLASS=arm64-ci BENCH_SKIP_TIME=1 \
+            BENCH_BASELINE=.benchmarks/baseline-arm64-linux.ci.txt \
+            BENCH_RESULTS=build/bench/results-arm64-linux.txt \
+            make CC=gcc bench-gate || status=$?
+          size_static_status=0
+          CGF_SIZE_HOST_CLASS=arm64-ci make CC=gcc perf-arm64 || \
+            size_static_status=$?
+          if [ "$status" -eq 0 ]; then status=$size_static_status; fi
+          summary_status=0
+          BENCH_BASELINE=.benchmarks/baseline-arm64-linux.ci.txt \
+            BENCH_RESULTS=build/bench/results-arm64-linux.txt \
+            make perf-summary-arm64 || summary_status=$?
+          if [ "$status" -eq 0 ]; then status=$summary_status; fi
+          for result in build/bench/results-arm64-linux.txt \
+              build/bench/size-arm64-linux.txt \
+              build/bench/kernels-arm64-linux.txt; do
+            if [ -r "$result" ]; then cat "$result"; fi
+          done
+          exit "$status"
+      - name: retain native ARM performance evidence
+        if: always() && needs.perf-policy.outputs.bench_skip != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint54-perf-arm64-linux
+          path: |
+            build/bench/results-arm64-linux.txt
+            build/bench/size-arm64-linux.txt
+            build/bench/kernels-arm64-linux.txt
+          if-no-files-found: error
+          retention-days: 90
 
   # ...and the cross lane, which is what a developer on an x86 box gets.
   # Two levels of emulation: an arm64 cgfried under qemu-user building
@@ -167,28 +251,67 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test-san
 
-  # Shared runners are too noisy for timing truth. Sprint 52 still gates RSS
-  # here and the seeded fixture step proves that BENCH_SKIP_TIME bypasses only
-  # timing: a 21% RSS regression must continue to fail.
+  # Shared runners are too noisy for timing truth. RSS, binary size, and the
+  # deterministic kernel proxies do gate or record trial trips here.
   bench-rss:
+    needs: perf-policy
+    if: needs.perf-policy.outputs.bench_skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: build, measure, and gate RSS
+        with:
+          fetch-depth: 0
+      - name: build, measure, gate, and publish the x86 perf summary
         run: |
+          status=0
           CGF_BENCH_FORCE=1 CGF_BENCH_SKIP_MUSL=1 \
-            BENCH_SKIP_TIME=1 make CC=gcc bench-gate
+            CGF_BENCH_HOST_CLASS=ci BENCH_SKIP_TIME=1 \
+            make CC=gcc bench-gate || status=$?
+          size_static_status=0
+          CGF_SIZE_HOST_CLASS=ci make CC=gcc perf-x86 || \
+            size_static_status=$?
+          if [ "$status" -eq 0 ]; then status=$size_static_status; fi
+          summary_status=0
+          make perf-summary-x86 || summary_status=$?
+          if [ "$status" -eq 0 ]; then status=$summary_status; fi
+          exit "$status"
+      - name: retain x86 performance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint54-perf-x86_64-linux-gnu
+          path: |
+            build/bench/results.txt
+            build/bench/size-x86_64-linux-gnu.txt
+            build/bench/kernels-x86_64-linux-gnu.txt
+          if-no-files-found: error
+          retention-days: 90
       - name: prove timing skip and RSS enforcement
         run: |
           BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
             tests/bench/fixtures/gate/baseline.txt \
             tests/bench/fixtures/gate/skip-time.txt
-          if BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
-              tests/bench/fixtures/gate/baseline.txt \
-              tests/bench/fixtures/gate/fail-rss-21.txt; then
-            echo 'seeded RSS regression unexpectedly passed' >&2
+          s=0
+          BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
+            tests/bench/fixtures/gate/baseline.txt \
+            tests/bench/fixtures/gate/fail-rss-21.txt || s=$?
+          [ "$s" -eq 1 ] || {
+            echo "seeded RSS regression returned $s, expected 1" >&2
             exit 1
-          fi
+          }
+      - name: prove the Sprint 54 size boundary in CI
+        run: |
+          scripts/size_gate.sh --gate \
+            tests/scripts/gates/fixtures/size/baseline.txt \
+            tests/scripts/gates/fixtures/size/pass-14.txt
+          s=0
+          scripts/size_gate.sh --gate \
+            tests/scripts/gates/fixtures/size/baseline.txt \
+            tests/scripts/gates/fixtures/size/fail-16.txt || s=$?
+          [ "$s" -eq 1 ] || {
+            echo "seeded +16% size regression returned $s, expected 1" >&2
+            exit 1
+          }
 
   memsafe-foundation:
     runs-on: ubuntu-latest

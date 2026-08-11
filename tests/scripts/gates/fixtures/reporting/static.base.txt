@@ -1,0 +1,2 @@
+matmul-64.icount=100
+matmul-64.text=100

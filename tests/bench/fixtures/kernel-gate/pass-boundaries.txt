@@ -1,6 +1,6 @@
 floor.icount=7
 floor.padding=1
-floor.text=40
+floor.text=33
 percent.icount=204
 percent.padding=9
-percent.text=900
+percent.text=840

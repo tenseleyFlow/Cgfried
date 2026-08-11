@@ -1,0 +1,3 @@
+cgf.size_stripped=1151
+cgf.size_unstripped=1800
+hello-O2.size=116

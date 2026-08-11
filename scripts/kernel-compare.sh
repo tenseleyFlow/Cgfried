@@ -6,6 +6,8 @@
 #
 # Fleet runtime measurement (native target only):
 #   CGF_KERNEL_RUNTIME=1 scripts/kernel-compare.sh
+# Runtime artifact only (no ELF/static dashboard tools are consulted):
+#   CGF_KERNEL_RUNTIME_ONLY=1 scripts/kernel-compare.sh
 #
 # Render a previously recorded runtime file:
 #   CGF_KERNEL_RUNTIME_INPUT=.benchmarks/runs/<dated>-kernels.txt \
@@ -26,9 +28,11 @@ targets=${CGF_KERNEL_TARGETS:-x86_64-linux-gnu arm64-linux}
 opts=${CGF_KERNEL_OPTS:-Os O2 O3}
 minimum=${CGF_KERNEL_MIN:-19}
 runtime=${CGF_KERNEL_RUNTIME:-0}
+runtime_only=${CGF_KERNEL_RUNTIME_ONLY:-0}
 runtime_input=${CGF_KERNEL_RUNTIME_INPUT:-}
 runs=${CGF_KERNEL_RUNS:-10}
 warmup=${CGF_KERNEL_WARMUP:-1}
+cooldown=${CGF_KERNEL_COOLDOWN_SECONDS:-120}
 timeit=${CGF_KERNEL_TIMEIT:-$build/timeit}
 
 die()
@@ -53,7 +57,7 @@ validate_words()
     shift
     for valid_word in "$@"; do
         case $valid_kind:$valid_word in
-        target:x86_64-linux-gnu | target:arm64-linux | opt:Os | opt:O2 | opt:O3) ;;
+        target:x86_64-linux-gnu | target:arm64-linux | target:arm64-macos | opt:Os | opt:O2 | opt:O3) ;;
         *) die "unsupported $valid_kind '$valid_word'" ;;
         esac
     done
@@ -63,8 +67,13 @@ case $runtime in
 0 | 1) ;;
 *) die "CGF_KERNEL_RUNTIME must be 0 or 1" ;;
 esac
-case $minimum:$runs:$warmup in
-*[!0-9:]*) die "minimum, runs, and warmup must be non-negative integers" ;;
+case $runtime_only in
+0 | 1) ;;
+*) die "CGF_KERNEL_RUNTIME_ONLY must be 0 or 1" ;;
+esac
+[ "$runtime_only" -eq 0 ] || runtime=1
+case $minimum:$runs:$warmup:$cooldown in
+*[!0-9:]*) die "minimum, runs, warmup, and cooldown must be non-negative integers" ;;
 esac
 [ "$minimum" -ge 1 ] || die "CGF_KERNEL_MIN must be at least 1"
 [ "$runs" -ge 1 ] || die "CGF_KERNEL_RUNS must be at least 1"
@@ -126,6 +135,8 @@ tool_for_target()
             echo "${CGF_KERNEL_AS_ARM64:-aarch64-linux-gnu-as}"
         fi
         ;;
+    arm64-macos:gcc) echo "${CGF_KERNEL_GCC_ARM64_MACOS:-clang}" ;;
+    arm64-macos:as) echo "${CGF_KERNEL_AS_ARM64_MACOS:-as}" ;;
     *) die "internal tool lookup failure for $tool_target:$tool_kind" ;;
     esac
 }
@@ -196,10 +207,17 @@ END {
 }
 
 metrics=$work/static.txt
-: >"$metrics"
 provenance=$work/provenance.txt
-: >"$provenance"
-printf 'cgf|%s\n' "$(one_line "$cgf" --version)" >>"$provenance"
+
+if [ "$runtime_only" -eq 0 ]; then
+    case " $targets " in
+    *" arm64-macos "*)
+        die "arm64-macos supports runtime-only measurement, not the ELF static dashboard"
+        ;;
+    esac
+    : >"$metrics"
+    : >"$provenance"
+    printf 'cgf|%s\n' "$(one_line "$cgf" --version)" >>"$provenance"
 
 # The loop order is the dashboard order, and all inputs are sorted or closed
 # enums, so the generated static artifact is byte-identical across runs.
@@ -254,6 +272,7 @@ for target in $targets; do
         done <"$manifest"
     done
 done
+fi
 
 native_runtime_target()
 {
@@ -262,13 +281,14 @@ native_runtime_target()
     case $runtime_system:$runtime_machine in
     Linux:x86_64) echo x86_64-linux-gnu ;;
     Linux:aarch64 | Linux:arm64) echo arm64-linux ;;
+    Darwin:arm64 | Darwin:aarch64) echo arm64-macos ;;
     *) echo unavailable ;;
     esac
 }
 
 measure_runtime()
 {
-    runtime_host=$(hostname -s 2>/dev/null || uname -n)
+    runtime_host=${CGF_KERNEL_RUNTIME_HOST:-$(hostname -s 2>/dev/null || uname -n)}
     case $runtime_host in
     kasumi | hasu | nomad-1) ;;
     *)
@@ -327,10 +347,14 @@ measure_runtime()
     mkdir -p "$(dirname "$runtime_output")" "$work/runtime/raw"
     runtime_tmp=$work/runtime.txt
     gcc_tool=$(tool_for_target "$runtime_target" gcc)
-    as_tool=$(tool_for_target "$runtime_target" as)
     command -v "$gcc_tool" >/dev/null 2>&1 || die "required tool not found: $gcc_tool"
-    command -v "$as_tool" >/dev/null 2>&1 || die "required tool not found: $as_tool"
-    as_path=$(command -v "$as_tool")
+    as_path=
+    if [ "$runtime_target" != arm64-macos ] ||
+       [ -n "${CGF_KERNEL_AS_ARM64_MACOS:-}" ]; then
+        as_tool=$(tool_for_target "$runtime_target" as)
+        command -v "$as_tool" >/dev/null 2>&1 || die "required tool not found: $as_tool"
+        as_path=$(command -v "$as_tool")
+    fi
     if git -C "$repo" rev-parse HEAD >/dev/null 2>&1; then
         runtime_rev=$(git -C "$repo" rev-parse HEAD)
         if [ -n "$(git -C "$repo" status --porcelain --untracked-files=normal)" ]; then
@@ -366,8 +390,13 @@ measure_runtime()
             mkdir -p "$runtime_work"
             cgf_exe=$runtime_work/$name.cgf
             gcc_exe=$runtime_work/$name.gcc
-            CGF_AS_PATH=$as_path "$cgf" --target="$runtime_target" \
-                -std=gnu17 "-$opt" -o "$cgf_exe" "$source"
+            if [ -n "$as_path" ]; then
+                CGF_AS_PATH=$as_path "$cgf" --target="$runtime_target" \
+                    -std=gnu17 "-$opt" -o "$cgf_exe" "$source"
+            else
+                "$cgf" --target="$runtime_target" -std=gnu17 "-$opt" \
+                    -o "$cgf_exe" "$source"
+            fi
             "$gcc_tool" -std=gnu17 "-$opt" -o "$gcc_exe" "$source"
 
             "$cgf_exe" || die "$runtime_target/$opt/$name: cgf checksum failed"
@@ -393,9 +422,9 @@ measure_runtime()
                 ' "$summary" >>"$runtime_tmp"
             done
         done <"$manifest"
-        if [ "$runtime_host" = nomad-1 ]; then
-            echo "$prog: nomad-1 thermal cooldown (120 seconds)" >&2
-            sleep 120
+        if [ "$runtime_host" = nomad-1 ] && [ "$cooldown" -gt 0 ]; then
+            echo "$prog: nomad-1 thermal cooldown ($cooldown seconds)" >&2
+            sleep "$cooldown"
         fi
     done
     mv "$runtime_tmp" "$runtime_output"
@@ -405,6 +434,10 @@ measure_runtime()
 
 if [ "$runtime" -eq 1 ]; then
     measure_runtime
+fi
+
+if [ "$runtime_only" -eq 1 ]; then
+    exit 0
 fi
 
 runtime_value()

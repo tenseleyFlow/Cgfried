@@ -1,0 +1,3 @@
+# target=x86_64-linux-gnu
+matmul-64.icount=102
+matmul-64.text=105

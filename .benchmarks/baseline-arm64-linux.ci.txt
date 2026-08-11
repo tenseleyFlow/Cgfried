@@ -1,0 +1,9 @@
+# Sprint 54 native ARM shared-runner RSS bootstrap.
+# target=arm64-linux host_class=ci
+# calibration=provisional-from-x86_64-Sprint-52-plus-20-percent
+# This conservative seed exists only to collect the first native Actions
+# sample without disabling the gate. Sprint 54 cannot close until these three
+# values are replaced by that run and this note is removed.
+sqlite3.maxrss_kb_max=599909
+self.maxrss_kb_max=1271059
+many-tu.maxrss_kb_max=1653206

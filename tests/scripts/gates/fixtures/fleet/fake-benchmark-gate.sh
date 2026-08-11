@@ -1,0 +1,2 @@
+#!/bin/sh
+exit "${FIXTURE_BENCHMARK_GATE_STATUS:-0}"

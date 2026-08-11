@@ -1,0 +1,3 @@
+doc/perf-gates.md
+.docs/sprints/11-performance/s54-perf-gates-ci.md
+README.md

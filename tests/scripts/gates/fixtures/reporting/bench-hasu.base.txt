@@ -1,0 +1,7 @@
+# target=x86_64-linux-gnu
+# host=hasu
+# date_utc=2026-08-01T13:00:00Z
+# cgf_rev=base-hasu
+# cgf_tree=clean
+# timeit_protocol=runs=10,warmup=1
+self.maxrss_kb_max=800

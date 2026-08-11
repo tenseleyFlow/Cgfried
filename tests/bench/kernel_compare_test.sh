@@ -105,4 +105,56 @@ fi
 grep -F 'incomplete runtime median/MAD pair' "$tmp/incomplete.err" >/dev/null ||
     fail "incomplete runtime diagnostic is missing"
 
-echo "kernel_compare_test: deterministic static columns, provenance, runtime ratio, and fail-closed pair validation passed"
+cat >"$tmp/bin/uname" <<'EOF'
+#!/bin/sh
+case ${1:-} in
+-s) echo Darwin ;;
+-m) echo arm64 ;;
+-n) echo fixture-mac ;;
+*) echo Darwin ;;
+esac
+EOF
+cat >"$tmp/bin/fake-timeit" <<'EOF'
+#!/bin/sh
+set -eu
+raw=
+while [ "$#" -gt 0 ]; do
+    case $1 in
+    -o) raw=$2; shift 2 ;;
+    -t | -n | -w) shift 2 ;;
+    --) shift; break ;;
+    *) exit 2 ;;
+    esac
+done
+"$@"
+printf '1.000000\n' >"$raw"
+echo 'wall_ms_median=1.000000'
+echo 'wall_ms_mad=0.000000'
+EOF
+chmod +x "$tmp/bin/uname" "$tmp/bin/fake-timeit"
+
+mkdir -p "$tmp/work-runtime"
+PATH=$tmp/bin:$PATH \
+CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
+CGF_KERNEL_GCC_ARM64_MACOS=$tmp/bin/fake-cgf \
+CGF_KERNEL_TIMEIT=$tmp/bin/fake-timeit \
+CGF_KERNEL_DIR=$tmp/kernels \
+CGF_KERNEL_COMPARE_WORK=$tmp/work-runtime \
+CGF_KERNEL_TARGETS=arm64-macos \
+CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
+CGF_KERNEL_RUNS=1 CGF_KERNEL_WARMUP=0 CGF_KERNEL_FORCE=1 \
+CGF_KERNEL_COOLDOWN_SECONDS=0 \
+CGF_KERNEL_RUNTIME_HOST=nomad-1 \
+CGF_KERNEL_RUNTIME_OUTPUT=$tmp/macos-runtime.txt \
+CGF_KERNEL_RUNTIME_ONLY=1 \
+    "$compare" >"$tmp/runtime-only.out"
+grep -F 'target=arm64-macos' "$tmp/macos-runtime.txt" >/dev/null ||
+    fail "Darwin arm64 runtime was not recorded as arm64-macos"
+grep -F 'arm64-macos.tiny.O2.cgf.wall_ms_median=1.000000' \
+    "$tmp/macos-runtime.txt" >/dev/null || fail "runtime-only metric is missing"
+[ ! -e "$tmp/work-runtime/static.txt" ] ||
+    fail "runtime-only mode traversed static measurement"
+[ ! -e "$tmp/work-runtime/dashboard.tmp.md" ] ||
+    fail "runtime-only mode rendered a static dashboard"
+
+echo "kernel_compare_test: deterministic static columns, provenance, runtime ratio, fail-closed pairs, and Darwin runtime-only mode passed"

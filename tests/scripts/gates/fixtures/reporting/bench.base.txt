@@ -1,0 +1,13 @@
+# target=x86_64-linux-gnu
+# host=kasumi
+# host_class=kasumi
+# date_utc=2026-08-01T12:00:00Z
+# cgf_rev=base-kasumi
+# cgf_tree=clean
+# timeit_protocol=runs=10,warmup=1
+self.wall_ms_median=100
+self.user_ms_median=80
+self.sys_ms_median=20
+self.maxrss_kb_max=1000
+self.stat.arena.ast.peak_kb=500
+self.stat.intern.hit_pct=90

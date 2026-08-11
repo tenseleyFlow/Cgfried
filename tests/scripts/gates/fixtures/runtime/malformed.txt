@@ -1,0 +1,4 @@
+date=2026-07-12T00:00:00Z
+this is not a metric
+x86_64-linux-gnu.matvec.O2.cgf.wall_ms_median=100
+x86_64-linux-gnu.matvec.O2.cgf.wall_ms_mad=1

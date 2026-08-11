@@ -1,0 +1,11 @@
+# cgfried executable-size metrics v1
+# target=arm64-linux
+# host=nomad-1
+# host_class=fleet
+# date_utc=2026-08-09T12:00:00Z
+# cgf_rev=fixture
+cgf.size=100
+cgf.size_unstripped=140
+cgf.text=80
+cgf.data=10
+cgf.rodata=10

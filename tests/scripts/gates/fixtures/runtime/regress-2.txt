@@ -1,0 +1,9 @@
+date=2026-07-09T00:00:00Z
+host=kasumi
+target=x86_64-linux-gnu
+governor=performance
+runs=10
+warmup=1
+timeit_protocol=sprint-52-median-mad-v1
+x86_64-linux-gnu.matvec.O2.cgf.wall_ms_median=112
+x86_64-linux-gnu.matvec.O2.cgf.wall_ms_mad=1

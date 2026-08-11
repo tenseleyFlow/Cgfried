@@ -76,7 +76,8 @@ if [ "$governor" != unavailable ] && [ "$governor" != performance ]; then
     echo "bench: WARNING: CPU governor is '$governor', not 'performance'; result is provenance-only" >&2
 fi
 
-host=$(hostname -s 2>/dev/null || uname -n)
+host=${CGF_FLEET_HOST:-$(hostname -s 2>/dev/null || uname -n)}
+host_class=${CGF_BENCH_HOST_CLASS:-}
 date_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 if [ -n "${CGF_BENCH_REV:-}" ]; then
     rev=$CGF_BENCH_REV
@@ -97,6 +98,7 @@ mkdir -p "$WORK/raw" "$WORK/stats" "$(dirname "$RESULTS")"
 : >"$RESULTS"
 {
     echo "host=$host"
+    [ -z "$host_class" ] || echo "host_class=$host_class"
     echo "date=$date_utc"
     echo "governor=$governor"
     echo "load1=$loadavg"
@@ -107,6 +109,7 @@ mkdir -p "$WORK/raw" "$WORK/stats" "$(dirname "$RESULTS")"
     echo "timeit=$TIMEIT"
     echo "runs=$RUNS"
     echo "warmup=$WARMUP"
+    echo 'timeit_protocol=sprint-52-compile-median-mad-v1'
     echo "self_limit=$SELF_LIMIT"
     echo "sqlite_version=$SQLITE_VERSION"
     echo "sqlite_sha3=$SQLITE_SHA3"

@@ -9,16 +9,20 @@
 # tests/bench/kernels/*.c at -O2, measures only the global kernel_run symbol,
 # writes RESULT, then compares it with GOLDEN.  CGF_UPDATE_GOLDEN=1 replaces
 # GOLDEN with RESULT instead; this is the only update path.
+# CGF_KERNEL_MEASURE_ONLY=1 writes without comparing.  Gate-only callers may
+# select CGF_KERNEL_GATE_KIND=icount or text; the default checks both.
 set -eu
 
 LC_ALL=C
 export LC_ALL
 
 prog=kernel_static
+gate_kind=${CGF_KERNEL_GATE_KIND:-all}
+measure_only=${CGF_KERNEL_MEASURE_ONLY:-0}
 
 die() {
     echo "$prog: $*" >&2
-    exit 2
+    exit 3
 }
 
 gate_metrics() {
@@ -29,10 +33,16 @@ gate_metrics() {
         [ -r "$gate_file" ] || die "cannot read $gate_file"
     done
 
-    awk -v baseline_file="$gate_golden" '
-function'" "'fail(message) {
+    set +e
+    awk -v baseline_file="$gate_golden" -v gate_kind="$gate_kind" '
+function'" "'schema_fail(message) {
     print "kernel_static: " message > "/dev/stderr"
-    failed = 1
+    schema_failed = 1
+}
+
+function'" "'regression(message) {
+    print "kernel_static: " message > "/dev/stderr"
+    regressed = 1
 }
 
 function'" "'trim(value) {
@@ -49,17 +59,17 @@ function'" "'read_metric(line, file, line_no,    equals, key, value, name, kind)
 
     equals = index(line, "=")
     if (!equals) {
-        fail(file ":" line_no ": expected metric=value")
+        schema_fail(file ":" line_no ": expected metric=value")
         return
     }
     key = trim(substr(line, 1, equals - 1))
     value = trim(substr(line, equals + 1))
     if (key !~ /^[A-Za-z0-9_-]+[.](icount|padding|text)$/) {
-        fail(file ":" line_no ": invalid kernel metric " key)
+        schema_fail(file ":" line_no ": invalid kernel metric " key)
         return
     }
     if (value !~ /^[0-9]+$/) {
-        fail(file ":" line_no ": metric " key " must be a non-negative integer")
+        schema_fail(file ":" line_no ": metric " key " must be a non-negative integer")
         return
     }
 
@@ -70,13 +80,13 @@ function'" "'read_metric(line, file, line_no,    equals, key, value, name, kind)
 
     if (file == baseline_file) {
         if (key in baseline)
-            fail(file ":" line_no ": duplicate metric " key)
+            schema_fail(file ":" line_no ": duplicate metric " key)
         baseline[key] = value
         baseline_kernel[name] = 1
         baseline_kind[name SUBSEP kind] = 1
     } else {
         if (key in current)
-            fail(file ":" line_no ": duplicate metric " key)
+            schema_fail(file ":" line_no ": duplicate metric " key)
         current[key] = value
         current_kernel[name] = 1
         current_kind[name SUBSEP kind] = 1
@@ -90,11 +100,11 @@ function'" "'read_metric(line, file, line_no,    equals, key, value, name, kind)
 END {
     for (key in baseline) {
         if (!(key in current))
-            fail("missing result metric " key)
+            schema_fail("missing result metric " key)
     }
     for (key in current) {
         if (!(key in baseline))
-            fail("unexpected result metric " key)
+            schema_fail("unexpected result metric " key)
     }
 
     for (name in baseline_kernel) {
@@ -103,48 +113,84 @@ END {
             kind = kind_index == 1 ? "icount" : \
                    (kind_index == 2 ? "padding" : "text")
             if (!baseline_kind[name SUBSEP kind])
-                fail("baseline kernel " name " lacks ." kind)
+                schema_fail("baseline kernel " name " lacks ." kind)
             if (!current_kind[name SUBSEP kind])
-                fail("result kernel " name " lacks ." kind)
+                schema_fail("result kernel " name " lacks ." kind)
         }
 
         key = name ".icount"
         before = baseline[key] + 0
         after = current[key] + 0
         if (before <= 0)
-            fail("baseline metric " key " must be greater than zero")
+            schema_fail("baseline metric " key " must be greater than zero")
         if (after <= 0)
-            fail("result metric " key " must be greater than zero")
-        if ((baseline[name ".text"] + 0) <= 0)
-            fail("baseline metric " name ".text must be greater than zero")
-        if ((current[name ".text"] + 0) <= 0)
-            fail("result metric " name ".text must be greater than zero")
+            schema_fail("result metric " key " must be greater than zero")
+        text_key = name ".text"
+        text_before = baseline[text_key] + 0
+        text_after = current[text_key] + 0
+        if (text_before <= 0)
+            schema_fail("baseline metric " text_key " must be greater than zero")
+        if (text_after <= 0)
+            schema_fail("result metric " text_key " must be greater than zero")
 
         delta = after - before
         # "Above golden by more than max(2%, 2 instructions)" means the
         # increase must exceed BOTH thresholds.  Cross multiplication avoids
         # any host awk rounding or ceil/floor convention.
-        if (delta > 2 && delta * 100 > before * 2) {
-            fail(key " regressed: baseline=" before " result=" after \
-                 " (increase exceeds max(2%,2))")
-        } else {
-            passed++
+        if (gate_kind == "all" || gate_kind == "icount") {
+            if (delta > 2 && delta * 100 > before * 2) {
+                regression(key " regressed: baseline=" before " result=" after \
+                     " (increase exceeds max(2%,2))")
+            } else {
+                passed++
+            }
+        }
+
+        # Text size is a separate Sprint 54 gate: instruction counts do not
+        # expose padding, relaxation, or encoding-width growth.  Exact +5%
+        # is the boundary and therefore passes.
+        text_delta = text_after - text_before
+        if (gate_kind == "all" || gate_kind == "text") {
+            if (text_delta * 100 > text_before * 5) {
+                regression(text_key " regressed: baseline=" text_before \
+                     " result=" text_after " (increase exceeds 5%)")
+            } else {
+                passed++
+            }
         }
     }
 
     for (name in current_kernel) {
         if (!(name in baseline_kernel))
-            fail("unexpected result kernel " name)
+            schema_fail("unexpected result kernel " name)
     }
 
     if (!kernels)
-        fail("baseline contains no kernels")
-    if (failed)
+        schema_fail("baseline contains no kernels")
+    if (schema_failed)
+        exit 3
+    if (regressed)
         exit 1
-    print "kernel_static: gate pass (" passed " kernels)"
+    print "kernel_static: gate pass (" passed " comparisons)"
 }
 ' "$gate_golden" "$gate_result"
+    gate_status=$?
+    set -e
+
+    case "$gate_status" in
+    0|1|3) return "$gate_status" ;;
+    *) die "metric parser failed with status $gate_status" ;;
+    esac
 }
+
+case "$gate_kind" in
+all|icount|text) ;;
+*) die "CGF_KERNEL_GATE_KIND must be all, icount, or text" ;;
+esac
+case "$measure_only" in
+0|1) ;;
+*) die "CGF_KERNEL_MEASURE_ONLY must be 0 or 1" ;;
+esac
 
 if [ "${1:-}" = "--gate" ]; then
     [ "$#" -eq 3 ] || die "usage: $0 --gate GOLDEN RESULT"
@@ -196,12 +242,15 @@ esac
 command -v "$objdump" >/dev/null 2>&1 || die "objdump not found: $objdump"
 command -v "$readelf" >/dev/null 2>&1 || die "readelf not found: $readelf"
 
-mkdir -p "$work" "$(dirname "$result")"
+mkdir -p "$work" "$(dirname "$result")" ||
+    die "cannot create work or result directory"
 metrics_tmp=$(mktemp "$work/metrics.XXXXXX") || die "cannot create temporary metrics file"
 trap 'rm -f "$metrics_tmp"' EXIT HUP INT TERM
 
-printf '# cgfried kernel static metrics v1\n' >"$metrics_tmp"
-printf '# target=%s\n' "$target" >>"$metrics_tmp"
+printf '# cgfried kernel static metrics v1\n' >"$metrics_tmp" ||
+    die "cannot write temporary metrics file"
+printf '# target=%s\n' "$target" >>"$metrics_tmp" ||
+    die "cannot write temporary metrics file"
 
 kernel_count=0
 for source in "$kernel_dir"/*.c; do
@@ -218,7 +267,7 @@ for source in "$kernel_dir"/*.c; do
         2>"$work/$name.cc.err"; then
         echo "$prog: $name: compilation failed" >&2
         sed 's/^/  /' "$work/$name.cc.err" >&2
-        exit 1
+        exit 3
     fi
 
     symbol=$(
@@ -285,22 +334,30 @@ END {
     text_size=$((0x$text_hex))
     [ "$text_size" -gt 0 ] || die "$name: .text section has zero size"
 
-    printf '%s.icount=%s\n' "$name" "$icount" >>"$metrics_tmp"
-    printf '%s.padding=%s\n' "$name" "$padding" >>"$metrics_tmp"
-    printf '%s.text=%s\n' "$name" "$text_size" >>"$metrics_tmp"
+    {
+        printf '%s.icount=%s\n' "$name" "$icount"
+        printf '%s.padding=%s\n' "$name" "$padding"
+        printf '%s.text=%s\n' "$name" "$text_size"
+    } >>"$metrics_tmp" || die "cannot write temporary metrics file"
     kernel_count=$((kernel_count + 1))
 done
 
 [ "$kernel_count" -ge 19 ] ||
     die "expected at least 19 kernels, found $kernel_count in $kernel_dir"
 
-mv "$metrics_tmp" "$result"
+mv "$metrics_tmp" "$result" || die "cannot write result $result"
 trap - EXIT HUP INT TERM
 
 if [ "$update" -eq 1 ]; then
-    mkdir -p "$(dirname "$golden")"
-    cp "$result" "$golden"
+    mkdir -p "$(dirname "$golden")" ||
+        die "cannot create golden directory"
+    cp "$result" "$golden" || die "cannot update golden $golden"
     echo "$prog: updated $golden ($kernel_count kernels)"
+    exit 0
+fi
+
+if [ "$measure_only" -eq 1 ]; then
+    echo "$prog: wrote $result ($kernel_count kernels; gate deferred)"
     exit 0
 fi
 

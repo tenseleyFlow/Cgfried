@@ -79,6 +79,15 @@ KERNEL_A64_RESULT ?= $(BUILD)/bench/kernels-arm64-linux.txt
 KERNEL_X86_GOLDEN := .benchmarks/golden/kernels-x86_64-linux-gnu.txt
 KERNEL_A64_GOLDEN := .benchmarks/golden/kernels-arm64-linux.txt
 KERNEL_DASHBOARD ?= .benchmarks/kernels-vs-gcc.md
+SIZE_X86_RESULT ?= $(BUILD)/bench/size-x86_64-linux-gnu.txt
+SIZE_A64_RESULT ?= $(BUILD)/bench/size-arm64-linux.txt
+SIZE_X86_BASELINE := .benchmarks/baseline-size-x86_64-linux-gnu.ci.txt
+SIZE_A64_BASELINE := .benchmarks/baseline-size-arm64-linux.ci.txt
+PERF_CONFIG_DIR := ci/gates.d
+PERF_REPORT_VERSION ?= 0.0.x
+PERF_REPORT ?= .benchmarks/report-$(PERF_REPORT_VERSION).md
+PERF_REPORT_LATEST ?=
+PERF_REPORT_PREVIOUS ?=
 
 # Unit harness: explicit registry generated at build time (strict C11 — no
 # constructor attributes). The registry depends on every test_*.c, or a
@@ -97,7 +106,10 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
         test-mem-runtime test-mem-autofix test-safe-mode safe-dogfood \
         test-mem-fanalyzer bench-safe \
-        test-bench test-kernels kernels kernel-compare bench bench-gate \
+        test-bench test-perf-gates test-kernels kernels kernel-compare \
+        bench bench-gate perf-size-x86 perf-size-arm64 perf-static-x86 \
+        perf-static-arm64 perf-x86 perf-arm64 perf-summary-x86 \
+        perf-summary-arm64 perf-report fleet-perf \
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
@@ -564,6 +576,17 @@ test-bench: $(BUILD)/cgfried $(BUILD)/timeit $(BUILD)/timeit-math-test
 	CGF_BENCH_TEST_WORK=$(BUILD)/bench-test sh tests/bench/corpus_test.sh
 	CGF_SCOPE_TEST_WORK=$(BUILD)/scope-index-test \
 	    sh tests/bench/scope_index_test.sh $(BUILD)/cgfried
+	$(MAKE) BUILD=$(BUILD) test-perf-gates
+
+test-perf-gates:
+	sh tests/scripts/gates/size_gate_test.sh
+	sh tests/scripts/gates/runtime_gate_test.sh
+	sh tests/scripts/gates/reporting_test.sh
+	sh tests/scripts/gates/bench_policy_test.sh
+	sh tests/scripts/gates/perf_gate_test.sh
+	sh tests/scripts/gates/fleet_perf_test.sh
+	sh tests/scripts/gates/fleet_nightly_test.sh
+	sh scripts/check_perf_configs.sh
 
 bench: $(BUILD)/cgfried $(BUILD)/timeit
 	BUILD=$(abspath $(BUILD)) \
@@ -574,8 +597,125 @@ bench: $(BUILD)/cgfried $(BUILD)/timeit
 	CGF_SQLITE_CKSUM=$(SQLITE_AMALGAMATION_CKSUM) sh scripts/bench.sh
 
 bench-gate: bench
-	BENCH_SKIP_TIME=$(BENCH_SKIP_TIME) sh scripts/benchmark_gate.sh \
+	BENCH_GATE_KIND=rss sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/max-rss.conf -- scripts/benchmark_gate.sh \
 	    $(BENCH_BASELINE) $(BENCH_RESULTS)
+	@if [ "$(BENCH_SKIP_TIME)" != 1 ]; then \
+	    BENCH_GATE_KIND=time sh scripts/perf_gate.sh \
+	        $(PERF_CONFIG_DIR)/compile-time.conf -- \
+	        scripts/benchmark_gate.sh $(BENCH_BASELINE) $(BENCH_RESULTS); \
+	else \
+	    echo 'bench-gate: shared-CI timing comparison disabled'; \
+	fi
+
+perf-size-x86: $(BUILD)/cgfried
+	@mkdir -p $(BUILD)/bench
+	CGF_SIZE_WORK=$(BUILD)/size-gate/x86_64-linux-gnu \
+	    sh scripts/size_gate.sh --measure $(BUILD)/cgfried \
+	    x86_64-linux-gnu $(SIZE_X86_RESULT)
+	CGF_SIZE_GATE_KIND=program sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/corpus-binary-size.conf -- \
+	    scripts/size_gate.sh --gate $(SIZE_X86_BASELINE) $(SIZE_X86_RESULT)
+	CGF_SIZE_GATE_KIND=self sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/cgf-self-size.conf -- \
+	    scripts/size_gate.sh --gate $(SIZE_X86_BASELINE) $(SIZE_X86_RESULT)
+
+perf-size-arm64: $(BUILD)/cgfried
+	@mkdir -p $(BUILD)/bench
+	CGF_SIZE_WORK=$(BUILD)/size-gate/arm64-linux \
+	    sh scripts/size_gate.sh --measure $(BUILD)/cgfried \
+	    arm64-linux $(SIZE_A64_RESULT)
+	CGF_SIZE_GATE_KIND=program sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/corpus-binary-size.conf -- \
+	    scripts/size_gate.sh --gate $(SIZE_A64_BASELINE) $(SIZE_A64_RESULT)
+	CGF_SIZE_GATE_KIND=self sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/cgf-self-size.conf -- \
+	    scripts/size_gate.sh --gate $(SIZE_A64_BASELINE) $(SIZE_A64_RESULT)
+
+perf-static-x86: $(BUILD)/cgfried
+	@mkdir -p $(BUILD)/bench
+	CGF_KERNEL_MEASURE_ONLY=1 \
+	    CGF_KERNEL_WORK=$(BUILD)/kernel-static/x86_64-linux-gnu \
+	    sh scripts/kernel-static.sh $(BUILD)/cgfried x86_64-linux-gnu \
+	    $(KERNEL_X86_RESULT) $(KERNEL_X86_GOLDEN)
+	CGF_KERNEL_GATE_KIND=icount sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/kernel-icount.conf -- \
+	    scripts/kernel-static.sh --gate $(KERNEL_X86_GOLDEN) \
+	    $(KERNEL_X86_RESULT)
+	CGF_KERNEL_GATE_KIND=text sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/kernel-text.conf -- \
+	    scripts/kernel-static.sh --gate $(KERNEL_X86_GOLDEN) \
+	    $(KERNEL_X86_RESULT)
+
+perf-static-arm64: $(BUILD)/cgfried
+	@mkdir -p $(BUILD)/bench
+	CGF_KERNEL_MEASURE_ONLY=1 \
+	    CGF_KERNEL_WORK=$(BUILD)/kernel-static/arm64-linux \
+	    sh scripts/kernel-static.sh $(BUILD)/cgfried arm64-linux \
+	    $(KERNEL_A64_RESULT) $(KERNEL_A64_GOLDEN)
+	CGF_KERNEL_GATE_KIND=icount sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/kernel-icount.conf -- \
+	    scripts/kernel-static.sh --gate $(KERNEL_A64_GOLDEN) \
+	    $(KERNEL_A64_RESULT)
+	CGF_KERNEL_GATE_KIND=text sh scripts/perf_gate.sh \
+	    $(PERF_CONFIG_DIR)/kernel-text.conf -- \
+	    scripts/kernel-static.sh --gate $(KERNEL_A64_GOLDEN) \
+	    $(KERNEL_A64_RESULT)
+
+perf-x86: perf-size-x86 perf-static-x86
+
+perf-arm64: perf-size-arm64 perf-static-arm64
+
+perf-summary-x86:
+	@status=0; scripts/bench-summary.sh --target x86_64-linux-gnu \
+	    --class ci --bench $(BENCH_BASELINE) $(BENCH_RESULTS) \
+	    --size $(SIZE_X86_BASELINE) $(SIZE_X86_RESULT) \
+	    --static $(KERNEL_X86_GOLDEN) $(KERNEL_X86_RESULT) || status=$$?; \
+	    [ $$status -eq 0 ] || [ $$status -eq 1 ]
+
+perf-summary-arm64:
+	@status=0; scripts/bench-summary.sh --target arm64-linux --class arm64-ci \
+	    --bench $(BENCH_BASELINE) $(BENCH_RESULTS) \
+	    --size $(SIZE_A64_BASELINE) $(SIZE_A64_RESULT) \
+	    --static $(KERNEL_A64_GOLDEN) $(KERNEL_A64_RESULT) || status=$$?; \
+	    [ $$status -eq 0 ] || [ $$status -eq 1 ]
+
+perf-report:
+	@set -eu; \
+	set -- scripts/perf-report.sh --version $(PERF_REPORT_VERSION) \
+	    --output $(PERF_REPORT); \
+	for baseline in $$(find .benchmarks -maxdepth 1 -type f \
+	    -name 'baseline-*.txt' -print | sort); do \
+	    set -- "$$@" --baseline "$$baseline"; \
+	done; \
+	if [ -n "$(PERF_REPORT_LATEST)" ]; then \
+	    for latest in $(PERF_REPORT_LATEST); do \
+	        set -- "$$@" --latest "$$latest"; \
+	    done; \
+	else \
+	    for suffix in kasumi.txt kasumi-kernels.txt hasu.txt \
+	        hasu-kernels.txt nomad-1.txt nomad-1-kernels.txt \
+	        ci-x86_64-linux-gnu-bench.txt \
+	        ci-x86_64-linux-gnu-size.txt \
+	        ci-arm64-linux-bench.txt ci-arm64-linux-size.txt; do \
+	        latest=$$(find .benchmarks/runs -maxdepth 1 -type f \
+	            -name "*-$$suffix" -print 2>/dev/null | sort | tail -n 1); \
+	        [ -n "$$latest" ] || { \
+	            echo "perf-report: no committed latest artifact for *-$$suffix" >&2; \
+	            exit 3; \
+	        }; \
+	        set -- "$$@" --latest "$$latest"; \
+	    done; \
+	fi; \
+	set -- "$$@" --golden $(KERNEL_X86_GOLDEN) \
+	    --golden $(KERNEL_A64_GOLDEN) --dashboard $(KERNEL_DASHBOARD); \
+	if [ -n "$(PERF_REPORT_PREVIOUS)" ]; then \
+	    set -- "$$@" --previous $(PERF_REPORT_PREVIOUS); \
+	fi; \
+	"$$@"
+
+fleet-perf: $(BUILD)/cgfried $(BUILD)/timeit
+	BUILD=$(abspath $(BUILD)) sh scripts/fleet-perf.sh
 
 # Static kernel counts are deterministic and therefore safe on shared hosts.
 # Runtime comparisons remain an explicit fleet-only visibility lane.

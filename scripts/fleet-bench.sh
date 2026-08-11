@@ -6,43 +6,72 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-ROOT=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
-host=$(hostname -s 2>/dev/null || uname -n)
-stamp=$(date -u '+%Y-%m-%dT%H%M%SZ')
+ROOT=${CGF_FLEET_ROOT:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)}
+git_cmd=${CGF_FLEET_GIT_CMD:-git}
+bench_script=${CGF_FLEET_BENCH_SCRIPT:-$ROOT/scripts/bench.sh}
+gate_script=${CGF_FLEET_BENCHMARK_GATE:-$ROOT/scripts/benchmark_gate.sh}
+host=${CGF_FLEET_HOST:-$(hostname -s 2>/dev/null || uname -n)}
+stamp=${CGF_FLEET_STAMP:-$(date -u '+%Y-%m-%dT%H%M%SZ')}
 run_dir=${CGF_FLEET_RUN_DIR:-$ROOT/.benchmarks/runs}
 result=${CGF_FLEET_RESULT:-$run_dir/$stamp-$host.txt}
+commit_result=${CGF_FLEET_COMMIT:-1}
 
 case $host in
     kasumi | hasu | nomad-1) ;;
     *) echo "fleet-bench: unsupported fleet host '$host'" >&2; exit 3 ;;
+esac
+case $commit_result in
+    0 | 1) ;;
+    *) echo 'fleet-bench: CGF_FLEET_COMMIT must be 0 or 1' >&2; exit 3 ;;
 esac
 case $result in
     "$ROOT"/.benchmarks/runs/*) ;;
     *) echo 'fleet-bench: result must be inside .benchmarks/runs' >&2; exit 3 ;;
 esac
 [ -d "$ROOT/.git" ] || { echo 'fleet-bench: a git checkout is required' >&2; exit 3; }
-[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ] || {
+command -v "$git_cmd" >/dev/null 2>&1 || { echo "fleet-bench: git command not found: $git_cmd" >&2; exit 3; }
+[ -x "$bench_script" ] || { echo "fleet-bench: benchmark script is not executable: $bench_script" >&2; exit 3; }
+[ -x "$gate_script" ] || { echo "fleet-bench: gate script is not executable: $gate_script" >&2; exit 3; }
+[ -z "$($git_cmd -C "$ROOT" status --porcelain --untracked-files=normal)" ] || {
     echo 'fleet-bench: checkout must be clean before measuring' >&2
     exit 3
 }
 [ ! -e "$result" ] || { echo "fleet-bench: refusing to overwrite $result" >&2; exit 3; }
 mkdir -p "$run_dir"
-CGF_BENCH_RESULTS=$result "$ROOT/scripts/bench.sh"
+CGF_BENCH_RESULTS=$result "$bench_script"
 target=$(sed -n 's/^target=//p' "$result")
 [ -n "$target" ] && [ "$(printf '%s\n' "$target" | wc -l)" -eq 1 ] || {
     echo 'fleet-bench: result has no unique target provenance' >&2
     exit 3
 }
 baseline=$ROOT/.benchmarks/baseline-$target.$host.txt
-BENCH_SKIP_TIME=0 "$ROOT/scripts/benchmark_gate.sh" "$baseline" "$result"
+gate_status=0
+if [ -r "$baseline" ]; then
+    BENCH_SKIP_TIME=0 "$gate_script" "$baseline" "$result" ||
+        gate_status=$?
+    case $gate_status in
+        0) gate_result=pass ;;
+        1) gate_result=trip ;;
+        *) echo "fleet-bench: benchmark gate infrastructure failure (status $gate_status)" >&2; exit "$gate_status" ;;
+    esac
+else
+    gate_result=warmup
+    echo "fleet-bench: compile benchmark warmup: host=$host target=$target baseline=missing; gate not run"
+fi
 {
     echo "fleet.host=$host"
     echo "fleet.run_id=$stamp-$host"
     echo 'fleet.baseline_mutated=no'
+    echo "fleet.gate=$gate_result"
 } >>"$result"
 echo "fleet-bench: wrote $result"
-relative_result=${result#"$ROOT"/}
-git -C "$ROOT" add -- "$relative_result"
-git -C "$ROOT" commit --only -m "Record Sprint 52 benchmark on $host" -- \
-    "$relative_result"
-echo 'fleet-bench: dated result committed; baseline unchanged'
+if [ "$commit_result" -eq 1 ]; then
+    relative_result=${result#"$ROOT"/}
+    "$git_cmd" -C "$ROOT" add -- "$relative_result"
+    "$git_cmd" -C "$ROOT" commit --only -m "Record Sprint 52 benchmark on $host" -- \
+        "$relative_result"
+    echo 'fleet-bench: dated result committed; baseline unchanged'
+else
+    echo 'fleet-bench: commit deferred to caller; baseline unchanged'
+fi
+exit "$gate_status"
