@@ -328,6 +328,8 @@ function'" "'read_line(line, file, line_no,    equal, key, value, slot) {
         protocols[file] = value
     } else if (key == "governor") {
         governors[file] = value
+    } else if (key == "load1") {
+        loads[file] = value
     }
     if (key ~ /[.]cgf[.]wall_ms_median$/) {
         if (!valid_number(value))
@@ -399,6 +401,17 @@ END {
         if (file != baseline_file &&
             governors[file] != governors[baseline_file])
             fail(file ": governor does not match baseline")
+        if (!(file in loads))
+            fail(file ": missing load1")
+        else if (hosts[baseline_file] == "nomad-1") {
+            if (loads[file] != "unknown" && !valid_number(loads[file]))
+                fail(file ": nomad-1 load1 must be numeric or unknown")
+            else if (loads[file] != "unknown" && loads[file] + 0 > 0.5)
+                fail(file ": load1 exceeds controlled limit 0.5 (got " loads[file] ")")
+        } else if (!valid_number(loads[file]))
+            fail(file ": non-nomad runtime requires numeric load1")
+        else if (loads[file] + 0 > 0.5)
+            fail(file ": load1 exceeds controlled limit 0.5 (got " loads[file] ")")
     }
     if (file_count != 4)
         fail("internal file-count mismatch")

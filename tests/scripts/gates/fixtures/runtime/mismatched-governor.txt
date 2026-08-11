@@ -2,6 +2,7 @@ date=2026-07-16T00:00:00Z
 host=kasumi
 target=x86_64-linux-gnu
 governor=powersave
+load1=0.10
 runs=10
 warmup=1
 timeit_protocol=sprint-52-median-mad-v1

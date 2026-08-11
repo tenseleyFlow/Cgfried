@@ -44,17 +44,63 @@ target=$(sed -n 's/^target=//p' "$result")
     echo 'fleet-bench: result has no unique target provenance' >&2
     exit 3
 }
+self_file_count=$(sed -n 's/^self\.corpus=cgfried-src-[^:]*:\([0-9][0-9]*\)-files\(:.*\)\{0,1\}$/\1/p' "$result")
+[ -n "$self_file_count" ] &&
+    [ "$(printf '%s\n' "$self_file_count" | wc -l)" -eq 1 ] || {
+    echo 'fleet-bench: result has no unique self file-count provenance' >&2
+    exit 3
+}
 baseline=$ROOT/.benchmarks/baseline-$target.$host.txt
 gate_status=0
 if [ -r "$baseline" ]; then
-    BENCH_SKIP_TIME=0 "$gate_script" "$baseline" "$result" ||
-        gate_status=$?
-    case $gate_status in
-        0) gate_result=pass ;;
-        1) gate_result=trip ;;
-        *) echo "fleet-bench: benchmark gate infrastructure failure (status $gate_status)" >&2; exit "$gate_status" ;;
+    rss_status=0
+    BENCH_SKIP_TIME=1 BENCH_GATE_KIND=rss \
+        "$gate_script" "$baseline" "$result" || rss_status=$?
+    case $rss_status in
+        0) rss_result=pass ;;
+        1) rss_result=trip ;;
+        *) echo "fleet-bench: RSS gate infrastructure failure (status $rss_status)" >&2; exit "$rss_status" ;;
     esac
+
+    time_status=0
+    time_output=
+    if time_output=$(BENCH_SKIP_TIME=0 BENCH_GATE_KIND=time \
+        BENCH_ALLOW_PROVENANCE_ONLY=1 \
+        "$gate_script" "$baseline" "$result"); then
+        time_status=0
+    else
+        time_status=$?
+    fi
+    [ -z "$time_output" ] || printf '%s\n' "$time_output"
+    case $time_status:$time_output in
+    0:'benchmark_gate: pass ('*')') time_result=pass ;;
+    0:'benchmark_gate: provenance-only (uncontrolled timing evidence)')
+        time_result=provenance-only
+        ;;
+    1:*) time_result=trip ;;
+    3:*)
+        echo "fleet-bench: time gate infrastructure failure (status 3)" >&2
+        exit 3
+        ;;
+    *)
+        echo "fleet-bench: unexpected time gate result (status $time_status)" >&2
+        exit 3
+        ;;
+    esac
+
+    if [ "$rss_result" = trip ] || [ "$time_result" = trip ]; then
+        gate_result=trip
+        gate_status=1
+    elif [ "$time_result" = provenance-only ]; then
+        gate_result=provenance-only
+        gate_status=0
+    else
+        gate_result=pass
+        gate_status=0
+    fi
 else
+    rss_result=warmup
+    time_result=warmup
     gate_result=warmup
     echo "fleet-bench: compile benchmark warmup: host=$host target=$target baseline=missing; gate not run"
 fi
@@ -62,6 +108,9 @@ fi
     echo "fleet.host=$host"
     echo "fleet.run_id=$stamp-$host"
     echo 'fleet.baseline_mutated=no'
+    echo "fleet.self_file_count=$self_file_count"
+    echo "fleet.rss_gate=$rss_result"
+    echo "fleet.time_gate=$time_result"
     echo "fleet.gate=$gate_result"
 } >>"$result"
 echo "fleet-bench: wrote $result"

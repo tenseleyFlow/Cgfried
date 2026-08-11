@@ -25,12 +25,14 @@ run_fleet()
     run_out=$4
     run_regression=${5:-0}
     run_governor=${6:-}
+    run_load1=${7:-}
     FIXTURE_HOST=$run_host FIXTURE_SYSTEM=$run_system \
     FIXTURE_MACHINE=$run_machine \
     FIXTURE_COMPARE_LOG=$tmp/logs/compare \
     FIXTURE_GATE_LOG=$tmp/logs/gate \
     FIXTURE_GATE_REGRESSION=$run_regression \
     FIXTURE_GOVERNOR=$run_governor \
+    FIXTURE_LOAD1=$run_load1 \
     CGF_FLEET_ROOT=$tmp/root \
     CGF_FLEET_HOST=$run_host \
     CGF_FLEET_HOSTNAME_CMD=$fixtures/fake-hostname.sh \
@@ -68,9 +70,9 @@ grep -F 'target=arm64-macos' \
     fail "nomad-1 artifact carries the wrong target"
 
 rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt" "$tmp/logs/gate"
-printf 'baseline\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-arm64-macos.nomad-1.txt"
-printf 'date=2026-08-09T23:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-09T110000Z-nomad-1-kernels.txt"
-printf 'date=2026-08-09T01:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-nomad-1-kernels.txt"
+printf 'baseline\ngovernor=unavailable\nload1=unknown\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-arm64-macos.nomad-1.txt"
+printf 'date=2026-08-09T23:00:00Z\ngovernor=unavailable\nload1=unknown\n' >"$tmp/root/.benchmarks/runs/2026-08-09T110000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-09T01:00:00Z\ngovernor=unavailable\nload1=unknown\n' >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-nomad-1-kernels.txt"
 run_fleet nomad-1 Darwin arm64 "$tmp/distinct-warmup.out"
 grep -F 'baseline=present distinct_days=2/3; gate not run' \
     "$tmp/distinct-warmup.out" >/dev/null ||
@@ -78,7 +80,7 @@ grep -F 'baseline=present distinct_days=2/3; gate not run' \
 [ ! -e "$tmp/logs/gate" ] || fail "gate ran with fewer than three distinct UTC days"
 
 rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt"
-printf 'date=2026-08-08T12:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-08T12:00:00Z\ngovernor=unavailable\nload1=unknown\n' >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-nomad-1-kernels.txt"
 run_fleet nomad-1 Darwin arm64 "$tmp/gated.out"
 grep -F 'gate evaluated' "$tmp/gated.out" >/dev/null ||
     fail "gate was not invoked once baseline plus three runs existed"
@@ -106,7 +108,7 @@ grep -F 'fleet.runtime_gate_trip=yes' \
     fail "trial regression lacks its stable trip channel"
 
 rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt"
-printf 'host=nomad-1\n' >"$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt"
+printf 'host=nomad-1\ngovernor=unavailable\nload1=unknown\n' >"$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt"
 set +e
 run_fleet nomad-1 Darwin arm64 "$tmp/malformed-date.out"
 malformed_date_status=$?
@@ -117,7 +119,7 @@ grep -F 'expected one valid UTC date provenance' "$tmp/malformed-date.out" >/dev
 
 rm -f "$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt" \
     "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt"
-printf 'date=2026-08-08T12:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-08T12:00:00Z\ngovernor=unavailable\nload1=unknown\n' >"$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt"
 set +e
 run_fleet nomad-1 Darwin arm64 "$tmp/duplicate-date.out"
 duplicate_date_status=$?
@@ -128,13 +130,13 @@ grep -F 'duplicate artifact timestamp 2026-08-08T12:00:00Z' \
     fail "duplicate date provenance diagnostic is absent"
 
 rm -f "$tmp/root/.benchmarks/runs/"*-kasumi-kernels.txt "$tmp/logs/gate"
-printf 'governor=powersave\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
-printf 'date=2026-08-08T12:00:00Z\ngovernor=powersave\n' \
+printf 'governor=powersave\nload1=0.10\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+printf 'date=2026-08-08T12:00:00Z\ngovernor=powersave\nload1=0.10\n' \
     >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-kasumi-kernels.txt"
-printf 'date=2026-08-09T12:00:00Z\ngovernor=powersave\n' \
+printf 'date=2026-08-09T12:00:00Z\ngovernor=powersave\nload1=0.10\n' \
     >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-kasumi-kernels.txt"
 run_fleet kasumi Linux x86_64 "$tmp/provenance-only.out" 0 powersave
-grep -F 'performance-governor evidence and rebaseline required; gate not run' \
+grep -F 'controlled-load/performance-governor evidence and rebaseline required; gate not run' \
     "$tmp/provenance-only.out" >/dev/null ||
     fail "non-comparable Linux history lacks an explicit rebaseline report"
 grep -Fx 'fleet.runtime_gate=provenance-only' \
@@ -144,6 +146,85 @@ grep -Fx 'fleet.runtime_gate_trip=no' \
     "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt" >/dev/null ||
     fail "provenance-only Linux history was recorded as a trip"
 [ ! -e "$tmp/logs/gate" ] || fail "gate ran on non-comparable Linux history"
+
+rm -f "$tmp/root/.benchmarks/runs/"*-kasumi-kernels.txt "$tmp/logs/gate"
+printf 'host=kasumi\nload1=0.10\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+printf 'date=2026-08-08T12:00:00Z\ngovernor=performance\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-kasumi-kernels.txt"
+printf 'date=2026-08-09T12:00:00Z\ngovernor=performance\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-kasumi-kernels.txt"
+set +e
+run_fleet kasumi Linux x86_64 "$tmp/missing-governor.out" 0 performance
+missing_governor_status=$?
+set -e
+[ "$missing_governor_status" -eq 3 ] ||
+    fail "missing runtime governor provenance did not fail closed"
+grep -F 'expected exactly one governor provenance field' \
+    "$tmp/missing-governor.out" >/dev/null ||
+    fail "missing runtime governor diagnostic is absent"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt"
+printf 'governor=performance\ngovernor=performance\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+set +e
+run_fleet kasumi Linux x86_64 "$tmp/duplicate-governor.out" 0 performance
+duplicate_governor_status=$?
+set -e
+[ "$duplicate_governor_status" -eq 3 ] ||
+    fail "duplicate runtime governor provenance did not fail closed"
+grep -F 'expected exactly one governor provenance field' \
+    "$tmp/duplicate-governor.out" >/dev/null ||
+    fail "duplicate runtime governor diagnostic is absent"
+
+rm -f "$tmp/root/.benchmarks/runs/"*-kasumi-kernels.txt "$tmp/logs/gate"
+printf 'governor=performance\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+printf 'date=2026-08-08T12:00:00Z\ngovernor=performance\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-kasumi-kernels.txt"
+printf 'date=2026-08-09T12:00:00Z\ngovernor=performance\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-kasumi-kernels.txt"
+run_fleet kasumi Linux x86_64 "$tmp/high-load.out" 0 performance 0.75
+grep -F 'controlled-load/performance-governor evidence and rebaseline required; gate not run' \
+    "$tmp/high-load.out" >/dev/null ||
+    fail "high-load Linux history was not classified as provenance-only"
+grep -Fx 'fleet.runtime_gate=provenance-only' \
+    "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt" >/dev/null ||
+    fail "high-load Linux history lacks its provenance-only state"
+[ ! -e "$tmp/logs/gate" ] || fail "gate ran on high-load Linux evidence"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt"
+set +e
+run_fleet kasumi Linux x86_64 "$tmp/malformed-load.out" 0 performance unknown
+malformed_load_status=$?
+set -e
+[ "$malformed_load_status" -eq 3 ] ||
+    fail "malformed Linux load provenance did not fail closed"
+grep -F 'Linux load1 provenance must be numeric' "$tmp/malformed-load.out" >/dev/null ||
+    fail "malformed Linux load diagnostic is absent"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt"
+printf 'governor=performance\n' \
+    >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+set +e
+run_fleet kasumi Linux x86_64 "$tmp/missing-load.out" 0 performance 0.10
+missing_load_status=$?
+set -e
+[ "$missing_load_status" -eq 3 ] ||
+    fail "missing runtime load provenance did not fail closed"
+grep -F 'expected exactly one load1 provenance field' "$tmp/missing-load.out" >/dev/null ||
+    fail "missing runtime load diagnostic is absent"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt"
+printf 'governor=performance\nload1=0.10\nload1=0.10\n' \
+    >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+set +e
+run_fleet kasumi Linux x86_64 "$tmp/duplicate-load.out" 0 performance 0.10
+duplicate_load_status=$?
+set -e
+[ "$duplicate_load_status" -eq 3 ] ||
+    fail "duplicate runtime load provenance did not fail closed"
+grep -F 'expected exactly one load1 provenance field' "$tmp/duplicate-load.out" >/dev/null ||
+    fail "duplicate runtime load diagnostic is absent"
 
 set +e
 run_fleet kasumi Darwin arm64 "$tmp/mismatch.out"

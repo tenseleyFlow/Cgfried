@@ -69,6 +69,7 @@ for source in baseline boundary-1 boundary-2 boundary-3; do
     sed -e 's/^host=kasumi$/host=nomad-1/' \
         -e 's/^target=x86_64-linux-gnu$/target=arm64-macos/' \
         -e 's/^governor=performance$/governor=unavailable/' \
+        -e 's/^load1=0.10$/load1=unknown/' \
         -e 's/x86_64-linux-gnu/arm64-macos/g' \
         "$fixtures/$source.txt" >"$scratch/$source-unavailable.txt"
 done
@@ -141,6 +142,17 @@ expect 3 'non-nomad runtime requires governor=performance (got powersave)' \
     "$gate" "$fixtures/blocking.conf" "$scratch/baseline-powersave.txt" \
     "$scratch/regress-1-powersave.txt" "$scratch/regress-2-powersave.txt" \
     "$scratch/regress-3-powersave.txt"
+sed 's/^load1=0.10$/load1=0.51/' "$fixtures/regress-1.txt" \
+    >"$scratch/high-load.txt"
+expect 3 'load1 exceeds controlled limit 0.5 (got 0.51)' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/high-load.txt" "$fixtures/regress-2.txt" \
+    "$fixtures/regress-3.txt"
+sed '/^load1=/d' "$fixtures/regress-1.txt" >"$scratch/missing-load.txt"
+expect 3 'missing load1' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$scratch/missing-load.txt" "$fixtures/regress-2.txt" \
+    "$fixtures/regress-3.txt"
 expect 3 'duplicate UTC run day 2026-07-08' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/regress-1.txt" "$fixtures/same-day.txt" \

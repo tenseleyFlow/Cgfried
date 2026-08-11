@@ -19,6 +19,13 @@ set -eu
     else
         echo 'governor=performance'
     fi
+    if [ -n "${FIXTURE_LOAD1:-}" ]; then
+        echo "load1=$FIXTURE_LOAD1"
+    elif [ "${CGF_KERNEL_TARGETS:-}" = arm64-macos ]; then
+        echo 'load1=unknown'
+    else
+        echo 'load1=0.10'
+    fi
     echo "${CGF_KERNEL_TARGETS:-}.tiny.O2.cgf.wall_ms_median=1.000000"
     echo "${CGF_KERNEL_TARGETS:-}.tiny.O2.cgf.wall_ms_mad=0.010000"
 } >"$CGF_KERNEL_RUNTIME_OUTPUT"

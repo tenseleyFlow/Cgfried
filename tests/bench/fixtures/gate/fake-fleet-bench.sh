@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+: "${CGF_BENCH_RESULTS:?}"
+: "${FIXTURE_BENCH_RESULT:?}"
+cp "$FIXTURE_BENCH_RESULT" "$CGF_BENCH_RESULTS"

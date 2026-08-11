@@ -3,8 +3,8 @@
 #
 # Usage: benchmark_gate.sh BASELINE RESULT
 # BENCH_SKIP_TIME=1 disables wall and user+sys gates (shared CI), but the
-# max-RSS gate remains active.  Metric lane prefixes are deliberately opaque:
-# only the final metric-name suffix is interpreted here.
+# max-RSS gate remains active.  Timing comparisons otherwise require controlled
+# fleet evidence; provenance and workload identity are checked for every gate.
 set -eu
 
 if [ "$#" -ne 2 ]; then
@@ -16,6 +16,7 @@ baseline=$1
 result=$2
 skip_time=${BENCH_SKIP_TIME:-0}
 gate_kind=${BENCH_GATE_KIND:-all}
+allow_provenance_only=${BENCH_ALLOW_PROVENANCE_ONLY:-0}
 
 case "$skip_time" in
 0|1) ;;
@@ -31,6 +32,18 @@ all|time|rss) ;;
     exit 3
     ;;
 esac
+case "$allow_provenance_only" in
+0|1) ;;
+*)
+    echo "benchmark_gate: BENCH_ALLOW_PROVENANCE_ONLY must be 0 or 1" >&2
+    exit 3
+    ;;
+esac
+if [ "$allow_provenance_only" -eq 1 ] &&
+   { [ "$skip_time" -ne 0 ] || [ "$gate_kind" != time ]; }; then
+    echo "benchmark_gate: BENCH_ALLOW_PROVENANCE_ONLY requires BENCH_GATE_KIND=time and BENCH_SKIP_TIME=0" >&2
+    exit 3
+fi
 
 for file in "$baseline" "$result"; do
     if [ ! -r "$file" ]; then
@@ -41,7 +54,7 @@ done
 
 set +e
 awk -v baseline_file="$baseline" -v skip_time="$skip_time" \
-    -v gate_kind="$gate_kind" '
+    -v gate_kind="$gate_kind" -v allow_provenance_only="$allow_provenance_only" '
 function'" "'schema_fail(message) {
     print "benchmark_gate: " message > "/dev/stderr"
     schema_failed = 1
@@ -104,6 +117,76 @@ function'" "'require_metric(key) {
     return 1
 }
 
+function'" "'require_provenance(key, values, label) {
+    if (!(key in values) || values[key] == "") {
+        schema_fail("missing required " label " provenance " key)
+        return 0
+    }
+    return 1
+}
+
+function'" "'check_same(key,    have_baseline, have_current) {
+    have_baseline = require_provenance(key, baseline, "baseline")
+    have_current = require_provenance(key, current, "result")
+    if (have_baseline && have_current && baseline[key] != current[key])
+        schema_fail(key " provenance does not match baseline (baseline=" \
+             baseline[key] " result=" current[key] ")")
+}
+
+function'" "'check_optional_pair(key,    in_baseline, in_current) {
+    in_baseline = key in baseline
+    in_current = key in current
+    if (in_baseline != in_current) {
+        schema_fail(key " provenance must be present in both baseline and result")
+    } else if (in_baseline && baseline[key] != current[key]) {
+        schema_fail(key " provenance does not match baseline (baseline=" \
+             baseline[key] " result=" current[key] ")")
+    }
+}
+
+function'" "'check_self_corpus(values, label,    value) {
+    if (!require_provenance("self.corpus", values, label))
+        return
+    value = values["self.corpus"]
+    if (value !~ /^cgfried-src-[^:]+:[0-9]+-files(:[^:]*)*$/)
+        schema_fail(label " self.corpus must expose its revision/content and file count")
+}
+
+function'" "'classify_time(values, label,    host, governor, load, controlled) {
+    if (!require_provenance("host", values, label) ||
+        !require_provenance("governor", values, label) ||
+        !require_provenance("load1", values, label))
+        return
+    host = values["host"]
+    governor = values["governor"]
+    load = values["load1"]
+    if (host != "kasumi" && host != "hasu" && host != "nomad-1") {
+        schema_fail(label " timing evidence is not from a controlled fleet host (got " host ")")
+        return
+    }
+    if (governor !~ /^[A-Za-z0-9_.:+-]+$/) {
+        schema_fail(label " timing evidence has invalid governor provenance")
+        return
+    }
+    if (load !~ /^[0-9]+([.][0-9]+)?$/) {
+        schema_fail(label " timing evidence has invalid load1 provenance (got " load ")")
+        return
+    }
+    controlled = load + 0 <= 0.5
+    if (host == "nomad-1")
+        controlled = controlled &&
+            (governor == "performance" || governor == "unavailable")
+    else
+        controlled = controlled && governor == "performance"
+    if (!controlled) {
+        if (allow_provenance_only)
+            provenance_only = 1
+        else
+            schema_fail(label " timing evidence is not controlled (governor=" \
+                 governor " load1=" load ")")
+    }
+}
+
 function'" "'check_limit(label, baseline_value, current_value, percent,
                      baseline_total, limit) {
     baseline_total = baseline_value + 0
@@ -121,6 +204,46 @@ function'" "'check_limit(label, baseline_value, current_value, percent,
 }
 
 END {
+    check_same("target")
+    if (("host_class" in baseline) || ("host_class" in current)) {
+        check_same("host_class")
+        require_provenance("host", baseline, "baseline")
+        require_provenance("host", current, "result")
+    } else {
+        check_same("host")
+    }
+    check_same("runs")
+    check_same("warmup")
+    check_same("timeit_protocol")
+    check_same("lane_order")
+    check_same("sqlite_version")
+    check_same("sqlite_sha3")
+    check_same("sqlite_cksum")
+    check_same("sqlite3.corpus")
+    check_same("many-tu.corpus")
+    check_same("self_limit")
+    check_optional_pair("sysroot_include")
+    check_optional_pair("sysroot_crt")
+    if (("sysroot_include" in baseline) != ("sysroot_crt" in baseline))
+        schema_fail("baseline sysroot_include and sysroot_crt must be present together")
+    if (("sysroot_include" in current) != ("sysroot_crt" in current))
+        schema_fail("result sysroot_include and sysroot_crt must be present together")
+    check_self_corpus(baseline, "baseline")
+    check_self_corpus(current, "result")
+
+    if (!skip_time && (gate_kind == "all" || gate_kind == "time")) {
+        classify_time(baseline, "baseline")
+        classify_time(current, "result")
+        if (("governor" in baseline) && ("governor" in current) &&
+            baseline["governor"] != current["governor"]) {
+            if (allow_provenance_only)
+                provenance_only = 1
+            else
+                schema_fail("governor provenance does not match baseline (baseline=" \
+                     baseline["governor"] " result=" current["governor"] ")")
+        }
+    }
+
     for (key in baseline) {
         if (key ~ /maxrss_kb_max$/ &&
             (gate_kind == "all" || gate_kind == "rss")) {
@@ -130,7 +253,8 @@ END {
         } else if (!skip_time && key ~ /wall_ms_median$/ &&
                    (gate_kind == "all" || gate_kind == "time")) {
             gated++
-            if (require_metric(key))
+            have_metric = require_metric(key)
+            if (have_metric && !provenance_only)
                 check_limit(key, baseline[key], current[key], 30)
         } else if (!skip_time && key ~ /user_ms_median$/ &&
                    (gate_kind == "all" || gate_kind == "time")) {
@@ -145,7 +269,7 @@ END {
             } else {
                 have_sys = require_metric(sys_key)
             }
-            if (have_user && have_sys)
+            if (have_user && have_sys && !provenance_only)
                 check_limit(prefix "user+sys_ms_median",
                             baseline[key] + baseline[sys_key],
                             current[key] + current[sys_key], 30)
@@ -165,7 +289,10 @@ END {
         exit 3
     if (regressed)
         exit 1
-    print "benchmark_gate: pass (" passed " comparisons)"
+    if (provenance_only)
+        print "benchmark_gate: provenance-only (uncontrolled timing evidence)"
+    else
+        print "benchmark_gate: pass (" passed " comparisons)"
 }
 ' "$baseline" "$result"
 status=$?

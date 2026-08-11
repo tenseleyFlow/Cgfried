@@ -1,4 +1,19 @@
 # Synthetic two-lane baseline.  The prefixes must survive diagnostics intact.
+target=x86_64-linux-gnu
+host=kasumi
+governor=performance
+load1=0.10
+runs=10
+warmup=1
+timeit_protocol=sprint-52-compile-median-mad-v1
+lane_order=sqlite3,self,many-tu,musl
+sqlite_version=3500400
+sqlite_sha3=fixture-sha3
+sqlite_cksum=123:456
+sqlite3.corpus=sqlite-amalgamation-3500400
+self.corpus=cgfried-src-baseline:10-files
+many-tu.corpus=cgf-many-tu-v1:500x200
+self_limit=0
 self.wall_ms_median=100
 self.user_ms_median=60
 self.sys_ms_median=40
@@ -7,4 +22,3 @@ sqlite3.wall_ms_median=200
 sqlite3.user_ms_median=150
 sqlite3.sys_ms_median=50
 sqlite3.maxrss_kb_max=2000
-host=fixture

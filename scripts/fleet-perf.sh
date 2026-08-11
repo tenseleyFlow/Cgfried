@@ -155,25 +155,77 @@ while IFS= read -r run; do
     set -- "$@" "$run"
 done <"$last_three"
 
-if [ "$host" != nomad-1 ] && ! awk '
+control_status=0
+awk -v fleet_host="$host" '
     /^governor=/ {
         governor[FILENAME] = substr($0, 10)
-        count[FILENAME]++
+        governor_count[FILENAME]++
+    }
+    /^load1=/ {
+        load[FILENAME] = substr($0, 7)
+        load_count[FILENAME]++
     }
     END {
+        baseline_file = ARGV[1]
         for (file_index = 1; file_index < ARGC; file_index++) {
             file = ARGV[file_index]
-            if (count[file] != 1 || governor[file] != "performance")
-                bad = 1
+            if (governor_count[file] != 1) {
+                print "fleet-perf: " file ": expected exactly one governor provenance field" > "/dev/stderr"
+                schema_bad = 1
+            } else if (governor[file] !~ /^[A-Za-z0-9_.:+-]+$/) {
+                print "fleet-perf: " file ": invalid governor provenance" > "/dev/stderr"
+                schema_bad = 1
+            }
+            if (load_count[file] != 1) {
+                print "fleet-perf: " file ": expected exactly one load1 provenance field" > "/dev/stderr"
+                schema_bad = 1
+            } else if (fleet_host == "nomad-1") {
+                if (load[file] != "unknown" &&
+                    load[file] !~ /^[0-9]+([.][0-9]+)?$/) {
+                    print "fleet-perf: " file ": invalid nomad-1 load1 provenance" > "/dev/stderr"
+                    schema_bad = 1
+                }
+            } else if (load[file] !~ /^[0-9]+([.][0-9]+)?$/) {
+                print "fleet-perf: " file ": Linux load1 provenance must be numeric" > "/dev/stderr"
+                schema_bad = 1
+            }
         }
-        exit bad ? 1 : 0
+        if (schema_bad)
+            exit 3
+        for (file_index = 1; file_index < ARGC; file_index++) {
+            file = ARGV[file_index]
+            if (fleet_host == "nomad-1") {
+                if (governor[file] != "performance" &&
+                    governor[file] != "unavailable") {
+                    print "fleet-perf: " file ": nomad-1 governor must be performance or unavailable" > "/dev/stderr"
+                    schema_bad = 1
+                } else if (governor[file] != governor[baseline_file]) {
+                    print "fleet-perf: " file ": governor does not match baseline" > "/dev/stderr"
+                    schema_bad = 1
+                }
+            } else if (governor[file] != "performance") {
+                provenance_only = 1
+            }
+            if (load[file] != "unknown" && load[file] + 0 > 0.5)
+                provenance_only = 1
+        }
+        if (schema_bad)
+            exit 3
+        if (provenance_only)
+            exit 1
     }
-' "$baseline" "$@"; then
-    echo "$prog: kernel-runtime provenance-only: host=$host target=$target; performance-governor evidence and rebaseline required; gate not run"
+' "$baseline" "$@" || control_status=$?
+case $control_status in
+0) ;;
+1)
+    echo "$prog: kernel-runtime provenance-only: host=$host target=$target; controlled-load/performance-governor evidence and rebaseline required; gate not run"
     echo 'fleet.runtime_gate=provenance-only' >>"$result"
     echo 'fleet.runtime_gate_trip=no' >>"$result"
     exit 0
-fi
+    ;;
+3) die "cannot validate runtime control provenance" ;;
+*) die "runtime control parser failed with status $control_status" ;;
+esac
 
 if [ "$run_count" -lt 3 ]; then
     echo "$prog: kernel-runtime trial warmup: host=$host target=$target baseline=present distinct_days=$run_count/3; gate not run"
