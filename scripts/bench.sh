@@ -28,6 +28,8 @@ SELF_LIMIT=${CGF_BENCH_SELF_LIMIT:-0}
 SQLITE_VERSION=${CGF_SQLITE_VERSION:-3500400}
 SQLITE_SHA3=${CGF_SQLITE_SHA3:-9145255e83da6529e70121ee4d7a4c88fe83ca4511da0c9ed13d10842df36782}
 SQLITE_CKSUM=${CGF_SQLITE_CKSUM:-2703132855:9282866}
+SYSROOT_INCLUDE=${CGF_FLEET_SYSROOT_INCLUDE:-}
+SYSROOT_CRT=${CGF_FLEET_SYSROOT_CRT:-}
 
 die()
 {
@@ -40,6 +42,10 @@ case $RUNS:$WARMUP in
 esac
 case $SELF_LIMIT in
     *[!0-9]* | '') die "CGF_BENCH_SELF_LIMIT must be a nonnegative integer" ;;
+esac
+case ${SYSROOT_INCLUDE:+include}:${SYSROOT_CRT:+crt} in
+    : | include:crt) ;;
+    *) die "CGF_FLEET_SYSROOT_INCLUDE and CGF_FLEET_SYSROOT_CRT must be set together" ;;
 esac
 [ "$RUNS" -ge 1 ] || die "CGF_BENCH_RUNS must be >=1"
 [ "$SQLITE_VERSION" = 3500400 ] || die "unsupported SQLite corpus pin: $SQLITE_VERSION"
@@ -114,6 +120,8 @@ mkdir -p "$WORK/raw" "$WORK/stats" "$(dirname "$RESULTS")"
     echo "sqlite_version=$SQLITE_VERSION"
     echo "sqlite_sha3=$SQLITE_SHA3"
     echo "sqlite_cksum=$SQLITE_CKSUM"
+    [ -z "$SYSROOT_INCLUDE" ] || echo "sysroot_include=$SYSROOT_INCLUDE"
+    [ -z "$SYSROOT_CRT" ] || echo "sysroot_crt=$SYSROOT_CRT"
     echo 'lane_order=sqlite3,self,many-tu,musl'
 } >>"$RESULTS"
 
@@ -185,8 +193,17 @@ run_lane()
     fi
 }
 
-run_lane sqlite3 "sqlite-amalgamation-$SQLITE_VERSION" -std=gnu17 \
-    -DSQLITE_DISABLE_INTRINSIC=1 -Wno-attributes -Wno-mem \
+set -- -std=gnu17 -DSQLITE_DISABLE_INTRINSIC=1
+sqlite_corpus="sqlite-amalgamation-$SQLITE_VERSION"
+if [ "$target" = arm64-macos ]; then
+    # Current Apple SDK headers use compiler extensions intentionally outside
+    # Cgfried v0.1.  This lane measures the pinned SQLite TU in syntax-only
+    # mode, so force a narrow compatibility header rather than weakening the
+    # corpus, dropping the lane, or pretending those extensions are shipped.
+    set -- "$@" -include "$ROOT/tests/bench/compat/arm64-macos-syntax.h"
+    sqlite_corpus="$sqlite_corpus:arm64-macos-sdk-syntax-v1"
+fi
+run_lane sqlite3 "$sqlite_corpus" "$@" -Wno-attributes -Wno-mem \
     -Wno-return-type -fsyntax-only "$SQLITE"
 
 nomad_cooldown()
@@ -212,7 +229,7 @@ while IFS= read -r source; do
 done <"$SELF_MANIFEST"
 self_corpus="cgfried-src-$rev:$seen-files"
 case $target in
-arm64-linux | arm64-macos)
+arm64-linux)
     # The AArch64 OS headers spell vector-register fields as __uint128_t.
     # Integer-128 is deliberately outside the v0.1 front end, but this lane is
     # syntax-only and never observes those fields. Keep their declaration
@@ -220,6 +237,16 @@ arm64-linux | arm64-macos)
     # corpus provenance instead of silently dropping a self source file.
     set -- '-D__uint128_t=unsigned long long' "$@"
     self_corpus="$self_corpus:u128-syntax-shim=ull"
+    ;;
+arm64-macos)
+    # Keep the self corpus complete while insulating its syntax-only parse
+    # from Apple SDK declarations that require Clang preprocessor extensions
+    # or redeclare the va_list supplied by Cgfried's shipped stdarg.h.  The
+    # overlay intervenes only when a source naturally reaches those SDK
+    # headers; the forced header itself includes no unrelated SDK surface.
+    set -- -include "$ROOT/tests/bench/compat/arm64-macos-self-syntax.h" \
+        -I "$ROOT/tests/bench/compat/arm64-macos-self-overlay" "$@"
+    self_corpus="$self_corpus:arm64-macos-self-sdk-syntax-v2"
     ;;
 esac
 run_lane self "$self_corpus" -Wno-mem -Wno-return-type \

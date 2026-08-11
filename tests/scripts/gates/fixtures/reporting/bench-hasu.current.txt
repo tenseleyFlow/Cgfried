@@ -4,4 +4,6 @@ date_utc=2026-08-10T13:00:00Z
 cgf_rev=current-hasu
 cgf_tree=clean
 timeit_protocol=runs=10,warmup=1
+sysroot_include=/nix/store/current-glibc-dev/include
+sysroot_crt=/nix/store/current-glibc/lib
 self.maxrss_kb_max=840

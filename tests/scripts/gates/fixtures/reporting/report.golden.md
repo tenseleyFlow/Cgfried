@@ -30,13 +30,13 @@ Generated from committed baselines, latest fleet results, static kernel goldens,
 
 ## Provenance
 
-| kind | target | scope | source | host | host class | date | revision | tree | protocol |
-|---|---|---|---|---|---|---|---|---|---|
-| baseline | x86_64-linux-gnu | hasu | bench-hasu.base.txt | hasu | n/a | 2026-08-01T13:00:00Z | base-hasu | clean | runs=10,warmup=1 |
-| baseline | x86_64-linux-gnu | kasumi | bench.base.txt | kasumi | kasumi | 2026-08-01T12:00:00Z | base-kasumi | clean | runs=10,warmup=1 |
-| golden | x86_64-linux-gnu | static | golden.txt | n/a | n/a | n/a | n/a | n/a | n/a |
-| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 |
-| latest | x86_64-linux-gnu | kasumi | bench.current.txt | kasumi | kasumi | 2026-08-10T12:00:00Z | current-kasumi | clean | runs=10,warmup=1 |
+| kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | x86_64-linux-gnu | hasu | bench-hasu.base.txt | hasu | n/a | 2026-08-01T13:00:00Z | base-hasu | clean | runs=10,warmup=1 | /nix/store/base-glibc-dev/include | /nix/store/base-glibc/lib |
+| baseline | x86_64-linux-gnu | kasumi | bench.base.txt | kasumi | kasumi | 2026-08-01T12:00:00Z | base-kasumi | clean | runs=10,warmup=1 | n/a | n/a |
+| golden | x86_64-linux-gnu | static | golden.txt | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 | /nix/store/current-glibc-dev/include | /nix/store/current-glibc/lib |
+| latest | x86_64-linux-gnu | kasumi | bench.current.txt | kasumi | kasumi | 2026-08-10T12:00:00Z | current-kasumi | clean | runs=10,warmup=1 | n/a | n/a |
 
 ## Sprint 53 compiler comparison dashboard
 

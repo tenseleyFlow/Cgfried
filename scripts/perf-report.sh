@@ -86,7 +86,7 @@ EOF
                 provenance_key = substr(token[part], 1, token_equals - 1)
                 provenance_value = substr(token[part], token_equals + 1)
                 if (provenance_key == "target") target = provenance_value
-                if (provenance_key ~ /^(host|host_class|date|cgf_rev|cgf_tree|protocol)$/)
+                if (provenance_key ~ /^(host|host_class|date|cgf_rev|cgf_tree|protocol|sysroot_include|sysroot_crt)$/)
                     prov[provenance_key] = provenance_value
                 else if (provenance_key == "date_utc")
                     prov["date"] = provenance_value
@@ -137,6 +137,10 @@ EOF
                     }
                 }
             }
+            if ((prov["sysroot_include"] == "") != (prov["sysroot_crt"] == "")) {
+                print "perf-report: " file ": incomplete sysroot provenance" > "/dev/stderr"
+                bad = 1
+            }
             if (scope == "") scope = "static"
             if (scope !~ /^[A-Za-z0-9_.:-]+$/) {
                 print "perf-report: " file ": invalid provenance scope" > "/dev/stderr"
@@ -151,9 +155,11 @@ EOF
                     print kind "\t" target "\t" scope "\t" key "\t" values[key] "\t" source >> metrics
             }
             printf "%s\t%s\t%s\t%s", kind, target, scope, source >> provenance
-            for (i = 1; i <= 6; i++) {
+            for (i = 1; i <= 8; i++) {
                 k = (i == 1 ? "host" : i == 2 ? "host_class" : i == 3 ? "date" :
-                     i == 4 ? "cgf_rev" : i == 5 ? "cgf_tree" : "protocol")
+                     i == 4 ? "cgf_rev" : i == 5 ? "cgf_tree" :
+                     i == 6 ? "protocol" : i == 7 ? "sysroot_include" :
+                     "sysroot_crt")
                 printf "\t%s", (prov[k] != "" ? prov[k] : "n/a") >> provenance
             }
             print "" >> provenance
@@ -223,9 +229,9 @@ cut -f2 "$tmp/metrics.sorted" | sort -u >"$tmp/targets"
     echo
     echo '## Provenance'
     echo
-    echo '| kind | target | scope | source | host | host class | date | revision | tree | protocol |'
-    echo '|---|---|---|---|---|---|---|---|---|---|'
-    sort -t '	' -k1,1 -k2,2 -k3,3 -k4,4 "$tmp/provenance" | awk -F '	' '{ printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",$1,$2,$3,$4,$5,$6,$7,$8,$9,$10 }'
+    echo '| kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT |'
+    echo '|---|---|---|---|---|---|---|---|---|---|---|---|'
+    sort -t '	' -k1,1 -k2,2 -k3,3 -k4,4 "$tmp/provenance" | awk -F '	' '{ printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12 }'
     echo
     echo '## Sprint 53 compiler comparison dashboard'
     echo

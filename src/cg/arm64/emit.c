@@ -464,7 +464,9 @@ static void emit_addr(Emit *e, const A64Inst *in)
      * anything the optimizer folded into one operand. It has to ride BOTH
      * halves of the pair: adrp computes page(S+A) and the lo12 adds
      * (S+A) & 0xfff, so spelling it on only one of them lands somewhere
-     * between the two. GNU as takes `sym+off` in both positions. */
+     * between the two. ELF takes `sym+off` in both positions.  Mach-O puts
+     * the relocation modifier before the arithmetic (`sym@PAGE+off`): Apple
+     * as accepts either order, but the bundled afs-as accepts only this one. */
     addend[0] = '\0';
     if (in->nops == 3) {
         if (in->ops[2].kind != A64O_IMM)
@@ -496,8 +498,8 @@ static void emit_addr(Emit *e, const A64Inst *in)
                 emit_addr_addend(e, reg, in->ops[2].imm);
             return;
         }
-        buf_printf(e->out, "\tadrp\t%s, %s%s@PAGE\n", reg, sym, addend);
-        buf_printf(e->out, "\tadd\t%s, %s, %s%s@PAGEOFF\n", reg, reg, sym,
+        buf_printf(e->out, "\tadrp\t%s, %s@PAGE%s\n", reg, sym, addend);
+        buf_printf(e->out, "\tadd\t%s, %s, %s@PAGEOFF%s\n", reg, reg, sym,
                    addend);
         return;
     }

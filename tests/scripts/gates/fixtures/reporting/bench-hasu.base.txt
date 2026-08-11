@@ -4,4 +4,6 @@
 # cgf_rev=base-hasu
 # cgf_tree=clean
 # timeit_protocol=runs=10,warmup=1
+# sysroot_include=/nix/store/base-glibc-dev/include
+# sysroot_crt=/nix/store/base-glibc/lib
 self.maxrss_kb_max=800

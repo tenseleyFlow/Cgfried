@@ -80,7 +80,7 @@ cmp "$fixtures/report.golden.md" "$tmp/report-one.md" || fail "release report go
 cmp "$tmp/report-one.md" "$tmp/report-two.md" || fail "release report is nondeterministic"
 grep -F '| hasu | self.maxrss_kb_max | 800 | 840 | +5.0% | n/a |' \
     "$tmp/report-one.md" >/dev/null || fail "second fleet host was not reported"
-grep -F '| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 |' \
+grep -F '| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 | /nix/store/current-glibc-dev/include | /nix/store/current-glibc/lib |' \
     "$tmp/report-one.md" >/dev/null || fail "hasu provenance was incomplete"
 grep -F '<!-- perf-metric x86_64-linux-gnu kasumi self.maxrss_kb_max 1200 -->' \
     "$tmp/report-one.md" >/dev/null || fail "prior-report marker omitted host scope"
@@ -94,6 +94,13 @@ expect_status 3 "$report" --version 0.0.1 --output "$tmp/missing-provenance-repo
     --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
 grep -F 'baseline/latest input lacks protocol provenance' "$tmp/err" >/dev/null || \
     fail "release report accepted incomplete provenance"
+sed '/^sysroot_crt=/d' "$fixtures/bench-hasu.current.txt" \
+    >"$tmp/incomplete-sysroot.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/incomplete-sysroot-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/incomplete-sysroot.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'incomplete sysroot provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted half of a sysroot identity"
 sed '/^# target=/d' "$fixtures/bench-hasu.base.txt" \
     >"$tmp/baseline-x86_64-linux-gnu.hasu.txt"
 expect_status 3 "$report" --version 0.0.1 --output "$tmp/missing-target-report.md" \

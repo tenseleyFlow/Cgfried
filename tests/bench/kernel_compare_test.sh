@@ -147,11 +147,17 @@ CGF_KERNEL_COOLDOWN_SECONDS=0 \
 CGF_KERNEL_RUNTIME_HOST=nomad-1 \
 CGF_KERNEL_RUNTIME_OUTPUT=$tmp/macos-runtime.txt \
 CGF_KERNEL_RUNTIME_ONLY=1 \
+CGF_FLEET_SYSROOT_INCLUDE=/nix/store/fixture-glibc-dev/include \
+CGF_FLEET_SYSROOT_CRT=/nix/store/fixture-glibc/lib \
     "$compare" >"$tmp/runtime-only.out"
 grep -F 'target=arm64-macos' "$tmp/macos-runtime.txt" >/dev/null ||
     fail "Darwin arm64 runtime was not recorded as arm64-macos"
 grep -F 'arm64-macos.tiny.O2.cgf.wall_ms_median=1.000000' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime-only metric is missing"
+grep -F 'sysroot_include=/nix/store/fixture-glibc-dev/include' \
+    "$tmp/macos-runtime.txt" >/dev/null || fail "runtime include provenance is missing"
+grep -F 'sysroot_crt=/nix/store/fixture-glibc/lib' \
+    "$tmp/macos-runtime.txt" >/dev/null || fail "runtime CRT provenance is missing"
 [ ! -e "$tmp/work-runtime/static.txt" ] ||
     fail "runtime-only mode traversed static measurement"
 [ ! -e "$tmp/work-runtime/dashboard.tmp.md" ] ||

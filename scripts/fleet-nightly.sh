@@ -16,6 +16,9 @@ repo_url=${CGF_FLEET_REPO_URL:-https://github.com/tenseleyFlow/Cgfried.git}
 checkout=${CGF_FLEET_CHECKOUT:-${XDG_STATE_HOME:-$HOME/.local/state}/cgfried-fleet/trunk}
 push=${CGF_FLEET_PUSH:-0}
 host=${CGF_FLEET_HOST:-}
+os_release=${CGF_FLEET_OS_RELEASE:-/etc/os-release}
+nix_include=${CGF_FLEET_NIX_INCLUDE_DIR:-}
+nix_crt_dir=${CGF_FLEET_NIX_CRT_DIR:-}
 
 die()
 {
@@ -27,6 +30,10 @@ die()
 case $push in
 0 | 1) ;;
 *) die "CGF_FLEET_PUSH must be 0 or 1" ;;
+esac
+case ${nix_include:+include}:${nix_crt_dir:+crt} in
+: | include:crt) ;;
+*) die "CGF_FLEET_NIX_INCLUDE_DIR and CGF_FLEET_NIX_CRT_DIR must be set together" ;;
 esac
 for command_path in "$git_cmd" "$make_cmd" "$uname_cmd" "$date_cmd"; do
     command -v "$command_path" >/dev/null 2>&1 || die "required command not found: $command_path"
@@ -79,6 +86,64 @@ fi
 "$make_cmd" -C "$checkout" "CC=$cc" "$@" || die "portable fleet build failed"
 [ -z "$($git_cmd -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
     die "dedicated checkout became dirty during build"
+
+# NixOS deliberately has no FHS /usr/include or /usr/lib. The compiler must
+# still see one coherent target root: construct an ignored symlink sysroot from
+# the active GCC wrapper's glibc inputs, then route both measurement lanes
+# through a tiny argv-preserving wrapper. Store-hash-specific directories make
+# system upgrades additive instead of silently retargeting an old baseline.
+if [ "$host:$system" = hasu:Linux ]; then
+    if [ -z "$nix_include" ] && [ -r "$os_release" ] &&
+       grep -Eq '^ID=("?nixos"?)$' "$os_release"; then
+        nix_include=$(
+            "$cc" -E -v -xc /dev/null -o /dev/null 2>&1 |
+                awk '$1 ~ /^\/nix\/store\/[^/]+-glibc-[^/]+-dev\/include$/ {
+                         found[$1] = 1
+                     }
+                     END {
+                         for (path in found) { count++; result = path }
+                         if (count != 1) exit 3
+                         print result
+                     }'
+        ) || die "cannot discover the unique NixOS glibc include directory"
+        nix_crt=$("$cc" -print-file-name=crt1.o) ||
+            die "cannot query the NixOS crt directory"
+        case $nix_crt in
+        /*/crt1.o) nix_crt_dir=$(dirname "$nix_crt") ;;
+        *) die "GCC did not resolve the NixOS crt1.o path: $nix_crt" ;;
+        esac
+    fi
+    if [ -n "$nix_include" ]; then
+        [ -d "$nix_include" ] || die "NixOS include directory is missing: $nix_include"
+        [ -r "$nix_crt_dir/crt1.o" ] || die "NixOS crt1.o is missing: $nix_crt_dir/crt1.o"
+        include_store=$(basename "$(dirname "$nix_include")")
+        crt_store=$(basename "$(dirname "$nix_crt_dir")")
+        fleet_sysroot=$checkout/build/fleet-sysroots/$include_store--$crt_store
+        mkdir -p "$fleet_sysroot/usr/lib"
+        if [ ! -e "$fleet_sysroot/usr/include" ]; then
+            ln -s "$nix_include" "$fleet_sysroot/usr/include" ||
+                die "cannot link the NixOS include directory into the fleet sysroot"
+        fi
+        if [ ! -e "$fleet_sysroot/usr/lib/x86_64-linux-gnu" ]; then
+            ln -s "$nix_crt_dir" "$fleet_sysroot/usr/lib/x86_64-linux-gnu" ||
+                die "cannot link the NixOS library directory into the fleet sysroot"
+        fi
+        [ "$(readlink "$fleet_sysroot/usr/include")" = "$nix_include" ] ||
+            die "fleet sysroot include link does not match the active NixOS toolchain"
+        [ "$(readlink "$fleet_sysroot/usr/lib/x86_64-linux-gnu")" = "$nix_crt_dir" ] ||
+            die "fleet sysroot library link does not match the active NixOS toolchain"
+        CGF_FLEET_REAL_CGF=$checkout/build/cgfried
+        CGF_FLEET_SYSROOT=$fleet_sysroot
+        CGF_FLEET_SYSROOT_INCLUDE=$nix_include
+        CGF_FLEET_SYSROOT_CRT=$nix_crt_dir
+        CGF_BENCH_CGF=$checkout/scripts/fleet-cgf-sysroot.sh
+        CGF_KERNEL_CGF=$checkout/scripts/fleet-cgf-sysroot.sh
+        export CGF_FLEET_REAL_CGF CGF_FLEET_SYSROOT
+        export CGF_FLEET_SYSROOT_INCLUDE CGF_FLEET_SYSROOT_CRT
+        export CGF_BENCH_CGF CGF_KERNEL_CGF
+        echo "$prog: using NixOS fleet sysroot $fleet_sysroot"
+    fi
+fi
 
 bench=${CGF_FLEET_BENCH:-$checkout/scripts/fleet-bench.sh}
 perf=${CGF_FLEET_PERF:-$checkout/scripts/fleet-perf.sh}

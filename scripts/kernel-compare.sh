@@ -34,6 +34,8 @@ runs=${CGF_KERNEL_RUNS:-10}
 warmup=${CGF_KERNEL_WARMUP:-1}
 cooldown=${CGF_KERNEL_COOLDOWN_SECONDS:-120}
 timeit=${CGF_KERNEL_TIMEIT:-$build/timeit}
+sysroot_include=${CGF_FLEET_SYSROOT_INCLUDE:-}
+sysroot_crt=${CGF_FLEET_SYSROOT_CRT:-}
 
 die()
 {
@@ -70,6 +72,10 @@ esac
 case $runtime_only in
 0 | 1) ;;
 *) die "CGF_KERNEL_RUNTIME_ONLY must be 0 or 1" ;;
+esac
+case ${sysroot_include:+include}:${sysroot_crt:+crt} in
+: | include:crt) ;;
+*) die "CGF_FLEET_SYSROOT_INCLUDE and CGF_FLEET_SYSROOT_CRT must be set together" ;;
 esac
 [ "$runtime_only" -eq 0 ] || runtime=1
 case $minimum:$runs:$warmup:$cooldown in
@@ -379,6 +385,8 @@ measure_runtime()
         echo "cgf_tree=$runtime_tree"
         echo "cgf_version=$(one_line "$cgf" --version)"
         echo "gcc_version=$(one_line "$gcc_tool" --version)"
+        [ -z "$sysroot_include" ] || echo "sysroot_include=$sysroot_include"
+        [ -z "$sysroot_crt" ] || echo "sysroot_crt=$sysroot_crt"
         echo 'timeit_protocol=sprint-52-median-mad-v1'
     } >"$runtime_tmp"
     # shellcheck disable=SC2086

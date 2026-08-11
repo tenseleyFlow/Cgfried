@@ -12,6 +12,24 @@ records this exact `sqlite3.c` SHA3-256 digest:
 The benchmark verifies the exact vendored bytes with the portable POSIX
 `cksum` pair `2703132855:9282866` before timing, then records both identities.
 
+On `arm64-macos`, the syntax-only lane force-includes
+`tests/bench/compat/arm64-macos-syntax.h`. The current Apple SDK exposes
+Clang-only builtins, `_Float16`, fixed-underlying enums, and `__uint128_t` in
+headers reached by SQLite. The compatibility header takes SQLite's documented
+non-zone allocator path and supplies parse-only declarations for the remaining
+SDK boundary; it does not claim those extensions as compiler features. Results
+record the suffix `arm64-macos-sdk-syntax-v1`, so this target-specific corpus
+environment cannot be confused with an unmodified SDK parse.
+
+The complete self lane has a separate
+`tests/bench/compat/arm64-macos-self-syntax.h` forced include. It resolves the
+Clang-only `__has_include` expressions without changing any tracked self
+source or dropping one from measurement. An `include_next` overlay handles the
+SDK's second `va_list` typedef and private XNU layout assertions only when a
+source naturally reaches those headers; no Mach header is injected into every
+timed translation unit. Its provenance suffix is
+`arm64-macos-self-sdk-syntax-v2`.
+
 The file is public-domain SQLite deliverable code.  The benchmark defines
 `SQLITE_DISABLE_INTRINSIC=1` because Cgfried intentionally has no generic
 `__builtin_*` compatibility surface yet.  It disables the default flow and

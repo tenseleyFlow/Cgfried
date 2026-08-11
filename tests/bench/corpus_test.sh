@@ -28,6 +28,9 @@ sqlite_cksum=$(cksum "$ROOT/tests/bench/corpus/sqlite3/sqlite3.c" |
     exit 1
 }
 
+CGF_BENCH_SCRIPT_TEST_WORK=$WORK/script \
+    sh "$ROOT/tests/bench/bench_script_test.sh"
+
 CGF_BENCH_TU_COUNT=500 CGF_BENCH_TU_LINES=200 \
     "$ROOT/scripts/gen-tu-corpus.sh" "$WORK/a" >/dev/null
 CGF_BENCH_TU_COUNT=500 CGF_BENCH_TU_LINES=200 \
