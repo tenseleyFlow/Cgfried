@@ -7,6 +7,7 @@ export LC_ALL
 root=$(CDPATH='' cd "$(dirname "$0")/../../.." && pwd -P)
 nightly=${1:-$root/scripts/fleet-nightly.sh}
 installer=${2:-$root/scripts/install-fleet-perf-schedule.sh}
+performance_mode=${3:-$root/scripts/fleet-performance-mode.sh}
 fixtures=$root/tests/scripts/gates/fixtures/fleet
 tmp=${TMPDIR:-/tmp}/cgf-fleet-nightly-test.$$
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
@@ -161,6 +162,12 @@ grep -F 'OnCalendar=*-*-* 01:15:00 UTC' "$tmp/systemd.out" >/dev/null ||
     fail "kasumi systemd stagger is wrong"
 grep -F 'systemctl --user enable --now' "$tmp/systemd.out" >/dev/null ||
     fail "systemd user activation is missing"
+grep -F "ExecStartPre=$performance_mode enter kasumi" "$tmp/systemd.out" >/dev/null ||
+    fail "systemd service does not enter controlled performance mode"
+grep -F "ExecStopPost=$performance_mode leave kasumi" "$tmp/systemd.out" >/dev/null ||
+    fail "systemd service does not restore the previous power profile"
+grep -F '/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/run/wrappers/bin:' \
+    "$tmp/systemd.out" >/dev/null || fail "systemd service omits the NixOS command paths"
 [ ! -e "$tmp/config/systemd/user/cgfried-fleet-perf.timer" ] ||
     fail "systemd dry run wrote a timer"
 
@@ -171,6 +178,8 @@ grep -F '<key>Minute</key><integer>55</integer>' "$tmp/launchd.out" >/dev/null |
     fail "nomad-1 LaunchAgent stagger is wrong"
 grep -F 'launchctl bootstrap gui/UID' "$tmp/launchd.out" >/dev/null ||
     fail "LaunchAgent user activation is missing"
+! grep -F 'ExecStartPre=' "$tmp/launchd.out" >/dev/null ||
+    fail "Darwin schedule unexpectedly uses the Linux performance-mode helper"
 [ ! -e "$tmp/home/Library/LaunchAgents/com.tenseleyflow.cgfried-fleet-perf.plist" ] ||
     fail "LaunchAgent dry run wrote a plist"
 
@@ -185,6 +194,12 @@ CGF_FLEET_SYSTEMCTL_CMD=$fixtures/fake-systemctl.sh \
     fail "Linux user units were not installed"
 grep -F -- '--user enable --now cgfried-fleet-perf.timer' "$tmp/scheduler.log" >/dev/null ||
     fail "Linux user timer was not enabled"
+grep -F "ExecStartPre=$performance_mode enter hasu" \
+    "$tmp/config-install/systemd/user/cgfried-fleet-perf.service" >/dev/null ||
+    fail "installed Linux service omits performance-mode entry"
+grep -F "ExecStopPost=$performance_mode leave hasu" \
+    "$tmp/config-install/systemd/user/cgfried-fleet-perf.service" >/dev/null ||
+    fail "installed Linux service omits power-profile restoration"
 
 : >"$tmp/scheduler.log"
 HOME=$tmp/home-install FIXTURE_SYSTEM=Darwin FIXTURE_MACHINE=arm64 \
@@ -197,6 +212,112 @@ CGF_FLEET_ID_CMD=$fixtures/fake-id.sh \
     fail "LaunchAgent was not installed"
 grep -F 'bootstrap gui/501' "$tmp/scheduler.log" >/dev/null ||
     fail "LaunchAgent was not bootstrapped in the user domain"
+
+mkdir -p "$tmp/governors/cpu0/cpufreq" "$tmp/governors/cpu1/cpufreq"
+printf '%s\n' balanced >"$tmp/power-profile"
+printf '%s\n' powersave >"$tmp/governors/cpu0/cpufreq/scaling_governor"
+printf '%s\n' powersave >"$tmp/governors/cpu1/cpufreq/scaling_governor"
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/power-state \
+    "$performance_mode" enter kasumi >"$tmp/performance-enter.out"
+[ "$(cat "$tmp/power-profile")" = performance ] ||
+    fail "performance-mode helper did not select the performance profile"
+[ "$(cat "$tmp/governors/cpu0/cpufreq/scaling_governor")" = performance ] &&
+[ "$(cat "$tmp/governors/cpu1/cpufreq/scaling_governor")" = performance ] ||
+    fail "performance-mode helper did not verify controlled governors"
+[ "$(cat "$tmp/power-state/power-profile.kasumi")" = balanced ] ||
+    fail "performance-mode helper did not save the prior profile"
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/power-state \
+    "$performance_mode" leave kasumi >"$tmp/performance-leave.out"
+[ "$(cat "$tmp/power-profile")" = balanced ] ||
+    fail "performance-mode helper did not restore the prior profile"
+[ ! -e "$tmp/power-state/power-profile.kasumi" ] ||
+    fail "performance-mode helper retained stale restoration state"
+
+# Leaving without saved state is a safe no-op, including after an ExecStartPre
+# failure that happened before the state file could be created.
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/no-power-state \
+    "$performance_mode" leave kasumi
+
+# A failed profile transition keeps the prior-profile state recoverable.
+set +e
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+FIXTURE_POWER_PROFILE_FAIL_SET=performance \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/fail-power-state \
+    "$performance_mode" enter kasumi >"$tmp/performance-fail.out" \
+    2>"$tmp/performance-fail.err"
+power_fail_status=$?
+set -e
+[ "$power_fail_status" -eq 3 ] || fail "failed power-profile transition did not fail closed"
+[ "$(cat "$tmp/fail-power-state/power-profile.kasumi")" = balanced ] ||
+    fail "failed power-profile transition lost its restoration state"
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/fail-power-state \
+    "$performance_mode" leave kasumi >/dev/null
+
+# A profile command that claims success but leaves nonperformance governors is
+# rejected, and ExecStopPost can still restore the saved profile.
+set +e
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+FIXTURE_POWER_PROFILE_GOVERNOR_OVERRIDE=powersave \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/mismatch-power-state \
+    "$performance_mode" enter kasumi >"$tmp/performance-mismatch.out" \
+    2>"$tmp/performance-mismatch.err"
+power_mismatch_status=$?
+set -e
+[ "$power_mismatch_status" -eq 3 ] ||
+    fail "governor mismatch after performance selection did not fail closed"
+grep -F "CPU scaling governor is 'powersave', expected 'performance'" \
+    "$tmp/performance-mismatch.err" >/dev/null ||
+    fail "governor mismatch diagnostic is missing"
+[ "$(cat "$tmp/mismatch-power-state/power-profile.kasumi")" = balanced ] ||
+    fail "governor mismatch lost its restoration state"
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/mismatch-power-state \
+    "$performance_mode" leave kasumi >/dev/null
+
+# A stale valid state is preserved across entry instead of being overwritten.
+mkdir -p "$tmp/stale-power-state"
+printf '%s\n' power-saver >"$tmp/stale-power-state/power-profile.kasumi"
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/stale-power-state \
+    "$performance_mode" enter kasumi >/dev/null
+[ "$(cat "$tmp/stale-power-state/power-profile.kasumi")" = power-saver ] ||
+    fail "stale restoration state was overwritten"
+FIXTURE_POWER_PROFILE_STATE=$tmp/power-profile \
+FIXTURE_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_PROFILE_CMD=$fixtures/fake-powerprofilesctl.sh \
+CGF_FLEET_GOVERNOR_ROOT=$tmp/governors \
+CGF_FLEET_POWER_STATE_DIR=$tmp/stale-power-state \
+    "$performance_mode" leave kasumi >/dev/null
+[ "$(cat "$tmp/power-profile")" = power-saver ] ||
+    fail "stale saved profile was not restored"
 
 mkdir -p "$tmp/bench-root/.git" "$tmp/bench-root/.benchmarks/runs"
 printf 'baseline\n' >"$tmp/bench-root/.benchmarks/baseline-x86_64-linux-gnu.kasumi.txt"

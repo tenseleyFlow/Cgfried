@@ -8,6 +8,7 @@ export LC_ALL
 prog=install-fleet-perf-schedule
 root=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
 nightly=${CGF_FLEET_NIGHTLY:-$root/scripts/fleet-nightly.sh}
+performance_mode=${CGF_FLEET_PERFORMANCE_MODE:-$root/scripts/fleet-performance-mode.sh}
 uname_cmd=${CGF_FLEET_UNAME_CMD:-uname}
 systemctl_cmd=${CGF_FLEET_SYSTEMCTL_CMD:-systemctl}
 launchctl_cmd=${CGF_FLEET_LAUNCHCTL_CMD:-launchctl}
@@ -42,11 +43,13 @@ case $host:$system:$machine in
 kasumi:Linux:x86_64 | hasu:Linux:x86_64 | nomad-1:Darwin:arm64 | nomad-1:Darwin:aarch64) ;;
 *) die "$host scheduler topology mismatch: got $system $machine" ;;
 esac
+[ "$system" != Linux ] || [ -x "$performance_mode" ] ||
+    die "performance-mode helper is not executable: $performance_mode"
 
 # Scheduler formats have different escaping rules. Fleet deployment paths are
 # deliberately machine-owned and whitespace-free; reject ambiguity up front.
-case $nightly:$checkout in
-*[!A-Za-z0-9_./:@+-]*) die "nightly and checkout paths must be scheduler-safe (no whitespace or markup)" ;;
+case $nightly:$performance_mode:$checkout in
+*[!A-Za-z0-9_./:@+-]*) die "runner, helper, and checkout paths must be scheduler-safe (no whitespace or markup)" ;;
 esac
 
 render_systemd_service()
@@ -61,8 +64,10 @@ Type=oneshot
 Environment=CGF_FLEET_HOST=$host
 Environment=CGF_FLEET_CHECKOUT=$checkout
 Environment=CGF_FLEET_PUSH=$push
-Environment=PATH=$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/run/wrappers/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=$performance_mode enter $host
 ExecStart=$nightly
+ExecStopPost=$performance_mode leave $host
 EOF
 }
 
