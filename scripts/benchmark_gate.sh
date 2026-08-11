@@ -230,6 +230,14 @@ END {
     check_self_corpus(current, "result")
 
     if (!skip_time && (gate_kind == "all" || gate_kind == "time")) {
+        baseline_shared = baseline["host_class"] == "ci" ||
+                          baseline["host_class"] == "shared-ci" ||
+                          baseline["host_class"] == "arm64-ci"
+        current_shared = current["host_class"] == "ci" ||
+                         current["host_class"] == "shared-ci" ||
+                         current["host_class"] == "arm64-ci"
+        if (baseline_shared || current_shared)
+            schema_fail("shared-CI timing evidence is ineligible; set BENCH_SKIP_TIME=1")
         control_keys[1] = "governor"
         control_keys[2] = "power_profile"
         control_keys[3] = "scaling_driver"

@@ -60,12 +60,20 @@ desktop housekeeping held their one-minute load near 2.8.
   `energy_performance_preference=performance`. Artifacts that predate this
   complete power tuple remain provenance-only and cannot silently enter a
   timing gate.
-- `make test-perf-gates`, the 29-case control helper, the 56-case compile
+- `make test-perf-gates`, the 29-case control helper, the 58-case compile
   gate, the 35-case runtime gate,
   kernel comparison tests, ShellCheck, the POSIX-shell check, formatting, and
   `git diff --check` all passed after the control-model fixes. Independent
   review approved the implementation and directly reproduced the two repaired
   no-baseline/empty-field failures.
+- The first post-v2 shared-CI run exposed one integration regression:
+  `bench.sh` tried to classify GitHub's ephemeral runner hostname as a fleet
+  host. Recognized `ci`, `shared-ci`, and `arm64-ci` classes now take an
+  explicit RSS-only producer path that requires `BENCH_SKIP_TIME=1`, omits
+  fleet-only v2 provenance, and never invokes the fleet controller. The gate
+  independently refuses those classes in every timing mode, including a
+  fixture with forged controlled-looking Kasumi provenance; unknown classes
+  still fail closed through the fleet controller.
 - `scripts/bench-summary.sh`, `perf-report.sh`, and `bench-trend.sh` emit
   deterministic Markdown with signed deltas, named thresholds, host-scoped
   provenance, prior-report markers, and honest report-only classifications.

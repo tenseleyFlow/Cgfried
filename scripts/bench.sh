@@ -2,8 +2,10 @@
 # Sprint 52 compile-speed and memory measurement protocol.
 #
 # Noise-floor contract:
-#   * require the v2 capacity/idle control classification unless
-#     CGF_BENCH_FORCE=1 records a provenance-only sample;
+#   * require the v2 capacity/idle control classification for fleet evidence
+#     unless CGF_BENCH_FORCE=1 records a provenance-only fleet sample;
+#   * recognized shared-CI classes collect RSS without inventing fleet control
+#     provenance; their timing remains ineligible for comparison;
 #   * record the Linux profile/driver/governor/EPP state and warn when it is
 #     not an effective performance configuration;
 #   * run lanes in the fixed sqlite3, self, many-tu, musl order;
@@ -27,6 +29,7 @@ WORK=${CGF_BENCH_WORK:-$BUILD/bench}
 RESULTS=${CGF_BENCH_RESULTS:-$WORK/results.txt}
 RUNS=${CGF_BENCH_RUNS:-10}
 WARMUP=${CGF_BENCH_WARMUP:-1}
+SKIP_TIME=${BENCH_SKIP_TIME:-0}
 SELF_LIMIT=${CGF_BENCH_SELF_LIMIT:-0}
 SQLITE_VERSION=${CGF_SQLITE_VERSION:-3500400}
 SQLITE_SHA3=${CGF_SQLITE_SHA3:-9145255e83da6529e70121ee4d7a4c88fe83ca4511da0c9ed13d10842df36782}
@@ -43,6 +46,10 @@ die()
 case $RUNS:$WARMUP in
     *[!0-9:]* | :* | *:) die "runs and warmup must be nonnegative integers" ;;
 esac
+case $SKIP_TIME in
+    0 | 1) ;;
+    *) die "BENCH_SKIP_TIME must be 0 or 1" ;;
+esac
 case $SELF_LIMIT in
     *[!0-9]* | '') die "CGF_BENCH_SELF_LIMIT must be a nonnegative integer" ;;
 esac
@@ -58,7 +65,6 @@ esac
     die "SQLite POSIX checksum does not match the vendored corpus pin"
 [ -x "$CGF" ] || die "compiler is not executable: $CGF"
 [ -x "$TIMEIT" ] || die "timer is not executable: $TIMEIT"
-[ -x "$CONTROL" ] || die "control helper is not executable: $CONTROL"
 SQLITE=$ROOT/tests/bench/corpus/sqlite3/sqlite3.c
 [ -f "$SQLITE" ] || die "missing pinned SQLite amalgamation: $SQLITE"
 sqlite_cksum=$(cksum "$SQLITE" | awk '{ print $1 ":" $2 }')
@@ -91,52 +97,76 @@ if command -v powerprofilesctl >/dev/null 2>&1; then
 fi
 
 host=${CGF_FLEET_HOST:-$(hostname -s 2>/dev/null || uname -n)}
+host_class=${CGF_BENCH_HOST_CLASS:-}
 if [ "$host" = nomad-1 ]; then
     power_profile=unavailable
     scaling_driver=unavailable
     energy_performance_preference=unavailable
 fi
 
-control_tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-bench-control.XXXXXX") ||
-    die "cannot create control provenance workspace"
-trap 'rm -rf "$control_tmp"' EXIT HUP INT TERM
-control_measure=$control_tmp/measure.txt
-control_input=$control_tmp/input.txt
-"$CONTROL" measure "$host" >"$control_measure" ||
-    die "capacity/idle measurement failed"
-{
-    echo "host=$host"
-    echo "governor=$governor"
-    echo "power_profile=$power_profile"
-    echo "scaling_driver=$scaling_driver"
-    echo "energy_performance_preference=$energy_performance_preference"
-    cat "$control_measure"
-} >"$control_input"
-control_status=0
-"$CONTROL" classify --require-v2 "$control_input" >/dev/null ||
-    control_status=$?
-case $control_status in
-0) ;;
-1)
-    if [ "${CGF_BENCH_FORCE:-0}" = 1 ]; then
-        echo "bench: WARNING: capacity/idle controls are provenance-only; forced recording enabled" >&2
-    else
-        die "capacity/idle controls are provenance-only (set CGF_BENCH_FORCE=1 to record)"
-    fi
-    ;;
-3) die "malformed v2 capacity/idle provenance" ;;
-*) die "control classifier failed with status $control_status" ;;
-esac
 control_value()
 {
     awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' \
         "$control_measure"
 }
-control_protocol=$(control_value control_protocol)
-logical_cpus=$(control_value logical_cpus)
-cpu_idle_pct=$(control_value cpu_idle_pct)
-loadavg=$(control_value load1)
-host_class=${CGF_BENCH_HOST_CLASS:-}
+control_protocol=
+logical_cpus=
+cpu_idle_pct=
+case $host_class in
+ci | shared-ci | arm64-ci)
+    [ "$SKIP_TIME" = 1 ] ||
+        die "shared-runner host class '$host_class' requires BENCH_SKIP_TIME=1"
+    # Shared runners gate RSS only. Their ephemeral hostnames are deliberately
+    # outside the closed fleet controller, and no v2 timing-control tuple is
+    # invented for them.
+    loadavg=unknown
+    if [ -r /proc/loadavg ]; then
+        IFS=' ' read -r loadavg _rest </proc/loadavg
+    elif command -v sysctl >/dev/null 2>&1; then
+        detected_loadavg=$(sysctl -n vm.loadavg 2>/dev/null |
+            sed 's/[{}]//g' | awk 'NR == 1 { print $1; exit }' || true)
+        [ -z "$detected_loadavg" ] || loadavg=$detected_loadavg
+    fi
+    echo "bench: WARNING: shared-runner controls are provenance-only; timing gates must remain disabled" >&2
+    ;;
+*)
+    [ -x "$CONTROL" ] || die "control helper is not executable: $CONTROL"
+    control_tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-bench-control.XXXXXX") ||
+        die "cannot create control provenance workspace"
+    trap 'rm -rf "$control_tmp"' EXIT HUP INT TERM
+    control_measure=$control_tmp/measure.txt
+    control_input=$control_tmp/input.txt
+    "$CONTROL" measure "$host" >"$control_measure" ||
+        die "capacity/idle measurement failed"
+    {
+        echo "host=$host"
+        echo "governor=$governor"
+        echo "power_profile=$power_profile"
+        echo "scaling_driver=$scaling_driver"
+        echo "energy_performance_preference=$energy_performance_preference"
+        cat "$control_measure"
+    } >"$control_input"
+    control_status=0
+    "$CONTROL" classify --require-v2 "$control_input" >/dev/null ||
+        control_status=$?
+    case $control_status in
+    0) ;;
+    1)
+        if [ "${CGF_BENCH_FORCE:-0}" = 1 ]; then
+            echo "bench: WARNING: capacity/idle controls are provenance-only; forced recording enabled" >&2
+        else
+            die "capacity/idle controls are provenance-only (set CGF_BENCH_FORCE=1 to record)"
+        fi
+        ;;
+    3) die "malformed v2 capacity/idle provenance" ;;
+    *) die "control classifier failed with status $control_status" ;;
+    esac
+    control_protocol=$(control_value control_protocol)
+    logical_cpus=$(control_value logical_cpus)
+    cpu_idle_pct=$(control_value cpu_idle_pct)
+    loadavg=$(control_value load1)
+    ;;
+esac
 date_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 if [ -n "${CGF_BENCH_REV:-}" ]; then
     rev=$CGF_BENCH_REV
@@ -163,9 +193,9 @@ mkdir -p "$WORK/raw" "$WORK/stats" "$(dirname "$RESULTS")"
     echo "power_profile=$power_profile"
     echo "scaling_driver=$scaling_driver"
     echo "energy_performance_preference=$energy_performance_preference"
-    echo "control_protocol=$control_protocol"
-    echo "logical_cpus=$logical_cpus"
-    echo "cpu_idle_pct=$cpu_idle_pct"
+    [ -z "$control_protocol" ] || echo "control_protocol=$control_protocol"
+    [ -z "$logical_cpus" ] || echo "logical_cpus=$logical_cpus"
+    [ -z "$cpu_idle_pct" ] || echo "cpu_idle_pct=$cpu_idle_pct"
     echo "load1=$loadavg"
     echo "cgf_rev=$rev"
     echo "cgf_tree=$tree_state"

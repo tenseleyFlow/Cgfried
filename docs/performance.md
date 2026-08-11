@@ -27,12 +27,14 @@ Every result records both `cgf_rev` and `cgf_tree`. A normal checkout is
 marked `clean` or `dirty`; an exact exported commit used for an isolated fleet
 run supplies the revision explicitly and is marked `exported-commit`.
 
-The script refuses a one-minute load average above 0.5 unless
-`CGF_BENCH_FORCE=1`.  Fleet Linux measurements should use the `performance`
-governor.  A forced or non-performance run is useful for smoke testing and RSS
-calibration, but its timing is provenance-only.  Run lanes in the fixed order
-shown below.  A nomad-1 batch must remain under five minutes, with a two-minute
-cooldown between longer batches.
+Fleet measurements use `fleet-control-v2`: the five-second preflight requires
+`load1 / logical_cpus <= 0.20`, aggregate CPU idle of at least 85%, and the
+platform's effective performance-power state. `CGF_BENCH_FORCE=1` may record
+an uncontrolled fleet sample, but its timing is provenance-only. Shared CI
+must use `BENCH_SKIP_TIME=1`; it records RSS and generic load provenance,
+omits the fleet-only v2 tuple, and is rejected by every timing gate. Run lanes
+in the fixed order shown below. A nomad-1 batch must remain under five minutes,
+with a two-minute cooldown between longer batches.
 
 | Lane | Corpus and fixed flags | Gate |
 | --- | --- | --- |

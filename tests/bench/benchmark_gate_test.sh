@@ -131,6 +131,19 @@ fail_case skip-time-rss 1 "sqlite3.maxrss_kb_max regressed" \
     env BENCH_SKIP_TIME=1 "$gate" "$tmp/baseline.txt" \
     "$tmp/skip-time-rss-fail.txt"
 
+# A shared-CI class is never timing evidence, even if a misconfigured producer
+# claims a real fleet hostname and otherwise controlled v2 provenance.
+sed '/^host=kasumi$/a\
+host_class=ci' "$tmp/baseline.txt" >"$tmp/shared-ci-baseline.txt"
+sed '/^host=kasumi$/a\
+host_class=ci' "$tmp/pass-29.txt" >"$tmp/shared-ci-result.txt"
+fail_case shared-ci-time-ineligible 3 \
+    "shared-CI timing evidence is ineligible; set BENCH_SKIP_TIME=1" \
+    env BENCH_GATE_KIND=time "$gate" "$tmp/shared-ci-baseline.txt" \
+    "$tmp/shared-ci-result.txt"
+pass_case shared-ci-rss-only env BENCH_SKIP_TIME=1 BENCH_GATE_KIND=rss \
+    "$gate" "$tmp/shared-ci-baseline.txt" "$tmp/shared-ci-result.txt"
+
 # The state wrapper applies time and RSS policy independently.
 pass_case rss-kind-ignores-time env BENCH_GATE_KIND=rss "$gate" \
     "$tmp/baseline.txt" "$tmp/fail-31.txt"
@@ -393,4 +406,4 @@ fail_case fleet-no-baseline-malformed-control 3 \
     CGF_FLEET_RESULT="$fleet_no_baseline_malformed" CGF_FLEET_COMMIT=0 \
     FIXTURE_BENCH_RESULT="$tmp/malformed-control.txt" "$fleet"
 
-echo "benchmark_gate_test: 56 cases passed"
+echo "benchmark_gate_test: 58 cases passed"

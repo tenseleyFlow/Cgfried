@@ -30,7 +30,9 @@ run_target()
         CGF_BENCH_TU_COUNT=1 CGF_BENCH_TU_LINES=32 \
         CGF_BENCH_SKIP_MUSL=1 CGF_BENCH_CGF=$FIXTURES/fake-cgf.sh \
         CGF_BENCH_TIMEIT=$FIXTURES/fake-timeit.sh \
-        CGF_BENCH_CONTROL_SCRIPT=$FIXTURES/fake-bench-control.sh \
+        CGF_BENCH_CONTROL_SCRIPT=${FIXTURE_CONTROL_SCRIPT:-$FIXTURES/fake-bench-control.sh} \
+        CGF_BENCH_HOST_CLASS=${FIXTURE_HOST_CLASS:-} \
+        BENCH_SKIP_TIME=${FIXTURE_BENCH_SKIP_TIME:-0} \
         FIXTURE_CONTROL_STATUS=${FIXTURE_CONTROL_STATUS:-0} \
         FIXTURE_CONTROL_LOG=$run_work/control.log \
         CGF_FLEET_SYSROOT_INCLUDE=${FIXTURE_SYSROOT_INCLUDE:-} \
@@ -123,4 +125,50 @@ set -e
 grep -F 'malformed v2 capacity/idle provenance' "$WORK/malformed/stderr" \
     >/dev/null || fail "malformed control diagnostic is missing"
 
-echo 'bench_script_test: three measured lanes preserved; control provenance and macOS shim are target-scoped'
+for shared_class in ci shared-ci arm64-ci; do
+    shared_target=x86_64-linux-gnu
+    [ "$shared_class" != arm64-ci ] || shared_target=arm64-linux
+    shared_name=shared-$shared_class
+    FIXTURE_HOST_CLASS=$shared_class \
+    FIXTURE_BENCH_SKIP_TIME=1 \
+    FIXTURE_CONTROL_SCRIPT=$WORK/missing-control \
+        run_target "$shared_target" "$shared_name"
+    grep -Fx "host_class=$shared_class" "$WORK/$shared_name/results.txt" \
+        >/dev/null || fail "$shared_class host class provenance is missing"
+    grep -E '^load1=([0-9]+([.][0-9]+)?|unknown)$' \
+        "$WORK/$shared_name/results.txt" >/dev/null ||
+        fail "$shared_class load provenance is missing or malformed"
+    for field in control_protocol logical_cpus cpu_idle_pct; do
+        if grep -q "^$field=" "$WORK/$shared_name/results.txt"; then
+            fail "$shared_class invented fleet-only $field provenance"
+        fi
+    done
+    grep -F 'shared-runner controls are provenance-only; timing gates must remain disabled' \
+        "$WORK/$shared_name/stderr" >/dev/null ||
+        fail "$shared_class provenance-only warning is missing"
+done
+
+set +e
+FIXTURE_HOST_CLASS=ci FIXTURE_BENCH_SKIP_TIME=0 \
+FIXTURE_CONTROL_SCRIPT=$WORK/missing-control \
+    run_target x86_64-linux-gnu shared-time-enabled
+shared_time_status=$?
+set -e
+[ "$shared_time_status" -eq 3 ] ||
+    fail "a shared runner recorded with timing gates enabled"
+grep -F "shared-runner host class 'ci' requires BENCH_SKIP_TIME=1" \
+    "$WORK/shared-time-enabled/stderr" >/dev/null ||
+    fail "shared-runner timing refusal diagnostic is missing"
+
+set +e
+FIXTURE_HOST_CLASS=other-ci FIXTURE_BENCH_SKIP_TIME=1 \
+FIXTURE_CONTROL_SCRIPT=$WORK/missing-control \
+    run_target x86_64-linux-gnu unknown-class
+unknown_class_status=$?
+set -e
+[ "$unknown_class_status" -eq 3 ] ||
+    fail "an arbitrary host class bypassed the fleet controller"
+grep -F 'control helper is not executable' "$WORK/unknown-class/stderr" \
+    >/dev/null || fail "arbitrary host-class refusal diagnostic is missing"
+
+echo 'bench_script_test: fleet controls, shared-CI provenance, measured lanes, and macOS shim are target-scoped'
