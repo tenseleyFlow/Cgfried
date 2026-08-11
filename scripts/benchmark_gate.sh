@@ -14,6 +14,7 @@ fi
 
 baseline=$1
 result=$2
+control_script=${BENCH_CONTROL_SCRIPT:-$(CDPATH='' cd "$(dirname "$0")" && pwd -P)/bench-control.sh}
 skip_time=${BENCH_SKIP_TIME:-0}
 gate_kind=${BENCH_GATE_KIND:-all}
 allow_provenance_only=${BENCH_ALLOW_PROVENANCE_ONLY:-0}
@@ -52,9 +53,40 @@ for file in "$baseline" "$result"; do
     fi
 done
 
+initial_provenance_only=0
+if [ "$skip_time" -eq 0 ] &&
+   { [ "$gate_kind" = all ] || [ "$gate_kind" = time ]; }; then
+    [ -x "$control_script" ] || {
+        echo "benchmark_gate: control helper is not executable: $control_script" >&2
+        exit 3
+    }
+    for file in "$baseline" "$result"; do
+        control_status=0
+        control_output=$("$control_script" classify "$file") ||
+            control_status=$?
+        case $control_status:$control_output in
+        0:controlled) ;;
+        1:provenance-only)
+            if [ "$allow_provenance_only" -eq 1 ]; then
+                initial_provenance_only=1
+            else
+                echo "benchmark_gate: timing evidence is not controlled: $file" >&2
+                exit 3
+            fi
+            ;;
+        3:*) exit 3 ;;
+        *)
+            echo "benchmark_gate: control helper failed with status $control_status" >&2
+            exit 3
+            ;;
+        esac
+    done
+fi
+
 set +e
 awk -v baseline_file="$baseline" -v skip_time="$skip_time" \
-    -v gate_kind="$gate_kind" -v allow_provenance_only="$allow_provenance_only" '
+    -v gate_kind="$gate_kind" -v allow_provenance_only="$allow_provenance_only" \
+    -v initial_provenance_only="$initial_provenance_only" '
 function'" "'schema_fail(message) {
     print "benchmark_gate: " message > "/dev/stderr"
     schema_failed = 1
@@ -152,81 +184,6 @@ function'" "'check_self_corpus(values, label,    value) {
         schema_fail(label " self.corpus must expose its revision/content and file count")
 }
 
-function'" "'check_control_fields(values, label, legacy_ok,    count, key, i,
-                              control_keys, value) {
-    control_keys[1] = "power_profile"
-    control_keys[2] = "scaling_driver"
-    control_keys[3] = "energy_performance_preference"
-    for (i = 1; i <= 3; i++)
-        if (control_keys[i] in values)
-            count++
-    if (count == 0 && legacy_ok) {
-        provenance_only = 1
-        return 0
-    }
-    if (count != 3) {
-        for (i = 1; i <= 3; i++)
-            require_provenance(control_keys[i], values, label)
-        return 0
-    }
-    for (i = 1; i <= 3; i++) {
-        key = control_keys[i]
-        value = values[key]
-        if (value !~ /^[A-Za-z0-9_.:+,-]+$/)
-            schema_fail(label " timing evidence has invalid " key " provenance")
-    }
-    return 1
-}
-
-function'" "'classify_time(values, label, have_controls,
-                       host, governor, load, controlled) {
-    if (!require_provenance("host", values, label) ||
-        !require_provenance("governor", values, label) ||
-        !require_provenance("load1", values, label))
-        return
-    host = values["host"]
-    governor = values["governor"]
-    load = values["load1"]
-    if (host != "kasumi" && host != "hasu" && host != "nomad-1") {
-        schema_fail(label " timing evidence is not from a controlled fleet host (got " host ")")
-        return
-    }
-    if (governor !~ /^[A-Za-z0-9_.:+-]+$/) {
-        schema_fail(label " timing evidence has invalid governor provenance")
-        return
-    }
-    if (load !~ /^[0-9]+([.][0-9]+)?$/) {
-        schema_fail(label " timing evidence has invalid load1 provenance (got " load ")")
-        return
-    }
-    if (!have_controls)
-        return
-    if (host == "nomad-1" &&
-        (values["power_profile"] != "unavailable" ||
-         values["scaling_driver"] != "unavailable" ||
-         values["energy_performance_preference"] != "unavailable")) {
-        schema_fail(label " nomad-1 timing control fields must be unavailable")
-        return
-    }
-    controlled = load + 0 <= 0.5
-    if (host == "nomad-1")
-        controlled = controlled &&
-            (governor == "performance" || governor == "unavailable")
-    else
-        controlled = controlled && values["power_profile"] == "performance" &&
-            (governor == "performance" ||
-             (values["scaling_driver"] == "intel_pstate" &&
-              governor == "powersave" &&
-              values["energy_performance_preference"] == "performance"))
-    if (!controlled) {
-        if (allow_provenance_only)
-            provenance_only = 1
-        else
-            schema_fail(label " timing evidence is not controlled (governor=" \
-                 governor " load1=" load ")")
-    }
-}
-
 function'" "'check_limit(label, baseline_value, current_value, percent,
                      baseline_total, limit) {
     baseline_total = baseline_value + 0
@@ -244,6 +201,7 @@ function'" "'check_limit(label, baseline_value, current_value, percent,
 }
 
 END {
+    provenance_only = initial_provenance_only
     check_same("target")
     if (("host_class" in baseline) || ("host_class" in current)) {
         check_same("host_class")
@@ -272,11 +230,6 @@ END {
     check_self_corpus(current, "result")
 
     if (!skip_time && (gate_kind == "all" || gate_kind == "time")) {
-        baseline_controls = check_control_fields(baseline, "baseline",
-                                                 allow_provenance_only)
-        current_controls = check_control_fields(current, "result", 0)
-        classify_time(baseline, "baseline", baseline_controls)
-        classify_time(current, "result", current_controls)
         control_keys[1] = "governor"
         control_keys[2] = "power_profile"
         control_keys[3] = "scaling_driver"
@@ -290,6 +243,21 @@ END {
                 else
                     schema_fail(control_key " provenance does not match baseline (baseline=" \
                          baseline[control_key] " result=" current[control_key] ")")
+            }
+        }
+        baseline_v2 = "control_protocol" in baseline
+        current_v2 = "control_protocol" in current
+        if (baseline_v2 && current_v2) {
+            if (baseline["control_protocol"] != current["control_protocol"] ||
+                baseline["logical_cpus"] != current["logical_cpus"]) {
+                if (allow_provenance_only) {
+                    provenance_only = 1
+                } else if (baseline["control_protocol"] != current["control_protocol"]) {
+                    schema_fail("control_protocol provenance does not match baseline")
+                } else {
+                    schema_fail("logical_cpus provenance does not match baseline (baseline=" \
+                         baseline["logical_cpus"] " result=" current["logical_cpus"] ")")
+                }
             }
         }
     }

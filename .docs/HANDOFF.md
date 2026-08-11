@@ -29,8 +29,10 @@ musl from **716 to 1259 of 1361** translation units parsing.
 ## 0a. RESUME HERE — Sprint 54 controlled fleet soak
 
 The implementation is reviewed and pushed. Resume the operational evidence
-sequence below; do not reopen the gate design and do not treat pre-control
-artifacts as timing evidence.
+sequence below. Do not treat pre-control artifacts as timing evidence. The
+absolute load limit was subsequently reopened for one evidence-backed repair:
+idle Hasu and Nomad measured roughly 90% aggregate CPU idle while ordinary
+desktop housekeeping held their one-minute load near 2.8.
 
 ### Implemented and verified
 
@@ -44,14 +46,21 @@ artifacts as timing evidence.
   trips without hiding infrastructure status 3. The seeded boundary proofs,
   13/14-day state transition, escape-hatch policy, summary goldens, scoped
   multi-host release report, and 90-day trend classifier are fixture-pinned.
+- Fleet-control-v2 records logical CPU count, one-minute load, and a fixed
+  aggregate CPU-idle preflight. It accepts only normalized load
+  (`load1 / logical_cpus`) at most 0.20 and CPU idle at least 85%, in addition
+  to the platform power rules. Current artifacts require the complete v2
+  tuple; partial, empty, malformed, or wrong-host evidence fails with status
+  3. Complete v1 evidence remains controlled only under its original stricter
+  `load1 <= 0.5` bound, preserving the immutable accepted Kasumi pair.
 - Linux fleet controls model effective state, not a misleading raw governor:
   `performance` is accepted directly, while active `intel_pstate` is accepted
   as `power_profile=performance`, `governor=powersave`, and
-  `energy_performance_preference=performance`. Current artifacts require all
-  five control/load fields; partial, empty, malformed, or wrong-host evidence
-  fails with status 3. Legacy artifacts with all three new fields absent are
-  provenance-only and cannot silently enter a timing gate.
-- `make test-perf-gates`, the 46-case compile gate, the 29-case runtime gate,
+  `energy_performance_preference=performance`. Artifacts that predate this
+  complete power tuple remain provenance-only and cannot silently enter a
+  timing gate.
+- `make test-perf-gates`, the 29-case control helper, the 56-case compile
+  gate, the 35-case runtime gate,
   kernel comparison tests, ShellCheck, the POSIX-shell check, formatting, and
   `git diff --check` all passed after the control-model fixes. Independent
   review approved the implementation and directly reproduced the two repaired
@@ -80,11 +89,18 @@ artifacts as timing evidence.
   landed remain useful deployment provenance only. They are not controlled
   timing/runtime evidence and must not be relabelled or used to manufacture a
   three-night history.
+- The shipping five-second preflight observed Hasu's 20 logical CPUs at 91.45%
+  idle with load 1.01, and Nomad's 18 logical CPUs at 90.20% idle with load
+  2.27. Linux derives idle from aggregate `/proc/stat` deltas with I/O wait
+  treated as busy; Darwin uses the second `top -l 2 -s 5 -n 0` sample. Both
+  hosts pass fleet-control-v2; no user workload needs to be stopped to chase
+  the retired absolute threshold.
 
 ### Remaining Sprint 54 work — execute in this order
 
-1. When each host's measured one-minute load is at most 0.5, collect one new
-   controlled compile/runtime pair on Hasu and Nomad. Commit the dated
+1. When each host passes the fleet-control-v2 preflight, collect one new
+   controlled compile/runtime pair on Hasu and Nomad. Their ordinary idle
+   desktop states described above are expected to pass. Commit the dated
    artifacts first, then accept each host's baselines in a separate reviewed
    exact-copy commit. Do not stop user workloads merely to lower load.
 2. Generate `.benchmarks/report-0.0.1.md` from the controlled baselines and

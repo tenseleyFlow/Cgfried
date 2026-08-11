@@ -579,6 +579,7 @@ test-bench: $(BUILD)/cgfried $(BUILD)/timeit $(BUILD)/timeit-math-test
 	$(MAKE) BUILD=$(BUILD) test-perf-gates
 
 test-perf-gates:
+	sh tests/scripts/gates/bench_control_test.sh
 	sh tests/scripts/gates/size_gate_test.sh
 	sh tests/scripts/gates/runtime_gate_test.sh
 	sh tests/scripts/gates/reporting_test.sh

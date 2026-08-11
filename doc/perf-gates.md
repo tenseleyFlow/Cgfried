@@ -52,23 +52,36 @@ host image, linker, `afs-as`, or `afs-ld` change that moves bytes must
 rebaseline in the same commit.  Unstripped bytes and section breakdowns are
 reported so reviewers can distinguish compiler output from tool/debug churn.
 
-Every fleet compile and runtime artifact records `load1`, `governor`,
-`power_profile`, `scaling_driver`, and
-`energy_performance_preference`. Linux evidence is controlled only when load
-is at most 0.5, the power profile is `performance`, and either the governor is
-`performance` or active Intel P-state reports the effective tuple
+Every new fleet compile and runtime artifact uses
+`control_protocol=fleet-control-v2` and records `logical_cpus`,
+`cpu_idle_pct`, `load1`, `governor`, `power_profile`, `scaling_driver`, and
+`energy_performance_preference`. The control preflight samples aggregate CPU
+idle over five seconds immediately before measurement. Linux computes the
+idle percentage from aggregate `/proc/stat` counter deltas and deliberately
+counts I/O wait as busy; Darwin uses the second sample from
+`top -l 2 -s 5 -n 0`. Evidence is
+load-controlled only when `load1 / logical_cpus` is at most 0.20 and aggregate
+CPU idle is at least 85%. These capacity-normalized bounds admit ordinary
+single-core desktop housekeeping on the 18- and 20-thread fleet machines
+without treating a genuinely busy host as idle.
+
+Linux evidence additionally requires the power profile to be `performance`,
+and either the governor is `performance` or active Intel P-state reports the
+effective tuple
 `governor=powersave`, `scaling_driver=intel_pstate`, and
 `energy_performance_preference=performance`. The raw `powersave` governor in
 that Intel P-state tuple is truthful and must not be relabelled.
 
 Darwin records the three Linux-only controls as `unavailable`; its governor
-may be `performance` or `unavailable`, and a numeric load above 0.5 remains
-provenance-only. Current artifacts must contain one valid value for every
-field. An older artifact may omit all three newly introduced control fields,
-in which case it is legacy provenance only; partial, empty, duplicate, or
-malformed control provenance is status 3. Timing/runtime comparisons require
-compatible complete control tuples. Loads need not be byte-identical, but
-each must remain within the controlled bound.
+may be `performance` or `unavailable`. Current artifacts must contain one
+valid value for every v2 field. Partial, empty, duplicate, malformed, or
+unknown v2 provenance is status 3. A complete pre-v2 artifact remains eligible
+under the original, stricter absolute `load1 <= 0.5` rule; this preserves the
+accepted Kasumi evidence without altering its dated bytes. Older artifacts
+that also predate the complete power-control tuple remain provenance-only.
+When both sides are v2, timing/runtime comparisons additionally require the
+same logical CPU count. Loads and idle percentages need not be byte-identical,
+but every input must independently satisfy its protocol's controlled bounds.
 
 ## Trial state
 
@@ -151,9 +164,12 @@ accepted in `4be79b6e`. The early Kasumi, Hasu, and Nomad runs predate complete
 power-control provenance, so they demonstrate immutable artifact routing and
 trial reporting but are not controlled timing evidence.
 
-The complete control schema and effective Intel P-state policy landed in
-`15230a7b`; report provenance followed in `a432614c`. All three nightly
-schedules are installed. Kasumi's first controlled pair,
+The complete power schema and effective Intel P-state policy landed in
+`15230a7b`; report provenance followed in `a432614c`. Fleet-control-v2 then
+replaced the empirically invalid absolute-load rule with normalized load plus
+measured CPU idle after idle Hasu and Nomad were observed near load 2.8 while
+roughly 90% CPU-idle. All three nightly schedules are installed. Kasumi's
+first controlled pair,
 `2026-08-11T065745Z-kasumi` / `-kernels`, landed in `106efed5` with load
 0.01/0.35 and the expected performance-profile Intel P-state tuple. Its
 separate reviewed exact-copy baseline commit is `b87a2789`. Hasu and Nomad

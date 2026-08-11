@@ -20,19 +20,28 @@ run_target()
     target=$1
     name=$2
     run_work=$WORK/$name
-    mkdir "$run_work"
+    mkdir "$run_work" "$run_work/tmp"
     : >"$run_work/argv.log"
+    run_status=0
     FIXTURE_CGF_TARGET=$target FIXTURE_CGF_LOG=$run_work/argv.log \
-        CGF_FLEET_HOST=bench-test CGF_BENCH_FORCE=1 CGF_BENCH_RUNS=1 \
+        TMPDIR=$run_work/tmp CGF_FLEET_HOST=bench-test \
+        CGF_BENCH_FORCE=${FIXTURE_BENCH_FORCE:-1} CGF_BENCH_RUNS=1 \
         CGF_BENCH_WARMUP=0 CGF_BENCH_SELF_LIMIT=1 \
         CGF_BENCH_TU_COUNT=1 CGF_BENCH_TU_LINES=32 \
         CGF_BENCH_SKIP_MUSL=1 CGF_BENCH_CGF=$FIXTURES/fake-cgf.sh \
         CGF_BENCH_TIMEIT=$FIXTURES/fake-timeit.sh \
+        CGF_BENCH_CONTROL_SCRIPT=$FIXTURES/fake-bench-control.sh \
+        FIXTURE_CONTROL_STATUS=${FIXTURE_CONTROL_STATUS:-0} \
+        FIXTURE_CONTROL_LOG=$run_work/control.log \
         CGF_FLEET_SYSROOT_INCLUDE=${FIXTURE_SYSROOT_INCLUDE:-} \
         CGF_FLEET_SYSROOT_CRT=${FIXTURE_SYSROOT_CRT:-} \
         CGF_BENCH_WORK=$run_work/work \
         CGF_BENCH_RESULTS=$run_work/results.txt \
-        sh "$ROOT/scripts/bench.sh" >/dev/null 2>"$run_work/stderr"
+        sh "$ROOT/scripts/bench.sh" >/dev/null 2>"$run_work/stderr" ||
+        run_status=$?
+    [ -z "$(find "$run_work/tmp" -mindepth 1 -maxdepth 1 -print)" ] ||
+        fail "control provenance temporary files leaked"
+    return "$run_status"
 }
 
 FIXTURES=$ROOT/tests/bench/fixtures/bench-script
@@ -81,5 +90,37 @@ for field in power_profile scaling_driver energy_performance_preference; do
     [ "$(grep -c "^$field=" "$WORK/linux/results.txt")" -eq 1 ] ||
         fail "Linux $field provenance was not emitted exactly once"
 done
+for field_value in control_protocol=fleet-control-v2 \
+    logical_cpus=8 cpu_idle_pct=99.00 load1=0.10; do
+    [ "$(grep -Fxc "$field_value" "$WORK/linux/results.txt")" -eq 1 ] ||
+        fail "v2 control provenance missing: $field_value"
+done
+for field in host governor power_profile scaling_driver \
+    energy_performance_preference control_protocol logical_cpus cpu_idle_pct \
+    load1; do
+    [ "$(grep -c "^$field=" "$WORK/linux/control.log")" -eq 1 ] ||
+        fail "classifier input did not contain exactly one $field"
+done
+
+FIXTURE_CONTROL_STATUS=1 run_target x86_64-linux-gnu forced
+grep -F 'WARNING: capacity/idle controls are provenance-only; forced recording enabled' \
+    "$WORK/forced/stderr" >/dev/null || fail "forced provenance-only warning is missing"
+
+set +e
+FIXTURE_CONTROL_STATUS=1 FIXTURE_BENCH_FORCE=0 \
+    run_target x86_64-linux-gnu refused
+refused_status=$?
+set -e
+[ "$refused_status" -eq 3 ] || fail "unforced provenance-only run was not refused"
+grep -F 'capacity/idle controls are provenance-only (set CGF_BENCH_FORCE=1 to record)' \
+    "$WORK/refused/stderr" >/dev/null || fail "capacity/idle refusal diagnostic is missing"
+
+set +e
+FIXTURE_CONTROL_STATUS=3 run_target x86_64-linux-gnu malformed
+malformed_status=$?
+set -e
+[ "$malformed_status" -eq 3 ] || fail "malformed control provenance did not fail"
+grep -F 'malformed v2 capacity/idle provenance' "$WORK/malformed/stderr" \
+    >/dev/null || fail "malformed control diagnostic is missing"
 
 echo 'bench_script_test: three measured lanes preserved; control provenance and macOS shim are target-scoped'

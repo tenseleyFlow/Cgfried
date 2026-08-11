@@ -2,7 +2,8 @@
 # Sprint 52 compile-speed and memory measurement protocol.
 #
 # Noise-floor contract:
-#   * refuse a 1-minute load average above 0.5 unless CGF_BENCH_FORCE=1;
+#   * require the v2 capacity/idle control classification unless
+#     CGF_BENCH_FORCE=1 records a provenance-only sample;
 #   * record the Linux profile/driver/governor/EPP state and warn when it is
 #     not an effective performance configuration;
 #   * run lanes in the fixed sqlite3, self, many-tu, musl order;
@@ -21,6 +22,7 @@ ROOT=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
 BUILD=${BUILD:-$ROOT/build}
 CGF=${CGF_BENCH_CGF:-$BUILD/cgfried}
 TIMEIT=${CGF_BENCH_TIMEIT:-$BUILD/timeit}
+CONTROL=${CGF_BENCH_CONTROL_SCRIPT:-$ROOT/scripts/bench-control.sh}
 WORK=${CGF_BENCH_WORK:-$BUILD/bench}
 RESULTS=${CGF_BENCH_RESULTS:-$WORK/results.txt}
 RUNS=${CGF_BENCH_RUNS:-10}
@@ -56,21 +58,12 @@ esac
     die "SQLite POSIX checksum does not match the vendored corpus pin"
 [ -x "$CGF" ] || die "compiler is not executable: $CGF"
 [ -x "$TIMEIT" ] || die "timer is not executable: $TIMEIT"
+[ -x "$CONTROL" ] || die "control helper is not executable: $CONTROL"
 SQLITE=$ROOT/tests/bench/corpus/sqlite3/sqlite3.c
 [ -f "$SQLITE" ] || die "missing pinned SQLite amalgamation: $SQLITE"
 sqlite_cksum=$(cksum "$SQLITE" | awk '{ print $1 ":" $2 }')
 [ "$sqlite_cksum" = "$SQLITE_CKSUM" ] ||
     die "vendored SQLite bytes do not match the pinned corpus"
-
-loadavg=unknown
-if [ -r /proc/loadavg ]; then
-    IFS=' ' read -r loadavg _rest </proc/loadavg
-elif command -v sysctl >/dev/null 2>&1; then
-    loadavg=$(sysctl -n vm.loadavg 2>/dev/null | sed 's/[{}]//g' | awk '{print $1}')
-fi
-if [ "$loadavg" != unknown ] && awk -v n="$loadavg" 'BEGIN { exit !(n > 0.5) }'; then
-    [ "${CGF_BENCH_FORCE:-0}" = 1 ] || die "1-minute load $loadavg exceeds 0.5 (set CGF_BENCH_FORCE=1 to record a noisy run)"
-fi
 
 governor=unavailable
 scaling_driver=unavailable
@@ -102,13 +95,47 @@ if [ "$host" = nomad-1 ]; then
     power_profile=unavailable
     scaling_driver=unavailable
     energy_performance_preference=unavailable
-elif [ "$power_profile" != performance ] ||
-     { [ "$governor" != performance ] &&
-       { [ "$scaling_driver" != intel_pstate ] ||
-         [ "$governor" != powersave ] ||
-         [ "$energy_performance_preference" != performance ]; }; }; then
-    echo "bench: WARNING: CPU controls are not in a performance configuration; result is provenance-only" >&2
 fi
+
+control_tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-bench-control.XXXXXX") ||
+    die "cannot create control provenance workspace"
+trap 'rm -rf "$control_tmp"' EXIT HUP INT TERM
+control_measure=$control_tmp/measure.txt
+control_input=$control_tmp/input.txt
+"$CONTROL" measure "$host" >"$control_measure" ||
+    die "capacity/idle measurement failed"
+{
+    echo "host=$host"
+    echo "governor=$governor"
+    echo "power_profile=$power_profile"
+    echo "scaling_driver=$scaling_driver"
+    echo "energy_performance_preference=$energy_performance_preference"
+    cat "$control_measure"
+} >"$control_input"
+control_status=0
+"$CONTROL" classify --require-v2 "$control_input" >/dev/null ||
+    control_status=$?
+case $control_status in
+0) ;;
+1)
+    if [ "${CGF_BENCH_FORCE:-0}" = 1 ]; then
+        echo "bench: WARNING: capacity/idle controls are provenance-only; forced recording enabled" >&2
+    else
+        die "capacity/idle controls are provenance-only (set CGF_BENCH_FORCE=1 to record)"
+    fi
+    ;;
+3) die "malformed v2 capacity/idle provenance" ;;
+*) die "control classifier failed with status $control_status" ;;
+esac
+control_value()
+{
+    awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' \
+        "$control_measure"
+}
+control_protocol=$(control_value control_protocol)
+logical_cpus=$(control_value logical_cpus)
+cpu_idle_pct=$(control_value cpu_idle_pct)
+loadavg=$(control_value load1)
 host_class=${CGF_BENCH_HOST_CLASS:-}
 date_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 if [ -n "${CGF_BENCH_REV:-}" ]; then
@@ -136,6 +163,9 @@ mkdir -p "$WORK/raw" "$WORK/stats" "$(dirname "$RESULTS")"
     echo "power_profile=$power_profile"
     echo "scaling_driver=$scaling_driver"
     echo "energy_performance_preference=$energy_performance_preference"
+    echo "control_protocol=$control_protocol"
+    echo "logical_cpus=$logical_cpus"
+    echo "cpu_idle_pct=$cpu_idle_pct"
     echo "load1=$loadavg"
     echo "cgf_rev=$rev"
     echo "cgf_tree=$tree_state"

@@ -80,7 +80,6 @@ for source in baseline boundary-1 boundary-2 boundary-3; do
     sed -e 's/^host=kasumi$/host=nomad-1/' \
         -e 's/^target=x86_64-linux-gnu$/target=arm64-macos/' \
         -e 's/^governor=performance$/governor=unavailable/' \
-        -e 's/^load1=0.10$/load1=unknown/' \
         -e 's/^power_profile=performance$/power_profile=unavailable/' \
         -e 's/^scaling_driver=acpi-cpufreq$/scaling_driver=unavailable/' \
         -e 's/^energy_performance_preference=performance$/energy_performance_preference=unavailable/' \
@@ -89,6 +88,18 @@ for source in baseline boundary-1 boundary-2 boundary-3; do
 done
 expect 0 'pass (1 comparisons, state=blocking)' \
     "$gate" "$fixtures/blocking.conf" "$scratch/baseline-unavailable.txt" \
+    "$scratch/boundary-1-unavailable.txt" \
+    "$scratch/boundary-2-unavailable.txt" \
+    "$scratch/boundary-3-unavailable.txt"
+
+sed -e 's/^load1=.*$/load1=unknown/' \
+    -e '/^power_profile=/d' -e '/^scaling_driver=/d' \
+    -e '/^energy_performance_preference=/d' \
+    "$scratch/baseline-unavailable.txt" \
+    >"$scratch/nomad-legacy-unknown.txt"
+expect 3 'has uncontrolled runtime provenance' \
+    "$gate" "$fixtures/blocking.conf" \
+    "$scratch/nomad-legacy-unknown.txt" \
     "$scratch/boundary-1-unavailable.txt" \
     "$scratch/boundary-2-unavailable.txt" \
     "$scratch/boundary-3-unavailable.txt"
@@ -110,6 +121,50 @@ expect 0 'pass (1 comparisons, state=blocking)' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/boundary-1-different-load.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
+
+for source in baseline boundary-1 boundary-2 boundary-3; do
+    {
+        sed 's/^load1=0.10$/load1=2.8/' "$fixtures/$source.txt"
+        printf '%s\n' 'control_protocol=fleet-control-v2' \
+            'logical_cpus=18' 'cpu_idle_pct=90'
+    } >"$scratch/$source-v2.txt"
+done
+expect 0 'pass (1 comparisons, state=blocking)' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-v2.txt" \
+    "$scratch/boundary-1-v2.txt" "$scratch/boundary-2-v2.txt" \
+    "$scratch/boundary-3-v2.txt"
+
+for source in baseline boundary-1 boundary-2 boundary-3; do
+    {
+        sed 's/^load1=0.10$/load1=3.60/' "$fixtures/$source.txt"
+        printf '%s\n' 'control_protocol=fleet-control-v2' \
+            'logical_cpus=18' 'cpu_idle_pct=85'
+    } >"$scratch/$source-v2-boundary.txt"
+done
+expect 0 'pass (1 comparisons, state=blocking)' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-v2-boundary.txt" \
+    "$scratch/boundary-1-v2-boundary.txt" \
+    "$scratch/boundary-2-v2-boundary.txt" \
+    "$scratch/boundary-3-v2-boundary.txt"
+
+sed 's/^load1=3.60$/load1=3.61/' "$scratch/boundary-1-v2-boundary.txt" \
+    >"$scratch/v2-over-load.txt"
+expect 3 'has uncontrolled runtime provenance' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-v2-boundary.txt" \
+    "$scratch/v2-over-load.txt" "$scratch/boundary-2-v2-boundary.txt" \
+    "$scratch/boundary-3-v2-boundary.txt"
+sed 's/^cpu_idle_pct=85$/cpu_idle_pct=84.99/' \
+    "$scratch/boundary-1-v2-boundary.txt" >"$scratch/v2-low-idle.txt"
+expect 3 'has uncontrolled runtime provenance' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-v2-boundary.txt" \
+    "$scratch/v2-low-idle.txt" "$scratch/boundary-2-v2-boundary.txt" \
+    "$scratch/boundary-3-v2-boundary.txt"
+sed 's/^logical_cpus=18$/logical_cpus=17/' "$scratch/boundary-1-v2.txt" \
+    >"$scratch/v2-cpu-mismatch.txt"
+expect 3 'logical_cpus does not match other v2 evidence' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-v2.txt" \
+    "$scratch/v2-cpu-mismatch.txt" "$scratch/boundary-2-v2.txt" \
+    "$scratch/boundary-3-v2.txt"
 
 # The median is 112 (>10%), but delta=12 remains inside 4*new_MAD=16.
 expect 0 'pass (1 comparisons, state=blocking)' \
@@ -142,7 +197,7 @@ expect 3 'missing median/MAD pair' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/missing-mad.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
-expect 3 'expected key=value' \
+expect 3 'input has no unique host provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/malformed.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
@@ -162,7 +217,7 @@ expect 3 'missing timeit_protocol' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/missing-protocol.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
-expect 3 'runtime power controls are not performance-controlled' \
+expect 3 'has uncontrolled runtime provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/mismatched-governor.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
@@ -170,36 +225,36 @@ for source in baseline regress-1 regress-2 regress-3; do
     sed 's/^governor=performance$/governor=powersave/' \
         "$fixtures/$source.txt" >"$scratch/$source-powersave.txt"
 done
-expect 3 'runtime power controls are not performance-controlled' \
+expect 3 'has uncontrolled runtime provenance' \
     "$gate" "$fixtures/blocking.conf" "$scratch/baseline-powersave.txt" \
     "$scratch/regress-1-powersave.txt" "$scratch/regress-2-powersave.txt" \
     "$scratch/regress-3-powersave.txt"
 sed 's/^load1=0.10$/load1=0.51/' "$fixtures/regress-1.txt" \
     >"$scratch/high-load.txt"
-expect 3 'load1 exceeds controlled limit 0.5 (got 0.51)' \
+expect 3 'has uncontrolled runtime provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/high-load.txt" "$fixtures/regress-2.txt" \
     "$fixtures/regress-3.txt"
 sed '/^load1=/d' "$fixtures/regress-1.txt" >"$scratch/missing-load.txt"
-expect 3 'missing load1' \
+expect 3 'input has no unique load1 provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/missing-load.txt" "$fixtures/regress-2.txt" \
     "$fixtures/regress-3.txt"
 sed '/^power_profile=/d' "$fixtures/regress-1.txt" \
     >"$scratch/missing-power-profile.txt"
-expect 3 'missing power_profile' \
+expect 3 'partial power-control provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/missing-power-profile.txt" "$fixtures/regress-2.txt" \
     "$fixtures/regress-3.txt"
-sed 's/^scaling_driver=.*$/scaling_driver=intel,pstate/' \
+sed 's/^scaling_driver=.*$/scaling_driver=intel\/pstate/' \
     "$fixtures/regress-1.txt" >"$scratch/malformed-scaling-driver.txt"
-expect 3 'malformed scaling_driver' \
+expect 3 'invalid or non-unique scaling_driver provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/malformed-scaling-driver.txt" "$fixtures/regress-2.txt" \
     "$fixtures/regress-3.txt"
 sed '/^energy_performance_preference=/p' "$fixtures/regress-1.txt" \
     >"$scratch/duplicate-epp.txt"
-expect 3 'duplicate key energy_performance_preference' \
+expect 3 'invalid or non-unique energy_performance_preference provenance' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$scratch/duplicate-epp.txt" "$fixtures/regress-2.txt" \
     "$fixtures/regress-3.txt"

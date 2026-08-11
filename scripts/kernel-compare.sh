@@ -34,6 +34,7 @@ runs=${CGF_KERNEL_RUNS:-10}
 warmup=${CGF_KERNEL_WARMUP:-1}
 cooldown=${CGF_KERNEL_COOLDOWN_SECONDS:-120}
 timeit=${CGF_KERNEL_TIMEIT:-$build/timeit}
+control=${CGF_KERNEL_CONTROL_SCRIPT:-$repo/scripts/bench-control.sh}
 sysroot_include=${CGF_FLEET_SYSROOT_INCLUDE:-}
 sysroot_crt=${CGF_FLEET_SYSROOT_CRT:-}
 dashboard_scope_kind=${CGF_KERNEL_DASHBOARD_SCOPE_KIND:-host_class}
@@ -44,6 +45,12 @@ die()
 {
     echo "$prog: $*" >&2
     exit 2
+}
+
+control_die()
+{
+    echo "$prog: $*" >&2
+    exit 3
 }
 
 valid_utc_timestamp()
@@ -411,7 +418,6 @@ compile_runtime_cgf()
 
 measure_runtime()
 {
-    runtime_proc_root=${CGF_KERNEL_PROC_ROOT:-/proc}
     runtime_cpu_root=${CGF_KERNEL_SYS_CPU_ROOT:-/sys/devices/system/cpu}
     runtime_host=${CGF_KERNEL_RUNTIME_HOST:-$(hostname -s 2>/dev/null || uname -n)}
     case $runtime_host in
@@ -444,16 +450,7 @@ measure_runtime()
     *) skip "$runtime_target-runtime" "native target omitted from CGF_KERNEL_TARGETS"; return 0 ;;
     esac
     [ -x "$timeit" ] || die "timer is not executable: $timeit"
-
-    if [ -r "$runtime_proc_root/loadavg" ]; then
-        IFS=' ' read -r runtime_load _rest <"$runtime_proc_root/loadavg"
-        if awk -v n="$runtime_load" 'BEGIN { exit !(n > 0.5) }'; then
-            [ "${CGF_KERNEL_FORCE:-0}" = 1 ] ||
-                die "1-minute load $runtime_load exceeds 0.5 (set CGF_KERNEL_FORCE=1 for a noisy run)"
-        fi
-    else
-        runtime_load=unknown
-    fi
+    [ -x "$control" ] || control_die "control helper is not executable: $control"
     runtime_governor=unavailable
     runtime_power_profile=unavailable
     runtime_scaling_driver=unavailable
@@ -477,21 +474,46 @@ measure_runtime()
         observed_profile=$(powerprofilesctl get 2>/dev/null | sed -n '1p' || :)
         [ -z "$observed_profile" ] || runtime_power_profile=$observed_profile
     fi
-    if [ "$runtime_target" != arm64-macos ]; then
-        runtime_controlled=no
-        if awk -v n="$runtime_load" 'BEGIN { exit !(n ~ /^[0-9]+([.][0-9]+)?$/ && n <= 0.5) }' &&
-           [ "$runtime_power_profile" = performance ]; then
-            if [ "$runtime_governor" = performance ] ||
-               { [ "$runtime_scaling_driver" = intel_pstate ] &&
-                 [ "$runtime_governor" = powersave ] &&
-                 [ "$runtime_epp" = performance ]; }; then
-                runtime_controlled=yes
-            fi
+    control_tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-kernel-control.XXXXXX") ||
+        control_die "cannot create control provenance workspace"
+    trap 'rm -rf "$control_tmp"' EXIT HUP INT TERM
+    control_measure=$control_tmp/measure.txt
+    control_input=$control_tmp/input.txt
+    "$control" measure "$runtime_host" >"$control_measure" ||
+        control_die "capacity/idle measurement failed"
+    {
+        echo "host=$runtime_host"
+        echo "governor=$runtime_governor"
+        echo "power_profile=$runtime_power_profile"
+        echo "scaling_driver=$runtime_scaling_driver"
+        echo "energy_performance_preference=$runtime_epp"
+        cat "$control_measure"
+    } >"$control_input"
+    control_status=0
+    "$control" classify --require-v2 "$control_input" >/dev/null ||
+        control_status=$?
+    case $control_status in
+    0) ;;
+    1)
+        if [ "${CGF_KERNEL_FORCE:-0}" = 1 ]; then
+            echo "$prog: WARNING: capacity/idle controls are provenance-only; forced recording enabled" >&2
+        else
+            control_die "capacity/idle controls are provenance-only (set CGF_KERNEL_FORCE=1 to record)"
         fi
-        if [ "$runtime_controlled" != yes ]; then
-            echo "$prog: WARNING: runtime controls are not performance-controlled (load1=$runtime_load power_profile=$runtime_power_profile governor=$runtime_governor scaling_driver=$runtime_scaling_driver energy_performance_preference=$runtime_epp); runtime is provenance-only" >&2
-        fi
-    fi
+        ;;
+    3) control_die "malformed v2 capacity/idle provenance" ;;
+    *) control_die "control classifier failed with status $control_status" ;;
+    esac
+    control_value()
+    {
+        awk -F= -v key="$1" \
+            '$1 == key { print substr($0, length(key) + 2) }' \
+            "$control_measure"
+    }
+    runtime_control_protocol=$(control_value control_protocol)
+    runtime_logical_cpus=$(control_value logical_cpus)
+    runtime_cpu_idle_pct=$(control_value cpu_idle_pct)
+    runtime_load=$(control_value load1)
 
     runtime_stamp=$(date -u '+%Y-%m-%dT%H%M%SZ')
     runtime_output=${CGF_KERNEL_RUNTIME_OUTPUT:-$repo/.benchmarks/runs/$runtime_stamp-$runtime_host-kernels.txt}
@@ -528,6 +550,9 @@ measure_runtime()
         echo "power_profile=$runtime_power_profile"
         echo "scaling_driver=$runtime_scaling_driver"
         echo "energy_performance_preference=$runtime_epp"
+        echo "control_protocol=$runtime_control_protocol"
+        echo "logical_cpus=$runtime_logical_cpus"
+        echo "cpu_idle_pct=$runtime_cpu_idle_pct"
         echo "runs=$runs"
         echo "warmup=$warmup"
         echo "cgf_rev=$runtime_rev"

@@ -16,6 +16,7 @@ LC_ALL=C
 export LC_ALL
 
 prog=runtime_gate
+root=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
 
 usage()
 {
@@ -231,11 +232,23 @@ shift
 for input in "$baseline" "$@"; do
     [ -r "$input" ] || die "cannot read $input"
 done
+control=${CGF_BENCH_CONTROL:-$root/scripts/bench-control.sh}
+[ -x "$control" ] || die "benchmark control classifier is not executable: $control"
 result_file=${CGF_RUNTIME_GATE_RESULT_FILE:-}
 if [ -n "$result_file" ]; then
     [ ! -d "$result_file" ] || die "result file is a directory: $result_file"
     : >"$result_file" || die "cannot write result file: $result_file"
 fi
+for input in "$baseline" "$@"; do
+    control_status=0
+    "$control" classify "$input" >/dev/null || control_status=$?
+    case $control_status in
+    0) ;;
+    1) die "$input has uncontrolled runtime provenance" ;;
+    3) die "$input has malformed runtime control provenance" ;;
+    *) die "runtime control classifier failed with status $control_status" ;;
+    esac
+done
 
 if awk -v baseline_file="$baseline" -v gate="$gate_name" \
     -v state="$gate_state" -v result_file="$result_file" '
@@ -336,6 +349,10 @@ function'" "'read_line(line, file, line_no,    equal, key, value, slot) {
         scaling_drivers[file] = value
     } else if (key == "energy_performance_preference") {
         epps[file] = value
+    } else if (key == "control_protocol") {
+        control_protocols[file] = value
+    } else if (key == "logical_cpus") {
+        logical_cpu_counts[file] = value
     }
     if (key ~ /[.]cgf[.]wall_ms_median$/) {
         if (!valid_number(value))
@@ -398,50 +415,17 @@ END {
             fail(file ": timeit_protocol does not match baseline")
         if (!(file in governors))
             fail(file ": missing governor")
-        else if (hosts[baseline_file] == "nomad-1") {
-            if (governors[file] != "performance" &&
-                governors[file] != "unavailable")
-                fail(file ": nomad-1 governor must be performance or unavailable")
-        } else if (governors[file] != "performance" &&
-                   governors[file] != "powersave")
-            fail(file ": non-nomad governor must be performance or powersave")
-        if (file != baseline_file &&
-            governors[file] != governors[baseline_file])
+        else if (file != baseline_file &&
+                 governors[file] != governors[baseline_file])
             fail(file ": governor does not match baseline")
         if (!(file in loads))
             fail(file ": missing load1")
-        else if (hosts[baseline_file] == "nomad-1") {
-            if (loads[file] != "unknown" && !valid_number(loads[file]))
-                fail(file ": nomad-1 load1 must be numeric or unknown")
-            else if (loads[file] != "unknown" && loads[file] + 0 > 0.5)
-                fail(file ": load1 exceeds controlled limit 0.5 (got " loads[file] ")")
-        } else if (!valid_number(loads[file]))
-            fail(file ": non-nomad runtime requires numeric load1")
-        else if (loads[file] + 0 > 0.5)
-            fail(file ": load1 exceeds controlled limit 0.5 (got " loads[file] ")")
         if (!(file in power_profiles))
             fail(file ": missing power_profile")
-        else if (power_profiles[file] !~ /^[A-Za-z0-9_.:+-]+$/)
-            fail(file ": malformed power_profile")
         if (!(file in scaling_drivers))
             fail(file ": missing scaling_driver")
-        else if (scaling_drivers[file] !~ /^[A-Za-z0-9_.:+-]+$/)
-            fail(file ": malformed scaling_driver")
         if (!(file in epps))
             fail(file ": missing energy_performance_preference")
-        else if (epps[file] !~ /^[A-Za-z0-9_.:+-]+$/)
-            fail(file ": malformed energy_performance_preference")
-        if (hosts[baseline_file] == "nomad-1") {
-            if (power_profiles[file] != "unavailable" ||
-                scaling_drivers[file] != "unavailable" ||
-                epps[file] != "unavailable")
-                fail(file ": nomad-1 power controls must be unavailable")
-        } else if (power_profiles[file] != "performance" ||
-                   !(governors[file] == "performance" ||
-                     (scaling_drivers[file] == "intel_pstate" &&
-                      governors[file] == "powersave" &&
-                      epps[file] == "performance")))
-            fail(file ": runtime power controls are not performance-controlled")
         if (file != baseline_file) {
             if (power_profiles[file] != power_profiles[baseline_file])
                 fail(file ": power_profile does not match baseline")
@@ -449,6 +433,16 @@ END {
                 fail(file ": scaling_driver does not match baseline")
             if (epps[file] != epps[baseline_file])
                 fail(file ": energy_performance_preference does not match baseline")
+        }
+        if (file in control_protocols) {
+            if (!v2_reference) {
+                v2_reference = file
+            } else {
+                if (control_protocols[file] != control_protocols[v2_reference])
+                    fail(file ": control_protocol does not match other v2 evidence")
+                if (logical_cpu_counts[file] != logical_cpu_counts[v2_reference])
+                    fail(file ": logical_cpus does not match other v2 evidence")
+            }
         }
     }
     if (file_count != 4)

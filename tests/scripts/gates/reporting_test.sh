@@ -80,7 +80,7 @@ cmp "$fixtures/report.golden.md" "$tmp/report-one.md" || fail "release report go
 cmp "$tmp/report-one.md" "$tmp/report-two.md" || fail "release report is nondeterministic"
 grep -F '| hasu | self.maxrss_kb_max | 800 | 840 | +5.0% | n/a |' \
     "$tmp/report-one.md" >/dev/null || fail "second fleet host was not reported"
-grep -F '| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 | /nix/store/current-glibc-dev/include | /nix/store/current-glibc/lib | 0.40 | powersave | performance | intel_pstate | performance |' \
+grep -F '| latest | x86_64-linux-gnu | hasu | bench-hasu.current.txt | hasu | n/a | 2026-08-10T13:00:00Z | current-hasu | clean | runs=10,warmup=1 | /nix/store/current-glibc-dev/include | /nix/store/current-glibc/lib | 0.40 | powersave | performance | intel_pstate | performance | n/a | n/a | n/a |' \
     "$tmp/report-one.md" >/dev/null || fail "hasu provenance was incomplete"
 grep -F '<!-- perf-metric x86_64-linux-gnu kasumi self.maxrss_kb_max 1200 -->' \
     "$tmp/report-one.md" >/dev/null || fail "prior-report marker omitted host scope"
@@ -129,6 +129,64 @@ expect_status 3 "$report" --version 0.0.1 --output "$tmp/malformed-control-repor
     --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
 grep -F 'invalid scaling_driver provenance' "$tmp/err" >/dev/null ||
     fail "release report accepted malformed fleet control provenance"
+awk '
+    { print }
+    /^load1=/ {
+        print "control_protocol=fleet-control-v2"
+        print "logical_cpus=16"
+        print "cpu_idle_pct=99.5"
+    }
+' "$fixtures/bench-hasu.current.txt" >"$tmp/v2-control-provenance.txt"
+"$report" --version 0.0.1 --output "$tmp/v2-control-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/v2-control-provenance.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md" \
+    >"$tmp/v2-control.out"
+grep -F '| fleet-control-v2 | 16 | 99.5 |' "$tmp/v2-control-report.md" >/dev/null ||
+    fail "release report omitted transitional fleet control provenance"
+awk '
+    { print }
+    /^load1=/ { print "control_protocol=fleet-control-v2" }
+' "$fixtures/bench-hasu.current.txt" >"$tmp/partial-v2-control.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/partial-v2-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/partial-v2-control.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'transitional fleet controls must be all present or all absent' \
+    "$tmp/err" >/dev/null || fail "release report accepted partial v2 controls"
+sed '/^logical_cpus=/p' "$tmp/v2-control-provenance.txt" \
+    >"$tmp/duplicate-v2-control.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/duplicate-v2-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/duplicate-v2-control.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'duplicate provenance logical_cpus' "$tmp/err" >/dev/null ||
+    fail "release report accepted duplicate v2 control provenance"
+sed 's/^control_protocol=fleet-control-v2$/control_protocol=fleet-control-v3/' \
+    "$tmp/v2-control-provenance.txt" >"$tmp/invalid-v2-protocol.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/invalid-v2-protocol-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/invalid-v2-protocol.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'invalid control_protocol provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted an unknown control protocol"
+sed 's/^logical_cpus=16$/logical_cpus=0/' "$tmp/v2-control-provenance.txt" \
+    >"$tmp/invalid-logical-cpus.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/invalid-logical-cpus-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/invalid-logical-cpus.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'invalid logical_cpus provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted a non-positive logical CPU count"
+sed 's/^cpu_idle_pct=99[.]5$/cpu_idle_pct=100.1/' \
+    "$tmp/v2-control-provenance.txt" >"$tmp/invalid-cpu-idle.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/invalid-cpu-idle-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/invalid-cpu-idle.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'invalid cpu_idle_pct provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted CPU idle above 100 percent"
+sed 's/^load1=0[.]40$/load1=unknown/' "$tmp/v2-control-provenance.txt" \
+    >"$tmp/v2-unknown-load.txt"
+expect_status 3 "$report" --version 0.0.1 --output "$tmp/v2-unknown-load-report.md" \
+    --baseline "$fixtures/bench-hasu.base.txt" --latest "$tmp/v2-unknown-load.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md"
+grep -F 'fleet-control-v2 requires numeric load1 provenance' "$tmp/err" >/dev/null ||
+    fail "release report accepted unknown load with v2 controls"
 sed '/^# target=/d' "$fixtures/bench-hasu.base.txt" \
     >"$tmp/baseline-x86_64-linux-gnu.hasu.txt"
 expect_status 3 "$report" --version 0.0.1 --output "$tmp/missing-target-report.md" \

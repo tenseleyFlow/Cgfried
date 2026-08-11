@@ -24,7 +24,9 @@ make_evidence() {
                 key == "many-tu.corpus" || key == "self_limit" ||
                 key == "sysroot_include" || key == "sysroot_crt" ||
                 key == "power_profile" || key == "scaling_driver" ||
-                key == "energy_performance_preference")
+                key == "energy_performance_preference" ||
+                key == "control_protocol" || key == "logical_cpus" ||
+                key == "cpu_idle_pct")
                 next
         }
         { print }
@@ -36,6 +38,9 @@ make_evidence() {
         echo 'power_profile=performance'
         echo 'scaling_driver=acpi-cpufreq'
         echo 'energy_performance_preference=unavailable'
+        echo 'control_protocol=fleet-control-v2'
+        echo 'logical_cpus=20'
+        echo 'cpu_idle_pct=90.00'
         echo 'load1=0.10'
         echo 'runs=10'
         echo 'warmup=1'
@@ -154,26 +159,24 @@ replace_value energy_performance_preference performance "$tmp/intel-result.2" \
 pass_case intel-pstate-epp-performance "$gate" "$tmp/intel-baseline.txt" \
     "$tmp/intel-result.txt"
 
-sed '/^power_profile=/d;/^scaling_driver=/d;/^energy_performance_preference=/d' \
+sed '/^control_protocol=/d;/^logical_cpus=/d;/^cpu_idle_pct=/d' \
     "$tmp/baseline.txt" >"$tmp/legacy-baseline.txt"
-pass_case legacy-baseline-provenance-only env BENCH_GATE_KIND=time \
-    BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" "$tmp/legacy-baseline.txt" \
+pass_case mixed-legacy-v2-strict env BENCH_GATE_KIND=time "$gate" \
+    "$tmp/legacy-baseline.txt" \
     "$tmp/pass-29.txt"
-grep -Fx 'benchmark_gate: provenance-only (uncontrolled timing evidence)' \
-    "$tmp/legacy-baseline-provenance-only.out" >/dev/null
 replace_value power_profile '' "$tmp/baseline.txt" "$tmp/empty-control-baseline.txt"
 fail_case legacy-single-empty-control 3 \
-    "baseline timing evidence has invalid power_profile provenance" \
+    "bench-control:" \
     env BENCH_GATE_KIND=time BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" \
     "$tmp/empty-control-baseline.txt" "$tmp/pass-29.txt"
 sed 's/^power_profile=.*/power_profile=/;s/^scaling_driver=.*/scaling_driver=/;s/^energy_performance_preference=.*/energy_performance_preference=/' \
     "$tmp/baseline.txt" >"$tmp/all-empty-control-baseline.txt"
 fail_case legacy-all-empty-controls 3 \
-    "baseline timing evidence has invalid power_profile provenance" \
+    "bench-control:" \
     env BENCH_GATE_KIND=time BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" \
     "$tmp/all-empty-control-baseline.txt" "$tmp/pass-29.txt"
 sed '/^power_profile=/d' "$tmp/pass-29.txt" >"$tmp/missing-control.txt"
-fail_case current-missing-control 3 "missing required result provenance power_profile" \
+fail_case current-missing-control 3 "bench-control:" \
     env BENCH_GATE_KIND=time BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" \
     "$tmp/baseline.txt" "$tmp/missing-control.txt"
 fail_case powersave-rss-still-active 1 "sqlite3.maxrss_kb_max regressed" \
@@ -197,7 +200,7 @@ pass_case nomad-unavailable "$gate" "$tmp/nomad-baseline.txt" \
 replace_value power_profile performance "$tmp/nomad-result.txt" \
     "$tmp/nomad-bad-controls.txt"
 fail_case nomad-controls-not-unavailable 3 \
-    "nomad-1 timing control fields must be unavailable" \
+    "bench-control:" \
     "$gate" "$tmp/nomad-baseline.txt" "$tmp/nomad-bad-controls.txt"
 replace_value governor performance "$tmp/nomad-result.txt" \
     "$tmp/governor-mismatch.txt"
@@ -209,12 +212,44 @@ for mismatch in target runs warmup timeit_protocol sqlite3.corpus many-tu.corpus
     fail_case "$mismatch-mismatch" 3 "$mismatch provenance does not match baseline" \
         "$gate" "$tmp/baseline.txt" "$tmp/mismatch.txt"
 done
-replace_value load1 0.51 "$tmp/pass-29.txt" "$tmp/high-load.txt"
+replace_value load1 4.01 "$tmp/pass-29.txt" "$tmp/high-load.txt"
 fail_case high-load 3 "timing evidence is not controlled" \
     "$gate" "$tmp/baseline.txt" "$tmp/high-load.txt"
 replace_value load1 0.20 "$tmp/pass-29.txt" "$tmp/different-controlled-load.txt"
 pass_case different-controlled-load "$gate" "$tmp/baseline.txt" \
     "$tmp/different-controlled-load.txt"
+replace_value load1 4.0 "$tmp/pass-29.txt" "$tmp/normalized-boundary.1"
+replace_value cpu_idle_pct 85 "$tmp/normalized-boundary.1" \
+    "$tmp/normalized-boundary.txt"
+pass_case normalized-load-boundary "$gate" "$tmp/baseline.txt" \
+    "$tmp/normalized-boundary.txt"
+replace_value load1 4.01 "$tmp/pass-29.txt" "$tmp/normalized-overload.txt"
+fail_case normalized-load-over-boundary 3 "timing evidence is not controlled" \
+    "$gate" "$tmp/baseline.txt" "$tmp/normalized-overload.txt"
+pass_case normalized-overload-provenance-only env BENCH_GATE_KIND=time \
+    BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" "$tmp/baseline.txt" \
+    "$tmp/normalized-overload.txt"
+replace_value cpu_idle_pct 84.99 "$tmp/pass-29.txt" "$tmp/idle-below-boundary.txt"
+fail_case idle-below-boundary 3 "timing evidence is not controlled" \
+    "$gate" "$tmp/baseline.txt" "$tmp/idle-below-boundary.txt"
+pass_case idle-below-boundary-provenance-only env BENCH_GATE_KIND=time \
+    BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" "$tmp/baseline.txt" \
+    "$tmp/idle-below-boundary.txt"
+replace_value logical_cpus 24 "$tmp/pass-29.txt" "$tmp/cpu-mismatch.txt"
+fail_case logical-cpus-mismatch 3 "logical_cpus provenance does not match baseline" \
+    "$gate" "$tmp/baseline.txt" "$tmp/cpu-mismatch.txt"
+pass_case logical-cpus-mismatch-provenance-only env BENCH_GATE_KIND=time \
+    BENCH_ALLOW_PROVENANCE_ONLY=1 "$gate" "$tmp/baseline.txt" \
+    "$tmp/cpu-mismatch.txt"
+grep -Fx 'benchmark_gate: provenance-only (uncontrolled timing evidence)' \
+    "$tmp/logical-cpus-mismatch-provenance-only.out" >/dev/null
+sed '/^logical_cpus=/d' "$tmp/pass-29.txt" >"$tmp/missing-v2-field.txt"
+fail_case missing-v2-field 3 "bench-control:" "$gate" "$tmp/baseline.txt" \
+    "$tmp/missing-v2-field.txt"
+replace_value control_protocol bad-v2 "$tmp/pass-29.txt" \
+    "$tmp/malformed-v2-field.txt"
+fail_case malformed-v2-field 3 "bench-control:" "$gate" "$tmp/baseline.txt" \
+    "$tmp/malformed-v2-field.txt"
 sed '/^timeit_protocol=/d' "$tmp/pass-29.txt" >"$tmp/missing-provenance.txt"
 fail_case missing-provenance 3 "missing required result provenance timeit_protocol" \
     "$gate" "$tmp/baseline.txt" "$tmp/missing-provenance.txt"
@@ -275,7 +310,7 @@ grep -q '^fleet.gate=trip$' "$fleet_rss_result"
 
 fleet_missing_result=$fleet_root/.benchmarks/runs/fixture-missing-kasumi.txt
 sed '/^governor=/d' "$tmp/pass-29.txt" >"$tmp/fleet-missing-governor.txt"
-fail_case fleet-missing-governor 3 "result has no unique governor provenance" env \
+fail_case fleet-missing-governor 3 "bench-control:" env \
     CGF_FLEET_ROOT="$fleet_root" \
     CGF_FLEET_GIT_CMD="$tmp/fake-fleet-git.sh" \
     CGF_FLEET_BENCH_SCRIPT="$tmp/fake-fleet-bench.sh" \
@@ -286,7 +321,7 @@ fail_case fleet-missing-governor 3 "result has no unique governor provenance" en
 
 fleet_bad_load_result=$fleet_root/.benchmarks/runs/fixture-bad-load-kasumi.txt
 replace_value load1 unknown "$tmp/pass-29.txt" "$tmp/fleet-bad-load.txt"
-fail_case fleet-malformed-load 3 "invalid load1 provenance" env \
+fail_case fleet-malformed-load 3 "bench-control:" env \
     CGF_FLEET_ROOT="$fleet_root" \
     CGF_FLEET_GIT_CMD="$tmp/fake-fleet-git.sh" \
     CGF_FLEET_BENCH_SCRIPT="$tmp/fake-fleet-bench.sh" \
@@ -324,7 +359,7 @@ grep -q '^fleet.gate=provenance-only$' "$fleet_uncontrolled_result"
 
 fleet_no_baseline_missing=$fleet_root/.benchmarks/runs/fixture-no-baseline-missing-kasumi.txt
 fail_case fleet-no-baseline-missing-control 3 \
-    "result has no unique power_profile provenance" env \
+    "bench-control:" env \
     CGF_FLEET_ROOT="$fleet_root" \
     CGF_FLEET_GIT_CMD="$tmp/fake-fleet-git.sh" \
     CGF_FLEET_BENCH_SCRIPT="$tmp/fake-fleet-bench.sh" \
@@ -333,11 +368,23 @@ fail_case fleet-no-baseline-missing-control 3 \
     CGF_FLEET_RESULT="$fleet_no_baseline_missing" CGF_FLEET_COMMIT=0 \
     FIXTURE_BENCH_RESULT="$tmp/missing-control.txt" "$fleet"
 
+sed '/^control_protocol=/d;/^logical_cpus=/d;/^cpu_idle_pct=/d' \
+    "$tmp/pass-29.txt" >"$tmp/missing-v2.txt"
+fleet_no_baseline_missing_v2=$fleet_root/.benchmarks/runs/fixture-no-baseline-missing-v2-kasumi.txt
+fail_case fleet-no-baseline-missing-v2 3 "bench-control:" env \
+    CGF_FLEET_ROOT="$fleet_root" \
+    CGF_FLEET_GIT_CMD="$tmp/fake-fleet-git.sh" \
+    CGF_FLEET_BENCH_SCRIPT="$tmp/fake-fleet-bench.sh" \
+    CGF_FLEET_BENCHMARK_GATE="$gate" CGF_FLEET_HOST=kasumi \
+    CGF_FLEET_STAMP=fixture-no-baseline-missing-v2 \
+    CGF_FLEET_RESULT="$fleet_no_baseline_missing_v2" CGF_FLEET_COMMIT=0 \
+    FIXTURE_BENCH_RESULT="$tmp/missing-v2.txt" "$fleet"
+
 replace_value energy_performance_preference bad/value "$tmp/pass-29.txt" \
     "$tmp/malformed-control.txt"
 fleet_no_baseline_malformed=$fleet_root/.benchmarks/runs/fixture-no-baseline-malformed-kasumi.txt
 fail_case fleet-no-baseline-malformed-control 3 \
-    "result has invalid energy_performance_preference provenance" env \
+    "bench-control:" env \
     CGF_FLEET_ROOT="$fleet_root" \
     CGF_FLEET_GIT_CMD="$tmp/fake-fleet-git.sh" \
     CGF_FLEET_BENCH_SCRIPT="$tmp/fake-fleet-bench.sh" \
@@ -346,4 +393,4 @@ fail_case fleet-no-baseline-malformed-control 3 \
     CGF_FLEET_RESULT="$fleet_no_baseline_malformed" CGF_FLEET_COMMIT=0 \
     FIXTURE_BENCH_RESULT="$tmp/malformed-control.txt" "$fleet"
 
-echo "benchmark_gate_test: 46 cases passed"
+echo "benchmark_gate_test: 56 cases passed"

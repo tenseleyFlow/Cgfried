@@ -188,6 +188,28 @@ cat >"$tmp/bin/powerprofilesctl" <<'EOF'
 [ "${1:-}" = get ] || exit 2
 echo "${FIXTURE_POWER_PROFILE:-performance}"
 EOF
+cat >"$tmp/bin/fake-bench-control" <<'EOF'
+#!/bin/sh
+set -eu
+case ${1:-} in
+measure)
+    [ "$#" -eq 2 ] || exit 3
+    cat <<MEASURE
+control_protocol=fleet-control-v2
+logical_cpus=${FIXTURE_LOGICAL_CPUS:-8}
+cpu_idle_pct=${FIXTURE_CPU_IDLE_PCT:-99.00}
+load1=${FIXTURE_LOAD1:-0.25}
+MEASURE
+    ;;
+classify)
+    [ "${2:-}" = --require-v2 ] && [ "$#" -eq 3 ] || exit 3
+    [ -r "$3" ] || exit 3
+    [ -z "${FIXTURE_CONTROL_LOG:-}" ] || cp "$3" "$FIXTURE_CONTROL_LOG"
+    exit "${FIXTURE_CONTROL_STATUS:-0}"
+    ;;
+*) exit 3 ;;
+esac
+EOF
 cat >"$tmp/bin/fake-timeit" <<'EOF'
 #!/bin/sh
 set -eu
@@ -205,13 +227,16 @@ printf '1.000000\n' >"$raw"
 echo 'wall_ms_median=1.000000'
 echo 'wall_ms_mad=0.000000'
 EOF
-chmod +x "$tmp/bin/uname" "$tmp/bin/fake-timeit" "$tmp/bin/powerprofilesctl"
+chmod +x "$tmp/bin/uname" "$tmp/bin/fake-timeit" \
+    "$tmp/bin/powerprofilesctl" "$tmp/bin/fake-bench-control"
 
 mkdir -p "$tmp/work-runtime"
 : >"$tmp/runtime-cgf.log"
 PATH=$tmp/bin:$PATH \
 FIXTURE_CGF_LOG=$tmp/runtime-cgf.log \
+FIXTURE_CONTROL_LOG=$tmp/macos-control.log \
 CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
+CGF_KERNEL_CONTROL_SCRIPT=$tmp/bin/fake-bench-control \
 CGF_KERNEL_GCC_ARM64_MACOS=$tmp/bin/fake-cgf \
 CGF_KERNEL_TIMEIT=$tmp/bin/fake-timeit \
 CGF_KERNEL_DIR=$tmp/kernels \
@@ -240,6 +265,13 @@ for field in power_profile scaling_driver energy_performance_preference; do
     [ "$(grep -c "^$field=unavailable$" "$tmp/macos-runtime.txt")" -eq 1 ] ||
         fail "Darwin runtime did not record exactly one unavailable $field"
 done
+for field_value in control_protocol=fleet-control-v2 \
+    logical_cpus=8 cpu_idle_pct=99.00 load1=0.25; do
+    [ "$(grep -Fxc "$field_value" "$tmp/macos-runtime.txt")" -eq 1 ] ||
+        fail "Darwin v2 control provenance missing: $field_value"
+done
+grep -Fx 'host=nomad-1' "$tmp/macos-control.log" >/dev/null ||
+    fail "Darwin classifier input lacks host provenance"
 [ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-syntax.h" \
     "$tmp/runtime-cgf.log")" -eq 1 ] ||
     fail "macOS compatibility header was not scoped to the cgf runtime compile"
@@ -251,9 +283,8 @@ done
 [ ! -e "$tmp/work-runtime/dashboard.tmp.md" ] ||
     fail "runtime-only mode rendered a static dashboard"
 
-mkdir -p "$tmp/proc" "$tmp/sys-cpu/cpu0/cpufreq" \
+mkdir -p "$tmp/sys-cpu/cpu0/cpufreq" \
     "$tmp/sys-cpu/cpu1/cpufreq" "$tmp/work-linux-runtime"
-printf '0.25 0.10 0.05 1/1 1\n' >"$tmp/proc/loadavg"
 for cpu in cpu0 cpu1; do
     printf 'powersave\n' >"$tmp/sys-cpu/$cpu/cpufreq/scaling_governor"
     printf 'intel_pstate\n' >"$tmp/sys-cpu/$cpu/cpufreq/scaling_driver"
@@ -263,7 +294,9 @@ done
 PATH=$tmp/bin:$PATH \
 FIXTURE_UNAME_SYSTEM=Linux FIXTURE_UNAME_MACHINE=x86_64 \
 FIXTURE_POWER_PROFILE=performance \
-CGF_KERNEL_PROC_ROOT=$tmp/proc CGF_KERNEL_SYS_CPU_ROOT=$tmp/sys-cpu \
+FIXTURE_CONTROL_LOG=$tmp/linux-control.log \
+CGF_KERNEL_SYS_CPU_ROOT=$tmp/sys-cpu \
+CGF_KERNEL_CONTROL_SCRIPT=$tmp/bin/fake-bench-control \
 CGF_KERNEL_CGF=$tmp/bin/fake-cgf CGF_KERNEL_TIMEIT=$tmp/bin/fake-timeit \
 CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-linux-runtime \
 CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
@@ -284,6 +317,38 @@ if grep -F 'runtime controls are not performance-controlled' \
     "$tmp/linux-runtime.err" >/dev/null; then
     fail "controlled intel_pstate powersave mode was marked provenance-only"
 fi
+for field_value in host=kasumi governor=powersave power_profile=performance \
+    scaling_driver=intel_pstate energy_performance_preference=performance \
+    control_protocol=fleet-control-v2 logical_cpus=8 \
+    cpu_idle_pct=99.00 load1=0.25; do
+    [ "$(grep -Fxc "$field_value" "$tmp/linux-control.log")" -eq 1 ] ||
+        fail "Linux classifier input missing: $field_value"
+done
+
+mkdir "$tmp/work-linux-refused"
+set +e
+PATH=$tmp/bin:$PATH \
+FIXTURE_UNAME_SYSTEM=Linux FIXTURE_UNAME_MACHINE=x86_64 \
+FIXTURE_POWER_PROFILE=performance FIXTURE_CONTROL_STATUS=1 \
+CGF_KERNEL_SYS_CPU_ROOT=$tmp/sys-cpu \
+CGF_KERNEL_CONTROL_SCRIPT=$tmp/bin/fake-bench-control \
+CGF_KERNEL_CGF=$tmp/bin/fake-cgf CGF_KERNEL_TIMEIT=$tmp/bin/fake-timeit \
+CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-linux-refused \
+CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
+CGF_KERNEL_RUNS=1 CGF_KERNEL_WARMUP=0 CGF_KERNEL_COOLDOWN_SECONDS=0 \
+CGF_KERNEL_RUNTIME_HOST=kasumi \
+CGF_KERNEL_RUNTIME_OUTPUT=$tmp/linux-refused.txt \
+CGF_KERNEL_RUNTIME_ONLY=1 "$compare" >"$tmp/linux-refused.out" \
+    2>"$tmp/linux-refused.err"
+refused_status=$?
+set -e
+[ "$refused_status" -eq 3 ] ||
+    fail "unforced provenance-only kernel runtime was not refused"
+grep -F 'capacity/idle controls are provenance-only (set CGF_KERNEL_FORCE=1 to record)' \
+    "$tmp/linux-refused.err" >/dev/null ||
+    fail "kernel capacity/idle refusal diagnostic is missing"
+[ ! -e "$tmp/linux-refused.txt" ] ||
+    fail "refused kernel runtime emitted an artifact"
 
 printf 'balance_performance\n' \
     >"$tmp/sys-cpu/cpu0/cpufreq/energy_performance_preference"
@@ -292,8 +357,9 @@ printf 'balance_performance\n' \
 mkdir "$tmp/work-linux-uncontrolled"
 PATH=$tmp/bin:$PATH \
 FIXTURE_UNAME_SYSTEM=Linux FIXTURE_UNAME_MACHINE=x86_64 \
-FIXTURE_POWER_PROFILE=performance \
-CGF_KERNEL_PROC_ROOT=$tmp/proc CGF_KERNEL_SYS_CPU_ROOT=$tmp/sys-cpu \
+FIXTURE_POWER_PROFILE=performance FIXTURE_CONTROL_STATUS=1 \
+CGF_KERNEL_SYS_CPU_ROOT=$tmp/sys-cpu \
+CGF_KERNEL_CONTROL_SCRIPT=$tmp/bin/fake-bench-control CGF_KERNEL_FORCE=1 \
 CGF_KERNEL_CGF=$tmp/bin/fake-cgf CGF_KERNEL_TIMEIT=$tmp/bin/fake-timeit \
 CGF_KERNEL_DIR=$tmp/kernels CGF_KERNEL_COMPARE_WORK=$tmp/work-linux-uncontrolled \
 CGF_KERNEL_TARGETS=x86_64-linux-gnu CGF_KERNEL_OPTS=O2 CGF_KERNEL_MIN=1 \
@@ -302,7 +368,7 @@ CGF_KERNEL_RUNTIME_HOST=kasumi \
 CGF_KERNEL_RUNTIME_OUTPUT=$tmp/linux-uncontrolled.txt \
 CGF_KERNEL_RUNTIME_ONLY=1 "$compare" >"$tmp/linux-uncontrolled.out" \
     2>"$tmp/linux-uncontrolled.err"
-grep -F 'WARNING: runtime controls are not performance-controlled (load1=0.25 power_profile=performance governor=powersave scaling_driver=intel_pstate energy_performance_preference=balance_performance); runtime is provenance-only' \
+grep -F 'WARNING: capacity/idle controls are provenance-only; forced recording enabled' \
     "$tmp/linux-uncontrolled.err" >/dev/null ||
     fail "uncontrolled intel_pstate mode warning is incomplete"
 
