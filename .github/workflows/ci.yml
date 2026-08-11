@@ -153,11 +153,14 @@ jobs:
           status=0
           CGF_BENCH_FORCE=1 CGF_BENCH_SKIP_MUSL=1 \
             CGF_BENCH_HOST_CLASS=arm64-ci BENCH_SKIP_TIME=1 \
+            CGF_BENCH_REV="$GITHUB_SHA" \
+            CGF_BENCH_TREE_STATE=exported-commit \
             BENCH_BASELINE=.benchmarks/baseline-arm64-linux.ci.txt \
             BENCH_RESULTS=build/bench/results-arm64-linux.txt \
             make CC=gcc bench-gate || status=$?
           size_static_status=0
-          CGF_SIZE_HOST_CLASS=arm64-ci make CC=gcc perf-arm64 || \
+          CGF_SIZE_HOST_CLASS=arm64-ci CGF_SIZE_REV="$GITHUB_SHA" \
+            CGF_SIZE_TREE_STATE=exported-commit make CC=gcc perf-arm64 || \
             size_static_status=$?
           if [ "$status" -eq 0 ]; then status=$size_static_status; fi
           summary_status=0
@@ -266,9 +269,12 @@ jobs:
           status=0
           CGF_BENCH_FORCE=1 CGF_BENCH_SKIP_MUSL=1 \
             CGF_BENCH_HOST_CLASS=ci BENCH_SKIP_TIME=1 \
+            CGF_BENCH_REV="$GITHUB_SHA" \
+            CGF_BENCH_TREE_STATE=exported-commit \
             make CC=gcc bench-gate || status=$?
           size_static_status=0
-          CGF_SIZE_HOST_CLASS=ci make CC=gcc perf-x86 || \
+          CGF_SIZE_HOST_CLASS=ci CGF_SIZE_REV="$GITHUB_SHA" \
+            CGF_SIZE_TREE_STATE=exported-commit make CC=gcc perf-x86 || \
             size_static_status=$?
           if [ "$status" -eq 0 ]; then status=$size_static_status; fi
           summary_status=0

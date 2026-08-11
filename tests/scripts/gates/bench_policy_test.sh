@@ -3,6 +3,10 @@
 
 set -eu
 
+# GitHub Actions exports this path to every step. Fixture calls exercise the
+# checker's stdout contract unless a test supplies --summary explicitly.
+unset GITHUB_STEP_SUMMARY
+
 script_dir=$(dirname -- "$0")
 repo=$(cd "$script_dir/../../.." && pwd)
 checker=$repo/scripts/check_bench_policy.sh

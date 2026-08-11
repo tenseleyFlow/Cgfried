@@ -141,6 +141,9 @@ run_lane()
     fi
     if [ "$timeit_status" -ne 0 ]; then
         echo "bench: timed lane '$lane' failed; see $stderr_file" >&2
+        if [ -s "$stderr_file" ]; then
+            sed -n '1,120p' "$stderr_file" >&2
+        fi
         return 1
     fi
     if ! grep '^stat: ' "$stderr_file" >"$stats.all"; then
@@ -207,7 +210,19 @@ while IFS= read -r source; do
     set -- "$@" "$source"
     seen=$((seen + 1))
 done <"$SELF_MANIFEST"
-run_lane self "cgfried-src-$rev:$seen-files" -Wno-mem -Wno-return-type \
+self_corpus="cgfried-src-$rev:$seen-files"
+case $target in
+arm64-linux | arm64-macos)
+    # The AArch64 OS headers spell vector-register fields as __uint128_t.
+    # Integer-128 is deliberately outside the v0.1 front end, but this lane is
+    # syntax-only and never observes those fields. Keep their declaration
+    # parseable with an explicit compatibility spelling and record the shim in
+    # corpus provenance instead of silently dropping a self source file.
+    set -- '-D__uint128_t=unsigned long long' "$@"
+    self_corpus="$self_corpus:u128-syntax-shim=ull"
+    ;;
+esac
+run_lane self "$self_corpus" -Wno-mem -Wno-return-type \
     -fsyntax-only -I "$ROOT/src" "$@"
 nomad_cooldown
 
