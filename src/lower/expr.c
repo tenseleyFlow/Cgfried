@@ -63,6 +63,36 @@ static u8 lv_flags(const Lvalue *lv)
                 (lv->is_atomic ? IRF_SEQ_CST : 0));
 }
 
+/* Extract a bitfield by placing its sign bit at the top of an integer and
+ * shifting it back down.  ARM64 has no 8- or 16-bit arithmetic registers:
+ * selecting an i8 `shl 5; lshr 5` directly as W operations would clear five
+ * bits at the top of W, not at the top of the byte.  Widen narrow containers
+ * to i32 before the pair, then truncate the exact IR result back to its
+ * declared unit.  x86 can perform the narrow operations directly, but this
+ * target-neutral spelling keeps the IR semantics honest on both backends. */
+static IrOperand bitfield_extract(Lower *lo, IrOperand value, IrType unit,
+                                  u32 bit_shift, u32 bit_width, bool is_signed)
+{
+    IrType work = unit < IRT_I32 ? IRT_I32 : unit;
+    u32 work_bits = 8u << (work - IRT_I8);
+    u32 up = work_bits - bit_shift - bit_width;
+    u32 down = work_bits - bit_width;
+    ValueId wide;
+    ValueId hi;
+    ValueId out;
+
+    if (work != unit) {
+        wide = ir_build1(&lo->b, IR_ZEXT, work, value);
+        value = ir_op_value(lo->fn, wide);
+    }
+    hi = ir_build2(&lo->b, IR_SHL, work, value, ir_op_iconst(work, (i64)up));
+    out = ir_build2(&lo->b, is_signed ? IR_ASHR : IR_LSHR, work,
+                    ir_op_value(lo->fn, hi), ir_op_iconst(work, (i64)down));
+    if (work != unit)
+        out = ir_build1(&lo->b, IR_TRUNC, unit, ir_op_value(lo->fn, out));
+    return ir_op_value(lo->fn, out);
+}
+
 IrOperand lower_load(Lower *lo, Lvalue lv)
 {
     ValueId raw;
@@ -71,22 +101,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
                               lv.etype);
     if (!lv.is_bitfield)
         return ir_op_value(lo->fn, raw);
-    {
-        /* shl to put the field's top bit at the unit's top, then a right
-         * shift back down: ashr sign-extends signed fields for free,
-         * lshr zero-fills unsigned ones. */
-        u32 unit_bits = 8u << (lv.unit - IRT_I8);
-        u32 up = unit_bits - lv.bit_shift - lv.bit_width;
-        u32 down = unit_bits - lv.bit_width;
-        ValueId hi =
-            ir_build2(&lo->b, IR_SHL, lv.unit, ir_op_value(lo->fn, raw),
-                      ir_op_iconst(lv.unit, (i64)up));
-        ValueId out = ir_build2(&lo->b, lv.is_signed ? IR_ASHR : IR_LSHR,
-                                lv.unit, ir_op_value(lo->fn, hi),
-                                ir_op_iconst(lv.unit, (i64)down));
-
-        return ir_op_value(lo->fn, out);
-    }
+    return bitfield_extract(lo, ir_op_value(lo->fn, raw), lv.unit, lv.bit_shift,
+                            lv.bit_width, lv.is_signed);
 }
 
 IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
@@ -99,7 +115,6 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
     {
         /* Read-modify-write; and the RESULT of the assignment is the
          * re-narrowed stored value, not the incoming RHS. */
-        u32 unit_bits = 8u << (lv.unit - IRT_I8);
         u64 mask = lv.bit_width >= 64 ? ~0ull : ((1ull << lv.bit_width) - 1);
         ValueId old = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv.align,
                                           lv_flags(&lv), lv.etype);
@@ -117,18 +132,8 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 
         ir_build_store_typed(&lo->b, ir_op_value(lo->fn, ins), lv.addr,
                              lv.align, lv_flags(&lv), lv.etype);
-        /* Re-narrow for the result: shl/shr pair, signedness-aware. */
-        {
-            u32 up = unit_bits - lv.bit_width;
-            ValueId hi =
-                ir_build2(&lo->b, IR_SHL, lv.unit, ir_op_value(lo->fn, nv),
-                          ir_op_iconst(lv.unit, (i64)up));
-            ValueId res = ir_build2(&lo->b, lv.is_signed ? IR_ASHR : IR_LSHR,
-                                    lv.unit, ir_op_value(lo->fn, hi),
-                                    ir_op_iconst(lv.unit, (i64)up));
-
-            return ir_op_value(lo->fn, res);
-        }
+        return bitfield_extract(lo, ir_op_value(lo->fn, nv), lv.unit, 0,
+                                lv.bit_width, lv.is_signed);
     }
 }
 
@@ -1752,9 +1757,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
          * A CONSTANT one is already identical to gcc -- the optimizer
          * folds the whole tree to one immediate -- and glibc's byteswap.h
          * reaches this only through its out-of-line inline functions.
-         * Recognizing the tree as x86 `bswap` / arm64 `rev` is Sprint 53's
-         * peephole work. This is a missed optimization with a number on
-         * it, not a correctness gap.
+         * Sprint 53 spent its measured backend budget on the higher-impact
+         * address and post-RA rules. Recognizing this tree as x86 `bswap` /
+         * arm64 `rev` remains a post-v0.1.0 optimization, not a correctness
+         * gap.
          *
          * Sema converted the argument to the exact-width unsigned type,
          * so the shifts below are all in that width and `lshr` never

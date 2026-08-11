@@ -14,9 +14,9 @@
 // and was correct throughout, so it cannot tell a placed object from a
 // misplaced one. Only the runtime address can.
 //
-// The automatic case stops at 16 -- the frame base is 16-aligned, so a
-// stricter request needs a realigned frame and is refused by name (Sprint 53).
-// tests/programs/gnu/alignas_overaligned_local.c pins that refusal.
+// Automatic objects exercise the stricter-than-ABI case too: the backend
+// must align the object itself even when the incoming frame is only 16-byte
+// aligned.
 
 _Alignas(64) int g_big = 1;
 _Alignas(32) char g_arr[3] = {1, 2, 3};
@@ -39,10 +39,20 @@ static int local_static_aligned(void)
     return ((unsigned long)&s & 31u) == 0;
 }
 
+static int local_vla_aligned(int n)
+{
+    _Alignas(64) int a[n];
+
+    a[0] = n;
+    a[n - 1] = n + 3;
+    return (((unsigned long)a & 63u) == 0) && a[0] == n &&
+           a[n - 1] == n + 3;
+}
+
 int main(void)
 {
-    _Alignas(16) int loc = 4;
-    _Alignas(8) char cloc = 6;
+    _Alignas(64) int loc = 4;
+    _Alignas(32) char cloc = 6;
 
     if (((unsigned long)&g_big & 63u) != 0)
         return 1;
@@ -54,17 +64,19 @@ int main(void)
         return 4;
     if (!local_static_aligned())
         return 5;
-    if (((unsigned long)&loc & 15u) != 0)
+    if (((unsigned long)&loc & 63u) != 0)
         return 6;
-    if (((unsigned long)&cloc & 7u) != 0)
+    if (((unsigned long)&cloc & 31u) != 0)
         return 7;
+    if (!local_vla_aligned(9))
+        return 8;
 
     /* Natural alignment is unchanged, and the values still round-trip. */
     if (((unsigned long)&g_plain & 3u) != 0)
-        return 8;
-    if (g_big != 1 || g_arr[2] != 3 || g_stat != 5 || g_plain != 7)
         return 9;
-    if (g_char != 9 || g_merged != 11 || loc != 4 || cloc != 6)
+    if (g_big != 1 || g_arr[2] != 3 || g_stat != 5 || g_plain != 7)
         return 10;
+    if (g_char != 9 || g_merged != 11 || loc != 4 || cloc != 6)
+        return 11;
     return 0;
 }

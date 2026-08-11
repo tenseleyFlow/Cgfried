@@ -1,4 +1,5 @@
 #include "cg/x86_64/mir.h"
+#include "cg/x86_64/peep.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -8,8 +9,8 @@
 
 /* Sprint 22: backward liveness, the SIMPLE linear scan (one interval per
  * vreg, [first_point, last_point], NO holes — hole-aware allocation buys
- * a few % for real interval-splitting complexity; revisit with Sprint 53
- * benchmarks), pre-colored intervals for the fixed-reg constraints isel
+ * a few % for real interval-splitting complexity; revisit when profiles
+ * justify it), pre-colored intervals for the fixed-reg constraints isel
  * recorded, spill code, the two-address fixup with the dst==src2 hazard
  * table, and the rbp frame under the 16-byte alignment law.
  *
@@ -709,8 +710,41 @@ static void rewrite(Ra *ra)
         for (i = 0; i < b->n; i++) {
             X64Inst in = b->insts[i];
             Interval *dit = in.def.v ? &ra->iv[in.def.v] : NULL;
+            bool b_addr_materialized = false;
 
             rb.source_loc = in.loc;
+
+            /* A folded store address may have both components spilled. Form
+             * the effective address before reloading the a-side value: r10
+             * keeps the completed address, while r11 is then free again for
+             * the store value (or a spilled definition). */
+            if (in.b.kind == X64O_MEM && in.b.mem.base.v && in.b.mem.index.v &&
+                !ra->iv[in.b.mem.base.v].phys &&
+                !ra->iv[in.b.mem.index.v].phys) {
+                X64Inst base = mk_reload(
+                    SCRATCH_B, ra->iv[in.b.mem.base.v].slot, false, X64_Q);
+                X64Inst index = mk_reload(
+                    SCRATCH_A, ra->iv[in.b.mem.index.v].slot, false, X64_Q);
+                X64Inst addr;
+
+                rb_put(&rb, &base);
+                rb_put(&rb, &index);
+                memset(&addr, 0, sizeof(addr));
+                addr.op = X64_OP_LEA;
+                addr.width = X64_Q;
+                addr.def = physreg(SCRATCH_B);
+                addr.a.kind = X64O_MEM;
+                addr.a.mem.base = physreg(SCRATCH_B);
+                addr.a.mem.index = physreg(SCRATCH_A);
+                addr.a.mem.scale = in.b.mem.scale;
+                addr.a.mem.disp = in.b.mem.disp;
+                rb_put(&rb, &addr);
+                in.b.mem.base = physreg(SCRATCH_B);
+                in.b.mem.index.v = 0;
+                in.b.mem.scale = 1;
+                in.b.mem.disp = 0;
+                b_addr_materialized = true;
+            }
 
             /* uses first: reloads sit before the instruction */
             if (in.a.kind == X64O_VREG)
@@ -728,19 +762,10 @@ static void rewrite(Ra *ra)
                 }
             }
             if (in.b.kind == X64O_MEM) {
-                /* Both b-mem components share r10 (r11 is the a-side's),
-                 * so both spilled at once has no scratch left. isel only
-                 * ever folds base+disp into store addresses, never
-                 * base+index — this trips if that changes. */
-                bool base_sp = in.b.mem.base.v && !ra->iv[in.b.mem.base.v].phys;
-                bool idx_sp =
-                    in.b.mem.index.v && !ra->iv[in.b.mem.index.v].phys;
-
-                if (base_sp && idx_sp)
-                    CGF_ICE("regalloc: spilled base + spilled index in "
-                            "one b-side mem operand");
-                sub_use(ra, &rb, &in.b.mem.base, 1);
-                sub_use(ra, &rb, &in.b.mem.index, 1);
+                if (!b_addr_materialized) {
+                    sub_use(ra, &rb, &in.b.mem.base, 1);
+                    sub_use(ra, &rb, &in.b.mem.index, 1);
+                }
                 if (in.b.mem.rsp_rel) {
                     in.b.mem.base = physreg(X64_RSP);
                     in.b.mem.rsp_rel = 0;
@@ -869,9 +894,10 @@ static void rewrite(Ra *ra)
                 continue;
             }
             if (in.op == X64_OP_ALLOCA_DYN) {
-                /* mov r10, size; add r10, 15+OUT; and r10, -16;
-                 * sub rsp, r10; def = rsp + OUT. Emitted in canonical
-                 * two-address form (def == a) so the fixup skips it.
+                /* mov r10, size; add r10, SLOP+OUT; and r10, -16;
+                 * sub rsp, r10.  For align <=16 the result is rsp+OUT.
+                 * For stricter alignment it is
+                 * align_up(rsp+OUT, align), formed with lea+and.
                  *
                  * OUT is the outgoing-argument area rounded up to 16, and it
                  * is the whole reason this is not simply `def = rsp`. Call
@@ -886,9 +912,18 @@ static void rewrite(Ra *ra)
                  * The epilogue recomputes rsp from rbp, so nothing downstream
                  * has to know rsp moved. */
                 u32 out = (f->out_args + 15u) & ~15u;
+                u32 align = in.table ? in.table : 1;
+                u32 slop = align > 16 ? align - 1 : 15;
+                u64 candidate_disp = (u64)out + (align > 16 ? align - 1 : 0);
                 X64Inst x;
+                u32 start = rb.n;
 
-                rb.map[i] = rb.n;
+                if ((align & (align - 1)) ||
+                    !x64_imm_fits_simm32(-(i64)align) ||
+                    (u64)slop + out > INT32_MAX || candidate_disp > INT32_MAX)
+                    CGF_ICE("x86_64 regalloc: dynamic stack alignment %u "
+                            "exceeds the encodable range",
+                            align);
                 memset(&x, 0, sizeof(x));
                 x.op = X64_OP_MOV;
                 x.width = X64_Q;
@@ -903,7 +938,7 @@ static void rewrite(Ra *ra)
                 x.a.kind = X64O_VREG;
                 x.a.r = physreg(SCRATCH_B);
                 x.b.kind = X64O_IMM;
-                x.b.imm = 15 + (i64)out;
+                x.b.imm = (i64)slop + out;
                 rb_put(&rb, &x);
                 x.op = X64_OP_AND;
                 x.b.imm = -16;
@@ -918,28 +953,61 @@ static void rewrite(Ra *ra)
                 x.b.kind = X64O_VREG;
                 x.b.r = physreg(SCRATCH_B);
                 rb_put(&rb, &x);
-                if (out) {
-                    /* lea r10, [rsp + OUT] — r10's round-up value is dead. */
+                if (align > 16) {
+                    u8 result = dit->phys ? (u8)(dit->phys - 1) : SCRATCH_B;
+
                     memset(&x, 0, sizeof(x));
                     x.op = X64_OP_LEA;
                     x.width = X64_Q;
-                    x.def = physreg(SCRATCH_B);
+                    x.def = physreg(result);
                     x.a.kind = X64O_MEM;
                     x.a.mem.base = physreg(X64_RSP);
                     x.a.mem.scale = 1;
-                    x.a.mem.disp = (i32)out;
+                    x.a.mem.disp = (i32)candidate_disp;
                     rb_put(&rb, &x);
-                }
-                if (dit->phys) {
-                    X64Inst mv = mk_mov(physreg((u8)(dit->phys - 1)),
-                                        physreg(out ? SCRATCH_B : X64_RSP));
+                    memset(&x, 0, sizeof(x));
+                    x.op = X64_OP_AND;
+                    x.width = X64_Q;
+                    x.flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+                    x.def = physreg(result);
+                    x.a.kind = X64O_VREG;
+                    x.a.r = physreg(result);
+                    x.b.kind = X64O_IMM;
+                    x.b.imm = -(i64)align;
+                    rb_put(&rb, &x);
+                    rb.map[i] = start + 5;
+                    if (!dit->phys) {
+                        X64Inst st = mk_spill(result, dit->slot, false, X64_Q);
 
-                    rb_put(&rb, &mv);
+                        rb_put(&rb, &st);
+                    }
                 } else {
-                    X64Inst st = mk_spill(out ? SCRATCH_B : X64_RSP, dit->slot,
-                                          false, X64_Q);
+                    u8 result = out ? SCRATCH_B : X64_RSP;
 
-                    rb_put(&rb, &st);
+                    rb.map[i] = start + 3;
+                    if (out) {
+                        /* lea r10, [rsp + OUT] — r10's round-up value is
+                         * dead. */
+                        memset(&x, 0, sizeof(x));
+                        x.op = X64_OP_LEA;
+                        x.width = X64_Q;
+                        x.def = physreg(SCRATCH_B);
+                        x.a.kind = X64O_MEM;
+                        x.a.mem.base = physreg(X64_RSP);
+                        x.a.mem.scale = 1;
+                        x.a.mem.disp = (i32)out;
+                        rb_put(&rb, &x);
+                    }
+                    if (dit->phys) {
+                        X64Inst mv = mk_mov(physreg((u8)(dit->phys - 1)),
+                                            physreg(result));
+
+                        rb_put(&rb, &mv);
+                    } else {
+                        X64Inst st = mk_spill(result, dit->slot, false, X64_Q);
+
+                        rb_put(&rb, &st);
+                    }
                 }
                 continue;
             }
@@ -1154,9 +1222,9 @@ static void frame_finalize(Ra *ra)
     }
 
     /* Static alloca markers -> rbp-relative slots below the spills. rbp
-     * itself is 16-aligned (entry rsp = 8 mod 16, push rbp lands on 0),
-     * so rounding the running total to the alloca's align aligns the
-     * slot address for every align <= 16. */
+     * itself is 16-aligned (entry rsp = 8 mod 16, push rbp lands on 0).
+     * For stricter objects reserve align-1 bytes of slop and mask a candidate
+     * address down at run time; rbp remains the stable unwind/frame anchor. */
     for (bi = 0; bi < f->nblocks; bi++) {
         X64Block *b = &f->blocks[bi];
 
@@ -1169,27 +1237,77 @@ static void frame_finalize(Ra *ra)
                 u32 size = in->b.imm > 0 ? (u32)in->b.imm : 1;
                 u32 align = in->table ? in->table : 1;
 
-                /* The frame base is only 16-aligned, so aligning the OFFSET
-                 * cannot deliver more than 16 in absolute terms -- it would
-                 * produce a 64-aligned offset from a 16-aligned base and call
-                 * it a 64-aligned object. Honouring this needs a realigned
-                 * frame, which is Sprint 53.
-                 *
-                 * arm64 has refused this since Sprint 48 while x86 silently
-                 * under-aligned, and nothing noticed because _Alignas never
-                 * reached an alloca at all until it was wired up. An honest
-                 * refusal on one target hiding a wrong answer on the other is
-                 * exactly the shape the VLA reckoning found. */
-                if (align > 16)
-                    CGF_ICE("x86_64 regalloc: over-aligned stack objects land "
-                            "in Sprint 53");
-                raw = (raw + size + align - 1) & ~(align - 1);
                 in->a.mem.base = physreg(X64_RBP);
-                in->a.mem.disp = -(i32)(frame_bias + raw);
+                if (align > 16) {
+                    u64 reserve = (u64)size + align - 1;
+                    u64 candidate = (u64)frame_bias + raw + size;
+
+                    if (align & (align - 1))
+                        CGF_ICE("x86_64 regalloc: stack alignment %u is not "
+                                "a power of two",
+                                align);
+                    if (!x64_imm_fits_simm32(-(i64)align) ||
+                        candidate > INT32_MAX ||
+                        (u64)raw + reserve > UINT32_MAX)
+                        CGF_ICE("x86_64 regalloc: over-aligned stack frame "
+                                "exceeds the encodable range");
+                    in->a.mem.disp = -(i32)candidate;
+                    raw += (u32)reserve;
+                    /* table retains the mask alignment for the expansion
+                     * below; b no longer carries marker size. */
+                } else {
+                    raw = (raw + size + align - 1) & ~(align - 1);
+                    in->a.mem.disp = -(i32)(frame_bias + raw);
+                    in->table = 0;
+                }
                 in->b.imm = 0;
-                in->table = 0;
             }
         }
+    }
+
+    /* An over-aligned marker becomes:
+     *     lea candidate(%rbp), def
+     *     and $-align, def
+     * The original marker advertised DEFS_FLAGS at isel, so map its old
+     * index to the AND (not the LEA) for any following flags consumer. */
+    for (bi = 0; bi < f->nblocks; bi++) {
+        X64Block *b = &f->blocks[bi];
+        Rb rb;
+        bool any = false;
+
+        for (i = 0; i < b->n; i++)
+            if (b->insts[i].op == X64_OP_LEA && b->insts[i].table > 16)
+                any = true;
+        if (!any)
+            continue;
+        rb_init(&rb, f->arena, b->n);
+        for (i = 0; i < b->n; i++) {
+            X64Inst in = b->insts[i];
+
+            rb.source_loc = in.loc;
+            if (in.op == X64_OP_LEA && in.table > 16) {
+                X64Inst mask;
+
+                rb.map[i] = rb.n + 1;
+                in.flags = 0;
+                in.table = 0;
+                rb_put(&rb, &in);
+                memset(&mask, 0, sizeof(mask));
+                mask.op = X64_OP_AND;
+                mask.width = X64_Q;
+                mask.flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+                mask.def = in.def;
+                mask.a.kind = X64O_VREG;
+                mask.a.r = in.def;
+                mask.b.kind = X64O_IMM;
+                mask.b.imm = -(i64)b->insts[i].table;
+                rb_put(&rb, &mask);
+            } else {
+                rb.map[i] = rb.n;
+                rb_put(&rb, &in);
+            }
+        }
+        rb_commit(&rb, b);
     }
 
     /* Variadic: the psABI register save area (176 bytes, 16-aligned)
@@ -1453,6 +1571,7 @@ void x64_regalloc(X64Func *f)
     rewrite(&ra);
     x64_twoaddr_fixup(f);
     frame_finalize(&ra);
+    x64_peep(f);
     f->allocated = true;
 }
 

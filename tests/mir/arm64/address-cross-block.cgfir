@@ -1,0 +1,169 @@
+// PATTERN: cross-block constant PTRADD folds into load address
+func i64 @cross_const(ptr %base) {
+entry():
+    %p = ptradd %base, 24
+    br body()
+body():
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+// PATTERN: cross-block register PTRADD folds at every address-only use
+func i64 @cross_index(ptr %base, i64 %index, i64 %value) {
+entry():
+    %p = ptradd %base, %index
+    br body()
+body():
+    store i64 %value, %p, align 8
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+// PATTERN: same-block scaled index absorbs SHL into memory addressing
+func i64 @scaled_index(ptr %base, i64 %index) {
+entry():
+    %scaled = shl i64 %index, 3
+    %p = ptradd %base, %scaled
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+// PATTERN: cross-block scaled index absorbs SHL into every address use
+func i64 @cross_scaled_index(ptr %base, i64 %index, i64 %value) {
+entry():
+    %scaled = shl i64 %index, 3
+    %p = ptradd %base, %scaled
+    br body()
+body():
+    store i64 %value, %p, align 8
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+// PATTERN: signed i32 index folds as native SXTW scaled addressing
+func i64 @signed_i32_index(ptr %base, i32 %index) {
+entry():
+    %wide = sext i32 %index to i64
+    %scaled = shl i64 %wide, 3
+    %p = ptradd %base, %scaled
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+// PATTERN: unsigned i32 index folds as native UXTW scaled addressing
+func i32 @unsigned_i32_index(ptr %base, i32 %index) {
+entry():
+    %wide = zext i32 %index to i64
+    %scaled = shl i64 %wide, 2
+    %p = ptradd %base, %scaled
+    %v = load i32, %p, align 4
+    ret i32 %v
+}
+
+// PATTERN: signed extension with a non-address use must remain explicit
+func i64 @signed_i32_escape(ptr %base, i32 %index) {
+entry():
+    %wide = sext i32 %index to i64
+    %p = ptradd %base, %wide
+    %v = load i8, %p, align 1
+    %byte = sext i8 %v to i64
+    %r = iadd i64 %wide, %byte
+    ret i64 %r
+}
+
+// PATTERN: cross-block constant PTRADD folds through memcpy chunks
+func void @cross_memcpy(ptr %dst, ptr %src) {
+entry():
+    %out = ptradd %dst, 8
+    br body()
+body():
+    memcpy %out, %src, 16, align 8
+    ret
+}
+
+// PATTERN: cross-block constant PTRADD folds through memset chunks
+func void @cross_memset(ptr %dst) {
+entry():
+    %out = ptradd %dst, 248
+    br body()
+body():
+    memset %out, 0, 8, align 8
+    ret
+}
+
+// PATTERN: later-layout dominating PTRADD folds at an earlier-layout use
+func i64 @cross_late_layout(ptr %base) {
+entry():
+    br define()
+use():
+    %v = load i64, %p, align 8
+    ret i64 %v
+define():
+    %p = ptradd %base, 40
+    br use()
+}
+
+// PATTERN: mixed non-address use retains cross-block PTRADD
+func i64 @cross_mixed(ptr %base) {
+entry():
+    %p = ptradd %base, 8
+    br body()
+body():
+    %v = load i64, %p, align 8
+    %bits = bitcast ptr %p to i64
+    %r = iadd i64 %v, %bits
+    ret i64 %r
+}
+
+// PATTERN: seq_cst bare-base load retains cross-block PTRADD
+func i64 @cross_atomic(ptr %base) {
+entry():
+    %p = ptradd %base, 8
+    br body()
+body():
+    %v = load i64, %p, align 8, seq_cst
+    ret i64 %v
+}
+
+// PATTERN: unencodable cross-block displacement retains PTRADD
+func i64 @cross_large(ptr %base) {
+entry():
+    %p = ptradd %base, 32768
+    br body()
+body():
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+
+// PATTERN: wrong scale retains SHL before the address use
+func i64 @scaled_wrong_amount(ptr %base, i64 %index) {
+entry():
+    %scaled = shl i64 %index, 2
+    %p = ptradd %base, %scaled
+    %v = load i64, %p, align 8
+    ret i64 %v
+}
+
+// PATTERN: shared scaled value retains SHL for its non-address use
+func i64 @scaled_shared(ptr %base, i64 %index) {
+entry():
+    %scaled = shl i64 %index, 3
+    %p = ptradd %base, %scaled
+    %v = load i64, %p, align 8
+    %other = iadd i64 %scaled, 1
+    %r = iadd i64 %v, %other
+    ret i64 %r
+}
+
+// PATTERN: mixed access sizes retain one explicit scaled address
+func i64 @scaled_mixed_width(ptr %base, i64 %index) {
+entry():
+    %scaled = shl i64 %index, 2
+    %p = ptradd %base, %scaled
+    %a = load i32, %p, align 4
+    %b = load i64, %p, align 8
+    %wide = zext i32 %a to i64
+    %r = iadd i64 %wide, %b
+    ret i64 %r
+}

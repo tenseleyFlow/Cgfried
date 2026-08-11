@@ -1,0 +1,16 @@
+// The defining block dominates `use` but is deliberately placed after it in
+// block layout.  AddrPlan is keyed by verified IR ValueId, so selection of
+// `use` does not depend on having visited `define` first.
+// FLAGS: -emit-mir
+// MIR_CHECK: rcx = load.l [rdi+rsi*4]
+func i32 @s53_address_layout_later(ptr %base, i64 %index) {
+entry():
+    br define()
+use():
+    %value = load i32, %address, align 4
+    ret i32 %value
+define():
+    %scaled = shl i64 %index, 2
+    %address = ptradd %base, %scaled
+    br use()
+}

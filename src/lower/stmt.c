@@ -315,9 +315,9 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         el = layout_of(lo->sema, elem);
         if (lo->scopes && !lo->scopes->token.v)
             lo->scopes->token = ir_build_stacksave(&lo->b);
-        slot =
-            ir_build_alloca_typed(&lo->b, bytes, (u32)(el.align ? el.align : 1),
-                                  lower_efftype(lo, sym->type));
+        slot = ir_build_alloca_typed(&lo->b, bytes,
+                                     lower_auto_align(sym, el.align),
+                                     lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
         cleanup_register(lo, sym, slot, d->span);
         if (lo->auto_var_init != LOWER_AUTO_VAR_INIT_NONE &&
@@ -351,10 +351,9 @@ static void lower_one_decl(Lower *lo, AstNode *d)
     slot = lower_local_slot(lo, sym);
     if (!slot.v) {
         l = layout_of(lo->sema, sym->type);
-        slot =
-            ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-                                  lower_auto_align(lo, sym, l.align, d->span),
-                                  lower_efftype(lo, sym->type));
+        slot = ir_build_alloca_typed(
+            &lo->b, lower_i64((i64)(l.size ? l.size : 1)),
+            lower_auto_align(sym, l.align), lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
     }
     /* AFTER the slot exists and BEFORE the initializer runs. The order
@@ -408,7 +407,7 @@ static void prebind_one_decl(Lower *lo, AstNode *d)
         return;
     l = layout_of(lo->sema, sym->type);
     slot = ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-                                 lower_auto_align(lo, sym, l.align, d->span),
+                                 lower_auto_align(sym, l.align),
                                  lower_efftype(lo, sym->type));
     lower_bind_local(lo, sym, slot);
 }
@@ -591,9 +590,8 @@ static void lower_switch(Lower *lo, AstNode *s)
      * fail. Ranges are tested in SOURCE order, which is observable only if
      * two could match, and sema has already made that an error.
      *
-     * Codegen quality for a switch that is mostly ranges (a chain of
-     * compares where gcc may build a table) is Sprint 53's business; this
-     * is correct at every level and bounded in size. */
+     * Building tables for range-heavy switches remains a post-v0.1.0 codegen
+     * optimization; this form is correct at every level and bounded in size. */
     for (c = ctx.cases; c; c = c->next) {
         BlockId next;
         u64 span;

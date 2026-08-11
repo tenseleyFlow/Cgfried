@@ -1,0 +1,98 @@
+# Sprint 53 code-generation quality profile
+# host=satoyama target=x86_64-linux-gnu,arm64-linux date=2026-08-10
+# base_revision=31ee9d5be5334fb587863c764cbb99aaef07f0b8
+# tree_state=dirty Sprint-53 development snapshots anchored at base_revision
+# corpus=tests/bench/kernels, kernel_run symbol only, 21 kernels
+# flags=-O2 -c; decoded instructions exclude alignment NOPs
+# tools=GNU objdump 2.47, GNU aarch64-linux-gnu-objdump 2.47
+# baseline=goldens established before either backend changed
+# post_ra=isolated peephole build with address planning disabled
+# final=peepholes plus cross-block/scaled/extended address planning
+# Each control and final result was rebuilt twice; metric files were identical.
+
+[x86_64-linux-gnu.icount]
+# kernel                 baseline post_ra final
+alloca-arena                   69      68    67
+atomic-counter                 22      21    21
+bitfield-ops                  139     140   138
+branchy-parser                139     127   127
+crc32-table                   106     105    99
+fib-recurse                    25      24    24
+float-dot                      75      73    61
+hash-fnv                       43      42    42
+horner                         45      44    44
+int-div-heavy                  67      66    66
+matmul-64                     174     173   155
+memcpy-loop                    57      55    53
+memset-loop                    51      50    49
+pointer-chase                  82      80    78
+qsort-calls                    74      73    67
+sieve                          91      89    83
+snprintf-loop                  51      50    48
+strlen-loop                    26      25    25
+struct-copy-heavy             141     139   127
+switch-dispatch               116     114   114
+varargs-call-loop              35      34    34
+TOTAL                        1628    1592  1522
+
+[x86_64-linux-gnu.result]
+post_ra_delta=-36
+post_ra_reduction_pct=2.21
+address_delta=-70
+address_reduction_pct=4.40
+total_delta=-106
+total_reduction_pct=6.51
+address_winning_kernels=12
+address_required_anchors=matmul-64:173->155,struct-copy-heavy:139->127,crc32-table:105->99
+
+[arm64-linux.icount]
+# kernel                 baseline post_ra final
+alloca-arena                   59      57    55
+atomic-counter                 24      23    23
+bitfield-ops                   98     102   101
+branchy-parser                111     107   107
+crc32-table                    86      82    77
+fib-recurse                    24      23    23
+float-dot                      61      58    54
+hash-fnv                       42      40    40
+horner                         44      42    39
+int-div-heavy                  47      45    45
+matmul-64                     142     135   126
+memcpy-loop                    52      50    49
+memset-loop                    50      48    48
+pointer-chase                  70      64    64
+qsort-calls                    66      64    59
+sieve                          80      75    71
+snprintf-loop                  50      49    48
+strlen-loop                    27      26    26
+struct-copy-heavy             122     117   115
+switch-dispatch               140     138   138
+varargs-call-loop              44      43    43
+TOTAL                        1439    1388  1351
+
+[arm64-linux.result]
+post_ra_delta=-51
+post_ra_reduction_pct=3.54
+address_delta=-37
+address_reduction_pct=2.67
+total_delta=-88
+total_reduction_pct=6.12
+address_winning_kernels=11
+address_required_anchors=matmul-64:135->126,struct-copy-heavy:117->115,crc32-table:82->77
+
+[correctness-repair]
+issue=narrow signed bit-field extraction used the backend register width instead of the container width
+fix=zero-extend i8/i16 containers to i32 before the shift pair, then truncate the extracted value
+measurement_effect=x86 bitfield-ops +2 instructions; arm64 bitfield-ops +6 before address folding and +6 after it
+validation=arm64 six-level OPT_EQ exposed the failure; the repaired lane passes all 21 kernels at all six optimization levels
+
+[runtime]
+status=deferred-to-fleet
+reason=current host is not a configured Sprint-52 fleet host
+smoke=checksum-before-timing and median/MAD formatting verified
+
+[verdict]
+x86_static_gate=pass
+arm_static_gate=pass
+aggregate_three_percent_gate=pass-both-targets
+address_three-kernel_gate=pass-both-targets

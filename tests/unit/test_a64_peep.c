@@ -1,15 +1,14 @@
 #include "unit.h"
 
 #include "cg/arm64/mir.h"
+#include "cg/arm64/peep.h"
 
-#include <errno.h>
-#include <stdio.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-bool a64_branch_delta_fits(u16 op, i64 delta);
+static bool treg_eq(A64Reg a, A64Reg b)
+{
+    return a.id == b.id && a.physical == b.physical;
+}
 
 static A64Operand treg(A64Reg r)
 {
@@ -64,6 +63,36 @@ static A64Inst memop(u16 op, A64Reg rt, A64Reg base, i64 off, u8 size, u8 mode)
     in.nops = 2;
     in.ops[0] = treg(rt);
     in.ops[1] = tmem(base, off, size, mode);
+    return in;
+}
+
+static A64Inst binop(u16 op, A64Sf sf, A64Reg dst, A64Reg lhs, A64Operand rhs)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = op;
+    in.sf = sf;
+    in.nops = 3;
+    in.ops[0] = treg(dst);
+    in.ops[1] = treg(lhs);
+    in.ops[2] = rhs;
+    return in;
+}
+
+static A64Inst addr_op(A64Reg dst, u32 sym, i64 off)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_ADDR;
+    in.sf = A64_SF64;
+    in.nops = off ? 3 : 2;
+    in.ops[0] = treg(dst);
+    in.ops[1].kind = A64O_SYM;
+    in.ops[1].id = sym;
+    if (off)
+        in.ops[2] = timm(off);
     return in;
 }
 
@@ -133,120 +162,433 @@ void test_a64_peep_pair_mem_legality(TestCtx *t)
     a64_block_append(&f, &f.blocks[0],
                      memop(A64_OP_STORE, r2, base, 8, 8, A64_ADDR_SCALED));
     T_ASSERT(t, !a64_peep_pair_mem(&f));
+
+    f.blocks[0].n = 0;
+    a64_block_append(&f, &f.blocks[0],
+                     memop(A64_OP_STORE, a64_phys(A64_V0), a64_phys(A64_X0), 0,
+                           4, A64_ADDR_SCALED));
+    a64_block_append(&f, &f.blocks[0],
+                     memop(A64_OP_STORE, a64_phys(A64_V1), a64_phys(A64_X0), 4,
+                           4, A64_ADDR_SCALED));
+    T_ASSERT(t, !a64_peep_pair_mem(&f));
     arena_free_all(&a);
 }
 
-void test_a64_relax_tbz_conservative_range(TestCtx *t)
+void test_a64_peep_post_ra_mov_and_add_zero(TestCtx *t)
 {
     Arena a;
     A64Func f;
-    A64Inst tb, pad, ret;
-    A64Reg tested = {7, 0};
-    u32 i;
+    A64Reg x0 = a64_phys(A64_X0);
+    A64Reg x1 = a64_phys(A64_X1);
+    A64Reg fp = a64_phys(A64_X29);
+    A64Reg sp = a64_phys(A64_SP);
+    A64Inst mov;
+    A64Inst adds;
+
+    arena_init(&a);
+    init_func(&f, &a, 1);
+    memset(&mov, 0, sizeof(mov));
+    mov.op = A64_OP_MOV;
+    mov.sf = A64_SF64;
+    mov.nops = 2;
+    mov.ops[0] = treg(x0);
+    mov.ops[1] = treg(x0);
+    a64_block_append(&f, &f.blocks[0], mov);
+    mov.sf = A64_SF32;
+    a64_block_append(&f, &f.blocks[0], mov);
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF64, x1, x0, timm(0)));
+    adds = binop(A64_OP_ADDS, A64_SF64, x0, x1, timm(0));
+    adds.flags = A64IF_DEFS_NZCV;
+    a64_block_append(&f, &f.blocks[0], adds);
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF64, fp, sp, timm(0)));
+
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 4);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_MOV);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].sf, A64_SF32);
+    T_ASSERT(t, treg_eq(f.blocks[0].insts[0].ops[0].reg, x0));
+    T_ASSERT(t, treg_eq(f.blocks[0].insts[0].ops[1].reg, x0));
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_MOV);
+    T_ASSERT(t, treg_eq(f.blocks[0].insts[1].ops[0].reg, x1));
+    T_ASSERT(t, treg_eq(f.blocks[0].insts[1].ops[1].reg, x0));
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[2].op, A64_OP_ADDS);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[3].op, A64_OP_ADD);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_addr_cse_and_clobber(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Reg x0 = a64_phys(A64_X0);
+    A64Reg x1 = a64_phys(A64_X1);
+    A64Reg x2 = a64_phys(A64_X2);
+
+    arena_init(&a);
+    init_func(&f, &a, 1);
+    a64_block_append(&f, &f.blocks[0], addr_op(x0, 1, 24));
+    a64_block_append(&f, &f.blocks[0], addr_op(x1, 1, 24));
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_MOV);
+    T_ASSERT(t, treg_eq(f.blocks[0].insts[1].ops[1].reg, x0));
+
+    f.blocks[0].n = 0;
+    a64_block_append(&f, &f.blocks[0], addr_op(x0, 1, 24));
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF64, x0, x2, timm(1)));
+    a64_block_append(&f, &f.blocks[0], addr_op(x1, 1, 24));
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[2].op, A64_OP_ADDR);
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_w_self_mov_requires_provenance(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Reg x0 = a64_phys(A64_X0);
+    A64Reg x1 = a64_phys(A64_X1);
+    A64Reg x2 = a64_phys(A64_X2);
+    A64Inst mov;
+
+    arena_init(&a);
+    init_func(&f, &a, 1);
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF32, x0, x1, timm(1)));
+    memset(&mov, 0, sizeof(mov));
+    mov.op = A64_OP_MOV;
+    mov.sf = A64_SF32;
+    mov.nops = 2;
+    mov.ops[0] = treg(x0);
+    mov.ops[1] = treg(x0);
+    a64_block_append(&f, &f.blocks[0], mov);
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 1);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_ADD);
+
+    f.blocks[0].n = 0;
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF64, x0, x1, timm(1)));
+    a64_block_append(&f, &f.blocks[0], mov);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].sf, A64_SF32);
+
+    /* Pairing runs after local rewrites on each fixpoint iteration.  Once
+     * these stores become STP, its first transfer register must not be
+     * mistaken for a W-register definition on the next iteration: stores do
+     * not clear the source register's upper half. */
+    f.blocks[0].n = 0;
+    a64_block_append(&f, &f.blocks[0],
+                     memop(A64_OP_STORE, x0, x2, 0, 4, A64_ADDR_SCALED));
+    a64_block_append(&f, &f.blocks[0],
+                     memop(A64_OP_STORE, x1, x2, 4, 4, A64_ADDR_SCALED));
+    a64_block_append(&f, &f.blocks[0], mov);
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_STP);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_MOV);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].sf, A64_SF32);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_madd_and_flags_guard(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Reg x0 = a64_phys(A64_X0);
+    A64Reg x1 = a64_phys(A64_X1);
+    A64Reg x2 = a64_phys(A64_X2);
+    A64Reg x3 = a64_phys(A64_X3);
+    A64Inst adds;
+
+    arena_init(&a);
+    init_func(&f, &a, 1);
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_MUL, A64_SF64, x0, x1, treg(x2)));
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF64, x0, x0, treg(x3)));
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 1);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_MADD);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].nops, 4);
+    T_ASSERT(t, treg_eq(f.blocks[0].insts[0].ops[3].reg, x3));
+
+    f.blocks[0].n = 0;
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_MUL, A64_SF64, x0, x1, treg(x2)));
+    adds = binop(A64_OP_ADDS, A64_SF64, x0, x0, treg(x3));
+    adds.flags = A64IF_DEFS_NZCV;
+    a64_block_append(&f, &f.blocks[0], adds);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_ADDS);
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_production_pairing(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Reg base = a64_phys(A64_X10);
+    A64Reg x0 = a64_phys(A64_X0);
+    A64Reg x1 = a64_phys(A64_X1);
+
+    arena_init(&a);
+    init_func(&f, &a, 1);
+    a64_block_append(&f, &f.blocks[0],
+                     memop(A64_OP_LOAD, x0, base, 0, 8, A64_ADDR_SCALED));
+    a64_block_append(&f, &f.blocks[0],
+                     memop(A64_OP_LOAD, x1, base, 8, 8, A64_ADDR_SCALED));
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 1);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_LDP);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_keeps_signed_extension(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Reg x0 = a64_phys(A64_X0);
+    A64Reg x1 = a64_phys(A64_X1);
+
+    arena_init(&a);
+    init_func(&f, &a, 1);
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ADD, A64_SF32, x0, x1, timm(1)));
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_LSL, A64_SF64, x0, x0, timm(32)));
+    a64_block_append(&f, &f.blocks[0],
+                     binop(A64_OP_ASR, A64_SF64, x0, x0, timm(32)));
+
+    /* W writes zero the high half, but a signed i32->i64 conversion must
+     * replicate bit 31.  The LSL/ASR pair is required for 0x80000000 and is
+     * never treated as the UXTW-shaped W self-copy. */
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 3);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_LSL);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[2].op, A64_OP_ASR);
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_layout_branches(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Inst branch;
+
+    arena_init(&a);
+    init_func(&f, &a, 4);
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_B;
+    branch.nops = 1;
+    branch.ops[0] = tlabel(2);
+    a64_block_append(&f, &f.blocks[0], branch);
+
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_BCOND;
+    branch.cond = A64_CC_EQ;
+    branch.flags = A64IF_USES_NZCV;
+    branch.nops = 2;
+    branch.ops[0] = tlabel(3); /* taken edge is the layout successor */
+    branch.ops[1] = tlabel(4);
+    a64_block_append(&f, &f.blocks[1], branch);
+
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_B;
+    branch.nops = 1;
+    branch.ops[0] = tlabel(4);
+    a64_block_append(&f, &f.blocks[2], branch);
+    branch.ops[0] = tlabel(1); /* last block has no layout successor */
+    a64_block_append(&f, &f.blocks[3], branch);
+
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 0);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].op, A64_OP_BCOND);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].cond, A64_CC_NE);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].ops[0].id, 4);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].ops[1].id, 3);
+    T_ASSERT_EQ_INT(t, f.blocks[2].n, 0);
+    T_ASSERT_EQ_INT(t, f.blocks[3].n, 1);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_keeps_midblock_fallthrough_branch(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Inst branch;
+    A64Inst mov;
 
     arena_init(&a);
     init_func(&f, &a, 2);
-    memset(&tb, 0, sizeof(tb));
-    tb.op = A64_OP_TBZ;
-    tb.sf = A64_SF64;
-    tb.nops = 3;
-    tb.ops[0] = treg(tested);
-    tb.ops[1] = timm(40);
-    tb.ops[2] = tlabel(2);
-    a64_block_append(&f, &f.blocks[0], tb);
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_B;
+    branch.nops = 1;
+    branch.ops[0] = tlabel(2);
+    a64_block_append(&f, &f.blocks[0], branch);
+    memset(&mov, 0, sizeof(mov));
+    mov.op = A64_OP_MOV;
+    mov.sf = A64_SF64;
+    mov.nops = 2;
+    mov.ops[0] = treg(a64_phys(A64_X0));
+    mov.ops[1] = treg(a64_phys(A64_X1));
+    a64_block_append(&f, &f.blocks[0], mov);
+
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_B);
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_layout_zero_and_bit_branches(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Inst branch;
+
+    arena_init(&a);
+    init_func(&f, &a, 4);
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_CBZ;
+    branch.sf = A64_SF64;
+    branch.nops = 3;
+    branch.ops[0] = treg(a64_phys(A64_X0));
+    branch.ops[1] = tlabel(2);
+    branch.ops[2] = tlabel(4);
+    a64_block_append(&f, &f.blocks[0], branch);
+
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_TBZ;
+    branch.sf = A64_SF64;
+    branch.nops = 4;
+    branch.ops[0] = treg(a64_phys(A64_X1));
+    branch.ops[1] = timm(5);
+    branch.ops[2] = tlabel(3);
+    branch.ops[3] = tlabel(4);
+    a64_block_append(&f, &f.blocks[1], branch);
+
+    T_ASSERT(t, a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_CBNZ);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[1].id, 4);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[2].id, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].op, A64_OP_TBNZ);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].ops[2].id, 4);
+    T_ASSERT_EQ_INT(t, f.blocks[1].insts[0].ops[3].id, 3);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    arena_free_all(&a);
+}
+
+void test_a64_peep_post_ra_keeps_out_of_range_layout_inversion(TestCtx *t)
+{
+    Arena a;
+    A64Func f;
+    A64Inst branch;
+    A64Inst pad;
+    u32 i;
+
+    arena_init(&a);
+    init_func(&f, &a, 4);
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_TBZ;
+    branch.sf = A64_SF64;
+    branch.nops = 4;
+    branch.ops[0] = treg(a64_phys(A64_X0));
+    branch.ops[1] = timm(3);
+    branch.ops[2] = tlabel(2); /* near taken edge is the layout successor */
+    branch.ops[3] = tlabel(4); /* false edge is outside imm14 range */
+    a64_block_append(&f, &f.blocks[0], branch);
     memset(&pad, 0, sizeof(pad));
     pad.op = A64_OP_ATOMIC_LLSC; /* conservatively estimated as 64 bytes */
     for (i = 0; i < 513; i++)
-        a64_block_append(&f, &f.blocks[0], pad);
-    memset(&ret, 0, sizeof(ret));
-    ret.op = A64_OP_RET;
-    a64_block_append(&f, &f.blocks[1], ret);
+        a64_block_append(&f, &f.blocks[2], pad);
 
-    T_ASSERT(t, a64_relax_branches(&f));
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_ANDS);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_BCOND);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].cond, A64_CC_EQ);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[2].imm,
-                    (i64)(UINT64_C(1) << 40));
-    T_ASSERT(t, !a64_relax_branches(&f));
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_TBZ);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[2].id, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[3].id, 4);
     arena_free_all(&a);
 }
 
-void test_a64_relax_tbz_exact_boundary(TestCtx *t)
+static void append_layout_tbz(A64Func *f)
 {
-    Arena a;
-    A64Func f;
-    A64Inst tb, pad, ret;
-    u32 i;
+    A64Inst branch;
 
-    arena_init(&a);
-    init_func(&f, &a, 2);
-    memset(&tb, 0, sizeof(tb));
-    tb.op = A64_OP_TBNZ;
-    tb.sf = A64_SF64;
-    tb.nops = 3;
-    tb.ops[0] = treg((A64Reg){7, 0});
-    tb.ops[1] = timm(63);
-    tb.ops[2] = tlabel(2);
-    a64_block_append(&f, &f.blocks[0], tb);
-    memset(&pad, 0, sizeof(pad));
-    pad.op = A64_OP_MOV;
-    for (i = 0; i < 8190; i++)
-        a64_block_append(&f, &f.blocks[0], pad);
-    memset(&ret, 0, sizeof(ret));
-    ret.op = A64_OP_RET;
-    a64_block_append(&f, &f.blocks[1], ret);
-
-    T_ASSERT(t, !a64_relax_branches(&f));
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_TBNZ);
-    a64_block_append(&f, &f.blocks[0], pad);
-    T_ASSERT(t, a64_relax_branches(&f));
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_ANDS);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[2].imm, INT64_MIN);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_BCOND);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].cond, A64_CC_NE);
-    arena_free_all(&a);
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_TBZ;
+    branch.sf = A64_SF64;
+    branch.nops = 4;
+    branch.ops[0] = treg(a64_phys(A64_X0));
+    branch.ops[1] = timm(3);
+    branch.ops[2] = tlabel(2); /* layout successor */
+    branch.ops[3] = tlabel(4); /* proposed narrow target */
+    a64_block_append(f, &f->blocks[0], branch);
 }
 
-void test_a64_relax_two_edge_layout_accounting(TestCtx *t)
+static void assert_layout_tbz_unchanged(TestCtx *t, const A64Func *f)
+{
+    T_ASSERT_EQ_INT(t, f->blocks[0].n, 1);
+    T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].op, A64_OP_TBZ);
+    T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].ops[2].id, 2);
+    T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].ops[3].id, 4);
+}
+
+void test_a64_peep_layout_range_accounts_for_emission_pseudos(TestCtx *t)
 {
     Arena a;
     A64Func f;
-    A64Inst tb, cond, pad, ret;
+    A64Inst pad;
     u32 i;
 
     arena_init(&a);
-    init_func(&f, &a, 3);
-    memset(&tb, 0, sizeof(tb));
-    tb.op = A64_OP_TBZ;
-    tb.sf = A64_SF64;
-    tb.nops = 3;
-    tb.ops[0] = treg((A64Reg){7, 0});
-    tb.ops[1] = timm(1);
-    tb.ops[2] = tlabel(3);
-    a64_block_append(&f, &f.blocks[0], tb);
-    memset(&cond, 0, sizeof(cond));
-    cond.op = A64_OP_BCOND;
-    cond.cond = A64_CC_EQ;
-    cond.nops = 2;
-    cond.ops[0] = tlabel(2);
-    cond.ops[1] = tlabel(3);
-    a64_block_append(&f, &f.blocks[0], cond);
-    memset(&pad, 0, sizeof(pad));
-    pad.op = A64_OP_MOV;
-    for (i = 0; i < 8189; i++)
-        a64_block_append(&f, &f.blocks[0], pad);
-    memset(&ret, 0, sizeof(ret));
-    ret.op = A64_OP_RET;
-    a64_block_append(&f, &f.blocks[1], ret);
-    a64_block_append(&f, &f.blocks[2], ret);
 
-    /* 4-byte TB + 8-byte two-edge conditional + 8189*4 = 32768.  Counting
-     * the conditional as one instruction would incorrectly retain TBZ at
-     * the architectural +32764 limit. */
-    T_ASSERT(t, a64_relax_branches(&f));
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_ANDS);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_BCOND);
+    /* ADDR and TLSADDR are indivisible MIR pseudos, but each can emit four
+     * instructions.  Counting them as one would incorrectly move the far
+     * edge of this TBZ into its signed imm14 field. */
+    init_func(&f, &a, 4);
+    append_layout_tbz(&f);
+    memset(&pad, 0, sizeof(pad));
+    pad.op = A64_OP_ADDR;
+    for (i = 0; i < 2048; i++)
+        a64_block_append(&f, &f.blocks[2], pad);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    assert_layout_tbz_unchanged(t, &f);
+
+    init_func(&f, &a, 4);
+    append_layout_tbz(&f);
+    pad.op = A64_OP_TLSADDR;
+    for (i = 0; i < 2048; i++)
+        a64_block_append(&f, &f.blocks[2], pad);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    assert_layout_tbz_unchanged(t, &f);
+
+    /* CAS emits seven instructions on the Armv8.0 LL/SC path. */
+    init_func(&f, &a, 4);
+    append_layout_tbz(&f);
+    pad.op = A64_OP_ATOMIC_CAS;
+    for (i = 0; i < 1170; i++)
+        a64_block_append(&f, &f.blocks[2], pad);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    assert_layout_tbz_unchanged(t, &f);
+
+    /* Inline asm is copied verbatim and has no finite MIR-side size bound.
+     * Its presence makes layout inversion unprovable even for a short text
+     * template, so the conservative answer is always to retain the branch. */
+    init_func(&f, &a, 4);
+    append_layout_tbz(&f);
+    pad.op = A64_OP_ASM;
+    a64_block_append(&f, &f.blocks[2], pad);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    assert_layout_tbz_unchanged(t, &f);
+
     arena_free_all(&a);
 }
 
@@ -261,120 +603,4 @@ void test_a64_branch_exact_ranges(TestCtx *t)
     T_ASSERT(t, a64_branch_delta_fits(A64_OP_BCOND, 1048572));
     T_ASSERT(t, a64_branch_delta_fits(A64_OP_TBZ, -32768));
     T_ASSERT(t, a64_branch_delta_fits(A64_OP_TBZ, 32764));
-}
-
-static void external_b_child(bool false_edge)
-{
-    Arena a;
-    A64Func f;
-    A64Inst branch;
-
-    arena_init(&a);
-    init_func(&f, &a, 1);
-    memset(&branch, 0, sizeof(branch));
-    branch.op = false_edge ? A64_OP_BCOND : A64_OP_B;
-    branch.nops = false_edge ? 2 : 1;
-    branch.ops[0] = false_edge ? tlabel(1) : (A64Operand){0};
-    if (!false_edge)
-        branch.ops[0].kind = A64O_SYM;
-    branch.ops[false_edge ? 1 : 0].kind = A64O_SYM;
-    branch.ops[false_edge ? 1 : 0].id = 1;
-    a64_block_append(&f, &f.blocks[0], branch);
-    (void)a64_relax_branches(&f);
-    _exit(0);
-}
-
-void test_a64_relax_rejects_external_b(TestCtx *t)
-{
-    bool false_edge;
-
-    for (false_edge = false;; false_edge = true) {
-        int fd[2];
-        pid_t pid;
-        int status = 0;
-        char err[256];
-        size_t used = 0;
-
-        if (pipe(fd) != 0) {
-            T_ASSERT(t, false);
-            return;
-        }
-        fflush(NULL);
-        pid = fork();
-        T_ASSERT(t, pid >= 0);
-        if (pid == 0) {
-            close(fd[0]);
-            if (dup2(fd[1], STDERR_FILENO) < 0)
-                _exit(99);
-            close(fd[1]);
-            external_b_child(false_edge);
-        }
-        close(fd[1]);
-        if (pid < 0) {
-            close(fd[0]);
-            return;
-        }
-        while (used + 1 < sizeof(err)) {
-            ssize_t n = read(fd[0], err + used, sizeof(err) - used - 1);
-
-            if (n > 0) {
-                used += (size_t)n;
-                continue;
-            }
-            if (n < 0 && errno == EINTR)
-                continue;
-            break;
-        }
-        err[used] = '\0';
-        close(fd[0]);
-        while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
-            ;
-        T_ASSERT(t, WIFEXITED(status));
-        if (WIFEXITED(status))
-            T_ASSERT_EQ_INT(t, WEXITSTATUS(status), 4);
-        T_ASSERT(t, strstr(err, false_edge
-                                    ? "false-edge branch target"
-                                    : "external unconditional branch") != NULL);
-        if (false_edge)
-            break;
-    }
-}
-
-void test_a64_relax_conditional_fixpoint(TestCtx *t)
-{
-    Arena a;
-    A64Func f;
-    A64Inst br, pad, ret;
-    u32 i;
-
-    arena_init(&a);
-    init_func(&f, &a, 3);
-    memset(&br, 0, sizeof(br));
-    br.op = A64_OP_BCOND;
-    br.cond = A64_CC_LT;
-    br.flags = A64IF_USES_NZCV;
-    br.nops = 2;
-    br.ops[0] = tlabel(3);
-    br.ops[1] = tlabel(2);
-    a64_block_append(&f, &f.blocks[0], br);
-    memset(&pad, 0, sizeof(pad));
-    pad.op = A64_OP_ATOMIC_LLSC;
-    for (i = 0; i < 16385; i++)
-        a64_block_append(&f, &f.blocks[1], pad);
-    memset(&ret, 0, sizeof(ret));
-    ret.op = A64_OP_RET;
-    a64_block_append(&f, &f.blocks[2], ret);
-
-    T_ASSERT(t, a64_relax_branches(&f));
-    T_ASSERT_EQ_INT(t, f.blocks[0].n, 3);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].op, A64_OP_BCOND);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].cond, A64_CC_GE);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[0].kind, A64O_IMM);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].ops[0].imm, 8);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].op, A64_OP_B);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].ops[0].id, 3);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[2].op, A64_OP_B);
-    T_ASSERT_EQ_INT(t, f.blocks[0].insts[2].ops[0].id, 2);
-    T_ASSERT(t, !a64_relax_branches(&f));
-    arena_free_all(&a);
 }

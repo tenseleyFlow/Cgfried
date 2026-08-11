@@ -10,8 +10,8 @@
  * lower/abi.c still describes SysV x86-64, and assigning physical registers
  * here would bake the wrong calling convention into MIR. Sprint 48 owns that
  * boundary. Final instruction offsets likewise do not exist until register
- * allocation inserts spills and frames; peep.c exposes relaxation for
- * synthetic/finalized MIR, but the Sprint 48 pipeline will invoke it. */
+ * allocation inserts spills and frames; post-RA layout rewrites therefore
+ * retain a branch whenever their conservative final-size proof is absent. */
 
 typedef struct ValInfo {
     A64Reg reg;
@@ -33,12 +33,26 @@ typedef struct ValInfo {
     bool zero_cmp;
 } ValInfo;
 
+typedef struct AddrPlan {
+    u32 seen;
+    u32 index; /* raw index override after folded shift/extension */
+    u8 shift;
+    u8 access_shift;
+    u8 index_mode;
+    bool fold;
+    bool cross_block;
+    bool invalid;
+    bool shift_set;
+    bool suppress;
+} AddrPlan;
+
 typedef struct Isel {
     Arena *arena;
     const IrModule *module;
     const IrFunc *ir;
     A64Func *func;
     ValInfo *vals;
+    AddrPlan *addr_plans;
     const IrInst **defs;
     u32 *use_count;
     u32 cur;
@@ -165,7 +179,8 @@ static A64Operand mem_op(A64Reg base, i64 offset, u8 size)
     return op;
 }
 
-static A64Operand mem_reg_op(A64Reg base, A64Reg index, u8 size, u8 mode)
+static A64Operand mem_reg_op(A64Reg base, A64Reg index, u8 size, u8 mode,
+                             u8 shift)
 {
     A64Operand op;
 
@@ -175,6 +190,7 @@ static A64Operand mem_reg_op(A64Reg base, A64Reg index, u8 size, u8 mode)
     op.mem.index = index;
     op.mem.size = size;
     op.mem.mode = mode;
+    op.mem.shift = shift;
     return op;
 }
 
@@ -604,6 +620,33 @@ static A64Operand address_operand(Isel *is, const IrOperand *address, u8 size)
     i64 offset = 0;
     A64AddrMode mode;
 
+    if (address->kind == IROP_VALUE && is->addr_plans[(u32)address->a].fold) {
+        const AddrPlan *plan = &is->addr_plans[(u32)address->a];
+        const IrInst *definition = is->defs[(u32)address->a];
+
+        /* This plan is built before selection from verified SSA.  Reselect
+         * the operands at each consumer rather than retaining a register
+         * produced in the PTRADD's block: block layout need not be dominance
+         * order, and a later-layout dominator is still valid IR. */
+        base = to_gp(is, &definition->ops[0]);
+        if (definition->ops[1].kind == IROP_VALUE) {
+            const IrOperand *index_operand = &definition->ops[1];
+            IrOperand planned_index;
+            A64Reg index;
+            u8 index_mode = (u8)a64_addr_reg_mode(
+                index_operand->type == IRT_I32, false, plan->shift != 0);
+
+            if (plan->index) {
+                planned_index = ir_op_value(is->ir, (ValueId){plan->index});
+                index_operand = &planned_index;
+                index_mode = plan->index_mode;
+            }
+            index = to_gp(is, index_operand);
+
+            return mem_reg_op(base, index, size, index_mode, plan->shift);
+        }
+        return mem_op(base, (i64)definition->ops[1].a, size);
+    }
     if (address->kind == IROP_VALUE && is->vals[(u32)address->a].addr_pattern) {
         u32 id = (u32)address->a;
         const IrInst *definition = is->defs[id];
@@ -618,7 +661,8 @@ static A64Operand address_operand(Isel *is, const IrOperand *address, u8 size)
             base = to_gp(is, &definition->ops[0]);
         }
         if (value->addr_index.id)
-            return mem_reg_op(base, value->addr_index, size, value->addr_mode);
+            return mem_reg_op(base, value->addr_index, size, value->addr_mode,
+                              0);
         offset = value->addr_disp;
     } else {
         base = to_gp(is, address);
@@ -641,6 +685,24 @@ static A64Operand offset_address_operand(Isel *is, A64Reg base, i64 offset,
         offset = 0;
     }
     return mem_op(base, offset, size);
+}
+
+static A64Reg bulk_address_base(Isel *is, const IrOperand *address,
+                                i64 *initial_offset)
+{
+    *initial_offset = 0;
+    if (address->kind == IROP_VALUE && is->addr_plans[(u32)address->a].fold) {
+        const IrInst *definition = is->defs[(u32)address->a];
+
+        /* Bulk-memory planning admits only the constant-offset form: A64
+         * has base+index or base+immediate memory operands, never all three
+         * for the later chunks. */
+        if (definition->ops[1].kind != IROP_ICONST)
+            CGF_ICE("arm64 isel: planned bulk address has a register index");
+        *initial_offset = (i64)definition->ops[1].a;
+        return to_gp(is, &definition->ops[0]);
+    }
+    return to_gp(is, address);
 }
 
 typedef struct ParallelMove {
@@ -1220,6 +1282,8 @@ static void select_memory_copy(Isel *is, const IrInst *ir, bool set)
     A64Reg source = {0};
     A64Reg pattern = {0};
     u64 size, offset = 0;
+    i64 dest_offset;
+    i64 source_offset = 0;
 
     if (ir->ops[2].kind != IROP_ICONST ||
         (set && ir->ops[1].kind != IROP_ICONST))
@@ -1230,9 +1294,9 @@ static void select_memory_copy(Isel *is, const IrInst *ir, bool set)
     if (size > A64_INLINE_MEM_MAX)
         CGF_ICE("arm64 isel: memcpy/memset larger than 65536 bytes (inlining "
                 "it would grow MIR without bound; use a libc call)");
-    dest = to_gp(is, &ir->ops[0]);
+    dest = bulk_address_base(is, &ir->ops[0], &dest_offset);
     if (!set)
-        source = to_gp(is, &ir->ops[1]);
+        source = bulk_address_base(is, &ir->ops[1], &source_offset);
     else {
         u64 byte = ir->ops[1].a & 0xff;
 
@@ -1250,12 +1314,14 @@ static void select_memory_copy(Isel *is, const IrInst *ir, bool set)
         A64Inst *inst;
 
         if (!set) {
-            address = offset_address_operand(is, source, (i64)offset, step);
+            address = offset_address_operand(is, source,
+                                             source_offset + (i64)offset, step);
             inst = emit(is, A64_OP_LOAD, step == 8 ? A64_SF64 : A64_SF32);
             add_operand(inst, reg_op(temp));
             add_operand(inst, address);
         }
-        address = offset_address_operand(is, dest, (i64)offset, step);
+        address =
+            offset_address_operand(is, dest, dest_offset + (i64)offset, step);
         inst = emit(is, A64_OP_STORE, step == 8 ? A64_SF64 : A64_SF32);
         add_operand(inst, reg_op(temp));
         add_operand(inst, address);
@@ -1587,6 +1653,11 @@ static void select_inst(Isel *is, const IrInst *ir)
     is->cur_loc = ir->loc;
     is->selection_start = block(is)->n;
     is->selection_block = is->cur + 1;
+    if (ir->result.v && is->addr_plans[ir->result.v].suppress) {
+        /* The sole use is a planned scaled memory index. */
+        is->vals[ir->result.v].type = ir->type;
+        return;
+    }
     switch (ir->op) {
     case IR_IADD:
     case IR_ISUB:
@@ -1699,6 +1770,12 @@ static void select_inst(Isel *is, const IrInst *ir)
         break;
     }
     case IR_PTRADD: {
+        if (is->addr_plans[ir->result.v].fold) {
+            /* Every use was proved to be an encodable ordinary memory
+             * address.  No MIR value is needed for this IR-only address. */
+            is->vals[ir->result.v].type = ir->type;
+            break;
+        }
         A64Reg base = to_gp(is, &ir->ops[0]);
         A64Reg dest = a64_newv_width(is->func, A64RC_GP, A64_SF64);
         A64Op opcode = A64_OP_ADD;
@@ -2213,6 +2290,195 @@ static void bind_params(Isel *is, const IrFunc *ir)
     is->func->va_named_stack = (nsaa + 7u) & ~7u;
 }
 
+static bool addr_offset_legal(i64 initial, u64 offset, u8 size)
+{
+    if (offset > (u64)INT64_MAX || initial > INT64_MAX - (i64)offset)
+        return false;
+    return a64_isel_addr(initial + (i64)offset, size, false, false) !=
+           A64_ADDR_MATERIALIZE;
+}
+
+static bool bulk_addr_use(const IrInst *use, u32 operand,
+                          const IrInst *definition, u8 *access_shift)
+{
+    u64 bytes, offset = 0;
+    i64 initial;
+
+    if (definition->ops[1].kind != IROP_ICONST ||
+        use->ops[2].kind != IROP_ICONST)
+        return false;
+    if (!((use->op == IR_MEMCPY && (operand == 0 || operand == 1)) ||
+          (use->op == IR_MEMSET && operand == 0)))
+        return false;
+    *access_shift = 0;
+    initial = (i64)definition->ops[1].a;
+    bytes = use->ops[2].a;
+    if (bytes > 64u * 1024u)
+        return false;
+    while (offset < bytes) {
+        u8 step = bytes - offset >= 8   ? 8
+                  : bytes - offset >= 4 ? 4
+                  : bytes - offset >= 2 ? 2
+                                        : 1;
+
+        if (!addr_offset_legal(initial, offset, step))
+            return false;
+        offset += step;
+    }
+    return true;
+}
+
+static u8 size_shift(u8 size)
+{
+    u8 shift = 0;
+
+    while (size > 1) {
+        size >>= 1;
+        shift++;
+    }
+    return shift;
+}
+
+static bool addr_use(const IrInst *use, u32 operand, const IrInst *definition,
+                     u8 *access_shift)
+{
+    u8 size;
+
+    if ((use->flags & IRF_SEQ_CST) != 0)
+        return false;
+    if (use->op == IR_LOAD && operand == 0) {
+        size = (u8)ir_type_size(use->type);
+        *access_shift = size_shift(size);
+        return definition->ops[1].kind == IROP_VALUE ||
+               addr_offset_legal((i64)definition->ops[1].a, 0, size);
+    }
+    if (use->op == IR_STORE && operand == 1) {
+        size = (u8)ir_type_size(use->ops[0].type);
+        *access_shift = size_shift(size);
+        return definition->ops[1].kind == IROP_VALUE ||
+               addr_offset_legal((i64)definition->ops[1].a, 0, size);
+    }
+    return bulk_addr_use(use, operand, definition, access_shift);
+}
+
+static bool plan_scaled_index(Isel *is, u32 id, AddrPlan *plan)
+{
+    const IrInst *definition = is->defs[id];
+    u32 index;
+    const IrInst *shift;
+
+    if (definition->ops[1].kind != IROP_VALUE || !plan->shift_set)
+        return false;
+    index = (u32)definition->ops[1].a;
+    shift = is->defs[index];
+    if (!shift || shift->op != IR_SHL || shift->nops != 2 ||
+        shift->ops[0].kind != IROP_VALUE || shift->ops[1].kind != IROP_ICONST ||
+        shift->ops[1].a != plan->access_shift || is->use_count[index] != 1)
+        return false;
+    plan->index = (u32)shift->ops[0].a;
+    plan->shift = plan->access_shift;
+    is->addr_plans[index].suppress = true;
+    return true;
+}
+
+static void plan_extended_index(Isel *is, u32 id, AddrPlan *plan)
+{
+    const IrInst *definition = is->defs[id];
+    u32 index = plan->index ? plan->index : (u32)definition->ops[1].a;
+    const IrInst *extend = is->defs[index];
+    IrType index_type = ir_value_type(is->ir, (ValueId){index});
+
+    if (extend && (extend->op == IR_SEXT || extend->op == IR_ZEXT) &&
+        extend->type == IRT_I64 && extend->nops == 1 &&
+        extend->ops[0].kind == IROP_VALUE && extend->ops[0].type == IRT_I32 &&
+        is->use_count[index] == 1) {
+        plan->index = (u32)extend->ops[0].a;
+        plan->index_mode = (u8)a64_addr_reg_mode(true, extend->op == IR_SEXT,
+                                                 plan->shift != 0);
+        is->addr_plans[index].suppress = true;
+        return;
+    }
+    plan->index_mode =
+        (u8)a64_addr_reg_mode(index_type == IRT_I32, false, plan->shift != 0);
+}
+
+/* Mark address-only PTRADDs before selection.  Input to isel has already
+ * passed the IR verifier, so the definition dominates every use; the
+ * remaining proof obligations here are consumer shape and A64 immediate or
+ * register-offset encodability.  Cross-block forms are the Sprint 53 gain;
+ * same-block forms join the plan only when a scale or i32 extension can be
+ * absorbed into the memory operand. */
+static void plan_addresses(Isel *is)
+{
+    const IrFunc *ir = is->ir;
+    u32 id, bi;
+
+    for (id = 1; id <= ir->nvals; id++) {
+        const IrInst *definition = is->defs[id];
+
+        is->addr_plans[id].fold = definition && definition->op == IR_PTRADD &&
+                                  definition->nops == 2 &&
+                                  (definition->ops[1].kind == IROP_ICONST ||
+                                   definition->ops[1].kind == IROP_VALUE);
+    }
+    for (bi = 0; bi < ir->nblocks; bi++) {
+        const IrInst *use;
+
+        for (use = ir->blocks[bi].first; use; use = use->next) {
+            u32 oi, ei, ai;
+
+            for (oi = 0; oi < use->nops; oi++) {
+                const IrOperand *operand = &use->ops[oi];
+                const IrInst *definition;
+                AddrPlan *plan;
+                u8 access_shift;
+
+                if (operand->kind != IROP_VALUE)
+                    continue;
+                id = (u32)operand->a;
+                plan = &is->addr_plans[id];
+                if (!plan->fold)
+                    continue;
+                definition = is->defs[id];
+                plan->seen++;
+                if (!addr_use(use, oi, definition, &access_shift))
+                    plan->invalid = true;
+                else if (!plan->shift_set) {
+                    plan->access_shift = access_shift;
+                    plan->shift_set = true;
+                } else if (plan->access_shift != access_shift) {
+                    plan->invalid = true;
+                }
+                if (ir->vals[id - 1].def_block.v != bi + 1)
+                    plan->cross_block = true;
+            }
+            for (ei = 0; ei < use->nedges; ei++)
+                for (ai = 0; ai < use->edges[ei].nargs; ai++) {
+                    const IrOperand *operand = &use->edges[ei].args[ai];
+
+                    if (operand->kind == IROP_VALUE &&
+                        is->addr_plans[(u32)operand->a].fold)
+                        is->addr_plans[(u32)operand->a].invalid = true;
+                }
+        }
+    }
+    for (id = 1; id <= ir->nvals; id++) {
+        AddrPlan *plan = &is->addr_plans[id];
+        bool scaled = false;
+        bool extended = false;
+
+        plan->fold =
+            plan->fold && !plan->invalid && plan->seen == is->use_count[id];
+        if (plan->fold && is->defs[id]->ops[1].kind == IROP_VALUE) {
+            scaled = plan_scaled_index(is, id, plan);
+            plan_extended_index(is, id, plan);
+            extended = plan->index_mode == A64_ADDR_REG_UXTW ||
+                       plan->index_mode == A64_ADDR_REG_SXTW;
+        }
+        plan->fold = plan->fold && (plan->cross_block || scaled || extended);
+    }
+}
+
 A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
                            Arena *arena)
 {
@@ -2247,6 +2513,9 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
     is.vals = arena_alloc(arena, (ir->nvals + 1) * sizeof(*is.vals),
                           _Alignof(ValInfo));
     memset(is.vals, 0, (ir->nvals + 1) * sizeof(*is.vals));
+    is.addr_plans = arena_alloc(arena, (ir->nvals + 1) * sizeof(*is.addr_plans),
+                                _Alignof(AddrPlan));
+    memset(is.addr_plans, 0, (ir->nvals + 1) * sizeof(*is.addr_plans));
     is.defs = arena_alloc(arena, (ir->nvals + 1) * sizeof(*is.defs),
                           _Alignof(IrInst *));
     memset(is.defs, 0, (ir->nvals + 1) * sizeof(*is.defs));
@@ -2284,6 +2553,7 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
                         is.use_count[(u32)inst->edges[ei].args[ai].a]++;
         }
     }
+    plan_addresses(&is);
     for (bi = 0; bi < ir->nblocks; bi++) {
         const IrBlock *ir_block = &ir->blocks[bi];
         const IrInst *inst;

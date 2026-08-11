@@ -35,12 +35,29 @@ typedef struct ValInfo {
     u32 flags_blk;
 } ValInfo;
 
+/* An address shape derived from verified SSA before block-order selection.
+ * Keeping IR operands here, rather than selected vregs, is the important
+ * bit: a definition may dominate its uses while appearing later in the
+ * function's layout.  to_vreg reserves the stable vreg when the memory use
+ * is selected and the ordinary forward-reference repair materializes it
+ * when its defining block is eventually visited. */
+typedef struct AddrPlan {
+    bool valid;
+    bool suppress;
+    bool has_index;
+    u8 scale;
+    i64 disp;
+    IrOperand base;
+    IrOperand index;
+} AddrPlan;
+
 typedef struct Isel {
     Arena *arena;
     const IrModule *m;
     const IrFunc *f;
     X64Func *xf;
-    ValInfo *vals; /* [nvals+1] */
+    ValInfo *vals;       /* [nvals+1] */
+    AddrPlan *addr_plan; /* [nvals+1], keyed by IR ValueId */
     u32 *use_count;
     u32 cur;     /* current MIR block index (0-based) */
     u32 cur_loc; /* source attribution inherited by every selected MIR op */
@@ -49,6 +66,167 @@ typedef struct Isel {
     u32 last_flags_val;  /* the icmp ValueId it computed for, or 0 */
     X64PicLevel pic;
 } Isel;
+
+static bool is_foldable_addr_use(const IrInst *in, u32 operand)
+{
+    switch (in->op) {
+    case IR_LOAD:
+        return operand == 0;
+    case IR_STORE:
+        return operand == 1;
+    case IR_ATOMICRMW:
+    case IR_CMPXCHG:
+        return operand == 0;
+    case IR_PTRADD:
+        /* A pointer chain is supported only if its child is suppressible too;
+         * plan_addresses propagates a failed child back to this parent. */
+        return operand == 0;
+    default:
+        return false;
+    }
+}
+
+static bool scaled_index_def(const IrInst *in, IrOperand *index, u8 *scale)
+{
+    i64 k;
+
+    if (!in || in->nops != 2 || in->ops[0].kind != IROP_VALUE ||
+        in->ops[1].kind != IROP_ICONST)
+        return false;
+    k = (i64)in->ops[1].a;
+    if (in->op == IR_IMUL && (k == 2 || k == 4 || k == 8)) {
+        *index = in->ops[0];
+        *scale = (u8)k;
+        return true;
+    }
+    if (in->op == IR_SHL && k >= 1 && k <= 3) {
+        *index = in->ops[0];
+        *scale = (u8)(1u << k);
+        return true;
+    }
+    return false;
+}
+
+/* Plan ptradd folding from verified IR, before selection imposes a block
+ * layout.  A producer disappears only when every use is an encodable memory
+ * address.  CFG edge arguments and all other operand positions invalidate
+ * the plan.  Bare symbols deliberately bail: RIP-relative, GOT and TLS
+ * addresses each have relocation/materialization rules that cannot be
+ * represented by a base/index SIB plan. */
+static void plan_addresses(Isel *is, const IrInst *const *defs,
+                           const bool *only_addr_use)
+{
+    const IrFunc *f = is->f;
+    u32 *base_parent =
+        arena_alloc(is->arena, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
+    u32 *queue =
+        arena_alloc(is->arena, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
+    bool *only_planned_scale_use =
+        arena_alloc(is->arena, (f->nvals + 1) * sizeof(bool), _Alignof(bool));
+    u32 bi, i, qhead = 0, qtail = 0;
+
+    memset(base_parent, 0, (f->nvals + 1) * sizeof(u32));
+    memset(only_planned_scale_use, 1, (f->nvals + 1) * sizeof(bool));
+    for (i = 1; i <= f->nvals; i++) {
+        const IrInst *in = defs[i];
+        AddrPlan *p = &is->addr_plan[i];
+        const AddrPlan *parent = NULL;
+
+        if (!in || in->op != IR_PTRADD || in->nops != 2 ||
+            in->ops[0].kind != IROP_VALUE)
+            continue;
+        base_parent[i] = (u32)in->ops[0].a;
+        if (defs[base_parent[i]] && defs[base_parent[i]]->op == IR_PTRADD &&
+            is->addr_plan[base_parent[i]].valid)
+            parent = &is->addr_plan[base_parent[i]];
+        if (parent) {
+            *p = *parent;
+            p->valid = false;
+            p->suppress = false;
+        } else {
+            p->base = in->ops[0];
+            p->scale = 1;
+        }
+        if (in->ops[1].kind == IROP_ICONST) {
+            i64 add = (i64)in->ops[1].a;
+
+            if ((add > 0 && p->disp > INT64_MAX - add) ||
+                (add < 0 && p->disp < INT64_MIN - add))
+                continue;
+            p->disp += add;
+            if (!x64_fold_ok(1, false, p->disp))
+                continue;
+        } else if (in->ops[1].kind == IROP_VALUE) {
+            const IrInst *off_def = defs[(u32)in->ops[1].a];
+
+            if (p->has_index)
+                continue; /* x86 has one SIB index */
+            p->has_index = true;
+            if (!scaled_index_def(off_def, &p->index, &p->scale))
+                p->index = in->ops[1];
+            if (!x64_fold_ok(p->scale, false, 0))
+                continue;
+        } else {
+            continue;
+        }
+        p->valid = true;
+        p->suppress = is->use_count[i] && only_addr_use[i];
+    }
+
+    /* If a ptradd child cannot disappear, its base plan cannot disappear
+     * either: the selected child still needs that SSA value as a register.
+     * Each child has one base, so a small reverse work queue closes the
+     * dependency without a quadratic fixed-point scan. */
+    for (i = 1; i <= f->nvals; i++)
+        if (defs[i] && defs[i]->op == IR_PTRADD && !is->addr_plan[i].suppress)
+            queue[qtail++] = i;
+    while (qhead < qtail) {
+        u32 parent_value = base_parent[queue[qhead++]];
+
+        if (parent_value && is->addr_plan[parent_value].suppress) {
+            is->addr_plan[parent_value].suppress = false;
+            queue[qtail++] = parent_value;
+        }
+    }
+
+    /* A multiply/shift used only as the scaled operand of planned ptradds is
+     * redundant too.  If it has one ordinary use, keep the producer: the
+     * memory operands may still use the cheaper shape, but no SSA value is
+     * left undefined. */
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            u32 k, e, a;
+
+            for (k = 0; k < in->nops; k++) {
+                u32 v;
+                AddrPlan *p;
+
+                if (in->ops[k].kind != IROP_VALUE)
+                    continue;
+                v = (u32)in->ops[k].a;
+                p = in->result.v ? &is->addr_plan[in->result.v] : NULL;
+                if (!(in->op == IR_PTRADD && k == 1 && p && p->suppress &&
+                      p->has_index && p->scale != 1))
+                    only_planned_scale_use[v] = false;
+            }
+            for (e = 0; e < in->nedges; e++)
+                for (a = 0; a < in->edges[e].nargs; a++)
+                    if (in->edges[e].args[a].kind == IROP_VALUE)
+                        only_planned_scale_use[(u32)in->edges[e].args[a].a] =
+                            false;
+        }
+    }
+    for (i = 1; i <= f->nvals; i++) {
+        IrOperand index;
+        u8 scale;
+
+        if (is->use_count[i] && only_planned_scale_use[i] &&
+            scaled_index_def(defs[i], &index, &scale))
+            is->addr_plan[i].suppress = true;
+    }
+}
 
 /* DATA: does reaching this object need the GOT?
  *
@@ -204,6 +382,37 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
         break; /* mov/lea/movzx/movsx/setcc/jmp/jcc leave flags alone */
     }
     return in;
+}
+
+/* A branch-only compare normally stays in EFLAGS until the block's condbr.
+ * An alloca expansion writes flags after selection, so preserve that pending
+ * boolean in a vreg before emitting the opaque marker.  The condbr will then
+ * test the materialized value instead of incorrectly reusing stale flags. */
+static void materialize_pending_cc(Isel *is)
+{
+    u32 v = is->last_flags_val;
+    ValInfo *vi;
+    X64VReg s, z;
+    X64Inst *x;
+
+    if (!v)
+        return;
+    vi = &is->vals[v];
+    if (vi->vr.v || !vi->cc_plus1)
+        return;
+    s = newv(is);
+    z = newv(is);
+    x = emit(is, X64_OP_SETCC, X64_B);
+    x->def = s;
+    x->cc = (u8)(vi->cc_plus1 - 1);
+    x->flags = X64IF_USES_FLAGS;
+    x->flags_src = vi->flags_ins;
+    x = emit(is, X64_OP_MOVZX, X64_L);
+    x->src_width = X64_B;
+    x->def = z;
+    x->a.kind = X64O_VREG;
+    x->a.r = s;
+    vi->vr = z;
 }
 
 static u32 new_block(Isel *is, const char *name)
@@ -421,8 +630,18 @@ static X64Mem fold_addr(Isel *is, const IrOperand *addr)
         return mem;
     }
     if (addr->kind == IROP_VALUE) {
+        const AddrPlan *ap = &is->addr_plan[(u32)addr->a];
         const ValInfo *vi = &is->vals[(u32)addr->a];
 
+        if (ap->valid) {
+            mem.base = to_vreg(is, &ap->base);
+            mem.disp = (i32)ap->disp;
+            if (ap->has_index) {
+                mem.index = to_vreg(is, &ap->index);
+                mem.scale = ap->scale;
+            }
+            return mem;
+        }
         if (vi->pat == 2 && x64_fold_ok(1, false, vi->pat_disp)) {
             mem.base = vi->pat_base;
             mem.disp = (i32)vi->pat_disp;
@@ -927,6 +1146,9 @@ static X64Op alu_op(IrOp op)
 
 static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
 {
+    if (in->result.v && is->addr_plan[in->result.v].suppress)
+        return;
+
     switch (in->op) {
     case IR_IADD:
     case IR_ISUB:
@@ -1181,8 +1403,13 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
              * symbol). Size rides in b.imm and align in table — b.kind
              * stays NONE so nothing downstream prints or verifies it —
              * and x64_frame_finalize turns the marker into rbp-disp. */
-            X64VReg d = newv(is);
-            X64Inst *x = emit(is, X64_OP_LEA, X64_Q);
+            X64VReg d;
+            X64Inst *x;
+
+            if (in->align > 16)
+                materialize_pending_cc(is);
+            d = newv(is);
+            x = emit(is, X64_OP_LEA, X64_Q);
 
             x->def = d;
             x->a.kind = X64O_MEM;
@@ -1190,20 +1417,26 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a.mem.disp = 0;
             x->b.imm = (i64)in->ops[0].a;
             x->table = in->align;
+            if (in->align > 16) {
+                /* Frame finalization expands this marker to lea+and.  The
+                 * mask writes EFLAGS, so make that clobber visible now and
+                 * prevent cmp/jcc fusion from spanning the allocation. */
+                x->flags = X64IF_DEFS_FLAGS;
+                is->last_flags_inst = blk(is)->n;
+                is->last_flags_val = 0;
+            }
             is->vals[in->result.v].vr = d;
         } else {
             /* Dynamic (VLA): a marker regalloc expands post-RA into the
-             * round-to-16 rsp bump (mov r10,size; add 15; and -16;
-             * sub rsp,r10; def = rsp). rsp stays 16-aligned, which
-             * covers every align <= 16; more needs pointer masking. */
-            X64VReg s = to_vreg(is, &in->ops[0]);
-            X64VReg d = newv(is);
+             * aligned rsp bump and, for alignment >16, a separately masked
+             * object pointer. rsp itself remains 16-aligned for calls. */
+            X64VReg s;
+            X64VReg d;
             X64Inst *x;
 
-            if (in->align > 16)
-                CGF_ICE("x86_64 isel: over-aligned dynamic alloca "
-                        "(align %u) lands in Sprint 53",
-                        in->align);
+            materialize_pending_cc(is);
+            s = to_vreg(is, &in->ops[0]);
+            d = newv(is);
             x = emit(is, X64_OP_ALLOCA_DYN, X64_Q);
             x->def = d;
             x->a = ovreg(s);
@@ -1638,9 +1871,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->a = ovreg(idx);
                 x->table = xf->ntables++;
             } else {
-                /* compare tree (linear form of the balanced tree: the
-                 * balance matters at Sprint 53's tuning, correctness
-                 * here) — insertion order for determinism. */
+                /* Linear compare chain, emitted in insertion order for
+                 * determinism. Balancing remains a post-v0.1.0 tradeoff. */
                 for (i = 1; i <= n; i++) {
                     u32 t = edge_target(is, &in->edges[i]);
                     X64Inst *x = emit(is, X64_OP_CMP, w);
@@ -2209,6 +2441,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_FCMP: {
         const FcmpRecipe *rc = &fcmp_recipes[in->subop];
         u8 st = in->ops[0].type;
+        u32 flags_ins;
 
         if (st == IRT_F128)
             CGF_ICE("x86_64 isel: f128 is outside the v0.1.0 scope "
@@ -2223,6 +2456,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x87_mem(is, X64_OP_X87_FLD, X64_T, bv, 0);
             x87_mem(is, X64_OP_X87_FLD, X64_T, av, 0);
             x87_op0(is, X64_OP_X87_FUCOMIP);
+            flags_ins = blk(is)->n - 1;
             x87_op0(is, X64_OP_X87_FPOP);
         } else {
             X64Width w = fpw(st);
@@ -2232,13 +2466,14 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
 
             x->a = ovreg(av);
             x->b = ovreg(bv);
+            flags_ins = blk(is)->n - 1;
         }
         /* Single-cc recipes fuse into condbr exactly like icmp (setcc
          * leaves the flags intact); pair recipes end in and/or, which
          * clobbers flags, so their branches test the materialized
          * value. The materialized form itself IS the recipe table. */
         is->vals[in->result.v].cc_plus1 = rc->comb ? 0 : (u8)(rc->cc1 + 1);
-        is->vals[in->result.v].flags_ins = blk(is)->n - 1;
+        is->vals[in->result.v].flags_ins = flags_ins;
         is->vals[in->result.v].flags_blk = is->cur;
         is->last_flags_val = rc->comb ? 0 : in->result.v;
         if (rc->comb || is->use_count[in->result.v] > 1 ||
@@ -3136,6 +3371,9 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
     is.vals =
         arena_alloc(a, (f->nvals + 1) * sizeof(ValInfo), _Alignof(ValInfo));
     memset(is.vals, 0, (f->nvals + 1) * sizeof(ValInfo));
+    is.addr_plan =
+        arena_alloc(a, (f->nvals + 1) * sizeof(AddrPlan), _Alignof(AddrPlan));
+    memset(is.addr_plan, 0, (f->nvals + 1) * sizeof(AddrPlan));
     is.use_count = arena_alloc(a, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
     memset(is.use_count, 0, (f->nvals + 1) * sizeof(u32));
 
@@ -3152,31 +3390,53 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
             irt_xmm16(f->param_types[i]) ? newvv(&is)
             : irt_sse(f->param_types[i]) ? newvf(&is)
                                          : newv(&is);
-    for (bi = 0; bi < f->nblocks; bi++) {
-        const IrBlock *b = &f->blocks[bi];
-        const IrInst *in;
+    {
+        const IrInst **defs = arena_alloc(a, (f->nvals + 1) * sizeof(IrInst *),
+                                          _Alignof(IrInst *));
+        bool *only_addr_use =
+            arena_alloc(a, (f->nvals + 1) * sizeof(bool), _Alignof(bool));
 
-        for (i = 0; i < b->nparams; i++) {
-            u8 pt = f->vals[b->params[i].v - 1].type;
+        memset(defs, 0, (f->nvals + 1) * sizeof(IrInst *));
+        memset(only_addr_use, 1, (f->nvals + 1) * sizeof(bool));
+        for (bi = 0; bi < f->nblocks; bi++) {
+            const IrBlock *b = &f->blocks[bi];
+            const IrInst *in;
 
-            if (pt == IRT_F80)
-                CGF_ICE("x86_64 isel: f80 block parameters violate the "
-                        "memory law (lowering never emits them)");
-            is.vals[b->params[i].v].vr = irt_xmm16(pt) ? newvv(&is)
-                                         : irt_sse(pt) ? newvf(&is)
-                                                       : newv(&is);
+            for (i = 0; i < b->nparams; i++) {
+                u8 pt = f->vals[b->params[i].v - 1].type;
+
+                if (pt == IRT_F80)
+                    CGF_ICE("x86_64 isel: f80 block parameters violate the "
+                            "memory law (lowering never emits them)");
+                is.vals[b->params[i].v].vr = irt_xmm16(pt) ? newvv(&is)
+                                             : irt_sse(pt) ? newvf(&is)
+                                                           : newv(&is);
+            }
+            for (in = b->first; in; in = in->next) {
+                u32 k, j;
+
+                if (in->result.v)
+                    defs[in->result.v] = in;
+                for (k = 0; k < in->nops; k++) {
+                    if (in->ops[k].kind == IROP_VALUE) {
+                        u32 v = (u32)in->ops[k].a;
+
+                        is.use_count[v]++;
+                        if (!is_foldable_addr_use(in, k))
+                            only_addr_use[v] = false;
+                    }
+                }
+                for (k = 0; k < in->nedges; k++)
+                    for (j = 0; j < in->edges[k].nargs; j++)
+                        if (in->edges[k].args[j].kind == IROP_VALUE) {
+                            u32 v = (u32)in->edges[k].args[j].a;
+
+                            is.use_count[v]++;
+                            only_addr_use[v] = false;
+                        }
+            }
         }
-        for (in = b->first; in; in = in->next) {
-            u32 k, j;
-
-            for (k = 0; k < in->nops; k++)
-                if (in->ops[k].kind == IROP_VALUE)
-                    is.use_count[(u32)in->ops[k].a]++;
-            for (k = 0; k < in->nedges; k++)
-                for (j = 0; j < in->edges[k].nargs; j++)
-                    if (in->edges[k].args[j].kind == IROP_VALUE)
-                        is.use_count[(u32)in->edges[k].args[j].a]++;
-        }
+        plan_addresses(&is, defs, only_addr_use);
     }
 
     /* Callee-side parameter binding (Sprint 23): the same queue walk as

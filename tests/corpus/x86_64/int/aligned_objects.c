@@ -7,9 +7,8 @@
 // established: _Alignof answers from the TYPE and is correct even when the
 // object is placed wrong. It cannot tell a placed object from a misplaced one.
 //
-// The automatic position stops at 16 -- the frame base is 16-aligned, so a
-// stricter request needs a realigned frame and is refused by name (Sprint 53).
-// That refusal is pinned by tests/programs/gnu/alignas_overaligned_local.c.
+// The automatic position also exceeds the ABI stack alignment, so the frame
+// lowering must align the object rather than merely its offset.
 #define A(n) __attribute__((aligned(n)))
 
 A(64) int g_pre = 1; /* prefix binds to the declaration */
@@ -36,7 +35,7 @@ static int local_static(void)
 
 int main(void)
 {
-    A(16) int loc = 7;
+    A(64) int loc = 7;
 
     if (((unsigned long)&g_pre & 63u) != 0)
         return 1;
@@ -52,7 +51,7 @@ int main(void)
         return 6;
     if (!local_static())
         return 7;
-    if (((unsigned long)&loc & 15u) != 0)
+    if (((unsigned long)&loc & 63u) != 0)
         return 8;
     /* The FUNCTION position aligns the CODE. */
     if (((unsigned long)(void *)aligned_fn & 63u) != 0)

@@ -594,6 +594,8 @@ test-kernels: $(BUILD)/cgfried $(BUILD)/cgf-test
 	CGF_AS=0 CGF_TEST_CC=$(BUILD)/cgfried \
 	    CGF_TEST_WORK=$(BUILD)/kernel-opt-eq $(BUILD)/cgf-test \
 	    --profile linux-x86_64 tests/bench/kernels
+	CGF_KERNEL_A64_EXEC_WORK=$(BUILD)/kernel-arm64-exec \
+	    sh scripts/kernel-arm64-exec.sh $(BUILD)/cgfried $(BUILD)/cgf-test
 
 kernel-compare: $(BUILD)/cgfried
 	CGF_KERNEL_COMPARE_WORK=$(BUILD)/kernel-compare \

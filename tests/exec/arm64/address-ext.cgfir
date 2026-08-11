@@ -1,0 +1,18 @@
+// Signed and unsigned i32 indices must use distinct architectural extensions.
+func i64 @load_signed_index(ptr %base, i32 %index) {
+entry():
+    %wide = sext i32 %index to i64
+    %scaled = shl i64 %wide, 3
+    %address = ptradd %base, %scaled
+    %value = load i64, %address, align 8
+    ret i64 %value
+}
+
+func i32 @load_unsigned_index(ptr %base, i32 %index) {
+entry():
+    %wide = zext i32 %index to i64
+    %scaled = shl i64 %wide, 2
+    %address = ptradd %base, %scaled
+    %value = load i32, %address, align 4
+    ret i32 %value
+}

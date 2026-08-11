@@ -422,10 +422,10 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon);
  * declaration. One helper so the global, static-local and automatic
  * paths cannot drift -- they did: every one of them ignored _Alignas. */
 u32 lower_object_align(const struct Symbol *sym, u64 natural);
-/* The automatic-storage form: same rule, plus the 16-byte frame ceiling,
- * which it refuses by name rather than under-aligning. */
-u32 lower_auto_align(Lower *lo, const struct Symbol *sym, u64 natural,
-                     Span span);
+/* The automatic-storage form propagates the complete validated requirement;
+ * both backends align fixed and dynamic object addresses inside their frames.
+ */
+u32 lower_auto_align(const struct Symbol *sym, u64 natural);
 
 /* The linker name for a symbol: its `__asm__("...")` label if it has one,
  * otherwise its C identifier. Diagnostics keep the identifier. */

@@ -330,6 +330,13 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                               "precedes its producer",
                               f->name, bi + 1, i);
                     bad++;
+                } else if (!(b->insts[in->flags_src].flags &
+                             X64IF_DEFS_FLAGS)) {
+                    diag_emit(dc, DIAG_ERROR, sp,
+                              "mir verify @%s bb%u:%u: flags consumer "
+                              "does not name a flags-defining producer",
+                              f->name, bi + 1, i);
+                    bad++;
                 } else {
                     for (k = in->flags_src + 1; k < i; k++)
                         if (b->insts[k].flags & X64IF_DEFS_FLAGS) {

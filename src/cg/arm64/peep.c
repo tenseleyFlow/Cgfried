@@ -1,15 +1,12 @@
-#include "cg/arm64/mir.h"
+#include "cg/arm64/peep.h"
 #include "util/base.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-/* Post-selection A64 cleanup and relaxation.  The pass deliberately works on
- * one basic block at a time for pairing: a block boundary is an observable
- * branch target, never an optimization window.  Branch relaxation is
- * monotone (narrow forms only expand), so restarting after each expansion
- * reaches a fixpoint without the oscillation hazards of a shrink/expand pass.
- */
+/* Post-selection A64 cleanup.  The pass deliberately works on one basic
+ * block at a time for pairing: a block boundary is an observable branch
+ * target, never an optimization window. */
 
 static bool reg_eq(A64Reg a, A64Reg b)
 {
@@ -19,6 +16,96 @@ static bool reg_eq(A64Reg a, A64Reg b)
 static bool reg_valid(A64Reg r)
 {
     return r.id != 0;
+}
+
+static bool reg_is_sp_or_zr(A64Reg r)
+{
+    return r.physical && (r.id == (u32)A64_SP + 1 || r.id == (u32)A64_XZR + 1);
+}
+
+static bool reg_is_fp(A64Reg r)
+{
+    u32 phys;
+
+    if (!r.physical || !r.id)
+        return false;
+    phys = r.id - 1;
+    return phys >= A64_V0 && phys <= A64_V31;
+}
+
+static void adjust_flags_after_remove(A64Block *b, u32 removed);
+static bool layout_target_fits(const A64Func *f, u32 bi, u32 at, u16 op,
+                               u32 target);
+
+static bool reg_operand_parts(const A64Inst *in, u32 n, A64Reg *out)
+{
+    if (n >= in->nops || in->ops[n].kind != A64O_REG)
+        return false;
+    *out = in->ops[n].reg;
+    return reg_valid(*out);
+}
+
+static bool inst_has_side_record_barrier(const A64Inst *in)
+{
+    /* Calls have architectural clobbers which are intentionally absent from
+     * their inline operands.  Inline asm has the same side-record shape and
+     * may name or clobber registers unavailable to this local pass. */
+    return in->op == A64_OP_CALL || in->op == A64_OP_ASM;
+}
+
+static bool op0_is_def(u16 op)
+{
+    switch (op) {
+    case A64_OP_STORE:
+    case A64_OP_STP:
+    case A64_OP_FCMP:
+    case A64_OP_B:
+    case A64_OP_BCOND:
+    case A64_OP_CBZ:
+    case A64_OP_CBNZ:
+    case A64_OP_TBZ:
+    case A64_OP_TBNZ:
+    case A64_OP_CALL:
+    case A64_OP_RET:
+    case A64_OP_BR:
+    case A64_OP_UNREACHABLE:
+    case A64_OP_STACKRESTORE:
+    case A64_OP_VASTART:
+        return false;
+    default:
+        return true;
+    }
+}
+
+static bool inst_defines_reg(const A64Inst *in, A64Reg reg)
+{
+    u32 i;
+
+    if (inst_has_side_record_barrier(in))
+        return true;
+    if (in->op == A64_OP_LDP)
+        for (i = 0; i < 2 && i < in->nops; i++)
+            if (in->ops[i].kind == A64O_REG && reg_eq(in->ops[i].reg, reg))
+                return true;
+    if (op0_is_def(in->op) && in->nops && in->ops[0].kind == A64O_REG &&
+        reg_eq(in->ops[0].reg, reg))
+        return true;
+    /* Pre/post-indexed memory operands update their base register. */
+    for (i = 0; i < in->nops; i++)
+        if (in->ops[i].kind == A64O_MEM &&
+            (in->ops[i].mem.mode == A64_ADDR_PRE ||
+             in->ops[i].mem.mode == A64_ADDR_POST) &&
+            reg_eq(in->ops[i].mem.base, reg))
+            return true;
+    return false;
+}
+
+static void block_remove(A64Block *b, u32 at)
+{
+    memmove(&b->insts[at], &b->insts[at + 1],
+            (b->n - at - 1) * sizeof(*b->insts));
+    b->n--;
+    adjust_flags_after_remove(b, at);
 }
 
 static bool mem_parts(const A64Inst *in, A64Reg *rt, const A64Mem **mem)
@@ -80,6 +167,15 @@ static bool pairable_mem(const A64Inst *a, const A64Inst *b, A64Reg *ra,
      * conservative rule, and require distinct transfer registers for both
      * loads and stores (the pass promises independent registers). */
     if (!reg_valid(*ra) || !reg_valid(*rb) || reg_eq(*ra, *rb))
+        return false;
+    if (ra->physical != rb->physical ||
+        (ra->physical && reg_is_fp(*ra) != reg_is_fp(*rb)))
+        return false;
+    /* emit_pair derives both register spellings from the first register's
+     * bank and supports D-register pairs.  Pairing two scalar S accesses
+     * would silently turn 4-byte STRs into 8-byte STPs and overwrite the
+     * adjacent object (caught by the HFA and packed-struct cross corpus). */
+    if (ra->physical && reg_is_fp(*ra) && size != 8)
         return false;
     if (a->op == A64_OP_LOAD &&
         (reg_eq(*ra, (*ma)->base) || reg_eq(*rb, (*ma)->base)))
@@ -147,9 +243,291 @@ bool a64_peep_pair_mem(A64Func *f)
     return changed;
 }
 
-static u64 add_sat(u64 a, u64 b)
+static bool is_self_mov(const A64Inst *in)
 {
-    return UINT64_MAX - a < b ? UINT64_MAX : a + b;
+    A64Reg dst, src;
+
+    /* A W-register self-copy is not generally a no-op: it clears the upper
+     * half of the architectural X register and is our i32->i64 zero-extend
+     * representation.  Only the full-width GP copy is provenance-free. */
+    return in->op == A64_OP_MOV && in->sf == A64_SF64 && in->nops == 2 &&
+           !(in->flags & (A64IF_DEFS_NZCV | A64IF_USES_NZCV | A64IF_VOLATILE |
+                          A64IF_ATOMIC)) &&
+           reg_operand_parts(in, 0, &dst) && reg_operand_parts(in, 1, &src) &&
+           reg_eq(dst, src);
+}
+
+static bool is_redundant_w_self_mov(const A64Block *b, u32 at)
+{
+    const A64Inst *in = &b->insts[at];
+    const A64Inst *prior;
+    A64Reg dst, src, prior_dst;
+    u32 i;
+
+    if (at == 0 || in->op != A64_OP_MOV || in->sf != A64_SF32 ||
+        in->nops != 2 || in->flags || !reg_operand_parts(in, 0, &dst) ||
+        !reg_operand_parts(in, 1, &src) || !reg_eq(dst, src) ||
+        reg_is_sp_or_zr(dst) || reg_is_fp(dst))
+        return false;
+    prior = &b->insts[at - 1];
+    if (prior->sf != A64_SF32 || !op0_is_def(prior->op) ||
+        inst_has_side_record_barrier(prior) ||
+        !reg_operand_parts(prior, 0, &prior_dst) || !reg_eq(prior_dst, dst))
+        return false;
+    /* A writeback address defines its base at X width independently of the
+     * transfer width.  Do not use the transfer destination as provenance
+     * when the same architectural register is also that base. */
+    for (i = 0; i < prior->nops; i++)
+        if (prior->ops[i].kind == A64O_MEM &&
+            (prior->ops[i].mem.mode == A64_ADDR_PRE ||
+             prior->ops[i].mem.mode == A64_ADDR_POST) &&
+            reg_eq(prior->ops[i].mem.base, dst))
+            return false;
+    return true;
+}
+
+static bool rewrite_add_zero(A64Block *b, u32 at)
+{
+    A64Inst *in = &b->insts[at];
+    A64Reg dst, src;
+
+    if (in->op != A64_OP_ADD || in->nops != 3 || in->flags ||
+        !reg_operand_parts(in, 0, &dst) || !reg_operand_parts(in, 1, &src) ||
+        in->ops[2].kind != A64O_IMM || in->ops[2].imm != 0)
+        return false;
+    if (reg_eq(dst, src)) {
+        block_remove(b, at);
+        return true;
+    }
+    /* MOV encodes architectural register 31 as XZR, while ADD's operand
+     * positions can name SP.  The frame builder intentionally spells
+     * `add x29, sp, #0`; converting that to `mov x29, sp` loses the identity
+     * information and is rejected by the MIR verifier. */
+    if (reg_is_sp_or_zr(dst) || reg_is_sp_or_zr(src))
+        return false;
+    in->op = A64_OP_MOV;
+    in->nops = 2;
+    memset(&in->ops[2], 0, 2 * sizeof(in->ops[0]));
+    return true;
+}
+
+static bool addr_shape(const A64Inst *in, A64Reg *dst, i64 *offset)
+{
+    if (in->op != A64_OP_ADDR || (in->nops != 2 && in->nops != 3) ||
+        in->flags || !reg_operand_parts(in, 0, dst) ||
+        (in->ops[1].kind != A64O_SYM && in->ops[1].kind != A64O_CPOOL))
+        return false;
+    if (in->nops == 3 && in->ops[2].kind != A64O_IMM)
+        return false;
+    *offset = in->nops == 3 ? in->ops[2].imm : 0;
+    return true;
+}
+
+static bool same_addr(const A64Inst *a, const A64Inst *b)
+{
+    A64Reg ignored;
+    i64 ao, bo;
+
+    return addr_shape(a, &ignored, &ao) && addr_shape(b, &ignored, &bo) &&
+           a->ops[1].kind == b->ops[1].kind && a->ops[1].id == b->ops[1].id &&
+           ao == bo;
+}
+
+static bool rewrite_addr_cse(A64Block *b, u32 at)
+{
+    A64Inst *in = &b->insts[at];
+    A64Reg dst;
+    i64 offset;
+    u32 j;
+
+    if (!addr_shape(in, &dst, &offset))
+        return false;
+    (void)offset;
+    for (j = at; j-- > 0;) {
+        A64Inst *prior = &b->insts[j];
+        A64Reg available;
+        i64 prior_offset;
+        u32 k;
+        bool clobbered = false;
+
+        if (!same_addr(prior, in) ||
+            !addr_shape(prior, &available, &prior_offset))
+            continue;
+        (void)prior_offset;
+        for (k = j + 1; k < at; k++)
+            if (inst_defines_reg(&b->insts[k], available)) {
+                clobbered = true;
+                break;
+            }
+        if (clobbered)
+            continue;
+
+        /* ADDR is the indivisible adrp+add pseudo in this MIR.  Reusing a
+         * complete identical address is therefore the strongest sound CSE
+         * expressible here; page-only reuse would require splitting ADDR and
+         * carrying relocation-half semantics through allocation. */
+        if (reg_eq(dst, available)) {
+            block_remove(b, at);
+        } else {
+            in->op = A64_OP_MOV;
+            in->nops = 2;
+            in->ops[1].kind = A64O_REG;
+            in->ops[1].reg = available;
+            memset(&in->ops[2], 0, 2 * sizeof(in->ops[0]));
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool rewrite_madd(A64Block *b, u32 at)
+{
+    A64Inst *mul;
+    A64Inst *add;
+    A64Reg product, dst, lhs, rhs, a, c, acc;
+
+    if (at + 1 >= b->n)
+        return false;
+    mul = &b->insts[at];
+    add = &b->insts[at + 1];
+    if (mul->op != A64_OP_MUL || add->op != A64_OP_ADD || mul->nops != 3 ||
+        add->nops != 3 || mul->sf != add->sf || mul->flags || add->flags ||
+        !reg_operand_parts(mul, 0, &product) ||
+        !reg_operand_parts(mul, 1, &lhs) || !reg_operand_parts(mul, 2, &rhs) ||
+        !reg_operand_parts(add, 0, &dst) || !reg_operand_parts(add, 1, &a) ||
+        !reg_operand_parts(add, 2, &c) || !reg_eq(dst, product))
+        return false;
+    if (reg_eq(a, product) == reg_eq(c, product))
+        return false; /* product must occur exactly once */
+    acc = reg_eq(a, product) ? c : a;
+    add->op = A64_OP_MADD;
+    add->nops = 4;
+    add->ops[0].kind = A64O_REG;
+    add->ops[0].reg = dst;
+    add->ops[1].kind = A64O_REG;
+    add->ops[1].reg = lhs;
+    add->ops[2].kind = A64O_REG;
+    add->ops[2].reg = rhs;
+    add->ops[3].kind = A64O_REG;
+    add->ops[3].reg = acc;
+    block_remove(b, at);
+    return true;
+}
+
+static bool rewrite_layout_branch(A64Func *f, u32 bi, u32 at)
+{
+    A64Block *b = &f->blocks[bi];
+    A64Inst *in = &b->insts[at];
+    u32 next = bi + 2; /* block ids are one-based */
+    u32 taken_at, fall_at;
+
+    if (bi + 1 >= f->nblocks || at + 1 != b->n)
+        return false;
+    if (in->op == A64_OP_B && in->nops == 1 && in->ops[0].kind == A64O_LABEL &&
+        in->ops[0].id == next) {
+        /* Emission already knows this is a fallthrough, but removing it here
+         * keeps MIR instruction counts honest and exposes the same fact to
+         * every later consumer.  A mid-block B is not eligible: removing it
+         * would execute instructions the branch used to skip. */
+        block_remove(b, at);
+        return true;
+    }
+
+    switch (in->op) {
+    case A64_OP_BCOND:
+        taken_at = 0;
+        fall_at = 1;
+        break;
+    case A64_OP_CBZ:
+    case A64_OP_CBNZ:
+        taken_at = 1;
+        fall_at = 2;
+        break;
+    case A64_OP_TBZ:
+    case A64_OP_TBNZ:
+        taken_at = 2;
+        fall_at = 3;
+        break;
+    default:
+        return false;
+    }
+    if (in->nops != fall_at + 1 || in->ops[taken_at].kind != A64O_LABEL ||
+        in->ops[fall_at].kind != A64O_LABEL || in->ops[taken_at].id != next ||
+        in->ops[fall_at].id == next)
+        return false;
+    if (in->op == A64_OP_BCOND && in->cond > A64_CC_LE)
+        return false;
+    /* The original conditional edge is the adjacent block and therefore
+     * always encodable; its false edge rides an imm26 B.  After inversion
+     * that false edge becomes the narrow conditional target, so retain the
+     * two-instruction form when it is outside this opcode's range. */
+    if (!layout_target_fits(f, bi, at, in->op, in->ops[fall_at].id))
+        return false;
+
+    {
+        A64Operand tmp = in->ops[taken_at];
+
+        in->ops[taken_at] = in->ops[fall_at];
+        in->ops[fall_at] = tmp;
+    }
+    if (in->op == A64_OP_BCOND) {
+        in->cond ^= 1u;
+    } else if (in->op == A64_OP_CBZ) {
+        in->op = A64_OP_CBNZ;
+    } else if (in->op == A64_OP_CBNZ) {
+        in->op = A64_OP_CBZ;
+    } else if (in->op == A64_OP_TBZ) {
+        in->op = A64_OP_TBNZ;
+    } else {
+        in->op = A64_OP_TBZ;
+    }
+    return true;
+}
+
+static bool peep_local(A64Func *f)
+{
+    bool changed = false;
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+        u32 i = 0;
+
+        while (i < b->n) {
+            if (rewrite_layout_branch(f, bi, i)) {
+                changed = true;
+                continue;
+            }
+            if (is_self_mov(&b->insts[i]) || is_redundant_w_self_mov(b, i)) {
+                block_remove(b, i);
+                changed = true;
+                continue;
+            }
+            if (rewrite_add_zero(b, i) || rewrite_addr_cse(b, i) ||
+                rewrite_madd(b, i)) {
+                changed = true;
+                continue;
+            }
+            i++;
+        }
+    }
+    return changed;
+}
+
+bool a64_peep_post_ra(A64Func *f)
+{
+    bool any = false;
+    u32 iteration;
+
+    for (iteration = 0; iteration < 10; iteration++) {
+        bool changed = peep_local(f);
+
+        changed |= a64_peep_pair_mem(f);
+        any |= changed;
+        if (!changed)
+            return any;
+    }
+    CGF_ICE("a64 peephole: fixpoint did not converge after 10 iterations");
 }
 
 static bool has_explicit_false_edge(const A64Inst *in)
@@ -162,10 +540,12 @@ static bool has_explicit_false_edge(const A64Inst *in)
     return edges >= 2;
 }
 
-/* Pre-RA pseudos may grow later.  Overestimates are intentional: needless
- * widening costs one instruction, while an underestimate can hand the
- * assembler an unencodable branch. */
-static u64 worst_inst_bytes(const A64Inst *in)
+/* Some finalized MIR operations expand in the emitter.  Overestimates are
+ * intentional: declining a layout inversion costs nothing but an extra B,
+ * while an underestimate can move the old far edge into a narrow conditional
+ * branch and hand the assembler invalid output.  Inline asm is unbounded and
+ * therefore makes the proof unavailable. */
+static bool worst_inst_bytes(const A64Inst *in, u64 *bytes)
 {
     switch (in->op) {
     case A64_OP_BCOND:
@@ -176,99 +556,85 @@ static u64 worst_inst_bytes(const A64Inst *in)
         /* Production conditional MIR carries both successors.  Unless isel
          * has canonicalized the false edge to fallthrough, emission is the
          * conditional transfer plus an explicit B to the false successor. */
-        return has_explicit_false_edge(in) ? 8 : 4;
+        *bytes = has_explicit_false_edge(in) ? 8 : 4;
+        return true;
+    case A64_OP_ADDR:
+        /* adrp + add/load, plus at most two instructions for a GOT addend. */
+        *bytes = 16;
+        return true;
+    case A64_OP_TLSADDR:
+        /* mrs + two relocation halves + an optional constant addend. */
+        *bytes = 16;
+        return true;
     case A64_OP_ATOMIC_LLSC:
-        return 64;
+        *bytes = 64;
+        return true;
+    case A64_OP_ATOMIC_CAS:
+        *bytes = 28;
+        return true;
     case A64_OP_VASTART:
-        return 32;
+        *bytes = 32;
+        return true;
     case A64_OP_ALLOCA_DYN:
         /* round-up (2 ADDs worst case), AND, SUB sp, and the outgoing-area
-         * ADD (2 worst case) -- see frame_expand_dynamic. */
-        return 32;
+         * ADD (2 worst case), plus the over-alignment AND -- see
+         * frame_expand_dynamic. */
+        *bytes = 40;
+        return true;
     case A64_OP_STACKRESTORE:
-        return 24;
+        *bytes = 24;
+        return true;
     case A64_OP_CALL:
-        return 16;
-    default:
-        return 4;
-    }
-}
-
-static u64 *block_offsets(const A64Func *f)
-{
-    u64 *off = cgf_xmalloc(((size_t)f->nblocks + 1) * sizeof(*off));
-    u64 at = 0;
-    u32 bi, i;
-
-    for (bi = 0; bi < f->nblocks; bi++) {
-        off[bi] = at;
-        for (i = 0; i < f->blocks[bi].n; i++)
-            at = add_sat(at, worst_inst_bytes(&f->blocks[bi].insts[i]));
-    }
-    off[f->nblocks] = at;
-    return off;
-}
-
-static i64 branch_delta(u64 from, u64 to)
-{
-    if (to >= from) {
-        u64 d = to - from;
-        return d > (u64)INT64_MAX ? INT64_MAX : (i64)d;
-    }
-    if (from - to > (u64)INT64_MAX)
-        return INT64_MIN;
-    return -(i64)(from - to);
-}
-
-static bool branch_target(const A64Inst *in, u32 nth, A64Operand *out)
-{
-    u32 i, seen = 0;
-
-    for (i = 0; i < in->nops; i++) {
-        if (in->ops[i].kind != A64O_LABEL && in->ops[i].kind != A64O_SYM)
-            continue;
-        if (seen++ == nth) {
-            *out = in->ops[i];
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool branch_reg(const A64Inst *in, A64Reg *out)
-{
-    u32 i;
-
-    for (i = 0; i < in->nops; i++) {
-        if (in->ops[i].kind == A64O_REG) {
-            *out = in->ops[i].reg;
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool branch_bit(const A64Inst *in, u32 *out)
-{
-    u32 i;
-
-    for (i = 0; i < in->nops; i++) {
-        if (in->ops[i].kind == A64O_IMM && in->ops[i].imm >= 0 &&
-            in->ops[i].imm < 64) {
-            *out = (u32)in->ops[i].imm;
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool target_delta(const A64Func *f, const u64 *off, u64 pc,
-                         A64Operand target, i64 *delta)
-{
-    if (target.kind != A64O_LABEL || target.id == 0 || target.id > f->nblocks)
+        *bytes = 16;
+        return true;
+    case A64_OP_ASM:
         return false;
-    *delta = branch_delta(pc, off[target.id - 1]);
+    default:
+        *bytes = 4;
+        return true;
+    }
+}
+
+static bool add_inst_bytes(u64 *total, const A64Inst *in)
+{
+    u64 bytes;
+
+    if (!worst_inst_bytes(in, &bytes) || *total > (u64)INT64_MAX - bytes)
+        return false;
+    *total += bytes;
     return true;
+}
+
+static bool layout_target_fits(const A64Func *f, u32 bi, u32 at, u16 op,
+                               u32 target)
+{
+    u32 target_bi;
+    u32 bj, i;
+    u64 distance = 0;
+
+    if (bi >= f->nblocks || at >= f->blocks[bi].n || target == 0 ||
+        target > f->nblocks)
+        return false;
+    target_bi = target - 1;
+    if (target_bi > bi) {
+        for (i = at; i < f->blocks[bi].n; i++)
+            if (!add_inst_bytes(&distance, &f->blocks[bi].insts[i]))
+                return false;
+        for (bj = bi + 1; bj < target_bi; bj++)
+            for (i = 0; i < f->blocks[bj].n; i++)
+                if (!add_inst_bytes(&distance, &f->blocks[bj].insts[i]))
+                    return false;
+        return a64_branch_delta_fits(op, (i64)distance);
+    }
+
+    for (bj = target_bi; bj < bi; bj++)
+        for (i = 0; i < f->blocks[bj].n; i++)
+            if (!add_inst_bytes(&distance, &f->blocks[bj].insts[i]))
+                return false;
+    for (i = 0; i < at; i++)
+        if (!add_inst_bytes(&distance, &f->blocks[bi].insts[i]))
+            return false;
+    return a64_branch_delta_fits(op, -(i64)distance);
 }
 
 static bool fits_branch(i64 delta, i64 lo, i64 hi)
@@ -276,8 +642,8 @@ static bool fits_branch(i64 delta, i64 lo, i64 hi)
     return (delta & 3) == 0 && delta >= lo && delta <= hi;
 }
 
-/* Shared with the eventual emitter: the architectural displacement bounds
- * are properties of the opcode, not of a particular layout walk. */
+/* Architectural displacement bounds are properties of the opcode, not of a
+ * particular layout walk. */
 bool a64_branch_delta_fits(u16 op, i64 delta)
 {
     switch (op) {
@@ -292,253 +658,5 @@ bool a64_branch_delta_fits(u16 op, i64 delta)
         return fits_branch(delta, -32768, 32764);
     default:
         return false;
-    }
-}
-
-static A64Operand reg_operand(A64Reg reg)
-{
-    A64Operand out;
-
-    memset(&out, 0, sizeof(out));
-    out.kind = A64O_REG;
-    out.reg = reg;
-    return out;
-}
-
-static A64Operand imm_operand(i64 imm)
-{
-    A64Operand out;
-
-    memset(&out, 0, sizeof(out));
-    out.kind = A64O_IMM;
-    out.imm = imm;
-    return out;
-}
-
-static void block_insert(A64Func *f, A64Block *b, u32 at, A64Inst in)
-{
-    u32 old_n = b->n;
-    u32 i;
-    A64Inst zero;
-
-    memset(&zero, 0, sizeof(zero));
-    a64_block_append(f, b, zero);
-    memmove(&b->insts[at + 1], &b->insts[at], (old_n - at) * sizeof(*b->insts));
-    b->insts[at] = in;
-    for (i = at + 1; i < b->n; i++) {
-        if ((b->insts[i].flags & A64IF_USES_NZCV) &&
-            b->insts[i].flags_src >= at)
-            b->insts[i].flags_src++;
-    }
-}
-
-static void expand_cond(A64Func *f, u32 bi, u32 ii)
-{
-    A64Block *b = &f->blocks[bi];
-    A64Inst old = b->insts[ii];
-    A64Inst jump, fall_jump;
-    A64Operand taken, fall;
-    bool explicit_fall;
-
-    if (!branch_target(&old, 0, &taken))
-        CGF_ICE("a64 relax: conditional branch has no target");
-    if (old.cond > A64_CC_LE)
-        CGF_ICE("a64 relax: non-invertible condition");
-    explicit_fall = branch_target(&old, 1, &fall);
-
-    /* A local +8 displacement is invariant under every later layout change.
-     * It skips the first unconditional branch.  With an explicit false edge,
-     * that lands on a second B; with implicit fallthrough it lands directly
-     * on the original next instruction. */
-    old.cond ^= 1u;
-    old.nops = 1;
-    old.ops[0] = imm_operand(8);
-    memset(&old.ops[1], 0, 3 * sizeof(old.ops[0]));
-    b->insts[ii] = old;
-
-    memset(&jump, 0, sizeof(jump));
-    jump.op = A64_OP_B;
-    jump.nops = 1;
-    jump.ops[0] = taken;
-    jump.loc = old.loc;
-    block_insert(f, b, ii + 1, jump);
-    if (explicit_fall) {
-        memset(&fall_jump, 0, sizeof(fall_jump));
-        fall_jump.op = A64_OP_B;
-        fall_jump.nops = 1;
-        fall_jump.ops[0] = fall;
-        fall_jump.loc = old.loc;
-        block_insert(f, b, ii + 2, fall_jump);
-    }
-}
-
-static void expand_zero_branch(A64Func *f, u32 bi, u32 ii)
-{
-    A64Block *b = &f->blocks[bi];
-    A64Inst old = b->insts[ii];
-    A64Inst cmp, br;
-    A64Reg tested;
-    u32 nlabels = 0;
-
-    if (!branch_reg(&old, &tested))
-        CGF_ICE("a64 relax: cbz/cbnz has no tested register");
-    memset(&cmp, 0, sizeof(cmp));
-    cmp.op = A64_OP_SUBS;
-    cmp.sf = old.sf;
-    cmp.flags = A64IF_DEFS_NZCV;
-    cmp.nops = 3;
-    cmp.ops[0] = reg_operand(a64_phys(A64_XZR));
-    cmp.ops[1] = reg_operand(tested);
-    cmp.ops[2] = imm_operand(0);
-    cmp.loc = old.loc;
-
-    memset(&br, 0, sizeof(br));
-    br.op = A64_OP_BCOND;
-    br.cond = old.op == A64_OP_CBZ ? A64_CC_EQ : A64_CC_NE;
-    br.flags = A64IF_USES_NZCV;
-    br.flags_src = ii;
-    while (nlabels < 2 && branch_target(&old, nlabels, &br.ops[nlabels]))
-        nlabels++;
-    if (!nlabels)
-        CGF_ICE("a64 relax: cbz/cbnz has no target");
-    br.nops = (u8)nlabels;
-    br.loc = old.loc;
-    b->insts[ii] = cmp;
-    block_insert(f, b, ii + 1, br);
-}
-
-static void expand_test_branch(A64Func *f, u32 bi, u32 ii)
-{
-    A64Block *b = &f->blocks[bi];
-    A64Inst old = b->insts[ii];
-    A64Inst tst, br;
-    A64Reg tested;
-    u32 bit, nlabels = 0;
-
-    if (!branch_reg(&old, &tested) || !branch_bit(&old, &bit))
-        CGF_ICE("a64 relax: tbz/tbnz operands are malformed");
-    if (old.sf == A64_SF32 && bit >= 32)
-        CGF_ICE("a64 relax: 32-bit tbz/tbnz bit is out of range");
-    memset(&tst, 0, sizeof(tst));
-    tst.op = A64_OP_ANDS;
-    tst.sf = old.sf;
-    tst.flags = A64IF_DEFS_NZCV;
-    tst.nops = 3;
-    tst.ops[0] = reg_operand(a64_phys(A64_XZR));
-    tst.ops[1] = reg_operand(tested);
-    tst.ops[2] = imm_operand(bit == 63 ? INT64_MIN : (i64)(UINT64_C(1) << bit));
-    tst.loc = old.loc;
-
-    memset(&br, 0, sizeof(br));
-    br.op = A64_OP_BCOND;
-    br.cond = old.op == A64_OP_TBZ ? A64_CC_EQ : A64_CC_NE;
-    br.flags = A64IF_USES_NZCV;
-    br.flags_src = ii;
-    while (nlabels < 2 && branch_target(&old, nlabels, &br.ops[nlabels]))
-        nlabels++;
-    if (!nlabels)
-        CGF_ICE("a64 relax: tbz/tbnz has no target");
-    br.nops = (u8)nlabels;
-    br.loc = old.loc;
-    b->insts[ii] = tst;
-    block_insert(f, b, ii + 1, br);
-}
-
-bool a64_relax_branches(A64Func *f)
-{
-    bool any = false;
-
-    for (;;) {
-        u64 *off = block_offsets(f);
-        bool expanded = false;
-        u32 bi;
-
-        for (bi = 0; bi < f->nblocks && !expanded; bi++) {
-            A64Block *b = &f->blocks[bi];
-            u64 pc = off[bi];
-            u32 ii;
-
-            for (ii = 0; ii < b->n; ii++) {
-                A64Inst *in = &b->insts[ii];
-                A64Operand target;
-                A64Operand false_target;
-                i64 delta = 0;
-                i64 false_delta;
-                bool local;
-
-                if (in->op == A64_OP_BCOND && in->nops == 1 &&
-                    in->ops[0].kind == A64O_IMM) {
-                    if (in->ops[0].imm != 8)
-                        CGF_ICE("a64 relax: invalid local branch displacement");
-                    pc = add_sat(pc, worst_inst_bytes(in));
-                    continue;
-                }
-
-                if (in->op == A64_OP_B) {
-                    if (!branch_target(in, 0, &target))
-                        CGF_ICE(
-                            "a64 relax: unconditional branch has no target");
-                    if (target.kind != A64O_LABEL)
-                        CGF_ICE("a64 relax: external unconditional branch is "
-                                "not supported");
-                    if (!target_delta(f, off, pc, target, &delta))
-                        CGF_ICE("a64 relax: unconditional branch target is "
-                                "outside the function");
-                    if (!a64_branch_delta_fits(A64_OP_B, delta))
-                        CGF_ICE("a64 relax: unconditional branch displacement "
-                                "exceeds imm26");
-                    pc = add_sat(pc, worst_inst_bytes(in));
-                    continue;
-                }
-
-                if ((in->op == A64_OP_BCOND || in->op == A64_OP_CBZ ||
-                     in->op == A64_OP_CBNZ || in->op == A64_OP_TBZ ||
-                     in->op == A64_OP_TBNZ) &&
-                    !branch_target(in, 0, &target))
-                    CGF_ICE("a64 relax: branch has no target operand");
-                else if (in->op != A64_OP_BCOND && in->op != A64_OP_CBZ &&
-                         in->op != A64_OP_CBNZ && in->op != A64_OP_TBZ &&
-                         in->op != A64_OP_TBNZ) {
-                    pc = add_sat(pc, worst_inst_bytes(in));
-                    continue;
-                }
-
-                /* Two-successor MIR emits an ordinary B immediately after
-                 * the conditional transfer.  Its imm26 contract is separate
-                 * from the narrow taken-edge opcode and must be checked from
-                 * that second instruction's PC. */
-                if (branch_target(in, 1, &false_target)) {
-                    if (!target_delta(f, off, add_sat(pc, 4), false_target,
-                                      &false_delta))
-                        CGF_ICE("a64 relax: false-edge branch target is "
-                                "outside the function");
-                    if (!a64_branch_delta_fits(A64_OP_B, false_delta))
-                        CGF_ICE("a64 relax: false-edge branch displacement "
-                                "exceeds imm26");
-                }
-
-                local = target_delta(f, off, pc, target, &delta);
-                if ((in->op == A64_OP_TBZ || in->op == A64_OP_TBNZ) &&
-                    (!local || !a64_branch_delta_fits(in->op, delta))) {
-                    expand_test_branch(f, bi, ii);
-                    expanded = true;
-                } else if ((in->op == A64_OP_CBZ || in->op == A64_OP_CBNZ) &&
-                           (!local || !a64_branch_delta_fits(in->op, delta))) {
-                    expand_zero_branch(f, bi, ii);
-                    expanded = true;
-                } else if (in->op == A64_OP_BCOND &&
-                           (!local || !a64_branch_delta_fits(in->op, delta))) {
-                    expand_cond(f, bi, ii);
-                    expanded = true;
-                }
-                if (expanded)
-                    break;
-                pc = add_sat(pc, worst_inst_bytes(in));
-            }
-        }
-        free(off);
-        if (!expanded)
-            return any;
-        any = true;
     }
 }

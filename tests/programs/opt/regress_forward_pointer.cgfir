@@ -1,8 +1,9 @@
 // F-S30-FWDSSA: def dominates use in the CFG but follows it in block layout.
-// fold_addr must reserve %q's vreg; vreg 0 means [frame], not this pointer.
+// The Sprint 53 address planner may fold %q directly into the load even though
+// its defining block follows the use in layout.  The base must still be %base;
+// vreg 0 would mean [frame], which was the original regression.
 // FLAGS: -O1 -emit-mir
-// MIR_CHECK: = lea.q [
-// MIR_CHECK: = load.l [
+// MIR_CHECK: = load.l [rdi+4]
 // IR_CHECK-NOT: [frame]
 func i32 @f(ptr %base) {
 entry():

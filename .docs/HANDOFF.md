@@ -2,21 +2,20 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-10): Sprints 0–52 and Sprint 55 are CLOSED.**
-Sprint 52's timer, benchmark corpora, deterministic stats, profile-guided
-scope index, fleet/CI baselines, and RSS-only shared-runner gate are complete.
-Sprint 55 was completed out of numerical order; its tier table remains
-**29 implemented / 6 parsed-ignored / 8 refused**. The next work is
-**Sprint 53 (codegen quality — peepholes and the kernel suite)**, followed by
-Sprint 54. §0a is the authoritative resume point. The old D5 notes in §0b
-are retained only as implementation history.
+**WHERE THINGS STAND (2026-08-10): Sprints 0–53 and Sprint 55 are CLOSED.**
+Sprint 53's 21-kernel suite, deterministic static gates, comparison dashboard,
+post-RA cleanup, cross-block address planning, and over-aligned automatic
+objects are complete. Sprint 55 was completed out of numerical order; its
+tier table remains **29 implemented / 6 parsed-ignored / 8 refused**. The next
+work is **Sprint 54 (performance gates in CI)**. §0a is the authoritative
+resume point. The old D5 notes in §0b are retained only as implementation
+history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-Proceed in numerical order through the remaining performance phase: **53
-(codegen quality — peepholes and the kernel suite), then 54 (performance gates
-in CI)**.
+Proceed with **Sprint 54 (performance gates in CI)**, which closes the
+performance phase.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -25,81 +24,71 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## 0a. RESUME HERE — Sprint 53, codegen quality
+## 0a. RESUME HERE — Sprint 54, performance gates in CI
 
-Sprint 52 is closed in this checkout. Start by reading
-`.docs/sprints/11-performance/s53-codegen-quality.md`; do not resume any item
-in the historical D5 section below. The first Sprint-53 slice is the
-checksummed `tests/bench/kernels/` corpus plus deterministic, symbol-bounded
-static instruction-count/text-size measurement. Establish pre-optimization
-x86_64-linux and arm64-linux goldens before changing either backend. Then use
-those kernels to drive the post-RA peephole and cross-block addressing-mode
-work; every flags-sensitive transform needs a firing and a flags-live negative
-fixture.
+Sprint 53 is closed in this checkout. Start by reading
+`.docs/sprints/11-performance/s54-perf-gates-ci.md`; do not resume an item in
+the historical D5 section below. Sprint 54 turns the Sprint 52/53 measurement
+surfaces into the explicit gate lattice: binary-size gates, trial-mode fleet
+runtime gates with a MAD noise guard, step summaries, release reports, escape
+hatch auditing, and inactive Sprint 57/58 placeholders.
 
-### Sprint 52 closure
+### Sprint 53 closure
 
-- `tests/bench/timeit.c` is a strict C11/POSIX, dependency-free timer with raw
-  samples, wall median/MAD, user/sys medians, Linux/macOS RSS normalization,
-  nonzero-child propagation, and an absolute whole-batch timeout. SIGCHLD is
-  routed through a self-pipe, so the earlier alarm-versus-wait race is closed;
-  timeout tests prove descendants are killed and reaped.
-- `scripts/bench.sh` measures official SQLite 3.50.4, all 105 non-runtime
-  compiler sources, and a deterministic 500x200-line many-TU corpus in fixed
-  order. The musl lane is defined and records its deferred reason; its gate
-  intentionally activates in Sprint 57.
-- `CGF_STATS=1` emits exactly four deterministic stderr records (AST arena,
-  IR arena, interner, preprocessor). Double-run and artifact tests prove the
-  flag cannot perturb output.
-- `scripts/benchmark_gate.sh` rejects >20% RSS everywhere and >30% wall or
-  combined CPU on fleet hosts. Missing, duplicate, malformed, and negative
-  metrics fail closed. `BENCH_SKIP_TIME=1` skips only timing; a seeded RSS
-  regression still fails.
-- The first profile found the real quadratic path: linear semantic-scope
-  lookup consumed 83.03% of instructions on 10,000 declarations. Arena-backed
-  pointer indexes preserve the existing deterministic declaration chains and
-  cut Callgrind instructions 602,520,093→107,101,294 (-82.22%) and wall
-  median 719.293→21.565 ms (-97.00%). The before/after attribution is in
-  `.benchmarks/profiles/s52-scope-index.txt`.
-- Instrumentation refuted the other speculative work: SQLite interner hits
-  were 95%, self AST-arena waste was 3%, and shared vectors already grow
-  geometrically. No pre-seeding, arena retuning, or vector rewrite landed.
+- `tests/bench/kernels/` has 21 checksummed `kernel_run` programs. Static
+  measurement is symbol-bounded and deterministic; per-target goldens enforce
+  the max(2%, 2 instructions) regression rule. The gcc dashboard regenerated
+  twice from the full 252-object matrix with identical SHA-256
+  `1b8cdccedd3e787bd5e16f35fe0a55b5d303d99e288e6e4e5145b5de0ef95b54`.
+- x86 post-RA cleanup covers self copies, cmp-zero/test, LEA multipliers,
+  proven 32-bit canonical writes, push/pop pairs, layout jumps, and setcc
+  refusion. ARM covers self copies, add-zero, identical address reuse,
+  load/store pairs, MADD, and range-proved branch layout. Both passes preserve
+  flags provenance and run to a bounded honest fixpoint.
+- Both selectors now plan address-only PTRADDs before allocation. x86 folds
+  displacements and scaled indices across blocks; ARM also folds signed and
+  unsigned i32 extensions into SXTW/UXTW memory modes.
+- The new ARM six-level execution lane exposed a pre-existing narrow-bitfield
+  extraction bug; i8/i16 containers now widen before shifts. A second
+  closeout audit found the reachable Sprint-53 refusal for automatic alignment:
+  fixed and dynamic `_Alignas` objects stronger than 16 bytes now reserve
+  slack and align the object pointer on both backends without moving the
+  stable frame anchor or weakening ABI stack alignment. Extended alignment has
+  an explicit 16 MiB ceiling: the boundary compiles for fixed and VLA objects
+  on both targets, while boundary+1 and values above `UINT32_MAX` diagnose in
+  sema instead of narrowing or reaching a backend ICE. ARM SP/address splitting
+  and CFI bookkeeping scale across the boundary's multi-instruction sequences.
 
-### Accepted Sprint 52 baseline (Kasumi)
+### Accepted Sprint 53 static profile
 
-Exact revision `0e35848334c2237da41e03ea8a6c0b51c045e3da`, ten runs after
-one warmup, `performance` governor, `load1=0.19`:
-
-| lane | wall median | wall MAD | user median | sys median | max RSS |
+| target | pre-sprint | post-RA control | final | total change | address slice |
 |---|---:|---:|---:|---:|---:|
-| SQLite | 628.544 ms | 1.459 ms | 589.877 ms | 36.949 ms | 499,924 KiB |
-| self | 977.238 ms | 1.280 ms | 873.292 ms | 101.128 ms | 1,059,216 KiB |
-| many-TU | 653.951 ms | 1.038 ms | 573.254 ms | 77.830 ms | 1,377,672 KiB |
+| x86_64-linux-gnu | 1,628 | 1,592 | 1,522 | -106 (-6.51%) | -70 (-4.40%), 12 kernels |
+| arm64-linux | 1,439 | 1,388 | 1,351 | -88 (-6.12%) | -37 (-2.67%), 11 kernels |
 
-The full fleet gate passed nine comparisons; the CI-shaped baseline passed
-all three RSS comparisons. The governor was restored after measurement.
+Required address anchors all moved: x86 `matmul-64` 173→155,
+`struct-copy-heavy` 139→127, `crc32-table` 105→99; ARM `matmul-64` 135→126,
+`struct-copy-heavy` 117→115, `crc32-table` 82→77. The bitfield correctness
+repair intentionally costs +2 x86 and +6 ARM instructions relative to the
+same-backend control. Full per-kernel provenance lives in
+`.benchmarks/profiles/s53-codegen-quality.txt`.
 
-### Fresh Sprint 52 acceptance evidence
+### Fresh Sprint 53 acceptance evidence
 
 | gate | result |
 |---|---|
-| full GCC suite | 652 unit tests / 4,283,640 assertions; 595/595 programs; 98/98 x86 corpus; all integration/differential/fuzz-smoke lanes; exit 0 |
-| full Clang suite | same counts and complete suite; exit 0 |
-| benchmark suite | timer/math/timeout, gate matrix, corpus determinism, stats determinism, and scope-index regression all green |
-| native arm64-macos timer | strict build, shell suite, and math test green; `/usr/bin/true` RSS normalized to 1,280 KiB |
-| sanitizer suite | fresh isolated full ASan+UBSan `make test` run; all lanes exit 0 with no sanitizer report |
-| code review | adversarial review found zero actionable correctness issues after the SIGCHLD timeout hardening |
-
-The shared-runner workflow now has an isolated `bench-rss` job, while macOS
-builds and executes only the timer's portable test surface. Do not loosen the
-Kasumi/CI baselines to repair host noise: baseline changes remain separate,
-reviewed commits with old→new metrics and a concrete reason.
+| kernel gates | static fixtures 9/9; x86 and ARM goldens 21/21; x86 and QEMU ARM execution/OPT_EQ 21/21 at all six levels |
+| ARM corpus | 84/84 normal and 84/84 spill-all through compiler→assembler→linker→QEMU |
+| focused unit/backend suites | 677 tests / 4,283,938 assertions under strict GCC and Clang; exact-16-MiB fixed/VLA cases compile on x86 and ARM, while boundary+1 and above-`UINT32_MAX` requests produce ordinary diagnostics |
+| full GCC/Clang suites | both complete suites exit 0: 601/601 programs, 100/100 x86 corpus normal and spill-all, all integration/differential/fuzz-smoke/policy lanes green |
+| sanitizer suite | fresh full ASan+UBSan `make test` exits 0 with the same unit/program/corpus counts and no sanitizer diagnostic |
+| code review | optimizer review approved; final alignment-focused review approved after its sole ban-gate exemption finding was fixed |
 
 ### Checkout hygiene
 
 `afs-as` and `afs-ld` remain dirty from pre-existing submodule work, and the
 many untracked `build-*` directories are local artifacts. Do not stage or
-delete them as part of Sprint 53. `AGENTS.md`, `CLAUDE.md`, and
+delete them as part of Sprint 54. `AGENTS.md`, `CLAUDE.md`, and
 `.docs/sprints/` remain ignored local project memory; `.docs/HANDOFF.md` is
 tracked.
 
@@ -1829,13 +1818,14 @@ not the operand slice.
 
 **STILL OPEN, sorted by what kind of thing they are:**
 
-*Named refusals -- LEAVE THEM.* Sprint 53's over-aligned stack objects,
-SEC-MACHO-001 (`section` on Mach-O needs a SEGMENT,SECTION pair),
-PACKED-001, and the six still-refused attributes all fail loudly and say what
-is missing. That is the tier table working. Closing them is feature work, not
-gap-closing, and PACKED-001 in particular should stay open: nothing consumes
-an over-claimed load alignment today, and the evidence for that is recorded
-rather than assumed.
+*Named refusals -- LEAVE THEM.* SEC-MACHO-001 (`section` on Mach-O needs a
+SEGMENT,SECTION pair), PACKED-001, and the six still-refused attributes all
+fail loudly and say what is missing. That is the tier table working. Closing
+them is feature work, not gap-closing, and PACKED-001 in particular should
+stay open: nothing consumes an over-claimed load alignment today, and the
+evidence for that is recorded rather than assumed. The former over-aligned
+automatic-object refusal was retired during Sprint 53 closeout on both
+backends.
 
 *Real but not urgent.*
 - **Task #93 -- `-g` emits no variable DIEs**, so a debugger cannot name a

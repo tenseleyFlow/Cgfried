@@ -258,8 +258,17 @@ static inline bool sim_run(TestCtx *t, const X64Func *f, Sim *s)
         u8 w;
         u64 av, bv, r;
 
-        if (i >= b->n)
-            return false; /* fell off a block without terminator */
+        if (i >= b->n) {
+            /* The post-RA peephole removes an unconditional jump to the next
+             * layout block.  That is a real machine-code fallthrough, so the
+             * MIR simulator must follow it too.  Falling off the final block
+             * remains malformed/nonterminating input. */
+            if (bi + 1 >= f->nblocks)
+                return false;
+            bi++;
+            i = 0;
+            continue;
+        }
         in = &b->insts[i++];
         w = in->width;
         switch (in->op) {

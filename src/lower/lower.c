@@ -581,27 +581,18 @@ u32 lower_object_align(const Symbol *sym, u64 natural)
 
     if (sym && sym->align_override > a)
         a = sym->align_override;
+    if (a > CGF_MAX_OBJECT_ALIGN)
+        CGF_ICE("lowering received unsupported object alignment %llu",
+                (unsigned long long)a);
     return (u32)a;
 }
 
-/* The automatic case has a ceiling the static ones do not: the frame base is
- * 16-aligned, so aligning an offset within it cannot deliver more. A realigned
- * frame is Sprint 53. Refused HERE rather than in the backend because this is
- * valid C meeting an unimplemented feature -- the backend's ICE says "this is
- * a bug in cgfried", which is the wrong thing to tell someone who wrote a
- * correct program. The backend checks stay as unreachable backstops. */
-u32 lower_auto_align(Lower *lo, const Symbol *sym, u64 natural, Span span)
+/* Automatic objects carry their complete, semantically validated alignment
+ * requirement into IR. Frame lowering preserves it for both fixed-size and
+ * dynamic allocas; capping it here would silently weaken a valid _Alignas. */
+u32 lower_auto_align(const Symbol *sym, u64 natural)
 {
-    u32 a = lower_object_align(sym, natural);
-
-    if (a > 16) {
-        lower_unimplemented(lo, span,
-                            "an automatic object aligned more strictly than "
-                            "16 bytes (the frame would have to be realigned)",
-                            53);
-        return 16;
-    }
-    return a;
+    return lower_object_align(sym, natural);
 }
 
 /* The name the LINKER sees. `__asm__("name")` replaces it outright; the C

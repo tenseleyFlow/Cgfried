@@ -737,6 +737,35 @@ void test_sema_enums(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_extended_alignment_limit(TestCtx *t)
+{
+    SemaFix f;
+
+    T_ASSERT_EQ_INT(t, CGF_MAX_OBJECT_ALIGN, 16777216);
+    run_sema(&f,
+             "int f(int n) { _Alignas(16777216) int fixed; "
+             "_Alignas(16777216) int vla[n]; return fixed + vla[0]; }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "_Alignas(33554432) int too_large;\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "_Alignas(4294967296LL) int above_u32;\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "int x __attribute__((aligned(33554432)));\n", /* check_bans allow:
+                                                               compiler input,
+                                                               not host C */
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 /* --- spell-check --------------------------------------------------------- */
 
 void test_sema_dlev_distance(TestCtx *t)

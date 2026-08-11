@@ -23,6 +23,13 @@ typedef struct {
 
 enum { CGF_TARGET_COUNT = 5 };
 
+/* C11 permits implementation-defined extended alignments. This is the
+ * largest object alignment cgfried accepts on every target, distinct from
+ * max_align_t (the largest FUNDAMENTAL alignment). Keeping one explicit
+ * end-to-end limit prevents a large _Alignas from narrowing in IR or reaching
+ * a backend encoding ICE. */
+#define CGF_MAX_OBJECT_ALIGN (1u << 24)
+
 /* How the target spells `long double` — the single biggest cross-target
  * layout trap, and the reason this is a table rather than a constant.
  * Sprint 15's float engine folds in the TARGET's format, and Sprint 28's

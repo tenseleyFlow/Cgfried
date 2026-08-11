@@ -1,6 +1,7 @@
 #include "unit.h"
 
 #include "cg/arm64/mir.h"
+#include "target.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -468,14 +469,29 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
                     (long long)A64_X29 + 1);
     T_ASSERT_EQ_INT(t, (long long)bb->insts[2].ops[2].imm, 16);
 
-    /* exactly two outgoing stores, at [sp, #0] and [sp, #8] */
+    /* Exactly two outgoing eight-byte lanes, at [sp,#0] and [sp,#8].  The
+     * post-RA peephole may encode them as two STRs or one STP. */
     for (ii = 0; ii < bb->n; ii++) {
         const A64Inst *cur = &bb->insts[ii];
+        const A64Mem *mem;
+        u32 lanes, lane;
 
-        if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM &&
-            cur->ops[1].mem.base.physical &&
-            cur->ops[1].mem.base.id == (u32)A64_SP + 1) {
-            T_ASSERT_EQ_INT(t, (long long)cur->ops[1].mem.offset,
+        if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM) {
+            mem = &cur->ops[1].mem;
+            lanes = 1;
+        } else if (cur->op == A64_OP_STP && cur->ops[2].kind == A64O_MEM) {
+            mem = &cur->ops[2].mem;
+            lanes = 2;
+        } else {
+            continue;
+        }
+        if (!mem->base.physical || mem->base.id != (u32)A64_SP + 1)
+            continue;
+        if (mem->offset < 0 ||
+            mem->offset + (i64)lanes * mem->size > f.out_args)
+            continue; /* frame save/restore, not an outgoing argument */
+        for (lane = 0; lane < lanes; lane++) {
+            T_ASSERT_EQ_INT(t, (long long)(mem->offset + lane * mem->size),
                             (long long)(stores * 8));
             stores++;
         }
@@ -689,27 +705,38 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
     bb = &f.blocks[0];
     for (ii = 0; ii < bb->n; ii++) {
         const A64Inst *cur = &bb->insts[ii];
-        u32 reg;
+        const A64Mem *mem;
+        u32 lanes, lane;
 
-        if (cur->op != A64_OP_STORE || cur->ops[1].kind != A64O_MEM ||
-            !cur->ops[1].mem.base.physical ||
-            cur->ops[1].mem.base.id != (u32)A64_SP + 1)
+        if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM) {
+            mem = &cur->ops[1].mem;
+            lanes = 1;
+        } else if (cur->op == A64_OP_STP && cur->ops[2].kind == A64O_MEM) {
+            mem = &cur->ops[2].mem;
+            lanes = 2;
+        } else {
             continue;
-        reg = cur->ops[0].reg.id - 1;
-        if (reg <= A64_X7) {
-            if (!gp_saved)
-                first_unnamed_gp = (u32)cur->ops[1].mem.offset;
-            gp_saved++;
-            /* the named parameter's register is dead, never saved */
-            T_ASSERT(t, reg != A64_X0);
-        } else if (reg >= A64_V0 && reg <= A64_V7) {
-            T_ASSERT_EQ_INT(t, cur->sf, A64_SF128);
-            T_ASSERT_EQ_INT(t, cur->ops[1].mem.size, 16);
-            if (fp_saved)
-                T_ASSERT_EQ_INT(t, cur->ops[1].mem.offset,
-                                (long long)previous_fp + 16);
-            previous_fp = (u32)cur->ops[1].mem.offset;
-            fp_saved++;
+        }
+        if (!mem->base.physical || mem->base.id != (u32)A64_SP + 1)
+            continue;
+        for (lane = 0; lane < lanes; lane++) {
+            u32 reg = cur->ops[lane].reg.id - 1;
+            u32 offset = (u32)(mem->offset + lane * mem->size);
+
+            if (reg <= A64_X7) {
+                if (!gp_saved)
+                    first_unnamed_gp = offset;
+                gp_saved++;
+                /* the named parameter's register is dead, never saved */
+                T_ASSERT(t, reg != A64_X0);
+            } else if (reg >= A64_V0 && reg <= A64_V7) {
+                T_ASSERT_EQ_INT(t, cur->sf, A64_SF128);
+                T_ASSERT_EQ_INT(t, mem->size, 16);
+                if (fp_saved)
+                    T_ASSERT_EQ_INT(t, offset, (long long)previous_fp + 16);
+                previous_fp = offset;
+                fp_saved++;
+            }
         }
     }
     T_ASSERT_EQ_INT(t, (long long)gp_saved, 7); /* x1-x7 */
@@ -811,6 +838,139 @@ void test_a64_regalloc_static_allocas_get_disjoint_frame_slots(TestCtx *t)
     arena_free_all(&arena);
 }
 
+/* x29 inherits only AAPCS64's 16-byte stack alignment, so a 64-byte local
+ * cannot be represented by a fixed x29 offset alone. The frame reserves
+ * slack and the expansion aligns the returned address without moving SP. */
+void test_a64_regalloc_static_overaligned_alloca_aligns_inside_frame(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg dst;
+    const A64Block *bb;
+    u32 i, masks = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    dst = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_ALLOCA, 3, treg(dst), timm(4), timm(64));
+    put(&f, 0, A64_OP_RET, 1, treg(dst), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    bb = &f.blocks[0];
+    for (i = 0; i < bb->n; i++) {
+        const A64Inst *cur = &bb->insts[i];
+
+        T_ASSERT(t, cur->op != A64_OP_ALLOCA);
+        if (cur->op == A64_OP_AND && cur->nops == 3 &&
+            cur->ops[2].kind == A64O_IMM && cur->ops[2].imm == -64) {
+            T_ASSERT(t, cur->ops[0].kind == A64O_REG);
+            T_ASSERT(t, cur->ops[1].kind == A64O_REG);
+            T_ASSERT_EQ_INT(t, (long long)cur->ops[0].reg.id,
+                            (long long)cur->ops[1].reg.id);
+            masks++;
+        }
+    }
+    T_ASSERT_EQ_INT(t, (long long)masks, 1);
+    T_ASSERT(t, f.frame_bytes >= 16 + 4 + 63);
+    T_ASSERT_EQ_INT(t, (long long)(f.frame_bytes & 15), 0);
+    arena_free_all(&arena);
+}
+
+/* A dynamic over-aligned object needs BOTH invariants: SP remains 16-byte
+ * aligned for every architectural SP access, while the returned pointer is
+ * rounded to its stronger alignment above the outgoing-argument area. The
+ * stacksave/restore pair must still bracket the allocation normally. */
+void test_a64_regalloc_dynamic_overalign_stack_contract(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg count, saved, dst;
+    const A64Block *bb;
+    u32 i, round16 = 0, align64 = 0, sp_defs = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    count = a64_newv(&f, A64RC_GP);
+    saved = a64_newv(&f, A64RC_GP);
+    dst = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_MOVZ, 2, treg(count), timm(23), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_STACKSAVE, 1, treg(saved), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_ALLOCA_DYN, 3, treg(dst), treg(count), timm(64));
+    put(&f, 0, A64_OP_STACKRESTORE, 1, treg(saved), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_RET, 1, treg(dst), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    bb = &f.blocks[0];
+    for (i = 0; i < bb->n; i++) {
+        const A64Inst *cur = &bb->insts[i];
+
+        T_ASSERT(t, cur->op != A64_OP_ALLOCA_DYN);
+        T_ASSERT(t, cur->op != A64_OP_STACKSAVE);
+        T_ASSERT(t, cur->op != A64_OP_STACKRESTORE);
+        if (cur->op == A64_OP_AND && cur->nops == 3 &&
+            cur->ops[2].kind == A64O_IMM) {
+            if (cur->ops[2].imm == -16)
+                round16++;
+            if (cur->ops[2].imm == -64)
+                align64++;
+        }
+        if (cur->nops && cur->ops[0].kind == A64O_REG &&
+            cur->ops[0].reg.physical && cur->ops[0].reg.id == (u32)A64_SP + 1)
+            sp_defs++;
+    }
+    T_ASSERT_EQ_INT(t, (long long)round16, 1);
+    T_ASSERT_EQ_INT(t, (long long)align64, 1);
+    /* The allocation and explicit restore both define SP; prologue/epilogue
+     * use pair writeback and therefore do not put SP in operand zero. */
+    T_ASSERT(t, sp_defs >= 2);
+    T_ASSERT_EQ_INT(t, (long long)(f.frame_bytes & 15), 0);
+    arena_free_all(&arena);
+}
+
+void test_a64_regalloc_maximum_auto_alignment_is_encodable(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg count, fixed, dynamic;
+    const A64Block *bb;
+    u32 i, masks = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    fixed = a64_newv(&f, A64RC_GP);
+    count = a64_newv(&f, A64RC_GP);
+    dynamic = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_ALLOCA, 3, treg(fixed), timm(4),
+        timm(CGF_MAX_OBJECT_ALIGN));
+    put(&f, 0, A64_OP_MOVZ, 2, treg(count), timm(17), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_ALLOCA_DYN, 3, treg(dynamic), treg(count),
+        timm(CGF_MAX_OBJECT_ALIGN));
+    put(&f, 0, A64_OP_RET, 1, treg(dynamic), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+    T_ASSERT(t, f.frame_bytes >= CGF_MAX_OBJECT_ALIGN);
+    bb = &f.blocks[0];
+    for (i = 0; i < bb->n; i++) {
+        const A64Inst *cur = &bb->insts[i];
+
+        T_ASSERT(t, cur->op != A64_OP_ALLOCA);
+        T_ASSERT(t, cur->op != A64_OP_ALLOCA_DYN);
+        if (cur->op == A64_OP_AND && cur->nops == 3 &&
+            cur->ops[2].kind == A64O_IMM &&
+            cur->ops[2].imm == -(i64)CGF_MAX_OBJECT_ALIGN)
+            masks++;
+    }
+    T_ASSERT_EQ_INT(t, (long long)masks, 2);
+    arena_free_all(&arena);
+}
+
 /* A 9-16 byte composite return comes back in x0:x1 with NO pointer passed —
  * verified against aarch64-linux-gnu-gcc, which leaves x8 untouched and
  * returns the halves in x0 and x1. The IR still models it sret-shaped, so
@@ -863,17 +1023,29 @@ void test_a64_regalloc_pair_return_consumes_no_argument_register(TestCtx *t)
             past_call = true;
             continue;
         }
-        if (past_call && cur->op == A64_OP_STORE &&
-            cur->ops[1].kind == A64O_MEM) {
-            T_ASSERT(t, cur->ops[0].reg.physical);
-            T_ASSERT_EQ_INT(t, (long long)cur->ops[0].reg.id,
-                            (long long)(stores == 0 ? A64_X0 : A64_X1) + 1);
-            T_ASSERT_EQ_INT(t, (long long)cur->ops[1].mem.offset,
-                            (long long)(stores * 8));
-            /* the destination survived the call, so it is callee-saved */
-            T_ASSERT(t, a64_reg_is_callee_saved_gp(
-                            (u8)(cur->ops[1].mem.base.id - 1)));
-            stores++;
+        if (past_call) {
+            const A64Mem *mem;
+            u32 lanes, lane;
+
+            if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM) {
+                mem = &cur->ops[1].mem;
+                lanes = 1;
+            } else if (cur->op == A64_OP_STP && cur->ops[2].kind == A64O_MEM) {
+                mem = &cur->ops[2].mem;
+                lanes = 2;
+            } else {
+                continue;
+            }
+            for (lane = 0; lane < lanes; lane++) {
+                T_ASSERT(t, cur->ops[lane].reg.physical);
+                T_ASSERT_EQ_INT(t, (long long)cur->ops[lane].reg.id,
+                                (long long)(stores == 0 ? A64_X0 : A64_X1) + 1);
+                T_ASSERT_EQ_INT(t, (long long)(mem->offset + lane * mem->size),
+                                (long long)(stores * 8));
+                /* destination survived the call, so it is callee-saved */
+                T_ASSERT(t, a64_reg_is_callee_saved_gp((u8)(mem->base.id - 1)));
+                stores++;
+            }
         }
     }
     T_ASSERT_EQ_INT(t, (long long)stores, 2);

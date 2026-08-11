@@ -180,6 +180,26 @@ void test_lower_bitfield_unsigned_rw(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_narrow_bitfield_extract_widens_before_shifts(TestCtx *t)
+{
+    LowFix f;
+
+    /* ARM64 selects i8/i16 arithmetic in W registers.  Widening the storage
+     * unit before the extraction pair makes the shift distances describe
+     * the physical arithmetic width rather than accidentally retaining the
+     * high five bits of an i8 container. */
+    T_ASSERT(t, run_lower(&f, "struct B { unsigned char u : 3; } g;\n"
+                              "unsigned rd(void) { return g.u; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "zext i8") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "shl i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), ", 29") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "lshr i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "shl i8") == NULL);
+    T_ASSERT(t, strstr(txt(&f), "lshr i8") == NULL);
+    low_free(&f);
+}
+
 void test_lower_bitfield_signed_rw(TestCtx *t)
 {
     LowFix f;

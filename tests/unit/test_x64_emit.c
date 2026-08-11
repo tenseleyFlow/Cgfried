@@ -283,3 +283,71 @@ void test_x64_isel_accepts_more_than_sixty_four_call_arguments(TestCtx *t)
     T_ASSERT_EQ_INT(t, fx.errors, 0);
     arena_free_all(&a);
 }
+
+void test_x64_isel_dynamic_alloca_breaks_compare_fusion(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    IrType params[1] = {IRT_I64};
+    BlockId entry, yes, no;
+    IrBuilder b;
+    ValueId condition;
+    X64Func *xf;
+    const X64Block *xb;
+    u32 i, alloca_i = UINT32_MAX, jcc_i = UINT32_MAX;
+    bool materialized = false;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "alloca_flags", IRT_I32, params, 1);
+    entry = ir_block_new(m, f, "entry");
+    yes = ir_block_new(m, f, "yes");
+    no = ir_block_new(m, f, "no");
+    ir_builder_at(&b, m, f, entry);
+    condition = ir_build_icmp(&b, ICMP_NE, ir_op_value(f, f->param_vals[0]),
+                              ir_op_iconst(IRT_I64, 0));
+    (void)ir_build_alloca(&b, ir_op_value(f, f->param_vals[0]), 64);
+    ir_build_condbr(&b, ir_op_value(f, condition), yes, NULL, 0, no, NULL, 0);
+    ir_builder_at(&b, m, f, yes);
+    {
+        IrOperand one = ir_op_iconst(IRT_I32, 1);
+
+        ir_build_ret(&b, &one);
+    }
+    ir_builder_at(&b, m, f, no);
+    {
+        IrOperand zero = ir_op_iconst(IRT_I32, 0);
+
+        ir_build_ret(&b, &zero);
+    }
+
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    xb = &xf->blocks[0];
+    for (i = 0; i < xb->n; i++) {
+        const X64Inst *x = &xb->insts[i];
+
+        if (x->op == X64_OP_SETCC)
+            materialized = true;
+        if (x->op == X64_OP_ALLOCA_DYN) {
+            alloca_i = i;
+            T_ASSERT(t, (x->flags & X64IF_DEFS_FLAGS) != 0);
+        }
+        if (x->op == X64_OP_JCC)
+            jcc_i = i;
+    }
+    T_ASSERT(t, materialized);
+    T_ASSERT(t, alloca_i != UINT32_MAX && jcc_i != UINT32_MAX);
+    T_ASSERT(t, xb->insts[jcc_i].flags_src > alloca_i);
+    T_ASSERT_EQ_INT(t, xb->insts[xb->insts[jcc_i].flags_src].op, X64_OP_TEST);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}

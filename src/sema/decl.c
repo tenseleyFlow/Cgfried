@@ -15,6 +15,18 @@ static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
 static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span);
 
+static bool alignment_is_supported(Sema *s, Span span, i64 want)
+{
+    if ((u64)want <= CGF_MAX_OBJECT_ALIGN)
+        return true;
+    s->nerrors++;
+    diag_emit(s->dc, DIAG_ERROR, span,
+              "requested alignment %lld exceeds cgfried's maximum supported "
+              "alignment of %u bytes",
+              (long long)want, CGF_MAX_OBJECT_ALIGN);
+    return false;
+}
+
 /* --- constant folding ---------------------------------------------------- */
 
 /* Sprint 12 landed a minimal integer folder here because enum values were
@@ -1612,6 +1624,8 @@ static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
                   (long long)want);
         return 0;
     }
+    if (!alignment_is_supported(s, span, want))
+        return 0;
     return (u64)want;
 }
 
@@ -1903,6 +1917,9 @@ static u64 check_alignas(Sema *s, AstNode *d, Type *type)
             return 0;
         }
     }
+
+    if (!alignment_is_supported(s, d->span, want))
+        return 0;
 
     if (!type || !layout_is_complete_for_size(type))
         return (u64)want;

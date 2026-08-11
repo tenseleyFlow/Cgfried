@@ -510,6 +510,21 @@ void test_lower_vla_live(TestCtx *t)
     st_free(&f);
 }
 
+void test_lower_overaligned_allocas_keep_decl_alignment(TestCtx *t)
+{
+    StFix f;
+
+    T_ASSERT(t, run_lower_s(&f, "int f(int n) {\n"
+                                "  _Alignas(64) int fixed;\n"
+                                "  _Alignas(128) int dynamic[n];\n"
+                                "  return fixed + dynamic[n - 1];\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "alloca 4, align 64") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), ", align 128") != NULL);
+    st_free(&f);
+}
+
 void test_lower_fallthrough_returns(TestCtx *t)
 {
     StFix f;

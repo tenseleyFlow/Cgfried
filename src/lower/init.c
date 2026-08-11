@@ -6,7 +6,7 @@
 /* Emission-side initializers (Sprint 19): the string-literal pool and
  * the tiered local-aggregate strategies.
  *
- * THE THRESHOLDS — one table, retuned (if ever) by Sprint 53:
+ * THE THRESHOLDS — one table, retained after Sprint 53's kernel profile:
  *   <= STORE_MAX bytes, fully constant -> inline scalar stores (no
  *      template, no memset; padding bytes get written too, which C
  *      permits for locals);

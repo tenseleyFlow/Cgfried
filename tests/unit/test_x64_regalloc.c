@@ -3,6 +3,7 @@
 
 #include "cg/cg.h"
 #include "cg/shared.h"
+#include "target.h"
 #include "unit.h"
 #include "util/arena.h"
 
@@ -242,6 +243,130 @@ void test_x64_frame_align_table(TestCtx *t)
             T_ASSERT(t, ((n + 8 * p) % 16) == 0);
             T_ASSERT(t, n >= raw);
         }
+}
+
+void test_x64_overaligned_static_and_dynamic_frame_shapes(TestCtx *t)
+{
+    Arena a;
+    X64Func *f;
+    X64Inst *in;
+    X64VReg size, saved, dyn, fixed;
+    u32 i;
+    const char *env = getenv("CGF_SPILL_ALL");
+    char *old_spill_all = env ? strdup(env) : NULL;
+    bool fixed_lea = false, fixed_mask = false;
+    bool dyn_round = false, dyn_sub = false, dyn_lea = false;
+    bool dyn_mask = false, restored = false;
+
+    arena_init(&a);
+    f = mkf(&a, 1);
+    f->out_args = 16; /* two stack-passed call arguments */
+    fixed = x64_newv(f, X64RC_GP);
+    size = x64_newv(f, X64RC_GP);
+    saved = x64_newv(f, X64RC_GP);
+    dyn = x64_newv(f, X64RC_GP);
+
+    in = put(f, 0, X64_OP_LEA, X64_Q);
+    in->def = fixed;
+    in->flags = X64IF_DEFS_FLAGS;
+    in->a.kind = X64O_MEM; /* static-allocation marker */
+    in->a.mem.scale = 1;
+    in->b.imm = 4;
+    in->table = 64;
+    in = put(f, 0, X64_OP_MOV, X64_Q);
+    in->def = size;
+    in->a = oi(33);
+    in = put(f, 0, X64_OP_STACKSAVE, X64_Q);
+    in->def = saved;
+    in = put(f, 0, X64_OP_ALLOCA_DYN, X64_Q);
+    in->def = dyn;
+    in->a = ov(size.v);
+    in->table = 64;
+    in->flags = X64IF_DEFS_FLAGS;
+    in = put(f, 0, X64_OP_STACKRESTORE, X64_Q);
+    in->a = ov(saved.v);
+    put(f, 0, X64_OP_RET, X64_L);
+
+    setenv("CGF_SPILL_ALL", "1", 1);
+    x64_regalloc(f);
+    if (old_spill_all) {
+        setenv("CGF_SPILL_ALL", old_spill_all, 1);
+        free(old_spill_all);
+    } else {
+        unsetenv("CGF_SPILL_ALL");
+    }
+    T_ASSERT(t, f->spill_slots > 0);
+    T_ASSERT(t, f->frame_size >= 67); /* 4 bytes + 63 bytes static slop */
+    T_ASSERT(t, (f->frame_size % 16) == 0);
+    for (i = 0; i < f->blocks[0].n; i++) {
+        const X64Inst *x = &f->blocks[0].insts[i];
+
+        if (x->op == X64_OP_LEA && x->a.kind == X64O_MEM &&
+            x->a.mem.base.v == X64_RBP + 1 && x->a.mem.disp < 0)
+            fixed_lea = true;
+        if (x->op == X64_OP_AND && x->b.kind == X64O_IMM && x->b.imm == -64 &&
+            fixed_lea && !dyn_lea)
+            fixed_mask = true;
+        if (x->op == X64_OP_ADD && x->b.kind == X64O_IMM && x->b.imm == 79)
+            dyn_round = true; /* 63 alignment slop + 16 outgoing bytes */
+        if (x->op == X64_OP_SUB && x->def.v == X64_RSP + 1 &&
+            x->b.kind == X64O_VREG)
+            dyn_sub = true;
+        if (x->op == X64_OP_LEA && x->a.kind == X64O_MEM &&
+            x->a.mem.base.v == X64_RSP + 1 && x->a.mem.disp == 79)
+            dyn_lea = true;
+        if (dyn_lea && x->op == X64_OP_AND && x->b.kind == X64O_IMM &&
+            x->b.imm == -64)
+            dyn_mask = true;
+        if (dyn_mask && x->op == X64_OP_MOV && x->def.v == X64_RSP + 1)
+            restored = true;
+    }
+    T_ASSERT(t, fixed_lea && fixed_mask);
+    T_ASSERT(t, dyn_round && dyn_sub && dyn_lea && dyn_mask && restored);
+    arena_free_all(&a);
+}
+
+void test_x64_maximum_auto_alignment_is_encodable(TestCtx *t)
+{
+    Arena a;
+    X64Func *f;
+    X64Inst *in;
+    X64VReg count, fixed, dynamic;
+    u32 i, masks = 0;
+
+    arena_init(&a);
+    f = mkf(&a, 1);
+    fixed = x64_newv(f, X64RC_GP);
+    count = x64_newv(f, X64RC_GP);
+    dynamic = x64_newv(f, X64RC_GP);
+
+    in = put(f, 0, X64_OP_LEA, X64_Q);
+    in->def = fixed;
+    in->a.kind = X64O_MEM;
+    in->a.mem.scale = 1;
+    in->b.imm = 4;
+    in->table = CGF_MAX_OBJECT_ALIGN;
+    in = put(f, 0, X64_OP_MOV, X64_Q);
+    in->def = count;
+    in->a = oi(17);
+    in = put(f, 0, X64_OP_ALLOCA_DYN, X64_Q);
+    in->def = dynamic;
+    in->a = ov(count.v);
+    in->table = CGF_MAX_OBJECT_ALIGN;
+    put(f, 0, X64_OP_RET, X64_L);
+
+    x64_regalloc(f);
+    T_ASSERT(t, f->frame_size >= CGF_MAX_OBJECT_ALIGN);
+    for (i = 0; i < f->blocks[0].n; i++) {
+        const X64Inst *cur = &f->blocks[0].insts[i];
+
+        T_ASSERT(t, cur->op != X64_OP_ALLOCA_DYN);
+        if (cur->op == X64_OP_AND && cur->b.kind == X64O_IMM &&
+            cur->b.imm == -(i64)CGF_MAX_OBJECT_ALIGN)
+            masks++;
+    }
+    T_ASSERT_EQ_INT(t, (long long)masks, 2);
+    arena_free_all(&a);
 }
 
 void test_x64_variadic_prologue_saves_whole_xmm_slots(TestCtx *t)
