@@ -292,6 +292,29 @@ native_runtime_target()
     esac
 }
 
+compile_runtime_cgf()
+{
+    compile_target=$1
+    compile_opt=$2
+    compile_output=$3
+    compile_source=$4
+    shift 4
+
+    if [ "$compile_target" = arm64-macos ]; then
+        set -- -include \
+            "$repo/tests/bench/compat/arm64-macos-self-syntax.h" \
+            -I "$repo/tests/bench/compat/arm64-macos-self-overlay" "$@"
+    fi
+    if [ -n "$as_path" ]; then
+        CGF_AS_PATH=$as_path "$cgf" --target="$compile_target" \
+            -std=gnu17 "-$compile_opt" "$@" -o "$compile_output" \
+            "$compile_source"
+    else
+        "$cgf" --target="$compile_target" -std=gnu17 "-$compile_opt" \
+            "$@" -o "$compile_output" "$compile_source"
+    fi
+}
+
 measure_runtime()
 {
     runtime_host=${CGF_KERNEL_RUNTIME_HOST:-$(hostname -s 2>/dev/null || uname -n)}
@@ -387,6 +410,9 @@ measure_runtime()
         echo "gcc_version=$(one_line "$gcc_tool" --version)"
         [ -z "$sysroot_include" ] || echo "sysroot_include=$sysroot_include"
         [ -z "$sysroot_crt" ] || echo "sysroot_crt=$sysroot_crt"
+        if [ "$runtime_target" = arm64-macos ]; then
+            echo 'cgf_sdk_compat=arm64-macos-kernel-runtime-v1'
+        fi
         echo 'timeit_protocol=sprint-52-median-mad-v1'
     } >"$runtime_tmp"
     # shellcheck disable=SC2086
@@ -398,13 +424,8 @@ measure_runtime()
             mkdir -p "$runtime_work"
             cgf_exe=$runtime_work/$name.cgf
             gcc_exe=$runtime_work/$name.gcc
-            if [ -n "$as_path" ]; then
-                CGF_AS_PATH=$as_path "$cgf" --target="$runtime_target" \
-                    -std=gnu17 "-$opt" -o "$cgf_exe" "$source"
-            else
-                "$cgf" --target="$runtime_target" -std=gnu17 "-$opt" \
-                    -o "$cgf_exe" "$source"
-            fi
+            compile_runtime_cgf "$runtime_target" "$opt" "$cgf_exe" \
+                "$source"
             "$gcc_tool" -std=gnu17 "-$opt" -o "$gcc_exe" "$source"
 
             "$cgf_exe" || die "$runtime_target/$opt/$name: cgf checksum failed"

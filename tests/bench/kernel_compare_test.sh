@@ -22,6 +22,13 @@ EOF
 cat >"$tmp/bin/fake-cgf" <<'EOF'
 #!/bin/sh
 set -eu
+if [ -n "${FIXTURE_CGF_LOG:-}" ]; then
+    {
+        echo BEGIN
+        for arg do echo "$arg"; done
+        echo END
+    } >>"$FIXTURE_CGF_LOG"
+fi
 set -- "$@"
 new=
 for arg do
@@ -134,7 +141,9 @@ EOF
 chmod +x "$tmp/bin/uname" "$tmp/bin/fake-timeit"
 
 mkdir -p "$tmp/work-runtime"
+: >"$tmp/runtime-cgf.log"
 PATH=$tmp/bin:$PATH \
+FIXTURE_CGF_LOG=$tmp/runtime-cgf.log \
 CGF_KERNEL_CGF=$tmp/bin/fake-cgf \
 CGF_KERNEL_GCC_ARM64_MACOS=$tmp/bin/fake-cgf \
 CGF_KERNEL_TIMEIT=$tmp/bin/fake-timeit \
@@ -158,6 +167,14 @@ grep -F 'sysroot_include=/nix/store/fixture-glibc-dev/include' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime include provenance is missing"
 grep -F 'sysroot_crt=/nix/store/fixture-glibc/lib' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime CRT provenance is missing"
+grep -F 'cgf_sdk_compat=arm64-macos-kernel-runtime-v1' \
+    "$tmp/macos-runtime.txt" >/dev/null || fail "runtime SDK compatibility provenance is missing"
+[ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-syntax.h" \
+    "$tmp/runtime-cgf.log")" -eq 1 ] ||
+    fail "macOS compatibility header was not scoped to the cgf runtime compile"
+[ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-overlay" \
+    "$tmp/runtime-cgf.log")" -eq 1 ] ||
+    fail "macOS SDK overlay was not scoped to the cgf runtime compile"
 [ ! -e "$tmp/work-runtime/static.txt" ] ||
     fail "runtime-only mode traversed static measurement"
 [ ! -e "$tmp/work-runtime/dashboard.tmp.md" ] ||
