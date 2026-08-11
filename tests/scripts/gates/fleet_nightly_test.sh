@@ -10,7 +10,10 @@ installer=${2:-$root/scripts/install-fleet-perf-schedule.sh}
 fixtures=$root/tests/scripts/gates/fixtures/fleet
 tmp=${TMPDIR:-/tmp}/cgf-fleet-nightly-test.$$
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
-mkdir -p "$tmp/checkout/.git" "$tmp/checkout/.benchmarks/runs" "$tmp/home"
+mkdir -p "$tmp/checkout/.git" "$tmp/checkout/.benchmarks/runs" \
+    "$tmp/checkout/scripts" "$tmp/home"
+cp "$nightly" "$tmp/checkout/scripts/fleet-nightly.sh"
+chmod 755 "$tmp/checkout/scripts/fleet-nightly.sh"
 
 fail()
 {
@@ -68,6 +71,10 @@ grep -F 'pull --rebase origin trunk' "$tmp/git.log" >/dev/null ||
 grep -F 'CC=/bin/true build/cgfried build/timeit' "$tmp/make.log" >/dev/null ||
     fail "Linux portable build targets are wrong"
 grep -F 'gate-trip=no' "$tmp/git.log" >/dev/null || fail "clean commit did not record gate state"
+grep -F -- '-c commit.gpgsign=false commit' "$tmp/git.log" >/dev/null ||
+    fail "nightly commit did not disable interactive signing"
+grep -F 're-executing the synchronized fleet runner' "$tmp/pass.out" >/dev/null ||
+    fail "nightly did not re-execute the synchronized runner"
 
 : >"$tmp/git.log"
 run_nightly 2026-08-10T123000Z 0 0 0 0 kasumi Linux x86_64 yes \

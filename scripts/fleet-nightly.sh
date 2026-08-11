@@ -15,6 +15,7 @@ date_cmd=${CGF_FLEET_DATE_CMD:-date}
 repo_url=${CGF_FLEET_REPO_URL:-https://github.com/tenseleyFlow/Cgfried.git}
 checkout=${CGF_FLEET_CHECKOUT:-${XDG_STATE_HOME:-$HOME/.local/state}/cgfried-fleet/trunk}
 push=${CGF_FLEET_PUSH:-0}
+synced=${CGF_FLEET_SYNCED:-0}
 host=${CGF_FLEET_HOST:-}
 os_release=${CGF_FLEET_OS_RELEASE:-/etc/os-release}
 nix_include=${CGF_FLEET_NIX_INCLUDE_DIR:-}
@@ -30,6 +31,10 @@ die()
 case $push in
 0 | 1) ;;
 *) die "CGF_FLEET_PUSH must be 0 or 1" ;;
+esac
+case $synced in
+0 | 1) ;;
+*) die "CGF_FLEET_SYNCED must be 0 or 1" ;;
 esac
 case ${nix_include:+include}:${nix_crt_dir:+crt} in
 : | include:crt) ;;
@@ -67,10 +72,17 @@ fi
     die "dedicated checkout is dirty before sync: $checkout"
 "$git_cmd" -C "$checkout" switch trunk >/dev/null 2>&1 ||
     die "cannot switch dedicated checkout to trunk"
-"$git_cmd" -C "$checkout" pull --rebase origin trunk ||
-    die "cannot update dedicated trunk checkout"
-[ -z "$($git_cmd -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
-    die "dedicated checkout is dirty after sync"
+if [ "$synced" -eq 0 ]; then
+    "$git_cmd" -C "$checkout" pull --rebase origin trunk ||
+        die "cannot update dedicated trunk checkout"
+    [ -z "$($git_cmd -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
+        die "dedicated checkout is dirty after sync"
+    [ -x "$checkout/scripts/fleet-nightly.sh" ] ||
+        die "synchronized fleet runner is not executable"
+    echo "$prog: re-executing the synchronized fleet runner"
+    CGF_FLEET_SYNCED=1 CGF_FLEET_STAMP=$stamp \
+        exec "$checkout/scripts/fleet-nightly.sh"
+fi
 
 set -- build/cgfried build/timeit
 if [ "$system" = Darwin ]; then
@@ -209,7 +221,7 @@ if [ "$bench_status" -eq 1 ] || [ "$perf_status" -eq 1 ] ||
    [ "$runtime_trip" = yes ]; then
     trip=yes
 fi
-"$git_cmd" -C "$checkout" commit -m \
+"$git_cmd" -C "$checkout" -c commit.gpgsign=false commit -m \
     "Record nightly performance on $host at $stamp (gate-trip=$trip)" -- \
     "$compile_relative" "$runtime_relative" || die "cannot commit nightly artifacts"
 echo "$prog: committed $compile_relative and $runtime_relative; baselines unchanged"

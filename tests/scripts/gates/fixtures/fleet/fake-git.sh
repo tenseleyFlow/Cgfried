@@ -5,6 +5,10 @@ printf '%s\n' "$*" >>"$FIXTURE_GIT_LOG"
 if [ "${1:-}" = -C ]; then
     shift 2
 fi
+while [ "${1:-}" = -c ]; do
+    [ "$#" -ge 2 ] || exit 2
+    shift 2
+done
 command_name=${1:-}
 shift || true
 case $command_name in
