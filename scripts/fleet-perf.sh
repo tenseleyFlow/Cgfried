@@ -72,18 +72,77 @@ CGF_KERNEL_COMPARE_WORK=$work \
 echo "$prog: wrote $result (target=$target)"
 
 baseline=${CGF_FLEET_RUNTIME_BASELINE:-$root/.benchmarks/baseline-kernel-runtime-$target.$host.txt}
+all_history=$work/history-all.txt
+dated_history=$work/history-dated.txt
+sorted_history=$work/history-sorted.txt
 history=$work/history.txt
 find "$run_dir" -maxdepth 1 -type f -name "*-$(printf '%s' "$host")-kernels.txt" -print |
-    sort >"$history"
+    sort >"$all_history"
+set --
+while IFS= read -r run; do
+    set -- "$@" "$run"
+done <"$all_history"
+awk '
+    /^date=/ {
+        value[FILENAME] = substr($0, 6)
+        count[FILENAME]++
+    }
+    END {
+        for (file_index = 1; file_index < ARGC; file_index++) {
+            file = ARGV[file_index]
+            timestamp = value[file]
+            year = substr(timestamp, 1, 4)
+            month = substr(timestamp, 6, 2)
+            day = substr(timestamp, 9, 2)
+            hour = substr(timestamp, 12, 2)
+            minute = substr(timestamp, 15, 2)
+            second = substr(timestamp, 18, 2)
+            split("31 28 31 30 31 30 31 31 30 31 30 31", month_days, " ")
+            if (year ~ /^[0-9][0-9][0-9][0-9]$/ &&
+                year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))
+                month_days[2] = 29
+            valid = length(timestamp) == 20 && substr(timestamp, 5, 1) == "-" &&
+                substr(timestamp, 8, 1) == "-" && substr(timestamp, 11, 1) == "T" &&
+                substr(timestamp, 14, 1) == ":" && substr(timestamp, 17, 1) == ":" &&
+                substr(timestamp, 20, 1) == "Z" &&
+                year ~ /^[0-9][0-9][0-9][0-9]$/ &&
+                month ~ /^[0-9][0-9]$/ && day ~ /^[0-9][0-9]$/ &&
+                hour ~ /^[0-9][0-9]$/ && minute ~ /^[0-9][0-9]$/ &&
+                second ~ /^[0-9][0-9]$/ && year + 0 >= 1 &&
+                month + 0 >= 1 && month + 0 <= 12 && day + 0 >= 1 &&
+                day + 0 <= month_days[month + 0] && hour + 0 <= 23 &&
+                minute + 0 <= 59 && second + 0 <= 59
+            if (count[file] != 1 || !valid) {
+                print "fleet-perf: " file ": expected one valid UTC date provenance" > "/dev/stderr"
+                bad = 1
+            } else if (value[file] in timestamp_file) {
+                print "fleet-perf: " file ": duplicate artifact timestamp " value[file] > "/dev/stderr"
+                bad = 1
+            } else {
+                timestamp_file[value[file]] = file
+                print value[file] "\t" file
+            }
+        }
+        if (bad)
+            exit 3
+    }
+' "$@" >"$dated_history" || die "cannot validate runtime artifact date provenance"
+sort "$dated_history" >"$sorted_history"
+awk -F '\t' '
+    {
+        day = substr($1, 1, 10)
+        if (have && day != current_day)
+            print latest
+        current_day = day
+        latest = $2
+        have = 1
+    }
+    END { if (have) print latest }
+' "$sorted_history" >"$history"
 run_count=$(wc -l <"$history" | tr -d ' ')
 
-if [ ! -r "$baseline" ] || [ "$run_count" -lt 3 ]; then
-    if [ -r "$baseline" ]; then
-        baseline_state=present
-    else
-        baseline_state=missing
-    fi
-    echo "$prog: kernel-runtime trial warmup: host=$host target=$target baseline=$baseline_state runs=$run_count/3; gate not run"
+if [ ! -r "$baseline" ]; then
+    echo "$prog: kernel-runtime trial warmup: host=$host target=$target baseline=missing distinct_days=$run_count/3; gate not run"
     echo 'fleet.runtime_gate=warmup' >>"$result"
     echo 'fleet.runtime_gate_trip=no' >>"$result"
     exit 0
@@ -95,6 +154,34 @@ set --
 while IFS= read -r run; do
     set -- "$@" "$run"
 done <"$last_three"
+
+if [ "$host" != nomad-1 ] && ! awk '
+    /^governor=/ {
+        governor[FILENAME] = substr($0, 10)
+        count[FILENAME]++
+    }
+    END {
+        for (file_index = 1; file_index < ARGC; file_index++) {
+            file = ARGV[file_index]
+            if (count[file] != 1 || governor[file] != "performance")
+                bad = 1
+        }
+        exit bad ? 1 : 0
+    }
+' "$baseline" "$@"; then
+    echo "$prog: kernel-runtime provenance-only: host=$host target=$target; performance-governor evidence and rebaseline required; gate not run"
+    echo 'fleet.runtime_gate=provenance-only' >>"$result"
+    echo 'fleet.runtime_gate_trip=no' >>"$result"
+    exit 0
+fi
+
+if [ "$run_count" -lt 3 ]; then
+    echo "$prog: kernel-runtime trial warmup: host=$host target=$target baseline=present distinct_days=$run_count/3; gate not run"
+    echo 'fleet.runtime_gate=warmup' >>"$result"
+    echo 'fleet.runtime_gate_trip=no' >>"$result"
+    exit 0
+fi
+
 [ "$#" -eq 3 ] || die "internal history selection did not yield three runs"
 gate_status=0
 gate_result_file=$work/runtime-gate-result.txt

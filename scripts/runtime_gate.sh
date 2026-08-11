@@ -328,7 +328,6 @@ function'" "'read_line(line, file, line_no,    equal, key, value, slot) {
         protocols[file] = value
     } else if (key == "governor") {
         governors[file] = value
-        any_governor = 1
     }
     if (key ~ /[.]cgf[.]wall_ms_median$/) {
         if (!valid_number(value))
@@ -362,6 +361,10 @@ END {
             if (dates[file] in run_date)
                 fail(file ": duplicate run date " dates[file])
             run_date[dates[file]] = 1
+            run_day = substr(dates[file], 1, 10)
+            if (run_day in recorded_run_day)
+                fail(file ": duplicate UTC run day " run_day)
+            recorded_run_day[run_day] = 1
         }
         if (!(file in hosts))
             fail(file ": missing host")
@@ -385,13 +388,17 @@ END {
         else if (file != baseline_file &&
                  protocols[file] != protocols[baseline_file])
             fail(file ": timeit_protocol does not match baseline")
-        if (any_governor) {
-            if (!(file in governors))
-                fail(file ": missing governor while another input records it")
-            else if (file != baseline_file &&
-                     governors[file] != governors[baseline_file])
-                fail(file ": governor does not match baseline")
-        }
+        if (!(file in governors))
+            fail(file ": missing governor")
+        else if (hosts[baseline_file] == "nomad-1") {
+            if (governors[file] != "performance" &&
+                governors[file] != "unavailable")
+                fail(file ": nomad-1 governor must be performance or unavailable")
+        } else if (governors[file] != "performance")
+            fail(file ": non-nomad runtime requires governor=performance (got " governors[file] ")")
+        if (file != baseline_file &&
+            governors[file] != governors[baseline_file])
+            fail(file ": governor does not match baseline")
     }
     if (file_count != 4)
         fail("internal file-count mismatch")

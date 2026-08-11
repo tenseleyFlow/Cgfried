@@ -66,7 +66,10 @@ expect 0 'pass (1 comparisons, state=blocking)' \
 # Darwin records no cpufreq governor; the explicit value remains comparable
 # when every member of the baseline/run set agrees.
 for source in baseline boundary-1 boundary-2 boundary-3; do
-    sed 's/^governor=performance$/governor=unavailable/' \
+    sed -e 's/^host=kasumi$/host=nomad-1/' \
+        -e 's/^target=x86_64-linux-gnu$/target=arm64-macos/' \
+        -e 's/^governor=performance$/governor=unavailable/' \
+        -e 's/x86_64-linux-gnu/arm64-macos/g' \
         "$fixtures/$source.txt" >"$scratch/$source-unavailable.txt"
 done
 expect 0 'pass (1 comparisons, state=blocking)' \
@@ -126,10 +129,22 @@ expect 3 'missing timeit_protocol' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/missing-protocol.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
-expect 3 'governor does not match baseline' \
+expect 3 'non-nomad runtime requires governor=performance (got powersave)' \
     "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
     "$fixtures/mismatched-governor.txt" "$fixtures/boundary-2.txt" \
     "$fixtures/boundary-3.txt"
+for source in baseline regress-1 regress-2 regress-3; do
+    sed 's/^governor=performance$/governor=powersave/' \
+        "$fixtures/$source.txt" >"$scratch/$source-powersave.txt"
+done
+expect 3 'non-nomad runtime requires governor=performance (got powersave)' \
+    "$gate" "$fixtures/blocking.conf" "$scratch/baseline-powersave.txt" \
+    "$scratch/regress-1-powersave.txt" "$scratch/regress-2-powersave.txt" \
+    "$scratch/regress-3-powersave.txt"
+expect 3 'duplicate UTC run day 2026-07-08' \
+    "$gate" "$fixtures/blocking.conf" "$fixtures/baseline.txt" \
+    "$fixtures/regress-1.txt" "$fixtures/same-day.txt" \
+    "$fixtures/regress-3.txt"
 
 expect 0 'stage1-self-time: inactive (deferred until Sprint 58)' \
     "$gate" "$root/ci/gates.d/stage1-self-time.conf"

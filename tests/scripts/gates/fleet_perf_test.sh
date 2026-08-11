@@ -24,11 +24,13 @@ run_fleet()
     run_machine=$3
     run_out=$4
     run_regression=${5:-0}
+    run_governor=${6:-}
     FIXTURE_HOST=$run_host FIXTURE_SYSTEM=$run_system \
     FIXTURE_MACHINE=$run_machine \
     FIXTURE_COMPARE_LOG=$tmp/logs/compare \
     FIXTURE_GATE_LOG=$tmp/logs/gate \
     FIXTURE_GATE_REGRESSION=$run_regression \
+    FIXTURE_GOVERNOR=$run_governor \
     CGF_FLEET_ROOT=$tmp/root \
     CGF_FLEET_HOST=$run_host \
     CGF_FLEET_HOSTNAME_CMD=$fixtures/fake-hostname.sh \
@@ -41,7 +43,7 @@ run_fleet()
 }
 
 run_fleet kasumi Linux x86_64 "$tmp/kasumi.out"
-grep -F 'trial warmup: host=kasumi target=x86_64-linux-gnu baseline=missing runs=1/3; gate not run' \
+grep -F 'trial warmup: host=kasumi target=x86_64-linux-gnu baseline=missing distinct_days=1/3; gate not run' \
     "$tmp/kasumi.out" >/dev/null || fail "missing explicit first-run warmup report"
 grep -Fx 'runtime_only=1' "$tmp/logs/compare" >/dev/null ||
     fail "fleet wrapper did not request runtime-only measurement"
@@ -67,8 +69,16 @@ grep -F 'target=arm64-macos' \
 
 rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt" "$tmp/logs/gate"
 printf 'baseline\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-arm64-macos.nomad-1.txt"
-printf 'old-1\n' >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-nomad-1-kernels.txt"
-printf 'old-2\n' >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-09T23:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-09T110000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-09T01:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-nomad-1-kernels.txt"
+run_fleet nomad-1 Darwin arm64 "$tmp/distinct-warmup.out"
+grep -F 'baseline=present distinct_days=2/3; gate not run' \
+    "$tmp/distinct-warmup.out" >/dev/null ||
+    fail "same-day artifacts counted as distinct nightly runs"
+[ ! -e "$tmp/logs/gate" ] || fail "gate ran with fewer than three distinct UTC days"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-08T12:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-nomad-1-kernels.txt"
 run_fleet nomad-1 Darwin arm64 "$tmp/gated.out"
 grep -F 'gate evaluated' "$tmp/gated.out" >/dev/null ||
     fail "gate was not invoked once baseline plus three runs existed"
@@ -76,6 +86,11 @@ grep -F 'gate evaluated' "$tmp/gated.out" >/dev/null ||
     fail "runtime gate did not receive config, baseline, and three runs"
 sed -n '3p' "$tmp/logs/gate" | grep -F '2026-08-08T120000Z-nomad-1-kernels.txt' >/dev/null ||
     fail "oldest of the latest three runs is wrong"
+sed -n '4p' "$tmp/logs/gate" | grep -F '2026-08-09T110000Z-nomad-1-kernels.txt' >/dev/null ||
+    fail "latest provenance timestamp from the middle UTC day was not selected"
+if grep -F '2026-08-09T120000Z-nomad-1-kernels.txt' "$tmp/logs/gate" >/dev/null; then
+    fail "older artifact from the same UTC day reached the gate"
+fi
 sed -n '5p' "$tmp/logs/gate" | grep -F '2026-08-10T120000Z-nomad-1-kernels.txt' >/dev/null ||
     fail "new dated run was not passed to the gate"
 grep -Fx 'baseline' "$tmp/root/.benchmarks/baseline-kernel-runtime-arm64-macos.nomad-1.txt" >/dev/null ||
@@ -89,6 +104,46 @@ grep -F 'fleet.runtime_gate=trial-trip' \
 grep -F 'fleet.runtime_gate_trip=yes' \
     "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt" >/dev/null ||
     fail "trial regression lacks its stable trip channel"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt"
+printf 'host=nomad-1\n' >"$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt"
+set +e
+run_fleet nomad-1 Darwin arm64 "$tmp/malformed-date.out"
+malformed_date_status=$?
+set -e
+[ "$malformed_date_status" -eq 3 ] || fail "missing date provenance did not fail closed"
+grep -F 'expected one valid UTC date provenance' "$tmp/malformed-date.out" >/dev/null ||
+    fail "missing date provenance diagnostic is absent"
+
+rm -f "$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt" \
+    "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-nomad-1-kernels.txt"
+printf 'date=2026-08-08T12:00:00Z\n' >"$tmp/root/.benchmarks/runs/2026-08-07T120000Z-nomad-1-kernels.txt"
+set +e
+run_fleet nomad-1 Darwin arm64 "$tmp/duplicate-date.out"
+duplicate_date_status=$?
+set -e
+[ "$duplicate_date_status" -eq 3 ] || fail "duplicate date provenance did not fail closed"
+grep -F 'duplicate artifact timestamp 2026-08-08T12:00:00Z' \
+    "$tmp/duplicate-date.out" >/dev/null ||
+    fail "duplicate date provenance diagnostic is absent"
+
+rm -f "$tmp/root/.benchmarks/runs/"*-kasumi-kernels.txt "$tmp/logs/gate"
+printf 'governor=powersave\n' >"$tmp/root/.benchmarks/baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt"
+printf 'date=2026-08-08T12:00:00Z\ngovernor=powersave\n' \
+    >"$tmp/root/.benchmarks/runs/2026-08-08T120000Z-kasumi-kernels.txt"
+printf 'date=2026-08-09T12:00:00Z\ngovernor=powersave\n' \
+    >"$tmp/root/.benchmarks/runs/2026-08-09T120000Z-kasumi-kernels.txt"
+run_fleet kasumi Linux x86_64 "$tmp/provenance-only.out" 0 powersave
+grep -F 'performance-governor evidence and rebaseline required; gate not run' \
+    "$tmp/provenance-only.out" >/dev/null ||
+    fail "non-comparable Linux history lacks an explicit rebaseline report"
+grep -Fx 'fleet.runtime_gate=provenance-only' \
+    "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt" >/dev/null ||
+    fail "non-comparable Linux history lacks its provenance-only state"
+grep -Fx 'fleet.runtime_gate_trip=no' \
+    "$tmp/root/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt" >/dev/null ||
+    fail "provenance-only Linux history was recorded as a trip"
+[ ! -e "$tmp/logs/gate" ] || fail "gate ran on non-comparable Linux history"
 
 set +e
 run_fleet kasumi Darwin arm64 "$tmp/mismatch.out"
