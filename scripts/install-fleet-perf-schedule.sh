@@ -64,7 +64,7 @@ Type=oneshot
 Environment=CGF_FLEET_HOST=$host
 Environment=CGF_FLEET_CHECKOUT=$checkout
 Environment=CGF_FLEET_PUSH=$push
-Environment=PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/run/wrappers/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/run/wrappers/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ExecStartPre=$performance_mode enter $host
 ExecStart=$nightly
 ExecStopPost=$performance_mode leave $host
@@ -103,7 +103,7 @@ render_launch_agent()
     <key>CGF_FLEET_HOST</key><string>$host</string>
     <key>CGF_FLEET_CHECKOUT</key><string>$checkout</string>
     <key>CGF_FLEET_PUSH</key><string>$push</string>
-    <key>PATH</key><string>$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>${hour#0}</integer><key>Minute</key><integer>${minute#0}</integer></dict>

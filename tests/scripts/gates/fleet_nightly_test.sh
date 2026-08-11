@@ -168,6 +168,8 @@ grep -F "ExecStopPost=$performance_mode leave kasumi" "$tmp/systemd.out" >/dev/n
     fail "systemd service does not restore the previous power profile"
 grep -F '/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/run/wrappers/bin:' \
     "$tmp/systemd.out" >/dev/null || fail "systemd service omits the NixOS command paths"
+grep -F '/usr/bin:/bin:/usr/sbin:/sbin' "$tmp/systemd.out" >/dev/null ||
+    fail "systemd service omits the system administration paths"
 [ ! -e "$tmp/config/systemd/user/cgfried-fleet-perf.timer" ] ||
     fail "systemd dry run wrote a timer"
 
@@ -180,6 +182,8 @@ grep -F 'launchctl bootstrap gui/UID' "$tmp/launchd.out" >/dev/null ||
     fail "LaunchAgent user activation is missing"
 ! grep -F 'ExecStartPre=' "$tmp/launchd.out" >/dev/null ||
     fail "Darwin schedule unexpectedly uses the Linux performance-mode helper"
+grep -F '/usr/bin:/bin:/usr/sbin:/sbin' "$tmp/launchd.out" >/dev/null ||
+    fail "LaunchAgent omits the system administration paths"
 [ ! -e "$tmp/home/Library/LaunchAgents/com.tenseleyflow.cgfried-fleet-perf.plist" ] ||
     fail "LaunchAgent dry run wrote a plist"
 
@@ -212,6 +216,9 @@ CGF_FLEET_ID_CMD=$fixtures/fake-id.sh \
     fail "LaunchAgent was not installed"
 grep -F 'bootstrap gui/501' "$tmp/scheduler.log" >/dev/null ||
     fail "LaunchAgent was not bootstrapped in the user domain"
+grep -F '/usr/bin:/bin:/usr/sbin:/sbin' \
+    "$tmp/home-install/Library/LaunchAgents/com.tenseleyflow.cgfried-fleet-perf.plist" \
+    >/dev/null || fail "installed LaunchAgent omits the system administration paths"
 
 mkdir -p "$tmp/governors/cpu0/cpufreq" "$tmp/governors/cpu1/cpufreq"
 printf '%s\n' balanced >"$tmp/power-profile"
