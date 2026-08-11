@@ -920,6 +920,14 @@ hurt.
 
 ---
 
+## ARCHIVE BOUNDARY — everything below is historical
+
+The remainder of this file preserves pre-Sprint-54 implementation history and
+lessons. Its peer-level headings, including “Current position”, “THE NEXT
+WORK”, “UNDER WAY”, and old `ci/closed_sprints.txt` values, describe the state
+when those sections were written. They are not current instructions. For all
+resume decisions and current sprint/ratchet state, §0a above is authoritative.
+
 ## 0. Where the record actually lives (READ FIRST)
 
 Three tiers, and **two of them are gitignored**:
@@ -943,7 +951,7 @@ AGENTS.md CLAUDE.md`). **Never commit either.**
 
 ---
 
-## 1. Current position
+## 1. Historical position at the end of Sprint 51
 
 - **Sprints 0–51 CLOSED; Phases 1–9 closed. Sprint 55 is UNDER WAY** — see
   §1b-1's *WHERE THE WORK IS* for the resume point. Phase 10 (second backend
@@ -1580,7 +1588,7 @@ where gcc printed 0, with no diagnostic anywhere.
 
 ---
 
-## 1b-1. THE NEXT WORK, in the order it should be done
+## 1b-1. Historical Sprint 55 work order
 
 **Sprint 55 is the live one.** Skip to *WHERE THE WORK IS* below for the
 resume point; the STEPS above it are the closed Sprint 51 record.
@@ -1691,7 +1699,7 @@ every target, so DBG-001..004 (the variable DIEs behind the linker
 diagnostic in task #93) get written ONCE rather than per backend.
 `.docs/audits/debug-info-debt.md` has been corrected to say so.
 
-### SPRINT 55 IS UNDER WAY. Read this before touching it.
+### Historical state: Sprint 55 was under way
 
 Taken out of numerical order on purpose: 28 deferrals pointed at it, it
 blocks HOSTED compilation on macOS and FreeBSD, and Sprints 56/57 need it.
@@ -1785,7 +1793,7 @@ every open item is either a named refusal or a deliberate deferral.
 
 ---
 
-## 0c. D4 IN PROGRESS — what is done, and the one-line fix worth the most
+## 0c. Historical D4 progress record
 
 **A SURVEY BEFORE IMPLEMENTING FOUND TWO ITEMS ALREADY WORKING.** `[0]`
 arrays and `__builtin_constant_p` need nothing; the sprint file lists them
