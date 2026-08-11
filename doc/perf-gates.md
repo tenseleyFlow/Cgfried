@@ -172,8 +172,17 @@ roughly 90% CPU-idle. All three nightly schedules are installed. Kasumi's
 first controlled pair,
 `2026-08-11T065745Z-kasumi` / `-kernels`, landed in `106efed5` with load
 0.01/0.35 and the expected performance-profile Intel P-state tuple. Its
-separate reviewed exact-copy baseline commit is `b87a2789`. Hasu and Nomad
-remain deployed but await equally controlled first pairs and separate
-baseline commits. Sprint 54 stays open until each host has three distinct UTC
-nightly dates, the release report is reproducibly generated, and final CI is
-green.
+separate reviewed exact-copy baseline commit is `b87a2789`. Hasu's first v2
+pair, `2026-08-11T160603Z-hasu` / `-kernels`, landed in `1643af0d` with
+20 logical CPUs, load 0.89/0.98, and idle 97.54/97.49%; `787b9cec` accepted
+its exact-copy baselines. Nomad's first v2 pair,
+`2026-08-11T161721Z-nomad-1` / `-kernels`, landed in `2e152c54` with
+18 logical CPUs, load 2.32/2.67, and idle 89.74/85.25%; `9c50e6d1` accepted
+its exact-copy baselines. A LaunchAgent PATH omission discovered during that
+run failed closed before measurement and was repaired in `7e7986d3`.
+
+The byte-identical release report is committed as
+`.benchmarks/report-0.0.1.md` in `1c868eaa` with SHA-256
+`826bf44bd564fdf74c8d091466be83968eeda0a2b28b994171d4eb7d7da20db6`.
+Sprint 54 stays open until each host has three distinct controlled UTC nightly
+dates, the report reflects the final latest inputs, and final CI is green.

@@ -15,8 +15,9 @@ implementation history.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-Continue **Sprint 54 (performance gates in CI)** until the controlled fleet
-history and final report are real. Do not advance the closure ratchet or begin
+Continue **Sprint 54 (performance gates in CI)** until the controlled
+three-date fleet history is real. The first controlled date and release report
+are now committed for every host. Do not advance the closure ratchet or begin
 Sprint 56 early.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
@@ -85,6 +86,26 @@ desktop housekeeping held their one-minute load near 2.8.
   artifacts compared provenance-only against the incompatible legacy
   baselines, then were accepted byte-for-byte in the separate reviewed
   baseline commit `b87a2789`.
+- Hasu's first controlled fleet-control-v2 run is
+  `2026-08-11T160603Z-hasu` / `-kernels` in artifact commit `1643af0d`:
+  20 logical CPUs, compile load 0.89 at 97.54% idle, runtime load 0.98 at
+  97.49% idle, performance-profile `intel_pstate`/`powersave` with performance
+  EPP, clean tree, and no trip. The exact-copy compile/runtime baselines were
+  accepted separately in `787b9cec`.
+- Nomad's first controlled fleet-control-v2 run is
+  `2026-08-11T161721Z-nomad-1` / `-kernels` in artifact commit `2e152c54`:
+  18 logical CPUs, compile load 2.32 at 89.74% idle, runtime load 2.67 at
+  85.25% idle, truthful Darwin-unavailable power fields, clean tree, and no
+  trip. Two earlier LaunchAgent attempts failed closed with status 3 and wrote
+  no artifacts because the generated PATH omitted `/usr/sbin`, hiding
+  `sysctl`; `7e7986d3` repaired both scheduler templates and regression-tested
+  `/usr/sbin:/sbin` preservation. The exact-copy Nomad baselines were accepted
+  separately in `9c50e6d1`.
+- `.benchmarks/report-0.0.1.md` was generated twice byte-identically from the
+  controlled fleet baselines/latest artifacts plus committed CI/static
+  evidence and published in `1c868eaa`. Its SHA-256 is
+  `826bf44bd564fdf74c8d091466be83968eeda0a2b28b994171d4eb7d7da20db6`;
+  all six fleet inputs classify controlled.
 - Older Kasumi, Hasu, and Nomad artifacts collected before the new fields
   landed remain useful deployment provenance only. They are not controlled
   timing/runtime evidence and must not be relabelled or used to manufacture a
@@ -98,22 +119,18 @@ desktop housekeeping held their one-minute load near 2.8.
 
 ### Remaining Sprint 54 work — execute in this order
 
-1. When each host passes the fleet-control-v2 preflight, collect one new
-   controlled compile/runtime pair on Hasu and Nomad. Their ordinary idle
-   desktop states described above are expected to pass. Commit the dated
-   artifacts first, then accept each host's baselines in a separate reviewed
-   exact-copy commit. Do not stop user workloads merely to lower load.
-2. Generate `.benchmarks/report-0.0.1.md` from the controlled baselines and
-   latest artifacts, generate it twice byte-identically, commit it, and record
-   its SHA-256 here. The report intentionally rejects the remaining legacy
-   fleet inputs until step 1 is complete.
-3. Let the installed schedules collect real runs on three distinct UTC dates
-   per host. The runtime gate deduplicates by calendar day; repeated same-day
-   runs cannot satisfy this requirement. Record trial-pass/trip results and
-   investigate any infrastructure status 3.
-4. Verify the final pushed commit with a fresh GitHub Actions run. Only after
-   steps 1–4 are complete may `.docs/sprints/11-performance/closeout.md` say
-   READY, `ci/closed_sprints.txt` advance from 53 to 55, and Sprint 56 begin.
+1. Let the installed schedules collect real runs on three distinct UTC dates
+   per host. Each host currently has one accepted controlled date,
+   2026-08-11. The runtime gate deduplicates by calendar day; repeated
+   same-day runs cannot satisfy this requirement. Record trial-pass/trip
+   results and investigate any infrastructure status 3.
+2. If later nightly commits supersede the report's selected latest inputs,
+   regenerate `.benchmarks/report-0.0.1.md` twice byte-identically and update
+   its recorded hash so the release report remains current.
+3. Verify the final pushed commit with a fresh GitHub Actions run. Only after
+   the three-date gate, current report, and final CI are all green may
+   `.docs/sprints/11-performance/closeout.md` say READY,
+   `ci/closed_sprints.txt` advance from 53 to 55, and Sprint 56 begin.
 
 ### Checkout hygiene
 
