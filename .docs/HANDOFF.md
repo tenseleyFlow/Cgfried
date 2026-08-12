@@ -53,7 +53,7 @@ Branch: `sprint-57-world-1` (based on integrated Sprint 56 commit `3e354b86`)
   lanes. Native x86-64 QBE passes 32/32 cases in both lanes; the native ARM64
   exact gate requires 31 passes plus the one upstream-declared `dark.ssa`
   exclusion.
-- `ci/campaigns/FINDINGS.md` records 24 fixed compiler defects and five fixed
+- `ci/campaigns/FINDINGS.md` records 24 fixed compiler defects and six fixed
   campaign-integrity defects, each with a minimized regression or exact gate.
   Notable repairs include distinct `__func__` objects, aggregate override
   semantics, global definition emission after forward relocations, undefined

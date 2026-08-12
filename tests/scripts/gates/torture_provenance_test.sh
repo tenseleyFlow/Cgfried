@@ -133,10 +133,11 @@ cmp "$tmp/driver.before-common" "$tmp/driver.after-common" >/dev/null ||
 # the final C -> B deletion because the old B stamp and every remaining input
 # can all predate the compiler produced for C.
 make_case=$tmp/make-source-set
-mkdir -p "$make_case/src" "$make_case/include" "$make_case/ci" \
+mkdir -p "$make_case/src" "$make_case/include" "$make_case/ci/campaigns" \
     "$make_case/scripts"
 cp "$root/Makefile" "$make_case/Makefile"
 cp "$root/ci/torture.mk" "$make_case/ci/torture.mk"
+cp "$root"/ci/campaigns/*.mk "$make_case/ci/campaigns/"
 cp "$helper_source" "$make_case/scripts/torture-provenance.sh"
 printf 'int main(void) { return 0; }\n' >"$make_case/src/main.c"
 

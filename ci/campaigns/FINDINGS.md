@@ -76,6 +76,7 @@ finding treatment.
 | `CAMP-QBE-002` | high | QBE ARM64 | The pinned makefile's `$define` recipe is malformed after make expansion.  The runner deterministically generates the intended `config.h` in each archived work tree without modifying the pinned reference checkout. |
 | `CAMP-QBE-003` | high | QBE ARM64 | Native ARM64 uses the ARM backend while excluding exactly upstream `dark.ssa`, whose own metadata marks it unsupported on ARM64; the architecture-specific exact gate requires 31 native cases and records the one exclusion. |
 | `CAMP-ALL-002` | high | all campaigns | Destructive cleanup is confined to a canonical direct child of `build/campaigns`; nested, `..`, symlinked work paths, and a symlink-traversing campaign root are rejected before removal. |
+| `CAMP-ALL-003` | high | CI integration | The standalone Sprint 56 provenance fixture copies the real top-level Makefile and now stages every required Sprint 57 campaign fragment, preventing new includes from making the synthetic source-set test incomplete. |
 | `CAMP-MUSL-022` | high | musl / libc-test | A clean parallel libc-test build could race `common/REPORT`, compute build directories before reading `config.mak`, and silently return success after a missing `libtest.a` link.  The runner passes `B` on the command line, builds and verifies the common runner first, and retains both failure sets plus the Cgfried-only difference. |
 
 The committed `.expected` files are the public closure record: every fixed
