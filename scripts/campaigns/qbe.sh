@@ -138,37 +138,130 @@ build_lane() {
     fail "$label build failed with status $status (log: $log)"
 }
 
-test_lane() {
+run_test_lane() {
     label=$1
     tree=$2
     log=$work/logs/$label/test.log
+    summary=$work/logs/$label/test-summary.txt
+    failures=$work/logs/$label/failures.txt
+    raw_failures=$failures.raw
 
+    status=0
     if LC_ALL=C make -C "$tree" check >"$log" 2>&1; then
         :
     else
         status=$?
-        sed "s/^/qbe-$label-test: /" "$log" >&2
-        fail "$label native tests failed with status $status (log: $log)"
     fi
     cases=$(find "$tree/test" -maxdepth 1 -type f -name '[!_]*.ssa' -print |
         wc -l | tr -d ' ')
     oks=$(grep -c '\[ok\]$' "$log" || true)
     [ "$cases" -gt 0 ] || fail "$label suite contains no native cases"
-    [ "$oks" -eq "$cases" ] ||
-        fail "$label accounting mismatch: cases=$cases ok=$oks"
-    grep -q '^All is fine!$' "$log" ||
-        fail "$label suite did not emit its success sentinel"
-    printf '%s\n' "$cases"
+
+    # QBE prints a test name before invoking the generated program, then emits
+    # the final marker either on that line or after the program's output.  Keep
+    # a tiny state machine so signal deaths and multi-line diffs are attributed
+    # to the right case instead of disappearing into an aggregate exit code.
+    awk '
+        function finish() {
+            if (current == "")
+                return
+            if (result == "fail")
+                print current
+            else if (result == "") {
+                print "qbe-campaign: test has no outcome marker: " current > "/dev/stderr"
+                bad = 1
+            }
+        }
+        match($0, /^[^[:space:]]+\.ssa\.\.\./) {
+            finish()
+            current = substr($0, 1, RLENGTH - 3)
+            result = ""
+        }
+        current != "" && index($0, "[ok]") != 0 {
+            result = "ok"
+        }
+        current != "" && index($0, " fail]") != 0 {
+            result = "fail"
+        }
+        END {
+            finish()
+            exit bad
+        }
+    ' "$log" >"$raw_failures" ||
+        fail "$label native test log could not be classified: $log"
+    LC_ALL=C sort -u "$raw_failures" >"$failures"
+    rm -f "$raw_failures"
+    failed=$(wc -l <"$failures" | tr -d ' ')
+    [ $((oks + failed)) -eq "$cases" ] ||
+        fail "$label accounting mismatch: cases=$cases ok=$oks failed=$failed"
+
+    if [ "$status" -eq 0 ]; then
+        [ "$failed" -eq 0 ] ||
+            fail "$label returned success with $failed classified failures"
+        grep -q '^All is fine!$' "$log" ||
+            fail "$label suite did not emit its success sentinel"
+    else
+        [ "$failed" -gt 0 ] ||
+            fail "$label failed with status $status but named no failing case"
+        grep -Eq '^[0-9]+ test\(s\) failed!$' "$log" ||
+            fail "$label suite did not emit its failure sentinel"
+    fi
+    {
+        printf 'status=%s\n' "$status"
+        printf 'cases=%s\n' "$cases"
+        printf 'passed=%s\n' "$oks"
+        printf 'failed=%s\n' "$failed"
+    } >"$summary"
 }
 
 build_lane cgfried "$work/cgfried-src" "$cgf"
 build_lane host-gcc "$work/host-gcc-src" "$hostcc"
-cgf_cases=$(test_lane cgfried "$work/cgfried-src")
-gcc_cases=$(test_lane host-gcc "$work/host-gcc-src")
+run_test_lane cgfried "$work/cgfried-src"
+run_test_lane host-gcc "$work/host-gcc-src"
+cgf_cases=$(sed -n 's/^cases=//p' "$work/logs/cgfried/test-summary.txt")
+gcc_cases=$(sed -n 's/^cases=//p' "$work/logs/host-gcc/test-summary.txt")
+cgf_passed=$(sed -n 's/^passed=//p' "$work/logs/cgfried/test-summary.txt")
+gcc_passed=$(sed -n 's/^passed=//p' "$work/logs/host-gcc/test-summary.txt")
 [ "$cgf_cases" -eq "$gcc_cases" ] ||
     fail "native case parity failed: Cgfried=$cgf_cases host-GCC=$gcc_cases"
 [ "$cgf_cases" -eq $((32 - excluded)) ] ||
     fail "unexpected $arch case count: expected $((32 - excluded)), got $cgf_cases"
+
+cgf_failures=$work/logs/cgfried/failures.txt
+gcc_failures=$work/logs/host-gcc/failures.txt
+cgf_only=$work/cgfried-only-failures.txt
+gcc_only=$work/host-gcc-only-failures.txt
+LC_ALL=C comm -23 "$cgf_failures" "$gcc_failures" >"$cgf_only"
+LC_ALL=C comm -13 "$cgf_failures" "$gcc_failures" >"$gcc_only"
+cgf_failed=$(wc -l <"$cgf_failures" | tr -d ' ')
+gcc_failed=$(wc -l <"$gcc_failures" | tr -d ' ')
+cgf_only_count=$(wc -l <"$cgf_only" | tr -d ' ')
+
+failure_detail() {
+    passed=$1
+    cases=$2
+    failures=$3
+    if [ -s "$failures" ]; then
+        names=$(paste -sd, "$failures")
+        printf 'cases=%s/%s,failures=%s' "$passed" "$cases" "$names"
+    else
+        printf 'cases=%s' "$cases"
+    fi
+}
+
+parity_outcome=PASS
+parity_detail='cases=0'
+if [ "$cgf_only_count" -ne 0 ]; then
+    parity_outcome=FAIL
+    parity_names=$(paste -sd, "$cgf_only")
+    parity_detail="cases=$cgf_only_count,tests=$parity_names"
+fi
+cgf_outcome=PASS
+gcc_outcome=PASS
+[ "$cgf_failed" -eq 0 ] || cgf_outcome=FAIL
+[ "$gcc_failed" -eq 0 ] || gcc_outcome=FAIL
+cgf_detail=$(failure_detail "$cgf_passed" "$cgf_cases" "$cgf_failures")
+gcc_detail=$(failure_detail "$gcc_passed" "$gcc_cases" "$gcc_failures")
 
 tab=$(printf '\t')
 {
@@ -177,14 +270,17 @@ tab=$(printf '\t')
     printf 'baseline.build%cPASS%ccompiler=host-gcc\n' "$tab" "$tab"
     printf 'build%cPASS%ccompiler=cgfried\n' "$tab" "$tab"
     printf 'host.arch%cPASS%carchitecture=%s\n' "$tab" "$tab" "$arch"
-    printf 'parity.cgfried-only-failures%cPASS%ccases=0\n' "$tab" "$tab"
+    printf 'parity.cgfried-only-failures%c%s%c%s\n' "$tab" \
+        "$parity_outcome" "$tab" "$parity_detail"
     printf 'source.pin%cPASS%crevision=%s\n' "$tab" "$tab" "$QBE_REF"
-    printf 'test.cgfried-native%cPASS%ccases=%s\n' "$tab" "$tab" "$cgf_cases"
+    printf 'test.cgfried-native%c%s%c%s\n' "$tab" "$cgf_outcome" "$tab" \
+        "$cgf_detail"
     if [ "$arch" = arm64 ]; then
         printf 'test.excluded%cPASS%ccase=dark.ssa,reason=upstream-skip-arm64\n' \
             "$tab" "$tab"
     fi
-    printf 'test.host-gcc-native%cPASS%ccases=%s\n' "$tab" "$tab" "$gcc_cases"
+    printf 'test.host-gcc-native%c%s%c%s\n' "$tab" "$gcc_outcome" "$tab" \
+        "$gcc_detail"
 } >"$work/results.txt"
 
 "$checker" "$expected" "$work/results.txt"
