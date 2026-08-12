@@ -78,6 +78,7 @@ finding treatment.
 | `CAMP-ALL-002` | high | all campaigns | Destructive cleanup is confined to a canonical direct child of `build/campaigns`; nested, `..`, symlinked work paths, and a symlink-traversing campaign root are rejected before removal. |
 | `CAMP-ALL-003` | high | CI integration | The standalone Sprint 56 provenance fixture copies the real top-level Makefile and now stages every required Sprint 57 campaign fragment, preventing new includes from making the synthetic source-set test incomplete. |
 | `CAMP-MUSL-022` | high | musl / libc-test | A clean parallel libc-test build could race `common/REPORT`, compute build directories before reading `config.mak`, and silently return success after a missing `libtest.a` link.  The runner passes `B` on the command line, builds and verifies the common runner first, and retains both failure sets plus the Cgfried-only difference. |
+| `CAMP-MUSL-025` | high | memsafe musl sweep | Sprint 57's language repairs expand the warning sweep from 1,276 to 1,293 analyzed sources and reduce the deferred set from 85 to exactly the 68 published `_Complex` exclusions; the identity hashes and zero-warning ratchet move together. |
 
 The committed `.expected` files are the public closure record: every fixed
 finding must continue to produce `PASS`, and only the two scope IDs above may

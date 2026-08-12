@@ -1,7 +1,7 @@
 musl-commit b306b16af15c89a04d8e0c55cac2dadbeb39c083
 sources 1361
-analyzed 1276
-deferred 85
-analyzed-identities-sha256 ba4ec310977613184b46ba18e402f44782b728affe6046b038e97c5b67ace176
-deferred-identities-sha256 291c75c6606f8a7634f01ec0ee1eb3e838fe926abeacc36005ca15fe50c99c4a
+analyzed 1293
+deferred 68
+analyzed-identities-sha256 11b2074a87097c78b5f5012422b02afeb1497bca216ab2a1bc7e80994234311f
+deferred-identities-sha256 b5b41f278263b711b2caba5376e556acca4429b3d904714e47be994d9286f1c7
 memory-warnings 0
