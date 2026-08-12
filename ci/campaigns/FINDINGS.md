@@ -1,7 +1,8 @@
 # Sprint 57 campaign findings
 
 This ledger covers defects and explicit exclusions discovered while compiling
-the pinned musl, Chibicc, TinyCC, and QBE trees.  There are **no unresolved
+the pinned musl, Chibicc, TinyCC, and QBE trees, plus defects exposed by the
+Sprint 56 torture ratchet during final integration.  There are **no unresolved
 critical findings**.  `CAMP-MUSL-001` and `CAMP-MUSL-002` are deliberate,
 published scope exclusions rather than unexpected failures.
 
@@ -63,6 +64,7 @@ compiler boundary, not the upstream project that happened to expose it.
 | `CAMP-MUSL-021` | critical | local initializer lowering | Preserve relocations when the zero-tail optimizer splits a large automatic aggregate into a template copy plus zero fill.  Dropping a function-pointer relocation produced a null indirect call in musl `vsnprintf`. | `tests/programs/lower-exec/exec_local_large_reloc_init.c` |
 | `CAMP-MUSL-023` | high | local initializer lowering | Sort automatic aggregate relocations by object offset and clear stale bytes/relocations when later designators or union members replace earlier values. | `tests/programs/lower-exec/exec_local_backward_pointer_designators.c`, `tests/programs/lower-exec/exec_local_union_pointer_string_override.c` |
 | `CAMP-MUSL-024` | high | local initializer lowering | Deactivate deferred runtime stores when a later initializer replaces the same scalar, relocation, bitfield, aggregate, or union subobject; bitfield invalidation is bit-precise so neighboring fields remain live. | `tests/programs/lower-exec/exec_local_runtime_scalar_override.c`, `tests/programs/lower-exec/exec_local_runtime_bitfield_override.c`, `tests/programs/lower-exec/exec_local_runtime_union_string_override.c` |
+| `CAMP-TORTURE-001` | high | constexpr / initializer | Preserve absolute integer-to-pointer constants while folding nested member and subscript addresses.  The old path silently emitted zero bytes for `&((T *)0x4000)->member`; the stricter integration path exposed the wrong-code bug as a diagnostic. | `tests/programs/lower-exec/exec_numeric_pointer_address.c`, GCC torture `20050516-1.c` at O0/O1/O2/O3/Os |
 
 ## Fixed campaign-integrity findings
 
