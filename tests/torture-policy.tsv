@@ -1,0 +1,3 @@
+# cgf-torture-policy-v1
+# schema: path<TAB>run|skip|xfail:TORT-NNN<TAB>reason
+execute/float-floor.c	skip	requires libm linkage not supported by torture manifest

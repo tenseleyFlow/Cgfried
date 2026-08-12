@@ -1,0 +1,3 @@
+# cgf-ctestsuite-exclusions-v1
+# source<TAB>excluded-assets<TAB>reason
+00001.c	00001.c,00001.c.expected,00001.c.tags	missing .otags; c-testsuite tests/LICENSE says the root MIT license excludes individual cases

@@ -1,0 +1,12 @@
+# cgf-torture-results-v2
+# columns=key	suite	file	level	target	outcome	signal	fingerprint	phase	detail
+# source-revision=1111111111111111111111111111111111111111
+# compiler-source-sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# harness-sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# torture-manifest-sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+# ctestsuite-manifest-sha256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+# target=arm64-linux
+# compiler-binary-sha256=2323232323232323232323232323232323232323232323232323232323232323
+# compiler-driver-sha256=3434343434343434343434343434343434343434343434343434343434343434
+torture-execute/arm-ok.c@O0@arm64-linux	torture-execute	arm-ok.c	O0	arm64-linux	PASS	-	-	run	exited zero
+torture-execute/arm-slow.c@O1@arm64-linux	torture-execute	arm-slow.c	O1	arm64-linux	TIMEOUT	-	timeout after seconds	run	exceeded 30 second limit

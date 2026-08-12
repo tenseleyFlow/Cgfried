@@ -1,0 +1,4 @@
+# cgf-torture-manifest-v1
+compile/file.c	fixture-hash	compile	-	-	run	-
+execute/file.c	fixture-hash	run	-	-	skip	fixture non-PASS row
+execute-ieee/file.c	fixture-hash	run-ieee	-	-	run	-

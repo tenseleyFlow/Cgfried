@@ -2,23 +2,25 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-11): Sprints 0–53 and Sprint 55 are CLOSED.
-Sprint 54's implementation is complete, but its operational soak is OPEN;
-Phase 11 is therefore still open.** The performance-gate lattice, native CI
-measurements, fleet runtime protocol, reporting, policy checks, scheduler
-integration, and controlled-power model are implemented. Sprint 55 was
-completed out of numerical order; its GNU tier table remains **29 implemented /
-6 parsed-ignored / 8 refused**. The next work is the bounded Sprint 54 fleet
-soak in §0a, not Sprint 56. The old D5 notes in §0b are retained only as
-implementation history.
+**WHERE THINGS STAND (2026-08-11): Sprints 0–53, Sprint 55, and Sprint 56 are
+CLOSED; Sprint 56 was completed out of numerical order on the isolated
+`sprint-56-torture` campaign worktree. Sprint 54's implementation is complete,
+but its operational soak is OPEN; Phase 11 is therefore still open.** The
+performance-gate lattice, native CI measurements, fleet runtime protocol,
+reporting, policy checks, scheduler integration, and controlled-power model
+are implemented. Sprint 55's GNU tier table remains **29 implemented / 6
+parsed-ignored / 8 refused**. Sprint 56's campaign machine, triage map, and
+24,920-cell PASS ratchet are complete; §0 records the evidence. The old D5
+notes in §0b are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-Continue **Sprint 54 (performance gates in CI)** until the controlled
+On trunk, continue **Sprint 54 (performance gates in CI)** until the controlled
 three-date fleet history is real. The first controlled date and release report
-are now committed for every host. Do not advance the closure ratchet or begin
-Sprint 56 early.
+are now committed for every host. Do not advance the Sprint 54/Phase 11 closure
+ratchet early. The parallel Sprint 56 work does not manufacture or replace any
+fleet evidence.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -27,7 +29,47 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## 0a. RESUME HERE — Sprint 54 controlled fleet soak
+## 0. Sprint 56 parallel campaign worktree — COMPLETE
+
+Worktree: `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s56`
+
+Branch: `sprint-56-torture` (based on `cd7d89b6`)
+
+- Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
+  compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
+  verification and deterministic fixture suites pass.
+- Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
+  `arm64-linux`: 20,325 cells per target, 40,650 total.  Outcome totals are
+  24,920 PASS, 6,620 SKIP, and 9,110 classified failures.
+- The v2 streams share source/compiler/harness/manifest provenance.  The final
+  harness hash is
+  `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
+  Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
+  failures per target collapse into four semantic fingerprints.
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 99 total buckets,
+  90 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket.  The overlay contains 65 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
+  and eight `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
+- `tests/torture/passing.txt` is the exact sorted 24,920-cell PASS set.
+  Combined gating passes and reversed input order regenerates both committed
+  artifacts byte-identically.
+- Fresh validation is green: `make torture-import-verify
+  torture-import-meta`, `make torture-meta`, and full `make test` (677 unit
+  tests / 4,283,938 assertions, every corpus/differential/fuzz/cross/policy
+  gate).  Expected local skips are only optional-tool/platform lanes and match
+  their committed ledgers.
+- CI runs the complete x86 matrix on every PR and the native arm64 matrix on
+  the scheduled runner.  Matrix publication and baseline refresh are atomic,
+  target-complete, and provenance checked.
+
+No Sprint 56 implementation work remains.  Bucket repairs are deliberately
+deferred to the named `s56.5-*` lanes or Sprint 61, exactly as the sprint scope
+requires.  Do not close Sprint 54 or Phase 11 merely because this parallel
+campaign sprint is complete.
+
+---
+
+## 0a. TRUNK RESUME HERE — Sprint 54 controlled fleet soak
 
 The implementation is reviewed and pushed. Resume the operational evidence
 sequence below. Do not treat pre-control artifacts as timing evidence. The
@@ -138,7 +180,9 @@ desktop housekeeping held their one-minute load near 2.8.
 3. Verify the final pushed commit with a fresh GitHub Actions run. Only after
    the three-date gate, current report, and final CI are all green may
    `.docs/sprints/11-performance/closeout.md` say READY,
-   `ci/closed_sprints.txt` advance from 53 to 55, and Sprint 56 begin.
+   `ci/closed_sprints.txt` advance from 53 through 56 (Sprints 55 and 56 are
+   already closed out of order), with any newly exposed deferrals repaired in
+   the same closure change.
 
 ### Checkout hygiene
 

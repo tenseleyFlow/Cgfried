@@ -1,0 +1,11 @@
+# cgf-torture-triage-policy-v1
+# columns=signal	fingerprint	phase	variant	hypothesis	disposition
+-	-	run	non-optdiv	Diagnostic-less O0 runtime failures require semantic investigation.	fix-sprint:s56.5-runtime-semantic
+-	-	run	optdiv	Diagnostic-less optimized failures are optimizer divergences.	fix-sprint:s56.5-runtime-opt
+-	exit status differs	run	non-optdiv	Wrong-exit runtime family needs focused repair.	fix-sprint:s56.5-runtime
+-	expected expression	parse	all	Human-confirmed parser family.	xfail:TORT-123
+-	retired fingerprint	cg	all	Retired bucket retained for review.	fix-sprint:s56.9-retired
+-	stdout mismatch	run	all	Oracle mismatch needs focused repair.	fix-sprint:s56.5-output
+-	timeout after seconds	run	non-optdiv	Timeout family needs bounded runtime investigation.	fix-sprint:s56.5-timeout
+11	de25f1d84ca12c002390344efb89e684c844e450d73b493b3cc5e057838bd00e	run	non-optdiv	O0-stable signal family needs runtime investigation.	fix-sprint:s56.5-signal-semantic
+11	de25f1d84ca12c002390344efb89e684c844e450d73b493b3cc5e057838bd00e	run	optdiv	Optimized-only signal family is an optimizer divergence.	fix-sprint:s56.5-signal-opt

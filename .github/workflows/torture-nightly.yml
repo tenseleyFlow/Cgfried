@@ -1,0 +1,31 @@
+name: torture-nightly
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  arm64-native:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - name: install the native assembler, linker, and libc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils libc6-dev
+      - name: build the compiler and runtime
+        run: make CC=gcc -j"$(nproc)" all
+      - name: verify pristine imports and run the native arm64 matrix gate
+        run: |
+          CGF_TORTURE_TARGET=arm64-linux \
+            make torture-gate
+      - name: retain the classified matrix
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint56-torture-arm64-linux
+          path: build/torture/results-arm64-linux-v2.txt
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,17 @@
+# cgf-torture-results-v2
+# columns=key	suite	file	level	target	outcome	signal	fingerprint	phase	detail
+# source-revision=1111111111111111111111111111111111111111
+# compiler-source-sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# harness-sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# torture-manifest-sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+# ctestsuite-manifest-sha256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+# target=x86_64-linux-gnu
+# compiler-binary-sha256=0000000000000000000000000000000000000000000000000000000000000000
+# compiler-driver-sha256=1212121212121212121212121212121212121212121212121212121212121212
+ctestsuite/00001.c@O0@x86_64-linux-gnu	ctestsuite	00001.c	O0	x86_64-linux-gnu	PASS	-	-	run	output matched
+ctestsuite/00001.c@O2@x86_64-linux-gnu	ctestsuite	00001.c	O2	x86_64-linux-gnu	OUTPUT_FAIL	-	stdout mismatch	run	[tags=arithmetic,integer] byte 4 differs | expected oracle
+torture-compile/builtin.c@O0@x86_64-linux-gnu	torture-compile	builtin.c	O0	x86_64-linux-gnu	XFAIL	-	unsupported tiered builtin	sema	xfail:TORT-055 [class=gcc-builtin] error: builtin was tiered out in Sprint 55
+torture-compile/complex.c@O0@x86_64-linux-gnu	torture-compile	complex.c	O0	x86_64-linux-gnu	COMPILE_FAIL	-	_Complex is outside language scope	sema	[class=complex] error: _Complex is not supported
+torture-execute/signal-base.c@O0@x86_64-linux-gnu	torture-execute	signal-base.c	O0	x86_64-linux-gnu	SIGNAL	11	de25f1d84ca12c002390344efb89e684c844e450d73b493b3cc5e057838bd00e	run	process terminated by signal 11
+torture-execute/signal-opt.c@O0@x86_64-linux-gnu	torture-execute	signal-opt.c	O0	x86_64-linux-gnu	PASS	-	-	run	output matched
+torture-execute/signal-opt.c@O2@x86_64-linux-gnu	torture-execute	signal-opt.c	O2	x86_64-linux-gnu	SIGNAL	11	de25f1d84ca12c002390344efb89e684c844e450d73b493b3cc5e057838bd00e	run	process terminated by signal 11

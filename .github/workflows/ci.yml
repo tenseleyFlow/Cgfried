@@ -72,6 +72,31 @@ jobs:
       - uses: actions/checkout@v5
       - run: make CC=gcc test
 
+  # Sprint 56: every imported GCC/c-testsuite case at every supported
+  # optimization level.  The exact-pass ratchet rejects both regressions and
+  # newly passing cells until the committed baseline is deliberately updated.
+  torture-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: build the compiler and runtime
+        run: make CC=gcc -j"$(nproc)" all
+      - name: prove the runner, ratchet, and deterministic imports
+        run: make torture-meta torture-import-meta
+      - name: verify pristine imports and run the x86_64 matrix gate
+        run: |
+          CGF_TORTURE_TARGET=x86_64-linux-gnu \
+            make torture-gate
+      - name: retain the classified matrix
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint56-torture-x86_64-linux-gnu
+          path: build/torture/results-x86_64-linux-gnu-v2.txt
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

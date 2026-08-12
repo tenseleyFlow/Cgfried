@@ -1,0 +1,4 @@
+# cgf-ctestsuite-origins-v1
+# origin<TAB>org<TAB>repository<TAB>commit<TAB>path-prefix<TAB>license-files
+scc	www.simple-cc.org	git://git.simple-cc.org/scc	355356a9836e487939cf5e98b5332a63e5264e27	tests/scc/execute/	scc-LICENSE
+tinycc	https://bellard.org/tcc/	git://repo.or.cz/tinycc.git	61ba9f229955f105af9d7dcdbfcc9c9effbe8af3	tests/tests2/	tinycc-COPYING,tinycc-tests2-LICENSE

@@ -22,6 +22,19 @@ CFLAGS := -std=c11 -pedantic -Wall -Wextra -Werror -g -O2 \
 # never be linked into cgfried.
 SRC := $(shell find src -name '*.c' -not -path 'src/rt/*' | sort)
 OBJ := $(SRC:%.c=$(BUILD)/%.o)
+COMPILER_PROVENANCE_INPUTS := Makefile \
+    $(shell find src include -type f | sort) scripts/torture-provenance.sh
+COMPILER_PROVENANCE_RECEIPT := $(BUILD)/cgfried.provenance
+# A removed source/header disappears from the dynamic prerequisite list, which
+# ordinary make timestamp logic cannot notice.  Keep one content-addressed
+# state file and update its mtime only when the current path set changes; unlike
+# permanent digest-named stamps, this also catches A -> B -> C -> B transitions.
+# The cryptographic receipt remains the exact safety check, so cksum is only a
+# rebuild trigger.
+COMPILER_SOURCE_SET_ID := $(shell { printf '%s\n' Makefile; \
+    find src include -type f -print; } | LC_ALL=C sort -u | cksum | \
+    awk '{ print $$1 "-" $$2 }')
+COMPILER_SOURCE_SET_STAMP := $(BUILD)/gen/compiler-source-set
 
 # Everything but the driver entry point, shared by test binaries.
 LIB_OBJ := $(filter-out $(BUILD)/src/main.o,$(OBJ))
@@ -102,7 +115,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
 
 DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ) $(TIMEIT_OBJ) $(TIMEIT_LIB_OBJ) $(TIMEIT_MATH_TEST_OBJ)) $(BUILD)/gen/)
 
-.PHONY: all test test-san test-ppdiff test-warndiff test-flow-warnings \
+.PHONY: FORCE all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
         test-mem-runtime test-mem-autofix test-safe-mode safe-dogfood \
         test-mem-fanalyzer bench-safe \
@@ -166,7 +179,7 @@ RT_OBJ := $(patsubst src/rt/%.c,$(BUILD)/rt/%.o,$(RT_SRC)) \
           $(patsubst src/util/%.c,$(BUILD)/rt/shared_%.o,$(RT_SHARED_SRC))
 RT_LIB := $(BUILD)/$(RT_TARGET)/libcgf_rt.a
 
-all: $(BUILD)/cgfried $(BUILD)/cgf $(BUILD)/timeit rt
+all: $(BUILD)/cgfried $(COMPILER_PROVENANCE_RECEIPT) $(BUILD)/cgf $(BUILD)/timeit rt
 
 .PHONY: rt
 rt: $(RT_LIB)
@@ -185,8 +198,25 @@ $(RT_LIB): $(RT_OBJ)
 $(BUILD)/rt/:
 	mkdir -p $@
 
-$(BUILD)/cgfried: $(OBJ)
+$(BUILD)/cgfried: $(OBJ) $(COMPILER_PROVENANCE_INPUTS) \
+    $(COMPILER_SOURCE_SET_STAMP)
+	rm -f $(COMPILER_PROVENANCE_RECEIPT)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
+
+$(COMPILER_PROVENANCE_RECEIPT): $(BUILD)/cgfried $(COMPILER_PROVENANCE_INPUTS)
+	scripts/torture-provenance.sh --write-receipt $@ --compiler $(BUILD)/cgfried
+
+FORCE:
+
+$(COMPILER_SOURCE_SET_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@current='$(COMPILER_SOURCE_SET_ID)'; \
+	if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$$current" ]; then \
+		tmp="$@.tmp.$$$$"; \
+		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
+		printf '%s\n' "$$current" >"$$tmp"; \
+		mv -f "$$tmp" "$@"; \
+	fi
 
 # The short alias from the locked decision.
 $(BUILD)/cgf: $(BUILD)/cgfried
@@ -401,6 +431,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	sh scripts/check_fuzz_crashes.sh
 	sh scripts/check_posix_sh.sh
 	sh scripts/check_bans.sh
+	$(MAKE) torture-import-verify
 	sh scripts/check_warn_seams.sh
 	sh scripts/check_pp_seams.sh
 	sh scripts/check_sema_target.sh
@@ -880,3 +911,8 @@ clean:
 check-format-matrix:
 	CGF_FORMAT_MATRIX_WORK=$(BUILD)/format-matrix-check \
 	    sh scripts/check_format_matrix.sh
+
+# Sprint 56's imported-corpus matrix is kept in a standalone fragment so its
+# infrastructure self-test can exercise the orchestration without rebuilding
+# the compiler.  Including it last preserves `all` as the default goal.
+include ci/torture.mk

@@ -1,0 +1,4 @@
+# cgf-torture-triage-policy-v1
+# columns=signal	fingerprint	phase	variant	hypothesis	disposition
+-	expected expression	parse	all	First decision.	xfail:TORT-123
+-	expected expression	parse	all	Conflicting decision.	fix-sprint:s56.5-parse

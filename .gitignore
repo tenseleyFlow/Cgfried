@@ -17,6 +17,7 @@
 !.docs/audits/freebsd-vm.md
 !.docs/audits/packed-layout.md
 !.docs/audits/aligned-layout.md
+!.docs/audits/torture-triage.md
 CLAUDE.md
 AGENTS.md
 build/

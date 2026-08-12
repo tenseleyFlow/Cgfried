@@ -1,0 +1,8 @@
+# cgf-torture-passing-v1
+# Exact PASS set; entries are full matrix-cell keys.
+# Weekly ritual: re-run the full matrix, fold new passes in, and review the top 3 buckets (30 minutes).
+ctestsuite/00001.c@O0@x86_64-linux-gnu
+torture-compile/alpha.c@O0@x86_64-linux-gnu
+torture-execute/arm-ok.c@O0@arm64-linux
+torture-execute/diagless-opt.c@O0@x86_64-linux-gnu
+torture-execute/signal-opt.c@O0@x86_64-linux-gnu

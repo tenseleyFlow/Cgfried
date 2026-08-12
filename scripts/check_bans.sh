@@ -17,19 +17,22 @@ export LC_ALL
 # we COMPILE, so of course they may contain the constructs we refuse to write
 # ourselves.
 #
-# This list has now been widened THREE TIMES for the same reason, which is worth
+# This list has now been widened FOUR TIMES for the same reason, which is worth
 # noticing: tests/corpus/ was missing until the first packed program landed
 # there, and tests/warn/ + tests/memsafe/ until the first fixture asserting a
 # warning ABOUT an attribute did, and tests/bench/kernels/ when Sprint 53 added
-# benchmark programs that intentionally call libc and use noinline. The rule
-# always covered them; the pattern just did not. A fixture directory holding
-# compiled C belongs here the day it is created, not the day a fixture in it
-# first uses an extension.
+# benchmark programs that intentionally call libc and use noinline. Sprint 56
+# adds tests/torture/ and tests/ctestsuite/, whose byte-pristine upstream files
+# must likewise remain outside the policy for code WE write. The rule always
+# covered these fixture trees; the pattern just did not. A fixture directory
+# holding compiled C belongs here the day it is created, not the day a fixture
+# in it first uses an extension.
 files=$(find src tests \( -name '*.c' -o -name '*.h' \) \
     ! -path 'tests/fixtures/*' ! -path 'tests/programs/*' \
     ! -path 'tests/corpus/*' ! -path 'tests/warn/*' \
     ! -path 'tests/memsafe/*' ! -path 'tests/bench/corpus/*' \
-    ! -path 'tests/bench/kernels/*' | sort)
+    ! -path 'tests/bench/kernels/*' ! -path 'tests/torture/*' \
+    ! -path 'tests/ctestsuite/*' | sort)
 status=0
 
 hits=$(printf '%s\n' "$files" |

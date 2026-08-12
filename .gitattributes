@@ -2,3 +2,11 @@ tests/programs/pp/crlf.c -text
 # Preserve the byte-exact upstream SQLite amalgamation, including its own
 # whitespace; tests pin both its portable checksum and upstream SHA3-256.
 tests/bench/corpus/sqlite3/sqlite3.c -whitespace
+
+# Sprint 56 imports upstream suites byte-for-byte.  Disable checkout newline
+# conversion as well as whitespace diagnostics for these third-party trees;
+# their committed manifests, rather than our formatting policy, verify every
+# byte against the pinned upstream revisions.
+tests/torture/** -text -whitespace
+tests/ctestsuite/** -text -whitespace
+tests/ctestsuite-licenses/** -text -whitespace

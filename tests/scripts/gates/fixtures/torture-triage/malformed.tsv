@@ -1,0 +1,11 @@
+# cgf-torture-results-v2
+# columns=key	suite	file	level	target	outcome	signal	fingerprint	phase	detail
+# source-revision=1111111111111111111111111111111111111111
+# compiler-source-sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# harness-sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# torture-manifest-sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+# ctestsuite-manifest-sha256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+# target=x86_64-linux-gnu
+# compiler-binary-sha256=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+# compiler-driver-sha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+torture-compile/bad.c@O0@x86_64-linux-gnu	torture-compile	bad.c	O0	x86_64-linux-gnu	PASS	-	-	cg

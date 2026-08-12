@@ -1,0 +1,21 @@
+# cgf-torture-results-v2
+# columns=key	suite	file	level	target	outcome	signal	fingerprint	phase	detail
+# source-revision=1111111111111111111111111111111111111111
+# compiler-source-sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# harness-sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# torture-manifest-sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+# ctestsuite-manifest-sha256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+# target=x86_64-linux-gnu
+# compiler-binary-sha256=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+# compiler-driver-sha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+torture-compile/alpha.c@O0@x86_64-linux-gnu	torture-compile	alpha.c	O0	x86_64-linux-gnu	PASS	-	-	cg	compiled successfully
+torture-compile/alpha.c@O2@x86_64-linux-gnu	torture-compile	alpha.c	O2	x86_64-linux-gnu	COMPILE_FAIL	-	expected expression	parse	error: expected expression before token
+torture-compile/beta.c@O1@x86_64-linux-gnu	torture-compile	beta.c	O1	x86_64-linux-gnu	COMPILE_FAIL	-	expected expression	parse	error: expected expression before identifier
+torture-compile/delta.c@Os@x86_64-linux-gnu	torture-compile	delta.c	Os	x86_64-linux-gnu	COMPILE_FAIL	-	expected expression	parse	error: expected expression before ')'
+torture-compile/gamma.c@O3@x86_64-linux-gnu	torture-compile	gamma.c	O3	x86_64-linux-gnu	COMPILE_FAIL	-	expected expression	parse	error: expected expression before ';'
+torture-compile/nested.c@O0@x86_64-linux-gnu	torture-compile	nested.c	O0	x86_64-linux-gnu	COMPILE_FAIL	-	nested function is not supported	parse	[class=nested-functions] error: nested function is not supported
+torture-execute/diagless-base.c@O0@x86_64-linux-gnu	torture-execute	diagless-base.c	O0	x86_64-linux-gnu	WRONG_EXIT	-	-	run	program exited 2
+torture-execute/diagless-opt.c@O0@x86_64-linux-gnu	torture-execute	diagless-opt.c	O0	x86_64-linux-gnu	PASS	-	-	run	-
+torture-execute/diagless-opt.c@O2@x86_64-linux-gnu	torture-execute	diagless-opt.c	O2	x86_64-linux-gnu	WRONG_EXIT	-	-	run	program exited 3
+torture-execute/needs-trampoline.c@O0@x86_64-linux-gnu	torture-execute	needs-trampoline.c	O0	x86_64-linux-gnu	SKIP	-	trampolines unavailable	policy	[requirement=trampolines] skip-unless:trampolines
+torture-execute/runbad.c@O0@x86_64-linux-gnu	torture-execute	runbad.c	O0	x86_64-linux-gnu	WRONG_EXIT	-	exit status differs	run	expected 0, got 1
