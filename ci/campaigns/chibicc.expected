@@ -1,0 +1,9 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc
+build	PASS	compiler=cgfried
+parity.cgfried-only-failures	PASS	cases=0
+parity.programs	PASS	cgfried=41,host-gcc=41
+source.pin	PASS	revision=90d1f7f199cc55b13c7fdb5839d1409806633fdb
+test.driver	PASS	status=OK
+test.programs	PASS	cases=41

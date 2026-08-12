@@ -707,6 +707,11 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
     for (i = 0; i < m->nsyms; i++) {
         buf_printf(out, "sym ");
         print_sym_name(out, m->syms[i]);
+        if (m->sym_attrs[i].is_weak)
+            buf_printf(out, " weak");
+        if (m->sym_attrs[i].visibility)
+            buf_printf(out, " visibility(%s)",
+                       gnu_visibility_name(m->sym_attrs[i].visibility));
         buf_printf(out, "\n");
     }
     /* Aliases before globals: an alias names a target defined LATER in the

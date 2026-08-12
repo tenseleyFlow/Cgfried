@@ -231,6 +231,10 @@ typedef enum X64Op {
  * protects every caller-saved register rather than the named ones, and
  * stronger is safe where weaker silently corrupts. */
 #define X64IF_ASM_CLOBBERS 0x20
+/* ASM only: the validated input-only `t` shape consumes st(0) inside the
+ * opaque template (for example fistpll). The verifier accounts for that pop;
+ * emission adds nothing because the programmer's instruction performed it. */
+#define X64IF_ASM_X87_POP 0x40
 
 typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
     X64VReg base, index; /* either may be invalid */

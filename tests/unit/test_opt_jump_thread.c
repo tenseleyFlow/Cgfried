@@ -151,6 +151,49 @@ void test_opt_jump_thread_refuses_effectful_intermediate_block(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_jump_thread_refuses_value_used_beyond_cloned_edge(TestCtx *t)
+{
+    JtFix f;
+    IrModule *m;
+    OptConfig cfg;
+    FILE *report;
+    char log[512];
+
+    jt_fix_init(&f);
+    m = jt_parse(&f, "func i32 @f(i32 %c, i32 %x) {\n"
+                     "entry():\n"
+                     "    %pad = iadd i32 %x, 0\n"
+                     "    condbr %c, done(), mid(i32 %x)\n"
+                     "done():\n"
+                     "    ret i32 0\n"
+                     "mid(i32 %m):\n"
+                     "    condbr %c, yes(), no()\n"
+                     "yes():\n"
+                     "    br join()\n"
+                     "no():\n"
+                     "    br join()\n"
+                     "join():\n"
+                     "    ret i32 %m\n"
+                     "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    report = tmpfile();
+    T_ASSERT(t, report != NULL);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.bail_log = true;
+    cfg.report = report;
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && !opt_jump_thread(m, &cfg));
+    if (m) {
+        jt_read_report(report, log, sizeof(log));
+        T_ASSERT(t, strstr(log, "jt_external_value_use") != NULL);
+        T_ASSERT_EQ_INT(t, jt_count_op(m, IR_CONDBR), 2);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    if (report)
+        fclose(report);
+    arena_free_all(&f.arena);
+}
+
 static char *jt_boundary_source(Buf *src, u32 middle_count)
 {
     u32 i;

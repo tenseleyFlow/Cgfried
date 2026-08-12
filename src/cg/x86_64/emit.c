@@ -252,6 +252,14 @@ static void asm_print_operand(Emit *e, const X64Inst *in, const IrAsm *a, u32 k,
     const IrAsmOp *o = &a->ops[k];
     u8 reg;
 
+    if (o->cls == ASM_CLS_X87) {
+        buf_printf(e->out, "%%st");
+        return;
+    }
+    if (o->cls == ASM_CLS_X87UP) {
+        buf_printf(e->out, "%%st(1)");
+        return;
+    }
     if (o->cls == ASM_CLS_IMM) {
         buf_printf(e->out, "$%lld", (long long)o->imm);
         return;
@@ -962,6 +970,21 @@ void x64_emit_globals(const IrModule *m, Buf *out, bool pic)
      * plus a definition needs. */
     for (i = 0; i < m->nfile_asms; i++) {
         buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->file_asms[i]);
+    }
+
+    /* Definitions carry attributes on IrGlobal/IrFunc.  Undefined symbols
+     * have neither, but weak/visibility still change linker semantics: a
+     * hidden weak reference resolves to zero instead of demanding storage. */
+    for (i = 0; i < m->nsyms; i++) {
+        IrSymBinding binding = ir_sym_binding(m, i + 1);
+        const IrSymAttrs *attrs = &m->sym_attrs[i];
+        const char *name = ir_sym_asm_spelling(m->syms[i]);
+
+        if (binding.defined_here)
+            continue;
+        if (attrs->is_weak)
+            buf_printf(out, "\t.weak\t%s\n", name);
+        emit_symbol_attrs(out, name, attrs->visibility);
     }
 
     /* Aliases first: `.set` needs no section and no alignment, and emitting

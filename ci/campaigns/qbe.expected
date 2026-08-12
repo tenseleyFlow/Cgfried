@@ -1,0 +1,9 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc
+build	PASS	compiler=cgfried
+host.arch	PASS	architecture=x86_64
+parity.cgfried-only-failures	PASS	cases=0
+source.pin	PASS	revision=d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+test.cgfried-native	PASS	cases=32
+test.host-gcc-native	PASS	cases=32

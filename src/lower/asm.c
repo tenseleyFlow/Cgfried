@@ -198,6 +198,25 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             op->cls = ASM_CLS_FPREG;
             saw_class = true;
             continue;
+        case 't':
+            if (asm_target_is_arm64())
+                break; /* x87 stack top exists only on x86 */
+            op->cls = ASM_CLS_X87;
+            saw_class = true;
+            continue;
+        case 'u':
+            if (asm_target_is_arm64())
+                break; /* x87 second stack slot exists only on x86 */
+            op->cls = ASM_CLS_X87UP;
+            saw_class = true;
+            continue;
+        case 'X':
+            /* gcc's "any operand" class. A GP register is a legal choice
+             * for the scalar/pointer uses represented by this IR; musl uses
+             * it in an empty address-escape asm. */
+            op->cls = ASM_CLS_REG;
+            saw_class = true;
+            continue;
         case 'w':
             if (!asm_target_is_arm64())
                 break; /* not an x86 letter */
@@ -265,6 +284,52 @@ static u32 tied_input_count(const IrAsmOp *ops, u32 n, u32 output)
     return count;
 }
 
+/* The x87 stack is deliberately not part of either backend register bank.
+ * Accept only shapes whose depth can be established around the opaque
+ * template; x86 isel then emits balanced fld/template/fstp sequences without
+ * exposing an x87 value to SSA or register allocation. */
+static bool validate_x87_shape(Lower *lo, const AstNode *s, const IrAsmOp *ops,
+                               u32 n)
+{
+    u32 i;
+    u32 nx87 = 0;
+    bool clobbers_st = false;
+
+    for (i = 0; i < n; i++)
+        if (ops[i].cls == ASM_CLS_X87 || ops[i].cls == ASM_CLS_X87UP)
+            nx87++;
+    if (!nx87)
+        return true;
+    for (i = 0; i < s->asm_nclobbers; i++)
+        if (strcmp(s->asm_clobbers[i], "st") == 0)
+            clobbers_st = true;
+    /* One st(0) input consumed by the template into a memory output:
+     * musl's fistpll conversion form. The explicit clobber proves the pop. */
+    if (s->asm_noutputs == 1 && n == 2 && ops[0].is_output &&
+        ops[0].cls == ASM_CLS_MEM && !ops[1].is_output &&
+        ops[1].cls == ASM_CLS_X87 && clobbers_st)
+        return true;
+    /* st(0) result, st(1) divisor, and one fixed status-word result:
+     * musl's fprem/fprem1 loop. The `+t` tied input is appended last. */
+    if (s->asm_noutputs == 2 && n == 4 && ops[0].is_output &&
+        ops[0].cls == ASM_CLS_X87 && constraint_has(ops[0].constraint, '+') &&
+        ops[1].is_output && ops[1].cls == ASM_CLS_FIXED && ops[1].reg == 0 &&
+        !ops[2].is_output && ops[2].cls == ASM_CLS_X87UP && !ops[3].is_output &&
+        ops[3].cls == ASM_CLS_X87 && ops[3].tied_to == 0)
+        return true;
+    if (s->asm_noutputs == 1 && n == 2 && ops[0].is_output &&
+        ops[0].cls == ASM_CLS_X87 && constraint_has(ops[0].constraint, '+') &&
+        !ops[1].is_output && ops[1].cls == ASM_CLS_X87 && ops[1].tied_to == 0 &&
+        s->asm_ops[0].expr && s->asm_ops[0].expr->sem_type &&
+        lower_irtype(lo, s->asm_ops[0].expr->sem_type) == IRT_F80)
+        return true;
+    asm_error(lo, s->span,
+              "unsupported x87 asm operand shape; supported forms are one "
+              "read-write long double (\"+t\"), musl's t/u remainder "
+              "loop, and a clobbered t input converted to memory");
+    return false;
+}
+
 /* The shared MIR view still has one def, but x86 can soundly carry a narrow
  * second-output shape without changing it: a FIXED output with exactly one
  * matching input has that input reserve the physical register at the asm,
@@ -281,7 +346,8 @@ static bool validate_register_outputs(Lower *lo, const AstNode *s,
     for (i = 0; i < s->asm_noutputs && i < n; i++) {
         const IrAsmOp *op = &ops[i];
 
-        if (op->cls == ASM_CLS_MEM)
+        if (op->cls == ASM_CLS_MEM || op->cls == ASM_CLS_X87 ||
+            op->cls == ASM_CLS_X87UP)
             continue;
         register_outputs++;
         if (op->cls == ASM_CLS_FIXED)
@@ -381,12 +447,14 @@ void lower_asm(Lower *lo, AstNode *s)
         op->constraint = src->constraint ? src->constraint : "";
         op->name = src->name;
         op->is_output = is_out;
-        /* glibc's <sys/io.h> uses x86 "Nd": choose N for an unsigned
-         * 8-bit constant and d (%rdx) otherwise. This is a real alternative,
+        /* glibc spells x86 "Nd" while musl spells the equivalent "dN":
+         * choose N for an unsigned 8-bit constant and d (%rdx) otherwise.
+         * Alternative order does not change the accepted locations. This is
          * not two cumulative class letters. CE_FOLD is deliberately silent:
          * a variable is not an error because the d arm accepts it. */
         if (!asm_target_is_arm64() && !is_out &&
-            strcmp(op->constraint, "Nd") == 0) {
+            (strcmp(op->constraint, "Nd") == 0 ||
+             strcmp(op->constraint, "dN") == 0)) {
             ConstValue cv = constexpr_eval(lo->sema, src->expr, CE_FOLD);
 
             op->tied_to = -1;
@@ -476,7 +544,8 @@ void lower_asm(Lower *lo, AstNode *s)
         n++;
     }
 
-    if (!validate_register_outputs(lo, s, ops, n))
+    if (!validate_x87_shape(lo, s, ops, n) ||
+        !validate_register_outputs(lo, s, ops, n))
         return;
 
     for (i = 0; i < s->asm_nclobbers; i++) {
@@ -487,6 +556,10 @@ void lower_asm(Lower *lo, AstNode *s)
             a.clobbers_memory = true;
         } else if (strcmp(c, "cc") == 0) {
             a.clobbers_cc = true;
+        } else if (!asm_target_is_arm64() && strcmp(c, "st") == 0) {
+            /* x87 is stack-modelled around IR_ASM, never allocated. The
+             * exact input-consuming form was checked above. */
+            continue;
         } else if (lower_asm_clobber_reg(c, &reg)) {
             if (nclob < 64 && !reg_in_list(clobregs, nclob, reg))
                 clobregs[nclob++] = reg;

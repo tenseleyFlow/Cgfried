@@ -89,6 +89,53 @@ static bool block_cloneable(const IrBlock *blk)
     return true;
 }
 
+static bool block_defines_value(const IrBlock *blk, u64 value)
+{
+    const IrInst *in;
+    u32 i;
+
+    for (i = 0; i < blk->nparams; i++)
+        if (blk->params[i].v == value)
+            return true;
+    for (in = blk->first; in; in = in->next)
+        if (in->result.v == value)
+            return true;
+    return false;
+}
+
+/* The clone rewrites uses inside the copied block and its selected outgoing
+ * edge.  It does not clone the dominated region beyond that edge.  A direct
+ * use there would still name the original definition, which no longer
+ * dominates the newly threaded path.  Block parameters make the safe shape
+ * explicit: values needed by a successor travel in that edge's argument
+ * list, so conservatively reject every source-local value used elsewhere. */
+static bool block_values_used_elsewhere(const IrFunc *f, u32 source)
+{
+    const IrBlock *src = &f->blocks[source];
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        if (bi == source)
+            continue;
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            u32 oi, ei, ai;
+
+            for (oi = 0; oi < in->nops; oi++)
+                if (in->ops[oi].kind == IROP_VALUE &&
+                    block_defines_value(src, in->ops[oi].a))
+                    return true;
+            for (ei = 0; ei < in->nedges; ei++)
+                for (ai = 0; ai < in->edges[ei].nargs; ai++)
+                    if (in->edges[ei].args[ai].kind == IROP_VALUE &&
+                        block_defines_value(src, in->edges[ei].args[ai].a))
+                        return true;
+        }
+    }
+    return false;
+}
+
 static u32 virtual_succ_count(const VirtualCfg *g, u32 block)
 {
     const IrInst *in;
@@ -485,6 +532,10 @@ static bool jump_thread_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
                     continue;
                 if (!block_cloneable(mid)) {
                     OPT_BAIL(&fc, "jump_thread", "jt_block_not_cloneable");
+                    continue;
+                }
+                if (block_values_used_elsewhere(f, target - 1)) {
+                    OPT_BAIL(&fc, "jump_thread", "jt_external_value_use");
                     continue;
                 }
                 cost = mid->ninsts;

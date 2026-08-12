@@ -21,6 +21,7 @@ int real_fn(int x)
 {
     return x + 1;
 }
+int alias_fn(int);
 int alias_fn(int) __attribute__((alias("real_fn")));
 
 int real_obj = 42;
@@ -33,6 +34,7 @@ static int s_real(int x)
 static int s_alias(int) __attribute__((alias("s_real")));
 
 /* musl's weak_alias idiom, which is why this attribute matters at all. */
+int weak_fn(int);
 int weak_fn(int) __attribute__((weak, alias("real_fn")));
 
 int main(void)

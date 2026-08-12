@@ -317,7 +317,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         return lv;
     }
     case AST_EXPR_STRING: {
-        u32 s = lower_string_lit(lo, e);
+        u32 s = e->is_func_name ? lower_func_name_object(lo, e)
+                                : lower_string_lit(lo, e);
 
         return lv_of(lo, ir_op_symbol(IRT_PTR, s, 0), sem(e));
     }
@@ -488,7 +489,9 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
     Type *rt = sem(e);
     bool is_void = rt && rt->kind == TY_VOID;
     bool is_agg = lower_is_aggregate(rt);
+    bool is_memory_scalar = false;
     ValueId agg_tmp = VALUE_INVALID;
+    ValueId scalar_tmp = VALUE_INVALID;
     ValueId res = VALUE_INVALID;
     IrOperand v;
 
@@ -504,8 +507,21 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
 
     if (is_agg)
         agg_tmp = lower_temp(lo, rt); /* one temp, both arms memcpy in */
-    else if (!is_void)
-        res = ir_block_param(lo->m, lo->fn, join, lower_irtype(lo, rt));
+    else if (!is_void) {
+        IrType irt = lower_irtype(lo, rt);
+
+        /* x87 f80 values and binary128 values obey the backends' memory
+         * law: they may be produced by arithmetic, but they may not travel
+         * as block parameters.  A conditional is the one source construct
+         * that would otherwise manufacture such a parameter directly.
+         * Materialize its result in one temporary, just as aggregates do,
+         * then reload after the join. */
+        is_memory_scalar = irt == IRT_F80 || irt == IRT_F128;
+        if (is_memory_scalar)
+            scalar_tmp = lower_temp(lo, rt);
+        else
+            res = ir_block_param(lo->m, lo->fn, join, irt);
+    }
 
     ir_build_condbr(&lo->b, c, tb, NULL, 0, eb, NULL, 0);
 
@@ -518,6 +534,9 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
                                (u32)l.align, 0);
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
+        ir_build_br(&lo->b, join, NULL, 0);
+    } else if (is_memory_scalar) {
+        lower_store(lo, lv_of(lo, ir_op_value(lo->fn, scalar_tmp), rt), v);
         ir_build_br(&lo->b, join, NULL, 0);
     } else {
         ir_build_br(&lo->b, join, &v, 1);
@@ -533,6 +552,9 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
         ir_build_br(&lo->b, join, NULL, 0);
+    } else if (is_memory_scalar) {
+        lower_store(lo, lv_of(lo, ir_op_value(lo->fn, scalar_tmp), rt), v);
+        ir_build_br(&lo->b, join, NULL, 0);
     } else {
         ir_build_br(&lo->b, join, &v, 1);
     }
@@ -542,6 +564,8 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
         return ir_op_value(lo->fn, agg_tmp);
     if (is_void)
         return ir_op_undef(IRT_I32); /* no one may look */
+    if (is_memory_scalar)
+        return lower_load(lo, lv_of(lo, ir_op_value(lo->fn, scalar_tmp), rt));
     return ir_op_value(lo->fn, res);
 }
 
@@ -2532,7 +2556,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         }
     }
     case AST_EXPR_STRING: {
-        u32 s = lower_string_lit(lo, e);
+        u32 s = e->is_func_name ? lower_func_name_object(lo, e)
+                                : lower_string_lit(lo, e);
 
         return ir_op_symbol(IRT_PTR, s, 0);
     }

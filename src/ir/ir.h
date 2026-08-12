@@ -699,12 +699,23 @@ typedef struct IrAlias {
     u8 visibility; /* GnuVisibility */
 } IrAlias;
 
+/* Attributes on a symbol that may have no definition in this module.  A
+ * weak hidden extern still needs `.weak`/`.hidden` in the object even though
+ * it has no IrGlobal or IrFunc record of its own (musl's nullable _DYNAMIC is
+ * the canonical case).  This table is parallel to IrModule.syms. */
+typedef struct IrSymAttrs {
+    bool is_weak;
+    u8 visibility; /* GnuVisibility */
+} IrSymAttrs;
+
 /* How a constraint letter resolved, decided in lowering because the letters
  * are TARGET vocabulary: `r` means the same everywhere, `d` is rdx on x86-64
  * and a d-register on arm64. The backend sees a class, never a letter. */
 typedef enum {
     ASM_CLS_REG,   /* any allocatable GP register */
     ASM_CLS_FPREG, /* any allocatable FP/vector register (x / w) */
+    ASM_CLS_X87,   /* x86 x87 stack top (`t`); never an allocatable vreg */
+    ASM_CLS_X87UP, /* x86 x87 second stack slot (`u` / st(1)) */
     ASM_CLS_FIXED, /* one named physical register (a b c d S D, or a clobber) */
     ASM_CLS_MEM,   /* a memory operand */
     ASM_CLS_IMM    /* an assemble-time constant */
@@ -758,6 +769,7 @@ typedef struct IrModule {
     u32 nglobals;
     u32 cap_globals;
     const char **syms;
+    IrSymAttrs *sym_attrs;
     /* Ownership contracts for external function symbols, parallel to syms.
      * Non-functions and unannotated externals have NULL entries. */
     const CgfAttr **sym_cgf_attrs;
@@ -792,6 +804,7 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
  * front-end source provenance is preserved. */
 IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
+void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility);
 u32 ir_sym_exact_asm(IrModule *m, const char *name);
 /* An asm label is already in assembler spelling. IR keeps it distinct from an
  * ordinary C symbol with the same bytes by an internal leading `!`; textual IR

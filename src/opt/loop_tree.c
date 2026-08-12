@@ -582,6 +582,23 @@ static bool block_uses_value(const IrBlock *block, ValueId value)
     return false;
 }
 
+static bool value_is_stacksave_token(const IrFunc *f, ValueId value)
+{
+    const IrValInfo *vi;
+    const IrInst *in;
+
+    if (!value.v || value.v > f->nvals)
+        return false;
+    vi = &f->vals[value.v - 1];
+    if (vi->def_kind != VDEF_INST || !vi->def_block.v ||
+        vi->def_block.v > f->nblocks)
+        return false;
+    for (in = f->blocks[vi->def_block.v - 1].first; in; in = in->next)
+        if (in->result.v == value.v)
+            return in->op == IR_STACKSAVE;
+    return false;
+}
+
 static void append_edge_arg(IrModule *m, IrEdge *edge, IrOperand arg)
 {
     IrOperand *args = arena_alloc(m->arena, (edge->nargs + 1) * sizeof(*args),
@@ -725,7 +742,19 @@ static bool establish_lcssa(IrModule *m, IrFunc *f, const LoopTree *tree,
                 continue;
             for (vi = 1; vi <= original_nvals; vi++) {
                 BlockId def = f->vals[vi - 1].def_block;
+                IrType type = ir_value_type(f, (ValueId){vi});
 
+                /* x86 represents f80/f128 values through memory addresses,
+                 * and its backend deliberately has no block-parameter move
+                 * for either type.  A stacksave token is likewise an opaque
+                 * identity: stackrestore must consume that exact definition,
+                 * not a block-parameter copy.  LCSSA is an optimization form,
+                 * not a semantic requirement, so leave these live-outs as
+                 * ordinary dominating SSA uses.  musl's __polevll loop and
+                 * execvp cleanup path are the concrete witnesses. */
+                if (type == IRT_F80 || type == IRT_F128 ||
+                    value_is_stacksave_token(f, (ValueId){vi}))
+                    continue;
                 if (def.v && loop_contains(loop, def))
                     changed |= lcssa_value(m, f, loop, (ValueId){vi}, scratch);
             }
@@ -811,8 +840,11 @@ bool loop_tree_verify_canonical(const LoopTree *lt, const IrFunc *f, char *why,
                                    loop->exits[xi].target.v);
         for (vi = 1; vi <= f->nvals; vi++) {
             BlockId def = f->vals[vi - 1].def_block;
+            IrType type = ir_value_type(f, (ValueId){vi});
 
-            if (!def.v || !loop_contains(loop, def))
+            if (type == IRT_F80 || type == IRT_F128 ||
+                value_is_stacksave_token(f, (ValueId){vi}) || !def.v ||
+                !loop_contains(loop, def))
                 continue;
             for (bi = 0; bi < f->nblocks; bi++)
                 if (!loop_contains(loop, (BlockId){bi + 1}) &&

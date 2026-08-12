@@ -248,6 +248,150 @@ static void ce_error(Sema *s, CeMode m, Span sp, const char *fmt, ...)
 
 static ConstValue eval(Sema *s, AstNode *e, CeMode m);
 
+/* The traditional offsetof macro spells a member address from a null
+ * pointer, rather than using __builtin_offsetof:
+ *
+ *   (size_t)((char *)&(((T *)0)->member) - (char *)0)
+ *
+ * Member expressions retain only the spelling, so recover the byte offset
+ * here.  Anonymous aggregate members contribute their enclosing offsets on
+ * the way down; returning only the innermost Member would lose them. */
+static bool member_byte_offset(Sema *s, Type *rec, const char *name, i64 *out)
+{
+    Member *it;
+
+    if (!rec || (rec->kind != TY_STRUCT && rec->kind != TY_UNION) || !rec->tag)
+        return false;
+    layout_record(s, rec);
+    for (it = rec->tag->members; it; it = it->next) {
+        if (it->name == name) {
+            if (it->is_bitfield)
+                return false;
+            *out = (i64)it->offset;
+            return true;
+        }
+        if (!it->name && it->type &&
+            (it->type->kind == TY_STRUCT || it->type->kind == TY_UNION) &&
+            find_member_named(it->type, name)) {
+            i64 inner;
+
+            if (!member_byte_offset(s, it->type, name, &inner))
+                return false;
+            *out = (i64)it->offset + inner;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool is_null_pointer_value(const ConstValue *v)
+{
+    return v && v->kind == CV_INT && v->i == 0 && v->type &&
+           v->type->kind == TY_PTR;
+}
+
+/* A null pointer used while folding the offsetof idiom is an address origin,
+ * but it must never escape as CV_ADDR: sym == anon == NULL otherwise denotes
+ * an anonymous static object to the initializer-image path. */
+static ConstValue null_address(Type *type)
+{
+    ConstValue v;
+
+    memset(&v, 0, sizeof(v));
+    v.kind = CV_ADDR;
+    v.type = type;
+    return v;
+}
+
+/* Fold the address of a member/subscript lvalue without loading it.  This is
+ * deliberately separate from eval(): a decayed array member such as
+ *
+ *   &(((T *)0)->items[2])
+ *
+ * reaches us as INDEX(implicit-cast(MEMBER)), and evaluating MEMBER as a
+ * value would try to load from the null base.  The traditional offsetof
+ * idiom needs the address arithmetic instead.  `from_null` lets the caller
+ * distinguish that GNU ICE extension from an ordinary address constant. */
+static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
+                                      bool *from_null)
+{
+    ConstValue base;
+
+    while (e && (e->kind == AST_EXPR_PAREN ||
+                 (e->kind == AST_EXPR_CAST && e->implicit && e->lhs)))
+        e = e->lhs;
+    if (!e)
+        return cv_error();
+
+    if (e->kind == AST_EXPR_MEMBER) {
+        Type *rec = e->lhs ? e->lhs->sem_type : NULL;
+        i64 member_off;
+        bool base_from_null = false;
+
+        if (e->is_arrow) {
+            base = eval(s, e->lhs, m);
+            if (is_null_pointer_value(&base)) {
+                base = null_address(base.type);
+                base_from_null = true;
+            }
+            if (rec && rec->kind == TY_PTR)
+                rec = rec->base;
+        } else {
+            base = eval_lvalue_address(s, e->lhs, m, &base_from_null);
+        }
+        if (base.kind == CV_ERROR)
+            return base;
+        if (base.kind != CV_ADDR ||
+            !member_byte_offset(s, rec, e->name, &member_off)) {
+            ce_error(s, m, e->span,
+                     "initializer element is not computable at load time");
+            return cv_error();
+        }
+        base.addend += member_off;
+        base.type = e->sem_type;
+        *from_null = *from_null || base_from_null;
+        return base;
+    }
+
+    if (e->kind == AST_EXPR_INDEX) {
+        AstNode *base_node = e->lhs;
+        AstNode *idx_node = e->rhs;
+        ConstValue idx;
+        Type *ptr;
+        u64 scale;
+
+        if ((!base_node->sem_type || base_node->sem_type->kind != TY_PTR) &&
+            idx_node->sem_type && idx_node->sem_type->kind == TY_PTR) {
+            AstNode *tmp = base_node;
+
+            base_node = idx_node;
+            idx_node = tmp;
+        }
+        ptr = base_node->sem_type;
+        base = eval_lvalue_address(s, base_node, m, from_null);
+        idx = eval(s, idx_node, m == CE_FOLD ? CE_FOLD : CE_ICE);
+        if (base.kind == CV_ERROR || idx.kind == CV_ERROR)
+            return cv_error();
+        if (base.kind != CV_ADDR || idx.kind != CV_INT || !ptr ||
+            (ptr->kind != TY_PTR && ptr->kind != TY_ARRAY) || !ptr->base) {
+            ce_error(s, m, e->span,
+                     "initializer element is not computable at load time");
+            return cv_error();
+        }
+        scale = layout_of(s, ptr->base).size;
+        base.addend += (i64)idx.i * (i64)scale;
+        base.type = e->sem_type;
+        return base;
+    }
+
+    base = eval(s, e, m);
+    if (is_null_pointer_value(&base)) {
+        base = null_address(base.type);
+        *from_null = true;
+    }
+    return base;
+}
+
 /* Signed overflow is UNDEFINED at runtime but must be an ERROR at compile
  * time: a constant expression has one right answer, and silently wrapping
  * would bake a wrong number into the program. */
@@ -282,6 +426,32 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
     r = eval(s, e->rhs, m);
     if (r.kind == CV_ERROR)
         return r;
+
+    /* Fold pointer subtraction when both operands name the same object.  The
+     * null/null case is the traditional offsetof macro; ordinary same-symbol
+     * differences such as `&a[3] - &a[1]` follow the same C rule. */
+    if (e->op == PUNCT_MINUS && e->lhs->sem_type && e->rhs->sem_type &&
+        e->lhs->sem_type->kind == TY_PTR && e->rhs->sem_type->kind == TY_PTR) {
+        ConstValue la = is_null_pointer_value(&l) ? null_address(l.type) : l;
+        ConstValue ra = is_null_pointer_value(&r) ? null_address(r.type) : r;
+
+        if (la.kind == CV_ADDR && ra.kind == CV_ADDR && la.sym == ra.sym &&
+            la.anon == ra.anon) {
+            i64 bytes = la.addend - ra.addend;
+            u64 scale = 1;
+
+            if (e->lhs->sem_type->base &&
+                layout_is_complete_for_size(e->lhs->sem_type->base))
+                scale = layout_of(s, e->lhs->sem_type->base).size;
+            if (scale == 0 || bytes % (i64)scale != 0) {
+                ce_error(s, m, e->span,
+                         "pointer difference is not an exact element count");
+                return cv_error();
+            }
+            return cv_int(s, e->sem_type,
+                          fit(s, e->sem_type, (u64)(bytes / (i64)scale)));
+        }
+    }
 
     /* Address constant arithmetic: `&g + 3` and `arr + 3`. */
     if (l.kind == CV_ADDR || r.kind == CV_ADDR) {
@@ -736,6 +906,27 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
 
             while (inner && inner->kind == AST_EXPR_PAREN)
                 inner = inner->lhs;
+            if (inner && (inner->kind == AST_EXPR_MEMBER ||
+                          inner->kind == AST_EXPR_INDEX)) {
+                /* The null-based offsetof spelling is accepted as an ICE by
+                 * gcc and is used throughout musl.  Recognize that narrow
+                 * shape, including indexed array members, before the general
+                 * address-constant mode check;
+                 * ordinary `&object.member` remains CE_ADDR/CE_FOLD only. */
+                bool from_null = false;
+
+                v = eval_lvalue_address(s, inner, m, &from_null);
+                if (v.kind == CV_ERROR)
+                    return v;
+                if (!from_null && m != CE_ADDR && m != CE_FOLD) {
+                    ce_error(s, m, e->span,
+                             "an address is not an integer constant "
+                             "expression");
+                    return cv_error();
+                }
+                v.type = e->sem_type;
+                return v;
+            }
             if (m != CE_ADDR && m != CE_FOLD) {
                 ce_error(s, m, e->span,
                          "an address is not an integer constant expression");
@@ -756,29 +947,6 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                 v.sym = inner->sym;
                 return v;
             }
-            if (inner && inner->kind == AST_EXPR_MEMBER) {
-                /* `&g.member`: the same symbol at a constant offset. */
-                ConstValue base = eval(s, inner->lhs, m);
-                Member *mem;
-
-                if (base.kind != CV_ADDR)
-                    return cv_error();
-                mem = NULL;
-                if (inner->lhs->sem_type && inner->lhs->sem_type->tag) {
-                    Member *it;
-
-                    layout_record(s, inner->lhs->sem_type);
-                    for (it = inner->lhs->sem_type->tag->members; it;
-                         it = it->next)
-                        if (it->name == inner->name) {
-                            mem = it;
-                            break;
-                        }
-                }
-                base.addend += mem ? (i64)mem->offset : 0;
-                base.type = e->sem_type;
-                return base;
-            }
             if (inner && inner->kind == AST_EXPR_COMPOUND_LIT) {
                 /* A compound literal at FILE SCOPE has static storage
                  * duration (6.5.2.5p5), so its address is a perfectly
@@ -795,32 +963,6 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                 v.sym = NULL;
                 v.anon = inner; /* lowering materializes the object */
                 return v;
-            }
-            if (inner && inner->kind == AST_EXPR_INDEX) {
-                /* `&arr[k]` folds through the standard identity. */
-                AstNode *base_node = inner->lhs;
-                AstNode *idx_node = inner->rhs;
-                ConstValue base;
-                ConstValue idx;
-                u64 scale = 1;
-
-                if ((!base_node->sem_type ||
-                     base_node->sem_type->kind != TY_PTR) &&
-                    idx_node->sem_type && idx_node->sem_type->kind == TY_PTR) {
-                    AstNode *tmp = base_node;
-
-                    base_node = idx_node;
-                    idx_node = tmp;
-                }
-                base = eval(s, base_node, m);
-                idx = eval(s, idx_node, m == CE_FOLD ? CE_FOLD : CE_ICE);
-                if (base.kind != CV_ADDR || idx.kind != CV_INT)
-                    return cv_error();
-                if (base_node->sem_type && base_node->sem_type->kind == TY_PTR)
-                    scale = layout_of(s, base_node->sem_type->base).size;
-                base.addend += (i64)idx.i * (i64)scale;
-                base.type = e->sem_type;
-                return base;
             }
             ce_error(s, m, e->span,
                      "initializer element is not computable at load time");
@@ -1072,9 +1214,18 @@ bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what)
  * object file. */
 
 typedef struct {
+    Type *type;
+    u64 off;
+    u64 member;
+} InitUnionSelection;
+
+typedef struct {
     Sema *s;
     InitImage *img;
     bool ok;
+    InitUnionSelection *unions;
+    u32 nunions;
+    u32 cap_unions;
 } InitCtx;
 
 static void img_zero(InitCtx *c, u64 off, u64 len)
@@ -1096,19 +1247,45 @@ static void img_put_int(InitCtx *c, u64 off, u64 value, u64 width)
         c->img->bytes[off + i] = (u8)(value >> (i * 8));
 }
 
+static void img_clear_relocs(InitCtx *c, u64 off, u64 width)
+{
+    u32 from;
+    u32 to = 0;
+
+    for (from = 0; from < c->img->nrelocs; from++) {
+        InitReloc r = c->img->relocs[from];
+
+        if (r.offset < off + width && off < r.offset + 8)
+            continue;
+        c->img->relocs[to++] = r;
+    }
+    c->img->nrelocs = to;
+}
+
 static void img_reloc(InitCtx *c, u64 off, Symbol *sym, i64 addend,
                       const AstNode *anon)
 {
     InitReloc *grown;
+    u32 at = 0;
+
+    /* Emitters walk relocations alongside bytes, so keep this list in image
+     * order even when source designators move backwards.  A later
+     * initializer of the same subobject replaces the earlier relocation. */
+    img_clear_relocs(c, off, 8);
+    while (at < c->img->nrelocs && c->img->relocs[at].offset < off)
+        at++;
 
     grown = arena_alloc(c->s->arena, (c->img->nrelocs + 1) * sizeof(InitReloc),
                         _Alignof(InitReloc));
-    if (c->img->nrelocs)
-        memcpy(grown, c->img->relocs, c->img->nrelocs * sizeof(InitReloc));
-    grown[c->img->nrelocs].offset = off;
-    grown[c->img->nrelocs].sym = sym;
-    grown[c->img->nrelocs].addend = addend;
-    grown[c->img->nrelocs].anon = anon;
+    if (at)
+        memcpy(grown, c->img->relocs, at * sizeof(InitReloc));
+    grown[at].offset = off;
+    grown[at].sym = sym;
+    grown[at].addend = addend;
+    grown[at].anon = anon;
+    if (at < c->img->nrelocs)
+        memcpy(grown + at + 1, c->img->relocs + at,
+               (c->img->nrelocs - at) * sizeof(InitReloc));
     c->img->relocs = grown;
     c->img->nrelocs++;
 }
@@ -1130,6 +1307,7 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
         return;
     }
     l = layout_of(s, t);
+    img_clear_relocs(c, off, l.size);
     v = constexpr_eval(s, init, t->kind == TY_PTR ? CE_ADDR : CE_ARITH);
     switch (v.kind) {
     case CV_INT:
@@ -1180,6 +1358,7 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
     case CV_ADDR:
         /* The bytes stay zero; the relocation carries the address, which
          * only the linker can supply. */
+        img_zero(c, off, l.size);
         img_reloc(c, off, v.sym, v.addend, v.anon);
         return;
     default:
@@ -1200,6 +1379,11 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
 
     if (!tok)
         return;
+    /* A later designated initializer replaces the whole selected array
+     * subobject, including any relocation left by an overlapping union
+     * member.  The image starts zeroed, but source-order overrides do not. */
+    img_clear_relocs(c, off, cap);
+    img_zero(c, off, cap);
     n = tok->str.nbytes;
     if (n > cap) {
         warn_at(c->s->lang->warnings, WARN_INITIALIZER_STRING_TOO_LONG,
@@ -1387,6 +1571,54 @@ static bool fill_expr_initializes_whole(Type *target, const AstNode *init)
     return init->sem_type && type_compatible(target, init->sem_type);
 }
 
+static void fill_activate_union(InitCtx *c, Type *type, u64 off, u64 member)
+{
+    u32 i;
+
+    if (!type || type->kind != TY_UNION)
+        return;
+    for (i = 0; i < c->nunions; i++) {
+        InitUnionSelection *sel = &c->unions[i];
+
+        if (sel->type != type || sel->off != off)
+            continue;
+        if (sel->member != member) {
+            TypeLayout l = layout_of(c->s, type);
+
+            img_clear_relocs(c, off, l.size);
+            img_zero(c, off, l.size);
+            sel->member = member;
+        }
+        return;
+    }
+    if (c->nunions == c->cap_unions) {
+        u32 cap = c->cap_unions ? c->cap_unions * 2 : 8;
+        InitUnionSelection *grown = arena_alloc(
+            c->s->arena, cap * sizeof(*grown), _Alignof(InitUnionSelection));
+
+        if (c->nunions)
+            memcpy(grown, c->unions, c->nunions * sizeof(*grown));
+        c->unions = grown;
+        c->cap_unions = cap;
+    }
+    c->unions[c->nunions].type = type;
+    c->unions[c->nunions].off = off;
+    c->unions[c->nunions].member = member;
+    c->nunions++;
+}
+
+static void fill_activate_cursor_unions(InitCtx *c, const FillCursor *cursor)
+{
+    u32 i;
+
+    for (i = 0; i < cursor->depth; i++) {
+        const FillCursorFrame *f = &cursor->frames[i];
+
+        if (f->aggregate->kind == TY_UNION)
+            fill_activate_union(c, f->aggregate, f->off, f->pos);
+    }
+}
+
 static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
 {
     Member *m = cursor->member;
@@ -1396,14 +1628,27 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
     if (!m || !m->is_bitfield ||
         !sema_require_ice(c->s, item, &value, "a bit-field initializer"))
         return;
+    /* Clear exactly the selected bit-field before setting its new value.
+     * This preserves neighboring fields in the same container while making
+     * a later union/member designator replace, rather than OR with, the
+     * earlier representation.  Any relocation overlapping those bytes can
+     * no longer survive the scalar write. */
+    if (m->bit_width) {
+        u64 first_byte = (cursor->off * 8 + m->bit_offset) / 8;
+        u64 last_bit = cursor->off * 8 + m->bit_offset + m->bit_width - 1;
+
+        img_clear_relocs(c, first_byte, last_bit / 8 - first_byte + 1);
+    }
     for (b = 0; b < m->bit_width; b++) {
         u64 abs_bit = cursor->off * 8 + m->bit_offset + b;
         u64 byte = abs_bit / 8;
+        u8 mask = (u8)(1u << (abs_bit % 8));
 
         if (byte >= c->img->size)
             break;
+        c->img->bytes[byte] &= (u8)~mask;
         if (((u64)value >> b) & 1)
-            c->img->bytes[byte] |= (u8)(1u << (abs_bit % 8));
+            c->img->bytes[byte] |= mask;
     }
 }
 
@@ -1413,6 +1658,15 @@ static void fill_cursor_value(InitCtx *c, const FillCursor *cursor,
     if (!cursor->current) {
         c->ok = false;
         return;
+    }
+    fill_activate_cursor_unions(c, cursor);
+    if (fill_is_aggregate(cursor->current) &&
+        (item->kind == AST_INIT_LIST ||
+         fill_expr_initializes_whole(cursor->current, item))) {
+        TypeLayout l = layout_of(c->s, cursor->current);
+
+        img_clear_relocs(c, cursor->off, l.size);
+        img_zero(c, cursor->off, l.size);
     }
     if (cursor->member && cursor->member->is_bitfield)
         fill_bitfield(c, cursor, item);
@@ -1530,6 +1784,7 @@ bool constexpr_eval_initializer(Sema *s, Type *type, AstNode *init,
     InitCtx c;
     TypeLayout l;
 
+    memset(&c, 0, sizeof(c));
     memset(out, 0, sizeof(*out));
     if (!type || !layout_is_complete_for_size(type))
         return false;

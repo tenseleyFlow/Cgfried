@@ -29,3 +29,186 @@ jobs:
           path: build/torture/results-arm64-linux-v2.txt
           if-no-files-found: warn
           retention-days: 30
+
+  campaign-musl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - name: cache pinned musl and libc-test inputs
+        id: musl-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .docs/refs/musl
+            .docs/refs/libc-test
+          key: nightly-campaign-musl-b306b16af15c89a04d8e0c55cac2dadbeb39c083-libc-test-123433158bf985d7eb3b4072e32121b9e32a1a1a
+      - name: fetch pinned inputs
+        if: steps.musl-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf .docs/refs/musl .docs/refs/libc-test
+          mkdir -p .docs/refs
+          git init .docs/refs/musl
+          git -C .docs/refs/musl remote add origin https://git.musl-libc.org/git/musl
+          git -C .docs/refs/musl fetch --depth=1 origin b306b16af15c89a04d8e0c55cac2dadbeb39c083
+          git -C .docs/refs/musl checkout --detach FETCH_HEAD
+          git init .docs/refs/libc-test
+          git -C .docs/refs/libc-test remote add origin https://repo.or.cz/libc-test.git
+          git -C .docs/refs/libc-test fetch --depth=1 origin 123433158bf985d7eb3b4072e32121b9e32a1a1a
+          git -C .docs/refs/libc-test checkout --detach FETCH_HEAD
+      - name: verify both pins
+        run: |
+          test "$(git -C .docs/refs/musl rev-parse HEAD)" = b306b16af15c89a04d8e0c55cac2dadbeb39c083
+          test "$(git -C .docs/refs/libc-test rev-parse HEAD)" = 123433158bf985d7eb3b4072e32121b9e32a1a1a
+      - name: run campaign
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          make campaign-musl
+      - name: retain campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint57-nightly-musl
+          path: |
+            build/campaigns/musl/**/results*.txt
+            build/campaigns/musl/**/config.mak
+            build/campaigns/musl/**/*.log
+            build/campaigns/musl/**/logs/**
+            build/campaigns/musl/**/routes/**
+            build/campaigns/musl/**/failures.txt
+            build/campaigns/musl/**/REPORT
+            build/campaigns/musl/libc-test-cgf-only.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  campaign-chibicc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: cache the pinned chibicc input
+        id: chibicc-cache
+        uses: actions/cache@v5
+        with:
+          path: .docs/refs/chibicc
+          key: nightly-campaign-chibicc-90d1f7f199cc55b13c7fdb5839d1409806633fdb
+      - name: fetch pinned input
+        if: steps.chibicc-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf .docs/refs/chibicc
+          mkdir -p .docs/refs
+          git init .docs/refs/chibicc
+          git -C .docs/refs/chibicc remote add origin https://github.com/rui314/chibicc
+          git -C .docs/refs/chibicc fetch --depth=1 origin 90d1f7f199cc55b13c7fdb5839d1409806633fdb
+          git -C .docs/refs/chibicc checkout --detach FETCH_HEAD
+      - name: verify the pin
+        run: test "$(git -C .docs/refs/chibicc rev-parse HEAD)" = 90d1f7f199cc55b13c7fdb5839d1409806633fdb
+      - name: run campaign
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          make campaign-chibicc
+      - name: retain campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint57-nightly-chibicc
+          path: |
+            build/campaigns/chibicc/results.txt
+            build/campaigns/chibicc/source-revision.txt
+            build/campaigns/chibicc/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  campaign-tinycc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: cache the pinned TinyCC input
+        id: tinycc-cache
+        uses: actions/cache@v5
+        with:
+          path: .docs/refs/tinycc
+          key: nightly-campaign-tinycc-380597704ee9784442ef3c7ef06e105258a11c5d
+      - name: fetch pinned input
+        if: steps.tinycc-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf .docs/refs/tinycc
+          mkdir -p .docs/refs
+          git init .docs/refs/tinycc
+          git -C .docs/refs/tinycc remote add origin https://github.com/TinyCC/tinycc
+          git -C .docs/refs/tinycc fetch --depth=1 origin 380597704ee9784442ef3c7ef06e105258a11c5d
+          git -C .docs/refs/tinycc checkout --detach FETCH_HEAD
+      - name: verify the pin
+        run: test "$(git -C .docs/refs/tinycc rev-parse HEAD)" = 380597704ee9784442ef3c7ef06e105258a11c5d
+      - name: run campaign
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          make campaign-tinycc
+      - name: retain campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint57-nightly-tinycc
+          path: |
+            build/campaigns/tinycc/results.txt
+            build/campaigns/tinycc/source-revision.txt
+            build/campaigns/tinycc/logs/**
+            build/campaigns/tinycc/src/config.mak
+          if-no-files-found: warn
+          retention-days: 30
+
+  # The matrix deliberately includes a real arm64 runner.  QBE's native
+  # check executes generated output, so this covers its ARM64 emitter without
+  # qemu and also builds Cgfried natively on the architecture.
+  campaign-qbe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils libc6-dev
+      - name: cache the pinned QBE input
+        id: qbe-cache
+        uses: actions/cache@v5
+        with:
+          path: .docs/refs/qbe
+          key: nightly-campaign-qbe-${{ matrix.arch }}-d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+      - name: fetch pinned input
+        if: steps.qbe-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf .docs/refs/qbe
+          mkdir -p .docs/refs
+          git init .docs/refs/qbe
+          git -C .docs/refs/qbe remote add origin https://github.com/8l/qbe
+          git -C .docs/refs/qbe fetch --depth=1 origin d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+          git -C .docs/refs/qbe checkout --detach FETCH_HEAD
+      - name: verify the pin
+        run: test "$(git -C .docs/refs/qbe rev-parse HEAD)" = d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+      - name: run native campaign
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          make campaign-qbe
+      - name: retain campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint57-nightly-qbe-${{ matrix.arch }}
+          path: |
+            build/campaigns/qbe/results.txt
+            build/campaigns/qbe/source-ref.txt
+            build/campaigns/qbe/*.log
+            build/campaigns/qbe/**/config.h
+            build/campaigns/qbe/logs/**
+          if-no-files-found: warn
+          retention-days: 30

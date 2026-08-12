@@ -21,6 +21,32 @@ VEC_DECL(ExprVec, AstNode *);
 static AstNode *parse_cast_expr(Parser *p);
 static AstNode *parse_offsetof_designator(Parser *p);
 static AstNode *parse_unary_expr(Parser *p);
+static AstNode *expr_new(Parser *p, AstKind k, Span sp);
+
+static AstNode *parse_func_name(Parser *p, const Token *t)
+{
+    Token *lit = arena_alloc(p->arena, sizeof(*lit), _Alignof(Token));
+    u32 len = (u32)strlen(p->func_name);
+    u8 *bytes = arena_alloc(p->arena, (size_t)len + 1, _Alignof(u8));
+    AstNode *n;
+
+    memset(lit, 0, sizeof(*lit));
+    memcpy(bytes, p->func_name, len);
+    bytes[len] = 0;
+    lit->kind = TOK_STRING;
+    lit->span = t->span;
+    lit->spelling = t->spelling;
+    lit->str.bytes = bytes;
+    lit->str.nbytes = len;
+    lit->str.nelems = len;
+    lit->str.enc = ENC_NONE;
+
+    n = expr_new(p, AST_EXPR_STRING, t->span);
+    n->tok = lit;
+    n->is_func_name = true;
+    p->pos++;
+    return n;
+}
 
 static AstNode *expr_new(Parser *p, AstKind k, Span sp)
 {
@@ -124,6 +150,9 @@ static AstNode *parse_primary_expr(Parser *p)
         p->pos++;
         return n;
     case TOK_IDENT:
+        if (p->func_name && (strcmp(t->spelling, "__func__") == 0 ||
+                             strcmp(t->spelling, "__FUNCTION__") == 0))
+            return parse_func_name(p, t);
         /* `__builtin_va_arg(ap, type)` needs its own form: the second
          * "argument" is a TYPE NAME, which no ordinary call can carry.
          * (Sprint 19 — the rest of the va_* family parses as normal

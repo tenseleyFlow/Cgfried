@@ -321,6 +321,21 @@ void test_opt_inline_never_inline_bail_matrix(TestCtx *t)
                 "}\n",
                 "inl_noreturn", false);
     assert_bail(t,
+                "func f80 @choose80(i32 %c) {\n"
+                "entry():\n"
+                "    condbr %c, yes(), no()\n"
+                "yes():\n"
+                "    ret f80 0x3FFF:0x8000000000000000\n"
+                "no():\n"
+                "    ret f80 0x4000:0x8000000000000000\n"
+                "}\n"
+                "func f80 @caller(i32 %c) {\n"
+                "entry():\n"
+                "    %x = call f80 @choose80(i32 %c)\n"
+                "    ret f80 %x\n"
+                "}\n",
+                "inl_f80_multiret", false);
+    assert_bail(t,
                 "func void @stacky() {\n"
                 "entry():\n"
                 "    %p = alloca 8, align 8\n"

@@ -188,13 +188,21 @@ typedef struct Lower {
     VaPackContext *va_pack;
 
     /* module-wide */
-    Strmap globals;     /* Symbol* -> arena-owned u32 (sym index + 1) */
+    Strmap globals; /* Symbol* -> arena-owned u32 (sym index + 1) */
+    /* A symbol-table entry can exist before storage does: a relocation in
+     * an earlier initializer interns the referenced name.  Keep emission
+     * state separate or that forward reference suppresses the definition. */
+    Strmap emitted_globals; /* Symbol* -> arena-owned nonzero marker */
     Strmap func_ids;    /* Symbol* -> arena-owned u32 (IrFunc index + 1), for
                            the functions THIS module emits */
     Strmap string_pool; /* content -> arena-owned u32 sym index + 1 */
-    u32 nstrings;       /* string-literal globals emitted, for naming */
-    u32 nlocal_static;  /* block-scope statics, for name mangling */
-    u32 ntemps;         /* aggregate temporaries (naming only) */
+    /* Function-name objects are NOT ordinary string literals: C11 gives
+     * `__func__` one distinct static const array object per function, while
+     * GNU `__FUNCTION__` aliases that same object. */
+    Strmap func_name_objects; /* function name -> u32 sym index + 1 */
+    u32 nstrings;             /* string-literal globals emitted, for naming */
+    u32 nlocal_static;        /* block-scope statics, for name mangling */
+    u32 ntemps;               /* aggregate temporaries (naming only) */
     bool include_inline_defs; /* analysis module, never object emission */
     bool verify_each;         /* CGF_VERIFY_AFTER_EACH=1: verify per function */
     bool failed;              /* a deferral hard-error fired */
@@ -297,6 +305,8 @@ IrOperand lower_i64(i64 v);
 /* String literal -> pooled internal global (content-deduped); returns
  * the module symbol index. */
 u32 lower_string_lit(Lower *lo, const AstNode *e);
+/* C11 __func__ / GNU __FUNCTION__ -> one static const array per function. */
+u32 lower_func_name_object(Lower *lo, const AstNode *e);
 /* Anonymous object (string or file-scope compound literal) -> symbol. */
 u32 lower_anon_sym(Lower *lo, const AstNode *e);
 /* Aggregate temporary: entry-independent alloca in the CURRENT block

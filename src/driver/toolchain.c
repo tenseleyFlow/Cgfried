@@ -532,11 +532,13 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
 
 /* --- Sprints 25-27: the link recipe -----------------------------------------
  *
- * Dynamic non-PIE ELF executable against system crt/libc. crtbegin.o /
- * crtend.o are GCC-installation files needed only for ctors/dtors/C++ —
- * plain C links fine without them (do NOT "add them for correctness":
- * that drags in a GCC-version-specific path; if a link ever fails on
- * __dso_handle, that is THIS gap — document, don't silently add).
+ * Dynamic ELF executable against system crt/libc. crtbegin.o / crtend.o are
+ * GCC-installation files whose constructor, TM-clone, and frame-registration
+ * machinery plain C does not need.  glibc's libc_nonshared atexit object does
+ * need their __dso_handle token, so libcgf_rt supplies that one ABI object and
+ * the default-library group below gives libc's late undefined reference a
+ * second archive scan.  This keeps the driver independent of a private GCC
+ * version directory without leaving hosted atexit un-linkable.
  * Non-PIE only in v0.1.0: always crt1.o, never Scrt1.o (Sprint 51). */
 
 /* --- macOS SDK discovery (Sprint 50) --------------------------------------
@@ -832,12 +834,13 @@ static const char *joined2(struct Arena *ar, const char *a, const char *b)
  *   ld -dynamic-linker <per-target> -o <out>
  *      <crtdir>/crt1.o <crtdir>/crti.o
  *      <user objects, -l libs, -Wl args IN COMMAND-LINE ORDER>
- *      libcgf_rt.a -lc
+ *      --start-group libcgf_rt.a -lc --end-group
  *      <crtdir>/crtn.o
  *
- * -static drops -dynamic-linker and groups the tail
- * (--start-group rt -lc --end-group: glibc's libc.a has internal
- * cycles — the gcc-parity fix). Subtraction: -nostartfiles removes the
+ * -static drops -dynamic-linker and adds libgcc/libgcc_eh to that tail group
+ * (glibc's libc.a has internal cycles — the gcc-parity fix). Dynamic links
+ * use the group too: libc_nonshared's atexit member introduces __dso_handle
+ * after the runtime's first scan. Subtraction: -nostartfiles removes the
  * crts, -nodefaultlibs removes rt/-lc, -nostdlib removes both;
  * user -l flags ALWAYS survive. -L dirs hoist (GNU ld applies all -L
  * to all -l regardless of position); objects/libs NEVER reorder.
@@ -1070,9 +1073,11 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             VecStr_push(out, "-lc");
             VecStr_push(out, "--end-group");
         } else {
+            VecStr_push(out, "--start-group");
             if (rt)
                 VecStr_push(out, rt);
             VecStr_push(out, "-lc");
+            VecStr_push(out, "--end-group");
         }
     }
     if (want_crts)

@@ -123,6 +123,29 @@ void bigint_mul_small(BigInt *b, uint32_t m)
     }
 }
 
+void bigint_add_small(BigInt *b, uint32_t v)
+{
+    uint64_t carry = v;
+    int i = 0;
+
+    if (b->overflow || carry == 0)
+        return;
+    while (carry && i < b->len) {
+        uint64_t old = b->w[i];
+
+        b->w[i] = old + carry;
+        carry = b->w[i] < old;
+        i++;
+    }
+    if (carry) {
+        if (b->len >= BIGINT_WORDS) {
+            b->overflow = true;
+            return;
+        }
+        b->w[b->len++] = carry;
+    }
+}
+
 void bigint_mul_pow10(BigInt *b, int e)
 {
     /* Multiply in chunks of 10^9, the largest power of ten that fits a

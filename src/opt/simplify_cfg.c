@@ -470,13 +470,21 @@ static void replace_value(IrFunc *f, ValueId from, IrOperand to)
             u32 oi, ei, ai;
 
             for (oi = 0; oi < in->nops; oi++)
-                if (in->ops[oi].kind == IROP_VALUE && in->ops[oi].a == from.v)
+                if (in->ops[oi].kind == IROP_VALUE && in->ops[oi].a == from.v) {
+                    IrOperand old = in->ops[oi];
+
                     in->ops[oi] = to;
+                    ir_arg_carry_provenance(&in->ops[oi], &old);
+                }
             for (ei = 0; ei < in->nedges; ei++)
                 for (ai = 0; ai < in->edges[ei].nargs; ai++)
                     if (in->edges[ei].args[ai].kind == IROP_VALUE &&
-                        in->edges[ei].args[ai].a == from.v)
+                        in->edges[ei].args[ai].a == from.v) {
+                        IrOperand old = in->edges[ei].args[ai];
+
                         in->edges[ei].args[ai] = to;
+                        ir_arg_carry_provenance(&in->edges[ei].args[ai], &old);
+                    }
         }
     }
 }

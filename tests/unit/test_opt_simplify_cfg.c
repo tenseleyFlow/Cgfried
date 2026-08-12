@@ -178,6 +178,37 @@ void test_opt_simplify_cfg_merges_straight_line_and_forwards_args(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_simplify_cfg_forward_keeps_call_arg_provenance(TestCtx *t)
+{
+    CfgFix f;
+    IrModule *m;
+    OptConfig cfg;
+    IrInst *call;
+
+    fix_init(&f);
+    m = parse(&f,
+              "func i32 @f(i32 %x) {\n"
+              "entry():\n"
+              "    br next(i32 %x)\n"
+              "next(i32 %p):\n"
+              "    %r = call i32 @sink(ptr @fmt, i32 %p anon, i32 7 anon) va\n"
+              "    ret i32 %r\n"
+              "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O1);
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && opt_simplify_cfg(m, &cfg));
+    if (m) {
+        call = m->funcs[0].blocks[0].first;
+        T_ASSERT_EQ_INT(t, call->op, IR_CALL);
+        T_ASSERT_EQ_INT(t, call->ops[0].argflags, 0);
+        T_ASSERT_EQ_INT(t, call->ops[1].argflags, IROPF_ANON);
+        T_ASSERT_EQ_INT(t, call->ops[2].argflags, IROPF_ANON);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_simplify_cfg_collapses_pure_diamond_to_select(TestCtx *t)
 {
     CfgFix f;

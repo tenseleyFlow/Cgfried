@@ -121,57 +121,91 @@ static void plan_addresses(Isel *is, const IrInst *const *defs,
         arena_alloc(is->arena, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
     u32 *queue =
         arena_alloc(is->arena, (f->nvals + 1) * sizeof(u32), _Alignof(u32));
+    bool *plan_done =
+        arena_alloc(is->arena, (f->nvals + 1) * sizeof(bool), _Alignof(bool));
     bool *only_planned_scale_use =
         arena_alloc(is->arena, (f->nvals + 1) * sizeof(bool), _Alignof(bool));
     u32 bi, i, qhead = 0, qtail = 0;
+    bool progress;
 
     memset(base_parent, 0, (f->nvals + 1) * sizeof(u32));
+    memset(plan_done, 0, (f->nvals + 1) * sizeof(bool));
     memset(only_planned_scale_use, 1, (f->nvals + 1) * sizeof(bool));
+
+    /* Value ids follow block layout, not dominance order.  A label block can
+     * therefore contain a field-address child with a smaller id than the
+     * pointer calculation that dominates it.  Record every dependency first,
+     * then resolve parents before children instead of relying on id order. */
     for (i = 1; i <= f->nvals; i++) {
         const IrInst *in = defs[i];
-        AddrPlan *p = &is->addr_plan[i];
-        const AddrPlan *parent = NULL;
 
         if (!in || in->op != IR_PTRADD || in->nops != 2 ||
-            in->ops[0].kind != IROP_VALUE)
+            in->ops[0].kind != IROP_VALUE) {
+            plan_done[i] = true;
             continue;
+        }
         base_parent[i] = (u32)in->ops[0].a;
-        if (defs[base_parent[i]] && defs[base_parent[i]]->op == IR_PTRADD &&
-            is->addr_plan[base_parent[i]].valid)
-            parent = &is->addr_plan[base_parent[i]];
-        if (parent) {
-            *p = *parent;
-            p->valid = false;
-            p->suppress = false;
-        } else {
-            p->base = in->ops[0];
-            p->scale = 1;
-        }
-        if (in->ops[1].kind == IROP_ICONST) {
-            i64 add = (i64)in->ops[1].a;
-
-            if ((add > 0 && p->disp > INT64_MAX - add) ||
-                (add < 0 && p->disp < INT64_MIN - add))
-                continue;
-            p->disp += add;
-            if (!x64_fold_ok(1, false, p->disp))
-                continue;
-        } else if (in->ops[1].kind == IROP_VALUE) {
-            const IrInst *off_def = defs[(u32)in->ops[1].a];
-
-            if (p->has_index)
-                continue; /* x86 has one SIB index */
-            p->has_index = true;
-            if (!scaled_index_def(off_def, &p->index, &p->scale))
-                p->index = in->ops[1];
-            if (!x64_fold_ok(p->scale, false, 0))
-                continue;
-        } else {
-            continue;
-        }
-        p->valid = true;
-        p->suppress = is->use_count[i] && only_addr_use[i];
     }
+    do {
+        progress = false;
+        for (i = 1; i <= f->nvals; i++) {
+            const IrInst *in = defs[i];
+            AddrPlan *p;
+            const AddrPlan *parent = NULL;
+            u32 parent_value;
+            bool valid = true;
+
+            if (plan_done[i])
+                continue;
+            parent_value = base_parent[i];
+            if (defs[parent_value] && defs[parent_value]->op == IR_PTRADD &&
+                !plan_done[parent_value])
+                continue;
+            if (defs[parent_value] && defs[parent_value]->op == IR_PTRADD &&
+                is->addr_plan[parent_value].valid)
+                parent = &is->addr_plan[parent_value];
+            p = &is->addr_plan[i];
+            memset(p, 0, sizeof(*p));
+            if (parent) {
+                *p = *parent;
+                p->valid = false;
+                p->suppress = false;
+            } else {
+                p->base = in->ops[0];
+                p->scale = 1;
+            }
+            if (in->ops[1].kind == IROP_ICONST) {
+                i64 add = (i64)in->ops[1].a;
+
+                if ((add > 0 && p->disp > INT64_MAX - add) ||
+                    (add < 0 && p->disp < INT64_MIN - add))
+                    valid = false;
+                else {
+                    p->disp += add;
+                    valid = x64_fold_ok(1, false, p->disp);
+                }
+            } else if (in->ops[1].kind == IROP_VALUE) {
+                const IrInst *off_def = defs[(u32)in->ops[1].a];
+
+                if (p->has_index) {
+                    valid = false; /* x86 has one SIB index */
+                } else {
+                    p->has_index = true;
+                    if (!scaled_index_def(off_def, &p->index, &p->scale))
+                        p->index = in->ops[1];
+                    valid = x64_fold_ok(p->scale, false, 0);
+                }
+            } else {
+                valid = false;
+            }
+            if (valid) {
+                p->valid = true;
+                p->suppress = is->use_count[i] && only_addr_use[i];
+            }
+            plan_done[i] = true;
+            progress = true;
+        }
+    } while (progress);
 
     /* If a ptradd child cannot disappear, its base plan cannot disappear
      * either: the selected child still needs that SSA value as a register.
@@ -504,7 +538,13 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
         return is->vals[(u32)o->a].vr;
     case IROP_ICONST: {
         X64Width w = width_of((IrType)o->type);
-        i64 v = (i64)o->a;
+        /* Narrow IR integers are bit patterns. Constant folding may leave
+         * their sign-extended mathematical value in the u64 payload (for
+         * example an i32 bitfield-clear mask can arrive as -4294967289),
+         * but every x86 32-bit encoding consumes only the low imm32 bits.
+         * Canonicalize that payload before MIR so legal imm32 patterns do
+         * not masquerade as forbidden imm64 operands. */
+        i64 v = w == X64_Q ? (i64)o->a : (i64)(u32)o->a;
         X64VReg r = newv(is);
         X64Inst *in;
 
@@ -596,7 +636,7 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
 static X64Operand to_src(Isel *is, const IrOperand *o, X64Width w)
 {
     if (o->kind == IROP_ICONST) {
-        i64 v = (i64)o->a;
+        i64 v = w == X64_Q ? (i64)o->a : (i64)(u32)o->a;
 
         if (w != X64_Q || x64_imm_fits_simm32(v))
             return oimm(v);
@@ -2949,6 +2989,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Inst *x;
         X64VReg outv = {0};
         u32 outidx = (u32)-1;
+        u32 x87_outidx = (u32)-1;
+        bool has_x87_up = false;
+        bool x87_input_only = false;
         u32 k;
 
         if (!a) {
@@ -2964,9 +3007,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          * outputs only when they are fixed and have one matching input. */
         for (k = 0; k < a->nops && k < 64; k++)
             if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
-                outv = newv(is);
-                opreg[k] = outv;
-                outidx = k;
+                if (a->ops[k].cls == ASM_CLS_X87) {
+                    x87_outidx = k;
+                    continue;
+                } else {
+                    outv =
+                        a->ops[k].cls == ASM_CLS_FPREG ? newvf(is) : newv(is);
+                    opreg[k] = outv;
+                    outidx = k;
+                }
                 break;
             }
         /* Pass 2: everything that has to be somewhere before the asm. */
@@ -2975,6 +3024,18 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
 
             if (o->cls == ASM_CLS_IMM)
                 continue; /* no register: printed as $N */
+            if (o->cls == ASM_CLS_X87 || o->cls == ASM_CLS_X87UP) {
+                if (!o->is_output) {
+                    X64VReg src = f80_addr(is, &in->ops[k]);
+
+                    x87_mem(is, X64_OP_X87_FLD, X64_T, src, 0);
+                    if (o->cls == ASM_CLS_X87UP)
+                        has_x87_up = true;
+                    else if (x87_outidx == (u32)-1)
+                        x87_input_only = true;
+                }
+                continue; /* st(0), never an allocator-visible vreg */
+            }
             if (o->is_output && o->cls != ASM_CLS_MEM)
                 continue; /* handled above; the asm defines it */
             if (o->tied_to >= 0 && (u32)o->tied_to < a->nops &&
@@ -3010,7 +3071,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                  * it -- which is how `movq $1, %rdx` ended up following
                  * `movq %rdx, %rax` and the syscall read garbage. Fourth
                  * appearance of this bug class in the backend. */
-                src = to_vreg(is, &in->ops[k]);
+                src = out->cls == ASM_CLS_FPREG ? to_fvreg(is, &in->ops[k])
+                                                : to_vreg(is, &in->ops[k]);
                 if (tied == outidx && out->cls != ASM_CLS_FIXED) {
                     dst = outv;
                 } else {
@@ -3018,9 +3080,11 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                      * pin the IR value globally; for an extra output this
                      * vreg is also what reserves the physical register at
                      * the atomic ASM point until READREG captures it. */
-                    dst = newv(is);
+                    dst = out->cls == ASM_CLS_FPREG ? newvf(is) : newv(is);
                 }
-                mv = emit(is, X64_OP_MOV, asm_width(o->size));
+                mv = emit(is,
+                          out->cls == ASM_CLS_FPREG ? X64_OP_FMOV : X64_OP_MOV,
+                          asm_width(o->size));
                 mv->def = dst;
                 mv->a = ovreg(src);
                 if (out->cls == ASM_CLS_FIXED)
@@ -3047,7 +3111,28 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 mv->a = ovreg(src);
                 continue;
             }
-            opreg[k] = to_vreg(is, &in->ops[k]);
+            {
+                X64VReg src = o->cls == ASM_CLS_FPREG
+                                  ? to_fvreg(is, &in->ops[k])
+                                  : to_vreg(is, &in->ops[k]);
+                X64VReg local = o->cls == ASM_CLS_FPREG ? newvf(is) : newv(is);
+                X64Inst *mv =
+                    emit(is, o->cls == ASM_CLS_FPREG ? X64_OP_FMOV : X64_OP_MOV,
+                         o->cls == ASM_CLS_MEM ? X64_Q : asm_width(o->size));
+
+                /* Register-required asm operands are unspillable because the
+                 * template names every one simultaneously and the generic
+                 * reload path has only two scratches.  Never put that policy
+                 * on the source value's whole interval: an address reused
+                 * long after this asm can cross calls and exhaust the five
+                 * callee-saved registers (musl pthread_barrier_wait did).
+                 * Localize the requirement through a one-site copy, exactly
+                 * as fixed inputs above are localized.  Tied operands already
+                 * use their output's fresh vreg and do not reach this path. */
+                mv->def = local;
+                mv->a = ovreg(src);
+                opreg[k] = local;
+            }
         }
 
         /* A named clobber must exclude its EXACT register, including the
@@ -3094,6 +3179,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          * above cover named callee-saved registers too. */
         if (a->nclobber_regs)
             x->flags |= X64IF_ASM_CLOBBERS;
+        if (x87_input_only)
+            x->flags |= X64IF_ASM_X87_POP;
         if (outv.v)
             outval[outidx] = outv;
         /* Capture EVERY extra output before even computing a store address.
@@ -3105,7 +3192,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             const IrAsmOp *o = &a->ops[k];
             X64Inst *rr;
 
-            if (!o->is_output || o->cls == ASM_CLS_MEM || k == outidx)
+            if (!o->is_output || o->cls == ASM_CLS_MEM ||
+                o->cls == ASM_CLS_X87 || o->cls == ASM_CLS_X87UP || k == outidx)
                 continue;
             if (o->cls != ASM_CLS_FIXED)
                 CGF_ICE("x86_64 isel: extra asm output is not fixed");
@@ -3120,13 +3208,26 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++) {
             X64Inst *st;
 
+            if (k == x87_outidx) {
+                X64Mem mem = fold_addr(is, &in->ops[k]);
+
+                st = emit(is, X64_OP_X87_FSTP, X64_T);
+                st->a.kind = X64O_MEM;
+                st->a.mem = mem;
+                continue;
+            }
             if (!outval[k].v)
                 continue;
-            st = emit(is, X64_OP_STORE, asm_width(a->ops[k].size));
+            st = emit(is,
+                      a->ops[k].cls == ASM_CLS_FPREG ? X64_OP_FSTORE
+                                                     : X64_OP_STORE,
+                      asm_width(a->ops[k].size));
             st->a = ovreg(outval[k]);
             st->b.kind = X64O_MEM;
             st->b.mem = fold_addr(is, &in->ops[k]);
         }
+        if (has_x87_up)
+            x87_op0(is, X64_OP_X87_FPOP);
         break;
     }
     case IR_VA_START: {

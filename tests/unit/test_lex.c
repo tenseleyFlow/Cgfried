@@ -201,6 +201,11 @@ void test_lex_int_ladder(TestCtx *t)
     ladder(t, "0777", 0777, ITY_INT);
     ladder(t, "020000000000", 020000000000ull, ITY_UINT);
 
+    /* GNU binary constants follow the same non-decimal ladder. */
+    ladder(t, "0b101010", 42, ITY_INT);
+    ladder(t, "0B10000000000000000000000000000000", 0x80000000ull, ITY_UINT);
+    ladder(t, "0b111u", 7, ITY_UINT);
+
     /* Suffixes, any order/case. */
     ladder(t, "1u", 1, ITY_UINT);
     ladder(t, "1U", 1, ITY_UINT);
@@ -237,6 +242,8 @@ void test_lex_int_errors(TestCtx *t)
     lex_err(t, "1uu\n", STD_C17);
     lex_err(t, "1z\n", STD_C17);
     lex_err(t, "0x\n", STD_C17); /* hex with no digits */
+    lex_err(t, "0b\n", STD_C17); /* binary with no digits */
+    lex_err(t, "0b102\n", STD_C17);
 }
 
 /* Character-constant value check. */

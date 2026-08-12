@@ -75,6 +75,11 @@ typedef struct Parser {
     u32 break_depth;    /* loops AND switches both accept `break` */
     LabelEntry *labels; /* reset per function definition */
     bool in_func_body;
+    /* Name of the function whose body is being parsed. C11 6.4.2.2 makes
+     * `__func__` behave as an implicit `static const char[]` definition in
+     * that body; GNU's `__FUNCTION__` is the same value. NULL outside a
+     * function so a file-scope use remains an ordinary undeclared name. */
+    const char *func_name;
 } Parser;
 
 void parse_init(Parser *p, const TokenList *tl, Preprocessor *pp, DiagCtx *dc,

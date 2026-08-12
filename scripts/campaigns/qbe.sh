@@ -1,0 +1,192 @@
+#!/bin/sh
+set -eu
+
+QBE_REF=d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+
+fail() {
+    echo "qbe-campaign: $*" >&2
+    exit 1
+}
+
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+repo=$(CDPATH='' cd -- "$script_dir/../.." && pwd -P)
+source=${CGF_CAMPAIGN_QBE_SOURCE:-$repo/.docs/refs/qbe}
+work=${CGF_CAMPAIGN_QBE_WORK:-$repo/build/campaigns/qbe}
+checker=${CGF_CAMPAIGN_CHECK:-$repo/ci/campaigns/check-expected.sh}
+cgf=${CGF:-$repo/build/cgfried}
+hostcc=${CGF_CAMPAIGN_QBE_HOSTCC:-gcc}
+
+case $source in /*) ;; *) source=$repo/$source ;; esac
+case $work in /*) ;; *) work=$repo/$work ;; esac
+case $checker in /*) ;; *) checker=$repo/$checker ;; esac
+case $cgf in /*) ;; *) cgf=$repo/$cgf ;; esac
+
+machine=$(uname -m)
+case $machine in
+    x86_64 | amd64)
+        arch=x86_64
+        deftgt=T_amd64_sysv
+        expected_default=$repo/ci/campaigns/qbe.expected
+        excluded=0
+        ;;
+    aarch64 | arm64)
+        arch=arm64
+        deftgt=T_arm64
+        expected_default=$repo/ci/campaigns/qbe-arm64.expected
+        excluded=1
+        ;;
+    *) fail "unsupported native architecture: $machine" ;;
+esac
+expected=${CGF_CAMPAIGN_QBE_EXPECTED:-$expected_default}
+case $expected in /*) ;; *) expected=$repo/$expected ;; esac
+
+[ -x "$cgf" ] || fail "cgfried is not executable: $cgf"
+[ -x "$checker" ] || fail "expected-results checker is not executable: $checker"
+command -v "$hostcc" >/dev/null 2>&1 ||
+    fail "host GCC is unavailable: $hostcc"
+
+# Campaign jobs build only the compiler, not the optional bundled Rust tools.
+# Route Cgfried to native binutils explicitly on both supported hosts.
+as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}
+ld_path=${CGF_LD_PATH:-$(command -v ld 2>/dev/null || true)}
+[ -n "$as_path" ] || fail "assembler is unavailable; set CGF_AS_PATH"
+[ -n "$ld_path" ] || fail "linker is unavailable; set CGF_LD_PATH"
+export CGF_AS_PATH="$as_path" CGF_LD_PATH="$ld_path"
+
+got=$(git -C "$source" rev-parse --verify HEAD 2>/dev/null) ||
+    fail "qbe ref checkout missing or invalid: $source"
+[ "$got" = "$QBE_REF" ] ||
+    fail "qbe ref mismatch: expected $QBE_REF, got $got"
+
+# `work` is disposable.  Resolve the repository root, allow one direct child
+# of its campaign directory, and reject symlinks before the recursive cleanup.
+# This prevents `..`, nested overrides, and symlink escapes from widening rm.
+campaign_root=$repo/build/campaigns
+mkdir -p "$campaign_root"
+campaign_root_real=$(CDPATH='' cd -- "$campaign_root" && pwd -P)
+[ "$campaign_root_real" = "$campaign_root" ] ||
+    fail "campaign root must not traverse symlinks: $campaign_root"
+case $work in
+    "$campaign_root"/*)
+        work_name=${work#"$campaign_root"/}
+        case $work_name in '' | . | .. | */*) fail "unsafe work directory: $work" ;; esac
+        ;;
+    *) fail "work directory must be a direct child of $campaign_root: $work" ;;
+esac
+[ ! -L "$work" ] || fail "work directory must not be a symlink: $work"
+[ "$work" != "$source" ] || fail "source and work directories must differ"
+
+rm -rf "$work"
+mkdir -p "$work/cgfried-src" "$work/host-gcc-src" "$work/logs/cgfried" \
+    "$work/logs/host-gcc"
+
+# Two independent archive exports make the host-GCC lane a true baseline: it
+# shares no generated config, object, or test artifact with Cgfried's lane.
+git -C "$source" archive "$QBE_REF" | tar -x -C "$work/cgfried-src"
+git -C "$source" archive "$QBE_REF" | tar -x -C "$work/host-gcc-src"
+printf '%s\n' "$QBE_REF" >"$work/source-ref.txt"
+
+write_config() {
+    tree=$1
+    {
+        echo '#define Defasm Gaself'
+        printf '#define Deftgt %s\n' "$deftgt"
+    } >"$tree/config.h"
+}
+
+prepare_tree() {
+    tree=$1
+    write_config "$tree"
+    if [ "$arch" = arm64 ]; then
+        # The upstream first line is `# skip arm64`, but TARGET=arm64 selects
+        # cross-GCC plus qemu.  On a native ARM runner, retain native cc/QBE
+        # behavior while excluding exactly that upstream-declared case.
+        mv "$tree/test/dark.ssa" "$tree/test/_dark.arm64-skipped.ssa"
+    fi
+}
+
+prepare_tree "$work/cgfried-src"
+prepare_tree "$work/host-gcc-src"
+{
+    printf 'architecture=%s\n' "$arch"
+    printf 'config=#define Defasm Gaself; #define Deftgt %s\n' "$deftgt"
+    echo 'config-source=campaign-generated from uname -m'
+    echo "reason=pinned Makefile contains an invalid literal \$define on aarch64"
+    if [ "$arch" = arm64 ]; then
+        echo 'native-arm64-skip=test/dark.ssa (upstream # skip arm64)'
+    fi
+} >"$work/campaign-fixes.log"
+
+jobs=${CGF_CAMPAIGN_JOBS:-}
+if [ -z "$jobs" ]; then
+    jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n')
+fi
+case $jobs in *[!0-9]* | 0) fail "CGF_CAMPAIGN_JOBS must be positive: $jobs" ;; esac
+
+build_lane() {
+    label=$1
+    tree=$2
+    compiler=$3
+    log=$work/logs/$label/build.log
+
+    if LC_ALL=C SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-0} \
+        make -C "$tree" -j"$jobs" V= CC="$compiler" >"$log" 2>&1; then
+        return
+    fi
+    status=$?
+    sed "s/^/qbe-$label-build: /" "$log" >&2
+    fail "$label build failed with status $status (log: $log)"
+}
+
+test_lane() {
+    label=$1
+    tree=$2
+    log=$work/logs/$label/test.log
+
+    if LC_ALL=C make -C "$tree" check >"$log" 2>&1; then
+        :
+    else
+        status=$?
+        sed "s/^/qbe-$label-test: /" "$log" >&2
+        fail "$label native tests failed with status $status (log: $log)"
+    fi
+    cases=$(find "$tree/test" -maxdepth 1 -type f -name '[!_]*.ssa' -print |
+        wc -l | tr -d ' ')
+    oks=$(grep -c '\[ok\]$' "$log" || true)
+    [ "$cases" -gt 0 ] || fail "$label suite contains no native cases"
+    [ "$oks" -eq "$cases" ] ||
+        fail "$label accounting mismatch: cases=$cases ok=$oks"
+    grep -q '^All is fine!$' "$log" ||
+        fail "$label suite did not emit its success sentinel"
+    printf '%s\n' "$cases"
+}
+
+build_lane cgfried "$work/cgfried-src" "$cgf"
+build_lane host-gcc "$work/host-gcc-src" "$hostcc"
+cgf_cases=$(test_lane cgfried "$work/cgfried-src")
+gcc_cases=$(test_lane host-gcc "$work/host-gcc-src")
+[ "$cgf_cases" -eq "$gcc_cases" ] ||
+    fail "native case parity failed: Cgfried=$cgf_cases host-GCC=$gcc_cases"
+[ "$cgf_cases" -eq $((32 - excluded)) ] ||
+    fail "unexpected $arch case count: expected $((32 - excluded)), got $cgf_cases"
+
+tab=$(printf '\t')
+{
+    echo '# cgf-campaign-results-v1'
+    printf '# columns=key%coutcome%cdetail\n' "$tab" "$tab"
+    printf 'baseline.build%cPASS%ccompiler=host-gcc\n' "$tab" "$tab"
+    printf 'build%cPASS%ccompiler=cgfried\n' "$tab" "$tab"
+    printf 'host.arch%cPASS%carchitecture=%s\n' "$tab" "$tab" "$arch"
+    printf 'parity.cgfried-only-failures%cPASS%ccases=0\n' "$tab" "$tab"
+    printf 'source.pin%cPASS%crevision=%s\n' "$tab" "$tab" "$QBE_REF"
+    printf 'test.cgfried-native%cPASS%ccases=%s\n' "$tab" "$tab" "$cgf_cases"
+    if [ "$arch" = arm64 ]; then
+        printf 'test.excluded%cPASS%ccase=dark.ssa,reason=upstream-skip-arm64\n' \
+            "$tab" "$tab"
+    fi
+    printf 'test.host-gcc-native%cPASS%ccases=%s\n' "$tab" "$tab" "$gcc_cases"
+} >"$work/results.txt"
+
+"$checker" "$expected" "$work/results.txt"
+printf 'qbe-campaign: PASS revision=%s architecture=%s native-cases=%s artifacts=%s\n' \
+    "$QBE_REF" "$arch" "$cgf_cases" "$work"

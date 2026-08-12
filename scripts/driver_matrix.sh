@@ -335,6 +335,15 @@ if "$CGF_ABS" -c "$WORK/probe_bad.h" >/dev/null 2>&1; then
     probe_fail "a syntactically broken header was accepted"
 fi
 
+# Autoconf-style feature probes conventionally discard objects with
+# `-c -o /dev/null`.  The backend stages textual assembly before invoking as;
+# deriving that stage as `/dev/null.cgf.s` made every such probe report that
+# the compiler was broken even though its requested output is a valid sink.
+printf 'int probe_devnull(void) { return 0; }\n' > "$WORK/probe_devnull.c"
+if ! "$CGF_ABS" -c -o /dev/null "$WORK/probe_devnull.c"; then
+    probe_fail "-c -o /dev/null failed"
+fi
+
 cd "$ROOT"
 if [ "$fails" -ne 0 ]; then
     echo "driver_matrix: $fails failure(s) across $rows rows" >&2

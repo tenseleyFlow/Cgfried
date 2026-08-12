@@ -78,6 +78,31 @@ u32 lower_string_lit(Lower *lo, const AstNode *e)
                        n + 1, ".Lstr.", 1);
 }
 
+u32 lower_func_name_object(Lower *lo, const AstNode *e)
+{
+    const char *name = lo->fname ? lo->fname : "";
+    size_t n = strlen(name) + 1;
+    u32 *hit = lower_u32map_get(&lo->func_name_objects, name, n);
+    char buf[32];
+    IrGlobal *g;
+    u32 idx;
+
+    if (hit)
+        return *hit - 1;
+    snprintf(buf, sizeof(buf), ".Lfuncname.%u", lo->nstrings++);
+    g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
+    g->size = n;
+    g->align = 1;
+    g->linkage = IRLINK_INTERNAL;
+    g->is_const = true;
+    g->init = arena_alloc(lo->arena, n, 1);
+    memcpy(g->init, name, n);
+    idx = ir_sym(lo->m, g->name);
+    lower_u32map_put(lo, &lo->func_name_objects, name, n, idx + 1);
+    (void)e;
+    return idx;
+}
+
 /* --- constant-image builder ------------------------------------------------
  *
  * A quiet mirror of constexpr.c's fill(): constants pack into the image
@@ -89,8 +114,15 @@ typedef struct RtStore {
     Type *t;          /* scalar or aggregate element type */
     AstNode *e;       /* the expression to evaluate at runtime */
     const Member *bf; /* bitfield member, or NULL */
+    bool active;
     struct RtStore *next;
 } RtStore;
+
+typedef struct PlanUnionSelection {
+    Type *type;
+    u64 off;
+    u64 member;
+} PlanUnionSelection;
 
 typedef struct InitPlan {
     Lower *lo;
@@ -106,6 +138,9 @@ typedef struct InitPlan {
     } relocs[32];
     u32 nrelocs;
     bool reloc_overflow;
+    PlanUnionSelection *unions;
+    u32 nunions;
+    u32 cap_unions;
 } InitPlan;
 
 static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
@@ -116,6 +151,7 @@ static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
     r->t = t;
     r->e = e;
     r->bf = bf;
+    r->active = true;
     r->next = NULL;
     if (p->rt_tail)
         p->rt_tail->next = r;
@@ -132,6 +168,85 @@ static void plan_put_int(InitPlan *p, u64 off, u64 v, u64 width)
         p->img[off + i] = (u8)(v >> (i * 8));
 }
 
+static void plan_zero(InitPlan *p, u64 off, u64 width)
+{
+    if (off + width <= p->size)
+        memset(p->img + off, 0, (size_t)width);
+}
+
+static void plan_clear_relocs(InitPlan *p, u64 off, u64 width)
+{
+    u32 from;
+    u32 to = 0;
+
+    for (from = 0; from < p->nrelocs; from++) {
+        u64 reloc_off = p->relocs[from].off;
+
+        if (reloc_off < off + width && off < reloc_off + 8)
+            continue;
+        p->relocs[to++] = p->relocs[from];
+    }
+    p->nrelocs = to;
+}
+
+static bool plan_ranges_overlap(u64 aoff, u64 awidth, u64 boff, u64 bwidth)
+{
+    return awidth && bwidth && aoff < boff + bwidth && boff < aoff + awidth;
+}
+
+static void plan_clear_rt_bits(InitPlan *p, u64 bit_off, u64 bit_width)
+{
+    RtStore *r;
+
+    for (r = p->rt_head; r; r = r->next) {
+        u64 store_off;
+        u64 store_width;
+
+        if (!r->active)
+            continue;
+        if (r->bf) {
+            store_off = (u64)r->off * 8 + r->bf->bit_offset;
+            store_width = r->bf->bit_width;
+        } else {
+            TypeLayout l = layout_of(p->lo->sema, r->t);
+
+            store_off = (u64)r->off * 8;
+            store_width = l.size * 8;
+        }
+        if (plan_ranges_overlap(bit_off, bit_width, store_off, store_width))
+            r->active = false;
+    }
+}
+
+static void plan_clear_bytes(InitPlan *p, u64 off, u64 width)
+{
+    plan_clear_relocs(p, off, width);
+    plan_clear_rt_bits(p, off * 8, width * 8);
+}
+
+static bool plan_reloc(InitPlan *p, u64 off, ConstValue v)
+{
+    u32 at = 0;
+
+    /* Byte emitters walk relocations alongside the image, so source-order
+     * designators must not determine relocation order.  A later write to
+     * the same bytes replaces the previous relocation. */
+    plan_clear_relocs(p, off, 8);
+    if (p->nrelocs == 32)
+        return false;
+    while (at < p->nrelocs && p->relocs[at].off < off)
+        at++;
+    if (at < p->nrelocs)
+        memmove(p->relocs + at + 1, p->relocs + at,
+                (p->nrelocs - at) * sizeof(p->relocs[0]));
+    p->relocs[at].off = off;
+    p->relocs[at].sym = v.sym;
+    p->relocs[at].anon = v.anon;
+    p->relocs[at].addend = v.addend;
+    p->nrelocs++;
+    return true;
+}
+
 static void plan_scalar(InitPlan *p, Type *t, AstNode *e, i64 off)
 {
     Sema *s = p->lo->sema;
@@ -141,6 +256,8 @@ static void plan_scalar(InitPlan *p, Type *t, AstNode *e, i64 off)
     if (!e)
         return;
     l = layout_of(s, t);
+    plan_clear_bytes(p, (u64)off, l.size);
+    plan_zero(p, (u64)off, l.size);
     v = constexpr_eval(s, e, CE_FOLD); /* silent on failure by design */
     switch (v.kind) {
     case CV_INT:
@@ -156,13 +273,7 @@ static void plan_scalar(InitPlan *p, Type *t, AstNode *e, i64 off)
         return;
     }
     case CV_ADDR:
-        if (p->nrelocs < 32) {
-            p->relocs[p->nrelocs].off = (u64)off;
-            p->relocs[p->nrelocs].sym = v.sym;
-            p->relocs[p->nrelocs].anon = v.anon;
-            p->relocs[p->nrelocs].addend = v.addend;
-            p->nrelocs++;
-        } else {
+        if (!plan_reloc(p, (u64)off, v)) {
             p->reloc_overflow = true;
             plan_rt(p, off, t, e, NULL);
         }
@@ -388,6 +499,55 @@ static bool plan_expr_initializes_whole(Type *target, const AstNode *init)
     return init->sem_type && type_compatible(target, init->sem_type);
 }
 
+static void plan_activate_union(InitPlan *p, Type *type, u64 off, u64 member)
+{
+    u32 i;
+
+    if (!type || type->kind != TY_UNION)
+        return;
+    for (i = 0; i < p->nunions; i++) {
+        PlanUnionSelection *selection = &p->unions[i];
+
+        if (selection->type != type || selection->off != off)
+            continue;
+        if (selection->member != member) {
+            TypeLayout l = layout_of(p->lo->sema, type);
+
+            plan_clear_bytes(p, off, l.size);
+            plan_zero(p, off, l.size);
+            selection->member = member;
+        }
+        return;
+    }
+    if (p->nunions == p->cap_unions) {
+        u32 capacity = p->cap_unions ? p->cap_unions * 2 : 8;
+        PlanUnionSelection *grown =
+            arena_alloc(p->lo->arena, capacity * sizeof(*grown),
+                        _Alignof(PlanUnionSelection));
+
+        if (p->nunions)
+            memcpy(grown, p->unions, p->nunions * sizeof(*grown));
+        p->unions = grown;
+        p->cap_unions = capacity;
+    }
+    p->unions[p->nunions].type = type;
+    p->unions[p->nunions].off = off;
+    p->unions[p->nunions].member = member;
+    p->nunions++;
+}
+
+static void plan_activate_cursor_unions(InitPlan *p, const PlanCursor *cursor)
+{
+    u32 i;
+
+    for (i = 0; i < cursor->depth; i++) {
+        const PlanCursorFrame *frame = &cursor->frames[i];
+
+        if (frame->aggregate->kind == TY_UNION)
+            plan_activate_union(p, frame->aggregate, frame->off, frame->pos);
+    }
+}
+
 static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
                               AstNode *item)
 {
@@ -395,24 +555,41 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
 
     if (!cursor->current)
         return;
+    plan_activate_cursor_unions(p, cursor);
+    if (plan_is_aggregate(cursor->current) &&
+        (item->kind == AST_INIT_LIST ||
+         plan_expr_initializes_whole(cursor->current, item))) {
+        TypeLayout l = layout_of(p->lo->sema, cursor->current);
+
+        plan_clear_bytes(p, cursor->off, l.size);
+        plan_zero(p, cursor->off, l.size);
+    }
     if (member && member->is_bitfield) {
         ConstValue value = constexpr_eval(p->lo->sema, item, CE_FOLD);
+        u32 bit;
 
-        if (value.kind == CV_INT) {
-            u32 bit;
+        if (member->bit_width) {
+            u64 first_byte = (cursor->off * 8 + member->bit_offset) / 8;
+            u64 last_bit =
+                cursor->off * 8 + member->bit_offset + member->bit_width - 1;
 
-            for (bit = 0; bit < member->bit_width; bit++) {
-                u64 absolute = cursor->off * 8 + member->bit_offset + bit;
-                u64 byte = absolute / 8;
-
-                if (byte >= p->size)
-                    break;
-                if ((value.i >> bit) & 1)
-                    p->img[byte] |= (u8)(1u << (absolute % 8));
-            }
-        } else {
-            plan_rt(p, (i64)cursor->off, member->type, item, member);
+            plan_clear_relocs(p, first_byte, last_bit / 8 - first_byte + 1);
+            plan_clear_rt_bits(p, cursor->off * 8 + member->bit_offset,
+                               member->bit_width);
         }
+        for (bit = 0; bit < member->bit_width; bit++) {
+            u64 absolute = cursor->off * 8 + member->bit_offset + bit;
+            u64 byte = absolute / 8;
+            u8 mask = (u8)(1u << (absolute % 8));
+
+            if (byte >= p->size)
+                break;
+            p->img[byte] &= (u8)~mask;
+            if (value.kind == CV_INT && ((value.i >> bit) & 1))
+                p->img[byte] |= mask;
+        }
+        if (value.kind != CV_INT)
+            plan_rt(p, (i64)cursor->off, member->type, item, member);
         return;
     }
     plan_walk(p, cursor->current, item, (i64)cursor->off);
@@ -457,6 +634,8 @@ static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
 
         if (n > cap)
             n = cap;
+        plan_clear_bytes(p, (u64)off, cap);
+        plan_zero(p, (u64)off, cap);
         for (i = 0; i < n && (u64)off + i < p->size; i++)
             p->img[off + i] = init->tok->str.bytes[i];
         return;
@@ -581,6 +760,40 @@ static void emit_stores(Lower *lo, InitPlan *p, IrOperand base, u32 align)
     }
 }
 
+/* Materialize a constant prefix. A prefix containing address constants is
+ * unique even when its raw bytes match another template: the relocations are
+ * part of its value. This helper is shared by the full-template and
+ * zero-tail paths so the latter cannot silently discard a function pointer. */
+static u32 emit_template_global(Lower *lo, InitPlan *p, u64 size, u32 align)
+{
+    char buf[32];
+    IrGlobal *g;
+    u32 i;
+
+    if (!p->nrelocs)
+        return pool_intern(lo, 0x01, p->img, size, ".Lconst.", align);
+
+    snprintf(buf, sizeof(buf), ".Lconst.%u", lo->nstrings++);
+    g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
+    g->size = size;
+    g->align = align;
+    g->linkage = IRLINK_INTERNAL;
+    g->init = p->img;
+    g->relocs =
+        arena_alloc(lo->arena, p->nrelocs * sizeof(IrReloc), _Alignof(IrReloc));
+    g->nrelocs = p->nrelocs;
+    for (i = 0; i < p->nrelocs; i++) {
+        if (p->relocs[i].off + 8 > size)
+            CGF_ICE("local initializer relocation escapes its template");
+        g->relocs[i].offset = p->relocs[i].off;
+        g->relocs[i].addend = p->relocs[i].addend;
+        g->relocs[i].symbol = p->relocs[i].sym
+                                  ? lower_global_sym(lo, p->relocs[i].sym)
+                                  : lower_anon_sym(lo, p->relocs[i].anon);
+    }
+    return ir_sym(lo->m, g->name);
+}
+
 /* The constant part of an image, by the threshold table. `has_rt` only
  * affects nothing here — runtime slots are zero in the image. */
 static void emit_const_part(Lower *lo, InitPlan *p, IrOperand base, u32 align)
@@ -619,7 +832,7 @@ static void emit_const_part(Lower *lo, InitPlan *p, IrOperand base, u32 align)
         if (head <= LOWER_INIT_STORE_MAX) {
             emit_stores(lo, &hp, base, align);
         } else {
-            u32 tmpl = pool_intern(lo, 0x01, p->img, head, ".Lconst.", align);
+            u32 tmpl = emit_template_global(lo, &hp, head, align);
 
             ir_build_memcpy(&lo->b, base, ir_op_symbol(IRT_PTR, tmpl, 0),
                             lower_i64((i64)head), align, 0);
@@ -628,36 +841,8 @@ static void emit_const_part(Lower *lo, InitPlan *p, IrOperand base, u32 align)
                         ir_op_iconst(IRT_I32, 0), lower_i64((i64)z), 1, 0);
         return;
     }
-    /* Full-size template. With relocs the template is unique (its bytes
-     * alone are not its identity), so it bypasses the dedup pool. */
-    if (p->nrelocs) {
-        char buf[32];
-        IrGlobal *g;
-        u32 i, idx;
-
-        snprintf(buf, sizeof(buf), ".Lconst.%u", lo->nstrings++);
-        g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
-        g->size = p->size;
-        g->align = align;
-        g->linkage = IRLINK_INTERNAL;
-        g->init = p->img;
-        g->relocs = arena_alloc(lo->arena, p->nrelocs * sizeof(IrReloc),
-                                _Alignof(IrReloc));
-        g->nrelocs = p->nrelocs;
-        for (i = 0; i < p->nrelocs; i++) {
-            g->relocs[i].offset = p->relocs[i].off;
-            g->relocs[i].addend = p->relocs[i].addend;
-            g->relocs[i].symbol = p->relocs[i].sym
-                                      ? lower_global_sym(lo, p->relocs[i].sym)
-                                      : lower_anon_sym(lo, p->relocs[i].anon);
-        }
-        idx = ir_sym(lo->m, g->name);
-        ir_build_memcpy(&lo->b, base, ir_op_symbol(IRT_PTR, idx, 0),
-                        lower_i64((i64)p->size), align, 0);
-        return;
-    }
     {
-        u32 tmpl = pool_intern(lo, 0x01, p->img, p->size, ".Lconst.", align);
+        u32 tmpl = emit_template_global(lo, p, p->size, align);
 
         ir_build_memcpy(&lo->b, base, ir_op_symbol(IRT_PTR, tmpl, 0),
                         lower_i64((i64)p->size), align, 0);
@@ -773,6 +958,7 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
         plan_walk(&p, t, init, 0);
         emit_const_part(lo, &p, base, (u32)(l.align ? l.align : 1));
         for (r = p.rt_head; r; r = r->next)
-            emit_rt_store(lo, base, r);
+            if (r->active)
+                emit_rt_store(lo, base, r);
     }
 }

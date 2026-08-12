@@ -80,6 +80,9 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source)
     copy->nsyms = copy->cap_syms = source->nsyms;
     copy->syms = clone_array(arena, source->syms, source->nsyms,
                              sizeof(*source->syms), _Alignof(char *));
+    copy->sym_attrs =
+        clone_array(arena, source->sym_attrs, source->nsyms,
+                    sizeof(*source->sym_attrs), _Alignof(IrSymAttrs));
     copy->sym_cgf_attrs =
         clone_array(arena, source->sym_cgf_attrs, source->nsyms,
                     sizeof(*source->sym_cgf_attrs), _Alignof(CgfAttr *));
@@ -221,13 +224,25 @@ u32 ir_sym(IrModule *m, const char *name)
 
         m->syms = grow(m->arena, m->syms, m->nsyms, nc, sizeof(char *),
                        _Alignof(char *));
+        m->sym_attrs = grow(m->arena, m->sym_attrs, m->nsyms, nc,
+                            sizeof(*m->sym_attrs), _Alignof(IrSymAttrs));
         m->sym_cgf_attrs = grow(m->arena, m->sym_cgf_attrs, m->nsyms, nc,
                                 sizeof(*m->sym_cgf_attrs), _Alignof(CgfAttr *));
         m->cap_syms = nc;
     }
     m->syms[m->nsyms] = name;
+    memset(&m->sym_attrs[m->nsyms], 0, sizeof(m->sym_attrs[m->nsyms]));
     m->sym_cgf_attrs[m->nsyms] = NULL;
     return m->nsyms++;
+}
+
+void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility)
+{
+    if (!m || index >= m->nsyms)
+        return;
+    m->sym_attrs[index].is_weak |= is_weak;
+    if (visibility)
+        m->sym_attrs[index].visibility = visibility;
 }
 
 u32 ir_sym_exact_asm(IrModule *m, const char *name)
@@ -944,7 +959,9 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
         a->nsyms != b->nsyms || a->naliases != b->naliases)
         return false;
     for (i = 0; i < a->nsyms; i++)
-        if (!str_eq(a->syms[i], b->syms[i]))
+        if (!str_eq(a->syms[i], b->syms[i]) ||
+            a->sym_attrs[i].is_weak != b->sym_attrs[i].is_weak ||
+            a->sym_attrs[i].visibility != b->sym_attrs[i].visibility)
             return false;
     for (i = 0; i < a->naliases; i++) {
         const IrAlias *x = &a->aliases[i];

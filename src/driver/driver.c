@@ -778,6 +778,42 @@ static X64PicLevel pic_level_of(const DriverArgs *a)
     return X64_PIC_NONE;
 }
 
+/* Most object builds stage assembler text beside the requested output so an
+ * assembler rejection leaves a deterministic reproducer.  `/dev/null` is a
+ * standard configure-probe output, however, and `/dev/null.cgf.s` is neither
+ * writable nor meaningful.  Give that one sink a unique staging file; keep it
+ * on failure under the same rule as an ordinary sidecar. */
+static FILE *open_asm_stage(const char *object_path, char *asm_path, size_t cap)
+{
+    if (strcmp(object_path, "/dev/null") == 0) {
+        static const char pattern[] = "/tmp/cgfried-asm-XXXXXX";
+        int fd;
+        FILE *f;
+
+        if (sizeof(pattern) > cap) {
+            errno = ENAMETOOLONG;
+            return NULL;
+        }
+        memcpy(asm_path, pattern, sizeof(pattern));
+        fd = mkstemp(asm_path);
+        if (fd < 0)
+            return NULL;
+        f = fdopen(fd, "wb");
+        if (!f) {
+            int saved = errno;
+
+            close(fd);
+            unlink(asm_path);
+            errno = saved;
+            return NULL;
+        }
+        return f;
+    }
+
+    snprintf(asm_path, cap, "%s.cgf.s", object_path);
+    return fopen(asm_path, "wb");
+}
+
 static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                         const DriverArgs *a, const CompileJob *job)
 {
@@ -948,8 +984,7 @@ emit_tail:
                 return CGF_EXIT_COMPILE;
             }
     }
-    snprintf(s_path, sizeof(s_path), "%s.cgf.s", job->out);
-    f = fopen(s_path, "wb");
+    f = open_asm_stage(job->out, s_path, sizeof(s_path));
     if (!f) {
         fprintf(stderr, "cgfried: error: cannot write '%s'\n", s_path);
         buf_free(&b);
@@ -2038,8 +2073,7 @@ int driver_main(int argc, char **argv)
                     char s_tmp[528];
                     FILE *sf;
 
-                    snprintf(s_tmp, sizeof(s_tmp), "%s.cgf.s", job.out);
-                    sf = fopen(s_tmp, "wb");
+                    sf = open_asm_stage(job.out, s_tmp, sizeof(s_tmp));
                     if (!sf) {
                         fprintf(stderr, "cgfried: error: cannot write '%s'\n",
                                 s_tmp);

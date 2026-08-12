@@ -169,6 +169,103 @@ void test_loop_tree_lcssa_repairs_multi_exit_join(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_loop_tree_lcssa_keeps_f80_liveout_out_of_block_params(TestCtx *t)
+{
+    static const char source[] = "func f80 @liveout80(i32 %n) {\n"
+                                 "entry():\n"
+                                 "    br loop(i32 0)\n"
+                                 "loop(i32 %i):\n"
+                                 "    %x = sitofp i32 %i to f80\n"
+                                 "    %next = iadd i32 %i, 1\n"
+                                 "    %more = icmp slt i32 %next, %n\n"
+                                 "    condbr %more, loop(i32 %next), exit()\n"
+                                 "exit():\n"
+                                 "    ret f80 %x\n"
+                                 "}\n";
+    LoopFix fix;
+    IrModule *m;
+    IrFunc *f;
+    Arena scratch;
+    IrDomTree *dom;
+    LoopTree *tree;
+    BlockId exit;
+    char why[256];
+
+    loop_fix_init(&fix);
+    m = parse_loop(&fix, source);
+    T_ASSERT(t, m != NULL && ir_verify(fix.dc, m));
+    if (!m) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    f = &m->funcs[0];
+    arena_init(&scratch);
+    dom = ir_domtree_build(&scratch, f);
+    tree = loop_tree_build(&scratch, f, dom);
+    (void)loop_canonicalize(m, f, tree);
+    arena_free_all(&scratch);
+
+    exit = named_block(f, "exit");
+    T_ASSERT(t, exit.v != 0);
+    T_ASSERT_EQ_INT(t, exit.v ? ir_block(f, exit)->nparams : 1, 0);
+    T_ASSERT(t, ir_verify(fix.dc, m));
+    arena_init(&scratch);
+    dom = ir_domtree_build(&scratch, f);
+    tree = loop_tree_build(&scratch, f, dom);
+    T_ASSERT(t, loop_tree_verify_canonical(tree, f, why, sizeof(why)));
+    arena_free_all(&scratch);
+    arena_free_all(&fix.arena);
+}
+
+void test_loop_tree_lcssa_keeps_stacksave_token_direct(TestCtx *t)
+{
+    static const char source[] = "func void @stack_token(i32 %n) {\n"
+                                 "entry():\n"
+                                 "    br loop(i32 0)\n"
+                                 "loop(i32 %i):\n"
+                                 "    %tok = stacksave\n"
+                                 "    %next = iadd i32 %i, 1\n"
+                                 "    %more = icmp slt i32 %next, %n\n"
+                                 "    condbr %more, loop(i32 %next), exit()\n"
+                                 "exit():\n"
+                                 "    stackrestore %tok\n"
+                                 "    ret\n"
+                                 "}\n";
+    LoopFix fix;
+    IrModule *m;
+    IrFunc *f;
+    Arena scratch;
+    IrDomTree *dom;
+    LoopTree *tree;
+    BlockId exit;
+    char why[256];
+
+    loop_fix_init(&fix);
+    m = parse_loop(&fix, source);
+    T_ASSERT(t, m != NULL && ir_verify(fix.dc, m));
+    if (!m) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    f = &m->funcs[0];
+    arena_init(&scratch);
+    dom = ir_domtree_build(&scratch, f);
+    tree = loop_tree_build(&scratch, f, dom);
+    (void)loop_canonicalize(m, f, tree);
+    arena_free_all(&scratch);
+
+    exit = named_block(f, "exit");
+    T_ASSERT(t, exit.v != 0);
+    T_ASSERT_EQ_INT(t, exit.v ? ir_block(f, exit)->nparams : 1, 0);
+    T_ASSERT(t, ir_verify(fix.dc, m));
+    arena_init(&scratch);
+    dom = ir_domtree_build(&scratch, f);
+    tree = loop_tree_build(&scratch, f, dom);
+    T_ASSERT(t, loop_tree_verify_canonical(tree, f, why, sizeof(why)));
+    arena_free_all(&scratch);
+    arena_free_all(&fix.arena);
+}
+
 void test_loop_tree_marks_goto_weave_irreducible(TestCtx *t)
 {
     static const char source[] = "func i32 @irreducible(i32 %c) {\n"

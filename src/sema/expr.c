@@ -1411,8 +1411,12 @@ static AstNode *expr(Sema *s, AstNode *e)
         }
         return e;
     case AST_EXPR_STRING: {
-        Type *arr = type_array(
-            s->arena, literal_element_type(s, (EncPrefix)e->tok->str.enc));
+        Type *elem = literal_element_type(s, (EncPrefix)e->tok->str.enc);
+        Type *arr;
+
+        if (e->is_func_name)
+            elem = type_qualify(s->arena, elem, CGF_QUAL_CONST);
+        arr = type_array(s->arena, elem);
 
         arr->has_size = true;
         arr->size = (u64)e->tok->str.nelems + 1;

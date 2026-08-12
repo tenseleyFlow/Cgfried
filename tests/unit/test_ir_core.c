@@ -350,6 +350,40 @@ void test_ir_struct_eq(TestCtx *t)
     fix_free(&f2);
 }
 
+void test_ir_external_symbol_attrs_roundtrip(TestCtx *t)
+{
+    static const char src[] = "sym @missing weak visibility(hidden)\n";
+    IrFix f;
+    IrModule *m;
+    IrModule *parsed;
+    IrModule *clone;
+    Arena clones;
+    Buf text;
+
+    fix_init(&f);
+    arena_init(&clones);
+    m = ir_parse_module(&f.arena, f.dc, src, "<external-attrs>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT_EQ_INT(t, m->nsyms, 1);
+        T_ASSERT(t, m->sym_attrs[0].is_weak);
+        T_ASSERT_EQ_INT(t, m->sym_attrs[0].visibility, GNU_VIS_HIDDEN);
+
+        buf_init(&text);
+        ir_print_module_buf(&text, m);
+        buf_push_u8(&text, 0);
+        T_ASSERT_EQ_STR(t, (const char *)text.data, src);
+        parsed = ir_parse_module(&f.arena, f.dc, (const char *)text.data,
+                                 "<external-attrs-roundtrip>");
+        T_ASSERT(t, parsed && ir_module_struct_eq(m, parsed));
+        clone = ir_module_clone(&clones, m);
+        T_ASSERT(t, clone && ir_module_struct_eq(m, clone));
+        buf_free(&text);
+    }
+    arena_free_all(&clones);
+    fix_free(&f);
+}
+
 void test_ir_reserved_ops_named(TestCtx *t)
 {
     /* The reserved band exists and sits after the terminators, so both

@@ -234,6 +234,19 @@ void test_mem2reg_bails_on_mixed_access_types(TestCtx *t)
                 "mixed_access_type");
 }
 
+void test_mem2reg_keeps_f80_in_memory(TestCtx *t)
+{
+    assert_bail(t,
+                "func f80 @f() {\n"
+                "entry():\n"
+                "    %p = alloca 16, align 16\n"
+                "    store f80 0x3FFF:0x8000000000000000, %p, align 16\n"
+                "    %v = load f80, %p, align 16\n"
+                "    ret f80 %v\n"
+                "}\n",
+                "memory_only_type");
+}
+
 void test_mem2reg_skips_entire_setjmp_caller(TestCtx *t)
 {
     OFix f;

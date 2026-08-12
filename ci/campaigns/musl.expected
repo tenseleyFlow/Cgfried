@@ -1,0 +1,14 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+build.crt	PASS	objects=5
+build.libc-a	PASS	archive=libc.a
+compile.assembler	PASS	host=32
+compile.complex	SKIP	CAMP-MUSL-001;host=68
+compile.non-complex	PASS	cgfried=1254,total-c=1322
+determinism.objects	PASS	objects=1354
+libc-test.parity	PASS	cgf-only-failures=0
+run.benchmarks	PASS	cases=21
+run.static-hello	PASS	exit=0
+shared	SKIP	CAMP-MUSL-002
+source.libc-test-pin	PASS	revision=123433158bf985d7eb3b4072e32121b9e32a1a1a
+source.musl-pin	PASS	revision=b306b16af15c89a04d8e0c55cac2dadbeb39c083

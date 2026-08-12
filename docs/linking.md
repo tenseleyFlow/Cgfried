@@ -9,7 +9,8 @@ For `cgf a.o b.o -lm -o p` on x86_64-linux-gnu the driver execs, verbatim
 ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o p
    <crtdir>/crt1.o <crtdir>/crti.o
    a.o b.o -lm                    # user inputs, EXACT command-line order
-   [libcgf_rt.a] -lc              # runtime slot (Sprint 28) + libc
+   --start-group [libcgf_rt.a] -lc --end-group
+                                      # runtime slot + libc
    <crtdir>/crtn.o
 ```
 
@@ -18,11 +19,13 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o p
 internal symbol cycles; grouping is the same fix gcc applies with
 `--start-group -lgcc -lgcc_eh -lc --end-group`).
 
-crtbegin.o/crtend.o are deliberately absent: they exist for C++
-ctors/dtors and legacy `.eh_frame` registration, and plain C with a
-linker-built `.eh_frame_hdr` needs neither. If a link ever fails on
-`__dso_handle`, that is this gap — report it; the fix is not "silently
-add crtbegin".
+crtbegin.o/crtend.o are deliberately absent: they carry GCC's constructor,
+TM-clone, and legacy `.eh_frame` registration machinery, while plain C with a
+linker-built `.eh_frame_hdr` needs none of it. glibc's nonshared `atexit`
+shim does require the executable identity token normally found there, so
+`libcgf_rt.a` supplies the single hidden `__dso_handle` object. The runtime
+and libc are grouped because libc introduces that undefined reference after
+the runtime's first archive scan.
 
 ## crt discovery
 

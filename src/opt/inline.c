@@ -587,6 +587,16 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
         OPT_BAIL(&fc, "inline", "inl_noreturn");
         return false;
     }
+    /* x87 f80 values obey the backend's memory law: lowering represents
+     * them through stack slots and never as block parameters.  A multi-return
+     * splice needs a join parameter for its result, so inlining it would
+     * manufacture the one IR shape x86 isel cannot represent.  Single-return
+     * f80 callees need no join and remain eligible.  musl's floatscan campaign
+     * reached this through hexfloat at -O3. */
+    if (callee->ret == IRT_F80 && count_returns(callee) > 1) {
+        OPT_BAIL(&fc, "inline", "inl_f80_multiret");
+        return false;
+    }
     /* A recursive callee cannot be spliced even into a caller outside its
      * SCC: the cloned recursive edge would otherwise become a fresh eligible
      * site on the next scan/fixpoint iteration and expand without bound. */

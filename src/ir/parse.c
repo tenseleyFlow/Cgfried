@@ -2233,12 +2233,21 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             break;
         if (tok_is(t, "sym")) {
             Tok *nm;
+            u32 sym;
+            bool weak = false;
+            u8 visibility;
 
             next(&p);
             nm = expect_symbol(&p, "a symbol name");
             if (!nm)
                 goto fail;
-            ir_sym(m, tok_name(&p, nm));
+            sym = ir_sym(m, tok_name(&p, nm));
+            if (tok_is(peek(&p), "weak")) {
+                next(&p);
+                weak = true;
+            }
+            visibility = parse_visibility_suffix(&p);
+            ir_sym_set_attrs(m, sym, weak, visibility);
         } else if (tok_is(t, "alias")) {
             next(&p);
             if (!parse_alias(&p))

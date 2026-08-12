@@ -627,6 +627,7 @@ static bool enum_contains_value(const AstNode *enum_ast, i64 value)
 static void warn_switch_coverage(Sema *s, AstNode *sw)
 {
     CaseEntry *head = NULL, *tail = NULL, *current = NULL, *entry;
+    AstNode *control_expr;
     Type *control;
     AstNode *enum_ast;
     bool has_default = false;
@@ -644,7 +645,15 @@ static void warn_switch_coverage(Sema *s, AstNode *sw)
         warn_at(s->lang->warnings, WARN_SWITCH_DEFAULT, sw->span,
                 "switch missing default case");
 
-    control = sw->lhs ? sw->lhs->sem_type : NULL;
+    /* Sema materializes the integer promotions required by 6.8.4.2p5 on
+     * the controlling expression.  Coverage diagnostics still describe the
+     * source enum, so peel only those implicit conversion nodes before
+     * consulting its enumerator table. */
+    control_expr = sw->lhs;
+    while (control_expr && control_expr->kind == AST_EXPR_CAST &&
+           control_expr->implicit && control_expr->lhs)
+        control_expr = control_expr->lhs;
+    control = control_expr ? control_expr->sem_type : NULL;
     if (!control || control->kind != TY_ENUM || !control->tag ||
         !control->tag->enum_ast)
         return;

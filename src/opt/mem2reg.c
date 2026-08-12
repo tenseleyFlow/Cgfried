@@ -10,6 +10,7 @@ typedef enum {
     BAIL_VOLATILE_ACCESS,
     BAIL_NONSCALAR,
     BAIL_MIXED_ACCESS_TYPE,
+    BAIL_MEMORY_ONLY_TYPE,
 } BailReason;
 
 typedef struct {
@@ -163,6 +164,13 @@ static BailReason analyze_alloca(const IrFunc *f, AllocaInfo *a)
         return BAIL_VOLATILE_ACCESS;
     if (mixed)
         return BAIL_MIXED_ACCESS_TYPE;
+    /* x86-64 represents each f80 value by the address of its 16-byte x87
+     * spill slot.  Promoting that slot through a control-flow join would
+     * turn the value into an ordinary block parameter, breaking the backend's
+     * memory-only representation.  Keep f80 allocas intact on every target;
+     * the other targets do not lower source scalar types to IRT_F80. */
+    if (have_type && a->type == IRT_F80)
+        return BAIL_MEMORY_ONLY_TYPE;
     if (a->block.v != 1 || a->inst->nops != 1 ||
         a->inst->ops[0].kind != IROP_ICONST || !have_type ||
         a->inst->ops[0].a == 0 || scalar_size(a->type) != a->inst->ops[0].a)
@@ -185,6 +193,9 @@ static void emit_bail(const OptConfig *cfg, BailReason reason)
         break;
     case BAIL_MIXED_ACCESS_TYPE:
         OPT_BAIL(cfg, "mem2reg", "mixed_access_type");
+        break;
+    case BAIL_MEMORY_ONLY_TYPE:
+        OPT_BAIL(cfg, "mem2reg", "memory_only_type");
         break;
     case BAIL_NONE:
         break;

@@ -51,10 +51,24 @@ static LabelEntry *label_intern(Parser *p, const char *name, Span sp)
  * declaration iff T is a visible typedef, and multiplication otherwise. */
 static AstNode *parse_block_item(Parser *p, bool *saw_stmt)
 {
+    const Token *t;
+
     /* A fresh block item is a fresh chance to be right: bound the panic
      * window to ONE construct so a broken statement cannot silence the
      * diagnostics for everything after it. */
     p->recovering = false;
+
+    /* Labels have their own namespace, so a typedef name may also name a
+     * label (`typedef int Ins; Ins:`). The block-item declaration probe
+     * used to see the typedef first and consume the label as a broken
+     * declaration. Punctuation decides this two-token shape before the
+     * typedef ambiguity does. QBE uses exactly this legal construction. */
+    t = parse_peek(p);
+    if (t->kind == TOK_IDENT && parse_peek_n(p, 1)->kind == TOK_PUNCT &&
+        parse_peek_n(p, 1)->punct == PUNCT_COLON) {
+        *saw_stmt = true;
+        return parse_stmt(p);
+    }
 
     /* `ident ident` at block scope is the one shape that cannot be an
      * expression, so it is the only one the unknown-type heuristic may

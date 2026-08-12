@@ -10,6 +10,9 @@
 // CHECK: lda: size=16 bytes=0000000000000080FF3F000000000000
 // CHECK: fi: size=4 bytes=01000000
 // CHECK: nested: size=24 bytes=0100000000000000000000000000F83F0200000000000000
+// CHECK: union_string_override: size=8 bytes=4100000000000000
+// CHECK: union_bitfield_override: size=4 bytes=00000000
+// CHECK: union_bitfield_accumulate: size=4 bytes=11000000
 // The image is exactly what Sprint 19 emits into .data. Two properties
 // are load-bearing and neither is an accident: every PADDING byte is
 // zero (the three bytes after `p.c`, and the tail of `s`), and an
@@ -47,3 +50,23 @@ struct NestedOuter {
     int i;
 };
 struct NestedOuter nested = {1, 1.5, 2.5};
+union StringOverride {
+    void *p;
+    char s[8];
+};
+union StringOverride union_string_override = {.p = &g, .s = "A"};
+union BitfieldOverride {
+    unsigned int word;
+    struct {
+        unsigned int low : 3;
+        unsigned int high : 5;
+    } bits;
+};
+union BitfieldOverride union_bitfield_override = {
+    .word = 0xffffffffu,
+    .bits.low = 0,
+};
+union BitfieldOverride union_bitfield_accumulate = {
+    .bits.low = 1,
+    .bits.high = 2,
+};

@@ -1192,13 +1192,20 @@ static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
 
     if (!init)
         return false;
-    if (init->kind == AST_EXPR_STRING) {
+    if (init->kind == AST_EXPR_STRING ||
+        (init->kind == AST_INIT_LIST && init->nitems == 1 && init->items[0] &&
+         init->items[0]->kind == AST_EXPR_STRING &&
+         init->items[0]->ndesignators == 0)) {
         /* `char s[] = "abc"` is char[4]. The lexer's nbytes is the
          * ENCODED CONTENT and excludes the terminator (verified against
-         * --dump-tokens), so the +1 is the terminator the array must hold. */
-        if (!init->tok)
+         * --dump-tokens), so the +1 is the terminator the array must hold.
+         * 6.7.9p14 also permits one surrounding brace pair. */
+        const AstNode *str =
+            init->kind == AST_EXPR_STRING ? init : init->items[0];
+
+        if (!str->tok)
             return false;
-        *out = (u64)init->tok->str.nbytes + 1;
+        *out = (u64)str->tok->str.nbytes + 1;
         return true;
     }
     if (init->kind != AST_INIT_LIST)
@@ -1448,6 +1455,8 @@ static bool init_expr_initializes_whole(Type *target, const AstNode *init)
 static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
 {
     AstNode *init = slot ? *slot : NULL;
+    AstNode **designators;
+    u32 ndesignators;
     AssignCtx ctx;
 
     if (!target || !init)
@@ -1456,9 +1465,41 @@ static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
      * assignment to the array object. */
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
         return;
+    designators = init->designators;
+    ndesignators = init->ndesignators;
     memset(&ctx, 0, sizeof(ctx));
     ctx.kind = ACTX_INIT;
     conv_assignable(s, target, slot, ctx);
+    if (*slot) {
+        (*slot)->designators = designators;
+        (*slot)->ndesignators = ndesignators;
+    }
+}
+
+static AstNode *sema_init_scalar(Sema *s, Type *target, AstNode **slot)
+{
+    AstNode *init = slot ? *slot : NULL;
+    AstNode **designators;
+    u32 ndesignators;
+
+    if (!init)
+        return NULL;
+
+    /* Designators belong to the initializer ITEM, not to the expression
+     * nested inside it.  Expression typing and assignment conversion may
+     * replace that item with an implicit cast (notably for `char *a[] = {
+     * [7] = "x" }`).  Keep the parser's current-object metadata on the
+     * replacement node so both the static image writer and runtime
+     * initializer lowering still select the designated subobject. */
+    designators = init->designators;
+    ndesignators = init->ndesignators;
+    *slot = sema_expr(s, init);
+    sema_init_assign_typed(s, target, slot);
+    if (*slot) {
+        (*slot)->designators = designators;
+        (*slot)->ndesignators = ndesignators;
+    }
+    return *slot;
 }
 
 static void sema_init_value(Sema *s, Type *target, AstNode **slot)
@@ -1468,9 +1509,21 @@ static void sema_init_value(Sema *s, Type *target, AstNode **slot)
 
     if (!init)
         return;
+    /* 6.7.9p14 permits an optional brace pair around a string literal used
+     * to initialize a character array.  Normalize it here so the aggregate
+     * cursor does not mistake the literal for the first scalar element;
+     * the static-image and automatic-init paths already share the direct
+     * string-array representation. */
+    if (target && target->kind == TY_ARRAY && init->kind == AST_INIT_LIST &&
+        init->nitems == 1 && init->items[0] &&
+        init->items[0]->kind == AST_EXPR_STRING &&
+        init->items[0]->ndesignators == 0) {
+        *slot = init->items[0];
+        sema_init_scalar(s, target, slot);
+        return;
+    }
     if (init->kind != AST_INIT_LIST) {
-        *slot = init = sema_expr(s, init);
-        sema_init_assign_typed(s, target, slot);
+        sema_init_scalar(s, target, slot);
         return;
     }
 
@@ -1507,7 +1560,7 @@ static void sema_init_value(Sema *s, Type *target, AstNode **slot)
                 continue;
             }
 
-            init->items[i] = item = sema_expr(s, item);
+            item = sema_init_scalar(s, NULL, &init->items[i]);
             while (init_is_aggregate(cursor.current) &&
                    !init_expr_initializes_whole(cursor.current, item)) {
                 if (!init_cursor_descend(&cursor))
@@ -2126,8 +2179,6 @@ static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
     if (fresh->alias_target) {
         prev->alias_target = fresh->alias_target;
         prev->alias_span = fresh->alias_span;
-        prev->defined = true;
-        prev->tentative = false;
     }
 }
 
@@ -3231,9 +3282,15 @@ static void sema_stmt(Sema *s, AstNode *st)
              * IR verifier with "'switch' scrutinizes an integer", reported as
              * "this is a bug in cgfried" against a program that is simply
              * invalid C. Frontend fuzzer, seed 47924. */
-            if (st->kind == AST_STMT_SWITCH)
-                sema_require_switch_integer(s, st->lhs);
-            else
+            if (st->kind == AST_STMT_SWITCH) {
+                if (sema_require_switch_integer(s, st->lhs))
+                    /* 6.8.4.2p5: the integer promotions are performed on
+                     * the controlling expression.  Leaving a char-typed
+                     * switch in IR made jump-table indexing reuse dirty
+                     * upper register bits; QBE's address matcher exposed
+                     * that as a compiler-built-compiler crash. */
+                    st->lhs = conv_promote(s, st->lhs);
+            } else
                 sema_require_scalar(s, st->lhs);
         }
         if (st->kind == AST_STMT_SWITCH) {

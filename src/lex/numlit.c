@@ -14,12 +14,13 @@
 bool lex_ppnum_is_float(const char *sp, u32 len)
 {
     bool hex = len > 2 && sp[0] == '0' && (sp[1] == 'x' || sp[1] == 'X');
+    bool binary = len > 2 && sp[0] == '0' && (sp[1] == 'b' || sp[1] == 'B');
     u32 i;
 
     for (i = 0; i < len; i++) {
         if (sp[i] == '.')
             return true;
-        if (!hex && (sp[i] == 'e' || sp[i] == 'E'))
+        if (!hex && !binary && (sp[i] == 'e' || sp[i] == 'E'))
             return true;
         if (hex && (sp[i] == 'p' || sp[i] == 'P'))
             return true;
@@ -89,6 +90,19 @@ void lex_int_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
                        "hexadecimal constant has no digits");
             return;
         }
+    } else if (len > 2 && sp[0] == '0' && (sp[1] == 'b' || sp[1] == 'B')) {
+        base = 2;
+        i = 2;
+        /* GNU C accepted this spelling long before C23 standardized it.
+         * Like gcc, accept it in every language mode and expose it only as
+         * a -Wpedantic diagnostic. */
+        pp_pedwarn_at(pp, WARN_PEDANTIC, loc, len,
+                      "binary constants are a C23 feature or GNU extension");
+        if (i >= len) {
+            pp_diag_at(pp, DIAG_ERROR, loc, len,
+                       "binary constant has no digits");
+            return;
+        }
     } else if (len > 1 && sp[0] == '0') {
         base = 8;
         i = 1;
@@ -107,9 +121,11 @@ void lex_int_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
         else
             break;
         if (d >= base) {
-            /* `08` is a malformed octal constant, NOT two tokens. */
+            /* `08` and `0b102` are malformed constants, not multiple
+             * tokens: pp-number collection was intentionally greedy. */
             pp_diag_at(pp, DIAG_ERROR, loc, len,
-                       "invalid digit '%c' in octal constant", c);
+                       "invalid digit '%c' in %s constant", c,
+                       base == 2 ? "binary" : "octal");
             return;
         }
         if (v > (~(u64)0 - d) / base)

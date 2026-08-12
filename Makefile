@@ -916,3 +916,12 @@ check-format-matrix:
 # infrastructure self-test can exercise the orchestration without rebuilding
 # the compiler.  Including it last preserves `all` as the default goal.
 include ci/torture.mk
+
+# Sprint 57's compile-the-world campaigns are isolated fragments with one
+# exact-results gate per upstream project.  Keep them at the end so `all`
+# remains the default goal while `make campaign-<name>` is available both
+# locally and in CI.
+include ci/campaigns/musl.mk
+include ci/campaigns/chibicc.mk
+include ci/campaigns/tinycc.mk
+include ci/campaigns/qbe.mk

@@ -265,10 +265,7 @@ Sf sf_from_decimal(const char *digits, size_t n, int32_t dec_exp, SfFormat f,
     bigint_set_u64(&num, 0);
     for (i = lead; i < n; i++) {
         bigint_mul_small(&num, 10);
-        if (num.len == 0)
-            bigint_set_u64(&num, (uint64_t)(digits[i] - '0'));
-        else
-            num.w[0] += (uint64_t)(digits[i] - '0'); /* < 10, cannot carry */
+        bigint_add_small(&num, (uint32_t)(digits[i] - '0'));
     }
     bigint_set_u64(&den, 1);
 

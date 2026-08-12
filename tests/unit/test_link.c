@@ -62,7 +62,7 @@ void test_link_argv_default_sequence(TestCtx *t)
     Arena ar;
     DriverArgs a;
     VecStr v = {0};
-    int idl, io, i1, ii, ix, im, itr, ilc, in_;
+    int idl, io, i1, ii, ix, im, itr, isg, ilc, ieg, in_;
 
     arena_init(&ar);
     fill_args(&a);
@@ -76,16 +76,17 @@ void test_link_argv_default_sequence(TestCtx *t)
     ix = argv_index(&v, "x.o");
     im = argv_index(&v, "-lm");
     itr = argv_index(&v, "--trace");
+    isg = argv_index(&v, "--start-group");
     ilc = argv_index(&v, "-lc");
+    ieg = argv_index(&v, "--end-group");
     in_ = argv_index_suffix(&v, "/crtn.o");
     T_ASSERT(t, idl > 0 && io > idl);
     T_ASSERT(t, argv_index(&v, "/lib64/ld-linux-x86-64.so.2") == idl + 1);
     T_ASSERT(t, argv_index(&v, "-Lldir") > io);
     T_ASSERT(t, i1 > io && ii == i1 + 1);
     T_ASSERT(t, ix > ii && im == ix + 1 && itr == im + 1);
-    T_ASSERT(t, ilc > itr && in_ > ilc);
+    T_ASSERT(t, isg > itr && ilc > isg && ieg > ilc && in_ > ieg);
     T_ASSERT(t, argv_index(&v, "-static") < 0);
-    T_ASSERT(t, argv_index(&v, "--start-group") < 0);
     /* NULL-terminated for exec. */
     T_ASSERT(t, v.len > 0 && v.data[v.len - 1] == NULL);
     VecStr_free(&v);

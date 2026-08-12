@@ -79,6 +79,7 @@ predefine.
 | `__builtin_va_arg_pack()` / `__builtin_va_arg_pack_len()` | `tests/corpus/x86_64/int/gnu_va_arg_pack.c` | glibc's `<error.h>` and forwarding wrappers that preserve the caller's anonymous arguments |
 | GNU/TS 18661 floating types — `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<bits/floatn*.h>` and `<math.h>`, activated by the GCC 8 identity |
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
+| binary integer constants (`0b...`) | `tests/programs/gnu/binary_integer_constants.c` | chibicc's UTF-8 codec; bit-mask-heavy systems code |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every

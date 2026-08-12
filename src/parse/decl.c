@@ -1991,9 +1991,13 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
                 memcpy(n->kr_decls, krs.data, krs.len * sizeof(AstNode *));
             }
             NodeVec_free(&krs);
-            if (parse_at_punct(p, PUNCT_LBRACE))
+            if (parse_at_punct(p, PUNCT_LBRACE)) {
+                const char *saved_func_name = p->func_name;
+
+                p->func_name = n->name;
                 n->body = parse_func_body(p);
-            else
+                p->func_name = saved_func_name;
+            } else
                 parse_error(p, parse_peek(p), "expected a function body");
             p->scope_depth--;
             parse_scope_leave(p);

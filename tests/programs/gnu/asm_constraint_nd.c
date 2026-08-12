@@ -6,6 +6,8 @@
 // ASM_CHECK(x86_64-linux-gnu): movl %edx,
 // ASM_CHECK(x86_64-linux-gnu): {{^nd_variable:}}
 // ASM_CHECK(x86_64-linux-gnu): movl %edx,
+// ASM_CHECK(x86_64-linux-gnu): {{^dn_small:}}
+// ASM_CHECK(x86_64-linux-gnu): movl $11,
 // x86 `N` is an unsigned-byte immediate and `d` is dx. In the combined `Nd`
 // constraint GCC selects the immediate only when the expression is a constant
 // in range; an out-of-range constant and a variable both use dx.
@@ -30,5 +32,14 @@ int nd_variable(int value)
     int out;
 
     __asm__("movl %1, %0" : "=r"(out) : "Nd"(value));
+    return out;
+}
+
+/* musl's <bits/io.h> writes the same alternative in the other order. */
+int dn_small(void)
+{
+    int out;
+
+    __asm__("movl %1, %0" : "=r"(out) : "dN"(11));
     return out;
 }

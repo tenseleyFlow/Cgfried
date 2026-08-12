@@ -188,6 +188,38 @@ void test_softfp_wide_formats(TestCtx *t)
     T_ASSERT_EQ_INT(t, b[1], 0x99);
 }
 
+/* Decimal accumulation crosses a 64-bit limb before conversion begins.
+ * Adding the next digit must propagate a carry instead of wrapping the low
+ * limb: 2^64 used to become zero, and 2^96 became 2^96 - 2^64. */
+void test_softfp_decimal_limb_carry(TestCtx *t)
+{
+    static const struct {
+        const char *digits;
+        uint8_t exponent_lo;
+    } rows[] = {{"18446744073709551616", 0x3F},
+                {"79228162514264337593543950336", 0x5F}};
+    size_t i;
+
+    for (i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        SfStatus st;
+        uint8_t b[16];
+        Sf v;
+        int j;
+
+        memset(&st, 0, sizeof(st));
+        v = sf_from_decimal(rows[i].digits, strlen(rows[i].digits), 0,
+                            SF_X87_80, &st);
+        sf_to_bits(v, SF_X87_80, b);
+        for (j = 0; j < 7; j++)
+            T_ASSERT_EQ_INT(t, b[j], 0);
+        T_ASSERT_EQ_INT(t, b[7], 0x80);
+        T_ASSERT_EQ_INT(t, b[8], rows[i].exponent_lo);
+        T_ASSERT_EQ_INT(t, b[9], 0x40);
+        T_ASSERT(t, !st.overflow);
+        T_ASSERT(t, !st.inexact);
+    }
+}
+
 /* --- hex floats ---------------------------------------------------------- */
 
 void test_softfp_hex(TestCtx *t)

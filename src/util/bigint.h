@@ -32,6 +32,7 @@ int bigint_bitlen(const BigInt *b);
 int bigint_cmp(const BigInt *a, const BigInt *b);
 void bigint_shl(BigInt *b, int bits);
 void bigint_mul_small(BigInt *b, uint32_t m);
+void bigint_add_small(BigInt *b, uint32_t v);
 /* b += a << shift_words*64; used by the digit accumulator. */
 void bigint_mul_pow10(BigInt *b, int e);
 void bigint_sub(BigInt *a, const BigInt *b); /* a -= b, requires a >= b */

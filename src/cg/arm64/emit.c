@@ -1476,6 +1476,22 @@ void a64_emit_globals(const IrModule *m, Buf *out, bool pic)
     for (i = 0; i < m->nfile_asms; i++) {
         buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->file_asms[i]);
     }
+    /* Undefined ELF symbols have no IrGlobal/IrFunc record to carry GNU
+     * attributes.  Emit their declarations explicitly; Mach-O needs the
+     * distinct `.weak_reference` model and rejects these attributes earlier. */
+    if (!e.apple) {
+        for (i = 0; i < m->nsyms; i++) {
+            IrSymBinding binding = ir_sym_binding(m, i + 1);
+            const IrSymAttrs *attrs = &m->sym_attrs[i];
+            const char *name = msym(&e, ir_sym_asm_spelling(m->syms[i]));
+
+            if (binding.defined_here)
+                continue;
+            if (attrs->is_weak)
+                buf_printf(out, "\t.weak\t%s\n", name);
+            a64_symbol_attrs(&e, out, name, attrs->visibility);
+        }
+    }
     /* Aliases need no section and no alignment, so they precede the data.
      * Mach-O spells the symbol with a leading underscore exactly as every
      * other symbol does; `.set` itself is the same directive on both. */

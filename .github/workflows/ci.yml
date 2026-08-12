@@ -97,6 +97,103 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Sprint 57 PR gate: the static hybrid musl build exercises the complete
+  # compiler/linker/runtime stack.  Both upstream inputs are cached by their
+  # immutable commit, then verified unconditionally before the campaign.
+  campaign-musl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - name: cache pinned musl and libc-test inputs
+        id: campaign-musl-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .docs/refs/musl
+            .docs/refs/libc-test
+          key: campaign-musl-b306b16af15c89a04d8e0c55cac2dadbeb39c083-libc-test-123433158bf985d7eb3b4072e32121b9e32a1a1a
+      - name: fetch pinned musl and libc-test inputs
+        if: steps.campaign-musl-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf .docs/refs/musl .docs/refs/libc-test
+          mkdir -p .docs/refs
+          git init .docs/refs/musl
+          git -C .docs/refs/musl remote add origin https://git.musl-libc.org/git/musl
+          git -C .docs/refs/musl fetch --depth=1 origin b306b16af15c89a04d8e0c55cac2dadbeb39c083
+          git -C .docs/refs/musl checkout --detach FETCH_HEAD
+          git init .docs/refs/libc-test
+          git -C .docs/refs/libc-test remote add origin https://repo.or.cz/libc-test.git
+          git -C .docs/refs/libc-test fetch --depth=1 origin 123433158bf985d7eb3b4072e32121b9e32a1a1a
+          git -C .docs/refs/libc-test checkout --detach FETCH_HEAD
+      - name: verify both campaign pins
+        run: |
+          test "$(git -C .docs/refs/musl rev-parse HEAD)" = b306b16af15c89a04d8e0c55cac2dadbeb39c083
+          test "$(git -C .docs/refs/libc-test rev-parse HEAD)" = 123433158bf985d7eb3b4072e32121b9e32a1a1a
+      - name: build the compiler and run the musl gate
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          make campaign-musl
+      - name: retain musl campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint57-campaign-musl
+          path: |
+            build/campaigns/musl/**/results*.txt
+            build/campaigns/musl/**/config.mak
+            build/campaigns/musl/**/*.log
+            build/campaigns/musl/**/logs/**
+            build/campaigns/musl/**/routes/**
+            build/campaigns/musl/**/failures.txt
+            build/campaigns/musl/**/REPORT
+            build/campaigns/musl/libc-test-cgf-only.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  # QBE's native suite executes output from the cgfried-built QBE binary, so
+  # it is a compact two-compiler stack suitable for every PR.
+  campaign-qbe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: cache the pinned QBE input
+        id: campaign-qbe-cache
+        uses: actions/cache@v5
+        with:
+          path: .docs/refs/qbe
+          key: campaign-qbe-d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+      - name: fetch pinned QBE input
+        if: steps.campaign-qbe-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf .docs/refs/qbe
+          mkdir -p .docs/refs
+          git init .docs/refs/qbe
+          git -C .docs/refs/qbe remote add origin https://github.com/8l/qbe
+          git -C .docs/refs/qbe fetch --depth=1 origin d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+          git -C .docs/refs/qbe checkout --detach FETCH_HEAD
+      - name: verify the QBE pin
+        run: test "$(git -C .docs/refs/qbe rev-parse HEAD)" = d62b154d05de438e12e8b5e980d43ef65ea1bb6c
+      - name: build the compiler and run the QBE gate
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          make campaign-expected-meta
+          make campaign-qbe
+      - name: retain QBE campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint57-campaign-qbe-x86_64
+          path: |
+            build/campaigns/qbe/results.txt
+            build/campaigns/qbe/source-ref.txt
+            build/campaigns/qbe/*.log
+            build/campaigns/qbe/**/config.h
+            build/campaigns/qbe/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

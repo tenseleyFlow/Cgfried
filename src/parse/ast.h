@@ -324,6 +324,10 @@ struct AstNode {
     bool unevaluated; /* operand of sizeof/_Alignof, or a _Generic
                        * controlling expression: sema and lowering must
                        * never emit code for it (6.5.1.1p2, 6.5.3.4p2) */
+    /* AST_EXPR_STRING synthesized for C11 `__func__` or GNU
+     * `__FUNCTION__`. Its element type is const char, unlike an ordinary
+     * string literal's char, while lowering can share the literal path. */
+    bool is_func_name;
     /* A compound literal's storage duration follows its SCOPE, not a
      * keyword: static at file scope, automatic (and block-lifetime!) at
      * block scope. Sprint 19 lowers it; Sprint 42 diagnoses the escaping

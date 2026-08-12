@@ -1,0 +1,12 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc
+baseline.configure	PASS	compiler=host-gcc
+build	PASS	compiler=cgfried
+configure	PASS	compiler=cgfried
+parity.cgfried-only-failures	PASS	cases=0
+parity.tests2	PASS	cgfried=132,host-gcc=132
+parity.testspp	PASS	cgfried=24,host-gcc=24
+source.pin	PASS	revision=380597704ee9784442ef3c7ef06e105258a11c5d
+test.tests2	PASS	cases=132
+test.testspp	PASS	cases=24

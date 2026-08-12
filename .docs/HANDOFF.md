@@ -2,16 +2,18 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-11): Sprints 0–53, Sprint 55, and Sprint 56 are
-CLOSED; Sprint 56 was completed out of numerical order on the isolated
-`sprint-56-torture` campaign worktree. Sprint 54's implementation is complete,
-but its operational soak is OPEN; Phase 11 is therefore still open.** The
+**WHERE THINGS STAND (2026-08-11): Sprints 0–53 and Sprints 55–57 are CLOSED;
+Sprints 55–57 were completed out of numerical order while Sprint 54 continued
+its controlled fleet soak. Sprint 54's implementation is complete, but its
+operational soak is OPEN; Phase 11 is therefore still open.** The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
-are implemented. Sprint 55's GNU tier table remains **29 implemented / 6
+are implemented. Kasumi and Hasu now each have two accepted controlled UTC
+dates; Nomad has one. Sprint 55's GNU tier table is now **30 implemented / 6
 parsed-ignored / 8 refused**. Sprint 56's campaign machine, triage map, and
-24,920-cell PASS ratchet are complete; §0 records the evidence. The old D5
-notes in §0b are retained only as implementation history.
+24,920-cell PASS ratchet are complete. Sprint 57's pinned compile-the-world
+campaigns, host baselines, exact gates, and campaign-driven compiler repairs
+are complete. The old D5 notes are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -19,13 +21,60 @@ refusal or a deliberate deferral.
 On trunk, continue **Sprint 54 (performance gates in CI)** until the controlled
 three-date fleet history is real. The first controlled date and release report
 are now committed for every host. Do not advance the Sprint 54/Phase 11 closure
-ratchet early. The parallel Sprint 56 work does not manufacture or replace any
-fleet evidence.
+ratchet early. The parallel Sprint 56/57 work does not manufacture or replace
+any fleet evidence.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
 FreeBSD. Confirmed empirically: extended asm and `__volatile` together took
 musl from **716 to 1259 of 1361** translation units parsing.
+
+---
+
+## Parallel Sprint 57 compile-the-world campaign — COMPLETE
+
+Worktree: `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s57`
+
+Branch: `sprint-57-world-1` (based on integrated Sprint 56 commit `3e354b86`)
+
+- All inputs are immutable and verified before use: musl
+  `b306b16a`, libc-test `12343315`, Chibicc `90d1f7f1`, TinyCC `38059770`,
+  and QBE `d62b154d`. Campaigns export pristine archives below
+  `build/campaigns/`; no reference checkout is built in place.
+- The musl hybrid builds route 1,254 non-complex C translation units through
+  Cgfried, 68 explicitly deferred `_Complex` units through GCC, and 32
+  assembler inputs through the host toolchain. Two clean builds reproduce all
+  1,354 routed objects byte-for-byte. Static hello, all 21 Sprint 53 kernels,
+  and libc-test parity against a separately GCC-built musl pass with zero
+  Cgfried-only failures. `CAMP-MUSL-001` (`_Complex`) and
+  `CAMP-MUSL-002` (shared/TLS) are the only published scope exclusions.
+- Chibicc passes 41/41 programs in both the Cgfried and pristine host-GCC
+  lanes. TinyCC passes 132/132 `tests2` and 24/24 `testspp` cases in both
+  lanes. Native x86-64 QBE passes 32/32 cases in both lanes; the native ARM64
+  exact gate requires 31 passes plus the one upstream-declared `dark.ssa`
+  exclusion.
+- `ci/campaigns/FINDINGS.md` records 24 fixed compiler defects and five fixed
+  campaign-integrity defects, each with a minimized regression or exact gate.
+  Notable repairs include distinct `__func__` objects, aggregate override
+  semantics, global definition emission after forward relocations, undefined
+  weak/hidden ELF attributes, local aggregate template relocations, optimizer
+  provenance preservation, inline-asm operand locality, and soft-float carry.
+- Exact bidirectional results contain 12 musl rows, seven Chibicc rows, ten
+  TinyCC rows, seven x86 QBE rows, and eight ARM64 QBE rows. The expected-gate
+  meta-test rejects missing, extra, reordered, duplicate, malformed, or
+  changed rows.
+- PR CI runs musl and native x86 QBE. The scheduled/manual workflow runs all
+  four campaigns and QBE on real x86-64 and ARM64 runners, retaining configs,
+  routes, logs, failure sets, and exact result artifacts.
+- Fresh local validation is green: 685 unit tests / 4,284,015 assertions,
+  full GCC and Clang strict builds, the complete repository suite, ShellCheck,
+  campaign expected-gate meta-tests, and all four locally runnable campaign
+  gates. Expected local skips remain only optional-tool/reference lanes and
+  match their committed ledgers.
+
+No Sprint 57 implementation work remains. Do not advance
+`ci/closed_sprints.txt` beyond 53 until Sprint 54's real three-date evidence
+closes the contiguous ratchet.
 
 ---
 
@@ -151,6 +200,10 @@ desktop housekeeping held their one-minute load near 2.8.
   `sysctl`; `7e7986d3` repaired both scheduler templates and regression-tested
   `/usr/sbin:/sbin` preservation. The exact-copy Nomad baselines were accepted
   separately in `9c50e6d1`.
+- The installed schedules added clean, no-trip second-date pairs for Kasumi
+  (`2026-08-12T011528Z`, commit `6db164e0`) and Hasu
+  (`2026-08-12T013538Z`, commit `8d5898bc`). Both carry the complete
+  fleet-control-v2 tuple and preserve their host-specific power contract.
 - `.benchmarks/report-0.0.1.md` was generated twice byte-identically from the
   controlled fleet baselines/latest artifacts plus committed CI/static
   evidence and published in `1c868eaa`. Its SHA-256 is
@@ -170,17 +223,19 @@ desktop housekeeping held their one-minute load near 2.8.
 ### Remaining Sprint 54 work — execute in this order
 
 1. Let the installed schedules collect real runs on three distinct UTC dates
-   per host. Each host currently has one accepted controlled date,
-   2026-08-11. The runtime gate deduplicates by calendar day; repeated
+   per host. Kasumi and Hasu each have accepted dates on 2026-08-11 and
+   2026-08-12, so each needs one more. Nomad still has only 2026-08-11 and
+   needs two more. The runtime gate deduplicates by calendar day; repeated
    same-day runs cannot satisfy this requirement. Record trial-pass/trip
    results and investigate any infrastructure status 3.
-2. If later nightly commits supersede the report's selected latest inputs,
-   regenerate `.benchmarks/report-0.0.1.md` twice byte-identically and update
-   its recorded hash so the release report remains current.
+2. The 2026-08-12 Kasumi/Hasu commits now supersede the report's selected
+   latest inputs. After the remaining dates land, regenerate
+   `.benchmarks/report-0.0.1.md` twice byte-identically and update its recorded
+   hash so the release report is current at closure.
 3. Verify the final pushed commit with a fresh GitHub Actions run. Only after
    the three-date gate, current report, and final CI are all green may
    `.docs/sprints/11-performance/closeout.md` say READY,
-   `ci/closed_sprints.txt` advance from 53 through 56 (Sprints 55 and 56 are
+   `ci/closed_sprints.txt` advance from 53 through 57 (Sprints 55–57 are
    already closed out of order), with any newly exposed deferrals repaired in
    the same closure change.
 

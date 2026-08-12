@@ -617,6 +617,8 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
                 const X64Inst *in = &b->insts[i];
 
                 depth += x87_delta((u16)in->op);
+                if (in->op == X64_OP_ASM && (in->flags & X64IF_ASM_X87_POP))
+                    depth--;
                 if (depth < 0 || depth > 8) {
                     diag_emit(dc, DIAG_ERROR, sp,
                               "mir verify @%s bb%u:%u: x87 stack depth "

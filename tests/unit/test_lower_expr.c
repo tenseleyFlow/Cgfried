@@ -396,6 +396,30 @@ void test_lower_conditional_pointer_integer_recovery(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_conditional_f80_uses_memory_join(TestCtx *t)
+{
+    LowFix f;
+    IrFunc *fn;
+    u32 i;
+    bool saw_join = false;
+
+    T_ASSERT(t, run_lower(&f, "long double pick(int c, long double a, "
+                              "long double b) { return c ? a : b; }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    fn = &f.m->funcs[0];
+    for (i = 0; i < fn->nblocks; i++) {
+        if (strncmp(fn->blocks[i].name, "cond.join", 9) != 0)
+            continue;
+        saw_join = true;
+        T_ASSERT_EQ_INT(t, fn->blocks[i].nparams, 0);
+    }
+    T_ASSERT(t, saw_join);
+    T_ASSERT(t, count_of(txt(&f), "store f80") >= 2);
+    T_ASSERT(t, strstr(txt(&f), "load f80") != NULL);
+    low_free(&f);
+}
+
 void test_lower_ptr_arith_scaling(TestCtx *t)
 {
     LowFix f;

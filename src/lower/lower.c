@@ -342,15 +342,16 @@ const CgfAttr *lower_clone_cgf_attrs(Lower *lo, const CgfAttr *attrs,
 static u32 global_sym_index(Lower *lo, Symbol *sym)
 {
     u32 *hit = ptrmap_get_u32(&lo->globals, sym);
+    u32 idx;
 
-    if (hit)
-        return *hit - 1;
-    {
-        u32 idx = lower_link_sym_index(lo, sym);
-
+    if (hit) {
+        idx = *hit - 1;
+    } else {
+        idx = lower_link_sym_index(lo, sym);
         ptrmap_put_u32(lo, &lo->globals, sym, idx + 1);
-        return idx;
     }
+    ir_sym_set_attrs(lo->m, idx, sym->gnu.weak, sym->gnu.visibility);
+    return idx;
 }
 
 IrOperand lower_sym_addr(Lower *lo, Symbol *sym)
@@ -517,7 +518,8 @@ static void global_from_image(Lower *lo, IrGlobal *g, const InitImage *img)
 static u32 lower_anon_global(Lower *lo, const AstNode *e)
 {
     if (e->kind == AST_EXPR_STRING)
-        return lower_string_lit(lo, e);
+        return e->is_func_name ? lower_func_name_object(lo, e)
+                               : lower_string_lit(lo, e);
     {
         u32 *hit = ptrmap_get_u32(&lo->globals, e);
         char buf[32];
@@ -608,6 +610,42 @@ const char *lower_link_name(const Symbol *sym)
 
 /* --- file-scope objects --------------------------------------------------- */
 
+/* A source declaration group keeps its first declarator in the top-level
+ * node and the comma-separated siblings in items[]. Sema deliberately walks
+ * both; every file-scope lowering pass must do the same or `int a, b;`
+ * registers b but never emits it. */
+static AstNode *decl_group_at(AstNode *head, u32 index)
+{
+    return index == 0 ? head : head->items[index - 1];
+}
+
+static void lower_one_alias(Lower *lo, Sema *sema, AstNode *d)
+{
+    Symbol *sym;
+    Symbol *target;
+    IrAlias *a;
+    const char *name;
+    const char *target_name;
+
+    if (!d || d->kind != AST_DECL || !d->name)
+        return;
+    if (d->storage & AST_SC_TYPEDEF)
+        return;
+    sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
+    if (!sym || !sym->alias_target)
+        return;
+    target = scope_lookup(sema->file_scope, sym->alias_target, NS_ORDINARY);
+    name = lower_ir_link_name(lo, sym);
+    target_name = target ? lower_ir_link_name(lo, target) : sym->alias_target;
+    if (ir_alias_find(lo->m, name))
+        return; /* a redeclaration names the same alias once */
+    a = ir_alias_new(lo->m, name, target_name);
+    a->linkage =
+        sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
+    a->is_weak = sym->gnu.weak;
+    a->visibility = sym->gnu.visibility;
+}
+
 /* Aliases, objects and functions alike, in ONE pass. An alias is neither an
  * IrGlobal (no storage, no initializer) nor an IrFunc (no body), and the two
  * declaration shapes reach lowering through different loops -- an object alias
@@ -622,32 +660,34 @@ static void lower_aliases(Lower *lo, Sema *sema, AstNode *tu)
     u32 i;
 
     for (i = 0; i < tu->ndecls; i++) {
-        AstNode *d = tu->decls[i];
-        Symbol *sym;
-        Symbol *target;
-        IrAlias *a;
-        const char *name;
-        const char *target_name;
+        AstNode *head = tu->decls[i];
+        u32 j;
 
-        if (!d || d->kind != AST_DECL || !d->name)
+        if (!head || head->kind != AST_DECL)
             continue;
-        if (d->storage & AST_SC_TYPEDEF)
-            continue;
-        sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
-        if (!sym || !sym->alias_target)
-            continue;
-        target = scope_lookup(sema->file_scope, sym->alias_target, NS_ORDINARY);
-        name = lower_ir_link_name(lo, sym);
-        target_name =
-            target ? lower_ir_link_name(lo, target) : sym->alias_target;
-        if (ir_alias_find(lo->m, name))
-            continue; /* a redeclaration names the same alias once */
-        a = ir_alias_new(lo->m, name, target_name);
-        a->linkage =
-            sym->linkage == LINK_INTERNAL ? IRLINK_INTERNAL : IRLINK_EXTERNAL;
-        a->is_weak = sym->gnu.weak;
-        a->visibility = sym->gnu.visibility;
+        for (j = 0; j <= head->nitems; j++)
+            lower_one_alias(lo, sema, decl_group_at(head, j));
     }
+}
+
+static AstNode *find_initializing_decl(AstNode *tu, const char *name)
+{
+    u32 i;
+
+    for (i = 0; i < tu->ndecls; i++) {
+        AstNode *head = tu->decls[i];
+        u32 j;
+
+        if (!head || head->kind != AST_DECL)
+            continue;
+        for (j = 0; j <= head->nitems; j++) {
+            AstNode *d = decl_group_at(head, j);
+
+            if (d && d->name == name && d->init)
+                return d;
+        }
+    }
+    return NULL;
 }
 
 static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
@@ -713,6 +753,7 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     /* The global's symbol index was interned by ir_global_new; record the
      * mapping so expression references resolve to the same index. */
     ptrmap_put_u32(lo, &lo->globals, sym, lower_link_sym_index(lo, sym) + 1);
+    ptrmap_put_u32(lo, &lo->emitted_globals, sym, 1);
 }
 
 /* --- function lowering ---------------------------------------------------- */
@@ -1199,8 +1240,10 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
         options ? (u8)options->auto_var_init : LOWER_AUTO_VAR_INIT_NONE;
     lo.m = ir_module_new(arena, dc);
     strmap_init(&lo.globals);
+    strmap_init(&lo.emitted_globals);
     strmap_init(&lo.func_ids);
     strmap_init(&lo.string_pool);
+    strmap_init(&lo.func_name_objects);
     strmap_init(&lo.vla_sizes);
     strmap_init(&lo.label_vla);
     strmap_init(&lo.label_scope);
@@ -1221,32 +1264,29 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
             ir_module_add_file_asm(
                 lo.m, tu->decls[i]->asm_tmpl ? tu->decls[i]->asm_tmpl : "");
     for (i = 0; i < tu->ndecls; i++) {
-        AstNode *d = tu->decls[i];
-        Symbol *sym;
+        AstNode *head = tu->decls[i];
+        u32 di;
 
-        if (!d || d->kind != AST_DECL || !d->name)
+        if (!head || head->kind != AST_DECL)
             continue;
-        if (d->storage & AST_SC_TYPEDEF)
-            continue;
-        sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
-        if (!sym || sym->kind != SYM_VAR)
-            continue;
-        if (ptrmap_get_u32(&lo.globals, sym))
-            continue; /* already emitted (redeclaration) */
-        if (sym->def_kind == DEF_INIT && !d->init) {
-            /* Not the initializing declaration; find it. */
-            u32 j;
-            AstNode *withinit = NULL;
+        for (di = 0; di <= head->nitems; di++) {
+            AstNode *d = decl_group_at(head, di);
+            Symbol *sym;
 
-            for (j = 0; j < tu->ndecls; j++)
-                if (tu->decls[j] && tu->decls[j]->kind == AST_DECL &&
-                    tu->decls[j]->name == d->name && tu->decls[j]->init) {
-                    withinit = tu->decls[j];
-                    break;
-                }
-            lower_global_var(&lo, sym, withinit ? withinit->init : NULL);
-        } else {
-            lower_global_var(&lo, sym, d->init);
+            if (!d || !d->name || (d->storage & AST_SC_TYPEDEF))
+                continue;
+            sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
+            if (!sym || sym->kind != SYM_VAR)
+                continue;
+            if (ptrmap_get_u32(&lo.emitted_globals, sym))
+                continue; /* already emitted (redeclaration) */
+            if (sym->def_kind == DEF_INIT && !d->init) {
+                AstNode *withinit = find_initializing_decl(tu, d->name);
+
+                lower_global_var(&lo, sym, withinit ? withinit->init : NULL);
+            } else {
+                lower_global_var(&lo, sym, d->init);
+            }
         }
     }
 
@@ -1282,8 +1322,10 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
     }
 
     strmap_free(&lo.globals);
+    strmap_free(&lo.emitted_globals);
     strmap_free(&lo.func_ids);
     strmap_free(&lo.string_pool);
+    strmap_free(&lo.func_name_objects);
     strmap_free(&lo.vla_sizes);
     strmap_free(&lo.label_vla);
     strmap_free(&lo.label_scope);
