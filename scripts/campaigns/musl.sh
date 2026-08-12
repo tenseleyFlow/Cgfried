@@ -120,6 +120,10 @@ build_musl() {
     [ -f "$tree/lib/libc.a" ] || fail "$lane produced no libc.a"
     for crt in crt1.o crti.o crtn.o Scrt1.o rcrt1.o; do
         [ -f "$tree/lib/$crt" ] || fail "$lane produced no $crt"
+        if ! readelf -SW "$tree/lib/$crt" |
+            grep -F '.note.GNU-stack' >/dev/null; then
+            fail "$lane $crt omitted .note.GNU-stack"
+        fi
     done
 }
 

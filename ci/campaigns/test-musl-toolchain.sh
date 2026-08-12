@@ -4,8 +4,53 @@ set -eu
 root=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd -P)
 runner=$root/scripts/campaigns/libc-test-static-make.sh
 prepare=$root/scripts/campaigns/libc-test-static-prepare.sh
+cc_route=$root/scripts/campaigns/musl-cc.sh
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-campaign-musl-toolchain.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+cat >"$tmp/fake-hostcc" <<'EOF'
+#!/bin/sh
+printf 'host\n' >"$CGF_TEST_ROUTE_LOG"
+printf '%s\n' "$@" >"$CGF_TEST_ARGV_LOG"
+EOF
+cat >"$tmp/fake-cgf" <<'EOF'
+#!/bin/sh
+printf 'cgf\n' >"$CGF_TEST_ROUTE_LOG"
+printf '%s\n' "$@" >"$CGF_TEST_ARGV_LOG"
+EOF
+chmod +x "$tmp/fake-hostcc" "$tmp/fake-cgf"
+
+run_cc_route() {
+    : >"$tmp/route.log"
+    : >"$tmp/argv.log"
+    CGF_MUSL_CGF="$tmp/fake-cgf" \
+        CGF_MUSL_HOSTCC="$tmp/fake-hostcc" \
+        CGF_TEST_ROUTE_LOG="$tmp/route.log" \
+        CGF_TEST_ARGV_LOG="$tmp/argv.log" \
+        "$cc_route" "$@"
+}
+
+run_cc_route -c crt/x86_64/crtn.s -o obj/crt/x86_64/crtn.o
+grep -Fx 'host' "$tmp/route.log" >/dev/null
+grep -Fx -- '-Wa,--noexecstack' "$tmp/argv.log" >/dev/null
+
+run_cc_route -c -x assembler-with-cpp crt/x86_64/crti.S \
+    -Wa,--noexecstack -o obj/crt/x86_64/crti.o
+grep -Fx 'host' "$tmp/route.log" >/dev/null
+awk '$0 == "-Wa,--noexecstack" { count++ }
+    END { exit count != 1 }' "$tmp/argv.log"
+
+run_cc_route -c src/complex/cabs.c -o obj/src/complex/cabs.o
+grep -Fx 'host' "$tmp/route.log" >/dev/null
+if grep -Fx -- '-Wa,--noexecstack' "$tmp/argv.log" >/dev/null; then
+    echo "campaign-musl-toolchain-meta: noexecstack leaked into complex C" >&2
+    exit 1
+fi
+
+run_cc_route -c src/string/memcpy.c -o obj/src/string/memcpy.o
+grep -Fx 'cgf' "$tmp/route.log" >/dev/null
+grep -Fx -- '--target=x86_64-linux-musl' "$tmp/argv.log" >/dev/null
+grep -Fx -- '-Wno-attributes' "$tmp/argv.log" >/dev/null
 
 mkdir -p "$tmp/tree" "$tmp/build"
 cat >"$tmp/tree/Makefile" <<'EOF'

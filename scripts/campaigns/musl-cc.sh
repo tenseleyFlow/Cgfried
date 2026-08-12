@@ -5,6 +5,8 @@ set -eu
 
 hostcc=${CGF_MUSL_HOSTCC:-gcc}
 route=cgf
+host_assembler=0
+has_noexecstack=0
 source_path=
 output_path=
 next_is_output=0
@@ -25,6 +27,7 @@ for arg do
     case $arg in
         -o) next_is_output=1 ;;
         -x) next_is_language=1 ;;
+        -Wa,*--noexecstack*) has_noexecstack=1 ;;
         *.c | *.s | *.S) source_path=$arg ;;
     esac
 done
@@ -35,11 +38,13 @@ case $source_path in
         ;;
     *.s | *.S)
         route=host
+        host_assembler=1
         ;;
 esac
 case $language in
     assembler | assembler-with-cpp)
         route=host
+        host_assembler=1
         ;;
 esac
 
@@ -58,6 +63,12 @@ if [ -n "${CGF_MUSL_ROUTE_DIR:-}" ] && [ -n "$output_path" ]; then
 fi
 
 if [ "$route" = host ]; then
+    # The Cgfried configure probe cannot communicate GNU assembler flags to
+    # the host-only musl assembly route.  Match musl's pristine GCC lane so
+    # every CRT object explicitly opts out of an executable stack.
+    if [ "$host_assembler" -eq 1 ] && [ "$has_noexecstack" -eq 0 ]; then
+        exec "$hostcc" -Wa,--noexecstack "$@"
+    fi
     exec "$hostcc" "$@"
 fi
 
