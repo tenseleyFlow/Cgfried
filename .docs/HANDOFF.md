@@ -50,10 +50,13 @@ Branch: `sprint-57-world-1` (based on integrated Sprint 56 commit `3e354b86`)
   `CAMP-MUSL-002` (shared/TLS) are the only published scope exclusions.
 - Chibicc passes 41/41 programs in both the Cgfried and pristine host-GCC
   lanes. TinyCC passes 132/132 `tests2` and 24/24 `testspp` cases in both
-  lanes. Native x86-64 QBE passes 32/32 cases in both lanes; the native ARM64
-  exact gate requires 31 passes plus the one upstream-declared `dark.ssa`
-  exclusion.
-- `ci/campaigns/FINDINGS.md` records 24 fixed compiler defects and seven fixed
+  lanes. Native x86-64 QBE passes 32/32 cases in both lanes. On real ARM64,
+  both independently built QBE lanes pass the same 28 cases and share four
+  pinned-upstream exclusions: declared-skip `dark.ssa`, an unselected
+  non-entry-block `alloc8` in `dynalloc.ssa`, and two vararg tests whose emitter
+  violates AAPCS64 stack alignment. The exact gate requires zero Cgfried-only
+  failures; QEMU is not used because it masks the two hardware SIGBUS faults.
+- `ci/campaigns/FINDINGS.md` records 24 fixed compiler defects and nine fixed
   campaign-integrity defects, each with a minimized regression or exact gate.
   Notable repairs include distinct `__func__` objects, aggregate override
   semantics, global definition emission after forward relocations, undefined
