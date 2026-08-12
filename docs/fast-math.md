@@ -14,6 +14,7 @@ optimization pipeline. Options are processed from left to right, so a later
 | No signed zeros | `-0.0` and `+0.0` may be treated as interchangeable. |
 | Finite math | Inputs and results are assumed not to be NaN or infinity. Supplying either has undefined behavior. |
 | Reciprocal math | Accepted bundle license; no reciprocal rewrite is implemented yet. |
+| Non-trapping evaluation | FP exception side effects need not be preserved. This licenses constant folding and eager/control-flow motion that strict modes reject when they could raise an exception. |
 | No math errno | Accepted but inert. Calls remain opaque and effectful, and no library-math folding is implemented. |
 
 The individual compatibility spellings
@@ -49,6 +50,10 @@ claim that the full translation and execution environment implements Annex F.
 - Fast-math is permission, not a promise that every licensed rewrite occurs.
 - NaN and infinity behavior is unsupported only while the bundle is enabled;
   strict modes retain their ordinary value semantics.
+- Strict modes conservatively retain exception-raising FP operations across
+  constant folding and control-flow motion. The complete bundle may erase or
+  eagerly execute those operations; a partial test configuration does not
+  grant that license.
 - The no-math-errno policy does not change the host C library's
   `math_errhandling` value, remove call side effects, or license a library
   function fold in v0.1.0.

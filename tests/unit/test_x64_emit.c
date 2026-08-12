@@ -351,3 +351,61 @@ void test_x64_isel_dynamic_alloca_breaks_compare_fusion(TestCtx *t)
     T_ASSERT_EQ_INT(t, fx.errors, 0);
     arena_free_all(&a);
 }
+
+/* Block layout need not follow dominance order. A PTRADD in an earlier
+ * layout block must reserve the stable vreg for an offset defined later,
+ * rather than silently dropping the LEA index as vreg zero. */
+void test_x64_isel_ptradd_reserves_forward_offset_vreg(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    IrType params[2] = {IRT_PTR, IRT_I64};
+    BlockId entry, use, def;
+    IrBuilder b;
+    ValueId offset, ptr;
+    IrOperand result;
+    X64Func *xf;
+    X64VReg index;
+    bool forward_def_found = false;
+    u32 i;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "forward_ptradd", IRT_PTR, params, 2);
+    entry = ir_block_new(m, f, "entry");
+    use = ir_block_new(m, f, "use");
+    def = ir_block_new(m, f, "def");
+
+    ir_builder_at(&b, m, f, entry);
+    ir_build_br(&b, def, NULL, 0);
+    ir_builder_at(&b, m, f, def);
+    offset = ir_build2(&b, IR_IADD, IRT_I64, ir_op_value(f, f->param_vals[1]),
+                       ir_op_iconst(IRT_I64, 1));
+    ir_build_br(&b, use, NULL, 0);
+    ir_builder_at(&b, m, f, use);
+    ptr = ir_build_ptradd(&b, ir_op_value(f, f->param_vals[0]),
+                          ir_op_value(f, offset));
+    result = ir_op_value(f, ptr);
+    ir_build_ret(&b, &result);
+
+    T_ASSERT(t, ir_verify(dc, m));
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    T_ASSERT_EQ_INT(t, xf->blocks[1].insts[0].op, X64_OP_LEA);
+    index = xf->blocks[1].insts[0].a.mem.index;
+    T_ASSERT(t, index.v != 0);
+    for (i = 0; i < xf->blocks[2].n; i++)
+        if (xf->blocks[2].insts[i].def.v == index.v)
+            forward_def_found = true;
+    T_ASSERT(t, forward_def_found);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}

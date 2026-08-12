@@ -850,14 +850,25 @@ void sf_to_bits(Sf a, SfFormat f, uint8_t out[16])
         break;
     case SF_INF:
         biased = (1 << f.exp_bits) - 1;
+        /* x87 stores its integer bit explicitly even for infinity.  An
+         * all-zero significand with the maximum exponent is an unsupported
+         * pseudo-infinity encoding and raises FE_INVALID when consumed by
+         * real x87 instructions. */
+        if (f.explicit_intbit)
+            frac_lo = 1ull << (f.frac_bits - 1);
         break;
     case SF_NAN:
         biased = (1 << f.exp_bits) - 1;
-        /* A quiet NaN sets the top fraction bit. */
-        if (f.frac_bits > 64)
+        /* A quiet NaN sets the top payload bit.  For x87 the stored
+         * significand also includes the explicit integer bit above it, so
+         * the canonical image begins 0xC000... rather than 0x8000.... */
+        if (f.explicit_intbit) {
+            frac_lo = (1ull << (f.frac_bits - 1)) | (1ull << (f.frac_bits - 2));
+        } else if (f.frac_bits > 64) {
             frac_hi = 1ull << (f.frac_bits - 64 - 1);
-        else
+        } else {
             frac_lo = 1ull << (f.frac_bits - 1);
+        }
         break;
     case SF_NORMAL: {
         uint64_t hi = a.hi, lo = a.lo;
@@ -955,7 +966,17 @@ Sf sf_from_bits(const uint8_t in[16], SfFormat f)
     r.sign = (in[(total_bits - 1) / 8] >> ((total_bits - 1) % 8)) & 1;
 
     if (biased == (1 << f.exp_bits) - 1) {
-        r.cls = (frac_hi | frac_lo) ? SF_NAN : SF_INF;
+        if (f.explicit_intbit) {
+            uint64_t intbit = 1ull << (f.frac_bits - 1);
+
+            /* The sole x87 infinity image has the explicit integer bit set
+             * and no payload.  Every other maximum-exponent significand,
+             * including the unsupported pseudo-infinity form, is treated
+             * consistently as NaN. */
+            r.cls = frac_hi == 0 && frac_lo == intbit ? SF_INF : SF_NAN;
+        } else {
+            r.cls = (frac_hi | frac_lo) ? SF_NAN : SF_INF;
+        }
         return r;
     }
     if (biased == 0 && (frac_hi | frac_lo) == 0) {
@@ -963,6 +984,14 @@ Sf sf_from_bits(const uint8_t in[16], SfFormat f)
         return r;
     }
     r.cls = SF_NORMAL;
+    if (f.explicit_intbit && biased != 0 &&
+        !(frac_lo & (1ull << (f.frac_bits - 1)))) {
+        /* An x87 normal with a clear explicit integer bit is an unsupported
+         * "unnormal" encoding.  Do not admit it as an ordinary finite Sf:
+         * hardware arithmetic treats it as an invalid operand. */
+        r.cls = SF_NAN;
+        return r;
+    }
     if (biased == 0) {
         r.hi = frac_hi;
         r.lo = frac_lo;

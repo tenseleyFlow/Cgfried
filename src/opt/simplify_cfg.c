@@ -261,7 +261,17 @@ static void predecessor_counts(const IrFunc *f, const bool *dead, u32 *preds)
     }
 }
 
-static bool speculation_safe(IrOp op)
+static bool fast_math_allows_fp_speculation(const OptConfig *cfg)
+{
+    /* Component flags are bundled-only in v0.1.0.  Require the complete
+     * bundle so a partially constructed test/config cannot accidentally
+     * license eager FP evaluation and its floating-exception effects. */
+    return cfg && cfg->fast_math.reassoc && cfg->fast_math.no_nans &&
+           cfg->fast_math.no_infs && cfg->fast_math.no_signed_zeros &&
+           cfg->fast_math.reciprocal_math;
+}
+
+static bool speculation_safe(IrOp op, const OptConfig *cfg)
 {
     switch (op) {
     case IR_IADD:
@@ -271,28 +281,29 @@ static bool speculation_safe(IrOp op)
     case IR_OR:
     case IR_XOR:
     case IR_ICMP:
-    case IR_FCMP:
-    case IR_FADD:
-    case IR_FSUB:
-    case IR_FMUL:
     case IR_FNEG:
     case IR_SEXT:
     case IR_ZEXT:
     case IR_TRUNC:
-    case IR_FPEXT:
-    case IR_FPTRUNC:
-    case IR_SITOFP:
-    case IR_UITOFP:
     case IR_BITCAST:
     case IR_PTRADD:
     case IR_SELECT:
         return true;
+    case IR_FCMP:
+    case IR_FADD:
+    case IR_FSUB:
+    case IR_FMUL:
+    case IR_FPEXT:
+    case IR_FPTRUNC:
+    case IR_SITOFP:
+    case IR_UITOFP:
+        return fast_math_allows_fp_speculation(cfg);
     default:
         return false;
     }
 }
 
-static bool arm_is_safe(const IrBlock *arm)
+static bool arm_is_safe(const IrBlock *arm, const OptConfig *cfg)
 {
     const IrInst *in;
 
@@ -300,7 +311,7 @@ static bool arm_is_safe(const IrBlock *arm)
         arm->last->nedges != 1 || arm->last->nops)
         return false;
     for (in = arm->first; in && in != arm->last; in = in->next)
-        if (!in->result.v || !speculation_safe((IrOp)in->op))
+        if (!in->result.v || !speculation_safe((IrOp)in->op, cfg))
             return false;
     return true;
 }
@@ -401,7 +412,7 @@ static bool collapse_diamonds(IrModule *m, IrFunc *f, const OptConfig *cfg)
         join = &f->blocks[ji - 1];
         if (tv.type != fv.type ||
             ir_value_type(f, join->params[0]) != (IrType)tv.type ||
-            !arm_is_safe(tb) || !arm_is_safe(fb)) {
+            !arm_is_safe(tb, cfg) || !arm_is_safe(fb, cfg)) {
             OPT_BAIL(cfg, "simplify_cfg", "cfg_select_unspeculatable");
             continue;
         }

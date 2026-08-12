@@ -21061,10 +21061,15 @@ torture-execute/960327-1.c@O3@x86_64-linux-gnu
 torture-execute/960327-1.c@Os@arm64-linux
 torture-execute/960327-1.c@Os@x86_64-linux-gnu
 torture-execute/960405-1.c@O0@arm64-linux
+torture-execute/960405-1.c@O0@x86_64-linux-gnu
 torture-execute/960405-1.c@O1@arm64-linux
+torture-execute/960405-1.c@O1@x86_64-linux-gnu
 torture-execute/960405-1.c@O2@arm64-linux
+torture-execute/960405-1.c@O2@x86_64-linux-gnu
 torture-execute/960405-1.c@O3@arm64-linux
+torture-execute/960405-1.c@O3@x86_64-linux-gnu
 torture-execute/960405-1.c@Os@arm64-linux
+torture-execute/960405-1.c@Os@x86_64-linux-gnu
 torture-execute/960419-1.c@O0@arm64-linux
 torture-execute/960419-1.c@O0@x86_64-linux-gnu
 torture-execute/960419-1.c@O1@arm64-linux

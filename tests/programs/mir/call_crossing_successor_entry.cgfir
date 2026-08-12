@@ -1,0 +1,36 @@
+// F-S57-CALL-EDGE: the defining block dominates the use in the CFG but
+// follows it in layout.  The live-in value and the successor-entry call thus
+// share an interval start point; the value must survive the call, while the
+// call's own result must not be classified as crossing its definition.
+// FLAGS: -O0 -emit-mir
+// MIR_CHECK: push.q rbx
+// MIR_CHECK: call
+// MIR_CHECK: store.l rbx, [rax]
+// EXIT_CODE: 0
+func ptr @location() {
+entry():
+    ret ptr @slot
+}
+func i32 @publish(i32 %input) {
+entry():
+    br def()
+use():
+    %p = call ptr @location()
+    store i32 %err, %p, align 4
+    ret i32 -1
+def():
+    %err = iadd i32 %input, 100
+    br use()
+}
+func i32 @main() {
+entry():
+    %r = call i32 @publish(i32 10)
+    %v = load i32, @slot, align 4
+    %ok1 = icmp eq i32 %r, -1
+    %ok2 = icmp eq i32 %v, 110
+    %bad1 = xor i32 %ok1, 1
+    %bad2 = xor i32 %ok2, 1
+    %bad = or i32 %bad1, %bad2
+    ret i32 %bad
+}
+global @slot size 4 align 4 internal

@@ -2029,9 +2029,12 @@ static void select_inst(Isel *is, const IrInst *ir)
          * it. Lowering has already refused a second one. */
         for (k = 0; k < a->nops && k < 64; k++)
             if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
+                A64Sf sf = a->ops[k].size > 4 ? A64_SF64 : A64_SF32;
+
                 outreg =
-                    a64_newv_width(is->func, A64RC_GP,
-                                   a->ops[k].size > 4 ? A64_SF64 : A64_SF32);
+                    a->ops[k].cls == ASM_CLS_FIXED
+                        ? a64_newv_fixed(is->func, A64RC_GP, sf, a->ops[k].reg)
+                        : a64_newv_width(is->func, A64RC_GP, sf);
                 outidx = k;
                 break;
             }
@@ -2052,11 +2055,10 @@ static void select_inst(Isel *is, const IrInst *ir)
                 slots[n].reg = outreg;
             } else if (o->tied_to >= 0 && (u32)o->tied_to == outidx &&
                        outreg.id) {
-                /* Tied: move the input into the output's own register.
-                 * AAPCS64 has no single-letter register constraints, so an
-                 * arm64 tie is never pinned and the same-register model the
-                 * x86 side needs only for the UNFIXED case is the only case
-                 * here. */
+                /* Tied: move the input into the output's own register.  An
+                 * ordinary AAPCS64 constraint leaves that register free;
+                 * a GNU local-register output pre-colours it, and the tie
+                 * deliberately inherits the same fixed location. */
                 A64Reg src = to_gp(is, &ir->ops[k]);
                 A64Inst *mv =
                     emit(is, A64_OP_MOV, o->size > 4 ? A64_SF64 : A64_SF32);
@@ -2064,6 +2066,20 @@ static void select_inst(Isel *is, const IrInst *ir)
                 add_operand(mv, reg_op(outreg));
                 add_operand(mv, reg_op(src));
                 slots[n].reg = outreg;
+            } else if (o->cls == ASM_CLS_FIXED) {
+                /* A GNU local register variable reaches IR as a generic `r`
+                 * operand promoted to FIXED by lowering. Localize that
+                 * promise to a fresh pre-coloured copy at the asm site: the
+                 * C object's other uses remain ordinary, while musl's x8/
+                 * x0-x5 syscall bindings become architectural facts. */
+                A64Sf sf = o->size > 4 ? A64_SF64 : A64_SF32;
+                A64Reg src = to_gp(is, &ir->ops[k]);
+                A64Reg dst = a64_newv_fixed(is->func, A64RC_GP, sf, o->reg);
+                A64Inst *mv = emit(is, A64_OP_MOV, sf);
+
+                add_operand(mv, reg_op(dst));
+                add_operand(mv, reg_op(src));
+                slots[n].reg = dst;
             } else {
                 slots[n].reg = to_gp(is, &ir->ops[k]);
             }

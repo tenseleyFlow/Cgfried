@@ -8,6 +8,7 @@
 
 typedef struct {
     bool div_not_nonzero;
+    bool fp_exception;
     bool load_not_guaranteed;
     bool volatile_op;
     bool call;
@@ -185,6 +186,19 @@ static bool pure_candidate(IrOp op)
     default:
         return false;
     }
+}
+
+static bool fast_math_allows_fp_speculation(const OptConfig *cfg)
+{
+    return cfg && cfg->fast_math.reassoc && cfg->fast_math.no_nans &&
+           cfg->fast_math.no_infs && cfg->fast_math.no_signed_zeros &&
+           cfg->fast_math.reciprocal_math;
+}
+
+static bool fp_exception_capable(IrOp op)
+{
+    return op == IR_FCMP || op == IR_FADD || op == IR_FSUB || op == IR_FMUL ||
+           op == IR_FDIV;
 }
 
 static bool operand_invariant(const IrFunc *f, const Loop *loop, IrOperand op)
@@ -455,6 +469,11 @@ static bool eligible(IrModule *m, IrFunc *f, const IrDomTree *dom,
     if (!pure_candidate((IrOp)in->op) || !in->result.v ||
         !inst_operands_invariant(f, loop, in))
         return false;
+    if (fp_exception_capable((IrOp)in->op) &&
+        !fast_math_allows_fp_speculation(cfg)) {
+        BAIL_ONCE(cfg, &bails->fp_exception, "licm_fp_exception");
+        return false;
+    }
     if ((in->op == IR_SHL || in->op == IR_LSHR || in->op == IR_ASHR) &&
         (in->nops != 2 || in->ops[1].kind != IROP_ICONST ||
          in->ops[1].a >= integer_width((IrType)in->type)))

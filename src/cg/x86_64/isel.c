@@ -1613,7 +1613,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a.mem.index = is->vals[(u32)in->ops[1].a].pat_base;
             x->a.mem.scale = is->vals[(u32)in->ops[1].a].pat_scale;
         } else if (in->ops[1].kind == IROP_VALUE) {
-            x->a.mem.index = is->vals[(u32)in->ops[1].a].vr;
+            x->a.mem.index = to_vreg(is, &in->ops[1]);
         } else {
             /* constant too wide to fold: pre-materialized path */
             X64VReg off;

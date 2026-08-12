@@ -105,6 +105,69 @@ static void interval_extend(CgInterval *intervals, u32 vreg, u32 point)
     }
 }
 
+static void mark_call_crossings(const CgMirView *view, const u64 *live_in,
+                                CgInterval *intervals)
+{
+    u32 words = cg_liveness_words(view);
+    u64 *tmp = cgf_xmalloc(words * sizeof(u64));
+    u32 *uses =
+        cgf_xmalloc((view->max_uses ? view->max_uses : 1) * sizeof(u32));
+    u32 bi, w;
+
+    if (!view->inst_clobbers_call) {
+        free(uses);
+        free(tmp);
+        return;
+    }
+    for (bi = view->nblocks; bi-- > 0;) {
+        i64 ii;
+
+        memset(tmp, 0, words * sizeof(u64));
+        for (ii = (i64)view->block_ninsts(view->ctx, bi) - 1; ii >= 0; ii--) {
+            const u32 *targets;
+            u32 nt = view->inst_targets(view->ctx, bi, (u32)ii, &targets);
+            u32 def, nu, k, v;
+
+            for (k = 0; k < nt; k++) {
+                const u64 *target_in;
+
+                if (!targets[k] || targets[k] > view->nblocks)
+                    CGF_ICE("call crossings: invalid block target %u",
+                            targets[k]);
+                target_in = &live_in[(targets[k] - 1) * words];
+                for (w = 0; w < words; w++)
+                    tmp[w] |= target_in[w];
+            }
+            def = view->inst_def(view->ctx, bi, (u32)ii);
+            if (def > view->nvregs)
+                CGF_ICE("call crossings: invalid vreg %u", def);
+            if (view->inst_clobbers_call(view->ctx, bi, (u32)ii)) {
+                /* tmp is the exact live-after set. A call result may already
+                 * be in it, but the value does not exist until this call
+                 * defines it and therefore does not cross this clobber. */
+                if (def)
+                    bit_clear(tmp, def);
+                for (v = 1; v <= view->nvregs; v++)
+                    if (bit_get(tmp, v))
+                        intervals[v].live_across_call = true;
+            }
+            if (def)
+                bit_clear(tmp, def);
+            nu = view->inst_uses(view->ctx, bi, (u32)ii, uses, view->max_uses);
+            if (nu > view->max_uses)
+                CGF_ICE("call crossings: MIR view use capacity exceeded");
+            for (k = 0; k < nu; k++) {
+                if (uses[k] > view->nvregs)
+                    CGF_ICE("call crossings: invalid vreg %u", uses[k]);
+                if (uses[k])
+                    bit_set(tmp, uses[k]);
+            }
+        }
+    }
+    free(uses);
+    free(tmp);
+}
+
 void cg_intervals_build(const CgMirView *view, u64 *live_in, u64 *live_out,
                         CgInterval *intervals)
 {
@@ -146,6 +209,7 @@ void cg_intervals_build(const CgMirView *view, u64 *live_in, u64 *live_out,
         }
         point = end + 1;
     }
+    mark_call_crossings(view, live_in, intervals);
     free(uses);
 }
 

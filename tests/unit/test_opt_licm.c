@@ -110,6 +110,77 @@ void test_opt_licm_hoists_invariant_pure_expression(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_licm_strict_fp_preserves_zero_trip_exceptions(TestCtx *t)
+{
+    static const char source[] = "func f64 @f(i32 %enter, f64 %x, f64 %d) {\n"
+                                 "entry():\n"
+                                 "    br head()\n"
+                                 "head():\n"
+                                 "    condbr %enter, body(), exit()\n"
+                                 "body():\n"
+                                 "    %q = fdiv f64 %x, %d\n"
+                                 "    %n = fneg f64 %x\n"
+                                 "    br head()\n"
+                                 "exit():\n"
+                                 "    ret f64 %x\n"
+                                 "}\n";
+    LicmFix strict_fix;
+    LicmFix fast_fix;
+    IrModule *strict_module;
+    IrModule *fast_module;
+    IrInst *strict_div;
+    IrInst *strict_neg;
+    IrInst *fast_div;
+    OptConfig cfg;
+    FILE *report = tmpfile();
+    char log[512];
+
+    fix_init(&strict_fix);
+    strict_module = parse(&strict_fix, source);
+    T_ASSERT(t, report != NULL && strict_module &&
+                    ir_verify(strict_fix.dc, strict_module));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.bail_log = true;
+    cfg.report = report;
+    if (strict_module)
+        (void)opt_licm(strict_module, &cfg);
+    if (report) {
+        read_report(report, log, sizeof(log));
+        T_ASSERT(t, strstr(log, "licm_fp_exception") != NULL);
+        fclose(report);
+    }
+    if (strict_module) {
+        strict_div = find_op(&strict_module->funcs[0], IR_FDIV, 0);
+        strict_neg = find_op(&strict_module->funcs[0], IR_FNEG, 0);
+        T_ASSERT(t, strict_div != NULL && strict_neg != NULL);
+        if (strict_div)
+            T_ASSERT(t,
+                     find_inst_block(&strict_module->funcs[0], strict_div).v !=
+                         1);
+        if (strict_neg)
+            T_ASSERT_EQ_INT(
+                t, find_inst_block(&strict_module->funcs[0], strict_neg).v, 1);
+        T_ASSERT(t, ir_verify(strict_fix.dc, strict_module));
+    }
+
+    fix_init(&fast_fix);
+    fast_module = parse(&fast_fix, source);
+    T_ASSERT(t, fast_module && ir_verify(fast_fix.dc, fast_module));
+    opt_config_init(&cfg, OPT_OFAST);
+    if (fast_module)
+        T_ASSERT(t, opt_licm(fast_module, &cfg));
+    if (fast_module) {
+        fast_div = find_op(&fast_module->funcs[0], IR_FDIV, 0);
+        T_ASSERT(t, fast_div != NULL);
+        if (fast_div)
+            T_ASSERT_EQ_INT(
+                t, find_inst_block(&fast_module->funcs[0], fast_div).v, 1);
+        T_ASSERT(t, ir_verify(fast_fix.dc, fast_module));
+    }
+    arena_free_all(&strict_fix.arena);
+    arena_free_all(&fast_fix.arena);
+}
+
 void test_opt_licm_division_requires_full_safety_proof(TestCtx *t)
 {
     LicmFix f;

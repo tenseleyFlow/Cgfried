@@ -222,6 +222,12 @@ struct Symbol {
      * unchanged -- source references still resolve by it -- and only what the
      * linker sees is renamed. NULL means "use the identifier". */
     const char *asm_name;
+    /* A GNU local register variable (`register long x __asm__("r10")`).
+     * Unlike asm_name this is not a linker spelling: it constrains a direct
+     * extended-asm operand naming the variable to this physical register.
+     * Outside such an operand the declaration remains an ordinary automatic
+     * object, matching GCC's deliberately narrow guarantee. */
+    const char *asm_register_name;
     const char *section_name; /* `section("...")` */
     /* `cleanup(func)`, RESOLVED. The attribute records a name; this is the
      * function it named, so lowering never repeats a lookup. NULL unless the

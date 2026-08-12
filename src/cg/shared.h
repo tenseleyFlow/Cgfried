@@ -17,12 +17,20 @@ typedef struct CgMirView {
     u32 (*inst_uses)(const void *ctx, u32 block, u32 inst, u32 *out, u32 cap);
     u32 (*inst_targets)(const void *ctx, u32 block, u32 inst,
                         const u32 **targets);
+    /* True for an instruction whose ABI clobbers caller-saved registers.
+     * Optional: a target with no such instruction leaves this NULL. */
+    bool (*inst_clobbers_call)(const void *ctx, u32 block, u32 inst);
 } CgMirView;
 
 typedef struct CgInterval {
     u32 vreg;
     u32 start, end; /* inclusive global instruction points */
     bool live;
+    /* The value is live AFTER a call-clobber instruction, excluding that
+     * instruction's own definition. This is deliberately explicit rather
+     * than inferred from interval endpoints: a successor-entry call and its
+     * live-in values share one point, as does a call and its result. */
+    bool live_across_call;
     /* MUST end up in a register: spilling it produces no correct code at
      * all, so the allocator evicts someone else rather than spill it and
      * `spill_all` skips it. The one client is an inline-asm operand

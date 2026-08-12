@@ -268,6 +268,44 @@ void test_opt_simplify_cfg_collapses_pure_diamond_to_select(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_cfg_fp_diamond_requires_complete_fast_math_bundle(TestCtx *t)
+{
+    u32 i;
+
+    for (i = 0; i < 3; i++) {
+        CfgFix f;
+        IrModule *m;
+        OptConfig cfg;
+        bool fast = i == 2;
+
+        fix_init(&f);
+        m = parse(&f, "func f64 @f(i32 %c, f64 %x) {\n"
+                      "entry():\n"
+                      "    condbr %c, yes(), no()\n"
+                      "yes():\n"
+                      "    %a = fadd f64 %x, 0x3FF0000000000000\n"
+                      "    br join(f64 %a)\n"
+                      "no():\n"
+                      "    %b = fsub f64 %x, 0x3FF0000000000000\n"
+                      "    br join(f64 %b)\n"
+                      "join(f64 %v):\n"
+                      "    ret f64 %v\n"
+                      "}\n");
+        T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+        opt_config_init(&cfg, fast ? OPT_OFAST : OPT_O1);
+        if (i == 1)
+            cfg.fast_math.reassoc = true;
+        T_ASSERT_EQ_INT(t, m && opt_simplify_cfg(m, &cfg), fast);
+        if (m) {
+            T_ASSERT_EQ_INT(t, count_op(m, IR_SELECT), fast ? 1 : 0);
+            T_ASSERT_EQ_INT(t, count_op(m, IR_CONDBR), fast ? 0 : 1);
+            T_ASSERT_EQ_INT(t, m->funcs[0].nblocks, fast ? 1 : 4);
+            T_ASSERT(t, ir_verify(f.dc, m));
+        }
+        arena_free_all(&f.arena);
+    }
+}
+
 void test_cfg_unspeculatable_diamonds_exact_bail(TestCtx *t)
 {
     static const char *const bodies[] = {

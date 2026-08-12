@@ -39,7 +39,9 @@ static u64 type_size(IrType type)
         return 16;
     case IRT_F80:
         /* The IR has no TargetSpec: x87 object size and payload width differ.
-         * Stay conservative instead of inventing host-derived byte coverage. */
+         * Stay conservative instead of inventing host-derived byte coverage;
+         * the scan must treat a load of this unknown width as a read barrier.
+         */
         return 0;
     default:
         return 0;
@@ -269,6 +271,7 @@ static bool dse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
     u32 total = 0;
     bool changed = false;
     bool call_bailed = false;
+    bool unknown_load_bailed = false;
     bool partial_bailed = false;
     u32 bi;
     bool *remove;
@@ -324,6 +327,18 @@ static bool dse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
             }
             if (read_loc(alias, in, &loc)) {
                 apply_read(alias, covers, ncovers, loc);
+                continue;
+            }
+            if (in->op == IR_LOAD) {
+                /* A load whose target-dependent width is unknown still reads
+                 * memory. Ignoring it let the synthetic end-of-function
+                 * cover erase union member stores that feed an f80 load --
+                 * exactly musl's ldshape idiom. */
+                if (!unknown_load_bailed) {
+                    OPT_BAIL(&fc, "dse", "dse_unknown_load_size");
+                    unknown_load_bailed = true;
+                }
+                clear_covers(covers, ncovers);
                 continue;
             }
             if (!write_loc(alias, in, &loc, &object_known, &object, &lo, &hi))

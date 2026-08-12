@@ -206,6 +206,30 @@ void test_opt_dse_load_and_call_are_barriers(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_dse_unknown_width_load_is_a_barrier(TestCtx *t)
+{
+    DseFix f;
+    IrModule *m;
+    OptConfig cfg;
+
+    fix_init(&f);
+    m = parse(&f, "func f80 @f() {\n"
+                  "entry():\n"
+                  "    %u = alloca 16, align 16, etype union\n"
+                  "    %se = ptradd %u, 8\n"
+                  "    store i16 16382, %se, align 2, etype union\n"
+                  "    %x = load f80, %u, align 16, etype union\n"
+                  "    ret f80 %x\n"
+                  "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    T_ASSERT(t, m && !run(m, &cfg));
+    if (m) {
+        T_ASSERT_EQ_INT(t, count_op(m, IR_STORE), 1);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_dse_final_nonescaping_store_dies_but_escaped_stays(TestCtx *t)
 {
     DseFix f;

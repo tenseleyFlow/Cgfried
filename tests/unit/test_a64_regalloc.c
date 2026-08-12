@@ -224,6 +224,53 @@ void test_a64_regalloc_callee_saved_cost_model(TestCtx *t)
     T_ASSERT(t, !a64_reg_preserved_across_call(A64_V0, false));
 }
 
+/* Regression: a live-in at a block whose FIRST instruction is a call starts
+ * at the same global point as that call. Endpoint arithmetic cannot tell it
+ * from the call's own result, but the former must survive the clobber and the
+ * latter does not exist until after it. Keep both values in one instruction
+ * so this unit pins both halves of the distinction. */
+void test_a64_regalloc_successor_entry_call_crossing(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg live, result, sum;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Inst *add = NULL;
+    u32 ii;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    live = a64_newv(&f, A64RC_GP); /* incoming: live at block entry */
+    result = a64_newv(&f, A64RC_GP);
+    sum = a64_newv(&f, A64RC_GP);
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL; /* deliberately instruction zero */
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[0], FUNCREF_EXTERNAL, 0,
+                             (A64Reg){0, 0}, result, IRT_I64, IR_ABIRET_NONE,
+                             false, false);
+    (void)call;
+    put(&f, 0, A64_OP_ADD, 3, treg(sum), treg(live), treg(result));
+    put(&f, 0, A64_OP_RET, 1, treg(sum), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+    for (ii = 0; ii < f.blocks[0].n; ii++)
+        if (f.blocks[0].insts[ii].op == A64_OP_ADD)
+            add = &f.blocks[0].insts[ii];
+    T_ASSERT(t, add != NULL);
+    if (add) {
+        T_ASSERT(t, add->ops[1].reg.physical);
+        T_ASSERT(t, a64_reg_is_callee_saved_gp((u8)(add->ops[1].reg.id - 1)));
+        T_ASSERT(t, add->ops[2].reg.physical);
+        T_ASSERT(t, !a64_reg_is_callee_saved_gp((u8)(add->ops[2].reg.id - 1)));
+    }
+    arena_free_all(&arena);
+}
+
 /* SP alignment is checked in hardware at every SP-based access, so the frame
  * size is rounded, never merely assumed. */
 void test_a64_regalloc_frame_total_rounds_to_sixteen(TestCtx *t)

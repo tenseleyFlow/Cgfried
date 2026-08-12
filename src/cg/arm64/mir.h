@@ -387,7 +387,8 @@ typedef struct A64Func {
     u8 *vclass;
     u8 *vwidth;
     /* Pre-colouring: a physical register id + 1 that this vreg MUST take,
-     * or zero. Call marshalling is the only producer. */
+     * or zero. Call marshalling, parameter binding, and fixed extended-asm
+     * operands are the producers. */
     u8 *vfixed;
     u32 cap_vclass;
     u32 spill_bytes; /* post-allocation: bytes of spill/alloca area */

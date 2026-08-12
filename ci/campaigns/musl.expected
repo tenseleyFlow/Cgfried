@@ -6,6 +6,7 @@ compile.assembler	PASS	host=32
 compile.complex	SKIP	CAMP-MUSL-001;host=68
 compile.non-complex	PASS	cgfried=1254,total-c=1322
 determinism.objects	PASS	objects=1354
+libc-test.linkage	PASS	lanes=2,mode=staged-musl-static
 libc-test.parity	PASS	cgf-only-failures=0
 run.benchmarks	PASS	cases=21
 run.static-hello	PASS	exit=0

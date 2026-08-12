@@ -88,9 +88,57 @@ void test_opt_fold_inst_uses_width_and_undef_rules(TestCtx *t)
         T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
         T_ASSERT_EQ_INT(t, out.kind, IROP_UNDEF);
         in = in->next;
-        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
-        T_ASSERT_EQ_INT(t, out.kind, IROP_UNDEF);
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
         in = in->next;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_opt_fold_inst_fp_conversion_exception_status(TestCtx *t)
+{
+    SimplifyFix f;
+    IrModule *m;
+    OptConfig cfg;
+    IrOperand out;
+    const IrInst *in;
+    u32 i;
+
+    simplify_fix_init(&f);
+    m = simplify_parse(&f,
+                       "func void @f() {\n"
+                       "entry():\n"
+                       "    %trunc = fptrunc f64 0x3FD5555555555555 to f32\n"
+                       "    %frac = fptosi f64 0x3FF8000000000000 to i32\n"
+                       "    %invalid = fptosi f64 0x4072C00000000000 to i8\n"
+                       "    %signed = sitofp i64 9007199254740993 to f64\n"
+                       "    %unsigned = uitofp i64 9007199254740993 to f64\n"
+                       "    %extend = fpext f32 0x3F800000 to f64\n"
+                       "    %exact_int = sitofp i32 42 to f64\n"
+                       "    ret\n"
+                       "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    if (m) {
+        in = m->funcs[0].blocks[0].first;
+        for (i = 0; i < 5; i++, in = in->next)
+            T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_FCONST);
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_FCONST);
+
+        opt_config_init(&cfg, OPT_O2);
+        cfg.fast_math.no_nans = true;
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+
+        opt_config_init(&cfg, OPT_OFAST);
+        in = m->funcs[0].blocks[0].first;
+        for (i = 0; i < 5; i++, in = in->next)
+            T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        in = m->funcs[0].blocks[0].first->next->next;
         T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
         T_ASSERT_EQ_INT(t, out.kind, IROP_UNDEF);
     }
@@ -128,6 +176,95 @@ void test_opt_fold_inst_f80_f128_exact_bits(TestCtx *t)
         T_ASSERT_EQ_INT(t, out.kind, IROP_FCONST);
         T_ASSERT(t, out.b == 0x3fff000000000000ull);
         T_ASSERT(t, out.a == 0x1000ull);
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_opt_fold_inst_fp_exception_status_blocks_fold(TestCtx *t)
+{
+    SimplifyFix f;
+    IrModule *m;
+    OptConfig cfg;
+    IrOperand out;
+    const IrInst *in;
+
+    simplify_fix_init(&f);
+    m = simplify_parse(&f, "func void @f() {\n"
+                           "entry():\n"
+                           "    %divzero = fdiv f64 0xBFF0000000000000, "
+                           "0x0000000000000000\n"
+                           "    %inexact = fdiv f64 0x3FF0000000000000, "
+                           "0x4008000000000000\n"
+                           "    %exact = fadd f64 0x3FF0000000000000, "
+                           "0x3FF0000000000000\n"
+                           "    ret\n"
+                           "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    if (m) {
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+        in = in->next;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_FCONST);
+        T_ASSERT(t, out.a == 0x4000000000000000ull);
+        T_ASSERT(t, out.b == 0);
+        opt_config_init(&cfg, OPT_OFAST);
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_FCONST);
+        T_ASSERT(t, out.a == 0xFFF0000000000000ull);
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_opt_fold_inst_fcmp_nan_requires_fast_math(TestCtx *t)
+{
+    SimplifyFix f;
+    IrModule *m;
+    OptConfig cfg;
+    IrOperand out;
+    const IrInst *in;
+
+    simplify_fix_init(&f);
+    m = simplify_parse(&f, "func void @f() {\n"
+                           "entry():\n"
+                           "    %signaling = fcmp oeq f64 "
+                           "0x7FF0000000000001, 0x3FF0000000000000\n"
+                           "    %quiet = fcmp uno f64 "
+                           "0x7FF8000000001234, 0x3FF0000000000000\n"
+                           "    %normal = fcmp olt f64 "
+                           "0x3FF0000000000000, 0x4000000000000000\n"
+                           "    ret\n"
+                           "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    if (m) {
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+        in = in->next;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_ICONST);
+        T_ASSERT_EQ_INT(t, out.a, 1);
+
+        opt_config_init(&cfg, OPT_O2);
+        cfg.fast_math.no_nans = true;
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+
+        opt_config_init(&cfg, OPT_OFAST);
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_ICONST);
+        T_ASSERT_EQ_INT(t, out.a, 0);
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_ICONST);
+        T_ASSERT_EQ_INT(t, out.a, 1);
     }
     arena_free_all(&f.arena);
 }

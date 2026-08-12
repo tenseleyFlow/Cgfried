@@ -11,5 +11,6 @@ CGF_CAMPAIGN_CHECK ?= ci/campaigns/check-expected.sh
 .PHONY: campaign-expected-meta
 campaign-expected-meta:
 	ci/campaigns/test-expected.sh
+	ci/campaigns/test-musl-toolchain.sh
 
 endif

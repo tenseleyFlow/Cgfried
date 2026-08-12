@@ -66,7 +66,7 @@ predefine.
 | `nonnull(...)`, bare `nonnull` | `tests/programs/gnu/attr_nonnull.c` | glibc (`memcpy`, `strlen`, most of `string.h`) |
 | `noreturn` | `tests/programs/gnu/attr_noreturn.c` | glibc's `__assert_fail`/`abort`, musl, every fatal-error helper |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
-| extended `asm` — operands, constraints, exact register clobbers, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_multi_fixed.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
+| extended `asm` — operands, constraints, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_local_register.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |

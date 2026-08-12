@@ -188,6 +188,54 @@ void test_softfp_wide_formats(TestCtx *t)
     T_ASSERT_EQ_INT(t, b[1], 0x99);
 }
 
+void test_softfp_x87_special_images(TestCtx *t)
+{
+    static const uint8_t images[][10] = {
+        /* +inf, -inf: max exponent plus the explicit integer bit. */
+        {0, 0, 0, 0, 0, 0, 0, 0x80, 0xFF, 0x7F},
+        {0, 0, 0, 0, 0, 0, 0, 0x80, 0xFF, 0xFF},
+        /* Canonical quiet NaNs additionally set the top payload bit. */
+        {0, 0, 0, 0, 0, 0, 0, 0xC0, 0xFF, 0x7F},
+        {0, 0, 0, 0, 0, 0, 0, 0xC0, 0xFF, 0xFF},
+    };
+    static const SfClass classes[] = {SF_INF, SF_INF, SF_NAN, SF_NAN};
+    uint8_t encoded[16];
+    size_t i;
+    int j;
+
+    for (i = 0; i < sizeof(images) / sizeof(images[0]); i++) {
+        Sf v;
+        Sf back;
+
+        memset(&v, 0, sizeof(v));
+        v.cls = (uint8_t)classes[i];
+        v.sign = (uint8_t)(i & 1);
+        sf_to_bits(v, SF_X87_80, encoded);
+        for (j = 0; j < 10; j++)
+            T_ASSERT_EQ_INT(t, encoded[j], images[i][j]);
+
+        back = sf_from_bits(encoded, SF_X87_80);
+        T_ASSERT_EQ_INT(t, back.cls, classes[i]);
+        T_ASSERT_EQ_INT(t, back.sign, i & 1);
+
+        memset(encoded, 0, sizeof(encoded));
+        sf_to_bits(back, SF_X87_80, encoded);
+        for (j = 0; j < 10; j++)
+            T_ASSERT_EQ_INT(t, encoded[j], images[i][j]);
+    }
+
+    /* Maximum-exponent pseudo-infinity and a finite "unnormal" (clear
+     * explicit integer bit) are invalid x87 operands, not infinities or
+     * ordinary finite values. */
+    memset(encoded, 0, sizeof(encoded));
+    encoded[8] = 0xFF;
+    encoded[9] = 0x7F;
+    T_ASSERT_EQ_INT(t, sf_from_bits(encoded, SF_X87_80).cls, SF_NAN);
+    encoded[8] = 0xFF;
+    encoded[9] = 0x3F;
+    T_ASSERT_EQ_INT(t, sf_from_bits(encoded, SF_X87_80).cls, SF_NAN);
+}
+
 /* Decimal accumulation crosses a 64-bit limb before conversion begins.
  * Adding the next digit must propagate a carry instead of wrapping the low
  * limb: 2^64 used to become zero, and 2^96 became 2^96 - 2^64. */

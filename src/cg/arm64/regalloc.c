@@ -277,8 +277,6 @@ typedef struct Ra {
     u32 words;
     u32 max_uses;
     CgSpillSlots slots;
-    u32 *call_pts;
-    u32 ncalls;
     u32 targets[4];
 } Ra;
 
@@ -333,6 +331,13 @@ static u32 view_inst_targets(const void *ctx, u32 block, u32 inst,
     return n;
 }
 
+static bool view_inst_clobbers_call(const void *ctx, u32 block, u32 inst)
+{
+    const Ra *ra = ctx;
+
+    return ra->f->blocks[block].insts[inst].op == A64_OP_CALL;
+}
+
 static u32 compute_max_uses(const A64Func *f)
 {
     u32 bi, ii, max = 4;
@@ -370,6 +375,7 @@ static CgMirView a64_mir_view(Ra *ra)
     view.inst_def = view_inst_def;
     view.inst_uses = view_inst_uses;
     view.inst_targets = view_inst_targets;
+    view.inst_clobbers_call = view_inst_clobbers_call;
     return view;
 }
 
@@ -432,36 +438,6 @@ static void collect_no_spill(Ra *ra)
             }
         }
     }
-}
-
-static void collect_calls(Ra *ra)
-{
-    u32 bi, ii, point = 0, cap = 0;
-
-    for (bi = 0; bi < ra->f->nblocks; bi++)
-        cap += ra->f->blocks[bi].n;
-    ra->call_pts = cap ? cgf_xmalloc(cap * sizeof(u32)) : NULL;
-    for (bi = 0; bi < ra->f->nblocks; bi++) {
-        const A64Block *b = &ra->f->blocks[bi];
-
-        for (ii = 0; ii < b->n; ii++)
-            if (b->insts[ii].op == A64_OP_CALL)
-                ra->call_pts[ra->ncalls++] = point + ii;
-        point += b->n ? b->n : 0;
-    }
-}
-
-/* Strictly spanning a call means the value must survive the clobber. A
- * result defined at the call, or an argument whose interval ends there, does
- * not span it. */
-static bool crosses_call(const Ra *ra, u32 start, u32 end)
-{
-    u32 i;
-
-    for (i = 0; i < ra->ncalls; i++)
-        if (start < ra->call_pts[i] && ra->call_pts[i] < end)
-            return true;
-    return false;
 }
 
 /* --- linear scan policy --------------------------------------------------- */
@@ -533,7 +509,7 @@ static bool a64_scan_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
         return false;
     if (fixed_clash(ra, vreg, reg, start, end))
         return false;
-    if (crosses_call(ra, start, end))
+    if (ra->iv[vreg].live_across_call)
         return a64_reg_preserved_across_call(reg, vreg_is_wide(ra->f, vreg));
     return true;
 }
@@ -714,10 +690,10 @@ static void rewrite_block(Rewriter *rw, A64Block *b)
         rw->fp_next = 0;
 
         if (in.op == A64_OP_ASM && in.asm_info) {
-            /* An asm's operands live on its side record, like a call's --
-             * but unlike a call's they are NOT pre-coloured: AAPCS64 has no
-             * single-letter register constraints, so every one is an
-             * ordinary vreg that can spill.
+            /* An asm's operands live on its side record, like a call's.
+             * Ordinary AAPCS64 constraint letters do not name a register;
+             * GNU local register variables are the exception and isel
+             * localizes those to pre-coloured copies at this asm site.
              *
              * THEY ARE NOT RELOADED EITHER, and that took a bug to learn.
              * The first draft reloaded each spilled operand into its own
@@ -2253,7 +2229,6 @@ void a64_regalloc(A64Func *f)
                 ra.iv[v].fixed = f->vfixed[v];
     }
     collect_no_spill(&ra);
-    collect_calls(&ra);
     linear_scan(&ra);
 
     memset(&rw, 0, sizeof(rw));
@@ -2266,7 +2241,6 @@ void a64_regalloc(A64Func *f)
     (void)a64_peep_post_ra(f);
     f->allocated = true;
 
-    free(ra.call_pts);
     free(ra.iv);
     free(ra.live_out);
     free(ra.live_in);

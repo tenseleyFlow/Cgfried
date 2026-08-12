@@ -109,6 +109,27 @@ static bool constant_fits(Sema *s, const ConstValue *v, Type *to)
     return bits >= 64 || v->i <= ((1ull << (bits - 1)) - 1);
 }
 
+/* GCC's -Woverflow asks whether an integer constant fits either value range
+ * representable by the destination width, not only the destination's signed
+ * range.  For example, 0x80000000UL -> int preserves a 32-bit pattern and is
+ * a -Wsign-conversion concern; 0x100000000UL -> int loses bits and is an
+ * overflow.  Negative constants analogously fit down to the signed minimum. */
+static bool constant_fits_width(Sema *s, const ConstValue *v, Type *to)
+{
+    u32 bits = conv_int_bits(s, to);
+    bool from_signed = conv_is_signed(s, v->type);
+    i64 sv = signed_value(s, v);
+
+    if (!bits)
+        return false;
+    if (from_signed && sv < 0) {
+        i64 min = bits >= 64 ? INT64_MIN : -(i64)(1ull << (bits - 1));
+
+        return sv >= min;
+    }
+    return bits >= 64 || v->i <= low_mask(bits);
+}
+
 static bool mask_bounds_conversion(Sema *s, AstNode *e, Type *to)
 {
     ConstValue mask;
@@ -576,7 +597,9 @@ static void warn_comparison(Sema *s, AstNode *e)
         warn_at(s->lang->warnings, WARN_BOOL_COMPARE, e->span,
                 "comparison of constant with boolean expression is always "
                 "false");
-    if (same_value_expr(lhs, rhs))
+    /* IEEE operands may be NaNs, so even x == x is not constant. */
+    if (!(lt && type_is_floating(lt)) && !(rt && type_is_floating(rt)) &&
+        same_value_expr(lhs, rhs))
         warn_at_ex(s->lang->warnings, WARN_TAUTOLOGICAL_COMPARE, e->span,
                    WARN_SUPPRESS_IN_MACRO,
                    "self-comparison always evaluates "
@@ -874,6 +897,11 @@ void sema_warn_implicit_conversion(Sema *s, Type *destination,
     if (!type_is_arithmetic(from) || !type_is_arithmetic(destination) ||
         type_compatible(from, destination))
         return;
+    /* Conversion to _Bool is a truth-value conversion, not a one-bit
+     * truncation: every nonzero arithmetic value becomes 1.  Consequently
+     * neither narrowing, sign, nor overflow diagnostics apply. */
+    if (destination->kind == TY_BOOL)
+        return;
     have_constant = int_constant(s, source, &cv);
 
     if (type_is_integer(from) && type_is_integer(destination)) {
@@ -882,31 +910,9 @@ void sema_warn_implicit_conversion(Sema *s, Type *destination,
         from_bits = conv_int_bits(s, from);
         to_bits = conv_int_bits(s, destination);
         if (have_constant) {
-            if (from_signed && !to_signed && signed_value(s, &cv) < 0) {
-                warn_at(s->lang->warnings, WARN_SIGN_CONVERSION,
-                        converted->span,
-                        "conversion to '%s' from '%s' changes the sign of "
-                        "the result",
-                        type_to_str(s->arena, destination),
-                        type_to_str(s->arena, from));
-                return;
-            }
-            /* Equal-width signedness changes preserve the bit pattern and
-             * are not GCC's -Woverflow case.  -Wsign-conversion owns their
-             * optional portability diagnostic; narrowing still reports the
-             * known changed value below. */
-            if (from_bits == to_bits) {
-                if (!from_signed && to_signed &&
-                    !constant_fits(s, &cv, destination))
-                    warn_at(s->lang->warnings, WARN_SIGN_CONVERSION,
-                            converted->span,
-                            "conversion to '%s' from '%s' changes the sign "
-                            "of the result",
-                            type_to_str(s->arena, destination),
-                            type_to_str(s->arena, from));
-                return;
-            }
-            if (!constant_fits(s, &cv, destination)) {
+            bool fits_value = constant_fits(s, &cv, destination);
+
+            if (!constant_fits_width(s, &cv, destination)) {
                 i64 before = signed_value(s, &cv);
                 i64 after = converted_signed_value(s, &cv, destination);
 
@@ -916,6 +922,18 @@ void sema_warn_implicit_conversion(Sema *s, Type *destination,
                         type_to_str(s->arena, from),
                         type_to_str(s->arena, destination), (long long)before,
                         (long long)after);
+            } else if (!fits_value && from_signed != to_signed) {
+                warn_at(s->lang->warnings, WARN_SIGN_CONVERSION,
+                        converted->span,
+                        "conversion to '%s' from '%s' changes the sign of "
+                        "the result",
+                        type_to_str(s->arena, destination),
+                        type_to_str(s->arena, from));
+            } else if (!fits_value) {
+                warn_at(s->lang->warnings, WARN_CONVERSION, converted->span,
+                        "conversion from '%s' to '%s' changes value",
+                        type_to_str(s->arena, from),
+                        type_to_str(s->arena, destination));
             }
             return; /* A fitting integer constant is the idiomatic case. */
         }

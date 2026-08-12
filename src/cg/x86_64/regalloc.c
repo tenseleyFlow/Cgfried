@@ -75,23 +75,7 @@ typedef struct Ra {
     u64 *live_out;
     u32 words;
     CgSpillSlots slots;
-    u32 *call_pts; /* sorted global points of CALL instructions */
-    u32 ncalls;
-    u32 call_cap;
 } Ra;
-
-/* An interval STRICTLY spanning a call keeps its value live across the
- * clobber: caller-saved is off the table. Defs at the call (results) and
- * uses ending at it (arguments) do not span. */
-static bool crosses_call(const Ra *ra, u32 start, u32 end)
-{
-    u32 i;
-
-    for (i = 0; i < ra->ncalls; i++)
-        if (start < ra->call_pts[i] && ra->call_pts[i] < end)
-            return true;
-    return false;
-}
 
 /* --- small vector for rebuilding instruction streams ----------------------
  *
@@ -246,6 +230,15 @@ static u32 view_inst_targets(const void *ctx, u32 block, u32 inst,
     return inst_targets(f, in, targets);
 }
 
+static bool view_inst_clobbers_call(const void *ctx, u32 block, u32 inst)
+{
+    const X64Func *f = ctx;
+    const X64Inst *in = &f->blocks[block].insts[inst];
+
+    return in->op == X64_OP_CALL ||
+           (in->op == X64_OP_ASM && (in->flags & X64IF_ASM_CLOBBERS));
+}
+
 static CgMirView x64_mir_view(const X64Func *f)
 {
     CgMirView view;
@@ -258,6 +251,7 @@ static CgMirView x64_mir_view(const X64Func *f)
     view.inst_def = view_inst_def;
     view.inst_uses = view_inst_uses;
     view.inst_targets = view_inst_targets;
+    view.inst_clobbers_call = view_inst_clobbers_call;
     return view;
 }
 
@@ -288,43 +282,15 @@ static void build_intervals(Ra *ra)
 {
     X64Func *f = ra->f;
     CgMirView view = x64_mir_view(f);
-    u32 p = 0, bi, i, max_calls = 0;
-
-    for (bi = 0; bi < f->nblocks; bi++)
-        max_calls += f->blocks[bi].n;
-    if (max_calls > ra->call_cap) {
-        ra->call_pts = arena_alloc(ra->arena, max_calls * sizeof(u32), 4);
-        ra->call_cap = max_calls;
-    }
 
     ra->words = x64_liveness_words(f);
     ra->live_in = arena_alloc(ra->arena, f->nblocks * ra->words * 8, 8);
     ra->live_out = arena_alloc(ra->arena, f->nblocks * ra->words * 8, 8);
     memset(ra->live_in, 0, f->nblocks * ra->words * 8);
     memset(ra->live_out, 0, f->nblocks * ra->words * 8);
-    ra->ncalls = 0; /* rebuilt every repair iteration */
-
     ra->iv = arena_alloc(ra->arena, (f->nvregs + 1) * sizeof(Interval),
                          _Alignof(Interval));
     cg_intervals_build(&view, ra->live_in, ra->live_out, ra->iv);
-    for (bi = 0; bi < f->nblocks; bi++) {
-        const X64Block *b = &f->blocks[bi];
-        u32 bend = p + (b->n ? b->n - 1 : 0);
-
-        for (i = 0; i < b->n; i++) {
-            const X64Inst *in = &b->insts[i];
-
-            /* An asm that names register clobbers is a call for this
-             * purpose: see X64IF_ASM_CLOBBERS. */
-            if (in->op == X64_OP_CALL ||
-                (in->op == X64_OP_ASM && (in->flags & X64IF_ASM_CLOBBERS))) {
-                if (ra->ncalls >= ra->call_cap)
-                    CGF_ICE("regalloc: call-site capacity accounting failed");
-                ra->call_pts[ra->ncalls++] = p + i;
-            }
-        }
-        p = bend + 1;
-    }
 }
 
 /* Fixed colors come from isel's annotations. A vreg carrying two
@@ -581,7 +547,7 @@ static bool x64_scan_reg_usable(void *ctx, u32 vreg, u8 reg, u32 start, u32 end)
 {
     Ra *ra = ctx;
     u8 rc = x64_vclass(ra->f, vreg);
-    bool crossing = crosses_call(ra, start, end);
+    bool crossing = ra->iv[vreg].live_across_call;
 
     if (crossing && rc == X64RC_XMM)
         return false;
@@ -1546,7 +1512,7 @@ void x64_regalloc(X64Func *f)
 
             for (v = 1; v <= f->nvregs && nc < 63; v++)
                 if (ra.iv[v].live && ra.iv[v].fixed &&
-                    crosses_call(&ra, ra.iv[v].start, ra.iv[v].end))
+                    ra.iv[v].live_across_call)
                     conflicts[nc++] = v;
         }
         if (!nc)

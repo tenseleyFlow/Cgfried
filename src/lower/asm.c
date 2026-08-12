@@ -273,6 +273,59 @@ static bool constraint_has(const char *c, char want)
     return false;
 }
 
+static bool local_register_supported(u8 reg)
+{
+    if (!asm_target_is_arm64())
+        return true;
+
+    /* Keep local-register bindings inside the allocator's ordinary GP
+     * register set. x14-x17 are spill/reload scratches, x18 is the platform
+     * register, and x29/x30 are the frame/link registers. Pre-colouring an
+     * asm operand to any of those would let it collide with backend-owned
+     * state even though the general asm-clobber vocabulary must continue to
+     * recognize their names. */
+    return reg <= 13 || (reg >= 19 && reg <= 28);
+}
+
+/* GNU's local-register-variable promise is much narrower than "keep this C
+ * object in one physical register for its whole lifetime": the binding is
+ * guaranteed when the variable itself is a direct extended-asm operand. That
+ * is exactly the boundary represented here. An explicit fixed constraint
+ * still wins (`"a"(r10)` asks GCC to copy r10 into rax); only a generic GP
+ * register class inherits the declaration's binding. */
+static bool bind_local_register_operand(Lower *lo, IrAsmOp *op,
+                                        const AsmOperand *src)
+{
+    AstNode *e = src->expr;
+    Symbol *sym;
+    u8 reg;
+
+    while (e && e->kind == AST_EXPR_PAREN)
+        e = e->lhs;
+    if (!e || e->kind != AST_EXPR_IDENT || !e->sym ||
+        !e->sym->asm_register_name || op->cls != ASM_CLS_REG ||
+        op->tied_to >= 0)
+        return true;
+    sym = e->sym;
+    if (!lower_asm_clobber_reg(sym->asm_register_name, &reg)) {
+        asm_error(lo, src->span,
+                  "unsupported register name '%s' on local register "
+                  "variable '%s' for this target",
+                  sym->asm_register_name, sym->name);
+        return false;
+    }
+    if (!local_register_supported(reg)) {
+        asm_error(lo, src->span,
+                  "register name '%s' on local register variable '%s' is "
+                  "reserved by the target backend",
+                  sym->asm_register_name, sym->name);
+        return false;
+    }
+    op->cls = ASM_CLS_FIXED;
+    op->reg = reg;
+    return true;
+}
+
 static u32 tied_input_count(const IrAsmOp *ops, u32 n, u32 output)
 {
     u32 count = 0;
@@ -470,6 +523,8 @@ void lower_asm(Lower *lo, AstNode *s)
                                       src->span)) {
             return;
         }
+        if (!bind_local_register_operand(lo, op, src))
+            return;
         if (src->expr && src->expr->sem_type) {
             TypeLayout l = layout_of(lo->sema, src->expr->sem_type);
 

@@ -2,18 +2,19 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-11): Sprints 0–53 and Sprints 55–57 are CLOSED;
+**WHERE THINGS STAND (2026-08-12): Sprints 0–53 and Sprints 55–57 are CLOSED;
 Sprints 55–57 were completed out of numerical order while Sprint 54 continued
 its controlled fleet soak. Sprint 54's implementation is complete, but its
 operational soak is OPEN; Phase 11 is therefore still open.** The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
-are implemented. Kasumi and Hasu now each have two accepted controlled UTC
-dates; Nomad has one. Sprint 55's GNU tier table is now **30 implemented / 6
-parsed-ignored / 8 refused**. Sprint 56's campaign machine, triage map, and
-25,905-cell PASS ratchet are complete. Sprint 57's pinned compile-the-world
-campaigns, host baselines, exact gates, and campaign-driven compiler repairs
-are complete. The old D5 notes are retained only as implementation history.
+are implemented. Kasumi, Hasu, and Nomad now each have two accepted controlled
+UTC dates and each needs one more. Sprint 55's GNU tier table is **30
+implemented / 6 parsed-ignored / 8 refused**. Sprint 56's campaign machine,
+triage map, and 25,910-cell PASS ratchet are complete. Sprint 57's pinned
+compile-the-world campaigns, truthful staged-musl linkage proof, host
+baselines, exact gates, and campaign-driven compiler repairs are integrated on
+`trunk`. The old D5 notes are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -33,9 +34,8 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ## Parallel Sprint 57 compile-the-world campaign — COMPLETE
 
-Worktree: `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s57`
-
-Branch: `s57-qbe-armdiag` (based on integrated Sprint 56 commit `3e354b86`)
+Integrated worktree and branch:
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
 
 - All inputs are immutable and verified before use: musl
   `b306b16a`, libc-test `12343315`, Chibicc `90d1f7f1`, TinyCC `38059770`,
@@ -46,8 +46,12 @@ Branch: `s57-qbe-armdiag` (based on integrated Sprint 56 commit `3e354b86`)
   assembler inputs through the host toolchain. Two clean builds reproduce all
   1,354 routed objects byte-for-byte. Static hello, all 21 Sprint 53 kernels,
   and libc-test parity against a separately GCC-built musl pass with zero
-  Cgfried-only failures. `CAMP-MUSL-001` (`_Complex`) and
-  `CAMP-MUSL-002` (shared/TLS) are the only published scope exclusions.
+  Cgfried-only failures. Both libc-test lanes use the pinned musl GCC specs;
+  retained link maps prove the exact staged `Scrt1.o` and sole staged
+  `libc.a`, while ELF checks reject `PT_INTERP` and `DT_NEEDED`. Both lanes
+  retain the same 29 upstream/environment failure records.
+  `CAMP-MUSL-001` (`_Complex`) and `CAMP-MUSL-002` (shared/TLS) are the only
+  published scope exclusions.
 - Chibicc passes 41/41 programs in both the Cgfried and pristine host-GCC
   lanes. TinyCC passes 132/132 `tests2` and 24/24 `testspp` cases in both
   lanes. Native x86-64 QBE passes 32/32 cases in both lanes. On real ARM64,
@@ -56,30 +60,32 @@ Branch: `s57-qbe-armdiag` (based on integrated Sprint 56 commit `3e354b86`)
   non-entry-block `alloc8` in `dynalloc.ssa`, and two vararg tests whose emitter
   violates AAPCS64 stack alignment. The exact gate requires zero Cgfried-only
   failures; QEMU is not used because it masks the two hardware SIGBUS faults.
-- `ci/campaigns/FINDINGS.md` records 25 fixed compiler defects and nine fixed
+- `ci/campaigns/FINDINGS.md` records 36 fixed compiler defects and ten fixed
   campaign-integrity defects, each with a minimized regression or exact gate.
   Notable repairs include distinct `__func__` objects, aggregate override
   semantics, global definition emission after forward relocations, undefined
   weak/hidden ELF attributes, local aggregate template relocations, optimizer
   provenance preservation, inline-asm operand locality, soft-float carry, and
   absolute numeric-pointer member/index initializer folding.
-- Exact bidirectional results contain 12 musl rows, seven Chibicc rows, ten
+- Exact bidirectional results contain 13 musl rows, seven Chibicc rows, ten
   TinyCC rows, seven x86 QBE rows, and eight ARM64 QBE rows. The expected-gate
   meta-test rejects missing, extra, reordered, duplicate, malformed, or
   changed rows.
 - PR CI runs musl and native x86 QBE. The scheduled/manual workflow runs all
   four campaigns and QBE on real x86-64 and ARM64 runners, retaining configs,
   routes, logs, failure sets, and exact result artifacts.
-- Fresh local validation is green: 685 unit tests / 4,284,015 assertions,
+- Fresh local validation is green: 695 unit tests / 4,284,201 assertions,
   full GCC and Clang strict builds, the complete repository suite, ShellCheck,
   campaign expected-gate meta-tests, and all four locally runnable campaign
   gates. Expected local skips remain only optional-tool/reference lanes and
   match their committed ledgers.
-- Matching-provenance x86-64 and real-ARM64 torture matrices at `56b16433`
-  preserve every committed PASS cell and add 985: the ratchet now contains
-  exactly 25,905 PASS cells. The canonical writer reports 91 failure buckets,
-  82 live policy decisions, and zero stale or unresolved decisions; reversed
-  input order regenerates both published artifacts byte-identically.
+- The last matching-source-provenance x86-64 and real-ARM64 torture baseline
+  preserved every committed PASS cell and added 985. A final stable-source
+  x86-64 gate after the x87 special-value repair added five more x86-64 PASS
+  cells whose ARM64 counterparts were already present: the ratchet now
+  contains exactly 25,910 PASS cells. The canonical writer reports 91 failure
+  buckets, 82 live policy decisions, and zero stale or unresolved decisions;
+  reversed input order regenerates both published artifacts byte-identically.
 
 No Sprint 57 implementation work remains. Do not advance
 `ci/closed_sprints.txt` beyond 53 until Sprint 54's real three-date evidence
@@ -89,16 +95,15 @@ closes the contiguous ratchet.
 
 ## 0. Sprint 56 parallel campaign worktree — COMPLETE
 
-Worktree: `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s56`
-
-Branch: `sprint-56-torture` (based on `cd7d89b6`)
+Integrated worktree and branch:
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
   verification and deterministic fixture suites pass.
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total.  After the Sprint 57
-  compiler repairs, outcome totals are 25,905 PASS, 6,620 SKIP, and 8,125
+  compiler repairs, outcome totals are 25,910 PASS, 6,620 SKIP, and 8,120
   classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
@@ -109,12 +114,12 @@ Branch: `sprint-56-torture` (based on `cd7d89b6`)
   82 durable overlay decisions, zero stale, zero unresolved, and no misc
   bucket.  The overlay contains 59 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
   and six `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 25,905-cell PASS set.
+- `tests/torture/passing.txt` is the exact sorted 25,910-cell PASS set.
   Combined gating passes and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta`, `make torture-meta`, and full `make test` (685 unit
-  tests / 4,284,015 assertions, every corpus/differential/fuzz/cross/policy
+  torture-import-meta`, `make torture-meta`, and full `make test` (695 unit
+  tests / 4,284,201 assertions, every corpus/differential/fuzz/cross/policy
   gate).  Expected local skips are only optional-tool/platform lanes and match
   their committed ledgers.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
@@ -214,6 +219,10 @@ desktop housekeeping held their one-minute load near 2.8.
   (`2026-08-12T011528Z`, commit `6db164e0`) and Hasu
   (`2026-08-12T013538Z`, commit `8d5898bc`). Both carry the complete
   fleet-control-v2 tuple and preserve their host-specific power contract.
+- Nomad's clean, no-trip second-date pair is `2026-08-12T055505Z` in commit
+  `d5b99a5f`: compile load 3.34 at 87.66% idle and runtime load 2.87 at
+  86.13% idle across 18 logical CPUs, with the truthful Darwin-unavailable
+  power tuple.
 - `.benchmarks/report-0.0.1.md` was generated twice byte-identically from the
   controlled fleet baselines/latest artifacts plus committed CI/static
   evidence and published in `1c868eaa`. Its SHA-256 is
@@ -233,12 +242,11 @@ desktop housekeeping held their one-minute load near 2.8.
 ### Remaining Sprint 54 work — execute in this order
 
 1. Let the installed schedules collect real runs on three distinct UTC dates
-   per host. Kasumi and Hasu each have accepted dates on 2026-08-11 and
-   2026-08-12, so each needs one more. Nomad still has only 2026-08-11 and
-   needs two more. The runtime gate deduplicates by calendar day; repeated
-   same-day runs cannot satisfy this requirement. Record trial-pass/trip
-   results and investigate any infrastructure status 3.
-2. The 2026-08-12 Kasumi/Hasu commits now supersede the report's selected
+   per host. Kasumi, Hasu, and Nomad each have accepted dates on 2026-08-11
+   and 2026-08-12, so each needs one more. The runtime gate deduplicates by
+   calendar day; repeated same-day runs cannot satisfy this requirement.
+   Record trial-pass/trip results and investigate any infrastructure status 3.
+2. All three 2026-08-12 host commits now supersede the report's selected
    latest inputs. After the remaining dates land, regenerate
    `.benchmarks/report-0.0.1.md` twice byte-identically and update its recorded
    hash so the release report is current at closure.

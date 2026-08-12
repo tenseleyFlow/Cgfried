@@ -270,6 +270,76 @@ void test_opt_unswitch_zero_trip_nsw_dag_is_not_speculated(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_opt_unswitch_strict_fp_preserves_zero_trip_exceptions(TestCtx *t)
+{
+    static const char source[] = "func i32 @f(f64 %x, f64 %y) {\n"
+                                 "entry():\n"
+                                 "    br head(i32 0)\n"
+                                 "head(i32 %i):\n"
+                                 "    %more = icmp ult i32 %i, 0\n"
+                                 "    condbr %more, body(), exit()\n"
+                                 "body():\n"
+                                 "    %stable = fcmp olt f64 %x, %y\n"
+                                 "    condbr %stable, yes(), no()\n"
+                                 "yes():\n"
+                                 "    br latch()\n"
+                                 "no():\n"
+                                 "    br latch()\n"
+                                 "latch():\n"
+                                 "    %next = iadd i32 %i, 1\n"
+                                 "    br head(i32 %next)\n"
+                                 "exit():\n"
+                                 "    ret i32 %i\n"
+                                 "}\n";
+    UnswitchFix strict_fix;
+    UnswitchFix fast_fix;
+    IrModule *strict_module;
+    IrModule *fast_module;
+    OptConfig cfg;
+    FILE *report = tmpfile();
+    char text[512];
+
+    fix_init(&strict_fix);
+    strict_module = parse(&strict_fix, source);
+    T_ASSERT(t, report != NULL && strict_module &&
+                    ir_verify(strict_fix.dc, strict_module));
+    opt_config_init(&cfg, OPT_O3);
+    cfg.fast_math.reassoc = true; /* An incomplete bundle remains strict. */
+    cfg.bail_log = true;
+    cfg.report = report;
+    if (strict_module)
+        (void)opt_unswitch(strict_module, &cfg);
+    if (report) {
+        read_report(report, text, sizeof(text));
+        T_ASSERT(t, strstr(text, "unswitch_unspeculatable") != NULL);
+        fclose(report);
+    }
+    if (strict_module) {
+        T_ASSERT(t, ir_verify(strict_fix.dc, strict_module));
+        T_ASSERT_EQ_INT(t, count_op(&strict_module->funcs[0], IR_FCMP), 1);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&strict_module->funcs[0], 0), 0);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&strict_module->funcs[0], 1), 0);
+    }
+
+    fix_init(&fast_fix);
+    fast_module = parse(&fast_fix, source);
+    T_ASSERT(t, fast_module && ir_verify(fast_fix.dc, fast_module));
+    opt_config_init(&cfg, OPT_OFAST);
+    if (fast_module)
+        T_ASSERT(t, opt_unswitch(fast_module, &cfg));
+    if (fast_module) {
+        const IrBlock *entry = &fast_module->funcs[0].blocks[0];
+
+        T_ASSERT(t, ir_verify(fast_fix.dc, fast_module));
+        T_ASSERT_EQ_INT(t, entry->first->op, IR_FCMP);
+        T_ASSERT_EQ_INT(t, entry->last->op, IR_CONDBR);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&fast_module->funcs[0], 0), 1);
+        T_ASSERT_EQ_INT(t, count_literal_cond(&fast_module->funcs[0], 1), 1);
+    }
+    arena_free_all(&strict_fix.arena);
+    arena_free_all(&fast_fix.arena);
+}
+
 void test_opt_unswitch_volatile_clone_fidelity(TestCtx *t)
 {
     UnswitchFix fix;

@@ -211,12 +211,65 @@ done
 
 make_gcc_wrapper() {
     output=$1
-    sysroot=$2
+    musl_install=$2
+    lane=$3
+    specs=$work/logs/libc-test-$lane-musl-gcc.specs
+    include_dir=$musl_install/usr/include
+    lib_dir=$musl_install/usr/lib
+    ldso=$musl_install/lib/ld-musl-x86_64.so.1
+
+    sh "$musl_source/tools/musl-gcc.specs.sh" \
+        "$include_dir" "$lib_dir" "$ldso" >"$specs"
     cat >"$output" <<EOF
 #!/bin/sh
-exec "$hostcc" --sysroot="$sysroot" -static "\$@"
+exec "$hostcc" -static -specs="$specs" "\$@"
 EOF
     chmod +x "$output"
+}
+
+verify_musl_wrapper() {
+    lane=$1
+    musl_install=$2
+    cc_wrapper=$3
+    source=$work/logs/libc-test-$lane-link-probe.c
+    binary=$work/logs/libc-test-$lane-link-probe
+    map=$work/logs/libc-test-$lane-link.map
+    expected_crt=$musl_install/usr/lib/Scrt1.o
+    expected_libc=$musl_install/usr/lib/libc.a
+
+    printf 'int main(void) { return 0; }\n' >"$source"
+    if ! "$cc_wrapper" "$source" "-Wl,-Map,$map" -o "$binary" \
+        >"$work/logs/libc-test-$lane-link.log" 2>&1; then
+        cat "$work/logs/libc-test-$lane-link.log" >&2
+        fail "libc-test $lane wrapper failed its staged-musl link probe"
+    fi
+    [ -x "$binary" ] || fail "libc-test $lane wrapper produced no link probe"
+    if ! awk -v expected_crt="$expected_crt" -v expected_libc="$expected_libc" '
+        {
+            for (i = 1; i <= NF; i++) {
+                path = $i
+                sub(/\(.*/, "", path)
+                if (path ~ /\/Scrt1[.]o$/) {
+                    seen_crt = 1
+                    if (path != expected_crt)
+                        bad_crt = 1
+                }
+                if (path ~ /\/libc[.]a$/) {
+                    seen_libc = 1
+                    if (path != expected_libc)
+                        bad_libc = 1
+                }
+            }
+        }
+        END {
+            exit !(seen_crt && !bad_crt && seen_libc && !bad_libc)
+        }
+    ' "$map"; then
+        fail "libc-test $lane wrapper selected non-staged CRT or libc"
+    fi
+    if ! "$binary"; then
+        fail "libc-test $lane staged-musl link probe failed to run"
+    fi
 }
 
 run_libc_test() {
@@ -227,11 +280,13 @@ run_libc_test() {
     cc_wrapper=$work/libc-test-$lane/musl-gcc
 
     archive_ref "$libc_test_source" "$LIBC_TEST_REF" "$tree"
+    "$root/scripts/campaigns/libc-test-static-prepare.sh" "$tree"
     # libc-test computes its object and directory lists before config.mak is
     # included, so B must be a command-line variable.  options.h also writes
     # into common/ without depending on that directory target.
     mkdir -p "$build/common"
-    make_gcc_wrapper "$cc_wrapper" "$musl_install"
+    make_gcc_wrapper "$cc_wrapper" "$musl_install" "$lane"
+    verify_musl_wrapper "$lane" "$musl_install" "$cc_wrapper"
     cat >"$tree/config.mak" <<EOF
 B := $build
 CC := $cc_wrapper
@@ -240,19 +295,21 @@ RANLIB := ranlib
 CFLAGS := -I$build/common -I$tree/src/common -pipe -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wno-unused-function -Wno-missing-braces -Wno-unused -Wno-overflow -Wno-unknown-pragmas -fno-builtin -frounding-math -Werror=implicit-function-declaration -Werror=implicit-int -Werror=pointer-sign -Werror=pointer-arith -g
 LDFLAGS := -g -static
 LDLIBS := $build/common/libtest.a -lpthread -lm -lrt -lcrypt -ldl -lresolv -lutil
-functional.BINS_TEMPL := bin-static.exe
-regression.BINS_TEMPL := bin-static.exe
-math.BINS_TEMPL := bin-static.exe
-musl.BINS_TEMPL := bin-static.exe
 EOF
+    expected_static=$work/logs/libc-test-$lane-expected-static.txt
+    actual_static=$work/logs/libc-test-$lane-actual-static.txt
+    LC_ALL=C "$root/scripts/campaigns/libc-test-static-make.sh" \
+        "$tree" "$build" -s cgfried-static-manifest |
+        LC_ALL=C sort >"$expected_static"
     # A clean parallel `all` may schedule common/REPORT before any common
     # object has produced an .err file.  Build the shared runner first so the
     # report rule has real inputs and the remainder can still run in parallel.
     if ! (
-        LC_ALL=C make -C "$tree" -j"$jobs" B="$build" \
-            "$build/common/runtest.exe" &&
+        LC_ALL=C "$root/scripts/campaigns/libc-test-static-make.sh" \
+            "$tree" "$build" -j"$jobs" "$build/common/runtest.exe" &&
             test -x "$build/common/runtest.exe" &&
-            LC_ALL=C make -C "$tree" -j"$jobs" B="$build"
+            LC_ALL=C "$root/scripts/campaigns/libc-test-static-make.sh" \
+                "$tree" "$build" -j"$jobs"
     ) >"$work/logs/libc-test-$lane.log" 2>&1; then
         tail -200 "$work/logs/libc-test-$lane.log" >&2
         fail "libc-test $lane harness failed"
@@ -260,6 +317,36 @@ EOF
     find "$build" -type f -name '*.err' -size +0c -printf '%P\n' |
         LC_ALL=C sort >"$work/libc-test-$lane/failures.txt"
     cp "$build/REPORT" "$work/libc-test-$lane/REPORT"
+    # Prove exact coverage against libc-test's own expanded BINS manifest.
+    # libc-test also has four explicit, unpaired `.exe` prerequisites for
+    # dlopen/TLS coverage; the wrapper still links those statically, so prove
+    # their ELF linkage instead of inferring it from exceptional filenames.
+    find "$build/functional" "$build/regression" "$build/math" \
+        "$build/musl" -maxdepth 1 -type f -name '*-static.exe' -print |
+        LC_ALL=C sort >"$actual_static"
+    cmp "$expected_static" "$actual_static" ||
+        fail "libc-test $lane static binary manifest drifted"
+    for suite in functional regression math musl; do
+        suite_dir=$build/$suite
+        unsuffixed=$work/logs/libc-test-$lane-$suite-unsuffixed.txt
+        [ -d "$suite_dir" ] || fail "libc-test $lane omitted suite: $suite"
+        find "$suite_dir" -maxdepth 1 -type f \
+            -name '*.exe' ! -name '*-static.exe' -print >"$unsuffixed"
+        while IFS= read -r binary; do
+            paired=${binary%.exe}-static.exe
+            headers=$binary.readelf-headers
+            dynamic=$binary.readelf-dynamic
+            [ ! -e "$paired" ] ||
+                fail "libc-test $lane duplicated a suite binary: $binary and $paired"
+            readelf -l "$binary" >"$headers" ||
+                fail "libc-test $lane could not inspect suite binary: $binary"
+            readelf -d "$binary" >"$dynamic" ||
+                fail "libc-test $lane could not inspect suite binary: $binary"
+            if grep -q 'INTERP' "$headers" || grep -q 'NEEDED' "$dynamic"; then
+                fail "libc-test $lane produced a dynamically linked suite binary: $binary"
+            fi
+        done <"$unsuffixed"
+    done
 }
 
 run_libc_test cgf "$work/cgf-a/install"
@@ -284,6 +371,7 @@ tab=$(printf '\t')
     printf 'compile.non-complex%cPASS%ccgfried=%s,total-c=%s\n' "$tab" "$tab" \
         "$cgf_c" "$((cgf_c + host_complex))"
     printf 'determinism.objects%cPASS%cobjects=%s\n' "$tab" "$tab" "$total_objects"
+    printf 'libc-test.linkage%cPASS%clanes=2,mode=staged-musl-static\n' "$tab" "$tab"
     printf 'libc-test.parity%cPASS%ccgf-only-failures=%s\n' "$tab" "$tab" \
         "$cgf_only_failures"
     printf 'run.benchmarks%cPASS%ccases=%s\n' "$tab" "$tab" "$bench_count"

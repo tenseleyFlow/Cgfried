@@ -322,7 +322,14 @@ static bool fold_icmp(const IrInst *in, IrOperand *out)
     return true;
 }
 
-static bool fold_fp(const IrInst *in, IrOperand *out)
+static bool fast_math_bundle_enabled(const OptConfig *cfg)
+{
+    return cfg && cfg->fast_math.reassoc && cfg->fast_math.no_nans &&
+           cfg->fast_math.no_infs && cfg->fast_math.no_signed_zeros &&
+           cfg->fast_math.reciprocal_math;
+}
+
+static bool fold_fp(const IrInst *in, IrOperand *out, const OptConfig *cfg)
 {
     const SfFormat *format = format_of((IrType)in->type);
     SfStatus status;
@@ -361,11 +368,17 @@ static bool fold_fp(const IrInst *in, IrOperand *out)
      * one would violate the exact-bit IR contract. */
     if (value.cls == SF_NAN)
         return false;
+    /* Strict code must execute an operation that can raise an FP exception;
+     * replacing it with its result would erase that observable event.  Only
+     * the complete fast-math bundle grants the non-strict license. */
+    if (!fast_math_bundle_enabled(cfg) && (status.inexact || status.overflow ||
+                                           status.underflow || status.invalid))
+        return false;
     *out = operand_of_sf((IrType)in->type, value);
     return true;
 }
 
-static bool fold_fcmp(const IrInst *in, IrOperand *out)
+static bool fold_fcmp(const IrInst *in, IrOperand *out, const OptConfig *cfg)
 {
     Sf x, y;
     bool unordered, result;
@@ -377,6 +390,12 @@ static bool fold_fcmp(const IrInst *in, IrOperand *out)
     x = sf_of_operand(in->ops[0]);
     y = sf_of_operand(in->ops[1]);
     cmp = sf_cmp(x, y, &unordered);
+    /* The raw NaN operand may be signaling even though softfp's value form
+     * intentionally does not preserve that distinction.  Keep unordered
+     * comparisons executable in strict code so folding cannot erase
+     * FE_INVALID; the complete fast-math bundle grants the only exception. */
+    if (unordered && !fast_math_bundle_enabled(cfg))
+        return false;
     switch ((IrFcmp)in->subop) {
     case FCMP_OEQ:
         result = !unordered && cmp == 0;
@@ -427,7 +446,14 @@ static bool fold_fcmp(const IrInst *in, IrOperand *out)
     return true;
 }
 
-static bool fold_conversion(const IrInst *in, IrOperand *out)
+static bool sf_status_raised(const SfStatus *status)
+{
+    return status->inexact || status->overflow || status->underflow ||
+           status->invalid;
+}
+
+static bool fold_conversion(const IrInst *in, IrOperand *out,
+                            const OptConfig *cfg)
 {
     IrOperand op;
     IrType from, to;
@@ -469,6 +495,8 @@ static bool fold_conversion(const IrInst *in, IrOperand *out)
         value = sf_convert(sf_of_operand(op), *ff, *tf, &status);
         if (value.cls == SF_NAN)
             return false;
+        if (!fast_math_bundle_enabled(cfg) && sf_status_raised(&status))
+            return false;
         *out = operand_of_sf(to, value);
         return true;
     }
@@ -479,6 +507,8 @@ static bool fold_conversion(const IrInst *in, IrOperand *out)
         memset(&status, 0, sizeof(status));
         bits =
             sf_to_int(sf_of_operand(op), (int)tw, in->op == IR_FPTOUI, &status);
+        if (!fast_math_bundle_enabled(cfg) && sf_status_raised(&status))
+            return false;
         *out = status.invalid ? ir_op_undef(to) : iconst_bits(to, bits);
         return true;
     case IR_SITOFP:
@@ -497,6 +527,8 @@ static bool fold_conversion(const IrInst *in, IrOperand *out)
         }
         memset(&status, 0, sizeof(status));
         value = sf_from_int(bits, negative, *tf, &status);
+        if (!fast_math_bundle_enabled(cfg) && sf_status_raised(&status))
+            return false;
         *out = operand_of_sf(to, value);
         return true;
     }
@@ -519,12 +551,11 @@ static bool fold_conversion(const IrInst *in, IrOperand *out)
 
 bool opt_fold_inst(const IrInst *in, IrOperand *out, const OptConfig *cfg)
 {
-    (void)cfg;
     if (!in || !out || !in->result.v)
         return false;
     if (fold_undef(in, out) || fold_integer_ub(in, out) ||
-        fold_integer(in, out) || fold_icmp(in, out) || fold_fp(in, out) ||
-        fold_fcmp(in, out) || fold_conversion(in, out))
+        fold_integer(in, out) || fold_icmp(in, out) || fold_fp(in, out, cfg) ||
+        fold_fcmp(in, out, cfg) || fold_conversion(in, out, cfg))
         return true;
     if (in->op == IR_SELECT && in->nops == 3) {
         if (in->ops[0].kind == IROP_ICONST) {

@@ -72,7 +72,14 @@ static u64 type_mask(IrType type)
     return width == 64 ? UINT64_MAX : (1ull << width) - 1;
 }
 
-static bool speculatable_op(const IrInst *in)
+static bool fast_math_allows_fp_speculation(const OptConfig *cfg)
+{
+    return cfg && cfg->fast_math.reassoc && cfg->fast_math.no_nans &&
+           cfg->fast_math.no_infs && cfg->fast_math.no_signed_zeros &&
+           cfg->fast_math.reciprocal_math;
+}
+
+static bool speculatable_op(const IrInst *in, const OptConfig *cfg)
 {
     /* NSW makes overflow poison-like optimization provenance: evaluating it
      * on a newly introduced zero-trip path is not semantics-preserving unless
@@ -90,11 +97,6 @@ static bool speculatable_op(const IrInst *in)
     case IR_LSHR:
     case IR_ASHR:
     case IR_ICMP:
-    case IR_FCMP:
-    case IR_FADD:
-    case IR_FSUB:
-    case IR_FMUL:
-    case IR_FDIV:
     case IR_FNEG:
     case IR_PTRADD:
     case IR_SELECT:
@@ -102,6 +104,12 @@ static bool speculatable_op(const IrInst *in)
             return in->nops == 2 && in->ops[1].kind == IROP_ICONST &&
                    in->ops[1].a < integer_width((IrType)in->type);
         return true;
+    case IR_FCMP:
+    case IR_FADD:
+    case IR_FSUB:
+    case IR_FMUL:
+    case IR_FDIV:
+        return fast_math_allows_fp_speculation(cfg);
     case IR_SDIV:
     case IR_UDIV:
     case IR_SREM:
@@ -133,8 +141,8 @@ static bool speculatable_op(const IrInst *in)
 }
 
 static bool plan_value(const IrFunc *f, const IrDomTree *dom, const Loop *loop,
-                       BlockId preheader, ValueId value, u8 *state,
-                       ValueId *order, u32 *norder)
+                       BlockId preheader, ValueId value, const OptConfig *cfg,
+                       u8 *state, ValueId *order, u32 *norder)
 {
     const IrValInfo *info;
     const IrInst *in;
@@ -156,7 +164,7 @@ static bool plan_value(const IrFunc *f, const IrDomTree *dom, const Loop *loop,
     if (info->def_kind != VDEF_INST)
         return false;
     in = value_inst(f, value);
-    if (!in || !speculatable_op(in) || in->nedges || !in->result.v)
+    if (!in || !speculatable_op(in, cfg) || in->nedges || !in->result.v)
         return false;
 
     state[value.v] = 1;
@@ -166,8 +174,8 @@ static bool plan_value(const IrFunc *f, const IrDomTree *dom, const Loop *loop,
         if (op.kind == IROP_UNDEF || op.kind == IROP_NONE)
             return false;
         if (op.kind == IROP_VALUE &&
-            !plan_value(f, dom, loop, preheader, (ValueId){(u32)op.a}, state,
-                        order, norder))
+            !plan_value(f, dom, loop, preheader, (ValueId){(u32)op.a}, cfg,
+                        state, order, norder))
             return false;
     }
     state[value.v] = 2;
@@ -212,8 +220,8 @@ static bool analyze_candidate(const IrFunc *f, const IrDomTree *dom,
             continue;
         memset(state, 0, (size_t)(f->nvals + 1) * sizeof(*state));
         plan->ndag = 0;
-        if (!plan_value(f, dom, loop, plan->preheader, condition, state, order,
-                        &plan->ndag))
+        if (!plan_value(f, dom, loop, plan->preheader, condition, cfg, state,
+                        order, &plan->ndag))
             continue;
         /* A function parameter or already-dominating value needs no cloned
          * DAG.  An internal condition must finish the planned DAG itself. */

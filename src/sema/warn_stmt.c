@@ -475,8 +475,11 @@ static AstNode *fallthrough_anchor(AstNode *st)
         }
         return st;
     case AST_STMT_IF:
-        /* An `else` arm that completes normally is where control leaves. */
-        if (st->rhs && !stmt_terminates(st->rhs)) {
+        /* Descend only when the then arm terminates and the else arm is the
+         * unique route that can reach the next case.  When both arms can
+         * complete normally, GCC points at the controlling `if`; choosing
+         * the final `else` instead invents a location divergence. */
+        if (st->rhs && stmt_terminates(st->body) && !stmt_terminates(st->rhs)) {
             AstNode *inner = fallthrough_anchor(st->rhs);
 
             if (inner)

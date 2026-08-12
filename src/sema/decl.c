@@ -2172,6 +2172,8 @@ static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
         prev->section_name = fresh->section_name;
     if (fresh->asm_name)
         prev->asm_name = fresh->asm_name;
+    if (fresh->asm_register_name)
+        prev->asm_register_name = fresh->asm_register_name;
     if (fresh->gnu.constructor)
         prev->ctor_prio = fresh->ctor_prio;
     if (fresh->gnu.destructor)
@@ -2412,9 +2414,32 @@ static void declare_one(Sema *s, AstNode *d)
     check_ctor_dtor(s, sym, d);
     check_cleanup(s, sym, d, file_scope);
 
-    if (d->gnu.asm_name)
-        sym->asm_name =
+    if (d->gnu.asm_name) {
+        const char *name =
             intern_str(s->interner, intern_cstr(s->interner, d->gnu.asm_name));
+        bool automatic_local = !file_scope && sym->kind == SYM_VAR &&
+                               (d->storage & (AST_SC_STATIC | AST_SC_EXTERN |
+                                              AST_SC_THREAD_LOCAL)) == 0;
+
+        if (automatic_local && (d->storage & AST_SC_REGISTER)) {
+            /* GNU local register variables are not symbol renames. Their
+             * guarantee is intentionally limited to direct extended-asm
+             * operands, where lower_asm turns the ordinary `r` constraint
+             * into a fixed-register one. musl's syscall arguments 4-6 use
+             * precisely this contract. */
+            sym->asm_register_name = name;
+        } else if (automatic_local) {
+            /* GCC accepts this spelling but ignores it unless the automatic
+             * variable also has `register` storage. Do not leak the name into
+             * lower_link_name: an automatic object has no linker symbol. */
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "ignoring asm specifier for non-register local variable "
+                    "'%s'",
+                    d->name);
+        } else {
+            sym->asm_name = name;
+        }
+    }
 
     if (d->gnu.alias_target) {
         /* Interned HERE: the parser has no interner, and this is the one

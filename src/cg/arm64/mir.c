@@ -102,9 +102,9 @@ A64Reg a64_newv_width(A64Func *f, A64RegClass rc, A64Sf sf)
     return r;
 }
 
-/* A virtual register the allocator MUST colour `phys`. Argument marshalling
- * and parameter binding are the only producers; everything else allocates
- * freely. */
+/* A virtual register the allocator MUST colour `phys`. Argument marshalling,
+ * parameter binding, and fixed extended-asm operands are the producers;
+ * everything else allocates freely. */
 A64Reg a64_newv_fixed(A64Func *f, A64RegClass rc, A64Sf sf, u8 phys)
 {
     A64Reg r = a64_newv_width(f, rc, sf);
