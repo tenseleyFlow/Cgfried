@@ -56,12 +56,13 @@ Branch: `sprint-57-world-1` (based on integrated Sprint 56 commit `3e354b86`)
   non-entry-block `alloc8` in `dynalloc.ssa`, and two vararg tests whose emitter
   violates AAPCS64 stack alignment. The exact gate requires zero Cgfried-only
   failures; QEMU is not used because it masks the two hardware SIGBUS faults.
-- `ci/campaigns/FINDINGS.md` records 24 fixed compiler defects and nine fixed
+- `ci/campaigns/FINDINGS.md` records 25 fixed compiler defects and nine fixed
   campaign-integrity defects, each with a minimized regression or exact gate.
   Notable repairs include distinct `__func__` objects, aggregate override
   semantics, global definition emission after forward relocations, undefined
   weak/hidden ELF attributes, local aggregate template relocations, optimizer
-  provenance preservation, inline-asm operand locality, and soft-float carry.
+  provenance preservation, inline-asm operand locality, soft-float carry, and
+  absolute numeric-pointer member/index initializer folding.
 - Exact bidirectional results contain 12 musl rows, seven Chibicc rows, ten
   TinyCC rows, seven x86 QBE rows, and eight ARM64 QBE rows. The expected-gate
   meta-test rejects missing, extra, reordered, duplicate, malformed, or

@@ -303,6 +303,24 @@ static ConstValue null_address(Type *type)
     return v;
 }
 
+/* Add a byte displacement to either kind of address the initializer folder
+ * can carry.  CV_ADDR is a linker relocation; CV_INT is an absolute numeric
+ * pointer produced by an integer-to-pointer cast such as `(T *)0x4000`.
+ * Keeping the latter as a bit pattern is load-bearing: turning it into a
+ * relocation with no symbol would instead name an anonymous object. */
+static bool address_add_bytes(ConstValue *v, u64 bytes)
+{
+    if (v->kind == CV_ADDR) {
+        v->addend += (i64)bytes;
+        return true;
+    }
+    if (v->kind == CV_INT) {
+        v->i += bytes;
+        return true;
+    }
+    return false;
+}
+
 /* Fold the address of a member/subscript lvalue without loading it.  This is
  * deliberately separate from eval(): a decayed array member such as
  *
@@ -341,13 +359,12 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
         }
         if (base.kind == CV_ERROR)
             return base;
-        if (base.kind != CV_ADDR ||
-            !member_byte_offset(s, rec, e->name, &member_off)) {
+        if (!member_byte_offset(s, rec, e->name, &member_off) ||
+            !address_add_bytes(&base, (u64)member_off)) {
             ce_error(s, m, e->span,
                      "initializer element is not computable at load time");
             return cv_error();
         }
-        base.addend += member_off;
         base.type = e->sem_type;
         *from_null = *from_null || base_from_null;
         return base;
@@ -372,14 +389,18 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
         idx = eval(s, idx_node, m == CE_FOLD ? CE_FOLD : CE_ICE);
         if (base.kind == CV_ERROR || idx.kind == CV_ERROR)
             return cv_error();
-        if (base.kind != CV_ADDR || idx.kind != CV_INT || !ptr ||
+        if (idx.kind != CV_INT || !ptr ||
             (ptr->kind != TY_PTR && ptr->kind != TY_ARRAY) || !ptr->base) {
             ce_error(s, m, e->span,
                      "initializer element is not computable at load time");
             return cv_error();
         }
         scale = layout_of(s, ptr->base).size;
-        base.addend += (i64)idx.i * (i64)scale;
+        if (!address_add_bytes(&base, idx.i * scale)) {
+            ce_error(s, m, e->span,
+                     "initializer element is not computable at load time");
+            return cv_error();
+        }
         base.type = e->sem_type;
         return base;
     }
