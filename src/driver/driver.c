@@ -827,6 +827,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         "\t.p2align 2\n"
         "\t.long 1\n"
         "\t.p2align 2\n";
+    static const char noexec_stack_asm[] =
+        "\n\t.section .note.GNU-stack,\"\",@progbits\n";
     Buf b;
     u32 i;
     X64Func **xfuncs = NULL;
@@ -939,6 +941,14 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
 emit_tail:
     if (a->fsafe)
         buf_append(&b, safe_note_asm, sizeof(safe_note_asm) - 1);
+    /* Every target except arm64-macos emits ELF.  An absent GNU-stack note
+     * makes GNU ld conservatively mark the output stack executable (and newer
+     * linkers warn for every link).  Cgfried has no nested-function trampoline
+     * extension, so every translation unit can truthfully request a
+     * non-executable stack.  Keep this last: it is a file-level property, not
+     * part of whichever code/data section the backend emitted most recently. */
+    if (cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS)
+        buf_append(&b, noexec_stack_asm, sizeof(noexec_stack_asm) - 1);
 
     if (diag_had_error(dc)) {
         buf_free(&b);

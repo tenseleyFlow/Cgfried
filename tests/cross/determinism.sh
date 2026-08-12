@@ -79,6 +79,15 @@ for t in x86_64-linux-gnu arm64-linux arm64-macos x86_64-linux-musl \
         cat "$WORK/$t.err" >&2
         exit 1
     fi
+    if [ "$t" = arm64-macos ]; then
+        if grep -Fq '.note.GNU-stack' "$WORK/$t.s"; then
+            echo "cross_determinism: Mach-O output contains an ELF stack note" >&2
+            exit 1
+        fi
+    elif ! grep -Fq '.section .note.GNU-stack,"",@progbits' "$WORK/$t.s"; then
+        echo "cross_determinism: --target=$t omitted the no-exec-stack note" >&2
+        exit 1
+    fi
     printf '%s %s\n' "$t" "$(cksum <"$WORK/$t.s" | cut -d' ' -f1,2)"
 done >"$WORK/manifest"
 

@@ -60,7 +60,7 @@ Integrated worktree and branch:
   non-entry-block `alloc8` in `dynalloc.ssa`, and two vararg tests whose emitter
   violates AAPCS64 stack alignment. The exact gate requires zero Cgfried-only
   failures; QEMU is not used because it masks the two hardware SIGBUS faults.
-- `ci/campaigns/FINDINGS.md` records 36 fixed compiler defects and ten fixed
+- `ci/campaigns/FINDINGS.md` records 37 fixed compiler defects and ten fixed
   campaign-integrity defects, each with a minimized regression or exact gate.
   Notable repairs include distinct `__func__` objects, aggregate override
   semantics, global definition emission after forward relocations, undefined
