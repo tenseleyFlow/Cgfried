@@ -11,7 +11,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi and Hasu now each have two accepted controlled UTC
 dates; Nomad has one. Sprint 55's GNU tier table is now **30 implemented / 6
 parsed-ignored / 8 refused**. Sprint 56's campaign machine, triage map, and
-24,920-cell PASS ratchet are complete. Sprint 57's pinned compile-the-world
+25,905-cell PASS ratchet are complete. Sprint 57's pinned compile-the-world
 campaigns, host baselines, exact gates, and campaign-driven compiler repairs
 are complete. The old D5 notes are retained only as implementation history.
 
@@ -35,7 +35,7 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 Worktree: `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s57`
 
-Branch: `sprint-57-world-1` (based on integrated Sprint 56 commit `3e354b86`)
+Branch: `s57-qbe-armdiag` (based on integrated Sprint 56 commit `3e354b86`)
 
 - All inputs are immutable and verified before use: musl
   `b306b16a`, libc-test `12343315`, Chibicc `90d1f7f1`, TinyCC `38059770`,
@@ -75,6 +75,11 @@ Branch: `sprint-57-world-1` (based on integrated Sprint 56 commit `3e354b86`)
   campaign expected-gate meta-tests, and all four locally runnable campaign
   gates. Expected local skips remain only optional-tool/reference lanes and
   match their committed ledgers.
+- Matching-provenance x86-64 and real-ARM64 torture matrices at `56b16433`
+  preserve every committed PASS cell and add 985: the ratchet now contains
+  exactly 25,905 PASS cells. The canonical writer reports 91 failure buckets,
+  82 live policy decisions, and zero stale or unresolved decisions; reversed
+  input order regenerates both published artifacts byte-identically.
 
 No Sprint 57 implementation work remains. Do not advance
 `ci/closed_sprints.txt` beyond 53 until Sprint 54's real three-date evidence
@@ -92,23 +97,24 @@ Branch: `sprint-56-torture` (based on `cd7d89b6`)
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
   verification and deterministic fixture suites pass.
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
-  `arm64-linux`: 20,325 cells per target, 40,650 total.  Outcome totals are
-  24,920 PASS, 6,620 SKIP, and 9,110 classified failures.
+  `arm64-linux`: 20,325 cells per target, 40,650 total.  After the Sprint 57
+  compiler repairs, outcome totals are 25,905 PASS, 6,620 SKIP, and 8,125
+  classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 99 total buckets,
-  90 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket.  The overlay contains 65 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
-  and eight `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 24,920-cell PASS set.
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 91 total buckets,
+  82 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket.  The overlay contains 59 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
+  and six `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
+- `tests/torture/passing.txt` is the exact sorted 25,905-cell PASS set.
   Combined gating passes and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta`, `make torture-meta`, and full `make test` (677 unit
-  tests / 4,283,938 assertions, every corpus/differential/fuzz/cross/policy
+  torture-import-meta`, `make torture-meta`, and full `make test` (685 unit
+  tests / 4,284,015 assertions, every corpus/differential/fuzz/cross/policy
   gate).  Expected local skips are only optional-tool/platform lanes and match
   their committed ledgers.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
