@@ -189,6 +189,7 @@ jobs:
             build/campaigns/qbe/results.txt
             build/campaigns/qbe/source-ref.txt
             build/campaigns/qbe/*.log
+            build/campaigns/qbe/*-only-failures.txt
             build/campaigns/qbe/**/config.h
             build/campaigns/qbe/logs/**
           if-no-files-found: warn
