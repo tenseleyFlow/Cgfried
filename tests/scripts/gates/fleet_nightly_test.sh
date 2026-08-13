@@ -91,8 +91,8 @@ grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$musl" >/dev/null ||
     fail "musl artifact lacks shared stamp"
 [ "$(grep -c 'push origin trunk' "$tmp/git.log")" -eq 2 ] ||
     fail "push did not perform exactly one retry"
-grep -F 'pull --rebase origin trunk' "$tmp/git.log" >/dev/null ||
-    fail "push retry did not rebase safely"
+[ "$(grep -c 'pull --rebase --no-gpg-sign origin trunk' "$tmp/git.log")" -eq 2 ] ||
+    fail "sync and push retry did not disable interactive rebase signing"
 grep -F 'CC=/bin/true build/cgfried build/timeit' "$tmp/make.log" >/dev/null ||
     fail "Linux portable build targets are wrong"
 grep -F 'gate-trip=no' "$tmp/git.log" >/dev/null || fail "clean commit did not record gate state"

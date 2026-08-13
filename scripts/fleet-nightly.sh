@@ -76,7 +76,7 @@ fi
 "$git_cmd" -C "$checkout" switch trunk >/dev/null 2>&1 ||
     die "cannot switch dedicated checkout to trunk"
 if [ "$synced" -eq 0 ]; then
-    "$git_cmd" -C "$checkout" pull --rebase origin trunk ||
+    "$git_cmd" -C "$checkout" pull --rebase --no-gpg-sign origin trunk ||
         die "cannot update dedicated trunk checkout"
     [ -z "$($git_cmd -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
         die "dedicated checkout is dirty after sync"
@@ -416,7 +416,7 @@ echo "$prog: committed the dated $host artifacts; baselines unchanged"
 if [ "$push" -eq 1 ]; then
     if ! "$git_cmd" -C "$checkout" push origin trunk; then
         echo "$prog: initial push failed; pulling with rebase for one safe retry" >&2
-        if ! "$git_cmd" -C "$checkout" pull --rebase origin trunk; then
+        if ! "$git_cmd" -C "$checkout" pull --rebase --no-gpg-sign origin trunk; then
             "$git_cmd" -C "$checkout" rebase --abort >/dev/null 2>&1 || true
             die "push retry rebase failed"
         fi
