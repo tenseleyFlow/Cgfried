@@ -1091,666 +1091,666 @@ Generated from committed baselines, latest fleet results, static kernel goldens,
 <!-- perf-metric x86_64-linux-gnu ci varargs-call-loop.Os.size_unstripped 14952 -->
 | ci | varargs-call-loop.Os.text | 640 | 640 | +0.0% | n/a | baseline:baseline-size-x86_64-linux-gnu.ci.txt; latest:2026-08-11T042714Z-ci-x86_64-linux-gnu-size.txt |
 <!-- perf-metric x86_64-linux-gnu ci varargs-call-loop.Os.text 640 -->
-| hasu | many-tu.maxrss_kb_max | 1371436 | 1385124 | +1.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu many-tu.maxrss_kb_max 1385124 -->
-| hasu | many-tu.stat.arena.ast.blocks | 15 | 15 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.maxrss_kb_max | 1371436 | 1385156 | +1.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu many-tu.maxrss_kb_max 1385156 -->
+| hasu | many-tu.stat.arena.ast.blocks | 15 | 15 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.arena.ast.blocks 15 -->
-| hasu | many-tu.stat.arena.ast.peak_kb | 2097088 | 2097088 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.arena.ast.peak_kb | 2097088 | 2097088 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.arena.ast.peak_kb 2097088 -->
-| hasu | many-tu.stat.arena.ast.waste_pct | 35 | 34 | -2.9% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.arena.ast.waste_pct | 35 | 34 | -2.9% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.arena.ast.waste_pct 34 -->
-| hasu | many-tu.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.arena.ir.blocks 0 -->
-| hasu | many-tu.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.arena.ir.peak_kb 0 -->
-| hasu | many-tu.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.arena.ir.waste_pct 0 -->
-| hasu | many-tu.stat.intern.hit_pct | 87 | 87 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.intern.hit_pct | 87 | 87 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.intern.hit_pct 87 -->
-| hasu | many-tu.stat.intern.hits | 2783500 | 2783500 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.intern.hits | 2783500 | 2783500 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.intern.hits 2783500 -->
-| hasu | many-tu.stat.intern.lookups | 3183000 | 3183000 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.stat.intern.lookups | 3183000 | 3183000 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu many-tu.stat.intern.lookups 3183000 -->
-| hasu | many-tu.sys_ms_median | 342.942000 | 344.057500 | +0.3% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu many-tu.sys_ms_median 344.057500 -->
-| hasu | many-tu.user_ms_median | 690.438500 | 690.987500 | +0.1% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu many-tu.user_ms_median 690.987500 -->
-| hasu | many-tu.wall_ms_median | 1032.067156 | 1041.061515 | +0.9% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu many-tu.wall_ms_median 1041.061515 -->
-| hasu | self.maxrss_kb_max | 1055568 | 1081196 | +2.4% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu self.maxrss_kb_max 1081196 -->
-| hasu | self.stat.arena.ast.blocks | 14 | 15 | +7.1% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | many-tu.sys_ms_median | 342.942000 | 359.523500 | +4.8% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu many-tu.sys_ms_median 359.523500 -->
+| hasu | many-tu.user_ms_median | 690.438500 | 683.936500 | -0.9% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu many-tu.user_ms_median 683.936500 -->
+| hasu | many-tu.wall_ms_median | 1032.067156 | 1043.972645 | +1.2% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu many-tu.wall_ms_median 1043.972645 -->
+| hasu | self.maxrss_kb_max | 1055568 | 1082996 | +2.6% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu self.maxrss_kb_max 1082996 -->
+| hasu | self.stat.arena.ast.blocks | 14 | 15 | +7.1% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.arena.ast.blocks 15 -->
-| hasu | self.stat.arena.ast.peak_kb | 1048512 | 2097088 | +100.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.arena.ast.peak_kb | 1048512 | 2097088 | +100.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.arena.ast.peak_kb 2097088 -->
-| hasu | self.stat.arena.ast.waste_pct | 1 | 50 | +4900.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.arena.ast.waste_pct | 1 | 50 | +4900.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.arena.ast.waste_pct 50 -->
-| hasu | self.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.arena.ir.blocks 0 -->
-| hasu | self.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.arena.ir.peak_kb 0 -->
-| hasu | self.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.arena.ir.waste_pct 0 -->
-| hasu | self.stat.intern.hit_pct | 88 | 88 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.intern.hit_pct | 88 | 88 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu self.stat.intern.hit_pct 88 -->
-| hasu | self.stat.intern.hits | 3697696 | 3725191 | +0.7% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu self.stat.intern.hits 3725191 -->
-| hasu | self.stat.intern.lookups | 4176001 | 4207143 | +0.7% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu self.stat.intern.lookups 4207143 -->
-| hasu | self.sys_ms_median | 328.339500 | 334.988000 | +2.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu self.sys_ms_median 334.988000 -->
-| hasu | self.user_ms_median | 1010.113500 | 1032.975500 | +2.3% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu self.user_ms_median 1032.975500 -->
-| hasu | self.wall_ms_median | 1346.691379 | 1368.463513 | +1.6% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu self.wall_ms_median 1368.463513 -->
-| hasu | sqlite3.maxrss_kb_max | 490500 | 494200 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu sqlite3.maxrss_kb_max 494200 -->
-| hasu | sqlite3.stat.arena.ast.blocks | 6 | 6 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | self.stat.intern.hits | 3697696 | 3728101 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu self.stat.intern.hits 3728101 -->
+| hasu | self.stat.intern.lookups | 4176001 | 4210634 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu self.stat.intern.lookups 4210634 -->
+| hasu | self.sys_ms_median | 328.339500 | 327.096000 | -0.4% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu self.sys_ms_median 327.096000 -->
+| hasu | self.user_ms_median | 1010.113500 | 1037.807000 | +2.7% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu self.user_ms_median 1037.807000 -->
+| hasu | self.wall_ms_median | 1346.691379 | 1369.644649 | +1.7% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu self.wall_ms_median 1369.644649 -->
+| hasu | sqlite3.maxrss_kb_max | 490500 | 494180 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu sqlite3.maxrss_kb_max 494180 -->
+| hasu | sqlite3.stat.arena.ast.blocks | 6 | 6 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.arena.ast.blocks 6 -->
-| hasu | sqlite3.stat.arena.ast.peak_kb | 507968 | 507968 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.arena.ast.peak_kb | 507968 | 507968 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.arena.ast.peak_kb 507968 -->
-| hasu | sqlite3.stat.arena.ast.waste_pct | 20 | 19 | -5.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.arena.ast.waste_pct | 20 | 19 | -5.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.arena.ast.waste_pct 19 -->
-| hasu | sqlite3.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.arena.ir.blocks 0 -->
-| hasu | sqlite3.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.arena.ir.peak_kb 0 -->
-| hasu | sqlite3.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.arena.ir.waste_pct 0 -->
-| hasu | sqlite3.stat.intern.hit_pct | 95 | 95 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.intern.hit_pct | 95 | 95 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.intern.hit_pct 95 -->
-| hasu | sqlite3.stat.intern.hits | 1212024 | 1212024 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.intern.hits | 1212024 | 1212024 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.intern.hits 1212024 -->
-| hasu | sqlite3.stat.intern.lookups | 1271985 | 1271985 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
+| hasu | sqlite3.stat.intern.lookups | 1271985 | 1271985 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
 <!-- perf-metric x86_64-linux-gnu hasu sqlite3.stat.intern.lookups 1271985 -->
-| hasu | sqlite3.sys_ms_median | 134.555500 | 141.011000 | +4.8% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu sqlite3.sys_ms_median 141.011000 -->
-| hasu | sqlite3.user_ms_median | 576.802500 | 578.443500 | +0.3% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu sqlite3.user_ms_median 578.443500 -->
-| hasu | sqlite3.wall_ms_median | 714.016509 | 720.696219 | +0.9% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu.txt |
-<!-- perf-metric x86_64-linux-gnu hasu sqlite3.wall_ms_median 720.696219 -->
-| hasu | x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median | 4.935273 | 5.703812 | +15.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median 5.703812 -->
-| hasu | x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median | 2.149662 | 2.129105 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median 2.129105 -->
-| hasu | x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median | 6.323747 | 5.051678 | -20.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median 5.051678 -->
-| hasu | x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median | 2.093301 | 2.082809 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median 2.082809 -->
-| hasu | x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median | 5.147327 | 5.283361 | +2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median 5.283361 -->
-| hasu | x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median | 3.237036 | 3.628124 | +12.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median 3.628124 -->
-| hasu | x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median | 4.653831 | 5.027725 | +8.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median 5.027725 -->
-| hasu | x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median | 4.594396 | 4.602196 | +0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median 4.602196 -->
-| hasu | x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median | 4.845482 | 4.744658 | -2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median 4.744658 -->
-| hasu | x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median | 4.413424 | 4.604396 | +4.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median 4.604396 -->
-| hasu | x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median | 4.947729 | 5.123941 | +3.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median 5.123941 -->
-| hasu | x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median | 4.645573 | 4.831556 | +4.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median 4.831556 -->
-| hasu | x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median | 383.175587 | 383.070772 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median 383.070772 -->
-| hasu | x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median | 40.680403 | 40.650891 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median 40.650891 -->
-| hasu | x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median | 382.354369 | 381.973640 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median 381.973640 -->
-| hasu | x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median | 40.736072 | 40.758971 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median 40.758971 -->
-| hasu | x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median | 383.324099 | 383.581545 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median 383.581545 -->
-| hasu | x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median | 45.633501 | 45.610146 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median 45.610146 -->
-| hasu | x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median | 8.301868 | 7.460254 | -10.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median 7.460254 -->
-| hasu | x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median | 3.354724 | 3.610464 | +7.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median 3.610464 -->
-| hasu | x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median | 7.569275 | 6.510193 | -14.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median 6.510193 -->
-| hasu | x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median | 3.456193 | 3.488434 | +0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median 3.488434 -->
-| hasu | x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median | 8.117355 | 7.691861 | -5.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median 7.691861 -->
-| hasu | x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median | 3.707280 | 4.044800 | +9.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median 4.044800 -->
-| hasu | x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median | 1.913971 | 1.646750 | -14.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median 1.646750 -->
-| hasu | x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median | 1.049575 | 1.085040 | +3.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median 1.085040 -->
-| hasu | x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median | 2.558084 | 1.774748 | -30.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median 1.774748 -->
-| hasu | x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median | 0.390798 | 0.425331 | +8.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median 0.425331 -->
-| hasu | x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median | 1.812127 | 1.997759 | +10.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median 1.997759 -->
-| hasu | x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median | 2.001224 | 1.933292 | -3.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median 1.933292 -->
-| hasu | x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median | 34.423920 | 34.051464 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median 34.051464 -->
-| hasu | x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median | 6.785916 | 6.540029 | -3.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median 6.540029 -->
-| hasu | x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median | 34.501773 | 33.964777 | -1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median 33.964777 -->
-| hasu | x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median | 7.671024 | 7.793247 | +1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median 7.793247 -->
-| hasu | x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median | 34.742678 | 34.115483 | -1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median 34.115483 -->
-| hasu | x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median | 20.050619 | 19.086756 | -4.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median 19.086756 -->
-| hasu | x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median | 5.891193 | 6.005089 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median 6.005089 -->
-| hasu | x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median | 1.487718 | 1.615673 | +8.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median 1.615673 -->
-| hasu | x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median | 5.629636 | 5.924952 | +5.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median 5.924952 -->
-| hasu | x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median | 0.383927 | 0.387066 | +0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median 0.387066 -->
-| hasu | x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median | 5.927505 | 6.018784 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median 6.018784 -->
-| hasu | x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median | 1.858313 | 2.253980 | +21.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median 2.253980 -->
-| hasu | x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median | 2.377866 | 2.304112 | -3.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median 2.304112 -->
-| hasu | x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median | 1.306529 | 1.253484 | -4.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median 1.253484 -->
-| hasu | x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median | 2.063578 | 2.291973 | +11.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median 2.291973 -->
-| hasu | x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median | 1.315352 | 1.318211 | +0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median 1.318211 -->
-| hasu | x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median | 2.359054 | 2.368054 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median 2.368054 -->
-| hasu | x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median | 1.339960 | 1.355168 | +1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median 1.355168 -->
-| hasu | x86_64-linux-gnu.horner.O2.cgf.wall_ms_median | 4.606245 | 4.795956 | +4.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O2.cgf.wall_ms_median 4.795956 -->
-| hasu | x86_64-linux-gnu.horner.O2.gcc.wall_ms_median | 1.055662 | 1.157906 | +9.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O2.gcc.wall_ms_median 1.157906 -->
-| hasu | x86_64-linux-gnu.horner.O3.cgf.wall_ms_median | 4.497758 | 4.627183 | +2.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O3.cgf.wall_ms_median 4.627183 -->
-| hasu | x86_64-linux-gnu.horner.O3.gcc.wall_ms_median | 0.416936 | 0.387468 | -7.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O3.gcc.wall_ms_median 0.387468 -->
-| hasu | x86_64-linux-gnu.horner.Os.cgf.wall_ms_median | 4.522728 | 5.292397 | +17.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.Os.cgf.wall_ms_median 5.292397 -->
-| hasu | x86_64-linux-gnu.horner.Os.gcc.wall_ms_median | 1.069959 | 1.284537 | +20.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.Os.gcc.wall_ms_median 1.284537 -->
-| hasu | x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median | 262.778451 | 262.515393 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median 262.515393 -->
-| hasu | x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median | 35.269678 | 35.063427 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median 35.063427 -->
-| hasu | x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median | 262.690080 | 262.611232 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median 262.611232 -->
-| hasu | x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median | 35.063136 | 35.233576 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median 35.233576 -->
-| hasu | x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median | 262.600132 | 262.534396 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median 262.534396 -->
-| hasu | x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median | 262.609847 | 262.450392 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median 262.450392 -->
-| hasu | x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median | 2.718319 | 1.582501 | -41.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median 1.582501 -->
-| hasu | x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median | 0.690133 | 0.685692 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median 0.685692 -->
-| hasu | x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median | 2.305465 | 2.957629 | +28.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median 2.957629 -->
-| hasu | x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median | 0.681528 | 0.706521 | +3.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median 0.706521 -->
-| hasu | x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median | 2.244026 | 2.623473 | +16.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median 2.623473 -->
-| hasu | x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median | 0.959736 | 1.053174 | +9.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median 1.053174 -->
-| hasu | x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median | 0.587151 | 0.580426 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median 0.580426 -->
-| hasu | x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median | 0.431735 | 0.384627 | -10.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median 0.384627 -->
-| hasu | x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median | 0.594788 | 0.584192 | -1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median 0.584192 -->
-| hasu | x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median | 0.380299 | 0.394597 | +3.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median 0.394597 -->
-| hasu | x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median | 0.571002 | 0.587023 | +2.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median 0.587023 -->
-| hasu | x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median | 0.734252 | 0.705263 | -3.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median 0.705263 -->
-| hasu | x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median | 0.970932 | 0.898297 | -7.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median 0.898297 -->
-| hasu | x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median | 0.386328 | 0.384837 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median 0.384837 -->
-| hasu | x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median | 0.909706 | 0.972206 | +6.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median 0.972206 -->
-| hasu | x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median | 0.341896 | 0.379983 | +11.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median 0.379983 -->
-| hasu | x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median | 0.899218 | 0.886424 | -1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median 0.886424 -->
-| hasu | x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median | 0.373009 | 0.385346 | +3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median 0.385346 -->
-| hasu | x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median | 3.372342 | 3.410296 | +1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median 3.410296 -->
-| hasu | x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median | 2.968429 | 3.041983 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median 3.041983 -->
-| hasu | x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median | 3.306519 | 3.311303 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median 3.311303 -->
-| hasu | x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median | 3.057799 | 2.916019 | -4.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median 2.916019 -->
-| hasu | x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median | 3.442546 | 3.399322 | -1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median 3.399322 -->
-| hasu | x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median | 2.990811 | 2.939293 | -1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median 2.939293 -->
-| hasu | x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median | 6.196981 | 5.625333 | -9.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median 5.625333 -->
-| hasu | x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median | 4.829961 | 5.201723 | +7.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median 5.201723 -->
-| hasu | x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median | 5.996812 | 5.339320 | -11.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median 5.339320 -->
-| hasu | x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median | 5.210013 | 5.121296 | -1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median 5.121296 -->
-| hasu | x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median | 5.444604 | 5.989834 | +10.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median 5.989834 -->
-| hasu | x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median | 5.825066 | 5.229012 | -10.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median 5.229012 -->
-| hasu | x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median | 11.604992 | 13.306138 | +14.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median 13.306138 -->
-| hasu | x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median | 5.970908 | 6.192102 | +3.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median 6.192102 -->
-| hasu | x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median | 13.176772 | 12.213072 | -7.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median 12.213072 -->
-| hasu | x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median | 4.621176 | 4.357193 | -5.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median 4.357193 -->
-| hasu | x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median | 12.531429 | 11.889031 | -5.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median 11.889031 -->
-| hasu | x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median | 6.294912 | 7.304705 | +16.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median 7.304705 -->
-| hasu | x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median | 5.610259 | 5.717118 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median 5.717118 -->
-| hasu | x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median | 5.858856 | 5.810176 | -0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median 5.810176 -->
-| hasu | x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median | 5.554214 | 5.818301 | +4.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median 5.818301 -->
-| hasu | x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median | 5.362528 | 5.788267 | +7.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median 5.788267 -->
-| hasu | x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median | 5.893297 | 5.366041 | -8.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median 5.366041 -->
-| hasu | x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median | 5.815393 | 5.885864 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median 5.885864 -->
-| hasu | x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median | 0.832745 | 0.826855 | -0.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median 0.826855 -->
-| hasu | x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median | 0.374769 | 0.416544 | +11.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median 0.416544 -->
-| hasu | x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median | 0.861166 | 0.829827 | -3.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median 0.829827 -->
-| hasu | x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median | 0.381022 | 0.407396 | +6.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median 0.407396 -->
-| hasu | x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median | 0.837780 | 0.833728 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median 0.833728 -->
-| hasu | x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median | 0.372234 | 0.386345 | +3.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median 0.386345 -->
-| hasu | x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median | 1.888720 | 2.189536 | +15.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median 2.189536 -->
-| hasu | x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median | 1.150761 | 1.288324 | +12.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median 1.288324 -->
-| hasu | x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median | 2.345134 | 2.188878 | -6.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median 2.188878 -->
-| hasu | x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median | 0.866054 | 0.869333 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median 0.869333 -->
-| hasu | x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median | 2.130934 | 2.329722 | +9.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median 2.329722 -->
-| hasu | x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median | 7.247991 | 6.968322 | -3.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median 6.968322 -->
-| hasu | x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median | 23.150702 | 22.930219 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median 22.930219 -->
-| hasu | x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median | 19.322511 | 19.012572 | -1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median 19.012572 -->
-| hasu | x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median | 23.132927 | 23.709939 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median 23.709939 -->
-| hasu | x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median | 19.408403 | 19.377046 | -0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median 19.377046 -->
-| hasu | x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median | 23.313551 | 23.122200 | -0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median 23.122200 -->
-| hasu | x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median | 20.031512 | 19.369290 | -3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median 19.369290 -->
-| hasu | x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median | 3.835116 | 3.796554 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median 3.796554 -->
-| hasu | x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median | 1.786725 | 1.776481 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median 1.776481 -->
-| hasu | x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median | 3.834987 | 3.710590 | -3.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median 3.710590 -->
-| hasu | x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median | 0.962932 | 0.945250 | -1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median 0.945250 -->
-| hasu | x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median | 4.106855 | 3.891430 | -5.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median 3.891430 -->
-| hasu | x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median | 2.421423 | 2.195965 | -9.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T013538Z-hasu-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median 2.195965 -->
-| kasumi | many-tu.maxrss_kb_max | 1378424 | 1390552 | +0.9% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi many-tu.maxrss_kb_max 1390552 -->
-| kasumi | many-tu.stat.arena.ast.blocks | 15 | 15 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| hasu | sqlite3.sys_ms_median | 134.555500 | 140.108000 | +4.1% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu sqlite3.sys_ms_median 140.108000 -->
+| hasu | sqlite3.user_ms_median | 576.802500 | 578.565000 | +0.3% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu sqlite3.user_ms_median 578.565000 -->
+| hasu | sqlite3.wall_ms_median | 714.016509 | 719.121925 | +0.7% | n/a | baseline:baseline-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu.txt |
+<!-- perf-metric x86_64-linux-gnu hasu sqlite3.wall_ms_median 719.121925 -->
+| hasu | x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median | 4.935273 | 5.645014 | +14.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median 5.645014 -->
+| hasu | x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median | 2.149662 | 1.885132 | -12.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median 1.885132 -->
+| hasu | x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median | 6.323747 | 5.941130 | -6.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median 5.941130 -->
+| hasu | x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median | 2.093301 | 1.625280 | -22.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median 1.625280 -->
+| hasu | x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median | 5.147327 | 5.146967 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median 5.146967 -->
+| hasu | x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median | 3.237036 | 3.038723 | -6.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median 3.038723 -->
+| hasu | x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median | 4.653831 | 5.233043 | +12.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median 5.233043 -->
+| hasu | x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median | 4.594396 | 4.587744 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median 4.587744 -->
+| hasu | x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median | 4.845482 | 4.645440 | -4.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median 4.645440 -->
+| hasu | x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median | 4.413424 | 4.878200 | +10.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median 4.878200 -->
+| hasu | x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median | 4.947729 | 4.863636 | -1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median 4.863636 -->
+| hasu | x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median | 4.645573 | 4.530254 | -2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median 4.530254 -->
+| hasu | x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median | 383.175587 | 383.115270 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median 383.115270 -->
+| hasu | x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median | 40.680403 | 40.670981 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median 40.670981 -->
+| hasu | x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median | 382.354369 | 381.642836 | -0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median 381.642836 -->
+| hasu | x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median | 40.736072 | 40.858066 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median 40.858066 -->
+| hasu | x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median | 383.324099 | 383.295845 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median 383.295845 -->
+| hasu | x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median | 45.633501 | 45.568643 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median 45.568643 -->
+| hasu | x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median | 8.301868 | 7.361702 | -11.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median 7.361702 -->
+| hasu | x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median | 3.354724 | 3.436248 | +2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median 3.436248 -->
+| hasu | x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median | 7.569275 | 6.675404 | -11.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median 6.675404 -->
+| hasu | x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median | 3.456193 | 3.410563 | -1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median 3.410563 -->
+| hasu | x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median | 8.117355 | 6.825869 | -15.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median 6.825869 -->
+| hasu | x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median | 3.707280 | 4.122684 | +11.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median 4.122684 -->
+| hasu | x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median | 1.913971 | 2.163075 | +13.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median 2.163075 -->
+| hasu | x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median | 1.049575 | 1.075263 | +2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median 1.075263 -->
+| hasu | x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median | 2.558084 | 2.279336 | -10.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median 2.279336 -->
+| hasu | x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median | 0.390798 | 0.399705 | +2.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median 0.399705 -->
+| hasu | x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median | 1.812127 | 2.101084 | +15.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median 2.101084 -->
+| hasu | x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median | 2.001224 | 1.987707 | -0.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median 1.987707 -->
+| hasu | x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median | 34.423920 | 34.042937 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median 34.042937 -->
+| hasu | x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median | 6.785916 | 6.870614 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median 6.870614 -->
+| hasu | x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median | 34.501773 | 33.985628 | -1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median 33.985628 -->
+| hasu | x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median | 7.671024 | 7.368053 | -3.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median 7.368053 -->
+| hasu | x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median | 34.742678 | 33.965142 | -2.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median 33.965142 -->
+| hasu | x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median | 20.050619 | 18.799347 | -6.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median 18.799347 -->
+| hasu | x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median | 5.891193 | 5.737429 | -2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median 5.737429 -->
+| hasu | x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median | 1.487718 | 1.612358 | +8.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median 1.612358 -->
+| hasu | x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median | 5.629636 | 5.568569 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median 5.568569 -->
+| hasu | x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median | 0.383927 | 0.383225 | -0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median 0.383225 -->
+| hasu | x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median | 5.927505 | 5.535835 | -6.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median 5.535835 -->
+| hasu | x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median | 1.858313 | 2.062318 | +11.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median 2.062318 -->
+| hasu | x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median | 2.377866 | 1.977910 | -16.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median 1.977910 -->
+| hasu | x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median | 1.306529 | 1.322443 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median 1.322443 -->
+| hasu | x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median | 2.063578 | 2.344351 | +13.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median 2.344351 -->
+| hasu | x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median | 1.315352 | 1.266809 | -3.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median 1.266809 -->
+| hasu | x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median | 2.359054 | 1.782344 | -24.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median 1.782344 -->
+| hasu | x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median | 1.339960 | 1.346702 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median 1.346702 -->
+| hasu | x86_64-linux-gnu.horner.O2.cgf.wall_ms_median | 4.606245 | 4.741497 | +2.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O2.cgf.wall_ms_median 4.741497 -->
+| hasu | x86_64-linux-gnu.horner.O2.gcc.wall_ms_median | 1.055662 | 1.003651 | -4.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O2.gcc.wall_ms_median 1.003651 -->
+| hasu | x86_64-linux-gnu.horner.O3.cgf.wall_ms_median | 4.497758 | 4.815107 | +7.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O3.cgf.wall_ms_median 4.815107 -->
+| hasu | x86_64-linux-gnu.horner.O3.gcc.wall_ms_median | 0.416936 | 0.376799 | -9.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.O3.gcc.wall_ms_median 0.376799 -->
+| hasu | x86_64-linux-gnu.horner.Os.cgf.wall_ms_median | 4.522728 | 4.616912 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.Os.cgf.wall_ms_median 4.616912 -->
+| hasu | x86_64-linux-gnu.horner.Os.gcc.wall_ms_median | 1.069959 | 1.291959 | +20.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.horner.Os.gcc.wall_ms_median 1.291959 -->
+| hasu | x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median | 262.778451 | 262.882727 | +0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median 262.882727 -->
+| hasu | x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median | 35.269678 | 35.084542 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median 35.084542 -->
+| hasu | x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median | 262.690080 | 262.653539 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median 262.653539 -->
+| hasu | x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median | 35.063136 | 35.029095 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median 35.029095 -->
+| hasu | x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median | 262.600132 | 262.530294 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median 262.530294 -->
+| hasu | x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median | 262.609847 | 262.534189 | -0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median 262.534189 -->
+| hasu | x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median | 2.718319 | 2.964984 | +9.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median 2.964984 -->
+| hasu | x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median | 0.690133 | 0.673477 | -2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median 0.673477 -->
+| hasu | x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median | 2.305465 | 2.312412 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median 2.312412 -->
+| hasu | x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median | 0.681528 | 0.695847 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median 0.695847 -->
+| hasu | x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median | 2.244026 | 2.698713 | +20.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median 2.698713 -->
+| hasu | x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median | 0.959736 | 1.045143 | +8.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median 1.045143 -->
+| hasu | x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median | 0.587151 | 0.583623 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median 0.583623 -->
+| hasu | x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median | 0.431735 | 0.388056 | -10.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median 0.388056 -->
+| hasu | x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median | 0.594788 | 0.582578 | -2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median 0.582578 -->
+| hasu | x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median | 0.380299 | 0.388286 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median 0.388286 -->
+| hasu | x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median | 0.571002 | 0.599380 | +5.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median 0.599380 -->
+| hasu | x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median | 0.734252 | 0.727642 | -0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median 0.727642 -->
+| hasu | x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median | 0.970932 | 0.901192 | -7.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median 0.901192 -->
+| hasu | x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median | 0.386328 | 0.393004 | +1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median 0.393004 -->
+| hasu | x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median | 0.909706 | 0.901635 | -0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median 0.901635 -->
+| hasu | x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median | 0.341896 | 0.381628 | +11.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median 0.381628 -->
+| hasu | x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median | 0.899218 | 0.894833 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median 0.894833 -->
+| hasu | x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median | 0.373009 | 0.374354 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median 0.374354 -->
+| hasu | x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median | 3.372342 | 3.418335 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median 3.418335 -->
+| hasu | x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median | 2.968429 | 3.027727 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median 3.027727 -->
+| hasu | x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median | 3.306519 | 3.345629 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median 3.345629 -->
+| hasu | x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median | 3.057799 | 3.049582 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median 3.049582 -->
+| hasu | x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median | 3.442546 | 3.452041 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median 3.452041 -->
+| hasu | x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median | 2.990811 | 2.879954 | -3.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median 2.879954 -->
+| hasu | x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median | 6.196981 | 5.989121 | -3.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median 5.989121 -->
+| hasu | x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median | 4.829961 | 4.868047 | +0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median 4.868047 -->
+| hasu | x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median | 5.996812 | 5.800611 | -3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median 5.800611 -->
+| hasu | x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median | 5.210013 | 5.573887 | +7.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median 5.573887 -->
+| hasu | x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median | 5.444604 | 5.337286 | -2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median 5.337286 -->
+| hasu | x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median | 5.825066 | 5.155879 | -11.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median 5.155879 -->
+| hasu | x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median | 11.604992 | 13.383394 | +15.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median 13.383394 -->
+| hasu | x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median | 5.970908 | 6.063773 | +1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median 6.063773 -->
+| hasu | x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median | 13.176772 | 13.722187 | +4.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median 13.722187 -->
+| hasu | x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median | 4.621176 | 4.713703 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median 4.713703 -->
+| hasu | x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median | 12.531429 | 12.025980 | -4.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median 12.025980 -->
+| hasu | x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median | 6.294912 | 6.424186 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median 6.424186 -->
+| hasu | x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median | 5.610259 | 5.686872 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median 5.686872 -->
+| hasu | x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median | 5.858856 | 6.098726 | +4.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median 6.098726 -->
+| hasu | x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median | 5.554214 | 5.803923 | +4.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median 5.803923 -->
+| hasu | x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median | 5.362528 | 6.089100 | +13.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median 6.089100 -->
+| hasu | x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median | 5.893297 | 5.569262 | -5.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median 5.569262 -->
+| hasu | x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median | 5.815393 | 5.753043 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median 5.753043 -->
+| hasu | x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median | 0.832745 | 0.829048 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median 0.829048 -->
+| hasu | x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median | 0.374769 | 0.389287 | +3.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median 0.389287 -->
+| hasu | x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median | 0.861166 | 0.826699 | -4.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median 0.826699 -->
+| hasu | x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median | 0.381022 | 0.371837 | -2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median 0.371837 -->
+| hasu | x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median | 0.837780 | 0.849858 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median 0.849858 -->
+| hasu | x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median | 0.372234 | 0.380727 | +2.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median 0.380727 -->
+| hasu | x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median | 1.888720 | 2.307557 | +22.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median 2.307557 -->
+| hasu | x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median | 1.150761 | 1.296374 | +12.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median 1.296374 -->
+| hasu | x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median | 2.345134 | 1.860849 | -20.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median 1.860849 -->
+| hasu | x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median | 0.866054 | 0.853030 | -1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median 0.853030 -->
+| hasu | x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median | 2.130934 | 2.305753 | +8.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median 2.305753 -->
+| hasu | x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median | 7.247991 | 7.532218 | +3.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median 7.532218 -->
+| hasu | x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median | 23.150702 | 23.214892 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median 23.214892 -->
+| hasu | x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median | 19.322511 | 19.967797 | +3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median 19.967797 -->
+| hasu | x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median | 23.132927 | 23.237842 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median 23.237842 -->
+| hasu | x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median | 19.408403 | 19.274347 | -0.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median 19.274347 -->
+| hasu | x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median | 23.313551 | 23.240011 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median 23.240011 -->
+| hasu | x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median | 20.031512 | 19.793853 | -1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median 19.793853 -->
+| hasu | x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median | 3.835116 | 3.769042 | -1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median 3.769042 -->
+| hasu | x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median | 1.786725 | 1.772209 | -0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median 1.772209 -->
+| hasu | x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median | 3.834987 | 4.067667 | +6.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median 4.067667 -->
+| hasu | x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median | 0.962932 | 0.938727 | -2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median 0.938727 -->
+| hasu | x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median | 4.106855 | 3.653480 | -11.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median 3.653480 -->
+| hasu | x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median | 2.421423 | 2.320033 | -4.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.hasu.txt; latest:2026-08-13T221954Z-hasu-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu hasu x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median 2.320033 -->
+| kasumi | many-tu.maxrss_kb_max | 1378424 | 1390376 | +0.9% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi many-tu.maxrss_kb_max 1390376 -->
+| kasumi | many-tu.stat.arena.ast.blocks | 15 | 15 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.arena.ast.blocks 15 -->
-| kasumi | many-tu.stat.arena.ast.peak_kb | 2097088 | 2097088 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.arena.ast.peak_kb | 2097088 | 2097088 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.arena.ast.peak_kb 2097088 -->
-| kasumi | many-tu.stat.arena.ast.waste_pct | 35 | 34 | -2.9% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.arena.ast.waste_pct | 35 | 34 | -2.9% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.arena.ast.waste_pct 34 -->
-| kasumi | many-tu.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.arena.ir.blocks 0 -->
-| kasumi | many-tu.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.arena.ir.peak_kb 0 -->
-| kasumi | many-tu.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.arena.ir.waste_pct 0 -->
-| kasumi | many-tu.stat.intern.hit_pct | 87 | 87 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.intern.hit_pct | 87 | 87 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.intern.hit_pct 87 -->
-| kasumi | many-tu.stat.intern.hits | 2783500 | 2783500 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.intern.hits | 2783500 | 2783500 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.intern.hits 2783500 -->
-| kasumi | many-tu.stat.intern.lookups | 3183000 | 3183000 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.stat.intern.lookups | 3183000 | 3183000 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi many-tu.stat.intern.lookups 3183000 -->
-| kasumi | many-tu.sys_ms_median | 80.345500 | 82.298000 | +2.4% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi many-tu.sys_ms_median 82.298000 -->
-| kasumi | many-tu.user_ms_median | 572.777500 | 595.717500 | +4.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi many-tu.user_ms_median 595.717500 -->
-| kasumi | many-tu.wall_ms_median | 653.435562 | 679.209192 | +3.9% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi many-tu.wall_ms_median 679.209192 -->
-| kasumi | self.maxrss_kb_max | 1065844 | 1090944 | +2.4% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi self.maxrss_kb_max 1090944 -->
-| kasumi | self.stat.arena.ast.blocks | 14 | 15 | +7.1% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | many-tu.sys_ms_median | 80.345500 | 76.771500 | -4.4% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi many-tu.sys_ms_median 76.771500 -->
+| kasumi | many-tu.user_ms_median | 572.777500 | 601.889500 | +5.1% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi many-tu.user_ms_median 601.889500 -->
+| kasumi | many-tu.wall_ms_median | 653.435562 | 678.181466 | +3.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi many-tu.wall_ms_median 678.181466 -->
+| kasumi | self.maxrss_kb_max | 1065844 | 1089988 | +2.3% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi self.maxrss_kb_max 1089988 -->
+| kasumi | self.stat.arena.ast.blocks | 14 | 15 | +7.1% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.arena.ast.blocks 15 -->
-| kasumi | self.stat.arena.ast.peak_kb | 1048512 | 2097088 | +100.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.arena.ast.peak_kb | 1048512 | 2097088 | +100.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.arena.ast.peak_kb 2097088 -->
-| kasumi | self.stat.arena.ast.waste_pct | 1 | 50 | +4900.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.arena.ast.waste_pct | 1 | 50 | +4900.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.arena.ast.waste_pct 50 -->
-| kasumi | self.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.arena.ir.blocks 0 -->
-| kasumi | self.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.arena.ir.peak_kb 0 -->
-| kasumi | self.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.arena.ir.waste_pct 0 -->
-| kasumi | self.stat.intern.hit_pct | 88 | 88 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.intern.hit_pct | 88 | 88 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi self.stat.intern.hit_pct 88 -->
-| kasumi | self.stat.intern.hits | 3742514 | 3770205 | +0.7% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi self.stat.intern.hits 3770205 -->
-| kasumi | self.stat.intern.lookups | 4223919 | 4255313 | +0.7% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi self.stat.intern.lookups 4255313 -->
-| kasumi | self.sys_ms_median | 96.309000 | 100.800000 | +4.7% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi self.sys_ms_median 100.800000 -->
-| kasumi | self.user_ms_median | 876.210000 | 935.403000 | +6.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi self.user_ms_median 935.403000 -->
-| kasumi | self.wall_ms_median | 974.852373 | 1036.658908 | +6.3% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi self.wall_ms_median 1036.658908 -->
-| kasumi | sqlite3.maxrss_kb_max | 500204 | 504088 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.maxrss_kb_max 504088 -->
-| kasumi | sqlite3.stat.arena.ast.blocks | 6 | 6 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | self.stat.intern.hits | 3742514 | 3773115 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi self.stat.intern.hits 3773115 -->
+| kasumi | self.stat.intern.lookups | 4223919 | 4258804 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi self.stat.intern.lookups 4258804 -->
+| kasumi | self.sys_ms_median | 96.309000 | 100.788000 | +4.7% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi self.sys_ms_median 100.788000 -->
+| kasumi | self.user_ms_median | 876.210000 | 931.945500 | +6.4% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi self.user_ms_median 931.945500 -->
+| kasumi | self.wall_ms_median | 974.852373 | 1035.400281 | +6.2% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi self.wall_ms_median 1035.400281 -->
+| kasumi | sqlite3.maxrss_kb_max | 500204 | 504296 | +0.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.maxrss_kb_max 504296 -->
+| kasumi | sqlite3.stat.arena.ast.blocks | 6 | 6 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.arena.ast.blocks 6 -->
-| kasumi | sqlite3.stat.arena.ast.peak_kb | 507968 | 507968 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.arena.ast.peak_kb | 507968 | 507968 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.arena.ast.peak_kb 507968 -->
-| kasumi | sqlite3.stat.arena.ast.waste_pct | 20 | 19 | -5.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.arena.ast.waste_pct | 20 | 19 | -5.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.arena.ast.waste_pct 19 -->
-| kasumi | sqlite3.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.arena.ir.blocks | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.arena.ir.blocks 0 -->
-| kasumi | sqlite3.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.arena.ir.peak_kb | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.arena.ir.peak_kb 0 -->
-| kasumi | sqlite3.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.arena.ir.waste_pct | 0 | 0 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.arena.ir.waste_pct 0 -->
-| kasumi | sqlite3.stat.intern.hit_pct | 95 | 95 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.intern.hit_pct | 95 | 95 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.intern.hit_pct 95 -->
-| kasumi | sqlite3.stat.intern.hits | 1213971 | 1213971 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.intern.hits | 1213971 | 1213971 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.intern.hits 1213971 -->
-| kasumi | sqlite3.stat.intern.lookups | 1274107 | 1274107 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
+| kasumi | sqlite3.stat.intern.lookups | 1274107 | 1274107 | +0.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
 <!-- perf-metric x86_64-linux-gnu kasumi sqlite3.stat.intern.lookups 1274107 -->
-| kasumi | sqlite3.sys_ms_median | 36.400500 | 42.392000 | +16.5% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.sys_ms_median 42.392000 -->
-| kasumi | sqlite3.user_ms_median | 591.781500 | 610.484000 | +3.2% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.user_ms_median 610.484000 -->
-| kasumi | sqlite3.wall_ms_median | 630.154128 | 652.528893 | +3.6% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.wall_ms_median 652.528893 -->
-| kasumi | x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median | 4.778140 | 4.860601 | +1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median 4.860601 -->
-| kasumi | x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median | 1.439216 | 1.445300 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median 1.445300 -->
-| kasumi | x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median | 4.806392 | 4.875735 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median 4.875735 -->
-| kasumi | x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median | 1.464568 | 1.470957 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median 1.470957 -->
-| kasumi | x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median | 4.533966 | 4.536140 | +0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median 4.536140 -->
-| kasumi | x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median | 3.078610 | 3.062588 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median 3.062588 -->
-| kasumi | x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median | 4.332910 | 4.372118 | +0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median 4.372118 -->
-| kasumi | x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median | 4.334662 | 4.318308 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median 4.318308 -->
-| kasumi | x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median | 4.385283 | 4.364440 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median 4.364440 -->
-| kasumi | x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median | 4.367261 | 4.400681 | +0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median 4.400681 -->
-| kasumi | x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median | 4.325653 | 4.406988 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median 4.406988 -->
-| kasumi | x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median | 4.307011 | 4.398300 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median 4.398300 -->
-| kasumi | x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median | 352.156569 | 359.425112 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median 359.425112 -->
-| kasumi | x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median | 40.820121 | 41.775435 | +2.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median 41.775435 -->
-| kasumi | x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median | 357.356565 | 363.806517 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median 363.806517 -->
-| kasumi | x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median | 41.140988 | 41.873010 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median 41.873010 -->
-| kasumi | x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median | 353.234753 | 360.127268 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median 360.127268 -->
-| kasumi | x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median | 42.276381 | 43.279461 | +2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median 43.279461 -->
-| kasumi | x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median | 5.671994 | 6.132704 | +8.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median 6.132704 -->
-| kasumi | x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median | 2.488243 | 2.474515 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median 2.474515 -->
-| kasumi | x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median | 6.188693 | 5.977455 | -3.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median 5.977455 -->
-| kasumi | x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median | 2.528414 | 2.517539 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median 2.517539 -->
-| kasumi | x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median | 5.608776 | 6.316000 | +12.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median 6.316000 -->
-| kasumi | x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median | 3.235969 | 3.227333 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median 3.227333 -->
-| kasumi | x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median | 1.234042 | 1.184425 | -4.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median 1.184425 -->
-| kasumi | x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median | 0.747854 | 0.736102 | -1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median 0.736102 -->
-| kasumi | x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median | 1.181337 | 1.182516 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median 1.182516 -->
-| kasumi | x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median | 0.251304 | 0.255174 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median 0.255174 -->
-| kasumi | x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median | 1.203978 | 1.210894 | +0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median 1.210894 -->
-| kasumi | x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median | 1.670094 | 1.698656 | +1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median 1.698656 -->
-| kasumi | x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median | 37.530292 | 33.617787 | -10.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median 33.617787 -->
-| kasumi | x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median | 5.876744 | 6.078636 | +3.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median 6.078636 -->
-| kasumi | x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median | 37.670236 | 33.894211 | -10.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median 33.894211 -->
-| kasumi | x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median | 7.288595 | 7.356666 | +0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median 7.356666 -->
-| kasumi | x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median | 37.693024 | 33.744206 | -10.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median 33.744206 -->
-| kasumi | x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median | 17.622151 | 17.931953 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median 17.931953 -->
-| kasumi | x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median | 4.873730 | 4.894203 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median 4.894203 -->
-| kasumi | x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median | 1.014681 | 1.000608 | -1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median 1.000608 -->
-| kasumi | x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median | 4.814433 | 4.958537 | +3.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median 4.958537 -->
-| kasumi | x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median | 1.001775 | 0.984073 | -1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median 0.984073 -->
-| kasumi | x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median | 4.888906 | 4.990592 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median 4.990592 -->
-| kasumi | x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median | 1.631849 | 1.650902 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median 1.650902 -->
-| kasumi | x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median | 1.581665 | 1.614320 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median 1.614320 -->
-| kasumi | x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median | 0.476973 | 0.436727 | -8.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median 0.436727 -->
-| kasumi | x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median | 1.574660 | 1.626401 | +3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median 1.626401 -->
-| kasumi | x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median | 0.479569 | 0.488625 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median 0.488625 -->
-| kasumi | x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median | 1.595550 | 1.623152 | +1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median 1.623152 -->
-| kasumi | x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median | 0.859538 | 0.889844 | +3.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median 0.889844 -->
-| kasumi | x86_64-linux-gnu.horner.O2.cgf.wall_ms_median | 4.232152 | 4.306584 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O2.cgf.wall_ms_median 4.306584 -->
-| kasumi | x86_64-linux-gnu.horner.O2.gcc.wall_ms_median | 0.551241 | 0.546215 | -0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O2.gcc.wall_ms_median 0.546215 -->
-| kasumi | x86_64-linux-gnu.horner.O3.cgf.wall_ms_median | 4.250552 | 4.334461 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O3.cgf.wall_ms_median 4.334461 -->
-| kasumi | x86_64-linux-gnu.horner.O3.gcc.wall_ms_median | 0.271014 | 0.234835 | -13.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O3.gcc.wall_ms_median 0.234835 -->
-| kasumi | x86_64-linux-gnu.horner.Os.cgf.wall_ms_median | 4.279794 | 4.264337 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.Os.cgf.wall_ms_median 4.264337 -->
-| kasumi | x86_64-linux-gnu.horner.Os.gcc.wall_ms_median | 0.648961 | 0.680141 | +4.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.Os.gcc.wall_ms_median 0.680141 -->
-| kasumi | x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median | 234.193821 | 238.678859 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median 238.678859 -->
-| kasumi | x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median | 33.502463 | 33.920272 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median 33.920272 -->
-| kasumi | x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median | 234.387633 | 239.374350 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median 239.374350 -->
-| kasumi | x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median | 33.342794 | 33.989414 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median 33.989414 -->
-| kasumi | x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median | 233.734824 | 238.375030 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median 238.375030 -->
-| kasumi | x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median | 234.157714 | 238.956144 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median 238.956144 -->
-| kasumi | x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median | 1.425132 | 1.523337 | +6.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median 1.523337 -->
-| kasumi | x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median | 0.472085 | 0.461585 | -2.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median 0.461585 -->
-| kasumi | x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median | 1.463572 | 1.516631 | +3.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median 1.516631 -->
-| kasumi | x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median | 0.466080 | 0.434844 | -6.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median 0.434844 -->
-| kasumi | x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median | 1.464549 | 1.497000 | +2.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median 1.497000 -->
-| kasumi | x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median | 0.767613 | 0.744407 | -3.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median 0.744407 -->
-| kasumi | x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median | 0.300141 | 0.297084 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median 0.297084 -->
-| kasumi | x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median | 0.221662 | 0.226123 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median 0.226123 -->
-| kasumi | x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median | 0.287951 | 0.288657 | +0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median 0.288657 -->
-| kasumi | x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median | 0.220581 | 0.227071 | +2.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median 0.227071 -->
-| kasumi | x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median | 0.314612 | 0.279335 | -11.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median 0.279335 -->
-| kasumi | x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median | 0.360001 | 0.359555 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median 0.359555 -->
-| kasumi | x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median | 0.634147 | 0.650066 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median 0.650066 -->
-| kasumi | x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median | 0.229030 | 0.228192 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median 0.228192 -->
-| kasumi | x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median | 0.671413 | 0.644504 | -4.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median 0.644504 -->
-| kasumi | x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median | 0.215488 | 0.239588 | +11.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median 0.239588 -->
-| kasumi | x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median | 0.667188 | 0.614563 | -7.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median 0.614563 -->
-| kasumi | x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median | 0.228243 | 0.227385 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median 0.227385 -->
-| kasumi | x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median | 2.867552 | 2.940761 | +2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median 2.940761 -->
-| kasumi | x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median | 2.907512 | 2.877350 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median 2.877350 -->
-| kasumi | x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median | 2.865861 | 2.925181 | +2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median 2.925181 -->
-| kasumi | x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median | 2.883019 | 2.978275 | +3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median 2.978275 -->
-| kasumi | x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median | 2.912139 | 2.949710 | +1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median 2.949710 -->
-| kasumi | x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median | 2.894115 | 2.924637 | +1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median 2.924637 -->
-| kasumi | x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median | 4.344388 | 4.366081 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median 4.366081 -->
-| kasumi | x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median | 4.154249 | 4.133847 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median 4.133847 -->
-| kasumi | x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median | 4.274359 | 4.356976 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median 4.356976 -->
-| kasumi | x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median | 4.062425 | 4.081514 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median 4.081514 -->
-| kasumi | x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median | 4.315112 | 4.381839 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median 4.381839 -->
-| kasumi | x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median | 4.186383 | 4.256780 | +1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median 4.256780 -->
-| kasumi | x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median | 12.615645 | 12.656310 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median 12.656310 -->
-| kasumi | x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median | 5.729674 | 5.800502 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median 5.800502 -->
-| kasumi | x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median | 12.716054 | 12.661998 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median 12.661998 -->
-| kasumi | x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median | 3.879383 | 3.841329 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median 3.841329 -->
-| kasumi | x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median | 12.514029 | 12.685686 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median 12.685686 -->
-| kasumi | x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median | 5.968748 | 6.057191 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median 6.057191 -->
-| kasumi | x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median | 4.830374 | 4.923453 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median 4.923453 -->
-| kasumi | x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median | 4.784709 | 4.902117 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median 4.902117 -->
-| kasumi | x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median | 4.904676 | 4.917598 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median 4.917598 -->
-| kasumi | x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median | 4.870179 | 4.857157 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median 4.857157 -->
-| kasumi | x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median | 4.792305 | 4.851620 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median 4.851620 -->
-| kasumi | x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median | 4.853186 | 4.700241 | -3.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median 4.700241 -->
-| kasumi | x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median | 0.500015 | 0.475803 | -4.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median 0.475803 -->
-| kasumi | x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median | 0.233562 | 0.236275 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median 0.236275 -->
-| kasumi | x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median | 0.498537 | 0.476417 | -4.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median 0.476417 -->
-| kasumi | x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median | 0.222554 | 0.233360 | +4.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median 0.233360 -->
-| kasumi | x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median | 0.506634 | 0.485981 | -4.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median 0.485981 -->
-| kasumi | x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median | 0.222529 | 0.224951 | +1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median 0.224951 -->
-| kasumi | x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median | 1.192408 | 1.208417 | +1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median 1.208417 -->
-| kasumi | x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median | 0.762161 | 0.802534 | +5.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median 0.802534 -->
-| kasumi | x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median | 1.220266 | 1.212574 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median 1.212574 -->
-| kasumi | x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median | 0.645118 | 0.628574 | -2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median 0.628574 -->
-| kasumi | x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median | 1.199076 | 1.203889 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median 1.203889 -->
-| kasumi | x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median | 5.995021 | 6.059201 | +1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median 6.059201 -->
-| kasumi | x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median | 19.306598 | 19.541540 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median 19.541540 -->
-| kasumi | x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median | 11.859054 | 12.035311 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median 12.035311 -->
-| kasumi | x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median | 22.726880 | 22.785457 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median 22.785457 -->
-| kasumi | x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median | 11.977144 | 12.015687 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median 12.015687 -->
-| kasumi | x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median | 19.189369 | 19.701317 | +2.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median 19.701317 -->
-| kasumi | x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median | 15.312605 | 14.482415 | -5.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median 14.482415 -->
-| kasumi | x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median | 2.906668 | 2.947138 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median 2.947138 -->
-| kasumi | x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median | 1.243366 | 1.205402 | -3.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median 1.205402 -->
-| kasumi | x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median | 2.862079 | 2.885457 | +0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median 2.885457 -->
-| kasumi | x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median | 0.705105 | 0.685523 | -2.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median 0.685523 -->
-| kasumi | x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median | 2.825954 | 2.924303 | +3.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median 2.924303 -->
-| kasumi | x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median | 1.761242 | 1.776838 | +0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T011528Z-kasumi-kernels.txt |
-<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median 1.776838 -->
+| kasumi | sqlite3.sys_ms_median | 36.400500 | 38.936500 | +7.0% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.sys_ms_median 38.936500 -->
+| kasumi | sqlite3.user_ms_median | 591.781500 | 607.743500 | +2.7% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.user_ms_median 607.743500 -->
+| kasumi | sqlite3.wall_ms_median | 630.154128 | 647.704741 | +2.8% | n/a | baseline:baseline-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi sqlite3.wall_ms_median 647.704741 -->
+| kasumi | x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median | 4.778140 | 4.782889 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O2.cgf.wall_ms_median 4.782889 -->
+| kasumi | x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median | 1.439216 | 1.457149 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O2.gcc.wall_ms_median 1.457149 -->
+| kasumi | x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median | 4.806392 | 4.809144 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O3.cgf.wall_ms_median 4.809144 -->
+| kasumi | x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median | 1.464568 | 1.419574 | -3.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.O3.gcc.wall_ms_median 1.419574 -->
+| kasumi | x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median | 4.533966 | 4.521802 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.Os.cgf.wall_ms_median 4.521802 -->
+| kasumi | x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median | 3.078610 | 3.072607 | -0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.alloca-arena.Os.gcc.wall_ms_median 3.072607 -->
+| kasumi | x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median | 4.332910 | 4.296712 | -0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O2.cgf.wall_ms_median 4.296712 -->
+| kasumi | x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median | 4.334662 | 4.349321 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O2.gcc.wall_ms_median 4.349321 -->
+| kasumi | x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median | 4.385283 | 4.301683 | -1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O3.cgf.wall_ms_median 4.301683 -->
+| kasumi | x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median | 4.367261 | 4.344684 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.O3.gcc.wall_ms_median 4.344684 -->
+| kasumi | x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median | 4.325653 | 4.316511 | -0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.Os.cgf.wall_ms_median 4.316511 -->
+| kasumi | x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median | 4.307011 | 4.418520 | +2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.atomic-counter.Os.gcc.wall_ms_median 4.418520 -->
+| kasumi | x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median | 352.156569 | 358.514861 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O2.cgf.wall_ms_median 358.514861 -->
+| kasumi | x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median | 40.820121 | 41.795428 | +2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O2.gcc.wall_ms_median 41.795428 -->
+| kasumi | x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median | 357.356565 | 361.740882 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O3.cgf.wall_ms_median 361.740882 -->
+| kasumi | x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median | 41.140988 | 41.650896 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.O3.gcc.wall_ms_median 41.650896 -->
+| kasumi | x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median | 353.234753 | 358.780127 | +1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.Os.cgf.wall_ms_median 358.780127 -->
+| kasumi | x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median | 42.276381 | 42.698293 | +1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.bitfield-ops.Os.gcc.wall_ms_median 42.698293 -->
+| kasumi | x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median | 5.671994 | 6.205023 | +9.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O2.cgf.wall_ms_median 6.205023 -->
+| kasumi | x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median | 2.488243 | 2.531978 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O2.gcc.wall_ms_median 2.531978 -->
+| kasumi | x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median | 6.188693 | 6.001737 | -3.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O3.cgf.wall_ms_median 6.001737 -->
+| kasumi | x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median | 2.528414 | 2.497466 | -1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.O3.gcc.wall_ms_median 2.497466 -->
+| kasumi | x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median | 5.608776 | 6.210079 | +10.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.Os.cgf.wall_ms_median 6.210079 -->
+| kasumi | x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median | 3.235969 | 3.225651 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.branchy-parser.Os.gcc.wall_ms_median 3.225651 -->
+| kasumi | x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median | 1.234042 | 1.165770 | -5.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O2.cgf.wall_ms_median 1.165770 -->
+| kasumi | x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median | 0.747854 | 0.714042 | -4.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O2.gcc.wall_ms_median 0.714042 -->
+| kasumi | x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median | 1.181337 | 1.187226 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O3.cgf.wall_ms_median 1.187226 -->
+| kasumi | x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median | 0.251304 | 0.237745 | -5.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.O3.gcc.wall_ms_median 0.237745 -->
+| kasumi | x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median | 1.203978 | 1.196292 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.Os.cgf.wall_ms_median 1.196292 -->
+| kasumi | x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median | 1.670094 | 1.675930 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.crc32-table.Os.gcc.wall_ms_median 1.675930 -->
+| kasumi | x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median | 37.530292 | 33.796357 | -9.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O2.cgf.wall_ms_median 33.796357 -->
+| kasumi | x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median | 5.876744 | 5.913723 | +0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O2.gcc.wall_ms_median 5.913723 -->
+| kasumi | x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median | 37.670236 | 33.515555 | -11.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O3.cgf.wall_ms_median 33.515555 -->
+| kasumi | x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median | 7.288595 | 7.346828 | +0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.O3.gcc.wall_ms_median 7.346828 -->
+| kasumi | x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median | 37.693024 | 33.460406 | -11.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.Os.cgf.wall_ms_median 33.460406 -->
+| kasumi | x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median | 17.622151 | 17.789248 | +0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.fib-recurse.Os.gcc.wall_ms_median 17.789248 -->
+| kasumi | x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median | 4.873730 | 4.845533 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O2.cgf.wall_ms_median 4.845533 -->
+| kasumi | x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median | 1.014681 | 0.993705 | -2.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O2.gcc.wall_ms_median 0.993705 -->
+| kasumi | x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median | 4.814433 | 4.827167 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O3.cgf.wall_ms_median 4.827167 -->
+| kasumi | x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median | 1.001775 | 0.976092 | -2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.O3.gcc.wall_ms_median 0.976092 -->
+| kasumi | x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median | 4.888906 | 4.845994 | -0.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.Os.cgf.wall_ms_median 4.845994 -->
+| kasumi | x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median | 1.631849 | 1.634685 | +0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.float-dot.Os.gcc.wall_ms_median 1.634685 -->
+| kasumi | x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median | 1.581665 | 1.590119 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O2.cgf.wall_ms_median 1.590119 -->
+| kasumi | x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median | 0.476973 | 0.483364 | +1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O2.gcc.wall_ms_median 0.483364 -->
+| kasumi | x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median | 1.574660 | 1.590039 | +1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O3.cgf.wall_ms_median 1.590039 -->
+| kasumi | x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median | 0.479569 | 0.478148 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.O3.gcc.wall_ms_median 0.478148 -->
+| kasumi | x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median | 1.595550 | 1.593825 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.Os.cgf.wall_ms_median 1.593825 -->
+| kasumi | x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median | 0.859538 | 0.850850 | -1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.hash-fnv.Os.gcc.wall_ms_median 0.850850 -->
+| kasumi | x86_64-linux-gnu.horner.O2.cgf.wall_ms_median | 4.232152 | 4.337709 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O2.cgf.wall_ms_median 4.337709 -->
+| kasumi | x86_64-linux-gnu.horner.O2.gcc.wall_ms_median | 0.551241 | 0.540825 | -1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O2.gcc.wall_ms_median 0.540825 -->
+| kasumi | x86_64-linux-gnu.horner.O3.cgf.wall_ms_median | 4.250552 | 4.312215 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O3.cgf.wall_ms_median 4.312215 -->
+| kasumi | x86_64-linux-gnu.horner.O3.gcc.wall_ms_median | 0.271014 | 0.246109 | -9.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.O3.gcc.wall_ms_median 0.246109 -->
+| kasumi | x86_64-linux-gnu.horner.Os.cgf.wall_ms_median | 4.279794 | 4.284458 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.Os.cgf.wall_ms_median 4.284458 -->
+| kasumi | x86_64-linux-gnu.horner.Os.gcc.wall_ms_median | 0.648961 | 0.665261 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.horner.Os.gcc.wall_ms_median 0.665261 -->
+| kasumi | x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median | 234.193821 | 237.678628 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O2.cgf.wall_ms_median 237.678628 -->
+| kasumi | x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median | 33.502463 | 33.895207 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O2.gcc.wall_ms_median 33.895207 -->
+| kasumi | x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median | 234.387633 | 237.807520 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O3.cgf.wall_ms_median 237.807520 -->
+| kasumi | x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median | 33.342794 | 34.069574 | +2.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.O3.gcc.wall_ms_median 34.069574 -->
+| kasumi | x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median | 233.734824 | 238.234511 | +1.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.Os.cgf.wall_ms_median 238.234511 -->
+| kasumi | x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median | 234.157714 | 237.943583 | +1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.int-div-heavy.Os.gcc.wall_ms_median 237.943583 -->
+| kasumi | x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median | 1.425132 | 1.450168 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O2.cgf.wall_ms_median 1.450168 -->
+| kasumi | x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median | 0.472085 | 0.478901 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O2.gcc.wall_ms_median 0.478901 -->
+| kasumi | x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median | 1.463572 | 1.489376 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O3.cgf.wall_ms_median 1.489376 -->
+| kasumi | x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median | 0.466080 | 0.463234 | -0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.O3.gcc.wall_ms_median 0.463234 -->
+| kasumi | x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median | 1.464549 | 1.445911 | -1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.Os.cgf.wall_ms_median 1.445911 -->
+| kasumi | x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median | 0.767613 | 0.786533 | +2.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.matmul-64.Os.gcc.wall_ms_median 0.786533 -->
+| kasumi | x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median | 0.300141 | 0.295568 | -1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O2.cgf.wall_ms_median 0.295568 -->
+| kasumi | x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median | 0.221662 | 0.224288 | +1.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O2.gcc.wall_ms_median 0.224288 -->
+| kasumi | x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median | 0.287951 | 0.291017 | +1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O3.cgf.wall_ms_median 0.291017 -->
+| kasumi | x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median | 0.220581 | 0.242600 | +10.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.O3.gcc.wall_ms_median 0.242600 -->
+| kasumi | x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median | 0.314612 | 0.291157 | -7.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.Os.cgf.wall_ms_median 0.291157 -->
+| kasumi | x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median | 0.360001 | 0.360148 | +0.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memcpy-loop.Os.gcc.wall_ms_median 0.360148 -->
+| kasumi | x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median | 0.634147 | 0.635216 | +0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O2.cgf.wall_ms_median 0.635216 -->
+| kasumi | x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median | 0.229030 | 0.220188 | -3.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O2.gcc.wall_ms_median 0.220188 -->
+| kasumi | x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median | 0.671413 | 0.649431 | -3.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O3.cgf.wall_ms_median 0.649431 -->
+| kasumi | x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median | 0.215488 | 0.229752 | +6.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.O3.gcc.wall_ms_median 0.229752 -->
+| kasumi | x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median | 0.667188 | 0.640614 | -4.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.Os.cgf.wall_ms_median 0.640614 -->
+| kasumi | x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median | 0.228243 | 0.228747 | +0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.memset-loop.Os.gcc.wall_ms_median 0.228747 -->
+| kasumi | x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median | 2.867552 | 2.949900 | +2.9% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O2.cgf.wall_ms_median 2.949900 -->
+| kasumi | x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median | 2.907512 | 2.936508 | +1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O2.gcc.wall_ms_median 2.936508 -->
+| kasumi | x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median | 2.865861 | 2.931839 | +2.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O3.cgf.wall_ms_median 2.931839 -->
+| kasumi | x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median | 2.883019 | 2.933121 | +1.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.O3.gcc.wall_ms_median 2.933121 -->
+| kasumi | x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median | 2.912139 | 2.926359 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.Os.cgf.wall_ms_median 2.926359 -->
+| kasumi | x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median | 2.894115 | 2.874169 | -0.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.pointer-chase.Os.gcc.wall_ms_median 2.874169 -->
+| kasumi | x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median | 4.344388 | 4.371246 | +0.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O2.cgf.wall_ms_median 4.371246 -->
+| kasumi | x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median | 4.154249 | 4.149369 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O2.gcc.wall_ms_median 4.149369 -->
+| kasumi | x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median | 4.274359 | 4.343599 | +1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O3.cgf.wall_ms_median 4.343599 -->
+| kasumi | x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median | 4.062425 | 4.075062 | +0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.O3.gcc.wall_ms_median 4.075062 -->
+| kasumi | x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median | 4.315112 | 4.246006 | -1.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.Os.cgf.wall_ms_median 4.246006 -->
+| kasumi | x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median | 4.186383 | 4.181448 | -0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.qsort-calls.Os.gcc.wall_ms_median 4.181448 -->
+| kasumi | x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median | 12.615645 | 12.672774 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O2.cgf.wall_ms_median 12.672774 -->
+| kasumi | x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median | 5.729674 | 5.816336 | +1.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O2.gcc.wall_ms_median 5.816336 -->
+| kasumi | x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median | 12.716054 | 12.899587 | +1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O3.cgf.wall_ms_median 12.899587 -->
+| kasumi | x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median | 3.879383 | 3.794733 | -2.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.O3.gcc.wall_ms_median 3.794733 -->
+| kasumi | x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median | 12.514029 | 12.484551 | -0.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.Os.cgf.wall_ms_median 12.484551 -->
+| kasumi | x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median | 5.968748 | 6.025659 | +1.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.sieve.Os.gcc.wall_ms_median 6.025659 -->
+| kasumi | x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median | 4.830374 | 4.926281 | +2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O2.cgf.wall_ms_median 4.926281 -->
+| kasumi | x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median | 4.784709 | 4.899526 | +2.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O2.gcc.wall_ms_median 4.899526 -->
+| kasumi | x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median | 4.904676 | 4.907449 | +0.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O3.cgf.wall_ms_median 4.907449 -->
+| kasumi | x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median | 4.870179 | 4.889380 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.O3.gcc.wall_ms_median 4.889380 -->
+| kasumi | x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median | 4.792305 | 4.816351 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.Os.cgf.wall_ms_median 4.816351 -->
+| kasumi | x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median | 4.853186 | 4.798227 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.snprintf-loop.Os.gcc.wall_ms_median 4.798227 -->
+| kasumi | x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median | 0.500015 | 0.502682 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O2.cgf.wall_ms_median 0.502682 -->
+| kasumi | x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median | 0.233562 | 0.228246 | -2.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O2.gcc.wall_ms_median 0.228246 -->
+| kasumi | x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median | 0.498537 | 0.512314 | +2.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O3.cgf.wall_ms_median 0.512314 -->
+| kasumi | x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median | 0.222554 | 0.234691 | +5.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.O3.gcc.wall_ms_median 0.234691 -->
+| kasumi | x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median | 0.506634 | 0.504215 | -0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.Os.cgf.wall_ms_median 0.504215 -->
+| kasumi | x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median | 0.222529 | 0.203915 | -8.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.strlen-loop.Os.gcc.wall_ms_median 0.203915 -->
+| kasumi | x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median | 1.192408 | 1.177018 | -1.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O2.cgf.wall_ms_median 1.177018 -->
+| kasumi | x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median | 0.762161 | 0.856648 | +12.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O2.gcc.wall_ms_median 0.856648 -->
+| kasumi | x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median | 1.220266 | 1.196261 | -2.0% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O3.cgf.wall_ms_median 1.196261 -->
+| kasumi | x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median | 0.645118 | 0.642597 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.O3.gcc.wall_ms_median 0.642597 -->
+| kasumi | x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median | 1.199076 | 1.166727 | -2.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.Os.cgf.wall_ms_median 1.166727 -->
+| kasumi | x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median | 5.995021 | 6.245905 | +4.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.struct-copy-heavy.Os.gcc.wall_ms_median 6.245905 -->
+| kasumi | x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median | 19.306598 | 19.441153 | +0.7% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O2.cgf.wall_ms_median 19.441153 -->
+| kasumi | x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median | 11.859054 | 11.920549 | +0.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O2.gcc.wall_ms_median 11.920549 -->
+| kasumi | x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median | 22.726880 | 22.628389 | -0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O3.cgf.wall_ms_median 22.628389 -->
+| kasumi | x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median | 11.977144 | 11.879774 | -0.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.O3.gcc.wall_ms_median 11.879774 -->
+| kasumi | x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median | 19.189369 | 19.618921 | +2.2% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.Os.cgf.wall_ms_median 19.618921 -->
+| kasumi | x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median | 15.312605 | 14.780378 | -3.5% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.switch-dispatch.Os.gcc.wall_ms_median 14.780378 -->
+| kasumi | x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median | 2.906668 | 2.875503 | -1.1% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O2.cgf.wall_ms_median 2.875503 -->
+| kasumi | x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median | 1.243366 | 1.226170 | -1.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O2.gcc.wall_ms_median 1.226170 -->
+| kasumi | x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median | 2.862079 | 2.873406 | +0.4% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O3.cgf.wall_ms_median 2.873406 -->
+| kasumi | x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median | 0.705105 | 0.686879 | -2.6% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.O3.gcc.wall_ms_median 0.686879 -->
+| kasumi | x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median | 2.825954 | 2.876448 | +1.8% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.Os.cgf.wall_ms_median 2.876448 -->
+| kasumi | x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median | 1.761242 | 1.756509 | -0.3% | n/a | baseline:baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt; latest:2026-08-13T221954Z-kasumi-kernels.txt |
+<!-- perf-metric x86_64-linux-gnu kasumi x86_64-linux-gnu.varargs-call-loop.Os.gcc.wall_ms_median 1.756509 -->
 
 ### Kernel static golden
 
@@ -1820,6 +1820,68 @@ Generated from committed baselines, latest fleet results, static kernel goldens,
 | varargs-call-loop.padding | 0 | golden:kernels-x86_64-linux-gnu.txt |
 | varargs-call-loop.text | 576 | golden:kernels-x86_64-linux-gnu.txt |
 
+## x86_64-linux-musl
+
+| scope | metric | baseline | latest | delta | since prior report | provenance |
+|---|---|---:|---:|---:|---:|---|
+| hasu | maxrss_kb_max | 406888 | 407052 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu maxrss_kb_max 407052 -->
+| hasu | musl.stat.arena.ast.blocks_max | 10 | 10 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.arena.ast.blocks_max 10 -->
+| hasu | musl.stat.arena.ast.peak_kb_max | 122816 | 122816 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.arena.ast.peak_kb_max 122816 -->
+| hasu | musl.stat.arena.ast.waste_pct_max | 56 | 56 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.arena.ast.waste_pct_max 56 -->
+| hasu | musl.stat.arena.ir.blocks_max | 13 | 13 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.arena.ir.blocks_max 13 -->
+| hasu | musl.stat.arena.ir.peak_kb_max | 524224 | 524224 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.arena.ir.peak_kb_max 524224 -->
+| hasu | musl.stat.arena.ir.waste_pct_max | 99 | 99 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.arena.ir.waste_pct_max 99 -->
+| hasu | musl.stat.intern.hit_pct | 88 | 88 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.intern.hit_pct 88 -->
+| hasu | musl.stat.intern.hits_sum | 19659848 | 19659848 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.intern.hits_sum 19659848 -->
+| hasu | musl.stat.intern.lookups_sum | 22150112 | 22150112 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu musl.stat.intern.lookups_sum 22150112 -->
+| hasu | sys_ms_median | 7780.711 | 7831.729 | +0.7% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu sys_ms_median 7831.729 -->
+| hasu | user_ms_median | 12429.267 | 12350.428 | -0.6% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu user_ms_median 12350.428 -->
+| hasu | wall_ms_median | 20194.708 | 20226.484 | +0.2% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.hasu.txt; latest:2026-08-13T221954Z-hasu-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl hasu wall_ms_median 20226.484 -->
+| kasumi | maxrss_kb_max | 409868 | 409868 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi maxrss_kb_max 409868 -->
+| kasumi | musl.stat.arena.ast.blocks_max | 10 | 10 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.arena.ast.blocks_max 10 -->
+| kasumi | musl.stat.arena.ast.peak_kb_max | 122816 | 122816 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.arena.ast.peak_kb_max 122816 -->
+| kasumi | musl.stat.arena.ast.waste_pct_max | 56 | 56 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.arena.ast.waste_pct_max 56 -->
+| kasumi | musl.stat.arena.ir.blocks_max | 13 | 13 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.arena.ir.blocks_max 13 -->
+| kasumi | musl.stat.arena.ir.peak_kb_max | 524224 | 524224 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.arena.ir.peak_kb_max 524224 -->
+| kasumi | musl.stat.arena.ir.waste_pct_max | 99 | 99 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.arena.ir.waste_pct_max 99 -->
+| kasumi | musl.stat.intern.hit_pct | 88 | 88 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.intern.hit_pct 88 -->
+| kasumi | musl.stat.intern.hits_sum | 19659848 | 19659848 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.intern.hits_sum 19659848 -->
+| kasumi | musl.stat.intern.lookups_sum | 22150112 | 22150112 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi musl.stat.intern.lookups_sum 22150112 -->
+| kasumi | sys_ms_median | 3481.659 | 3447.738 | -1.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi sys_ms_median 3447.738 -->
+| kasumi | user_ms_median | 10158.347 | 10194.303 | +0.4% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi user_ms_median 10194.303 -->
+| kasumi | wall_ms_median | 13640.800 | 13647.220 | +0.0% | n/a | baseline:baseline-musl-full-build-x86_64-linux-musl.kasumi.txt; latest:2026-08-13T221954Z-kasumi-musl-full-build.txt |
+<!-- perf-metric x86_64-linux-musl kasumi wall_ms_median 13647.220 -->
+
+### Kernel static golden
+
+| metric | value | provenance |
+|---|---:|---|
+
 ## Provenance
 
 | kind | target | scope | source | host | host class | date | revision | tree | protocol | sysroot include | sysroot CRT | load1 | governor | power profile | scaling driver | energy performance preference | control protocol | logical CPUs | CPU idle % |
@@ -1834,6 +1896,8 @@ Generated from committed baselines, latest fleet results, static kernel goldens,
 | baseline | x86_64-linux-gnu | hasu | baseline-x86_64-linux-gnu.hasu.txt | hasu | n/a | 2026-08-11T16:06:09Z | b73e96db4ccfae6cf13c3f64a50e767d196150b7 | clean | sprint-52-compile-median-mad-v1 | /nix/store/q5wv2ldpcv5w8yb2wmsngsygvlxb73fk-glibc-2.42-67-dev/include | /nix/store/8kvxvr3pmsypxiypq4g8zy13glnfr7nx-glibc-2.42-67/lib | 0.89 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.54 |
 | baseline | x86_64-linux-gnu | kasumi | baseline-kernel-runtime-x86_64-linux-gnu.kasumi.txt | kasumi | n/a | 2026-08-11T06:58:11Z | a432614cfb0322d0f213f82cb6ecb1e725395058 | clean | sprint-52-median-mad-v1 | n/a | n/a | 0.35 | powersave | performance | intel_pstate | performance | n/a | n/a | n/a |
 | baseline | x86_64-linux-gnu | kasumi | baseline-x86_64-linux-gnu.kasumi.txt | kasumi | n/a | 2026-08-11T06:57:46Z | a432614cfb0322d0f213f82cb6ecb1e725395058 | clean | sprint-52-compile-median-mad-v1 | n/a | n/a | 0.01 | powersave | performance | intel_pstate | performance | n/a | n/a | n/a |
+| baseline | x86_64-linux-musl | hasu | baseline-musl-full-build-x86_64-linux-musl.hasu.txt | hasu | n/a | 2026-08-13T21:47:14Z | 3ff951d0772331d7d86b11f1470593ad9eaf5843 | clean | runs=10,warmup=1;fresh-tree-per-sample;source-date-epoch=0;jobs=1 | n/a | n/a | 1.79 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.41 |
+| baseline | x86_64-linux-musl | kasumi | baseline-musl-full-build-x86_64-linux-musl.kasumi.txt | kasumi | n/a | 2026-08-13T21:47:13Z | 3ff951d0772331d7d86b11f1470593ad9eaf5843 | clean | runs=10,warmup=1;fresh-tree-per-sample;source-date-epoch=0;jobs=1 | n/a | n/a | 0.68 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 16 | 99.71 |
 | dashboard | all-targets | target-deterministic | kernels-vs-gcc.md | n/a | target-deterministic | 2026-08-11T01:29:19Z | 4bdff9b3a5a11bdc4e23f90dc7bbfeaf6b1f4c28 | clean | sprint-53-static-dashboard-v1 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | golden | arm64-linux | target-deterministic | kernels-arm64-linux.txt | n/a | target-deterministic | 2026-08-11T01:29:19Z | 4bdff9b3a5a11bdc4e23f90dc7bbfeaf6b1f4c28 | clean | sprint-53-kernel-static-v1 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | golden | x86_64-linux-gnu | target-deterministic | kernels-x86_64-linux-gnu.txt | n/a | target-deterministic | 2026-08-11T01:29:19Z | 4bdff9b3a5a11bdc4e23f90dc7bbfeaf6b1f4c28 | clean | sprint-53-kernel-static-v1 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
@@ -1843,10 +1907,12 @@ Generated from committed baselines, latest fleet results, static kernel goldens,
 | latest | arm64-macos | nomad-1 | 2026-08-13T055503Z-nomad-1.txt | nomad-1 | n/a | 2026-08-13T05:55:19Z | 604fe9c608a3b50bd533479c3ae27461e19a76fb | clean | sprint-52-compile-median-mad-v1 | n/a | n/a | 3.03 | unavailable | unavailable | unavailable | unavailable | fleet-control-v2 | 18 | 87.53 |
 | latest | x86_64-linux-gnu | ci | 2026-08-11T042709Z-ci-x86_64-linux-gnu-bench.txt | runnervmvrwv9 | ci | 2026-08-11T04:27:09Z | a0ce001d0b7a14bbb552a040a4ebab3182d2102f | exported-commit | sprint-52-compile-median-mad-v1 | n/a | n/a | 0.39 | unavailable | n/a | n/a | n/a | n/a | n/a | n/a |
 | latest | x86_64-linux-gnu | ci | 2026-08-11T042714Z-ci-x86_64-linux-gnu-size.txt | runnervmvrwv9 | ci | 2026-08-11T04:27:14Z | a0ce001d0b7a14bbb552a040a4ebab3182d2102f | exported-commit | opts=O2,Os;whole-file-after-strip-gate=+15%;unstripped-and-sections=report-only | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| latest | x86_64-linux-gnu | hasu | 2026-08-13T013538Z-hasu-kernels.txt | hasu | n/a | 2026-08-13T01:36:48Z | abea4d5a7756b8184604719aa2e85c04d24578f5 | clean | sprint-52-median-mad-v1 | /nix/store/q5wv2ldpcv5w8yb2wmsngsygvlxb73fk-glibc-2.42-67-dev/include | /nix/store/8kvxvr3pmsypxiypq4g8zy13glnfr7nx-glibc-2.42-67/lib | 1.25 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.33 |
-| latest | x86_64-linux-gnu | hasu | 2026-08-13T013538Z-hasu.txt | hasu | n/a | 2026-08-13T01:36:07Z | abea4d5a7756b8184604719aa2e85c04d24578f5 | clean | sprint-52-compile-median-mad-v1 | /nix/store/q5wv2ldpcv5w8yb2wmsngsygvlxb73fk-glibc-2.42-67-dev/include | /nix/store/8kvxvr3pmsypxiypq4g8zy13glnfr7nx-glibc-2.42-67/lib | 1.37 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.18 |
-| latest | x86_64-linux-gnu | kasumi | 2026-08-13T011528Z-kasumi-kernels.txt | kasumi | n/a | 2026-08-13T01:16:25Z | 023e96c39600ee592c308920b3329e9613bb85e6 | clean | sprint-52-median-mad-v1 | n/a | n/a | 0.72 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 16 | 99.19 |
-| latest | x86_64-linux-gnu | kasumi | 2026-08-13T011528Z-kasumi.txt | kasumi | n/a | 2026-08-13T01:15:53Z | 023e96c39600ee592c308920b3329e9613bb85e6 | clean | sprint-52-compile-median-mad-v1 | n/a | n/a | 0.46 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 16 | 99.55 |
+| latest | x86_64-linux-gnu | hasu | 2026-08-13T221954Z-hasu-kernels.txt | hasu | n/a | 2026-08-13T22:20:41Z | 8e422f8ed003d68206400df5754a4fc0ea51b92d | clean | sprint-52-median-mad-v1 | /nix/store/q5wv2ldpcv5w8yb2wmsngsygvlxb73fk-glibc-2.42-67-dev/include | /nix/store/8kvxvr3pmsypxiypq4g8zy13glnfr7nx-glibc-2.42-67/lib | 1.44 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.33 |
+| latest | x86_64-linux-gnu | hasu | 2026-08-13T221954Z-hasu.txt | hasu | n/a | 2026-08-13T22:20:00Z | 8e422f8ed003d68206400df5754a4fc0ea51b92d | clean | sprint-52-compile-median-mad-v1 | /nix/store/q5wv2ldpcv5w8yb2wmsngsygvlxb73fk-glibc-2.42-67-dev/include | /nix/store/8kvxvr3pmsypxiypq4g8zy13glnfr7nx-glibc-2.42-67/lib | 2.02 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.51 |
+| latest | x86_64-linux-gnu | kasumi | 2026-08-13T221954Z-kasumi-kernels.txt | kasumi | n/a | 2026-08-13T22:20:32Z | 8e422f8ed003d68206400df5754a4fc0ea51b92d | clean | sprint-52-median-mad-v1 | n/a | n/a | 0.63 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 16 | 99.54 |
+| latest | x86_64-linux-gnu | kasumi | 2026-08-13T221954Z-kasumi.txt | kasumi | n/a | 2026-08-13T22:20:00Z | 8e422f8ed003d68206400df5754a4fc0ea51b92d | clean | sprint-52-compile-median-mad-v1 | n/a | n/a | 0.52 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 16 | 99.58 |
+| latest | x86_64-linux-musl | hasu | 2026-08-13T221954Z-hasu-musl-full-build.txt | hasu | n/a | 2026-08-13T22:19:54Z | 8e422f8ed003d68206400df5754a4fc0ea51b92d | clean | runs=10,warmup=1;fresh-tree-per-sample;source-date-epoch=0;jobs=1 | n/a | n/a | 1.17 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 20 | 97.40 |
+| latest | x86_64-linux-musl | kasumi | 2026-08-13T221954Z-kasumi-musl-full-build.txt | kasumi | n/a | 2026-08-13T22:19:54Z | 8e422f8ed003d68206400df5754a4fc0ea51b92d | clean | runs=10,warmup=1;fresh-tree-per-sample;source-date-epoch=0;jobs=1 | n/a | n/a | 0.73 | powersave | performance | intel_pstate | performance | fleet-control-v2 | 16 | 99.62 |
 
 ## Sprint 53 compiler comparison dashboard
 

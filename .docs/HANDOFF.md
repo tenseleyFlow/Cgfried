@@ -2,11 +2,10 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-13): Sprints 0–53 and Sprints 55–57 are CLOSED;
+**WHERE THINGS STAND (2026-08-13): Sprints 0–57 and Phases 1–11 are CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
-its controlled fleet soak. Sprint 54's implementation and required three-date
-controlled evidence are complete, but its report refresh and final closure
-audit/CI remain OPEN; Phase 11 is therefore still open. Sprint 58's
+its controlled fleet soak; the current deterministic release report, closure
+audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation and first complete hosted native/cross activation are green;
 its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally OPEN.
 Sprint 59's implementation and all locally runnable project bars are green;
@@ -28,11 +27,11 @@ D5 notes are retained only as implementation history.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, finish **Sprint 54 (performance gates in CI)** by regenerating the
-release report from the now-complete three-date fleet history, then running the
-final closure audit and hosted CI. Do not advance the Sprint 54/Phase 11
-closure ratchet until the refreshed report and final CI are green. The parallel
-Sprint 56–59 work does not manufacture or replace any fleet evidence.
+On trunk, resume **Sprint 59's operational evidence ladder**: collect the two
+controlled SQLite baselines at one exact hosted-green revision, commit the
+numeric policy, then run and verify one complete 15-variant post-baseline
+nightly. Sprint 58's independent 30-day bootstrap soak continues in parallel.
+Do not begin Sprint 60 while either Sprint 58 or Sprint 59 remains open.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -110,9 +109,9 @@ numeric and one complete nightly ladder passes against them.
    publish and independently verify the aggregate/failure artifacts before
    recording Sprint 59 closed.
 
-`ci/closed_sprints.txt` remains at 53 while Sprint 54 owns the contiguous
-closure ratchet. Sprint 59 evidence does not manufacture Sprint 54 dates or
-Sprint 58 bootstrap-soak days.
+`ci/closed_sprints.txt` is 57. Sprint 59 evidence does not manufacture Sprint
+58 bootstrap-soak days, and Sprint 59 cannot advance the contiguous ratchet
+while Sprint 58 remains open.
 
 ---
 
@@ -196,8 +195,8 @@ evidence.
   and every weekly cross/reproducibility result; any missing or red required
   run breaks the streak.
 
-`ci/closed_sprints.txt` remains at 53. Sprint 54 still owns the contiguous
-closure ratchet, and Sprint 58 remains operationally open during its soak.
+`ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
+soak and therefore owns the next contiguous closure step.
 
 ---
 
@@ -256,9 +255,8 @@ Integrated worktree and branch:
   refresh above supersedes those totals. Reversed input order regenerated both
   Sprint 57 published artifacts byte-identically.
 
-No Sprint 57 implementation work remains. Do not advance
-`ci/closed_sprints.txt` beyond 53 until Sprint 54's real three-date evidence
-closes the contiguous ratchet.
+No Sprint 57 implementation work remains. Sprint 54's real three-date evidence
+has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 ---
 
@@ -296,20 +294,20 @@ Integrated worktree and branch:
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
 
-No Sprint 56 implementation work remains.  Bucket repairs are deliberately
+No Sprint 56 implementation work remains. Bucket repairs are deliberately
 deferred to the named `s56.5-*` lanes or Sprint 61, exactly as the sprint scope
-requires.  Do not close Sprint 54 or Phase 11 merely because this parallel
-campaign sprint is complete.
+requires. Sprint 54 and Phase 11 subsequently closed on their independent
+fleet evidence.
 
 ---
 
-## 0a. TRUNK RESUME HERE — Sprint 54 controlled fleet soak
+## 0a. Sprint 54 / Phase 11 closeout — COMPLETE
 
-The implementation is reviewed and pushed. Resume the operational evidence
-sequence below. Do not treat pre-control artifacts as timing evidence. The
-absolute load limit was subsequently reopened for one evidence-backed repair:
-idle Hasu and Nomad measured roughly 90% aggregate CPU idle while ordinary
-desktop housekeeping held their one-minute load near 2.8.
+The implementation, three-date controlled evidence, current release report,
+closure audit, and ratchet are complete. Pre-control artifacts remain
+provenance-only. The absolute load limit was reopened for one evidence-backed
+repair: idle Hasu and Nomad measured roughly 90% aggregate CPU idle while
+ordinary desktop housekeeping held their one-minute load near 2.8.
 
 ### Implemented and verified
 
@@ -401,11 +399,16 @@ desktop housekeeping held their one-minute load near 2.8.
   idle and runtime load 3.50 at 86.43% idle across 18 logical CPUs, with the
   truthful Darwin-unavailable power tuple. This completes the required three
   distinct UTC dates on every fleet host.
-- `.benchmarks/report-0.0.1.md` was generated twice byte-identically from the
-  controlled fleet baselines/latest artifacts plus committed CI/static
-  evidence and published in `1c868eaa`. Its SHA-256 is
-  `826bf44bd564fdf74c8d091466be83968eeda0a2b28b994171d4eb7d7da20db6`;
-  all six fleet inputs classify controlled.
+- Controlled musl warmups from compiler revision `3ff951d0` were accepted as
+  exact-copy Kasumi/Hasu baselines in `8e422f8e`. Post-baseline runs
+  `2026-08-13T221954Z-{kasumi,hasu}-musl-full-build.txt` are v2-controlled,
+  clean-tree, `trial-pass`, and pass the +30% wall / +20% RSS gate without
+  mutating those baselines. Artifact commits are `7e0482b9` and `991b2bec`.
+- `.benchmarks/report-0.0.1.md` was regenerated twice byte-identically from
+  the current controlled fleet baselines/latest artifacts plus committed
+  CI/static evidence. Its SHA-256 is
+  `92f26a1f90b3ea5ae1414c58701ebac43cc4caaf410a51da90b7b630ad2cab9b`;
+  every selected fleet input classifies controlled.
 - Older Kasumi, Hasu, and Nomad artifacts collected before the new fields
   landed remain useful deployment provenance only. They are not controlled
   timing/runtime evidence and must not be relabelled or used to manufacture a
@@ -417,19 +420,18 @@ desktop housekeeping held their one-minute load near 2.8.
   hosts pass fleet-control-v2; no user workload needs to be stopped to chase
   the retired absolute threshold.
 
-### Remaining Sprint 54 work — execute in this order
+### Closure result
 
-1. The 2026-08-13 Kasumi, Hasu, and Nomad commits supersede the report's
-   selected latest inputs. Regenerate
-   `.benchmarks/report-0.0.1.md` twice byte-identically and update its recorded
-   hash so the release report is current at closure.
-2. Run the Sprint 54 closure audit and verify the final pushed commit with a
-   fresh GitHub Actions run. Only after
-   the three-date gate, current report, and final CI are all green may
-   `.docs/sprints/11-performance/closeout.md` say READY,
-   `ci/closed_sprints.txt` advance from 53 through 57 (Sprints 55–57 are
-   already closed out of order), with any newly exposed deferrals repaired in
-   the same closure change.
+- The full local repository suite passes with 711 unit tests and 4,288,526
+  assertions, all performance/campaign contracts, every differential and
+  cross lane available locally, formatting, POSIX-shell checks, and the clean
+  fuzz ledgers.
+- The exact baseline revision `8e422f8e` passed hosted bootstrap at O0/O2 and
+  the complete standard CI matrix. Raising the contiguous ratchet to 57
+  exposes no stale source deferrals; both stage1 and musl lanes are active in
+  trial state.
+- Sprint 54 and Phase 11 are closed. Resume at Sprint 59's operational
+  sequence above while Sprint 58 continues its independent soak.
 
 ### Checkout hygiene
 
