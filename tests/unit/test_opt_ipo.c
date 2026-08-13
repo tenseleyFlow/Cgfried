@@ -218,12 +218,23 @@ void test_opt_ipo_dead_static_compacts_and_remaps_calls(TestCtx *t)
                   "    ret\n"
                   "}\n");
     T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (m) {
+        m->funcs[1].opt_inline_growth_left = 17;
+        m->funcs[1].opt_inline_growth_initialized = true;
+        m->funcs[2].opt_inline_growth_left = 23;
+        m->funcs[2].opt_inline_growth_initialized = true;
+    }
     opt_config_init(&cfg, OPT_O2);
     cfg.verify_after_each = true;
     T_ASSERT(t, m && opt_run_pass_sequence(m, &cfg, passes, 1));
     if (m) {
         T_ASSERT_EQ_INT(t, m->nfuncs, 2);
         T_ASSERT_EQ_STR(t, m->funcs[0].name, "live");
+        T_ASSERT_EQ_INT(t, m->funcs[0].opt_inline_growth_left, 17);
+        T_ASSERT(t, m->funcs[0].opt_inline_growth_initialized);
+        T_ASSERT_EQ_STR(t, m->funcs[1].name, "main");
+        T_ASSERT_EQ_INT(t, m->funcs[1].opt_inline_growth_left, 23);
+        T_ASSERT(t, m->funcs[1].opt_inline_growth_initialized);
         call = first_call(&m->funcs[1]);
         T_ASSERT(t, call != NULL);
         if (call)

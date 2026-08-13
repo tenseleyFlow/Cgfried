@@ -255,7 +255,7 @@ typedef enum A64Op {
     A64_OP_COUNT
 } A64Op;
 
-#define A64IF_DEFS_NZCV 0x1u
+#define A64IF_DEFS_NZCV 0x1u /* defines or ABI-clobbers NZCV */
 #define A64IF_USES_NZCV 0x2u
 #define A64IF_VOLATILE 0x4u
 #define A64IF_ATOMIC 0x8u

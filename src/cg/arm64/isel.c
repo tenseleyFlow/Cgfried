@@ -209,6 +209,12 @@ static A64Inst *emit(Isel *is, A64Op opcode, A64Sf sf)
     case A64_OP_SUBS:
     case A64_OP_ANDS:
     case A64_OP_FCMP:
+    /* A callee may freely change NZCV.  Inline assembly is opaque at this
+     * boundary, and the CAS pseudo expands to a CMP.  Model all three as
+     * clobbers so a later select/branch cannot reuse an earlier compare. */
+    case A64_OP_CALL:
+    case A64_OP_ASM:
+    case A64_OP_ATOMIC_CAS:
         inst.flags |= A64IF_DEFS_NZCV;
         break;
     default:

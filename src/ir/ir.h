@@ -611,6 +611,12 @@ typedef struct IrFunc {
     /* Arena-owned analysis provenance retained for Sprint 40's flow
      * warnings. Opaque here so the IR does not depend on optimization. */
     struct OptMem2RegInfo *opt_mem2reg_info;
+    /* Transient inliner work state.  The budget is initialized lazily and
+     * follows the function through IPO compaction, so a scalar fixpoint cannot
+     * replenish its code-growth allowance on every pass-manager iteration.
+     * It is deliberately absent from textual IR and structural equality. */
+    u32 opt_inline_growth_left;
+    bool opt_inline_growth_initialized;
     IrCfgRemoved *cfg_removed;
     u32 ncfg_removed;
     u32 cap_cfg_removed;

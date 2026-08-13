@@ -501,6 +501,96 @@ void test_a64_isel_bulk_memory_address_materialization(TestCtx *t)
     arena_free_all(&arena);
 }
 
+void test_a64_isel_opaque_ops_clobber_cached_compare_flags(TestCtx *t)
+{
+    static const struct {
+        const char *name;
+        const char *source;
+        A64Op clobber_op;
+    } cases[] = {
+        {"call",
+         "sym @clobber\n"
+         "func i32 @pick(i32 %a, i32 %b) {\n"
+         "entry():\n"
+         "    %c = icmp slt i32 %a, %b\n"
+         "    call void @clobber()\n"
+         "    %r = select %c, i32 %a, %b\n"
+         "    ret i32 %r\n"
+         "}\n",
+         A64_OP_CALL},
+        {"asm",
+         "func i32 @pick(i32 %a, i32 %b) {\n"
+         "entry():\n"
+         "    %c = icmp slt i32 %a, %b\n"
+         "    asm volatile \"\"\n"
+         "    %r = select %c, i32 %a, %b\n"
+         "    ret i32 %r\n"
+         "}\n",
+         A64_OP_ASM},
+        {"cas",
+         "func i32 @pick(ptr %p, i32 %a, i32 %b) {\n"
+         "entry():\n"
+         "    %c = icmp slt i32 %a, %b\n"
+         "    %old = cmpxchg i32 %p, %a, %b, seq_cst\n"
+         "    %r = select %c, i32 %a, %b\n"
+         "    ret i32 %r\n"
+         "}\n",
+         A64_OP_ATOMIC_CAS},
+    };
+    u32 ci;
+
+    for (ci = 0; ci < CGF_ARRAY_LEN(cases); ci++) {
+        Arena arena;
+        DiagCtx *dc;
+        IrModule *module;
+        A64Func *func;
+        const A64Block *block;
+        const A64Inst *clobber = NULL;
+        const A64Inst *select = NULL;
+        u32 clobber_index = 0;
+        u32 select_index = 0;
+        u32 i;
+
+        arena_init(&arena);
+        dc = diag_ctx_new(&arena);
+        module = ir_parse_module(&arena, dc, cases[ci].source, cases[ci].name);
+        T_ASSERT(t, module != NULL && !diag_had_error(dc));
+        T_ASSERT(t, module && ir_verify(dc, module));
+        if (!module || diag_had_error(dc)) {
+            arena_free_all(&arena);
+            continue;
+        }
+        func = a64_isel_function(module, &module->funcs[0], &arena);
+        T_ASSERT_EQ_INT(t, func ? func->nblocks : 0, 1);
+        if (!func || func->nblocks != 1) {
+            arena_free_all(&arena);
+            continue;
+        }
+        block = &func->blocks[0];
+        for (i = 0; i < block->n; i++) {
+            if (block->insts[i].op == cases[ci].clobber_op) {
+                clobber = &block->insts[i];
+                clobber_index = i;
+            }
+            if (block->insts[i].op == A64_OP_CSEL) {
+                select = &block->insts[i];
+                select_index = i;
+            }
+        }
+        T_ASSERT(t, clobber != NULL);
+        T_ASSERT(t, clobber && (clobber->flags & A64IF_DEFS_NZCV));
+        T_ASSERT(t, select != NULL);
+        T_ASSERT(t, select && (select->flags & A64IF_USES_NZCV));
+        T_ASSERT(t, select && select_index > clobber_index);
+        T_ASSERT(t, select && select->flags_src > clobber_index);
+        T_ASSERT(t, select && select->flags_src < select_index);
+        T_ASSERT(t,
+                 select && block->insts[select->flags_src].op == A64_OP_SUBS);
+        T_ASSERT_EQ_INT(t, a64_mir_verify(func, dc), 0);
+        arena_free_all(&arena);
+    }
+}
+
 void test_a64_mixed_width_and_call_metadata(TestCtx *t)
 {
     Arena arena;
@@ -684,10 +774,14 @@ void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
 {
     Arena arena;
     A64Block blocks[3] = {{0}};
+    A64Block far_blocks[3] = {{0}};
     A64Func func = {0};
+    A64Func far_func = {0};
     IrModule module = {0};
     A64Inst branch = {0};
+    A64Inst padding = {0};
     Buf text;
+    u32 i;
 
     arena_init(&arena);
     func.name = "long_cond";
@@ -725,16 +819,41 @@ void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
     buf_init(&text);
     a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
     buf_push_u8(&text, 0);
-    T_ASSERT(t, strstr((const char *)text.data, "\ttbnz\tx0, #2, .Lbr0_0\n"
-                                                "\tb\t.Lf0_3\n"
-                                                ".Lbr0_0:\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "\ttbz\tx0, #2, .Lf0_3\n") !=
+                    NULL);
     T_ASSERT(t, strstr((const char *)text.data, ".Lf0_2:\n"
                                                 "\tb.eq\t.Lf0_3\n"
                                                 "\tb\t.Lf0_1\n") != NULL);
     T_ASSERT(t, strstr((const char *)text.data, ".Lf0_3:\n"
-                                                "\tcbnz\tw1, .Lbr0_1\n"
-                                                "\tb\t.Lf0_1\n"
-                                                ".Lbr0_1:\n") != NULL);
+                                                "\tcbz\tw1, .Lf0_1\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lbr") == NULL);
+    buf_free(&text);
+
+    far_func.name = "far_cond";
+    far_func.arena = &arena;
+    far_func.blocks = far_blocks;
+    far_func.nblocks = 3;
+    far_func.allocated = true;
+
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_TBZ;
+    branch.sf = A64_SF64;
+    branch.nops = 4;
+    branch.ops[0] = (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X0)};
+    branch.ops[1] = (A64Operand){.kind = A64O_IMM, .imm = 2};
+    branch.ops[2] = (A64Operand){.kind = A64O_LABEL, .id = 3};
+    branch.ops[3] = (A64Operand){.kind = A64O_LABEL, .id = 2};
+    a64_block_append(&far_func, &far_blocks[0], branch);
+    padding.op = A64_OP_RET;
+    for (i = 0; i < 8192; i++)
+        a64_block_append(&far_func, &far_blocks[1], padding);
+
+    buf_init(&text);
+    a64_emit_function(&far_func, &module, 1, IRLINK_INTERNAL, &text);
+    buf_push_u8(&text, 0);
+    T_ASSERT(t, strstr((const char *)text.data, "\ttbnz\tx0, #2, .Lbr1_0\n"
+                                                "\tb\t.Lf1_3\n"
+                                                ".Lbr1_0:\n") != NULL);
     buf_free(&text);
     arena_free_all(&arena);
 }

@@ -76,6 +76,13 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
     u32 i;
     bool changed = false;
 
+    /* Growth accounting spans every fixpoint visit inside this top-level run,
+     * but a caller may deliberately run a new pipeline over the same module
+     * (for example O2 followed by O3).  That is a fresh optimization budget. */
+    for (i = 0; i < m->nfuncs; i++) {
+        m->funcs[i].opt_inline_growth_left = 0;
+        m->funcs[i].opt_inline_growth_initialized = false;
+    }
     if (!level_stage(cfg->level, &stage))
         return opt_run_pass_sequence(m, cfg, NULL, 0);
     for (i = 0; i < CGF_ARRAY_LEN(pipeline); i++) {

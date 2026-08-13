@@ -137,6 +137,10 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source)
                         sizeof(*sf->cfg_removed), _Alignof(IrCfgRemoved));
         df->cap_cfg_removed = df->ncfg_removed;
         df->opt_mem2reg_info = NULL;
+        /* A clone is a fresh optimization subject, not a continuation of the
+         * source module's pass-manager work budget. */
+        df->opt_inline_growth_left = 0;
+        df->opt_inline_growth_initialized = false;
         df->blocks = clone_array(arena, sf->blocks, sf->nblocks,
                                  sizeof(*sf->blocks), _Alignof(IrBlock));
         df->cap_blocks = df->nblocks;

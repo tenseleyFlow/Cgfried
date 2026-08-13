@@ -22655,6 +22655,8 @@ torture-execute/memset-2.c@O0@arm64-linux
 torture-execute/memset-2.c@O0@x86_64-linux-gnu
 torture-execute/memset-2.c@O1@arm64-linux
 torture-execute/memset-2.c@O1@x86_64-linux-gnu
+torture-execute/memset-2.c@O2@x86_64-linux-gnu
+torture-execute/memset-2.c@O3@x86_64-linux-gnu
 torture-execute/memset-2.c@Os@arm64-linux
 torture-execute/memset-2.c@Os@x86_64-linux-gnu
 torture-execute/memset-3.c@O0@arm64-linux

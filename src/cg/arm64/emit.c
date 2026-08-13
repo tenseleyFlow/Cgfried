@@ -1,4 +1,5 @@
 #include "cg/arm64/mir.h"
+#include "cg/arm64/peep.h"
 #include "cg/data.h"
 #include "cg/shared.h"
 
@@ -844,7 +845,8 @@ static void emit_cond_prefix(Emit *e, const A64Inst *in, bool invert)
     }
 }
 
-static void emit_cond_branch(Emit *e, const A64Inst *in, u32 first, u32 next_bb)
+static void emit_cond_branch(Emit *e, const A64Inst *in, u32 first, u32 next_bb,
+                             u32 bi, u32 at)
 {
     const A64Operand *taken = &in->ops[first];
     const A64Operand *untaken =
@@ -856,18 +858,18 @@ static void emit_cond_branch(Emit *e, const A64Inst *in, u32 first, u32 next_bb)
     if (untaken && untaken->kind != A64O_LABEL)
         CGF_ICE("arm64 emit: conditional branch fallthrough is not a label");
 
-    /* Only an explicit two-edge terminator whose TAKEN edge is the next
-     * block has a conditional target known to be adjacent. Every other
-     * conditional takes a local inverted branch over an imm26 B. This is
-     * the range-safe AArch64 long form: TBZ/TBNZ reach only +/-32 KiB and a
-     * self-hosted compiler already exceeds that inside sel_inst. Mid-block
-     * switch probes have no named false edge, so they use the long form too
-     * rather than mistaking the next BLOCK for the next instruction. */
-    if (untaken && taken->id == next_bb) {
+    /* Keep the compact architectural form whenever the finalized MIR layout
+     * proves that its narrow edge fits.  The proof pessimistically prices
+     * every emitter pseudo and refuses opaque asm, so a positive result
+     * remains safe after this choice makes the actual body smaller.  When
+     * the proof is unavailable or the edge is genuinely far, invert over an
+     * imm26 B.  TBZ/TBNZ reach only +/-32 KiB and a self-hosted compiler has
+     * already exceeded that inside sel_inst. */
+    if (a64_branch_target_fits(e->f, bi, at, in->op, taken->id)) {
         emit_cond_prefix(e, in, false);
         poper(e, taken, A64_SF64);
         buf_printf(e->out, "\n");
-        if (untaken->id != next_bb) {
+        if (untaken && untaken->id != next_bb) {
             buf_printf(e->out, "\tb\t");
             poper(e, untaken, A64_SF64);
             buf_printf(e->out, "\n");
@@ -889,7 +891,7 @@ static void emit_cond_branch(Emit *e, const A64Inst *in, u32 first, u32 next_bb)
     }
 }
 
-static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
+static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb, u32 bi, u32 at)
 {
     const char *mn;
     u8 sf = in->sf;
@@ -967,15 +969,15 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
         buf_printf(e->out, "\n");
         return;
     case A64_OP_BCOND:
-        emit_cond_branch(e, in, 0, next_bb);
+        emit_cond_branch(e, in, 0, next_bb, bi, at);
         return;
     case A64_OP_CBZ:
     case A64_OP_CBNZ:
-        emit_cond_branch(e, in, 1, next_bb);
+        emit_cond_branch(e, in, 1, next_bb, bi, at);
         return;
     case A64_OP_TBZ:
     case A64_OP_TBNZ:
-        emit_cond_branch(e, in, 2, next_bb);
+        emit_cond_branch(e, in, 2, next_bb, bi, at);
         return;
     case A64_OP_CSEL:
     case A64_OP_CSINC:
@@ -1140,7 +1142,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
             if (f->debug_lines && b->insts[i].debug_label)
                 buf_printf(out, "%sloc_%u_%u:\n", mlabel(&e), fidx,
                            b->insts[i].debug_label);
-            emit_inst(&e, &b->insts[i], bi + 2);
+            emit_inst(&e, &b->insts[i], bi + 2, bi, i);
         }
     }
     buf_printf(out, "%sfe%u_0:\n", mlabel(&e), fidx);

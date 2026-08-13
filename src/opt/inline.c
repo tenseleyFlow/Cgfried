@@ -38,9 +38,10 @@ typedef struct {
 } InlLoopCache;
 
 enum {
-    /* Bound compile work as well as code growth.  This is deliberately an
-     * instruction budget, not a site count: many tiny leaf calls remain cheap,
-     * while giant dispatchers cannot consume unbounded optimization time. */
+    /* Bound compile work as well as code growth over the complete optimization
+     * pipeline.  This is deliberately an instruction budget, not a site count:
+     * many tiny leaf calls remain cheap, while giant dispatchers cannot consume
+     * unbounded optimization time. */
     INL_MIN_GROWTH_BUDGET = 128,
     INL_MAX_CALLER_INSTS = 512,
 };
@@ -721,8 +722,13 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
         for (mi = 0; mi < ipo_callgraph_scc_size(graph, scc); mi++) {
             u32 fi = ipo_callgraph_scc_member(graph, scc, mi);
             u32 serial = 0;
-            u32 growth_left = growth_budget(cache.funcs[fi].insts);
             bool func_changed = false;
+
+            if (!m->funcs[fi].opt_inline_growth_initialized) {
+                m->funcs[fi].opt_inline_growth_left =
+                    growth_budget(cache.funcs[fi].insts);
+                m->funcs[fi].opt_inline_growth_initialized = true;
+            }
 
             for (;;) {
                 CallSite site;
@@ -753,8 +759,9 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
                         site.block = bi;
                         site.call = in;
                         site.prev = prev;
-                        found_eligible = eligible(m, fi, &site, graph, cfg,
-                                                  &cache, &loops, growth_left);
+                        found_eligible =
+                            eligible(m, fi, &site, graph, cfg, &cache, &loops,
+                                     m->funcs[fi].opt_inline_growth_left);
                         if (found_eligible)
                             break;
                     }
@@ -771,7 +778,7 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
                         CGF_ICE("inline: direct-call cache underflow");
                     cache.direct_calls[callee]--;
                     add_cloned_direct_calls(&cache, m, &m->funcs[callee]);
-                    growth_left -= growth;
+                    m->funcs[fi].opt_inline_growth_left -= growth;
                 }
                 func_changed |= inline_site(
                     m, &m->funcs[fi], &m->funcs[site.call->callee], &site,

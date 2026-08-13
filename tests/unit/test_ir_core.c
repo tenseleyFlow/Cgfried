@@ -188,6 +188,8 @@ void test_ir_module_clone_is_deep_and_preserves_provenance(TestCtx *t)
     arena_init(&clones);
     source = build_sum_to(&f);
     sf = &source->funcs[0];
+    sf->opt_inline_growth_left = 37;
+    sf->opt_inline_growth_initialized = true;
     loc.file_id = diag_add_file(f.dc, "clone.c", "x\n", 2);
     loc.line = 1;
     loc.col = 1;
@@ -209,6 +211,10 @@ void test_ir_module_clone_is_deep_and_preserves_provenance(TestCtx *t)
     if (copy) {
         cf = &copy->funcs[0];
         T_ASSERT(t, cf->module == copy);
+        T_ASSERT_EQ_INT(t, sf->opt_inline_growth_left, 37);
+        T_ASSERT(t, sf->opt_inline_growth_initialized);
+        T_ASSERT_EQ_INT(t, cf->opt_inline_growth_left, 0);
+        T_ASSERT(t, !cf->opt_inline_growth_initialized);
         T_ASSERT(t, cf->blocks != sf->blocks);
         T_ASSERT(t, cf->blocks[0].first != sf->blocks[0].first);
         T_ASSERT(t, cf->blocks[0].first->edges != sf->blocks[0].first->edges);

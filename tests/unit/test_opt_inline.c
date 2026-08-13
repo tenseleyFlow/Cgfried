@@ -56,6 +56,20 @@ static u32 func_op_count(const IrFunc *f, IrOp op)
     return n;
 }
 
+static u32 func_internal_calls_to(const IrFunc *f, u32 callee)
+{
+    u32 bi, n = 0;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next)
+            n += in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
+                 in->callee == callee;
+    }
+    return n;
+}
+
 static IrInst *first_op(IrFunc *f, IrOp op)
 {
     u32 bi;
@@ -597,6 +611,76 @@ void test_opt_inline_growth_budget_exact_boundary_and_determinism(TestCtx *t)
                     memcmp(first.data, second.data, first.len) == 0);
     buf_free(&first);
     buf_free(&second);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_growth_budget_persists_across_fixpoint_calls(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Buf src;
+    u32 i;
+
+    inline_fix_init(&f);
+    buf_init(&src);
+    buf_printf(&src, "sym @sink\n"
+                     "func void @leaf() internal {\n"
+                     "entry():\n");
+    for (i = 0; i < 50; i++)
+        buf_printf(&src, "    call void @sink()\n");
+    buf_printf(&src, "    ret\n"
+                     "}\n"
+                     "func void @caller() {\n"
+                     "entry():\n"
+                     "    call void @leaf()\n"
+                     "    call void @leaf()\n"
+                     "    call void @leaf()\n"
+                     "    ret\n"
+                     "}\n");
+    buf_push_u8(&src, 0);
+    m = inline_parse(&f, (char *)src.data);
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O3);
+    T_ASSERT(t, m && opt_inline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m ? func_internal_calls_to(&m->funcs[1], 0) : 0, 1);
+    /* A second scalar-fixpoint visit must not replenish the first visit's
+     * instruction allowance and admit the remaining call. */
+    T_ASSERT(t, m && !opt_inline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m ? func_internal_calls_to(&m->funcs[1], 0) : 0, 1);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    buf_free(&src);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_growth_budget_resets_for_new_pipeline(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "func i32 @leaf(i32 %x) internal {\n"
+                         "entry():\n"
+                         "    ret i32 %x\n"
+                         "}\n"
+                         "func i32 @caller(i32 %x) {\n"
+                         "entry():\n"
+                         "    %r = call i32 @leaf(i32 %x)\n"
+                         "    ret i32 %r\n"
+                         "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    if (m) {
+        m->funcs[1].opt_inline_growth_initialized = true;
+        m->funcs[1].opt_inline_growth_left = 0;
+    }
+    opt_config_init(&cfg, OPT_O2);
+    T_ASSERT(t, m && opt_run_pipeline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 1);
+    T_ASSERT_EQ_STR(t, m && m->nfuncs ? m->funcs[0].name : NULL, "caller");
+    T_ASSERT_EQ_INT(
+        t, m && m->nfuncs ? func_op_count(&m->funcs[0], IR_CALL) : 1, 0);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
     arena_free_all(&f.arena);
 }
 

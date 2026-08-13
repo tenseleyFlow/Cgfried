@@ -34,8 +34,8 @@ static bool reg_is_fp(A64Reg r)
 }
 
 static void adjust_flags_after_remove(A64Block *b, u32 removed);
-static bool layout_target_fits(const A64Func *f, u32 bi, u32 at, u16 op,
-                               u32 target);
+bool a64_branch_target_fits(const A64Func *f, u32 bi, u32 at, u16 op,
+                            u32 target);
 
 static bool reg_operand_parts(const A64Inst *in, u32 n, A64Reg *out)
 {
@@ -461,7 +461,7 @@ static bool rewrite_layout_branch(A64Func *f, u32 bi, u32 at)
      * always encodable; its false edge rides an imm26 B.  After inversion
      * that false edge becomes the narrow conditional target, so retain the
      * two-instruction form when it is outside this opcode's range. */
-    if (!layout_target_fits(f, bi, at, in->op, in->ops[fall_at].id))
+    if (!a64_branch_target_fits(f, bi, at, in->op, in->ops[fall_at].id))
         return false;
 
     {
@@ -606,8 +606,8 @@ static bool add_inst_bytes(u64 *total, const A64Inst *in)
     return true;
 }
 
-static bool layout_target_fits(const A64Func *f, u32 bi, u32 at, u16 op,
-                               u32 target)
+bool a64_branch_target_fits(const A64Func *f, u32 bi, u32 at, u16 op,
+                            u32 target)
 {
     u32 target_bi;
     u32 bj, i;
