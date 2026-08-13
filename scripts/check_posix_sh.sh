@@ -25,8 +25,8 @@ case "$SH" in
 *busybox) SH="busybox sh" ;;
 esac
 
-for f in scripts/*.sh ci/*.sh tests/runner/meta/*.sh \
-    tests/scripts/gates/*.sh; do
+for f in scripts/*.sh scripts/campaigns/*.sh ci/*.sh ci/campaigns/*.sh \
+    tests/runner/meta/*.sh tests/scripts/*.sh tests/scripts/gates/*.sh; do
     [ -f "$f" ] || continue
     if ! $SH -n "$f" 2> /tmp/cgf_posix_sh.$$; then
         echo "check_posix_sh: $f is not POSIX-parseable:" >&2

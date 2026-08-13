@@ -5,6 +5,7 @@
 #include "opt/alias.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "util/buf.h"
 
 typedef struct {
     Arena arena;
@@ -1105,5 +1106,55 @@ void test_alias_nonheap_proof_rejects_seeded_heap_site(TestCtx *t)
         t, !alias_pts_must_be_nonheap(
                c, alias_points_to(c, ir_op_value(&m->funcs[0], call->result))));
     alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_domain_omits_unreferenced_module_symbols(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    Buf src;
+    PtsSet used, unused;
+    u32 i;
+
+    alias_fix_init(&f);
+    buf_init(&src);
+    buf_printf(&src, "global @used size 8 align 8 external\n");
+    for (i = 0; i < 128; i++)
+        buf_printf(&src, "global @unused_%u size 8 align 8 external\n", i);
+    buf_printf(&src, "func ptr @f() {\n"
+                     "entry():\n"
+                     "    ret ptr @used\n"
+                     "}\n");
+    buf_push_u8(&src, 0);
+    m = alias_parse(&f, (const char *)src.data);
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        buf_free(&src);
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    used = alias_points_to(c, ir_op_symbol(IRT_PTR, ir_sym(m, "used"), 0));
+    unused =
+        alias_points_to(c, ir_op_symbol(IRT_PTR, ir_sym(m, "unused_0"), 0));
+    T_ASSERT_EQ_INT(t, used.nwords, 1);
+    T_ASSERT_EQ_INT(t, pts_count(used), 1);
+    T_ASSERT(t, !used.has_unknown);
+    T_ASSERT_EQ_INT(t, unused.nwords, 1);
+    T_ASSERT_EQ_INT(t, pts_count(unused), 1);
+    T_ASSERT(t, !unused.has_unknown);
+    T_ASSERT_EQ_INT(
+        t,
+        alias_query(
+            c,
+            alias_memloc(c, ir_op_symbol(IRT_PTR, ir_sym(m, "unused_0"), 0), 8,
+                         ETYPE_I64),
+            alias_memloc(c, ir_op_symbol(IRT_PTR, ir_sym(m, "unused_1"), 0), 8,
+                         ETYPE_I64)),
+        ALIAS_NO);
+    alias_free(c);
+    buf_free(&src);
     arena_free_all(&f.arena);
 }

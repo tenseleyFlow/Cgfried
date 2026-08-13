@@ -1,0 +1,16 @@
+# project	variant	expected	artifact
+chibicc	chibicc-x86_64	ci/campaigns/chibicc.expected	campaign-results-chibicc-x86_64
+curl	curl-arm64	ci/campaigns/curl.expected	campaign-results-curl-arm64
+curl	curl-x86_64	ci/campaigns/curl.expected	campaign-results-curl-x86_64
+lua	lua-arm64	ci/campaigns/lua.expected	campaign-results-lua-arm64
+lua	lua-musl-x86_64	ci/campaigns/lua-musl.expected	campaign-results-musl-static-x86_64
+lua	lua-x86_64	ci/campaigns/lua.expected	campaign-results-lua-x86_64
+musl	musl-x86_64	ci/campaigns/musl.expected	campaign-results-musl-static-x86_64
+qbe	qbe-arm64	ci/campaigns/qbe-arm64.expected	campaign-results-qbe-arm64
+qbe	qbe-x86_64	ci/campaigns/qbe.expected	campaign-results-qbe-x86_64
+sqlite	sqlite-arm64	ci/campaigns/sqlite.expected	campaign-results-sqlite-arm64
+sqlite	sqlite-x86_64	ci/campaigns/sqlite.expected	campaign-results-sqlite-x86_64
+tinycc	tinycc-x86_64	ci/campaigns/tinycc.expected	campaign-results-tinycc-x86_64
+zlib	zlib-arm64	ci/campaigns/zlib.expected	campaign-results-zlib-arm64
+zlib	zlib-musl-x86_64	ci/campaigns/zlib.expected	campaign-results-musl-static-x86_64
+zlib	zlib-x86_64	ci/campaigns/zlib.expected	campaign-results-zlib-x86_64

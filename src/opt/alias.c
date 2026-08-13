@@ -30,6 +30,7 @@ struct AliasCtx {
     u32 nobj;
     u32 nwords;
     u32 unknown_obj;
+    u32 unreferenced_sym_obj;
     u32 first_alloca_obj;
     u32 first_restrict_obj;
     u32 first_alloc_site_obj;
@@ -40,13 +41,15 @@ struct AliasCtx {
     u64 *stored_pts; /* explicit store/out-param edges; excludes call poison */
     u64 *spts;       /* [module symbol][word] */
     u64 *unknown_pts;
+    u32 *sym_obj; /* module symbol id -> referenced object id, or zero */
     OffRange *voff;
     OffRange *moff;  /* pointer-content offset hull per abstract object */
     u32 *alloca_obj; /* value id -> object id + 1 */
     bool *escaped;
     AllocSite *alloc_sites;
     u32 nalloc_sites;
-    u32 *param_obj; /* parameter ordinal -> provenance object id + 1 */
+    u32 *param_obj;         /* parameter ordinal -> provenance object id + 1 */
+    DepRangeCtx *range_ctx; /* built lazily, shared by every ptradd query */
 };
 
 static void *zalloc(size_t n, size_t size)
@@ -280,7 +283,7 @@ static bool fold_integer_operand(const AliasCtx *c, IrOperand operand,
     return opt_fold_inst(&folded, out, &cfg) && out->kind == IROP_ICONST;
 }
 
-static OffRange shifted_off(const AliasCtx *c, OffRange base, IrOperand off)
+static OffRange shifted_off(AliasCtx *c, OffRange base, IrOperand off)
 {
     bool overflow = false;
     IrOperand constant;
@@ -291,8 +294,11 @@ static OffRange shifted_off(const AliasCtx *c, OffRange base, IrOperand off)
     if (fold_integer_operand(c, off, &constant, 0)) {
         off_lo = (i64)constant.a;
         off_hi = off_lo;
-    } else if (!dep_affine_range(c->f, off, &off_lo, &off_hi)) {
-        return (OffRange){true, INT64_MIN, INT64_MAX};
+    } else {
+        if (!c->range_ctx)
+            c->range_ctx = dep_range_ctx_new(c->f);
+        if (!dep_affine_range_ctx(c->range_ctx, off, &off_lo, &off_hi))
+            return (OffRange){true, INT64_MIN, INT64_MAX};
     }
     k = off_lo;
     base.lo = sat_add(base.lo, k, &overflow);
@@ -399,6 +405,47 @@ static AllocSite *site_for_call(AliasCtx *c, const IrInst *call)
     return NULL;
 }
 
+static void mark_symbol_operand(AliasCtx *c, IrOperand op)
+{
+    if (op.kind == IROP_SYMBOL && op.type == IRT_PTR && op.sym < c->m->nsyms)
+        c->sym_obj[op.sym] = UINT32_MAX;
+}
+
+static u32 map_referenced_symbols(AliasCtx *c)
+{
+    const IrFunc *f = c->f;
+    u32 bi, sym, count = 0;
+
+    /* A function-local points-to problem cannot name an unreferenced module
+     * symbol. Keeping those symbols in every function's abstract-object
+     * domain made an amalgamation's module-wide symbol count multiply every
+     * solver bitset even when a function touched only a few globals. Mark all
+     * instruction and edge operands first, then assign compact object ids in
+     * module-symbol order so the analysis stays deterministic. Unreferenced
+     * symbols share one sentinel object; direct-symbol queries distinguish
+     * their stable symbol ids before consulting the points-to sets. */
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            u32 oi, ei;
+
+            for (oi = 0; oi < in->nops; oi++)
+                mark_symbol_operand(c, in->ops[oi]);
+            for (ei = 0; ei < in->nedges; ei++) {
+                u32 ai;
+
+                for (ai = 0; ai < in->edges[ei].nargs; ai++)
+                    mark_symbol_operand(c, in->edges[ei].args[ai]);
+            }
+        }
+    }
+    for (sym = 0; sym < c->m->nsyms; sym++)
+        if (c->sym_obj[sym])
+            c->sym_obj[sym] = ++count;
+    return count;
+}
+
 static void count_objects(const IrFunc *f, u32 *nalloca, u32 *nrestrict)
 {
     u32 i, bi;
@@ -427,7 +474,8 @@ static void init_roots(AliasCtx *c, const AliasConfig *cfg)
 
     bit_add(c->unknown_pts, c->unknown_obj);
     for (i = 0; i < c->m->nsyms; i++)
-        bit_add(srow(c, i), 1 + i);
+        bit_add(srow(c, i),
+                c->sym_obj[i] ? c->sym_obj[i] : c->unreferenced_sym_obj);
     for (i = 0; i < c->f->nparams; i++) {
         ValueId v = c->f->param_vals[i];
 
@@ -774,7 +822,7 @@ static void mark_escapes(AliasCtx *c)
 AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
 {
     AliasCtx *c;
-    u32 nalloca, nrestrict;
+    u32 nalloca, nrestrict, nsyms;
     u32 iteration, cap;
 
     if (!m || !cfg || !cfg->func)
@@ -785,9 +833,12 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     c->m = m;
     c->f = cfg->func;
     c->no_strict_aliasing = cfg->no_strict_aliasing;
+    c->sym_obj = zalloc(m->nsyms, sizeof(u32));
+    nsyms = map_referenced_symbols(c);
     count_objects(c->f, &nalloca, &nrestrict);
     c->unknown_obj = 0;
-    c->first_alloca_obj = 1 + m->nsyms;
+    c->unreferenced_sym_obj = nsyms < m->nsyms ? nsyms + 1 : 0;
+    c->first_alloca_obj = 1 + nsyms + (c->unreferenced_sym_obj != 0 ? 1 : 0);
     c->first_restrict_obj = c->first_alloca_obj + nalloca;
     c->first_alloc_site_obj = c->first_restrict_obj + nrestrict;
     c->nalloc_sites = cfg->nalloc_seeds;
@@ -839,6 +890,7 @@ void alias_free(AliasCtx *c)
 {
     if (!c)
         return;
+    dep_range_ctx_free(c->range_ctx);
     free(c->param_obj);
     free(c->alloc_sites);
     free(c->escaped);
@@ -847,6 +899,7 @@ void alias_free(AliasCtx *c)
     free(c->voff);
     free(c->unknown_pts);
     free(c->spts);
+    free(c->sym_obj);
     free(c->stored_pts);
     free(c->mpts);
     free(c->vpts);
@@ -1078,10 +1131,17 @@ AliasResult alias_query(AliasCtx *c, MemLoc a, MemLoc b)
     u32 bo = bits_singleton(bp, c->nwords);
     Footprint af = footprint(c, a);
     Footprint bf = footprint(c, b);
-    bool same_object = ao != UINT32_MAX && ao == bo &&
-                       (ao != c->unknown_obj || operand_equal(a.base, b.base));
+    bool distinct_symbols = a.base.kind == IROP_SYMBOL &&
+                            b.base.kind == IROP_SYMBOL &&
+                            a.base.sym != b.base.sym;
+    bool same_object =
+        ao != UINT32_MAX && ao == bo &&
+        ((ao != c->unknown_obj && ao != c->unreferenced_sym_obj) ||
+         operand_equal(a.base, b.base));
 
     if (a.size == 0 || b.size == 0)
+        return ALIAS_NO;
+    if (distinct_symbols)
         return ALIAS_NO;
     if (same_object && af.known && bf.known && af.lo == bf.lo && af.hi == bf.hi)
         return ALIAS_MUST;
@@ -1109,9 +1169,13 @@ bool alias_covers(AliasCtx *c, MemLoc outer, MemLoc inner)
     Footprint of = footprint(c, outer);
     Footprint inf = footprint(c, inner);
 
+    if (outer.base.kind == IROP_SYMBOL && inner.base.kind == IROP_SYMBOL &&
+        outer.base.sym != inner.base.sym)
+        return false;
     if (oo == UINT32_MAX || io == UINT32_MAX || oo != io)
         return false;
-    if (oo == c->unknown_obj && !operand_equal(outer.base, inner.base))
+    if ((oo == c->unknown_obj || oo == c->unreferenced_sym_obj) &&
+        !operand_equal(outer.base, inner.base))
         return false;
     return of.known && inf.known && of.lo <= inf.lo && of.hi >= inf.hi;
 }

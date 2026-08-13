@@ -1,0 +1,62 @@
+schema: cgf-campaign-ladder-v1
+
+# This is the audited campaign inventory.  Source pins remain single-sourced
+# in the descriptors named below; scripts/campaign-lint.sh validates this list
+# against the descriptor/expected pairs and their public closure targets.
+campaigns:
+  - name: chibicc
+    descriptor: ci/campaigns/chibicc.mk
+    expected: ci/campaigns/chibicc.expected
+    target: chibicc-expected
+    lanes: x86_64-linux-gnu
+    cadence: nightly
+    bar: build-and-upstream-tests
+  - name: curl
+    descriptor: ci/campaigns/curl.mk
+    expected: ci/campaigns/curl.expected
+    target: curl-expected
+    lanes: x86_64-linux-gnu,arm64-linux
+    cadence: nightly
+    bar: configure-build-version
+  - name: lua
+    descriptor: ci/campaigns/lua.mk
+    expected: ci/campaigns/lua.expected
+    target: lua-expected
+    lanes: x86_64-linux-gnu,arm64-linux,x86_64-linux-musl-static
+    cadence: nightly
+    bar: all-lua-o0-o2
+  - name: musl
+    descriptor: ci/campaigns/musl.mk
+    expected: ci/campaigns/musl.expected
+    target: musl-expected
+    lanes: x86_64-linux-gnu
+    cadence: nightly
+    bar: static-libc-and-libc-test-parity
+  - name: qbe
+    descriptor: ci/campaigns/qbe.mk
+    expected: ci/campaigns/qbe.expected
+    target: qbe-expected
+    lanes: x86_64-linux-gnu,arm64-linux
+    cadence: nightly
+    bar: native-suite-parity
+  - name: sqlite
+    descriptor: ci/campaigns/sqlite.mk
+    expected: ci/campaigns/sqlite.expected
+    target: sqlite-expected
+    lanes: x86_64-linux-gnu,arm64-linux
+    cadence: nightly
+    bar: five-level-build-smoke-speedtest
+  - name: tinycc
+    descriptor: ci/campaigns/tinycc.mk
+    expected: ci/campaigns/tinycc.expected
+    target: tinycc-expected
+    lanes: x86_64-linux-gnu
+    cadence: nightly
+    bar: tests2-testspp-parity
+  - name: zlib
+    descriptor: ci/campaigns/zlib.mk
+    expected: ci/campaigns/zlib.expected
+    target: zlib-expected
+    lanes: x86_64-linux-gnu,arm64-linux,x86_64-linux-musl-static
+    cadence: pull-request,nightly
+    bar: make-test

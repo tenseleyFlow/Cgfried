@@ -237,6 +237,41 @@ test_bisector_localizes_real_phase_tree() {
         fail "bisector did not localize the real compiler dump tree"
 }
 
+test_bisector_rejects_identically_incomplete_phase_trees() {
+    source=$tmp/incomplete-phase-tree.c
+    output=$tmp/incomplete-phase-tree.out
+    wrapper=$repo/tests/bootstrap/helpers/phase-dump-wrapper.sh
+
+    fresh_stages
+    put_same_required_artifacts
+    printf '%s\n' 'int main(void) { return 0; }' >"$source"
+    ln -s "$wrapper" "$tmp/phase-dump-missing-optimizer"
+    CGF_PHASE_REAL_CC=$cgf
+    export CGF_PHASE_REAL_CC
+    expect_failure "$output" sh "$repo/scripts/bisect-nondet.sh" \
+        "$tmp/stage1" "$tmp/stage2" --source "$source" \
+        --stage1-cc "$tmp/phase-dump-missing-optimizer" \
+        --stage2-cc "$tmp/phase-dump-missing-optimizer" -- -O2
+    grep -Fx 'bisect-nondet: missing phase group: stage1: optimizer' \
+        "$output" >/dev/null ||
+        fail "bisector accepted identically incomplete phase trees"
+}
+
+test_bisector_accepts_complete_o0_phase_trees_without_passes() {
+    source=$tmp/complete-o0-phase-tree.c
+    output=$tmp/complete-o0-phase-tree.out
+
+    fresh_stages
+    put_same_required_artifacts
+    printf '%s\n' 'int main(void) { return 0; }' >"$source"
+    if ! sh "$repo/scripts/bisect-nondet.sh" \
+        "$tmp/stage1" "$tmp/stage2" --source "$source" \
+        --stage1-cc "$cgf" --stage2-cc "$cgf" -- -O0 \
+        >"$output" 2>&1; then
+        fail "bisector rejected a complete O0 tree with no pass invocations"
+    fi
+}
+
 test_bootstrap_refuses_unowned_nonempty_work_directory() {
     unsafe_parent=$tmp/unowned-work
     unsafe_work=$unsafe_parent/O0
@@ -880,6 +915,8 @@ test_empty_runtime_group_fails_closed
 test_identical_complete_stages_pass
 test_real_compiler_emits_ordered_phase_tree
 test_bisector_localizes_real_phase_tree
+test_bisector_rejects_identically_incomplete_phase_trees
+test_bisector_accepts_complete_o0_phase_trees_without_passes
 test_bootstrap_refuses_unowned_nonempty_work_directory
 test_control_capture_is_canonical_and_controlled
 test_time_gate_boundaries_and_control

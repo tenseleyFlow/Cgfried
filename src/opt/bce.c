@@ -356,11 +356,11 @@ static bool comparison_fact(const IrInst *condition, const IrInst *candidate,
     return fact_proves(fact, (IrIcmp)candidate->subop, value);
 }
 
-static bool edge_target_has_unique_predecessor(const IrFunc *f, BlockId target,
+static bool edge_target_has_unique_predecessor(const u32 *pred_count,
+                                               const BlockId *only_pred,
+                                               BlockId target,
                                                BlockId predecessor)
 {
-    u32 bi, count = 0;
-
     /* Block 1 also has the function invocation as an implicit predecessor.
      * A CFG self-edge is therefore never its unique predecessor, even when
      * it is the only explicit edge targeting entry.  Treating that backedge
@@ -368,21 +368,8 @@ static bool edge_target_has_unique_predecessor(const IrFunc *f, BlockId target,
      * condition that has not executed yet. */
     if (target.v == 1)
         return false;
-    for (bi = 0; bi < f->nblocks; bi++) {
-        const IrInst *in;
-
-        for (in = f->blocks[bi].first; in; in = in->next) {
-            u32 ei;
-
-            for (ei = 0; ei < in->nedges; ei++)
-                if (in->edges[ei].target.v == target.v) {
-                    if (bi + 1 != predecessor.v)
-                        return false;
-                    count++;
-                }
-        }
-    }
-    return count == 1;
+    return target.v && pred_count[target.v - 1] == 1 &&
+           only_pred[target.v - 1].v == predecessor.v;
 }
 
 /* A condbr edge is a fact only in blocks dominated by that particular edge's
@@ -390,8 +377,9 @@ static bool edge_target_has_unique_predecessor(const IrFunc *f, BlockId target,
  * (post-dominating) test justify an earlier access and is a classic BCE
  * miscompile. */
 static bool prove_from_dominating_edge(IrFunc *f, const IrDomTree *dom,
-                                       BlockId at, const IrInst *candidate,
-                                       bool *value)
+                                       const u32 *pred_count,
+                                       const BlockId *only_pred, BlockId at,
+                                       const IrInst *candidate, bool *value)
 {
     u32 bi;
 
@@ -407,7 +395,8 @@ static bool prove_from_dominating_edge(IrFunc *f, const IrDomTree *dom,
         if (!condition || condition == candidate)
             continue;
         for (edge = 0; edge < 2; edge++)
-            if (edge_target_has_unique_predecessor(f, term->edges[edge].target,
+            if (edge_target_has_unique_predecessor(pred_count, only_pred,
+                                                   term->edges[edge].target,
                                                    (BlockId){bi + 1}) &&
                 ir_dominates(dom, term->edges[edge].target, at) &&
                 comparison_fact(condition, candidate, edge == 0, value)) {
@@ -477,13 +466,25 @@ static void replace_value(IrFunc *f, ValueId old, bool value)
         for (in = f->blocks[bi].first; in; in = in->next) {
             u32 oi, ei, ai;
 
-            for (oi = 0; oi < in->nops; oi++)
-                if (operand_is_value(in->ops[oi], old))
+            for (oi = 0; oi < in->nops; oi++) {
+                if (operand_is_value(in->ops[oi], old)) {
+                    IrOperand old_op = in->ops[oi];
+
                     in->ops[oi] = replacement;
-            for (ei = 0; ei < in->nedges; ei++)
-                for (ai = 0; ai < in->edges[ei].nargs; ai++)
-                    if (operand_is_value(in->edges[ei].args[ai], old))
+                    ir_arg_carry_provenance(&in->ops[oi], &old_op);
+                }
+            }
+            for (ei = 0; ei < in->nedges; ei++) {
+                for (ai = 0; ai < in->edges[ei].nargs; ai++) {
+                    if (operand_is_value(in->edges[ei].args[ai], old)) {
+                        IrOperand old_op = in->edges[ei].args[ai];
+
                         in->edges[ei].args[ai] = replacement;
+                        ir_arg_carry_provenance(&in->edges[ei].args[ai],
+                                                &old_op);
+                    }
+                }
+            }
         }
     }
 }
@@ -514,6 +515,8 @@ static bool run_function(IrModule *m, IrFunc *f, const OptConfig *cfg)
     LoopTree *tree;
     BceFold *folds;
     bool *planned;
+    u32 *pred_count;
+    BlockId *only_pred;
     BceBails bails = {0};
     u32 max_folds = 0, nfolds = 0, li;
 
@@ -527,6 +530,33 @@ static bool run_function(IrModule *m, IrFunc *f, const OptConfig *cfg)
     planned = arena_alloc(&scratch, ((size_t)f->nvals + 1) * sizeof(*planned),
                           _Alignof(bool));
     memset(planned, 0, ((size_t)f->nvals + 1) * sizeof(*planned));
+    pred_count = arena_alloc(
+        &scratch, (f->nblocks ? f->nblocks : 1) * sizeof(*pred_count),
+        _Alignof(u32));
+    only_pred = arena_alloc(&scratch,
+                            (f->nblocks ? f->nblocks : 1) * sizeof(*only_pred),
+                            _Alignof(BlockId));
+    memset(pred_count, 0, f->nblocks * sizeof(*pred_count));
+    memset(only_pred, 0, f->nblocks * sizeof(*only_pred));
+    /* Unique-predecessor facts are queried for every candidate comparison.
+     * Index the CFG once: rescanning all instructions for every conditional
+     * edge made BCE cubic on large switch-driven functions. */
+    for (li = 0; li < f->nblocks; li++) {
+        const IrInst *in;
+
+        for (in = f->blocks[li].first; in; in = in->next) {
+            u32 ei;
+
+            for (ei = 0; ei < in->nedges; ei++) {
+                BlockId target = in->edges[ei].target;
+
+                if (!target.v || target.v > f->nblocks)
+                    continue;
+                if (pred_count[target.v - 1]++ == 0)
+                    only_pred[target.v - 1] = (BlockId){li + 1};
+            }
+        }
+    }
 
     for (li = 0; li < loop_tree_count(tree); li++) {
         const Loop *loop = loop_tree_at(tree, li);
@@ -552,7 +582,8 @@ static bool run_function(IrModule *m, IrFunc *f, const OptConfig *cfg)
                  * its truth is path-sensitive, not loop-global. */
                 if (have_trip && in->result.v == trip.induction.compare.v)
                     continue;
-                proved = prove_from_dominating_edge(f, dom, block, in, &value);
+                proved = prove_from_dominating_edge(
+                    f, dom, pred_count, only_pred, block, in, &value);
                 if (!proved && have_trip)
                     proved = prove_from_trip(&trip, cfg, in, &value, &wrapped);
                 if (!proved) {

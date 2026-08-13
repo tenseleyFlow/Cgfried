@@ -40,6 +40,14 @@ if [ -n "$source_tu$stage1_cc$stage2_cc" ] &&
     exit 2
 fi
 
+require_optimizer_dumps=0
+for flag in "$@"; do
+    case $flag in
+    -O0) require_optimizer_dumps=0 ;;
+    -O*) require_optimizer_dumps=1 ;;
+    esac
+done
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-bisect-nondet.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
@@ -138,6 +146,33 @@ compare_phase_trees() {
         echo "bisect-nondet: phase-boundary dump tree is empty" >&2
         return 2
     fi
+    for stage in stage1 stage2; do
+        case $stage in
+        stage1) dir=$one ;;
+        stage2) dir=$two ;;
+        esac
+        for required in \
+            'parse:100000-parse-ast.txt' \
+            'sema:200000-sema.txt' \
+            'lowering:300000-ir-post-lowering.cgfir' \
+            'legalization:700000-ir-post-opt-legalized.cgfir' \
+            'mir:800000-mir.txt' \
+            'assembly:900000-asm.s'; do
+            group=${required%%:*}
+            file=${required#*:}
+            if [ ! -f "$dir/$file" ]; then
+                echo "bisect-nondet: missing phase group: $stage: $group" >&2
+                return 2
+            fi
+        done
+        if [ "$require_optimizer_dumps" -eq 1 ] &&
+            ! find "$dir" -maxdepth 1 -type f \
+                -name '[4-6][0-9][0-9][0-9][0-9][0-9]-ir-fp*-i*-p*-*.cgfir' \
+                -print | grep . >/dev/null; then
+            echo "bisect-nondet: missing phase group: $stage: optimizer" >&2
+            return 2
+        fi
+    done
     sort -u "$tmp/one.phases" "$tmp/two.phases" >"$tmp/all.phases"
     while IFS= read -r rel; do
         [ -n "$rel" ] || continue

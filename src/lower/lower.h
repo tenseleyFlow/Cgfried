@@ -198,7 +198,7 @@ typedef struct Lower {
     Strmap string_pool; /* content -> arena-owned u32 sym index + 1 */
     /* Function-name objects are NOT ordinary string literals: C11 gives
      * `__func__` one distinct static const array object per function, while
-     * GNU `__FUNCTION__` aliases that same object. */
+     * GNU `__FUNCTION__` and `__PRETTY_FUNCTION__` alias that same object. */
     Strmap func_name_objects; /* function name -> u32 sym index + 1 */
     u32 nstrings;             /* string-literal globals emitted, for naming */
     u32 nlocal_static;        /* block-scope statics, for name mangling */
@@ -305,7 +305,7 @@ IrOperand lower_i64(i64 v);
 /* String literal -> pooled internal global (content-deduped); returns
  * the module symbol index. */
 u32 lower_string_lit(Lower *lo, const AstNode *e);
-/* C11 __func__ / GNU __FUNCTION__ -> one static const array per function. */
+/* C11 __func__ / GNU function-name aliases -> one static const array. */
 u32 lower_func_name_object(Lower *lo, const AstNode *e);
 /* Anonymous object (string or file-scope compound literal) -> symbol. */
 u32 lower_anon_sym(Lower *lo, const AstNode *e);

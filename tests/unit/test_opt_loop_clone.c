@@ -167,6 +167,7 @@ void test_loop_clone_region_growth_lcssa_flags_and_locations(TestCtx *t)
         "    %a = iadd i32 %x, %v\n"
         "    %b = iadd i32 %a, 1\n"
         "    %c = iadd i32 %b, 2\n"
+        "    %ignored = call i32 @sink(ptr %p, i32 %n anon, i32 %c anon) va\n"
         "    %d = iadd i32 %c, 3\n"
         "    %e = iadd i32 %d, 4\n"
         "    %f = iadd i32 %e, 5\n"
@@ -186,7 +187,7 @@ void test_loop_clone_region_growth_lcssa_flags_and_locations(TestCtx *t)
     BlockId region[3], clone_header, clone_body, clone_latch, exit;
     LoopCloneMap map;
     const char *reason = NULL;
-    const IrInst *old_load, *new_load, *old_add, *new_add;
+    const IrInst *old_load, *new_load, *old_add, *new_add, *new_call;
     const IrEdge *exit_edge;
     Span span;
     u32 old_blocks, old_values, old_block_cap, old_value_cap;
@@ -261,6 +262,13 @@ void test_loop_clone_region_growth_lcssa_flags_and_locations(TestCtx *t)
     T_ASSERT_EQ_INT(t, new_load->flags, old_load->flags);
     T_ASSERT_EQ_INT(t, new_load->loc, old_load->loc);
     T_ASSERT_EQ_INT(t, new_load->align, old_load->align);
+    new_call = find_op(ir_block(f, clone_body), IR_CALL);
+    T_ASSERT(t, new_call != NULL);
+    if (new_call) {
+        T_ASSERT_EQ_INT(t, new_call->nops, 3);
+        T_ASSERT_EQ_INT(t, new_call->ops[1].argflags, IROPF_ANON);
+        T_ASSERT_EQ_INT(t, new_call->ops[2].argflags, IROPF_ANON);
+    }
     old_add = find_op(ir_block(f, region[0]), IR_IADD);
     new_add = find_op(ir_block(f, clone_header), IR_IADD);
     T_ASSERT(t, old_add != NULL && new_add != NULL);

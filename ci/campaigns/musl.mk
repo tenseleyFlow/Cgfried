@@ -4,8 +4,9 @@
 include ci/campaigns/common.mk
 
 MUSL_REF := b306b16af15c89a04d8e0c55cac2dadbeb39c083
+MUSL_SRC := .docs/refs/musl
 LIBC_TEST_REF := 123433158bf985d7eb3b4072e32121b9e32a1a1a
-CGF_CAMPAIGN_MUSL_SOURCE ?= .docs/refs/musl
+CGF_CAMPAIGN_MUSL_SOURCE ?= $(MUSL_SRC)
 CGF_CAMPAIGN_LIBC_TEST_SOURCE ?= .docs/refs/libc-test
 CGF_CAMPAIGN_MUSL_WORK ?= $(CGF_CAMPAIGN_BUILD)/musl
 CGF_CAMPAIGN_MUSL_EXPECTED ?= ci/campaigns/musl.expected
@@ -40,4 +41,12 @@ campaign-musl-verify-refs:
 
 campaign-musl-gate: campaign-musl-run
 	$(CGF_CAMPAIGN_CHECK) "$(CGF_CAMPAIGN_MUSL_EXPECTED)" \
+		"$(CGF_CAMPAIGN_MUSL_ACTUAL)"
+
+.PHONY: musl-configure musl-build musl-validate musl-expected
+musl-configure: campaign-musl-verify-refs
+musl-build: musl-configure campaign-musl-run
+musl-validate: musl-build
+musl-expected: musl-validate
+	scripts/campaign-check.sh "$(CGF_CAMPAIGN_MUSL_EXPECTED)" \
 		"$(CGF_CAMPAIGN_MUSL_ACTUAL)"

@@ -1,10 +1,10 @@
-# Sprint 57 campaign findings
+# Compile-the-world campaign findings
 
 This ledger covers defects and explicit exclusions discovered while compiling
-the pinned musl, Chibicc, TinyCC, and QBE trees, plus defects exposed by the
-Sprint 56 torture ratchet during final integration.  There are **no unresolved
-critical findings**.  `CAMP-MUSL-001` and `CAMP-MUSL-002` are deliberate,
-published scope exclusions rather than unexpected failures.
+the pinned Sprint 57 and Sprint 59 project ladders, plus defects exposed by the
+Sprint 56 torture ratchet during final integration. There are **no unresolved
+critical findings**. Deferred rows below are deliberate, published scope or
+compatibility boundaries rather than unexpected failures.
 
 ## Reproducer and ratchet ritual
 
@@ -31,12 +31,17 @@ published scope exclusions rather than unexpected failures.
 |---|---|---|---|---|
 | `CAMP-MUSL-001` | scope | DEFERRED | language | `src/complex/*` is compiled by the host compiler because C `_Complex` is explicitly post-v0.1.0.  The results file reports both routed TU counts; all other C TUs must use Cgfried. |
 | `CAMP-MUSL-002` | scope | DEFERRED | TLS / dynamic link | The shared-musl lane remains disabled pending general-dynamic TLS and full dynamic-loader validation.  The static archive, crt, hello, benchmarks, and libc-test parity lanes remain mandatory. |
+| `CAMP-CURL-001` | scope | DEFERRED | hosted headers | Curl's `stdatomic.h` probe differs from GCC because v0.1.0 implements the `_Atomic` language and code-generation surface but deliberately does not ship the optional C11 macro header. Curl selects its portable non-atomic path; configure, build, and validation remain mandatory. The campaign ratchets the exact host/Cgfried probe pair in the canonical deviation ledger. |
+| `CAMP-CURL-002` | scope | ACCEPTED | compatibility policy | Cgfried intentionally does not advertise `__GNUC__`; curl records the resulting three cached-probe row differences and selects feature probes instead. Defining a false GCC version would make more headers take unsupported compiler-specific paths. Together with `CAMP-CURL-001`, the exact five-row ledger is pinned by SHA-256 `5b3997ad9bae1ceb6f1808c0d692f5e522139b4c38785d56a0cc1d91f047e0f6`; the host GCC major is normalized to `defined`, while any added, removed, or semantically changed deviation fails the rung. |
+| `CAMP-CURL-003` | scope | DEFERRED | test harness | Curl's network-daemon `runtests.pl` suite, including the proposed offline allowlist, remains a post-v0.1.0 stretch bar. The required rung still builds the test-support binaries and validates the static curl executable and protocol surface. |
+| `CAMP-LUA-002` | scope | ACCEPTED | musl locale profile | Musl accepts arbitrary locale names for message-catalog identity even when the static image has no matching collation or ctype data; its `strcoll` remains code-point ordered. Lua's suite interprets non-null `setlocale` as proof that Portuguese semantics exist. The musl-static lane retains a compiled preflight proving the exact staged libc returns `named-locale=accepted` and `portuguese-collation=unsupported`, then narrowly reports non-built-in profiles unavailable through the Lua executable. The full unreduced `all.lua` invocation remains mandatory. |
 
 ## Fixed compiler findings
 
-All rows below are fixed by the Sprint 57 integration change and have a
-permanent minimized regression.  The phase attribution names the repaired
-compiler boundary, not the upstream project that happened to expose it.
+All rows below are fixed by the Sprint 57 or Sprint 59 integration change and
+have a permanent minimized regression.  The phase attribution names the
+repaired compiler boundary, not the upstream project that happened to expose
+it.
 
 | ID | Severity | Phase | Finding | Regression evidence |
 |---|---|---|---|---|
@@ -77,6 +82,13 @@ compiler boundary, not the upstream project that happened to expose it.
 | `CAMP-MUSL-036` | medium | fallthrough warnings | Anchor an if/else chain's fallthrough warning at the controlling `if` when both arms can reach the next case.  Descending into the final else invented a Cgfried-only source-location divergence even though both compilers found the same flow. | `tests/warn/frontend/implicit-fallthrough/fire_balanced_if_anchor.c` |
 | `CAMP-MUSL-037` | medium | conversion warnings | Model arithmetic conversion to `_Bool` as a truth-value conversion rather than one-bit truncation.  Every nonzero value becomes one, so constants such as `2`, `-1`, and `256` do not lose value, overflow, or change sign. | `tests/warn/frontend/conversion/nofire_bool_truth_conversion.c` |
 | `CAMP-MUSL-038` | high | ELF emission | Emit an empty `.note.GNU-stack` section for every ELF translation unit.  Without it, GNU ld conservatively treated Cgfried-built musl objects as requiring an executable stack; Ubuntu's linker warning also made every libc-test link-error record diverge from the pristine GCC lane. | `tests/cross/determinism.sh` (all four ELF targets, with a Mach-O negative control) |
+| `CAMP-SQLITE-001` | high | IR construction | Replace the linear source-span interning scan with a deterministic arena-backed open-addressed index.  SQLite's giant amalgamation otherwise made source-location recording quadratic even before optimization began. | `tests/unit/test_ir_core.c` (`test_ir_builder_source_locations`) |
+| `CAMP-SQLITE-002` | high | optimizer scale | Bound whole-module and CFG scans to the data each function actually references: alias domains now contain only referenced symbols plus a conservative sentinel, dependence range trees are shared per alias context, IPO uses deterministic callee-indexed tables, and BCE builds one predecessor index per function.  The prior repeated global scans made SQLite O2 exceed the campaign's 60-second absolute ceiling. | `tests/unit/test_opt_alias.c`, `tests/unit/test_opt_dep.c`, `tests/unit/test_opt_ipo.c`, `tests/unit/test_opt_bce.c` |
+| `CAMP-SQLITE-003` | high | optimizer provenance | Preserve per-argument provenance flags whenever IPO or BCE rebuilds a call instruction.  Dropping those flags made later alias reasoning less conservative after otherwise semantics-preserving rewrites. | `tests/unit/test_opt_ipo.c`, `tests/unit/test_opt_bce.c` |
+| `CAMP-LUA-001` | critical | x86-64 isel | Size block-edge parallel copies from the IR edge cardinality rather than a fixed 32-entry backend array.  LCSSA legitimately created 33-parameter joins in Lua's interpreter; silently dropping the final copy left VM state undefined at O2. | `tests/unit/test_x64_emit.c` (`test_x64_isel_preserves_more_than_thirty_two_edge_arguments`) |
+| `CAMP-SQLITE-004` | high | parse / sema | Materialize GNU C `__PRETTY_FUNCTION__` as the same function-local constant array as `__func__` and `__FUNCTION__`.  GNU-mode predefined macros make glibc's `assert.h` select this spelling, so SQLite's shell otherwise failed wherever it expanded `assert`. | `tests/programs/lower-exec/exec_func_name.c` |
+| `CAMP-SQLITE-005` | high | constexpr / initializer | Fold an address rooted at any static-storage object before accumulating nested member and array-index offsets.  The lvalue-address helper previously recognized only array/function designators at its base, rejecting valid tables such as `&consoleInfo.pstDesignated[1]`. | `tests/programs/lower-exec/exec_static_nested_member_address.c` |
+| `CAMP-SQLITE-006` | critical | optimizer / loop cloning | Preserve call-slot ABI provenance when loop cloning, unswitching, or unrolling remaps an SSA operand.  SQLite's O3 `selectExpander` placed a loop-defined anonymous variadic argument after two invariant anonymous arguments; cloning only the mapped value's identity silently dropped its `anon` flag and produced invalid IR. | `tests/unit/test_opt_loop_clone.c` (`test_loop_clone_region_growth_lcssa_flags_and_locations`), `tests/unit/test_opt_unroll.c` (`test_unroll_full_single_latch_loop`) |
 
 ## Fixed campaign-integrity findings
 
@@ -99,5 +111,5 @@ finding treatment.
 | `CAMP-MUSL-039` | high | musl assembler routing | Cgfried's configure lane cannot propagate musl's successful `-Wa,--noexecstack` probe to assembly inputs that are deliberately routed through the host compiler. The route wrapper now adds the flag exactly once for `.s`, `.S`, and explicit assembler-language inputs, while the campaign rejects any CRT object without `.note.GNU-stack`. |
 
 The committed `.expected` files are the public closure record: every fixed
-finding must continue to produce `PASS`, and only the two scope IDs above may
-produce `SKIP`.
+finding must continue to produce `PASS`, and only an explicitly listed scope
+row above may justify `SKIP` or a recorded compatibility deviation.

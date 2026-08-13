@@ -1,6 +1,7 @@
 // EXIT_CODE: 0
 // C11 defines __func__ as the enclosing function's name with array semantics;
-// GNU __FUNCTION__ is the compatible spelling used by real-world projects.
+// GNU __FUNCTION__ and, in C, __PRETTY_FUNCTION__ are compatible spellings
+// used by real-world projects and system headers.
 static int same(const char *a, const char *b)
 {
     while (*a && *a == *b) {
@@ -20,12 +21,14 @@ int main(void)
         return 2;
     if (!same(__FUNCTION__, "main"))
         return 3;
+    if (!same(__PRETTY_FUNCTION__, "main"))
+        return 4;
     /* `__func__` is a function-local static array, not a mergeable string
      * literal.  Both spellings in this function denote the same object, but
      * that object is distinct from an ordinary literal with equal bytes. */
-    if (a != __func__ || a != __FUNCTION__)
-        return 4;
-    if (a == "main")
+    if (a != __func__ || a != __FUNCTION__ || a != __PRETTY_FUNCTION__)
         return 5;
+    if (a == "main")
+        return 6;
     return 0;
 }

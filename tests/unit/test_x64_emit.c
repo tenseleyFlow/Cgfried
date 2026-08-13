@@ -284,6 +284,59 @@ void test_x64_isel_accepts_more_than_sixty_four_call_arguments(TestCtx *t)
     arena_free_all(&a);
 }
 
+/* LCSSA may place one block parameter on an edge for every value live out of
+ * a loop.  Edge copies therefore follow IR cardinality rather than a backend
+ * convenience limit: dropping even the last copy leaves its destination
+ * vreg undefined on that path. */
+void test_x64_isel_preserves_more_than_thirty_two_edge_arguments(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    BlockId entry, join;
+    IrBuilder b;
+    IrOperand args[33];
+    ValueId params[33];
+    IrOperand result;
+    X64Func *xf;
+    u32 i, moves = 0;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "wide_edge", IRT_I64, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    join = ir_block_new(m, f, "join");
+    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
+        params[i] = ir_block_param(m, f, join, IRT_I64);
+        args[i] = ir_op_iconst(IRT_I64, (i64)i + 1);
+    }
+
+    ir_builder_at(&b, m, f, entry);
+    ir_build_br(&b, join, args, CGF_ARRAY_LEN(args));
+    ir_builder_at(&b, m, f, join);
+    result = ir_op_value(f, params[CGF_ARRAY_LEN(params) - 1]);
+    ir_build_ret(&b, &result);
+
+    T_ASSERT(t, ir_verify(dc, m));
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    for (i = 0; i < xf->blocks[0].n; i++)
+        if (xf->blocks[0].insts[i].op == X64_OP_MOV)
+            moves++;
+    T_ASSERT_EQ_INT(t, moves, CGF_ARRAY_LEN(args));
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    x64_regalloc(xf);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}
+
 void test_x64_isel_dynamic_alloca_breaks_compare_fusion(TestCtx *t)
 {
     Arena a;

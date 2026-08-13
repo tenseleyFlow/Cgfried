@@ -8,24 +8,101 @@
  * appending past one is a builder bug and ICEs immediately rather than
  * producing IR the verifier would reject later with less context. */
 
+static bool span_eq(Span a, Span b)
+{
+    bool same_path = a.presumed_path == b.presumed_path;
+
+    if (!same_path && a.presumed_path && b.presumed_path)
+        same_path = strcmp(a.presumed_path, b.presumed_path) == 0;
+    return a.file_id == b.file_id && a.line == b.line && a.col == b.col &&
+           a.len == b.len && a.presumed_line == b.presumed_line &&
+           a.debug_loc == b.debug_loc && a.seq == b.seq &&
+           a.origin == b.origin && same_path;
+}
+
+static u64 hash_bytes(u64 h, const void *data, size_t len)
+{
+    const u8 *p = data;
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        h ^= p[i];
+        h *= UINT64_C(1099511628211);
+    }
+    return h;
+}
+
+static u64 span_hash(Span span)
+{
+    u64 h = UINT64_C(1469598103934665603);
+
+#define HASH_FIELD(field) h = hash_bytes(h, &span.field, sizeof(span.field))
+    HASH_FIELD(file_id);
+    HASH_FIELD(line);
+    HASH_FIELD(col);
+    HASH_FIELD(len);
+    HASH_FIELD(presumed_line);
+    HASH_FIELD(debug_loc);
+    HASH_FIELD(seq);
+    HASH_FIELD(origin);
+#undef HASH_FIELD
+    if (span.presumed_path)
+        h = hash_bytes(h, span.presumed_path, strlen(span.presumed_path) + 1);
+    return h;
+}
+
+static void loc_index_insert(IrModule *m, u32 id)
+{
+    u32 mask = m->cap_loc_slots - 1;
+    u32 at = (u32)span_hash(m->locs[id - 1]) & mask;
+
+    while (m->loc_slots[at]) {
+        u32 old_id = m->loc_slots[at];
+
+        if (span_eq(m->locs[old_id - 1], m->locs[id - 1]))
+            return; /* preserve the first insertion id */
+        at = (at + 1) & mask;
+    }
+    m->loc_slots[at] = id;
+}
+
+static void loc_index_rebuild(IrModule *m, u32 minimum_entries)
+{
+    u32 cap = 32;
+    u32 i;
+
+    if (minimum_entries > UINT32_MAX / 4)
+        CGF_ICE("IR source-location index capacity overflow");
+    while (cap < minimum_entries * 2)
+        cap *= 2;
+    m->loc_slots = arena_alloc(m->arena, cap * sizeof(u32), _Alignof(u32));
+    memset(m->loc_slots, 0, cap * sizeof(u32));
+    m->cap_loc_slots = cap;
+    for (i = 0; i < m->nlocs; i++)
+        loc_index_insert(m, i + 1);
+    m->indexed_locs = m->nlocs;
+}
+
 u32 ir_intern_span(IrModule *m, Span span)
 {
-    u32 i;
+    u32 mask, at;
 
     if (!span.file_id)
         return 0;
-    for (i = 0; i < m->nlocs; i++) {
-        Span old = m->locs[i];
-        bool same_path = old.presumed_path == span.presumed_path;
+    if (m->nlocs == UINT32_MAX)
+        CGF_ICE("too many IR source locations");
+    if (!m->cap_loc_slots || m->indexed_locs != m->nlocs ||
+        m->nlocs >= m->cap_loc_slots - m->cap_loc_slots / 4)
+        loc_index_rebuild(m, m->nlocs + 1);
 
-        if (!same_path && old.presumed_path && span.presumed_path)
-            same_path = strcmp(old.presumed_path, span.presumed_path) == 0;
-        if (old.file_id == span.file_id && old.line == span.line &&
-            old.col == span.col && old.len == span.len &&
-            old.presumed_line == span.presumed_line &&
-            old.debug_loc == span.debug_loc && old.seq == span.seq &&
-            old.origin == span.origin && same_path)
-            return i + 1;
+    mask = m->cap_loc_slots - 1;
+    at = (u32)span_hash(span) & mask;
+    while (m->loc_slots[at]) {
+        u32 id = m->loc_slots[at];
+
+        if (span_eq(m->locs[id - 1], span))
+            return id;
+        at = (at + 1) & mask;
     }
     if (m->nlocs == m->cap_locs) {
         u32 nc = m->cap_locs ? m->cap_locs * 2 : 16;
@@ -37,7 +114,10 @@ u32 ir_intern_span(IrModule *m, Span span)
         m->cap_locs = nc;
     }
     m->locs[m->nlocs] = span;
-    return ++m->nlocs;
+    m->nlocs++;
+    m->loc_slots[at] = m->nlocs;
+    m->indexed_locs = m->nlocs;
+    return m->nlocs;
 }
 
 static IrInst *append(IrBuilder *b, IrOp op, IrType t, bool defines)

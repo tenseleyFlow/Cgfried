@@ -331,7 +331,10 @@ IrOperand loop_clone_operand(const LoopCloneMap *map, IrOperand old)
         map->values[old.a].kind == IROP_NONE)
         return old;
     replacement = map->values[old.a];
-    replacement.b = old.b;
+    /* The map names a replacement VALUE; `old` is still the use site.  In
+     * particular, a variadic call argument keeps its anonymous/narrowing ABI
+     * provenance when a loop clone remaps a value defined in the region. */
+    ir_arg_carry_provenance(&replacement, &old);
     return replacement;
 }
 

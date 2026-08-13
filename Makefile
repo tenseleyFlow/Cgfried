@@ -448,6 +448,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-ir-smoke
 	sh scripts/check_fuzz_crashes.sh
 	sh scripts/check_posix_sh.sh
+	$(MAKE) campaign-expected-meta
 	sh scripts/check_bans.sh
 	$(MAKE) torture-import-verify
 	sh scripts/check_warn_seams.sh
@@ -987,11 +988,15 @@ check-format-matrix:
 # the compiler.  Including it last preserves `all` as the default goal.
 include ci/torture.mk
 
-# Sprint 57's compile-the-world campaigns are isolated fragments with one
-# exact-results gate per upstream project.  Keep them at the end so `all`
-# remains the default goal while `make campaign-<name>` is available both
-# locally and in CI.
+# Sprint 57 and Sprint 59's compile-the-world campaigns are isolated fragments
+# with one exact-results gate per upstream project. Keep them at the end so
+# `all` remains the default goal while each public campaign stage is available
+# both locally and in CI. ci/campaigns/ladder.yml is the audited inventory.
 include ci/campaigns/musl.mk
 include ci/campaigns/chibicc.mk
 include ci/campaigns/tinycc.mk
 include ci/campaigns/qbe.mk
+include ci/campaigns/zlib.mk
+include ci/campaigns/lua.mk
+include ci/campaigns/sqlite.mk
+include ci/campaigns/curl.mk

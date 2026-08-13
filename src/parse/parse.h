@@ -77,8 +77,9 @@ typedef struct Parser {
     bool in_func_body;
     /* Name of the function whose body is being parsed. C11 6.4.2.2 makes
      * `__func__` behave as an implicit `static const char[]` definition in
-     * that body; GNU's `__FUNCTION__` is the same value. NULL outside a
-     * function so a file-scope use remains an ordinary undeclared name. */
+     * that body; GNU's `__FUNCTION__` and, in C, `__PRETTY_FUNCTION__` are
+     * the same value. NULL outside a function so a file-scope use remains an
+     * ordinary undeclared name. */
     const char *func_name;
 } Parser;
 

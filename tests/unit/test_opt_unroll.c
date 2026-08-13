@@ -25,6 +25,23 @@ static u32 count_op(const IrFunc *f, IrOp op)
     return count;
 }
 
+static void assert_call_arg_provenance(TestCtx *t, const IrFunc *f)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            if (in->op != IR_CALL)
+                continue;
+            T_ASSERT_EQ_INT(t, in->nops, 2);
+            T_ASSERT_EQ_INT(t, in->ops[0].argflags, IROPF_ANON);
+            T_ASSERT_EQ_INT(t, in->ops[1].argflags, IROPF_ANON);
+        }
+    }
+}
+
 static void read_report(FILE *report, char *text, size_t cap)
 {
     size_t n;
@@ -91,21 +108,23 @@ void test_unroll_full_single_latch_loop(TestCtx *t)
     arena_init(&arena);
     dc = diag_ctx_new(&arena);
     diag_set_sink(dc, sink);
-    m = ir_parse_module(&arena, dc,
-                        "func i32 @sum() {\n"
-                        "entry():\n"
-                        "    br loop(i32 0, i32 0)\n"
-                        "loop(i32 %i, i32 %sum):\n"
-                        "    %c = icmp ult i32 %i, 4\n"
-                        "    condbr %c, body(), exit(i32 %sum)\n"
-                        "body():\n"
-                        "    %sum.next = iadd i32 %sum, %i\n"
-                        "    %i.next = iadd i32 %i, 1\n"
-                        "    br loop(i32 %i.next, i32 %sum.next)\n"
-                        "exit(i32 %result):\n"
-                        "    ret i32 %result\n"
-                        "}\n",
-                        "<unroll-full>");
+    m = ir_parse_module(
+        &arena, dc,
+        "func i32 @sum() {\n"
+        "entry():\n"
+        "    br loop(i32 0, i32 0)\n"
+        "loop(i32 %i, i32 %sum):\n"
+        "    %c = icmp ult i32 %i, 4\n"
+        "    condbr %c, body(), exit(i32 %sum)\n"
+        "body():\n"
+        "    %sum.next = iadd i32 %sum, %i\n"
+        "    %ignored = call i32 @sink(i32 7 anon, i32 %sum.next anon) va\n"
+        "    %i.next = iadd i32 %i, 1\n"
+        "    br loop(i32 %i.next, i32 %sum.next)\n"
+        "exit(i32 %result):\n"
+        "    ret i32 %result\n"
+        "}\n",
+        "<unroll-full>");
     T_ASSERT(t, m != NULL && ir_verify(dc, m));
     opt_config_init(&cfg, OPT_O3);
     cfg.verify_after_each = true;
@@ -116,6 +135,8 @@ void test_unroll_full_single_latch_loop(TestCtx *t)
         T_ASSERT_EQ_INT(t, m->funcs[0].nblocks, 2);
         T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR), 0);
         T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_IADD), 8);
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CALL), 4);
+        assert_call_arg_provenance(t, &m->funcs[0]);
         T_ASSERT_EQ_INT(t, m->funcs[0].blocks[0].last->op, IR_BR);
         T_ASSERT_EQ_INT(t, m->funcs[0].blocks[0].last->edges[0].nargs, 1);
     }

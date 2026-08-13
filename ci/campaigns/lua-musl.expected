@@ -1,0 +1,6 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+build.musl-static	PASS	compiler=cgfried,target=x86_64-linux-musl,opt=O2,static-env=readline+lib2-v2+locale-profile
+source.pin	PASS	version=5.4.7,sha256=9fbf5e28ef86c69858f6d3d34eccc32e911c1a28b4120ff3e84aaa70cfbf1e30
+source.tests-pin	PASS	version=5.4.7,sha256=8a4898ffe4c7613c8009327a0722db7a41ef861d526c77c5b46114e59ebf811e
+test.musl-static.all-lua	PASS	suite=lua-5.4.7-tests,mode=full-generic,dlopen=upstream-unavailable

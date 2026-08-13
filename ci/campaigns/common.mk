@@ -12,5 +12,12 @@ CGF_CAMPAIGN_CHECK ?= ci/campaigns/check-expected.sh
 campaign-expected-meta:
 	ci/campaigns/test-expected.sh
 	ci/campaigns/test-musl-toolchain.sh
+	ci/campaigns/test-lua.sh
+	scripts/campaigns/sqlite-campaign-test.sh
+	tests/scripts/campaign_contract_test.sh
+	tests/scripts/campaign_failure_report_test.sh
+	tests/scripts/campaign_reporting_test.sh
+	tests/scripts/fleet_sqlite_test.sh
+	scripts/campaign-lint.sh
 
 endif

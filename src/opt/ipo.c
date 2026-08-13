@@ -3,6 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct CallSite {
+    u32 caller;
+    IrInst *call;
+} CallSite;
+
 /* The callgraph is deliberately independent of the module arena: clients
  * rebuild it after an IPO mutation and ipo_callgraph_free has real meaning. */
 struct Callgraph {
@@ -10,6 +15,9 @@ struct Callgraph {
     bool *edges; /* caller-major adjacency matrix */
     bool *unknown;
     bool *address_taken;
+    u32 *direct_calls;
+    u32 *call_offsets;
+    CallSite *calls;
     u32 nsccs;
     u32 *scc_of;
     u32 *scc_offsets;
@@ -115,12 +123,15 @@ Callgraph *ipo_callgraph_build(IrModule *m)
 {
     Callgraph *g = zalloc(1, sizeof(*g));
     Tarjan t;
-    u32 fi, bi, ai;
+    u32 *fill;
+    u32 fi, bi, ai, ncalls = 0;
 
     g->nnodes = m->nfuncs;
     g->edges = zalloc((size_t)g->nnodes * g->nnodes, sizeof(bool));
     g->unknown = zalloc(g->nnodes, sizeof(bool));
     g->address_taken = zalloc(g->nnodes, sizeof(bool));
+    g->direct_calls = zalloc(g->nnodes, sizeof(u32));
+    g->call_offsets = zalloc((size_t)g->nnodes + 1, sizeof(u32));
     g->scc_of = zalloc(g->nnodes, sizeof(u32));
     g->scc_offsets = zalloc((size_t)g->nnodes + 1, sizeof(u32));
     g->scc_members = zalloc(g->nnodes, sizeof(u32));
@@ -135,8 +146,11 @@ Callgraph *ipo_callgraph_build(IrModule *m)
                 u32 oi, ei;
 
                 if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
-                    in->callee < m->nfuncs)
+                    in->callee < m->nfuncs) {
                     g->edges[fi * g->nnodes + in->callee] = true;
+                    g->direct_calls[in->callee]++;
+                    ncalls++;
+                }
                 if (in->op == IR_CALL && in->subop == FUNCREF_INDIRECT)
                     g->unknown[fi] = true;
                 for (oi = 0; oi < in->nops; oi++)
@@ -147,6 +161,28 @@ Callgraph *ipo_callgraph_build(IrModule *m)
             }
         }
     }
+    for (fi = 0; fi < g->nnodes; fi++)
+        g->call_offsets[fi + 1] = g->call_offsets[fi] + g->direct_calls[fi];
+    g->calls = zalloc(ncalls, sizeof(*g->calls));
+    fill = zalloc(g->nnodes, sizeof(*fill));
+    memcpy(fill, g->call_offsets, g->nnodes * sizeof(*fill));
+    /* Group direct calls by callee while preserving caller/module and
+     * instruction order inside each range. IPO asks several questions about
+     * the same callee; rescanning the entire module for every parameter made
+     * large amalgamations quadratic in functions times instructions. */
+    for (fi = 0; fi < m->nfuncs; fi++)
+        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
+            IrInst *in;
+
+            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next)
+                if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
+                    in->callee < m->nfuncs) {
+                    u32 at = fill[in->callee]++;
+
+                    g->calls[at] = (CallSite){fi, in};
+                }
+        }
+    free(fill);
     /* `used` says to keep the function even though nothing here references
      * it -- the same fact an alias target has, arrived at from the source
      * instead of from a `.set`, so it seeds the same root set. */
@@ -213,6 +249,9 @@ void ipo_callgraph_free(Callgraph *g)
     free(g->edges);
     free(g->unknown);
     free(g->address_taken);
+    free(g->direct_calls);
+    free(g->call_offsets);
+    free(g->calls);
     free(g->scc_of);
     free(g->scc_offsets);
     free(g->scc_members);
@@ -377,23 +416,18 @@ static void replace_value(IrFunc *f, ValueId v, IrOperand with)
 
             for (i = 0; i < in->nops; i++)
                 if (operand_uses_value(&in->ops[i], v)) {
-                    u64 annotation = in->ops[i].b;
+                    IrOperand old = in->ops[i];
 
                     in->ops[i] = with;
-                    /* `.b` belongs to the destination when this is an ABI
-                     * call argument. Ordinary operands have zero there;
-                     * f80/f128 constants instead keep their high bits. */
-                    if (with.kind != IROP_FCONST)
-                        in->ops[i].b = annotation;
+                    ir_arg_carry_provenance(&in->ops[i], &old);
                 }
             for (e = 0; e < in->nedges; e++)
                 for (i = 0; i < in->edges[e].nargs; i++)
                     if (operand_uses_value(&in->edges[e].args[i], v)) {
-                        u64 annotation = in->edges[e].args[i].b;
+                        IrOperand old = in->edges[e].args[i];
 
                         in->edges[e].args[i] = with;
-                        if (with.kind != IROP_FCONST)
-                            in->edges[e].args[i].b = annotation;
+                        ir_arg_carry_provenance(&in->edges[e].args[i], &old);
                     }
         }
     }
@@ -438,34 +472,27 @@ static bool specialization_constant(IrOperand op)
     return op.kind == IROP_ICONST || op.kind == IROP_FCONST;
 }
 
-static void drop_call_arg(IrModule *m, u32 callee, u32 arg)
+static void drop_call_arg(IrModule *m, const Callgraph *g, u32 callee, u32 arg)
 {
-    u32 fi, bi;
+    u32 ci;
 
-    for (fi = 0; fi < m->nfuncs; fi++)
-        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
-            IrInst *in;
+    for (ci = g->call_offsets[callee]; ci < g->call_offsets[callee + 1]; ci++) {
+        IrInst *in = g->calls[ci].call;
+        IrOperand *ops;
 
-            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next) {
-                IrOperand *ops;
-
-                if (in->op != IR_CALL || in->subop != FUNCREF_INTERNAL ||
-                    in->callee != callee)
-                    continue;
-                ops = arena_alloc(m->arena, (in->nops - 1) * sizeof(*ops),
-                                  _Alignof(IrOperand));
-                if (arg)
-                    memcpy(ops, in->ops, arg * sizeof(*ops));
-                if (arg + 1 < in->nops)
-                    memcpy(ops + arg, in->ops + arg + 1,
-                           (in->nops - arg - 1) * sizeof(*ops));
-                in->ops = ops;
-                in->nops--;
-            }
-        }
+        ops = arena_alloc(m->arena, (in->nops - 1) * sizeof(*ops),
+                          _Alignof(IrOperand));
+        if (arg)
+            memcpy(ops, in->ops, arg * sizeof(*ops));
+        if (arg + 1 < in->nops)
+            memcpy(ops + arg, in->ops + arg + 1,
+                   (in->nops - arg - 1) * sizeof(*ops));
+        in->ops = ops;
+        in->nops--;
+    }
 }
 
-static void drop_func_arg(IrModule *m, u32 fi, u32 arg)
+static void drop_func_arg(IrModule *m, const Callgraph *g, u32 fi, u32 arg)
 {
     IrFunc *f = &m->funcs[fi];
     u8 *types = arena_alloc(m->arena, f->nparams - 1, 1);
@@ -494,53 +521,31 @@ static void drop_func_arg(IrModule *m, u32 fi, u32 arg)
     f->param_vals = vals;
     f->param_annots = annots;
     f->nparams--;
-    drop_call_arg(m, fi, arg);
+    drop_call_arg(m, g, fi, arg);
 }
 
-static u32 direct_call_count(const IrModule *m, u32 callee)
-{
-    u32 fi, bi, n = 0;
-
-    for (fi = 0; fi < m->nfuncs; fi++)
-        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
-            const IrInst *in;
-
-            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next)
-                n += in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
-                     in->callee == callee;
-        }
-    return n;
-}
-
-static bool all_calls_constant(const IrModule *m, u32 callee, u32 arg,
+static bool all_calls_constant(const Callgraph *g, u32 callee, u32 arg,
                                IrOperand *constant)
 {
     bool seen = false;
-    u32 fi, bi;
+    u32 ci;
 
-    for (fi = 0; fi < m->nfuncs; fi++)
-        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
-            const IrInst *in;
+    for (ci = g->call_offsets[callee]; ci < g->call_offsets[callee + 1]; ci++) {
+        const IrInst *in = g->calls[ci].call;
+        IrOperand op;
 
-            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next) {
-                IrOperand op;
-
-                if (in->op != IR_CALL || in->subop != FUNCREF_INTERNAL ||
-                    in->callee != callee)
-                    continue;
-                if (arg >= in->nops)
-                    CGF_ICE("ipo: malformed call during specialization");
-                op = in->ops[arg];
-                if (!specialization_constant(op))
-                    return false;
-                if (!seen) {
-                    *constant = op;
-                    seen = true;
-                } else if (!const_same(*constant, op)) {
-                    return false;
-                }
-            }
+        if (arg >= in->nops)
+            CGF_ICE("ipo: malformed call during specialization");
+        op = in->ops[arg];
+        if (!specialization_constant(op))
+            return false;
+        if (!seen) {
+            *constant = op;
+            seen = true;
+        } else if (!const_same(*constant, op)) {
+            return false;
         }
+    }
     return seen;
 }
 
@@ -551,31 +556,26 @@ static bool call_result_ignored(const IrModule *m, const IrFunc *caller,
     return !call->result.v || !func_uses_value(caller, call->result);
 }
 
-static bool all_call_results_ignored(const IrModule *m, u32 callee)
+static bool all_call_results_ignored(const IrModule *m, const Callgraph *g,
+                                     u32 callee)
 {
     bool seen = false;
-    u32 fi, bi;
+    u32 ci;
 
-    for (fi = 0; fi < m->nfuncs; fi++)
-        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
-            const IrInst *in;
+    for (ci = g->call_offsets[callee]; ci < g->call_offsets[callee + 1]; ci++) {
+        const CallSite *site = &g->calls[ci];
 
-            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next) {
-                if (in->op != IR_CALL || in->subop != FUNCREF_INTERNAL ||
-                    in->callee != callee)
-                    continue;
-                seen = true;
-                if (!call_result_ignored(m, &m->funcs[fi], in))
-                    return false;
-            }
-        }
+        seen = true;
+        if (!call_result_ignored(m, &m->funcs[site->caller], site->call))
+            return false;
+    }
     return seen;
 }
 
-static void voidify(IrModule *m, u32 callee)
+static void voidify(IrModule *m, const Callgraph *g, u32 callee)
 {
     IrFunc *f = &m->funcs[callee];
-    u32 fi, bi;
+    u32 bi, ci;
 
     f->ret = IRT_VOID;
     f->abi_ret = IR_ABIRET_NONE;
@@ -587,17 +587,12 @@ static void voidify(IrModule *m, u32 callee)
             in->nops = 0;
         }
     }
-    for (fi = 0; fi < m->nfuncs; fi++)
-        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
-            IrInst *in;
+    for (ci = g->call_offsets[callee]; ci < g->call_offsets[callee + 1]; ci++) {
+        IrInst *in = g->calls[ci].call;
 
-            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next)
-                if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
-                    in->callee == callee) {
-                    in->type = IRT_VOID;
-                    in->result = VALUE_INVALID;
-                }
-        }
+        in->type = IRT_VOID;
+        in->result = VALUE_INVALID;
+    }
 }
 
 static bool eliminate_dead_functions(IrModule *m, const Callgraph *g,
@@ -616,7 +611,7 @@ static bool eliminate_dead_functions(IrModule *m, const Callgraph *g,
             OPT_BAIL(cfg, "ipo", "ipo_addr_taken");
             continue;
         }
-        if (direct_call_count(m, i) == 0) {
+        if (g->direct_calls[i] == 0) {
             keep[i] = false;
             changed = true;
         }
@@ -697,22 +692,22 @@ bool opt_ipo(IrModule *m, const OptConfig *cfg)
                 }
 
                 if (!func_uses_value(f, f->param_vals[ai])) {
-                    drop_func_arg(m, fi, (u32)ai);
+                    drop_func_arg(m, g, fi, (u32)ai);
                     changed = true;
-                } else if (all_calls_constant(m, fi, (u32)ai, &constant)) {
+                } else if (all_calls_constant(g, fi, (u32)ai, &constant)) {
                     if (constant.kind == IROP_FCONST &&
                         value_has_annotated_use(f, f->param_vals[ai])) {
                         OPT_BAIL(cfg, "ipo", "ipo_fconst_abi_annotation");
                         continue;
                     }
                     replace_value(f, f->param_vals[ai], constant);
-                    drop_func_arg(m, fi, (u32)ai);
+                    drop_func_arg(m, g, fi, (u32)ai);
                     changed = true;
                 }
             }
             if (f->ret != IRT_VOID && f->abi_ret == IR_ABIRET_NONE &&
-                all_call_results_ignored(m, fi)) {
-                voidify(m, fi);
+                all_call_results_ignored(m, g, fi)) {
+                voidify(m, g, fi);
                 changed = true;
             }
         }

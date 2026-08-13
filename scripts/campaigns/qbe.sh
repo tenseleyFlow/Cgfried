@@ -176,18 +176,15 @@ run_test_lane() {
     # a tiny state machine so signal deaths and multi-line diffs are attributed
     # to the right case instead of disappearing into an aggregate exit code.
     awk '
-        function finish() {
-            if (current == "")
-                return
-            if (result == "fail")
-                print current
-            else if (result == "") {
-                print "qbe-campaign: test has no outcome marker: " current > "/dev/stderr"
-                bad = 1
-            }
-        }
         match($0, /^[^[:space:]]+\.ssa\.\.\./) {
-            finish()
+            if (current != "") {
+                if (result == "fail")
+                    print current
+                else if (result == "") {
+                    print "qbe-campaign: test has no outcome marker: " current > "/dev/stderr"
+                    bad = 1
+                }
+            }
             current = substr($0, 1, RLENGTH - 3)
             result = ""
         }
@@ -198,7 +195,14 @@ run_test_lane() {
             result = "fail"
         }
         END {
-            finish()
+            if (current != "") {
+                if (result == "fail")
+                    print current
+                else if (result == "") {
+                    print "qbe-campaign: test has no outcome marker: " current > "/dev/stderr"
+                    bad = 1
+                }
+            }
             exit bad
         }
     ' "$log" >"$raw_failures" ||

@@ -3,38 +3,116 @@
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND (2026-08-13): Sprints 0–53 and Sprints 55–57 are CLOSED;
-Sprints 55–57 were completed out of numerical order while Sprint 54 continued
-its controlled fleet soak. Sprint 54's implementation is complete, but its
-operational soak is OPEN; Phase 11 is therefore still open. Sprint 58's
+Sprints 55–57 were completed out of numerical order while Sprint 54 collected
+its controlled fleet soak. Sprint 54's implementation and required three-date
+controlled evidence are complete, but its report refresh and final closure
+audit/CI remain OPEN; Phase 11 is therefore still open. Sprint 58's
 implementation and first complete hosted native/cross activation are green;
-its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally
-OPEN.** The performance-gate lattice, native CI measurements, fleet runtime
-protocol, reporting, policy checks, scheduler integration, and
-controlled-power model are implemented. Kasumi and Hasu have accepted
-controlled evidence on three
-distinct UTC dates; Nomad has two and still needs its third. Sprint 55's GNU
-tier table is **30 implemented / 6 parsed-ignored / 8 refused**. Sprint 56's
-campaign machine, triage map, and 25,918-cell PASS ratchet are complete.
-Sprint 57's pinned compile-the-world campaigns, truthful staged-musl linkage
-proof, host
-baselines, exact gates, and campaign-driven compiler repairs are integrated on
-`trunk`. Sprint 59 is the next eligible parallel implementation lane while the
-Sprint 54 and Sprint 58 operational evidence continues. The old D5 notes are
-retained only as implementation history.
+its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally OPEN.
+Sprint 59's implementation and all locally runnable project bars are green;
+its operational closure remains OPEN pending numeric SQLite baselines from
+Kasumi and Hasu plus one complete post-baseline nightly ladder.** The
+performance-gate lattice, native CI measurements, fleet runtime protocol,
+reporting, policy checks, scheduler integration, and controlled-power model
+are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
+implemented / 6 parsed-ignored / 8 refused**.
+Sprint 56's campaign machine, triage map, and 25,918-cell PASS ratchet are
+complete. Sprint 57's pinned compile-the-world campaigns, truthful
+staged-musl linkage proof, host baselines, exact gates, and campaign-driven
+compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
+machine and compiler repairs are integrated while Sprint 54 finishes closure
+and Sprint 58 continues collecting independent operational evidence. The old
+D5 notes are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, continue **Sprint 54 (performance gates in CI)** until the controlled
-three-date fleet history is real. The first controlled date and release report
-are now committed for every host. Do not advance the Sprint 54/Phase 11 closure
-ratchet early. The parallel Sprint 56/57 work does not manufacture or replace
-any fleet evidence.
+On trunk, finish **Sprint 54 (performance gates in CI)** by regenerating the
+release report from the now-complete three-date fleet history, then running the
+final closure audit and hosted CI. Do not advance the Sprint 54/Phase 11
+closure ratchet until the refreshed report and final CI are green. The parallel
+Sprint 56–59 work does not manufacture or replace any fleet evidence.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
 FreeBSD. Confirmed empirically: extended asm and `__volatile` together took
 musl from **716 to 1259 of 1361** translation units parsing.
+
+---
+
+## Parallel Sprint 59 project ladder — IMPLEMENTED; EVIDENCE OPEN
+
+Sprint 59's code, descriptors, exact-result contracts, compiler repairs, and
+locally runnable validation bars are complete on `trunk`. Do not
+call the sprint closed until the two designated-host SQLite baselines are
+numeric and one complete nightly ladder passes against them.
+
+- `ci/campaigns/FORMAT.md`, `ladder.yml`, and the retrofitted Sprint 57
+  descriptors define one audited eight-project inventory. The linter sees
+  eight descriptors, ten expected files, and one ladder; seeded missing,
+  extra, reordered, duplicate, malformed, and changed rows all fail.
+- The recurring matrix has exactly 15 variants across x86-64, native ARM64,
+  and the two x86-64 musl-static lanes. Publication validates every artifact's
+  exact rows and generates deterministic aggregate and failure reports.
+- Native x86 zlib passes all ten exact rows, including all four upstream
+  self-tests and the GCC output differential. Lua passes all nine native rows
+  at O0 and O2 and reaches `final OK !!!` in the full 5.4.7 `all.lua`; the
+  Cgfried-built musl-static stack passes its four-row full-suite bar. Curl
+  passes its ten-row configure/build/test-support/version contract with zero
+  driver ICEs and an exact five-row probe-deviation ledger.
+- SQLite compiles the 3.46.1 amalgamation and shell at O0/O1/O2/O3/Os. Its
+  32-statement shell smoke is byte-identical to the GCC lane at O0 and O2,
+  and `speedtest1` completes with verification
+  `111130:1e792c9db61996c477b8ab5ce2d690052e8dae74824a430a`. The canonical
+  Sprint 52 scale profile records 10 measured runs after one warmup and keeps
+  the absolute O2 ceiling at 60 seconds; a one-run local preflight measured
+  3,145.919 ms / 1,236,984 KiB at O0 and 27,444.039 ms / 11,457,440 KiB at
+  O2. Those satoyama numbers are diagnostic only and MUST NOT be substituted
+  for designated-host baselines.
+- Seven stable compiler findings are fixed and regression-pinned:
+  deterministic source-span interning; bounded alias/dependence/IPO/BCE
+  scale; call-argument provenance through IPO/BCE; dynamic x86 block-edge
+  copies beyond 32 values; GNU `__PRETTY_FUNCTION__`; static nested-member
+  address folding; and ABI provenance through loop clone/unswitch/unroll.
+  The final repair is what makes SQLite O3 verify and compile correctly.
+- The TinyCC warning ratchet legitimately advances from 14 parsed / 16
+  deferred to 15 / 15: `x86_64-gen.c` was rejected only because glibc
+  `assert` expands to `__PRETTY_FUNCTION__`. It now has zero Cgfried-only
+  format warnings. The two new/expanded permanent program fixtures repin the
+  frontend-fuzz sequence to `d034f18e4727269b`.
+- Fresh post-format GCC and Clang builds each pass the complete repository
+  suite: 711 unit tests, 4,288,526 assertions, every corpus/differential/
+  optimizer/runtime/cross/policy gate, and clang-format 22. A fresh Clang
+  ASan+UBSan build completed 100,000 frontend-fuzz iterations from seed 1
+  with zero findings; the crash ledger is clean. ShellCheck and POSIX-shell
+  parsing are clean for all touched scripts.
+
+### Sprint 59 operational resume sequence
+
+1. Land and push the exact tested source revision; run the required hosted
+   x86-64 and native ARM64 variants from that revision. Do not reuse an older
+   workflow's results merely because the source pins match.
+2. On controlled fleet hosts `kasumi` and `hasu`, run
+   `scripts/fleet-sqlite.sh` against that exact revision. Each run performs
+   one warmup plus ten O0/O2 measurements under the existing
+   fleet-control-v2 preflight and publishes immutable evidence; it never
+   edits policy.
+3. Review those two artifacts, then replace the eight `UNMEASURED` values in
+   `ci/campaigns/sqlite-baselines.conf` with the controlled O0/O2 median-wall
+   and max-RSS values. The public `compile.baseline-policy` row is deliberately
+   invariant; the mutable policy SHA-256 and thresholds remain in the compile
+   receipt. Its numeric-policy meta-test must still match the expected row
+   exactly. Partial numeric hosts fail closed. Do not relax the +30% wall,
+   +20% RSS, or 60-second absolute O2 policy.
+4. Run one complete 15-variant nightly ladder after the numeric baseline
+   commit. Every expected row, including `compile.baseline-policy`, must pass;
+   publish and independently verify the aggregate/failure artifacts before
+   recording Sprint 59 closed.
+
+`ci/closed_sprints.txt` remains at 53 while Sprint 54 owns the contiguous
+closure ratchet. Sprint 59 evidence does not manufacture Sprint 54 dates or
+Sprint 58 bootstrap-soak days.
 
 ---
 
@@ -314,9 +392,11 @@ desktop housekeeping held their one-minute load near 2.8.
 - Kasumi's clean, no-trip third-date pair is `2026-08-13T011528Z` in commit
   `abea4d5a`, and Hasu's is `2026-08-13T013538Z` in commit `6d8f6fde`.
   Both carry complete fleet-control-v2 provenance plus the Sprint 58
-  controlled bootstrap timing receipt. Nomad still has only two accepted
-  dates; its next installed schedule is the remaining Sprint 54 evidence
-  opportunity.
+  controlled bootstrap timing receipt. Nomad's clean, no-trip third-date pair
+  is `2026-08-13T055503Z` in commit `881659ba`: compile load 3.03 at 87.53%
+  idle and runtime load 3.50 at 86.43% idle across 18 logical CPUs, with the
+  truthful Darwin-unavailable power tuple. This completes the required three
+  distinct UTC dates on every fleet host.
 - `.benchmarks/report-0.0.1.md` was generated twice byte-identically from the
   controlled fleet baselines/latest artifacts plus committed CI/static
   evidence and published in `1c868eaa`. Its SHA-256 is
@@ -335,18 +415,12 @@ desktop housekeeping held their one-minute load near 2.8.
 
 ### Remaining Sprint 54 work — execute in this order
 
-1. Let Nomad's installed schedule collect its third distinct UTC date.
-   Kasumi and Hasu are complete for the three-date condition; Nomad has
-   accepted dates on 2026-08-11 and 2026-08-12 only. The runtime gate
-   deduplicates by calendar day; repeated same-day runs cannot satisfy this
-   requirement. Record trial-pass/trip results and investigate any
-   infrastructure status 3.
-2. The 2026-08-13 Kasumi/Hasu commits and Nomad's eventual third-date commit
-   supersede the report's selected latest inputs. After Nomad's date lands,
-   regenerate
+1. The 2026-08-13 Kasumi, Hasu, and Nomad commits supersede the report's
+   selected latest inputs. Regenerate
    `.benchmarks/report-0.0.1.md` twice byte-identically and update its recorded
    hash so the release report is current at closure.
-3. Verify the final pushed commit with a fresh GitHub Actions run. Only after
+2. Run the Sprint 54 closure audit and verify the final pushed commit with a
+   fresh GitHub Actions run. Only after
    the three-date gate, current report, and final CI are all green may
    `.docs/sprints/11-performance/closeout.md` say READY,
    `ci/closed_sprints.txt` advance from 53 through 57 (Sprints 55–57 are

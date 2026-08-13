@@ -235,6 +235,7 @@ void test_dep_affine_range_canonical_four_iteration_loop(TestCtx *t)
     IrModule *m;
     IrFunc *f;
     IrInst *scale, *pointer;
+    DepRangeCtx *range;
     i64 lo = -1, hi = -1;
 
     dep_fix_init(&fix);
@@ -266,6 +267,20 @@ void test_dep_affine_range_canonical_four_iteration_loop(TestCtx *t)
                                           &hi));
     T_ASSERT_EQ_INT(t, lo, 0);
     T_ASSERT_EQ_INT(t, hi, 12);
+    range = dep_range_ctx_new(f);
+    lo = hi = -1;
+    T_ASSERT(t, range && scale &&
+                    dep_affine_range_ctx(range, ir_op_value(f, scale->result),
+                                         &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 0);
+    T_ASSERT_EQ_INT(t, hi, 12);
+    lo = hi = -1;
+    T_ASSERT(t, range && scale &&
+                    dep_affine_range_ctx(range, ir_op_value(f, scale->result),
+                                         &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 0);
+    T_ASSERT_EQ_INT(t, hi, 12);
+    dep_range_ctx_free(range);
     lo = hi = -1;
     T_ASSERT(t, pointer && dep_affine_ptr_range(
                                f, ir_op_value(f, pointer->result), &lo, &hi));

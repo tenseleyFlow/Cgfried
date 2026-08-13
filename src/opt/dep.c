@@ -15,6 +15,13 @@ typedef struct Affine {
     i64 c;
 } Affine;
 
+struct DepRangeCtx {
+    Arena scratch;
+    const IrFunc *f;
+    IrDomTree *dom;
+    LoopTree *tree;
+};
+
 static bool operand_equal(IrOperand a, IrOperand b)
 {
     return a.kind == b.kind && a.type == b.type && a.sym == b.sym &&
@@ -177,22 +184,40 @@ static bool bits_as_i64(u64 value, u32 bits, bool is_signed, i64 *out)
     return true;
 }
 
-static bool affine_range(const IrFunc *f, IrOperand operand,
+DepRangeCtx *dep_range_ctx_new(const IrFunc *f)
+{
+    DepRangeCtx *ctx;
+
+    if (!f)
+        return NULL;
+    ctx = cgf_xmalloc(sizeof(*ctx));
+    arena_init(&ctx->scratch);
+    ctx->f = f;
+    ctx->dom = ir_domtree_build(&ctx->scratch, f);
+    ctx->tree = loop_tree_build(&ctx->scratch, f, ctx->dom);
+    return ctx;
+}
+
+void dep_range_ctx_free(DepRangeCtx *ctx)
+{
+    if (!ctx)
+        return;
+    arena_free_all(&ctx->scratch);
+    free(ctx);
+}
+
+static bool affine_range(const DepRangeCtx *ctx, IrOperand operand,
                          BlockId access_block, i64 *lo, i64 *hi)
 {
-    Arena scratch;
-    IrDomTree *dom;
-    LoopTree *tree;
+    const IrFunc *f;
     u32 li;
     bool found = false;
 
-    if (!f || !lo || !hi)
+    if (!ctx || !lo || !hi)
         return false;
-    arena_init(&scratch);
-    dom = ir_domtree_build(&scratch, f);
-    tree = loop_tree_build(&scratch, f, dom);
-    for (li = 0; li < loop_tree_count(tree) && !found; li++) {
-        const Loop *loop = loop_tree_at(tree, li);
+    f = ctx->f;
+    for (li = 0; li < loop_tree_count(ctx->tree) && !found; li++) {
+        const Loop *loop = loop_tree_at(ctx->tree, li);
         TripInfo trip;
         Affine expr;
         const char *reason = NULL;
@@ -214,7 +239,7 @@ static bool affine_range(const IrFunc *f, IrOperand operand,
              * latch.  A pointer computed before a conditional dereference is
              * insufficient: the invalid endpoint may be skipped. */
             if (!loop_contains(loop, access_block) ||
-                !ir_dominates(dom, access_block, trip.induction.latch))
+                !ir_dominates(ctx->dom, access_block, trip.induction.latch))
                 continue;
         } else if (operand.kind == IROP_VALUE && operand.a <= f->nvals) {
             BlockId at = f->vals[operand.a - 1].def_block;
@@ -224,7 +249,7 @@ static bool affine_range(const IrFunc *f, IrOperand operand,
              * every path to the latch.  Conditional bodies remain MAY and
              * are rejected for the default warning tier. */
             if (at.v && loop_contains(loop, at) &&
-                !ir_dominates(dom, at, trip.induction.latch))
+                !ir_dominates(ctx->dom, at, trip.induction.latch))
                 continue;
         }
         bits = affine_type_bits(trip.induction.type);
@@ -249,26 +274,42 @@ static bool affine_range(const IrFunc *f, IrOperand operand,
         *hi = first_value > last_value ? first_value : last_value;
         found = true;
     }
-    arena_free_all(&scratch);
     return found;
+}
+
+bool dep_affine_range_ctx(const DepRangeCtx *ctx, IrOperand operand, i64 *lo,
+                          i64 *hi)
+{
+    return affine_range(ctx, operand, (BlockId){0}, lo, hi);
 }
 
 bool dep_affine_range(const IrFunc *f, IrOperand operand, i64 *lo, i64 *hi)
 {
-    return affine_range(f, operand, (BlockId){0}, lo, hi);
+    DepRangeCtx *ctx = dep_range_ctx_new(f);
+    bool found = dep_affine_range_ctx(ctx, operand, lo, hi);
+
+    dep_range_ctx_free(ctx);
+    return found;
 }
 
 bool dep_affine_range_at(const IrFunc *f, IrOperand operand,
                          BlockId access_block, i64 *lo, i64 *hi)
 {
+    DepRangeCtx *ctx;
+    bool found;
+
     if (!access_block.v)
         return false;
-    return affine_range(f, operand, access_block, lo, hi);
+    ctx = dep_range_ctx_new(f);
+    found = affine_range(ctx, operand, access_block, lo, hi);
+    dep_range_ctx_free(ctx);
+    return found;
 }
 
-static bool affine_ptr_range(const IrFunc *f, IrOperand pointer,
+static bool affine_ptr_range(const DepRangeCtx *ctx, IrOperand pointer,
                              BlockId access_block, i64 *lo, i64 *hi)
 {
+    const IrFunc *f = ctx ? ctx->f : NULL;
     const IrInst *in;
     i64 base_lo = 0, base_hi = 0, add_lo, add_hi;
 
@@ -276,17 +317,16 @@ static bool affine_ptr_range(const IrFunc *f, IrOperand pointer,
         !(in = def_inst(f, (ValueId){(u32)pointer.a})))
         return false;
     if (in->op == IR_BITCAST && in->nops == 1)
-        return affine_ptr_range(f, in->ops[0], access_block, lo, hi);
+        return affine_ptr_range(ctx, in->ops[0], access_block, lo, hi);
     if (in->op != IR_PTRADD || in->nops != 2 ||
-        !(access_block.v ? dep_affine_range_at(f, in->ops[1], access_block,
-                                               &add_lo, &add_hi)
-                         : dep_affine_range(f, in->ops[1], &add_lo, &add_hi)))
+        !affine_range(ctx, in->ops[1], access_block, &add_lo, &add_hi))
         return false;
     if (in->ops[0].kind == IROP_VALUE) {
         const IrInst *base = def_inst(f, (ValueId){(u32)in->ops[0].a});
 
         if (base && (base->op == IR_PTRADD || base->op == IR_BITCAST) &&
-            !affine_ptr_range(f, in->ops[0], access_block, &base_lo, &base_hi))
+            !affine_ptr_range(ctx, in->ops[0], access_block, &base_lo,
+                              &base_hi))
             return false;
     }
     return checked_add(base_lo, add_lo, lo) && checked_add(base_hi, add_hi, hi);
@@ -294,15 +334,25 @@ static bool affine_ptr_range(const IrFunc *f, IrOperand pointer,
 
 bool dep_affine_ptr_range(const IrFunc *f, IrOperand pointer, i64 *lo, i64 *hi)
 {
-    return affine_ptr_range(f, pointer, (BlockId){0}, lo, hi);
+    DepRangeCtx *ctx = dep_range_ctx_new(f);
+    bool found = affine_ptr_range(ctx, pointer, (BlockId){0}, lo, hi);
+
+    dep_range_ctx_free(ctx);
+    return found;
 }
 
 bool dep_affine_ptr_range_at(const IrFunc *f, IrOperand pointer,
                              BlockId access_block, i64 *lo, i64 *hi)
 {
+    DepRangeCtx *ctx;
+    bool found;
+
     if (!access_block.v)
         return false;
-    return affine_ptr_range(f, pointer, access_block, lo, hi);
+    ctx = dep_range_ctx_new(f);
+    found = affine_ptr_range(ctx, pointer, access_block, lo, hi);
+    dep_range_ctx_free(ctx);
+    return found;
 }
 
 bool dep_access_from_ptr(const IrFunc *f, IrOperand ptr, ValueId iv, u64 size,
@@ -341,6 +391,12 @@ static bool points_to_disjoint(AliasCtx *alias, IrOperand a, IrOperand b)
     bool have_a = false;
     bool have_b = false;
 
+    /* Alias analysis collapses module symbols the current function never
+     * names into one compact sentinel object. Direct symbols still carry
+     * their exact stable ids, so distinct ids prove distinct storage before
+     * consulting that intentionally coarser points-to representation. */
+    if (a.kind == IROP_SYMBOL && b.kind == IROP_SYMBOL && a.sym != b.sym)
+        return true;
     if (ap.has_unknown || bp.has_unknown)
         return false;
     for (i = 0; i < ap.nwords; i++)

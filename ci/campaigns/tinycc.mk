@@ -3,7 +3,8 @@
 include ci/campaigns/common.mk
 
 TINYCC_REF := 380597704ee9784442ef3c7ef06e105258a11c5d
-CGF_CAMPAIGN_TINYCC_SOURCE ?= .docs/refs/tinycc
+TINYCC_SRC := .docs/refs/tinycc
+CGF_CAMPAIGN_TINYCC_SOURCE ?= $(TINYCC_SRC)
 CGF_CAMPAIGN_TINYCC_WORK ?= $(CGF_CAMPAIGN_BUILD)/tinycc
 CGF_CAMPAIGN_TINYCC_EXPECTED ?= ci/campaigns/tinycc.expected
 CGF_CAMPAIGN_TINYCC_ACTUAL ?= $(CGF_CAMPAIGN_TINYCC_WORK)/results.txt
@@ -32,4 +33,12 @@ campaign-tinycc-verify-ref:
 
 campaign-tinycc-gate: $(CGF_CAMPAIGN_TINYCC_PRODUCER) campaign-tinycc-verify-ref
 	$(CGF_CAMPAIGN_CHECK) "$(CGF_CAMPAIGN_TINYCC_EXPECTED)" \
+		"$(CGF_CAMPAIGN_TINYCC_ACTUAL)"
+
+.PHONY: tinycc-configure tinycc-build tinycc-validate tinycc-expected
+tinycc-configure: campaign-tinycc-verify-ref
+tinycc-build: tinycc-configure $(CGF_CAMPAIGN_TINYCC_PRODUCER)
+tinycc-validate: tinycc-build
+tinycc-expected: tinycc-validate
+	scripts/campaign-check.sh "$(CGF_CAMPAIGN_TINYCC_EXPECTED)" \
 		"$(CGF_CAMPAIGN_TINYCC_ACTUAL)"

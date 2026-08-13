@@ -1,0 +1,12 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc,levels=O0,O2
+build.levels	PASS	levels=O0,O1,O2,O3,Os
+compile.baseline-policy	PASS	absolute-o2-ms=60000,config=sqlite-baselines-v1,designated-hosts=kasumi,hasu
+compile.receipts	PASS	levels=O0,O2,profile=sprint-52-sqlite-scale-v1,protocol=sprint-52-timeit-v1,runs=10,warmup=1
+parity.cgfried-only-failures	PASS	cases=0
+source.amalgamation	PASS	release=3.46.1,sha256=77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784
+source.speedtest1	PASS	release=3.46.1,sha256=def3fc292eb9ecc444f6c1950e5c79d8462ed5e7b3d605fd6152d145e1d5abb4
+test.smoke.o0	PASS	statements=32,oracle=host-gcc
+test.smoke.o2	PASS	statements=32,oracle=host-gcc
+test.speedtest1	PASS	testset=main,size=1,verification=111130:1e792c9db61996c477b8ab5ce2d690052e8dae74824a430a

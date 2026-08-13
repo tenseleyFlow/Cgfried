@@ -405,6 +405,28 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
         return base;
     }
 
+    if (e->kind == AST_EXPR_IDENT && e->sym && e->sym->kind == SYM_VAR) {
+        ConstValue v;
+
+        if (!e->sym->static_storage) {
+            ce_error(s, m, e->span,
+                     "initializer element is not computable at load time: "
+                     "'%s' has automatic storage duration",
+                     e->name);
+            return cv_error();
+        }
+        if (m != CE_ADDR && m != CE_FOLD) {
+            ce_error(s, m, e->span,
+                     "an address is not an integer constant expression");
+            return cv_error();
+        }
+        memset(&v, 0, sizeof(v));
+        v.kind = CV_ADDR;
+        v.type = e->sem_type;
+        v.sym = e->sym;
+        return v;
+    }
+
     base = eval(s, e, m);
     if (is_null_pointer_value(&base)) {
         base = null_address(base.type);

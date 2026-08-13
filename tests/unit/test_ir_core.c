@@ -146,6 +146,45 @@ void test_ir_builder_source_locations(TestCtx *t)
         distinct = a;
         distinct.origin = SPAN_ORIGIN_ANY_MACRO;
         T_ASSERT(t, ir_intern_span(m, distinct) != first->loc);
+        distinct = a;
+        distinct.presumed_path = arena_strdup(&f.arena, a.presumed_path);
+        T_ASSERT(t, distinct.presumed_path != a.presumed_path);
+        T_ASSERT_EQ_INT(t, ir_intern_span(m, distinct), first->loc);
+    }
+    {
+        u32 ids[4096];
+        u32 i;
+
+        for (i = 0; i < 4096; i++) {
+            Span distinct = a;
+
+            distinct.line = i + 2;
+            distinct.seq = i;
+            ids[i] = ir_intern_span(m, distinct);
+        }
+        for (i = 4096; i-- > 0;) {
+            Span distinct = a;
+
+            distinct.line = i + 2;
+            distinct.seq = i;
+            T_ASSERT_EQ_INT(t, ir_intern_span(m, distinct), ids[i]);
+        }
+        T_ASSERT_EQ_INT(t, m->nlocs, 4099);
+    }
+    {
+        Arena clones;
+        IrModule *copy;
+
+        arena_init(&clones);
+        copy = ir_module_clone(&clones, m);
+        T_ASSERT(t, copy != NULL);
+        if (copy) {
+            T_ASSERT_EQ_INT(t, copy->indexed_locs, 0);
+            T_ASSERT_EQ_INT(t, ir_intern_span(copy, a), first->loc);
+            T_ASSERT_EQ_INT(t, copy->nlocs, m->nlocs);
+            T_ASSERT_EQ_INT(t, copy->indexed_locs, copy->nlocs);
+        }
+        arena_free_all(&clones);
     }
     got = ir_debug_loc(m, first->loc);
     T_ASSERT_EQ_INT(t, got.file_id, a.file_id);

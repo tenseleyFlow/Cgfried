@@ -1109,35 +1109,38 @@ static void emit_parallel_copy(Isel *is, PMove *mv, u32 n, X64Width *widths)
 static void edge_moves(Isel *is, const IrEdge *e)
 {
     const IrBlock *tb = ir_block((IrFunc *)is->f, e->target);
-    PMove mv[32];
-    X64Width widths[32];
-    u32 i, n = 0;
+    PMove *mv;
+    X64Width *widths;
+    u32 i, n;
 
     if (!tb || !e->nargs)
         return;
-    for (i = 0; i < e->nargs && i < tb->nparams && n < 32; i++) {
+    n = e->nargs < tb->nparams ? e->nargs : tb->nparams;
+    mv = arena_alloc(is->arena, (n ? n : 1) * sizeof(*mv), _Alignof(PMove));
+    widths = arena_alloc(is->arena, (n ? n : 1) * sizeof(*widths),
+                         _Alignof(X64Width));
+    for (i = 0; i < n; i++) {
         u8 at = e->args[i].type;
 
         if (at == IRT_F80 || at == IRT_F128)
             CGF_ICE("x86_64 isel: f80/f128 block parameters violate "
                     "the memory law");
         if (irt_vector(at)) {
-            mv[n].src = ovreg(to_vvreg(is, &e->args[i]));
-            mv[n].fp = true;
-            widths[n] = X64_X;
+            mv[i].src = ovreg(to_vvreg(is, &e->args[i]));
+            mv[i].fp = true;
+            widths[i] = X64_X;
         } else if (irt_sse(at)) {
-            mv[n].src = ovreg(to_fvreg(is, &e->args[i]));
-            mv[n].fp = true;
-            widths[n] = fpw(at);
+            mv[i].src = ovreg(to_fvreg(is, &e->args[i]));
+            mv[i].fp = true;
+            widths[i] = fpw(at);
         } else {
-            mv[n].src =
+            mv[i].src =
                 to_src(is, &e->args[i], width_of((IrType)e->args[i].type));
-            mv[n].fp = false;
-            widths[n] = width_of((IrType)e->args[i].type);
+            mv[i].fp = false;
+            widths[i] = width_of((IrType)e->args[i].type);
         }
-        mv[n].dst = is->vals[tb->params[i].v].vr;
-        mv[n].done = false;
-        n++;
+        mv[i].dst = is->vals[tb->params[i].v].vr;
+        mv[i].done = false;
     }
     emit_parallel_copy(is, mv, n, widths);
 }

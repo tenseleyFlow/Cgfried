@@ -1,0 +1,12 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc
+baseline.configure	PASS	compiler=host-gcc
+build	PASS	compiler=cgfried
+configure	PASS	compiler=cgfried,ice=0
+probe.deviations	PASS	CAMP-CURL-001+CAMP-CURL-002;rows=5,sha256=5b3997ad9bae1ceb6f1808c0d692f5e522139b4c38785d56a0cc1d91f047e0f6,artifact=probe-deviations.txt
+source.cache	PASS	mode=offline,sha256=f292f6cc051d5bbabf725ef85d432dfeacc8711dd717ea97612ae590643801e5
+source.pin	PASS	version=8.9.1
+stretch.offline-subset	SKIP	CAMP-CURL-003;scope=stretch,network-harness-deferred
+test.version	PASS	baseline=host-gcc,version=curl-8.9.1,protocols=file+http,surface=exact
+tests.build	PASS	scope=test-support

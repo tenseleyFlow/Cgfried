@@ -421,6 +421,42 @@ void test_opt_ipo_preserves_call_arg_annotation(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_ipo_preserves_variadic_arg_provenance(TestCtx *t)
+{
+    IpoFix f;
+    IrModule *m;
+    OptConfig cfg;
+    const IrInst *nested;
+
+    fix_init(&f);
+    m = parse(&f, "func void @helper(i32 %x) internal {\n"
+                  "entry():\n"
+                  "    call void @sink(i32 0, i32 %x anon, i32 9 anon) va\n"
+                  "    ret\n"
+                  "}\n"
+                  "func void @main() {\n"
+                  "entry():\n"
+                  "    call void @helper(i32 7)\n"
+                  "    ret\n"
+                  "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    T_ASSERT(t, m && opt_ipo(m, &cfg));
+    if (m) {
+        nested = first_call(&m->funcs[0]);
+        T_ASSERT(t, nested != NULL);
+        if (nested) {
+            T_ASSERT_EQ_INT(t, nested->ops[0].argflags, 0);
+            T_ASSERT_EQ_INT(t, nested->ops[1].kind, IROP_ICONST);
+            T_ASSERT_EQ_INT(t, nested->ops[1].a, 7);
+            T_ASSERT_EQ_INT(t, nested->ops[1].argflags, IROPF_ANON);
+            T_ASSERT_EQ_INT(t, nested->ops[2].argflags, IROPF_ANON);
+        }
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_ipo_common_global_read_logs_conservative_bail(TestCtx *t)
 {
     IpoFix f;

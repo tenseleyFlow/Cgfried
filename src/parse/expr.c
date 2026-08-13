@@ -150,8 +150,12 @@ static AstNode *parse_primary_expr(Parser *p)
         p->pos++;
         return n;
     case TOK_IDENT:
+        /* GCC defines both GNU spellings as aliases for __func__ in C.
+         * Glibc's assert.h selects __PRETTY_FUNCTION__ whenever GNU-mode
+         * predefined macros advertise a compatible compiler. */
         if (p->func_name && (strcmp(t->spelling, "__func__") == 0 ||
-                             strcmp(t->spelling, "__FUNCTION__") == 0))
+                             strcmp(t->spelling, "__FUNCTION__") == 0 ||
+                             strcmp(t->spelling, "__PRETTY_FUNCTION__") == 0))
             return parse_func_name(p, t);
         /* `__builtin_va_arg(ap, type)` needs its own form: the second
          * "argument" is a TYPE NAME, which no ordinary call can carry.

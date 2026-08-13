@@ -195,6 +195,46 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Sprint 59 PR canary: the smallest real-world rung still exercises source
+  # fetching, a hand-written configure script, archive production, linking,
+  # and executable upstream self-tests.  Restore/fetch first, then force the
+  # required gate to prove it can run without network access.
+  campaign-zlib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned zlib archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-zlib-1.3.1-9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline canary
+        run: |
+          make campaign-zlib-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make zlib-expected
+      - name: retain zlib campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint59-campaign-zlib-x86_64
+          path: |
+            build/campaigns/zlib/results.txt
+            build/campaigns/zlib/provenance.txt
+            build/campaigns/zlib/performance-report.txt
+            build/campaigns/zlib/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

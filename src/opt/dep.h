@@ -31,6 +31,18 @@ typedef struct DepAccess {
     EffTypeId etype;
 } DepAccess;
 
+/* Reusable immutable-function context for affine range queries. Building the
+ * dominator and loop trees is the expensive part; clients that ask more than
+ * one question about the same function must share this context rather than
+ * rebuilding both analyses per pointer expression. Any CFG mutation
+ * invalidates the context. */
+typedef struct DepRangeCtx DepRangeCtx;
+
+DepRangeCtx *dep_range_ctx_new(const IrFunc *f);
+void dep_range_ctx_free(DepRangeCtx *ctx);
+bool dep_affine_range_ctx(const DepRangeCtx *ctx, IrOperand operand,
+                          int64_t *lo, int64_t *hi);
+
 /* Exact for equal, non-zero affine strides.  Distinct bases prove
  * independence only when their non-unknown points-to object sets are
  * disjoint; byte-offset/type alias facts alone cannot prove that two pointer

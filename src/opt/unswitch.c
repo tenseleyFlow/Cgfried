@@ -272,7 +272,9 @@ static IrOperand map_operand(const IrOperand *map, u32 nmap, IrOperand op)
     if (op.kind == IROP_VALUE && op.a < nmap && map[op.a].kind != IROP_NONE) {
         IrOperand replacement = map[op.a];
 
-        replacement.b = op.b;
+        /* A copied condition DAG may change value identity, never the use
+         * site's call-argument provenance. */
+        ir_arg_carry_provenance(&replacement, &op);
         return replacement;
     }
     return op;

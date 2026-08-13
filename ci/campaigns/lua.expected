@@ -1,0 +1,11 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc,opt=O2,target=native
+baseline.test.all-lua	PASS	suite=lua-5.4.7-tests,mode=full-generic
+build.native-o0	PASS	compiler=cgfried,target=native
+build.native-o2	PASS	compiler=cgfried,target=native
+host.architecture	PASS	evidence=binary-machine-matches-uname
+source.pin	PASS	version=5.4.7,sha256=9fbf5e28ef86c69858f6d3d34eccc32e911c1a28b4120ff3e84aaa70cfbf1e30
+source.tests-pin	PASS	version=5.4.7,sha256=8a4898ffe4c7613c8009327a0722db7a41ef861d526c77c5b46114e59ebf811e
+test.native-o0.all-lua	PASS	suite=lua-5.4.7-tests,mode=full-generic
+test.native-o2.all-lua	PASS	suite=lua-5.4.7-tests,mode=full-generic

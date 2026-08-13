@@ -427,7 +427,9 @@ static IrOperand substitute(IrOperand op, const IrOperand *map, u32 nmap)
     if (op.kind == IROP_VALUE && op.a < nmap && map[op.a].kind != IROP_NONE) {
         IrOperand replacement = map[op.a];
 
-        replacement.b = op.b;
+        /* Unrolling changes the value identity, not the ABI contract of the
+         * operand slot that consumes it. */
+        ir_arg_carry_provenance(&replacement, &op);
         return replacement;
     }
     return op;

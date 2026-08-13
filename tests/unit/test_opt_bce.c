@@ -372,6 +372,50 @@ void test_opt_bce_entry_self_loop_has_implicit_predecessor(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_opt_bce_fold_keeps_call_arg_provenance(TestCtx *t)
+{
+    BceFix fix;
+    IrModule *m;
+    OptConfig cfg;
+    IrBlock *body;
+    IrInst *call;
+
+    bce_fix_init(&fix);
+    m = bce_parse(&fix, "func i32 @f(i32 %n) {\n"
+                        "entry():\n"
+                        "    br loop(i32 0)\n"
+                        "loop(i32 %i):\n"
+                        "    %more = icmp ult i32 %i, %n\n"
+                        "    condbr %more, body(), exit()\n"
+                        "body():\n"
+                        "    %safe = icmp ule i32 %i, %n, bounds\n"
+                        "    call void @sink(i32 0, i32 %safe anon, "
+                        "i32 7 anon) va\n"
+                        "    br latch()\n"
+                        "latch():\n"
+                        "    %next = iadd i32 %i, 1\n"
+                        "    br loop(i32 %next)\n"
+                        "exit():\n"
+                        "    ret i32 0\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(fix.dc, m));
+    T_ASSERT(t, m && bce_run(m, &cfg, false, NULL));
+    if (m) {
+        body = bce_block(&m->funcs[0], "body");
+        call = body ? body->first : NULL;
+        T_ASSERT(t, call != NULL && call->op == IR_CALL);
+        if (call && call->op == IR_CALL) {
+            T_ASSERT_EQ_INT(t, call->ops[0].argflags, 0);
+            T_ASSERT_EQ_INT(t, call->ops[1].kind, IROP_ICONST);
+            T_ASSERT_EQ_INT(t, call->ops[1].a, 1);
+            T_ASSERT_EQ_INT(t, call->ops[1].argflags, IROPF_ANON);
+            T_ASSERT_EQ_INT(t, call->ops[2].argflags, IROPF_ANON);
+        }
+        T_ASSERT(t, ir_verify(fix.dc, m));
+    }
+    arena_free_all(&fix.arena);
+}
+
 void test_opt_bce_descriptor(TestCtx *t)
 {
     T_ASSERT_EQ_STR(t, OPT_PASS_BCE.name, "bce");

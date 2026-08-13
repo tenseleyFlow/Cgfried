@@ -784,6 +784,12 @@ typedef struct IrModule {
     Span *locs; /* instruction source locations; ids are 1-based */
     u32 nlocs;
     u32 cap_locs;
+    /* Construction-only lookup for locs. Slots hold 1-based location ids;
+     * the location array remains insertion-ordered and therefore keeps the
+     * textual/debug determinism contract. */
+    u32 *loc_slots;
+    u32 cap_loc_slots;
+    u32 indexed_locs;
     IrMemLayout *mem_layouts;
     u32 nmem_layouts;
     u32 cap_mem_layouts;
