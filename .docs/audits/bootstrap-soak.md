@@ -25,10 +25,10 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**ARMED; NOT STARTED.** No verified hosted bootstrap evidence has been
-recorded. The first pushed workflow run starts the ledger only if every
-required native lane is green; the first weekly row additionally requires the
-cross-host and reproducibility probes.
+**RUNNING: 1/30 distinct UTC dates green.** The ledger started on 2026-08-13
+from one verified hosted workflow in which every native lane, the x86
+reproducibility probe, and the weekly cross-host comparison passed at the same
+compiler-source revision. A missing or red required run resets the streak.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -56,4 +56,18 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 
 | UTC date | Commit | x86 O0 | x86 O2 | arm64 O0 | arm64 O2 | weekly cross | Evidence |
 |---|---|---|---|---|---|---|---|
-| _none_ | — | — | — | — | — | armed | No hosted evidence yet |
+| 2026-08-13 | `c6bf3cf6a91f50dbd561afd9c1cecd19f8a72f83` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 31665602629](https://github.com/tenseleyFlow/Cgfried/actions/runs/31665602629) |
+
+The first row retains `sprint58-bootstrap-x86_64-linux-O0`,
+`sprint58-bootstrap-x86_64-linux-O2`,
+`sprint58-bootstrap-arm64-linux-native-O0`,
+`sprint58-bootstrap-arm64-linux-native-O2`, and
+`sprint58-bootstrap-arm64-cross-final` for 90 days. The final cross report
+records `normalization=none`, 113 assembly files, identical raw cross-host
+assembly, identical same-toolchain objects/runtime archive/compiler, and
+hashes for both run manifests, both bootstrap reports, both consumed stage
+manifests, and the exact ARM64 header archive.
+
+A fresh download of the final artifact independently reverified all seven
+embedded provenance hashes and byte-compared both 113-file assembly/object
+trees, the runtime archive, and the final compiler.

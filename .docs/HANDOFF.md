@@ -2,21 +2,25 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-12): Sprints 0–53 and Sprints 55–57 are CLOSED;
+**WHERE THINGS STAND (2026-08-13): Sprints 0–53 and Sprints 55–57 are CLOSED;
 Sprints 55–57 were completed out of numerical order while Sprint 54 continued
 its controlled fleet soak. Sprint 54's implementation is complete, but its
 operational soak is OPEN; Phase 11 is therefore still open. Sprint 58's
-implementation is complete locally, but its hosted ARM/cross evidence and
-30-day bootstrap soak are operationally OPEN.** The
-performance-gate lattice, native CI measurements, fleet runtime protocol,
-reporting, policy checks, scheduler integration, and controlled-power model
-are implemented. Kasumi, Hasu, and Nomad now each have two accepted controlled
-UTC dates and each needs one more. Sprint 55's GNU tier table is **30
-implemented / 6 parsed-ignored / 8 refused**. Sprint 56's campaign machine,
-triage map, and 25,910-cell PASS ratchet are complete. Sprint 57's pinned
-compile-the-world campaigns, truthful staged-musl linkage proof, host
+implementation and first complete hosted native/cross activation are green;
+its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally
+OPEN.** The performance-gate lattice, native CI measurements, fleet runtime
+protocol, reporting, policy checks, scheduler integration, and
+controlled-power model are implemented. Kasumi and Hasu have accepted
+controlled evidence on three
+distinct UTC dates; Nomad has two and still needs its third. Sprint 55's GNU
+tier table is **30 implemented / 6 parsed-ignored / 8 refused**. Sprint 56's
+campaign machine, triage map, and 25,918-cell PASS ratchet are complete.
+Sprint 57's pinned compile-the-world campaigns, truthful staged-musl linkage
+proof, host
 baselines, exact gates, and campaign-driven compiler repairs are integrated on
-`trunk`. The old D5 notes are retained only as implementation history.
+`trunk`. Sprint 59 is the next eligible parallel implementation lane while the
+Sprint 54 and Sprint 58 operational evidence continues. The old D5 notes are
+retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -34,12 +38,13 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; HOSTED/SOAK OPEN
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (1/30)
 
 Sprint 58's compiler, runtime, diagnostics, deterministic bootstrap machinery,
-and CI definitions are implemented in the main worktree. Do not call the
-sprint closed until the hosted native/cross lanes and the 30-day ledger below
-have supplied real evidence.
+and CI definitions are implemented in the main worktree. The first complete
+hosted activation is green at compiler-source revision `c6bf3cf6`; do not call
+the sprint closed until the 30-day ledger below supplies the remaining real
+evidence.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -54,7 +59,9 @@ have supplied real evidence.
 - O2 bootstrap feasibility repairs are deliberately bounded: inline analysis
   caches call/fact data and caps oversized callers, GVN/DSE cap deterministic
   memory work, and LICM retains canonicalization/verification while declining
-  motion in oversized loop functions. Unit coverage pins every cutoff.
+  motion in oversized loop functions. Inliner growth state persists across a
+  top-level fixed point so `20020506-1.c` converges instead of repeatedly
+  consuming a reset budget. Unit coverage pins every cutoff.
 - The first O2 fixed point found a real historical nondeterminism bug:
   `GvnOperand` equality compared padding bytes. Keys are now zero-initialized
   and compared field-by-field. The static audit rejects this whole-object
@@ -72,10 +79,41 @@ have supplied real evidence.
 - The controlled Kasumi/Hasu O2 stage1 timing receipt is wired into the Sprint
   54 dashboard under the existing fleet-control-v2 protocol. It is a trial
   gate and does not manufacture a baseline or Sprint 54 evidence.
-- `.docs/audits/bootstrap-soak.md` is **ARMED; NOT STARTED**. The next actions
-  are to push this implementation, run every hosted lane, configure the two
-  exact x86 check contexts as required on `trunk`, and start the 30-distinct-
-  UTC-date ledger only from verified GitHub Actions evidence.
+- ARM flag selection now treats calls, opaque asm, and atomic CAS as NZCV
+  clobbers, with table-driven regressions requiring a fresh comparison after
+  each. Conditional branches use compact encodings only when range is proved;
+  otherwise the emitter uses a local inverse branch plus an unconditional
+  long edge. The former 505 KiB hosted assembly failure is pinned.
+- x86 selection has one authoritative pre-append MIR effect table and
+  materializes a pending compare before arithmetic, calls, stack-allocation
+  expansions, atomic XADD/CMPXCHG, or inline asm with a `cc` clobber. Atomic
+  AND/OR/XOR retry loops materialize before their synthetic block transition;
+  an impossible cross-block EFLAGS provenance now ICEs. Direct-clobber and
+  retry-loop tables pin the invariant. This repaired the `loop-3.c` O2/O3/Os
+  miscompile and the related O3 `20000815-1.c` failure.
+- Full hosted run
+  `https://github.com/tenseleyFlow/Cgfried/actions/runs/31665602629` is green
+  for x86 O0/O2, native ARM64 O0/O2, x86 `-j8` versus `-j1`
+  reproducibility, raw 113-file cross-host ARM64 assembly identity, and
+  same-toolchain objects, runtime archive, and compiler identity. The final
+  90-day artifact is `sprint58-bootstrap-arm64-cross-final`; all manifests
+  bind commit `c6bf3cf6a91f50dbd561afd9c1cecd19f8a72f83` with
+  `normalization=none`. A fresh local download independently reverified all
+  seven embedded provenance hashes, 113/113 assemblies, 113/113 objects, the
+  runtime archive, and the compiler. The exact x86 required contexts also
+  passed in push run `31665586963` and are configured on `trunk`.
+- Matching-source hosted torture streams atomically regenerated the ratchet
+  and triage report. The new totals are 25,918 PASS, 6,620 SKIP, and 8,112
+  classified failures across 40,650 cells; 90 buckets, 81 live policy
+  decisions, zero stale/unresolved decisions. Reversed stream order produced
+  both committed outputs byte-identically. Final candidate run `31665586870`
+  then passed the exact x86 ratchet plus the complete standard CI matrix,
+  including ARM-QEMU/native, sanitizers, the 100k frontend fuzz lane,
+  musl/QBE campaigns, toolchain, format, and policy gates.
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 1/30**, starting from the
+  verified 2026-08-13 hosted run above. Continue recording distinct UTC dates
+  and every weekly cross/reproducibility result; any missing or red required
+  run breaks the streak.
 
 `ci/closed_sprints.txt` remains at 53. Sprint 54 still owns the contiguous
 closure ratchet, and Sprint 58 remains operationally open during its soak.
@@ -132,10 +170,10 @@ Integrated worktree and branch:
 - The last matching-source-provenance x86-64 and real-ARM64 torture baseline
   preserved every committed PASS cell and added 985. A final stable-source
   x86-64 gate after the x87 special-value repair added five more x86-64 PASS
-  cells whose ARM64 counterparts were already present: the ratchet now
-  contains exactly 25,910 PASS cells. The canonical writer reports 91 failure
-  buckets, 82 live policy decisions, and zero stale or unresolved decisions;
-  reversed input order regenerates both published artifacts byte-identically.
+  cells whose ARM64 counterparts were already present: the Sprint 57 close
+  ratchet contained exactly 25,910 PASS cells. Sprint 58's matching-source
+  refresh above supersedes those totals. Reversed input order regenerated both
+  Sprint 57 published artifacts byte-identically.
 
 No Sprint 57 implementation work remains. Do not advance
 `ci/closed_sprints.txt` beyond 53 until Sprint 54's real three-date evidence
@@ -152,19 +190,19 @@ Integrated worktree and branch:
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
   verification and deterministic fixture suites pass.
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
-  `arm64-linux`: 20,325 cells per target, 40,650 total.  After the Sprint 57
-  compiler repairs, outcome totals are 25,910 PASS, 6,620 SKIP, and 8,120
-  classified failures.
+  `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
+  bootstrap repairs and matching-source refresh, outcome totals are 25,918
+  PASS, 6,620 SKIP, and 8,112 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 91 total buckets,
-  82 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket.  The overlay contains 59 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 90 total buckets,
+  81 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 58 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
   and six `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 25,910-cell PASS set.
+- `tests/torture/passing.txt` is the exact sorted 25,918-cell PASS set.
   Combined gating passes and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
@@ -273,6 +311,12 @@ desktop housekeeping held their one-minute load near 2.8.
   `d5b99a5f`: compile load 3.34 at 87.66% idle and runtime load 2.87 at
   86.13% idle across 18 logical CPUs, with the truthful Darwin-unavailable
   power tuple.
+- Kasumi's clean, no-trip third-date pair is `2026-08-13T011528Z` in commit
+  `abea4d5a`, and Hasu's is `2026-08-13T013538Z` in commit `6d8f6fde`.
+  Both carry complete fleet-control-v2 provenance plus the Sprint 58
+  controlled bootstrap timing receipt. Nomad still has only two accepted
+  dates; its next installed schedule is the remaining Sprint 54 evidence
+  opportunity.
 - `.benchmarks/report-0.0.1.md` was generated twice byte-identically from the
   controlled fleet baselines/latest artifacts plus committed CI/static
   evidence and published in `1c868eaa`. Its SHA-256 is
@@ -291,13 +335,15 @@ desktop housekeeping held their one-minute load near 2.8.
 
 ### Remaining Sprint 54 work — execute in this order
 
-1. Let the installed schedules collect real runs on three distinct UTC dates
-   per host. Kasumi, Hasu, and Nomad each have accepted dates on 2026-08-11
-   and 2026-08-12, so each needs one more. The runtime gate deduplicates by
-   calendar day; repeated same-day runs cannot satisfy this requirement.
-   Record trial-pass/trip results and investigate any infrastructure status 3.
-2. All three 2026-08-12 host commits now supersede the report's selected
-   latest inputs. After the remaining dates land, regenerate
+1. Let Nomad's installed schedule collect its third distinct UTC date.
+   Kasumi and Hasu are complete for the three-date condition; Nomad has
+   accepted dates on 2026-08-11 and 2026-08-12 only. The runtime gate
+   deduplicates by calendar day; repeated same-day runs cannot satisfy this
+   requirement. Record trial-pass/trip results and investigate any
+   infrastructure status 3.
+2. The 2026-08-13 Kasumi/Hasu commits and Nomad's eventual third-date commit
+   supersede the report's selected latest inputs. After Nomad's date lands,
+   regenerate
    `.benchmarks/report-0.0.1.md` twice byte-identically and update its recorded
    hash so the release report is current at closure.
 3. Verify the final pushed commit with a fresh GitHub Actions run. Only after
