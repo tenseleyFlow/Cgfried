@@ -553,10 +553,11 @@ static bool worst_inst_bytes(const A64Inst *in, u64 *bytes)
     case A64_OP_CBNZ:
     case A64_OP_TBZ:
     case A64_OP_TBNZ:
-        /* Production conditional MIR carries both successors.  Unless isel
-         * has canonicalized the false edge to fallthrough, emission is the
-         * conditional transfer plus an explicit B to the false successor. */
-        *bytes = has_explicit_false_edge(in) ? 8 : 4;
+        /* Every non-adjacent conditional edge expands to an inverted local
+         * branch plus B.  A two-edge terminator can need one more B when
+         * neither successor is the next block; a mid-block probe needs two
+         * instructions even though it names only its taken successor. */
+        *bytes = has_explicit_false_edge(in) ? 12 : 8;
         return true;
     case A64_OP_ADDR:
         /* adrp + add/load, plus at most two instructions for a GOT addend. */

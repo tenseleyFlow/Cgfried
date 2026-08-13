@@ -1,5 +1,6 @@
 // FLAGS: -S -Wimplicit-fallthrough=3
 // WARN_COUNT: 0
+// DIVERGES(gcc-8): CGF proves the do body returns before GCC 8's conservative fallthrough warning.
 
 int fallthrough_do_returns(int outer, int control)
 {

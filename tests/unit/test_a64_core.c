@@ -680,6 +680,65 @@ void test_a64_mir_core(TestCtx *t)
     arena_free_all(&arena);
 }
 
+void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
+{
+    Arena arena;
+    A64Block blocks[3] = {{0}};
+    A64Func func = {0};
+    IrModule module = {0};
+    A64Inst branch = {0};
+    Buf text;
+
+    arena_init(&arena);
+    func.name = "long_cond";
+    func.arena = &arena;
+    func.blocks = blocks;
+    func.nblocks = 3;
+    func.allocated = true;
+
+    branch.op = A64_OP_TBZ;
+    branch.sf = A64_SF64;
+    branch.nops = 4;
+    branch.ops[0] = (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X0)};
+    branch.ops[1] = (A64Operand){.kind = A64O_IMM, .imm = 2};
+    branch.ops[2] = (A64Operand){.kind = A64O_LABEL, .id = 3};
+    branch.ops[3] = (A64Operand){.kind = A64O_LABEL, .id = 2};
+    a64_block_append(&func, &blocks[0], branch);
+
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_BCOND;
+    branch.sf = A64_SF64;
+    branch.cond = A64_CC_EQ;
+    branch.nops = 2;
+    branch.ops[0] = (A64Operand){.kind = A64O_LABEL, .id = 3};
+    branch.ops[1] = (A64Operand){.kind = A64O_LABEL, .id = 1};
+    a64_block_append(&func, &blocks[1], branch);
+
+    memset(&branch, 0, sizeof(branch));
+    branch.op = A64_OP_CBZ;
+    branch.sf = A64_SF32;
+    branch.nops = 2;
+    branch.ops[0] = (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X1)};
+    branch.ops[1] = (A64Operand){.kind = A64O_LABEL, .id = 1};
+    a64_block_append(&func, &blocks[2], branch);
+
+    buf_init(&text);
+    a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
+    buf_push_u8(&text, 0);
+    T_ASSERT(t, strstr((const char *)text.data, "\ttbnz\tx0, #2, .Lbr0_0\n"
+                                                "\tb\t.Lf0_3\n"
+                                                ".Lbr0_0:\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lf0_2:\n"
+                                                "\tb.eq\t.Lf0_3\n"
+                                                "\tb\t.Lf0_1\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lf0_3:\n"
+                                                "\tcbnz\tw1, .Lbr0_1\n"
+                                                "\tb\t.Lf0_1\n"
+                                                ".Lbr0_1:\n") != NULL);
+    buf_free(&text);
+    arena_free_all(&arena);
+}
+
 /* The 16-byte constant pool. Deduping is not a nicety: every fneg in a
  * function would otherwise mint its own copy of the same sign mask, and the
  * .rodata bytes are part of the object differential. */

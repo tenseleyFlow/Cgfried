@@ -48,6 +48,7 @@ typedef struct Emit {
     const IrModule *m;
     u32 fidx;
     u32 atomic_seq; /* names the labels inside each expanded ll/sc loop */
+    u32 branch_seq; /* names local skips in long conditional branches */
     bool apple;     /* Mach-O spelling; otherwise ELF */
     /* Symbol names are consumed by printf-style format strings, some of
      * which take two at once, so the `_` prefix needs somewhere to live.
@@ -809,30 +810,83 @@ static bool is_widening_mul(u16 op)
  *
  * `first` is the operand index of the taken label; the one after it is the
  * untaken label, which needs no branch when it is already the next block. */
-static void emit_cond_targets(Emit *e, const A64Inst *in, u32 first,
-                              u32 next_bb)
+static void emit_cond_prefix(Emit *e, const A64Inst *in, bool invert)
+{
+    u16 op = in->op;
+    u8 cond = in->cond;
+
+    switch (op) {
+    case A64_OP_BCOND:
+        if (invert) {
+            if (cond > A64_CC_LE)
+                CGF_ICE("arm64 emit: cannot invert condition %u", cond);
+            cond ^= 1u;
+        }
+        buf_printf(e->out, "\tb.%s\t", a64_cond_name(cond));
+        return;
+    case A64_OP_CBZ:
+    case A64_OP_CBNZ:
+        if (invert)
+            op = op == A64_OP_CBZ ? A64_OP_CBNZ : A64_OP_CBZ;
+        buf_printf(e->out, "\t%s\t%s, ", op == A64_OP_CBZ ? "cbz" : "cbnz",
+                   rn(in->ops[0].reg, in->sf));
+        return;
+    case A64_OP_TBZ:
+    case A64_OP_TBNZ:
+        if (invert)
+            op = op == A64_OP_TBZ ? A64_OP_TBNZ : A64_OP_TBZ;
+        buf_printf(e->out, "\t%s\t%s, #%lld, ",
+                   op == A64_OP_TBZ ? "tbz" : "tbnz",
+                   rn(in->ops[0].reg, in->sf), (long long)in->ops[1].imm);
+        return;
+    default:
+        CGF_ICE("arm64 emit: opcode %u is not a conditional branch", op);
+    }
+}
+
+static void emit_cond_branch(Emit *e, const A64Inst *in, u32 first, u32 next_bb)
 {
     const A64Operand *taken = &in->ops[first];
     const A64Operand *untaken =
         first + 1 < in->nops ? &in->ops[first + 1] : NULL;
+    u32 skip;
 
     if (taken->kind != A64O_LABEL)
         CGF_ICE("arm64 emit: conditional branch without a taken label");
-    poper(e, taken, A64_SF64);
-    buf_printf(e->out, "\n");
-    if (!untaken) {
-        /* A switch compare tree branches MID-BLOCK: each `b.eq case` falls
-         * through to the next comparison in the same block, so there is no
-         * second edge to name. Only a terminator carries two. */
+    if (untaken && untaken->kind != A64O_LABEL)
+        CGF_ICE("arm64 emit: conditional branch fallthrough is not a label");
+
+    /* Only an explicit two-edge terminator whose TAKEN edge is the next
+     * block has a conditional target known to be adjacent. Every other
+     * conditional takes a local inverted branch over an imm26 B. This is
+     * the range-safe AArch64 long form: TBZ/TBNZ reach only +/-32 KiB and a
+     * self-hosted compiler already exceeds that inside sel_inst. Mid-block
+     * switch probes have no named false edge, so they use the long form too
+     * rather than mistaking the next BLOCK for the next instruction. */
+    if (untaken && taken->id == next_bb) {
+        emit_cond_prefix(e, in, false);
+        poper(e, taken, A64_SF64);
+        buf_printf(e->out, "\n");
+        if (untaken->id != next_bb) {
+            buf_printf(e->out, "\tb\t");
+            poper(e, untaken, A64_SF64);
+            buf_printf(e->out, "\n");
+        }
         return;
     }
-    if (untaken->kind != A64O_LABEL)
-        CGF_ICE("arm64 emit: conditional branch fallthrough is not a label");
-    if (untaken->id == next_bb)
-        return;
+
+    skip = e->branch_seq++;
+    emit_cond_prefix(e, in, true);
+    buf_printf(e->out, "%sbr%u_%u\n", mlabel(e), e->fidx, skip);
     buf_printf(e->out, "\tb\t");
-    poper(e, untaken, A64_SF64);
+    poper(e, taken, A64_SF64);
     buf_printf(e->out, "\n");
+    buf_printf(e->out, "%sbr%u_%u:\n", mlabel(e), e->fidx, skip);
+    if (untaken && untaken->id != next_bb) {
+        buf_printf(e->out, "\tb\t");
+        poper(e, untaken, A64_SF64);
+        buf_printf(e->out, "\n");
+    }
 }
 
 static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
@@ -913,21 +967,15 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb)
         buf_printf(e->out, "\n");
         return;
     case A64_OP_BCOND:
-        buf_printf(e->out, "\tb.%s\t", a64_cond_name(in->cond));
-        emit_cond_targets(e, in, 0, next_bb);
+        emit_cond_branch(e, in, 0, next_bb);
         return;
     case A64_OP_CBZ:
     case A64_OP_CBNZ:
-        buf_printf(e->out, "\t%s\t%s, ", in->op == A64_OP_CBZ ? "cbz" : "cbnz",
-                   rn(in->ops[0].reg, sf));
-        emit_cond_targets(e, in, 1, next_bb);
+        emit_cond_branch(e, in, 1, next_bb);
         return;
     case A64_OP_TBZ:
     case A64_OP_TBNZ:
-        buf_printf(e->out, "\t%s\t%s, #%lld, ",
-                   in->op == A64_OP_TBZ ? "tbz" : "tbnz",
-                   rn(in->ops[0].reg, sf), (long long)in->ops[1].imm);
-        emit_cond_targets(e, in, 2, next_bb);
+        emit_cond_branch(e, in, 2, next_bb);
         return;
     case A64_OP_CSEL:
     case A64_OP_CSINC:
@@ -1036,6 +1084,7 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
     e.m = m;
     e.fidx = fidx;
     e.atomic_seq = 0;
+    e.branch_seq = 0;
     e.apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
 
     {
