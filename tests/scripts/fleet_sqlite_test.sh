@@ -87,6 +87,10 @@ cat >"$fake/date" <<'EOF'
 #!/bin/sh
 printf '%s\n' 2026-08-13T120000Z
 EOF
+cat >"$fake/as" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
 cat >"$fake/control" <<'EOF'
 #!/bin/sh
 set -eu
@@ -171,6 +175,7 @@ run_sqlite()
     FIXTURE_CHECKOUT=$run_checkout FIXTURE_FLEET_SOURCE=$root/scripts \
     FIXTURE_GIT_LOG=$tmp/git.log \
     FIXTURE_MAKE_LOG=$tmp/make.log FIXTURE_MEASURE_LOG=$tmp/measure.log \
+    PATH=$fake:$PATH CGF_AS_PATH='' \
     CGF_FLEET_HOST=kasumi \
     CGF_FLEET_REV=$revision CGF_FLEET_STAMP=$run_stamp \
     CGF_FLEET_CHECKOUT=$run_checkout CGF_FLEET_GIT_CMD=$fake/git \
@@ -196,6 +201,8 @@ for file in manifest.txt control.txt baseline-policy.conf baseline-check.log \
 done
 grep -Fq 'fleet.sqlite_commit=0123456789abcdef0123456789abcdef01234567' \
     "$result/manifest.txt" || fail 'manifest omitted exact commit provenance'
+grep -Fq "fleet.sqlite_assembler=$fake/as" "$result/manifest.txt" ||
+    fail 'manifest omitted the resolved native assembler provenance'
 grep -Fq 'fleet.sqlite_control_class=controlled' "$result/manifest.txt" ||
     fail 'manifest omitted controlled classification'
 grep -Fq 'fleet.sqlite_compile_profile=sprint-52-sqlite-scale-v1' \

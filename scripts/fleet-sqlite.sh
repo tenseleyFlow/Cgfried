@@ -118,6 +118,26 @@ if [ "$synced" -eq 0 ]; then
         exec "$checkout/scripts/fleet-sqlite.sh"
 fi
 
+# Fleet captures exercise the host compiler lane, not the optional bundled
+# Rust tool. Resolve and export the native assembler before doing any setup
+# work so an absent tool fails before the controlled measurement window. An
+# explicit path remains available for non-FHS deployments.
+as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}
+[ -n "$as_path" ] || die 'native assembler is unavailable; set CGF_AS_PATH'
+case $as_path in
+/*) ;;
+*)
+    as_path=$(command -v "$as_path" 2>/dev/null || true)
+    case $as_path in
+    /*) ;;
+    *) die 'CGF_AS_PATH must resolve to an absolute executable path' ;;
+    esac
+    ;;
+esac
+[ -x "$as_path" ] || die "native assembler is not executable: $as_path"
+CGF_AS_PATH=$as_path
+export CGF_AS_PATH
+
 "$make_cmd" -C "$checkout" "CC=${CGF_FLEET_CC:-gcc}" \
     build/cgfried build/timeit || die 'portable SQLite measurement build failed'
 [ -z "$("$git_cmd" -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
@@ -363,6 +383,7 @@ source_sha=$(sha256 "$source")
     echo "fleet.sqlite_system=$system"
     echo "fleet.sqlite_machine=$machine"
     echo "fleet.sqlite_commit=$revision"
+    echo "fleet.sqlite_assembler=$as_path"
     echo 'fleet.sqlite_release=3.46.1'
     echo "fleet.sqlite_archive_sha256=$archive_sha"
     echo "fleet.sqlite_source_sha256=$source_sha"
