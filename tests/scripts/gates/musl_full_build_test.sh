@@ -250,7 +250,11 @@ grep -F 'route.total=1354' "$tmp/once receipt.txt" >/dev/null ||
 
 cat >"$tmp/control-helper" <<'EOF'
 #!/bin/sh
-cat <<EOT
+[ "$#" -eq 2 ] || exit 3
+host=$1
+output=$2
+cat >"$output" <<EOT
+host=$host
 control_protocol=fleet-control-v2
 logical_cpus=20
 cpu_idle_pct=95.0
@@ -265,6 +269,8 @@ cat >"$tmp/bench-helper" <<'EOF'
 #!/bin/sh
 mkdir -p "$2/heavy-build-tree"
 : >"$2/heavy-build-tree/object.o"
+[ -z "${CGF_FLEET_TEST_CONTROL_LOG:-}" ] ||
+    cp "$CGF_MUSL_BUILD_CONTROL_RECEIPT" "$CGF_FLEET_TEST_CONTROL_LOG"
 cp "$CGF_FLEET_TEST_RECEIPT" "$3"
 EOF
 cat >"$tmp/git-helper" <<'EOF'
@@ -282,18 +288,50 @@ EOF
 chmod +x "$tmp/control-helper" "$tmp/bench-helper" "$tmp/git-helper" "$tmp/should-not-run"
 mkdir -p "$tmp/fleet-root/.git" "$tmp/fleet-root/.benchmarks/runs" "$tmp/fleet-root/build"
 CGF_FLEET_MUSL_GIT_CMD=$tmp/git-helper
-export CGF_FLEET_MUSL_GIT_CMD
+CGF_FLEET_MUSL_CLASSIFIER=$root/scripts/bench-control.sh
+export CGF_FLEET_MUSL_GIT_CMD CGF_FLEET_MUSL_CLASSIFIER
 CGF_FLEET_MUSL_ROOT="$tmp/fleet-root" CGF_FLEET_HOST=kasumi \
 CGF_FLEET_STAMP=2026-08-13T120000Z CGF_FLEET_MUSL_SOURCE="$tmp/source" \
 CGF_FLEET_MUSL_CONTROL="$tmp/control-helper" CGF_FLEET_MUSL_BENCH="$tmp/bench-helper" \
 CGF_FLEET_MUSL_GATE="$tmp/should-not-run" CGF_FLEET_MUSL_PERF_GATE="$tmp/should-not-run" \
 CGF_FLEET_MUSL_CONFIG="$tmp/base" CGF_FLEET_TEST_RECEIPT="$tmp/pass" \
+CGF_FLEET_TEST_CONTROL_LOG="$tmp/captured-control" \
     "$fleet" >"$tmp/fleet.out"
 artifact=$tmp/fleet-root/.benchmarks/runs/2026-08-13T120000Z-kasumi-musl-full-build.txt
 grep -F 'fleet.gate=warmup' "$artifact" >/dev/null || fail 'missing-baseline warmup was not recorded'
 grep -F 'fleet.baseline_mutated=no' "$artifact" >/dev/null || fail 'baseline immutability was not recorded'
 [ ! -e "$tmp/fleet-root/build/fleet-musl-build-2026-08-13T120000Z-kasumi" ] ||
     fail 'successful fleet publication retained its heavy work directory'
+for field_value in host=kasumi governor=performance power_profile=performance \
+    scaling_driver=acpi-cpufreq energy_performance_preference=performance \
+    control_protocol=fleet-control-v2 logical_cpus=20 cpu_idle_pct=95.0 \
+    load1=0.20; do
+    grep -Fx "$field_value" "$tmp/captured-control" >/dev/null ||
+        fail "full controlled-host capture omitted $field_value"
+done
+
+# Exercise the production composition that the lightweight publisher stub
+# above cannot cover: full control capture -> real classifier -> real
+# ten-sample aggregator -> immutable fleet artifact.
+CGF_FLEET_MUSL_ROOT="$tmp/fleet-root" CGF_FLEET_HOST=kasumi \
+CGF_FLEET_STAMP=2026-08-13T120500Z CGF_FLEET_MUSL_SOURCE="$tmp/source" \
+CGF_FLEET_MUSL_CONTROL="$tmp/control-helper" CGF_FLEET_MUSL_BENCH="$bench" \
+CGF_FLEET_MUSL_GATE="$tmp/should-not-run" \
+CGF_FLEET_MUSL_PERF_GATE="$tmp/should-not-run" \
+CGF_FLEET_MUSL_CONFIG="$tmp/base" CGF_MUSL_BUILD_ONCE="$tmp/once" \
+CGF_MUSL_BUILD_CGF_TREE=clean \
+CGF_MUSL_BUILD_CGF_REVISION=1111111111111111111111111111111111111111 \
+    "$fleet" >"$tmp/fleet-real-bench.out"
+real_bench_artifact=$tmp/fleet-root/.benchmarks/runs/2026-08-13T120500Z-kasumi-musl-full-build.txt
+grep -Fx 'schema=cgfried.musl-full-build.v1' "$real_bench_artifact" >/dev/null ||
+    fail 'real fleet aggregator did not publish the musl receipt schema'
+grep -Fx 'governor=performance' "$real_bench_artifact" >/dev/null ||
+    fail 'real fleet aggregator lost controlled power provenance'
+grep -Fx 'fleet.gate=warmup' "$real_bench_artifact" >/dev/null ||
+    fail 'real fleet aggregator did not publish a warmup artifact'
+[ ! -e "$tmp/fleet-root/build/fleet-musl-build-2026-08-13T120500Z-kasumi" ] ||
+    fail 'real fleet aggregation retained its heavy work directory'
+
 expect 3 'refusing to overwrite immutable artifact' env \
     CGF_FLEET_MUSL_ROOT="$tmp/fleet-root" CGF_FLEET_HOST=kasumi \
     CGF_FLEET_STAMP=2026-08-13T120000Z CGF_FLEET_MUSL_CONTROL="$tmp/control-helper" \
@@ -311,6 +349,29 @@ expect 3 'Cgfried tree must be clean before measurement' env \
     "$fleet"
 [ ! -e "$tmp/fleet-root/build/fleet-musl-build-2026-08-13T121000Z-kasumi" ] ||
     fail 'dirty-tree rejection created a measurement work directory'
+
+cat >"$tmp/incomplete-control-helper" <<'EOF'
+#!/bin/sh
+[ "$#" -eq 2 ] || exit 3
+cat >"$2" <<EOT
+host=$1
+control_protocol=fleet-control-v2
+logical_cpus=20
+cpu_idle_pct=95.0
+load1=0.20
+EOT
+EOF
+chmod +x "$tmp/incomplete-control-helper"
+expect 3 'control receipt is not controlled fleet-control-v2 evidence' env \
+    CGF_FLEET_MUSL_ROOT="$tmp/fleet-root" CGF_FLEET_HOST=kasumi \
+    CGF_FLEET_STAMP=2026-08-13T121500Z CGF_FLEET_MUSL_SOURCE="$tmp/source" \
+    CGF_FLEET_MUSL_CONTROL="$tmp/incomplete-control-helper" \
+    CGF_FLEET_MUSL_BENCH="$tmp/should-not-run" \
+    CGF_FLEET_MUSL_GATE="$tmp/should-not-run" \
+    CGF_FLEET_MUSL_PERF_GATE="$tmp/should-not-run" \
+    CGF_FLEET_MUSL_CONFIG="$tmp/base" "$fleet"
+[ ! -e "$tmp/fleet-root/.benchmarks/runs/2026-08-13T121500Z-kasumi-musl-full-build.txt" ] ||
+    fail 'incomplete control provenance was published'
 
 cat >"$tmp/bench-fail" <<'EOF'
 #!/bin/sh

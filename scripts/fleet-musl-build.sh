@@ -11,7 +11,8 @@ stamp=${CGF_FLEET_STAMP:-$(date -u '+%Y-%m-%dT%H%M%SZ')}
 source=${CGF_FLEET_MUSL_SOURCE:-$root/.docs/refs/musl}
 run_dir=${CGF_FLEET_MUSL_RUN_DIR:-$root/.benchmarks/runs}
 result=$run_dir/$stamp-$host-musl-full-build.txt
-control=${CGF_FLEET_MUSL_CONTROL:-$root/scripts/bench-control.sh}
+control=${CGF_FLEET_MUSL_CONTROL:-$root/scripts/bootstrap-control.sh}
+classifier=${CGF_FLEET_MUSL_CLASSIFIER:-$root/scripts/bench-control.sh}
 bench=${CGF_FLEET_MUSL_BENCH:-$root/scripts/musl-full-build-bench.sh}
 gate=${CGF_FLEET_MUSL_GATE:-$root/scripts/musl-full-build-gate.sh}
 perf_gate=${CGF_FLEET_MUSL_PERF_GATE:-$root/scripts/perf_gate.sh}
@@ -22,7 +23,7 @@ git_cmd=${CGF_FLEET_MUSL_GIT_CMD:-${CGF_FLEET_GIT_CMD:-git}}
 die() { echo "$prog: $*" >&2; exit 3; }
 case $host in kasumi | hasu) ;; *) die 'CGF_FLEET_HOST must explicitly name kasumi or hasu' ;; esac
 case $stamp in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) die 'malformed UTC stamp' ;; esac
-for helper in "$control" "$bench" "$gate" "$perf_gate"; do [ -x "$helper" ] || die "helper is not executable: $helper"; done
+for helper in "$control" "$classifier" "$bench" "$gate" "$perf_gate"; do [ -x "$helper" ] || die "helper is not executable: $helper"; done
 [ -r "$config" ] || die "gate configuration is not readable: $config"
 command -v "$git_cmd" >/dev/null 2>&1 || die "Git command is unavailable: $git_cmd"
 [ "$($uname_cmd -s 2>/dev/null):$($uname_cmd -m 2>/dev/null)" = Linux:x86_64 ] ||
@@ -90,13 +91,17 @@ baseline_before=
 if [ -r "$baseline" ]; then
     baseline_before=$(cksum "$baseline") || die 'cannot checksum the host baseline'
 fi
-{
-    echo "host=$host"
-    "$control" measure "$host"
-} >"$control_receipt" || die 'control capture failed'
+CGF_BOOTSTRAP_BENCH_CONTROL=$classifier CGF_BOOTSTRAP_UNAME_CMD=$uname_cmd \
+    "$control" "$host" "$control_receipt" >/dev/null ||
+    die 'controlled-host capture failed'
+class_status=0
+class=$($classifier classify --require-v2 "$control_receipt") || class_status=$?
+[ "$class_status:$class" = 0:controlled ] ||
+    die 'control receipt is not controlled fleet-control-v2 evidence'
 pending=$work/result.txt
 date_utc=$(printf '%s\n' "$stamp" | sed 's/^\(....-..-..\)T\(..\)\(..\)\(..\)Z$/\1T\2:\3:\4Z/')
 CGF_MUSL_BUILD_HOST=$host CGF_MUSL_BUILD_CONTROL_RECEIPT=$control_receipt \
+CGF_MUSL_BUILD_CLASSIFIER=$classifier \
 CGF_MUSL_BUILD_DATE_UTC=$date_utc \
     "$bench" "$source" "$work/bench" "$pending" || die 'musl full-build measurement failed'
 
