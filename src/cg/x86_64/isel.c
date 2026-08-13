@@ -330,11 +330,48 @@ static X64Block *blk(Isel *is)
     return &is->xf->blocks[is->cur];
 }
 
+static void materialize_pending_cc(Isel *is);
+
+static bool op_defs_flags(X64Op op)
+{
+    switch (op) {
+    case X64_OP_ADD:
+    case X64_OP_SUB:
+    case X64_OP_AND:
+    case X64_OP_OR:
+    case X64_OP_XOR:
+    case X64_OP_IMUL:
+    case X64_OP_NEG:
+    case X64_OP_NOT:
+    case X64_OP_SHL:
+    case X64_OP_SHR:
+    case X64_OP_SAR:
+    case X64_OP_CMP:
+    case X64_OP_TEST:
+    case X64_OP_CQO:
+    case X64_OP_IDIV:
+    case X64_OP_DIV:
+    case X64_OP_UCOMI:
+    case X64_OP_X87_FUCOMIP:
+    case X64_OP_CALL:
+    case X64_OP_ALLOCA_DYN:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static X64Inst *emit(Isel *is, X64Op op, X64Width w)
 {
-    X64Block *b = blk(is);
+    X64Block *b;
     X64Inst *in;
 
+    /* A compare kept only in EFLAGS still represents a live SSA boolean.
+     * Preserve it before any later MIR operation overwrites those flags; the
+     * eventual condbr will test the materialized 0/1 value. */
+    if (op_defs_flags(op))
+        materialize_pending_cc(is);
+    b = blk(is);
     if (b->n == b->cap) {
         u32 nc = b->cap ? b->cap * 2 : 16;
         X64Inst *ni =
@@ -419,9 +456,8 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
 }
 
 /* A branch-only compare normally stays in EFLAGS until the block's condbr.
- * An alloca expansion writes flags after selection, so preserve that pending
- * boolean in a vreg before emitting the opaque marker.  The condbr will then
- * test the materialized value instead of incorrectly reusing stale flags. */
+ * Preserve that pending boolean in a vreg before emitting anything that
+ * overwrites the flags.  The condbr will then test the materialized value. */
 static void materialize_pending_cc(Isel *is)
 {
     u32 v = is->last_flags_val;
