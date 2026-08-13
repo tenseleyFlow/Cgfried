@@ -332,44 +332,64 @@ static X64Block *blk(Isel *is)
 
 static void materialize_pending_cc(Isel *is);
 
-static bool op_defs_flags(X64Op op)
-{
-    switch (op) {
-    case X64_OP_ADD:
-    case X64_OP_SUB:
-    case X64_OP_AND:
-    case X64_OP_OR:
-    case X64_OP_XOR:
-    case X64_OP_IMUL:
-    case X64_OP_NEG:
-    case X64_OP_NOT:
-    case X64_OP_SHL:
-    case X64_OP_SHR:
-    case X64_OP_SAR:
-    case X64_OP_CMP:
-    case X64_OP_TEST:
-    case X64_OP_CQO:
-    case X64_OP_IDIV:
-    case X64_OP_DIV:
-    case X64_OP_UCOMI:
-    case X64_OP_X87_FUCOMIP:
-    case X64_OP_CALL:
-    case X64_OP_ALLOCA_DYN:
-        return true;
-    default:
-        return false;
-    }
-}
+/* Instruction effects must be known before append: a branch-only compare may
+ * live only in EFLAGS, so discovering a clobber after emit() is too late to
+ * preserve its boolean value.  Keep the fixed opcode effects in one table;
+ * emit_effects() adds the few instruction-instance effects (notably asm
+ * "cc") before making that decision. */
+static const u8 op_effects[X64_OP_COUNT] = {
+    [X64_OP_ADD] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_SUB] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_AND] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_OR] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_XOR] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_IMUL] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_NEG] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_NOT] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_SHL] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_SHR] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_SAR] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_FADD] = X64IF_TWO_ADDR,
+    [X64_OP_FSUB] = X64IF_TWO_ADDR,
+    [X64_OP_FMUL] = X64IF_TWO_ADDR,
+    [X64_OP_FDIV] = X64IF_TWO_ADDR,
+    [X64_OP_FXORM] = X64IF_TWO_ADDR,
+    [X64_OP_FANDM] = X64IF_TWO_ADDR,
+    [X64_OP_VADD] = X64IF_TWO_ADDR,
+    [X64_OP_VSUB] = X64IF_TWO_ADDR,
+    [X64_OP_VMUL] = X64IF_TWO_ADDR,
+    [X64_OP_VDIV] = X64IF_TWO_ADDR,
+    [X64_OP_VAND] = X64IF_TWO_ADDR,
+    [X64_OP_VOR] = X64IF_TWO_ADDR,
+    [X64_OP_VXOR] = X64IF_TWO_ADDR,
+    [X64_OP_VUNPCKLBW] = X64IF_TWO_ADDR,
+    [X64_OP_VUNPCKLWD] = X64IF_TWO_ADDR,
+    [X64_OP_VUNPCKLQ] = X64IF_TWO_ADDR,
+    [X64_OP_VSRLDQ] = X64IF_TWO_ADDR,
+    [X64_OP_CMP] = X64IF_DEFS_FLAGS,
+    [X64_OP_TEST] = X64IF_DEFS_FLAGS,
+    [X64_OP_CQO] = X64IF_DEFS_FLAGS,
+    [X64_OP_IDIV] = X64IF_DEFS_FLAGS,
+    [X64_OP_DIV] = X64IF_DEFS_FLAGS,
+    [X64_OP_UCOMI] = X64IF_DEFS_FLAGS,
+    [X64_OP_X87_FUCOMIP] = X64IF_DEFS_FLAGS,
+    [X64_OP_CALL] = X64IF_DEFS_FLAGS,
+    [X64_OP_ALLOCA_DYN] = X64IF_DEFS_FLAGS,
+    [X64_OP_XADD] = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS,
+    [X64_OP_CMPXCHG] = X64IF_DEFS_FLAGS,
+    [X64_OP_XCHG] = X64IF_TWO_ADDR,
+};
 
-static X64Inst *emit(Isel *is, X64Op op, X64Width w)
+static X64Inst *emit_effects(Isel *is, X64Op op, X64Width w, u8 extra_effects)
 {
     X64Block *b;
     X64Inst *in;
+    u8 effects = op_effects[op] | extra_effects;
 
     /* A compare kept only in EFLAGS still represents a live SSA boolean.
      * Preserve it before any later MIR operation overwrites those flags; the
      * eventual condbr will test the materialized 0/1 value. */
-    if (op_defs_flags(op))
+    if (effects & X64IF_DEFS_FLAGS)
         materialize_pending_cc(is);
     b = blk(is);
     if (b->n == b->cap) {
@@ -387,72 +407,17 @@ static X64Inst *emit(Isel *is, X64Op op, X64Width w)
     in->op = (u16)op;
     in->width = (u8)w;
     in->loc = is->cur_loc;
-    switch (op) {
-    case X64_OP_ADD:
-    case X64_OP_SUB:
-    case X64_OP_AND:
-    case X64_OP_OR:
-    case X64_OP_XOR:
-    case X64_OP_IMUL:
-    case X64_OP_NEG:
-    case X64_OP_NOT:
-    case X64_OP_SHL:
-    case X64_OP_SHR:
-    case X64_OP_SAR:
-        in->flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
-        is->last_flags_inst = b->n; /* index+1 */
-        is->last_flags_val = 0;
-        break;
-    case X64_OP_FADD:
-    case X64_OP_FSUB:
-    case X64_OP_FMUL:
-    case X64_OP_FDIV:
-    case X64_OP_FXORM:
-    case X64_OP_FANDM:
-    case X64_OP_VADD:
-    case X64_OP_VSUB:
-    case X64_OP_VMUL:
-    case X64_OP_VDIV:
-    case X64_OP_VAND:
-    case X64_OP_VOR:
-    case X64_OP_VXOR:
-    case X64_OP_VUNPCKLBW:
-    case X64_OP_VUNPCKLWD:
-    case X64_OP_VUNPCKLQ:
-    case X64_OP_VSRLDQ:
-        /* SSE arithmetic is two-address but does NOT touch EFLAGS. */
-        in->flags = X64IF_TWO_ADDR;
-        break;
-    case X64_OP_CMP:
-    case X64_OP_TEST:
-    case X64_OP_CQO:
-    case X64_OP_IDIV:
-    case X64_OP_DIV:
-    case X64_OP_UCOMI:
-    case X64_OP_X87_FUCOMIP:
-        in->flags = X64IF_DEFS_FLAGS;
+    in->flags = effects;
+    if (effects & X64IF_DEFS_FLAGS) {
         is->last_flags_inst = b->n;
         is->last_flags_val = 0;
-        break;
-    case X64_OP_CALL:
-        /* Calls clobber EFLAGS along with everything else; carrying
-         * DEFS_FLAGS makes the verifier reject any fusion across one. */
-        in->flags = X64IF_DEFS_FLAGS;
-        is->last_flags_inst = b->n;
-        is->last_flags_val = 0;
-        break;
-    case X64_OP_ALLOCA_DYN:
-        /* The Sprint 22 expansion (add/and/sub) clobbers flags, so the
-         * marker must too — otherwise a cmp/jcc fusion could legally
-         * span it pre-RA and break post-expansion. */
-        in->flags = X64IF_DEFS_FLAGS;
-        is->last_flags_inst = b->n;
-        is->last_flags_val = 0;
-        break;
-    default:
-        break; /* mov/lea/movzx/movsx/setcc/jmp/jcc leave flags alone */
     }
     return in;
+}
+
+static X64Inst *emit(Isel *is, X64Op op, X64Width w)
+{
+    return emit_effects(is, op, w, 0);
 }
 
 /* A branch-only compare normally stays in EFLAGS until the block's condbr.
@@ -470,6 +435,11 @@ static void materialize_pending_cc(Isel *is)
     vi = &is->vals[v];
     if (vi->vr.v || !vi->cc_plus1)
         return;
+    /* EFLAGS provenance is block-local.  Synthetic selection blocks must
+     * materialize before changing `cur`; never manufacture a cross-block
+     * flags_src if a future caller violates that ordering invariant. */
+    if (vi->flags_blk != is->cur)
+        CGF_ICE("x86_64 isel: pending comparison crossed a MIR block");
     s = newv(is);
     z = newv(is);
     x = emit(is, X64_OP_SETCC, X64_B);
@@ -1482,10 +1452,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             X64VReg d;
             X64Inst *x;
 
-            if (in->align > 16)
-                materialize_pending_cc(is);
             d = newv(is);
-            x = emit(is, X64_OP_LEA, X64_Q);
+            x = emit_effects(is, X64_OP_LEA, X64_Q,
+                             in->align > 16 ? X64IF_DEFS_FLAGS : 0);
 
             x->def = d;
             x->a.kind = X64O_MEM;
@@ -1493,14 +1462,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a.mem.disp = 0;
             x->b.imm = (i64)in->ops[0].a;
             x->table = in->align;
-            if (in->align > 16) {
-                /* Frame finalization expands this marker to lea+and.  The
-                 * mask writes EFLAGS, so make that clobber visible now and
-                 * prevent cmp/jcc fusion from spanning the allocation. */
-                x->flags = X64IF_DEFS_FLAGS;
-                is->last_flags_inst = blk(is)->n;
-                is->last_flags_val = 0;
-            }
+            /* With over-alignment frame finalization expands this marker to
+             * lea+and. emit_effects() records that instance-specific EFLAGS
+             * clobber before append, so cmp/jcc fusion cannot span it. */
             is->vals[in->result.v].vr = d;
         } else {
             /* Dynamic (VLA): a marker regalloc expands post-RA into the
@@ -1510,7 +1474,6 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             X64VReg d;
             X64Inst *x;
 
-            materialize_pending_cc(is);
             s = to_vreg(is, &in->ops[0]);
             d = newv(is);
             x = emit(is, X64_OP_ALLOCA_DYN, X64_Q);
@@ -3186,7 +3149,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             rr->def_fixed = (u8)(a->clobber_regs[k] + 1);
         }
 
-        x = emit(is, X64_OP_ASM, X64_Q);
+        x = emit_effects(is, X64_OP_ASM, X64_Q,
+                         a->clobbers_cc ? X64IF_DEFS_FLAGS : 0);
         x->table = in->callee;
         if (outv.v) {
             x->def = outv;
@@ -3373,7 +3337,6 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a = ovreg(val);
             x = emit(is, X64_OP_XCHG, w);
             x->def = out;
-            x->flags |= X64IF_TWO_ADDR;
             x->a = ovreg(out);
             x->b.kind = X64O_MEM;
             x->b.mem = mem;
@@ -3387,12 +3350,11 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             if (in->subop == RMW_SUB) {
                 x = emit(is, X64_OP_NEG, w);
                 x->def = out;
-                x->flags |= X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
                 x->a = ovreg(out);
             }
             x = emit(is, X64_OP_XADD, w);
             x->def = out;
-            x->flags |= X64IF_TWO_ADDR | X64IF_DEFS_FLAGS | X64IF_LOCK;
+            x->flags |= X64IF_LOCK;
             x->a = ovreg(out);
             x->b.kind = X64O_MEM;
             x->b.mem = mem;
@@ -3414,6 +3376,10 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->def_fixed = X64_RAX + 1;
             x->a.kind = X64O_MEM;
             x->a.mem = mem;
+            /* The retry sequence leaves this IR block. Preserve any
+             * branch-only comparison while its producer's EFLAGS are still
+             * available in the originating MIR block. */
+            materialize_pending_cc(is);
             x = emit(is, X64_OP_JMP, X64_Q);
             x->target = loop;
 
@@ -3424,7 +3390,6 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x->a.fixed = X64_RAX + 1;
             x = emit(is, alu_op(alu), w);
             x->def = next;
-            x->flags |= X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
             x->a = ovreg(next);
             x->b = ovreg(val);
             /* cmpxchg compares rax against memory: on a match it stores the
@@ -3433,7 +3398,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             x = emit(is, X64_OP_CMPXCHG, w);
             x->def = out;
             x->def_fixed = X64_RAX + 1;
-            x->flags |= X64IF_DEFS_FLAGS | X64IF_LOCK;
+            x->flags |= X64IF_LOCK;
             x->a = ovreg(next);
             x->b.kind = X64O_MEM;
             x->b.mem = mem;
@@ -3468,7 +3433,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         x = emit(is, X64_OP_CMPXCHG, w);
         x->def = out;
         x->def_fixed = X64_RAX + 1;
-        x->flags |= X64IF_DEFS_FLAGS | X64IF_LOCK;
+        x->flags |= X64IF_LOCK;
         x->a = ovreg(desired);
         x->b.kind = X64O_MEM;
         x->b.mem = mem;

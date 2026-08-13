@@ -420,6 +420,198 @@ void test_x64_isel_arithmetic_clobber_materializes_pending_compare(TestCtx *t)
     arena_free_all(&a);
 }
 
+void test_x64_isel_opaque_flag_clobbers_materialize_pending_compare(TestCtx *t)
+{
+    enum ClobberKind { CLOBBER_XADD, CLOBBER_CMPXCHG, CLOBBER_ASM_CC };
+    static const struct {
+        enum ClobberKind kind;
+        X64Op op;
+    } cases[] = {
+        {CLOBBER_XADD, X64_OP_XADD},
+        {CLOBBER_CMPXCHG, X64_OP_CMPXCHG},
+        {CLOBBER_ASM_CC, X64_OP_ASM},
+    };
+    u32 c;
+
+    for (c = 0; c < CGF_ARRAY_LEN(cases); c++) {
+        Arena a;
+        EmitFix fx = {0};
+        DiagCtx *dc;
+        DiagSink sink;
+        IrModule *m;
+        IrFunc *f;
+        IrType params[2] = {IRT_I32, IRT_PTR};
+        BlockId entry, yes, no;
+        IrBuilder b;
+        IrOperand value, ptr;
+        ValueId condition;
+        X64Func *xf;
+        const X64Block *xb;
+        u32 i, effect_i = UINT32_MAX, test_i = UINT32_MAX;
+        u32 jcc_i = UINT32_MAX;
+        bool materialized = false;
+
+        arena_init(&a);
+        dc = diag_ctx_new(&a);
+        sink.handle = e_sink;
+        sink.user = &fx;
+        diag_set_sink(dc, sink);
+        m = ir_module_new(&a, dc);
+        f = ir_func_new(m, "opaque_flags", IRT_I32, params, 2);
+        entry = ir_block_new(m, f, "entry");
+        yes = ir_block_new(m, f, "yes");
+        no = ir_block_new(m, f, "no");
+        ir_builder_at(&b, m, f, entry);
+        value = ir_op_value(f, f->param_vals[0]);
+        ptr = ir_op_value(f, f->param_vals[1]);
+        condition =
+            ir_build_icmp(&b, ICMP_SGT, value, ir_op_iconst(IRT_I32, 0));
+        switch (cases[c].kind) {
+        case CLOBBER_XADD:
+            (void)ir_build_atomicrmw(&b, RMW_ADD, IRT_I32, ptr, value);
+            break;
+        case CLOBBER_CMPXCHG:
+            (void)ir_build_cmpxchg(&b, IRT_I32, ptr, value,
+                                   ir_op_iconst(IRT_I32, 1));
+            break;
+        case CLOBBER_ASM_CC: {
+            IrAsm as = {0};
+
+            as.tmpl = "";
+            as.is_volatile = true;
+            as.clobbers_cc = true;
+            ir_build_asm(&b, ir_asm_new(m, &as), NULL, 0);
+            break;
+        }
+        }
+        ir_build_condbr(&b, ir_op_value(f, condition), yes, NULL, 0, no, NULL,
+                        0);
+        ir_builder_at(&b, m, f, yes);
+        {
+            IrOperand one = ir_op_iconst(IRT_I32, 1);
+
+            ir_build_ret(&b, &one);
+        }
+        ir_builder_at(&b, m, f, no);
+        {
+            IrOperand zero = ir_op_iconst(IRT_I32, 0);
+
+            ir_build_ret(&b, &zero);
+        }
+
+        xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+        xb = &xf->blocks[0];
+        for (i = 0; i < xb->n; i++) {
+            const X64Inst *x = &xb->insts[i];
+
+            if (x->op == X64_OP_SETCC)
+                materialized = true;
+            if (x->op == cases[c].op) {
+                effect_i = i;
+                T_ASSERT(t, (x->flags & X64IF_DEFS_FLAGS) != 0);
+            }
+            if (x->op == X64_OP_TEST)
+                test_i = i;
+            if (x->op == X64_OP_JCC)
+                jcc_i = i;
+        }
+        T_ASSERT(t, materialized);
+        T_ASSERT(t,
+                 effect_i != UINT32_MAX && test_i > effect_i && jcc_i > test_i);
+        T_ASSERT_EQ_INT(t, xb->insts[jcc_i].flags_src, test_i);
+        T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+        T_ASSERT_EQ_INT(t, fx.errors, 0);
+        arena_free_all(&a);
+    }
+}
+
+void test_x64_isel_retry_loop_preserves_pending_compare_in_origin(TestCtx *t)
+{
+    static const IrAtomicRmw cases[] = {RMW_AND, RMW_OR, RMW_XOR};
+    u32 c;
+
+    for (c = 0; c < CGF_ARRAY_LEN(cases); c++) {
+        Arena a;
+        EmitFix fx = {0};
+        DiagCtx *dc;
+        DiagSink sink;
+        IrModule *m;
+        IrFunc *f;
+        IrType params[2] = {IRT_I32, IRT_PTR};
+        BlockId entry, yes, no;
+        IrBuilder b;
+        IrOperand value, ptr;
+        ValueId condition;
+        X64Func *xf;
+        const X64Block *origin, *loop, *done;
+        u32 i, origin_test_i = UINT32_MAX, setcc_i = UINT32_MAX;
+        u32 cmpxchg_i = UINT32_MAX;
+        u32 test_i = UINT32_MAX, jcc_i = UINT32_MAX;
+
+        arena_init(&a);
+        dc = diag_ctx_new(&a);
+        sink.handle = e_sink;
+        sink.user = &fx;
+        diag_set_sink(dc, sink);
+        m = ir_module_new(&a, dc);
+        f = ir_func_new(m, "retry_flags", IRT_I32, params, 2);
+        entry = ir_block_new(m, f, "entry");
+        yes = ir_block_new(m, f, "yes");
+        no = ir_block_new(m, f, "no");
+        ir_builder_at(&b, m, f, entry);
+        value = ir_op_value(f, f->param_vals[0]);
+        ptr = ir_op_value(f, f->param_vals[1]);
+        condition =
+            ir_build_icmp(&b, ICMP_SGT, value, ir_op_iconst(IRT_I32, 0));
+        (void)ir_build_atomicrmw(&b, cases[c], IRT_I32, ptr, value);
+        ir_build_condbr(&b, ir_op_value(f, condition), yes, NULL, 0, no, NULL,
+                        0);
+        ir_builder_at(&b, m, f, yes);
+        {
+            IrOperand one = ir_op_iconst(IRT_I32, 1);
+
+            ir_build_ret(&b, &one);
+        }
+        ir_builder_at(&b, m, f, no);
+        {
+            IrOperand zero = ir_op_iconst(IRT_I32, 0);
+
+            ir_build_ret(&b, &zero);
+        }
+
+        xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+        T_ASSERT_EQ_INT(t, xf->nblocks, 5);
+        origin = &xf->blocks[0];
+        loop = &xf->blocks[3];
+        done = &xf->blocks[4];
+        for (i = 0; i < origin->n; i++) {
+            if (origin->insts[i].op == X64_OP_TEST)
+                origin_test_i = i;
+            if (origin->insts[i].op == X64_OP_SETCC)
+                setcc_i = i;
+        }
+        for (i = 0; i < loop->n; i++)
+            if (loop->insts[i].op == X64_OP_CMPXCHG) {
+                cmpxchg_i = i;
+                T_ASSERT(t, (loop->insts[i].flags & X64IF_DEFS_FLAGS) != 0);
+            }
+        for (i = 0; i < done->n; i++) {
+            if (done->insts[i].op == X64_OP_TEST)
+                test_i = i;
+            if (done->insts[i].op == X64_OP_JCC)
+                jcc_i = i;
+        }
+        T_ASSERT(t, origin_test_i != UINT32_MAX && setcc_i > origin_test_i);
+        T_ASSERT(t, cmpxchg_i != UINT32_MAX);
+        T_ASSERT(t, test_i != UINT32_MAX && jcc_i > test_i);
+        T_ASSERT_EQ_INT(t, origin->insts[setcc_i].flags_src, origin_test_i);
+        T_ASSERT_EQ_INT(t, done->insts[jcc_i].flags_src, test_i);
+        T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+        T_ASSERT_EQ_INT(t, fx.errors, 0);
+        arena_free_all(&a);
+    }
+}
+
 /* Block layout need not follow dominance order. A PTRADD in an earlier
  * layout block must reserve the stable vreg for an offset defined later,
  * rather than silently dropping the LEA index as vreg zero. */
