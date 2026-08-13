@@ -83,15 +83,21 @@ case $stamp in
 *) die "malformed UTC stamp '$stamp'" ;;
 esac
 
+fresh_checkout=0
 if [ ! -d "$checkout/.git" ]; then
+    [ "$synced" -eq 0 ] ||
+        die 'CGF_FLEET_SYNCED=1 requires an existing dedicated checkout'
     [ ! -e "$checkout" ] ||
         die "checkout path exists but is not a Git checkout: $checkout"
     mkdir -p "$(dirname "$checkout")"
     "$git_cmd" clone --no-checkout "$repo_url" "$checkout" ||
         die 'cannot clone dedicated SQLite checkout'
+    fresh_checkout=1
 fi
-[ -z "$("$git_cmd" -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
-    die "dedicated checkout is dirty before sync: $checkout"
+if [ "$fresh_checkout" -eq 0 ]; then
+    [ -z "$("$git_cmd" -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
+        die "dedicated checkout is dirty before sync: $checkout"
+fi
 if [ "$synced" -eq 0 ]; then
     "$git_cmd" -C "$checkout" fetch --no-tags origin "$revision" ||
         die "cannot fetch exact commit $revision"

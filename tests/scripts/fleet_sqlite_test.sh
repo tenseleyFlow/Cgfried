@@ -26,14 +26,35 @@ cat >"$fake/git" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "$*" >>"$FIXTURE_GIT_LOG"
+repo=$FIXTURE_CHECKOUT
 if [ "${1:-}" = -C ]; then
+    repo=$2
     shift 2
 fi
 case ${1:-} in
 status)
+    if [ -e "$repo/.fresh-no-checkout" ]; then
+        echo 'D  tracked-before-first-checkout'
+        exit 0
+    fi
     [ "${FIXTURE_GIT_DIRTY:-0}" = 0 ] || echo ' M dirty'
     ;;
-fetch | checkout | clone) ;;
+fetch) ;;
+checkout)
+    if [ -e "$repo/.fresh-no-checkout" ]; then
+        mv "$repo/.fresh-no-checkout" "$repo/.fresh-checked-out"
+    fi
+    ;;
+clone)
+    destination=
+    for arg do destination=$arg; done
+    mkdir -p "$destination/.git" "$destination/scripts" \
+        "$destination/build" "$destination/.benchmarks/runs"
+    cp "$FIXTURE_FLEET_SOURCE/fleet-sqlite.sh" \
+        "$destination/scripts/fleet-sqlite.sh"
+    chmod 755 "$destination/scripts/fleet-sqlite.sh"
+    : >"$destination/.fresh-no-checkout"
+    ;;
 rev-parse)
     if [ "${FIXTURE_GIT_MISMATCH:-0}" = 1 ]; then
         printf '%040d\n' 0
@@ -133,7 +154,12 @@ EOT
 EOF
 chmod 755 "$fake"/*
 
-cp "$root/ci/campaigns/sqlite-baselines.conf" "$tmp/baselines.conf"
+awk '
+    /^(kasumi|hasu)\.(O0|O2)\.(wall_ms_median|maxrss_kb_max)=/ {
+        sub(/=.*/, "=UNMEASURED")
+    }
+    { print }
+' "$root/ci/campaigns/sqlite-baselines.conf" >"$tmp/baselines.conf"
 cp "$tmp/baselines.conf" "$tmp/baselines.before"
 revision=0123456789abcdef0123456789abcdef01234567
 
@@ -141,11 +167,13 @@ run_sqlite()
 {
     run_stamp=$1
     shift
-    FIXTURE_CHECKOUT=$checkout FIXTURE_GIT_LOG=$tmp/git.log \
+    run_checkout=${CGF_FLEET_TEST_CHECKOUT:-$checkout}
+    FIXTURE_CHECKOUT=$run_checkout FIXTURE_FLEET_SOURCE=$root/scripts \
+    FIXTURE_GIT_LOG=$tmp/git.log \
     FIXTURE_MAKE_LOG=$tmp/make.log FIXTURE_MEASURE_LOG=$tmp/measure.log \
     CGF_FLEET_HOST=kasumi \
     CGF_FLEET_REV=$revision CGF_FLEET_STAMP=$run_stamp \
-    CGF_FLEET_CHECKOUT=$checkout CGF_FLEET_GIT_CMD=$fake/git \
+    CGF_FLEET_CHECKOUT=$run_checkout CGF_FLEET_GIT_CMD=$fake/git \
     CGF_FLEET_MAKE_CMD=$fake/make CGF_FLEET_UNAME_CMD=$fake/uname \
     CGF_FLEET_DATE_CMD=$fake/date CGF_FLEET_SQLITE_CONTROL=$fake/control \
     CGF_FLEET_TEST_MODE=1 \
@@ -188,6 +216,17 @@ grep -Fq "checkout --detach $revision" "$tmp/git.log" ||
     fail 'transaction did not use a detached exact-commit checkout'
 grep -Fq 're-executing the exact-commit fleet runner' "$tmp/pass.out" ||
     fail 'transaction did not re-execute the synchronized runner'
+
+fresh_checkout=$tmp/fresh-checkout
+CGF_FLEET_TEST_CHECKOUT=$fresh_checkout \
+    run_sqlite 2026-08-13T120100Z env >"$tmp/fresh.out" 2>"$tmp/fresh.err"
+fresh_result=$fresh_checkout/.benchmarks/runs/2026-08-13T120100Z-kasumi-sqlite
+[ -s "$fresh_result/manifest.txt" ] ||
+    fail 'fresh clone did not complete the first exact-commit transaction'
+grep -Fq "clone --no-checkout https://github.com/tenseleyFlow/Cgfried.git $fresh_checkout" \
+    "$tmp/git.log" || fail 'fresh transaction did not use the dedicated clone'
+grep -Fq 're-executing the exact-commit fleet runner' "$tmp/fresh.out" ||
+    fail 'fresh clone did not re-execute its checked-out runner'
 
 mkdir -p "$tmp/nix/glibc-dev/include" "$tmp/nix/glibc/lib"
 : >"$tmp/nix/glibc/lib/crt1.o"
