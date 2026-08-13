@@ -14,7 +14,7 @@ shift 2
 # config-file assignment is overwritten before BINS is expanded. Command-line
 # variables have the required precedence and keep this campaign on its promised
 # static-only lane.
-exec make -C "$tree" B="$build" \
+exec make --no-print-directory -C "$tree" B="$build" \
     functional.BINS_TEMPL=bin-static.exe \
     regression.BINS_TEMPL=bin-static.exe \
     math.BINS_TEMPL=bin-static.exe \

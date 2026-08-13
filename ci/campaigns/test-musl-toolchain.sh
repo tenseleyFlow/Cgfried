@@ -106,6 +106,9 @@ $tmp/build/musl/probe-static.exe
 EOF
 "$runner" "$tmp/tree" "$tmp/build" -s print >"$tmp/actual"
 cmp "$tmp/expected" "$tmp/actual"
+MAKEFLAGS=w "$runner" "$tmp/tree" "$tmp/build" -s print \
+    >"$tmp/actual-recursive"
+cmp "$tmp/expected" "$tmp/actual-recursive"
 "$runner" "$tmp/tree" "$tmp/build" -s cgfried-static-manifest |
     LC_ALL=C sort >"$tmp/manifest"
 LC_ALL=C sort "$tmp/expected" >"$tmp/expected-manifest"

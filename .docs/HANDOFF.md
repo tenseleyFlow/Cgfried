@@ -17,7 +17,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 25,918-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 25,933-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -181,13 +181,16 @@ evidence.
   runtime archive, and the compiler. The exact x86 required contexts also
   passed in push run `31665586963` and are configured on `trunk`.
 - Matching-source hosted torture streams atomically regenerated the ratchet
-  and triage report. The new totals are 25,918 PASS, 6,620 SKIP, and 8,112
+  and triage report. The new totals are 25,933 PASS, 6,620 SKIP, and 8,097
   classified failures across 40,650 cells; 90 buckets, 81 live policy
   decisions, zero stale/unresolved decisions. Reversed stream order produced
   both committed outputs byte-identically. Final candidate run `31665586870`
   then passed the exact x86 ratchet plus the complete standard CI matrix,
   including ARM-QEMU/native, sanitizers, the 100k frontend fuzz lane,
-  musl/QBE campaigns, toolchain, format, and policy gates.
+  musl/QBE campaigns, toolchain, format, and policy gates. Hosted x86 run
+  `31686587082` subsequently promoted 15 additional PASS cells with zero
+  regressions; its retained matrix regenerates the 25,933-cell ratchet
+  byte-identically.
 - `.docs/audits/bootstrap-soak.md` is **RUNNING at 1/30**, starting from the
   verified 2026-08-13 hosted run above. Continue recording distinct UTC dates
   and every weekly cross/reproducibility result; any missing or red required
@@ -269,8 +272,8 @@ Integrated worktree and branch:
   verification and deterministic fixture suites pass.
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
-  bootstrap repairs and matching-source refresh, outcome totals are 25,918
-  PASS, 6,620 SKIP, and 8,112 classified failures.
+  bootstrap repairs and matching-source refresh, outcome totals are 25,933
+  PASS, 6,620 SKIP, and 8,097 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
@@ -280,9 +283,10 @@ Integrated worktree and branch:
   81 durable overlay decisions, zero stale, zero unresolved, and no misc
   bucket. The overlay contains 58 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
   and six `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 25,918-cell PASS set.
+- `tests/torture/passing.txt` is the exact sorted 25,933-cell PASS set.
   Combined gating passes and reversed input order regenerates both committed
-  artifacts byte-identically.
+  artifacts byte-identically. Hosted x86 run `31686587082` accounts for the
+  latest 15-cell increase and reports zero regressions.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta`, `make torture-meta`, and full `make test` (695 unit
   tests / 4,284,201 assertions, every corpus/differential/fuzz/cross/policy
