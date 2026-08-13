@@ -35,12 +35,14 @@ run_nightly()
     run_runtime_trip=${9:-no}
     run_nix_include=${10:-}
     run_nix_crt=${11:-}
+    run_bootstrap_status=${12:-0}
     FIXTURE_SYSTEM=$run_system FIXTURE_MACHINE=$run_machine \
     FIXTURE_GIT_LOG=$tmp/git.log FIXTURE_GIT_STAGED=$tmp/staged \
     FIXTURE_PUSH_STATE=$tmp/push-state FIXTURE_PUSH_FAIL_ONCE=$run_fail_once \
     FIXTURE_MAKE_LOG=$tmp/make.log \
     FIXTURE_BENCH_STATUS=$run_bench_status FIXTURE_PERF_STATUS=$run_perf_status \
     FIXTURE_RUNTIME_TRIP=$run_runtime_trip \
+    FIXTURE_BOOTSTRAP_STATUS=$run_bootstrap_status \
     FIXTURE_BENCH_ENV_LOG=${FIXTURE_BENCH_ENV_LOG:-} \
     CGF_FLEET_HOST=$run_host CGF_FLEET_STAMP=$run_stamp \
     CGF_FLEET_PUSH=$run_push CGF_FLEET_CHECKOUT=$tmp/checkout \
@@ -53,6 +55,7 @@ run_nightly()
     CGF_FLEET_NIX_CRT_DIR=$run_nix_crt \
     CGF_FLEET_BENCH=$fixtures/fake-fleet-bench.sh \
     CGF_FLEET_PERF=$fixtures/fake-fleet-perf.sh \
+    CGF_FLEET_BOOTSTRAP=$fixtures/fake-fleet-bootstrap.sh \
         "$nightly"
 }
 
@@ -60,11 +63,15 @@ run_nightly()
 run_nightly 2026-08-10T120000Z 0 0 1 1 kasumi Linux x86_64 >"$tmp/pass.out" 2>"$tmp/pass.err"
 compile=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi.txt
 runtime=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt
-[ -s "$compile" ] && [ -s "$runtime" ] || fail "nightly did not produce both artifacts"
+bootstrap=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi-bootstrap.txt
+[ -s "$compile" ] && [ -s "$runtime" ] && [ -s "$bootstrap" ] ||
+    fail "Linux nightly did not produce all three artifacts"
 grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$compile" >/dev/null ||
     fail "compile artifact lacks shared stamp"
 grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$runtime" >/dev/null ||
     fail "runtime artifact lacks shared stamp"
+grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$bootstrap" >/dev/null ||
+    fail "bootstrap artifact lacks shared stamp"
 [ "$(grep -c 'push origin trunk' "$tmp/git.log")" -eq 2 ] ||
     fail "push did not perform exactly one retry"
 grep -F 'pull --rebase origin trunk' "$tmp/git.log" >/dev/null ||
@@ -86,12 +93,37 @@ grep -F 'non-blocking trial runtime trip recorded' "$tmp/trial-trip.out" >/dev/n
     fail "scheduler did not report its successful trial trip"
 
 : >"$tmp/git.log"
+run_nightly 2026-08-10T124500Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 1 >"$tmp/bootstrap-trip.out" 2>"$tmp/bootstrap-trip.err"
+grep -F 'gate-trip=yes' "$tmp/git.log" >/dev/null ||
+    fail "bootstrap trial trip was not recorded in the commit"
+grep -F 'non-blocking trial bootstrap-time trip recorded' \
+    "$tmp/bootstrap-trip.out" >/dev/null ||
+    fail "scheduler did not report the bootstrap trial trip"
+
+: >"$tmp/git.log"
+set +e
+run_nightly 2026-08-10T124600Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 3 >"$tmp/bootstrap-infra.out" 2>"$tmp/bootstrap-infra.err"
+bootstrap_infra_status=$?
+set -e
+[ "$bootstrap_infra_status" -eq 3 ] ||
+    fail "bootstrap infrastructure failure did not return status 3"
+grep -F 'stage1 bootstrap timing infrastructure failed (status 3)' \
+    "$tmp/bootstrap-infra.err" >/dev/null ||
+    fail "bootstrap infrastructure diagnostic is missing"
+! grep -F 'commit ' "$tmp/git.log" >/dev/null ||
+    fail "bootstrap infrastructure failure was committed"
+
+: >"$tmp/git.log"
 run_nightly 2026-08-10T130000Z 0 0 0 0 nomad-1 Darwin arm64 \
     >"$tmp/macos.out" 2>"$tmp/macos.err"
 grep -F 'CC=/bin/true build/cgfried build/timeit tools' "$tmp/make.log" >/dev/null ||
     fail "macOS portable build did not include compiler, timer, and bundled tools"
 grep -F 'submodule update --init afs-as afs-ld' "$tmp/git.log" >/dev/null ||
     fail "macOS nightly did not initialize its tool submodules"
+[ ! -e "$tmp/checkout/.benchmarks/runs/2026-08-10T130000Z-nomad-1-bootstrap.txt" ] ||
+    fail "unsupported macOS bootstrap timing was fabricated"
 
 mkdir -p "$tmp/nix/include" "$tmp/nix/lib"
 : >"$tmp/nix/lib/crt1.o"

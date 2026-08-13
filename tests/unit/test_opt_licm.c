@@ -4,6 +4,7 @@
 #include "opt/opt.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "util/buf.h"
 
 typedef struct {
     Arena arena;
@@ -76,6 +77,75 @@ static void read_report(FILE *report, char *out, size_t cap)
     rewind(report);
     n = fread(out, 1, cap - 1, report);
     out[n] = '\0';
+}
+
+static void licm_work_limit_source(Buf *src, u32 padding)
+{
+    u32 i;
+
+    buf_init(src);
+    buf_printf(src, "func i32 @f(i32 %%c, i32 %%x, i32 %%y) {\nentry():\n");
+    for (i = 0; i < padding; i++)
+        buf_printf(src, "    %%pad%u = iadd i32 %%x, %u\n", i, i + 1);
+    buf_printf(src, "    br head()\n"
+                    "head():\n"
+                    "    condbr %%c, body(), exit()\n"
+                    "body():\n"
+                    "    %%invariant = imul i32 %%x, %%y\n"
+                    "    br head()\n"
+                    "exit():\n"
+                    "    ret i32 %%x\n"
+                    "}\n");
+    buf_push_u8(src, 0);
+}
+
+static u32 function_inst_count(const IrFunc *f)
+{
+    u32 bi, count = 0;
+
+    for (bi = 0; bi < f->nblocks; bi++)
+        count += f->blocks[bi].ninsts;
+    return count;
+}
+
+void test_opt_licm_work_limit_exact_boundary(TestCtx *t)
+{
+    enum { LIMIT = 512, FIXED_INSTS = 5 };
+    u32 padding[] = {LIMIT - FIXED_INSTS, LIMIT + 1 - FIXED_INSTS};
+    u32 expected_block[] = {1, 3};
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(padding); i++) {
+        LicmFix f;
+        IrModule *m;
+        IrInst *invariant;
+        OptConfig cfg;
+        Buf source;
+        FILE *report = tmpfile();
+        char log[512];
+
+        fix_init(&f);
+        licm_work_limit_source(&source, padding[i]);
+        m = parse(&f, (char *)source.data);
+        T_ASSERT(t, report != NULL && m && ir_verify(f.dc, m));
+        if (m) {
+            T_ASSERT_EQ_INT(t, function_inst_count(&m->funcs[0]), LIMIT + i);
+            (void)run(m, &cfg, report);
+            invariant = find_op(&m->funcs[0], IR_IMUL, 0);
+            T_ASSERT(t, invariant != NULL);
+            if (invariant)
+                T_ASSERT_EQ_INT(t, find_inst_block(&m->funcs[0], invariant).v,
+                                expected_block[i]);
+            T_ASSERT(t, ir_verify(f.dc, m));
+        }
+        if (report) {
+            read_report(report, log, sizeof(log));
+            T_ASSERT_EQ_INT(t, strstr(log, "licm_work_limit") != NULL, i != 0);
+            fclose(report);
+        }
+        buf_free(&source);
+        arena_free_all(&f.arena);
+    }
 }
 
 void test_opt_licm_hoists_invariant_pure_expression(TestCtx *t)

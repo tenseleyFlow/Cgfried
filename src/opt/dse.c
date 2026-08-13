@@ -15,6 +15,13 @@ typedef struct {
     MemLoc loc;
 } Cover;
 
+enum {
+    /* A backward DSE block walk compares each memory operation with every
+     * later live cover.  Bound that quadratic proof search on generated
+     * dispatchers; declining to delete stores is always conservative. */
+    DSE_MEMORY_INST_LIMIT = 4096,
+};
+
 static u64 type_size(IrType type)
 {
     switch (type) {
@@ -267,7 +274,7 @@ static bool dse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
         .func = f,
         .no_strict_aliasing = cfg->no_strict_aliasing,
     };
-    AliasCtx *alias = alias_build(m, &acfg);
+    AliasCtx *alias;
     u32 total = 0;
     bool changed = false;
     bool call_bailed = false;
@@ -283,6 +290,11 @@ static bool dse_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
     fc.current_func = f->name;
     for (bi = 0; bi < f->nblocks; bi++)
         total += f->blocks[bi].ninsts;
+    if (total > DSE_MEMORY_INST_LIMIT) {
+        OPT_BAIL(&fc, "dse", "dse_memory_work_limit");
+        return false;
+    }
+    alias = alias_build(m, &acfg);
     arena_init(&scratch);
     remove = arena_alloc(&scratch, (total ? total : 1) * sizeof(*remove), 1);
     memset(remove, 0, (total ? total : 1) * sizeof(*remove));

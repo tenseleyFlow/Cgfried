@@ -15,7 +15,6 @@
  */
 
 #include <errno.h>
-#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -63,8 +62,15 @@ extern void __real_free(void *);
 extern void *__real_aligned_alloc(size_t, size_t);
 extern int __real_posix_memalign(void **, size_t, size_t);
 
-static atomic_flag cgf_safe_lock = ATOMIC_FLAG_INIT;
-static atomic_uint_fast64_t cgf_safe_generation;
+/* Keep the runtime self-hostable: Cgfried supports C11 _Atomic scalar
+ * accesses and read-modify-write expressions, but intentionally does not
+ * ship the <stdatomic.h> macro API.  A ticket lock needs only those language
+ * operations, is starvation-free, and makes the registry's publication
+ * order explicit.  The default zero initialization leaves both counters at
+ * the first ticket. */
+static _Atomic unsigned cgf_safe_lock_next;
+static _Atomic unsigned cgf_safe_lock_serving;
+static _Atomic uint64_t cgf_safe_generation;
 static CgfSafePrefix *cgf_safe_all;
 static CgfSafePrefix *cgf_safe_hash[CGF_SAFE_HASH_BUCKETS];
 static CgfSafePrefix *cgf_safe_q_head;
@@ -99,14 +105,15 @@ static uint32_t take_pending_site(void)
 
 static void lock_registry(void)
 {
-    while (
-        atomic_flag_test_and_set_explicit(&cgf_safe_lock, memory_order_acquire))
+    unsigned ticket = cgf_safe_lock_next++;
+
+    while (cgf_safe_lock_serving != ticket)
         ;
 }
 
 static void unlock_registry(void)
 {
-    atomic_flag_clear_explicit(&cgf_safe_lock, memory_order_release);
+    cgf_safe_lock_serving++;
 }
 
 static int add_overflow_size(size_t a, size_t b, size_t *out)
@@ -315,7 +322,7 @@ static void *safe_allocate(size_t size, size_t alignment, int zero,
     if (cgf_safe_all)
         cgf_safe_all->all_previous = prefix;
     cgf_safe_all = prefix;
-    atomic_fetch_add_explicit(&cgf_safe_generation, 1, memory_order_release);
+    cgf_safe_generation++;
     unlock_registry();
     return user;
 }
@@ -380,7 +387,7 @@ static void safe_free(void *ptr)
     cgf_safe_q_count++;
     cgf_safe_q_bytes += size;
     evicted = quarantine_evict_locked();
-    atomic_fetch_add_explicit(&cgf_safe_generation, 1, memory_order_release);
+    cgf_safe_generation++;
     unlock_registry();
     while (evicted) {
         CgfSafePrefix *next = evicted->quarantine_next;
@@ -407,8 +414,7 @@ void cgf_safe_check(const void *ptr, size_t access_size, int kind,
     }
 
     {
-        uint64_t generation = (uint64_t)atomic_load_explicit(
-            &cgf_safe_generation, memory_order_acquire);
+        uint64_t generation = cgf_safe_generation;
 
         addr = (uintptr_t)ptr;
         if (cgf_safe_last_live.valid &&
@@ -442,8 +448,7 @@ void cgf_safe_check(const void *ptr, size_t access_size, int kind,
     if (!freed && !out_of_bounds) {
         cgf_safe_last_live.base = base;
         cgf_safe_last_live.size = alloc_size;
-        cgf_safe_last_live.generation = (uint64_t)atomic_load_explicit(
-            &cgf_safe_generation, memory_order_relaxed);
+        cgf_safe_last_live.generation = cgf_safe_generation;
         cgf_safe_last_live.valid = 1;
         unlock_registry();
         return;

@@ -1,0 +1,107 @@
+# Machine-readable cadence and evidence contract for .github/workflows/bootstrap.yml.
+schema: cgfried.bootstrap-ci.v1
+comparison:
+  stage_pair: [stage1, stage2]
+  artifacts: [assembly, objects, runtime_archive, compiler]
+  algorithm: cmp
+  normalization: none
+tool_boundary:
+  compiler_seed: gcc
+  assembler: system
+  archiver: system
+  linker: system
+  bundled_submodules: false
+lanes:
+  - id: x86_64-linux
+    target: x86_64-linux-gnu
+    host: x86_64-linux
+    levels: [O0, O2]
+    events: [push, pull_request, schedule, workflow_dispatch]
+    cadence_utc: '41 3 * * 0'
+    required_for_pull_request: true
+  - id: arm64-linux-native
+    target: arm64-linux
+    host: arm64-linux
+    runner: ubuntu-24.04-arm
+    levels: [O0, O2]
+    events: [schedule, workflow_dispatch]
+    cadence_utc: '17 3 * * *'
+    required_for_pull_request: false
+  - id: arm64-linux-cross
+    target: arm64-linux
+    hosts: [x86_64-linux, arm64-linux]
+    levels: [O2]
+    events: [schedule, workflow_dispatch]
+    cadence_utc: '41 3 * * 0'
+    state: active
+    input_contract: >-
+      Native ARM64 archives its /usr/include tree before the fixed point and
+      stage1/stage2 consume that snapshot through --sysroot. The x86-hosted
+      compiler consumes the same source and archived header bytes, preventing
+      host libc headers from contaminating preprocessing or semantic analysis.
+    comparison_contract: >-
+      Import the exact passed native stage2 assembly with its manifest, compare
+      it to raw x86-hosted arm64 assembly before container generation, then
+      assemble, archive, and link both streams on one native arm64 runner with
+      the same recorded tools and compare every resulting byte.
+    retained_provenance:
+      - native_run_manifest
+      - native_bootstrap_report
+      - native_stage2_manifest
+      - x86_run_manifest
+      - x86_bootstrap_report
+      - x86_stage1_manifest
+      - arm64_header_archive
+  - id: x86_64-reproducibility
+    target: x86_64-linux-gnu
+    host: x86_64-linux
+    levels: [O2]
+    events: [schedule, workflow_dispatch]
+    cadence_utc: '41 3 * * 0'
+    state: active
+    comparison_contract: >-
+      In the same x86_64 job and therefore with the same assembler, archiver,
+      linker, and runner image, rebuild stage2 with stage1 under -j1 in a
+      distinct output root and compare it against the exact -j8 fixed-point
+      stage without normalization.
+runtime_abi:
+  int128:
+    host: arm64-linux
+    compiler: native-stage1-O2
+    vectors: 4096
+    levels: [O0, O2]
+    oracle: native-gcc
+  fp128:
+    host: arm64-linux
+    runtime_compiler: native-stage1-O2
+    probe_compiler: native-gcc
+    results_minimum: 1000
+    oracle: native-libgcc
+evidence:
+  artifact_retention_days: 90
+  upload_when: always
+  required_fields:
+    - schema
+    - lane
+    - level
+    - commit
+    - runner_arch
+    - normalization
+    - host_cc
+    - assembler
+    - linker
+    - outcome
+timing:
+  artifact_schema: cgfried.bootstrap-timing.v1
+  metric: stage1.O2.wall_ms_median
+  dashboard: scripts/perf-report.sh
+  gate_config: ci/gates.d/stage1-self-time.conf
+  gating_scope: [kasumi, hasu]
+  state: trial
+  baseline_policy: first-controlled-receipt-reviewed-separately
+soak:
+  state: not-started
+  start_condition: first verified hosted run of every active lane
+  daily_requirement: 30 consecutive distinct UTC dates green
+  weekly_requirement: every scheduled weekly run green inside that interval
+  ledger: .docs/audits/bootstrap-soak.md

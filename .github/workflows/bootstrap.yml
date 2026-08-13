@@ -1,0 +1,322 @@
+name: bootstrap
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Native arm64 is intentionally nightly rather than per-PR: it is the
+    # slower, runner-budgeted half of the fixed-point gate.
+    - cron: '17 3 * * *'
+    # The cross-host and -j1/path-independence probes are intentionally
+    # weekly: they reuse the native fixed points, but add three full compiler
+    # source passes and a same-toolchain ARM64 finalization.
+    - cron: '41 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  x86_64-linux:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '41 3 * * 0'
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [O0, O2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      # Bootstrap uses one recorded system assembler/linker boundary.  It
+      # therefore does not initialize the optional afs-as/afs-ld submodules.
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - name: install the system C toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential binutils libc6-dev
+      - name: record toolchain provenance
+        run: |
+          mkdir -p build/boot/ci
+          {
+            echo 'schema=cgfried.bootstrap-run.v1'
+            echo 'lane=x86_64-linux'
+            echo 'level=${{ matrix.level }}'
+            echo 'commit=${{ github.sha }}'
+            echo 'runner_arch=${{ runner.arch }}'
+            echo 'normalization=none'
+            printf 'host_cc='; gcc --version | sed -n '1p'
+            printf 'assembler='; as --version | sed -n '1p'
+            printf 'linker='; ld --version | sed -n '1p'
+          } > build/boot/ci/x86_64-linux-${{ matrix.level }}.manifest
+      - id: bootstrap
+        name: bootstrap at ${{ matrix.level }}
+        run: |
+          set -o pipefail
+          make HOSTCC=gcc BOOTSTRAP_JOBS=8 BOOTSTRAP_HOST_CLASS=shared-ci bootstrap-${{ matrix.level }} 2>&1 |
+            tee build/boot/ci/x86_64-linux-${{ matrix.level }}.log
+      - id: reproducibility
+        name: compare the -j8 fixed point with a -j1 distinct root
+        if: >-
+          matrix.level == 'O2' &&
+          (github.event_name == 'workflow_dispatch' ||
+           github.event.schedule == '41 3 * * 0')
+        run: |
+          set -o pipefail
+          HOSTCC=gcc scripts/bootstrap-repro.sh O2 \
+            build/boot/O2 build/boot/O2-repro-j1 2>&1 |
+            tee build/boot/ci/x86_64-linux-O2-reproducibility.log
+      - name: finish evidence manifest
+        if: always()
+        run: |
+          manifest=build/boot/ci/x86_64-linux-${{ matrix.level }}.manifest
+          echo 'outcome=${{ steps.bootstrap.outcome }}' >> "$manifest"
+          echo 'reproducibility_outcome=${{ steps.reproducibility.outcome }}' >> "$manifest"
+          find build/boot/${{ matrix.level }} -type f \
+            \( -name cgfried -o -name '*.o' -o -name '*.a' \) \
+            -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum \
+            >> "$manifest"
+      - name: retain bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint58-bootstrap-x86_64-linux-${{ matrix.level }}
+          path: |
+            build/boot/ci/
+            build/boot/${{ matrix.level }}/
+            build/boot/O2-repro-j1/
+          if-no-files-found: warn
+          retention-days: 90
+
+  arm64-linux-native:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [O0, O2]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - name: install the native C toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential binutils libc6-dev
+      - name: snapshot the canonical native header sysroot
+        run: |
+          mkdir -p build/boot/cross/sysroot
+          tar -C / -cf build/boot/cross/arm64-headers.tar usr/include
+          tar -xf build/boot/cross/arm64-headers.tar \
+            -C build/boot/cross/sysroot
+          sha256sum build/boot/cross/arm64-headers.tar > \
+            build/boot/cross/arm64-headers.tar.sha256
+      - name: record toolchain provenance
+        run: |
+          mkdir -p build/boot/ci
+          {
+            echo 'schema=cgfried.bootstrap-run.v1'
+            echo 'lane=arm64-linux-native'
+            echo 'level=${{ matrix.level }}'
+            echo 'commit=${{ github.sha }}'
+            echo 'runner_arch=${{ runner.arch }}'
+            echo 'normalization=none'
+            printf 'host_cc='; gcc --version | sed -n '1p'
+            printf 'assembler='; as --version | sed -n '1p'
+            printf 'linker='; ld --version | sed -n '1p'
+          } > build/boot/ci/arm64-linux-native-${{ matrix.level }}.manifest
+      - id: bootstrap
+        name: native bootstrap at ${{ matrix.level }}
+        run: |
+          set -o pipefail
+          make HOSTCC=gcc BOOTSTRAP_JOBS=8 \
+            BOOTSTRAP_HOST_CLASS=arm64-ci \
+            BOOTSTRAP_SYSROOT="$GITHUB_WORKSPACE/build/boot/cross/sysroot" \
+            bootstrap-${{ matrix.level }} 2>&1 |
+            tee build/boot/ci/arm64-linux-native-${{ matrix.level }}.log
+      - id: int128_abi
+        name: execute strict-C11 int128 runtime ABI differential
+        if: matrix.level == 'O2'
+        run: |
+          set -o pipefail
+          CGF_TEST_CC=build/boot/O2/stage1/cgfried \
+            sh tests/rt/int128_abi.sh 2>&1 |
+            tee build/boot/ci/arm64-linux-int128-abi.log
+      - id: fp128_abi
+        name: execute Cgfried-built binary128 ABI/value differential
+        if: matrix.level == 'O2'
+        run: |
+          set -o pipefail
+          CGF_FP128_NATIVE=1 \
+            CGF_FP128_RUNTIME_CC=build/boot/O2/stage1/cgfried \
+            CGF_FP128_WORK=build/boot/O2/fp128-diff \
+            sh scripts/fp128_diff.sh 2>&1 |
+            tee build/boot/ci/arm64-linux-fp128-abi.log
+      - name: finish evidence manifest
+        if: always()
+        run: |
+          manifest=build/boot/ci/arm64-linux-native-${{ matrix.level }}.manifest
+          echo 'outcome=${{ steps.bootstrap.outcome }}' >> "$manifest"
+          echo 'int128_abi_outcome=${{ steps.int128_abi.outcome }}' >> "$manifest"
+          echo 'fp128_abi_outcome=${{ steps.fp128_abi.outcome }}' >> "$manifest"
+          find build/boot/${{ matrix.level }} -type f \
+            \( -name cgfried -o -name '*.o' -o -name '*.a' \) \
+            -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum \
+            >> "$manifest"
+      - name: retain bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint58-bootstrap-arm64-linux-native-${{ matrix.level }}
+          path: |
+            build/boot/ci/
+            build/boot/${{ matrix.level }}/
+            build/boot/cross/arm64-headers.tar
+            build/boot/cross/arm64-headers.tar.sha256
+          if-no-files-found: warn
+          retention-days: 90
+
+  arm64-cross-source:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '41 3 * * 0'
+    needs: arm64-linux-native
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-arm64-linux-native-O2
+          path: build/native-bootstrap
+      - name: import the exact native fixed-point stage2 assembly
+        run: |
+          mkdir -p build/boot/cross
+          cp build/native-bootstrap/cross/arm64-headers.tar \
+            build/native-bootstrap/cross/arm64-headers.tar.sha256 \
+            build/boot/cross/
+          sha256sum -c build/boot/cross/arm64-headers.tar.sha256
+          CGF_BOOTSTRAP_COMMIT='${{ github.sha }}' \
+          CGF_BOOTSTRAP_RUNNER_ARCH='${{ runner.arch }}' \
+          CGF_BOOTSTRAP_NATIVE_RUN_MANIFEST=build/native-bootstrap/ci/arm64-linux-native-O2.manifest \
+          CGF_BOOTSTRAP_HEADER_ARCHIVE=build/boot/cross/arm64-headers.tar \
+            scripts/bootstrap-cross.sh import O2 \
+            build/native-bootstrap/O2/stage2 build/boot/cross/native
+      - name: retain canonical ARM64 header sysroot
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint58-bootstrap-arm64-cross-input
+          path: |
+            build/boot/cross/arm64-headers.tar
+            build/boot/cross/arm64-headers.tar.sha256
+          if-no-files-found: error
+          retention-days: 90
+      - name: retain native ARM64 assembly
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint58-bootstrap-arm64-cross-native
+          path: build/boot/cross/native/
+          if-no-files-found: error
+          retention-days: 90
+
+  x86_64-cross-source:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '41 3 * * 0'
+    needs: [x86_64-linux, arm64-cross-source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-x86_64-linux-O2
+          path: build/x86-bootstrap
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-arm64-cross-input
+          path: build/boot/cross
+      - name: emit the x86-hosted ARM64 assembly stream
+        run: |
+          chmod +x build/x86-bootstrap/O2/stage1/cgfried
+          sha256sum -c build/boot/cross/arm64-headers.tar.sha256
+          mkdir -p build/boot/cross/sysroot
+          tar -xf build/boot/cross/arm64-headers.tar \
+            -C build/boot/cross/sysroot
+          CGF_BOOTSTRAP_COMMIT='${{ github.sha }}' \
+          CGF_BOOTSTRAP_RUNNER_ARCH='${{ runner.arch }}' \
+          CGF_BOOTSTRAP_X86_RUN_MANIFEST=build/x86-bootstrap/ci/x86_64-linux-O2.manifest \
+          CGF_BOOTSTRAP_HEADER_ARCHIVE=build/boot/cross/arm64-headers.tar \
+            scripts/bootstrap-cross.sh emit O2 \
+            build/x86-bootstrap/O2/stage1/cgfried \
+            build/boot/cross/sysroot build/boot/cross/x86 \
+            build/x86-bootstrap/O2
+      - name: retain x86-hosted ARM64 assembly
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint58-bootstrap-arm64-cross-x86
+          path: build/boot/cross/x86/
+          if-no-files-found: error
+          retention-days: 90
+
+  arm64-cross-compare:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '41 3 * * 0'
+    needs: [arm64-cross-source, x86_64-cross-source]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - name: install the native C toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential binutils libc6-dev
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-arm64-cross-native
+          path: build/boot/cross/native
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-arm64-cross-x86
+          path: build/boot/cross/x86
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-x86_64-linux-O2
+          path: build/x86-bootstrap
+      - uses: actions/download-artifact@v8
+        with:
+          name: sprint58-bootstrap-arm64-cross-input
+          path: build/boot/cross/input
+      - name: compare raw assembly and same-toolchain final artifacts
+        run: |
+          HOSTCC=gcc CGF_BOOTSTRAP_COMMIT='${{ github.sha }}' \
+          CGF_BOOTSTRAP_RUNNER_ARCH='${{ runner.arch }}' \
+          CGF_BOOTSTRAP_X86_RUN_MANIFEST=build/x86-bootstrap/ci/x86_64-linux-O2.manifest \
+          CGF_BOOTSTRAP_HEADER_ARCHIVE=build/boot/cross/input/arm64-headers.tar \
+            scripts/bootstrap-cross.sh compare O2 \
+            build/boot/cross/x86 build/boot/cross/native \
+            build/x86-bootstrap/O2
+      - name: retain final cross-host evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint58-bootstrap-arm64-cross-final
+          path: build/boot/cross/
+          if-no-files-found: warn
+          retention-days: 90

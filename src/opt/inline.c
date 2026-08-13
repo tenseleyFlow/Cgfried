@@ -11,6 +11,40 @@ typedef struct {
     IrInst *prev;
 } CallSite;
 
+typedef enum {
+    INL_LOOP_UNKNOWN,
+    INL_LOOP_NO,
+    INL_LOOP_YES,
+} InlLoopState;
+
+typedef struct {
+    u32 insts;
+    u32 returns;
+    bool has_alloca;
+    bool has_va_start;
+    bool recursive;
+    u8 *control_params;
+} InlFuncFacts;
+
+typedef struct {
+    Arena arena;
+    u32 *direct_calls;
+    InlFuncFacts *funcs;
+} InlScanCache;
+
+typedef struct {
+    Arena arena;
+    u8 *blocks;
+} InlLoopCache;
+
+enum {
+    /* Bound compile work as well as code growth.  This is deliberately an
+     * instruction budget, not a site count: many tiny leaf calls remain cheap,
+     * while giant dispatchers cannot consume unbounded optimization time. */
+    INL_MIN_GROWTH_BUDGET = 128,
+    INL_MAX_CALLER_INSTS = 512,
+};
+
 static void *inl_grow(Arena *a, const void *old, u32 oldn, u32 newn,
                       size_t size, size_t align)
 {
@@ -119,76 +153,124 @@ static bool recursive_node(const Callgraph *g, u32 node)
     return false;
 }
 
-static u32 inst_count(const IrFunc *f)
+static void scan_func_facts(InlScanCache *cache, const IrModule *m,
+                            const Callgraph *graph, u32 fi,
+                            bool count_direct_calls)
 {
-    u32 i, n = 0;
-
-    for (i = 0; i < f->nblocks; i++)
-        n += f->blocks[i].ninsts;
-    return n;
-}
-
-static bool contains_op(const IrFunc *f, IrOp op)
-{
+    const IrFunc *f = &m->funcs[fi];
+    InlFuncFacts *facts = &cache->funcs[fi];
     u32 bi;
 
+    facts->insts = 0;
+    facts->returns = 0;
+    facts->has_alloca = false;
+    facts->has_va_start = false;
+    facts->recursive = recursive_node(graph, fi);
+    memset(facts->control_params, 0,
+           f->nparams * sizeof(*facts->control_params));
     for (bi = 0; bi < f->nblocks; bi++) {
         const IrInst *in;
 
-        for (in = f->blocks[bi].first; in; in = in->next)
-            if (in->op == op)
-                return true;
+        for (in = f->blocks[bi].first; in; in = in->next) {
+            u32 pi;
+
+            facts->insts++;
+            facts->returns += in->op == IR_RET;
+            facts->has_alloca |= in->op == IR_ALLOCA;
+            facts->has_va_start |= in->op == IR_VA_START;
+            if (in == f->blocks[bi].last &&
+                (in->op == IR_CONDBR || in->op == IR_SWITCH) && in->nops &&
+                in->ops[0].kind == IROP_VALUE)
+                for (pi = 0; pi < f->nparams; pi++)
+                    if (f->param_vals[pi].v == in->ops[0].a)
+                        facts->control_params[pi] = true;
+            if (count_direct_calls && in->op == IR_CALL &&
+                in->subop == FUNCREF_INTERNAL && in->callee < m->nfuncs)
+                cache->direct_calls[in->callee]++;
+        }
     }
-    return false;
 }
 
-static bool arg_feeds_control(const IrFunc *f, u32 arg)
+static void scan_cache_build(InlScanCache *cache, const IrModule *m,
+                             const Callgraph *graph)
+{
+    u32 fi;
+
+    arena_init(&cache->arena);
+    cache->direct_calls =
+        arena_alloc(&cache->arena,
+                    (m->nfuncs ? m->nfuncs : 1) * sizeof(*cache->direct_calls),
+                    _Alignof(u32));
+    cache->funcs = arena_alloc(
+        &cache->arena, (m->nfuncs ? m->nfuncs : 1) * sizeof(*cache->funcs),
+        _Alignof(InlFuncFacts));
+    memset(cache->direct_calls, 0, m->nfuncs * sizeof(*cache->direct_calls));
+    memset(cache->funcs, 0, m->nfuncs * sizeof(*cache->funcs));
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        const IrFunc *f = &m->funcs[fi];
+        InlFuncFacts *facts = &cache->funcs[fi];
+
+        facts->control_params = arena_alloc(
+            &cache->arena, (f->nparams ? f->nparams : 1) * sizeof(u8),
+            _Alignof(u8));
+        scan_func_facts(cache, m, graph, fi, true);
+    }
+}
+
+static void add_cloned_direct_calls(InlScanCache *cache, const IrModule *m,
+                                    const IrFunc *callee)
 {
     u32 bi;
-    ValueId param = f->param_vals[arg];
 
-    for (bi = 0; bi < f->nblocks; bi++) {
-        const IrInst *in = f->blocks[bi].last;
+    for (bi = 0; bi < callee->nblocks; bi++) {
+        const IrInst *in;
 
-        if (in && (in->op == IR_CONDBR || in->op == IR_SWITCH) && in->nops &&
-            in->ops[0].kind == IROP_VALUE && in->ops[0].a == param.v)
-            return true;
-    }
-    return false;
-}
-
-static u32 direct_call_count(const IrModule *m, u32 target)
-{
-    u32 fi, bi, n = 0;
-
-    for (fi = 0; fi < m->nfuncs; fi++)
-        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
-            const IrInst *in;
-
-            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next)
-                if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
-                    in->callee == target)
-                    n++;
+        for (in = callee->blocks[bi].first; in; in = in->next) {
+            if (in->op != IR_CALL || in->subop != FUNCREF_INTERNAL ||
+                in->callee >= m->nfuncs)
+                continue;
+            cache->direct_calls[in->callee]++;
         }
-    return n;
+    }
 }
 
-static bool block_in_loop(Arena *scratch, const IrFunc *f, u32 block)
+static u32 growth_budget(u32 original_insts)
+{
+    u64 budget = original_insts;
+    u32 room;
+
+    if (original_insts >= INL_MAX_CALLER_INSTS)
+        return 0;
+    room = INL_MAX_CALLER_INSTS - original_insts;
+
+    if (budget < INL_MIN_GROWTH_BUDGET)
+        budget = INL_MIN_GROWTH_BUDGET;
+    if (budget > room)
+        budget = room;
+    return (u32)budget;
+}
+
+static bool block_in_loop(InlLoopCache *cache, const IrFunc *f, u32 block)
 {
     bool *seen;
     u32 *work;
     u32 nwork = 0;
     const IrInst *term;
     u32 ei;
+    bool in_loop = false;
 
     if (block >= f->nblocks)
         return false;
-    seen = arena_alloc(scratch, f->nblocks * sizeof(*seen), _Alignof(bool));
-    work = arena_alloc(scratch, f->nblocks * sizeof(*work), _Alignof(u32));
+    if (cache->blocks[block] != INL_LOOP_UNKNOWN)
+        return cache->blocks[block] == INL_LOOP_YES;
+    seen =
+        arena_alloc(&cache->arena, f->nblocks * sizeof(*seen), _Alignof(bool));
+    work =
+        arena_alloc(&cache->arena, f->nblocks * sizeof(*work), _Alignof(u32));
     memset(seen, 0, f->nblocks * sizeof(*seen));
     term = f->blocks[block].last;
     if (!term)
-        return false;
+        goto done;
     /* The call block belongs to a cyclic CFG SCC iff one of its successors
      * can reach it.  This covers natural, self, and irreducible loops; the
      * last class has no dominance-classified retreating edge but repeats an
@@ -196,8 +278,10 @@ static bool block_in_loop(Arena *scratch, const IrFunc *f, u32 block)
     for (ei = 0; ei < term->nedges; ei++) {
         u32 target = term->edges[ei].target.v;
 
-        if (target == block + 1)
-            return true;
+        if (target == block + 1) {
+            in_loop = true;
+            goto done;
+        }
         if (target && target <= f->nblocks && !seen[target - 1]) {
             seen[target - 1] = true;
             work[nwork++] = target - 1;
@@ -212,15 +296,19 @@ static bool block_in_loop(Arena *scratch, const IrFunc *f, u32 block)
         for (ei = 0; ei < next->nedges; ei++) {
             u32 target = next->edges[ei].target.v;
 
-            if (target == block + 1)
-                return true;
+            if (target == block + 1) {
+                in_loop = true;
+                goto done;
+            }
             if (target && target <= f->nblocks && !seen[target - 1]) {
                 seen[target - 1] = true;
                 work[nwork++] = target - 1;
             }
         }
     }
-    return false;
+done:
+    cache->blocks[block] = in_loop ? INL_LOOP_YES : INL_LOOP_NO;
+    return in_loop;
 }
 
 static bool block_name_exists(const IrFunc *f, const char *name)
@@ -365,27 +453,13 @@ static void append_local_slots(IrModule *m, IrFunc *caller,
     }
 }
 
-static u32 count_returns(const IrFunc *f)
-{
-    u32 bi, n = 0;
-
-    for (bi = 0; bi < f->nblocks; bi++) {
-        const IrInst *in;
-
-        for (in = f->blocks[bi].first; in; in = in->next)
-            n += in->op == IR_RET;
-    }
-    return n;
-}
-
 static bool inline_site(IrModule *m, IrFunc *caller, const IrFunc *callee,
-                        const CallSite *site, u32 *next_serial)
+                        const CallSite *site, u32 returns, u32 *next_serial)
 {
     IrOperand *map;
     BlockId *blocks;
     IrInst *suffix = site->call->next;
     u32 suffix_count = 0;
-    u32 returns = count_returns(callee);
     u32 serial =
         choose_serial(caller, callee->nblocks, returns > 1, next_serial);
     BlockId join = BLOCK_INVALID;
@@ -526,14 +600,12 @@ static bool inline_site(IrModule *m, IrFunc *caller, const IrFunc *callee,
         if (site->call->result.v)
             replace_value(caller, site->call->result, single_result);
     }
-    ir_func_remove_unreachable(caller);
-    ir_func_renumber(m->arena, caller);
     return true;
 }
 
 static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
                      const Callgraph *graph, const OptConfig *cfg,
-                     Arena *scratch)
+                     InlScanCache *cache, InlLoopCache *loops, u32 growth_left)
 {
     const IrFunc *caller = &m->funcs[caller_index];
     const IrInst *call = site->call;
@@ -564,7 +636,7 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
         OPT_BAIL(&fc, "inline", "inl_debug_info");
         return false;
     }
-    if (callee->variadic && contains_op(callee, IR_VA_START)) {
+    if (callee->variadic && cache->funcs[call->callee].has_va_start) {
         OPT_BAIL(&fc, "inline", "inl_va_start");
         return false;
     }
@@ -583,7 +655,7 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
     /* A no-return splice would make the caller suffix unreachable.  Leave it
      * intact until the pinned-operation audit can distinguish intentionally
      * dead suffixes from transformations that lose observable operations. */
-    if (count_returns(callee) == 0) {
+    if (cache->funcs[call->callee].returns == 0) {
         OPT_BAIL(&fc, "inline", "inl_noreturn");
         return false;
     }
@@ -593,35 +665,40 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
      * manufacture the one IR shape x86 isel cannot represent.  Single-return
      * f80 callees need no join and remain eligible.  musl's floatscan campaign
      * reached this through hexfloat at -O3. */
-    if (callee->ret == IRT_F80 && count_returns(callee) > 1) {
+    if (callee->ret == IRT_F80 && cache->funcs[call->callee].returns > 1) {
         OPT_BAIL(&fc, "inline", "inl_f80_multiret");
         return false;
     }
     /* A recursive callee cannot be spliced even into a caller outside its
      * SCC: the cloned recursive edge would otherwise become a fresh eligible
      * site on the next scan/fixpoint iteration and expand without bound. */
-    if (recursive_node(graph, call->callee) ||
+    if (cache->funcs[call->callee].recursive ||
         ipo_callgraph_scc_of(graph, caller_index) ==
             ipo_callgraph_scc_of(graph, call->callee)) {
         OPT_BAIL(&fc, "inline", "inl_recursion");
         return false;
     }
-    if (contains_op(callee, IR_ALLOCA) &&
-        block_in_loop(scratch, caller, site->block)) {
+    if (cache->funcs[call->callee].has_alloca &&
+        block_in_loop(loops, caller, site->block)) {
         OPT_BAIL(&fc, "inline", "inl_alloca_in_loop");
         return false;
     }
     threshold = cfg->inline_threshold;
     if (callee->linkage == IRLINK_INTERNAL &&
-        direct_call_count(m, call->callee) == 1 &&
+        cache->direct_calls[call->callee] == 1 &&
         !ipo_callgraph_address_taken(graph, call->callee))
         threshold *= 4;
     for (i = 0; i < callee->nparams && i < call->nops; i++)
         if (call->ops[i].kind != IROP_VALUE &&
-            call->ops[i].kind != IROP_UNDEF && arg_feeds_control(callee, i))
+            call->ops[i].kind != IROP_UNDEF &&
+            cache->funcs[call->callee].control_params[i])
             threshold += cfg->level == OPT_OS ? 5 : 10;
-    if (inst_count(callee) > threshold) {
+    if (cache->funcs[call->callee].insts > threshold) {
         OPT_BAIL(&fc, "inline", "inl_cost");
+        return false;
+    }
+    if (cache->funcs[call->callee].insts > growth_left) {
+        OPT_BAIL(&fc, "inline", "inl_growth_budget");
         return false;
     }
     return true;
@@ -630,10 +707,12 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
 bool opt_inline(IrModule *m, const OptConfig *cfg)
 {
     Callgraph *graph;
+    InlScanCache cache;
     bool changed = false;
     u32 oi, nsccs;
 
     graph = ipo_callgraph_build(m);
+    scan_cache_build(&cache, m, graph);
     nsccs = ipo_callgraph_scc_count(graph);
     for (oi = 0; oi < nsccs; oi++) {
         u32 scc = ipo_callgraph_bottom_up_scc(graph, oi);
@@ -642,12 +721,23 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
         for (mi = 0; mi < ipo_callgraph_scc_size(graph, scc); mi++) {
             u32 fi = ipo_callgraph_scc_member(graph, scc, mi);
             u32 serial = 0;
+            u32 growth_left = growth_budget(cache.funcs[fi].insts);
+            bool func_changed = false;
 
             for (;;) {
                 CallSite site;
+                InlLoopCache loops;
                 bool found_eligible = false;
                 u32 bi;
 
+                arena_init(&loops.arena);
+                loops.blocks = arena_alloc(
+                    &loops.arena,
+                    (m->funcs[fi].nblocks ? m->funcs[fi].nblocks : 1) *
+                        sizeof(*loops.blocks),
+                    _Alignof(u8));
+                memset(loops.blocks, INL_LOOP_UNKNOWN,
+                       m->funcs[fi].nblocks * sizeof(*loops.blocks));
                 /* Scan every call in document order, logging every named bail,
                  * and commit the first eligible site before restarting because
                  * block compaction invalidates saved block coordinates. */
@@ -658,29 +748,48 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
 
                     for (in = m->funcs[fi].blocks[bi].first; in;
                          prev = in, in = in->next) {
-                        Arena legal_scratch;
-
                         if (in->op != IR_CALL)
                             continue;
                         site.block = bi;
                         site.call = in;
                         site.prev = prev;
-                        arena_init(&legal_scratch);
-                        found_eligible =
-                            eligible(m, fi, &site, graph, cfg, &legal_scratch);
-                        arena_free_all(&legal_scratch);
+                        found_eligible = eligible(m, fi, &site, graph, cfg,
+                                                  &cache, &loops, growth_left);
                         if (found_eligible)
                             break;
                     }
                 }
-                if (!found_eligible)
+                if (!found_eligible) {
+                    arena_free_all(&loops.arena);
                     break;
-                changed |=
-                    inline_site(m, &m->funcs[fi], &m->funcs[site.call->callee],
-                                &site, &serial);
+                }
+                {
+                    u32 callee = site.call->callee;
+                    u32 growth = cache.funcs[callee].insts;
+
+                    if (!cache.direct_calls[callee])
+                        CGF_ICE("inline: direct-call cache underflow");
+                    cache.direct_calls[callee]--;
+                    add_cloned_direct_calls(&cache, m, &m->funcs[callee]);
+                    growth_left -= growth;
+                }
+                func_changed |= inline_site(
+                    m, &m->funcs[fi], &m->funcs[site.call->callee], &site,
+                    cache.funcs[site.call->callee].returns, &serial);
+                arena_free_all(&loops.arena);
+            }
+            if (func_changed) {
+                /* Value numbering is not consulted by inliner eligibility.
+                 * Canonicalize once after the caller reaches its fixed point,
+                 * instead of performing three whole-function walks per site. */
+                ir_func_remove_unreachable(&m->funcs[fi]);
+                ir_func_renumber(m->arena, &m->funcs[fi]);
+                scan_func_facts(&cache, m, graph, fi, false);
+                changed = true;
             }
         }
     }
+    arena_free_all(&cache.arena);
     ipo_callgraph_free(graph);
     return changed;
 }

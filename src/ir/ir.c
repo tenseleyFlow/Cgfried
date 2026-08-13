@@ -169,6 +169,7 @@ void ir_mem_layout_register(IrModule *m, Span span, u64 size,
         if (old->suppress_uninit != suppress_uninit ||
             old->nranges != nranges ||
             (nranges &&
+             /* determinism-audit allow memcmp-object: two initialized u64s. */
              memcmp(old->ranges, ranges, nranges * sizeof(*ranges)) != 0)) {
             /* One spelling produced incompatible aggregate shapes.  This is
              * possible through aggressive macro provenance coalescing; a

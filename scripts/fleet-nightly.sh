@@ -159,11 +159,17 @@ fi
 
 bench=${CGF_FLEET_BENCH:-$checkout/scripts/fleet-bench.sh}
 perf=${CGF_FLEET_PERF:-$checkout/scripts/fleet-perf.sh}
+bootstrap=${CGF_FLEET_BOOTSTRAP:-$checkout/scripts/fleet-bootstrap.sh}
 [ -x "$bench" ] || die "fleet benchmark wrapper is not executable: $bench"
 [ -x "$perf" ] || die "fleet runtime wrapper is not executable: $perf"
+if [ "$system" = Linux ]; then
+    [ -x "$bootstrap" ] ||
+        die "fleet bootstrap wrapper is not executable: $bootstrap"
+fi
 run_dir=$checkout/.benchmarks/runs
 compile_result=$run_dir/$stamp-$host.txt
 runtime_result=$run_dir/$stamp-$host-kernels.txt
+bootstrap_result=$run_dir/$stamp-$host-bootstrap.txt
 
 bench_status=0
 CGF_FLEET_HOST=$host CGF_FLEET_STAMP=$stamp CGF_FLEET_COMMIT=0 \
@@ -200,6 +206,40 @@ runtime_trip=$(awk -F= '
         print value
     }
 ' "$runtime_result") || die "kernel runtime artifact lacks a unique trip result"
+
+bootstrap_status=0
+if [ "$system" = Linux ]; then
+    # Bootstrap is long enough to perturb the shorter compile/runtime truth
+    # lanes, so it runs last. Hold both already-produced artifacts under the
+    # ignored build tree to preserve the clean-source timing contract.
+    runtime_holding=$checkout/build/$stamp-$host.runtime-result
+    mv "$compile_result" "$compile_holding" ||
+        die "cannot hold compile artifact during bootstrap measurement"
+    mv "$runtime_result" "$runtime_holding" || {
+        mv "$compile_holding" "$compile_result" || true
+        die "cannot hold runtime artifact during bootstrap measurement"
+    }
+    restore_bootstrap_inputs()
+    {
+        [ ! -e "$compile_result" ] && [ -e "$compile_holding" ] &&
+            mv "$compile_holding" "$compile_result" || true
+        [ ! -e "$runtime_result" ] && [ -e "$runtime_holding" ] &&
+            mv "$runtime_holding" "$runtime_result" || true
+    }
+    trap 'restore_bootstrap_inputs' EXIT HUP INT TERM
+    HOSTCC=$cc CGF_FLEET_ROOT=$checkout CGF_FLEET_HOST=$host \
+    CGF_FLEET_STAMP=$stamp CGF_FLEET_BOOTSTRAP_RESULT=$bootstrap_result \
+    CGF_FLEET_MAKE_CMD=$make_cmd CGF_FLEET_GIT_CMD=$git_cmd \
+    CGF_FLEET_UNAME_CMD=$uname_cmd "$bootstrap" || bootstrap_status=$?
+    restore_bootstrap_inputs
+    trap - EXIT HUP INT TERM
+    case $bootstrap_status in
+    0 | 1) ;;
+    *) die "stage1 bootstrap timing infrastructure failed (status $bootstrap_status)" ;;
+    esac
+    [ -s "$bootstrap_result" ] ||
+        die "stage1 bootstrap timing artifact is missing"
+fi
 {
     echo "fleet.nightly_stamp=$stamp"
     echo "fleet.nightly_host=$host"
@@ -211,20 +251,26 @@ runtime_trip=$(awk -F= '
 
 compile_relative=${compile_result#"$checkout"/}
 runtime_relative=${runtime_result#"$checkout"/}
-"$git_cmd" -C "$checkout" add -- "$compile_relative" "$runtime_relative"
+set -- "$compile_relative" "$runtime_relative"
+if [ "$system" = Linux ]; then
+    bootstrap_relative=${bootstrap_result#"$checkout"/}
+    set -- "$@" "$bootstrap_relative"
+fi
+"$git_cmd" -C "$checkout" add -- "$@"
 staged=$($git_cmd -C "$checkout" diff --cached --name-only | sort)
-expected=$(printf '%s\n%s\n' "$compile_relative" "$runtime_relative" | sort)
-[ "$staged" = "$expected" ] || die "refusing commit: staged paths are not exactly the two dated artifacts"
+expected=$(printf '%s\n' "$@" | sort)
+[ "$staged" = "$expected" ] ||
+    die "refusing commit: staged paths are not exactly the dated artifacts"
 
 trip=no
 if [ "$bench_status" -eq 1 ] || [ "$perf_status" -eq 1 ] ||
-   [ "$runtime_trip" = yes ]; then
+   [ "$runtime_trip" = yes ] || [ "$bootstrap_status" -eq 1 ]; then
     trip=yes
 fi
 "$git_cmd" -C "$checkout" -c commit.gpgsign=false commit -m \
     "Record nightly performance on $host at $stamp (gate-trip=$trip)" -- \
-    "$compile_relative" "$runtime_relative" || die "cannot commit nightly artifacts"
-echo "$prog: committed $compile_relative and $runtime_relative; baselines unchanged"
+    "$@" || die "cannot commit nightly artifacts"
+echo "$prog: committed the dated $host artifacts; baselines unchanged"
 
 if [ "$push" -eq 1 ]; then
     if ! "$git_cmd" -C "$checkout" push origin trunk; then
@@ -246,5 +292,8 @@ if [ "$bench_status" -eq 1 ] || [ "$perf_status" -eq 1 ]; then
 fi
 if [ "$runtime_trip" = yes ]; then
     echo "$prog: non-blocking trial runtime trip recorded"
+fi
+if [ "$bootstrap_status" -eq 1 ]; then
+    echo "$prog: non-blocking trial bootstrap-time trip recorded"
 fi
 echo "$prog: nightly measurements passed"

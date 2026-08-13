@@ -1,58 +1,119 @@
 /* libcgf_rt: 128-bit integer support, with LIBGCC-COMPATIBLE NAMES.
  *
- * The names are the contract (locked decision): objects we compile must
- * mix with gcc-compiled objects, so a program half-built by each linker
- * must resolve __udivti3 to ONE implementation and behave identically
- * either way.
+ * Cgfried deliberately does not implement the GNU __int128 source type.  The
+ * supported little-endian x86-64 SysV and AAPCS64 ABIs nevertheless pass and
+ * return a scalar 128-bit integer in the same two registers as this two-u64
+ * aggregate (low limb first).  That lets this strict-C11 implementation keep
+ * the libgcc symbol ABI without requiring the extension it exists to support.
  *
- * THE BOOTSTRAP RULE: this file must never use 128-bit `/` or `%`.
- * When cgf compiles it (Sprint 58) those lower to calls to the very
- * functions defined here, and the recursion is infinite. Shifts,
- * compares, add and subtract lower inline, so the shift-subtract
- * long division below is safe. Do not "simplify" it back to `n / d`.
- *
- * Compiled by the HOST cc until Sprint 58 flips it (RT_CC in the
- * Makefile); the flip is part of the self-host DoD. */
+ * None of these routines may use an operation that lowers to itself. */
 
+typedef unsigned int u32;
 typedef unsigned long long u64;
-typedef unsigned __int128 u128;
-typedef signed __int128 i128;
 
-/* Unsigned 128/128 division, remainder out. The fast path handles the
- * case both operands fit in 64 bits, where the host's own 64-bit
- * division is a single instruction. */
-static u128 udiv128(u128 n, u128 d, u128 *rem)
+typedef struct {
+    u64 lo;
+    u64 hi;
+} U128;
+
+_Static_assert(sizeof(u32) == 4, "int128 runtime requires 32-bit unsigned int");
+_Static_assert(sizeof(u64) == 8,
+               "int128 runtime requires 64-bit unsigned long long");
+_Static_assert(sizeof(U128) == 16,
+               "int128 runtime ABI requires a 16-byte pair");
+
+static U128 pair(u64 lo, u64 hi)
 {
-    u128 q = 0, r = 0;
+    U128 v;
+
+    v.lo = lo;
+    v.hi = hi;
+    return v;
+}
+
+static int pair_is_zero(U128 a)
+{
+    return a.lo == 0 && a.hi == 0;
+}
+
+static int pair_cmp(U128 a, U128 b)
+{
+    if (a.hi != b.hi)
+        return a.hi < b.hi ? -1 : 1;
+    if (a.lo != b.lo)
+        return a.lo < b.lo ? -1 : 1;
+    return 0;
+}
+
+static U128 pair_sub(U128 a, U128 b)
+{
+    U128 r;
+
+    r.lo = a.lo - b.lo;
+    r.hi = a.hi - b.hi - (a.lo < b.lo);
+    return r;
+}
+
+static U128 pair_neg(U128 a)
+{
+    U128 r;
+
+    r.lo = ~a.lo + 1;
+    r.hi = ~a.hi + (r.lo == 0);
+    return r;
+}
+
+static U128 pair_shl1(U128 a)
+{
+    return pair(a.lo << 1, (a.hi << 1) | (a.lo >> 63));
+}
+
+static unsigned pair_bit(U128 a, int bit)
+{
+    if (bit >= 64)
+        return (unsigned)((a.hi >> (bit - 64)) & 1);
+    return (unsigned)((a.lo >> bit) & 1);
+}
+
+static void pair_set_bit(U128 *a, int bit)
+{
+    if (bit >= 64)
+        a->hi |= 1ULL << (bit - 64);
+    else
+        a->lo |= 1ULL << bit;
+}
+
+/* Restoring long division.  The carry records the 129th bit of the running
+ * remainder; discarding it before the comparison is a subtle bug when the
+ * divisor has its top bit set. */
+static U128 udiv128(U128 n, U128 d, U128 *rem)
+{
+    U128 q = {0, 0};
+    U128 r = {0, 0};
     int i;
 
-    if (d == 0) {
-        /* Match the hardware: an integer divide by zero traps (SIGFPE
-         * on x86_64 via the div instruction). Returning 0 would turn a
-         * crash the programmer can find into a wrong answer they
-         * cannot. The division below is 64-bit, so it is not a
-         * recursive call into this function. */
-        u64 zero = 0;
+    if (pair_is_zero(d)) {
+        volatile u64 zero = 0;
 
         if (rem)
-            *rem = 0;
-        return (u128)(1 / zero);
+            *rem = pair(0, 0);
+        return pair(1 / zero, 0);
     }
-    if ((d >> 64) == 0 && (n >> 64) == 0) {
-        u64 n0 = (u64)n, d0 = (u64)d;
 
+    if (d.hi == 0 && n.hi == 0) {
         if (rem)
-            *rem = n0 % d0;
-        return n0 / d0;
+            *rem = pair(n.lo % d.lo, 0);
+        return pair(n.lo / d.lo, 0);
     }
-    /* Shift-subtract, MSB first: r accumulates the running remainder
-     * and q the quotient, one bit per step. Only shifts, compares and
-     * subtraction — all of which lower inline. */
+
     for (i = 127; i >= 0; i--) {
-        r = (r << 1) | ((n >> i) & 1);
-        if (r >= d) {
-            r -= d;
-            q |= (u128)1 << i;
+        unsigned carry = (unsigned)(r.hi >> 63);
+
+        r = pair_shl1(r);
+        r.lo |= pair_bit(n, i);
+        if (carry || pair_cmp(r, d) >= 0) {
+            r = pair_sub(r, d);
+            pair_set_bit(&q, i);
         }
     }
     if (rem)
@@ -60,89 +121,109 @@ static u128 udiv128(u128 n, u128 d, u128 *rem)
     return q;
 }
 
-u128 __udivti3(u128 a, u128 b)
+U128 __udivti3(U128 a, U128 b)
 {
     return udiv128(a, b, 0);
 }
 
-u128 __umodti3(u128 a, u128 b)
+U128 __umodti3(U128 a, U128 b)
 {
-    u128 r;
+    U128 r;
 
-    udiv128(a, b, &r);
+    (void)udiv128(a, b, &r);
     return r;
 }
 
-/* Signed forms: C99 truncates toward zero, so the quotient's sign is
- * the XOR of the operands' and the remainder takes the DIVIDEND's. */
-i128 __divti3(i128 a, i128 b)
+/* Signed quotient truncates toward zero; remainder takes the dividend sign.
+ * Two's-complement magnitude conversion also handles INT128_MIN. */
+U128 __divti3(U128 a, U128 b)
 {
-    int neg = 0;
-    u128 ua, ub, q;
+    int neg = (int)((a.hi ^ b.hi) >> 63);
+    U128 ua = a.hi >> 63 ? pair_neg(a) : a;
+    U128 ub = b.hi >> 63 ? pair_neg(b) : b;
+    U128 q = udiv128(ua, ub, 0);
 
-    if (a < 0) {
-        ua = (u128)0 - (u128)a;
-        neg = !neg;
-    } else {
-        ua = (u128)a;
-    }
-    if (b < 0) {
-        ub = (u128)0 - (u128)b;
-        neg = !neg;
-    } else {
-        ub = (u128)b;
-    }
-    q = udiv128(ua, ub, 0);
-    return neg ? -(i128)q : (i128)q;
+    return neg ? pair_neg(q) : q;
 }
 
-i128 __modti3(i128 a, i128 b)
+U128 __modti3(U128 a, U128 b)
 {
-    int neg = a < 0;
-    u128 ua, ub, r;
+    int neg = (int)(a.hi >> 63);
+    U128 ua = neg ? pair_neg(a) : a;
+    U128 ub = b.hi >> 63 ? pair_neg(b) : b;
+    U128 r;
 
-    ua = a < 0 ? (u128)0 - (u128)a : (u128)a;
-    ub = b < 0 ? (u128)0 - (u128)b : (u128)b;
-    udiv128(ua, ub, &r);
-    return neg ? -(i128)r : (i128)r;
+    (void)udiv128(ua, ub, &r);
+    return neg ? pair_neg(r) : r;
 }
 
-/* 128x128 multiply from 64-bit halves. isel usually inlines this, but
- * the symbol must exist for objects that call it. */
-u128 __multi3(u128 a, u128 b)
+/* Exact 64x64 -> 128 multiplication using four 32-bit partial products. */
+static U128 mul64(u64 a, u64 b)
 {
-    u64 al = (u64)a, ah = (u64)(a >> 64);
-    u64 bl = (u64)b, bh = (u64)(b >> 64);
-    /* Only the low 128 bits survive, so the ah*bh term (which starts at
-     * bit 128) is dropped entirely — the same reason isel can inline
-     * this as one mul plus two multiply-adds. */
-    u128 lo = (u128)al * bl;
-    u128 mid = (u128)ah * bl + (u128)al * bh;
+    const u64 mask = 0xffffffffULL;
+    u64 a0 = (u32)a;
+    u64 a1 = a >> 32;
+    u64 b0 = (u32)b;
+    u64 b1 = b >> 32;
+    u64 t = a0 * b0;
+    u64 w0 = t & mask;
+    u64 k = t >> 32;
+    u64 w1, w2;
 
-    return lo + (mid << 64);
+    t = a1 * b0 + k;
+    w1 = t & mask;
+    w2 = t >> 32;
+    t = a0 * b1 + w1;
+    k = t >> 32;
+    return pair((t << 32) + w0, a1 * b1 + w2 + k);
 }
 
-/* Variable-count 128-bit shifts. The count is taken mod 128 the way the
- * hardware would NOT do it — a count >= 128 is undefined in C, and
- * libgcc's own versions produce these answers. */
-i128 __ashlti3(i128 a, int b)
+U128 __multi3(U128 a, U128 b)
 {
-    return (i128)((u128)a << b);
+    U128 lo = mul64(a.lo, b.lo);
+
+    lo.hi += a.hi * b.lo + a.lo * b.hi;
+    return lo;
 }
 
-i128 __ashrti3(i128 a, int b)
+U128 __ashlti3(U128 a, int b)
 {
-    return a >> b;
+    if (b <= 0)
+        return a;
+    if (b < 64)
+        return pair(a.lo << b, (a.hi << b) | (a.lo >> (64 - b)));
+    if (b < 128)
+        return pair(0, a.lo << (b - 64));
+    return pair(0, 0);
 }
 
-u128 __lshrti3(u128 a, int b)
+U128 __lshrti3(U128 a, int b)
 {
-    return a >> b;
+    if (b <= 0)
+        return a;
+    if (b < 64)
+        return pair((a.lo >> b) | (a.hi << (64 - b)), a.hi >> b);
+    if (b < 128)
+        return pair(a.hi >> (b - 64), 0);
+    return pair(0, 0);
 }
 
-/* Bit counts. libgcc's __clzdi2/__ctzdi2 are UNDEFINED at zero; the
- * loops below would return 64, which is a defined answer we do not
- * promise — callers must not pass zero. */
+U128 __ashrti3(U128 a, int b)
+{
+    u64 fill = a.hi >> 63 ? ~0ULL : 0;
+
+    if (b <= 0)
+        return a;
+    if (b < 64)
+        return pair((a.lo >> b) | (a.hi << (64 - b)),
+                    (a.hi >> b) | (fill << (64 - b)));
+    if (b == 64)
+        return pair(a.hi, fill);
+    if (b < 128)
+        return pair((a.hi >> (b - 64)) | (fill << (128 - b)), fill);
+    return pair(fill, fill);
+}
+
 int __popcountdi2(u64 a)
 {
     int n = 0;
@@ -154,6 +235,7 @@ int __popcountdi2(u64 a)
     return n;
 }
 
+/* As in libgcc, clz/ctz are undefined for zero. */
 int __clzdi2(u64 a)
 {
     int n = 0;

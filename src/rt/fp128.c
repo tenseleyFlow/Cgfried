@@ -26,16 +26,23 @@
  * struct links successfully, runs, and reads its operands out of the wrong
  * registers — arithmetic on garbage, with no crash and no diagnostic.
  *
- * `mode(TF)` is how libgcc itself spells the type, and both gcc and clang
- * honour it on every target in the closed set, so the runtime keeps building
- * with a plain host toolchain. No arithmetic is ever performed on cgf_tf
+ * Cgfried spells this ABI type `_Float128`; the host-toolchain build uses
+ * libgcc's `mode(TF)` spelling because that is accepted by both gcc and clang
+ * across the closed target set. No arithmetic is ever performed on cgf_tf
  * here; it is a carrier, and every value goes through memcpy to reach the
  * softfloat core. */
 /* check_bans allow: there is no ISO spelling for binary128, and the ban
  * exists to keep the COMPILER strict C11. The runtime is a separate artifact
  * with its own contract (RT_CFLAGS, plain host toolchain), and getting this
  * type wrong is an ABI break rather than a portability wart. */
+#if defined(__CGFRIED__)
+typedef _Float128 cgf_tf;
+#else
 typedef float cgf_tf __attribute__((mode(TF))); /* check_bans allow */
+#endif
+
+_Static_assert(sizeof(cgf_tf) == 16, "TF carrier must be IEEE binary128");
+_Static_assert(_Alignof(cgf_tf) == 16, "TF carrier must retain ABI alignment");
 
 static Sf tf_in(cgf_tf a)
 {

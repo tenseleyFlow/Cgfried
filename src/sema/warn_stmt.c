@@ -17,12 +17,23 @@ struct LabelUse {
 };
 
 typedef struct CaseEntry CaseEntry;
+typedef unsigned StmtFlow;
+
+enum {
+    FLOW_NONE = 0,
+    FLOW_NEXT = 1u << 0,
+    FLOW_BREAK = 1u << 1,
+    FLOW_CONTINUE = 1u << 2,
+};
+
 struct CaseEntry {
     AstNode *node;
     AstNode *first;
     AstNode *last;
     Span comment_target;
+    StmtFlow flow;
     bool substantive;
+    CaseEntry *prev;
     CaseEntry *next;
 };
 
@@ -135,6 +146,13 @@ static bool contains_switch_label(AstNode *st)
     }
 }
 
+static StmtFlow stmt_flow(Sema *s, AstNode *st);
+
+static StmtFlow flow_sequence(StmtFlow before, StmtFlow after)
+{
+    return (before & ~FLOW_NEXT) | ((before & FLOW_NEXT) ? after : FLOW_NONE);
+}
+
 static void case_append(Sema *s, CaseEntry **head, CaseEntry **tail,
                         CaseEntry **current, AstNode *node, Span comment_target)
 {
@@ -143,12 +161,15 @@ static void case_append(Sema *s, CaseEntry **head, CaseEntry **tail,
 
     memset(entry, 0, sizeof(*entry));
     entry->node = node;
+    entry->flow = FLOW_NEXT;
     entry->comment_target =
         comment_target.file_id ? comment_target : node->span;
-    if (*tail)
+    if (*tail) {
         (*tail)->next = entry;
-    else
+        entry->prev = *tail;
+    } else {
         *head = entry;
+    }
     *tail = entry;
     *current = entry;
 }
@@ -171,6 +192,8 @@ static void scan_switch_segments(Sema *s, AstNode *st, CaseEntry **head,
             if (!(*current)->first)
                 (*current)->first = st;
             (*current)->last = st;
+            (*current)->flow =
+                flow_sequence((*current)->flow, stmt_flow(s, st));
             (*current)->substantive = true;
         }
         return;
@@ -221,25 +244,148 @@ static bool stmt_is_noreturn_call(AstNode *st)
            (callee->sym->func_specs & AST_FS_NORETURN);
 }
 
-static bool stmt_terminates(AstNode *st)
+typedef enum CondTruth {
+    COND_FALSE,
+    COND_TRUE,
+    COND_UNKNOWN,
+} CondTruth;
+
+static CondTruth condition_truth(Sema *s, AstNode *condition)
 {
-    if (!st)
-        return false;
+    ConstValue cv;
+
+    if (!condition)
+        return COND_UNKNOWN;
+    cv = constexpr_eval(s, condition, CE_FOLD);
+    if (cv.kind != CV_INT)
+        return COND_UNKNOWN;
+    return cv.i == 0 ? COND_FALSE : COND_TRUE;
+}
+
+/* The segment representation is exact when the switch's labels form a
+ * linear case chain.  Labels embedded in an if/loop (Duff's device and
+ * related forms) need a real CFG; keep those conservatively completing. */
+static bool switch_segments_linear(AstNode *st)
+{
+    u32 i;
+
+    if (!st || st->kind == AST_STMT_SWITCH)
+        return true;
     switch (st->kind) {
+    case AST_STMT_COMPOUND:
+        for (i = 0; i < st->nitems; i++)
+            if (!switch_segments_linear(st->items[i]))
+                return false;
+        return true;
+    case AST_STMT_CASE:
+    case AST_STMT_DEFAULT:
+    case AST_STMT_LABEL:
+        return switch_segments_linear(st->body);
+    default:
+        return !contains_switch_label(st);
+    }
+}
+
+static StmtFlow switch_flow(Sema *s, AstNode *st)
+{
+    CaseEntry *head = NULL, *tail = NULL, *current = NULL, *entry;
+    StmtFlow next = FLOW_NEXT, all = FLOW_NONE;
+    bool has_default = false;
+
+    if (!switch_segments_linear(st->body))
+        return FLOW_NEXT;
+    scan_switch_segments(s, st->body, &head, &tail, &current, (Span){0});
+    for (entry = tail; entry; entry = entry->prev) {
+        StmtFlow path = flow_sequence(entry->flow, next);
+
+        if (entry->node && entry->node->kind == AST_STMT_DEFAULT)
+            has_default = true;
+        if (path & FLOW_BREAK)
+            path = (path & ~FLOW_BREAK) | FLOW_NEXT;
+        all |= path;
+        next = path;
+    }
+    /* Every case label is a possible jump target.  Without default, an
+     * unmatched controlling value also completes the switch immediately. */
+    return all | (has_default ? FLOW_NONE : FLOW_NEXT);
+}
+
+static StmtFlow loop_flow(Sema *s, AstNode *st)
+{
+    AstNode *condition = st->kind == AST_STMT_FOR ? st->mid : st->lhs;
+    CondTruth truth = st->kind == AST_STMT_FOR && !condition
+                          ? COND_TRUE
+                          : condition_truth(s, condition);
+    StmtFlow body = stmt_flow(s, st->body);
+    StmtFlow out = (body & FLOW_BREAK) ? FLOW_NEXT : FLOW_NONE;
+    bool reaches_test = (body & (FLOW_NEXT | FLOW_CONTINUE)) != 0;
+
+    /* while/for may execute zero times.  A do body is mandatory, so a body
+     * with no path to its condition (return/goto/noreturn) cannot complete
+     * even when the condition is nonconstant. */
+    if (st->kind != AST_STMT_DO && truth != COND_TRUE)
+        out |= FLOW_NEXT;
+    if (reaches_test && truth != COND_TRUE)
+        out |= FLOW_NEXT;
+    return out;
+}
+
+static StmtFlow stmt_flow(Sema *s, AstNode *st)
+{
+    StmtFlow flow;
+    CondTruth truth;
+    u32 i;
+
+    if (!st || st->poisoned)
+        return FLOW_NEXT;
+    switch (st->kind) {
+    case AST_STMT_COMPOUND:
+        flow = FLOW_NEXT;
+        for (i = 0; i < st->nitems; i++) {
+            StmtFlow item = stmt_flow(s, st->items[i]);
+            bool is_label =
+                st->items[i] && (st->items[i]->kind == AST_STMT_LABEL ||
+                                 st->items[i]->kind == AST_STMT_CASE ||
+                                 st->items[i]->kind == AST_STMT_DEFAULT);
+
+            flow = flow_sequence(flow, item);
+            if (is_label)
+                flow |= item; /* a jump may enter after prior termination */
+        }
+        return flow;
+    case AST_STMT_IF:
+        truth = condition_truth(s, st->lhs);
+        if (truth == COND_TRUE)
+            return stmt_flow(s, st->body);
+        if (truth == COND_FALSE)
+            return st->rhs ? stmt_flow(s, st->rhs) : FLOW_NEXT;
+        return stmt_flow(s, st->body) |
+               (st->rhs ? stmt_flow(s, st->rhs) : FLOW_NEXT);
+    case AST_STMT_SWITCH:
+        return switch_flow(s, st);
+    case AST_STMT_WHILE:
+    case AST_STMT_DO:
+    case AST_STMT_FOR:
+        return loop_flow(s, st);
+    case AST_STMT_BREAK:
+        return FLOW_BREAK;
+    case AST_STMT_CONTINUE:
+        return FLOW_CONTINUE;
     case AST_STMT_RETURN:
     case AST_STMT_GOTO:
-    case AST_STMT_CONTINUE:
-    case AST_STMT_BREAK:
-        return true;
-    case AST_STMT_COMPOUND:
-        return st->nitems != 0 && stmt_terminates(st->items[st->nitems - 1]);
-    case AST_STMT_IF:
-        return st->rhs && stmt_terminates(st->body) && stmt_terminates(st->rhs);
+        return FLOW_NONE;
     case AST_STMT_LABEL:
-        return stmt_terminates(st->body);
+    case AST_STMT_CASE:
+    case AST_STMT_DEFAULT:
+        return stmt_flow(s, st->body);
     default:
-        return stmt_is_noreturn_call(st);
+        return stmt_is_noreturn_call(st) ? FLOW_NONE : FLOW_NEXT;
     }
+}
+
+static bool stmt_completes(Sema *s, AstNode *st)
+{
+    return (stmt_flow(s, st) & FLOW_NEXT) != 0;
 }
 
 static bool bytes_equal(const char *a, size_t an, const char *b)
@@ -461,14 +607,14 @@ static bool successor_immediately_terminates(const CaseEntry *entry)
  * through is on line 79 -- gcc says 79 and we said 75. Same warning, wrong
  * finger. Walking to the arm that can complete normally fixes it, and the
  * result is a better diagnostic quite apart from the parity. */
-static AstNode *fallthrough_anchor(AstNode *st)
+static AstNode *fallthrough_anchor(Sema *s, AstNode *st)
 {
     if (!st)
         return NULL;
     switch (st->kind) {
     case AST_STMT_COMPOUND:
         if (st->nitems) {
-            AstNode *inner = fallthrough_anchor(st->items[st->nitems - 1]);
+            AstNode *inner = fallthrough_anchor(s, st->items[st->nitems - 1]);
 
             if (inner)
                 return inner;
@@ -479,15 +625,16 @@ static AstNode *fallthrough_anchor(AstNode *st)
          * unique route that can reach the next case.  When both arms can
          * complete normally, GCC points at the controlling `if`; choosing
          * the final `else` instead invents a location divergence. */
-        if (st->rhs && stmt_terminates(st->body) && !stmt_terminates(st->rhs)) {
-            AstNode *inner = fallthrough_anchor(st->rhs);
+        if (st->rhs && !stmt_completes(s, st->body) &&
+            stmt_completes(s, st->rhs)) {
+            AstNode *inner = fallthrough_anchor(s, st->rhs);
 
             if (inner)
                 return inner;
         }
         return st;
     case AST_STMT_LABEL:
-        return fallthrough_anchor(st->body);
+        return fallthrough_anchor(s, st->body);
     default:
         return st;
     }
@@ -557,8 +704,7 @@ static void warn_switch_fallthrough(Sema *s, Preprocessor *pp, AstNode *sw)
         size_t comment_index;
         bool comment_matches = false;
 
-        if (!entry->substantive || !entry->last ||
-            stmt_terminates(entry->last) ||
+        if (!entry->substantive || !entry->last || !(entry->flow & FLOW_NEXT) ||
             label_in_dead_arm(s, sw->body, entry->next->node, false) ||
             successor_immediately_terminates(entry->next))
             continue;
@@ -576,7 +722,7 @@ static void warn_switch_fallthrough(Sema *s, Preprocessor *pp, AstNode *sw)
         if (comment_matches)
             continue;
         {
-            AstNode *at = fallthrough_anchor(entry->last);
+            AstNode *at = fallthrough_anchor(s, entry->last);
 
             warn_at(s->lang->warnings, WARN_IMPLICIT_FALLTHROUGH,
                     (at ? at : entry->last)->span,

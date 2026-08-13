@@ -4,6 +4,7 @@
 #include "opt/opt.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "util/buf.h"
 
 typedef struct {
     Arena arena;
@@ -50,6 +51,65 @@ static bool run(IrModule *m, OptConfig *cfg)
     opt_config_init(cfg, OPT_O2);
     cfg->verify_after_each = true;
     return opt_dse(m, cfg);
+}
+
+static void dse_memory_limit_source(Buf *src, u32 padding)
+{
+    u32 i;
+
+    buf_init(src);
+    buf_printf(src, "func void @f(ptr %%p, i32 %%x) {\n"
+                    "entry():\n"
+                    "    store i32 1, %%p, align 4, etype i32\n");
+    for (i = 0; i < padding; i++)
+        buf_printf(src, "    %%v%u = iadd i32 %%x, 1\n", i);
+    buf_printf(src, "    store i32 2, %%p, align 4, etype i32\n"
+                    "    ret\n"
+                    "}\n");
+    buf_push_u8(src, 0);
+}
+
+void test_opt_dse_memory_work_limit_exact_boundary(TestCtx *t)
+{
+    static const u32 padding[] = {4093, 4094};
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(padding); i++) {
+        DseFix f;
+        IrModule *m;
+        OptConfig cfg;
+        Buf src;
+        FILE *report;
+        char log[256];
+        size_t n;
+
+        fix_init(&f);
+        dse_memory_limit_source(&src, padding[i]);
+        m = parse(&f, (const char *)src.data);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        report = tmpfile();
+        T_ASSERT(t, report != NULL);
+        opt_config_init(&cfg, OPT_O2);
+        cfg.bail_log = true;
+        cfg.report = report;
+        T_ASSERT_EQ_INT(t, m && opt_dse(m, &cfg), i == 0);
+        if (m) {
+            T_ASSERT_EQ_INT(t, count_op(m, IR_STORE), i == 0 ? 1 : 2);
+            T_ASSERT(t, ir_verify(f.dc, m));
+        }
+        if (report) {
+            fflush(report);
+            rewind(report);
+            n = fread(log, 1, sizeof(log) - 1, report);
+            log[n] = '\0';
+            T_ASSERT_EQ_STR(
+                t, log,
+                i == 0 ? "" : "bail: dse dse_memory_work_limit func=@f\n");
+            fclose(report);
+        }
+        buf_free(&src);
+        arena_free_all(&f.arena);
+    }
 }
 
 void test_opt_dse_exact_overwrite_dies_but_adjacent_and_may_stay(TestCtx *t)

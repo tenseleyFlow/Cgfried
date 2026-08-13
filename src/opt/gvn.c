@@ -37,6 +37,14 @@ typedef struct {
 
 typedef enum { MEM_NONE, MEM_FOUND, MEM_BLOCKED } MemResult;
 
+enum {
+    /* Load forwarding scans backward through a block (and sometimes its
+     * immediate dominator) for every load.  Keep that quadratic search
+     * bounded on generated dispatchers while preserving the linear pure-
+     * expression half of GVN. */
+    GVN_MEMORY_INST_LIMIT = 4096,
+};
+
 bool opt_gvn(IrModule *m, const OptConfig *cfg);
 const Pass OPT_PASS_GVN = {"gvn", opt_gvn, PASS_PINNED_EXACT};
 
@@ -228,7 +236,7 @@ static bool goperand_less(GvnOperand a, GvnOperand b)
 
 static GvnOperand class_operand(IrOperand op, const u32 *classes, u32 nold)
 {
-    GvnOperand out;
+    GvnOperand out = {0};
 
     out.kind = op.kind;
     out.type = op.type;
@@ -268,9 +276,20 @@ static void make_key(GvnKey *key, const IrInst *in, const u32 *classes,
 
 static bool key_equal(const GvnKey *a, const GvnKey *b)
 {
-    return a->op == b->op && a->type == b->type && a->subop == b->subop &&
-           a->flags == b->flags && a->nops == b->nops &&
-           memcmp(a->ops, b->ops, a->nops * sizeof(a->ops[0])) == 0;
+    u32 i;
+
+    if (a->op != b->op || a->type != b->type || a->subop != b->subop ||
+        a->flags != b->flags || a->nops != b->nops)
+        return false;
+    for (i = 0; i < a->nops; i++) {
+        const GvnOperand *x = &a->ops[i];
+        const GvnOperand *y = &b->ops[i];
+
+        if (x->kind != y->kind || x->type != y->type || x->sym != y->sym ||
+            x->a != y->a || x->b != y->b)
+            return false;
+    }
+    return true;
 }
 
 static u64 hash_mix(u64 hash, u64 value)
@@ -534,7 +553,7 @@ static bool gvn_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     Arena scratch;
     AliasConfig acfg = {0};
-    AliasCtx *alias;
+    AliasCtx *alias = NULL;
     IrDomTree *dom;
     BlockInsts *blocks;
     IrOperand *replacement;
@@ -584,10 +603,14 @@ static bool gvn_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
             classes[f->blocks[oi].params[pi].v] = next_class++;
     }
 
-    acfg.func = f;
-    acfg.no_strict_aliasing = cfg->no_strict_aliasing;
-    alias = alias_build(m, &acfg);
     fc.current_func = f->name;
+    if (total_insts <= GVN_MEMORY_INST_LIMIT) {
+        acfg.func = f;
+        acfg.no_strict_aliasing = cfg->no_strict_aliasing;
+        alias = alias_build(m, &acfg);
+    } else {
+        OPT_BAIL(&fc, "gvn", "gvn_memory_work_limit");
+    }
 
     for (oi = 0; oi < f->nblocks; oi++) {
         u32 bi = order[oi], pos;
@@ -631,7 +654,7 @@ static bool gvn_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
                     table[insert].leader = ir_op_value(f, in->result);
                     table[insert].block.v = bi + 1;
                 }
-            } else if (in->op == IR_LOAD && in->nops == 1 &&
+            } else if (alias && in->op == IR_LOAD && in->nops == 1 &&
                        !(in->flags & (IRF_VOLATILE | IRF_SEQ_CST))) {
                 IrOperand found = {0};
                 bool barrier = false, long_path = false;

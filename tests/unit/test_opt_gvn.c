@@ -4,6 +4,7 @@
 #include "opt/opt.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "util/buf.h"
 
 bool opt_gvn(IrModule *m, const OptConfig *cfg);
 
@@ -56,6 +57,62 @@ static void read_report(FILE *report, char *out, size_t cap)
     rewind(report);
     n = fread(out, 1, cap - 1, report);
     out[n] = '\0';
+}
+
+static void gvn_memory_limit_source(Buf *src, u32 padding)
+{
+    u32 i;
+
+    buf_init(src);
+    buf_printf(src, "func i32 @f(ptr %%p, i32 %%x) {\n"
+                    "entry():\n"
+                    "    store i32 7, %%p, align 4, etype i32\n");
+    for (i = 0; i < padding; i++)
+        buf_printf(src, "    %%v%u = iadd i32 %%x, 1\n", i);
+    buf_printf(src, "    %%r = load i32, %%p, align 4, etype i32\n"
+                    "    ret i32 %%r\n"
+                    "}\n");
+    buf_push_u8(src, 0);
+}
+
+void test_opt_gvn_memory_work_limit_exact_boundary(TestCtx *t)
+{
+    static const u32 padding[] = {4093, 4094};
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(padding); i++) {
+        GvnFix f;
+        IrModule *m;
+        OptConfig cfg;
+        Buf src;
+        FILE *report;
+        char log[256];
+
+        gvn_fix_init(&f);
+        gvn_memory_limit_source(&src, padding[i]);
+        m = gvn_parse(&f, (const char *)src.data);
+        T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+        report = tmpfile();
+        T_ASSERT(t, report != NULL);
+        opt_config_init(&cfg, OPT_O2);
+        cfg.bail_log = true;
+        cfg.report = report;
+        T_ASSERT(t, m && opt_gvn(m, &cfg));
+        if (m) {
+            T_ASSERT_EQ_INT(t, count_op(m, IR_LOAD), i == 0 ? 0 : 1);
+            T_ASSERT_EQ_INT(t, count_op(m, IR_IADD), 1);
+            T_ASSERT(t, ir_verify(f.dc, m));
+        }
+        if (report) {
+            read_report(report, log, sizeof(log));
+            T_ASSERT_EQ_STR(
+                t, log,
+                i == 0 ? "" : "bail: gvn gvn_memory_work_limit func=@f\n");
+            fclose(report);
+        }
+        buf_free(&src);
+        arena_free_all(&f.arena);
+    }
 }
 
 void test_opt_gvn_eliminates_dominating_pure_expression(TestCtx *t)

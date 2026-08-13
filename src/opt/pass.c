@@ -1,8 +1,12 @@
 #include "opt/opt.h"
 
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "util/buf.h"
 
@@ -114,8 +118,54 @@ static bool buf_differs(const Buf *a, const Buf *b)
     return a->len != b->len || (a->len && memcmp(a->data, b->data, a->len));
 }
 
+static void dump_pass_ir(const OptConfig *cfg, const IrModule *m,
+                         const Pass *pass, u32 fixpoint, u32 iteration,
+                         u32 pass_ordinal)
+{
+    char safe_name[96];
+    char path[4096];
+    size_t i;
+    int n, fd;
+    FILE *out;
+    u32 sequence;
+
+    if (!cfg->dump_ir_dir)
+        return;
+    if (!cfg->dump_ir_sequence)
+        CGF_ICE("opt: phase dump directory has no sequence state");
+    for (i = 0; pass->name[i] && i + 1 < sizeof(safe_name); i++) {
+        unsigned char c = (unsigned char)pass->name[i];
+
+        safe_name[i] = (char)(isalnum(c) || c == '-' || c == '_' ? c : '_');
+    }
+    safe_name[i] = '\0';
+    sequence = ++*cfg->dump_ir_sequence;
+    n = snprintf(path, sizeof(path), "%s/%06u-ir-fp%02u-i%02u-p%02u-%s.cgfir",
+                 cfg->dump_ir_dir, 400000u + sequence, fixpoint, iteration,
+                 pass_ordinal, safe_name);
+    if (n < 0 || (size_t)n >= sizeof(path))
+        CGF_ICE("opt: phase dump path is too long for pass '%s'", pass->name);
+    fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd < 0)
+        CGF_ICE("opt: cannot create phase dump '%s': %s", path,
+                strerror(errno));
+    out = fdopen(fd, "wb");
+    if (!out) {
+        int saved = errno;
+
+        close(fd);
+        unlink(path);
+        CGF_ICE("opt: cannot open phase dump '%s': %s", path, strerror(saved));
+    }
+    ir_print_module(out, m);
+    if (fclose(out) != 0)
+        CGF_ICE("opt: cannot finish phase dump '%s': %s", path,
+                strerror(errno));
+}
+
 static bool run_one(RunCtx *r, IrModule *m, const OptConfig *cfg,
-                    const Pass *pass)
+                    const Pass *pass, u32 fixpoint, u32 iteration,
+                    u32 pass_ordinal)
 {
     Buf before = {0}, after = {0};
     Arena verify_scratch;
@@ -143,6 +193,7 @@ static bool run_one(RunCtx *r, IrModule *m, const OptConfig *cfg,
         timing->invocations++;
     }
     r->any_changed |= changed;
+    dump_pass_ir(cfg, m, pass, fixpoint, iteration, pass_ordinal);
 
     if (cfg->verify_after_each) {
         char why[256];
@@ -220,7 +271,7 @@ bool opt_run_pass_sequence(IrModule *m, const OptConfig *cfg,
     u32 i;
 
     for (i = 0; i < npasses; i++)
-        (void)run_one(&r, m, cfg, passes[i]);
+        (void)run_one(&r, m, cfg, passes[i], 0, 0, i);
     print_timings(cfg, &r);
     run_ctx_free(&r);
     return r.any_changed;
@@ -231,17 +282,23 @@ bool opt_run_fixpoint(IrModule *m, const OptConfig *cfg,
 {
     RunCtx r = {0};
     bool *last_changed;
-    u32 iteration, i;
+    u32 fixpoint = 1, iteration, i;
 
     if (cap == 0)
         CGF_ICE("opt: fixpoint iteration cap must be nonzero");
+    if (cfg->dump_ir_dir) {
+        if (!cfg->dump_ir_fixpoint)
+            CGF_ICE("opt: phase dump directory has no fixpoint state");
+        fixpoint = ++*cfg->dump_ir_fixpoint;
+    }
     last_changed = cgf_xmalloc((npasses ? npasses : 1) * sizeof(bool));
     for (iteration = 0; iteration < cap; iteration++) {
         bool any = false;
 
         memset(last_changed, 0, npasses * sizeof(bool));
         for (i = 0; i < npasses; i++) {
-            last_changed[i] = run_one(&r, m, cfg, passes[i]);
+            last_changed[i] =
+                run_one(&r, m, cfg, passes[i], fixpoint, iteration + 1, i);
             any |= last_changed[i];
         }
         if (!any) {

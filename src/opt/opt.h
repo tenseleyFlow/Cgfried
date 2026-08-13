@@ -38,6 +38,11 @@ typedef struct OptConfig {
     bool bail_log;
     bool time_report;
     const char *dump_bad_ir;
+    /* CGF_DUMP_IR=all plumbing.  The driver owns the sequence counter so
+     * separate pass-manager groups still produce one total pipeline order. */
+    const char *dump_ir_dir;
+    u32 *dump_ir_sequence;
+    u32 *dump_ir_fixpoint;
     FILE *report;
 
     /* Per-function context for the three-argument OPT_BAIL convention.

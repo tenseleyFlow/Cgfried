@@ -494,6 +494,112 @@ void test_opt_inline_cost_bonuses_os_and_single_site_multiplier(TestCtx *t)
     }
 }
 
+void test_opt_inline_updates_direct_call_facts_after_each_splice(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Buf src;
+
+    inline_fix_init(&f);
+    buf_init(&src);
+    emit_cost_function(&src, "large", 23, true);
+    buf_printf(&src, "func i32 @caller(i32 %%c, i32 %%x) {\n"
+                     "entry():\n"
+                     "    %%first = call i32 @large(i32 1, i32 7)\n"
+                     "    %%second = call i32 @large(i32 %%c, i32 %%x)\n"
+                     "    %%result = iadd i32 %%first, %%second\n"
+                     "    ret i32 %%result\n"
+                     "}\n");
+    buf_push_u8(&src, 0);
+    m = inline_parse(&f, (char *)src.data);
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 20;
+    T_ASSERT(t, m && opt_inline(m, &cfg));
+    /* The constant control argument admits the first site at threshold 30.
+     * Its splice leaves one direct call, so exact delta accounting must apply
+     * the internal single-site multiplier and admit the second site at 80. */
+    T_ASSERT_EQ_INT(t, m ? func_op_count(&m->funcs[1], IR_CALL) : 0, 0);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    buf_free(&src);
+    arena_free_all(&f.arena);
+}
+
+static IrModule *growth_boundary_module(InlineFix *f, u32 external_calls)
+{
+    Buf src;
+    IrModule *m;
+    u32 i;
+
+    buf_init(&src);
+    buf_printf(&src, "sym @sink\n"
+                     "func void @leaf() internal {\n"
+                     "entry():\n"
+                     "    ret\n"
+                     "}\n"
+                     "func void @caller() {\n"
+                     "entry():\n");
+    for (i = 0; i < external_calls; i++)
+        buf_printf(&src, "    call void @sink()\n");
+    buf_printf(&src, "    call void @leaf()\n"
+                     "    ret\n"
+                     "}\n");
+    buf_push_u8(&src, 0);
+    m = inline_parse(f, (char *)src.data);
+    buf_free(&src);
+    return m;
+}
+
+void test_opt_inline_growth_budget_exact_boundary_and_determinism(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    FILE *report;
+    Buf first, second;
+    char log[256];
+
+    inline_fix_init(&f);
+    m = growth_boundary_module(&f, 509);
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    T_ASSERT(t, m && opt_inline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m ? func_op_count(&m->funcs[1], IR_CALL) : 1, 509);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    arena_free_all(&f.arena);
+
+    inline_fix_init(&f);
+    m = growth_boundary_module(&f, 510);
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    report = tmpfile();
+    T_ASSERT(t, report != NULL);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    cfg.bail_log = true;
+    cfg.report = report;
+    T_ASSERT(t, m && !opt_inline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m ? func_op_count(&m->funcs[1], IR_CALL) : 0, 511);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (report) {
+        read_report(report, log, sizeof(log));
+        T_ASSERT(t, strstr(log, "inl_growth_budget") != NULL);
+        fclose(report);
+    }
+    (void)inline_print(m, &first);
+    cfg.bail_log = false;
+    cfg.report = stderr;
+    T_ASSERT(t, !opt_inline(m, &cfg));
+    (void)inline_print(m, &second);
+    T_ASSERT_EQ_INT(t, first.len, second.len);
+    T_ASSERT(t, first.len == second.len &&
+                    memcmp(first.data, second.data, first.len) == 0);
+    buf_free(&first);
+    buf_free(&second);
+    arena_free_all(&f.arena);
+}
+
 void test_opt_inline_threshold_config_table(TestCtx *t)
 {
     static const struct {

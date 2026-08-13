@@ -3,6 +3,20 @@
 CC     ?= cc
 BUILD  ?= build
 PREFIX ?= /usr/local
+HOSTCC ?= $(CC)
+BOOTSTRAP_JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+BOOTSTRAP_WORK ?= $(BUILD)/boot
+BOOTSTRAP_HOST ?=
+BOOTSTRAP_HOST_CLASS ?= $(if $(BOOTSTRAP_HOST),,local)
+BOOTSTRAP_CONTROL_FILE ?=
+BOOTSTRAP_SYSROOT ?=
+BOOTSTRAP_CROSS_SYSROOT ?= $(BOOTSTRAP_WORK)/cross/sysroot
+BOOTSTRAP_CROSS_OUTPUT ?= $(BOOTSTRAP_WORK)/cross/output
+BOOTSTRAP_CROSS_X86 ?= $(BOOTSTRAP_WORK)/cross/x86
+BOOTSTRAP_CROSS_NATIVE ?= $(BOOTSTRAP_WORK)/cross/native
+BOOTSTRAP_CROSS_CGF ?= $(BOOTSTRAP_WORK)/O2/stage1/cgfried
+BOOTSTRAP_CROSS_X86_BOOTSTRAP ?= $(BOOTSTRAP_WORK)/O2
+BOOTSTRAP_REPRO_OUTPUT ?= $(BOOTSTRAP_WORK)/O2-repro-j1
 
 # -MMD not -MD: system-header deps churn without value. -MP: survive header
 # deletion. No -D with absolute build paths — that breaks the byte-identical
@@ -128,7 +142,10 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
         test-a64-corpus \
         test-a64-spill-all test-a64-char-sign test-abi-diff \
-        fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap install \
+        fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap \
+        bootstrap-O0 bootstrap-O2 bootstrap-repro-O2 \
+        bootstrap-cross-emit \
+        bootstrap-cross-compare test-bootstrap install \
         asan ubsan
 
 # libcgf_rt.a: the runtime the Sprint 27 link line reserves a slot for.
@@ -311,6 +328,7 @@ AS_LANE = $(shell test -x afs-as/target/release/afs-as || echo CGF_AS=0)
 test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	@if [ ! -x afs-as/target/release/afs-as ]; then \
 	    echo "test: afs-as unbuilt; exec lanes use system gas (CGF_AS=0)"; fi
+	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bootstrap
 	$(BUILD)/unit_tests
 	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bench
@@ -740,6 +758,19 @@ perf-report:
 	        }; \
 	        set -- "$$@" --latest "$$latest"; \
 	    done; \
+	    for bootstrap_host in kasumi hasu; do \
+	        baseline=.benchmarks/baseline-bootstrap-O2-x86_64-linux-gnu.$$bootstrap_host.txt; \
+	        if [ -r "$$baseline" ]; then \
+	            latest=$$(find .benchmarks/runs -maxdepth 1 -type f \
+	                -name "*-$$bootstrap_host-bootstrap.txt" -print 2>/dev/null | \
+	                sort | tail -n 1); \
+	            [ -n "$$latest" ] || { \
+	                echo "perf-report: no committed bootstrap artifact for $$bootstrap_host" >&2; \
+	                exit 3; \
+	            }; \
+	            set -- "$$@" --latest "$$latest"; \
+	        fi; \
+	    done; \
 	fi; \
 	set -- "$$@" --golden $(KERNEL_X86_GOLDEN) \
 	    --golden $(KERNEL_A64_GOLDEN) --dashboard $(KERNEL_DASHBOARD); \
@@ -878,9 +909,48 @@ tools:
 	cd afs-as && cargo build --release
 	cd afs-ld && cargo build --release
 
-bootstrap:
-	@echo "error: 'make bootstrap' is not available yet: Sprint 58 (self-host)" >&2
-	@exit 1
+bootstrap: bootstrap-O2
+
+bootstrap-O0: scripts/bootstrap.sh ci/bootstrap.mk scripts/bisect-nondet.sh
+	CGF_BOOTSTRAP_WORK='$(BOOTSTRAP_WORK)/O0' \
+	    CGF_BOOTSTRAP_JOBS='$(BOOTSTRAP_JOBS)' HOSTCC='$(HOSTCC)' \
+	    CGF_BOOTSTRAP_HOST='$(BOOTSTRAP_HOST)' \
+	    CGF_BOOTSTRAP_HOST_CLASS='$(BOOTSTRAP_HOST_CLASS)' \
+	    CGF_BOOTSTRAP_CONTROL_FILE='$(BOOTSTRAP_CONTROL_FILE)' \
+	    CGF_BOOTSTRAP_SYSROOT='$(BOOTSTRAP_SYSROOT)' \
+	    sh scripts/bootstrap.sh O0
+
+bootstrap-O2: scripts/bootstrap.sh ci/bootstrap.mk scripts/bisect-nondet.sh
+	CGF_BOOTSTRAP_WORK='$(BOOTSTRAP_WORK)/O2' \
+	    CGF_BOOTSTRAP_JOBS='$(BOOTSTRAP_JOBS)' HOSTCC='$(HOSTCC)' \
+	    CGF_BOOTSTRAP_HOST='$(BOOTSTRAP_HOST)' \
+	    CGF_BOOTSTRAP_HOST_CLASS='$(BOOTSTRAP_HOST_CLASS)' \
+	    CGF_BOOTSTRAP_CONTROL_FILE='$(BOOTSTRAP_CONTROL_FILE)' \
+	    CGF_BOOTSTRAP_SYSROOT='$(BOOTSTRAP_SYSROOT)' \
+	    sh scripts/bootstrap.sh O2
+
+bootstrap-repro-O2: scripts/bootstrap-repro.sh
+	$(MAKE) BOOTSTRAP_JOBS=8 bootstrap-O2
+	HOSTCC='$(HOSTCC)' sh scripts/bootstrap-repro.sh O2 \
+	    '$(BOOTSTRAP_WORK)/O2' '$(BOOTSTRAP_REPRO_OUTPUT)'
+
+bootstrap-cross-emit: scripts/bootstrap-cross.sh ci/bootstrap-cross.mk
+	CGF_BOOTSTRAP_JOBS='$(BOOTSTRAP_JOBS)' \
+	    sh scripts/bootstrap-cross.sh emit O2 \
+	    '$(BOOTSTRAP_CROSS_CGF)' '$(BOOTSTRAP_CROSS_SYSROOT)' \
+	    '$(BOOTSTRAP_CROSS_OUTPUT)' '$(BOOTSTRAP_CROSS_X86_BOOTSTRAP)'
+
+bootstrap-cross-compare: scripts/bootstrap-cross.sh ci/bootstrap.mk \
+        scripts/bisect-nondet.sh
+	CGF_BOOTSTRAP_JOBS='$(BOOTSTRAP_JOBS)' HOSTCC='$(HOSTCC)' \
+	    sh scripts/bootstrap-cross.sh compare O2 \
+	    '$(BOOTSTRAP_CROSS_X86)' '$(BOOTSTRAP_CROSS_NATIVE)' \
+	    '$(BOOTSTRAP_CROSS_X86_BOOTSTRAP)'
+
+test-bootstrap: $(BUILD)/cgfried
+	CGF_TEST_CC=$(BUILD)/cgfried sh tests/bootstrap/run.sh
+	sh scripts/audit-determinism.sh .
+	CGF_TEST_CC=$(BUILD)/cgfried sh tests/rt/int128_abi.sh
 
 install: all
 	install -d $(DESTDIR)$(PREFIX)/bin

@@ -5,7 +5,9 @@ You are picking up **Cgfried**, a from-scratch C17 compiler.
 **WHERE THINGS STAND (2026-08-12): Sprints 0–53 and Sprints 55–57 are CLOSED;
 Sprints 55–57 were completed out of numerical order while Sprint 54 continued
 its controlled fleet soak. Sprint 54's implementation is complete, but its
-operational soak is OPEN; Phase 11 is therefore still open.** The
+operational soak is OPEN; Phase 11 is therefore still open. Sprint 58's
+implementation is complete locally, but its hosted ARM/cross evidence and
+30-day bootstrap soak are operationally OPEN.** The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad now each have two accepted controlled
@@ -29,6 +31,54 @@ Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
 FreeBSD. Confirmed empirically: extended asm and `__volatile` together took
 musl from **716 to 1259 of 1361** translation units parsing.
+
+---
+
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; HOSTED/SOAK OPEN
+
+Sprint 58's compiler, runtime, diagnostics, deterministic bootstrap machinery,
+and CI definitions are implemented in the main worktree. Do not call the
+sprint closed until the hosted native/cross lanes and the 30-day ledger below
+have supplied real evidence.
+
+- `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
+  comparisons over all 113 compiler/runtime assembly files, all 113 objects,
+  `libcgf_rt.a`, and `cgfried`; no normalization is permitted. Both local x86
+  fixed points pass. `make bootstrap-repro-O2` also passes across `-j8` versus
+  `-j1` and distinct output roots.
+- The bootstrap compiles the runtime with Cgfried. The safe allocator lock is
+  strict C11 `_Atomic`, int128 helpers use the two-`u64` ABI without host
+  `__int128`, and the binary128 boundary uses `_Float128` when self-hosted.
+  The int128 ABI/value differential passes under GCC, Clang, Cgfried O0, and
+  Cgfried O2.
+- O2 bootstrap feasibility repairs are deliberately bounded: inline analysis
+  caches call/fact data and caps oversized callers, GVN/DSE cap deterministic
+  memory work, and LICM retains canonicalization/verification while declining
+  motion in oversized loop functions. Unit coverage pins every cutoff.
+- The first O2 fixed point found a real historical nondeterminism bug:
+  `GvnOperand` equality compared padding bytes. Keys are now zero-initialized
+  and compared field-by-field. The static audit rejects this whole-object
+  `memcmp` pattern and carries a seeded regression alongside the existing
+  readdir, padded-write, and pointer-output faults.
+- `CGF_DUMP_IR=all` emits an exclusive-create ordered tree spanning parse,
+  sema, lowering, every optimizer invocation, legalization, MIR, and assembly.
+  `scripts/bisect-nondet.sh` fails closed on absent groups and identifies the
+  first differing TU and phase boundary.
+- `.github/workflows/bootstrap.yml` defines required x86 O0/O2 checks, nightly
+  native ARM64 O0/O2, and weekly x86 reproducibility plus cross-host ARM64.
+  Cross-host evidence authenticates both hosted run manifests against the
+  workflow commit and retains both bootstrap reports, consumed stage
+  manifests, and the exact ARM header archive in the final 90-day artifact.
+- The controlled Kasumi/Hasu O2 stage1 timing receipt is wired into the Sprint
+  54 dashboard under the existing fleet-control-v2 protocol. It is a trial
+  gate and does not manufacture a baseline or Sprint 54 evidence.
+- `.docs/audits/bootstrap-soak.md` is **ARMED; NOT STARTED**. The next actions
+  are to push this implementation, run every hosted lane, configure the two
+  exact x86 check contexts as required on `trunk`, and start the 30-distinct-
+  UTC-date ledger only from verified GitHub Actions evidence.
+
+`ci/closed_sprints.txt` remains at 53. Sprint 54 still owns the contiguous
+closure ratchet, and Sprint 58 remains operationally open during its soak.
 
 ---
 

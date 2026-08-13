@@ -1,6 +1,7 @@
 #include "driver/driver.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -361,47 +362,48 @@ static void dump_token(const Token *t)
     }
 }
 
-static void dump_decl(const AstNode *n, int depth);
+static void dump_decl(FILE *out, const AstNode *n, int depth);
 
-static void indent(int depth)
+static void indent(FILE *out, int depth)
 {
     int i;
 
     for (i = 0; i < depth; i++)
-        printf("  ");
+        fprintf(out, "  ");
 }
 
 /* Statements print as an indented tree, expressions FULLY PARENTHESIZED.
  * The parenthesization is the point: it makes a precedence or
  * associativity mistake visible in the golden rather than hidden behind a
  * flat reprint of the source. */
-static void dump_expr_line(const char *label, const AstNode *e, int depth)
+static void dump_expr_line(FILE *out, const char *label, const AstNode *e,
+                           int depth)
 {
     Buf b;
 
     buf_init(&b);
     ast_expr_render(e, &b);
-    indent(depth);
-    printf("%s ", label);
-    fwrite(b.data, 1, b.len, stdout);
+    indent(out, depth);
+    fprintf(out, "%s ", label);
+    fwrite(b.data, 1, b.len, out);
     if (e && e->sem_type) {
         Buf tb;
 
         buf_init(&tb);
         ast_sem_type_render(e, &tb);
-        printf(" : ");
-        fwrite(tb.data, 1, tb.len, stdout);
+        fprintf(out, " : ");
+        fwrite(tb.data, 1, tb.len, out);
         buf_free(&tb);
         if (e->is_lvalue)
-            printf(" [lvalue]");
+            fprintf(out, " [lvalue]");
     }
     if (e && e->unevaluated)
-        printf(" [unevaluated]");
-    printf("\n");
+        fprintf(out, " [unevaluated]");
+    fprintf(out, "\n");
     buf_free(&b);
 }
 
-static void dump_stmt(const AstNode *s, int depth)
+static void dump_stmt(FILE *out, const AstNode *s, int depth)
 {
     u32 i;
 
@@ -409,93 +411,93 @@ static void dump_stmt(const AstNode *s, int depth)
         return;
     switch (s->kind) {
     case AST_STMT_COMPOUND:
-        indent(depth);
-        printf("BLOCK\n");
+        indent(out, depth);
+        fprintf(out, "BLOCK\n");
         for (i = 0; i < s->nitems; i++)
-            dump_stmt(s->items[i], depth + 1);
+            dump_stmt(out, s->items[i], depth + 1);
         return;
     case AST_STMT_DECL:
-        dump_decl(s->lhs, depth);
+        dump_decl(out, s->lhs, depth);
         return;
     case AST_STMT_EXPR:
-        dump_expr_line("EXPR", s->lhs, depth);
+        dump_expr_line(out, "EXPR", s->lhs, depth);
         return;
     case AST_STMT_NULL:
-        indent(depth);
-        printf("NULLSTMT\n");
+        indent(out, depth);
+        fprintf(out, "NULLSTMT\n");
         return;
     case AST_STMT_IF:
-        dump_expr_line("IF", s->lhs, depth);
-        dump_stmt(s->body, depth + 1);
+        dump_expr_line(out, "IF", s->lhs, depth);
+        dump_stmt(out, s->body, depth + 1);
         if (s->rhs) {
-            indent(depth);
-            printf("ELSE\n");
-            dump_stmt(s->rhs, depth + 1);
+            indent(out, depth);
+            fprintf(out, "ELSE\n");
+            dump_stmt(out, s->rhs, depth + 1);
         }
         return;
     case AST_STMT_SWITCH:
-        dump_expr_line("SWITCH", s->lhs, depth);
-        dump_stmt(s->body, depth + 1);
+        dump_expr_line(out, "SWITCH", s->lhs, depth);
+        dump_stmt(out, s->body, depth + 1);
         return;
     case AST_STMT_WHILE:
-        dump_expr_line("WHILE", s->lhs, depth);
-        dump_stmt(s->body, depth + 1);
+        dump_expr_line(out, "WHILE", s->lhs, depth);
+        dump_stmt(out, s->body, depth + 1);
         return;
     case AST_STMT_DO:
-        indent(depth);
-        printf("DO\n");
-        dump_stmt(s->body, depth + 1);
-        dump_expr_line("DOWHILE", s->lhs, depth);
+        indent(out, depth);
+        fprintf(out, "DO\n");
+        dump_stmt(out, s->body, depth + 1);
+        dump_expr_line(out, "DOWHILE", s->lhs, depth);
         return;
     case AST_STMT_FOR:
-        indent(depth);
-        printf("FOR\n");
+        indent(out, depth);
+        fprintf(out, "FOR\n");
         /* The init clause is either an expression statement or a
          * declaration — the c99 for-init form. */
         if (s->lhs)
-            dump_stmt(s->lhs, depth + 1);
+            dump_stmt(out, s->lhs, depth + 1);
         if (s->mid)
-            dump_expr_line("FORCOND", s->mid, depth + 1);
+            dump_expr_line(out, "FORCOND", s->mid, depth + 1);
         if (s->rhs)
-            dump_expr_line("FORSTEP", s->rhs, depth + 1);
-        dump_stmt(s->body, depth + 1);
+            dump_expr_line(out, "FORSTEP", s->rhs, depth + 1);
+        dump_stmt(out, s->body, depth + 1);
         return;
     case AST_STMT_RETURN:
         if (s->lhs) {
-            dump_expr_line("RETURN", s->lhs, depth);
+            dump_expr_line(out, "RETURN", s->lhs, depth);
         } else {
-            indent(depth);
-            printf("RETURN\n");
+            indent(out, depth);
+            fprintf(out, "RETURN\n");
         }
         return;
     case AST_STMT_GOTO:
-        indent(depth);
-        printf("GOTO %s\n", s->name ? s->name : "?");
+        indent(out, depth);
+        fprintf(out, "GOTO %s\n", s->name ? s->name : "?");
         return;
     case AST_STMT_BREAK:
-        indent(depth);
-        printf("BREAK\n");
+        indent(out, depth);
+        fprintf(out, "BREAK\n");
         return;
     case AST_STMT_CONTINUE:
-        indent(depth);
-        printf("CONTINUE\n");
+        indent(out, depth);
+        fprintf(out, "CONTINUE\n");
         return;
     case AST_STMT_LABEL:
-        indent(depth);
-        printf("LABEL %s\n", s->name ? s->name : "?");
-        dump_stmt(s->body, depth + 1);
+        indent(out, depth);
+        fprintf(out, "LABEL %s\n", s->name ? s->name : "?");
+        dump_stmt(out, s->body, depth + 1);
         return;
     case AST_STMT_CASE:
-        dump_expr_line("CASE", s->lhs, depth);
-        dump_stmt(s->body, depth + 1);
+        dump_expr_line(out, "CASE", s->lhs, depth);
+        dump_stmt(out, s->body, depth + 1);
         return;
     case AST_STMT_DEFAULT:
-        indent(depth);
-        printf("DEFAULT\n");
-        dump_stmt(s->body, depth + 1);
+        indent(out, depth);
+        fprintf(out, "DEFAULT\n");
+        dump_stmt(out, s->body, depth + 1);
         return;
     default:
-        dump_decl(s, depth);
+        dump_decl(out, s, depth);
         return;
     }
 }
@@ -503,7 +505,7 @@ static void dump_stmt(const AstNode *s, int depth)
 /* One line per top-level declaration: name, rendered declarator, and the
  * storage class. This IS the declarator round-trip proof — the chain is
  * built inside-out by the parser and printed outside-in here. */
-static void dump_decl(const AstNode *n, int depth)
+static void dump_decl(FILE *out, const AstNode *n, int depth)
 {
     Buf b;
     u32 i;
@@ -515,51 +517,51 @@ static void dump_decl(const AstNode *n, int depth)
     case AST_FUNC_DEF:
     case AST_DECL:
         for (i = 0; i < (u32)depth; i++)
-            printf("  ");
-        printf("%s %s: ", n->kind == AST_FUNC_DEF ? "FUNCDEF" : "DECL",
-               n->name ? n->name : "<abstract>");
+            fprintf(out, "  ");
+        fprintf(out, "%s %s: ", n->kind == AST_FUNC_DEF ? "FUNCDEF" : "DECL",
+                n->name ? n->name : "<abstract>");
         ast_type_render(n->type, &b);
-        fwrite(b.data, 1, b.len, stdout);
+        fwrite(b.data, 1, b.len, out);
         if (n->storage & AST_SC_TYPEDEF)
-            printf(" [typedef]");
+            fprintf(out, " [typedef]");
         if (n->storage & AST_SC_STATIC)
-            printf(" [static]");
+            fprintf(out, " [static]");
         if (n->storage & AST_SC_EXTERN)
-            printf(" [extern]");
+            fprintf(out, " [extern]");
         if (n->is_bitfield)
-            printf(" [bitfield]");
+            fprintf(out, " [bitfield]");
         if (n->init)
-            printf(" [init]");
-        printf("\n");
+            fprintf(out, " [init]");
+        fprintf(out, "\n");
         /* A scalar initializer is an expression, so render it — the
          * initializer goldens assert binding just like statements do. */
         if (n->init && n->init->kind != AST_INIT_LIST)
-            dump_expr_line("INIT", n->init, depth + 1);
+            dump_expr_line(out, "INIT", n->init, depth + 1);
         if (n->kind == AST_FUNC_DEF && n->body)
-            dump_stmt(n->body, depth + 1);
+            dump_stmt(out, n->body, depth + 1);
         break;
     case AST_ENUMERATOR:
         for (i = 0; i < (u32)depth; i++)
-            printf("  ");
-        printf("ENUMERATOR %s%s\n", n->name, n->init ? " = [expr]" : "");
+            fprintf(out, "  ");
+        fprintf(out, "ENUMERATOR %s%s\n", n->name, n->init ? " = [expr]" : "");
         break;
     case AST_STATIC_ASSERT:
         for (i = 0; i < (u32)depth; i++)
-            printf("  ");
-        printf("STATIC_ASSERT\n");
+            fprintf(out, "  ");
+        fprintf(out, "STATIC_ASSERT\n");
         break;
     case AST_EMPTY_DECL:
         /* `struct S { ... };` declares no object, but the TAG it introduces
          * is the whole point of the line — render it. */
         for (i = 0; i < (u32)depth; i++)
-            printf("  ");
-        printf("EMPTY_DECL");
+            fprintf(out, "  ");
+        fprintf(out, "EMPTY_DECL");
         if (n->type) {
-            printf(" ");
+            fprintf(out, " ");
             ast_type_render(n->type, &b);
-            fwrite(b.data, 1, b.len, stdout);
+            fwrite(b.data, 1, b.len, out);
         }
-        printf("\n");
+        fprintf(out, "\n");
         break;
     default:
         break;
@@ -567,13 +569,13 @@ static void dump_decl(const AstNode *n, int depth)
     buf_free(&b);
     /* Sibling declarators from the same specifier list. */
     for (i = 0; i < n->nitems; i++)
-        dump_decl(n->items[i], depth);
+        dump_decl(out, n->items[i], depth);
     /* Record members, so struct shapes are visible in goldens. */
     if (n->type && n->type->kind == ATY_BASE && n->type->record &&
         n->type->record->is_definition) {
         u32 m;
         for (m = 0; m < n->type->record->nmembers; m++)
-            dump_decl(n->type->record->members[m], depth + 1);
+            dump_decl(out, n->type->record->members[m], depth + 1);
     }
 }
 
@@ -647,6 +649,121 @@ static bool env_is_one(const char *name)
     return value && strcmp(value, "1") == 0;
 }
 
+/* Phase dumps are a diagnostic transaction: the bisector supplies a fresh,
+ * real directory and every boundary is created exactly once.  Refusing
+ * symlinks and pre-existing files prevents two compiler runs from silently
+ * sharing or overwriting a dump tree. */
+static const char *phase_dump_dir(void)
+{
+    const char *mode = cgf_env("CGF_DUMP_IR");
+    const char *dir;
+    struct stat st;
+
+    if (!mode || !mode[0])
+        return NULL;
+    if (strcmp(mode, "all") != 0)
+        CGF_ICE("CGF_DUMP_IR accepts only 'all' (got '%s')", mode);
+    dir = cgf_env("CGF_DUMP_IR_DIR");
+    if (!dir || !dir[0] || strcmp(dir, ".") == 0 || strcmp(dir, "/") == 0)
+        CGF_ICE("CGF_DUMP_IR=all requires an isolated CGF_DUMP_IR_DIR");
+    if (lstat(dir, &st) != 0)
+        CGF_ICE("cannot inspect phase dump directory '%s': %s", dir,
+                strerror(errno));
+    if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode))
+        CGF_ICE("phase dump path is not a real directory: '%s'", dir);
+    return dir;
+}
+
+static FILE *open_phase_dump(const char *dir, const char *name, char *path,
+                             size_t path_cap)
+{
+    int n, fd;
+    FILE *out;
+
+    n = snprintf(path, path_cap, "%s/%s", dir, name);
+    if (n < 0 || (size_t)n >= path_cap)
+        CGF_ICE("phase dump path is too long: '%s/%s'", dir, name);
+    fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd < 0)
+        CGF_ICE("cannot create phase dump '%s': %s", path, strerror(errno));
+    out = fdopen(fd, "wb");
+    if (!out) {
+        int saved = errno;
+
+        close(fd);
+        unlink(path);
+        CGF_ICE("cannot open phase dump '%s': %s", path, strerror(saved));
+    }
+    return out;
+}
+
+static void finish_phase_dump(FILE *out, const char *path)
+{
+    if (fclose(out) != 0)
+        CGF_ICE("cannot finish phase dump '%s': %s", path, strerror(errno));
+}
+
+static void dump_phase_bytes(const char *dir, const char *name,
+                             const void *data, size_t len)
+{
+    char path[4096];
+    FILE *out;
+
+    if (!dir)
+        return;
+    out = open_phase_dump(dir, name, path, sizeof(path));
+    if (len && fwrite(data, 1, len, out) != len) {
+        int saved = errno;
+
+        fclose(out);
+        CGF_ICE("cannot write phase dump '%s': %s", path, strerror(saved));
+    }
+    finish_phase_dump(out, path);
+}
+
+static void dump_phase_ir(const char *dir, const char *name, const IrModule *m)
+{
+    Buf b;
+
+    if (!dir)
+        return;
+    buf_init(&b);
+    ir_print_module_buf(&b, m);
+    dump_phase_bytes(dir, name, b.data, b.len);
+    buf_free(&b);
+}
+
+static void dump_phase_ast(const char *dir, const char *name, const AstNode *tu)
+{
+    char path[4096];
+    FILE *out;
+    u32 i;
+
+    if (!dir)
+        return;
+    out = open_phase_dump(dir, name, path, sizeof(path));
+    for (i = 0; i < tu->ndecls; i++)
+        dump_decl(out, tu->decls[i], 0);
+    finish_phase_dump(out, path);
+}
+
+static void dump_phase_sema(const char *dir, const char *name, Sema *sema,
+                            const AstNode *tu)
+{
+    char path[4096];
+    FILE *out;
+    u32 i;
+
+    if (!dir)
+        return;
+    out = open_phase_dump(dir, name, path, sizeof(path));
+    sema_dump(sema, out);
+    for (i = 0; i < tu->ndecls; i++)
+        if (tu->decls[i] && tu->decls[i]->kind == AST_FUNC_DEF)
+            dump_decl(out, tu->decls[i], 0);
+    finish_phase_dump(out, path);
+}
+
 static void verify_generated_module(DiagCtx *dc, IrModule *m, const char *input)
 {
     char why[256];
@@ -673,10 +790,14 @@ static void verify_generated_module(DiagCtx *dc, IrModule *m, const char *input)
 /* The same optimization boundary serves generated C IR and verified textual
  * IR. A bad input module is a user error before this call; any invalidity
  * after a pass is our bug and therefore an ICE. */
-static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
+static void optimize_module(IrModule *m, const DriverArgs *a, const char *input,
+                            bool phase_dumps)
 {
     OptConfig cfg;
     char why[256];
+    u32 dump_sequence = 0;
+    u32 dump_fixpoint = 0;
+    const char *dump_dir = phase_dumps ? phase_dump_dir() : NULL;
 
     opt_config_init(&cfg, (OptLevel)a->opt_level);
     cfg.fast_math.reassoc = a->fast_math;
@@ -695,6 +816,9 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
     cfg.disable_vectorize = env_is_one("CGF_OPT_DISABLE_VECTORIZE");
     cfg.time_report = a->time_report;
     cfg.dump_bad_ir = cgf_env("CGF_DUMP_BAD_IR");
+    cfg.dump_ir_dir = dump_dir;
+    cfg.dump_ir_sequence = dump_dir ? &dump_sequence : NULL;
+    cfg.dump_ir_fixpoint = dump_dir ? &dump_fixpoint : NULL;
     {
         /* Contraction is permitted by the language policy but PERFORMED by
          * the optimizer, which is why gcc emits no fmadd at -O0 even under
@@ -710,12 +834,14 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input)
         for (fi = 0; fi < m->nfuncs; fi++)
             m->funcs[fi].fp_contract = policy != 0 && a->opt_level > 0;
     }
+    dump_phase_ir(dump_dir, "300000-ir-post-lowering.cgfir", m);
     (void)opt_run_pipeline(m, &cfg);
     /* AFTER the optimizer on purpose: simplify.c folds f128 arithmetic
      * through the same softfp core, so legalizing earlier would hide
      * constant operations behind opaque calls. A no-op on x86_64, whose
      * long double is x87 f80 and selects natively. */
     lower_legalize_f128(m, cgf_target_selected());
+    dump_phase_ir(dump_dir, "700000-ir-post-opt-legalized.cgfir", m);
     if (!ir_verify_report(m->dc, m, why, sizeof(why))) {
         if (cfg.dump_bad_ir) {
             FILE *df = fopen(cfg.dump_bad_ir, "wb");
@@ -830,12 +956,17 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     static const char noexec_stack_asm[] =
         "\n\t.section .note.GNU-stack,\"\",@progbits\n";
     Buf b;
+    Buf mir_dump;
     u32 i;
     X64Func **xfuncs = NULL;
     A64Func **afuncs = NULL;
     char s_path[528];
     char comp_dir[4096];
     FILE *f;
+    const char *dump_dir = phase_dump_dir();
+
+    if (dump_dir)
+        buf_init(&mir_dump);
 
     if (cgf_target_selected().kind == CGF_TARGET_ARM64_LINUX ||
         cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
@@ -850,6 +981,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                     "cgfried: error: -g on %s is not supported; Mach-O "
                     "compact unwind and dSYM generation are unimplemented\n",
                     cgf_target_name(cgf_target_selected()));
+            if (dump_dir)
+                buf_free(&mir_dump);
             return CGF_EXIT_COMPILE;
         }
         /* Mach-O routes every undefined symbol through the GOT whatever the
@@ -883,6 +1016,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
             if (a->debug_level)
                 a64_debug_prepare(af);
             afuncs[i] = af;
+            if (dump_dir)
+                a64_mir_print(af, &mir_dump);
             a64_emit_function(af, m, i, m->funcs[i].linkage, &b);
         }
         a64_emit_globals(m, &b, data_is_pic(a));
@@ -895,6 +1030,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                         "cgfried: error: cannot determine current directory: "
                         "%s\n",
                         strerror(errno));
+                if (dump_dir)
+                    buf_free(&mir_dump);
                 buf_free(&b);
                 return CGF_EXIT_IO;
             }
@@ -924,6 +1061,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         if (a->debug_level)
             x64_debug_prepare(xf);
         xfuncs[i] = xf;
+        if (dump_dir)
+            x64_mir_print(xf, &mir_dump);
         x64_emit_function(xf, m, i, m->funcs[i].linkage, &b);
     }
     x64_emit_globals(m, &b, data_is_pic(a));
@@ -932,6 +1071,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         fprintf(stderr,
                 "cgfried: error: cannot determine current directory: %s\n",
                 strerror(errno));
+        if (dump_dir)
+            buf_free(&mir_dump);
         buf_free(&b);
         return CGF_EXIT_IO;
     }
@@ -951,8 +1092,16 @@ emit_tail:
         buf_append(&b, noexec_stack_asm, sizeof(noexec_stack_asm) - 1);
 
     if (diag_had_error(dc)) {
+        if (dump_dir)
+            buf_free(&mir_dump);
         buf_free(&b);
         return CGF_EXIT_COMPILE;
+    }
+    if (dump_dir) {
+        dump_phase_bytes(dump_dir, "800000-mir.txt", mir_dump.data,
+                         mir_dump.len);
+        dump_phase_bytes(dump_dir, "900000-asm.s", b.data, b.len);
+        buf_free(&mir_dump);
     }
     if (a->emit_asm) {
         f = fopen(job->out, "wb");
@@ -1066,6 +1215,7 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
     u32 i;
     Buf b;
     TargetKind target = cgf_target_selected().kind;
+    const char *dump_dir = phase_dump_dir();
 
     buf_init(&b);
     for (i = 0; i < m->nfuncs; i++) {
@@ -1099,6 +1249,7 @@ static int emit_mir_print(Arena *arena, DiagCtx *dc, IrModule *m)
             x64_mir_print(xf, &b);
         }
     }
+    dump_phase_bytes(dump_dir, "800000-mir.txt", b.data, b.len);
     fwrite(b.data, 1, b.len, stdout);
     buf_free(&b);
     return diag_had_error(dc) ? CGF_EXIT_COMPILE : CGF_EXIT_OK;
@@ -1165,7 +1316,7 @@ static int run_emit_ir(Arena *arena, DiagCtx *dc, const DriverArgs *a,
             return CGF_EXIT_COMPILE;
         }
     }
-    optimize_module(m, a, job->path);
+    optimize_module(m, a, job->path, true);
     if (a->emit_mir)
         return emit_mir_print(arena, dc, m);
     return emit_ir_print(arena, dc, m, job->path);
@@ -1380,12 +1531,14 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
             a->compile_obj || a->link_exe) {
             Parser ps;
             AstNode *tu;
+            const char *dump_dir = phase_dump_dir();
 
             parse_init(&ps, &tl, &pp, dc, arena, &lang);
             tu = parse_translation_unit(&ps);
+            dump_phase_ast(dump_dir, "100000-parse-ast.txt", tu);
             if (a->dump_ast)
                 for (k = 0; k < tu->ndecls; k++)
-                    dump_decl(tu->decls[k], 0);
+                    dump_decl(stdout, tu->decls[k], 0);
             /* Sema runs for -fsyntax-only too: a declaration that parses
              * but is semantically wrong must still be reported, and that
              * is what -fsyntax-only means. */
@@ -1407,6 +1560,7 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
                 sema_warn_translation_unit(&sema, tu, &pp);
                 if (!diag_had_error(dc))
                     memsafe_autofix_translation_unit(warnings, &sema, tu, &pp);
+                dump_phase_sema(dump_dir, "200000-sema.txt", &sema, tu);
                 if (a->dump_layout)
                     layout_dump(&sema, stdout);
                 if (a->dump_init)
@@ -1418,7 +1572,7 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
                      * rather than left as rules for a later pass. */
                     for (k = 0; k < tu->ndecls; k++)
                         if (tu->decls[k] && tu->decls[k]->kind == AST_FUNC_DEF)
-                            dump_decl(tu->decls[k], 0);
+                            dump_decl(stdout, tu->decls[k], 0);
                 }
                 {
                     bool want_ir_output = a->emit_ir || a->emit_mir ||
@@ -1450,7 +1604,7 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
                         if (analysis && !safe_on_emission &&
                             (need_memsafe || memsafe_dump) &&
                             !diag_had_error(dc)) {
-                            optimize_module(analysis, a, job->path);
+                            optimize_module(analysis, a, job->path, false);
                             ms_process_module_with_tu(
                                 need_memsafe ? warnings : NULL, analysis,
                                 a->fno_strict_aliasing,
@@ -1466,7 +1620,7 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
                         verify_generated_module(dc, m, job->path);
                     }
                     if (m && !diag_had_error(dc))
-                        optimize_module(m, a, job->path);
+                        optimize_module(m, a, job->path, true);
                     if (m && safe_on_emission && !diag_had_error(dc)) {
                         /* Analyze the exact final emission IR, then splice
                          * opaque checks into its proof residue. This is one

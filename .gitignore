@@ -18,6 +18,10 @@
 !.docs/audits/packed-layout.md
 !.docs/audits/aligned-layout.md
 !.docs/audits/torture-triage.md
+!.docs/audits/bootstrap-soak.md
+!.docs/design
+.docs/design/*
+!.docs/design/determinism.md
 CLAUDE.md
 AGENTS.md
 build/

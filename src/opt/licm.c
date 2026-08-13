@@ -15,6 +15,7 @@ typedef struct {
     bool load_clobbered;
     bool sink_unsafe;
     bool irreducible;
+    bool work_limit;
 } LicmBails;
 
 typedef struct {
@@ -26,6 +27,8 @@ typedef struct {
 
 bool opt_licm(IrModule *m, const OptConfig *cfg);
 const Pass OPT_PASS_LICM = {"licm", opt_licm, PASS_PINNED_EXACT};
+
+enum { LICM_MAX_FUNC_INSTS = 512 };
 
 #define BAIL_ONCE(cfg, seen, reason)                                           \
     do {                                                                       \
@@ -608,6 +611,18 @@ static bool run_loop(IrModule *m, IrFunc *f, const IrDomTree *dom,
     return changed;
 }
 
+static bool function_exceeds_work_limit(const IrFunc *f)
+{
+    u32 bi, count = 0;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        if (f->blocks[bi].ninsts > LICM_MAX_FUNC_INSTS - count)
+            return true;
+        count += f->blocks[bi].ninsts;
+    }
+    return false;
+}
+
 static bool run_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     Arena scratch;
@@ -633,7 +648,23 @@ static bool run_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
         dom = ir_domtree_build(&scratch, f);
         tree = loop_tree_build(&scratch, f, dom);
     }
+    /* Alias analysis is whole-function even when the loop is small.  Its
+     * points-to solver and bitsets scale with every value and abstract object,
+     * and run_loop rebuilds that context after each motion wave.  Keep loop
+     * canonicalization (downstream passes rely on it), but bound LICM's own
+     * motion work before constructing any AliasCtx for oversized functions. */
     count = loop_tree_count(tree);
+    if (count && function_exceeds_work_limit(f)) {
+        BAIL_ONCE(cfg, &bails.work_limit, "licm_work_limit");
+        if (cfg->verify_after_each) {
+            char why[256];
+
+            if (!loop_tree_verify_canonical(tree, f, why, sizeof(why)))
+                CGF_ICE("licm: canonical loop verification failed: %s", why);
+        }
+        arena_free_all(&scratch);
+        return changed;
+    }
     for (i = 0; i < count; i++)
         if (loop_depth(loop_tree_at(tree, i)) > max_depth)
             max_depth = loop_depth(loop_tree_at(tree, i));

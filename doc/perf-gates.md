@@ -17,7 +17,7 @@ an infrastructure error, never a skip.
 | Kernel `.text` bytes <!-- perf-gate:kernel-text --> | Shared x86 and native ARM CI | Every PR | More than +5% per kernel | **trial** — catches padding, relaxation, and encoding-width growth |
 | Kernel runtime <!-- perf-gate:kernel-runtime --> | Fleet only: Linux x86 on `kasumi`/`hasu`, Darwin ARM on `nomad-1`; shared CI: **never** | Nightly | More than +10% median-of-medians **and** beyond four MADs | **trial** — runtime is the truth lane, protected from noisy false alarms |
 | Arena peaks and interner hit rate <!-- perf-gate:internal-stats --> | Everywhere | Every PR and fleet run | Report only | **report-only** — useful diagnosis must not ossify internal design |
-| Stage-1 self-compile time <!-- perf-gate:stage1-self-time --> | Fleet | Nightly history slot | Inactive until Sprint 58 | **inactive** — history starts with bootstrap; no invented result today |
+| Stage-1 O2 self-compile time <!-- perf-gate:stage1-self-time --> | Controlled Linux fleet: `kasumi` and `hasu` | Nightly | More than +30% median wall or user+sys | **trial** — Sprint 58 records byte-identical bootstrap and timing together; the first controlled receipt is warmup until its baseline is accepted separately |
 | Full musl build <!-- perf-gate:musl-full-build --> | Fleet | Nightly history slot | Inactive until Sprint 57 is green | **inactive** — the corpus exists, but an incomplete build is not a metric |
 
 Shared runners may record elapsed time for visibility, but no shared-runner
@@ -29,6 +29,11 @@ wall/user+sys checks; RSS remains blocking.
 - `scripts/bench.sh` records compile-time, RSS, and internal counters in the
   Sprint 52 flat `metric=value` format.  `scripts/benchmark_gate.sh`
   applies the +30% fleet-time and +20% RSS limits.
+- `scripts/fleet-bootstrap.sh` records the O2 stage1 self-compile receipt after
+  the shorter nightly lanes. `scripts/bootstrap-time-gate.sh` requires the
+  full fleet-control-v2 tuple and applies the same +30% wall-or-user+sys
+  policy. Kasumi and Hasu are eligible; Nomad remains excluded because the
+  native fixed-link bootstrap currently targets Linux.
 - `scripts/size_gate.sh` builds all 21 self-checking kernel programs at
   `-O2` and `-Os`.  It records stripped and unstripped file bytes plus
   `.text`, `.data`, and `.rodata`; only stripped bytes gate.
