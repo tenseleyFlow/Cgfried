@@ -57,6 +57,17 @@ manifest lint also checks the workflow's static producers and native matrix;
 the privileged reporter keeps artifact namespaces separate and rejects any
 producer that supplies a variant it does not own.
 
+Each reporter run retains one `campaign-ledger-evidence` artifact.
+`publisher.txt` records the captured/matched/published totals, and `results/`
+contains the exact metadata and result pair for all 15 variants, including
+fail-closed synthetic results for missing producers. `failures/manifest.tsv`
+explicitly records the failure count and names each report. The same directory
+contains one deterministic Markdown report per drifting variant, so a fully
+matched run has a committed `# count=0` manifest instead of relying on an empty
+directory surviving artifact upload. The publisher refuses to reuse a failure-
+report root, so stale or partially overwritten evidence cannot satisfy a later
+nightly.
+
 ## Expected-result format
 
 Sprint 57 established the versioned format below.  Sprint 59 keeps it rather

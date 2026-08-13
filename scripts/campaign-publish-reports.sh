@@ -20,6 +20,7 @@ run_url=$2
 artifact_url=$3
 downloaded=${4:-}
 [ -d "$reports" ] || fail "report root is not a directory: $reports"
+failure_reports=${CGF_CAMPAIGN_FAILURE_REPORT_ROOT:-$reports-failures}
 command -v gh >/dev/null 2>&1 || fail "gh is required"
 [ -n "${GH_TOKEN:-}" ] || fail "GH_TOKEN is required"
 
@@ -34,6 +35,10 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-campaign-publish.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 "$variant_lint" "$variants" >"$tmp/variants"
+[ ! -e "$failure_reports" ] ||
+    fail "failure report root already exists: $failure_reports"
+mkdir "$failure_reports"
+: >"$tmp/failure-manifest-rows"
 
 if [ -n "$downloaded" ]; then
     [ -d "$downloaded" ] ||
@@ -135,9 +140,11 @@ while IFS="$(printf '\t')" read -r manifest_project manifest_variant \
         continue
     fi
 
-    body=$tmp/$manifest_variant.report.md
+    body=$failure_reports/$manifest_variant.md
     "$reporter" "$project" "$expected" "$actual" "$artifact_url" \
         "$run_url" >"$body"
+    printf '%s\t%s.md\n' "$manifest_variant" "$manifest_variant" \
+        >>"$tmp/failure-manifest-rows"
     namespace=$(printf '%s' "$project" |
         tr 'abcdefghijklmnopqrstuvwxyz' 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
     title="[CAMP-$namespace] nightly drift ($variant)"
@@ -159,6 +166,13 @@ while IFS="$(printf '\t')" read -r manifest_project manifest_variant \
     esac
     published=$((published + 1))
 done <"$tmp/variants"
+
+{
+    printf '# cgf-campaign-failures-v1\n'
+    printf '# columns=variant\treport\n'
+    printf '# count=%s\n' "$published"
+    cat "$tmp/failure-manifest-rows"
+} >"$failure_reports/manifest.tsv"
 
 printf 'campaign-publish-reports: PASS captured=%s matched=%s published=%s\n' \
     "$((matched + published))" "$matched" "$published"

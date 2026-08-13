@@ -122,6 +122,59 @@ if [ "$production" -eq 1 ]; then
     grep -E '^[[:space:]]*cancel-in-progress:[[:space:]]*false([[:space:]]|$)' \
         "$workflow" >/dev/null ||
         fail "workflow campaign reporter must not cancel an active run"
+    grep -F 'CGF_CAMPAIGN_FAILURE_REPORT_ROOT: build/nightly-campaign-evidence/failures' \
+        "$workflow" >/dev/null ||
+        fail "workflow must retain deterministic campaign failure reports"
+    grep -F 'build/nightly-campaign-evidence/results \' "$workflow" >/dev/null ||
+        fail "workflow publisher must populate the retained campaign evidence"
+    grep -F '>build/nightly-campaign-evidence/publisher.txt' \
+        "$workflow" >/dev/null ||
+        fail "workflow must retain the campaign publication summary"
+    awk '
+        /^[[:space:]]*- name:[[:space:]]*/ {
+            if (active) {
+                print condition "\t" action "\t" artifact "\t" path "\t" missing
+            }
+            active = ($0 == "      - name: retain aggregate results and deterministic failure reports")
+            condition = action = artifact = path = missing = ""
+            next
+        }
+        active && /^[[:space:]]*if:[[:space:]]*/ {
+            condition = $0
+            sub(/^.*if:[[:space:]]*/, "", condition)
+            next
+        }
+        active && /^[[:space:]]*uses:[[:space:]]*/ {
+            action = $0
+            sub(/^.*uses:[[:space:]]*/, "", action)
+            next
+        }
+        active && /^[[:space:]]*name:[[:space:]]*/ {
+            artifact = $0
+            sub(/^.*name:[[:space:]]*/, "", artifact)
+            next
+        }
+        active && /^[[:space:]]*path:[[:space:]]*/ {
+            path = $0
+            sub(/^.*path:[[:space:]]*/, "", path)
+            next
+        }
+        active && /^[[:space:]]*if-no-files-found:[[:space:]]*/ {
+            missing = $0
+            sub(/^.*if-no-files-found:[[:space:]]*/, "", missing)
+            next
+        }
+        END {
+            if (active) {
+                print condition "\t" action "\t" artifact "\t" path "\t" missing
+            }
+        }
+    ' "$workflow" >"$tmp/workflow-ledger-evidence"
+    printf 'always()\tactions/upload-artifact@v7\tcampaign-ledger-evidence\tbuild/nightly-campaign-evidence\terror\n' \
+        >"$tmp/production-ledger-evidence"
+    cmp -s "$tmp/production-ledger-evidence" \
+        "$tmp/workflow-ledger-evidence" ||
+        fail "workflow must publish the aggregate campaign evidence"
 
     awk '
         /^  campaign-ladder-s59-native:/ { active = 1; next }

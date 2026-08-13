@@ -412,7 +412,7 @@ jobs:
       - name: prepare isolated campaign result roots
         run: |
           mkdir -p build/nightly-campaign-artifacts \
-            build/nightly-campaign-results
+            build/nightly-campaign-evidence/results
       # Exact-name downloads always land below their producer envelope. This
       # avoids download-artifact's single-match flattening behavior and keeps
       # producer identity intact for the privileged publisher.
@@ -497,8 +497,20 @@ jobs:
       - name: file or update every drifting campaign variant
         env:
           GH_TOKEN: ${{ github.token }}
+          CGF_CAMPAIGN_FAILURE_REPORT_ROOT: build/nightly-campaign-evidence/failures
         run: |
           run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           scripts/campaign-publish-reports.sh \
-            build/nightly-campaign-results "$run_url" "$run_url#artifacts" \
-            build/nightly-campaign-artifacts
+            build/nightly-campaign-evidence/results \
+            "$run_url" "$run_url#artifacts" \
+            build/nightly-campaign-artifacts \
+            >build/nightly-campaign-evidence/publisher.txt
+          cat build/nightly-campaign-evidence/publisher.txt
+      - name: retain aggregate results and deterministic failure reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: campaign-ledger-evidence
+          path: build/nightly-campaign-evidence
+          if-no-files-found: error
+          retention-days: 30

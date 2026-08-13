@@ -102,6 +102,7 @@ chmod +x "$tmp/bin/gh"
     printf 'zlib\tmissing-musl\tci/campaigns/zlib.expected\tcampaign-results-missing-musl\n'
 } >"$tmp/variants.tsv"
 CGF_CAMPAIGN_NIGHTLY_VARIANTS=$tmp/variants.tsv \
+CGF_CAMPAIGN_FAILURE_REPORT_ROOT=$tmp/failure-reports \
 CGF_FAKE_GH_LOG=$tmp/gh.log GH_TOKEN=test-token PATH=$tmp/bin:$PATH \
     "$publish" "$tmp/publish" 'https://ci.example/runs/7' \
         'https://ci.example/runs/7#artifacts' >"$tmp/publish.log"
@@ -115,6 +116,56 @@ grep -F -- '--search "[CAMP-ZLIB] nightly drift (drift-arm64)" in:title --limit 
 grep -F 'captured=3 matched=1 published=2' "$tmp/publish.log" >/dev/null
 test "$(sed -n 's/^source=//p' \
     "$tmp/publish/missing-musl/metadata.txt")" = synthetic
+test -s "$tmp/failure-reports/drift-arm64.md"
+test -s "$tmp/failure-reports/missing-musl.md"
+test ! -e "$tmp/failure-reports/match-x86_64.md"
+cat >"$tmp/failure-manifest.expected" <<'EOF'
+# cgf-campaign-failures-v1
+# columns=variant	report
+# count=2
+drift-arm64	drift-arm64.md
+missing-musl	missing-musl.md
+EOF
+cmp -s "$tmp/failure-manifest.expected" \
+    "$tmp/failure-reports/manifest.tsv"
+grep -F 'https://ci.example/runs/7#artifacts' \
+    "$tmp/failure-reports/drift-arm64.md" >/dev/null
+cp "$tmp/failure-reports/drift-arm64.md" "$tmp/drift-report.before"
+if CGF_CAMPAIGN_NIGHTLY_VARIANTS=$tmp/variants.tsv \
+   CGF_CAMPAIGN_FAILURE_REPORT_ROOT=$tmp/failure-reports \
+   CGF_FAKE_GH_LOG=$tmp/existing-root.gh.log GH_TOKEN=test-token \
+   PATH=$tmp/bin:$PATH \
+   "$publish" "$tmp/publish" 'https://ci.example/runs/7' \
+       'https://ci.example/runs/7#artifacts' \
+       >"$tmp/existing-root.out" 2>"$tmp/existing-root.err"; then
+    echo 'campaign-reporting-meta: existing failure root unexpectedly passed' >&2
+    exit 1
+fi
+grep -F 'failure report root already exists' \
+    "$tmp/existing-root.err" >/dev/null
+cmp -s "$tmp/drift-report.before" \
+    "$tmp/failure-reports/drift-arm64.md"
+
+{
+    printf '# project\tvariant\texpected\tartifact\n'
+    printf 'zlib\tmatch-x86_64\tci/campaigns/zlib.expected\tcampaign-results-match-x86_64\n'
+} >"$tmp/all-match-variants.tsv"
+mkdir "$tmp/all-match-reports"
+cp -R "$reports/match-x86_64" "$tmp/all-match-reports/"
+CGF_CAMPAIGN_NIGHTLY_VARIANTS=$tmp/all-match-variants.tsv \
+CGF_CAMPAIGN_FAILURE_REPORT_ROOT=$tmp/all-match-failures \
+CGF_FAKE_GH_LOG=$tmp/all-match.gh.log GH_TOKEN=test-token PATH=$tmp/bin:$PATH \
+    "$publish" "$tmp/all-match-reports" 'https://ci.example/runs/11' \
+        'https://ci.example/runs/11#artifacts' >"$tmp/all-match.log"
+grep -F 'captured=1 matched=1 published=0' "$tmp/all-match.log" >/dev/null
+cat >"$tmp/all-match-manifest.expected" <<'EOF'
+# cgf-campaign-failures-v1
+# columns=variant	report
+# count=0
+EOF
+cmp -s "$tmp/all-match-manifest.expected" \
+    "$tmp/all-match-failures/manifest.tsv"
+test "$(find "$tmp/all-match-failures" -type f | wc -l | tr -d ' ')" -eq 1
 
 cp -R "$tmp/publish" "$tmp/tampered"
 sed 's/^project=zlib$/project=curl/' \
@@ -143,6 +194,10 @@ grep -F 'group: cgfried-campaign-ledger-${{ github.repository_id }}' \
 grep -F 'queue: max' "$workflow" >/dev/null
 grep -F 'cancel-in-progress: false' "$workflow" >/dev/null
 grep -F 'mkdir -p build/nightly-campaign-artifacts' "$workflow" >/dev/null
+grep -F 'name: campaign-ledger-evidence' "$workflow" >/dev/null
+grep -F 'path: build/nightly-campaign-evidence' "$workflow" >/dev/null
+grep -F '>build/nightly-campaign-evidence/publisher.txt' \
+    "$workflow" >/dev/null
 
 "$variant_lint" --production "$workflow" "$production_variants" \
     >"$tmp/production-variants"
@@ -157,6 +212,41 @@ if "$variant_lint" --production "$tmp/bad-workflow.yml" \
 fi
 grep -F 'workflow campaign result producers do not match the manifest' \
     "$tmp/bad-workflow.err" >/dev/null
+sed '/name: campaign-ledger-evidence/d' "$workflow" \
+    >"$tmp/missing-ledger-artifact.yml"
+if "$variant_lint" --production "$tmp/missing-ledger-artifact.yml" \
+    "$production_variants" >"$tmp/missing-ledger-artifact.out" \
+    2>"$tmp/missing-ledger-artifact.err"; then
+    echo 'campaign-reporting-meta: missing ledger artifact unexpectedly passed' >&2
+    exit 1
+fi
+grep -F 'workflow must publish the aggregate campaign evidence' \
+    "$tmp/missing-ledger-artifact.err" >/dev/null
+awk '
+    $0 == "      - name: retain aggregate results and deterministic failure reports" {
+        in_evidence = 1
+    }
+    in_evidence && $0 == "        if: always()" { next }
+    { print }
+' "$workflow" >"$tmp/missing-ledger-always.yml"
+if "$variant_lint" --production "$tmp/missing-ledger-always.yml" \
+    "$production_variants" >"$tmp/missing-ledger-always.out" \
+    2>"$tmp/missing-ledger-always.err"; then
+    echo 'campaign-reporting-meta: conditional ledger artifact unexpectedly passed' >&2
+    exit 1
+fi
+grep -F 'workflow must publish the aggregate campaign evidence' \
+    "$tmp/missing-ledger-always.err" >/dev/null
+sed 's/if-no-files-found: error/if-no-files-found: warn/' "$workflow" \
+    >"$tmp/ledger-artifact-warn.yml"
+if "$variant_lint" --production "$tmp/ledger-artifact-warn.yml" \
+    "$production_variants" >"$tmp/ledger-artifact-warn.out" \
+    2>"$tmp/ledger-artifact-warn.err"; then
+    echo 'campaign-reporting-meta: fail-open ledger artifact unexpectedly passed' >&2
+    exit 1
+fi
+grep -F 'workflow must publish the aggregate campaign evidence' \
+    "$tmp/ledger-artifact-warn.err" >/dev/null
 sed \
     -e 's#path: build/nightly-campaign-artifacts/campaign-results-qbe-x86_64#path: CAMPAIGN_SWAP#' \
     -e 's#path: build/nightly-campaign-artifacts/campaign-results-qbe-arm64#path: build/nightly-campaign-artifacts/campaign-results-qbe-x86_64#' \
