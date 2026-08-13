@@ -81,4 +81,3 @@
 11	de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731	run	non-optdiv	Cross-target VLA lifetime handling fails to restore dynamic stack state when control jumps backward across the declaration.	fix-sprint:s56.5-vla-goto-stack-restoration
 11	de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731	run	optdiv	optimization changes valid x86 address and high-register-pressure cases into segmentation faults	fix-sprint:s56.5-x86-opt-runtime-segv-cluster
 6	de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731	run	non-optdiv	Signal-only normalization merges cross-target runtime SIGABRT cases from distinct wrong-result families that require testcase-specific decomposition.	fix-sprint:s56.5-runtime-abort-decomposition
-6	de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731	run	optdiv	optimization changes valid x86 executions into aborts across loop and bit-field cases	fix-sprint:s56.5-x86-opt-runtime-abort-cluster

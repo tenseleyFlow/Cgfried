@@ -16610,6 +16610,7 @@ torture-execute/20000815-1.c@O1@x86_64-linux-gnu
 torture-execute/20000815-1.c@O2@arm64-linux
 torture-execute/20000815-1.c@O2@x86_64-linux-gnu
 torture-execute/20000815-1.c@O3@arm64-linux
+torture-execute/20000815-1.c@O3@x86_64-linux-gnu
 torture-execute/20000815-1.c@Os@arm64-linux
 torture-execute/20000815-1.c@Os@x86_64-linux-gnu
 torture-execute/20000818-1.c@O0@arm64-linux
@@ -22481,8 +22482,11 @@ torture-execute/loop-3.c@O0@x86_64-linux-gnu
 torture-execute/loop-3.c@O1@arm64-linux
 torture-execute/loop-3.c@O1@x86_64-linux-gnu
 torture-execute/loop-3.c@O2@arm64-linux
+torture-execute/loop-3.c@O2@x86_64-linux-gnu
 torture-execute/loop-3.c@O3@arm64-linux
+torture-execute/loop-3.c@O3@x86_64-linux-gnu
 torture-execute/loop-3.c@Os@arm64-linux
+torture-execute/loop-3.c@Os@x86_64-linux-gnu
 torture-execute/loop-3b.c@O0@arm64-linux
 torture-execute/loop-3b.c@O0@x86_64-linux-gnu
 torture-execute/loop-3b.c@O1@arm64-linux
@@ -22655,7 +22659,9 @@ torture-execute/memset-2.c@O0@arm64-linux
 torture-execute/memset-2.c@O0@x86_64-linux-gnu
 torture-execute/memset-2.c@O1@arm64-linux
 torture-execute/memset-2.c@O1@x86_64-linux-gnu
+torture-execute/memset-2.c@O2@arm64-linux
 torture-execute/memset-2.c@O2@x86_64-linux-gnu
+torture-execute/memset-2.c@O3@arm64-linux
 torture-execute/memset-2.c@O3@x86_64-linux-gnu
 torture-execute/memset-2.c@Os@arm64-linux
 torture-execute/memset-2.c@Os@x86_64-linux-gnu

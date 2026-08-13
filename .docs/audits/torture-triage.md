@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `56b164330c363d361449aaa43daef770ff292ad4`
-- compiler-source-sha256: `d67f403264f2e0c180966be886f1e13b738ec4dc20209b0d07ecaf11c6d762ef`
+- source-revision: `95196def015827ca533d5323a36aef00a68ba6c3`
+- compiler-source-sha256: `7094f88ddebec12cb914add00831d488969b412383a78cf1daa62e8d860037b6`
 - harness-sha256: `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`
 - torture-manifest-sha256: `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `3594f9c0a7bbcb980c86467a18ed28e5d2527775cc9f5825b402a22b07d33641` | `3594f9c0a7bbcb980c86467a18ed28e5d2527775cc9f5825b402a22b07d33641` |
-| x86_64-linux-gnu | `fe709ff8922d5497b1fad51ce76ab0cbb8499d45e20ed0a8f4c6004fd4a9a65b` | `fe709ff8922d5497b1fad51ce76ab0cbb8499d45e20ed0a8f4c6004fd4a9a65b` |
+| arm64-linux | `f6fde3b5e491f2e974d7c73c619feae7c1fbb6a49394a44ab76a4e8a51ba8949` | `f6fde3b5e491f2e974d7c73c619feae7c1fbb6a49394a44ab76a4e8a51ba8949` |
+| x86_64-linux-gnu | `a53a8d5ae3c6cfcaa445f77b01f12c05b2f1141430984a2c813f398181a0256e` | `a53a8d5ae3c6cfcaa445f77b01f12c05b2f1141430984a2c813f398181a0256e` |
 
 ## Baseline
 
@@ -40,15 +40,15 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | torture-compile | Os | arm64-linux | 2016 | 1381 | 376 | 0 | 259 | 84.21% |
 | torture-compile | Os | x86_64-linux-gnu | 2016 | 1379 | 376 | 0 | 261 | 84.09% |
 | torture-execute | O0 | arm64-linux | 1752 | 985 | 257 | 0 | 510 | 65.89% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 984 | 257 | 0 | 511 | 65.82% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 985 | 257 | 0 | 510 | 65.89% |
 | torture-execute | O1 | arm64-linux | 1752 | 987 | 257 | 0 | 508 | 66.02% |
-| torture-execute | O1 | x86_64-linux-gnu | 1752 | 985 | 257 | 0 | 510 | 65.89% |
-| torture-execute | O2 | arm64-linux | 1752 | 985 | 257 | 0 | 510 | 65.89% |
-| torture-execute | O2 | x86_64-linux-gnu | 1752 | 982 | 257 | 0 | 513 | 65.69% |
-| torture-execute | O3 | arm64-linux | 1752 | 984 | 257 | 0 | 511 | 65.82% |
-| torture-execute | O3 | x86_64-linux-gnu | 1752 | 980 | 257 | 0 | 515 | 65.55% |
+| torture-execute | O1 | x86_64-linux-gnu | 1752 | 986 | 257 | 0 | 509 | 65.95% |
+| torture-execute | O2 | arm64-linux | 1752 | 986 | 257 | 0 | 509 | 65.95% |
+| torture-execute | O2 | x86_64-linux-gnu | 1752 | 985 | 257 | 0 | 510 | 65.89% |
+| torture-execute | O3 | arm64-linux | 1752 | 985 | 257 | 0 | 510 | 65.89% |
+| torture-execute | O3 | x86_64-linux-gnu | 1752 | 984 | 257 | 0 | 511 | 65.82% |
 | torture-execute | Os | arm64-linux | 1752 | 987 | 257 | 0 | 508 | 66.02% |
-| torture-execute | Os | x86_64-linux-gnu | 1752 | 984 | 257 | 0 | 511 | 65.82% |
+| torture-execute | Os | x86_64-linux-gnu | 1752 | 986 | 257 | 0 | 509 | 65.95% |
 | torture-execute-ieee | O0 | arm64-linux | 78 | 17 | 29 | 0 | 32 | 34.69% |
 | torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 17 | 29 | 0 | 32 | 34.69% |
 | torture-execute-ieee | O1 | arm64-linux | 78 | 17 | 29 | 0 | 32 | 34.69% |
@@ -262,7 +262,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 7
 
-- Count: 185
+- Count: 180
 - Cluster: signal=`6`; phase=`run`
 - Runtime split: `non-optdiv`
 - Fingerprint: `de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731`
@@ -270,7 +270,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Diagnostic: program killed by signal 6
 - Labels: -
 - Tags: -
-- Optdiv members: 0 of 185
+- Optdiv members: 0 of 180
 - Optdiv exemplars: -
 - Hypothesis: Signal-only normalization merges cross-target runtime SIGABRT cases from distinct wrong-result families that require testcase-specific decomposition.
 - Disposition: `fix-sprint:s56.5-runtime-abort-decomposition`
@@ -515,15 +515,15 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 25
 
-- Count: 29
+- Count: 25
 - Cluster: signal=`-`; phase=`cg`
 - Fingerprint: `c0cda5231420c23bdfdec54c0367f9cfb03120dae294b0351b7a16294bac87ac`
 - Exemplars: torture-compile/limits-blockid.c@O0@arm64-linux, torture-compile/limits-blockid.c@O0@x86_64-linux-gnu, torture-compile/limits-blockid.c@O1@arm64-linux
 - Diagnostic: timeout: sending signal TERM to command 'build<path>
-- Labels: optdiv=4/29
+- Labels: -
 - Tags: -
-- Optdiv members: 4 of 29
-- Optdiv exemplars: torture-execute/memset-2.c@O2@arm64-linux, torture-execute/memset-2.c@O2@x86_64-linux-gnu, torture-execute/memset-2.c@O3@arm64-linux
+- Optdiv members: 0 of 25
+- Optdiv exemplars: -
 - Hypothesis: Large macro-expanded or optimization-heavy cases exceed the compiler timeout, exposing frontend or code-generation scalability limits.
 - Disposition: `fix-sprint:s56.5-compiler-scalability-timeout`
 
@@ -1372,21 +1372,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 86
 
-- Count: 4
-- Cluster: signal=`6`; phase=`run`
-- Runtime split: `optdiv`
-- Fingerprint: `de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731`
-- Exemplars: torture-execute/20000815-1.c@O3@x86_64-linux-gnu, torture-execute/loop-3.c@O2@x86_64-linux-gnu, torture-execute/loop-3.c@O3@x86_64-linux-gnu
-- Diagnostic: program killed by signal 6
-- Labels: optdiv=4/4
-- Tags: -
-- Optdiv members: 4 of 4
-- Optdiv exemplars: torture-execute/20000815-1.c@O3@x86_64-linux-gnu, torture-execute/loop-3.c@O2@x86_64-linux-gnu, torture-execute/loop-3.c@O3@x86_64-linux-gnu
-- Hypothesis: optimization changes valid x86 executions into aborts across loop and bit-field cases
-- Disposition: `fix-sprint:s56.5-x86-opt-runtime-abort-cluster`
-
-### Bucket 87
-
 - Count: 3
 - Cluster: signal=`-`; phase=`ICE`
 - Fingerprint: `1809194e7e97121e5eb03472b2115ee3aa93ae12d48e5f426f10976b7333459a`
@@ -1399,7 +1384,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: x86 large integer constants reach an ordinary immediate form in @baz instead of movabs
 - Disposition: `fix-sprint:s56.5-x86-imm64-materialization`
 
-### Bucket 88
+### Bucket 87
 
 - Count: 2
 - Cluster: signal=`-`; phase=`ICE`
@@ -1413,7 +1398,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: O3 loop transformation creates parameters on the IR entry block
 - Disposition: `fix-sprint:s56.5-opt-entry-block-parameters`
 
-### Bucket 89
+### Bucket 88
 
 - Count: 2
 - Cluster: signal=`-`; phase=`ICE`
@@ -1427,7 +1412,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: O3 nested-loop transformation emits an IR argument after a non-argument operand
 - Disposition: `fix-sprint:s56.5-opt-phi-argument-order`
 
-### Bucket 90
+### Bucket 89
 
 - Count: 2
 - Cluster: signal=`-`; phase=`ICE`
@@ -1441,7 +1426,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: O3 value rewriting leaves an operand referring to deleted IR value id zero
 - Disposition: `fix-sprint:s56.5-opt-dead-value-rewrite`
 
-### Bucket 91
+### Bucket 90
 
 - Count: 2
 - Cluster: signal=`-`; phase=`ICE`
@@ -1457,13 +1442,13 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Policy Overlay
 
-- Applied decisions: 82
+- Applied decisions: 81
 - Stale decisions: 0
 
 ## Coverage
 
-- Failed cells: 8125
-- Bucketed cells: 8125
+- Failed cells: 8112
+- Bucketed cells: 8112
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%
