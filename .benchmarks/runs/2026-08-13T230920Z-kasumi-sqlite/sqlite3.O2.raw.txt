@@ -1,0 +1,10 @@
+sample=1 wall_ms=18397.659551 user_ms=17753.868000 sys_ms=616.583000 maxrss_kb=11485616
+sample=2 wall_ms=18151.456925 user_ms=17538.321000 sys_ms=587.855000 maxrss_kb=11490048
+sample=3 wall_ms=18541.091667 user_ms=17886.749000 sys_ms=626.635000 maxrss_kb=11486440
+sample=4 wall_ms=17902.657406 user_ms=17273.438000 sys_ms=602.864000 maxrss_kb=11486424
+sample=5 wall_ms=18202.452220 user_ms=17573.346000 sys_ms=602.870000 maxrss_kb=11490016
+sample=6 wall_ms=18373.279849 user_ms=17776.546000 sys_ms=570.823000 maxrss_kb=11485664
+sample=7 wall_ms=18205.260567 user_ms=17568.597000 sys_ms=611.804000 maxrss_kb=11486052
+sample=8 wall_ms=17953.536615 user_ms=17298.223000 sys_ms=629.662000 maxrss_kb=11486484
+sample=9 wall_ms=17756.407660 user_ms=17126.583000 sys_ms=604.803000 maxrss_kb=11485956
+sample=10 wall_ms=18242.348571 user_ms=17600.028000 sys_ms=616.825000 maxrss_kb=11484044

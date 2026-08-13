@@ -28,25 +28,33 @@ grep -Fq 'compile_profile=sprint-52-sqlite-scale-v1' \
     fail "campaign receipts omit the compile profile"
 
 policy=$root/scripts/campaigns/sqlite-policy-check.sh
+production_policy=$root/ci/campaigns/sqlite-baselines.conf
+unmeasured_policy=$work/policy-unmeasured.conf
+awk '
+    /^(kasumi|hasu)\.(O0|O2)\.(wall_ms_median|maxrss_kb_max)=/ {
+        sub(/=.*/, "=UNMEASURED")
+    }
+    { print }
+' "$production_policy" >"$unmeasured_policy"
 if command -v sha256sum >/dev/null 2>&1; then
-    policy_sha=$(sha256sum "$root/ci/campaigns/sqlite-baselines.conf" | awk '{print $1}')
+    policy_sha=$(sha256sum "$production_policy" | awk '{print $1}')
 else
-    policy_sha=$(shasum -a 256 "$root/ci/campaigns/sqlite-baselines.conf" | awk '{print $1}')
+    policy_sha=$(shasum -a 256 "$production_policy" | awk '{print $1}')
 fi
-policy_detail=$("$policy" "$root/ci/campaigns/sqlite-baselines.conf")
+policy_detail=$("$policy" "$production_policy")
 printf '%s\n' "$policy_detail" | grep -Fq "policy-sha256=$policy_sha" ||
     fail "policy detail omitted the enforced config hash"
 case $policy_detail in
-*,absolute-o2-ms=60000,state=unmeasured) ;;
-*) fail "unmeasured policy state or threshold was not derived truthfully" ;;
+*,absolute-o2-ms=60000,state=numeric) ;;
+*) fail "production policy is not a numeric closure policy" ;;
 esac
-if "$policy" --require-numeric "$root/ci/campaigns/sqlite-baselines.conf" \
+if "$policy" --require-numeric "$unmeasured_policy" \
     >"$work/policy-unmeasured.out" 2>"$work/policy-unmeasured.err"; then
     fail "closure policy accepted unmeasured designated hosts"
 fi
 grep -Fq 'controlled capture is required' "$work/policy-unmeasured.err" ||
     fail "unmeasured closure failure did not name the required capture"
-sed 's/UNMEASURED/100/g' "$root/ci/campaigns/sqlite-baselines.conf" \
+sed 's/UNMEASURED/100/g' "$unmeasured_policy" \
     >"$work/policy-numeric.conf"
 numeric_detail=$("$policy" --require-numeric "$work/policy-numeric.conf")
 case $numeric_detail in
@@ -59,7 +67,7 @@ expected_result_detail=$(awk -F '\t' '
 numeric_result_detail=$("$policy" --result-detail "$work/policy-numeric.conf")
 [ "$numeric_result_detail" = "$expected_result_detail" ] ||
     fail "numeric policy public result detail does not match sqlite.expected"
-if "$policy" --result-detail "$root/ci/campaigns/sqlite-baselines.conf" \
+if "$policy" --result-detail "$unmeasured_policy" \
     >"$work/result-unmeasured.out" 2>"$work/result-unmeasured.err"; then
     fail "public policy result accepted unmeasured designated hosts"
 fi
@@ -208,7 +216,7 @@ write_receipt "$work/O2.txt" 60000
 grep -Fq 'host=kasumi absolute-o2=passed relative-gate=deferred-for-initial-controlled-capture' \
     "$work/absolute-only.out" || fail "absolute-only capture lost real host identity"
 
-cp "$root/ci/campaigns/sqlite-baselines.conf" "$work/baselines.conf"
+cp "$unmeasured_policy" "$work/baselines.conf"
 sed -i 's/UNMEASURED/100/g' "$work/baselines.conf"
 write_receipt "$work/O0.txt" 130
 write_receipt "$work/O2.txt" 130

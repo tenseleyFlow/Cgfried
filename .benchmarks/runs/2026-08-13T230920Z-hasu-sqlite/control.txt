@@ -1,0 +1,9 @@
+host=hasu
+governor=powersave
+power_profile=performance
+scaling_driver=intel_pstate
+energy_performance_preference=performance
+control_protocol=fleet-control-v2
+logical_cpus=20
+cpu_idle_pct=97.48
+load1=2.20

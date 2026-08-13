@@ -1,0 +1,5 @@
+wall_ms_median=18203.856393
+wall_ms_mad=181.613307
+user_ms_median=17570.971500
+sys_ms_median=608.303500
+maxrss_kb_max=11490048

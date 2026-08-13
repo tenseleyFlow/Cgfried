@@ -9,8 +9,9 @@ audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation and first complete hosted native/cross activation are green;
 its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally OPEN.
 Sprint 59's implementation and all locally runnable project bars are green;
-its operational closure remains OPEN pending numeric SQLite baselines from
-Kasumi and Hasu plus one complete post-baseline nightly ladder.** The
+its controlled Kasumi/Hasu SQLite baselines are numeric and independently
+audited, and operational closure remains OPEN pending one complete
+post-baseline nightly ladder. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
@@ -20,17 +21,16 @@ Sprint 56's campaign machine, triage map, and 25,933-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
-machine and compiler repairs are integrated while Sprint 54 finishes closure
-and Sprint 58 continues collecting independent operational evidence. The old
+machine, compiler repairs, and numeric scale policy are integrated while
+Sprint 58 continues collecting independent operational evidence. The old
 D5 notes are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, resume **Sprint 59's operational evidence ladder**: collect the two
-controlled SQLite baselines at one exact hosted-green revision, commit the
-numeric policy, then run and verify one complete 15-variant post-baseline
-nightly. Sprint 58's independent 30-day bootstrap soak continues in parallel.
+On trunk, resume **Sprint 59's operational evidence ladder** by running and
+verifying one complete 15-variant nightly against the committed numeric SQLite
+policy. Sprint 58's independent 30-day bootstrap soak continues in parallel.
 Do not begin Sprint 60 while either Sprint 58 or Sprint 59 remains open.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
@@ -42,10 +42,10 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ## Parallel Sprint 59 project ladder — IMPLEMENTED; EVIDENCE OPEN
 
-Sprint 59's code, descriptors, exact-result contracts, compiler repairs, and
-locally runnable validation bars are complete on `trunk`. Do not
-call the sprint closed until the two designated-host SQLite baselines are
-numeric and one complete nightly ladder passes against them.
+Sprint 59's code, descriptors, exact-result contracts, compiler repairs,
+locally runnable validation bars, and designated-host SQLite baselines are
+complete on `trunk`. Do not call the sprint closed until one complete nightly
+ladder passes against the numeric policy.
 
 - `ci/campaigns/FORMAT.md`, `ladder.yml`, and the retrofitted Sprint 57
   descriptors define one audited eight-project inventory. The linter sees
@@ -65,10 +65,12 @@ numeric and one complete nightly ladder passes against them.
   and `speedtest1` completes with verification
   `111130:1e792c9db61996c477b8ab5ce2d690052e8dae74824a430a`. The canonical
   Sprint 52 scale profile records 10 measured runs after one warmup and keeps
-  the absolute O2 ceiling at 60 seconds; a one-run local preflight measured
-  3,145.919 ms / 1,236,984 KiB at O0 and 27,444.039 ms / 11,457,440 KiB at
-  O2. Those satoyama numbers are diagnostic only and MUST NOT be substituted
-  for designated-host baselines.
+  the absolute O2 ceiling at 60 seconds. Exact revision `e52b8891` produced
+  controlled passing baselines at `2026-08-13T230920Z`: Kasumi O0
+  2,094.713636 ms / 1,248,164 KiB and O2 18,203.856393 ms / 11,490,048 KiB;
+  Hasu O0 2,406.116677 ms / 1,228,200 KiB and O2 17,733.074318 ms /
+  11,450,836 KiB. The complete immutable artifacts live under
+  `.benchmarks/runs/2026-08-13T230920Z-{kasumi,hasu}-sqlite/`.
 - Seven stable compiler findings are fixed and regression-pinned:
   deterministic source-span interning; bounded alias/dependence/IPO/BCE
   scale; call-argument provenance through IPO/BCE; dynamic x86 block-edge
@@ -89,25 +91,23 @@ numeric and one complete nightly ladder passes against them.
 
 ### Sprint 59 operational resume sequence
 
-1. Land and push the exact tested source revision; run the required hosted
-   x86-64 and native ARM64 variants from that revision. Do not reuse an older
-   workflow's results merely because the source pins match.
-2. On controlled fleet hosts `kasumi` and `hasu`, run
-   `scripts/fleet-sqlite.sh` against that exact revision. Each run performs
-   one warmup plus ten O0/O2 measurements under the existing
-   fleet-control-v2 preflight and publishes immutable evidence; it never
-   edits policy.
-3. Review those two artifacts, then replace the eight `UNMEASURED` values in
-   `ci/campaigns/sqlite-baselines.conf` with the controlled O0/O2 median-wall
-   and max-RSS values. The public `compile.baseline-policy` row is deliberately
-   invariant; the mutable policy SHA-256 and thresholds remain in the compile
-   receipt. Its numeric-policy meta-test must still match the expected row
-   exactly. Partial numeric hosts fail closed. Do not relax the +30% wall,
-   +20% RSS, or 60-second absolute O2 policy.
-4. Run one complete 15-variant nightly ladder after the numeric baseline
-   commit. Every expected row, including `compile.baseline-policy`, must pass;
-   publish and independently verify the aggregate/failure artifacts before
-   recording Sprint 59 closed.
+1. **COMPLETE:** exact revision `e52b8891444ff883d8dfc6ae5202e9410e039cae`
+   is pushed; its required hosted x86-64/native ARM64 activation and O0/O2
+   bootstrap jobs are green (CI `31752532760`, bootstrap `31752532771`).
+2. **COMPLETE:** `scripts/fleet-sqlite.sh` captured one warmup plus ten O0/O2
+   measurements on both controlled designated hosts at that exact revision.
+   Both immutable artifacts classify fleet-control-v2 as controlled, pass the
+   absolute gate, preserve the original policy byte-for-byte, and have been
+   independently checked against their raw samples.
+3. **COMPLETE:** all eight numeric medians/max-RSS values are committed in
+   `ci/campaigns/sqlite-baselines.conf`. The +30% wall, +20% RSS, and 60-second
+   absolute O2 thresholds are unchanged; partial/unmeasured policy fixtures
+   remain fail-closed, and the public `compile.baseline-policy` row is
+   invariant.
+4. **NEXT:** run one complete 15-variant nightly ladder after the numeric
+   baseline commit. Every expected row, including `compile.baseline-policy`,
+   must pass; publish and independently verify the aggregate/failure artifacts
+   before recording Sprint 59 closed.
 
 `ci/closed_sprints.txt` is 57. Sprint 59 evidence does not manufacture Sprint
 58 bootstrap-soak days, and Sprint 59 cannot advance the contiguous ratchet
