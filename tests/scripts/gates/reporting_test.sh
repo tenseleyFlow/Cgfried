@@ -60,6 +60,52 @@ expect_status 3 "$summary" $summary_args \
 expect_status 3 "$summary" $summary_args \
     --bench "$fixtures/bench.base.txt" "$fixtures/missing.txt"
 
+musl_receipt()
+{
+    musl_file=$1
+    musl_revision=$2
+    musl_wall=$3
+    musl_rss=$4
+    musl_ast_peak=$5
+    musl_intern_hit=$6
+    {
+        echo 'schema=cgfried.musl-full-build.v1'
+        echo 'target=x86_64-linux-musl'
+        echo 'host=kasumi'
+        echo 'date=2026-08-13T12:00:00Z'
+        echo "cgf_rev=$musl_revision"
+        echo 'cgf_tree=clean'
+        echo 'timeit_protocol=runs=10,warmup=1;fresh-tree-per-sample;source-date-epoch=0;jobs=1'
+        echo 'control_protocol=fleet-control-v2'
+        echo 'logical_cpus=18'
+        echo 'cpu_idle_pct=96.0'
+        echo 'load1=0.20'
+        echo 'governor=powersave'
+        echo 'power_profile=performance'
+        echo 'scaling_driver=intel_pstate'
+        echo 'energy_performance_preference=performance'
+        echo "wall_ms_median=$musl_wall"
+        echo 'user_ms_median=900'
+        echo 'sys_ms_median=100'
+        echo "maxrss_kb_max=$musl_rss"
+        echo "musl.stat.arena.ast.peak_kb_max=$musl_ast_peak"
+        echo "musl.stat.intern.hit_pct=$musl_intern_hit"
+    } >"$musl_file"
+}
+
+musl_receipt "$tmp/musl.base.txt" base-musl 1000 20000 100 90
+musl_receipt "$tmp/musl.latest.txt" latest-musl 1100 21000 105 91
+"$report" --version 0.0.1 --output "$tmp/musl-report.md" \
+    --baseline "$tmp/musl.base.txt" --latest "$tmp/musl.latest.txt" \
+    --golden "$fixtures/golden.txt" --dashboard "$fixtures/dashboard.md" \
+    >"$tmp/musl-report.out"
+grep -F '| kasumi | wall_ms_median | 1000 | 1100 | +10.0% | n/a |' \
+    "$tmp/musl-report.md" >/dev/null || fail "musl wall time was not reported"
+grep -F '| kasumi | musl.stat.arena.ast.peak_kb_max | 100 | 105 | +5.0% | n/a |' \
+    "$tmp/musl-report.md" >/dev/null || fail "musl arena statistics were not reported"
+grep -F '| kasumi | musl.stat.intern.hit_pct | 90 | 91 | +1.1% | n/a |' \
+    "$tmp/musl-report.md" >/dev/null || fail "musl interner statistics were not reported"
+
 "$report" --version 0.0.1 --output "$tmp/report-one.md" \
     --baseline "$fixtures/bench.base.txt" \
     --baseline "$fixtures/bench-hasu.base.txt" \

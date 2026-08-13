@@ -632,11 +632,13 @@ test-perf-gates:
 	sh tests/scripts/gates/bench_control_test.sh
 	sh tests/scripts/gates/size_gate_test.sh
 	sh tests/scripts/gates/runtime_gate_test.sh
+	sh tests/scripts/gates/musl_full_build_test.sh
 	sh tests/scripts/gates/reporting_test.sh
 	sh tests/scripts/gates/bench_policy_test.sh
 	sh tests/scripts/gates/perf_gate_test.sh
 	sh tests/scripts/gates/fleet_perf_test.sh
 	sh tests/scripts/gates/fleet_nightly_test.sh
+	sh tests/scripts/gates/perf_config_test.sh
 	sh scripts/check_perf_configs.sh
 
 bench: $(BUILD)/cgfried $(BUILD)/timeit
@@ -767,6 +769,19 @@ perf-report:
 	                sort | tail -n 1); \
 	            [ -n "$$latest" ] || { \
 	                echo "perf-report: no committed bootstrap artifact for $$bootstrap_host" >&2; \
+	                exit 3; \
+	            }; \
+	            set -- "$$@" --latest "$$latest"; \
+	        fi; \
+	    done; \
+	    for musl_host in kasumi hasu; do \
+	        baseline=.benchmarks/baseline-musl-full-build-x86_64-linux-musl.$$musl_host.txt; \
+	        if [ -r "$$baseline" ]; then \
+	            latest=$$(find .benchmarks/runs -maxdepth 1 -type f \
+	                -name "*-$$musl_host-musl-full-build.txt" -print 2>/dev/null | \
+	                sort | tail -n 1); \
+	            [ -n "$$latest" ] || { \
+	                echo "perf-report: no committed musl artifact for $$musl_host" >&2; \
 	                exit 3; \
 	            }; \
 	            set -- "$$@" --latest "$$latest"; \

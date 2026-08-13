@@ -18,7 +18,7 @@ an infrastructure error, never a skip.
 | Kernel runtime <!-- perf-gate:kernel-runtime --> | Fleet only: Linux x86 on `kasumi`/`hasu`, Darwin ARM on `nomad-1`; shared CI: **never** | Nightly | More than +10% median-of-medians **and** beyond four MADs | **trial** — runtime is the truth lane, protected from noisy false alarms |
 | Arena peaks and interner hit rate <!-- perf-gate:internal-stats --> | Everywhere | Every PR and fleet run | Report only | **report-only** — useful diagnosis must not ossify internal design |
 | Stage-1 O2 self-compile time <!-- perf-gate:stage1-self-time --> | Controlled Linux fleet: `kasumi` and `hasu` | Nightly | More than +30% median wall or user+sys | **trial** — Sprint 58 records byte-identical bootstrap and timing together; the first controlled receipt is warmup until its baseline is accepted separately |
-| Full musl build <!-- perf-gate:musl-full-build --> | Fleet | Nightly history slot | Inactive until Sprint 57 is green | **inactive** — the corpus exists, but an incomplete build is not a metric |
+| Full musl hybrid build <!-- perf-gate:musl-full-build --> | Controlled Linux fleet: `kasumi` and `hasu`; shared CI and `nomad-1`: **never** | Nightly | More than +30% median wall or user+sys, or +20% max RSS | **trial** — Sprint 57's pinned 1,254 Cgfried C / 68 host `_Complex` / 32 host assembler workload is measured separately from the blocking compile baseline |
 
 Shared runners may record elapsed time for visibility, but no shared-runner
 command is allowed to compare it.  `BENCH_SKIP_TIME=1` disables only the

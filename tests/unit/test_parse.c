@@ -458,8 +458,8 @@ void test_parse_records_and_enums(TestCtx *t)
     T_ASSERT(t, tu->decls[0]->type->record->members[1]->bitfield_width);
     pfix_free(&f);
 
-    /* An untagged struct/union member with no declarator is a C11
-     * anonymous member; a TAGGED one is the MS extension (Sprint 55). */
+    /* An untagged struct/union member with no declarator is a C11 anonymous
+     * member; the tagged Microsoft extension is deliberately refused. */
     tu = parse_src(&f, "struct A { struct { int x; }; int y; };\n", STD_C17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, tu->decls[0]->type->record->members[0]->is_anon_member);
@@ -505,7 +505,7 @@ void test_parse_initializers(TestCtx *t)
     T_ASSERT_EQ_INT(t, tu->decls[0]->init->items[0]->ndesignators, 3);
     pfix_free(&f);
 
-    /* GNU range designators name their sprint. */
+    /* GNU range designators are deliberately refused. */
     tu = parse_src(&f, "int a[4] = { [1 ... 3] = 0 };\n", STD_C17);
     T_ASSERT(t, f.errors >= 1);
     pfix_free(&f);

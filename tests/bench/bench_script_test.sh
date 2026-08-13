@@ -88,6 +88,12 @@ grep -Fx 'sysroot_include=/nix/store/fixture-glibc-dev/include' \
     "$WORK/linux/results.txt" >/dev/null || fail "compile include provenance missing"
 grep -Fx 'sysroot_crt=/nix/store/fixture-glibc/lib' \
     "$WORK/linux/results.txt" >/dev/null || fail "compile CRT provenance missing"
+grep -Fx 'musl.status=separate-trial-lane' "$WORK/linux/results.txt" >/dev/null ||
+    fail "compile receipt does not route musl through its separate trial lane"
+grep -Fx 'musl.gate=ci/gates.d/musl-full-build.conf' \
+    "$WORK/linux/results.txt" >/dev/null || fail "musl gate provenance is missing"
+grep -Fx 'musl.reach=scripts/fleet-musl-build.sh' \
+    "$WORK/linux/results.txt" >/dev/null || fail "musl fleet entry point is missing"
 for field in power_profile scaling_driver energy_performance_preference; do
     [ "$(grep -c "^$field=" "$WORK/linux/results.txt")" -eq 1 ] ||
         fail "Linux $field provenance was not emitted exactly once"

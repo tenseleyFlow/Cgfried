@@ -1,5 +1,5 @@
 // FLAGS: --dump-ast
-// ERROR_EXPECTED: Sprint
-// No silent stubs: an unimplemented GNU extension must hard-error and name
-// the sprint that lands it, so a deferral can never masquerade as support.
+// ERROR_EXPECTED: GNU range designators are not supported
+// Sprint 55 classified this extension as deliberately unsupported. Keep the
+// rejection explicit without pretending that a closed sprint will land it.
 int a[4] = { [1 ... 3] = 0 };

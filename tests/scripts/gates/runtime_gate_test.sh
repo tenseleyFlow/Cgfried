@@ -269,8 +269,6 @@ expect 3 'duplicate UTC run day 2026-07-08' \
     "$fixtures/regress-1.txt" "$fixtures/same-day.txt" \
     "$fixtures/regress-3.txt"
 
-expect 0 'musl-full-build: inactive (deferred until Sprint 57)' \
-    "$gate" "$root/ci/gates.d/musl-full-build.conf"
 expect 1 '13 consecutive quiet days; 14 required' \
     "$gate" --promote "$fixtures/trial.conf" "$fixtures/promotion-13.txt"
 expect 0 'promotion eligible (14 consecutive quiet days through 2026-06-14)' \

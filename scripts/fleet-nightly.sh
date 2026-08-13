@@ -20,6 +20,9 @@ host=${CGF_FLEET_HOST:-}
 os_release=${CGF_FLEET_OS_RELEASE:-/etc/os-release}
 nix_include=${CGF_FLEET_NIX_INCLUDE_DIR:-}
 nix_crt_dir=${CGF_FLEET_NIX_CRT_DIR:-}
+musl_source_override=${CGF_FLEET_MUSL_SOURCE:-}
+musl_url=${CGF_FLEET_MUSL_URL:-https://git.musl-libc.org/git/musl}
+musl_pin=b306b16af15c89a04d8e0c55cac2dadbeb39c083
 
 die()
 {
@@ -99,6 +102,49 @@ fi
 [ -z "$($git_cmd -C "$checkout" status --porcelain --untracked-files=normal)" ] ||
     die "dedicated checkout became dirty during build"
 
+# Cache the immutable musl input below ignored build/ so the scheduled lane is
+# self-provisioning without making network access part of every nightly sample.
+# An explicit source override supports local mirrors and the transaction
+# fixture; the measurement helper independently verifies the exact pin.
+musl_source=
+if [ "$system" = Linux ]; then
+    if [ -n "$musl_source_override" ]; then
+        musl_source=$musl_source_override
+    else
+        musl_source=$checkout/build/fleet-refs/musl-$musl_pin
+        if [ ! -d "$musl_source/.git" ]; then
+            if [ -e "$musl_source" ] || [ -L "$musl_source" ]; then
+                [ "$musl_source" = "$checkout/build/fleet-refs/musl-$musl_pin" ] &&
+                    [ -d "$musl_source" ] && [ ! -L "$musl_source" ] ||
+                    die "unsafe partial musl cache path: $musl_source"
+                # A clone interrupted before .git became usable is generated
+                # cache state, not source evidence. Remove only this exact,
+                # pin-derived directory so the next scheduled run can recover.
+                rm -rf "$musl_source" ||
+                    die "cannot remove partial musl cache: $musl_source"
+            fi
+            mkdir -p "$(dirname "$musl_source")"
+            if ! "$git_cmd" clone --no-checkout "$musl_url" "$musl_source"; then
+                if [ -d "$musl_source" ] && [ ! -L "$musl_source" ]; then
+                    rm -rf "$musl_source" ||
+                        die "cannot clean failed musl clone: $musl_source"
+                fi
+                die "cannot clone the pinned musl input"
+            fi
+        fi
+        if ! "$git_cmd" -C "$musl_source" cat-file -e "$musl_pin^{commit}"; then
+            "$git_cmd" -C "$musl_source" fetch --depth=1 origin "$musl_pin" ||
+                die "cannot fetch the pinned musl input"
+        fi
+        "$git_cmd" -C "$musl_source" checkout --detach "$musl_pin" >/dev/null 2>&1 ||
+            die "cannot check out the pinned musl input"
+        [ "$($git_cmd -C "$musl_source" rev-parse --verify HEAD)" = "$musl_pin" ] ||
+            die "musl cache did not resolve to the required pin"
+        [ -z "$($git_cmd -C "$musl_source" status --porcelain --untracked-files=normal)" ] ||
+            die "pinned musl cache is dirty: $musl_source"
+    fi
+fi
+
 # NixOS deliberately has no FHS /usr/include or /usr/lib. The compiler must
 # still see one coherent target root: construct an ignored symlink sysroot from
 # the active GCC wrapper's glibc inputs, then route both measurement lanes
@@ -160,25 +206,64 @@ fi
 bench=${CGF_FLEET_BENCH:-$checkout/scripts/fleet-bench.sh}
 perf=${CGF_FLEET_PERF:-$checkout/scripts/fleet-perf.sh}
 bootstrap=${CGF_FLEET_BOOTSTRAP:-$checkout/scripts/fleet-bootstrap.sh}
+musl=${CGF_FLEET_MUSL:-$checkout/scripts/fleet-musl-build.sh}
 [ -x "$bench" ] || die "fleet benchmark wrapper is not executable: $bench"
 [ -x "$perf" ] || die "fleet runtime wrapper is not executable: $perf"
 if [ "$system" = Linux ]; then
     [ -x "$bootstrap" ] ||
         die "fleet bootstrap wrapper is not executable: $bootstrap"
+    [ -x "$musl" ] ||
+        die "fleet musl wrapper is not executable: $musl"
 fi
 run_dir=$checkout/.benchmarks/runs
 compile_result=$run_dir/$stamp-$host.txt
 runtime_result=$run_dir/$stamp-$host-kernels.txt
 bootstrap_result=$run_dir/$stamp-$host-bootstrap.txt
+musl_result=$run_dir/$stamp-$host-musl-full-build.txt
+compile_holding=
+runtime_holding=
+musl_holding=
+failure_dir=$checkout/build/fleet-failure-$host
+
+preserve_failed_artifacts()
+{
+    [ "$failure_dir" = "$checkout/build/fleet-failure-$host" ] || return 3
+    if [ -e "$failure_dir" ]; then
+        [ -d "$failure_dir" ] && [ ! -L "$failure_dir" ] || return 3
+        # Retain only the newest generated transaction failure per host so a
+        # broken scheduler cannot grow ignored evidence without bound.
+        rm -rf "$failure_dir" || return 3
+    fi
+    mkdir -p "$failure_dir" || return 3
+    found=no
+    for artifact in "$compile_result" "$runtime_result" "$bootstrap_result" \
+        "$musl_result" "$compile_holding" "$runtime_holding" "$musl_holding"; do
+        [ -n "$artifact" ] && [ -e "$artifact" ] || continue
+        target=$failure_dir/$(basename "$artifact")
+        [ ! -e "$target" ] || return 3
+        mv "$artifact" "$target" || return 3
+        found=yes
+    done
+    if [ "$found" = yes ]; then
+        echo "$prog: retained failed transaction artifacts in $failure_dir" >&2
+    fi
+}
+
+transaction_die()
+{
+    message=$*
+    preserve_failed_artifacts || die "cannot preserve failed transaction artifacts"
+    die "$message"
+}
 
 bench_status=0
 CGF_FLEET_HOST=$host CGF_FLEET_STAMP=$stamp CGF_FLEET_COMMIT=0 \
 CGF_FLEET_RESULT=$compile_result "$bench" || bench_status=$?
 case $bench_status in
 0 | 1) ;;
-*) die "compile benchmark infrastructure failed (status $bench_status)" ;;
+*) transaction_die "compile benchmark infrastructure failed (status $bench_status)" ;;
 esac
-[ -s "$compile_result" ] || die "compile benchmark artifact is missing"
+[ -s "$compile_result" ] || transaction_die "compile benchmark artifact is missing"
 
 # Keep the first dated artifact in ignored build/ while the second measurement
 # captures revision provenance, so both truth lanes observe the same clean tree.
@@ -191,13 +276,10 @@ CGF_FLEET_ROOT=$checkout CGF_FLEET_HOST=$host CGF_FLEET_STAMP=$stamp \
 CGF_FLEET_RUNTIME_RESULT=$runtime_result "$perf" || perf_status=$?
 case $perf_status in
 0 | 1) ;;
-*)
-    mv "$compile_holding" "$compile_result" || true
-    die "kernel runtime infrastructure failed (status $perf_status)"
-    ;;
+*) transaction_die "kernel runtime infrastructure failed (status $perf_status)" ;;
 esac
 mv "$compile_holding" "$compile_result" || die "cannot restore compile artifact"
-[ -s "$runtime_result" ] || die "kernel runtime artifact is missing"
+[ -s "$runtime_result" ] || transaction_die "kernel runtime artifact is missing"
 runtime_trip=$(awk -F= '
     $1 == "fleet.runtime_gate_trip" { value = $2; count++ }
     END {
@@ -205,19 +287,65 @@ runtime_trip=$(awk -F= '
             exit 3
         print value
     }
-' "$runtime_result") || die "kernel runtime artifact lacks a unique trip result"
+' "$runtime_result") || transaction_die "kernel runtime artifact lacks a unique trip result"
+
+musl_status=0
+musl_trip=no
+if [ "$system" = Linux ]; then
+    # The musl receipt records clean-tree provenance. Keep the two earlier
+    # artifacts under ignored build/ until this independent lane is complete.
+    runtime_holding=$checkout/build/$stamp-$host.runtime-result
+    mv "$compile_result" "$compile_holding" ||
+        transaction_die "cannot hold compile artifact during musl measurement"
+    mv "$runtime_result" "$runtime_holding" || {
+        transaction_die "cannot hold runtime artifact during musl measurement"
+    }
+    restore_musl_inputs()
+    {
+        [ ! -e "$compile_result" ] && [ -e "$compile_holding" ] &&
+            mv "$compile_holding" "$compile_result" || true
+        [ ! -e "$runtime_result" ] && [ -e "$runtime_holding" ] &&
+            mv "$runtime_holding" "$runtime_result" || true
+    }
+    trap 'preserve_failed_artifacts' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    CGF_FLEET_MUSL_ROOT=$checkout CGF_FLEET_MUSL_SOURCE=$musl_source \
+    CGF_FLEET_HOST=$host CGF_FLEET_STAMP=$stamp \
+    CGF_FLEET_GIT_CMD=$git_cmd CGF_FLEET_UNAME_CMD=$uname_cmd \
+        "$musl" || musl_status=$?
+    trap - EXIT HUP INT TERM
+    [ "$musl_status" -eq 0 ] ||
+        transaction_die "musl full-build infrastructure failed (status $musl_status)"
+    [ -s "$musl_result" ] || transaction_die "musl full-build artifact is missing"
+    restore_musl_inputs
+    musl_gate=$(awk -F= '
+        $1 == "fleet.gate" { value = $2; count++ }
+        END {
+            if (count != 1 ||
+                (value != "warmup" && value != "trial-pass" &&
+                 value != "trial-trip"))
+                exit 3
+            print value
+        }
+    ' "$musl_result") || transaction_die "musl full-build artifact lacks a unique gate result"
+    [ "$musl_gate" != trial-trip ] || musl_trip=yes
+fi
 
 bootstrap_status=0
 if [ "$system" = Linux ]; then
     # Bootstrap is long enough to perturb the shorter compile/runtime truth
-    # lanes, so it runs last. Hold both already-produced artifacts under the
+    # lanes, so it runs last. Hold all already-produced artifacts under the
     # ignored build tree to preserve the clean-source timing contract.
-    runtime_holding=$checkout/build/$stamp-$host.runtime-result
+    musl_holding=$checkout/build/$stamp-$host.musl-result
     mv "$compile_result" "$compile_holding" ||
-        die "cannot hold compile artifact during bootstrap measurement"
+        transaction_die "cannot hold compile artifact during bootstrap measurement"
     mv "$runtime_result" "$runtime_holding" || {
-        mv "$compile_holding" "$compile_result" || true
-        die "cannot hold runtime artifact during bootstrap measurement"
+        transaction_die "cannot hold runtime artifact during bootstrap measurement"
+    }
+    mv "$musl_result" "$musl_holding" || {
+        transaction_die "cannot hold musl artifact during bootstrap measurement"
     }
     restore_bootstrap_inputs()
     {
@@ -225,20 +353,25 @@ if [ "$system" = Linux ]; then
             mv "$compile_holding" "$compile_result" || true
         [ ! -e "$runtime_result" ] && [ -e "$runtime_holding" ] &&
             mv "$runtime_holding" "$runtime_result" || true
+        [ ! -e "$musl_result" ] && [ -e "$musl_holding" ] &&
+            mv "$musl_holding" "$musl_result" || true
     }
-    trap 'restore_bootstrap_inputs' EXIT HUP INT TERM
+    trap 'preserve_failed_artifacts' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     HOSTCC=$cc CGF_FLEET_ROOT=$checkout CGF_FLEET_HOST=$host \
     CGF_FLEET_STAMP=$stamp CGF_FLEET_BOOTSTRAP_RESULT=$bootstrap_result \
     CGF_FLEET_MAKE_CMD=$make_cmd CGF_FLEET_GIT_CMD=$git_cmd \
     CGF_FLEET_UNAME_CMD=$uname_cmd "$bootstrap" || bootstrap_status=$?
-    restore_bootstrap_inputs
     trap - EXIT HUP INT TERM
     case $bootstrap_status in
     0 | 1) ;;
-    *) die "stage1 bootstrap timing infrastructure failed (status $bootstrap_status)" ;;
+    *) transaction_die "stage1 bootstrap timing infrastructure failed (status $bootstrap_status)" ;;
     esac
     [ -s "$bootstrap_result" ] ||
-        die "stage1 bootstrap timing artifact is missing"
+        transaction_die "stage1 bootstrap timing artifact is missing"
+    restore_bootstrap_inputs
 fi
 {
     echo "fleet.nightly_stamp=$stamp"
@@ -248,13 +381,20 @@ fi
     echo "fleet.nightly_stamp=$stamp"
     echo "fleet.nightly_host=$host"
 } >>"$runtime_result"
+if [ "$system" = Linux ]; then
+    {
+        echo "fleet.nightly_stamp=$stamp"
+        echo "fleet.nightly_host=$host"
+    } >>"$musl_result"
+fi
 
 compile_relative=${compile_result#"$checkout"/}
 runtime_relative=${runtime_result#"$checkout"/}
 set -- "$compile_relative" "$runtime_relative"
 if [ "$system" = Linux ]; then
     bootstrap_relative=${bootstrap_result#"$checkout"/}
-    set -- "$@" "$bootstrap_relative"
+    musl_relative=${musl_result#"$checkout"/}
+    set -- "$@" "$bootstrap_relative" "$musl_relative"
 fi
 "$git_cmd" -C "$checkout" add -- "$@"
 staged=$($git_cmd -C "$checkout" diff --cached --name-only | sort)
@@ -264,7 +404,8 @@ expected=$(printf '%s\n' "$@" | sort)
 
 trip=no
 if [ "$bench_status" -eq 1 ] || [ "$perf_status" -eq 1 ] ||
-   [ "$runtime_trip" = yes ] || [ "$bootstrap_status" -eq 1 ]; then
+   [ "$runtime_trip" = yes ] || [ "$bootstrap_status" -eq 1 ] ||
+   [ "$musl_trip" = yes ]; then
     trip=yes
 fi
 "$git_cmd" -C "$checkout" -c commit.gpgsign=false commit -m \
@@ -295,5 +436,8 @@ if [ "$runtime_trip" = yes ]; then
 fi
 if [ "$bootstrap_status" -eq 1 ]; then
     echo "$prog: non-blocking trial bootstrap-time trip recorded"
+fi
+if [ "$musl_trip" = yes ]; then
+    echo "$prog: non-blocking trial musl full-build trip recorded"
 fi
 echo "$prog: nightly measurements passed"

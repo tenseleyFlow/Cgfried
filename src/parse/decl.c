@@ -1422,7 +1422,7 @@ static AstNode *parse_member_decl(Parser *p)
                    s.record->is_definition) {
             parse_error(p, start,
                         "a tagged struct/union member without a declarator "
-                        "is a Microsoft extension (lands in Sprint 55)");
+                        "is an unsupported Microsoft extension");
         } else {
             warn_at(p->lang->warnings, WARN_EMPTY_DECLARATION, start->span,
                     "declaration does not declare anything");
@@ -1576,8 +1576,7 @@ static AstNode *parse_initializer(Parser *p)
                 d->desig_index = parse_cond_expr(p);
                 if (parse_at_punct(p, PUNCT_ELLIPSIS)) {
                     parse_error(p, parse_peek(p),
-                                "GNU range designators are not yet supported "
-                                "(land in Sprint 55)");
+                                "GNU range designators are not supported");
                     p->pos++;
                     (void)parse_cond_expr(p);
                 }

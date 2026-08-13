@@ -549,14 +549,14 @@ static AstNode *parse_alignof(Parser *p)
         /* `_Alignof expr` is a GNU extension; ISO takes only a type-name. */
         parse_error(p, parse_peek(p),
                     "'_Alignof' requires a parenthesized type name (the "
-                    "expression form is a GNU extension, lands in Sprint 55)");
+                    "GNU expression form is not supported)");
         return n;
     }
     p->pos++;
     if (!parse_at_type_name(p)) {
         parse_error(p, parse_peek(p),
-                    "'_Alignof' requires a type name (the expression form is "
-                    "a GNU extension, lands in Sprint 55)");
+                    "'_Alignof' requires a type name (the GNU expression "
+                    "form is not supported)");
         return n;
     }
     n->type = parse_type_name(p);

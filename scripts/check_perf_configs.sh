@@ -6,6 +6,7 @@ prog=check_perf_configs
 repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
 config_dir=${1:-$repo/ci/gates.d}
 document=${2:-$repo/doc/perf-gates.md}
+closed_sprints=${3:-$repo/ci/closed_sprints.txt}
 
 die()
 {
@@ -15,6 +16,25 @@ die()
 
 [ -d "$config_dir" ] || die "config directory does not exist: $config_dir"
 [ -r "$document" ] || die "cannot read document: $document"
+[ -r "$closed_sprints" ] || die "cannot read closed-sprint ratchet: $closed_sprints"
+
+closed=$(awk '
+/^[[:space:]]*#/ || /^[[:space:]]*$/ {
+    next
+}
+{
+    entries++
+    if ($0 !~ /^[0-9][0-9]*$/)
+        malformed = 1
+    value = $0
+}
+END {
+    if (entries != 1 || malformed)
+        exit 3
+    print value
+}
+' "$closed_sprints") ||
+    die "$closed_sprints: expected exactly one bare nonnegative integer line"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/cgf-perf-configs.XXXXXX") ||
     die "cannot create temporary directory"
@@ -24,7 +44,7 @@ count=0
 
 for config in "$config_dir"/*.conf; do
     [ -f "$config" ] || continue
-    values=$(awk '
+    values=$(awk -v closed="$closed" '
 function'" "'fail(message) {
     print "check_perf_configs: " FILENAME ":" FNR ": " message > "/dev/stderr"
     bad = 1
@@ -79,6 +99,15 @@ END {
         fail("trial gate must encode the 14-day/2-in-30-day policy")
     if (state == "inactive" && !("defer_until" in value_of))
         fail("inactive gate lacks defer_until")
+    if (state == "inactive" && ("defer_until" in value_of)) {
+        deferred = value_of["defer_until"]
+        if (deferred !~ /^Sprint [0-9][0-9]*$/)
+            fail("inactive gate defer_until must be exactly Sprint N")
+        else if (substr(deferred, 8) + 0 <= closed + 0)
+            fail("inactive gate defers to closed " deferred)
+    }
+    if (state != "inactive" && ("defer_until" in value_of))
+        fail("active gate must not set defer_until")
     if (bad)
         exit 3
     print value_of["name"]

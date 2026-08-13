@@ -2513,15 +2513,17 @@ A64Func *a64_isel_function(const IrModule *module, const IrFunc *ir,
      * no AAPCS64 parameter contract in v0.1.0 (Sprint 36 declined to invent
      * one), and f80 does not exist on this target.
      *
-     * Reachable only through `vector_size`, which is Sprint 55 -- no C
-     * program can name a vector parameter until the attribute parses. */
+     * Vector cases are reachable only through `vector_size`, which the
+     * v0.1.0 GNU-extension policy deliberately refuses; f80 cannot be named
+     * on this target. Reaching either case is therefore an IR invariant
+     * failure, not a recoverable ABI fallback. */
     if (ir_type_is_vector((IrType)ir->ret) || ir->ret == IRT_F80)
-        CGF_ICE("arm64 isel: a vector function ABI lands in Sprint 55");
+        CGF_ICE("arm64 isel: unsupported vector/f80 return ABI reached");
 
     for (i = 0; i < ir->nparams; i++)
         if (ir_type_is_vector((IrType)ir->param_types[i]) ||
             ir->param_types[i] == IRT_F80)
-            CGF_ICE("arm64 isel: vector parameters land in Sprint 55");
+            CGF_ICE("arm64 isel: unsupported vector/f80 parameter ABI reached");
 
     memset(func, 0, sizeof(*func));
     func->name = ir->name;

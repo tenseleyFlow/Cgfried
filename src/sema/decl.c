@@ -393,15 +393,15 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
          * incomplete array as the LAST member of a STRUCT that has other
          * named members — is legal and marks the tag. Every GNU variation
          * is an extension whose LOWERING we have not built, so each
-         * hard-errors naming Sprint 55 rather than silently accepting
-         * semantics Sprint 19 could not emit. (gcc accepts them quietly
-         * and pedwarns; that is an extension-scope choice, documented.) */
+         * hard-errors rather than silently accepting semantics Sprint 19
+         * could not emit. (gcc accepts them quietly and pedwarns; that is an
+         * extension-scope choice documented in docs/gnu-extensions.md.) */
         if (mt && mt->kind == TY_ARRAY && !mt->has_size && !mt->is_vla) {
             if (tag->kind == TY_UNION) {
                 s->nerrors++;
                 diag_emit(s->dc, DIAG_ERROR, m->span,
                           "a flexible array member in a union is a GNU "
-                          "extension (lands in Sprint 55)");
+                          "extension that is not supported");
                 mt = type_basic(TY_ERROR);
             } else if (!is_last_decl) {
                 s->nerrors++;
@@ -412,8 +412,8 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                 s->nerrors++;
                 diag_emit(s->dc, DIAG_ERROR, m->span,
                           "a flexible array member in a struct with no other "
-                          "named members is a GNU extension (lands in "
-                          "Sprint 55)");
+                          "named members is a GNU extension that is not "
+                          "supported");
                 mt = type_basic(TY_ERROR);
             } else {
                 tag->has_fam = true;
@@ -426,8 +426,8 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, m->span,
                       "a struct with a flexible array member cannot be a "
-                      "member of another struct (the GNU form lands in "
-                      "Sprint 55)");
+                      "member of another struct (the GNU form is not "
+                      "supported)");
             mt = type_basic(TY_ERROR);
         }
 
@@ -904,7 +904,7 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, span,
                       "an array of structs with a flexible array member is "
-                      "a GNU extension (lands in Sprint 55)");
+                      "a GNU extension that is not supported");
             inner = type_basic(TY_ERROR);
         }
         arr = type_array(s->arena, inner);
@@ -1598,7 +1598,7 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, d->init->span,
                       "initialization of a flexible array member is a GNU "
-                      "extension (lands in Sprint 55)");
+                      "extension that is not supported");
         }
     }
     sema_init_value(s, target, &d->init);

@@ -12,7 +12,7 @@ fixtures=$root/tests/scripts/gates/fixtures/fleet
 tmp=${TMPDIR:-/tmp}/cgf-fleet-nightly-test.$$
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 mkdir -p "$tmp/checkout/.git" "$tmp/checkout/.benchmarks/runs" \
-    "$tmp/checkout/scripts" "$tmp/home"
+    "$tmp/checkout/scripts" "$tmp/home" "$tmp/musl-source"
 cp "$nightly" "$tmp/checkout/scripts/fleet-nightly.sh"
 chmod 755 "$tmp/checkout/scripts/fleet-nightly.sh"
 
@@ -36,6 +36,9 @@ run_nightly()
     run_nix_include=${10:-}
     run_nix_crt=${11:-}
     run_bootstrap_status=${12:-0}
+    run_musl_status=${13:-0}
+    run_musl_gate=${14:-warmup}
+    run_musl_source=${15-$tmp/musl-source}
     FIXTURE_SYSTEM=$run_system FIXTURE_MACHINE=$run_machine \
     FIXTURE_GIT_LOG=$tmp/git.log FIXTURE_GIT_STAGED=$tmp/staged \
     FIXTURE_PUSH_STATE=$tmp/push-state FIXTURE_PUSH_FAIL_ONCE=$run_fail_once \
@@ -43,6 +46,15 @@ run_nightly()
     FIXTURE_BENCH_STATUS=$run_bench_status FIXTURE_PERF_STATUS=$run_perf_status \
     FIXTURE_RUNTIME_TRIP=$run_runtime_trip \
     FIXTURE_BOOTSTRAP_STATUS=$run_bootstrap_status \
+    FIXTURE_MUSL_STATUS=$run_musl_status FIXTURE_MUSL_GATE=$run_musl_gate \
+    FIXTURE_GIT_STATUS=${FIXTURE_GIT_STATUS:-} \
+    FIXTURE_ALLOW_MUSL_CLONE=${FIXTURE_ALLOW_MUSL_CLONE:-0} \
+    FIXTURE_MUSL_CLONE_STATUS=${FIXTURE_MUSL_CLONE_STATUS:-0} \
+    FIXTURE_MUSL_CACHE_HAS_PIN=${FIXTURE_MUSL_CACHE_HAS_PIN:-1} \
+    FIXTURE_MUSL_CACHE_FETCH_STATUS=${FIXTURE_MUSL_CACHE_FETCH_STATUS:-0} \
+    FIXTURE_MUSL_CACHE_CHECKOUT_STATUS=${FIXTURE_MUSL_CACHE_CHECKOUT_STATUS:-0} \
+    FIXTURE_MUSL_CACHE_REVISION=${FIXTURE_MUSL_CACHE_REVISION:-b306b16af15c89a04d8e0c55cac2dadbeb39c083} \
+    FIXTURE_MUSL_CACHE_STATUS=${FIXTURE_MUSL_CACHE_STATUS:-} \
     FIXTURE_BENCH_ENV_LOG=${FIXTURE_BENCH_ENV_LOG:-} \
     CGF_FLEET_HOST=$run_host CGF_FLEET_STAMP=$run_stamp \
     CGF_FLEET_PUSH=$run_push CGF_FLEET_CHECKOUT=$tmp/checkout \
@@ -56,6 +68,8 @@ run_nightly()
     CGF_FLEET_BENCH=$fixtures/fake-fleet-bench.sh \
     CGF_FLEET_PERF=$fixtures/fake-fleet-perf.sh \
     CGF_FLEET_BOOTSTRAP=$fixtures/fake-fleet-bootstrap.sh \
+    CGF_FLEET_MUSL=$fixtures/fake-fleet-musl.sh \
+    CGF_FLEET_MUSL_SOURCE=$run_musl_source \
         "$nightly"
 }
 
@@ -64,14 +78,17 @@ run_nightly 2026-08-10T120000Z 0 0 1 1 kasumi Linux x86_64 >"$tmp/pass.out" 2>"$
 compile=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi.txt
 runtime=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi-kernels.txt
 bootstrap=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi-bootstrap.txt
-[ -s "$compile" ] && [ -s "$runtime" ] && [ -s "$bootstrap" ] ||
-    fail "Linux nightly did not produce all three artifacts"
+musl=$tmp/checkout/.benchmarks/runs/2026-08-10T120000Z-kasumi-musl-full-build.txt
+[ -s "$compile" ] && [ -s "$runtime" ] && [ -s "$bootstrap" ] &&
+[ -s "$musl" ] || fail "Linux nightly did not produce all four artifacts"
 grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$compile" >/dev/null ||
     fail "compile artifact lacks shared stamp"
 grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$runtime" >/dev/null ||
     fail "runtime artifact lacks shared stamp"
 grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$bootstrap" >/dev/null ||
     fail "bootstrap artifact lacks shared stamp"
+grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$musl" >/dev/null ||
+    fail "musl artifact lacks shared stamp"
 [ "$(grep -c 'push origin trunk' "$tmp/git.log")" -eq 2 ] ||
     fail "push did not perform exactly one retry"
 grep -F 'pull --rebase origin trunk' "$tmp/git.log" >/dev/null ||
@@ -102,6 +119,15 @@ grep -F 'non-blocking trial bootstrap-time trip recorded' \
     fail "scheduler did not report the bootstrap trial trip"
 
 : >"$tmp/git.log"
+run_nightly 2026-08-10T124550Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 0 trial-trip >"$tmp/musl-trip.out" 2>"$tmp/musl-trip.err"
+grep -F 'gate-trip=yes' "$tmp/git.log" >/dev/null ||
+    fail "musl trial trip was not recorded in the commit"
+grep -F 'non-blocking trial musl full-build trip recorded' \
+    "$tmp/musl-trip.out" >/dev/null ||
+    fail "scheduler did not report the musl trial trip"
+
+: >"$tmp/git.log"
 set +e
 run_nightly 2026-08-10T124600Z 0 0 0 0 kasumi Linux x86_64 no \
     "" "" 3 >"$tmp/bootstrap-infra.out" 2>"$tmp/bootstrap-infra.err"
@@ -114,6 +140,93 @@ grep -F 'stage1 bootstrap timing infrastructure failed (status 3)' \
     fail "bootstrap infrastructure diagnostic is missing"
 ! grep -F 'commit ' "$tmp/git.log" >/dev/null ||
     fail "bootstrap infrastructure failure was committed"
+for failed_suffix in .txt -kernels.txt -bootstrap.txt -musl-full-build.txt; do
+    [ ! -e "$tmp/checkout/.benchmarks/runs/2026-08-10T124600Z-kasumi$failed_suffix" ] ||
+        fail "bootstrap failure left a source-visible dated artifact"
+done
+
+: >"$tmp/git.log"
+set +e
+run_nightly 2026-08-10T124700Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 3 warmup >"$tmp/musl-infra.out" 2>"$tmp/musl-infra.err"
+musl_infra_status=$?
+set -e
+[ "$musl_infra_status" -eq 3 ] ||
+    fail "musl infrastructure failure did not return status 3"
+grep -F 'musl full-build infrastructure failed (status 3)' \
+    "$tmp/musl-infra.err" >/dev/null ||
+    fail "musl infrastructure diagnostic is missing"
+! grep -F 'commit ' "$tmp/git.log" >/dev/null ||
+    fail "musl infrastructure failure was committed"
+for failed_suffix in .txt -kernels.txt -musl-full-build.txt; do
+    [ ! -e "$tmp/checkout/.benchmarks/runs/2026-08-10T124700Z-kasumi$failed_suffix" ] ||
+        fail "musl failure left a source-visible dated artifact"
+done
+[ -d "$tmp/checkout/build/fleet-failure-kasumi" ] ||
+    fail "musl failure evidence was not retained under ignored build state"
+
+: >"$tmp/git.log"
+run_nightly 2026-08-10T124701Z 0 0 0 0 kasumi Linux x86_64 \
+    >"$tmp/after-musl-failure.out" 2>"$tmp/after-musl-failure.err"
+grep -F 'commit ' "$tmp/git.log" >/dev/null ||
+    fail "checkout was not reusable after a musl infrastructure failure"
+
+musl_cache=$tmp/checkout/build/fleet-refs/musl-b306b16af15c89a04d8e0c55cac2dadbeb39c083
+: >"$tmp/git.log"
+set +e
+FIXTURE_ALLOW_MUSL_CLONE=1 FIXTURE_MUSL_CLONE_STATUS=7 \
+run_nightly 2026-08-10T124710Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 0 warmup "" >"$tmp/cache-clone-fail.out" 2>"$tmp/cache-clone-fail.err"
+cache_clone_fail_status=$?
+set -e
+[ "$cache_clone_fail_status" -eq 3 ] ||
+    fail "failed musl cache clone did not return status 3"
+grep -F 'cannot clone the pinned musl input' "$tmp/cache-clone-fail.err" >/dev/null ||
+    fail "failed musl cache clone diagnostic is missing"
+[ ! -e "$musl_cache" ] || fail "failed musl cache clone left partial state"
+
+: >"$tmp/git.log"
+FIXTURE_ALLOW_MUSL_CLONE=1 FIXTURE_MUSL_CACHE_HAS_PIN=0 \
+run_nightly 2026-08-10T124720Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 0 warmup "" >"$tmp/cache-first.out" 2>"$tmp/cache-first.err"
+[ -d "$musl_cache/.git" ] || fail "default musl cache was not provisioned"
+grep -F "clone --no-checkout https://git.musl-libc.org/git/musl $musl_cache" \
+    "$tmp/git.log" >/dev/null || fail "default musl cache clone was not issued"
+grep -F -- "-C $musl_cache fetch --depth=1 origin b306b16af15c89a04d8e0c55cac2dadbeb39c083" \
+    "$tmp/git.log" >/dev/null || fail "missing musl pin was not fetched"
+grep -F "source=$musl_cache" \
+    "$tmp/checkout/.benchmarks/runs/2026-08-10T124720Z-kasumi-musl-full-build.txt" \
+    >/dev/null || fail "provisioned musl cache did not reach the measurement wrapper"
+
+: >"$tmp/git.log"
+run_nightly 2026-08-10T124730Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 0 warmup "" >"$tmp/cache-reuse.out" 2>"$tmp/cache-reuse.err"
+! grep -F 'clone --no-checkout' "$tmp/git.log" >/dev/null ||
+    fail "warm musl cache was cloned again"
+! grep -F 'fetch --depth=1' "$tmp/git.log" >/dev/null ||
+    fail "present musl pin was fetched again"
+
+: >"$tmp/git.log"
+set +e
+FIXTURE_MUSL_CACHE_REVISION=wrong \
+run_nightly 2026-08-10T124740Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 0 warmup "" >"$tmp/cache-pin.out" 2>"$tmp/cache-pin.err"
+cache_pin_status=$?
+set -e
+[ "$cache_pin_status" -eq 3 ] || fail "wrong cached musl revision did not fail closed"
+grep -F 'musl cache did not resolve to the required pin' "$tmp/cache-pin.err" >/dev/null ||
+    fail "wrong cached musl revision diagnostic is missing"
+
+: >"$tmp/git.log"
+set +e
+FIXTURE_MUSL_CACHE_STATUS='?? local-change' \
+run_nightly 2026-08-10T124750Z 0 0 0 0 kasumi Linux x86_64 no \
+    "" "" 0 0 warmup "" >"$tmp/cache-dirty.out" 2>"$tmp/cache-dirty.err"
+cache_dirty_status=$?
+set -e
+[ "$cache_dirty_status" -eq 3 ] || fail "dirty musl cache did not fail closed"
+grep -F 'pinned musl cache is dirty' "$tmp/cache-dirty.err" >/dev/null ||
+    fail "dirty musl cache diagnostic is missing"
 
 : >"$tmp/git.log"
 run_nightly 2026-08-10T130000Z 0 0 0 0 nomad-1 Darwin arm64 \
@@ -124,6 +237,8 @@ grep -F 'submodule update --init afs-as afs-ld' "$tmp/git.log" >/dev/null ||
     fail "macOS nightly did not initialize its tool submodules"
 [ ! -e "$tmp/checkout/.benchmarks/runs/2026-08-10T130000Z-nomad-1-bootstrap.txt" ] ||
     fail "unsupported macOS bootstrap timing was fabricated"
+[ ! -e "$tmp/checkout/.benchmarks/runs/2026-08-10T130000Z-nomad-1-musl-full-build.txt" ] ||
+    fail "unsupported macOS musl timing was fabricated"
 
 mkdir -p "$tmp/nix/include" "$tmp/nix/lib"
 : >"$tmp/nix/lib/crt1.o"
