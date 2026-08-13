@@ -5,7 +5,7 @@ include ci/campaigns/common.mk
 
 ZLIB_REF := 1.3.1
 ZLIB_SHA256 := 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
-ZLIB_SRC := fetch:https://zlib.net/fossils/zlib-$(ZLIB_REF).tar.gz
+ZLIB_SRC := fetch:https://github.com/madler/zlib/releases/download/v$(ZLIB_REF)/zlib-$(ZLIB_REF).tar.gz
 ZLIB_URL := $(patsubst fetch:%,%,$(ZLIB_SRC))
 CGF ?= build/cgfried
 CGF_CAMPAIGN_ZLIB_ARCHIVE ?= $(CGF_CAMPAIGN_BUILD)/dl/zlib-$(ZLIB_REF).tar.gz

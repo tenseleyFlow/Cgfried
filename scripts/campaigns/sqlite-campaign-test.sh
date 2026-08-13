@@ -2,7 +2,9 @@
 set -eu
 
 root=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd -P)
-work=$(mktemp -d "$root/build/campaigns/sqlite-meta.XXXXXX")
+campaign_build=${CGF_CAMPAIGN_BUILD:-$root/build/campaigns}
+mkdir -p "$campaign_build"
+work=$(mktemp -d "$campaign_build/sqlite-meta.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 fail() {
