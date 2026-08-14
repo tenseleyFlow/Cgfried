@@ -10,7 +10,7 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 1/30 and remains operationally OPEN. Sprint 59's controlled Kasumi/Hasu
+at 2/30 and remains operationally OPEN. Sprint 59's controlled Kasumi/Hasu
 SQLite baselines and qualifying 15-variant nightly are independently audited
 and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
@@ -124,13 +124,12 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (1/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (2/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
-hosted CI definitions are integrated. The first complete hosted activation is
-green at compiler-source revision `c6bf3cf6`; the 30-day ledger still needs 29
-distinct UTC dates, so do not call the sprint closed until that operational
-obligation is complete.
+hosted CI definitions are integrated. Hosted evidence is green on two distinct
+UTC dates; the 30-day ledger still needs 28 dates, so do not call the sprint
+closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -191,6 +190,15 @@ obligation is complete.
   seven embedded provenance hashes, 113/113 assemblies, 113/113 objects, the
   runtime archive, and the compiler. The exact x86 required contexts also
   passed in push run `31665586963` and are configured on `trunk`.
+- Full hosted run
+  [`31762814206`](https://github.com/tenseleyFlow/Cgfried/actions/runs/31762814206)
+  supplies the second distinct UTC date at exact head
+  `e75ff34c6b03214281ed637c7bbcb38228e76496`. All seven jobs passed and the
+  exact eight-artifact set is retained. A fresh audit matched every raw ZIP to
+  its GitHub API SHA-256, verified all eight fixed-point stage manifests and
+  seven embedded cross-provenance hashes, and byte-compared all 113 raw ARM64
+  assembly files plus the complete 228-file same-toolchain final payload with
+  `normalization=none`.
 - Matching-source hosted torture streams atomically regenerated the ratchet
   and triage report. The new totals are 25,933 PASS, 6,620 SKIP, and 8,097
   classified failures across 40,650 cells; 90 buckets, 81 live policy
@@ -202,10 +210,11 @@ obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 1/30**, starting from the
-  verified 2026-08-13 hosted run above. Continue recording distinct UTC dates
-  and every weekly cross/reproducibility result; any missing or red required
-  run breaks the streak.
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 2/30**, starting from the
+  verified 2026-08-13 hosted run and continuing with the verified 2026-08-14
+  run above. Continue recording distinct UTC dates and every weekly
+  cross/reproducibility result; any missing or red required run breaks the
+  streak.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
 soak and therefore owns the next contiguous closure step.

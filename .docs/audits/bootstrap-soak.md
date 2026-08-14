@@ -25,10 +25,11 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 1/30 distinct UTC dates green.** The ledger started on 2026-08-13
-from one verified hosted workflow in which every native lane, the x86
-reproducibility probe, and the weekly cross-host comparison passed at the same
-compiler-source revision. A missing or red required run resets the streak.
+**RUNNING: 2/30 distinct UTC dates green.** The ledger started on 2026-08-13
+and now contains two verified hosted workflows in which every native lane, the
+x86 reproducibility probe, and the weekly cross-host comparison passed at one
+compiler-source revision per run. A missing or red required run resets the
+streak.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -57,17 +58,43 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | UTC date | Commit | x86 O0 | x86 O2 | arm64 O0 | arm64 O2 | weekly cross | Evidence |
 |---|---|---|---|---|---|---|---|
 | 2026-08-13 | `c6bf3cf6a91f50dbd561afd9c1cecd19f8a72f83` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 31665602629](https://github.com/tenseleyFlow/Cgfried/actions/runs/31665602629) |
+| 2026-08-14 | `e75ff34c6b03214281ed637c7bbcb38228e76496` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 31762814206](https://github.com/tenseleyFlow/Cgfried/actions/runs/31762814206) |
 
-The first row retains `sprint58-bootstrap-x86_64-linux-O0`,
+Each row retains `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
 `sprint58-bootstrap-arm64-linux-native-O0`,
 `sprint58-bootstrap-arm64-linux-native-O2`, and
+`sprint58-bootstrap-arm64-cross-input`,
+`sprint58-bootstrap-arm64-cross-native`,
+`sprint58-bootstrap-arm64-cross-x86`, and
 `sprint58-bootstrap-arm64-cross-final` for 90 days. The final cross report
 records `normalization=none`, 113 assembly files, identical raw cross-host
 assembly, identical same-toolchain objects/runtime archive/compiler, and
 hashes for both run manifests, both bootstrap reports, both consumed stage
 manifests, and the exact ARM64 header archive.
 
-A fresh download of the final artifact independently reverified all seven
+Fresh downloads of the final artifacts independently reverified all seven
 embedded provenance hashes and byte-compared both 113-file assembly/object
-trees, the runtime archive, and the final compiler.
+trees, the runtime archive, and the final compiler. The 2026-08-14 audit also
+matched all eight raw ZIP hashes to the GitHub artifact API, verified all eight
+fixed-point stage manifests, and byte-compared the complete 228-file final
+cross-host payload.
+
+Run `31762814206` retains these raw artifact ZIP SHA-256 digests:
+
+- `sprint58-bootstrap-x86_64-linux-O0`:
+  `0a696204eea1feb4ddfa92c859a3ceb4620e621ba7aa078ba0640d9a1f501b38`
+- `sprint58-bootstrap-x86_64-linux-O2`:
+  `53bbbef047a17ad6af2062fe6fcb754c486b980b3493e801d7670d3d21b72f6d`
+- `sprint58-bootstrap-arm64-linux-native-O0`:
+  `ed2621abc6a711457f494ec578259bbda60679394db93117f95dff92cd02c119`
+- `sprint58-bootstrap-arm64-linux-native-O2`:
+  `35722b3be98f69592e04e8ebf2ccf12e4d1b91e4213059f314d4a8dbf2ea27a1`
+- `sprint58-bootstrap-arm64-cross-input`:
+  `b69fe5bed4a0e2414c59ef076c70d5bee52c53ce1cce2d1517c6e55a080483c0`
+- `sprint58-bootstrap-arm64-cross-native`:
+  `79e4e2ee2d24c14d98b005a7854810a7bbd3fcdb927e60d611f10f0d6efd054e`
+- `sprint58-bootstrap-arm64-cross-x86`:
+  `5e09f36345091f85e5a130702f92a5162443adf0f0502d701dbdd36a416258fa`
+- `sprint58-bootstrap-arm64-cross-final`:
+  `3192da0a8f5dd75940e2a4ce8701e17be056b6ff4c897e9449a0c37fd1de2e37`
