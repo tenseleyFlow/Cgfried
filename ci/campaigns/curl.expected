@@ -4,6 +4,7 @@ baseline.build	PASS	compiler=host-gcc
 baseline.configure	PASS	compiler=host-gcc
 build	PASS	compiler=cgfried
 configure	PASS	compiler=cgfried,ice=0
+hosted-header.compat	PASS	CAMP-ALL-004;header-sha256=4f6ab8cd0d6aa423610fd6478b90b3740d7473b4e0bb73dd3aa89d41df780fcb,policy=opaque-u64x2-align16-v1,scope=arm64-linux-system-headers,upstream-uses=0
 probe.deviations	PASS	CAMP-CURL-001+CAMP-CURL-002;rows=5,sha256=5b3997ad9bae1ceb6f1808c0d692f5e522139b4c38785d56a0cc1d91f047e0f6,artifact=probe-deviations.txt
 source.cache	PASS	mode=offline,sha256=f292f6cc051d5bbabf725ef85d432dfeacc8711dd717ea97612ae590643801e5
 source.pin	PASS	version=8.9.1

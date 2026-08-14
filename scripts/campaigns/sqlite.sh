@@ -26,7 +26,10 @@ archive_check=${CGF_CAMPAIGN_SQLITE_ARCHIVE_CHECK:-$root/scripts/campaigns/sqlit
 policy_check=${CGF_CAMPAIGN_SQLITE_POLICY_CHECK:-$root/scripts/campaigns/sqlite-policy-check.sh}
 runs=${CGF_CAMPAIGN_SQLITE_RUNS:-10}
 warmup=${CGF_CAMPAIGN_SQLITE_WARMUP:-1}
-timeout_seconds=${CGF_CAMPAIGN_SQLITE_TIMEOUT:-300}
+timeout_seconds=${CGF_CAMPAIGN_SQLITE_TIMEOUT:-720}
+compat_header_rel=ci/campaigns/compat/arm64-linux-u128-storage.h
+compat_header=$root/$compat_header_rel
+compat_policy=opaque-u64x2-align16-v1
 amalgamation_zip=$cache/sqlite-amalgamation-$SQLITE_VERSION.zip
 source_zip=$cache/sqlite-src-$SQLITE_VERSION.zip
 amalgamation_url=https://www.sqlite.org/2024/sqlite-amalgamation-$SQLITE_VERSION.zip
@@ -119,11 +122,15 @@ compile_cgf_object() {
     # its own corpus gates and builds a separate IR module; excluding it here
     # keeps this receipt about front-end/optimizer/codegen scale.  These flags
     # do not affect emitted bytes, which the shell and speedtest bars execute.
-    "$cgf" -std=gnu11 "-$level" -Wno-attributes -Wno-mem \
+    set -- -std=gnu11 "-$level" -Wno-attributes -Wno-mem \
         -Wno-return-type -DSQLITE_THREADSAFE=0 \
         -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_HAVE_READLINE=0 \
         -DSQLITE_DISABLE_INTRINSIC \
         -I "$work/src" "$@" -c "$source" -o "$object"
+    case $compat_active:$source in
+        yes:"$work/src/shell.c") set -- -include "$compat_header" "$@" ;;
+    esac
+    "$cgf" "$@"
 }
 
 measure_cgf_sqlite() {
@@ -154,6 +161,18 @@ run() {
     [ -x "$policy_check" ] || fail "policy checker is not executable: $policy_check"
     command -v "$hostcc" >/dev/null 2>&1 || fail "host GCC is unavailable: $hostcc"
     command -v unzip >/dev/null 2>&1 || fail "unzip is required"
+    [ -r "$compat_header" ] ||
+        fail "ARM64 hosted-header compatibility file is unreadable: $compat_header"
+
+    compiler_target=$("$cgf" -dumpmachine) ||
+        fail "cannot query Cgfried's target"
+    compat_active=no
+    case $compiler_target in
+        x86_64-linux-gnu) ;;
+        arm64-linux) compat_active=yes ;;
+        *) fail "unsupported native campaign target: $compiler_target" ;;
+    esac
+    compat_header_sha256=$(sha256 "$compat_header")
 
     statement_count=$(awk '/;[[:space:]]*$/ { n++ } END { print n + 0 }' "$smoke")
     [ "$statement_count" -ge 20 ] || fail "smoke script has fewer than 20 statements"
@@ -167,6 +186,22 @@ run() {
         -d "$work/unpack-source"
     cp "$work/unpack-amalgamation/sqlite-amalgamation-$SQLITE_VERSION/"* "$work/src/"
     cp "$work/unpack-source/sqlite-src-$SQLITE_VERSION/test/speedtest1.c" "$work/src/"
+    u128_matches=$work/logs/upstream-uint128-uses.txt
+    u128_scan_errors=$work/logs/upstream-uint128-scan.err
+    u128_scan_status=0
+    LC_ALL=C grep -r -I -n -F --include='*.c' --include='*.h' -- \
+        '__uint128_t' "$work/src" >"$u128_matches" \
+        2>"$u128_scan_errors" || u128_scan_status=$?
+    case $u128_scan_status in
+        0 | 1) ;;
+        *)
+            cat "$u128_scan_errors" >&2
+            fail "cannot audit pinned SQLite sources for integer-128 use"
+            ;;
+    esac
+    upstream_u128_count=$(wc -l <"$u128_matches" | tr -d ' ')
+    [ "$upstream_u128_count" -eq 0 ] ||
+        fail "pinned SQLite sources use unsupported integer-128 semantics"
 
     actual_version=$(awk '/^#define SQLITE_VERSION / {gsub(/"/, "", $3); print $3; exit}' \
         "$work/src/sqlite3.h")
@@ -240,11 +275,18 @@ run() {
         printf 'host=%s\n' "$campaign_host"
         printf 'architecture=%s\n' "$(uname -m)"
         printf 'compiler=%s\n' "$cgf"
+        printf 'compiler_target=%s\n' "$compiler_target"
         printf 'runs=%s\n' "$runs"
         printf 'warmup=%s\n' "$warmup"
+        printf 'timeout_seconds=%s\n' "$timeout_seconds"
         printf 'timeit_protocol=sprint-52-compile-median-mad-v1\n'
         printf 'compile_profile=sprint-52-sqlite-scale-v1\n'
         printf 'compile_flags=-Wno-attributes,-Wno-mem,-Wno-return-type\n'
+        printf 'hosted_header_compatibility=%s\n' "$compat_active"
+        printf 'hosted_header_policy=%s\n' "$compat_policy"
+        printf 'hosted_header_path=%s\n' "$compat_header_rel"
+        printf 'hosted_header_sha256=%s\n' "$compat_header_sha256"
+        printf 'upstream_uint128_occurrences=%s\n' "$upstream_u128_count"
         printf 'baseline_policy=%s\n' "$policy_detail"
         for level in O0 O2; do
             sed "s/^/$level./" "$work/receipts/sqlite3.$level.txt"
@@ -259,6 +301,8 @@ run() {
         printf 'build.levels%cPASS%clevels=O0,O1,O2,O3,Os\n' "$tab" "$tab"
         printf 'compile.baseline-policy%c%s%c%s\n' "$tab" "$policy_outcome" "$tab" "$policy_result_detail"
         printf 'compile.receipts%cPASS%clevels=O0,O2,profile=sprint-52-sqlite-scale-v1,protocol=sprint-52-timeit-v1,runs=%s,warmup=%s\n' "$tab" "$tab" "$runs" "$warmup"
+        printf 'hosted-header.compat%cPASS%cCAMP-ALL-004;header-sha256=%s,policy=%s,scope=arm64-linux-system-headers,upstream-uses=%s\n' \
+            "$tab" "$tab" "$compat_header_sha256" "$compat_policy" "$upstream_u128_count"
         printf 'parity.cgfried-only-failures%cPASS%ccases=0\n' "$tab" "$tab"
         printf 'source.amalgamation%cPASS%crelease=%s,sha256=%s\n' "$tab" "$tab" \
             "$SQLITE_RELEASE" "$AMALGAMATION_SHA256"

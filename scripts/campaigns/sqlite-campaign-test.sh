@@ -16,6 +16,9 @@ grep -Fq 'runs=${CGF_CAMPAIGN_SQLITE_RUNS:-10}' \
     "$root/scripts/campaigns/sqlite.sh" || fail "production run count default is not 10"
 grep -Fq 'warmup=${CGF_CAMPAIGN_SQLITE_WARMUP:-1}' \
     "$root/scripts/campaigns/sqlite.sh" || fail "production warmup default is not 1"
+grep -Fq 'timeout_seconds=${CGF_CAMPAIGN_SQLITE_TIMEOUT:-720}' \
+    "$root/scripts/campaigns/sqlite.sh" ||
+    fail "production aggregate timeout default is not 720 seconds"
 grep -Fq 'as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}' \
     "$root/scripts/campaigns/sqlite.sh" || fail "campaign does not route native assembler explicitly"
 grep -Fq 'export CGF_AS_PATH="$as_path" CGF_LD_PATH="$ld_path"' \
@@ -26,6 +29,16 @@ grep -Fq '"-$level" -Wno-attributes -Wno-mem' \
 grep -Fq 'compile_profile=sprint-52-sqlite-scale-v1' \
     "$root/scripts/campaigns/sqlite.sh" ||
     fail "campaign receipts omit the compile profile"
+grep -Fq 'compat_policy=opaque-u64x2-align16-v1' \
+    "$root/scripts/campaigns/sqlite.sh" ||
+    fail "campaign does not record the ARM64 hosted-header policy"
+grep -Fq 'yes:"$work/src/shell.c") set -- -include "$compat_header" "$@"' \
+    "$root/scripts/campaigns/sqlite.sh" ||
+    fail "ARM64 compatibility is not scoped to SQLite's shell translation unit"
+grep -Fq 'upstream-uint128-scan.err' "$root/scripts/campaigns/sqlite.sh" ||
+    fail "campaign does not retain source-audit diagnostics"
+grep -Fq 'u128_scan_status=$?' "$root/scripts/campaigns/sqlite.sh" ||
+    fail "campaign does not fail closed on source-audit errors"
 
 policy=$root/scripts/campaigns/sqlite-policy-check.sh
 production_policy=$root/ci/campaigns/sqlite-baselines.conf
@@ -48,6 +61,10 @@ case $policy_detail in
 *,absolute-o2-ms=60000,state=numeric) ;;
 *) fail "production policy is not a numeric closure policy" ;;
 esac
+absolute_o2_ms=$(sed -n 's/^o2_absolute_wall_ms=//p' "$production_policy")
+minimum_batch_timeout=$(((10 + 1 + 1) * ((absolute_o2_ms + 999) / 1000)))
+[ "$minimum_batch_timeout" -eq 720 ] ||
+    fail "aggregate timeout no longer covers every run, warmup, and one margin sample"
 if "$policy" --require-numeric "$unmeasured_policy" \
     >"$work/policy-unmeasured.out" 2>"$work/policy-unmeasured.err"; then
     fail "closure policy accepted unmeasured designated hosts"
@@ -126,7 +143,7 @@ chmod +x "$work/fake-timeit.sh"
 SQLITE_TEST_ARGS=$work/args.txt
 export SQLITE_TEST_ARGS
 "$root/scripts/campaigns/sqlite-measure.sh" "$work/fake-timeit.sh" \
-    10 1 300 "$work/raw.txt" "$work/receipt.txt" "$work/log.txt" -- \
+    10 1 720 "$work/raw.txt" "$work/receipt.txt" "$work/log.txt" -- \
     fake-compiler -O2 -c "$work/source.c"
 expected_args=$(cat <<EOF
 -n
@@ -134,7 +151,7 @@ expected_args=$(cat <<EOF
 -w
 1
 -t
-300
+720
 -o
 $work/raw.txt
 --

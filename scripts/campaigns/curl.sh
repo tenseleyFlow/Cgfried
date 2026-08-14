@@ -10,6 +10,10 @@ work=${CGF_CAMPAIGN_CURL_WORK:-$root/build/campaigns/curl}
 cgf=${CGF_CAMPAIGN_CURL_CGF:-$root/build/cgfried}
 hostcc=${CGF_CAMPAIGN_CURL_HOSTCC:-gcc}
 jobs=${CGF_CAMPAIGN_JOBS:-}
+compat_header_rel=ci/campaigns/compat/arm64-linux-u128-storage.h
+compat_header=$root/$compat_header_rel
+compat_policy=opaque-u64x2-align16-v1
+probe_ledger=$root/scripts/campaigns/curl-probe-ledger.sh
 
 fail() {
     echo "campaign-curl: $*" >&2
@@ -21,6 +25,24 @@ fail() {
 command -v "$hostcc" >/dev/null 2>&1 ||
     fail "host GCC is unavailable: $hostcc"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is unavailable"
+[ -r "$compat_header" ] ||
+    fail "ARM64 hosted-header compatibility file is unreadable: $compat_header"
+[ -x "$probe_ledger" ] ||
+    fail "configure-deviation ledger helper is not executable: $probe_ledger"
+
+compiler_target=$("$cgf" -dumpmachine) ||
+    fail "cannot query Cgfried's target"
+compat_active=no
+compat_cppflags=
+case $compiler_target in
+    x86_64-linux-gnu) ;;
+    arm64-linux)
+        compat_active=yes
+        compat_cppflags="-include $compat_header"
+        ;;
+    *) fail "unsupported native campaign target: $compiler_target" ;;
+esac
+compat_header_sha256=$(sha256sum "$compat_header" | awk '{ print $1 }')
 
 printf '%s  %s\n' "$CURL_SHA256" "$archive" | sha256sum -c - >/dev/null ||
     fail "source checksum mismatch: $archive"
@@ -84,6 +106,22 @@ tar --no-same-owner --no-same-permissions -xJf "$archive" \
     -C "$work/host-gcc-src" --strip-components=1
 printf '%s\n' "$CURL_VERSION" >"$work/source-version.txt"
 printf '%s\n' "$CURL_SHA256" >"$work/source-sha256.txt"
+u128_matches=$work/logs/upstream-uint128-uses.txt
+u128_scan_errors=$work/logs/upstream-uint128-scan.err
+u128_scan_status=0
+LC_ALL=C grep -r -I -n -F --include='*.c' --include='*.h' -- \
+    '__uint128_t' "$work/cgfried-src" >"$u128_matches" \
+    2>"$u128_scan_errors" || u128_scan_status=$?
+case $u128_scan_status in
+    0 | 1) ;;
+    *)
+        cat "$u128_scan_errors" >&2
+        fail "cannot audit pinned Curl sources for integer-128 use"
+        ;;
+esac
+upstream_u128_count=$(wc -l <"$u128_matches" | tr -d ' ')
+[ "$upstream_u128_count" -eq 0 ] ||
+    fail "pinned Curl sources use unsupported integer-128 semantics"
 
 if [ -z "$jobs" ]; then
     jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n')
@@ -130,12 +168,19 @@ printf '%s\n' "$configure_options" >"$work/configure-options.txt"
     printf 'assembler=%s\n' "$as_path"
     printf 'linker=%s\n' "$ld_path"
     printf 'jobs=%s\n' "$jobs"
+    printf 'compiler-target=%s\n' "$compiler_target"
+    printf 'hosted-header-compatibility=%s\n' "$compat_active"
+    printf 'hosted-header-policy=%s\n' "$compat_policy"
+    printf 'hosted-header-path=%s\n' "$compat_header_rel"
+    printf 'hosted-header-sha256=%s\n' "$compat_header_sha256"
+    printf 'upstream-uint128-occurrences=%s\n' "$upstream_u128_count"
 } >"$work/logs/commands.txt"
 
 configure_lane() {
     label=$1
     tree=$2
     compiler=$3
+    cppflags=$4
     log=$work/logs/$label/configure.log
     status=0
     (
@@ -143,7 +188,7 @@ configure_lane() {
         # Word splitting is intentional: configure_options is one option per
         # line and contains no shell metacharacters or values with spaces.
         # shellcheck disable=SC2086
-        LC_ALL=C SOURCE_DATE_EPOCH=0 CC="$compiler" \
+        LC_ALL=C SOURCE_DATE_EPOCH=0 CC="$compiler" CPPFLAGS="$cppflags" \
             ./configure $configure_options --cache-file=config.cache
     ) >"$log" 2>&1 || status=$?
     if grep -F 'cgfried: internal compiler error' "$tree/config.log" "$log" \
@@ -158,8 +203,8 @@ configure_lane() {
     cp "$tree/config.log" "$work/logs/$label/config.log"
 }
 
-configure_lane host-gcc "$work/host-gcc-src" "$hostcc"
-configure_lane cgfried "$work/cgfried-src" "$cgf"
+configure_lane host-gcc "$work/host-gcc-src" "$hostcc" ''
+configure_lane cgfried "$work/cgfried-src" "$cgf" "$compat_cppflags"
 
 # Preserve every cached probe result and a deterministic cross-compiler diff.
 # Compiler identity/flag-capability probes are kept in the raw snapshots but
@@ -189,28 +234,7 @@ comm -23 "$work/logs/host-gcc/platform-probes.txt" \
     "$work/logs/cgfried/platform-probes.txt" >"$host_only"
 comm -13 "$work/logs/host-gcc/platform-probes.txt" \
     "$work/logs/cgfried/platform-probes.txt" >"$cgf_only"
-{
-    while IFS= read -r probe; do
-        case $probe in
-            ac_cv_header_stdatomic_h=*) finding=CAMP-CURL-001 ;;
-            curl_cv_def___GNUC__=*)
-                finding=CAMP-CURL-002
-                probe=curl_cv_def___GNUC__=defined
-                ;;
-            curl_cv_have_def___GNUC__=*) finding=CAMP-CURL-002 ;;
-            *) fail "unclassified host-GCC configure deviation: $probe" ;;
-        esac
-        printf '%s\thost-gcc-only\t%s\n' "$finding" "$probe"
-    done <"$host_only"
-    while IFS= read -r probe; do
-        case $probe in
-            ac_cv_header_stdatomic_h=*) finding=CAMP-CURL-001 ;;
-            curl_cv_def___GNUC__=* | curl_cv_have_def___GNUC__=*) finding=CAMP-CURL-002 ;;
-            *) fail "unclassified Cgfried configure deviation: $probe" ;;
-        esac
-        printf '%s\tcgfried-only\t%s\n' "$finding" "$probe"
-    done <"$cgf_only"
-} | LC_ALL=C sort >"$work/probe-deviations.txt"
+"$probe_ledger" "$host_only" "$cgf_only" "$work/probe-deviations.txt"
 probe_deviations=$(wc -l <"$work/probe-deviations.txt" | tr -d ' ')
 probe_sha256=$(sha256sum "$work/probe-deviations.txt" | awk '{ print $1 }')
 expected_probe_sha256=5b3997ad9bae1ceb6f1808c0d692f5e522139b4c38785d56a0cc1d91f047e0f6
@@ -298,6 +322,8 @@ fi
     printf 'baseline.configure\tPASS\tcompiler=host-gcc\n'
     printf 'build\tPASS\tcompiler=cgfried\n'
     printf 'configure\tPASS\tcompiler=cgfried,ice=0\n'
+    printf 'hosted-header.compat\tPASS\tCAMP-ALL-004;header-sha256=%s,policy=%s,scope=arm64-linux-system-headers,upstream-uses=%s\n' \
+        "$compat_header_sha256" "$compat_policy" "$upstream_u128_count"
     printf 'probe.deviations\tPASS\tCAMP-CURL-001+CAMP-CURL-002;rows=%s,sha256=%s,artifact=probe-deviations.txt\n' "$probe_deviations" "$probe_sha256"
     printf 'source.cache\tPASS\tmode=offline,sha256=%s\n' "$CURL_SHA256"
     printf 'source.pin\tPASS\tversion=%s\n' "$CURL_VERSION"

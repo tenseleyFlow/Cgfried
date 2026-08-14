@@ -194,6 +194,8 @@ grep -F 'group: cgfried-campaign-ledger-${{ github.repository_id }}' \
 grep -F 'queue: max' "$workflow" >/dev/null
 grep -F 'cancel-in-progress: false' "$workflow" >/dev/null
 grep -F 'mkdir -p build/nightly-campaign-artifacts' "$workflow" >/dev/null
+grep -F "sudo apt-get install -y -qq binutils file libc6-dev libreadline-dev \\" \
+    "$workflow" >/dev/null
 grep -F 'name: campaign-ledger-evidence' "$workflow" >/dev/null
 grep -F 'path: build/nightly-campaign-evidence' "$workflow" >/dev/null
 grep -F '>build/nightly-campaign-evidence/publisher.txt' \

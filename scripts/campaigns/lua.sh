@@ -158,12 +158,12 @@ build_lane() {
             echo '  fputs(prompt, stdout);'
             echo '  fflush(stdout);'
             echo '  if (fgets(buffer, sizeof(buffer), stdin) == NULL) {'
-            echo "    fputc('\\n', stdout);"
+            printf '%s\n' "    fputc('\n', stdout);"
             echo '    return NULL;'
             echo '  }'
             echo '  fputs(buffer, stdout);'
             echo '  length = strlen(buffer);'
-            echo "  if (length != 0 && buffer[length - 1] == '\\n') buffer[--length] = '\\0';"
+            printf '%s\n' "  if (length != 0 && buffer[length - 1] == '\n') buffer[--length] = '\0';"
             echo '  line = malloc(length + 1);'
             echo '  if (line != NULL) memcpy(line, buffer, length + 1);'
             echo '  return line;'

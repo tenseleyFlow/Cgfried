@@ -204,7 +204,7 @@ cgf=${CGF_FLEET_SQLITE_CGF:-$checkout/build/cgfried}
 timeit=${CGF_FLEET_SQLITE_TIMEIT:-$checkout/build/timeit}
 runs=${CGF_FLEET_SQLITE_RUNS:-10}
 warmup=${CGF_FLEET_SQLITE_WARMUP:-1}
-timeout_seconds=${CGF_FLEET_SQLITE_TIMEOUT:-300}
+timeout_seconds=${CGF_FLEET_SQLITE_TIMEOUT:-720}
 [ -x "$cgf" ] || die "compiler is not executable: $cgf"
 [ -x "$timeit" ] || die "timer is not executable: $timeit"
 

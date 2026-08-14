@@ -344,7 +344,8 @@ jobs:
       - name: install native campaign dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils file libc6-dev perl unzip xz-utils
+          sudo apt-get install -y -qq binutils file libc6-dev libreadline-dev \
+            perl unzip xz-utils
       - name: cache the pinned campaign archive
         uses: actions/cache@v5
         with:

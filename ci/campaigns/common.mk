@@ -9,8 +9,10 @@ CGF_CAMPAIGN_BUILD ?= build/campaigns
 CGF_CAMPAIGN_CHECK ?= ci/campaigns/check-expected.sh
 
 .PHONY: campaign-expected-meta
-campaign-expected-meta:
+campaign-expected-meta: $(BUILD)/cgfried
 	ci/campaigns/test-expected.sh
+	ci/campaigns/test-arm64-compat.sh "$(BUILD)/cgfried"
+	ci/campaigns/test-curl.sh
 	ci/campaigns/test-musl-toolchain.sh
 	ci/campaigns/test-lua.sh
 	scripts/campaigns/sqlite-campaign-test.sh

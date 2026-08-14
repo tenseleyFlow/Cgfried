@@ -20,6 +20,8 @@ grep -F 'audit_archive "$source_archive"' "$runner" >/dev/null
 grep -F 'audit_archive "$tests_archive"' "$runner" >/dev/null
 grep -F -- '-Wl,--wrap=luaL_openlibs' "$runner" >/dev/null
 grep -F -- '-Wl,--wrap=setlocale' "$runner" >/dev/null
+grep -F "printf '%s\\n' \"    fputc('\\n', stdout);\"" "$runner" >/dev/null
+grep -F "printf '%s\\n' \"  if (length != 0 && buffer[length - 1] == '\\n') buffer[--length] = '\\0';\"" "$runner" >/dev/null
 grep -F 'CAMP-LUA-002' "$runner" >/dev/null
 grep -F 'named-locale=accepted' "$runner" >/dev/null
 grep -F 'portuguese-collation=unsupported' "$runner" >/dev/null

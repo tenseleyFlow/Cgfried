@@ -128,7 +128,7 @@ receipt=$6
 log=$7
 shift 7
 [ "$timeit" = "$FIXTURE_CHECKOUT/build/timeit" ]
-[ "$runs:$warmup:$timeout" = 10:1:300 ]
+[ "$runs:$warmup:$timeout" = 10:1:720 ]
 [ "$1" = -- ]
 level=unknown
 for arg in "$@"; do
