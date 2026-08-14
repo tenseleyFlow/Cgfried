@@ -9,9 +9,25 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-bootstrap-meta.XXXXXX")
 cross_source=build/s58-bootstrap-cross-native.$$
 cross_outputs=build/boot/s58-bootstrap-cross-meta.$$
 repro_outputs=build/boot/s58-bootstrap-repro-meta.$$
-trap 'rm -rf "$tmp" "$repo/$cross_source" "$repo/$cross_outputs" \
-    "$repo/$repro_outputs"*' \
-    EXIT HUP INT TERM
+phase_dump_pid_a=
+phase_dump_pid_b=
+
+cleanup() {
+    cleanup_status=$?
+    trap - EXIT HUP INT TERM
+    for cleanup_pid in "$phase_dump_pid_a" "$phase_dump_pid_b"; do
+        [ -n "$cleanup_pid" ] || continue
+        kill "$cleanup_pid" 2>/dev/null || :
+        wait "$cleanup_pid" 2>/dev/null || :
+    done
+    rm -rf "$tmp" "$repo/${cross_source:?}" "$repo/${cross_outputs:?}" \
+        "$repo/${repro_outputs:?}"*
+    exit "$cleanup_status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() {
     echo "bootstrap meta FAIL: $*" >&2
@@ -50,6 +66,32 @@ expect_status() {
         cat "$output" >&2
         fail "expected status $expected, got $status: $*"
     }
+}
+
+write_phase_manifest() {
+    phase_manifest_dir=$1
+    phase_manifest_output=$2
+    (
+        CDPATH='' cd "$phase_manifest_dir"
+        find . -type f -print | sed 's#^\./##' | sort
+    ) >"$phase_manifest_output"
+}
+
+compare_phase_trees() {
+    phase_reference=$1
+    phase_actual=$2
+    phase_label=$3
+    phase_reference_manifest=$4
+    phase_actual_manifest=$5
+
+    write_phase_manifest "$phase_reference" "$phase_reference_manifest"
+    write_phase_manifest "$phase_actual" "$phase_actual_manifest"
+    cmp "$phase_reference_manifest" "$phase_actual_manifest" ||
+        fail "$phase_label phase manifests differ"
+    while IFS= read -r phase_dump; do
+        cmp "$phase_reference/$phase_dump" "$phase_actual/$phase_dump" ||
+            fail "$phase_label differs at phase $phase_dump"
+    done <"$phase_reference_manifest"
 }
 
 fresh_stages() {
@@ -180,15 +222,24 @@ test_identical_complete_stages_pass() {
 }
 
 test_real_compiler_emits_ordered_phase_tree() {
-    phase_root=$tmp/real-phase-tree
+    phase_root=$tmp/real-phase-tree-1
+    phase_root_again=$tmp/real-phase-tree-2
     source=$tmp/real-phase-tree.c
     output=$tmp/real-phase-tree.out
+    manifest=$tmp/real-phase-tree-1.manifest
+    manifest_again=$tmp/real-phase-tree-2.manifest
+    optimizer_manifest=$tmp/real-phase-tree-optimizer.manifest
 
-    mkdir "$phase_root"
+    mkdir "$phase_root" "$phase_root_again"
     printf '%s\n' 'int square(int x) { return x * x; }' \
         'int main(void) { return square(3) != 9; }' >"$source"
     CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$phase_root" \
         "$cgf" -O2 -S "$source" -o "$tmp/real-phase-tree.s"
+    CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$phase_root_again" \
+        "$cgf" -O2 -S "$source" -o "$tmp/real-phase-tree-again.s"
+    compare_phase_trees "$phase_root" "$phase_root_again" \
+        "identical O2 compiles" "$manifest" "$manifest_again"
+
     "$cgf" --dump-ast "$source" >"$tmp/public-ast.txt"
     "$cgf" -fdump-sema "$source" >"$tmp/public-sema.txt"
     cmp "$phase_root/100000-parse-ast.txt" "$tmp/public-ast.txt" ||
@@ -200,6 +251,28 @@ test_real_compiler_emits_ordered_phase_tree() {
     find "$phase_root" -maxdepth 1 -type f \
         -name '[4-6][0-9][0-9][0-9][0-9][0-9]-ir-fp*-i*-p*-*.cgfir' -print |
         grep . >/dev/null || fail "real compiler omitted per-pass dumps"
+    sed -n '/^400[0-9][0-9][0-9]-ir-fp.*\.cgfir$/p' "$manifest" \
+        >"$optimizer_manifest"
+    [ -s "$optimizer_manifest" ] ||
+        fail "real compiler emitted an empty optimizer sequence"
+    expected_sequence=400001
+    while IFS= read -r dump; do
+        sequence=${dump%%-*}
+        [ "$sequence" -eq "$expected_sequence" ] ||
+            fail "optimizer sequence is not contiguous: expected $expected_sequence, got $sequence"
+        expected_sequence=$((expected_sequence + 1))
+    done <"$optimizer_manifest"
+    # O2 selects no fusion passes, but that empty manager group still consumes
+    # fp02.  The fp03 anchor proves fixpoint identity remains global across
+    # groups instead of silently restarting at each manager call.
+    for anchor in \
+        400002-ir-fp01-i01-p01-sccp.cgfir \
+        400013-ir-fp01-i02-p01-sccp.cgfir \
+        400024-ir-fp01-i03-p01-sccp.cgfir \
+        400034-ir-fp03-i01-p00-licm.cgfir; do
+        grep -Fx "$anchor" "$optimizer_manifest" >/dev/null ||
+            fail "optimizer sequence omitted fixed anchor $anchor"
+    done
     [ -s "$phase_root/700000-ir-post-opt-legalized.cgfir" ] ||
         fail "real compiler omitted the post-legalization dump"
     [ -s "$phase_root/800000-mir.txt" ] ||
@@ -209,9 +282,76 @@ test_real_compiler_emits_ordered_phase_tree() {
 
     expect_status 4 "$output" env CGF_DUMP_IR=all \
         CGF_DUMP_IR_DIR="$phase_root" "$cgf" -O2 -S \
-        "$source" -o "$tmp/real-phase-tree-again.s"
+        "$source" -o "$tmp/real-phase-tree-collision.s"
     grep -F 'cannot create phase dump' "$output" >/dev/null ||
         fail "phase dump collision did not fail clearly"
+}
+
+test_concurrent_real_compiler_phase_trees_are_isolated() {
+    source_a=$tmp/concurrent-phase-a.c
+    source_b=$tmp/concurrent-phase-b.c
+    phase_a=$tmp/concurrent-phase-a
+    phase_b=$tmp/concurrent-phase-b
+    reference_a=$tmp/concurrent-reference-a
+    reference_b=$tmp/concurrent-reference-b
+    asm_a=$tmp/concurrent-phase-a.s
+    asm_b=$tmp/concurrent-phase-b.s
+    reference_asm_a=$tmp/concurrent-reference-a.s
+    reference_asm_b=$tmp/concurrent-reference-b.s
+    output_a=$tmp/concurrent-phase-a.out
+    output_b=$tmp/concurrent-phase-b.out
+    reference_manifest_a=$tmp/concurrent-reference-a.manifest
+    reference_manifest_b=$tmp/concurrent-reference-b.manifest
+    concurrent_manifest_a=$tmp/concurrent-phase-a.manifest
+    concurrent_manifest_b=$tmp/concurrent-phase-b.manifest
+
+    printf '%s\n' 'int add_three(int x) { return x + 3; }' \
+        'int main(void) { return add_three(4) != 7; }' >"$source_a"
+    printf '%s\n' 'int multiply_five(int x) { return x * 5; }' \
+        'int main(void) { return multiply_five(3) != 15; }' >"$source_b"
+    mkdir "$phase_a" "$phase_b" "$reference_a" "$reference_b"
+
+    env CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$reference_a" \
+        "$cgf" -O2 -S "$source_a" -o "$reference_asm_a"
+    env CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$reference_b" \
+        "$cgf" -O2 -S "$source_b" -o "$reference_asm_b"
+
+    env CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$phase_a" \
+        "$cgf" -O2 -S "$source_a" -o "$asm_a" >"$output_a" 2>&1 &
+    phase_dump_pid_a=$!
+    env CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$phase_b" \
+        "$cgf" -O2 -S "$source_b" -o "$asm_b" >"$output_b" 2>&1 &
+    phase_dump_pid_b=$!
+
+    status_a=0
+    wait "$phase_dump_pid_a" || status_a=$?
+    phase_dump_pid_a=
+    status_b=0
+    wait "$phase_dump_pid_b" || status_b=$?
+    phase_dump_pid_b=
+    if [ "$status_a" -ne 0 ]; then
+        cat "$output_a" >&2
+        fail "first concurrent phase-dump compile exited $status_a"
+    fi
+    if [ "$status_b" -ne 0 ]; then
+        cat "$output_b" >&2
+        fail "second concurrent phase-dump compile exited $status_b"
+    fi
+
+    compare_phase_trees "$reference_a" "$phase_a" \
+        "first concurrent compile" "$reference_manifest_a" \
+        "$concurrent_manifest_a"
+    compare_phase_trees "$reference_b" "$phase_b" \
+        "second concurrent compile" "$reference_manifest_b" \
+        "$concurrent_manifest_b"
+    cmp "$phase_a/900000-asm.s" "$asm_a" ||
+        fail "first concurrent final phase dump differs from -S output"
+    cmp "$phase_b/900000-asm.s" "$asm_b" ||
+        fail "second concurrent final phase dump differs from -S output"
+    if cmp -s "$phase_a/100000-parse-ast.txt" \
+        "$phase_b/100000-parse-ast.txt"; then
+        fail "distinct concurrent translation units emitted identical parse dumps"
+    fi
 }
 
 test_bisector_localizes_real_phase_tree() {
@@ -232,7 +372,7 @@ test_bisector_localizes_real_phase_tree() {
         "$tmp/stage1" "$tmp/stage2" --source "$source" \
         --stage1-cc "$tmp/phase-dump-good" \
         --stage2-cc "$tmp/phase-dump-bad" -- -O2
-    grep -Fx 'bisect-nondet: first differing phase boundary: 700000-ir-post-opt-legalized.cgfir' \
+    grep -Fx 'bisect-nondet: first differing phase boundary: 400013-ir-fp01-i02-p01-sccp.cgfir' \
         "$output" >/dev/null ||
         fail "bisector did not localize the real compiler dump tree"
 }
@@ -914,6 +1054,7 @@ test_missing_runtime_group_fails_closed
 test_empty_runtime_group_fails_closed
 test_identical_complete_stages_pass
 test_real_compiler_emits_ordered_phase_tree
+test_concurrent_real_compiler_phase_trees_are_isolated
 test_bisector_localizes_real_phase_tree
 test_bisector_rejects_identically_incomplete_phase_trees
 test_bisector_accepts_complete_o0_phase_trees_without_passes
@@ -931,4 +1072,4 @@ test_seeded_divergence_names_tu_and_phase_exactly unsorted_readdir sema
 test_seeded_divergence_names_tu_and_phase_exactly padding_write ir
 test_seeded_divergence_names_tu_and_phase_exactly pointer_format asm
 
-echo "bootstrap meta: exact audit, controlled timing/gates, fail-closed artifacts, real phase-tree localization, and 3 injected faults localized"
+echo "bootstrap meta: exact audit, controlled timing/gates, deterministic isolated phase trees, exact localization, and 3 injected faults localized"

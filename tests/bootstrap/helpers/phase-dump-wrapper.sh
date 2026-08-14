@@ -18,8 +18,12 @@ case $0 in
     ;;
 *phase-dump-bad*)
     if [ "${CGF_DUMP_IR:-}" = all ]; then
-        printf '%s\n' '// seeded phase-tree divergence' >> \
-            "$CGF_DUMP_IR_DIR/700000-ir-post-opt-legalized.cgfir"
+        dump=$CGF_DUMP_IR_DIR/400013-ir-fp01-i02-p01-sccp.cgfir
+        [ -f "$dump" ] || {
+            echo "phase-dump-wrapper: missing pinned boundary: $dump" >&2
+            exit 1
+        }
+        printf '%s\n' '// seeded phase-tree divergence' >>"$dump"
     fi
     ;;
 esac
