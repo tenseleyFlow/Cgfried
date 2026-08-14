@@ -107,6 +107,10 @@ A64Reg a64_newv_width(A64Func *f, A64RegClass rc, A64Sf sf)
  * everything else allocates freely. */
 A64Reg a64_newv_fixed(A64Func *f, A64RegClass rc, A64Sf sf, u8 phys)
 {
+    if (rc == A64RC_GP && (phys == A64_X12 || phys == A64_X13))
+        CGF_ICE("arm64 MIR: x%u is backend-owned and cannot be pre-coloured",
+                (unsigned)phys);
+
     A64Reg r = a64_newv_width(f, rc, sf);
 
     f->vfixed[r.id] = (u8)(phys + 1);

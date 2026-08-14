@@ -1,10 +1,15 @@
 #include "unit.h"
 
 #include "cg/arm64/mir.h"
+#include "diag.h"
 #include "target.h"
 
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /* Sprint 48: the A64 register allocator. The def/use table is the part that
  * fails silently rather than loudly — wrong liveness is a miscompile, not a
@@ -390,6 +395,109 @@ void test_a64_regalloc_spill_all_lane(TestCtx *t)
         unsetenv("CGF_SPILL_ALL");
 }
 
+/* x12/x13 are not merely absent from the allocation order: late frame
+ * expansion and atomic emission own them. Keep the fixed-vreg constructor
+ * fail-closed so a new precolour producer cannot silently invalidate that
+ * lifetime contract. Source-level GNU register bindings have separate
+ * diagnostics fixtures for the same boundary. */
+void test_a64_regalloc_backend_owned_precolors_rejected(TestCtx *t)
+{
+    u8 phys;
+
+    for (phys = A64_X12; phys <= A64_X13; phys++) {
+        pid_t pid;
+        int status = 0;
+
+        fflush(NULL);
+        pid = fork();
+        T_ASSERT(t, pid >= 0);
+        if (pid == 0) {
+            Arena arena;
+            A64Func f;
+
+            close(STDERR_FILENO);
+            arena_init(&arena);
+            init_func(&f, &arena, 1);
+            (void)a64_newv_fixed(&f, A64RC_GP, A64_SF64, phys);
+            _exit(0);
+        }
+        if (pid < 0)
+            return;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+            ;
+        T_ASSERT(t, WIFEXITED(status));
+        if (WIFEXITED(status))
+            T_ASSERT_EQ_INT(t, WEXITSTATUS(status), 4);
+    }
+}
+
+/* A scaled 64-bit load/store reaches only 4095 * 8 bytes.  The 4095th
+ * eight-byte spill sits one saved-register pair beyond that boundary, so
+ * frame finalization must form its address explicitly instead of leaving the
+ * selector's MATERIALIZE sentinel on the memory operand.  Curl's generated
+ * lib1521.c first exposed this at a 37 KiB frame; this MIR-level boundary test
+ * keeps the regression small and independent of campaign headers. */
+void test_a64_regalloc_large_spill_offsets_materialize(TestCtx *t)
+{
+    enum { NSPILLS = 4095 };
+    Arena arena;
+    A64Func f;
+    A64Reg last = {0, 0};
+    DiagCtx *dc;
+    const char *old = getenv("CGF_SPILL_ALL");
+    u32 i, ii, oi, materialized_loads = 0, materialized_stores = 0;
+    bool saved_set = old != NULL;
+
+    if (!saved_set)
+        setenv("CGF_SPILL_ALL", "1", 1);
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    for (i = 0; i < NSPILLS; i++) {
+        last = a64_newv(&f, A64RC_GP);
+
+        put(&f, 0, A64_OP_MOVZ, 2, treg(last), timm((i64)(i & 0xffffu)),
+            (A64Operand){0});
+    }
+    put(&f, 0, A64_OP_RET, 1, treg(last), (A64Operand){0}, (A64Operand){0});
+
+    a64_regalloc(&f);
+    dc = diag_ctx_new(&arena);
+
+    T_ASSERT_EQ_INT(t, (long long)f.spill_bytes, (long long)NSPILLS * 8);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(&f, dc), 0);
+    for (ii = 0; ii < f.blocks[0].n; ii++) {
+        const A64Inst *in = &f.blocks[0].insts[ii];
+
+        for (oi = 0; oi < in->nops; oi++)
+            if (in->ops[oi].kind == A64O_MEM)
+                T_ASSERT(t, in->ops[oi].mem.mode != A64_ADDR_MATERIALIZE);
+        if ((in->op == A64_OP_LOAD || in->op == A64_OP_STORE) &&
+            in->ops[1].kind == A64O_MEM && in->ops[1].mem.base.physical &&
+            in->ops[1].mem.base.id == (u32)A64_X12 + 1) {
+            if (in->op == A64_OP_LOAD)
+                materialized_loads++;
+            else
+                materialized_stores++;
+            T_ASSERT_EQ_INT(t, in->ops[1].mem.offset, 0);
+            T_ASSERT(t, ii > 0);
+            if (ii > 0) {
+                const A64Inst *addr = &f.blocks[0].insts[ii - 1];
+
+                T_ASSERT_EQ_INT(t, addr->op, A64_OP_ADD);
+                T_ASSERT(t, addr->ops[0].reg.physical);
+                T_ASSERT_EQ_INT(t, addr->ops[0].reg.id, (u32)A64_X12 + 1);
+            }
+        }
+    }
+    T_ASSERT(t, materialized_loads > 0);
+    T_ASSERT(t, materialized_stores > 0);
+    arena_free_all(&arena);
+
+    if (!saved_set)
+        unsetenv("CGF_SPILL_ALL");
+}
+
 /* AAPCS64 stage C: NGRN and NSRN advance independently, so an interleaved
  * argument list still fills x0.. and v0.. in their own orders. The result
  * arrives in x0 and is copied out to an ordinary value. */
@@ -564,20 +672,23 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
  * keep the entire callee-save area relative to the resulting x29. */
 void test_a64_regalloc_large_outgoing_frame_materializes_pair_base(TestCtx *t)
 {
+    enum { NARGS = 4105 };
     Arena arena;
     A64Func f;
     A64Reg value, res;
     A64CallInfo *call;
     A64Inst in;
     const A64Block *bb;
+    DiagCtx *dc;
     u32 i, ii;
     bool saw_pair_save = false, saw_pair_restore = false;
+    bool saw_materialized_out_arg = false;
 
     arena_init(&arena);
     init_func(&f, &arena, 1);
     value = a64_newv(&f, A64RC_GP);
     res = a64_newv(&f, A64RC_GP);
-    put(&f, 0, A64_OP_MOVZ, 2, treg(value), timm(7), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_MOVZ, 2, treg(value), timm(7), (A64Operand){0});
     memset(&in, 0, sizeof(in));
     in.op = A64_OP_CALL;
     in.sf = A64_SF64;
@@ -585,23 +696,44 @@ void test_a64_regalloc_large_outgoing_frame_materializes_pair_base(TestCtx *t)
     call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
                              FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
                              IR_ABIRET_NONE, false, false);
-    for (i = 0; i < 600; i++)
-        a64_call_add_arg(&f, call, value, IRT_I64, 0, 0);
-    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
-        treg((A64Reg){0, 0}));
+    call->args =
+        arena_alloc(&arena, NARGS * sizeof(*call->args), _Alignof(A64CallArg));
+    call->nargs = NARGS;
+    for (i = 0; i < NARGS; i++)
+        call->args[i] = (A64CallArg){value, IRT_I64, 0, 0};
+    put(&f, 0, A64_OP_RET, 1, treg(res), (A64Operand){0}, (A64Operand){0});
 
     a64_regalloc(&f);
+    dc = diag_ctx_new(&arena);
 
-    T_ASSERT(t, f.out_args > 504);
+    T_ASSERT(t, f.out_args > 4095 * 8);
     T_ASSERT_EQ_INT(t, f.cfi_pre_insns, 2);
-    T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[0], 4096);
+    T_ASSERT(t, f.cfi_sp_offsets[0] != 0);
+    T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[0] & 0xfff, 0);
+    T_ASSERT(t, f.cfi_sp_offsets[0] < f.frame_bytes);
     T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[1], f.frame_bytes);
     T_ASSERT(t, f.cfi_pair_pre_insns > 0);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(&f, dc), 0);
     bb = &f.blocks[0];
     for (ii = 0; ii < bb->n; ii++) {
         const A64Inst *cur = &bb->insts[ii];
         const A64Operand *mem;
 
+        if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM &&
+            cur->ops[1].mem.base.physical &&
+            cur->ops[1].mem.base.id == (u32)A64_X12 + 1) {
+            const A64Inst *addr;
+
+            saw_materialized_out_arg = true;
+            T_ASSERT_EQ_INT(t, cur->ops[1].mem.offset, 0);
+            T_ASSERT(t, ii > 0);
+            if (ii > 0) {
+                addr = &bb->insts[ii - 1];
+                T_ASSERT_EQ_INT(t, addr->op, A64_OP_ADD);
+                T_ASSERT(t, addr->ops[0].reg.physical);
+                T_ASSERT_EQ_INT(t, addr->ops[0].reg.id, (u32)A64_X12 + 1);
+            }
+        }
         if (cur->op != A64_OP_STP && cur->op != A64_OP_LDP)
             continue;
         mem = &cur->ops[2];
@@ -624,6 +756,7 @@ void test_a64_regalloc_large_outgoing_frame_materializes_pair_base(TestCtx *t)
     }
     T_ASSERT(t, saw_pair_save);
     T_ASSERT(t, saw_pair_restore);
+    T_ASSERT(t, saw_materialized_out_arg);
     arena_free_all(&arena);
 }
 

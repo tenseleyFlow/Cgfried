@@ -21,10 +21,12 @@
  * Register discipline (Sprint 48 deliverable 1's table, each row a bug
  * prevented):
  *
- *   x0-x13   allocatable. x0-x7 are the argument/result registers and x8 is
+ *   x0-x11   allocatable. x0-x7 are the argument/result registers and x8 is
  *            the indirect-result register; none of that constrains ordinary
  *            temporaries, so they allocate freely and the call marshalling
  *            pass pre-colors what it needs.
+ *   x12-x13  RESERVED for backend expansions. Atomic pseudo-ops use both;
+ *            late frame-address materialization uses x12 for one LOAD/STORE.
  *   x14-x17  RESERVED as the four reload scratches. Four because MADD/MSUB
  *            have three register sources plus a destination, so a single
  *            instruction can need three reloads and a spilled-def home at
@@ -64,12 +66,15 @@ static const u8 fp_scratch[A64_NFP_SCRATCH] = {A64_V31, A64_V30, A64_V29,
 
 /* Caller-saved first: they are free in a leaf range, and a call-crossing
  * interval is steered to the callee-saved tail by reg_usable anyway. */
-/* x12/x13 are withheld: the atomic pseudo-ops expand at EMISSION into an
- * ll/sc loop that needs a temporary and a store-exclusive status register,
- * and neither can come from the reload scratches — a spilled operand of the
- * very same instruction may already be sitting in those. Two registers is
- * the price of guaranteeing no spill code lands inside an exclusive
- * sequence, which would clear the monitor and spin forever. */
+/* x12/x13 are withheld for post-allocation expansions. Atomic pseudo-ops
+ * expand at EMISSION into an ll/sc loop that needs a temporary and a
+ * store-exclusive status register, and neither can come from the reload
+ * scratches — a spilled operand of the very same instruction may already be
+ * sitting in those. Frame finalization also uses x12 to form an otherwise
+ * unencodable spill-slot address; that value lives only through the following
+ * LOAD/STORE, so it never overlaps an atomic pseudo's internal x12 lifetime.
+ * Two registers is the price of guaranteeing no spill code lands inside an
+ * exclusive sequence, which would clear the monitor and spin forever. */
 static const u8 gp_order[] = {
     A64_X0,  A64_X1,  A64_X2,  A64_X3,  A64_X4,  A64_X5,  A64_X6,  A64_X7,
     A64_X8,  A64_X9,  A64_X10, A64_X11, A64_X19, A64_X20, A64_X21, A64_X22,
@@ -927,10 +932,7 @@ static A64Sf a64_type_sf(u8 type)
 
 static A64Reg fixed_vreg(A64Func *f, A64RegClass rc, A64Sf sf, u8 phys)
 {
-    A64Reg v = a64_newv_width(f, rc, sf);
-
-    f->vfixed[v.id] = (u8)(phys + 1);
-    return v;
+    return a64_newv_fixed(f, rc, sf, phys);
 }
 
 static A64Inst mk_move(bool fp, A64Sf sf, A64Reg dst, A64Reg src)
@@ -1763,6 +1765,81 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
     }
 }
 
+/* A scaled 64-bit load/store reaches 4095 * 8 bytes from its base. Large
+ * functions can exceed that in three frame-generated places: x29-relative
+ * spill/incoming slots, SP-relative outgoing arguments, and the variadic
+ * register-save area. Curl's generated lib1521.c first exposed the spill case
+ * at about 37 KiB. Their builders deliberately ask a64_isel_addr for the
+ * honest answer, MATERIALIZE, and this final frame pass pays every such debt
+ * before verification.
+ *
+ * x12 is backend-owned: ordinary allocation, fixed-register construction,
+ * and GNU local-register binding all reject it. The only frame-slot
+ * references produced by the rewrite are LOAD/STORE instructions, so its
+ * address lifetime ends at that one memory instruction; an atomic pseudo is a
+ * different MIR instruction and may safely reuse x12 while it expands at
+ * emission. Keeping this restriction explicit is stronger than choosing an
+ * apparently unused reload scratch, which could still hold an earlier reload
+ * until the original instruction executes. */
+#define A64_FRAME_ADDR_SCRATCH A64_X12
+
+static void frame_expand_mem_addresses(A64Func *f)
+{
+    u32 bi, ii, i;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        A64Block *b = &f->blocks[bi];
+        Rb rb;
+        bool any = false;
+
+        for (ii = 0; ii < b->n; ii++)
+            for (i = 0; i < b->insts[ii].nops; i++)
+                if (b->insts[ii].ops[i].kind == A64O_MEM &&
+                    b->insts[ii].ops[i].mem.mode == A64_ADDR_MATERIALIZE)
+                    any = true;
+        if (!any)
+            continue;
+
+        rb_init(&rb, f->arena, b->n);
+        for (ii = 0; ii < b->n; ii++) {
+            A64Inst in = b->insts[ii];
+            A64Operand *mem = NULL;
+
+            rb.source_loc = in.loc;
+            for (i = 0; i < in.nops; i++) {
+                if (in.ops[i].kind != A64O_MEM ||
+                    in.ops[i].mem.mode != A64_ADDR_MATERIALIZE)
+                    continue;
+                if (mem)
+                    CGF_ICE("arm64 regalloc: instruction has multiple "
+                            "materialized frame references");
+                mem = &in.ops[i];
+            }
+            if (mem) {
+                A64Reg scratch = phys_reg(A64_FRAME_ADDR_SCRATCH);
+
+                if ((in.op != A64_OP_LOAD && in.op != A64_OP_STORE) ||
+                    in.nops != 2 || mem != &in.ops[1] ||
+                    in.ops[0].kind != A64O_REG || !in.ops[0].reg.physical ||
+                    in.ops[0].reg.id == scratch.id || !mem->mem.base.physical ||
+                    (mem->mem.base.id != (u32)A64_X29 + 1 &&
+                     mem->mem.base.id != (u32)A64_SP + 1) ||
+                    mem->mem.offset < 0)
+                    CGF_ICE("arm64 regalloc: malformed materialized frame "
+                            "reference");
+                emit_add_imm_split(&rb, scratch, mem->mem.base, mem->mem.offset,
+                                   "frame memory");
+                mem->mem.base = scratch;
+                mem->mem.offset = 0;
+                mem->mem.mode = A64_ADDR_SCALED;
+            }
+            rb.map[ii] = rb.n;
+            rb_put(&rb, &in);
+        }
+        rb_commit(&rb, b);
+    }
+}
+
 /* The AAPCS64 register save area, which only a variadic function needs.
  * Registers the named parameters already consumed are not saved — those
  * values are dead here — but both banks are otherwise dumped in full. gcc
@@ -2189,6 +2266,7 @@ static void frame_finalize(Ra *ra)
     if (f->nblocks)
         frame_emit_prologue(f, &fr);
     frame_emit_epilogue(f, &fr);
+    frame_expand_mem_addresses(f);
     f->frame_bytes = fr.total;
 }
 

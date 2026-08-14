@@ -279,12 +279,13 @@ static bool local_register_supported(u8 reg)
         return true;
 
     /* Keep local-register bindings inside the allocator's ordinary GP
-     * register set. x14-x17 are spill/reload scratches, x18 is the platform
-     * register, and x29/x30 are the frame/link registers. Pre-colouring an
-     * asm operand to any of those would let it collide with backend-owned
-     * state even though the general asm-clobber vocabulary must continue to
-     * recognize their names. */
-    return reg <= 13 || (reg >= 19 && reg <= 28);
+     * register set. x12/x13 belong to atomic and late-frame expansions,
+     * x14-x17 are spill/reload scratches, x18 is the platform register, and
+     * x29/x30 are the frame/link registers. Pre-colouring an asm operand to
+     * any of those would let it collide with backend-owned state even though
+     * the general asm-clobber vocabulary must continue to recognize their
+     * names. */
+    return reg <= 11 || (reg >= 19 && reg <= 28);
 }
 
 /* GNU's local-register-variable promise is much narrower than "keep this C
