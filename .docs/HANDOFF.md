@@ -2,16 +2,19 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-13): Sprints 0–57 and Phases 1–11 are CLOSED.**
+**WHERE THINGS STAND (2026-08-14): Sprints 0–57 and 59 are CLOSED; Sprint 59
+closed out of order, so the contiguous ratchet remains 57. Phases 1–11 are
+CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
 its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
-implementation and first complete hosted native/cross activation are green;
-its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally OPEN.
-Sprint 59's implementation and all locally runnable project bars are green;
-its controlled Kasumi/Hasu SQLite baselines are numeric and independently
-audited, and operational closure remains OPEN pending one complete
-post-baseline nightly ladder. The
+fixed-point machinery and first complete hosted native/cross activation are
+green; its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally
+OPEN. A reality audit found that Sprint 58's promised per-pass phase-dump
+playbook is not yet implemented: `bisect-nondet.sh` has only coarse public
+dumps and explicitly reports that post-pass plumbing is unavailable. Sprint
+59's controlled Kasumi/Hasu SQLite baselines and qualifying 15-variant nightly
+are independently audited and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
@@ -21,17 +24,18 @@ Sprint 56's campaign machine, triage map, and 25,933-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
-machine, compiler repairs, and numeric scale policy are integrated while
-Sprint 58 continues collecting independent operational evidence. The old
+machine, compiler repairs, numeric scale policy, and closure evidence are
+integrated while Sprint 58 continues collecting operational evidence. The old
 D5 notes are retained only as implementation history.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, resume **Sprint 59's operational evidence ladder** by running and
-verifying one complete 15-variant nightly against the committed numeric SQLite
-policy. Sprint 58's independent 30-day bootstrap soak continues in parallel.
-Do not begin Sprint 60 while either Sprint 58 or Sprint 59 remains open.
+On trunk, resume **Sprint 58's nondeterminism playbook**: implement deterministic
+per-pass phase dumps, wire `bisect-nondet.sh` to compare them in pipeline order,
+and replace the current absence assertions with positive localization tests.
+Continue the independent 30-day bootstrap soak in parallel. Do not begin Sprint
+60 while Sprint 58 remains open.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -40,12 +44,12 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## Parallel Sprint 59 project ladder — IMPLEMENTED; EVIDENCE OPEN
+## Parallel Sprint 59 project ladder — COMPLETE; CLOSED OUT OF ORDER
 
 Sprint 59's code, descriptors, exact-result contracts, compiler repairs,
-locally runnable validation bars, and designated-host SQLite baselines are
-complete on `trunk`. Do not call the sprint closed until one complete nightly
-ladder passes against the numeric policy.
+designated-host SQLite baselines, and qualifying post-baseline nightly are
+complete on `trunk`. Sprint 58 remains open, so this closure does not advance
+the contiguous ratchet beyond 57.
 
 - `ci/campaigns/FORMAT.md`, `ladder.yml`, and the retrofitted Sprint 57
   descriptors define one audited eight-project inventory. The linter sees
@@ -71,25 +75,25 @@ ladder passes against the numeric policy.
   Hasu O0 2,406.116677 ms / 1,228,200 KiB and O2 17,733.074318 ms /
   11,450,836 KiB. The complete immutable artifacts live under
   `.benchmarks/runs/2026-08-13T230920Z-{kasumi,hasu}-sqlite/`.
-- Seven stable compiler findings are fixed and regression-pinned:
+- Eight stable compiler findings are fixed and regression-pinned:
   deterministic source-span interning; bounded alias/dependence/IPO/BCE
   scale; call-argument provenance through IPO/BCE; dynamic x86 block-edge
   copies beyond 32 values; GNU `__PRETTY_FUNCTION__`; static nested-member
-  address folding; and ABI provenance through loop clone/unswitch/unroll.
-  The final repair is what makes SQLite O3 verify and compile correctly.
+  address folding; ABI provenance through loop clone/unswitch/unroll; and
+  final materialization of out-of-range ARM64 frame addresses. The last repair
+  makes Curl's 37.8 KiB spill frame compile and cross-assemble correctly.
 - The TinyCC warning ratchet legitimately advances from 14 parsed / 16
   deferred to 15 / 15: `x86_64-gen.c` was rejected only because glibc
   `assert` expands to `__PRETTY_FUNCTION__`. It now has zero Cgfried-only
-  format warnings. The two new/expanded permanent program fixtures repin the
-  frontend-fuzz sequence to `d034f18e4727269b`.
-- Fresh post-format GCC and Clang builds each pass the complete repository
-  suite: 711 unit tests, 4,288,526 assertions, every corpus/differential/
-  optimizer/runtime/cross/policy gate, and clang-format 22. A fresh Clang
-  ASan+UBSan build completed 100,000 frontend-fuzz iterations from seed 1
-  with zero findings; the crash ledger is clean. ShellCheck and POSIX-shell
-  parsing are clean for all touched scripts.
+  format warnings. The permanent fixtures now pin the frontend-fuzz sequence
+  to `ca30f3f7c77c82be`.
+- Fresh closure validation passes the complete repository suite: 713 unit
+  tests, 4,292,653 assertions, all 639 program fixtures, every
+  corpus/differential/optimizer/runtime/cross/policy gate, and clang-format 22.
+  A 2,000-iteration frontend-fuzz smoke completed with zero findings; the crash
+  ledger is clean.
 
-### Sprint 59 operational resume sequence
+### Sprint 59 closure evidence
 
 1. **COMPLETE:** exact revision `e52b8891444ff883d8dfc6ae5202e9410e039cae`
    is pushed; its required hosted x86-64/native ARM64 activation and O0/O2
@@ -104,24 +108,33 @@ ladder passes against the numeric policy.
    absolute O2 thresholds are unchanged; partial/unmeasured policy fixtures
    remain fail-closed, and the public `compile.baseline-policy` row is
    invariant.
-4. **NEXT:** run one complete 15-variant nightly ladder after the numeric
-   baseline commit. Every expected row, including `compile.baseline-policy`,
-   must pass; publish and independently verify the aggregate/failure artifacts
-   before recording Sprint 59 closed.
+4. **COMPLETE:** qualifying nightly
+   [`31761472470`](https://github.com/tenseleyFlow/Cgfried/actions/runs/31761472470)
+   passed all 15 jobs at exact head
+   `f8aed0f5aa16331af4dbaa600212b4bf25df2583`. Its artifact inventory is the
+   exact 28-item contract: 13 campaign-result envelopes, 14 detailed evidence
+   artifacts, and `campaign-ledger-evidence`. The reporter recorded
+   `campaign-publish-reports: PASS captured=15 matched=15 published=0`; all 15
+   metadata envelopes are exact `source=campaign` / `state=match`, all checks
+   pass in both directions, all producer/aggregate pairs are byte-identical,
+   and `failures/manifest.tsv` records zero failures. The downloaded aggregate
+   ZIP matches API SHA-256
+   `dcbeb83c2ac991a6df9baf15eaa1ac6cfde991ad585463bf6c1983bf850700d4`.
 
-`ci/closed_sprints.txt` is 57. Sprint 59 evidence does not manufacture Sprint
-58 bootstrap-soak days, and Sprint 59 cannot advance the contiguous ratchet
-while Sprint 58 remains open.
+`ci/closed_sprints.txt` is 57. Sprint 59 is closed out of order; its evidence
+does not manufacture Sprint 58 bootstrap-soak days or advance the contiguous
+ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (1/30)
+## Parallel Sprint 58 self-host campaign — PLAYBOOK GAP + SOAK OPEN (1/30)
 
-Sprint 58's compiler, runtime, diagnostics, deterministic bootstrap machinery,
-and CI definitions are implemented in the main worktree. The first complete
-hosted activation is green at compiler-source revision `c6bf3cf6`; do not call
-the sprint closed until the 30-day ledger below supplies the remaining real
-evidence.
+Sprint 58's compiler, runtime, fixed-point bootstrap machinery, and hosted CI
+definitions are integrated. The first complete hosted activation is green at
+compiler-source revision `c6bf3cf6`. The per-pass phase-dump/localization
+surface promised by the sprint file remains an implementation gap, and the
+30-day ledger still needs 29 distinct UTC dates; do not call the sprint closed
+until both obligations are complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -144,10 +157,14 @@ evidence.
   and compared field-by-field. The static audit rejects this whole-object
   `memcmp` pattern and carries a seeded regression alongside the existing
   readdir, padded-write, and pointer-output faults.
-- `CGF_DUMP_IR=all` emits an exclusive-create ordered tree spanning parse,
-  sema, lowering, every optimizer invocation, legalization, MIR, and assembly.
-  `scripts/bisect-nondet.sh` fails closed on absent groups and identifies the
-  first differing TU and phase boundary.
+- **OPEN IMPLEMENTATION GAP:** no `CGF_DUMP_IR` surface exists yet.
+  `scripts/bisect-nondet.sh` currently invokes only the public preprocessing,
+  AST, sema, whole-IR, MIR, and assembly dumps, then reports that post-pass
+  phase-boundary plumbing is unavailable. Add an optional deterministic dump
+  path/callback to `OptConfig`, serialize after `run_one()` with stable
+  sequence/fixpoint indices, add explicit driver boundaries, and replace the
+  absence tests in `tests/bootstrap/run.sh` with positive localization and
+  collision regressions.
 - `.github/workflows/bootstrap.yml` defines required x86 O0/O2 checks, nightly
   native ARM64 O0/O2, and weekly x86 reproducibility plus cross-host ARM64.
   Cross-host evidence authenticates both hosted run manifests against the
@@ -430,8 +447,8 @@ ordinary desktop housekeeping held their one-minute load near 2.8.
   the complete standard CI matrix. Raising the contiguous ratchet to 57
   exposes no stale source deferrals; both stage1 and musl lanes are active in
   trial state.
-- Sprint 54 and Phase 11 are closed. Resume at Sprint 59's operational
-  sequence above while Sprint 58 continues its independent soak.
+- Sprint 54 and Phase 11 are closed. Sprint 59 later closed out of order;
+  resume Sprint 58's phase-dump gap and independent soak above.
 
 ### Checkout hygiene
 
