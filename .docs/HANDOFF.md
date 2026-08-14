@@ -8,13 +8,11 @@ CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
 its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
-fixed-point machinery and first complete hosted native/cross activation are
-green; its 30-day bootstrap soak is RUNNING at 1/30 and remains operationally
-OPEN. A reality audit found that Sprint 58's promised per-pass phase-dump
-playbook is not yet implemented: `bisect-nondet.sh` has only coarse public
-dumps and explicitly reports that post-pass plumbing is unavailable. Sprint
-59's controlled Kasumi/Hasu SQLite baselines and qualifying 15-variant nightly
-are independently audited and complete. The
+implementation, deterministic per-pass phase-dump playbook, and first complete
+hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
+at 1/30 and remains operationally OPEN. Sprint 59's controlled Kasumi/Hasu
+SQLite baselines and qualifying 15-variant nightly are independently audited
+and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
@@ -31,11 +29,10 @@ D5 notes are retained only as implementation history.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, resume **Sprint 58's nondeterminism playbook**: implement deterministic
-per-pass phase dumps, wire `bisect-nondet.sh` to compare them in pipeline order,
-and replace the current absence assertions with positive localization tests.
-Continue the independent 30-day bootstrap soak in parallel. Do not begin Sprint
-60 while Sprint 58 remains open.
+On trunk, continue **Sprint 58's 30-day bootstrap soak**. Record only hosted
+runs that satisfy the machine-readable daily/weekly lane contract in
+`.docs/audits/bootstrap-soak.md`; a missing or red required run resets the
+streak. Do not begin Sprint 60 while Sprint 58 remains open.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -127,14 +124,13 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — PLAYBOOK GAP + SOAK OPEN (1/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (1/30)
 
-Sprint 58's compiler, runtime, fixed-point bootstrap machinery, and hosted CI
-definitions are integrated. The first complete hosted activation is green at
-compiler-source revision `c6bf3cf6`. The per-pass phase-dump/localization
-surface promised by the sprint file remains an implementation gap, and the
-30-day ledger still needs 29 distinct UTC dates; do not call the sprint closed
-until both obligations are complete.
+Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
+hosted CI definitions are integrated. The first complete hosted activation is
+green at compiler-source revision `c6bf3cf6`; the 30-day ledger still needs 29
+distinct UTC dates, so do not call the sprint closed until that operational
+obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -157,14 +153,13 @@ until both obligations are complete.
   and compared field-by-field. The static audit rejects this whole-object
   `memcmp` pattern and carries a seeded regression alongside the existing
   readdir, padded-write, and pointer-output faults.
-- **OPEN IMPLEMENTATION GAP:** no `CGF_DUMP_IR` surface exists yet.
-  `scripts/bisect-nondet.sh` currently invokes only the public preprocessing,
-  AST, sema, whole-IR, MIR, and assembly dumps, then reports that post-pass
-  phase-boundary plumbing is unavailable. Add an optional deterministic dump
-  path/callback to `OptConfig`, serialize after `run_one()` with stable
-  sequence/fixpoint indices, add explicit driver boundaries, and replace the
-  absence tests in `tests/bootstrap/run.sh` with positive localization and
-  collision regressions.
+- `CGF_DUMP_IR=all` emits an exclusive-create ordered tree spanning parse,
+  sema, lowering, every optimizer invocation with deterministic
+  sequence/fixpoint indices, legalization, MIR, and assembly.
+  `scripts/bisect-nondet.sh` fails closed on absent groups and identifies the
+  first differing TU and phase boundary. `make test-bootstrap` exercises the
+  real phase tree, collision refusal, exact localization, and three injected
+  fault families.
 - `.github/workflows/bootstrap.yml` defines required x86 O0/O2 checks, nightly
   native ARM64 O0/O2, and weekly x86 reproducibility plus cross-host ARM64.
   Cross-host evidence authenticates both hosted run manifests against the
@@ -448,7 +443,7 @@ ordinary desktop housekeeping held their one-minute load near 2.8.
   exposes no stale source deferrals; both stage1 and musl lanes are active in
   trial state.
 - Sprint 54 and Phase 11 are closed. Sprint 59 later closed out of order;
-  resume Sprint 58's phase-dump gap and independent soak above.
+  resume Sprint 58's independent soak above.
 
 ### Checkout hygiene
 
