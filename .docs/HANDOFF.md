@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-14): Sprints 0–57 and 59 are CLOSED; Sprint 59
+**WHERE THINGS STAND (2026-08-15): Sprints 0–57 and 59 are CLOSED; Sprint 59
 closed out of order, so the contiguous ratchet remains 57. Phases 1–11 are
 CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
@@ -10,7 +10,7 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 2/30 and remains operationally OPEN. Sprint 59's controlled Kasumi/Hasu
+at 3/30 and remains operationally OPEN. Sprint 59's controlled Kasumi/Hasu
 SQLite baselines and qualifying 15-variant nightly are independently audited
 and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
@@ -124,12 +124,12 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (2/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (3/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
-hosted CI definitions are integrated. Hosted evidence is green on two distinct
-UTC dates; the 30-day ledger still needs 28 dates, so do not call the sprint
-closed until that operational obligation is complete.
+hosted CI definitions are integrated. Hosted evidence is green on three
+distinct UTC dates; the 30-day ledger still needs 27 dates, so do not call the
+sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -199,6 +199,18 @@ closed until that operational obligation is complete.
   seven embedded cross-provenance hashes, and byte-compared all 113 raw ARM64
   assembly files plus the complete 228-file same-toolchain final payload with
   `normalization=none`.
+- Matching-head x86 push run
+  [`31857187648`](https://github.com/tenseleyFlow/Cgfried/actions/runs/31857187648)
+  and scheduled native ARM64 run
+  [`31863013882`](https://github.com/tenseleyFlow/Cgfried/actions/runs/31863013882)
+  supply the third consecutive UTC date at exact head
+  `d9693498ef236d5088c45e3e7adb120593808eed`. All four applicable O0/O2 jobs
+  passed. Their exact four artifacts match the GitHub API's retained sizes and
+  raw SHA-256 digests; 1,356 run-manifest hashes, eight 228-entry stage
+  manifests, and 912 stage1/stage2 payload comparisons verified with zero
+  differences. ARM O2's int128 and binary128 ABI/value differentials passed.
+  August 15 was Saturday, so the weekly cross-host and reproducibility lanes
+  were correctly not due. Independent review approved the paired evidence.
 - Matching-source hosted torture streams atomically regenerated the ratchet
   and triage report. The new totals are 25,933 PASS, 6,620 SKIP, and 8,097
   classified failures across 40,650 cells; 90 buckets, 81 live policy
@@ -210,9 +222,10 @@ closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 2/30**, starting from the
-  verified 2026-08-13 hosted run and continuing with the verified 2026-08-14
-  run above. Continue recording distinct UTC dates and every weekly
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 3/30**, starting from the
+  verified 2026-08-13 hosted run, continuing with the verified 2026-08-14
+  full activation, and the verified matching-head 2026-08-15 x86/ARM pair
+  above. Continue recording distinct UTC dates and every weekly
   cross/reproducibility result; any missing or red required run breaks the
   streak.
 

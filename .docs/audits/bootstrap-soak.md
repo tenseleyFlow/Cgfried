@@ -25,11 +25,13 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 2/30 distinct UTC dates green.** The ledger started on 2026-08-13
-and now contains two verified hosted workflows in which every native lane, the
-x86 reproducibility probe, and the weekly cross-host comparison passed at one
-compiler-source revision per run. A missing or red required run resets the
-streak.
+**RUNNING: 3/30 distinct UTC dates green.** The ledger started on 2026-08-13.
+The first two dates are complete hosted workflows in which every native lane,
+the x86 reproducibility probe, and the weekly cross-host comparison passed at
+one compiler-source revision per run. The third date combines a same-commit
+x86 push run with the scheduled native ARM64 run; the Saturday weekly
+cross-host and reproducibility lanes were not due. A missing or red required
+run resets the streak.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -59,8 +61,10 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 |---|---|---|---|---|---|---|---|
 | 2026-08-13 | `c6bf3cf6a91f50dbd561afd9c1cecd19f8a72f83` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 31665602629](https://github.com/tenseleyFlow/Cgfried/actions/runs/31665602629) |
 | 2026-08-14 | `e75ff34c6b03214281ed637c7bbcb38228e76496` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 31762814206](https://github.com/tenseleyFlow/Cgfried/actions/runs/31762814206) |
+| 2026-08-15 | `d9693498ef236d5088c45e3e7adb120593808eed` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 31857187648](https://github.com/tenseleyFlow/Cgfried/actions/runs/31857187648) + [ARM run 31863013882](https://github.com/tenseleyFlow/Cgfried/actions/runs/31863013882) |
 
-Each row retains `sprint58-bootstrap-x86_64-linux-O0`,
+The 2026-08-13 and 2026-08-14 full-activation rows each retain
+`sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
 `sprint58-bootstrap-arm64-linux-native-O0`,
 `sprint58-bootstrap-arm64-linux-native-O2`, and
@@ -73,12 +77,25 @@ assembly, identical same-toolchain objects/runtime archive/compiler, and
 hashes for both run manifests, both bootstrap reports, both consumed stage
 manifests, and the exact ARM64 header archive.
 
+The 2026-08-15 paired evidence retains the four applicable x86/native-ARM64
+lane artifacts. Weekly cross-host and x86 reproducibility artifacts are
+correctly absent because their Sunday cadence was not due.
+
 Fresh downloads of the final artifacts independently reverified all seven
 embedded provenance hashes and byte-compared both 113-file assembly/object
 trees, the runtime archive, and the final compiler. The 2026-08-14 audit also
 matched all eight raw ZIP hashes to the GitHub artifact API, verified all eight
 fixed-point stage manifests, and byte-compared the complete 228-file final
 cross-host payload.
+
+The 2026-08-15 audit matched all four raw ZIP sizes and SHA-256 digests to the
+GitHub artifact API, verified all 1,356 retained run-manifest hashes and all
+eight 228-entry fixed-point stage manifests, and byte-compared 912 stage1 /
+stage2 payload files with zero differences. Native ARM64 O2 also records GCC,
+Clang, and strict-C11 self-host int128 PASS plus 24 binary128 entry points and
+1,432 result lines identical to libgcc. An independent review approved the
+paired runs as the third consecutive UTC date and confirmed the weekly lanes
+were not due on Saturday.
 
 Run `31762814206` retains these raw artifact ZIP SHA-256 digests:
 
@@ -98,3 +115,15 @@ Run `31762814206` retains these raw artifact ZIP SHA-256 digests:
   `5e09f36345091f85e5a130702f92a5162443adf0f0502d701dbdd36a416258fa`
 - `sprint58-bootstrap-arm64-cross-final`:
   `3192da0a8f5dd75940e2a4ce8701e17be056b6ff4c897e9449a0c37fd1de2e37`
+
+Runs `31857187648` and `31863013882` retain these raw artifact ZIP SHA-256
+digests:
+
+- `sprint58-bootstrap-x86_64-linux-O0`:
+  `75900722e4899aa3f2123350822777d54d56fba28c353e65b9e9892e67c7c362`
+- `sprint58-bootstrap-x86_64-linux-O2`:
+  `d8c9919573a63f088a4c4ae7d1ff2a01457849ac372d256a70f52a951558598a`
+- `sprint58-bootstrap-arm64-linux-native-O0`:
+  `4a279b3c186c00ee026773f06b5f100e00656d2bc7c0f57cdade3c85a8729bc2`
+- `sprint58-bootstrap-arm64-linux-native-O2`:
+  `c9443fa4284a4ff587fdd8579c1dda7b95d98cdcbbd63ad219c4a87d59cb204e`
