@@ -24,7 +24,10 @@ staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
 machine, compiler repairs, numeric scale policy, and closure evidence are
 integrated while Sprint 58 continues collecting operational evidence. The old
-D5 notes are retained only as implementation history.
+D5 notes are retained only as implementation history. Sprint 60's defensive
+audit is now IN PROGRESS against full-CI-green baseline
+`1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb` while the Sprint 58 soak
+continues independently.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -32,12 +35,32 @@ refusal or a deliberate deferral.
 On trunk, continue **Sprint 58's 30-day bootstrap soak**. Record only hosted
 runs that satisfy the machine-readable daily/weekly lane contract in
 `.docs/audits/bootstrap-soak.md`; a missing or red required run resets the
-streak. Do not begin Sprint 60 while Sprint 58 remains open.
+streak. Sprint 60 audit-only work may proceed in parallel from its frozen
+full-CI-green baseline. Do not claim Sprint 58 closed, sign off Phase 13, or
+begin the release landing until the soak reaches 30/30.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
 FreeBSD. Confirmed empirically: extended asm and `__volatile` together took
 musl from **716 to 1259 of 1361** translation units parsing.
+
+---
+
+## Parallel Sprint 60 defensive audit — IN PROGRESS
+
+Baseline `1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb` is frozen for the audit.
+Its required x86 bootstrap [run
+31865512724](https://github.com/tenseleyFlow/Cgfried/actions/runs/31865512724)
+passed O0/O2, and full standard CI [run
+31865512754](https://github.com/tenseleyFlow/Cgfried/actions/runs/31865512754)
+completed with all 20 executed jobs green and one expected skip. The audit
+uses fresh-context, reproducer-first reviewers across all twelve fronts. No
+compiler fixes land during Sprint 60; confirmed reproducers and stable-ID
+findings are the deliverable, and remediation remains Sprint 61 work.
+
+This parallel audit does not manufacture Sprint 58 soak dates or advance the
+contiguous closure ratchet. Phase 13 sign-off remains gated on the complete
+30-date bootstrap streak.
 
 ---
 
