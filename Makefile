@@ -140,7 +140,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
-        test-a64-corpus \
+        test-a64-corpus test-audit-fixtures \
         test-a64-spill-all test-a64-char-sign test-abi-diff \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap \
         bootstrap-O0 bootstrap-O2 bootstrap-repro-O2 \
@@ -331,6 +331,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bootstrap
 	$(BUILD)/unit_tests
 	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
+	$(MAKE) BUILD=$(BUILD) test-audit-fixtures
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bench
 	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
@@ -534,6 +535,11 @@ test-a64-mir: $(BUILD)/a64mir
 test-a64-debug: $(BUILD)/cgfried
 	CGF_A64_DEBUG_WORK=$(BUILD)/a64-debug-lane \
 	    sh scripts/a64_debug_lane.sh $(BUILD)/cgfried
+
+# Sprint 60 findings are intentionally expected failures until Sprint 61
+# repairs them. Any XPASS is red so code and the durable ledger move together.
+test-audit-fixtures: $(BUILD)/cgfried
+	sh scripts/check-audit-fixtures.sh $(BUILD)/cgfried
 
 test-a64-asm-diff: $(BUILD)/a64_objbytes $(BUILD)/a64_logimm_gen
 	CGF_A64_OBJBYTES=$(BUILD)/a64_objbytes \
