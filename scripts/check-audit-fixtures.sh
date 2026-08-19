@@ -88,7 +88,8 @@ if [ -n "$duplicates" ]; then
     exit 1
 fi
 
-for source in "$FIXTURES"/*.c; do
+for source in "$FIXTURES"/*.c "$FIXTURES"/*.cgfir; do
+    [ -e "$source" ] || continue
     fixture=${source##*/}
     if ! grep -Fxq "$fixture" "$manifest_files"; then
         echo "audit fixtures: unlisted fixture: $fixture" >&2
@@ -225,6 +226,91 @@ probe()
             xpass "$id" "$title"
         else
             fail "$id" "unexpected long-double aggregate return sequence"
+        fi
+        ;;
+    IR-L-02)
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -emit-ir "$source"
+        status=$?
+        if [ "$status" -eq 1 ]; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 0 ] && grep -q 'icmp eq i64' "$ir"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected comparison-type validation result"
+        fi
+        ;;
+    IR-C-03)
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -std=c17 -O0 -emit-ir "$source"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid atomic-pointer increment was rejected"
+        elif grep -Eq 'atomicrmw|cmpxchg|@__atomic' "$ir"; then
+            xpass "$id" "$title"
+        elif grep -Eq 'load ptr, @cursor,.*seq_cst' "$ir" &&
+             grep -Eq 'store ptr .*@cursor,.*seq_cst' "$ir"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected atomic-pointer increment lowering"
+        fi
+        ;;
+    IR-C-04)
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -std=c17 -pedantic-errors -O0 -emit-ir "$source"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid backward-goto VLA fixture was rejected"
+        elif grep -q 'stackrestore' "$ir"; then
+            xpass "$id" "$title"
+        elif grep -q 'stacksave' "$ir" && grep -q 'br L.again' "$ir"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected backward-goto VLA lowering"
+        fi
+        ;;
+    IR-H-05)
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -std=c17 -pedantic-errors -O0 -emit-ir "$source"
+        status=$?
+        copies=$(grep -c '^[[:space:]]*memcpy ' "$ir" || true)
+        marked=$(grep -c '^[[:space:]]*memcpy .*volatile' "$ir" || true)
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid volatile-aggregate fixture was rejected"
+        elif [ "$copies" -eq 2 ] && [ "$marked" -eq 2 ]; then
+            xpass "$id" "$title"
+        elif [ "$copies" -eq 2 ] && [ "$marked" -eq 0 ]; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected volatile aggregate copy markers"
+        fi
+        ;;
+    IR-H-06)
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -std=gnu17 -O0 -emit-ir "$source"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid sigsetjmp fixture was rejected"
+        elif grep -Eq '^func i32 @save\(ptr %[0-9]+\) setjmp \{' "$ir"; then
+            xpass "$id" "$title"
+        elif grep -q 'call i32 @__sigsetjmp' "$ir" &&
+             grep -Eq '^func i32 @save\(ptr %[0-9]+\) \{' "$ir"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected sigsetjmp function marker"
+        fi
+        ;;
+    IR-H-07)
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -emit-ir "$source"
+        status=$?
+        if [ "$status" -eq 1 ]; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 0 ] &&
+             grep -q 'reloc 18446744073709551615' "$ir"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected relocation-boundary validation result"
         fi
         ;;
     X64-C-01)
@@ -369,9 +455,9 @@ while IFS="$tab" read -r id fixture title extra; do
         echo "audit fixtures: unsafe fixture path for $id: $fixture" >&2
         exit 1
         ;;
-    *.c) ;;
+    *.c|*.cgfir) ;;
     *)
-        echo "audit fixtures: non-C fixture for $id: $fixture" >&2
+        echo "audit fixtures: unsupported fixture type for $id: $fixture" >&2
         exit 1
         ;;
     esac

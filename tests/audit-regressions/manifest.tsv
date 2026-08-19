@@ -17,3 +17,9 @@ A64-H-03	a64-h-03.c	large GOT addends trigger an internal compiler error
 A64-M-04	a64-m-04.c	unwind information omits x19 and epilogue state transitions
 SEMA-H-06	sema-h-06.c	a record of only zero-length arrays is sized to its alignment
 IR-C-01	ir-c-01.c	a 16-byte long-double aggregate is returned by hidden pointer
+IR-L-02	ir-l-02.cgfir	the written comparison type is silently replaced
+IR-C-03	ir-c-03.c	atomic pointer increment is split into a load and store
+IR-C-04	ir-c-04.c	backward goto before a VLA declaration leaks stack space
+IR-H-05	ir-h-05.c	volatile aggregate sources lose their access marker
+IR-H-06	ir-h-06.c	sigsetjmp macro expansion loses the returns-twice marker
+IR-H-07	ir-h-07.cgfir	global relocation offset wraps the verifier bounds check

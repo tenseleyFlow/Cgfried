@@ -1,0 +1,10 @@
+// XFAIL(audit): IR-H-07 global relocation offset wraps the verifier bounds check
+// A pointer relocation occupies eight bytes. UINT64_MAX is outside this
+// eight-byte initializer, but `offset + 8` wraps and is currently accepted.
+global @target size 8 align 8 external
+global @holder size 8 align 8 external init x0000000000000000 reloc 18446744073709551615 @target 0
+
+func i32 @main() {
+entry():
+    ret i32 0
+}

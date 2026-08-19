@@ -1,0 +1,9 @@
+// XFAIL(audit): IR-L-02 the written comparison type is silently replaced
+// The operands are i64 values, but the instruction explicitly claims i32.
+// The parser currently normalizes the annotation to i64 instead of rejecting
+// the inconsistent text.
+func i32 @compare(i64 %value) {
+entry():
+    %same = icmp eq i32 %value, %value
+    ret i32 %same
+}
