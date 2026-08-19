@@ -49,6 +49,25 @@ run_cgf()
         >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
 }
 
+run_cgf_runtime()
+{
+    run_id=$1
+    fusion_disabled=$2
+    shift 2
+    (exec env CGF_AS=0 CGF_AS_PATH= CGF_LD=0 CGF_LD_PATH= \
+        CGF_OPT_DISABLE_FUSION="$fusion_disabled" \
+        CGF_INCLUDE_DIR="$ROOT/include" "$CGF" "$@") \
+        >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
+}
+
+run_cgf_verified()
+{
+    run_id=$1
+    shift
+    (exec env CGF_INCLUDE_DIR="$ROOT/include" CGF_VERIFY_AFTER_EACH=1 \
+        "$CGF" "$@") >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
+}
+
 run_cgf_full_backtrace()
 {
     run_id=$1
@@ -327,6 +346,83 @@ probe()
             xfail "$id" "$title"
         else
             fail "$id" "unexpected pointer-update analysis result (status $status)"
+        fi
+        ;;
+    OPT-H-02)
+        o0="$WORK/$id.o0"
+        no_fusion="$WORK/$id.no-fusion"
+        o3="$WORK/$id.o3"
+        # The fusion-disabled O3 control distinguishes this transform from
+        # unrelated optimizer or backend failures in the same pipeline.
+        run_cgf_runtime "$id.o0" 0 -std=c17 -O0 "$source" -o "$o0"
+        o0_status=$?
+        run_cgf_runtime "$id.no-fusion" 1 -std=c17 -O3 "$source" \
+            -o "$no_fusion"
+        no_fusion_status=$?
+        run_cgf_runtime "$id.o3" 0 -std=c17 -O3 "$source" -o "$o3"
+        o3_status=$?
+        if [ "$o0_status" -ne 0 ]; then
+            fail "$id" "valid O0 control fixture was rejected"
+        elif [ "$no_fusion_status" -ne 0 ]; then
+            fail "$id" "valid fusion-disabled O3 control was rejected"
+        elif [ "$o3_status" -ne 0 ]; then
+            fail "$id" "valid O3 fixture was rejected"
+        else
+            "$o0" >"$WORK/$id.o0.run.stdout" 2>"$WORK/$id.o0.run.stderr"
+            o0_status=$?
+            "$no_fusion" >"$WORK/$id.no-fusion.run.stdout" \
+                2>"$WORK/$id.no-fusion.run.stderr"
+            no_fusion_status=$?
+            "$o3" >"$WORK/$id.o3.run.stdout" \
+                2>"$WORK/$id.o3.run.stderr"
+            o3_status=$?
+            if [ "$o0_status" -ne 0 ]; then
+                fail "$id" "O0 control returned status $o0_status"
+            elif [ "$no_fusion_status" -ne 0 ]; then
+                fail "$id" "fusion-disabled O3 control returned status $no_fusion_status"
+            elif [ "$o3_status" -eq 0 ]; then
+                xpass "$id" "$title"
+            elif [ "$o3_status" -eq 1 ]; then
+                xfail "$id" "$title"
+            else
+                fail "$id" "O3 result had unexpected status $o3_status"
+            fi
+        fi
+        ;;
+    OPT-H-03)
+        o0="$WORK/$id.o0"
+        o2="$WORK/$id.o2"
+        # O2 is the pass-absent control: the unroller enters the pipeline at
+        # O3, and no standalone unroll-disable switch exists yet.
+        run_cgf_runtime "$id.o0" 0 -std=c17 -O0 "$source" -o "$o0"
+        o0_status=$?
+        run_cgf_runtime "$id.o2" 0 -std=c17 -O2 "$source" -o "$o2"
+        o2_status=$?
+        run_cgf_verified "$id.o3" -std=c17 -O3 -emit-ir "$source"
+        o3_status=$?
+        if [ "$o0_status" -ne 0 ]; then
+            fail "$id" "valid O0 control fixture was rejected"
+        elif [ "$o2_status" -ne 0 ]; then
+            fail "$id" "valid O2 control fixture was rejected"
+        else
+            "$o0" >"$WORK/$id.o0.run.stdout" 2>"$WORK/$id.o0.run.stderr"
+            o0_status=$?
+            "$o2" >"$WORK/$id.o2.run.stdout" 2>"$WORK/$id.o2.run.stderr"
+            o2_status=$?
+            if [ "$o0_status" -ne 0 ]; then
+                fail "$id" "O0 control returned status $o0_status"
+            elif [ "$o2_status" -ne 0 ]; then
+                fail "$id" "O2 control returned status $o2_status"
+            elif [ "$o3_status" -eq 0 ]; then
+                xpass "$id" "$title"
+            elif [ "$o3_status" -eq 4 ] &&
+                 grep -q "pass 'unroll' produced invalid IR" \
+                     "$WORK/$id.o3.stderr" &&
+                 grep -q 'operand names value id 0' "$WORK/$id.o3.stderr"; then
+                xfail "$id" "$title"
+            else
+                fail "$id" "unexpected O3 unroll result (status $o3_status)"
+            fi
         fi
         ;;
     X64-C-01)
