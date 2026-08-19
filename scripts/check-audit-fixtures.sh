@@ -314,7 +314,10 @@ probe()
         fi
         ;;
     OPT-H-01)
-        run_cgf "$id" -std=c17 -fsyntax-only "$source"
+        # This reaches the shared service through its optimizer client.
+        # `-w` removes the independent default warning-analysis path, so an
+        # eventual repair must make the O2 pipeline itself complete.
+        run_cgf "$id" -std=c17 -w -O2 -emit-ir "$source"
         status=$?
         if [ "$status" -eq 0 ]; then
             xpass "$id" "$title"
