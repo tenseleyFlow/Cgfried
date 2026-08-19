@@ -26,3 +26,4 @@ IR-H-07	ir-h-07.cgfir	global relocation offset wraps the verifier bounds check
 OPT-H-01	opt-h-01.c	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	descending loop fusion reverses dependence direction
 OPT-H-03	opt-h-03.c	loop unrolling loses a live latch block parameter
+OPT-H-04	opt-h-04.c	correlated pointer selects collapse to a false must-alias proof

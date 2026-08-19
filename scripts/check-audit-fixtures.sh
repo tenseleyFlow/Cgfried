@@ -60,6 +60,30 @@ run_cgf_runtime()
         >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
 }
 
+run_cgf_verified_runtime()
+{
+    run_id=$1
+    shift
+    (exec env CGF_AS=0 CGF_AS_PATH= CGF_LD=0 CGF_LD_PATH= \
+        CGF_OPT_DISABLE_BCE= CGF_OPT_DISABLE_FUSION= \
+        CGF_OPT_DISABLE_VECTORIZE= CGF_OPT_DISABLE_UNSWITCH= \
+        CGF_VERIFY_AFTER_EACH=1 CGF_INCLUDE_DIR="$ROOT/include" "$CGF" "$@") \
+        >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
+}
+
+run_cgf_verified_phase_runtime()
+{
+    run_id=$1
+    dump_dir=$2
+    shift 2
+    (exec env CGF_AS=0 CGF_AS_PATH= CGF_LD=0 CGF_LD_PATH= \
+        CGF_OPT_DISABLE_BCE= CGF_OPT_DISABLE_FUSION= \
+        CGF_OPT_DISABLE_VECTORIZE= CGF_OPT_DISABLE_UNSWITCH= \
+        CGF_VERIFY_AFTER_EACH=1 CGF_DUMP_IR=all CGF_DUMP_IR_DIR="$dump_dir" \
+        CGF_INCLUDE_DIR="$ROOT/include" "$CGF" "$@") \
+        >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
+}
+
 run_cgf_verified()
 {
     run_id=$1
@@ -422,6 +446,79 @@ probe()
                 xfail "$id" "$title"
             else
                 fail "$id" "unexpected O3 unroll result (status $o3_status)"
+            fi
+        fi
+        ;;
+    OPT-H-04)
+        host="$WORK/$id.host"
+        o0="$WORK/$id.o0"
+        o1="$WORK/$id.o1"
+        o2="$WORK/$id.o2"
+        phase_dir="$WORK/$id.phases"
+        mkdir "$phase_dir"
+        if "$HOST_CC" -std=c17 -pedantic-errors -Wall -Wextra -Werror -O3 \
+            "$source" -o "$host" >"$WORK/$id.host.stdout" \
+            2>"$WORK/$id.host.stderr"; then
+            host_compile_status=0
+        else
+            host_compile_status=$?
+        fi
+        run_cgf_verified_runtime "$id.o0" -std=c17 -O0 "$source" -o "$o0"
+        o0_compile_status=$?
+        run_cgf_verified_runtime "$id.o1" -std=c17 -O1 "$source" -o "$o1"
+        o1_compile_status=$?
+        run_cgf_verified_phase_runtime "$id.o2" "$phase_dir" \
+            -std=c17 -O2 "$source" -o "$o2"
+        o2_compile_status=$?
+        if [ "$host_compile_status" -ne 0 ]; then
+            fail "$id" "host C17 control fixture was rejected"
+        elif [ "$o0_compile_status" -ne 0 ]; then
+            fail "$id" "valid O0 control fixture was rejected"
+        elif [ "$o1_compile_status" -ne 0 ]; then
+            fail "$id" "valid O1 control fixture was rejected"
+        elif [ "$o2_compile_status" -ne 0 ]; then
+            fail "$id" "valid O2 fixture was rejected"
+        else
+            "$host" >"$WORK/$id.host.zero.stdout" \
+                2>"$WORK/$id.host.zero.stderr"
+            host_zero_status=$?
+            "$host" x >"$WORK/$id.host.one.stdout" \
+                2>"$WORK/$id.host.one.stderr"
+            host_one_status=$?
+            "$o0" >"$WORK/$id.o0.zero.stdout" \
+                2>"$WORK/$id.o0.zero.stderr"
+            o0_zero_status=$?
+            "$o0" x >"$WORK/$id.o0.one.stdout" \
+                2>"$WORK/$id.o0.one.stderr"
+            o0_one_status=$?
+            "$o1" >"$WORK/$id.o1.zero.stdout" \
+                2>"$WORK/$id.o1.zero.stderr"
+            o1_zero_status=$?
+            "$o1" x >"$WORK/$id.o1.one.stdout" \
+                2>"$WORK/$id.o1.one.stderr"
+            o1_one_status=$?
+            "$o2" >"$WORK/$id.o2.zero.stdout" \
+                2>"$WORK/$id.o2.zero.stderr"
+            o2_zero_status=$?
+            "$o2" x >"$WORK/$id.o2.one.stdout" \
+                2>"$WORK/$id.o2.one.stderr"
+            o2_one_status=$?
+            if [ "$host_zero_status" -ne 0 ] || [ "$host_one_status" -ne 0 ]; then
+                fail "$id" "host C17 control returned $host_zero_status/$host_one_status"
+            elif [ "$o0_zero_status" -ne 0 ] || [ "$o0_one_status" -ne 0 ]; then
+                fail "$id" "O0 control returned $o0_zero_status/$o0_one_status"
+            elif [ "$o1_zero_status" -ne 0 ] || [ "$o1_one_status" -ne 0 ]; then
+                fail "$id" "O1 control returned $o1_zero_status/$o1_one_status"
+            elif [ "$o2_zero_status" -eq 0 ] && [ "$o2_one_status" -eq 0 ]; then
+                xpass "$id" "$title"
+            elif [ "$o2_zero_status" -eq 1 ] && [ "$o2_one_status" -eq 1 ] && \
+                 grep -q '^    %10 = load i32, %5, align 4, etype i32$' \
+                     "$phase_dir/400006-ir-fp01-i01-p05-simplify_cfg.cgfir" && \
+                 grep -q '^    ret i32 22$' \
+                     "$phase_dir/400007-ir-fp01-i01-p06-gvn.cgfir"; then
+                xfail "$id" "$title"
+            else
+                fail "$id" "unexpected O2 alias-selection result $o2_zero_status/$o2_one_status"
             fi
         fi
         ;;
