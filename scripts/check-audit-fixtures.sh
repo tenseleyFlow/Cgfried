@@ -313,6 +313,19 @@ probe()
             fail "$id" "unexpected relocation-boundary validation result"
         fi
         ;;
+    OPT-H-01)
+        run_cgf "$id" -std=c17 -fsyntax-only "$source"
+        status=$?
+        if [ "$status" -eq 0 ]; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 4 ] &&
+             grep -q 'alias: points-to solver did not converge in @advance' \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected pointer-update analysis result (status $status)"
+        fi
+        ;;
     X64-C-01)
         asm="$WORK/$id.s"
         run_cgf "$id" -O0 -S "$source" -o "$asm"
