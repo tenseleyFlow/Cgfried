@@ -1,51 +1,51 @@
-# Finding ID	Fixture	Title
-PP-H-01	pp-h-01.c	mixed-delimiter include_next reuses an incompatible search index
-PP-M-02	pp-m-02.c	dynamic builtins lose their containing macro backtrace
-PP-L-03	pp-l-03.c	full macro backtraces stop after 256 frames
-PP-M-04	pp-m-04.c	pre-expanded arguments lose their inner macro backtrace
-FE-H-01	fe-h-01.c	an unnamed variadic prototype is accepted in ISO C
-FE-H-02	fe-h-02.c	nested K&R identifier list escapes the definition-only constraint
-FE-M-03	fe-m-03.c	one malformed parameter causes a six-error parser cascade
-FE-M-04	fe-m-04.c	an invalid initializer item causes three cascading errors
-FE-M-05	fe-m-05.c	an invalid _Generic type creates a false duplicate-association error
-SEMA-C-01	sema-c-01.c	signed-minimum division by minus one crashes constant evaluation
-SEMA-C-02	sema-c-02.c	AAPCS64 zero-width bitfields fail to raise record alignment
-SEMA-H-03	sema-h-03.c	old-style function compatibility ignores default promotions
-SEMA-H-04	sema-h-04.c	no-linkage and external-linkage declarations are merged
-SEMA-H-05	sema-h-05.c	unary negation of a signed minimum is accepted as constant
-X64-C-01	x64-c-01.c	floating atomic accesses are emitted as ordinary loads and stores
-X64-C-02	x64-c-02.c	large static frame sizes are truncated to 32 bits
-X64-M-03	x64-m-03.c	multi-digit inline-assembly operand references consume one digit
-A64-H-01	a64-h-01.c	TLS tentative definitions are emitted as COMMON symbols
-A64-H-02	a64-h-02.c	large TLS addends are emitted as unencodable immediates
-A64-H-03	a64-h-03.c	large GOT addends trigger an internal compiler error
-A64-M-04	a64-m-04.c	unwind information omits x19 and epilogue state transitions
-SEMA-H-06	sema-h-06.c	a record of only zero-length arrays is sized to its alignment
-SEMA-H-07	sema-h-07.c	selected _Generic integer result is not an integer constant expression
-IR-C-01	ir-c-01.c	a 16-byte long-double aggregate is returned by hidden pointer
-IR-L-02	ir-l-02.cgfir	the written comparison type is silently replaced
-IR-C-03	ir-c-03.c	atomic pointer increment is split into a load and store
-IR-C-04	ir-c-04.c	backward goto before a VLA declaration leaks stack space
-IR-H-05	ir-h-05.c	volatile aggregate sources lose their access marker
-IR-H-06	ir-h-06.c	sigsetjmp macro expansion loses the returns-twice marker
-IR-H-07	ir-h-07.cgfir	global relocation offset wraps the verifier bounds check
-IR-H-08	ir-h-08.c	symbolic indirect calls fail optimized IR round-trip
-IR-C-09	ir-c-09.c	16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
-IR-C-10	ir-c-10.c	stacked 16-byte-aligned composites lose AAPCS64 stack alignment
-OPT-H-01	opt-h-01.c	pointer self-increment makes the alias solver diverge
-OPT-H-02	opt-h-02.c	descending loop fusion reverses dependence direction
-OPT-H-03	opt-h-03.c	loop unrolling loses a live latch block parameter
-OPT-H-04	opt-h-04.c	correlated pointer selects collapse to a false must-alias proof
-DRV-M-01	drv-m-01.c	assembler signal death is reported as ordinary rejection
-RT-H-01	rt-h-01.c	arm64-macos publishes the wrong long-double size macro
-TI-M-01	ti-m-01.sh	the POSIX-shell expected-skip profile is never enforced
-TI-M-02	ti-m-02.sh	the primary XFAIL ledger reports retired float debt as open
-TI-M-03	ti-m-03.sh	every live c-testsuite debt row cites an obsolete failure cause
-MS-C-01	ms-c-01.c	an exact warning opt-out weakens -fsafe initialization safety
-MS-M-02	ms-m-02.c	a nonheap equality guard leaves an infeasible leak path
-MS-M-03	ms-m-03.c	freopen replacement is falsely reported as leaked
-MS-C-04	ms-c-04.c	-fsafe accepts a statically proven null dereference
-MS-C-05	ms-c-05.c	far heap out-of-bounds pointers evade the runtime registry
-DET-M-01	det-m-01.sh	blocking compile gates have no per-metric noise evidence
-DET-M-02	det-m-02.sh	stage1 timing derives MAD from a single sample
-DET-M-03	det-m-03.sh	four baseline-bump commits omit required old-to-new evidence
+# Finding ID	Fixture	State	Title
+PP-H-01	pp-h-01.c	OPEN	mixed-delimiter include_next reuses an incompatible search index
+PP-M-02	pp-m-02.c	OPEN	dynamic builtins lose their containing macro backtrace
+PP-L-03	pp-l-03.c	OPEN	full macro backtraces stop after 256 frames
+PP-M-04	pp-m-04.c	OPEN	pre-expanded arguments lose their inner macro backtrace
+FE-H-01	fe-h-01.c	OPEN	an unnamed variadic prototype is accepted in ISO C
+FE-H-02	fe-h-02.c	OPEN	nested K&R identifier list escapes the definition-only constraint
+FE-M-03	fe-m-03.c	OPEN	one malformed parameter causes a six-error parser cascade
+FE-M-04	fe-m-04.c	OPEN	an invalid initializer item causes three cascading errors
+FE-M-05	fe-m-05.c	OPEN	an invalid _Generic type creates a false duplicate-association error
+SEMA-C-01	sema-c-01.c	OPEN	signed-minimum division by minus one crashes constant evaluation
+SEMA-C-02	sema-c-02.c	OPEN	AAPCS64 zero-width bitfields fail to raise record alignment
+SEMA-H-03	sema-h-03.c	OPEN	old-style function compatibility ignores default promotions
+SEMA-H-04	sema-h-04.c	OPEN	no-linkage and external-linkage declarations are merged
+SEMA-H-05	sema-h-05.c	OPEN	unary negation of a signed minimum is accepted as constant
+X64-C-01	x64-c-01.c	OPEN	floating atomic accesses are emitted as ordinary loads and stores
+X64-C-02	x64-c-02.c	OPEN	large static frame sizes are truncated to 32 bits
+X64-M-03	x64-m-03.c	OPEN	multi-digit inline-assembly operand references consume one digit
+A64-H-01	a64-h-01.c	OPEN	TLS tentative definitions are emitted as COMMON symbols
+A64-H-02	a64-h-02.c	OPEN	large TLS addends are emitted as unencodable immediates
+A64-H-03	a64-h-03.c	OPEN	large GOT addends trigger an internal compiler error
+A64-M-04	a64-m-04.c	OPEN	unwind information omits x19 and epilogue state transitions
+SEMA-H-06	sema-h-06.c	OPEN	a record of only zero-length arrays is sized to its alignment
+SEMA-H-07	sema-h-07.c	OPEN	selected _Generic integer result is not an integer constant expression
+IR-C-01	ir-c-01.c	OPEN	a 16-byte long-double aggregate is returned by hidden pointer
+IR-L-02	ir-l-02.cgfir	OPEN	the written comparison type is silently replaced
+IR-C-03	ir-c-03.c	OPEN	atomic pointer increment is split into a load and store
+IR-C-04	ir-c-04.c	OPEN	backward goto before a VLA declaration leaks stack space
+IR-H-05	ir-h-05.c	OPEN	volatile aggregate sources lose their access marker
+IR-H-06	ir-h-06.c	OPEN	sigsetjmp macro expansion loses the returns-twice marker
+IR-H-07	ir-h-07.cgfir	OPEN	global relocation offset wraps the verifier bounds check
+IR-H-08	ir-h-08.c	OPEN	symbolic indirect calls fail optimized IR round-trip
+IR-C-09	ir-c-09.c	OPEN	16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
+IR-C-10	ir-c-10.c	OPEN	stacked 16-byte-aligned composites lose AAPCS64 stack alignment
+OPT-H-01	opt-h-01.c	OPEN	pointer self-increment makes the alias solver diverge
+OPT-H-02	opt-h-02.c	OPEN	descending loop fusion reverses dependence direction
+OPT-H-03	opt-h-03.c	OPEN	loop unrolling loses a live latch block parameter
+OPT-H-04	opt-h-04.c	OPEN	correlated pointer selects collapse to a false must-alias proof
+DRV-M-01	drv-m-01.c	OPEN	assembler signal death is reported as ordinary rejection
+RT-H-01	rt-h-01.c	OPEN	arm64-macos publishes the wrong long-double size macro
+TI-M-01	ti-m-01.sh	OPEN	the POSIX-shell expected-skip profile is never enforced
+TI-M-02	ti-m-02.sh	OPEN	the primary XFAIL ledger reports retired float debt as open
+TI-M-03	ti-m-03.sh	OPEN	every live c-testsuite debt row cites an obsolete failure cause
+MS-C-01	ms-c-01.c	OPEN	an exact warning opt-out weakens -fsafe initialization safety
+MS-M-02	ms-m-02.c	OPEN	a nonheap equality guard leaves an infeasible leak path
+MS-M-03	ms-m-03.c	OPEN	freopen replacement is falsely reported as leaked
+MS-C-04	ms-c-04.c	OPEN	-fsafe accepts a statically proven null dereference
+MS-C-05	ms-c-05.c	OPEN	far heap out-of-bounds pointers evade the runtime registry
+DET-M-01	det-m-01.sh	OPEN	blocking compile gates have no per-metric noise evidence
+DET-M-02	det-m-02.sh	OPEN	stage1 timing derives MAD from a single sample
+DET-M-03	det-m-03.sh	OPEN	four baseline-bump commits omit required old-to-new evidence

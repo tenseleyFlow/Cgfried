@@ -1,7 +1,7 @@
 #!/bin/sh
-# Sprint 60: keep every confirmed compiler mismatch reproducible until its
-# Sprint 61 repair lands. An expected failure is green; an unexpected pass is
-# deliberately red until the fixture and finding ledger are advanced together.
+# Sprint 60/61: keep every confirmed compiler mismatch reproducible throughout
+# remediation. OPEN defects are XFAIL and unexpected repairs are XPASS; PASS
+# repairs stay green and any regression is FAIL.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -20,19 +20,30 @@ trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 
 xfails=0
 xpasses=0
+passes=0
 fails=0
 checks=0
 
 xfail()
 {
-    xfails=$((xfails + 1))
-    printf 'XFAIL %s: %s\n' "$1" "$2"
+    if [ "$fixture_state" = OPEN ]; then
+        xfails=$((xfails + 1))
+        printf 'XFAIL %s: %s\n' "$1" "$2"
+    else
+        fails=$((fails + 1))
+        printf 'FAIL %s: resolved fixture regressed: %s\n' "$1" "$2" >&2
+    fi
 }
 
 xpass()
 {
-    xpasses=$((xpasses + 1))
-    printf 'XPASS %s: %s\n' "$1" "$2"
+    if [ "$fixture_state" = PASS ]; then
+        passes=$((passes + 1))
+        printf 'PASS %s: %s\n' "$1" "$2"
+    else
+        xpasses=$((xpasses + 1))
+        printf 'XPASS %s: %s\n' "$1" "$2"
+    fi
 }
 
 fail()
@@ -120,6 +131,25 @@ manifest_files="$WORK/manifest.files"
 awk -F '\t' '!/^#/ && NF { print $1 }' "$MANIFEST" >"$manifest_ids"
 awk -F '\t' '!/^#/ && NF { print $2 }' "$MANIFEST" >"$manifest_files"
 
+manifest_error=$(awk -F '\t' '
+    !/^#/ && NF && NF != 4 {
+        printf "audit fixtures: manifest row %d must have exactly 4 fields", NR
+        exit
+    }
+    !/^#/ && NF && $3 == "" {
+        printf "audit fixtures: missing state for %s", $1
+        exit
+    }
+    !/^#/ && NF && $3 != "OPEN" && $3 != "PASS" {
+        printf "audit fixtures: malformed state for %s: %s", $1, $3
+        exit
+    }
+' "$MANIFEST")
+if [ -n "$manifest_error" ]; then
+    echo "$manifest_error" >&2
+    exit 1
+fi
+
 duplicates=$(sort "$manifest_ids" | uniq -d)
 if [ -n "$duplicates" ]; then
     echo "audit fixtures: duplicate finding IDs: $duplicates" >&2
@@ -139,6 +169,66 @@ for source in "$FIXTURES"/*.c "$FIXTURES"/*.cgfir "$FIXTURES"/*.sh; do
         exit 1
     fi
 done
+
+# Validate the complete lifecycle inventory before running any potentially
+# expensive reproducer. OPEN rows retain the audit XFAIL marker; PASS rows
+# carry an explicit resolved marker so removing XFAIL cannot hide stale state.
+while IFS="$tab" read -r id fixture fixture_state title extra; do
+    case "$id" in
+    ''|'#'*) continue ;;
+    esac
+    if [ -n "${extra:-}" ]; then
+        echo "audit fixtures: too many manifest fields for $id" >&2
+        exit 1
+    fi
+    case "$id" in
+    *-[CHML]-[0-9][0-9]) ;;
+    *)
+        echo "audit fixtures: malformed finding ID: $id" >&2
+        exit 1
+        ;;
+    esac
+    case "$fixture" in
+    */*|'')
+        echo "audit fixtures: unsafe fixture path for $id: $fixture" >&2
+        exit 1
+        ;;
+    *.c|*.cgfir|*.sh) ;;
+    *)
+        echo "audit fixtures: unsupported fixture type for $id: $fixture" >&2
+        exit 1
+        ;;
+    esac
+    source="$FIXTURES/$fixture"
+    if [ ! -r "$source" ]; then
+        echo "audit fixtures: manifest entry has no file: $fixture" >&2
+        exit 1
+    fi
+    case "$fixture" in
+    *.sh)
+        header=$(sed -n '2p' "$source")
+        prefix='#'
+        ;;
+    *)
+        IFS= read -r header <"$source"
+        prefix='//'
+        ;;
+    esac
+    case "$fixture_state" in
+    OPEN) expected="$prefix XFAIL(audit): $id $title" ;;
+    PASS) expected="$prefix RESOLVED(audit): $id $title" ;;
+    esac
+    if [ "$header" != "$expected" ]; then
+        echo "audit fixtures: header/state mismatch in $fixture ($fixture_state)" >&2
+        echo "  expected: $expected" >&2
+        echo "  actual:   $header" >&2
+        exit 1
+    fi
+    if [ "$fixture_state" = PASS ] && grep -Fq 'XFAIL(audit)' "$source"; then
+        echo "audit fixtures: PASS fixture retains XFAIL marker: $fixture" >&2
+        exit 1
+    fi
+done <"$MANIFEST"
 
 probe()
 {
@@ -1089,58 +1179,16 @@ probe()
     esac
 }
 
-while IFS="$tab" read -r id fixture title extra; do
+while IFS="$tab" read -r id fixture fixture_state title extra; do
     case "$id" in
     ''|'#'*) continue ;;
     esac
-    if [ -n "${extra:-}" ]; then
-        echo "audit fixtures: too many manifest fields for $id" >&2
-        exit 1
-    fi
-    case "$id" in
-    *-[CHML]-[0-9][0-9]) ;;
-    *)
-        echo "audit fixtures: malformed finding ID: $id" >&2
-        exit 1
-        ;;
-    esac
-    case "$fixture" in
-    */*|'')
-        echo "audit fixtures: unsafe fixture path for $id: $fixture" >&2
-        exit 1
-        ;;
-    *.c|*.cgfir|*.sh) ;;
-    *)
-        echo "audit fixtures: unsupported fixture type for $id: $fixture" >&2
-        exit 1
-        ;;
-    esac
     source="$FIXTURES/$fixture"
-    if [ ! -r "$source" ]; then
-        echo "audit fixtures: manifest entry has no file: $fixture" >&2
-        exit 1
-    fi
-    case "$fixture" in
-    *.sh)
-        header=$(sed -n '2p' "$source")
-        expected="# XFAIL(audit): $id $title"
-        ;;
-    *)
-        IFS= read -r header <"$source"
-        expected="// XFAIL(audit): $id $title"
-        ;;
-    esac
-    if [ "$header" != "$expected" ]; then
-        echo "audit fixtures: header mismatch in $fixture" >&2
-        echo "  expected: $expected" >&2
-        echo "  actual:   $header" >&2
-        exit 1
-    fi
     probe "$id" "$source" "$title"
 done <"$MANIFEST"
 
-printf 'audit fixtures: %d checks; %d XFAIL, %d XPASS, %d FAIL\n' \
-    "$checks" "$xfails" "$xpasses" "$fails"
+printf 'audit fixtures: %d checks; %d PASS, %d XFAIL, %d XPASS, %d FAIL\n' \
+    "$checks" "$passes" "$xfails" "$xpasses" "$fails"
 if [ "$xpasses" -ne 0 ] || [ "$fails" -ne 0 ]; then
     exit 1
 fi

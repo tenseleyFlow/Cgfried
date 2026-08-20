@@ -548,9 +548,10 @@ test-a64-debug: $(BUILD)/cgfried
 	CGF_A64_DEBUG_WORK=$(BUILD)/a64-debug-lane \
 	    sh scripts/a64_debug_lane.sh $(BUILD)/cgfried
 
-# Sprint 60 findings are intentionally expected failures until Sprint 61
-# repairs them. Any XPASS is red so code and the durable ledger move together.
+# Sprint 60 findings start OPEN/XFAIL. Sprint 61 repairs move atomically to
+# PASS; XPASS and resolved-fixture regressions remain red.
 test-audit-fixtures: $(BUILD)/cgfried
+	sh tests/scripts/audit_fixture_lifecycle_test.sh
 	sh scripts/check-audit-fixtures.sh $(BUILD)/cgfried
 
 # Sprint 60 F05 evidence targets.  They are intentionally opt-in during the
