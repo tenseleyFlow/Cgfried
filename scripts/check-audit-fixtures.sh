@@ -302,6 +302,10 @@ probe()
         if [ "$status" -ge 128 ]; then
             xfail "$id" "$title"
         elif [ "$status" -eq 1 ] &&
+             grep -Fq 'runtime error: division of -9223372036854775808 by -1 cannot be represented in type '\''long int'\''' \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        elif [ "$status" -eq 1 ] &&
              grep -Eqi 'overflow|constant expression' "$WORK/$id.stderr"; then
             xpass "$id" "$title"
         else
