@@ -114,6 +114,9 @@ mkdir -p "$range_repo"
 git -C "$range_repo" init -q
 git -C "$range_repo" config user.name fixture
 git -C "$range_repo" config user.email fixture@example.invalid
+# The fixture commits exist only to exercise base..head range handling. Keep
+# them independent of a developer's global commit-signing configuration.
+git -C "$range_repo" config commit.gpgsign false
 mkdir -p "$range_repo/doc" "$range_repo/src"
 printf 'base\n' >"$range_repo/doc/note.md"
 git -C "$range_repo" add doc/note.md

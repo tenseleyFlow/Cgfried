@@ -66,6 +66,11 @@ FUZZ_OBJ := $(BUILD)/tests/fuzz/ppfuzz.o $(BUILD)/tests/runner/spawn.o $(LIB_OBJ
 # The layout differential's generator: emits random structs whose layout
 # gcc then certifies via _Static_assert built from OUR numbers.
 GENLAYOUT_OBJ := $(BUILD)/tests/tools/gen_layout.o $(LIB_OBJ)
+# Sprint 60 optimizer-audit tools stay outside the default test suite: the
+# generated campaign is deliberately bounded but comparatively expensive, and
+# the alias oracle records the currently expected OPT-H-04 proof failure.
+OPTGEN_OBJ := $(BUILD)/tests/tools/optgen.o
+ALIAS_ORACLE_OBJ := $(BUILD)/tests/tools/alias_oracle.o $(LIB_OBJ)
 OBJDIFF_OBJ := $(BUILD)/tests/tools/objdiff.o
 # The ABI differential's generator. Host-only and dependency-free: it emits
 # C sources, it is never itself a compilation target.
@@ -127,7 +132,7 @@ UNIT_OBJ := $(BUILD)/tests/unit/unit_main.o \
             $(TIMEIT_LIB_OBJ) \
             $(LIB_OBJ)
 
-DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ) $(TIMEIT_OBJ) $(TIMEIT_LIB_OBJ) $(TIMEIT_MATH_TEST_OBJ)) $(BUILD)/gen/)
+DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) $(FEFUZZ_OBJ) $(GENLAYOUT_OBJ) $(OPTGEN_OBJ) $(ALIAS_ORACLE_OBJ) $(FPDIFF_OBJ) $(A64_OBJBYTES_OBJ) $(A64MIR_OBJ) $(A64_LOGIMM_GEN_OBJ) $(TIMEIT_OBJ) $(TIMEIT_LIB_OBJ) $(TIMEIT_MATH_TEST_OBJ)) $(BUILD)/gen/)
 
 .PHONY: FORCE all test test-san test-ppdiff test-warndiff test-flow-warnings \
         test-memsafe-foundation test-mem-warnings test-mem-interproc \
@@ -140,7 +145,8 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
-        test-a64-corpus test-audit-fixtures \
+        test-a64-corpus test-audit-fixtures audit-opt-generated \
+        audit-opt-alias \
         test-a64-spill-all test-a64-char-sign test-abi-diff \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap \
         bootstrap-O0 bootstrap-O2 bootstrap-repro-O2 \
@@ -262,6 +268,12 @@ $(BUILD)/fuzz_frontend: $(sort $(FEFUZZ_OBJ))
 
 $(BUILD)/gen_layout: $(sort $(GENLAYOUT_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(GENLAYOUT_OBJ))
+
+$(BUILD)/optgen: $(OPTGEN_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(OPTGEN_OBJ)
+
+$(BUILD)/alias_oracle: $(sort $(ALIAS_ORACLE_OBJ))
+	$(CC) $(CFLAGS) -o $@ $(sort $(ALIAS_ORACLE_OBJ))
 
 $(BUILD)/cgf-objdiff: $(sort $(OBJDIFF_OBJ))
 	$(CC) $(CFLAGS) -o $@ $(sort $(OBJDIFF_OBJ))
@@ -540,6 +552,16 @@ test-a64-debug: $(BUILD)/cgfried
 # repairs them. Any XPASS is red so code and the durable ledger move together.
 test-audit-fixtures: $(BUILD)/cgfried
 	sh scripts/check-audit-fixtures.sh $(BUILD)/cgfried
+
+# Sprint 60 F05 evidence targets.  They are intentionally opt-in during the
+# audit: a generated failure needs inspection and a durable finding, rather
+# than making ordinary contributor test runs non-diagnostic or expensive.
+audit-opt-generated: $(BUILD)/cgfried $(BUILD)/cgf-test $(BUILD)/optgen
+	CGF_OPT_AUDIT_RUNNER=$(BUILD)/cgf-test \
+	    sh scripts/opt_generated_diff.sh $(BUILD)/cgfried $(BUILD)/optgen
+
+audit-opt-alias: $(BUILD)/alias_oracle
+	$(BUILD)/alias_oracle
 
 test-a64-asm-diff: $(BUILD)/a64_objbytes $(BUILD)/a64_logimm_gen
 	CGF_A64_OBJBYTES=$(BUILD)/a64_objbytes \

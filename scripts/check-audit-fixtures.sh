@@ -356,6 +356,36 @@ probe()
             fail "$id" "unexpected relocation-boundary validation result"
         fi
         ;;
+    IR-H-08)
+        host="$WORK/$id.host"
+        if "$HOST_CC" -std=c17 -pedantic-errors -Wall -Wextra -Werror -O1 \
+            "$source" -o "$host" >"$WORK/$id.host.stdout" \
+            2>"$WORK/$id.host.stderr"; then
+            host_compile_status=0
+        else
+            host_compile_status=$?
+        fi
+        run_cgf "$id.o0" -std=c17 -pedantic-errors -O0 -emit-ir "$source"
+        o0_status=$?
+        run_cgf_verified "$id.o1" -std=c17 -pedantic-errors -O1 -emit-ir \
+            "$source"
+        o1_status=$?
+        if [ "$host_compile_status" -ne 0 ]; then
+            fail "$id" "host C17 control fixture was rejected"
+        elif ! "$host"; then
+            fail "$id" "host C17 control returned a wrong result"
+        elif [ "$o0_status" -ne 0 ]; then
+            fail "$id" "valid O0 IR control fixture was rejected"
+        elif [ "$o1_status" -eq 0 ]; then
+            xpass "$id" "$title"
+        elif [ "$o1_status" -eq 4 ] &&
+             grep -q -- '-emit-ir round-trip broke: parse(print(M)) != M' \
+                 "$WORK/$id.o1.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected optimized IR round-trip result (status $o1_status)"
+        fi
+        ;;
     OPT-H-01)
         # This reaches the shared service through its optimizer client.
         # `-w` removes the independent default warning-analysis path, so an

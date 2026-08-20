@@ -58,6 +58,34 @@ uses fresh-context, reproducer-first reviewers across all twelve fronts. No
 compiler fixes land during Sprint 60; confirmed reproducers and stable-ID
 findings are the deliverable, and remediation remains Sprint 61 work.
 
+### Current Sprint 60 checkpoint (2026-08-19)
+
+- F04 reopened for `IR-H-08`: valid strict-C17 code that promotes a local
+  function pointer compiles and emits MIR/assembly, but `-O1 -emit-ir` exits 4.
+  Mem2reg leaves the call indirect while substituting a symbolic operand; the
+  printer then uses the direct-call spelling and parsing changes the call form.
+  `tests/audit-regressions/ir-h-08.c` holds the host/O0 controls and the
+  verifier-enabled expected failure. The audit-fixture gate is now 29 XFAIL,
+  zero XPASS, zero FAIL.
+- F05 has four confirmed optimizer findings (`OPT-H-01` through `OPT-H-04`).
+  New audit-only targets are `make audit-opt-generated` (16 deterministic
+  strict-C17 programs, digest `d67e0584b412bfb4`, GCC/Clang O0/O3 oracle plus
+  Cgfried O0 and verifier-backed `OPT_EQ: all`) and `make audit-opt-alias`
+  (ten bounded alias cells; only the expected `OPT-H-04` false-MUST result).
+  The generated run is time-bounded per generator/compile/run stage and writes
+  canonical oracle paths, device/inode identities, versions, and its timeout
+  to `build/opt-generated.receipt`; `scripts/opt_pass_bisect.sh` likewise
+  bounds every compile/run and records phase dumps for the level and four
+  toggle controls.
+- Fresh local `make BUILD=build test` validation passed after a narrow
+  driver-matrix portability repair: its `-###` temporary-object normalizer now
+  follows the configured `TMPDIR` instead of assuming `/tmp`. Its policy
+  fixture now also disables signing only in its throwaway repository, keeping
+  synthetic test commits independent of a developer's global Git setting.
+- These tools are deliberately supplemental, not a F05 closeout claim. F05
+  closeout is held until F04 settles, and F09 must not begin before F05's
+  alias findings are settled. Do not repair any of these findings in Sprint 60.
+
 This parallel audit does not manufacture Sprint 58 soak dates or advance the
 contiguous closure ratchet. Phase 13 sign-off remains gated on the complete
 30-date bootstrap streak.

@@ -14,6 +14,15 @@ export LC_ALL
 CGF=${1:-build/cgfried}
 WORK=${CGF_DRIVER_MATRIX_WORK:-build/driver-matrix}
 MATRIX=tests/driver/matrix.txt
+TMPROOT=${TMPDIR:-/tmp}
+case "$TMPROOT" in
+/)
+    TMPPREFIX=/
+    ;;
+*)
+    TMPPREFIX=${TMPROOT%/}/
+    ;;
+esac
 
 if ! command -v gcc >/dev/null 2>&1; then
     echo "HARNESS_SKIP suite=drivermatrix test=all count=1" \
@@ -81,9 +90,11 @@ norm_dep() {
 # input-order tokens (objects and -l in position). gcc prints its
 # subcommand lines space-indented and mostly unquoted; cgf prints every
 # arg quoted — strip quotes and classify by the first token's basename.
-# Temp objects (gcc's /tmp/cc*.o, cgf's *.cgf.N.o) normalize to <obj>.
+# Temp objects (gcc's $TMPDIR/cc*.o, cgf's *.cgf.N.o) normalize to <obj>.
+# GCC respects TMPDIR, so using its configured root keeps this comparison
+# stable when the test scratch space is moved off /tmp.
 norm_plan() {
-    awk '{
+    awk -v tmp_prefix="$TMPPREFIX" '{
         line = $0
         gsub(/"/, "", line)
         sub(/^ +/, "", line)
@@ -99,7 +110,7 @@ norm_plan() {
                 n2 = split(tok, p2, "/")
                 b2 = p2[n2]
                 if (b2 ~ /\.o$/ && b2 !~ /crt/) {
-                    if (b2 ~ /^cc.*\.o$/ && tok ~ /^\/tmp\//) b2 = "<obj>"
+                    if (b2 ~ /^cc.*\.o$/ && index(tok, tmp_prefix) == 1) b2 = "<obj>"
                     if (b2 ~ /\.cgf\.[0-9]+\.o$/) b2 = "<obj>"
                     printf " %s", b2
                 } else if (tok ~ /^-l/ && tok != "-lc" &&

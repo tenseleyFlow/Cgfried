@@ -23,6 +23,7 @@ IR-C-04	ir-c-04.c	backward goto before a VLA declaration leaks stack space
 IR-H-05	ir-h-05.c	volatile aggregate sources lose their access marker
 IR-H-06	ir-h-06.c	sigsetjmp macro expansion loses the returns-twice marker
 IR-H-07	ir-h-07.cgfir	global relocation offset wraps the verifier bounds check
+IR-H-08	ir-h-08.c	symbolic indirect calls fail optimized IR round-trip
 OPT-H-01	opt-h-01.c	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	descending loop fusion reverses dependence direction
 OPT-H-03	opt-h-03.c	loop unrolling loses a live latch block parameter
