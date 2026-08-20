@@ -444,6 +444,29 @@ probe()
             fail "$id" "unexpected _Generic ICE result ($errors errors, status $status)"
         fi
         ;;
+    SEMA-C-08)
+        run_cgf "$id" --target=arm64-linux -fdump-layout -fsyntax-only "$source"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid AAPCS64 unnamed-bitfield fixture was rejected"
+        elif grep -q 'struct anon_long_only: size=8 align=8' \
+            "$WORK/$id.stdout" &&
+             grep -q 'struct mixed_anon: size=16 align=8' \
+                 "$WORK/$id.stdout" &&
+             grep -q 'union anon_long_union: size=8 align=8' \
+                 "$WORK/$id.stdout"; then
+            xpass "$id" "$title"
+        elif grep -q 'struct anon_long_only: size=3 align=1' \
+            "$WORK/$id.stdout" &&
+             grep -q 'struct mixed_anon: size=12 align=4' \
+                 "$WORK/$id.stdout" &&
+             grep -q 'union anon_long_union: size=1 align=1' \
+                 "$WORK/$id.stdout"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected AAPCS64 unnamed-bitfield layout dump"
+        fi
+        ;;
     SEMA-H-03|SEMA-H-04|SEMA-H-05)
         run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
         status=$?

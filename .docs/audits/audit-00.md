@@ -46,3 +46,13 @@ contains one self-describing fixture per finding and reports 50/50 expected
 failures with zero XPASS or harness failures. Sprint 61 must eliminate every
 Critical and High before Medium/Low work, while Sprint 58's independent soak
 continues at 2/30.
+
+## Sprint 61 remediation discoveries
+
+Critical-fix sibling hunts append new findings here without rewriting Sprint
+60's frozen 50-finding collection totals. Each discovery enters the live
+burndown and the same fixture lifecycle as the original audit debt.
+
+| ID | Discovered by | Severity | Reproducer | Status |
+|---|---|---|---|---|
+| `SEMA-C-08` | `SEMA-C-02` sibling hunt | Critical | `tests/audit-regressions/sema-c-08.c` | OPEN |
