@@ -59,21 +59,25 @@ operand-vs-result comparison has nothing to catch the annotation against.
 `iadd i32` over i64 operands is correctly rejected by check 4.
 Affected sprint: 17.
 
-ID: `IR-C-03`
-Title: atomic pointer increment is split into a load and store
-Severity: Critical — wrong code is emitted for valid C: concurrent increments
-can lose updates even though each component access is individually seq_cst.
-Reproducer: `tests/audit-regressions/ir-c-03.c`
-Root cause: `src/lower/expr.c:2381-2388` sends atomic increment/decrement
-through `lower_atomic_update` only when the operand is not a pointer. The
-pointer case then follows the ordinary path: a seq_cst load, `ptradd`, and a
-separate seq_cst store. C17 6.5.2.4 defines postfix increment in terms of
-compound assignment except for the result value, and 6.5.16.2 requires
-compound assignment on an atomic object to be one sequentially consistent
-read-modify-write operation. GCC 16 emits `lock xaddq`; Clang 22 emits a
-`lock cmpxchgq` retry loop. Cgfried emits two ordinary `movq` accesses with an
-`mfence`, which orders the accesses but cannot make the pair indivisible.
-Affected sprint: 20.
+~~ID: `IR-C-03`~~
+~~Title: atomic pointer increment is split into a load and store~~
+~~Severity: Critical — wrong code is emitted for valid C: concurrent increments~~
+~~can lose updates even though each component access is individually seq_cst.~~
+~~Reproducer: `tests/audit-regressions/ir-c-03.c`~~
+~~Root cause: `src/lower/expr.c:2381-2388` sends atomic increment/decrement~~
+~~through `lower_atomic_update` only when the operand is not a pointer. The~~
+~~pointer case then follows the ordinary path: a seq_cst load, `ptradd`, and a~~
+~~separate seq_cst store. C17 6.5.2.4 defines postfix increment in terms of~~
+~~compound assignment except for the result value, and 6.5.16.2 requires~~
+~~compound assignment on an atomic object to be one sequentially consistent~~
+~~read-modify-write operation. GCC 16 emits `lock xaddq`; Clang 22 emits a~~
+~~`lock cmpxchgq` retry loop. Cgfried emits two ordinary `movq` accesses with an~~
+~~`mfence`, which orders the accesses but cannot make the pair indivisible.~~
+~~Affected sprint: 20.~~
+Resolution: RESOLVED 2026-08-20 by `892435be`.
+Cluster hunt: covered prefix, postfix, `+=`, and `-=` pointer updates over
+fixed-size and variably modified pointees; every case now scales before one
+seq_cst `atomicrmw`, with result-value semantics checked at O0 through O3.
 
 ID: `IR-C-04`
 Title: backward goto before a VLA declaration leaks stack space

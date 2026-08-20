@@ -10,3 +10,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `555fc32a` | `SEMA-C-08` discovered by the `SEMA-C-02` sibling hunt | 13 | 20 | 16 | 2 | 51 |
 | 2026-08-20 | `0eca9832` | `SEMA-C-01` constant signed-overflow repair | 12 | 20 | 16 | 2 | 50 |
 | 2026-08-20 | `d4d674ec` | `SEMA-C-02` AAPCS64 zero-width alignment repair | 11 | 20 | 16 | 2 | 49 |
+| 2026-08-20 | `892435be` | `IR-C-03` atomic pointer RMW repair | 10 | 20 | 16 | 2 | 48 |
