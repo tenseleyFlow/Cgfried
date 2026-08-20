@@ -450,6 +450,31 @@ static bool add_overflows(Sema *s, Type *t, u64 a, u64 b, u64 r)
     return ((a ^ r) & (b ^ r) & sign_mask) != 0;
 }
 
+static bool signed_minimum_value(Sema *s, Type *t, u64 bits)
+{
+    u32 w = conv_int_bits(s, t);
+
+    return conv_is_signed(s, t) && w > 0 && w <= 64 &&
+           bits == fit(s, t, 1ull << (w - 1));
+}
+
+static bool multiply_overflows(Sema *s, Type *t, u64 a, u64 b)
+{
+    u32 w = conv_int_bits(s, t);
+    u64 sign_mask, a_mag, b_mag, limit;
+    bool a_neg, b_neg;
+
+    if (!conv_is_signed(s, t) || w == 0 || w > 64)
+        return false;
+    sign_mask = 1ull << (w - 1);
+    a_neg = (a & sign_mask) != 0;
+    b_neg = (b & sign_mask) != 0;
+    a_mag = a_neg ? 0 - a : a;
+    b_mag = b_neg ? 0 - b : b;
+    limit = a_neg != b_neg ? sign_mask : sign_mask - 1;
+    return b_mag != 0 && a_mag > limit / b_mag;
+}
+
 static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
 {
     ConstValue l = eval(s, e->lhs, m);
@@ -624,14 +649,11 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
         break;
     case PUNCT_STAR: {
         res = l.i * r.i;
-        /* Detect signed multiply overflow by dividing back out. */
-        if (conv_is_signed(s, t) && l.i != 0) {
-            i64 li = (i64)l.i, ri = (i64)r.i;
-
-            if (li != 0 && ((i64)res) / li != ri) {
-                ce_error(s, m, e->span, "overflow in constant expression");
-                return cv_error();
-            }
+        /* Magnitudes keep the check target-width-correct and avoid making
+         * the compiler itself evaluate INT64_MIN / -1 as a divide-back. */
+        if (multiply_overflows(s, t, l.i, r.i)) {
+            ce_error(s, m, e->span, "overflow in constant expression");
+            return cv_error();
         }
         break;
     }
@@ -640,6 +662,13 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
         if (r.i == 0) {
             ce_error(s, m, e->span,
                      "division by zero in a constant expression");
+            return cv_error();
+        }
+        /* SEMA-C-01: signed-minimum / -1 has no representable target value;
+         * checking the target-width bit pattern before host / or % both
+         * diagnoses the source UB and prevents compiler UB at 64 bits. */
+        if (signed_minimum_value(s, t, l.i) && r.i == UINT64_MAX) {
+            ce_error(s, m, e->span, "overflow in constant expression");
             return cv_error();
         }
         if (conv_is_signed(s, t))
