@@ -55,4 +55,4 @@ burndown and the same fixture lifecycle as the original audit debt.
 
 | ID | Discovered by | Severity | Reproducer | Status |
 |---|---|---|---|---|
-| `SEMA-C-08` | `SEMA-C-02` sibling hunt | Critical | `tests/audit-regressions/sema-c-08.c` | OPEN |
+| `SEMA-C-08` | `SEMA-C-02` sibling hunt | Critical | `tests/audit-regressions/sema-c-08.c` | RESOLVED `bdd523c0` |

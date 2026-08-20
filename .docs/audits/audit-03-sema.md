@@ -218,27 +218,30 @@ default "this is not a constant expression" diagnostic instead of evaluating
 the already-selected association.
 Affected sprints: 10, 15.
 
-ID: `SEMA-C-08`
-Title: AAPCS64 unnamed nonzero bitfields fail to align aggregates
-Severity: Critical — valid arm64-linux records have the wrong size and
-alignment, so Cgfried and AAPCS64 callers/callees disagree at an ABI boundary.
-Reproducer: `tests/audit-regressions/sema-c-08.c`
-Root cause: `src/sema/layout.c` raises struct/union alignment for a nonzero
-bitfield only when `m->name` is present. AAPCS64 requires unnamed bitfields to
-contribute their declared base type's alignment too. Cgfried reports 3/1,
-12/4, and 1/1 for the reproducer's two structs and union; AArch64 GCC 16.1.0
-and Clang 22.1.8 both prove 8/8, 16/8, and 8/8 respectively.
-Affected sprint: 14.
+~~ID: `SEMA-C-08`~~
+~~Title: AAPCS64 unnamed nonzero bitfields fail to align aggregates~~
+~~Severity: Critical — valid arm64-linux records have the wrong size and~~
+~~alignment, so Cgfried and AAPCS64 callers/callees disagree at an ABI boundary.~~
+~~Reproducer: `tests/audit-regressions/sema-c-08.c`~~
+~~Root cause: `src/sema/layout.c` raises struct/union alignment for a nonzero~~
+~~bitfield only when `m->name` is present. AAPCS64 requires unnamed bitfields to~~
+~~contribute their declared base type's alignment too. Cgfried reports 3/1,~~
+~~12/4, and 1/1 for the reproducer's two structs and union; AArch64 GCC 16.1.0~~
+~~and Clang 22.1.8 both prove 8/8, 16/8, and 8/8 respectively.~~
+~~Affected sprint: 14.~~
+Resolution: RESOLVED 2026-08-20 by `bdd523c0`.
+Cluster hunt: named/unnamed, zero/nonzero, struct/union, int/long, and all five
+targets matched GCC/Clang across 50 focused oracle assertions; no further
+distinct layout debt was found.
 
 ## Attack-surface dispatch
 
 - Conversion/compatibility rules: `SEMA-H-03` remains confirmed; the complete
   225-pair 6.3.1.8 source matrix is clean. Its assertion oracle exposed the
   separate constant-expression failure `SEMA-H-07`.
-- Bitfield layout: zero-width AAPCS64 case remains `SEMA-C-02`; its Sprint 61
-  sibling hunt found the distinct unnamed-nonzero alignment failure
-  `SEMA-C-08`. The 172-record x86_64 over-aligned and mixed-unit matrix is
-  otherwise clean.
+- Bitfield layout: `SEMA-C-02` and its sibling discovery `SEMA-C-08` are
+  resolved at `d4d674ec` and `bdd523c0`; the expanded target matrix and the
+  172-record x86_64 over-aligned/mixed-unit matrix are clean.
 - Linkage matrix: focused block-scope pass confirmed `SEMA-H-04`; the expanded
   tentative/common resolution matrix is otherwise clean.
 - Constant evaluation: integer edge pass confirmed `SEMA-C-01` and
