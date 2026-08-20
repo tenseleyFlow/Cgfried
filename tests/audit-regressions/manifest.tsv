@@ -46,3 +46,6 @@ MS-M-02	ms-m-02.c	a nonheap equality guard leaves an infeasible leak path
 MS-M-03	ms-m-03.c	freopen replacement is falsely reported as leaked
 MS-C-04	ms-c-04.c	-fsafe accepts a statically proven null dereference
 MS-C-05	ms-c-05.c	far heap out-of-bounds pointers evade the runtime registry
+DET-M-01	det-m-01.sh	blocking compile gates have no per-metric noise evidence
+DET-M-02	det-m-02.sh	stage1 timing derives MAD from a single sample
+DET-M-03	det-m-03.sh	four baseline-bump commits omit required old-to-new evidence

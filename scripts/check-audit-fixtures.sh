@@ -875,6 +875,15 @@ probe()
         *) fail "$id" "integrity reproducer failed with status $status" ;;
         esac
         ;;
+    DET-M-01|DET-M-02|DET-M-03)
+        "$source" "$ROOT" >"$WORK/$id.stdout" 2>"$WORK/$id.stderr"
+        status=$?
+        case "$status" in
+        0) xfail "$id" "$title" ;;
+        1) xpass "$id" "$title" ;;
+        *) fail "$id" "determinism evidence reproducer failed with status $status" ;;
+        esac
+        ;;
     MS-C-01)
         run_cgf "$id.control" -fsafe -fsyntax-only "$source"
         control_status=$?
