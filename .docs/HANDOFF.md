@@ -95,7 +95,10 @@ stay green and any regression is FAIL/red. The fail-closed lifecycle meta-test
 is part of `make test-audit-fixtures`; the starting inventory is 0 PASS / 50
 XFAIL / 0 XPASS / 0 FAIL.
 
-The initial burndown is 12 Critical / 20 High / 16 Medium / 2 Low. One central
+The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
+cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
+alignment mismatch, at `555fc32a`; live debt is therefore 13/20/16/2 before
+the first repair closure. One central
 integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
 its fix. First Critical lanes are split to avoid shared-file conflicts:

@@ -7,3 +7,4 @@ merge; counts describe findings still open after that merge.
 | Date | Commit | Remediation | Critical | High | Medium | Low | Total |
 |---|---|---|---:|---:|---:|---:|---:|
 | 2026-08-20 | `28361c9` | Sprint 60 closeout seed | 12 | 20 | 16 | 2 | 50 |
+| 2026-08-20 | `555fc32a` | `SEMA-C-08` discovered by the `SEMA-C-02` sibling hunt | 13 | 20 | 16 | 2 | 51 |
