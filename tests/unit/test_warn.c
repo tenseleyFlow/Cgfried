@@ -522,6 +522,72 @@ void test_warn_memsafe_policy(TestCtx *t)
     arena_free_all(&a);
 }
 
+void test_warn_fsafe_required_floor(TestCtx *t)
+{
+    static const WarnId required_ids[] = {
+        WARN_MEM_ANNOTATION_MISMATCH, WARN_MEM_DOUBLE_FREE,
+        WARN_MEM_FREE_NONHEAP,        WARN_MEM_LEAK,
+        WARN_MEM_OUT_OF_BOUNDS,       WARN_MEM_UNINIT_READ,
+        WARN_MEM_USE_AFTER_FREE,      WARN_UNINITIALIZED,
+    };
+    Arena a;
+    WarnCapture cap;
+    WarnCtx *w;
+    Span after_pragma = {.seq = 10};
+    size_t i;
+
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Wno-mem"));
+    T_ASSERT(t, warn_flag(w, "-Wno-mem-uninit-read"));
+    T_ASSERT(t, warn_flag(w, "-Wno-error=uninitialized"));
+    warn_pragma_set(w, 5, WARN_MEM_UNINIT_READ, WARN_PRAGMA_IGNORED);
+    warn_pragma_set(w, 6, WARN_UNINITIALIZED, WARN_PRAGMA_WARNING);
+    T_ASSERT(t, warn_flag(w, WARN_FSAFE_REQUIRED_OPTION));
+    T_ASSERT(t, warn_enabled(w, WARN_MEM_UNINIT_READ, after_pragma));
+    T_ASSERT(t, warn_enabled(w, WARN_UNINITIALIZED, after_pragma));
+    warn_at(w, WARN_MEM_UNINIT_READ, after_pragma, "heap probe");
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+    warn_at(w, WARN_UNINITIALIZED, after_pragma, "stack probe");
+    T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+
+    /* Optional and strict diagnostics retain their ordinary controls. */
+    T_ASSERT(t, !warn_enabled(w, WARN_MAYBE_UNINITIALIZED, after_pragma));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_NULL_CHECK, after_pragma));
+    arena_free_all(&a);
+
+    /* Exhaust every exact spelling in the required groups. Applying each
+     * opt-out after the floor also proves the floor is not order-sensitive. */
+    for (i = 0; i < CGF_ARRAY_LEN(required_ids); i++) {
+        const char *flag = warn_flag_name(required_ids[i]);
+        char disable[96], demote[96];
+
+        snprintf(disable, sizeof(disable), "-Wno-%s", flag);
+        snprintf(demote, sizeof(demote), "-Wno-error=%s", flag);
+        arena_init(&a);
+        w = new_warn(&a, &cap);
+        T_ASSERT(t, warn_flag(w, WARN_FSAFE_REQUIRED_OPTION));
+        T_ASSERT(t, warn_flag(w, disable));
+        T_ASSERT(t, warn_flag(w, demote));
+        warn_pragma_set(w, 5, required_ids[i], WARN_PRAGMA_IGNORED);
+        T_ASSERT(t, warn_enabled(w, required_ids[i], after_pragma));
+        warn_at(w, required_ids[i], after_pragma, "required probe");
+        T_ASSERT_EQ_INT(t, cap.count, 1);
+        T_ASSERT_EQ_INT(t, cap.last.level, DIAG_ERROR);
+        arena_free_all(&a);
+    }
+
+    /* Outside -fsafe, exact last-wins and pragma suppression are unchanged. */
+    arena_init(&a);
+    w = new_warn(&a, &cap);
+    T_ASSERT(t, warn_flag(w, "-Werror=mem"));
+    T_ASSERT(t, warn_flag(w, "-Wno-mem-uninit-read"));
+    warn_pragma_set(w, 5, WARN_MEM_LEAK, WARN_PRAGMA_IGNORED);
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_UNINIT_READ, after_pragma));
+    T_ASSERT(t, !warn_enabled(w, WARN_MEM_LEAK, after_pragma));
+    arena_free_all(&a);
+}
+
 void test_warn_pedwarn_exhaustive(TestCtx *t)
 {
     static const char *const configs[] = {NULL, "-pedantic",

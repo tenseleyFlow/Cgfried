@@ -5,6 +5,7 @@
 #include "driver/driver.h"
 #include "unit.h"
 #include "util/arena.h"
+#include "warn/warn.h"
 
 /* Sprint 26 args_parse units: pure except the response-file tests, which
  * write their fixture files under build/. Every ARG_EITHER flag is
@@ -93,10 +94,11 @@ void test_args_sprint46_safe_profile(TestCtx *t)
     T_ASSERT(t, a.fsafe);
     T_ASSERT(t, a.fcgf_safe);
     T_ASSERT_EQ_INT(t, a.trivial_auto_var_init, AUTO_VAR_INIT_ZERO);
-    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 3);
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 4);
     T_ASSERT_EQ_STR(t, a.warn_opts.data[0].name, "no-error=mem");
     T_ASSERT_EQ_STR(t, a.warn_opts.data[1].name, "error=mem");
     T_ASSERT_EQ_STR(t, a.warn_opts.data[2].name, "error=uninitialized");
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[3].name, WARN_FSAFE_REQUIRED_OPTION);
     T_ASSERT_EQ_INT(t, (int)a.fsafe_allow_unsafe.len, 1);
     T_ASSERT_EQ_STR(t, a.fsafe_allow_unsafe.data[0], "legacy.o");
     T_ASSERT(t, !a.fsafe_conflict && !a.unknown_opt && !a.bad_value);
@@ -104,10 +106,11 @@ void test_args_sprint46_safe_profile(TestCtx *t)
 
     PARSE(a, &ar, (char *)"-fsafe", (char *)"-Wno-error=uninitialized",
           (char *)"t.c");
-    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 3);
+    T_ASSERT_EQ_INT(t, (int)a.warn_opts.len, 4);
     T_ASSERT_EQ_STR(t, a.warn_opts.data[0].name, "no-error=uninitialized");
     T_ASSERT_EQ_STR(t, a.warn_opts.data[1].name, "error=mem");
     T_ASSERT_EQ_STR(t, a.warn_opts.data[2].name, "error=uninitialized");
+    T_ASSERT_EQ_STR(t, a.warn_opts.data[3].name, WARN_FSAFE_REQUIRED_OPTION);
     args_free(&a);
 
     PARSE(a, &ar, (char *)"-fno-cgf-safe", (char *)"-fsafe", (char *)"t.c");

@@ -66,6 +66,9 @@ typedef struct WarnCtx WarnCtx;
 struct Arena;
 struct IrModule;
 
+/* Internal driver-policy operation appended after argv warning options. */
+#define WARN_FSAFE_REQUIRED_OPTION "\001fsafe-required"
+
 WarnCtx *warn_ctx_new(struct Arena *arena, DiagCtx *diag);
 DiagCtx *warn_diag(WarnCtx *w);
 

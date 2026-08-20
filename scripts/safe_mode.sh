@@ -53,6 +53,46 @@ expect_exit 1 "$CGF" -fsafe -Wno-error=uninitialized -fsyntax-only \
     tests/warn/flow/uninitialized/definite-return.c
 grep -Fq "error: 'x' is used uninitialized" "$WORK/cmd.err"
 
+# MS-C-01: every command-line spelling and source pragma that could weaken
+# the required diagnostic floor remains subordinate to -fsafe. Both argv
+# orders are covered because the profile is composed after parsing.
+for opts in \
+    '-fsafe -Wno-mem' \
+    '-Wno-mem -fsafe' \
+    '-fsafe -Wno-mem-uninit-read' \
+    '-Wno-mem-uninit-read -fsafe' \
+    '-fsafe -Wno-error' \
+    '-fsafe -Wno-error=all' \
+    '-fsafe -Wno-error=mem' \
+    '-fsafe -Wno-error=mem-uninit-read' \
+    '-fsafe -Wno-all'
+do
+    # Intentional word splitting: each row is an argv fragment.
+    # shellcheck disable=SC2086
+    expect_exit 1 "$CGF" $opts -fsyntax-only \
+        tests/memsafe/safe-link/required-mem-diagnostic.c
+    grep -Fq 'error: read of uninitialized heap memory' "$WORK/cmd.err"
+done
+
+for opts in \
+    '-fsafe -Wno-uninitialized' \
+    '-Wno-uninitialized -fsafe' \
+    '-fsafe -Wno-extra' \
+    '-fsafe -Wno-error=all' \
+    '-fsafe -Wno-error=extra' \
+    '-fsafe -Wno-error=uninitialized'
+do
+    # Intentional word splitting: each row is an argv fragment.
+    # shellcheck disable=SC2086
+    expect_exit 1 "$CGF" $opts -fsyntax-only \
+        tests/warn/flow/uninitialized/definite-return.c
+    grep -Fq "error: 'x' is used uninitialized" "$WORK/cmd.err"
+done
+
+expect_exit 1 "$CGF" -fsafe -fsyntax-only \
+    tests/memsafe/safe-link/required-mem-pragma.c
+grep -Fq 'error: read of uninitialized heap memory' "$WORK/cmd.err"
+
 "$CGF" -fsafe -c "$ROOT/main.c" -o "$WORK/main.safe.o"
 "$CGF" -fsafe -c "$ROOT/helper.c" -o "$WORK/helper.safe.o"
 "$CGF" -c "$ROOT/helper.c" -o "$WORK/helper.unsafe.o"

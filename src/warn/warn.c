@@ -38,6 +38,7 @@ struct WarnCtx {
     unsigned char implicit_fallthrough_level;
     bool implicit_fallthrough_explicit;
     bool maybe_uninitialized_strict;
+    bool fsafe_required;
 };
 
 static const WarnInfo infos[] = {
@@ -470,6 +471,10 @@ bool warn_flag(WarnCtx *w, const char *arg)
 
     if (!w || !arg)
         return false;
+    if (strcmp(arg, WARN_FSAFE_REQUIRED_OPTION) == 0) {
+        w->fsafe_required = true;
+        return true;
+    }
     if (strcmp(arg, "-w") == 0 || strcmp(arg, "w") == 0) {
         w->inhibit = true; /* absolute, deliberately never cleared */
         return true;
@@ -592,6 +597,13 @@ static bool default_enabled(const WarnInfo *info)
     return info->default_state == WD_ON;
 }
 
+static bool fsafe_required_warning(WarnId id)
+{
+    const WarnInfo *info = warn_info_for_id(id);
+
+    return info && ((info->groups & WG_MEM) || id == WARN_UNINITIALIZED);
+}
+
 /* Returns -1 suppressed, DIAG_WARNING, or DIAG_ERROR. */
 static int base_class(const WarnCtx *w, WarnId id, bool emission_pedwarn)
 {
@@ -663,6 +675,11 @@ static int effective_class(const WarnCtx *w, WarnId id, Span sp,
 {
     int pragma_class = pragma_class_at(w, id, sp.seq);
 
+    /* MS-C-01: -fsafe's documented diagnostic floor is a policy invariant,
+     * so exact/group opt-outs and lexical pragmas cannot suppress or demote
+     * required memory and definite-initialization errors. */
+    if (w->fsafe_required && fsafe_required_warning(id))
+        return DIAG_ERROR;
     if (pragma_class == WARN_PRAGMA_IGNORED)
         return -1;
     if (pragma_class == WARN_PRAGMA_WARNING)
@@ -702,6 +719,8 @@ bool warn_explicitly_enabled(const WarnCtx *w, WarnId id, Span sp)
     if (!w || id <= WARN_NONE || id >= WARN_COUNT || w->inhibit ||
         suppressed_by_origin(w, sp, WARN_EMIT_NONE))
         return false;
+    if (w->fsafe_required && fsafe_required_warning(id))
+        return true;
     pragma_class = pragma_class_at(w, id, sp.seq);
     if (pragma_class == WARN_PRAGMA_IGNORED)
         return false;

@@ -1230,6 +1230,7 @@ DriverArgs args_parse(struct Arena *arena, int argc, char **argv)
     if (a.fsafe) {
         WarnOpt mem_errors = {"error=mem"};
         WarnOpt uninit_errors = {"error=uninitialized"};
+        WarnOpt required = {WARN_FSAFE_REQUIRED_OPTION};
 
         if (a.fcgf_safe_disabled)
             a.fsafe_conflict = true;
@@ -1239,6 +1240,7 @@ DriverArgs args_parse(struct Arena *arena, int argc, char **argv)
         a.trivial_auto_var_init = AUTO_VAR_INIT_ZERO;
         VecWarn_push(&a.warn_opts, mem_errors);
         VecWarn_push(&a.warn_opts, uninit_errors);
+        VecWarn_push(&a.warn_opts, required);
     }
 
     /* -o is forbidden with multiple inputs under -c/-S/-E: each input

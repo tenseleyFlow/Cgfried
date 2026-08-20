@@ -1,4 +1,4 @@
-// XFAIL(audit): MS-C-01 an exact warning opt-out weakens -fsafe initialization safety
+// RESOLVED(audit): MS-C-01 an exact warning opt-out weakens -fsafe initialization safety
 // Reproduce with:
 //   build/cgfried -fsafe -Wno-mem-uninit-read -fsyntax-only \
 //     tests/audit-regressions/ms-c-01.c
