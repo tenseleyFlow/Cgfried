@@ -807,6 +807,26 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
 {
     bool is_int = type_is_integer(lt);
 
+    if (lt->kind == TY_PTR) {
+        IrOperand width = lower_type_size(lo, lt->base);
+        IrOperand count =
+            lower_scalar_convert(lo, rhs, rt, type_basic(TY_LONG));
+        ValueId delta = ir_build2(&lo->b, IR_IMUL, IRT_I64, count, width);
+        IrOperand step = ir_op_value(lo->fn, delta);
+        ValueId old =
+            ir_build_atomicrmw(&lo->b, rmw_kind(op), IRT_I64, lv.addr, step);
+        ValueId result = old;
+
+        /* IR-C-03: an atomic pointer update is one indivisible integer RMW
+         * over the pointer representation. Scaling before atomicrmw preserves
+         * C pointer arithmetic for every (including VLA) pointee size; a
+         * seq_cst load/ptradd/store pair merely orders a lost-update race. */
+        if (!want_old)
+            result = ir_build2(&lo->b, rmw_compute_op(lo, op, lt), IRT_I64,
+                               ir_op_value(lo->fn, old), step);
+        return ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                             ir_op_value(lo->fn, result)));
+    }
     if (is_int && rmw_direct(op)) {
         IrOperand v = lower_scalar_convert(lo, rhs, rt, lt);
         ValueId old =
@@ -2378,14 +2398,15 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
     Type *t = sem(e->lhs);
     IrOperand old;
 
-    if (lv.is_atomic && t->kind != TY_PTR) {
+    if (lv.is_atomic) {
         u16 op = e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS;
-        IrOperand one = type_is_floating(t)
+        bool fp_or_ptr = type_is_floating(t) || t->kind == TY_PTR;
+        IrOperand one = fp_or_ptr
                             ? ir_op_iconst(IRT_I32, 1) /* converted below */
                             : ir_op_iconst(lower_irtype(lo, t), 1);
 
         return lower_atomic_update(lo, lv, t, op, one,
-                                   type_is_floating(t) ? type_basic(TY_INT) : t,
+                                   fp_or_ptr ? type_basic(TY_INT) : t,
                                    e->is_postfix);
     }
     old = lower_load(lo, lv);
