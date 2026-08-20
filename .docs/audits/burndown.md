@@ -12,3 +12,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `d4d674ec` | `SEMA-C-02` AAPCS64 zero-width alignment repair | 11 | 20 | 16 | 2 | 49 |
 | 2026-08-20 | `892435be` | `IR-C-03` atomic pointer RMW repair | 10 | 20 | 16 | 2 | 48 |
 | 2026-08-20 | `45a9d0dc` | `X64-C-02` 64-bit frame-accounting repair | 9 | 20 | 16 | 2 | 47 |
+| 2026-08-20 | `7a003d68` | `MS-C-01` immutable safe-diagnostic-floor repair | 8 | 20 | 16 | 2 | 46 |

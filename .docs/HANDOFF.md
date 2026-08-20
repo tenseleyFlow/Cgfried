@@ -99,7 +99,8 @@ The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
 cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
 alignment mismatch, at `555fc32a`. `SEMA-C-01` closed at `0eca9832` and
 `SEMA-C-02` closed at `d4d674ec`, and `IR-C-03` closed at `892435be`, so live
-debt is 9/20/16/2 after `X64-C-02` closed at `45a9d0dc`. One central
+debt is 8/20/16/2 after `X64-C-02` closed at `45a9d0dc` and `MS-C-01` closed
+at `7a003d68`. One central
 integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
 its fix. First Critical lanes are split to avoid shared-file conflicts:
@@ -113,8 +114,8 @@ its fix. First Critical lanes are split to avoid shared-file conflicts:
   scaled seq_cst RMW. This unlocks the `X64-C-01` backend repair.
 - `X64-C-02` — RESOLVED at `45a9d0dc`; frame sizes and far offsets are
   represented and emitted without 32-bit truncation.
-- `MS-C-01` — `-fsafe` required-warning policy. `MS-C-04` and `MS-C-05`
-  follow serially in the same memory-safety ownership lane.
+- `MS-C-01` — RESOLVED at `7a003d68`; the required `-fsafe` diagnostic floor
+  is immutable. `MS-C-04` and `MS-C-05` follow serially in the same lane.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
 Critical joins the barrier; no High remediation begins until the full Critical

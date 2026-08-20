@@ -9,22 +9,27 @@
 
 ## Findings
 
-ID: `MS-C-01`
-Title: an exact warning opt-out weakens -fsafe initialization safety
-Severity: Critical — `doc/safe-mode.md` guarantees that default-tier
-memory-flow warnings and definite-uninitialized reads are errors, but an exact
-`-Wno-mem-uninit-read` option silently disables one of those diagnostics under
-`-fsafe`. A documented guarantee without an enforcing mechanism is Critical
-under the Sprint 60 rubric.
-Reproducer: `tests/audit-regressions/ms-c-01.c`
-Root cause: `src/driver/args.c:1228-1242` appends group-level
-`-Werror=mem` and `-Werror=uninitialized` after parsing the command line, but
-the warning resolver gives an exact diagnostic option higher specificity than
-a group option. Therefore the earlier exact disable remains authoritative.
-The control without the exact opt-out exits 1 with
-`[-Werror=mem-uninit-read]`; the reproducer exits 0. Automatic local-variable
-zeroing does not repair the heap byte used by this test.
-Affected sprints: 42, 45, 46.
+~~ID: `MS-C-01`~~
+~~Title: an exact warning opt-out weakens -fsafe initialization safety~~
+~~Severity: Critical — `doc/safe-mode.md` guarantees that default-tier~~
+~~memory-flow warnings and definite-uninitialized reads are errors, but an exact~~
+~~`-Wno-mem-uninit-read` option silently disables one of those diagnostics under~~
+~~`-fsafe`. A documented guarantee without an enforcing mechanism is Critical~~
+~~under the Sprint 60 rubric.~~
+~~Reproducer: `tests/audit-regressions/ms-c-01.c`~~
+~~Root cause: `src/driver/args.c:1228-1242` appends group-level~~
+~~`-Werror=mem` and `-Werror=uninitialized` after parsing the command line, but~~
+~~the warning resolver gives an exact diagnostic option higher specificity than~~
+~~a group option. Therefore the earlier exact disable remains authoritative.~~
+~~The control without the exact opt-out exits 1 with~~
+~~`[-Werror=mem-uninit-read]`; the reproducer exits 0. Automatic local-variable~~
+~~zeroing does not repair the heap byte used by this test.~~
+~~Affected sprints: 42, 45, 46.~~
+Resolution: RESOLVED 2026-08-20 by `7a003d68`.
+Cluster hunt: exercised exact, group, global, demotion, both argv orders, and
+source-pragma attempts against every default-tier memory diagnostic plus
+definite uninitialized reads; non-safe and optional-warning behavior stayed
+unchanged.
 
 ID: `MS-M-02`
 Title: a nonheap equality guard leaves an infeasible leak path
@@ -107,11 +112,11 @@ future work and was not counted as a shipped guarantee.
 
 | Documented contract | Enforcement mechanism and evidence | Audit outcome |
 |---|---|---|
-| `-fsafe` composes `-fcgf-safe`, both error groups, and zero automatic initialization | post-argv composition in `src/driver/args.c:1228-1242`; `scripts/safe_mode.sh` checks the dry-run surface, `-fno-cgf-safe`, `-w`, and `-Wno-error=uninitialized` conflicts | incomplete: `MS-C-01` shows an exact memory diagnostic can still be disabled |
+| `-fsafe` composes `-fcgf-safe`, both error groups, and zero automatic initialization | post-argv composition in `src/driver/args.c:1228-1242`; `scripts/safe_mode.sh` checks the dry-run surface, conflicts, exact/group/global opt-outs, demotions, both argv orders, and source pragmas | mechanism and precedence tests agree after `MS-C-01` closed at `7a003d68` |
 | Safe-TU boundary only; unsafe TUs remain unchecked | instrumentation is performed only on each module compiled with `fcgf_safe`; safe-link tests mix explicitly allowed unsafe code | mechanism matches the stated limit |
 | Heap spatial safety | `src/memsafe/lifetime.c:1012-1079` discharges only proven accesses and retains all-path residue; `instrument_result` terminal-splices `cgf_safe_check`; runtime suite covers OOB at O0/O2 | guarantee failure: `MS-C-05` evades the runtime registry with a far offset |
 | Heap temporal safety, bounded to 1,024 blocks or 8 MiB | wrapped allocation/free registry and FIFO eviction in `src/rt/cgf_safe_alloc.c`, constants at lines 29-30; runtime suite covers UAF reads/writes, double free, churn, and canaries | mechanism matches the documented finite-quarantine limit |
-| Definite initialization and automatic scalar zeroing | flow and memory-uninitialized analyses precede lowering; `src/lower/stmt.c` inserts zero stores/memsets after analysis for fixed and variable automatic storage; focused flow/auto-init suites | incomplete: exact warning suppression in `MS-C-01` weakens the guarantee |
+| Definite initialization and automatic scalar zeroing | flow and memory-uninitialized analyses precede lowering; `src/lower/stmt.c` inserts zero stores/memsets after analysis for fixed and variable automatic storage; focused flow/auto-init suites | required diagnostic floor is enforced after `MS-C-01` closed at `7a003d68` |
 | Null safety | retained safe accesses call `cgf_safe_check`, whose null case traps before registry lookup | runtime half present; required proven-null compile error is absent (`MS-C-04`) |
 | Integer/pointer casts rejected except the stated `uintptr_t` grammar | `src/sema/safe.c` validates derivation, constant `+`, `-`, `&`, `|`, tag/mask order, integer origin, width, and final cast; 8 accepted and 9 rejected fixtures | mechanism and grammar tests agree |
 | Pointer-overlapping unsafe unions rejected | recursive layout/range comparison in `src/sema/safe.c:620-749`; safe-mode tests cover nested, repeated, huge-array, bitfield, parameter, and system-header cases | mechanism and adversarial fixtures agree |
