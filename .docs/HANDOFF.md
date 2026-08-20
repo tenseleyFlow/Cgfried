@@ -84,6 +84,37 @@ Phase 13/release sign-off.
 
 ---
 
+## Sprint 61 remediation — IN PROGRESS; Critical barrier active
+
+The phase-boundary preflight is complete. Commit `4b36ba37` promotes the
+aggregate/front ledgers, burndown, and future closeout files to tracked
+artifacts while leaving unrelated local audit material ignored. Commit
+`b2e1ac18` gives every audit fixture an explicit `OPEN`/`PASS` lifecycle:
+OPEN defects remain XFAIL and repair-before-ledger is XPASS/red; PASS repairs
+stay green and any regression is FAIL/red. The fail-closed lifecycle meta-test
+is part of `make test-audit-fixtures`; the starting inventory is 0 PASS / 50
+XFAIL / 0 XPASS / 0 FAIL.
+
+The initial burndown is 12 Critical / 20 High / 16 Medium / 2 Low. One central
+integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
+each finding's fixture-state flip, strikethrough, and count update travel with
+its fix. First Critical lanes are split to avoid shared-file conflicts:
+
+- `SEMA-C-01` — constant-expression signed division/remainder edges.
+- `SEMA-C-02` — AAPCS64 zero-width-bitfield record alignment. `IR-C-01`
+  follows serially because both touch `src/sema/layout.c`.
+- `IR-C-03` — atomic pointer read-modify-write lowering. `X64-C-01` waits for
+  this IR contract.
+- `X64-C-02` — x86_64 large-frame size/offset representation.
+- `MS-C-01` — `-fsafe` required-warning policy. `MS-C-04` and `MS-C-05`
+  follow serially in the same memory-safety ownership lane.
+
+Every Critical closure requires its own sibling-hunt record. A newly found
+Critical joins the barrier; no High remediation begins until the full Critical
+count reaches zero.
+
+---
+
 ## Parallel Sprint 59 project ladder — COMPLETE; CLOSED OUT OF ORDER
 
 Sprint 59's code, descriptors, exact-result contracts, compiler repairs,
