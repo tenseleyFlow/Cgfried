@@ -64,7 +64,7 @@ cross-front review found no root-cause aliases.
 - `.docs/audits/audit-00.md` records 50 raw / 50 deduplicated findings:
   12 Critical, 20 High, 16 Medium, and 2 Low. Eleven unverified observations
   are segregated and excluded.
-- `tests/audit-regressions/manifest.txt` and the front reports map exactly in
+- `tests/audit-regressions/manifest.tsv` and the front reports map exactly in
   both directions. `scripts/check-audit-fixtures.sh build/cgfried` reports
   50 XFAIL, 0 XPASS, and 0 FAIL.
 - The complete normal regression suite is green at 713 unit tests,
