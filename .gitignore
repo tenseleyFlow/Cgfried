@@ -1,13 +1,16 @@
 .fac/
 # .docs/ is local-only working material (sprints, refs, notes) — except the
-# XFAIL debt ledger, which CI cross-checks against // XFAIL directives, so it
-# must exist in checkouts, and HANDOFF.md, which is worthless if it does not
-# survive a fresh clone. The `/*` form (not `/`) lets the negation work.
+# XFAIL debt ledger, Sprint 60/61 audit ledgers and closeouts, which CI
+# cross-checks, and HANDOFF.md, which is worthless if it does not survive a
+# fresh clone. The `/*` form (not `/`) lets the negation work.
 .docs/*
 !.docs/HANDOFF.md
 !.docs/warnings-matrix.md
 !.docs/audits
 .docs/audits/*
+!.docs/audits/audit-*.md
+!.docs/audits/burndown.md
+!.docs/audits/closeout-*.md
 !.docs/audits/xfail-debt.md
 !.docs/audits/afsld-elf-debt.md
 !.docs/audits/debug-info-debt.md
