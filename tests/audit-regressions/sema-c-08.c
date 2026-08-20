@@ -1,4 +1,4 @@
-// XFAIL(audit): SEMA-C-08 AAPCS64 unnamed nonzero bitfields fail to align aggregates
+// RESOLVED(audit): SEMA-C-08 AAPCS64 unnamed nonzero bitfields fail to align aggregates
 struct anon_long_only {
     long : 16;
     char value;

@@ -196,9 +196,12 @@ static void layout_struct(Sema *s, TagDecl *tag)
             m->bit_offset = offset_bits;
             m->offset = offset_bits / 8;
             offset_bits += width;
-            /* Rule 3: only a NAMED bitfield imposes its declared type's
-             * alignment on the struct. */
-            if (m->name && malign > align)
+            /* SysV and Apple let only a named nonzero bitfield impose its
+             * declared type's record alignment. Linux AAPCS64 also counts an
+             * unnamed nonzero bitfield. SEMA-C-08: keeping the named-only
+             * guard there produced ABI-incompatible struct alignment. */
+            if ((m->name || s->target.kind == CGF_TARGET_ARM64_LINUX) &&
+                malign > align)
                 align = malign;
             m->laid_out = true;
             continue;
@@ -273,7 +276,12 @@ static void layout_union(Sema *s, TagDecl *tag)
             if (m->bit_width == 0 && s->target.kind == CGF_TARGET_ARM64_LINUX &&
                 ml.align > align)
                 align = ml.align;
-            if (m->name && ml.align > align)
+            /* SEMA-C-08: Linux AAPCS64 applies the base-type alignment to an
+             * unnamed nonzero union bitfield too; it still contributes only
+             * its actual width to storage. */
+            if ((m->name || (m->bit_width != 0 &&
+                             s->target.kind == CGF_TARGET_ARM64_LINUX)) &&
+                ml.align > align)
                 align = ml.align;
             continue;
         }

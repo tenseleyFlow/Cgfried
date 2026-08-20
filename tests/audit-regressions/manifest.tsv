@@ -22,7 +22,7 @@ A64-H-03	a64-h-03.c	OPEN	large GOT addends trigger an internal compiler error
 A64-M-04	a64-m-04.c	OPEN	unwind information omits x19 and epilogue state transitions
 SEMA-H-06	sema-h-06.c	OPEN	a record of only zero-length arrays is sized to its alignment
 SEMA-H-07	sema-h-07.c	OPEN	selected _Generic integer result is not an integer constant expression
-SEMA-C-08	sema-c-08.c	OPEN	AAPCS64 unnamed nonzero bitfields fail to align aggregates
+SEMA-C-08	sema-c-08.c	PASS	AAPCS64 unnamed nonzero bitfields fail to align aggregates
 IR-C-01	ir-c-01.c	OPEN	a 16-byte long-double aggregate is returned by hidden pointer
 IR-L-02	ir-l-02.cgfir	OPEN	the written comparison type is silently replaced
 IR-C-03	ir-c-03.c	PASS	atomic pointer increment is split into a load and store

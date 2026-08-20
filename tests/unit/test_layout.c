@@ -378,6 +378,56 @@ void test_layout_zero_width_bitfields_per_target(TestCtx *t)
                   CGF_TARGET_ARM64_LINUX, 16, 8);
 }
 
+void test_layout_unnamed_nonzero_bitfields_per_target(TestCtx *t)
+{
+    struct {
+        TargetKind target;
+        u64 anon_int_struct_size;
+        u64 anon_int_struct_align;
+        u64 anon_long_struct_size;
+        u64 anon_long_struct_align;
+        u64 anon_int_union_size;
+        u64 anon_int_union_align;
+        u64 anon_long_union_size;
+        u64 anon_long_union_align;
+    } rows[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 2, 1, 3, 1, 1, 1, 1, 1},
+        {CGF_TARGET_ARM64_LINUX, 4, 4, 8, 8, 4, 4, 8, 8},
+        {CGF_TARGET_ARM64_MACOS, 2, 1, 3, 1, 1, 1, 1, 1},
+        {CGF_TARGET_X86_64_LINUX_MUSL, 2, 1, 3, 1, 1, 1, 1, 1},
+        {CGF_TARGET_X86_64_FREEBSD, 2, 1, 3, 1, 1, 1, 1, 1},
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        /* SEMA-C-08 target split: only Linux AAPCS64 lets an unnamed
+         * nonzero bitfield's base type raise aggregate alignment. */
+        rec_target_is(t, "struct S { int :1; char value; };", rows[i].target,
+                      rows[i].anon_int_struct_size,
+                      rows[i].anon_int_struct_align);
+        rec_target_is(t, "struct S { long :16; char value; };", rows[i].target,
+                      rows[i].anon_long_struct_size,
+                      rows[i].anon_long_struct_align);
+        rec_target_is(t, "union S { int :1; char value; };", rows[i].target,
+                      rows[i].anon_int_union_size,
+                      rows[i].anon_int_union_align);
+        rec_target_is(t, "union S { long :7; char value; };", rows[i].target,
+                      rows[i].anon_long_union_size,
+                      rows[i].anon_long_union_align);
+
+        /* Named controls already impose their base-type alignment on every
+         * target; the AAPCS64 exception must not perturb that path. */
+        rec_target_is(t, "struct S { int field:1; char value; };",
+                      rows[i].target, 4, 4);
+        rec_target_is(t, "struct S { long field:16; char value; };",
+                      rows[i].target, 8, 8);
+        rec_target_is(t, "union S { int field:1; char value; };",
+                      rows[i].target, 4, 4);
+        rec_target_is(t, "union S { long field:7; char value; };",
+                      rows[i].target, 8, 8);
+    }
+}
+
 /* Bit POSITIONS, not just sizes: two of the worked examples have the same
  * size either way and differ only in where the field lands. */
 void test_layout_bit_positions(TestCtx *t)
