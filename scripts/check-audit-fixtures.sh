@@ -131,7 +131,7 @@ if [ -n "$duplicates" ]; then
     exit 1
 fi
 
-for source in "$FIXTURES"/*.c "$FIXTURES"/*.cgfir; do
+for source in "$FIXTURES"/*.c "$FIXTURES"/*.cgfir "$FIXTURES"/*.sh; do
     [ -e "$source" ] || continue
     fixture=${source##*/}
     if ! grep -Fxq "$fixture" "$manifest_files"; then
@@ -191,6 +191,27 @@ probe()
             fail "$id" "unexpected full-backtrace depth: $notes (status $status)"
         fi
         ;;
+    PP-M-04)
+        run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
+        status=$?
+        inner=$(grep -c "in expansion of macro 'ARG_BAD'" \
+            "$WORK/$id.stderr" || true)
+        outer=$(grep -c "in expansion of macro 'PASS'" \
+            "$WORK/$id.stderr" || true)
+        if [ "$status" -eq 1 ] && [ "$inner" -eq 1 ] &&
+           [ "$outer" -eq 1 ] &&
+           grep -q "invalid digit '9' in octal constant" \
+               "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 1 ] && [ "$inner" -eq 0 ] &&
+             [ "$outer" -eq 1 ] &&
+             grep -q "invalid digit '9' in octal constant" \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected pre-expanded-argument backtrace ($inner inner, $outer outer, status $status)"
+        fi
+        ;;
     FE-H-01)
         run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
         status=$?
@@ -200,6 +221,78 @@ probe()
             xpass "$id" "$title"
         else
             fail "$id" "unexpected compiler status $status"
+        fi
+        ;;
+    FE-H-02)
+        run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
+        status=$?
+        errors=$(grep -c ': error:' "$WORK/$id.stderr" || true)
+        if [ "$status" -eq 0 ]; then
+            xfail "$id" "$title"
+        elif [ "$status" -eq 1 ] && [ "$errors" -eq 1 ] &&
+             grep -q "parameter names (without types) are only allowed" \
+                 "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        else
+            fail "$id" "unexpected nested K&R result ($errors errors, status $status)"
+        fi
+        ;;
+    FE-M-03)
+        run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
+        status=$?
+        errors=$(grep -c ': error:' "$WORK/$id.stderr" || true)
+        if [ "$status" -eq 1 ] && [ "$errors" -eq 1 ] &&
+           grep -q "expected a parameter declaration but found ','" \
+               "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 1 ] && [ "$errors" -eq 6 ] &&
+             grep -q "expected a parameter declaration but found ','" \
+                 "$WORK/$id.stderr" &&
+             grep -q "expected ')' after parameter list" \
+                 "$WORK/$id.stderr" &&
+             grep -q "expected a declaration but found ')'" \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected parameter-list diagnostic cascade ($errors errors, status $status)"
+        fi
+        ;;
+    FE-M-04)
+        run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
+        status=$?
+        errors=$(grep -c ': error:' "$WORK/$id.stderr" || true)
+        if [ "$status" -eq 1 ] && [ "$errors" -eq 1 ] &&
+           grep -q "expected an expression but found 'struct'" \
+               "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 1 ] && [ "$errors" -eq 3 ] &&
+             grep -q "expected an expression but found 'struct'" \
+                 "$WORK/$id.stderr" &&
+             grep -q "expected a declaration but found '2'" \
+                 "$WORK/$id.stderr" &&
+             grep -q "expected a declaration but found '}'" \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected initializer diagnostic cascade ($errors errors, status $status)"
+        fi
+        ;;
+    FE-M-05)
+        run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
+        status=$?
+        errors=$(grep -c ': error:' "$WORK/$id.stderr" || true)
+        if [ "$status" -eq 1 ] && [ "$errors" -eq 1 ] &&
+           grep -q "expected a type name but found ':'" \
+               "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 1 ] && [ "$errors" -eq 2 ] &&
+             grep -q "expected a type name but found ':'" \
+                 "$WORK/$id.stderr" &&
+             grep -q "_Generic association for 'int' duplicates an earlier one" \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected _Generic diagnostics ($errors errors, status $status)"
         fi
         ;;
     SEMA-C-01)
@@ -241,6 +334,20 @@ probe()
             xfail "$id" "$title"
         else
             fail "$id" "unexpected zero-length-array layout dump"
+        fi
+        ;;
+    SEMA-H-07)
+        run_cgf "$id" -std=c17 -pedantic-errors -fsyntax-only "$source"
+        status=$?
+        errors=$(grep -c ': error:' "$WORK/$id.stderr" || true)
+        if [ "$status" -eq 0 ]; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 1 ] && [ "$errors" -eq 1 ] &&
+             grep -q 'this is not a constant expression' \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected _Generic ICE result ($errors errors, status $status)"
         fi
         ;;
     SEMA-H-03|SEMA-H-04|SEMA-H-05)
@@ -384,6 +491,181 @@ probe()
             xfail "$id" "$title"
         else
             fail "$id" "unexpected optimized IR round-trip result (status $o1_status)"
+        fi
+        ;;
+    IR-C-09)
+        host="$WORK/$id.host"
+        linux_asm="$WORK/$id.linux.s"
+        apple_asm="$WORK/$id.apple.s"
+        linux_ir="$WORK/$id.linux.ir"
+        if "$HOST_CC" -std=c17 -pedantic-errors -Wall -Wextra -Werror -O0 \
+            "$source" -o "$host" >"$WORK/$id.host.stdout" \
+            2>"$WORK/$id.host.stderr"; then
+            host_compile_status=0
+        else
+            host_compile_status=$?
+        fi
+        run_cgf "$id.linux-asm" --target=arm64-linux -std=c17 \
+            -pedantic-errors -O0 -S "$source" -o "$linux_asm"
+        linux_asm_status=$?
+        run_cgf "$id.apple-asm" --target=arm64-macos -std=c17 \
+            -pedantic-errors -O0 -S "$source" -o "$apple_asm"
+        apple_asm_status=$?
+        run_cgf "$id.linux-ir" --target=arm64-linux -std=c17 \
+            -pedantic-errors -O0 -emit-ir "$source"
+        linux_ir_status=$?
+        cp "$WORK/$id.linux-ir.stdout" "$linux_ir"
+        awk '/^_?fixed_probe:$/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /bl[[:space:]]+_?fixed_sink$/ { exit }' \
+            "$linux_asm" >"$WORK/$id.linux.fixed"
+        awk '/^_?fixed_probe:$/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /bl[[:space:]]+_?fixed_sink$/ { exit }' \
+            "$apple_asm" >"$WORK/$id.apple.fixed"
+        awk '/^func .*@variadic_sink\(/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /^}/ { exit }' "$linux_ir" \
+            >"$WORK/$id.linux.va"
+        linux_wrong_regs=0
+        linux_fixed_regs=0
+        apple_control_regs=0
+        linux_aligned_va=0
+        if grep -Eq 'mov[[:space:]]+x1, x[0-9]+$' \
+               "$WORK/$id.linux.fixed" &&
+           grep -Eq 'mov[[:space:]]+x2, x[0-9]+$' \
+               "$WORK/$id.linux.fixed"; then
+            linux_wrong_regs=1
+        fi
+        if { grep -Eq 'mov[[:space:]]+x2, x[0-9]+$' \
+                 "$WORK/$id.linux.fixed" &&
+             grep -Eq 'mov[[:space:]]+x3, x[0-9]+$' \
+                 "$WORK/$id.linux.fixed"; } ||
+           grep -Eq 'ldp[[:space:]]+x2, x3,' "$WORK/$id.linux.fixed"; then
+            linux_fixed_regs=1
+        fi
+        if { grep -Eq 'mov[[:space:]]+x1, x[0-9]+$' \
+                 "$WORK/$id.apple.fixed" &&
+             grep -Eq 'mov[[:space:]]+x2, x[0-9]+$' \
+                 "$WORK/$id.apple.fixed"; } ||
+           grep -Eq 'ldp[[:space:]]+x1, x2,' "$WORK/$id.apple.fixed"; then
+            apple_control_regs=1
+        fi
+        if grep -Eq 'iadd i32 .* 15$' "$WORK/$id.linux.va" &&
+           grep -Eq 'and i32 .* -16$' "$WORK/$id.linux.va"; then
+            linux_aligned_va=1
+        fi
+        if [ "$host_compile_status" -ne 0 ]; then
+            fail "$id" "host strict-C17 control fixture was rejected"
+        elif ! "$host"; then
+            fail "$id" "host strict-C17 control returned a wrong result"
+        elif [ "$linux_asm_status" -ne 0 ] ||
+             [ "$apple_asm_status" -ne 0 ] ||
+             [ "$linux_ir_status" -ne 0 ]; then
+            fail "$id" "valid arm64 ABI fixture was rejected"
+        elif [ "$linux_wrong_regs" -eq 1 ] &&
+             [ "$linux_aligned_va" -eq 0 ] &&
+             [ "$apple_control_regs" -eq 1 ] &&
+             grep -Eq 'iadd i32 .* 16$' "$WORK/$id.linux.va"; then
+            xfail "$id" "$title"
+        elif [ "$linux_wrong_regs" -eq 0 ] &&
+             [ "$linux_fixed_regs" -eq 1 ] &&
+             [ "$linux_aligned_va" -eq 1 ] &&
+             [ "$apple_control_regs" -eq 1 ]; then
+            xpass "$id" "$title"
+        else
+            fail "$id" "unexpected Linux register/va_arg or Apple control placement"
+        fi
+        ;;
+    IR-C-10)
+        host="$WORK/$id.host"
+        linux_asm="$WORK/$id.linux.s"
+        apple_asm="$WORK/$id.apple.s"
+        if "$HOST_CC" -std=c17 -pedantic-errors -Wall -Wextra -Werror -O0 \
+            "$source" -o "$host" >"$WORK/$id.host.stdout" \
+            2>"$WORK/$id.host.stderr"; then
+            host_compile_status=0
+        else
+            host_compile_status=$?
+        fi
+        run_cgf "$id.linux" --target=arm64-linux -std=c17 \
+            -pedantic-errors -O0 -S "$source" -o "$linux_asm"
+        linux_status=$?
+        run_cgf "$id.apple" --target=arm64-macos -std=c17 \
+            -pedantic-errors -O0 -S "$source" -o "$apple_asm"
+        apple_status=$?
+        awk '/^_?stacked_probe:$/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /bl[[:space:]]+_?stacked_sink$/ { exit }' \
+            "$linux_asm" >"$WORK/$id.linux.caller"
+        awk '/^_?stacked_sink:$/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /bl[[:space:]]+_?pair_sum$/ { exit }' \
+            "$linux_asm" >"$WORK/$id.linux.callee"
+        awk '/^_?stacked_probe:$/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /bl[[:space:]]+_?stacked_sink$/ { exit }' \
+            "$apple_asm" >"$WORK/$id.apple.caller"
+        awk '/^_?stacked_sink:$/ { in_fn = 1 }
+             in_fn { print }
+             in_fn && /bl[[:space:]]+_?pair_sum$/ { exit }' \
+            "$apple_asm" >"$WORK/$id.apple.callee"
+        linux_wrong=0
+        apple_wrong=0
+        linux_fixed=0
+        apple_fixed=0
+        if grep -Eq 'stp[[:space:]]+x[0-9]+, x[0-9]+, \[sp\]$' \
+               "$WORK/$id.linux.caller" &&
+           grep -Eq 'str[[:space:]]+x[0-9]+, \[sp, #16\]$' \
+               "$WORK/$id.linux.caller" &&
+           grep -Eq 'ldp[[:space:]]+x[0-9]+, x[0-9]+, \[x29, #144\]$' \
+               "$WORK/$id.linux.callee" &&
+           grep -Eq 'ldr[[:space:]]+x[0-9]+, \[x29, #160\]$' \
+               "$WORK/$id.linux.callee"; then
+            linux_wrong=1
+        fi
+        if grep -Eq 'stp[[:space:]]+x[0-9]+, x[0-9]+, \[sp\]$' \
+               "$WORK/$id.apple.caller" &&
+           grep -Eq 'str[[:space:]]+x[0-9]+, \[sp, #16\]$' \
+               "$WORK/$id.apple.caller" &&
+           grep -Eq 'ldp[[:space:]]+x[0-9]+, x[0-9]+, \[x29, #144\]$' \
+               "$WORK/$id.apple.callee" &&
+           grep -Eq 'ldr[[:space:]]+x[0-9]+, \[x29, #160\]$' \
+               "$WORK/$id.apple.callee"; then
+            apple_wrong=1
+        fi
+        if grep -Eq 'str[[:space:]]+x[0-9]+, \[sp\]$' \
+               "$WORK/$id.linux.caller" &&
+           grep -Eq 'stp[[:space:]]+x[0-9]+, x[0-9]+, \[sp, #16\]$' \
+               "$WORK/$id.linux.caller" &&
+           grep -Eq 'ldr[[:space:]]+x[0-9]+, \[x29, #144\]$' \
+               "$WORK/$id.linux.callee" &&
+           grep -Eq 'ldp[[:space:]]+x[0-9]+, x[0-9]+, \[x29, #160\]$' \
+               "$WORK/$id.linux.callee"; then
+            linux_fixed=1
+        fi
+        if grep -Eq 'str[[:space:]]+x[0-9]+, \[sp\]$' \
+               "$WORK/$id.apple.caller" &&
+           grep -Eq 'stp[[:space:]]+x[0-9]+, x[0-9]+, \[sp, #16\]$' \
+               "$WORK/$id.apple.caller" &&
+           grep -Eq 'ldr[[:space:]]+x[0-9]+, \[x29, #144\]$' \
+               "$WORK/$id.apple.callee" &&
+           grep -Eq 'ldp[[:space:]]+x[0-9]+, x[0-9]+, \[x29, #160\]$' \
+               "$WORK/$id.apple.callee"; then
+            apple_fixed=1
+        fi
+        if [ "$host_compile_status" -ne 0 ]; then
+            fail "$id" "host strict-C17 control fixture was rejected"
+        elif ! "$host"; then
+            fail "$id" "host strict-C17 control returned a wrong result"
+        elif [ "$linux_status" -ne 0 ] || [ "$apple_status" -ne 0 ]; then
+            fail "$id" "valid stacked arm64 fixture was rejected"
+        elif [ "$linux_wrong" -eq 1 ] && [ "$apple_wrong" -eq 1 ]; then
+            xfail "$id" "$title"
+        elif [ "$linux_fixed" -eq 1 ] && [ "$apple_fixed" -eq 1 ]; then
+            xpass "$id" "$title"
+        else
+            fail "$id" "unexpected Linux or Apple stack aggregate placement"
         fi
         ;;
     OPT-H-01)
@@ -552,6 +834,126 @@ probe()
             fi
         fi
         ;;
+    DRV-M-01)
+        signal_as="$FIXTURES/support/drv-m-01/as-signal.sh"
+        if [ ! -x "$signal_as" ]; then
+            fail "$id" "signal-terminating assembler helper is not executable"
+        else
+            (exec env CGF_INCLUDE_DIR="$ROOT/include" \
+                CGF_AS_PATH="$signal_as" "$CGF" -c "$source" \
+                -o "$WORK/$id.o") >"$WORK/$id.stdout" \
+                2>"$WORK/$id.stderr"
+            status=$?
+            rejected=$(grep -c 'assembler rejected' "$WORK/$id.stderr" || true)
+            if [ "$status" -eq 1 ] && grep -Eq 'signal 15|signal SIGTERM' \
+                   "$WORK/$id.stderr"; then
+                xpass "$id" "$title"
+            elif [ "$status" -eq 1 ] && [ "$rejected" -eq 1 ] &&
+                 ! grep -Eq 'signal 15|signal SIGTERM' "$WORK/$id.stderr"; then
+                xfail "$id" "$title"
+            else
+                fail "$id" "unexpected assembler-signal diagnostic (status $status, rejected $rejected)"
+            fi
+        fi
+        ;;
+    TI-M-01|TI-M-02)
+        "$source" "$ROOT" >"$WORK/$id.stdout" 2>"$WORK/$id.stderr"
+        status=$?
+        case "$status" in
+        0) xfail "$id" "$title" ;;
+        1) xpass "$id" "$title" ;;
+        *) fail "$id" "integrity reproducer failed with status $status" ;;
+        esac
+        ;;
+    TI-M-03)
+        "$source" "$ROOT" "$CGF" >"$WORK/$id.stdout" \
+            2>"$WORK/$id.stderr"
+        status=$?
+        case "$status" in
+        0) xfail "$id" "$title" ;;
+        1) xpass "$id" "$title" ;;
+        *) fail "$id" "integrity reproducer failed with status $status" ;;
+        esac
+        ;;
+    MS-C-01)
+        run_cgf "$id.control" -fsafe -fsyntax-only "$source"
+        control_status=$?
+        run_cgf "$id" -fsafe -Wno-mem-uninit-read -fsyntax-only "$source"
+        status=$?
+        if [ "$control_status" -ne 1 ] ||
+           ! grep -q 'read of uninitialized heap memory' \
+               "$WORK/$id.control.stderr"; then
+            fail "$id" "safe-mode control did not diagnose the uninitialized read"
+        elif [ "$status" -eq 1 ] &&
+             grep -q 'read of uninitialized heap memory' \
+                 "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 0 ] && [ ! -s "$WORK/$id.stderr" ]; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected safe-mode warning-override result (status $status)"
+        fi
+        ;;
+    MS-C-04)
+        run_cgf "$id" -fsafe -fsyntax-only "$source"
+        status=$?
+        if [ "$status" -eq 1 ] && grep -qi 'null' "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 0 ] && [ ! -s "$WORK/$id.stderr" ]; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected proven-null safe-mode result (status $status)"
+        fi
+        ;;
+    MS-C-05)
+        executable="$WORK/$id.exe"
+        run_cgf_runtime "$id" 0 -fsafe "$source" -o "$executable"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid safe-mode fixture failed to compile (status $status)"
+        else
+            "$executable" >"$WORK/$id.run.stdout" 2>"$WORK/$id.run.stderr"
+            run_status=$?
+            if [ "$run_status" -ne 0 ] &&
+               grep -q 'cgf-safe: out-of-bounds' "$WORK/$id.run.stderr"; then
+                xpass "$id" "$title"
+            elif [ "$run_status" -eq 0 ]; then
+                xfail "$id" "$title"
+            else
+                fail "$id" "unexpected far-out-of-bounds runtime result (status $run_status)"
+            fi
+        fi
+        ;;
+    MS-M-02|MS-M-03)
+        run_cgf "$id" -Wmem -fsyntax-only "$source"
+        status=$?
+        leaks=$(grep -c '\[-Wmem-leak\]' "$WORK/$id.stderr" || true)
+        if [ "$status" -ne 0 ]; then
+            fail "$id" "valid memory-analysis fixture was rejected"
+        elif [ "$leaks" -eq 0 ] && [ ! -s "$WORK/$id.stderr" ]; then
+            xpass "$id" "$title"
+        elif [ "$leaks" -eq 1 ]; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected memory diagnostic output ($leaks leak diagnostics)"
+        fi
+        ;;
+    RT-H-01)
+        run_cgf "$id" --target=arm64-macos -std=c17 -pedantic-errors \
+            -fsyntax-only "$source"
+        status=$?
+        if [ "$status" -eq 0 ]; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 1 ] &&
+             grep -q 'the predefined size macro must describe the target type' \
+                 "$WORK/$id.stderr" &&
+             ! grep -q 'arm64-macos long double must follow the 8-byte Apple ABI' \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected arm64-macos long-double macro result (status $status)"
+        fi
+        ;;
     X64-C-01)
         asm="$WORK/$id.s"
         run_cgf "$id" -O0 -S "$source" -o "$asm"
@@ -694,7 +1096,7 @@ while IFS="$tab" read -r id fixture title extra; do
         echo "audit fixtures: unsafe fixture path for $id: $fixture" >&2
         exit 1
         ;;
-    *.c|*.cgfir) ;;
+    *.c|*.cgfir|*.sh) ;;
     *)
         echo "audit fixtures: unsupported fixture type for $id: $fixture" >&2
         exit 1
@@ -705,8 +1107,16 @@ while IFS="$tab" read -r id fixture title extra; do
         echo "audit fixtures: manifest entry has no file: $fixture" >&2
         exit 1
     fi
-    IFS= read -r header <"$source"
-    expected="// XFAIL(audit): $id $title"
+    case "$fixture" in
+    *.sh)
+        header=$(sed -n '2p' "$source")
+        expected="# XFAIL(audit): $id $title"
+        ;;
+    *)
+        IFS= read -r header <"$source"
+        expected="// XFAIL(audit): $id $title"
+        ;;
+    esac
     if [ "$header" != "$expected" ]; then
         echo "audit fixtures: header mismatch in $fixture" >&2
         echo "  expected: $expected" >&2

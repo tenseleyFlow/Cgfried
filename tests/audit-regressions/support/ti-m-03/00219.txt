@@ -1,0 +1,7 @@
+/* XFAIL(audit): TI-M-03 00219 qualified _Generic association case */
+const int value = 0;
+
+int main(void)
+{
+    return _Generic(value, int : 0, const int : 1);
+}

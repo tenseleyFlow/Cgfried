@@ -1,0 +1,7 @@
+/* XFAIL(audit): TI-M-03 00216 GNU range-designator case */
+int values[4] = {[1 ... 2] = 9};
+
+int main(void)
+{
+    return values[1] != 9;
+}

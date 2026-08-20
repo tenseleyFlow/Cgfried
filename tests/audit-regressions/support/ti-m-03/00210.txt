@@ -1,0 +1,11 @@
+/* XFAIL(audit): TI-M-03 00210 attributed function-pointer declarator case */
+int actual_function(void)
+{
+    return 42;
+}
+
+int main(void)
+{
+    void *function_pointer = &actual_function;
+    return ((int(__attribute__((__noinline__)) *)(void))function_pointer)();
+}
