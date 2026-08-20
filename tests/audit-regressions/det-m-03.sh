@@ -14,6 +14,15 @@ git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || exit 2
 
 bad=0
 
+# Positive control: the sole compliant replacement states the workload reason
+# and all three accepted old-to-new RSS values.
+body=$(git -C "$ROOT" show -s --format='%B' \
+    7aef30e886eef61714820f6d6fbc02b5f5e76b04) || exit 2
+printf '%s\n' "$body" | grep -Fq 'self workload grew from 105 to 106 files' || exit 2
+printf '%s\n' "$body" | grep -Fq 'sqlite3 499924 to 500092 KiB' || exit 2
+printf '%s\n' "$body" | grep -Fq 'self 1059216 to 1064708 KiB' || exit 2
+printf '%s\n' "$body" | grep -Fq 'many-tu 1377672 to 1378504 KiB' || exit 2
+
 # Initial native replacements: subject only, neither old-to-new values nor why.
 body=$(git -C "$ROOT" show -s --format='%B' \
     4be79b6e4cd2a35850cdde3e3fc7e6ed34024b7c) || exit 2
