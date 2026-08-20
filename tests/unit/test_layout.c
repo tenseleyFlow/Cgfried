@@ -123,6 +123,26 @@ static void rec_is(TestCtx *t, const char *body, u64 want_size, u64 want_align)
     lay_free(&f);
 }
 
+static void rec_target_is(TestCtx *t, const char *body, TargetKind target,
+                          u64 want_size, u64 want_align)
+{
+    LayFix f;
+    u64 size, align;
+
+    record_layout(&f, body, target, &size, &align);
+    if (f.errors != 0)
+        t_fail(t, __FILE__, __LINE__, "%s: %s: unexpected error",
+               cgf_target_names[target], body);
+    else if (size != want_size || align != want_align)
+        t_fail(t, __FILE__, __LINE__,
+               "%s: %s: size=%llu align=%llu, want %llu/%llu",
+               cgf_target_names[target], body, (unsigned long long)size,
+               (unsigned long long)align, (unsigned long long)want_size,
+               (unsigned long long)want_align);
+    t->assertions++;
+    lay_free(&f);
+}
+
 /* --- scalar sizes -------------------------------------------------------- */
 
 void test_layout_scalars(TestCtx *t)
@@ -277,14 +297,85 @@ void test_layout_bitfields(TestCtx *t)
     rec_is(t, "struct S { char a:4; char b:4; };", 1, 1);
     rec_is(t, "struct S { char a:5; char b:5; };", 2, 1);
 
-    /* A zero-width field in a UNION occupies nothing — it exists only to
-     * force the next field to a boundary, and a union has no next field. */
+    /* On SysV x86-64 a zero-width union field occupies nothing and imposes
+     * no alignment. Linux AAPCS64's target-specific rule is covered below. */
     rec_is(t, "union S { int :0; char c; };", 1, 1);
     rec_is(t, "union S { unsigned long :7; int x; };", 4, 4);
 
     /* Mixing a bitfield with an ordinary member. */
     rec_is(t, "struct S { int a:4; char c; };", 4, 4);
     rec_is(t, "struct S { char c; char a:4; };", 2, 1);
+}
+
+void test_layout_zero_width_bitfields_per_target(TestCtx *t)
+{
+    struct {
+        TargetKind target;
+        u64 size;
+        u64 align;
+        u64 union_size;
+        u64 union_align;
+    } targets[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 4, 4, 1, 1},
+        {CGF_TARGET_ARM64_LINUX, 8, 8, 8, 8},
+        {CGF_TARGET_ARM64_MACOS, 4, 4, 1, 1},
+        {CGF_TARGET_X86_64_LINUX_MUSL, 4, 4, 1, 1},
+        {CGF_TARGET_X86_64_FREEBSD, 4, 4, 1, 1},
+    };
+    struct {
+        const char *base;
+        u64 size;
+        u64 align;
+    } bases[] = {
+        {"_Bool", 1, 1},     {"char", 1, 1},
+        {"short", 2, 2},     {"unsigned short", 2, 2},
+        {"int", 4, 4},       {"unsigned int", 4, 4},
+        {"long", 8, 8},      {"unsigned long", 8, 8},
+        {"long long", 8, 8}, {"unsigned long long", 8, 8},
+    };
+    char src[160];
+    u32 i;
+
+    /* SEMA-C-02 is an AAPCS64-Linux rule, not a generic ARM64 rule: Apple
+     * follows the SysV-like answer for this record. Exercise the closed
+     * five-target set so a future target cannot inherit either side by
+     * accident. */
+    for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        rec_target_is(t, "struct S { long :0; int value; };", targets[i].target,
+                      targets[i].size, targets[i].align);
+        rec_target_is(t, "union S { long :0; char value; };", targets[i].target,
+                      targets[i].union_size, targets[i].union_align);
+        /* Stronger member and record alignment must still win on either
+         * side of the target split. */
+        rec_target_is(t, "struct S { long :0; _Alignas(16) int value; };",
+                      targets[i].target, 16, 16);
+        rec_target_is(
+            t,
+            "struct S { long :0; int value; } __attribute__((aligned(16)));", /* check_bans allow:
+                                                                                 compiler input,
+                                                                                 not host C */
+            targets[i].target, 16, 16);
+    }
+
+    /* Every integer base-type alignment participates in the Linux AAPCS64
+     * rule, including implementation-defined non-int bitfield bases. */
+    for (i = 0; i < sizeof(bases) / sizeof(bases[0]); i++) {
+        snprintf(src, sizeof(src), "struct S { %s :0; char value; };",
+                 bases[i].base);
+        rec_target_is(t, src, CGF_TARGET_ARM64_LINUX, bases[i].size,
+                      bases[i].align);
+    }
+
+    /* Start, middle, trailing, and consecutive barriers distinguish record
+     * alignment from the already-correct next-member placement rule. */
+    rec_target_is(t, "struct S { char lead; long :0; char value; };",
+                  CGF_TARGET_ARM64_LINUX, 16, 8);
+    rec_target_is(t, "struct S { char lead; long :0; char value; };",
+                  CGF_TARGET_X86_64_LINUX_GNU, 9, 1);
+    rec_target_is(t, "struct S { char lead; long :0; };",
+                  CGF_TARGET_ARM64_LINUX, 8, 8);
+    rec_target_is(t, "struct S { char lead; short :0; long :0; char value; };",
+                  CGF_TARGET_ARM64_LINUX, 16, 8);
 }
 
 /* Bit POSITIONS, not just sizes: two of the worked examples have the same

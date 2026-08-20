@@ -165,9 +165,15 @@ static void layout_struct(Sema *s, TagDecl *tag)
             m->container_size = ml.size;
             if (width == 0) {
                 /* `T : 0` forces the NEXT field to the next boundary of
-                 * T's alignment. An unnamed bitfield — which :0 always is
-                 * — never affects the struct's own alignment. */
+                 * T's alignment. SysV and Apple keep the usual rule that an
+                 * unnamed field does not affect record alignment, but Linux
+                 * AAPCS64 makes the zero-width field's base-type alignment a
+                 * record requirement. SEMA-C-02: without this target split,
+                 * `struct { long :0; int x; }` was 4/4 instead of 8/8 and
+                 * disagreed with AAPCS64 callers and callees. */
                 offset_bits = align_up(offset_bits, unit_bits);
+                if (s->target.kind == CGF_TARGET_ARM64_LINUX && malign > align)
+                    align = malign;
                 m->bit_offset = offset_bits;
                 m->offset = offset_bits / 8;
                 m->laid_out = true;
@@ -251,11 +257,11 @@ static void layout_union(Sema *s, TagDecl *tag)
             ml.align = m->align_override;
         if (m->is_bitfield) {
             /* Every union member starts at bit 0. A ZERO-WIDTH bitfield
-             * occupies no storage at all — it exists only to force the
-             * next field to a boundary, and in a union there is no "next
-             * field" — so it must not claim a whole container. (Found by
-             * the layout differential: a union with a `:0` member came
-             * out 8 bytes instead of 4.) */
+             * occupies no storage at all. Linux AAPCS64 nevertheless makes
+             * its base-type alignment a UNION requirement, just as it does
+             * for a struct; Apple and SysV do not. SEMA-C-02's sibling hunt
+             * caught this union half. It raises alignment only -- claiming a
+             * whole container here was the older layout-differential bug. */
             /* Only the BITS are storage; the declared type governs
              * alignment and the straddle rule, not a mandatory whole
              * container. `union { unsigned long :7; int x; }` is 4 bytes,
@@ -264,6 +270,9 @@ static void layout_union(Sema *s, TagDecl *tag)
 
             if (bytes > size)
                 size = bytes;
+            if (m->bit_width == 0 && s->target.kind == CGF_TARGET_ARM64_LINUX &&
+                ml.align > align)
+                align = ml.align;
             if (m->name && ml.align > align)
                 align = ml.align;
             continue;
