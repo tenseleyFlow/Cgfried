@@ -2,9 +2,9 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-20): Sprints 0–57 and 59 are CLOSED; Sprint 59
-closed out of order, so the contiguous ratchet remains 57. Phases 1–11 are
-CLOSED.**
+**WHERE THINGS STAND (2026-08-20): Sprints 0–57, 59, and 60 are CLOSED;
+Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
+Phases 1–11 are CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
 its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
@@ -26,9 +26,11 @@ compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
 machine, compiler repairs, numeric scale policy, and closure evidence are
 integrated while Sprint 58 continues collecting operational evidence. The old
 D5 notes are retained only as implementation history. Sprint 60's defensive
-audit is now IN PROGRESS against full-CI-green baseline
-`1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb` while the Sprint 58 soak
-continues independently.
+audit is COMPLETE against full-CI-green baseline
+`1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb`: 12 fronts, 50 raw / 50
+deduplicated findings (C12/H20/M16/L2), and 50 durable expected-failure
+reproducers. Sprint 61 is active under its Critical-first priority law while
+the Sprint 58 soak continues independently.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -36,9 +38,9 @@ refusal or a deliberate deferral.
 On trunk, continue **Sprint 58's 30-day bootstrap soak**. Record only hosted
 runs that satisfy the machine-readable daily/weekly lane contract in
 `.docs/audits/bootstrap-soak.md`; a missing or red required run resets the
-streak. Sprint 60 audit-only work may proceed in parallel from its frozen
-full-CI-green baseline. Do not claim Sprint 58 closed, sign off Phase 13, or
-begin the release landing until the soak reaches 30/30.
+streak. Sprint 61 remediation may proceed in parallel. Do not claim Sprint 58
+closed, sign off Phase 13, or begin the release landing until the soak reaches
+30/30.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -47,49 +49,38 @@ musl from **716 to 1259 of 1361** translation units parsing.
 
 ---
 
-## Parallel Sprint 60 defensive audit — IN PROGRESS
+## Sprint 60 defensive audit — COMPLETE; CLOSED OUT OF ORDER
 
 Baseline `1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb` is frozen for the audit.
 Its required x86 bootstrap [run
 31865512724](https://github.com/tenseleyFlow/Cgfried/actions/runs/31865512724)
 passed O0/O2, and full standard CI [run
 31865512754](https://github.com/tenseleyFlow/Cgfried/actions/runs/31865512754)
-completed with all 20 executed jobs green and one expected skip. The audit
-uses fresh-context, reproducer-first reviewers across all twelve fronts. No
-compiler fixes land during Sprint 60; confirmed reproducers and stable-ID
-findings are the deliverable, and remediation remains Sprint 61 work.
+completed with all 20 executed jobs green and one expected skip. All twelve
+fresh-context, reproducer-first fronts are closed. The required F04 -> F05 ->
+F09 dependency chain was respected, F12 ran last, and an independent
+cross-front review found no root-cause aliases.
 
-### Current Sprint 60 checkpoint (2026-08-19)
+- `.docs/audits/audit-00.md` records 50 raw / 50 deduplicated findings:
+  12 Critical, 20 High, 16 Medium, and 2 Low. Eleven unverified observations
+  are segregated and excluded.
+- `tests/audit-regressions/manifest.txt` and the front reports map exactly in
+  both directions. `scripts/check-audit-fixtures.sh build/cgfried` reports
+  50 XFAIL, 0 XPASS, and 0 FAIL.
+- The complete normal regression suite is green at 713 unit tests,
+  4,292,653 assertions, and 639 program fixtures. Bootstrap, all
+  differentials, campaign/meta gates, audit aliases, format, and ban checks
+  are green. `make BUILD=build-san test-san` also completed successfully,
+  including all 50 expected audit failures, cross-target/ABI/runtime lanes,
+  and all three sanitizer fuzz smokes.
+- The frozen-baseline-to-closeout diff under `src/`, `runtime/`, and `include/`
+  is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
+  evidence. Remediation begins in Sprint 61.
 
-- F04 reopened for `IR-H-08`: valid strict-C17 code that promotes a local
-  function pointer compiles and emits MIR/assembly, but `-O1 -emit-ir` exits 4.
-  Mem2reg leaves the call indirect while substituting a symbolic operand; the
-  printer then uses the direct-call spelling and parsing changes the call form.
-  `tests/audit-regressions/ir-h-08.c` holds the host/O0 controls and the
-  verifier-enabled expected failure. The audit-fixture gate is now 29 XFAIL,
-  zero XPASS, zero FAIL.
-- F05 has four confirmed optimizer findings (`OPT-H-01` through `OPT-H-04`).
-  New audit-only targets are `make audit-opt-generated` (16 deterministic
-  strict-C17 programs, digest `d67e0584b412bfb4`, GCC/Clang O0/O3 oracle plus
-  Cgfried O0 and verifier-backed `OPT_EQ: all`) and `make audit-opt-alias`
-  (ten bounded alias cells; only the expected `OPT-H-04` false-MUST result).
-  The generated run is time-bounded per generator/compile/run stage and writes
-  canonical oracle paths, device/inode identities, versions, and its timeout
-  to `build/opt-generated.receipt`; `scripts/opt_pass_bisect.sh` likewise
-  bounds every compile/run and records phase dumps for the level and four
-  toggle controls.
-- Fresh local `make BUILD=build test` validation passed after a narrow
-  driver-matrix portability repair: its `-###` temporary-object normalizer now
-  follows the configured `TMPDIR` instead of assuming `/tmp`. Its policy
-  fixture now also disables signing only in its throwaway repository, keeping
-  synthetic test commits independent of a developer's global Git setting.
-- These tools are deliberately supplemental, not a F05 closeout claim. F05
-  closeout is held until F04 settles, and F09 must not begin before F05's
-  alias findings are settled. Do not repair any of these findings in Sprint 60.
-
-This parallel audit does not manufacture Sprint 58 soak dates or advance the
-contiguous closure ratchet. Phase 13 sign-off remains gated on the complete
-30-date bootstrap streak.
+Sprint 61 must close all 12 Critical findings before High work and all 20 High
+findings before Medium/Low work. Sprint 58 remains at 2/30; Sprint 60's
+out-of-order closure does not advance the contiguous closure ratchet or permit
+Phase 13/release sign-off.
 
 ---
 
