@@ -369,6 +369,51 @@ void test_x64_maximum_auto_alignment_is_encodable(TestCtx *t)
     arena_free_all(&a);
 }
 
+void test_x64_large_static_frame_uses_64_bit_addressing(TestCtx *t)
+{
+    Arena a;
+    X64Func *f;
+    X64Inst *in;
+    X64VReg fixed;
+    u32 i;
+    bool frame_imm = false, frame_sub = false;
+    bool slot_imm = false, slot_lea = false;
+
+    arena_init(&a);
+    f = mkf(&a, 1);
+    fixed = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_LEA, X64_Q);
+    in->def = fixed;
+    in->a.kind = X64O_MEM; /* static-allocation marker */
+    in->a.mem.scale = 1;
+    in->b.imm = 4294967296ll;
+    in->table = 16;
+    put(f, 0, X64_OP_RET, X64_L);
+
+    x64_regalloc(f);
+    T_ASSERT_EQ_INT(t, (long long)f->frame_size, 4294967296ll);
+    for (i = 0; i < f->blocks[0].n; i++) {
+        const X64Inst *cur = &f->blocks[0].insts[i];
+
+        if (cur->op == X64_OP_MOVABS && cur->a.kind == X64O_IMM &&
+            cur->a.imm == 4294967296ll && cur->def.v == X64_R10 + 1)
+            frame_imm = true;
+        if (frame_imm && cur->op == X64_OP_SUB && cur->def.v == X64_RSP + 1 &&
+            cur->b.kind == X64O_VREG && cur->b.r.v == X64_R10 + 1)
+            frame_sub = true;
+        if (cur->op == X64_OP_MOVABS && cur->a.kind == X64O_IMM &&
+            cur->a.imm == -4294967296ll)
+            slot_imm = true;
+        if (slot_imm && cur->op == X64_OP_LEA && cur->a.kind == X64O_MEM &&
+            cur->a.mem.base.v == X64_RBP + 1 &&
+            cur->a.mem.index.v == cur->def.v && cur->a.mem.disp == 0)
+            slot_lea = true;
+    }
+    T_ASSERT(t, frame_imm && frame_sub);
+    T_ASSERT(t, slot_imm && slot_lea);
+    arena_free_all(&a);
+}
+
 void test_x64_variadic_prologue_saves_whole_xmm_slots(TestCtx *t)
 {
     Arena a;

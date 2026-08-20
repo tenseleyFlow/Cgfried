@@ -193,8 +193,8 @@ void x64_mir_print(const X64Func *f, Buf *out)
     u32 bi, i;
 
     if (f->allocated)
-        buf_printf(out, "mir @%s (frame=%u spills=%u)\n", f->name,
-                   f->frame_size, f->spill_slots);
+        buf_printf(out, "mir @%s (frame=%llu spills=%u)\n", f->name,
+                   (unsigned long long)f->frame_size, f->spill_slots);
     else
         buf_printf(out, "mir @%s (vregs=%u)\n", f->name, f->nvregs);
     for (bi = 0; bi < f->nblocks; bi++) {

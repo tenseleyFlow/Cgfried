@@ -821,6 +821,12 @@ static void rewrite(Ra *ra)
                  * frame; the param IS that address). */
                 bool xmm = dit && x64_vclass(f, b->insts[i].def.v) == X64RC_XMM;
                 X64Inst x;
+                u64 arg_off;
+
+                if (in.b.imm < 0 || (u64)in.b.imm > INT32_MAX - 16u)
+                    CGF_ICE("x86_64 regalloc: incoming stack argument offset "
+                            "exceeds signed disp32");
+                arg_off = 16u + (u64)in.b.imm;
 
                 memset(&x, 0, sizeof(x));
                 x.op = in.op == X64_OP_ARGLEA ? X64_OP_LEA
@@ -830,7 +836,7 @@ static void rewrite(Ra *ra)
                 x.a.kind = X64O_MEM;
                 x.a.mem.base = physreg(X64_RBP);
                 x.a.mem.scale = 1;
-                x.a.mem.disp = (i32)(16 + in.b.imm);
+                x.a.mem.disp = (i32)arg_off;
                 rb.map[i] = rb.n;
                 if (dit->phys) {
                     x.def.v = dit->phys;
@@ -877,19 +883,21 @@ static void rewrite(Ra *ra)
                  *
                  * The epilogue recomputes rsp from rbp, so nothing downstream
                  * has to know rsp moved. */
-                u32 out = (f->out_args + 15u) & ~15u;
+                u64 out64 = ((u64)f->out_args + 15u) & ~(u64)15;
+                u32 out;
                 u32 align = in.table ? in.table : 1;
                 u32 slop = align > 16 ? align - 1 : 15;
-                u64 candidate_disp = (u64)out + (align > 16 ? align - 1 : 0);
+                u64 candidate_disp = out64 + (align > 16 ? align - 1 : 0);
                 X64Inst x;
                 u32 start = rb.n;
 
                 if ((align & (align - 1)) ||
                     !x64_imm_fits_simm32(-(i64)align) ||
-                    (u64)slop + out > INT32_MAX || candidate_disp > INT32_MAX)
+                    (u64)slop + out64 > INT32_MAX || candidate_disp > INT32_MAX)
                     CGF_ICE("x86_64 regalloc: dynamic stack alignment %u "
                             "exceeds the encodable range",
                             align);
+                out = (u32)out64;
                 memset(&x, 0, sizeof(x));
                 x.op = X64_OP_MOV;
                 x.width = X64_Q;
@@ -1107,16 +1115,24 @@ void x64_twoaddr_fixup(X64Func *f)
  * it faults as a movaps crash inside libc, far from the cause, which is
  * why the law is asserted rather than trusted. */
 
-u32 x64_frame_align_pad(u32 pushes_after_rbp, u32 raw_bytes)
+u64 x64_frame_align_pad(u32 pushes_after_rbp, u64 raw_bytes)
 {
-    u32 need = (pushes_after_rbp % 2) ? 8u : 0u;
-    u32 n = (raw_bytes + 7) & ~7u;
+    u64 need = (pushes_after_rbp % 2) ? 8u : 0u;
+    u64 n;
 
-    if ((n % 16) != need)
+    if (raw_bytes > UINT64_MAX - 7)
+        CGF_ICE("x86_64 regalloc: stack frame size overflows 64 bits");
+    n = (raw_bytes + 7) & ~(u64)7;
+
+    if ((n % 16) != need) {
+        if (n > UINT64_MAX - 8)
+            CGF_ICE("x86_64 regalloc: aligned stack frame size overflows 64 "
+                    "bits");
         n += 8;
-    if (((n + 8 * pushes_after_rbp) % 16) != 0)
-        CGF_ICE("frame alignment law violated: pushes=%u N=%u",
-                pushes_after_rbp, n);
+    }
+    if (((n % 16) + 8u * (pushes_after_rbp % 2)) % 16 != 0)
+        CGF_ICE("frame alignment law violated: pushes=%u N=%llu",
+                pushes_after_rbp, (unsigned long long)n);
     return n;
 }
 
@@ -1126,10 +1142,10 @@ static void frame_finalize(Ra *ra)
     bool touched[X64_REG_COUNT];
     u8 push_order[8];
     u32 npush = 0, bi, i, k;
-    u32 raw = (u32)(-ra->slots.next_offset);
+    u64 raw = (u64)(-(i64)ra->slots.next_offset);
     u32 slot_pad = 0;
     u32 frame_bias;
-    u32 save_off = 0; /* variadic reg-save area rbp-offset */
+    u64 save_off = 0; /* variadic reg-save area rbp-offset */
 
     memset(touched, 0, sizeof(touched));
     for (bi = 0; bi < f->nblocks; bi++) {
@@ -1178,11 +1194,21 @@ static void frame_finalize(Ra *ra)
                 X64Inst *in = &b->insts[i];
 
                 if (in->a.kind == X64O_MEM &&
-                    in->a.mem.base.v == (u32)X64_RBP + 1 && in->a.mem.disp < 0)
+                    in->a.mem.base.v == (u32)X64_RBP + 1 &&
+                    in->a.mem.disp < 0) {
+                    if (in->a.mem.disp < INT32_MIN + (i32)frame_bias)
+                        CGF_ICE("x86_64 regalloc: spill offset exceeds signed "
+                                "disp32 after callee-save bias");
                     in->a.mem.disp -= (i32)frame_bias;
+                }
                 if (in->b.kind == X64O_MEM &&
-                    in->b.mem.base.v == (u32)X64_RBP + 1 && in->b.mem.disp < 0)
+                    in->b.mem.base.v == (u32)X64_RBP + 1 &&
+                    in->b.mem.disp < 0) {
+                    if (in->b.mem.disp < INT32_MIN + (i32)frame_bias)
+                        CGF_ICE("x86_64 regalloc: spill offset exceeds signed "
+                                "disp32 after callee-save bias");
                     in->b.mem.disp -= (i32)frame_bias;
+                }
             }
         }
     }
@@ -1190,84 +1216,97 @@ static void frame_finalize(Ra *ra)
     /* Static alloca markers -> rbp-relative slots below the spills. rbp
      * itself is 16-aligned (entry rsp = 8 mod 16, push rbp lands on 0).
      * For stricter objects reserve align-1 bytes of slop and mask a candidate
-     * address down at run time; rbp remains the stable unwind/frame anchor. */
-    for (bi = 0; bi < f->nblocks; bi++) {
-        X64Block *b = &f->blocks[bi];
-
-        for (i = 0; i < b->n; i++) {
-            X64Inst *in = &b->insts[i];
-
-            if (in->op == X64_OP_LEA && in->a.kind == X64O_MEM &&
-                !in->a.mem.base.v && !in->a.mem.index.v && !in->a.mem.rip_sym &&
-                !in->a.mem.cpool) {
-                u32 size = in->b.imm > 0 ? (u32)in->b.imm : 1;
-                u32 align = in->table ? in->table : 1;
-
-                in->a.mem.base = physreg(X64_RBP);
-                if (align > 16) {
-                    u64 reserve = (u64)size + align - 1;
-                    u64 candidate = (u64)frame_bias + raw + size;
-
-                    if (align & (align - 1))
-                        CGF_ICE("x86_64 regalloc: stack alignment %u is not "
-                                "a power of two",
-                                align);
-                    if (!x64_imm_fits_simm32(-(i64)align) ||
-                        candidate > INT32_MAX ||
-                        (u64)raw + reserve > UINT32_MAX)
-                        CGF_ICE("x86_64 regalloc: over-aligned stack frame "
-                                "exceeds the encodable range");
-                    in->a.mem.disp = -(i32)candidate;
-                    raw += (u32)reserve;
-                    /* table retains the mask alignment for the expansion
-                     * below; b no longer carries marker size. */
-                } else {
-                    raw = (raw + size + align - 1) & ~(align - 1);
-                    in->a.mem.disp = -(i32)(frame_bias + raw);
-                    in->table = 0;
-                }
-                in->b.imm = 0;
-            }
-        }
-    }
-
-    /* An over-aligned marker becomes:
-     *     lea candidate(%rbp), def
-     *     and $-align, def
-     * The original marker advertised DEFS_FLAGS at isel, so map its old
-     * index to the AND (not the LEA) for any following flags consumer. */
+     * address down at run time; rbp remains the stable unwind/frame anchor.
+     *
+     * X64-C-02: both the source size and accumulated frame offset stay 64-bit.
+     * A far slot cannot use x86's signed disp32, so form it as
+     * `movabs -offset, def; lea (rbp,def), def` instead of narrowing it. */
     for (bi = 0; bi < f->nblocks; bi++) {
         X64Block *b = &f->blocks[bi];
         Rb rb;
-        bool any = false;
 
-        for (i = 0; i < b->n; i++)
-            if (b->insts[i].op == X64_OP_LEA && b->insts[i].table > 16)
-                any = true;
-        if (!any)
-            continue;
         rb_init(&rb, f->arena, b->n);
         for (i = 0; i < b->n; i++) {
             X64Inst in = b->insts[i];
 
             rb.source_loc = in.loc;
-            if (in.op == X64_OP_LEA && in.table > 16) {
-                X64Inst mask;
+            if (in.op == X64_OP_LEA && in.a.kind == X64O_MEM &&
+                !in.a.mem.base.v && !in.a.mem.index.v && !in.a.mem.rip_sym &&
+                !in.a.mem.cpool) {
+                u64 size = (u64)in.b.imm;
+                u32 align = in.table ? in.table : 1;
+                u64 reserve, candidate;
 
-                rb.map[i] = rb.n + 1;
+                if (!size)
+                    size = 1;
+                if (align & (align - 1))
+                    CGF_ICE("x86_64 regalloc: stack alignment %u is not "
+                            "a power of two",
+                            align);
+                reserve = size;
+                if (align > 16) {
+                    if (size > UINT64_MAX - (align - 1))
+                        CGF_ICE("x86_64 regalloc: over-aligned stack frame "
+                                "size overflows 64 bits");
+                    reserve = size + align - 1;
+                } else {
+                    if (size > UINT64_MAX - (align - 1) ||
+                        raw > UINT64_MAX - size - (align - 1))
+                        CGF_ICE("x86_64 regalloc: stack frame size overflows "
+                                "64 bits");
+                    reserve =
+                        ((raw + size + align - 1) & ~(u64)(align - 1)) - raw;
+                }
+                if (raw > UINT64_MAX - reserve ||
+                    (u64)frame_bias > UINT64_MAX - raw - reserve)
+                    CGF_ICE("x86_64 regalloc: stack frame size overflows 64 "
+                            "bits");
+                raw += reserve;
+                candidate =
+                    (u64)frame_bias + raw - (align > 16 ? align - 1 : 0);
+                if (candidate > INT64_MAX)
+                    CGF_ICE("x86_64 regalloc: static stack frame exceeds the "
+                            "64-bit addressable range");
+
+                rb.map[i] = rb.n;
                 in.flags = 0;
+                in.b.imm = 0;
                 in.table = 0;
-                rb_put(&rb, &in);
-                memset(&mask, 0, sizeof(mask));
-                mask.op = X64_OP_AND;
-                mask.width = X64_Q;
-                mask.flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
-                mask.def = in.def;
-                mask.a.kind = X64O_VREG;
-                mask.a.r = in.def;
-                mask.b.kind = X64O_IMM;
-                mask.b.imm = -(i64)b->insts[i].table;
-                rb_put(&rb, &mask);
+                if (candidate <= INT32_MAX) {
+                    in.a.mem.base = physreg(X64_RBP);
+                    in.a.mem.disp = -(i32)candidate;
+                    rb_put(&rb, &in);
+                } else {
+                    X64Inst imm;
+
+                    memset(&imm, 0, sizeof(imm));
+                    imm.op = X64_OP_MOVABS;
+                    imm.width = X64_Q;
+                    imm.def = in.def;
+                    imm.a.kind = X64O_IMM;
+                    imm.a.imm = -(i64)candidate;
+                    rb_put(&rb, &imm);
+                    in.a.mem.base = physreg(X64_RBP);
+                    in.a.mem.index = in.def;
+                    in.a.mem.scale = 1;
+                    in.a.mem.disp = 0;
+                    rb_put(&rb, &in);
+                }
+                if (align > 16) {
+                    X64Inst mask;
+
+                    memset(&mask, 0, sizeof(mask));
+                    mask.op = X64_OP_AND;
+                    mask.width = X64_Q;
+                    mask.flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+                    mask.def = in.def;
+                    mask.a.kind = X64O_VREG;
+                    mask.a.r = in.def;
+                    mask.b.kind = X64O_IMM;
+                    mask.b.imm = -(i64)align;
+                    rb_put(&rb, &mask);
+                    rb.map[i] = rb.n - 1;
+                }
             } else {
                 rb.map[i] = rb.n;
                 rb_put(&rb, &in);
@@ -1285,14 +1324,23 @@ static void frame_finalize(Ra *ra)
      * optimization, not correctness — call sites still SET AL for
      * external callees that do consult it. */
     if (f->variadic) {
-        raw = ((raw + 15) & ~15u) + 176;
+        if (raw > UINT64_MAX - 15 - 176)
+            CGF_ICE("x86_64 regalloc: variadic stack frame size overflows 64 "
+                    "bits");
+        raw = ((raw + 15) & ~(u64)15) + 176;
         save_off = frame_bias + raw;
     }
     /* Outgoing call arguments live at the stack bottom, [rsp+0 ..
      * rsp+out_args); rsp-relative operands were rewritten to rsp, so a
      * dynamic alloca between frame setup and a call re-establishes the
      * area below itself automatically. */
-    f->frame_size = x64_frame_align_pad(npush, slot_pad + raw + f->out_args);
+    if (raw > UINT64_MAX - slot_pad - f->out_args)
+        CGF_ICE("x86_64 regalloc: stack frame size overflows 64 bits");
+    f->frame_size =
+        x64_frame_align_pad(npush, (u64)slot_pad + raw + f->out_args);
+    if (f->frame_size > INT64_MAX)
+        CGF_ICE("x86_64 regalloc: stack frame exceeds the 64-bit addressable "
+                "range");
 
     /* va_start expansion: only frame-finalize knows the two addresses
      * the IR op owes the va_list (overflow_arg_area = first UNNAMED
@@ -1330,7 +1378,10 @@ static void frame_finalize(Ra *ra)
             x.a.kind = X64O_MEM;
             x.a.mem.base = physreg(X64_RBP);
             x.a.mem.scale = 1;
-            x.a.mem.disp = (i32)(16 + f->named_stack_bytes);
+            if (f->named_stack_bytes > INT32_MAX - 16u)
+                CGF_ICE("x86_64 regalloc: named stack arguments exceed "
+                        "signed disp32");
+            x.a.mem.disp = (i32)(16u + f->named_stack_bytes);
             rb_put(&rb, &x);
             memset(&x, 0, sizeof(x));
             x.op = X64_OP_STORE;
@@ -1342,16 +1393,36 @@ static void frame_finalize(Ra *ra)
             x.b.mem.scale = 1;
             x.b.mem.disp = 8;
             rb_put(&rb, &x);
-            /* lea r10, [rbp - save_off]; mov [ap+16], r10 */
-            memset(&x, 0, sizeof(x));
-            x.op = X64_OP_LEA;
-            x.width = X64_Q;
-            x.def = physreg(SCRATCH_B);
-            x.a.kind = X64O_MEM;
-            x.a.mem.base = physreg(X64_RBP);
-            x.a.mem.scale = 1;
-            x.a.mem.disp = -(i32)save_off;
-            rb_put(&rb, &x);
+            /* Address the register-save area without narrowing a far frame
+             * offset to disp32. */
+            if (save_off <= INT32_MAX) {
+                memset(&x, 0, sizeof(x));
+                x.op = X64_OP_LEA;
+                x.width = X64_Q;
+                x.def = physreg(SCRATCH_B);
+                x.a.kind = X64O_MEM;
+                x.a.mem.base = physreg(X64_RBP);
+                x.a.mem.scale = 1;
+                x.a.mem.disp = -(i32)save_off;
+                rb_put(&rb, &x);
+            } else {
+                memset(&x, 0, sizeof(x));
+                x.op = X64_OP_MOVABS;
+                x.width = X64_Q;
+                x.def = physreg(SCRATCH_B);
+                x.a.kind = X64O_IMM;
+                x.a.imm = -(i64)save_off;
+                rb_put(&rb, &x);
+                memset(&x, 0, sizeof(x));
+                x.op = X64_OP_LEA;
+                x.width = X64_Q;
+                x.def = physreg(SCRATCH_B);
+                x.a.kind = X64O_MEM;
+                x.a.mem.base = physreg(X64_RBP);
+                x.a.mem.index = physreg(SCRATCH_B);
+                x.a.mem.scale = 1;
+                rb_put(&rb, &x);
+            }
             memset(&x, 0, sizeof(x));
             x.op = X64_OP_STORE;
             x.width = X64_Q;
@@ -1391,6 +1462,15 @@ static void frame_finalize(Ra *ra)
             rb_put(&rb, &p);
         }
         if (f->frame_size) {
+            if (!x64_imm_fits_simm32((i64)f->frame_size)) {
+                memset(&p, 0, sizeof(p));
+                p.op = X64_OP_MOVABS;
+                p.width = X64_Q;
+                p.def = physreg(SCRATCH_B);
+                p.a.kind = X64O_IMM;
+                p.a.imm = (i64)f->frame_size;
+                rb_put(&rb, &p);
+            }
             memset(&p, 0, sizeof(p));
             p.op = X64_OP_SUB;
             p.width = X64_Q;
@@ -1398,22 +1478,51 @@ static void frame_finalize(Ra *ra)
             p.def = physreg(X64_RSP);
             p.a.kind = X64O_VREG;
             p.a.r = physreg(X64_RSP);
-            p.b.kind = X64O_IMM;
-            p.b.imm = f->frame_size;
+            if (x64_imm_fits_simm32((i64)f->frame_size)) {
+                p.b.kind = X64O_IMM;
+                p.b.imm = (i64)f->frame_size;
+            } else {
+                p.b.kind = X64O_VREG;
+                p.b.r = physreg(SCRATCH_B);
+            }
             rb_put(&rb, &p);
         }
         if (f->variadic) {
             static const u8 gpargs[6] = {X64_RDI, X64_RSI, X64_RDX,
                                          X64_RCX, X64_R8,  X64_R9};
+            X64VReg save_base = physreg(X64_RBP);
+            i32 save_disp = 0;
+
+            if (save_off > INT32_MAX) {
+                memset(&p, 0, sizeof(p));
+                p.op = X64_OP_MOVABS;
+                p.width = X64_Q;
+                p.def = physreg(SCRATCH_B);
+                p.a.kind = X64O_IMM;
+                p.a.imm = -(i64)save_off;
+                rb_put(&rb, &p);
+                memset(&p, 0, sizeof(p));
+                p.op = X64_OP_LEA;
+                p.width = X64_Q;
+                p.def = physreg(SCRATCH_B);
+                p.a.kind = X64O_MEM;
+                p.a.mem.base = physreg(X64_RBP);
+                p.a.mem.index = physreg(SCRATCH_B);
+                p.a.mem.scale = 1;
+                rb_put(&rb, &p);
+                save_base = physreg(SCRATCH_B);
+            } else
+                save_disp = -(i32)save_off;
 
             for (k = 0; k < 6; k++) {
-                p = mk_spill(gpargs[k], -(i32)save_off + (i32)(8 * k), false,
-                             X64_Q);
+                p = mk_spill(gpargs[k], save_disp + (i32)(8 * k), false, X64_Q);
+                p.b.mem.base = save_base;
                 rb_put(&rb, &p);
             }
             for (k = 0; k < 8; k++) {
-                p = mk_spill((u8)(X64_XMM0 + k),
-                             -(i32)save_off + (i32)(48 + 16 * k), true, X64_X);
+                p = mk_spill((u8)(X64_XMM0 + k), save_disp + (i32)(48 + 16 * k),
+                             true, X64_X);
+                p.b.mem.base = save_base;
                 rb_put(&rb, &p);
             }
         }

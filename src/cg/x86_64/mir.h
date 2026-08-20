@@ -340,7 +340,7 @@ typedef struct X64Func {
     bool variadic;    /* Sprint 23: frame gets the 176-byte reg save area */
     bool ret_f80;     /* f80 return: st0 is legitimately loaded at ret */
     bool debug_lines; /* emit prepared line labels for this function */
-    u32 frame_size;   /* finalized rbp-relative bytes (spills + locals) */
+    u64 frame_size;   /* finalized rbp-relative bytes (spills + locals) */
     u32 spill_slots;  /* count, for the printer's accounting line */
     u32 out_args;     /* max outgoing-arg bytes over all call sites */
     u32 named_stack_bytes; /* incoming stack bytes used by NAMED params
@@ -437,7 +437,7 @@ void x64_twoaddr_fixup(X64Func *f);
  * 16; push rbp restores 0; each callee-saved push flips by 8. Returns
  * the `sub rsp, N` with N >= raw_bytes making the running total 0 again:
  * N = 8 * (pushes_after_rbp mod 2) (mod 16). */
-u32 x64_frame_align_pad(u32 pushes_after_rbp, u32 raw_bytes);
+u64 x64_frame_align_pad(u32 pushes_after_rbp, u64 raw_bytes);
 
 /* --- Sprint 24: AT&T emission ----------------------------------------------
  */

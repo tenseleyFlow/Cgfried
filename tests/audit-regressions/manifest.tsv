@@ -14,7 +14,7 @@ SEMA-H-03	sema-h-03.c	OPEN	old-style function compatibility ignores default prom
 SEMA-H-04	sema-h-04.c	OPEN	no-linkage and external-linkage declarations are merged
 SEMA-H-05	sema-h-05.c	OPEN	unary negation of a signed minimum is accepted as constant
 X64-C-01	x64-c-01.c	OPEN	floating atomic accesses are emitted as ordinary loads and stores
-X64-C-02	x64-c-02.c	OPEN	large static frame sizes are truncated to 32 bits
+X64-C-02	x64-c-02.c	PASS	large static frame sizes are truncated to 32 bits
 X64-M-03	x64-m-03.c	OPEN	multi-digit inline-assembly operand references consume one digit
 A64-H-01	a64-h-01.c	OPEN	TLS tentative definitions are emitted as COMMON symbols
 A64-H-02	a64-h-02.c	OPEN	large TLS addends are emitted as unencodable immediates
