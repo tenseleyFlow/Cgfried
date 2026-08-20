@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-15): Sprints 0–57 and 59 are CLOSED; Sprint 59
+**WHERE THINGS STAND (2026-08-20): Sprints 0–57 and 59 are CLOSED; Sprint 59
 closed out of order, so the contiguous ratchet remains 57. Phases 1–11 are
 CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
@@ -10,7 +10,8 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 3/30 and remains operationally OPEN. Sprint 59's controlled Kasumi/Hasu
+at 2/30 after a required-lane reset on August 18 and remains operationally
+OPEN. Sprint 59's controlled Kasumi/Hasu
 SQLite baselines and qualifying 15-variant nightly are independently audited
 and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
@@ -175,12 +176,14 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (3/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (2/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
-hosted CI definitions are integrated. Hosted evidence is green on three
-distinct UTC dates; the 30-day ledger still needs 27 dates, so do not call the
-sprint closed until that operational obligation is complete.
+hosted CI definitions are integrated. The first hosted streak reached 5/30
+through August 17, then reset on August 18 when the required x86 O0 job was
+cancelled before bootstrap and retained no artifact. August 19 and 20 are days
+1 and 2 of the current streak; the ledger still needs 28 consecutive dates, so
+do not call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -273,12 +276,20 @@ sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 3/30**, starting from the
-  verified 2026-08-13 hosted run, continuing with the verified 2026-08-14
-  full activation, and the verified matching-head 2026-08-15 x86/ARM pair
-  above. Continue recording distinct UTC dates and every weekly
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 2/30**. The first streak
+  started on August 13, included the complete Sunday activation on August 16,
+  and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
+  [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
+  cancelled O0 during system-toolchain installation, skipped bootstrap,
+  failed the evidence-manifest step, and retained no O0 artifact. ARM run
+  [`32097369403`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32097369403)
+  passed both lanes but cannot cure the missing daily x86 lane. Matching-head
+  x86/ARM pairs on August 19 (`af914c89`, runs `32205833254`/`32214058949`)
+  and August 20 (`6460c3c2`, runs `32321924998`/`32330135984`) are current
+  days 1 and 2. Continue recording distinct UTC dates and every due weekly
   cross/reproducibility result; any missing or red required run breaks the
-  streak.
+  streak. The August 16–20 ZIP/internal hashes have not yet been independently
+  recomputed, so do not overstate that evidence.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
 soak and therefore owns the next contiguous closure step.
