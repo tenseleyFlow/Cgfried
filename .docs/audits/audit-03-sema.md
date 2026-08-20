@@ -112,15 +112,19 @@ seven findings remain open repair work for Sprint 61.
 
 ## Findings
 
-ID: `SEMA-C-01`
-Title: signed-minimum division by minus one crashes constant evaluation
-Severity: Critical — valid input reaches undefined behavior in the compiler
-process and terminates it with `SIGFPE` instead of a source diagnostic.
-Reproducer: `tests/audit-regressions/sema-c-01.c`
-Root cause: `src/sema/constexpr.c:638-649` checks only a zero divisor before
-performing host signed `i64` division/remainder; `INT64_MIN / -1` is itself
-undefined in the host implementation.
-Affected sprint: 15.
+~~ID: `SEMA-C-01`~~
+~~Title: signed-minimum division by minus one crashes constant evaluation~~
+~~Severity: Critical — valid input reaches undefined behavior in the compiler~~
+~~process and terminates it with `SIGFPE` instead of a source diagnostic.~~
+~~Reproducer: `tests/audit-regressions/sema-c-01.c`~~
+~~Root cause: `src/sema/constexpr.c:638-649` checks only a zero divisor before~~
+~~performing host signed `i64` division/remainder; `INT64_MIN / -1` is itself~~
+~~undefined in the host implementation.~~
+~~Affected sprint: 15.~~
+Resolution: RESOLVED 2026-08-20 by `0eca9832`.
+Cluster hunt: audited signed division and remainder at every target integer
+width and in every constant-evaluation mode; the same pass found and repaired
+the sibling signed-multiplication host-UB and target-width overflow gap.
 
 ID: `SEMA-C-02`
 Title: AAPCS64 zero-width bitfields fail to raise record alignment

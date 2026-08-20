@@ -97,13 +97,14 @@ XFAIL / 0 XPASS / 0 FAIL.
 
 The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
 cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
-alignment mismatch, at `555fc32a`; live debt is therefore 13/20/16/2 before
-the first repair closure. One central
+alignment mismatch, at `555fc32a`. `SEMA-C-01` then closed at `0eca9832`, so
+live debt is 12/20/16/2. One central
 integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
 its fix. First Critical lanes are split to avoid shared-file conflicts:
 
-- `SEMA-C-01` — constant-expression signed division/remainder edges.
+- `SEMA-C-01` — RESOLVED at `0eca9832`; its cluster hunt also repaired the
+  sibling multiplication overflow path.
 - `SEMA-C-02` — AAPCS64 zero-width-bitfield record alignment. `IR-C-01`
   follows serially because both touch `src/sema/layout.c`.
 - `IR-C-03` — atomic pointer read-modify-write lowering. `X64-C-01` waits for
