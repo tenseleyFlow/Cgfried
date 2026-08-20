@@ -126,15 +126,19 @@ Cluster hunt: audited signed division and remainder at every target integer
 width and in every constant-evaluation mode; the same pass found and repaired
 the sibling signed-multiplication host-UB and target-width overflow gap.
 
-ID: `SEMA-C-02`
-Title: AAPCS64 zero-width bitfields fail to raise record alignment
-Severity: Critical — cross-target layout is wrong, so emitted object layout
-can disagree with AAPCS64 callers and callees.
-Reproducer: `tests/audit-regressions/sema-c-02.c`
-Root cause: `src/sema/layout.c:161-174` aligns the next offset for `T : 0`
-but unconditionally skips the record-alignment update. Cgfried reports
-size/alignment 4/4 for `struct { long :0; int x; }`; AArch64 GCC proves 8/8.
-Affected sprint: 14.
+~~ID: `SEMA-C-02`~~
+~~Title: AAPCS64 zero-width bitfields fail to raise record alignment~~
+~~Severity: Critical — cross-target layout is wrong, so emitted object layout~~
+~~can disagree with AAPCS64 callers and callees.~~
+~~Reproducer: `tests/audit-regressions/sema-c-02.c`~~
+~~Root cause: `src/sema/layout.c:161-174` aligns the next offset for `T : 0`~~
+~~but unconditionally skips the record-alignment update. Cgfried reports~~
+~~size/alignment 4/4 for `struct { long :0; int x; }`; AArch64 GCC proves 8/8.~~
+~~Affected sprint: 14.~~
+Resolution: RESOLVED 2026-08-20 by `d4d674ec`.
+Cluster hunt: checked zero-width bitfields across all integer base types,
+record positions, structs and unions, and the closed five-target matrix. It
+found the distinct unnamed-nonzero AAPCS64 defect now tracked as `SEMA-C-08`.
 
 ID: `SEMA-H-03`
 Title: old-style function compatibility ignores default promotions
