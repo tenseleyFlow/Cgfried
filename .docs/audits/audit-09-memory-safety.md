@@ -57,21 +57,28 @@ published through `stderr`. This is the second curl diagnostic, at
 `src/tool_stderr.c:63`.
 Affected sprint: 43.
 
-ID: `MS-C-04`
-Title: -fsafe accepts a statically proven null dereference
-Severity: Critical — `doc/safe-mode.md` explicitly says proven-null
-dereferences in the default memory tier are errors, but the direct null
-dereference compiles successfully under `-fsafe`. A documented guarantee
-without an enforcing diagnostic mechanism is Critical under the Sprint 60
-rubric.
-Reproducer: `tests/audit-regressions/ms-c-04.c`
-Root cause: `WARN_NULL_DEREFERENCE` is default-off and has no flow checker;
-`WARN_MEM_NULL_CHECK` is a strict-tier allocation-result guard diagnostic, not
-a dereference proof. The memory lifetime pass can retain a runtime check for
-the access, but it emits no required compile-time error for this statically
-known null value. Even explicitly enabling `-Wnull-dereference` produces no
-diagnostic.
-Affected sprints: 42, 46.
+~~ID: `MS-C-04`~~
+~~Title: -fsafe accepts a statically proven null dereference~~
+~~Severity: Critical — `doc/safe-mode.md` explicitly says proven-null~~
+~~dereferences in the default memory tier are errors, but the direct null~~
+~~dereference compiles successfully under `-fsafe`. A documented guarantee~~
+~~without an enforcing diagnostic mechanism is Critical under the Sprint 60~~
+~~rubric.~~
+~~Reproducer: `tests/audit-regressions/ms-c-04.c`~~
+~~Root cause: `WARN_NULL_DEREFERENCE` is default-off and has no flow checker;~~
+~~`WARN_MEM_NULL_CHECK` is a strict-tier allocation-result guard diagnostic, not~~
+~~a dereference proof. The memory lifetime pass can retain a runtime check for~~
+~~the access, but it emits no required compile-time error for this statically~~
+~~known null value. Even explicitly enabling `-Wnull-dereference` produces no~~
+~~diagnostic.~~
+~~Affected sprints: 42, 46.~~
+Resolution: RESOLVED 2026-08-20 by `b1bc4f91`.
+Cluster hunt: covered literal, folded, branch-proven, member/subscript,
+multi-step ptradd/bitcast, access, indirect-call, and correlation-saturation
+paths while preserving one-way proof soundness. Zero-extent exemptions cover
+both branch shapes, both multiplicative factors, direct IR operations, and
+bounded source/destination library roles; unrelated `FILE *` and format
+pointers remain independently checked.
 
 ID: `MS-C-05`
 Title: far heap out-of-bounds pointers evade the runtime registry
@@ -117,7 +124,7 @@ future work and was not counted as a shipped guarantee.
 | Heap spatial safety | `src/memsafe/lifetime.c:1012-1079` discharges only proven accesses and retains all-path residue; `instrument_result` terminal-splices `cgf_safe_check`; runtime suite covers OOB at O0/O2 | guarantee failure: `MS-C-05` evades the runtime registry with a far offset |
 | Heap temporal safety, bounded to 1,024 blocks or 8 MiB | wrapped allocation/free registry and FIFO eviction in `src/rt/cgf_safe_alloc.c`, constants at lines 29-30; runtime suite covers UAF reads/writes, double free, churn, and canaries | mechanism matches the documented finite-quarantine limit |
 | Definite initialization and automatic scalar zeroing | flow and memory-uninitialized analyses precede lowering; `src/lower/stmt.c` inserts zero stores/memsets after analysis for fixed and variable automatic storage; focused flow/auto-init suites | required diagnostic floor is enforced after `MS-C-01` closed at `7a003d68` |
-| Null safety | retained safe accesses call `cgf_safe_check`, whose null case traps before registry lookup | runtime half present; required proven-null compile error is absent (`MS-C-04`) |
+| Null safety | retained safe accesses call `cgf_safe_check`, whose null case traps before registry lookup; lifetime analysis rejects statically proven null accesses and indirect calls | compile-time and runtime halves agree after `MS-C-04` closed at `b1bc4f91` |
 | Integer/pointer casts rejected except the stated `uintptr_t` grammar | `src/sema/safe.c` validates derivation, constant `+`, `-`, `&`, `|`, tag/mask order, integer origin, width, and final cast; 8 accepted and 9 rejected fixtures | mechanism and grammar tests agree |
 | Pointer-overlapping unsafe unions rejected | recursive layout/range comparison in `src/sema/safe.c:620-749`; safe-mode tests cover nested, repeated, huge-array, bitfield, parameter, and system-header cases | mechanism and adversarial fixtures agree |
 | Inline assembly rejected | parser/safe semantic rejection; `reject-asm` fixture | mechanism present |
