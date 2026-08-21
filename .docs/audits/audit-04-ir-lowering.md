@@ -222,18 +222,23 @@ callees mirror those offsets. GCC 16's Linux arm64 control stores the scalar at
 +0 and the pair at +16/+24.
 Affected sprints: 20, 47, 48, 50.
 
-ID: `IR-C-11`
-Title: under-aligned atomic scalar accesses pass IR verification
-Severity: Critical — both native backends rely on naturally aligned scalar
-loads/stores for indivisibility; verifier-accepted weaker alignment can tear
-across a cache-line boundary and silently violate sequential consistency.
-Reproducer: `tests/audit-regressions/ir-c-11.cgfir`
-Root cause: `src/ir/verify.c` rejects over-aligned load/store claims but permits
-under-alignment even when `IRF_SEQ_CST` is set. That is correct for ordinary
-packed accesses but unsound for the backend atomic contract. Direct IR can
-therefore reach x86 and ARM selection with f32, f64, integer, or pointer
-atomics whose declared alignment is below the type's natural alignment.
-Affected sprints: 17, 20, 24, 47.
+~~ID: `IR-C-11`~~
+~~Title: under-aligned atomic scalar accesses pass IR verification~~
+~~Severity: Critical — both native backends rely on naturally aligned scalar~~
+~~loads/stores for indivisibility; verifier-accepted weaker alignment can tear~~
+~~across a cache-line boundary and silently violate sequential consistency.~~
+~~Reproducer: `tests/audit-regressions/ir-c-11.cgfir`~~
+~~Root cause: `src/ir/verify.c` rejects over-aligned load/store claims but permits~~
+~~under-alignment even when `IRF_SEQ_CST` is set. That is correct for ordinary~~
+~~packed accesses but unsound for the backend atomic contract. Direct IR can~~
+~~therefore reach x86 and ARM selection with f32, f64, integer, or pointer~~
+~~atomics whose declared alignment is below the type's natural alignment.~~
+~~Affected sprints: 17, 20, 24, 47.~~
+Resolution: RESOLVED 2026-08-20 by `eb364980`.
+Cluster hunt: covered seq_cst f32, f64, i32, i64, and pointer loads and stores
+on x86-64 and ARM64, plus naturally aligned controls. Ordinary under-aligned
+non-atomic packed accesses remain legal; no separate alignment-contract debt
+was found.
 
 ## Attack-surface dispatch
 

@@ -99,10 +99,11 @@ The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
 cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
 alignment mismatch, at `555fc32a`. `SEMA-C-01` closed at `0eca9832` and
 `SEMA-C-02` closed at `d4d674ec`, and `IR-C-03` closed at `892435be`, so live
-debt is 6/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
+debt is 5/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
 `7a003d68`, and `SEMA-C-08` closed at `bdd523c0`, followed by the `IR-C-11`
 atomic-alignment discovery at `c7d43927` during the `X64-C-01` sibling hunt,
-`IR-C-04` closed at `1b61459a`, and `IR-C-01` closed at `eb528221`.
+`IR-C-04` closed at `1b61459a`, `IR-C-01` closed at `eb528221`, and `IR-C-11`
+closed at `eb364980`.
 One central
 integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -120,6 +121,9 @@ its fix. First Critical lanes are split to avoid shared-file conflicts:
 - `IR-C-04` — RESOLVED at `1b61459a`; declaration-granular VLA checkpoints
   restore the stack across backward gotos, including same-scope and `for`-init
   cases.
+- `IR-C-11` — RESOLVED at `eb364980`; target-neutral verification now rejects
+  under-aligned scalar seq_cst accesses before either backend can rely on an
+  invalid indivisibility guarantee.
 - `X64-C-02` — RESOLVED at `45a9d0dc`; frame sizes and far offsets are
   represented and emitted without 32-bit truncation.
 - `MS-C-01` — RESOLVED at `7a003d68`; the required `-fsafe` diagnostic floor
