@@ -129,7 +129,14 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
             buf_printf(out, "#define __USER_LABEL_PREFIX__\n");
     }
 
-    /* LP64 core-integer subset (all five current targets agree). */
+    /* LP64 core-integer subset (all five current targets agree).
+     *
+     * RT-H-01: long double is the exception among the floating sizes: Apple
+     * stores it as 8-byte binary64 while every other current target stores 16
+     * bytes. Emit the macro from the canonical layout table so preprocessing
+     * and sizeof cannot become two conflicting copies of the target ABI. */
+    TargetLayout layout = cgf_target_layout(t);
+
     buf_printf(out,
                "#define __LP64__ 1\n#define _LP64 1\n"
                "#define __CHAR_BIT__ 8\n"
@@ -138,7 +145,7 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
                "#define __SIZEOF_POINTER__ 8\n#define __SIZEOF_SIZE_T__ 8\n"
                "#define __SIZEOF_PTRDIFF_T__ 8\n#define __SIZEOF_FLOAT__ 4\n"
                "#define __SIZEOF_DOUBLE__ 8\n"
-               "#define __SIZEOF_LONG_DOUBLE__ 16\n"
+               "#define __SIZEOF_LONG_DOUBLE__ %llu\n"
                "#define __SIZEOF_WCHAR_T__ 4\n#define __SIZEOF_WINT_T__ 4\n"
                "#define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__\n"
                "#define __ORDER_LITTLE_ENDIAN__ 1234\n"
@@ -165,7 +172,8 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
                "#define __INTPTR_TYPE__ long int\n"
                "#define __UINTPTR_TYPE__ long unsigned int\n"
                "#define __CHAR16_TYPE__ short unsigned int\n"
-               "#define __CHAR32_TYPE__ unsigned int\n");
+               "#define __CHAR32_TYPE__ unsigned int\n",
+               (unsigned long long)layout.ldbl_size);
 
     /* Sprint 28: the exact-width / least / fast families and the
      * floating-point limits our freestanding <stdint.h>, <limits.h> and

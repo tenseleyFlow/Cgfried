@@ -225,3 +225,32 @@ void test_target_multiarch_is_the_debian_tuple(TestCtx *t)
     spec.kind = CGF_TARGET_X86_64_FREEBSD;
     T_ASSERT(t, cgf_target_multiarch(spec) == NULL);
 }
+
+void test_target_predefines_use_canonical_long_double_size(TestCtx *t)
+{
+    static const struct {
+        TargetKind kind;
+        u64 size;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 16}, {CGF_TARGET_ARM64_LINUX, 16},
+        {CGF_TARGET_ARM64_MACOS, 8},       {CGF_TARGET_X86_64_LINUX_MUSL, 16},
+        {CGF_TARGET_X86_64_FREEBSD, 16},
+    };
+    u32 i;
+
+    T_ASSERT_EQ_INT(t, CGF_ARRAY_LEN(cases), CGF_TARGET_COUNT);
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        TargetSpec spec = {cases[i].kind};
+        TargetLayout layout = cgf_target_layout(spec);
+        char macro[64];
+        Buf predefs;
+
+        T_ASSERT_EQ_INT(t, layout.ldbl_size, cases[i].size);
+        snprintf(macro, sizeof(macro), "#define __SIZEOF_LONG_DOUBLE__ %llu\n",
+                 (unsigned long long)cases[i].size);
+        buf_init(&predefs);
+        cgf_target_predef_lines(spec, false, &predefs);
+        T_ASSERT(t, strstr((const char *)predefs.data, macro) != NULL);
+        buf_free(&predefs);
+    }
+}

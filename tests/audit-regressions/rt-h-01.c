@@ -1,4 +1,4 @@
-// XFAIL(audit): RT-H-01 arm64-macos publishes the wrong long-double size macro
+// RESOLVED(audit): RT-H-01 arm64-macos publishes the wrong long-double size macro
 /* Sprint 60 F10: arm64-macos makes long double identical to double, so the
  * implementation-defined size macro must agree with the type's target ABI.
  *
