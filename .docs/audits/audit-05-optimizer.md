@@ -56,21 +56,25 @@ signed loop step before querying dependences. Ascending/descending unit and
 non-unit matrices, negative distances, multiplication overflow, and the
 `INT64_MIN` conservative path are regression-pinned.
 
-ID: `OPT-H-03`
-Title: loop unrolling loses a live latch block parameter
-Severity: High — valid ISO C triggers an internal compiler error at O3. The
-host compiler and Cgfried O0/O2 execute the reproducer successfully.
-Reproducer: `tests/audit-regressions/opt-h-03.c`
-Root cause: `src/opt/unroll.c:559-575` accepts a two-block loop without
-requiring a parameterless latch. `commit_full` seeds mappings only for header
-parameters at `src/opt/unroll.c:722-724`, then clones the latch with that
-incomplete map at `src/opt/unroll.c:727-730` and removes the original loop at
-`src/opt/unroll.c:753`. A latch parameter carrying the preceding inlined
-result is therefore left unmapped and becomes value id 0 after renumbering.
-The same unchecked shape reaches the partial-unroll path. The durable fixture
-uses an exact-trip full-unroll loop; O2 is the pass-absent control because the
-unroller runs only at O3 and has no independent disable switch.
-Affected sprints: 34, 35.
+~~ID: `OPT-H-03`~~
+~~Title: loop unrolling loses a live latch block parameter~~
+~~Severity: High — valid ISO C triggers an internal compiler error at O3. The~~
+~~host compiler and Cgfried O0/O2 execute the reproducer successfully.~~
+~~Reproducer: `tests/audit-regressions/opt-h-03.c`~~
+~~Root cause: `src/opt/unroll.c:559-575` accepts a two-block loop without~~
+~~requiring a parameterless latch. `commit_full` seeds mappings only for header~~
+~~parameters at `src/opt/unroll.c:722-724`, then clones the latch with that~~
+~~incomplete map at `src/opt/unroll.c:727-730` and removes the original loop at~~
+~~`src/opt/unroll.c:753`. A latch parameter carrying the preceding inlined~~
+~~result is therefore left unmapped and becomes value id 0 after renumbering.~~
+~~The same unchecked shape reaches the partial-unroll path. The durable fixture~~
+~~uses an exact-trip full-unroll loop; O2 is the pass-absent control because the~~
+~~unroller runs only at O3 and has no independent disable switch.~~
+~~Affected sprints: 34, 35.~~
+Resolution: RESOLVED 2026-08-20 by `43b0de28`. Full and factor-four partial
+unrolling now materialize the body edge's latch parameters before every
+serialized clone. Two-parameter permuted, non-commutative chains pin exact
+full, peeled, and grouped operand mappings under the IR verifier.
 
 ~~ID: `OPT-H-04`~~
 ~~Title: correlated pointer selects collapse to a false must-alias proof~~
@@ -166,7 +170,7 @@ license:
 | jump-thread, IPO, inline | condition preservation, linkage/root reachability, ABI/returns-twice constraints | targeted scalar/IPO probes and O2 driver passed |
 | fusion | affine dependence direction and no cross-loop ordering reversal | `OPT-H-02` filed for descending induction |
 | LICM, strength, BCE | loop invariance, overflow/trip proof, bounds range and alias safety | focused drivers plus wrapped/conditional probes passed |
-| unswitch, unroll | cloned CFG/live-parameter mapping and exact-trip safety | `OPT-H-03` filed for an unmapped latch parameter |
+| unswitch, unroll | cloned CFG/live-parameter mapping and exact-trip safety | `OPT-H-03` resolved with explicit latch-edge parameter mapping for full and partial unroll |
 | vectorize | exact constant trip, legal memory independence, reduction/fast-math license | x86 runtime suite and incremental ARM64 IR probe passed; native ARM64 execution remains a separate evidence gap |
 
 ## UB-assumption dispatch
