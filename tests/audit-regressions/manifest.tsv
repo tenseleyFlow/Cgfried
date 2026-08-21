@@ -1,5 +1,5 @@
 # Finding ID	Fixture	State	Title
-PP-H-01	pp-h-01.c	OPEN	mixed-delimiter include_next reuses an incompatible search index
+PP-H-01	pp-h-01.c	PASS	mixed-delimiter include_next reuses an incompatible search index
 PP-M-02	pp-m-02.c	OPEN	dynamic builtins lose their containing macro backtrace
 PP-L-03	pp-l-03.c	OPEN	full macro backtraces stop after 256 frames
 PP-M-04	pp-m-04.c	OPEN	pre-expanded arguments lose their inner macro backtrace

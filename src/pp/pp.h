@@ -19,6 +19,12 @@
 typedef u16 FileId;                       /* 1-based; 0 invalid */
 typedef struct Preprocessor Preprocessor; /* fwd: PpLexer points back */
 
+typedef struct {
+    u64 dev;
+    u64 ino;
+    bool valid;
+} PpDirIdentity;
+
 /* Seam marker: a reachable path a future sprint finishes. Concatenates into
  * the diagnostic string; grep for LANDS_IN_SPRINT to audit all seams. */
 #define LANDS_IN_SPRINT(n) " (lands in Sprint " #n ")"
@@ -48,6 +54,11 @@ typedef struct SourceFile {
      * dedupe, same names in different dirs must not). 0/0 for buffers. */
     u64 st_dev;
     u64 st_ino;
+    /* Lazily cached parent-directory identity. Quote includes repeatedly use
+     * this entry; resolving it once keeps the guard fast path syscall-free. */
+    const char *include_dir;
+    PpDirIdentity include_dir_identity;
+    bool include_dir_ready;
     /* True when phase 1 appended the ISO-required final newline. A
      * backslash immediately before a SYNTHESIZED newline is not a splice
      * (gcc keeps the backslash) — findings row F19. */
@@ -291,12 +302,26 @@ typedef enum {
     GUARD_DISQUALIFIED,
 } GuardState;
 
+typedef enum {
+    PP_SEARCH_NONE,
+    PP_SEARCH_INCLUDER,
+    PP_SEARCH_IQUOTE,
+    PP_SEARCH_INCLUDE,
+    PP_SEARCH_SYSTEM,
+} PpSearchKind;
+
 typedef struct PpFrame {
     PpLexer lx;
     size_t cond_base; /* conditional-stack depth on entry: conditionals may
                          not straddle include boundaries */
-    int found_dir;    /* search-chain index this file was found at
-                         (#include_next resumes after it); -1 = main file */
+    PpSearchKind found_kind; /* stable search-entry identity; unlike a chain
+                                position, survives quote/angle remapping */
+    int found_index;         /* ordinal within found_kind; -1 = no origin */
+    bool search_angled;      /* delimiter shape of the search chain that
+                                located this file; #include_next resumes it */
+    const char *search_includer_dir; /* quote-chain head used to locate this
+                                        file; stable across nested nexts */
+    PpDirIdentity search_includer_identity;
     GuardState guard_state;
     const char *guard_macro; /* candidate (interned) */
     size_t guard_cond;       /* cond-stack index of the guard conditional */
@@ -378,11 +403,14 @@ typedef struct Preprocessor {
 
     /* Include search chains (set up by the driver before pp_begin). */
     const char *iquote_dirs[PP_MAX_DIRS];
+    PpDirIdentity iquote_dir_identities[PP_MAX_DIRS];
     size_t n_iquote;
     const char *include_dirs[PP_MAX_DIRS]; /* -I */
+    PpDirIdentity include_dir_identities[PP_MAX_DIRS];
     size_t n_include;
     const char
         *system_dirs[PP_MAX_DIRS]; /* from TargetSpec; -nostdinc empties */
+    PpDirIdentity system_dir_identities[PP_MAX_DIRS];
     size_t n_system;
 
     Strmap macros;              /* interned name -> MacroDef* */

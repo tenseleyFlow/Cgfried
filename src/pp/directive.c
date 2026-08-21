@@ -20,7 +20,10 @@ static PpFrame *cur_frame(Preprocessor *pp)
     return pp->nframes ? &pp->frames[pp->nframes - 1] : NULL;
 }
 
-static void push_frame(Preprocessor *pp, SourceFile *sf, int found_dir)
+static void push_frame(Preprocessor *pp, SourceFile *sf,
+                       PpSearchKind found_kind, int found_index,
+                       bool search_angled, const char *search_includer_dir,
+                       PpDirIdentity search_includer_identity)
 {
     PpFrame *f;
 
@@ -39,7 +42,11 @@ static void push_frame(Preprocessor *pp, SourceFile *sf, int found_dir)
     memset(f, 0, sizeof(*f));
     pp_lexer_init(&f->lx, pp, sf);
     f->cond_base = pp->nconds;
-    f->found_dir = found_dir;
+    f->found_kind = found_kind;
+    f->found_index = found_index;
+    f->search_angled = search_angled;
+    f->search_includer_dir = search_includer_dir;
+    f->search_includer_identity = search_includer_identity;
 }
 
 static void pop_frame(Preprocessor *pp)
@@ -497,26 +504,138 @@ static const char *dir_of(Preprocessor *pp, const char *path)
     return arena_strndup(pp->arena, path, (size_t)(slash - path));
 }
 
-/* Builds the search chain for one lookup. Chain entries are directories;
- * index 0 is the includer's own dir for the quote form. *sys_start gets
- * the index of the first SYSTEM dir (isystem + builtin) — a hit at or
- * past it classifies the header as system (-MM, warning suppression). */
-static size_t build_chain(Preprocessor *pp, bool angled, const char **chain,
-                          size_t max, size_t *sys_start)
+static PpDirIdentity dir_identity(const char *dir)
+{
+    struct stat st;
+    PpDirIdentity id = {0};
+
+    if (stat(dir, &st) == 0 && S_ISDIR(st.st_mode)) {
+        id.dev = (u64)st.st_dev;
+        id.ino = (u64)st.st_ino;
+        id.valid = true;
+    }
+    return id;
+}
+
+static void source_dir_info(Preprocessor *pp, SourceFile *sf, const char **dir,
+                            PpDirIdentity *identity)
+{
+    if (!sf->include_dir_ready) {
+        sf->include_dir = dir_of(pp, sf->path);
+        sf->include_dir_identity = dir_identity(sf->include_dir);
+        sf->include_dir_ready = true;
+    }
+    *dir = sf->include_dir;
+    *identity = sf->include_dir_identity;
+}
+
+static void prepare_configured_dir_identities(Preprocessor *pp)
+{
+    size_t i;
+
+    for (i = 0; i < pp->n_iquote; i++)
+        pp->iquote_dir_identities[i] = dir_identity(pp->iquote_dirs[i]);
+    for (i = 0; i < pp->n_include; i++)
+        pp->include_dir_identities[i] = dir_identity(pp->include_dirs[i]);
+    for (i = 0; i < pp->n_system; i++)
+        pp->system_dir_identities[i] = dir_identity(pp->system_dirs[i]);
+}
+
+/* Builds the search chain for one lookup. Chain entries are directory
+ * identities, not just path spellings: command-line aliases of one directory
+ * are searched once while retaining every option identity that names it. */
+typedef struct {
+    const char *dir;
+    PpSearchKind kind;
+    int index;
+    int identity_index[PP_SEARCH_SYSTEM + 1];
+    PpDirIdentity identity;
+    bool is_system;
+} PpSearchDir;
+
+static void chain_append(PpSearchDir *chain, size_t *n, size_t max,
+                         const char *dir, PpSearchKind kind, int index,
+                         bool is_system, PpDirIdentity identity)
+{
+    size_t i;
+
+    if (*n >= max)
+        return;
+    /* GCC searches a directory once even when the command line repeats it,
+     * spells it through lexical/absolute/symlink aliases, or lists it in
+     * multiple option classes. First occurrence fixes priority; all option
+     * identities and system classification are retained. */
+    for (i = 0; i < *n; i++) {
+        bool same = identity.valid && chain[i].identity.valid
+                        ? chain[i].identity.dev == identity.dev &&
+                              chain[i].identity.ino == identity.ino
+                        : strcmp(chain[i].dir, dir) == 0;
+
+        if (same) {
+            if (chain[i].identity_index[kind] < 0)
+                chain[i].identity_index[kind] = index;
+            /* The implicit source-adjacent entry wins quote lookup before
+             * configured directories. An aliasing -isystem entry must not
+             * retroactively turn that local include into a system header. */
+            if (chain[i].kind != PP_SEARCH_INCLUDER)
+                chain[i].is_system |= is_system;
+            return;
+        }
+    }
+    memset(&chain[*n], 0, sizeof(chain[*n]));
+    chain[*n].dir = dir;
+    chain[*n].kind = kind;
+    chain[*n].index = index;
+    chain[*n].identity = identity;
+    chain[*n].is_system = is_system;
+    for (i = 0; i < CGF_ARRAY_LEN(chain[*n].identity_index); i++)
+        chain[*n].identity_index[i] = -1;
+    chain[*n].identity_index[kind] = index;
+    (*n)++;
+}
+
+static size_t build_chain(Preprocessor *pp, bool angled,
+                          const char *includer_dir,
+                          PpDirIdentity includer_identity, PpSearchDir *chain,
+                          size_t max)
 {
     size_t n = 0, i;
 
     if (!angled) {
-        chain[n++] = dir_of(pp, cur_frame(pp)->lx.sf->path);
+        chain_append(chain, &n, max, includer_dir, PP_SEARCH_INCLUDER, 0, false,
+                     includer_identity);
         for (i = 0; i < pp->n_iquote && n < max; i++)
-            chain[n++] = pp->iquote_dirs[i];
+            chain_append(chain, &n, max, pp->iquote_dirs[i], PP_SEARCH_IQUOTE,
+                         (int)i, false, pp->iquote_dir_identities[i]);
     }
     for (i = 0; i < pp->n_include && n < max; i++)
-        chain[n++] = pp->include_dirs[i];
-    *sys_start = n;
+        chain_append(chain, &n, max, pp->include_dirs[i], PP_SEARCH_INCLUDE,
+                     (int)i, false, pp->include_dir_identities[i]);
     for (i = 0; i < pp->n_system && n < max; i++)
-        chain[n++] = pp->system_dirs[i];
+        chain_append(chain, &n, max, pp->system_dirs[i], PP_SEARCH_SYSTEM,
+                     (int)i, true, pp->system_dir_identities[i]);
     return n;
+}
+
+static size_t include_next_start(const PpFrame *frame, const PpSearchDir *chain,
+                                 size_t n)
+{
+    size_t i;
+
+    /* PP-H-01: resume by stable search-entry identity. The caller rebuilds
+     * the same effective chain that located the current frame. */
+    if (!frame || frame->found_kind == PP_SEARCH_NONE)
+        return 0;
+    for (i = 0; i < n; i++)
+        if (chain[i].identity_index[frame->found_kind] == frame->found_index)
+            return i + 1;
+    /* Configured identities and a frame's saved original chain are immutable
+     * for the TU, and the fixed chain buffer holds every possible entry. A
+     * miss therefore means internal state corruption; restarting at zero
+     * would silently recreate the include_next search-origin bug. */
+    CGF_ICE("pp: #include_next origin missing from reconstructed chain "
+            "(kind=%d index=%d)",
+            (int)frame->found_kind, frame->found_index);
 }
 
 static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name,
@@ -594,11 +713,18 @@ static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name,
 static void do_include(Preprocessor *pp, const char *name, bool angled,
                        bool is_next, SrcLoc loc)
 {
-    const char *chain[2 + 3 * PP_MAX_DIRS];
-    size_t n, start = 0, i, sys_start;
+    PpSearchDir chain[2 + 3 * PP_MAX_DIRS];
+    size_t n, start = 0, i;
     SourceFile *sf = NULL;
     int found = -1;
     bool once_skipped = false;
+    bool search_angled = angled;
+    const char *search_includer_dir = NULL;
+    PpDirIdentity search_includer_identity = {0};
+
+    if (!angled)
+        source_dir_info(pp, cur_frame(pp)->lx.sf, &search_includer_dir,
+                        &search_includer_identity);
 
     if (pp->nframes >= PP_INCLUDE_DEPTH_MAX) {
         pp_diag_at(pp, DIAG_FATAL, loc, 1,
@@ -608,18 +734,24 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
         return;
     }
 
-    n = build_chain(pp, angled, chain, CGF_ARRAY_LEN(chain), &sys_start);
     if (is_next) {
         /* GNU #include_next: resume AFTER the dir the current file was
          * found in (glibc's own headers require this). Pedwarn hook is
-         * Sprint 37. Main file (found_dir -1) searches from the start. */
-        start = (size_t)(cur_frame(pp)->found_dir + 1);
-        if (start > n)
-            start = n;
+         * Sprint 37. A frame with no search origin starts at the front. */
+        if (cur_frame(pp)->found_kind != PP_SEARCH_NONE) {
+            search_angled = cur_frame(pp)->search_angled;
+            search_includer_dir = cur_frame(pp)->search_includer_dir;
+            search_includer_identity = cur_frame(pp)->search_includer_identity;
+        }
+    }
+    n = build_chain(pp, search_angled, search_includer_dir,
+                    search_includer_identity, chain, CGF_ARRAY_LEN(chain));
+    if (is_next) {
+        start = include_next_start(cur_frame(pp), chain, n);
     }
 
     for (i = start; i < n; i++) {
-        sf = try_open(pp, chain[i], name, &once_skipped);
+        sf = try_open(pp, chain[i].dir, name, &once_skipped);
         if (sf || once_skipped) {
             found = (int)i;
             break;
@@ -646,7 +778,7 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
         fprintf(stderr, "#include %c%s%c search starts here:\n",
                 angled ? '<' : '"', name, angled ? '>' : '"');
         for (i = start; i < n; i++)
-            fprintf(stderr, " %s\n", chain[i]);
+            fprintf(stderr, " %s\n", chain[i].dir);
         fprintf(stderr, "End of search list.\n");
     }
 
@@ -661,8 +793,10 @@ static void do_include(Preprocessor *pp, const char *name, bool angled,
      * header's own quote-form includes). Absolute paths (found -1) only
      * inherit. */
     sf->is_system =
-        (found >= 0 && (size_t)found >= sys_start) || pp_loc_is_system(pp, loc);
-    push_frame(pp, sf, found);
+        (found >= 0 && chain[found].is_system) || pp_loc_is_system(pp, loc);
+    push_frame(pp, sf, found >= 0 ? chain[found].kind : PP_SEARCH_NONE,
+               found >= 0 ? chain[found].index : -1, search_angled,
+               search_includer_dir, search_includer_identity);
 }
 
 static void directive_include(Preprocessor *pp, SrcLoc dloc, bool is_next)
@@ -1465,14 +1599,16 @@ static void pragma_operator(Preprocessor *pp, const PpToken *op)
 void pp_begin(Preprocessor *pp, SourceFile *main_file, SourceFile *cmdline)
 {
     SourceFile *builtin;
+    PpDirIdentity no_identity = {0};
 
     pp->main_file = main_file;
-    push_frame(pp, main_file, -1);
+    prepare_configured_dir_identities(pp);
+    push_frame(pp, main_file, PP_SEARCH_NONE, -1, false, NULL, no_identity);
     if (cmdline)
-        push_frame(pp, cmdline, -1);
+        push_frame(pp, cmdline, PP_SEARCH_NONE, -1, false, NULL, no_identity);
     /* Topmost = processed first: builtins, then -D/-U, then the TU. */
     builtin = pp_predefine_all(pp);
-    push_frame(pp, builtin, -1);
+    push_frame(pp, builtin, PP_SEARCH_NONE, -1, false, NULL, no_identity);
 }
 
 void pp_end(Preprocessor *pp)
