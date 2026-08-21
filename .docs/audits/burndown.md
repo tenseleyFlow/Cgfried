@@ -15,3 +15,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `7a003d68` | `MS-C-01` immutable safe-diagnostic-floor repair | 8 | 20 | 16 | 2 | 46 |
 | 2026-08-20 | `bdd523c0` | `SEMA-C-08` unnamed AAPCS64 bitfield-alignment repair | 7 | 20 | 16 | 2 | 45 |
 | 2026-08-20 | `c7d43927` | `IR-C-11` discovered by the `X64-C-01` sibling hunt | 8 | 20 | 16 | 2 | 46 |
+| 2026-08-20 | `1b61459a` | `IR-C-04` backward-goto VLA lifetime repair | 7 | 20 | 16 | 2 | 45 |

@@ -79,21 +79,26 @@ Cluster hunt: covered prefix, postfix, `+=`, and `-=` pointer updates over
 fixed-size and variably modified pointees; every case now scales before one
 seq_cst `atomicrmw`, with result-value semantics checked at O0 through O3.
 
-ID: `IR-C-04`
-Title: backward goto before a VLA declaration leaks stack space
-Severity: Critical — wrong code is emitted for valid C: every loop iteration
-retains the previous dynamic allocation and sufficiently many iterations
-exhaust the stack.
-Reproducer: `tests/audit-regressions/ir-c-04.c`
-Root cause: the label pre-pass records only the innermost VLA-bearing compound
-for each label (`src/lower/lower.c:828-852`). A label before a VLA declaration
-and the declaration itself share one compound, but the identifier's scope does
-not begin until its declarator completes. `vla_restore_for_goto` therefore
-stops immediately at the shared compound (`src/lower/stmt.c:133-150`) and emits
-no `stackrestore` on the backward edge. GCC 16 and Clang 22 both accept the
-C17 fixture. Cgfried's IR visibly contains `stacksave`, dynamic `alloca`, and
-`br L.again()` with no restore between them.
-Affected sprint: 20.
+~~ID: `IR-C-04`~~
+~~Title: backward goto before a VLA declaration leaks stack space~~
+~~Severity: Critical — wrong code is emitted for valid C: every loop iteration~~
+~~retains the previous dynamic allocation and sufficiently many iterations~~
+~~exhaust the stack.~~
+~~Reproducer: `tests/audit-regressions/ir-c-04.c`~~
+~~Root cause: the label pre-pass records only the innermost VLA-bearing compound~~
+~~for each label (`src/lower/lower.c:828-852`). A label before a VLA declaration~~
+~~and the declaration itself share one compound, but the identifier's scope does~~
+~~not begin until its declarator completes. `vla_restore_for_goto` therefore~~
+~~stops immediately at the shared compound (`src/lower/stmt.c:133-150`) and emits~~
+~~no `stackrestore` on the backward edge. GCC 16 and Clang 22 both accept the~~
+~~C17 fixture. Cgfried's IR visibly contains `stacksave`, dynamic `alloca`, and~~
+~~`br L.again()` with no restore between them.~~
+~~Affected sprint: 20.~~
+Resolution: RESOLVED 2026-08-20 by `1b61459a`.
+Cluster hunt: covered backward and forward gotos across same and nested
+compounds, multiple labels and VLA declarations, and VLA declarations in
+`for` initializers. Label boundaries now retain declaration-granular stack
+checkpoints, and no separate VLA lifetime debt was found.
 
 ID: `IR-H-05`
 Title: volatile aggregate sources lose their access marker
