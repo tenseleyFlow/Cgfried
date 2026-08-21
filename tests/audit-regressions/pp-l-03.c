@@ -1,4 +1,4 @@
-// XFAIL(audit): PP-L-03 full macro backtraces stop after 256 frames
+// RESOLVED(audit): PP-L-03 full macro backtraces stop after 256 frames
 #define TRACE_BAD 09
 #define TRACE_000 TRACE_001
 #define TRACE_001 TRACE_002

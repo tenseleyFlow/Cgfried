@@ -65,10 +65,13 @@ static size_t expansion_depth(const LocTable *t, SrcLoc loc, SrcLoc *terminal)
     size_t n = 0;
 
     while (loc != SRCLOC_INVALID && pp_loc_is_expansion(t, loc)) {
+        if (n == t->len)
+            CGF_ICE("cyclic preprocessor expansion location chain");
         n++;
         loc = pp_loc_expansion_parent(t, loc);
     }
-    *terminal = loc;
+    if (terminal)
+        *terminal = loc;
     return n;
 }
 
@@ -297,20 +300,25 @@ Span pp_span(Preprocessor *pp, SrcLoc loc, u32 len)
 
 static void emit_expansion_chain(Preprocessor *pp, SrcLoc loc)
 {
-    SrcLoc frames[256];
-    const char *seen[256];
-    size_t nframes = 0, nseen = 0, i;
+    SrcLoc *frames;
+    const char **seen;
+    size_t nframes, nseen = 0, i;
     bool full = cgf_env("CGF_DIAG_FULL_BACKTRACE") != NULL;
     size_t head, tail;
 
-    for (; loc != SRCLOC_INVALID && pp_loc_is_expansion(&pp->loc, loc);
-         loc = pp_loc_expansion_parent(&pp->loc, loc)) {
-        if (nframes == CGF_ARRAY_LEN(frames))
-            break;
-        frames[nframes++] = loc;
-    }
+    nframes = expansion_depth(&pp->loc, loc, NULL);
     if (nframes == 0)
         return;
+    /* PP-L-03: full backtraces must cover every valid expansion rather than
+     * silently truncating at a fixed scratch-array size. The location table
+     * bounds the exact-depth allocations, and allocation failure follows the
+     * compiler's fail-closed OOM policy. */
+    if (nframes > SIZE_MAX / sizeof(*frames) ||
+        nframes > SIZE_MAX / sizeof(*seen))
+        CGF_ICE("preprocessor expansion backtrace is too deep");
+    frames = cgf_xmalloc(nframes * sizeof(*frames));
+    seen = cgf_xmalloc(nframes * sizeof(*seen));
+    collect_expansions(&pp->loc, loc, frames, nframes);
 
     head = nframes;
     tail = 0;
@@ -349,14 +357,15 @@ static void emit_expansion_chain(Preprocessor *pp, SrcLoc loc)
                     dup = true;
             if (dup)
                 continue;
-            if (nseen < CGF_ARRAY_LEN(seen))
-                seen[nseen++] = name;
+            seen[nseen++] = name;
         }
         def = pp_loc_macro_def(&pp->loc, frames[i]);
         if (def != SRCLOC_INVALID)
             diag_emit(pp->diag, DIAG_NOTE, pp_span(pp, def, (u32)strlen(name)),
                       "macro '%s' defined here", name);
     }
+    free(seen);
+    free(frames);
 }
 
 void pp_diag_at(Preprocessor *pp, DiagLevel lvl, SrcLoc loc, u32 len,

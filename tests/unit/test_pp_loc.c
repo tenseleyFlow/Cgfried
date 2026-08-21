@@ -1,5 +1,41 @@
+#include <stdlib.h>
+
 #include "pp/pp.h"
 #include "unit.h"
+#include "util/arena.h"
+
+typedef struct {
+    int expansions;
+    int definitions;
+    int elisions;
+} BacktraceCapture;
+
+static void backtrace_sink(void *user, const Diag *d, const DiagCtx *dc)
+{
+    BacktraceCapture *cap = user;
+
+    (void)dc;
+    if (d->level != DIAG_NOTE)
+        return;
+    if (strstr(d->message, "in expansion of macro"))
+        cap->expansions++;
+    else if (strstr(d->message, "defined here"))
+        cap->definitions++;
+    else if (strstr(d->message, "(skipped "))
+        cap->elisions++;
+}
+
+static void emit_deep_backtrace(Preprocessor *pp, size_t depth)
+{
+    SrcLoc spell = pp_loc_file(&pp->loc, 1, 1, 1);
+    SrcLoc use = pp_loc_file(&pp->loc, 1, 2, 1);
+    SrcLoc loc = use;
+    size_t i;
+
+    for (i = 0; i < depth; i++)
+        loc = pp_loc_expansion(&pp->loc, spell, loc, "DEEP", spell);
+    pp_diag_at(pp, DIAG_ERROR, loc, 1, "deep expansion diagnostic");
+}
 
 void test_pp_loc_file_roundtrip(TestCtx *t)
 {
@@ -90,4 +126,53 @@ void test_pp_loc_graft_expansion_chain(TestCtx *t)
     T_ASSERT_EQ_INT(t, col, 5);
     T_ASSERT(t, pp_loc_expansion_parent(&lt, grafted) == call);
     pp_loc_free(&lt);
+}
+
+void test_pp_loc_backtrace_depth_policy(TestCtx *t)
+{
+    Arena arena;
+    Interner in;
+    Preprocessor pp;
+    BacktraceCapture cap;
+    DiagCtx *dc;
+    const char *old_env = getenv("CGF_DIAG_FULL_BACKTRACE");
+    char *saved_env = NULL;
+    const size_t depth = 300;
+
+    if (old_env) {
+        saved_env = cgf_xmalloc(strlen(old_env) + 1);
+        strcpy(saved_env, old_env);
+    }
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    diag_set_sink(dc, (DiagSink){backtrace_sink, &cap});
+    intern_init(&in, &arena);
+    pp_init(&pp, &arena, dc, &in);
+
+    memset(&cap, 0, sizeof(cap));
+    setenv("CGF_DIAG_FULL_BACKTRACE", "1", 1);
+    emit_deep_backtrace(&pp, depth);
+    T_ASSERT_EQ_INT(t, cap.expansions, depth);
+    T_ASSERT_EQ_INT(t, cap.definitions, 1);
+    T_ASSERT_EQ_INT(t, cap.elisions, 0);
+
+    memset(&cap, 0, sizeof(cap));
+    unsetenv("CGF_DIAG_FULL_BACKTRACE");
+    emit_deep_backtrace(&pp, depth);
+    T_ASSERT_EQ_INT(t, cap.expansions, 7);
+    T_ASSERT_EQ_INT(t, cap.definitions, 1);
+    T_ASSERT_EQ_INT(t, cap.elisions, 1);
+
+    if (saved_env)
+        setenv("CGF_DIAG_FULL_BACKTRACE", saved_env, 1);
+    else
+        unsetenv("CGF_DIAG_FULL_BACKTRACE");
+    free(saved_env);
+
+    pp_end(&pp);
+    intern_free(&in);
+    pp_loc_free(&pp.loc);
+    strmap_free(&pp.macros);
+    arena_free_all(&arena);
 }
