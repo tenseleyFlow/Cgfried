@@ -1244,7 +1244,8 @@ bool ir_verify_report(DiagCtx *dc, const IrModule *m, char *why, size_t why_cap)
                      "global @%s reloc %u references symbol %u; "
                      "module has %u",
                      g->name, j, g->relocs[j].symbol, m->nsyms);
-            if (g->relocs[j].offset + 8 > g->size)
+            if (g->relocs[j].offset > g->size ||
+                g->size - g->relocs[j].offset < 8)
                 verr(&v, 9,
                      "global @%s reloc %u at offset %llu does not "
                      "fit in %llu bytes",

@@ -1,0 +1,3 @@
+// ERROR_EXPECTED: global @holder reloc 0 at offset 18446744073709551615 does not fit in 8 bytes
+global @target size 8 align 8 external
+global @holder size 8 align 8 external init x0000000000000000 reloc 18446744073709551615 @target 0

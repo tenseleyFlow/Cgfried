@@ -780,6 +780,52 @@ void test_ir_verify_check9_refs(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_ir_verify_relocation_bounds_no_wrap(TestCtx *t)
+{
+    typedef struct Row {
+        u64 size;
+        u64 offset;
+        bool valid;
+    } Row;
+    static const Row rows[] = {
+        {8, 0, true},
+        {9, 1, true},
+        {16, 8, true},
+        {8, 1, false},
+        {8, 8, false},
+        {7, 0, false},
+        {0, 0, false},
+        {UINT64_MAX, UINT64_MAX - 8, true},
+        {UINT64_MAX, UINT64_MAX - 7, false},
+        {8, UINT64_MAX, false},
+    };
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(rows); i++) {
+        VFix f;
+        IrModule *m;
+        char source[256];
+        bool valid;
+
+        vfix_init(&f);
+        (void)snprintf(source, sizeof(source),
+                       "global @target size 8 align 8 external\n"
+                       "global @holder size %llu align 8 external "
+                       "reloc %llu @target 0\n",
+                       (unsigned long long)rows[i].size,
+                       (unsigned long long)rows[i].offset);
+        m = ir_parse_module(&f.arena, f.dc, source, "<reloc-bounds>");
+        T_ASSERT(t, m != NULL);
+        valid = m && ir_verify(f.dc, m);
+        T_ASSERT_EQ_INT(t, valid, rows[i].valid);
+        if (!rows[i].valid) {
+            T_ASSERT(t, fired(&f, 9));
+            T_ASSERT(t, strstr(f.msgs[0], "does not fit") != NULL);
+        }
+        arena_free_all(&f.arena);
+    }
+}
+
 void test_ir_verify_check10_reserved(TestCtx *t)
 {
     VFix f;
