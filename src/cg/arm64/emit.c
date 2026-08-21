@@ -423,17 +423,61 @@ static bool sym_defined_here(const Emit *e, const char *name)
     return false;
 }
 
-/* An addend applied AFTER a GOT load, where it cannot ride the relocation.
- * `add`/`sub` take a 12-bit immediate, optionally shifted left by 12, so two
- * instructions cover +/- 16MiB; no C object offset comes close. */
-static void emit_addr_addend(Emit *e, const char *reg, i64 addend)
+/* x12/x13 are withheld from allocation for post-allocation expansions. An
+ * address pseudo is one MIR instruction, so its expansion cannot overlap an
+ * atomic pseudo's use of the same pair. Keep an alternate because direct MIR
+ * tests and future backend precolors may name either register as the address
+ * destination; the materialization scratch must never alias that destination.
+ */
+static A64PhysReg addr_addend_scratch(A64Reg dest)
 {
+    return dest.physical && dest.id == (u32)A64_X12 + 1 ? A64_X13 : A64_X12;
+}
+
+static void emit_addr_addend_reg(Emit *e, A64PhysReg scratch, u64 value)
+{
+    A64MovSynth synth[4];
+    const char *reg = a64_phys_name(scratch, A64_SF64);
+    u32 i, n = a64_synth_mov(value, synth);
+
+    for (i = 0; i < n; i++) {
+        const A64MovSynth *part = &synth[i];
+
+        if (part->kind == A64_MOV_ORR) {
+            buf_printf(e->out, "\torr\t%s, xzr, #0x%llx\n", reg,
+                       (unsigned long long)value);
+            continue;
+        }
+        buf_printf(e->out, "\t%s\t%s, #%u",
+                   part->kind == A64_MOV_MOVN   ? "movn"
+                   : part->kind == A64_MOV_MOVZ ? "movz"
+                                                : "movk",
+                   reg, part->imm16);
+        if (part->shift)
+            buf_printf(e->out, ", lsl #%u", part->shift);
+        buf_printf(e->out, "\n");
+    }
+}
+
+/* An addend applied AFTER a materialized base address, where it cannot ride
+ * the relocation. `add`/`sub` take a 12-bit immediate, optionally shifted
+ * left by 12. Retain that one/two-instruction fast path through +/-0xffffff;
+ * arbitrary signed addends use one reserved scratch plus register-form
+ * add/sub. */
+static void emit_addr_addend(Emit *e, A64Reg dest, i64 addend)
+{
+    const char *reg = rn(dest, A64_SF64);
     const char *op = addend < 0 ? "sub" : "add";
     u64 mag = addend < 0 ? (u64)(-(addend + 1)) + 1u : (u64)addend;
 
-    if (mag >> 24)
-        CGF_ICE("arm64 emit: address addend %lld does not fit two adds",
-                (long long)addend);
+    if (mag >> 24) {
+        A64PhysReg scratch = addr_addend_scratch(dest);
+        const char *scratch_name = a64_phys_name(scratch, A64_SF64);
+
+        emit_addr_addend_reg(e, scratch, mag);
+        buf_printf(e->out, "\t%s\t%s, %s, %s\n", op, reg, reg, scratch_name);
+        return;
+    }
     if (mag & 0xfffu)
         buf_printf(e->out, "\t%s\t%s, %s, #%llu\n", op, reg, reg,
                    (unsigned long long)(mag & 0xfffu));
@@ -497,7 +541,7 @@ static void emit_addr(Emit *e, const A64Inst *in)
             buf_printf(e->out, "\tldr\t%s, [%s, %s@GOTPAGEOFF]\n", reg, reg,
                        sym);
             if (addend[0])
-                emit_addr_addend(e, reg, in->ops[2].imm);
+                emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
             return;
         }
         buf_printf(e->out, "\tadrp\t%s, %s@PAGE%s\n", reg, sym, addend);
@@ -523,7 +567,7 @@ static void emit_addr(Emit *e, const A64Inst *in)
             buf_printf(e->out, "\tldr\t%s, [%s, #:got_lo12:%s]\n", reg, reg,
                        sym);
             if (addend[0])
-                emit_addr_addend(e, reg, in->ops[2].imm);
+                emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
             return;
         }
     }
@@ -938,9 +982,14 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb, u32 bi, u32 at)
                    reg, sym);
         buf_printf(e->out, "\tadd\t%s, %s, #:tprel_lo12_nc:%s\n", reg, reg,
                    sym);
+        /* A64-H-02: a folded object offset is applied after the TLS
+         * relocation pair, but it is still constrained by A64's add/sub
+         * immediate encoding. Reuse the address-addend splitter so small
+         * offsets retain their one-instruction form while large and negative
+         * offsets remain assemblable without changing TLS relocation
+         * semantics. */
         if (in->nops > 2 && in->ops[2].imm)
-            buf_printf(e->out, "\tadd\t%s, %s, #%lld\n", reg, reg,
-                       (long long)in->ops[2].imm);
+            emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
         return;
     }
     case A64_OP_CALL:

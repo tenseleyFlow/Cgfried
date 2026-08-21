@@ -880,6 +880,109 @@ void test_a64_emit_tentative_tls_is_not_common(TestCtx *t)
     T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
 }
 
+void test_a64_emit_tls_addends_are_encodable(TestCtx *t)
+{
+    static const i64 addends[] = {
+        0,         4095,      4096,      5000,       -5000,
+        0xffffff,  -0xffffff, 0x1000000, -0x1000000, 0x0123456789abcdef,
+        INT64_MAX, INT64_MIN};
+    static const A64PhysReg regs[] = {A64_X0, A64_X1,  A64_X2,  A64_X3,
+                                      A64_X4, A64_X5,  A64_X6,  A64_X7,
+                                      A64_X8, A64_X11, A64_X12, A64_X13};
+    const char *syms[] = {"tls_object", "external_arena"};
+    IrModule module = {.syms = syms, .nsyms = CGF_ARRAY_LEN(syms)};
+    TargetSpec previous = cgf_target_selected();
+    Arena arena;
+    A64Block block = {0};
+    A64Func func = {0};
+    Buf text;
+    u32 i;
+
+    T_ASSERT(t, cgf_target_select("arm64-linux"));
+    arena_init(&arena);
+    func.name = "tls_addends";
+    func.arena = &arena;
+    func.blocks = &block;
+    func.nblocks = 1;
+    func.allocated = true;
+    for (i = 0; i < CGF_ARRAY_LEN(addends); i++) {
+        A64Inst addr = {.op = A64_OP_TLSADDR, .sf = A64_SF64, .nops = 3};
+
+        addr.ops[0] = (A64Operand){.kind = A64O_REG, .reg = a64_phys(regs[i])};
+        addr.ops[1] = (A64Operand){.kind = A64O_SYM, .id = 1};
+        addr.ops[2] = (A64Operand){.kind = A64O_IMM, .imm = addends[i]};
+        a64_block_append(&func, &block, addr);
+    }
+    for (i = 0; i < 2; i++) {
+        A64Inst addr = {.op = A64_OP_ADDR, .sf = A64_SF64, .nops = 3};
+
+        addr.ops[0] =
+            (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X9 + i)};
+        addr.ops[1] = (A64Operand){.kind = A64O_SYM, .id = 2};
+        addr.ops[2] =
+            (A64Operand){.kind = A64O_IMM, .imm = i ? -0x1000000 : 0x1000000};
+        a64_block_append(&func, &block, addr);
+    }
+
+    buf_init(&text);
+    a64_emit_set_pic(A64_PIC_FULL);
+    a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
+    a64_emit_set_pic(A64_PIC_NONE);
+    buf_push_u8(&text, 0);
+
+    T_ASSERT(t,
+             strstr((const char *)text.data, "\tadd\tx1, x1, #4095\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadd\tx2, x2, #1, lsl #12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadd\tx3, x3, #904\n"
+                       "\tadd\tx3, x3, #1, lsl #12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tsub\tx4, x4, #904\n"
+                       "\tsub\tx4, x4, #1, lsl #12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadd\tx5, x5, #4095\n"
+                       "\tadd\tx5, x5, #4095, lsl #12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tsub\tx6, x6, #4095\n"
+                       "\tsub\tx6, x6, #4095, lsl #12\n") != NULL);
+    T_ASSERT(t,
+             strstr((const char *)text.data, "\torr\tx12, xzr, #0x1000000\n"
+                                             "\tadd\tx7, x7, x12\n") != NULL);
+    T_ASSERT(t,
+             strstr((const char *)text.data, "\torr\tx12, xzr, #0x1000000\n"
+                                             "\tsub\tx8, x8, x12\n") != NULL);
+    T_ASSERT(t,
+             strstr((const char *)text.data, "\tmovz\tx12, #52719\n"
+                                             "\tmovk\tx12, #35243, lsl #16\n"
+                                             "\tmovk\tx12, #17767, lsl #32\n"
+                                             "\tmovk\tx12, #291, lsl #48\n"
+                                             "\tadd\tx11, x11, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\torr\tx13, xzr, #0x7fffffffffffffff\n"
+                       "\tadd\tx12, x12, x13\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\torr\tx12, xzr, #0x8000000000000000\n"
+                       "\tsub\tx13, x13, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx9, :got:external_arena\n"
+                       "\tldr\tx9, [x9, #:got_lo12:external_arena]\n"
+                       "\torr\tx12, xzr, #0x1000000\n"
+                       "\tadd\tx9, x9, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx10, :got:external_arena\n"
+                       "\tldr\tx10, [x10, #:got_lo12:external_arena]\n"
+                       "\torr\tx12, xzr, #0x1000000\n"
+                       "\tsub\tx10, x10, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "#5000") == NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "x12, x12, x12") == NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "x13, x13, x13") == NULL);
+
+    buf_free(&text);
+    arena_free_all(&arena);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
+}
+
 void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
 {
     Arena arena;

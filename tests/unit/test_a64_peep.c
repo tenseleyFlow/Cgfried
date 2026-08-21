@@ -518,12 +518,12 @@ void test_a64_peep_post_ra_keeps_out_of_range_layout_inversion(TestCtx *t)
     arena_free_all(&a);
 }
 
-static void append_layout_tbz(A64Func *f)
+static void append_layout_bit_branch(A64Func *f, u16 op)
 {
     A64Inst branch;
 
     memset(&branch, 0, sizeof(branch));
-    branch.op = A64_OP_TBZ;
+    branch.op = op;
     branch.sf = A64_SF64;
     branch.nops = 4;
     branch.ops[0] = treg(a64_phys(A64_X0));
@@ -533,10 +533,11 @@ static void append_layout_tbz(A64Func *f)
     a64_block_append(f, &f->blocks[0], branch);
 }
 
-static void assert_layout_tbz_unchanged(TestCtx *t, const A64Func *f)
+static void assert_layout_bit_branch_unchanged(TestCtx *t, const A64Func *f,
+                                               u16 op)
 {
     T_ASSERT_EQ_INT(t, f->blocks[0].n, 1);
-    T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].op, A64_OP_TBZ);
+    T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].op, op);
     T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].ops[2].id, 2);
     T_ASSERT_EQ_INT(t, f->blocks[0].insts[0].ops[3].id, 4);
 }
@@ -550,44 +551,47 @@ void test_a64_peep_layout_range_accounts_for_emission_pseudos(TestCtx *t)
 
     arena_init(&a);
 
-    /* ADDR and TLSADDR are indivisible MIR pseudos, but each can emit four
-     * instructions.  Counting them as one would incorrectly move the far
-     * edge of this TBZ into its signed imm14 field. */
+    /* ADDR's former 16-byte estimate puts 1170 pseudos plus the branch at
+     * 18732 bytes, apparently inside TBZ's +32764 limit. The real 28-byte
+     * worst case reaches 32772, so layout inversion must be declined. */
     init_func(&f, &a, 4);
-    append_layout_tbz(&f);
+    append_layout_bit_branch(&f, A64_OP_TBZ);
     memset(&pad, 0, sizeof(pad));
     pad.op = A64_OP_ADDR;
-    for (i = 0; i < 2048; i++)
+    for (i = 0; i < 1170; i++)
         a64_block_append(&f, &f.blocks[2], pad);
     T_ASSERT(t, !a64_peep_post_ra(&f));
-    assert_layout_tbz_unchanged(t, &f);
+    assert_layout_bit_branch_unchanged(t, &f, A64_OP_TBZ);
 
+    /* TLSADDR's former 16-byte estimate likewise puts 1024 pseudos at only
+     * 16396 bytes including the branch. Its real 32-byte maximum reaches
+     * 32780, just beyond TBNZ's range. Exercise the inverse opcode too. */
     init_func(&f, &a, 4);
-    append_layout_tbz(&f);
+    append_layout_bit_branch(&f, A64_OP_TBNZ);
     pad.op = A64_OP_TLSADDR;
-    for (i = 0; i < 2048; i++)
+    for (i = 0; i < 1024; i++)
         a64_block_append(&f, &f.blocks[2], pad);
     T_ASSERT(t, !a64_peep_post_ra(&f));
-    assert_layout_tbz_unchanged(t, &f);
+    assert_layout_bit_branch_unchanged(t, &f, A64_OP_TBNZ);
 
     /* CAS emits seven instructions on the Armv8.0 LL/SC path. */
     init_func(&f, &a, 4);
-    append_layout_tbz(&f);
+    append_layout_bit_branch(&f, A64_OP_TBZ);
     pad.op = A64_OP_ATOMIC_CAS;
     for (i = 0; i < 1170; i++)
         a64_block_append(&f, &f.blocks[2], pad);
     T_ASSERT(t, !a64_peep_post_ra(&f));
-    assert_layout_tbz_unchanged(t, &f);
+    assert_layout_bit_branch_unchanged(t, &f, A64_OP_TBZ);
 
     /* Inline asm is copied verbatim and has no finite MIR-side size bound.
      * Its presence makes layout inversion unprovable even for a short text
      * template, so the conservative answer is always to retain the branch. */
     init_func(&f, &a, 4);
-    append_layout_tbz(&f);
+    append_layout_bit_branch(&f, A64_OP_TBZ);
     pad.op = A64_OP_ASM;
     a64_block_append(&f, &f.blocks[2], pad);
     T_ASSERT(t, !a64_peep_post_ra(&f));
-    assert_layout_tbz_unchanged(t, &f);
+    assert_layout_bit_branch_unchanged(t, &f, A64_OP_TBZ);
 
     arena_free_all(&a);
 }

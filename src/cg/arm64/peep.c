@@ -560,12 +560,14 @@ static bool worst_inst_bytes(const A64Inst *in, u64 *bytes)
         *bytes = has_explicit_false_edge(in) ? 12 : 8;
         return true;
     case A64_OP_ADDR:
-        /* adrp + add/load, plus at most two instructions for a GOT addend. */
-        *bytes = 16;
+        /* Worst case is a GOT adrp/load plus four MOV-wide pieces for an
+         * arbitrary 64-bit addend and the register-form add/sub. */
+        *bytes = 28;
         return true;
     case A64_OP_TLSADDR:
-        /* mrs + two relocation halves + an optional constant addend. */
-        *bytes = 16;
+        /* mrs + two relocation halves, then the same worst-case four-piece
+         * constant materialization and register-form add/sub as ADDR. */
+        *bytes = 32;
         return true;
     case A64_OP_ATOMIC_LLSC:
         *bytes = 64;
