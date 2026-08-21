@@ -44,26 +44,32 @@ observations. Remediation remains Sprint 61 work.
 
 ## Findings
 
-ID: `FE-H-01`
-Title: an unnamed variadic prototype is accepted in ISO C
-Severity: High — C17 requires at least one named parameter before `...`, so
-accepting `int f(...);` is a standards violation.
-Reproducer: `tests/audit-regressions/fe-h-01.c`
-Root cause: `src/parse/decl.c:1019-1029` accepts an ellipsis before parsing
-any parameter and does not require a preceding named declaration. Cgfried
-accepts under `-std=c17 -pedantic-errors`; GCC and Clang reject.
-Affected sprint: 9.
+~~ID: `FE-H-01`~~
+~~Title: an unnamed variadic prototype is accepted in ISO C~~
+~~Severity: High — C17 requires at least one named parameter before `...`, so~~
+~~accepting `int f(...);` is a standards violation.~~
+~~Reproducer: `tests/audit-regressions/fe-h-01.c`~~
+~~Root cause: `src/parse/decl.c:1019-1029` accepts an ellipsis before parsing~~
+~~any parameter and does not require a preceding named declaration. Cgfried~~
+~~accepts under `-std=c17 -pedantic-errors`; GCC and Clang reject.~~
+~~Affected sprint: 9.~~
+Resolution: RESOLVED 2026-08-20 by `b1c29124`. The parameter parser now
+requires a declaration before ellipsis in ISO and GNU modes while preserving
+valid named and unnamed fixed parameters before `...`.
 
-ID: `FE-H-02`
-Title: nested K&R identifier list escapes the definition-only constraint
-Severity: High — an identifier-list function declarator that is not a
-definition violates C17, but Cgfried accepts it inside another declarator.
-Reproducer: `tests/audit-regressions/fe-h-02.c`
-Root cause: `src/parse/decl.c:2007-2012` checks `is_kr_list` only on the outer
-declarator type. It does not walk through the declared object's pointer chain
-to the nested function type. Cgfried accepts the block declaration; GCC and
-Clang each reject it with one diagnostic.
-Affected sprint: 9.
+~~ID: `FE-H-02`~~
+~~Title: nested K&R identifier list escapes the definition-only constraint~~
+~~Severity: High — an identifier-list function declarator that is not a~~
+~~definition violates C17, but Cgfried accepts it inside another declarator.~~
+~~Reproducer: `tests/audit-regressions/fe-h-02.c`~~
+~~Root cause: `src/parse/decl.c:2007-2012` checks `is_kr_list` only on the outer~~
+~~declarator type. It does not walk through the declared object's pointer chain~~
+~~to the nested function type. Cgfried accepts the block declaration; GCC and~~
+~~Clang each reject it with one diagnostic.~~
+~~Affected sprint: 9.~~
+Resolution: RESOLVED 2026-08-20 by `b1c29124`. Declarator validation now walks
+pointer, return, parameter, member, and type-name positions for nested
+identifier lists while retaining the legal outer K&R definition form.
 
 ID: `FE-M-03`
 Title: one malformed parameter causes a six-error parser cascade
@@ -99,7 +105,7 @@ Affected sprints: 10, 13.
 
 ## Attack-surface dispatch
 
-- Declarator/prototype grammar: `FE-H-01` and `FE-H-02` confirmed.
+- Declarator/prototype grammar: `FE-H-01` and `FE-H-02` resolved.
 - Typedef-name ambiguity and prototype-scope shadowing: 15 probes complete;
   no other divergence observed.
 - Recovery cascade bounds: 19 seeds complete; `FE-M-03` through `FE-M-05`
