@@ -80,16 +80,16 @@ cross-front review found no root-cause aliases.
 Sprint 61 has closed all Critical findings and all 20 seeded High findings.
 The `IR-H-07` arithmetic review added and closed `IR-H-09`. Broad validation
 after the seeded High tier then exposed `IR-H-12`, a valid-C SysV aggregate
-stack-marker verifier ICE introduced by the `IR-C-10` repair; one High finding
-is open again, and the priority law pauses Medium/Low remediation until it is
-closed.
+stack-marker verifier ICE introduced by the `IR-C-10` repair; `IR-H-12` is
+closed at `92c77528`, zero High findings remain, and Medium/Low remediation is
+active.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
 ---
 
-## Sprint 61 remediation — IN PROGRESS; High tier reopened by verification
+## Sprint 61 remediation — IN PROGRESS; Medium/Low tier active
 
 The phase-boundary preflight is complete. Commit `4b36ba37` promotes the
 aggregate/front ledgers, burndown, and future closeout files to tracked
@@ -137,6 +137,8 @@ the High tier.
 Broad validation then recorded `IR-H-12` at `074c83d9`, raising live debt to
 0/1/16/2 until the caller/callee SysV aggregate stack-marker contract is
 repaired.
+`IR-H-12` closed at `92c77528`, restoring live debt to 0/0/16/2 and clearing
+the High tier again.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with

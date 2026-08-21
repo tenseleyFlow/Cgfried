@@ -59,4 +59,4 @@ burndown and the same fixture lifecycle as the original audit debt.
 | `IR-C-11` | `X64-C-01` sibling hunt | Critical | `tests/audit-regressions/ir-c-11.cgfir` | RESOLVED `eb364980` |
 | `MS-C-06` | `MS-C-05` design review | Critical | `tests/audit-regressions/ms-c-06.c` | RESOLVED `88211779` |
 | `IR-H-09` | `IR-H-07` arithmetic review | High | `tests/audit-regressions/ir-h-09.cgfir` | RESOLVED `7f3774f6` |
-| `IR-H-12` | broad Sprint 61 verification | High | `tests/audit-regressions/ir-h-12.c` | OPEN |
+| `IR-H-12` | broad Sprint 61 verification | High | `tests/audit-regressions/ir-h-12.c` | RESOLVED `92c77528` |
