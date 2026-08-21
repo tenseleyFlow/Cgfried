@@ -51,20 +51,25 @@ is fixed; GCC and Clang disagree on the corresponding union shape, which stays
 segregated as an unverified ABI-oracle observation rather than remediation
 debt.
 
-ID: `IR-L-02`
-Title: the written operand type on `icmp`/`fcmp` is silently replaced
-Severity: Low — polish. The text format accepts a type annotation that
-disagrees with the operands and normalizes it away instead of diagnosing it.
-No program is miscompiled: check 4 still requires the two operands to have one
-type, so the comparison always happens at the operands' real width.
-Reproducer: `tests/audit-regressions/ir-l-02.cgfir`
-Root cause: `src/ir/parse.c:1234-1244` parses the operand type into `ty` and
-passes it to `parse_atom`, which takes the type from the referenced value's
-definition instead. `icmp` is the only arithmetic form whose result type is
-fixed by law (i32), so it is the one place where check 4's
-operand-vs-result comparison has nothing to catch the annotation against.
-`iadd i32` over i64 operands is correctly rejected by check 4.
-Affected sprint: 17.
+~~ID: `IR-L-02`~~
+~~Title: the written operand type on `icmp`/`fcmp` is silently replaced~~
+~~Severity: Low — polish. The text format accepts a type annotation that~~
+~~disagrees with the operands and normalizes it away instead of diagnosing it.~~
+~~No program is miscompiled: check 4 still requires the two operands to have one~~
+~~type, so the comparison always happens at the operands' real width.~~
+~~Reproducer: `tests/audit-regressions/ir-l-02.cgfir`~~
+~~Root cause: `src/ir/parse.c:1234-1244` parses the operand type into `ty` and~~
+~~passes it to `parse_atom`, which takes the type from the referenced value's~~
+~~definition instead. `icmp` is the only arithmetic form whose result type is~~
+~~fixed by law (i32), so it is the one place where check 4's~~
+~~operand-vs-result comparison has nothing to catch the annotation against.~~
+~~`iadd i32` over i64 operands is correctly rejected by check 4.~~
+~~Affected sprint: 17.~~
+Resolution: RESOLVED 2026-08-20 by `7a4b9cb6`. The textual parser now validates
+the written `icmp`/`fcmp` type against both operands immediately and records
+the same obligation on unresolved SSA fixups. Integer, floating, and forward
+mismatches diagnose at the annotation boundary; valid verified
+parse/print/parse round trips remain stable.
 
 ~~ID: `IR-C-03`~~
 ~~Title: atomic pointer increment is split into a load and store~~
@@ -317,9 +322,9 @@ its callee parameter, and keeps both representations BYVAL; the original
   type, a value returned from a void function, a missing return value, edge
   argument count and type mismatches, duplicate block labels, an instruction
   after a terminator, a block with no terminator, a load through a non-pointer,
-  and a non-i64 `ptradd` offset. The written comparison type acceptance is
-  `IR-L-02`; a non-textual boundary review additionally found the relocation
-  arithmetic wrap in `IR-H-07`.
+  and a non-i64 `ptradd` offset. The written comparison type acceptance
+  `IR-L-02` is resolved at `7a4b9cb6`; a non-textual boundary review
+  additionally found the relocation arithmetic wrap in `IR-H-07`.
   One mutation family was a FALSE POSITIVE of the harness rather than a
   finding: retyping `iadd i32 undef, 0` to `iadd i64 undef, 0` produces valid,
   self-consistent IR, because `undef` and an integer constant both adapt. A

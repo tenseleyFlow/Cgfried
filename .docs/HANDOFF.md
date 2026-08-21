@@ -84,8 +84,9 @@ stack-marker verifier ICE introduced by the `IR-C-10` repair; `IR-H-12` is
 closed at `92c77528`, zero High findings remain, and Medium/Low remediation is
 active. `DRV-M-01` then closed at `a91a8c42`; the test-integrity cluster closed
 at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
-`385f8aa8`; the backend Medium cluster closed at `fb641618`; and `PP-L-03`
-closed at `addf16b7`, reducing live debt to 5 Medium and 1 Low finding.
+`385f8aa8`; the backend Medium cluster closed at `fb641618`; `PP-L-03` closed
+at `addf16b7`; and `IR-L-02` closed at `7a4b9cb6`, reducing live debt to 5
+Medium and zero Low findings.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
@@ -161,6 +162,10 @@ peephole-boundary survival, and a clean detached 48 PASS / 7 XFAIL / 0 XPASS /
 300-frame unit coverage, the 272-frame unique-name audit fixture, preserved
 capped presentation, and a clean detached 49 PASS / 6 XFAIL / 0 XPASS / 0
 FAIL audit run are green.
+`IR-L-02` closed at `7a4b9cb6`, reducing live debt to 0/0/5/0. Integer,
+floating, and forward-reference mismatch coverage, verified textual round
+trips, 5,000 IR-fuzzer iterations, and a clean detached 50 PASS / 5 XFAIL / 0
+XPASS / 0 FAIL audit run are green.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
