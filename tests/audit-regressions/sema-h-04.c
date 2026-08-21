@@ -1,4 +1,4 @@
-// XFAIL(audit): SEMA-H-04 no-linkage and external-linkage declarations are merged
+// RESOLVED(audit): SEMA-H-04 no-linkage and external-linkage declarations are merged
 void automatic_then_external(void) {
     int value;
     extern int value;

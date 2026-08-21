@@ -554,6 +554,32 @@ void test_sema_linkage_p4_block_extern(TestCtx *t)
     run_sema(&f, "void g(void) { int z; (void)z; }\n", STD_C17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     sfix_free(&f);
+
+    /* SEMA-H-04: an automatic declaration and a block-scope extern in the
+     * SAME scope denote entities with different linkage. Reject both orders
+     * rather than merging their compatible types. */
+    run_sema(&f, "void g(void) { int a; extern int a; }\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void g(void) { extern int a; int a; }\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    /* A no-linkage declaration in an OUTER block is merely shadowed by the
+     * nested extern; no same-scope merge occurs, matching GCC. */
+    run_sema(&f, "void g(void) { int a; { extern int a; a = 1; } }\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* Linked declarations still inherit and merge normally, including
+     * composite array completion. */
+    run_sema(&f,
+             "static int a[10];\n"
+             "void g(void) { extern int a[]; extern int a[10]; }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
 }
 
 void test_sema_linkage_p7_conflict(TestCtx *t)

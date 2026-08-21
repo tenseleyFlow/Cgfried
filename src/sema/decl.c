@@ -1128,6 +1128,22 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
         return;
     }
 
+    /* SEMA-H-04: declarations in one scope can denote the same entity only
+     * when their linkage agrees. In particular, an automatic object has no
+     * linkage while a block-scope extern with no linked visible predecessor
+     * has external linkage; neither declaration order may merge those two
+     * distinct entities. Keep this before composite-type construction, which
+     * remains valid for declarations that do share linkage. */
+    if ((prev->linkage == LINK_NONE) != (cur->linkage == LINK_NONE)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, cur->span,
+                  "declaration of '%s' with no linkage conflicts with "
+                  "declaration with linkage",
+                  cur->name);
+        diag_emit(s->dc, DIAG_NOTE, prev->span, "previous declaration is here");
+        return;
+    }
+
     /* 6.2.2p7: one identifier with BOTH internal and external linkage in a
      * translation unit is undefined. gcc errors when `static` follows a
      * non-static declaration, and ACCEPTS the reverse (`static int x;
