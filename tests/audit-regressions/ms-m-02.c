@@ -1,4 +1,4 @@
-// XFAIL(audit): MS-M-02 a nonheap equality guard leaves an infeasible leak path
+// RESOLVED(audit): MS-M-02 a nonheap equality guard leaves an infeasible leak path
 // Reproduce with:
 //   build/cgfried -Wmem -fsyntax-only tests/audit-regressions/ms-m-02.c
 // The only fopen result is closed.  On the path where the close is skipped,

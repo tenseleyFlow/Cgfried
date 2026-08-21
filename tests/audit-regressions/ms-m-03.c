@@ -1,4 +1,4 @@
-// XFAIL(audit): MS-M-03 freopen replacement is falsely reported as leaked
+// RESOLVED(audit): MS-M-03 freopen replacement is falsely reported as leaked
 // Reproduce with:
 //   build/cgfried -Wmem -fsyntax-only tests/audit-regressions/ms-m-03.c
 // A successful freopen returns the same stream object supplied as its third

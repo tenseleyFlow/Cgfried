@@ -23,6 +23,7 @@ typedef enum MsInitKind {
 
 #define MS_MAX_INIT_RANGES 8u
 #define MS_MAX_BINDINGS_PER_PATH 8u
+#define MS_MAX_POINTER_ORIGINS 8u
 
 typedef struct MsInitRange {
     i64 lo;
@@ -55,6 +56,11 @@ typedef struct MsBinding {
     IrOperand incoming;
 } MsBinding;
 
+typedef struct MsPointerOrigin {
+    IrOperand subject;
+    IrOperand origin;
+} MsPointerOrigin;
+
 typedef enum MsProofKind {
     MS_PROOF_NONE,
     MS_PROOF_INDEPENDENT,
@@ -67,6 +73,9 @@ typedef struct MsPath {
     u32 npredicates;
     MsBinding bindings[MS_MAX_BINDINGS_PER_PATH];
     u32 nbindings;
+    MsPointerOrigin pointer_origins[MS_MAX_POINTER_ORIGINS];
+    u32 npointer_origins;
+    bool pointer_origins_lost;
     bool correlations_lost;
 } MsPath;
 
@@ -137,6 +146,8 @@ struct MsFunctionResult {
     MsRuntimeAlloc *allocs;
     u32 nallocs;
 };
+
+static const IrInst *value_def(const IrFunc *function, IrOperand operand);
 
 static void init_reset(MsFact *fact, MsInitKind kind)
 {
@@ -352,13 +363,100 @@ static IrOperand path_resolve_binding(const MsPath *path, IrOperand operand)
     return operand;
 }
 
+static IrOperand path_resolve_pointer_origin(const MsPath *path,
+                                             IrOperand operand)
+{
+    u32 depth;
+
+    operand = path_resolve_binding(path, operand);
+    for (depth = 0; depth <= path->npointer_origins; depth++) {
+        u32 i;
+
+        for (i = 0; i < path->npointer_origins; i++)
+            if (operand_equal(path->pointer_origins[i].subject, operand)) {
+                operand = path->pointer_origins[i].origin;
+                break;
+            }
+        if (i == path->npointer_origins)
+            break;
+    }
+    return operand;
+}
+
+static void path_bind_pointer_origin(MsPath *path, IrOperand subject,
+                                     IrOperand origin)
+{
+    u32 i;
+
+    if (subject.type != IRT_PTR || origin.type != IRT_PTR)
+        return;
+    origin = path_resolve_pointer_origin(path, origin);
+    if (operand_equal(subject, origin))
+        return;
+    for (i = 0; i < path->npointer_origins; i++)
+        if (operand_equal(path->pointer_origins[i].subject, subject)) {
+            path->pointer_origins[i].origin = origin;
+            return;
+        }
+    if (path->npointer_origins == MS_MAX_POINTER_ORIGINS) {
+        /* Origin entries are MUST facts, including explicit unknown
+           tombstones.  Evicting one would make absence fall back to the
+           flow-insensitive alias graph and could revive a killed identity. */
+        path->npointer_origins = 0;
+        path->pointer_origins_lost = true;
+        return;
+    }
+    path->pointer_origins[path->npointer_origins++] =
+        (MsPointerOrigin){subject, origin};
+}
+
+static void path_forget_pointer_origin(MsPath *path, IrOperand subject)
+{
+    u32 i;
+
+    for (i = 0; i < path->npointer_origins; i++) {
+        if (!operand_equal(path->pointer_origins[i].subject, subject))
+            continue;
+        memmove(&path->pointer_origins[i], &path->pointer_origins[i + 1],
+                (path->npointer_origins - i - 1) *
+                    sizeof(path->pointer_origins[0]));
+        path->npointer_origins--;
+        return;
+    }
+}
+
+static IrOperand unknown_pointer_origin(void)
+{
+    IrOperand unknown = {0};
+
+    unknown.type = IRT_PTR;
+    return unknown;
+}
+
+static bool pointer_origins_equal(const MsPath *a, const MsPath *b)
+{
+    u32 i;
+
+    if (a->npointer_origins != b->npointer_origins)
+        return false;
+    for (i = 0; i < a->npointer_origins; i++)
+        if (!operand_equal(a->pointer_origins[i].subject,
+                           b->pointer_origins[i].subject) ||
+            !operand_equal(a->pointer_origins[i].origin,
+                           b->pointer_origins[i].origin))
+            return false;
+    return true;
+}
+
 static bool path_equal(const MsFunctionResult *result, const MsPath *a,
                        const MsPath *b)
 {
     u32 i;
 
     if (a->correlations_lost != b->correlations_lost ||
-        !predicates_equal(a, b) || !bindings_equal(a, b))
+        a->pointer_origins_lost != b->pointer_origins_lost ||
+        !predicates_equal(a, b) || !bindings_equal(a, b) ||
+        !pointer_origins_equal(a, b))
         return false;
     for (i = 0; i < result->nsites; i++)
         if (a->facts[i].state != b->facts[i].state ||
@@ -387,6 +485,8 @@ static void path_degrade_facts(MsFunctionResult *result, MsPath *path)
     u32 i;
 
     path->nbindings = 0;
+    path->npointer_origins = 0;
+    path->pointer_origins_lost = true;
     for (i = 0; i < result->nsites; i++) {
         path->facts[i].state = MS_UNKNOWN;
         trace_clear(&path->facts[i]);
@@ -433,6 +533,10 @@ static bool path_join_into(MsFunctionResult *result, MsPath *dst,
 {
     bool keep_predicates = predicates_equal(dst, src);
     bool keep_bindings = bindings_equal(dst, src);
+    bool keep_pointer_origins = pointer_origins_equal(dst, src);
+    bool lose_pointer_origins = dst->pointer_origins_lost ||
+                                src->pointer_origins_lost ||
+                                !keep_pointer_origins;
     bool lose_correlations = dst->correlations_lost || src->correlations_lost ||
                              !keep_predicates || !keep_bindings;
     bool changed = (!keep_predicates && dst->npredicates != 0) ||
@@ -443,6 +547,14 @@ static bool path_join_into(MsFunctionResult *result, MsPath *dst,
         dst->npredicates = 0;
     if (!keep_bindings)
         dst->nbindings = 0;
+    if (!keep_pointer_origins) {
+        dst->npointer_origins = 0;
+        changed = true;
+    }
+    if (lose_pointer_origins != dst->pointer_origins_lost) {
+        dst->pointer_origins_lost = lose_pointer_origins;
+        changed = true;
+    }
     if (lose_correlations != dst->correlations_lost) {
         dst->correlations_lost = lose_correlations;
         changed = true;
@@ -847,6 +959,71 @@ static const IrInst *value_def(const IrFunc *function, IrOperand operand)
     return NULL;
 }
 
+static bool isolated_local_pointer_slot(const IrFunc *function, IrOperand slot)
+{
+    const IrInst *def;
+    u32 bi;
+
+    if (slot.kind != IROP_VALUE || !(def = value_def(function, slot)) ||
+        def->op != IR_ALLOCA)
+        return false;
+    for (bi = 0; bi < function->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = function->blocks[bi].first; in; in = in->next) {
+            u32 i;
+
+            for (i = 0; i < in->nops; i++) {
+                if (!operand_equal(in->ops[i], slot))
+                    continue;
+                if ((in->op == IR_LOAD && i == 0) ||
+                    (in->op == IR_STORE && i == 1))
+                    continue;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void path_track_pointer_store(const MsFunctionResult *result,
+                                     MsPath *path, const IrInst *store)
+{
+    if (store->nops != 2 ||
+        !isolated_local_pointer_slot(result->function, store->ops[1]))
+        return;
+
+    /* A slot origin is a path-local MUST fact.  Every store kills the old
+       fact, including a non-pointer overwrite; retaining it would let the
+       MS-M-02 equality proof prune a feasible leak path. */
+    path_forget_pointer_origin(path, store->ops[1]);
+    if (store->ops[0].type == IRT_PTR) {
+        path_bind_pointer_origin(path, store->ops[1], store->ops[0]);
+    } else {
+        /* Keep an explicit unknown origin.  Mere absence would fall back to
+           flow-insensitive alias data for a later pointer-typed reload. */
+        path_bind_pointer_origin(path, store->ops[1], unknown_pointer_origin());
+    }
+}
+
+static void path_track_pointer_load(MsPath *path, const IrInst *load)
+{
+    IrOperand subject = {0};
+    u32 i;
+
+    if (!load->result.v || load->type != IRT_PTR || load->nops != 1)
+        return;
+    for (i = 0; i < path->npointer_origins; i++)
+        if (operand_equal(path->pointer_origins[i].subject, load->ops[0]))
+            break;
+    if (i == path->npointer_origins)
+        return;
+    subject.kind = IROP_VALUE;
+    subject.type = IRT_PTR;
+    subject.a = load->result.v;
+    path_bind_pointer_origin(path, subject, load->ops[0]);
+}
+
 static bool operand_constant(const IrFunc *function, IrOperand operand,
                              i64 *value, u32 depth)
 {
@@ -903,6 +1080,48 @@ static bool operand_is_null(const IrFunc *function, IrOperand operand)
 
     return operand.type == IRT_PTR &&
            operand_constant(function, operand, &value, 0) && value == 0;
+}
+
+static bool operand_is_standard_stream(const MsFunctionResult *result,
+                                       const MsPath *path, IrOperand operand)
+{
+    const IrInst *def;
+    const char *name;
+
+    operand = path_resolve_pointer_origin(path, operand);
+    if (operand.kind != IROP_VALUE ||
+        !(def = value_def(result->function, operand)) || def->op != IR_LOAD ||
+        def->nops != 1 || def->ops[0].kind != IROP_SYMBOL ||
+        def->ops[0].sym >= result->module->nsyms)
+        return false;
+    name = result->module->syms[def->ops[0].sym];
+    return name && (!strcmp(name, "stdin") || !strcmp(name, "stdout") ||
+                    !strcmp(name, "stderr"));
+}
+
+static bool operand_has_nonheap_identity(const MsFunctionResult *result,
+                                         const MsPath *path, IrOperand operand)
+{
+    PtsSet pts = alias_points_to(result->alias,
+                                 path_resolve_pointer_origin(path, operand));
+
+    return alias_pts_must_be_nonheap(result->alias, pts) ||
+           operand_is_standard_stream(result, path, operand);
+}
+
+static bool operand_has_live_allocation(const MsFunctionResult *result,
+                                        const MsPath *path, IrOperand operand)
+{
+    const AllocSite *site = alias_pts_unique_alloc_site(
+        result->alias,
+        alias_points_to(result->alias,
+                        path_resolve_pointer_origin(path, operand)));
+    u32 id;
+
+    if (!site || !(id = alias_alloc_site_id(site)))
+        return false;
+    return path->facts[id - 1].state == MS_ALLOCATED &&
+           path->facts[id - 1].nonnull_proven;
 }
 
 static IrOperand null_base_subject(const IrFunc *function, const MsPath *path,
@@ -1655,6 +1874,17 @@ static void process_call(MsFunctionResult *result, MsPath *path,
             init_reset(fact, family && family->fully_written ? MS_INIT_FULL
                                                              : MS_INIT_NONE);
         }
+        /* MS-M-03: freopen returns the same stream object it was given.  A
+         * replacement of a standard stream therefore remains published by
+         * stdin/stdout/stderr instead of becoming fresh local ownership. */
+        if (family && family->is_file_resource && family->frees_on_success &&
+            call_arg(call, family->frees_arg, &operand) &&
+            operand_is_standard_stream(result, path, operand)) {
+            fact->state = MS_ESCAPED;
+            fact->realloc_pending = false;
+            ms_trace_push(&fact->trace, loc, MS_EV_ESCAPE,
+                          "reopened standard stream remains globally owned");
+        }
         if (family && family->alloc_out_arg != MS_NO_ARG &&
             call_arg(call, family->alloc_out_arg, &operand) &&
             !local_address(result->function, operand, 0))
@@ -1857,12 +2087,14 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
         process_call(result, path, in, block);
         break;
     case IR_LOAD:
-        if (in->nops >= 1)
+        if (in->nops >= 1) {
+            path_track_pointer_load(path, in);
             process_access(
                 result, path, in, 0, in->ops[0],
                 ir_op_iconst(IRT_I64, (i64)ir_type_size((IrType)in->type)),
                 true, ir_type_size((IrType)in->type), false, true, block, loc,
                 "read through pointer here");
+        }
         break;
     case IR_STORE:
         if (in->nops >= 2) {
@@ -1878,6 +2110,7 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
                 transition_reachable(result, path, in->ops[0], MS_ACT_ESCAPE,
                                      loc, MS_EV_ESCAPE,
                                      "stored into escaping memory here");
+            path_track_pointer_store(result, path, in);
         }
         break;
     case IR_ASM: {
@@ -2232,9 +2465,10 @@ static void refine_alloc_status_branch(MsFunctionResult *result, MsPath *path,
     }
 }
 
-static bool path_edge_feasible(const IrFunc *function, const MsPath *path,
-                               const IrInst *term, u32 edge)
+static bool path_edge_feasible(const MsFunctionResult *result,
+                               const MsPath *path, const IrInst *term, u32 edge)
 {
+    const IrFunc *function = result->function;
     IrOperand condition;
     i64 constant;
 
@@ -2243,9 +2477,32 @@ static bool path_edge_feasible(const IrFunc *function, const MsPath *path,
     if (term->op != IR_CONDBR || term->nops != 1 || edge > 1)
         return true;
     condition = path_resolve_binding(path, term->ops[0]);
-    if (!operand_constant(function, condition, &constant, 0))
-        return true;
-    return (constant != 0) == (edge == 0);
+    if (operand_constant(function, condition, &constant, 0))
+        return (constant != 0) == (edge == 0);
+    {
+        const IrInst *cmp = value_def(function, condition);
+
+        /* MS-M-02: a non-null live allocation cannot equal a standard stream
+         * or another proven non-heap identity.  Pruning that equality edge
+         * prevents an infeasible path from bypassing the matching close. */
+        if (!path->pointer_origins_lost && cmp && cmp->op == IR_ICMP &&
+            cmp->nops == 2 &&
+            (cmp->subop == ICMP_EQ || cmp->subop == ICMP_NE) &&
+            cmp->ops[0].type == IRT_PTR && cmp->ops[1].type == IRT_PTR) {
+            IrOperand lhs = path_resolve_pointer_origin(path, cmp->ops[0]);
+            IrOperand rhs = path_resolve_pointer_origin(path, cmp->ops[1]);
+            bool lhs_live = operand_has_live_allocation(result, path, lhs);
+            bool rhs_live = operand_has_live_allocation(result, path, rhs);
+            bool equality_edge = (cmp->subop == ICMP_EQ) == (edge == 0);
+
+            if (equality_edge &&
+                ((lhs_live &&
+                  operand_has_nonheap_identity(result, path, rhs)) ||
+                 (rhs_live && operand_has_nonheap_identity(result, path, lhs))))
+                return false;
+        }
+    }
+    return true;
 }
 
 static bool path_bind_target(MsFunctionResult *result, MsPath *path,
@@ -2266,8 +2523,12 @@ static bool path_bind_target(MsFunctionResult *result, MsPath *path,
         return true;
     }
     for (i = 0; i < target->nparams; i++) {
+        IrOperand subject = ir_op_value(result->function, target->params[i]);
+
         next[i].param = target->params[i];
         next[i].incoming = path_resolve_binding(path, edge->args[i]);
+        if (subject.type == IRT_PTR)
+            path_bind_pointer_origin(path, subject, edge->args[i]);
     }
     path->nbindings = target->nparams;
     if (target->nparams)
@@ -2275,13 +2536,13 @@ static bool path_bind_target(MsFunctionResult *result, MsPath *path,
     return true;
 }
 
-static u32 feasible_edge_count(const IrFunc *function, const MsPath *path,
-                               const IrInst *term)
+static u32 feasible_edge_count(const MsFunctionResult *result,
+                               const MsPath *path, const IrInst *term)
 {
     u32 count = 0, i;
 
     for (i = 0; i < term->nedges; i++)
-        if (path_edge_feasible(function, path, term, i))
+        if (path_edge_feasible(result, path, term, i))
             count++;
     return count;
 }
@@ -2289,7 +2550,7 @@ static u32 feasible_edge_count(const IrFunc *function, const MsPath *path,
 static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
                                  const MsPath *source, const IrInst *term)
 {
-    u32 feasible = feasible_edge_count(result->function, source, term);
+    u32 feasible = feasible_edge_count(result, source, term);
     Span loc = ir_inst_span(result->module, term);
     u32 i;
 
@@ -2311,7 +2572,7 @@ static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
         bool pointer_nonnull;
         u32 target;
 
-        if (!path_edge_feasible(result->function, source, term, i))
+        if (!path_edge_feasible(result, source, term, i))
             continue;
         target = term->edges[i].target.v;
         if (!target || target > result->function->nblocks)

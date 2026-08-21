@@ -661,6 +661,234 @@ void test_memsafe_lifetime_prunes_conflicting_equalities(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_memsafe_lifetime_prunes_owned_vs_standard_stream_equality(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @fopen\n"
+              "sym @fclose\n"
+              "sym @stdin\n"
+              "sym @path\n"
+              "sym @mode\n"
+              "func void @f(i32 %choose_standard) {\n"
+              "entry():\n"
+              "    %slot = alloca 8, align 8\n"
+              "    store ptr 0, %slot, align 8\n"
+              "    %choose = icmp ne i32 %choose_standard, 0\n"
+              "    condbr %choose, standard(), owned()\n"
+              "standard():\n"
+              "    %standard = load ptr, @stdin, align 8\n"
+              "    store ptr %standard, %slot, align 8\n"
+              "    br join()\n"
+              "join():\n"
+              "    %p = load ptr, %slot, align 8\n"
+              "    %nonnull = icmp ne ptr %p, 0\n"
+              "    condbr %nonnull, compare(), condition(i32 0)\n"
+              "owned():\n"
+              "    %opened = call ptr @fopen(ptr @path, ptr @mode)\n"
+              "    store ptr %opened, %slot, align 8\n"
+              "    br join()\n"
+              "compare():\n"
+              "    %candidate = load ptr, %slot, align 8\n"
+              "    %stdin_value = load ptr, @stdin, align 8\n"
+              "    %different = icmp ne ptr %candidate, %stdin_value\n"
+              "    br condition(i32 %different)\n"
+              "condition(i32 %should_close):\n"
+              "    condbr %should_close, close(), done()\n"
+              "close():\n"
+              "    %to_close = load ptr, %slot, align 8\n"
+              "    %status = call i32 @fclose(ptr %to_close)\n"
+              "    br done()\n"
+              "done():\n"
+              "    ret\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 0);
+    T_ASSERT(t, !ms_result_degraded(result));
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_standard_stream_overwrite_does_not_hide_owned_leak(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @fopen\n"
+              "sym @stdin\n"
+              "sym @path\n"
+              "sym @mode\n"
+              "func void @f() {\n"
+              "entry():\n"
+              "    %opened = call ptr @fopen(ptr @path, ptr @mode)\n"
+              "    %standard = load ptr, @stdin, align 8\n"
+              "    %different = icmp ne ptr %standard, %standard\n"
+              "    condbr %different, impossible(), done()\n"
+              "impossible():\n"
+              "    ret\n"
+              "done():\n"
+              "    ret\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_select_may_equal_standard_stream_keeps_owned_leak(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @fopen\n"
+              "sym @fclose\n"
+              "sym @stdin\n"
+              "sym @path\n"
+              "sym @mode\n"
+              "func void @f(i32 %choose) {\n"
+              "entry():\n"
+              "    %owned = call ptr @fopen(ptr @path, ptr @mode)\n"
+              "    %standard = load ptr, @stdin, align 8\n"
+              "    %candidate = select %choose, ptr %standard, %owned\n"
+              "    %equal = icmp eq ptr %candidate, %standard\n"
+              "    condbr %equal, skipped(), close()\n"
+              "skipped():\n"
+              "    ret\n"
+              "close():\n"
+              "    %status = call i32 @fclose(ptr %candidate)\n"
+              "    ret\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_nonpointer_slot_overwrite_forgets_pointer_origin(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @fopen\n"
+              "sym @fclose\n"
+              "sym @stdin\n"
+              "sym @path\n"
+              "sym @mode\n"
+              "func void @f() {\n"
+              "entry():\n"
+              "    %slot = alloca 8, align 8\n"
+              "    %owned = call ptr @fopen(ptr @path, ptr @mode)\n"
+              "    %nonnull = icmp ne ptr %owned, 0\n"
+              "    condbr %nonnull, live(), failure()\n"
+              "live():\n"
+              "    store ptr %owned, %slot, align 8, etype ptr\n"
+              "    %standard = load ptr, @stdin, align 8\n"
+              "    %bits = bitcast ptr %standard to i64\n"
+              "    store i64 %bits, %slot, align 8, etype i64\n"
+              "    %candidate = load ptr, %slot, align 8\n"
+              "    %equal = icmp eq ptr %candidate, %standard\n"
+              "    condbr %equal, leak(), close()\n"
+              "leak():\n"
+              "    ret\n"
+              "close():\n"
+              "    %status = call i32 @fclose(ptr %owned)\n"
+              "    ret\n"
+              "failure():\n"
+              "    ret\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 1);
+    T_ASSERT(t, !ms_result_degraded(result));
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_pointer_origin_saturation_stays_conservative(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @fopen\n"
+              "sym @fclose\n"
+              "sym @stdin\n"
+              "sym @path\n"
+              "sym @mode\n"
+              "func void @f() {\n"
+              "entry():\n"
+              "    %slot = alloca 8, align 8\n"
+              "    %d0 = alloca 8, align 8\n"
+              "    %d1 = alloca 8, align 8\n"
+              "    %d2 = alloca 8, align 8\n"
+              "    %d3 = alloca 8, align 8\n"
+              "    %d4 = alloca 8, align 8\n"
+              "    %d5 = alloca 8, align 8\n"
+              "    %d6 = alloca 8, align 8\n"
+              "    %d7 = alloca 8, align 8\n"
+              "    %owned = call ptr @fopen(ptr @path, ptr @mode)\n"
+              "    %nonnull = icmp ne ptr %owned, 0\n"
+              "    condbr %nonnull, live(), failure()\n"
+              "live():\n"
+              "    store ptr %owned, %slot, align 8, etype ptr\n"
+              "    %standard = load ptr, @stdin, align 8\n"
+              "    %bits = bitcast ptr %standard to i64\n"
+              "    store i64 %bits, %slot, align 8, etype i64\n"
+              "    store ptr %standard, %d0, align 8, etype ptr\n"
+              "    store ptr %standard, %d1, align 8, etype ptr\n"
+              "    store ptr %standard, %d2, align 8, etype ptr\n"
+              "    store ptr %standard, %d3, align 8, etype ptr\n"
+              "    store ptr %standard, %d4, align 8, etype ptr\n"
+              "    store ptr %standard, %d5, align 8, etype ptr\n"
+              "    store ptr %standard, %d6, align 8, etype ptr\n"
+              "    store ptr %standard, %d7, align 8, etype ptr\n"
+              "    %candidate = load ptr, %slot, align 8\n"
+              "    %equal = icmp eq ptr %candidate, %standard\n"
+              "    condbr %equal, leak(), close()\n"
+              "leak():\n"
+              "    ret\n"
+              "close():\n"
+              "    %status = call i32 @fclose(ptr %owned)\n"
+              "    ret\n"
+              "failure():\n"
+              "    ret\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 1);
+    T_ASSERT(t, !ms_result_degraded(result));
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_lifetime_switch_default_excludes_cases(TestCtx *t)
 {
     MsFix fix;
@@ -1285,6 +1513,88 @@ void test_memsafe_realloc_correlates_old_and_new_sites(TestCtx *t)
     }
     T_ASSERT(t, saw_success);
     T_ASSERT(t, saw_failure);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_freopen_standard_stream_stays_escaped(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @freopen\n"
+                           "sym @stderr\n"
+                           "sym @path\n"
+                           "sym @mode\n"
+                           "func void @f() {\n"
+                           "entry():\n"
+                           "    %standard = load ptr, @stderr, align 8\n"
+                           "    %replacement = call ptr @freopen(ptr @path, "
+                           "ptr @mode, ptr %standard)\n"
+                           "    %nonnull = icmp ne ptr %replacement, 0\n"
+                           "    condbr %nonnull, success(), failure()\n"
+                           "success():\n"
+                           "    ret\n"
+                           "failure():\n"
+                           "    ret\n"
+                           "}\n");
+    MsFunctionResult *result;
+    u32 i;
+    bool saw_success = false;
+    bool saw_failure = false;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_exit_count(result), 2);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 0);
+    for (i = 0; i < ms_result_exit_count(result); i++) {
+        MsState replacement = ms_result_exit_state(result, i, 0);
+
+        saw_success |= replacement == MS_ESCAPED;
+        saw_failure |= replacement == MS_UNALLOCATED;
+    }
+    T_ASSERT(t, saw_success);
+    T_ASSERT(t, saw_failure);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_freopen_owned_stream_stays_locally_owned(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @fopen\n"
+              "sym @freopen\n"
+              "sym @path\n"
+              "sym @mode\n"
+              "func void @f() {\n"
+              "entry():\n"
+              "    %stream = call ptr @fopen(ptr @path, ptr @mode)\n"
+              "    %replacement = call ptr @freopen(ptr @path, "
+              "ptr @mode, ptr %stream)\n"
+              "    %nonnull = icmp ne ptr %replacement, 0\n"
+              "    condbr %nonnull, success(), failure()\n"
+              "success():\n"
+              "    ret\n"
+              "failure():\n"
+              "    ret\n"
+              "}\n");
+    MsFunctionResult *result;
+    u32 i;
+    bool saw_owned_success = false;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    for (i = 0; i < ms_result_exit_count(result); i++)
+        saw_owned_success |= ms_result_exit_state(result, i, 1) == MS_ALLOCATED;
+    T_ASSERT(t, saw_owned_success);
     ms_result_free(result);
     arena_free_all(&fix.arena);
 }
