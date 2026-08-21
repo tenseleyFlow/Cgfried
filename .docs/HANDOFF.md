@@ -99,10 +99,10 @@ The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
 cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
 alignment mismatch, at `555fc32a`. `SEMA-C-01` closed at `0eca9832` and
 `SEMA-C-02` closed at `d4d674ec`, and `IR-C-03` closed at `892435be`, so live
-debt is 7/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
+debt is 6/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
 `7a003d68`, and `SEMA-C-08` closed at `bdd523c0`, followed by the `IR-C-11`
 atomic-alignment discovery at `c7d43927` during the `X64-C-01` sibling hunt,
-and `IR-C-04` closed at `1b61459a`.
+`IR-C-04` closed at `1b61459a`, and `IR-C-01` closed at `eb528221`.
 One central
 integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -111,8 +111,10 @@ its fix. First Critical lanes are split to avoid shared-file conflicts:
 - `SEMA-C-01` — RESOLVED at `0eca9832`; its cluster hunt also repaired the
   sibling multiplication overflow path.
 - `SEMA-C-02` — RESOLVED at `d4d674ec`; its sibling-hunt discovery
-  `SEMA-C-08` is also RESOLVED at `bdd523c0`. `IR-C-01` follows serially in
-  the layout/ABI lane.
+  `SEMA-C-08` is also RESOLVED at `bdd523c0`.
+- `IR-C-01` — RESOLVED at `eb528221`; pure 16-byte `long double` aggregates
+  return through `st0`, with zero-width struct bitfields excluded from the
+  wire classification.
 - `IR-C-03` — RESOLVED at `892435be`; atomic pointer updates now use one
   scaled seq_cst RMW. This unlocks the `X64-C-01` backend repair.
 - `IR-C-04` — RESOLVED at `1b61459a`; declaration-granular VLA checkpoints

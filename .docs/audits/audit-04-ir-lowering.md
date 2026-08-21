@@ -13,36 +13,43 @@
 
 ## Findings
 
-ID: `IR-C-01`
-Title: a 16-byte long-double aggregate is returned by hidden pointer
-Severity: Critical — wrong code emitted at an ABI boundary, and in the
-gcc-caller direction the Cgfried callee stores 16 bytes through an `%rdi`
-nobody set, which segfaults. That is memory corruption on valid C, not merely
-a wrong value.
-Reproducer: `tests/audit-regressions/ir-c-01.c`
-Root cause: the SysV classifier treats a 16-byte aggregate whose entire
-content is one x87 `long double` as MEMORY. The psABI classifies it
-X87/X87UP: MEMORY is not among its classes, and post-merger rule (c) does not
-fire because the size does not exceed two eightbytes, so the return goes on
-the x87 stack in `st0`. `src/sema/layout.c:404-410` gives the X87/X87UP pair
-to a bare `long double` correctly; the return path then demotes the enclosing
-aggregate. Argument passing AGREES with GCC (both pass in memory) — the defect
-is return-only.
-Measured, all four link directions of `struct { long double v; }`:
-GCC+GCC `2.5` (correct); CGF+GCC `0.0` (reads a never-written sret buffer);
-GCC+CGF SIGSEGV; CGF+CGF `2.5`. **Both directions fail and Cgfried agrees with
-itself** — the project's own signature for a shared assumption rather than a
-placement bug, third recurrence after ABI-001 and ABI-002.
-Boundary, measured: the three exactly-16-byte shapes diverge —
-`struct { long double v; }`, `union { long double v; }`, and
-`struct { long double v[1]; }`. Anything larger than two eightbytes agrees,
-because those really are MEMORY; that is why `struct { long double v; char c; }`
-is correct and why ordinary code never surfaced this.
-Affected sprint: 19.
-Cross-front note for F11: `tests/tools/abigen.c`'s `Kind` enum has no
-`long double`, no `_Float128` and no bitfields, so the 300-signature-per-target
-ABI differential cannot reach any of these shapes. The generator's repertoire
-bounds what the differential can prove.
+~~ID: `IR-C-01`~~
+~~Title: a 16-byte long-double aggregate is returned by hidden pointer~~
+~~Severity: Critical — wrong code emitted at an ABI boundary, and in the~~
+~~gcc-caller direction the Cgfried callee stores 16 bytes through an `%rdi`~~
+~~nobody set, which segfaults. That is memory corruption on valid C, not merely~~
+~~a wrong value.~~
+~~Reproducer: `tests/audit-regressions/ir-c-01.c`~~
+~~Root cause: the SysV classifier treats a 16-byte aggregate whose entire~~
+~~content is one x87 `long double` as MEMORY. The psABI classifies it~~
+~~X87/X87UP: MEMORY is not among its classes, and post-merger rule (c) does not~~
+~~fire because the size does not exceed two eightbytes, so the return goes on~~
+~~the x87 stack in `st0`. `src/sema/layout.c:404-410` gives the X87/X87UP pair~~
+~~to a bare `long double` correctly; the return path then demotes the enclosing~~
+~~aggregate. Argument passing AGREES with GCC (both pass in memory) — the defect~~
+~~is return-only.~~
+~~Measured, all four link directions of `struct { long double v; }`:~~
+~~GCC+GCC `2.5` (correct); CGF+GCC `0.0` (reads a never-written sret buffer);~~
+~~GCC+CGF SIGSEGV; CGF+CGF `2.5`. **Both directions fail and Cgfried agrees with~~
+~~itself** — the project's own signature for a shared assumption rather than a~~
+~~placement bug, third recurrence after ABI-001 and ABI-002.~~
+~~Boundary, measured: the three exactly-16-byte shapes diverge —~~
+~~`struct { long double v; }`, `union { long double v; }`, and~~
+~~`struct { long double v[1]; }`. Anything larger than two eightbytes agrees,~~
+~~because those really are MEMORY; that is why `struct { long double v; char c; }`~~
+~~is correct and why ordinary code never surfaced this.~~
+~~Affected sprint: 19.~~
+~~Cross-front note for F11: `tests/tools/abigen.c`'s `Kind` enum has no~~
+~~`long double`, no `_Float128` and no bitfields, so the 300-signature-per-target~~
+~~ABI differential cannot reach any of these shapes. The generator's repertoire~~
+~~bounds what the differential can prove.~~
+Resolution: RESOLVED 2026-08-20 by `eb528221`.
+Cluster hunt: covered pure `long double` struct, union, and one-element-array
+aggregates, larger MEMORY controls, both mixed-compiler directions, and
+zero-width struct bitfields. The zero-width struct escape found during review
+is fixed; GCC and Clang disagree on the corresponding union shape, which stays
+segregated as an unverified ABI-oracle observation rather than remediation
+debt.
 
 ID: `IR-L-02`
 Title: the written operand type on `icmp`/`fcmp` is silently replaced
