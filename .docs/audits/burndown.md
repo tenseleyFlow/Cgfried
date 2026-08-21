@@ -36,3 +36,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `264bb13d` | `OPT-H-01` recursive alias-offset widening repair | 0 | 13 | 16 | 2 | 31 |
 | 2026-08-20 | `2cd05946` | `A64-H-02` / `A64-H-03` shared address-addend repair | 0 | 11 | 16 | 2 | 29 |
 | 2026-08-20 | `1da90129` | `SEMA-H-03` old-style function compatibility repair | 0 | 10 | 16 | 2 | 28 |
+| 2026-08-20 | `a2e158c9` | `SEMA-H-05` signed-minimum unary-negation repair | 0 | 9 | 16 | 2 | 27 |

@@ -166,17 +166,22 @@ INTERNAL mismatch; either ordering of automatic and block-scope `extern`
 therefore falls through to type merging. GCC and Clang reject both orderings.
 Affected sprint: 12.
 
-ID: `SEMA-H-05`
-Title: unary negation of a signed minimum is accepted as constant
-Severity: High — an integer constant expression with signed overflow is
-accepted and assigned a value instead of receiving a required diagnostic.
-Reproducer: `tests/audit-regressions/sema-h-05.c`
-Root cause: `src/sema/constexpr.c:1044-1050` implements unary minus as
-unsigned `0 - value` followed by `fit`, without checking the signed-minimum
-case. GCC 8.3.0, GCC 16.1.1, and Clang 22.1.8 reject under
-`-pedantic-errors`; Clang 7.0.1 accepts it as a historical extension-policy
-difference.
-Affected sprint: 15.
+~~ID: `SEMA-H-05`~~
+~~Title: unary negation of a signed minimum is accepted as constant~~
+~~Severity: High — an integer constant expression with signed overflow is~~
+~~accepted and assigned a value instead of receiving a required diagnostic.~~
+~~Reproducer: `tests/audit-regressions/sema-h-05.c`~~
+~~Root cause: `src/sema/constexpr.c:1044-1050` implements unary minus as~~
+~~unsigned `0 - value` followed by `fit`, without checking the signed-minimum~~
+~~case. GCC 8.3.0, GCC 16.1.1, and Clang 22.1.8 reject under~~
+~~`-pedantic-errors`; Clang 7.0.1 accepts it as a historical extension-policy~~
+~~difference.~~
+~~Affected sprint: 15.~~
+Resolution: RESOLVED 2026-08-20 by `a2e158c9`. Unary negation now checks the
+promoted target type's signed-minimum bit pattern before unsigned host-side
+arithmetic. Required constant contexts diagnose overflow, opportunistic folds
+remain silent, and signed, unsigned, promotion, and target-width boundaries
+are pinned.
 
 ID: `SEMA-H-06`
 Title: a record of only zero-length arrays is sized to its alignment
