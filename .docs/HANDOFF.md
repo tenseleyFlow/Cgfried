@@ -77,8 +77,8 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and eight of the 20 seeded High
-findings. The `IR-H-07` arithmetic review added `IR-H-09`, so 13 High findings
+Sprint 61 has closed all Critical findings and ten of the 20 seeded High
+findings. The `IR-H-07` arithmetic review added `IR-H-09`, so 11 High findings
 remain before Medium/Low work.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
@@ -117,6 +117,8 @@ active. The `IR-H-07` arithmetic review then recorded `IR-H-09` at `81ca7347`,
 raising live debt to 0/15/16/2 until that parser-length defect is remediated.
 `IR-H-07` then closed at `ed607727`, returning live debt to 0/14/16/2.
 `OPT-H-01` closed at `264bb13d`, reducing live debt to 0/13/16/2.
+`A64-H-02` and `A64-H-03` closed together at `2cd05946`, reducing live debt to
+0/11/16/2.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -152,6 +154,10 @@ conflicts:
 - `A64-H-01` — RESOLVED at `2b4ab767`; tentative TLS definitions bypass ELF
   COMMON and retain `.tbss`, TLS symbol typing, and TLSLE relocations, while
   ordinary COMMON and the effective Mach-O zero-fill form remain unchanged.
+- `A64-H-02` / `A64-H-03` — RESOLVED at `2cd05946`; the shared post-relocation
+  address materializer retains immediate fast paths, uses reserved non-aliasing
+  scratch registers for arbitrary signed addends, and keeps TLS/GOT relocation
+  forms plus branch-relaxation size accounting correct.
 - `IR-H-06` — RESOLVED at `1fc6bdb6`; lowering and verification share the
   exact returns-twice symbol set after asm-spelling normalization, including
   glibc's `__sigsetjmp` expansion while excluding near names.

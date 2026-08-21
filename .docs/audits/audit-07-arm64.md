@@ -23,23 +23,30 @@ ELF COMMON and use the established `.tbss`/`@tls_object` path. Cross-assembled
 section, symbol, and TLSLE relocation evidence matches AArch64 GCC; ordinary
 non-TLS COMMON and the effective Mach-O zero-fill form remain unchanged.
 
-ID: `A64-H-02`
-Title: large TLS addends are emitted as unencodable immediates
-Severity: High — valid optimized C produces assembly rejected by the target
-assembler.
-Reproducer: `tests/audit-regressions/a64-h-02.c`
-Root cause: `src/cg/arm64/emit.c:941-943` prints a folded TLS addend as one
-unvalidated `add #imm`; 5000 is not encodable by ARM64 add-immediate.
-Affected sprints: 49, 51.
+~~ID: `A64-H-02`~~
+~~Title: large TLS addends are emitted as unencodable immediates~~
+~~Severity: High — valid optimized C produces assembly rejected by the target~~
+~~assembler.~~
+~~Reproducer: `tests/audit-regressions/a64-h-02.c`~~
+~~Root cause: `src/cg/arm64/emit.c:941-943` prints a folded TLS addend as one~~
+~~unvalidated `add #imm`; 5000 is not encodable by ARM64 add-immediate.~~
+~~Affected sprints: 49, 51.~~
+Resolution: RESOLVED 2026-08-20 by `2cd05946`. Post-relocation TLS addends use
+the shared immediate-or-register materializer, preserving TLSLE relocations
+and small fast paths while accepting every signed 64-bit addend.
 
-ID: `A64-H-03`
-Title: large GOT addends trigger an internal compiler error
-Severity: High — valid C with a large external-object offset aborts the
-compiler instead of materializing the address.
-Reproducer: `tests/audit-regressions/a64-h-03.c`
-Root cause: `src/cg/arm64/emit.c:426-443` assumes no C object offset reaches
-16 MiB and hard-ICEs when the magnitude exceeds its two-add scheme.
-Affected sprints: 50, 51.
+~~ID: `A64-H-03`~~
+~~Title: large GOT addends trigger an internal compiler error~~
+~~Severity: High — valid C with a large external-object offset aborts the~~
+~~compiler instead of materializing the address.~~
+~~Reproducer: `tests/audit-regressions/a64-h-03.c`~~
+~~Root cause: `src/cg/arm64/emit.c:426-443` assumes no C object offset reaches~~
+~~16 MiB and hard-ICEs when the magnitude exceeds its two-add scheme.~~
+~~Affected sprints: 50, 51.~~
+Resolution: RESOLVED 2026-08-20 by `2cd05946`. Larger GOT and TLS addends are
+synthesized in reserved, non-aliasing x12/x13 scratch registers before a
+register add/sub. Conservative pseudo sizes are 28/32 bytes, with TBZ/TBNZ
+range crossovers pinned; ELF and Mach-O relocation forms remain unchanged.
 
 ID: `A64-M-04`
 Title: unwind information omits x19 and epilogue state transitions

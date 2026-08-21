@@ -34,3 +34,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `81ca7347` | `IR-H-09` discovered by the `IR-H-07` arithmetic review | 0 | 15 | 16 | 2 | 33 |
 | 2026-08-20 | `ed607727` | `IR-H-07` overflow-safe relocation-bounds repair | 0 | 14 | 16 | 2 | 32 |
 | 2026-08-20 | `264bb13d` | `OPT-H-01` recursive alias-offset widening repair | 0 | 13 | 16 | 2 | 31 |
+| 2026-08-20 | `2cd05946` | `A64-H-02` / `A64-H-03` shared address-addend repair | 0 | 11 | 16 | 2 | 29 |
