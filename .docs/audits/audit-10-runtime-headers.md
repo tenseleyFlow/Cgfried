@@ -10,20 +10,23 @@
 
 ## Findings
 
-ID: `RT-H-01`
-Title: arm64-macos publishes the wrong long-double size macro
-Severity: High — target code sees `sizeof(long double) == 8` but
-`__SIZEOF_LONG_DOUBLE__ == 16`. Valid compile-time ABI selection can therefore
-choose a 16-byte representation for an 8-byte target type, producing source
-incompatibility or an ABI mismatch at a library boundary.
-Reproducer: `tests/audit-regressions/rt-h-01.c`
-Root cause: the supposedly all-target common predefined block at
-`src/target.c:132-142` hardcodes 16. The target-specific float table at
-`src/target.c:376-395` and `TargetLayout` correctly model Apple's long double
-as binary64/8 bytes, so the predefined size macro is the inconsistent copy.
-Affected sprints: 14, 28.
-Needed manifest row (not added during this independently owned front):
-`RT-H-01\trt-h-01.c\tarm64-macos publishes the wrong long-double size macro`.
+~~ID: `RT-H-01`~~
+~~Title: arm64-macos publishes the wrong long-double size macro~~
+~~Severity: High — target code sees `sizeof(long double) == 8` but~~
+~~`__SIZEOF_LONG_DOUBLE__ == 16`. Valid compile-time ABI selection can therefore~~
+~~choose a 16-byte representation for an 8-byte target type, producing source~~
+~~incompatibility or an ABI mismatch at a library boundary.~~
+~~Reproducer: `tests/audit-regressions/rt-h-01.c`~~
+~~Root cause: the supposedly all-target common predefined block at~~
+~~`src/target.c:132-142` hardcodes 16. The target-specific float table at~~
+~~`src/target.c:376-395` and `TargetLayout` correctly model Apple's long double~~
+~~as binary64/8 bytes, so the predefined size macro is the inconsistent copy.~~
+~~Affected sprints: 14, 28.~~
+~~Needed manifest row (not added during this independently owned front):~~
+~~`RT-H-01\trt-h-01.c\tarm64-macos publishes the wrong long-double size macro`.~~
+Resolution: RESOLVED 2026-08-20 by `d3be586f`. The predefined macro now comes
+from canonical `TargetLayout.ldbl_size`; all five targets, the Apple Clang
+oracle, cross determinism, and target-seam checks pin the 8/16-byte matrix.
 
 ## Runtime attack-surface dispatch
 

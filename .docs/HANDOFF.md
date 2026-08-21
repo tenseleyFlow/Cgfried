@@ -77,8 +77,8 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and one of the 20 seeded High
-findings; it must close the 19 remaining High findings before Medium/Low work.
+Sprint 61 has closed all Critical findings and two of the 20 seeded High
+findings; it must close the 18 remaining High findings before Medium/Low work.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
@@ -109,8 +109,8 @@ closed at `eb364980`, `X64-C-01` closed at `45f0282c`, and `MS-C-04` closed at
 then added `MS-C-06`, the unregistered `asprintf`/`vasprintf` allocator-model
 mismatch. `IR-C-10` closed at `ea41dd88`, `MS-C-06` closed at `88211779`, and
 `MS-C-05` closed at `b287c2ef`; the Critical barrier is clear. `SEMA-H-07`
-then closed at `21acc9fc`, so live debt is 0/19/16/2 and High remediation is
-active.
+then closed at `21acc9fc`, followed by `RT-H-01` at `d3be586f`, so live debt
+is 0/18/16/2 and High remediation is active.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -159,6 +159,9 @@ conflicts:
 - `SEMA-H-07` — RESOLVED at `21acc9fc`; `_Generic` constant evaluation follows
   only sema's selected association in the caller's constant-expression mode,
   including nested selections and every integer-constant-expression context.
+- `RT-H-01` — RESOLVED at `d3be586f`; `__SIZEOF_LONG_DOUBLE__` now comes from
+  the canonical target layout, preserving Apple arm64's 8-byte binary64 model
+  while every other current target remains 16 bytes.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
 Critical reopens the barrier. The Critical count is zero, so remediation now
