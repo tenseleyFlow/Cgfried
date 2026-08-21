@@ -85,16 +85,16 @@ closed at `92c77528`, zero High findings remain, and Medium/Low remediation is
 active. `DRV-M-01` then closed at `a91a8c42`; the test-integrity cluster closed
 at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 `385f8aa8`; the backend Medium cluster closed at `fb641618`; `PP-L-03` closed
-at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; and the memory-safety Medium
-cluster closed at `687c92a7`, reducing live debt to three Medium and zero Low
-findings.
+at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
+cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
+closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
 ---
 
-## Sprint 61 remediation — IN PROGRESS; Medium/Low tier active
+## Sprint 61 remediation — IMPLEMENTATION COMPLETE; closeout active
 
 The phase-boundary preflight is complete. Commit `4b36ba37` promotes the
 aggregate/front ledgers, burndown, and future closeout files to tracked
@@ -174,6 +174,14 @@ standard-stream `freopen` stays escaped while owned-stream controls stay
 locally owned. The 67-test memory-safety unit lane, 92/92 warning corpus, 12
 exact trace sequences, musl meta-gate, and a clean detached 52 PASS / 3 XFAIL
 / 0 XPASS / 0 FAIL audit run are green.
+`DET-M-01`, `DET-M-02`, and `DET-M-03` closed together at `89b68ead`, reducing
+live debt to 0/0/0/0. Blocking compile, musl, and stage1 gates now consume
+paired wall/CPU/RSS dispersion and use the larger of their nominal allowance
+and four MADs; stage1 takes three forced-build samples; legacy evidence cannot
+silently become a gate; and every baseline-changing commit is checked against
+its exact old/new metric union and rationale. `make -j2 test-bench`, `make -j2
+test-bootstrap`, and a clean detached 55 PASS / 0 XFAIL / 0 XPASS / 0 FAIL
+audit run are green at that exact code commit.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -257,8 +265,9 @@ conflicts:
   widening that preserves sound MAY results and converges on recursive updates.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
-Critical or High reopens the barrier. Both counts are zero, so remediation now
-continues through the 3 Medium and 0 Low findings.
+Critical or High reopens the barrier. The final ledger is 0/0/0/0, so Sprint
+61 implementation is complete and the remaining work is sprint closeout
+verification and ledger finalization.
 
 ---
 

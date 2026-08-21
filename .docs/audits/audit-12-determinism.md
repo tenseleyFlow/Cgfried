@@ -32,89 +32,107 @@
   gate correctly uses that larger floor. Stripped size, kernel instruction
   count, and kernel text are deterministic integer/byte measurements, so
   their +15%, max(+2%, +2 instructions), and +5% thresholds have zero sampling
-  noise. `DET-M-01` and `DET-M-02` are the two evidence breaks: user+sys and
-  RSS lack dispersion, and stage1 reports a fabricated zero MAD from N=1.
+  noise. At the frozen baseline, `DET-M-01` and `DET-M-02` were the two
+  evidence breaks: user+sys and RSS lacked dispersion, and stage1 reported a
+  fabricated zero MAD from N=1. Both are resolved at `89b68ead`.
 - Exactly five commits modified an already-existing
   `.benchmarks/baseline-*.txt`. Only `7aef30e8` records the accepted metric
   old-to-new values and why. `4be79b6e` has only a subject; `b87a2789` gives
   why but no old-to-new values; `787b9cec` and `9c50e6d1` quantify compile
   medians but replace runtime baselines using only “stable or improve” prose.
-  `DET-M-03` records the four failures as one policy root cause.
+  `DET-M-03` records the four historical failures as one policy root cause;
+  `89b68ead` adds the executable policy that prevents recurrence.
 - All three standalone F12 reproducers returned zero on the frozen-baseline
-  history/current evidence. They are intentionally not integrated into the
-  shared manifest/checker here; the shared fixture owner must add the rows and
-  dispatch described below.
+  history/current evidence. They are now integrated into the shared lifecycle
+  manifest and return the resolved result at `89b68ead`; the exact detached
+  audit run is 55 PASS / 0 XFAIL / 0 XPASS / 0 FAIL.
 
-Checklist complete: **Yes.** F12 closes with three raw and three deduplicated
-findings: zero Critical, zero High, three Medium, zero Low, and two unverified
-observations. It is **CLOSED for Sprint 60 collection**; remediation remains
-Sprint 61 work. Sprint 58 remains operationally open at 2/30.
+Checklist complete: **Yes.** F12 closed Sprint 60 collection with three raw
+and three deduplicated findings: zero Critical, zero High, three Medium, zero
+Low, and two unverified observations. All three findings are remediated at
+`89b68ead`; Sprint 58 remains operationally open at 2/30.
 
 ## Findings
 
-ID: `DET-M-01`
-Title: blocking compile gates have no per-metric noise evidence
-Severity: Medium — the gates may still have conservative numerical bands, but
-their claimed threshold honesty cannot be verified for user+sys or max-RSS,
-a performance-evidence/documentation mismatch rather than compiler wrong code.
-Reproducer: `tests/audit-regressions/det-m-01.sh`. It proves that
-`benchmark_gate.sh` actively gates user+sys at +30% and max-RSS at +20%, then
-checks all 27 corresponding metric families across the three controlled
-compile baselines. All 27 have a gated central/max value and none has a MAD or
-equivalent dispersion statistic.
-Root cause: `tests/bench/timeit.c` and the Sprint 52 file schema emit only
-`wall_ms_mad`; user and system time emit medians only, while RSS emits only the
-maximum. `scripts/benchmark_gate.sh` nevertheless applies percentage gates to
-those metrics without consuming raw samples or any noise statistic.
-Affected sprints: 52, 54; also the Sprint 57 musl RSS activation and Sprint 58
-stage1 user+sys lane inherit the same unsupported threshold family.
-Manifest row, to be integrated by the shared fixture owner:
-`DET-M-01<TAB>det-m-01.sh<TAB>blocking compile gates have no per-metric noise evidence`.
+~~ID: `DET-M-01`~~
+~~Title: blocking compile gates have no per-metric noise evidence~~
+~~Severity: Medium — the gates may still have conservative numerical bands, but~~
+~~their claimed threshold honesty cannot be verified for user+sys or max-RSS,~~
+~~a performance-evidence/documentation mismatch rather than compiler wrong code.~~
+~~Reproducer: `tests/audit-regressions/det-m-01.sh`. It proves that~~
+~~`benchmark_gate.sh` actively gates user+sys at +30% and max-RSS at +20%, then~~
+~~checks all 27 corresponding metric families across the three controlled~~
+~~compile baselines. All 27 have a gated central/max value and none has a MAD or~~
+~~equivalent dispersion statistic.~~
+~~Root cause: `tests/bench/timeit.c` and the Sprint 52 file schema emit only~~
+~~`wall_ms_mad`; user and system time emit medians only, while RSS emits only the~~
+~~maximum. `scripts/benchmark_gate.sh` nevertheless applies percentage gates to~~
+~~those metrics without consuming raw samples or any noise statistic.~~
+~~Affected sprints: 52, 54; also the Sprint 57 musl RSS activation and Sprint 58~~
+~~stage1 user+sys lane inherit the same unsupported threshold family.~~
+~~Manifest row, to be integrated by the shared fixture owner:~~
+~~`DET-M-01<TAB>det-m-01.sh<TAB>blocking compile gates have no per-metric noise evidence`.~~
 
-ID: `DET-M-02`
-Title: stage1 timing derives MAD from a single sample
-Severity: Medium — every stage1 performance receipt publishes a zero noise
-floor that the measurement protocol cannot estimate, making the trial gate's
-evidence dishonest without causing a compiler semantic failure.
-Reproducer: `tests/audit-regressions/det-m-02.sh`. The production command in
-`scripts/bootstrap.sh` invokes `timeit -n 1 -w 0`; all 20 committed
-`*-bootstrap.txt` receipts consequently report
-`stage1.O2.wall_ms_mad=0.000000`. The later controlled receipts visibly vary:
-Kasumi's seven comparable nights span 17,494.788–17,751.703 ms (1.460% of the
-mean) and Hasu's span 15,873.430–16,029.785 ms (0.980%), so zero is not the
-observed run-to-run floor. No stage1 baseline has been accepted, so every
-night remains `warmup` and the advertised trial threshold is not exercised.
-Root cause: `scripts/bootstrap.sh:314` deliberately requests one measured
-sample while reusing the median/MAD schema; `scripts/bootstrap-time-gate.awk`
-requires the resulting MAD field but never validates that the sample count can
-support it.
-Affected sprints: 52, 54, 58.
-Manifest row, to be integrated by the shared fixture owner:
-`DET-M-02<TAB>det-m-02.sh<TAB>stage1 timing derives MAD from a single sample`.
+Resolution: RESOLVED 2026-08-20 by `89b68ead`. `timeit` now publishes paired
+wall, CPU, and RSS median/MAD evidence; blocking compile and musl gates use the
+larger of the nominal allowance and four measured MADs. Legacy receipts that
+cannot support that comparison remain explicitly evidence-only.
 
-ID: `DET-M-03`
-Title: four baseline-bump commits omit required old-to-new evidence
-Severity: Medium — accepted baselines are performance ratchets, and four of
-five historical replacements cannot be audited from the required commit
-message, a durable performance-policy/documentation mismatch.
-Reproducer: `tests/audit-regressions/det-m-03.sh`. It reads the five commits
-that modified an existing baseline and reproduces the four deficient message
-classes: no body (`4be79b6e`), why without old-to-new values (`b87a2789`), and
-whole runtime-baseline replacements described only as stable/improved
-(`787b9cec`, `9c50e6d1`). `7aef30e8` is the sole complete control.
-Root cause: the baseline ritual is prose-only. No CI or local policy check
-binds a changed baseline to commit-message old-to-new values and a reason.
-Affected sprints: 52, 54.
-Manifest row, to be integrated by the shared fixture owner:
-`DET-M-03<TAB>det-m-03.sh<TAB>four baseline-bump commits omit required old-to-new evidence`.
+~~ID: `DET-M-02`~~
+~~Title: stage1 timing derives MAD from a single sample~~
+~~Severity: Medium — every stage1 performance receipt publishes a zero noise~~
+~~floor that the measurement protocol cannot estimate, making the trial gate's~~
+~~evidence dishonest without causing a compiler semantic failure.~~
+~~Reproducer: `tests/audit-regressions/det-m-02.sh`. The production command in~~
+~~`scripts/bootstrap.sh` invokes `timeit -n 1 -w 0`; all 20 committed~~
+~~`*-bootstrap.txt` receipts consequently report~~
+~~`stage1.O2.wall_ms_mad=0.000000`. The later controlled receipts visibly vary:~~
+~~Kasumi's seven comparable nights span 17,494.788–17,751.703 ms (1.460% of the~~
+~~mean) and Hasu's span 15,873.430–16,029.785 ms (0.980%), so zero is not the~~
+~~observed run-to-run floor. No stage1 baseline has been accepted, so every~~
+~~night remains `warmup` and the advertised trial threshold is not exercised.~~
+~~Root cause: `scripts/bootstrap.sh:314` deliberately requests one measured~~
+~~sample while reusing the median/MAD schema; `scripts/bootstrap-time-gate.awk`~~
+~~requires the resulting MAD field but never validates that the sample count can~~
+~~support it.~~
+~~Affected sprints: 52, 54, 58.~~
+~~Manifest row, to be integrated by the shared fixture owner:~~
+~~`DET-M-02<TAB>det-m-02.sh<TAB>stage1 timing derives MAD from a single sample`.~~
 
-### Shared checker dispatch contract
+Resolution: RESOLVED 2026-08-20 by `89b68ead`. Stage1 timing now takes three
+forced-rebuild samples. Its schema and gate require `samples >= 3` plus the
+complete modern wall/CPU dispersion set; incomplete modern evidence fails,
+while pre-repair baselines remain evidence-only.
 
-The shared manifest must add the three rows above. The checker should dispatch
-each root-level shell fixture with the repository root as its sole argument.
-Each script uses the established explicit status contract: zero means the
-baseline finding reproduced and calls `xfail`, one means remediation and calls
-`xpass`, and two means malformed checkout/tooling and calls `fail`.
+~~ID: `DET-M-03`~~
+~~Title: four baseline-bump commits omit required old-to-new evidence~~
+~~Severity: Medium — accepted baselines are performance ratchets, and four of~~
+~~five historical replacements cannot be audited from the required commit~~
+~~message, a durable performance-policy/documentation mismatch.~~
+~~Reproducer: `tests/audit-regressions/det-m-03.sh`. It reads the five commits~~
+~~that modified an existing baseline and reproduces the four deficient message~~
+~~classes: no body (`4be79b6e`), why without old-to-new values (`b87a2789`), and~~
+~~whole runtime-baseline replacements described only as stable/improved~~
+~~(`787b9cec`, `9c50e6d1`). `7aef30e8` is the sole complete control.~~
+~~Root cause: the baseline ritual is prose-only. No CI or local policy check~~
+~~binds a changed baseline to commit-message old-to-new values and a reason.~~
+~~Affected sprints: 52, 54.~~
+~~Manifest row, to be integrated by the shared fixture owner:~~
+~~`DET-M-03<TAB>det-m-03.sh<TAB>four baseline-bump commits omit required old-to-new evidence`.~~
+
+Resolution: RESOLVED 2026-08-20 by `89b68ead`. The benchmark-policy gate now
+examines each baseline-changing commit independently and requires the exact
+old/new metric union, including additions and deletions, plus rationale. A
+temporary-repository regression proves incomplete, fabricated, and
+range-hidden evidence is rejected and complete exact evidence is accepted.
+
+### Shared checker lifecycle contract
+
+The shared manifest contains all three rows in `PASS` state. The checker
+dispatches each root-level shell fixture with the repository root as its sole
+argument and preserves the established status contract: zero is a reproduced
+finding, one is remediation, and two is malformed checkout/tooling. The clean
+detached run at `89b68ead` reports 55 PASS / 0 XFAIL / 0 XPASS / 0 FAIL.
 
 ## Bootstrap incident ledger since Sprint 58
 
@@ -135,18 +153,19 @@ incidents. They are therefore not inflated into extra determinism events.
 | Gate threshold | Recorded/derived noise floor | Classification |
 |---|---|---|
 | Compile wall >+30% | Controlled baseline MAD/median 0.1137%–1.6696%. | Valid; threshold is above every recorded wall floor. |
-| Compile user+sys >+30% | No user or sys MAD in ordinary controlled compile baselines. | **Unvalidated/dishonest evidence** (`DET-M-01`); not proven below noise, but the required comparison is impossible. |
-| Max-RSS >+20% | Only per-run maximum recorded; no median/MAD or cross-run dispersion consumed by the gate. | **Unvalidated/dishonest evidence** (`DET-M-01`). |
+| Compile paired CPU >+30% | Current controlled receipts carry paired CPU median/MAD. Pre-repair receipts lack the pair. | Valid for modern evidence at `89b68ead`: effective threshold is `max(30%, 4*MAD)`; legacy metrics are evidence-only. |
+| Max-RSS >+20% | Current controlled receipts carry RSS median/MAD/max. Pre-repair receipts have only a maximum. | Valid for modern evidence at `89b68ead`: effective threshold is `max(20%, 4*MAD)`; legacy metrics are evidence-only. |
 | Stripped corpus/self size >+15% | Exact deterministic byte count. | Valid; sampling-noise floor is zero. |
 | Kernel icount >max(2%, 2 instructions) | Exact deterministic instruction count. | Valid; sampling-noise floor is zero. |
 | Kernel text >+5% | Exact deterministic section-byte count. | Valid; sampling-noise floor is zero. |
 | Kernel runtime >+10% **and** >4×max(MAD) | Four-MAD floor exceeds 10% in 104/189 cells and reaches 112.0192%; implementation requires both clauses. | Valid; the effective threshold is `max(10%, 4*MAD)` rather than the dishonest nominal 10%. |
-| Musl wall/user+sys >+30% | MAD/median 0.1077%–0.6653%. | Valid for time. Musl RSS inherits `DET-M-01`. |
-| Stage1 wall/user+sys >+30% | Per-receipt wall MAD is always zero from N=1; user/sys have no MAD; cross-night wall spans 0.980%–1.460%; no accepted baseline exists. | Numerically above observed nightly variation, but **dishonest and inactive evidence** (`DET-M-02`, plus `DET-M-01` for CPU time). |
+| Musl wall/CPU >+30%; RSS >+20% | Current receipts record wall/CPU/RSS dispersion. Historical time MAD/median was 0.1077%–0.6653%. | Valid for modern evidence at `89b68ead`; all three families use their nominal-or-four-MAD floor. |
+| Stage1 wall/CPU >+30% | Three forced builds now produce measurable wall/CPU dispersion; the schema rejects fewer samples or partial modern fields. | Valid for modern evidence at `89b68ead`; legacy N=1 baselines are evidence-only rather than gating inputs. |
 
 No implemented threshold was confirmed below a correctly recorded applicable
-noise floor. The findings are the missing/fabricated floors that prevent that
-claim for three gated metric families.
+noise floor. At `89b68ead`, every noisy blocking metric has a measured floor;
+historical inputs that cannot support the comparison are never promoted into
+gating evidence.
 
 ## Baseline-bump commit audit
 
@@ -169,15 +188,28 @@ baseline and are likewise outside this exact ritual.
   the August 18 reset. Every failure/cancellation is classified above; no
   unresolved compiler stage mismatch remains.
 - Gate-threshold honesty: complete over all S52/S54 configured threshold
-  classes and their current activated descendants (musl and stage1). Three
-  evidence defects are recorded as `DET-M-01`/`DET-M-02`; no honest recorded
-  floor exceeds its operative threshold.
+  classes and their current activated descendants (musl and stage1).
+  `DET-M-01`/`DET-M-02` are resolved by measured dispersion, noise-aware
+  thresholds, and an explicit evidence-only boundary for legacy receipts.
 - Baseline drift: complete over every commit that modified an existing
-  `.benchmarks/baseline-*.txt`; `DET-M-03` covers the four message violations.
+  `.benchmarks/baseline-*.txt`; `DET-M-03` records the four historical message
+  violations, and the policy gate at `89b68ead` prevents recurrence.
 - Repo-wide deterministic-output tests: frozen-baseline O0/O2 bootstrap,
   bootstrap meta-suite, static audit, and int128 ABI differential all passed.
 
 ## Exact verification commands and results
+
+Remediation evidence at `89b68ead`:
+
+- `make -j2 test-bench` — PASS; paired timing/RSS math, 58 benchmark-gate
+  cases, kernel gates, musl gates, and baseline-policy checks are green.
+- `make -j2 test-bootstrap` — PASS; bootstrap meta, determinism audit, and
+  GCC/Clang O0/O2 int128 ABI checks are green; the meta-suite proves three
+  forced stage1 builds.
+- Detached `make -j2 all && make test-audit-fixtures` — PASS; 55 PASS / 0
+  XFAIL / 0 XPASS / 0 FAIL.
+
+Original Sprint 60 collection evidence at the frozen baseline:
 
 - `make -j2 bootstrap-O0 bootstrap-O2` at detached
   `1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb` — both PASS; 113 assembly, 113
