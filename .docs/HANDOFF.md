@@ -99,12 +99,12 @@ The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
 cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
 alignment mismatch, at `555fc32a`. `SEMA-C-01` closed at `0eca9832` and
 `SEMA-C-02` closed at `d4d674ec`, and `IR-C-03` closed at `892435be`, so live
-debt is 3/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
+debt is 2/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
 `7a003d68`, and `SEMA-C-08` closed at `bdd523c0`, followed by the `IR-C-11`
 atomic-alignment discovery at `c7d43927` during the `X64-C-01` sibling hunt,
 `IR-C-04` closed at `1b61459a`, `IR-C-01` closed at `eb528221`, and `IR-C-11`
 closed at `eb364980`, `X64-C-01` closed at `45f0282c`, and `MS-C-04` closed at
-`b1bc4f91`.
+`b1bc4f91`, and `IR-C-09` closed at `3bc1ae02`.
 One central
 integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -125,6 +125,10 @@ its fix. First Critical lanes are split to avoid shared-file conflicts:
 - `IR-C-11` — RESOLVED at `eb364980`; target-neutral verification now rejects
   under-aligned scalar seq_cst accesses before either backend can rely on an
   invalid indivisibility guarantee.
+- `IR-C-09` — RESOLVED at `3bc1ae02`; Linux AAPCS64 composite arguments and
+  `va_arg` honor the even-register rule, Apple remains unchanged, and the
+  shared marker is verifier-hardened. `IR-C-10` follows on the stable marker
+  surface.
 - `X64-C-02` — RESOLVED at `45a9d0dc`; frame sizes and far offsets are
   represented and emitted without 32-bit truncation.
 - `X64-C-01` — RESOLVED at `45f0282c`; floating seq_cst accesses retain their

@@ -176,27 +176,33 @@ an indirect `%9 = call i32 %6(...)`, while the post-mem2reg dump prints
 the call form, which is why replaying the dump alone cannot expose the bug.
 Affected sprints: 17, 30.
 
-ID: `IR-C-09`
-Title: 16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
-Severity: Critical — valid cross-object calls disagree on argument registers.
-With one scalar already in x0, an ordinary Linux AAPCS64 caller leaves x1
-unused and passes this naturally 16-byte-aligned composite in x2:x3; Cgfried
-passes it in x1:x2. Its Linux `va_arg` path makes the same mistake when reading
-the general-register save area, so Cgfried agrees with itself while mixed-link
-programs consume the wrong words. Apple arm64 intentionally omits the
-even-register rule and remains the x1:x2 control.
-Reproducer: `tests/audit-regressions/ir-c-09.c`
-Root cause: `abi_arg_place` charges `need_gp` directly to `AbiBudget.gp`
-without applying AAPCS64 rule C.10's even-NGRN adjustment for a composite whose
-natural alignment is 16 (`src/lower/abi.c:338-408`). The matching Linux
-`va_arg` walk increments `__gr_offs` by the composite width without first
-rounding the negative save-area offset to 16 (`src/lower/expr.c:1091-1180`).
-Evidence: the fixture's strict-C17 host control runs successfully. GCC 16's
-Linux arm64 caller uses x0 followed by x2:x3, while Cgfried uses x0 followed by
-x1:x2. Cgfried's Linux IR increments `__gr_offs` by 16 with no i32
-add-15/and-minus-16 alignment step. The Apple target uses x1:x2, proving that
-the gate distinguishes the target-specific register rules.
-Affected sprints: 20, 48, 50.
+~~ID: `IR-C-09`~~
+~~Title: 16-byte-aligned Linux AAPCS64 composites ignore the even-register rule~~
+~~Severity: Critical — valid cross-object calls disagree on argument registers.~~
+~~With one scalar already in x0, an ordinary Linux AAPCS64 caller leaves x1~~
+~~unused and passes this naturally 16-byte-aligned composite in x2:x3; Cgfried~~
+~~passes it in x1:x2. Its Linux `va_arg` path makes the same mistake when reading~~
+~~the general-register save area, so Cgfried agrees with itself while mixed-link~~
+~~programs consume the wrong words. Apple arm64 intentionally omits the~~
+~~even-register rule and remains the x1:x2 control.~~
+~~Reproducer: `tests/audit-regressions/ir-c-09.c`~~
+~~Root cause: `abi_arg_place` charges `need_gp` directly to `AbiBudget.gp`~~
+~~without applying AAPCS64 rule C.10's even-NGRN adjustment for a composite whose~~
+~~natural alignment is 16 (`src/lower/abi.c:338-408`). The matching Linux~~
+~~`va_arg` walk increments `__gr_offs` by the composite width without first~~
+~~rounding the negative save-area offset to 16 (`src/lower/expr.c:1091-1180`).~~
+~~Evidence: the fixture's strict-C17 host control runs successfully. GCC 16's~~
+~~Linux arm64 caller uses x0 followed by x2:x3, while Cgfried uses x0 followed by~~
+~~x1:x2. Cgfried's Linux IR increments `__gr_offs` by 16 with no i32~~
+~~add-15/and-minus-16 alignment step. The Apple target uses x1:x2, proving that~~
+~~the gate distinguishes the target-specific register rules.~~
+~~Affected sprints: 20, 48, 50.~~
+Resolution: RESOLVED 2026-08-20 by `3bc1ae02`.
+Cluster hunt: covered Linux NGRN boundaries 0 through 7, whole-argument stack
+fallback, fixed and variadic caller/callee directions, and Apple no-rounding
+controls. The shared `even` marker round-trips, matches across internal calls,
+and is verifier-rejected on wrong types or stacked carriers; stack alignment
+remains separately tracked as `IR-C-10`.
 
 ID: `IR-C-10`
 Title: stacked 16-byte-aligned composites lose AAPCS64 stack alignment
