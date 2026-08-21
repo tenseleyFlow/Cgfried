@@ -130,6 +130,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
     Member *m;
     u64 offset_bits = 0; /* running position, in BITS */
     u64 align = 1;
+    bool has_zero_sized_member = false;
 
     for (m = tag->members; m; m = m->next) {
         TypeLayout ml;
@@ -144,6 +145,8 @@ static void layout_struct(Sema *s, TagDecl *tag)
         }
         ml = layout_of(s, m->type);
         malign = ml.align;
+        if (!m->is_bitfield && ml.size == 0)
+            has_zero_sized_member = true;
         /* `packed` drops the member's alignment to 1. The record's own
          * alignment then falls out of the same loop, because `align` only
          * ever rises to a member's requirement -- which is the half that is
@@ -226,8 +229,13 @@ static void layout_struct(Sema *s, TagDecl *tag)
     /* Tail padding is part of sizeof: `struct { long l; char c; }` is 16,
      * not 9, and the array stride is always exactly sizeof. */
     tag->size = align_up(align_up(offset_bits, 8) / 8, align);
-    if (tag->size == 0)
-        tag->size = align; /* only reachable for a FAM-only shape */
+    /* Preserve the compiler's nonzero recovery layout for a genuinely empty
+     * record, while honoring GNU complete zero-sized members. In particular,
+     * `struct { int x[0]; }` has size 0 and alignment 4, and that zero extent
+     * must propagate through nesting and array stride. A flexible array is
+     * incomplete and therefore never sets this flag. */
+    if (tag->size == 0 && !has_zero_sized_member)
+        tag->size = align;
 }
 
 static void layout_union(Sema *s, TagDecl *tag)
@@ -235,6 +243,7 @@ static void layout_union(Sema *s, TagDecl *tag)
     Member *m;
     u64 size = 0;
     u64 align = 1;
+    bool has_zero_sized_member = false;
 
     for (m = tag->members; m; m = m->next) {
         TypeLayout ml;
@@ -246,6 +255,8 @@ static void layout_union(Sema *s, TagDecl *tag)
             continue;
         ml = layout_of(s, m->type);
         m->container_size = ml.size;
+        if (!m->is_bitfield && ml.size == 0)
+            has_zero_sized_member = true;
         /* A packed UNION keeps every member's SIZE -- they all start at 0, so
          * nothing can be misplaced -- and loses only its alignment. gcc:
          * `union { char a; double d; } packed` is 8 bytes, aligned 1. */
@@ -294,7 +305,7 @@ static void layout_union(Sema *s, TagDecl *tag)
         align = tag->align_override;
     tag->align = align;
     tag->size = align_up(size, align);
-    if (tag->size == 0)
+    if (tag->size == 0 && !has_zero_sized_member)
         tag->size = align;
 }
 

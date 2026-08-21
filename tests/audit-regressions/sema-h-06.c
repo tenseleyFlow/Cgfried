@@ -1,4 +1,4 @@
-// XFAIL(audit): SEMA-H-06 a record of only zero-length arrays is sized to its alignment
+// RESOLVED(audit): SEMA-H-06 a record of only zero-length arrays is sized to its alignment
 // GCC gives both of these size 0; Cgfried gives them 4. The trailing-idiom
 // shapes (`struct { int n; char p[0]; }`) agree, which is why real code never
 // surfaced this -- only a record whose members are ALL zero-length diverges,

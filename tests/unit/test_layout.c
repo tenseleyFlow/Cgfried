@@ -270,6 +270,41 @@ void test_layout_records(TestCtx *t)
     rec_is(t, "struct S { _Alignas(8) char c; int i; };", 8, 8);
 }
 
+void test_layout_zero_length_array_records(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,      CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,
+    };
+    u32 i;
+
+    /* SEMA-H-06: complete GNU zero-length arrays impose alignment but no
+     * storage. This is distinct from both a refused empty record and an
+     * incomplete flexible array member. Keep the answer target-independent
+     * across the closed target set. */
+    for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        rec_target_is(t, "struct S { int x[0]; };", targets[i], 0, 4);
+        rec_target_is(t, "union S { int x[0]; };", targets[i], 0, 4);
+    }
+
+    /* Multiple zero-sized members retain the strictest alignment. */
+    rec_is(t, "struct S { int x[0]; double y[0]; };", 0, 8);
+    rec_is(t, "union S { int x[0]; double y[0]; };", 0, 8);
+
+    /* Zero extent propagates through an enclosing member and through arrays:
+     * the following int remains at offset zero, and an array's stride is the
+     * element sizeof (zero here). */
+    rec_is(t, "struct Z { int x[0]; }; struct S { struct Z z; int value; };", 4,
+           4);
+    rec_is(t, "struct Z { int x[0]; }; struct S { struct Z z[2]; };", 0, 4);
+
+    /* Ordinary leading/trailing zero-length idioms already had the correct
+     * nonzero extent and must not change. */
+    rec_is(t, "struct S { int value; char tail[0]; };", 4, 4);
+    rec_is(t, "struct S { char lead[0]; int value; };", 4, 4);
+}
+
 void test_layout_bitfields(TestCtx *t)
 {
     /* The five worked examples, by size and alignment. */
@@ -758,6 +793,17 @@ void test_layout_incomplete_and_errors(TestCtx *t)
     /* A struct with no NAMED member is the GNU size-0 extension, which we
      * decline rather than inventing a size for. */
     (void)run_lay(&f, "struct S { int :0; };\n", CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT(t, f.errors >= 1);
+    lay_free(&f);
+
+    /* SEMA-H-06 does not enable the broader GNU no-named-member or FAM-only
+     * extensions: both remain explicitly refused. */
+    (void)run_lay(&f, "struct S {};\n", CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT(t, f.errors >= 1);
+    lay_free(&f);
+
+    (void)run_lay(&f, "struct S { int data[]; };\n",
+                  CGF_TARGET_X86_64_LINUX_GNU);
     T_ASSERT(t, f.errors >= 1);
     lay_free(&f);
 
