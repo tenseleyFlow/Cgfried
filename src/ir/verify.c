@@ -18,7 +18,8 @@
  *   5  entry block has no params and no predecessors
  *   6  no orphan blocks — unreachable-from-entry is REJECTED
  *   7  instruction flags only on ops that can carry their semantics
- *   8  alignments nonzero powers of two; load/store never over-aligned
+ *   8  alignments nonzero powers of two; load/store never over-aligned;
+ *      seq_cst scalar load/store naturally aligned
  *   9  FuncRef/symbol indices in range; internal call arity/types match
  *   10 reserved opcodes absent */
 
@@ -529,9 +530,19 @@ static void check_inst_misc(V *v, const IrInst *in)
         } else if (in->op == IR_LOAD || in->op == IR_STORE) {
             u8 vt = in->op == IR_LOAD ? in->type : in->ops[0].type;
 
-            /* Under-aligned is honest (packed structs); OVER-aligned
-             * claims guarantees nobody made — reject the lie. */
-            if (in->align > natural_align(vt))
+            /* IR-C-11: ordinary under-alignment is honest for packed
+             * objects, but a scalar seq_cst access is only indivisible when
+             * it carries the type's natural-alignment guarantee. Both
+             * backends rely on that guarantee when selecting machine atomic
+             * loads and stores. */
+            if ((in->flags & IRF_SEQ_CST) && !ir_type_is_vector((IrType)vt) &&
+                in->align != natural_align(vt))
+                verr(v, 8,
+                     "'%s' of %s with seq_cst requires natural alignment "
+                     "%u, got alignment %u",
+                     ir_op_name((IrOp)in->op), ir_type_name((IrType)vt),
+                     natural_align(vt), in->align);
+            else if (in->align > natural_align(vt))
                 verr(v, 8,
                      "'%s' of %s claims alignment %u above the "
                      "natural %u",

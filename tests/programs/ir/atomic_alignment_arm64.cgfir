@@ -1,0 +1,14 @@
+// IR-C-11: the target-neutral verifier must enforce the same scalar atomic
+// alignment contract before the ARM backend is selected.
+// FLAGS: --target=arm64-linux -emit-ir
+// ERROR_EXPECTED: requires natural alignment
+func void @atomic_alignment_arm64(ptr %p, f64 %d) {
+entry():
+    %f = load f32, %p, align 1, seq_cst
+    store f64 %d, %p, align 1, seq_cst
+    %i = load i64, %p, align 1, seq_cst
+    store i32 0, %p, align 2, seq_cst
+    %q = load ptr, %p, align 4, seq_cst
+    store ptr %q, %p, align 4, seq_cst
+    ret
+}

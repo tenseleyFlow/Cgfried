@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-C-11 under-aligned atomic scalar accesses pass IR verification
+// RESOLVED(audit): IR-C-11 under-aligned atomic scalar accesses pass IR verification
 // Every seq_cst scalar access must carry its type's natural alignment. The
 // x86 and ARM backends otherwise rely on indivisible naturally aligned machine
 // accesses even though the verifier accepts these weaker contracts.

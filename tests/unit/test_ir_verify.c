@@ -390,11 +390,60 @@ void test_ir_verify_check8_alignment(TestCtx *t)
     T_ASSERT(t, fired(&f, 8));
     arena_free_all(&f.arena);
 
-    /* Under-aligned load passes. */
+    /* Ordinary under-aligned load passes: packed access remains legal. */
     vfix_init(&f);
     fn = scaffold(&f, &m, &b);
     p = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 8), 8);
     ir_build_load(&b, IRT_I64, ir_op_value(fn, p), 1, 0);
+    ir_build_ret(&b, NULL);
+    T_ASSERT(t, ir_verify(f.dc, m));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    arena_free_all(&f.arena);
+
+    /* IR-C-11: all accepted scalar families require natural alignment when
+     * seq_cst. These are the widths the x86 and ARM backends lower directly. */
+    {
+        static const struct {
+            IrType type;
+            u32 bad_align;
+            bool store;
+        } rows[] = {
+            {IRT_F32, 1, false}, {IRT_F64, 1, true},  {IRT_I32, 2, true},
+            {IRT_I64, 1, false}, {IRT_PTR, 4, false}, {IRT_PTR, 4, true},
+        };
+        size_t row;
+
+        for (row = 0; row < CGF_ARRAY_LEN(rows); row++) {
+            vfix_init(&f);
+            fn = scaffold(&f, &m, &b);
+            p = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 16), 16);
+            if (rows[row].store)
+                ir_build_store(&b, ir_op_undef(rows[row].type),
+                               ir_op_value(fn, p), rows[row].bad_align,
+                               IRF_SEQ_CST);
+            else
+                ir_build_load(&b, rows[row].type, ir_op_value(fn, p),
+                              rows[row].bad_align, IRF_SEQ_CST);
+            ir_build_ret(&b, NULL);
+            T_ASSERT(t, !ir_verify(f.dc, m));
+            T_ASSERT(t, fired(&f, 8));
+            T_ASSERT(t,
+                     strstr(f.msgs[0], "requires natural alignment") != NULL);
+            arena_free_all(&f.arena);
+        }
+    }
+
+    /* The same scalar families pass at their natural alignment. */
+    vfix_init(&f);
+    fn = scaffold(&f, &m, &b);
+    p = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 16), 16);
+    ir_build_load(&b, IRT_F32, ir_op_value(fn, p), 4, IRF_SEQ_CST);
+    ir_build_store(&b, ir_op_undef(IRT_F64), ir_op_value(fn, p), 8,
+                   IRF_SEQ_CST);
+    ir_build_load(&b, IRT_I64, ir_op_value(fn, p), 8, IRF_SEQ_CST);
+    ir_build_store(&b, ir_op_undef(IRT_I32), ir_op_value(fn, p), 4,
+                   IRF_SEQ_CST);
+    ir_build_load(&b, IRT_PTR, ir_op_value(fn, p), 8, IRF_SEQ_CST);
     ir_build_ret(&b, NULL);
     T_ASSERT(t, ir_verify(f.dc, m));
     T_ASSERT_EQ_INT(t, f.errors, 0);
