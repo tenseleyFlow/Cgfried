@@ -1082,9 +1082,11 @@ static void lower_function(Lower *lo, AstNode *def)
             /* The annotation lands on IrFunc.param_annots after
              * ir_func_new — a bare ptr param would look like a pointer
              * in the GP queue to codegen, but this one is the ADDRESS
-             * OF THE INCOMING STACK COPY (Sprint 23). */
+             * OF THE INCOMING STACK COPY (Sprint 23). IR-H-12: a stacked
+             * SysV aggregate has already been normalized from STACK to
+             * BYVAL here, so preserve placement from the saved fact. */
             pannots[nir_params] = ir_arg_annot(IR_ARG_BYVAL, a->size);
-            if (a->kind == ABI_ARG_STACK)
+            if (stacked)
                 pannots[nir_params] |= IR_PARAM_ONSTACK;
             any_annot = true;
             ptypes[nir_params++] = IRT_PTR;

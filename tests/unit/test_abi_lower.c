@@ -460,6 +460,60 @@ void test_abi_aapcs64_stacked_composite_ir_contract(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_sysv_stacked_fixed_aggregate_ir_contract(TestCtx *t)
+{
+    /* Like c-testsuite 00204.c, fixed small aggregates exhaust the SysV GP
+     * bank and force a later aggregate wholly onto the stack. */
+    static const char src[] =
+        "struct S { char x[8]; };\n"
+        "struct S g0, g1, g2, g3, g4, g5, g6;\n"
+        "int sink(struct S a0, struct S a1, struct S a2, struct S a3, "
+        "struct S a4, struct S a5, struct S a6) {\n"
+        "  return a0.x[0]+a1.x[0]+a2.x[0]+a3.x[0]+a4.x[0]+a5.x[0]+a6.x[0];\n"
+        "}\n"
+        "int call(void) { return sink(g0, g1, g2, g3, g4, g5, g6); }\n";
+    AbiFix f;
+    IrFunc *sink = NULL;
+    IrFunc *caller = NULL;
+    const IrInst *call = NULL;
+    u32 i, bi;
+
+    T_ASSERT(t, run_abi(&f, src));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    for (i = 0; i < f.m->nfuncs; i++) {
+        if (strcmp(f.m->funcs[i].name, "sink") == 0)
+            sink = &f.m->funcs[i];
+        else if (strcmp(f.m->funcs[i].name, "call") == 0)
+            caller = &f.m->funcs[i];
+    }
+    if (caller)
+        for (bi = 0; bi < caller->nblocks && !call; bi++) {
+            const IrInst *in;
+
+            for (in = caller->blocks[bi].first; in; in = in->next)
+                if (in->op == IR_CALL) {
+                    call = in;
+                    break;
+                }
+        }
+    T_ASSERT(t, sink != NULL && caller != NULL && call != NULL);
+    if (sink && call) {
+        T_ASSERT_EQ_INT(t, sink->nparams, 7);
+        T_ASSERT_EQ_INT(t, call->nops, 7);
+        for (i = 0; i < 7; i++) {
+            bool param_onstack = sink->param_annots &&
+                                 ir_param_is_onstack(sink->param_annots[i]);
+            bool arg_onstack = (call->ops[i].argflags & IROPF_ONSTACK) != 0;
+
+            T_ASSERT_EQ_INT(t, arg_onstack, param_onstack);
+            T_ASSERT_EQ_INT(t, arg_onstack, i == 6);
+        }
+        T_ASSERT_EQ_INT(t, ir_arg_kind(sink->param_annots[6]), IR_ARG_BYVAL);
+        T_ASSERT_EQ_INT(t, ir_arg_kind(call->ops[6].b), IR_ARG_BYVAL);
+    }
+    abi_free(&f);
+}
+
 void test_abi_va_list_both_forms_identical(TestCtx *t)
 {
     AbiFix f;

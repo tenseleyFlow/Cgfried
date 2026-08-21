@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-H-12 SysV spilled aggregate parameters lose their stack ABI marker
+// RESOLVED(audit): IR-H-12 SysV spilled aggregate parameters lose their stack ABI marker
 // Exhausting the fixed-aggregate register budget moves the later values to the
 // stack. Caller operands and callee parameters must describe that same ABI
 // placement or valid C reaches verifier check 9 and becomes an ICE.
