@@ -366,8 +366,8 @@ u64 layout_offsetof(Sema *s, Type *rec, const Member *m)
 /* --- SysV x86-64 classification (psABI 3.2.3) ---------------------------- */
 
 /* The pairwise merge, verbatim from the psABI. Order matters: MEMORY
- * poisons, INTEGER dominates anything that is not MEMORY, and the x87
- * classes inside an aggregate always end in MEMORY. */
+ * poisons, INTEGER dominates anything that is not MEMORY, and x87 merged
+ * with any distinct occupied class makes the aggregate MEMORY. */
 static AbiClass merge(AbiClass a, AbiClass b)
 {
     if (a == b)
@@ -408,10 +408,22 @@ static void classify_into(Sema *s, Type *t, u64 off, AbiClass cls[2],
             return;
         layout_record(s, t);
         /* A UNION merges every member into the SAME eightbytes, which is
-         * what makes `union { double d; long l; }` come out INTEGER. */
-        for (m = t->tag->members; m; m = m->next)
-            if (m->type && layout_is_complete_for_size(m->type))
-                classify_into(s, m->type, off + m->offset, cls, neightbytes);
+         * what makes `union { double d; long l; }` come out INTEGER.
+         *
+         * A zero-width STRUCT bitfield is only an allocation barrier: it
+         * occupies no bits and therefore contributes no ABI class. IR-C-01
+         * used to merge its integer base type and poison a following sole
+         * f80 into MEMORY. Preserve the UNION behavior deliberately: GCC 16
+         * treats `union { int :0; long double v; }` as MEMORY, while Clang 22
+         * returns it in st0; GCC is this lane's compatibility oracle until
+         * that psABI ambiguity is resolved independently. */
+        for (m = t->tag->members; m; m = m->next) {
+            if (!m->type || !layout_is_complete_for_size(m->type))
+                continue;
+            if (t->kind == TY_STRUCT && m->is_bitfield && m->bit_width == 0)
+                continue;
+            classify_into(s, m->type, off + m->offset, cls, neightbytes);
+        }
         return;
     }
     case TY_ARRAY: {
@@ -544,15 +556,12 @@ int layout_classify_sysv(Sema *s, Type *t, AbiClass out[2])
     /* (b) an X87UP not preceded by X87 -> MEMORY. */
     if (n == 2 && out[1] == ABI_X87UP && out[0] != ABI_X87)
         return -1;
-    /* An x87 long double inside an AGGREGATE is passed in memory; a BARE
-     * one keeps X87/X87UP, because it is RETURNED in st0 and Sprint 23
-     * needs to tell the two cases apart. */
-    if ((t->kind == TY_STRUCT || t->kind == TY_UNION || t->kind == TY_ARRAY) &&
-        (out[0] == ABI_X87 || out[0] == ABI_COMPLEX_X87))
-        return -1;
-    /* An x87 long double inside an AGGREGATE ends in MEMORY via (a)/(b)
-     * once merged; a BARE long double keeps X87/X87UP and is passed on
-     * the stack — which is why this returns 2 rather than -1 for it. */
+    /* IR-C-01: classification is direction-neutral. A bare f80 and an
+     * exactly-16-byte aggregate containing only that f80 both remain
+     * X87/X87UP here. SysV arguments demote that pair to memory, while
+     * returns use st0; erasing it here forced aggregate returns through an
+     * ABI-incompatible hidden pointer. Any additional occupied class already
+     * became MEMORY through merge(), and sizes above 16 were rejected. */
     /* (c) size > 16 already handled above. */
     /* (d) an SSEUP not preceded by SSE or SSEUP -> SSE. */
     if (n == 2 && out[1] == ABI_SSEUP && out[0] != ABI_SSE &&

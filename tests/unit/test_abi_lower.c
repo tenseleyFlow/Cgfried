@@ -126,7 +126,7 @@ void test_abi_classification_table(TestCtx *t)
                         "struct SS4 { float a, b, c, d; };\n" /* pair SS */
                         "struct BIG { char c[17]; };\n"       /* MEMORY */
                         "struct ARR { int a[4]; };\n" /* pair II via array */
-                        "struct XLD { long double ld; };\n" /* f80: MEMORY */
+                        "struct XLD { long double ld; };\n" /* f80: st0 return */
                         "struct II g_ii; struct LL g_ll; struct SD g_sd;\n"
                         "struct FF g_ff; struct DI g_di; struct ID g_id;\n"
                         "struct SS4 g_ss; struct BIG g_big; struct ARR g_arr;\n"
@@ -161,7 +161,7 @@ void test_abi_classification_table(TestCtx *t)
     T_ASSERT(t,
              strstr(atxt(&f), "func void @r_ss(ptr %0) abi(pair_ss)") != NULL);
     T_ASSERT(t, strstr(atxt(&f), "func void @r_big(ptr %0) abi(sret)") != NULL);
-    T_ASSERT(t, strstr(atxt(&f), "func void @r_xld(ptr %0) abi(sret)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @r_xld()") != NULL);
 
     /* Argument shapes at the call sites. */
     T_ASSERT(t, strstr(atxt(&f), "call void @t_ii(i64 %") != NULL);
@@ -172,6 +172,60 @@ void test_abi_classification_table(TestCtx *t)
     T_ASSERT(t, strstr(atxt(&f), "call f80 @t_ld(f80 0x") != NULL);
     /* t_arr: two INTEGER eightbytes from one array member. */
     T_ASSERT(t, acount(atxt(&f), "call void @t_arr(i64 %") == 1);
+    abi_free(&f);
+}
+
+void test_abi_sysv_f80_aggregate_direction_split(TestCtx *t)
+{
+    AbiFix f;
+
+    T_ASSERT(t,
+             run_abi(&f, "struct S { long double v; };\n"
+                         "union U { long double v; };\n"
+                         "struct A { long double v[1]; };\n"
+                         "struct I { long double v; };\n"
+                         "struct N { struct I inner; };\n"
+                         "struct Z { int :0; long double v; };\n"
+                         "union ZU { int :0; long double v; };\n"
+                         "struct Big { long double v; char tail; };\n"
+                         "struct S gs; union U gu; struct A ga; struct N gn;\n"
+                         "struct Z gz; union ZU gzu; struct Big gb;\n"
+                         "long double bare(long double x) { return x; }\n"
+                         "struct S ret_s(void) { return gs; }\n"
+                         "union U ret_u(void) { return gu; }\n"
+                         "struct A ret_a(void) { return ga; }\n"
+                         "struct N ret_n(void) { return gn; }\n"
+                         "struct Z ret_z(void) { return gz; }\n"
+                         "union ZU ret_zu(void) { return gzu; }\n"
+                         "struct Big ret_big(void) { return gb; }\n"
+                         "void take(struct S, union U, struct A, struct N, "
+                         "struct Z, union ZU, struct Big);\n"
+                         "void calls(void) {\n"
+                         "  take(gs, gu, ga, gn, gz, gzu, gb);\n"
+                         "  ret_s(); ret_u(); ret_a(); ret_n(); ret_z();\n"
+                         "  ret_zu(); ret_big();\n"
+                         "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+
+    /* Bare and exact-16-byte aggregate returns all use the one f80 wire
+     * value returned in st0. Nesting does not change the flattened class. */
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @bare(f80 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @ret_s()") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @ret_u()") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @ret_a()") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @ret_n()") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func f80 @ret_z()") != NULL);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "call f80 @ret_"), 5);
+
+    /* Direction is load-bearing: every exact aggregate remains a memory
+     * argument. The GCC-compatible zero-width union and >16-byte controls
+     * are memory in both directions. */
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "byval(16)"), 6);
+    T_ASSERT(t,
+             strstr(atxt(&f), "func void @ret_zu(ptr %0) abi(sret)") != NULL);
+    T_ASSERT(t,
+             strstr(atxt(&f), "func void @ret_big(ptr %0) abi(sret)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "byval(32)") != NULL);
     abi_free(&f);
 }
 

@@ -1067,9 +1067,11 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             lower_memcpy_aggregate(lo, ir_op_value(lo->fn, lo->sret), src,
                                    s->lhs->sem_type, (u32)l.align, 0);
         } else if (lo->cur_abi_ret && lo->cur_abi_ret->kind == ABI_RET_SMALL) {
-            /* One-eightbyte aggregate: the VALUE travels as a
-             * bit-carrying i64/f64. Load through an 8-byte staging slot
-             * when the object is shorter than the load. */
+            /* A small aggregate travels as one wire scalar. Usually that is
+             * an eightbyte i64/f64; IR-C-01 also uses an f80 for the exact
+             * 16-byte long-double aggregate returned in st0. Load through an
+             * 8-byte staging slot only when the object is shorter than its
+             * ordinary eightbyte wire value. */
             IrOperand src = lower_rvalue(lo, s->lhs);
             AbiRet *ar = lo->cur_abi_ret;
             IrOperand from = src;
@@ -1085,7 +1087,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             memset(&lv, 0, sizeof(lv));
             lv.addr = from;
             lv.unit = ar->small_t;
-            lv.align = 8;
+            lv.align = ar->align > 8 ? ar->align : 8;
             rv = lower_load(lo, lv);
             have_rv = true;
         } else {

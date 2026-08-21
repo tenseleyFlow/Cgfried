@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-C-01 a 16-byte long-double aggregate is returned by hidden pointer
+// RESOLVED(audit): IR-C-01 a 16-byte long-double aggregate is returned by hidden pointer
 // SysV x86-64 classifies a 16-byte aggregate whose whole content is one x87
 // long double as X87/X87UP, and an X87 return goes on the x87 stack in st0.
 // No post-merger rule demotes it: MEMORY is not among its classes, and the

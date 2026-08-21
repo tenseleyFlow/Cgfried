@@ -373,7 +373,7 @@ typedef struct AbiArg {
 typedef enum {
     ABI_RET_VOID,
     ABI_RET_SCALAR, /* the IR return type says it all (incl. f80/x87) */
-    ABI_RET_SMALL,  /* one eightbyte: bit-carrying i64 or f64 return */
+    ABI_RET_SMALL,  /* aggregate returned as one wire scalar: i64/f64/f80 */
     ABI_RET_PAIR,   /* two eightbytes: sret-shaped IR + register truth */
     ABI_RET_SRET,   /* MEMORY: hidden pointer (SysV rdi echoed in rax;
                        AAPCS64 x8, NOT guaranteed preserved at return) */
@@ -382,7 +382,7 @@ typedef enum {
 
 typedef struct AbiRet {
     u8 kind;        /* AbiRetKind */
-    IrType small_t; /* SMALL: i64 or f64 */
+    IrType small_t; /* SMALL: i64, f64, or f80 */
     u8 ir_abi;      /* IrAbiRet for PAIR/SRET (goes on IrFunc.abi_ret) */
     u8 arg_annot;   /* IR_ARG_* kind for the hidden pointer argument */
     u32 size;

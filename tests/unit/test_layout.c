@@ -520,11 +520,24 @@ void test_layout_classify_sysv(TestCtx *t)
                 "SSE merged with SSE stays SSE");
     classify_is(t, "struct S { char c[16]; };", 2, ABI_INTEGER, ABI_INTEGER,
                 "an array classifies element-wise into both eightbytes");
-    /* An x87 long double inside an AGGREGATE is passed in memory. A BARE
-     * long double keeps X87/X87UP — it is returned in st0, and Sprint 23
-     * has to tell the two apart. */
-    classify_is(t, "struct S { long double ld; };", -1, ABI_NO_CLASS,
-                ABI_NO_CLASS, "X87 in an aggregate -> MEMORY");
+    /* Classification is direction-neutral: this exact aggregate and a bare
+     * long double are X87/X87UP. ABI lowering sends arguments to memory and
+     * returns through st0. */
+    classify_is(t, "struct S { long double ld; };", 2, ABI_X87, ABI_X87UP,
+                "sole f80 aggregate preserves X87/X87UP");
+    classify_is(t, "union S { long double ld; };", 2, ABI_X87, ABI_X87UP,
+                "sole f80 union preserves X87/X87UP");
+    classify_is(t, "struct S { long double ld[1]; };", 2, ABI_X87, ABI_X87UP,
+                "one-element f80 array preserves X87/X87UP");
+    classify_is(t,
+                "struct I { long double ld; }; struct S { struct I inner; };",
+                2, ABI_X87, ABI_X87UP, "nested sole f80 preserves X87/X87UP");
+    classify_is(t, "struct S { int :0; long double ld; };", 2, ABI_X87,
+                ABI_X87UP, "zero-width struct bitfield occupies no class");
+    /* GCC 16 and Clang 22 disagree on this union: preserve GCC compatibility
+     * as a separately documented, unverified psABI observation. */
+    classify_is(t, "union S { int :0; long double ld; };", -1, ABI_NO_CLASS,
+                ABI_NO_CLASS, "zero-width union bitfield follows GCC MEMORY");
     classify_is(t, "struct S { int a:24; int b:8; };", 1, ABI_INTEGER,
                 ABI_NO_CLASS, "bitfields class as their storage unit");
 
@@ -540,7 +553,7 @@ void test_layout_classify_sysv(TestCtx *t)
                 "_Float64 uses the binary64 SSE class");
     classify_is(t, "struct S { _Float32x f; };", 1, ABI_SSE, ABI_NO_CLASS,
                 "_Float32x uses the binary64 SSE class");
-    classify_is(t, "struct S { _Float64x f; };", -1, ABI_NO_CLASS, ABI_NO_CLASS,
+    classify_is(t, "struct S { _Float64x f; };", 2, ABI_X87, ABI_X87UP,
                 "x86 _Float64x has the x87 long-double representation");
     classify_is(t, "struct S { void *p; };", 1, ABI_INTEGER, ABI_NO_CLASS,
                 "pointer is INTEGER");

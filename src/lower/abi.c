@@ -8,8 +8,10 @@
  *
  * The classifier itself is Sprint 14's layout_classify_sysv; this file
  * only MAPS classifications to IR shapes and never re-derives a rule —
- * packed structs classifying MEMORY even when small, x87 members forcing
- * MEMORY, all of that is the classifier's word and we trust it.
+ * packed structs classifying MEMORY even when small, mixed occupied classes
+ * poisoning X87 aggregates, all of that is the classifier's word and we
+ * trust it. A sole X87/X87UP aggregate deliberately survives for the
+ * argument/return direction split below.
  *
  * Sprint 18's abstract call shapes become:
  *   INTEGER/SSE eightbytes -> 1-2 bit-carrying i64/f64 scalar args in
@@ -22,12 +24,10 @@
  *   returns per AbiRet — see ir.h's IrAbiRet contract for the pair/sret
  *     register story Sprint 23 implements.
  *
- * `long double` never invents register passing: as an argument it is
- * MEMORY-class by slot on the stack (psABI §3.2.3 classifies X87/X87UP
- * eightbytes, and arguments of class X87 are passed in memory); as a
- * SCALAR return it stays IR type f80, returned on the x87 stack
- * (Sprint 23 emits the fld). An f80 inside an AGGREGATE classifies the
- * whole aggregate MEMORY (Sprint 14's job). */
+ * `long double` never invents argument-register passing: X87/X87UP arguments
+ * go by value in memory. Returns are different: both bare f80 and an exact
+ * 16-byte aggregate containing only one f80 use st0. IR-C-01 keeps that
+ * direction split here instead of destroying the X87 classes in layout. */
 
 static IrType eightbyte_irtype(AbiClass c)
 {
@@ -47,6 +47,11 @@ static IrType eightbyte_irtype(AbiClass c)
 static bool sysv_whole_f128(int n, const AbiClass cls[2])
 {
     return n == 2 && cls[0] == ABI_SSE && cls[1] == ABI_SSEUP;
+}
+
+static bool sysv_whole_f80(int n, const AbiClass cls[2])
+{
+    return n == 2 && cls[0] == ABI_X87 && cls[1] == ABI_X87UP;
 }
 
 /* --- AAPCS64 (Sprint 48) ---------------------------------------------------
@@ -236,6 +241,12 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
         out->kind = ABI_ARG_BYVAL;
         return;
     }
+    /* SysV X87/X87UP is a return-register classification only. Arguments,
+     * bare or aggregate, are passed by value in memory. */
+    if (sysv_whole_f80(n, cls)) {
+        out->kind = ABI_ARG_BYVAL;
+        return;
+    }
     out->kind = ABI_ARG_EIGHTBYTES;
     if (sysv_whole_f128(n, cls)) {
         out->n = 1;
@@ -275,6 +286,14 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
         out->kind = ABI_RET_SRET;
         out->ir_abi = IR_ABIRET_SRET;
         out->arg_annot = IR_ARG_SRET;
+        return;
+    }
+    if (sysv_whole_f80(n, cls)) {
+        /* IR-C-01: the expression layer still needs aggregate staging, so
+         * use SMALL's one-wire-value path rather than pretending the source
+         * type is scalar. The wire value itself is the f80 returned in st0. */
+        out->kind = ABI_RET_SMALL;
+        out->small_t = IRT_F80;
         return;
     }
     if (sysv_whole_f128(n, cls)) {

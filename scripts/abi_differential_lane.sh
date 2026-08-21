@@ -147,6 +147,54 @@ try_pair() {
     fi
 }
 
+# IR-C-01 is outside abigen's repertoire: it has neither long double nor
+# bitfields. Pin the zero-width barrier sibling in both mixed-compiler
+# directions, alongside the GCC-compatible union control on which GCC and
+# Clang disagree. This fixed probe is x86 SysV-specific.
+check_ir_c01_fixed() {
+    d=$WORK/fixed-ir-c01
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+struct barrier_value { int :0; long double value; };
+union union_value { int :0; long double value; };
+struct barrier_value make_barrier(long double value);
+long double read_barrier(struct barrier_value value);
+union union_value make_union(long double value);
+long double read_union(union union_value value);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    struct barrier_value s = make_barrier(2.5L);
+    union union_value u = make_union(3.5L);
+    if (read_barrier(s) != 2.5L)
+        return 1;
+    if (read_union(u) != 3.5L)
+        return 2;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+struct barrier_value make_barrier(long double value)
+{
+    struct barrier_value out = {value};
+    return out;
+}
+long double read_barrier(struct barrier_value value) { return value.value; }
+union union_value make_union(long double value)
+{
+    union union_value out = {value};
+    return out;
+}
+long double read_union(union union_value value) { return value.value; }
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # Regenerate sources from a descriptor and test both directions.
 # Returns 0 when both agree.
 check_desc() {
@@ -213,6 +261,16 @@ minimize() {
 
 checked=0
 failed=0
+
+if [ "$target" = x86_64-linux-gnu ]; then
+    if check_ir_c01_fixed; then
+        checked=$((checked + 1))
+    else
+        echo "abi_differential: REGRESSION on fixed IR-C-01 zero-width shapes" \
+            >&2
+        failed=$((failed + 1))
+    fi
+fi
 
 # The permanent fixtures FIRST: every descriptor ever minimized out of a real
 # disagreement, replayed on every run. A generated seed only covers a shape
