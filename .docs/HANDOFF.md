@@ -77,14 +77,14 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 must close all 12 Critical findings before High work and all 20 High
+Sprint 61 has closed all Critical findings and must now close all 20 High
 findings before Medium/Low work. Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
 ---
 
-## Sprint 61 remediation — IN PROGRESS; Critical barrier active
+## Sprint 61 remediation — IN PROGRESS; High tier active
 
 The phase-boundary preflight is complete. Commit `4b36ba37` promotes the
 aggregate/front ledgers, burndown, and future closeout files to tracked
@@ -99,19 +99,21 @@ The initial burndown was 12 Critical / 20 High / 16 Medium / 2 Low. The first
 cluster hunt added `SEMA-C-08`, an AAPCS64 unnamed-nonzero-bitfield aggregate
 alignment mismatch, at `555fc32a`. `SEMA-C-01` closed at `0eca9832` and
 `SEMA-C-02` closed at `d4d674ec`, and `IR-C-03` closed at `892435be`, so live
-debt is 1/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
+debt is 0/20/16/2 after `X64-C-02` closed at `45a9d0dc`, `MS-C-01` closed at
 `7a003d68`, and `SEMA-C-08` closed at `bdd523c0`, followed by the `IR-C-11`
 atomic-alignment discovery at `c7d43927` during the `X64-C-01` sibling hunt,
 `IR-C-04` closed at `1b61459a`, `IR-C-01` closed at `eb528221`, and `IR-C-11`
 closed at `eb364980`, `X64-C-01` closed at `45f0282c`, and `MS-C-04` closed at
 `b1bc4f91`, and `IR-C-09` closed at `3bc1ae02`. The `MS-C-05` design review
 then added `MS-C-06`, the unregistered `asprintf`/`vasprintf` allocator-model
-mismatch. `IR-C-10` closed at `ea41dd88`, and `MS-C-06` closed at `88211779`;
-only `MS-C-05` remains inside the Critical barrier.
-One central
-integrator owns `manifest.tsv`, the tracked front ledgers, and `burndown.md` so
+mismatch. `IR-C-10` closed at `ea41dd88`, `MS-C-06` closed at `88211779`, and
+`MS-C-05` closed at `b287c2ef`; the Critical barrier is clear and High
+remediation is next.
+One central integrator owns `manifest.tsv`, the tracked front ledgers, and
+`burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
-its fix. First Critical lanes are split to avoid shared-file conflicts:
+its fix. The completed Critical lanes were split to avoid shared-file
+conflicts:
 
 - `SEMA-C-01` — RESOLVED at `0eca9832`; its cluster hunt also repaired the
   sibling multiplication overflow path.
@@ -147,12 +149,15 @@ its fix. First Critical lanes are split to avoid shared-file conflicts:
 - `MS-C-06` — RESOLVED at `88211779`; compatible external
   `asprintf`/`vasprintf` identities are rejected because their returned storage
   cannot enter the safe-runtime registry, while static, incompatible, and
-  renamed non-allocator identities remain valid. `MS-C-05` is the final
-  Critical.
+  renamed non-allocator identities remain valid.
+- `MS-C-05` — RESOLVED at `b287c2ef`; safe heap pointer derivations retain
+  origin, index, scale, direction, and supported `uintptr_t` provenance until
+  runtime validation, while analysis treats the guards as no-capture and
+  no-dereference. Atomic pointer arithmetic is an explicit `-fsafe` refusal.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
-Critical joins the barrier; no High remediation begins until the full Critical
-count reaches zero.
+Critical reopens the barrier. The Critical count is zero, so remediation now
+continues through the High tier before Medium/Low work.
 
 ---
 

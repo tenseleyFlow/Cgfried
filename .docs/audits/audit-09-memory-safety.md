@@ -80,22 +80,31 @@ both branch shapes, both multiplicative factors, direct IR operations, and
 bounded source/destination library roles; unrelated `FILE *` and format
 pointers remain independently checked.
 
-ID: `MS-C-05`
-Title: far heap out-of-bounds pointers evade the runtime registry
-Severity: Critical — an emitted `-fsafe` check accepts a heap access thousands
-of bytes beyond its allocation, contradicting the documented heap-spatial
-guarantee. This is a demonstrated guarantee failure and therefore Critical
-under the Sprint 60 rubric.
-Reproducer: `tests/audit-regressions/ms-c-05.c`
-Root cause: the compiler correctly leaves one runtime access check immediately
-before the dynamic load (`4 total, 3 discharged, 1 emitted`). At runtime,
-`cgf_safe_check` calls `find_containing_locked` with the already-offset
-pointer. `src/rt/cgf_safe_alloc.c:427-434` returns success when that address is
-not contained in any registered raw allocation, classifying it as unknown
-provenance. A sufficiently large offset lands beyond the allocation header,
-payload, and canary, so the registry cannot recover the base allocation and
-the process exits 0 instead of trapping.
-Affected sprints: 44, 46.
+~~ID: `MS-C-05`~~
+~~Title: far heap out-of-bounds pointers evade the runtime registry~~
+~~Severity: Critical — an emitted `-fsafe` check accepts a heap access thousands~~
+~~of bytes beyond its allocation, contradicting the documented heap-spatial~~
+~~guarantee. This is a demonstrated guarantee failure and therefore Critical~~
+~~under the Sprint 60 rubric.~~
+~~Reproducer: `tests/audit-regressions/ms-c-05.c`~~
+~~Root cause: the compiler correctly leaves one runtime access check immediately~~
+~~before the dynamic load (`4 total, 3 discharged, 1 emitted`). At runtime,~~
+~~`cgf_safe_check` calls `find_containing_locked` with the already-offset~~
+~~pointer. `src/rt/cgf_safe_alloc.c:427-434` returns success when that address is~~
+~~not contained in any registered raw allocation, classifying it as unknown~~
+~~provenance. A sufficiently large offset lands beyond the allocation header,~~
+~~payload, and canary, so the registry cannot recover the base allocation and~~
+~~the process exits 0 instead of trapping.~~
+~~Affected sprints: 44, 46.~~
+Resolution: RESOLVED 2026-08-20 by `b287c2ef`.
+Cluster hunt: terminal origin-relative derivation guards and pre-modular raw
+index guards cover direct, loop, select, load/store, and helper-call transport;
+signed extrema, scaled wrap, subtraction, one-past/crossing access, null,
+adjacent allocations, foreign origins, quarantine/UAF, zero-byte allocations,
+and the documented `uintptr_t` grammar are pinned. The guard is explicitly
+no-capture/no-dereference in both lifetime and alias analysis. Atomic pointer
+read-modify-write is rejected under `-fsafe` because it cannot be validated
+before publication.
 
 ~~ID: `MS-C-06`~~
 ~~Title: asprintf ownership bypasses safe-runtime registration~~
@@ -140,7 +149,7 @@ future work and was not counted as a shipped guarantee.
 |---|---|---|
 | `-fsafe` composes `-fcgf-safe`, both error groups, and zero automatic initialization | post-argv composition in `src/driver/args.c:1228-1242`; `scripts/safe_mode.sh` checks the dry-run surface, conflicts, exact/group/global opt-outs, demotions, both argv orders, and source pragmas | mechanism and precedence tests agree after `MS-C-01` closed at `7a003d68` |
 | Safe-TU boundary only; unsafe TUs remain unchecked | instrumentation is performed only on each module compiled with `fcgf_safe`; safe-link tests mix explicitly allowed unsafe code | mechanism matches the stated limit |
-| Heap spatial safety | `src/memsafe/lifetime.c:1012-1079` discharges only proven accesses and retains all-path residue; `instrument_result` terminal-splices `cgf_safe_check`; runtime suite covers OOB at O0/O2 | guarantee failure: `MS-C-05` evades the runtime registry with a far offset |
+| Heap spatial safety | retained accesses plus origin-relative derivation, raw-index, and `uintptr_t` round-trip guards; runtime suite covers OOB and transformation failures at O0/O2 | mechanism and transport/extrema tests agree after `MS-C-05` closed at `b287c2ef` |
 | Heap temporal safety, bounded to 1,024 blocks or 8 MiB | wrapped allocation/free registry and FIFO eviction in `src/rt/cgf_safe_alloc.c`, constants at lines 29-30; runtime suite covers UAF reads/writes, double free, churn, and canaries | mechanism matches the documented finite-quarantine limit |
 | Definite initialization and automatic scalar zeroing | flow and memory-uninitialized analyses precede lowering; `src/lower/stmt.c` inserts zero stores/memsets after analysis for fixed and variable automatic storage; focused flow/auto-init suites | required diagnostic floor is enforced after `MS-C-01` closed at `7a003d68` |
 | Null safety | retained safe accesses call `cgf_safe_check`, whose null case traps before registry lookup; lifetime analysis rejects statically proven null accesses and indirect calls | compile-time and runtime halves agree after `MS-C-04` closed at `b1bc4f91` |
