@@ -1080,6 +1080,14 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         case PUNCT_PLUS:
             return cv_int(s, e->sem_type, fit(s, e->sem_type, o.i));
         case PUNCT_MINUS:
+            /* SEMA-H-05: negating the target type's signed minimum has no
+             * representable result. Unsigned `0 - bits` is safe compiler
+             * arithmetic, but fitting that wrapped pattern would incorrectly
+             * accept source-level signed overflow as a constant. */
+            if (signed_minimum_value(s, e->sem_type, o.i)) {
+                ce_error(s, m, e->span, "overflow in constant expression");
+                return cv_error();
+            }
             return cv_int(s, e->sem_type, fit(s, e->sem_type, 0 - o.i));
         case PUNCT_TILDE:
             return cv_int(s, e->sem_type, fit(s, e->sem_type, ~o.i));
