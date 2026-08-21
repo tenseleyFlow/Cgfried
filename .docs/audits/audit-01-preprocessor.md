@@ -48,15 +48,20 @@ two `-iquote` directories, repeated/lexical/absolute/symlink aliases, and both
 internal invariant instead of silently restarting the chain, and the Sprint 7
 1000-header-by-20 fast path remains 6x.
 
-ID: `PP-M-02`
-Title: dynamic builtins lose their containing macro backtrace
-Severity: Medium — the primary diagnostic remains correct, but the required
-macro provenance is silently absent.
-Reproducer: `tests/audit-regressions/pp-m-02.c`
-Root cause: `src/pp/macro.c:420-424` destructively walks `loc` to the
-outermost invocation before `src/pp/macro.c:449-467` synthesizes the builtin
-token, discarding the expansion chain needed by `pp_diag_at`.
-Affected sprints: 5, 7.
+~~ID: `PP-M-02`~~
+~~Title: dynamic builtins lose their containing macro backtrace~~
+~~Severity: Medium — the primary diagnostic remains correct, but the required~~
+~~macro provenance is silently absent.~~
+~~Reproducer: `tests/audit-regressions/pp-m-02.c`~~
+~~Root cause: `src/pp/macro.c:420-424` destructively walks `loc` to the~~
+~~outermost invocation before `src/pp/macro.c:449-467` synthesizes the builtin~~
+~~token, discarding the expansion chain needed by `pp_diag_at`.~~
+~~Affected sprints: 5, 7.~~
+Resolution: RESOLVED 2026-08-20 by `385f8aa8`. Dynamic builtins now retain a
+provenance bridge to their containing expansion chain while resolving their
+spelling at the outer invocation. Lexer tokens carry that exact source
+location into parser diagnostics, so the primary caret and macro notes remain
+consistent.
 
 ID: `PP-L-03`
 Title: full macro backtraces stop after 256 frames
@@ -69,18 +74,22 @@ array bound. The reproducer emits exactly 256 expansion notes and omits the
 outermost invocation under `CGF_DIAG_FULL_BACKTRACE=1`.
 Affected sprint: 7.
 
-ID: `PP-M-04`
-Title: pre-expanded arguments lose their inner macro backtrace
-Severity: Medium — the primary diagnostic is correct, but one layer of macro
-provenance is omitted precisely when an argument is expanded before
-substitution.
-Reproducer: `tests/audit-regressions/pp-m-04.c`
-Root cause: `src/pp/macro.c:724-730` wraps an already-expanded argument token
-in the outer macro's expansion location. That makes the inner expansion the
-new location's spelling edge while the diagnostic backtrace follows expansion
-parents, so `ARG_BAD` disappears and only `PASS` remains. The fixture diagnoses
-the invalid octal token but reports zero `ARG_BAD` frames and one `PASS` frame.
-Affected sprints: 5, 7.
+~~ID: `PP-M-04`~~
+~~Title: pre-expanded arguments lose their inner macro backtrace~~
+~~Severity: Medium — the primary diagnostic is correct, but one layer of macro~~
+~~provenance is omitted precisely when an argument is expanded before~~
+~~substitution.~~
+~~Reproducer: `tests/audit-regressions/pp-m-04.c`~~
+~~Root cause: `src/pp/macro.c:724-730` wraps an already-expanded argument token~~
+~~in the outer macro's expansion location. That makes the inner expansion the~~
+~~new location's spelling edge while the diagnostic backtrace follows expansion~~
+~~parents, so `ARG_BAD` disappears and only `PASS` remains. The fixture diagnoses~~
+~~the invalid octal token but reports zero `ARG_BAD` frames and one `PASS` frame.~~
+~~Affected sprints: 5, 7.~~
+Resolution: RESOLVED 2026-08-20 by `385f8aa8`. Pre-expanded argument frames are
+grafted ahead of the containing macro while preserving the argument-use anchor
+and trimming the invocation's common suffix. Nested diagnostics now report the
+exact `BAD` -> `ID` -> `OUT` chain without duplicating `OUT`.
 
 ## Attack-surface dispatch
 
@@ -89,8 +98,8 @@ Affected sprints: 5, 7.
 - Blue-paint/rescan and paste/placemarker rules: focused matrix complete and
   clean in both modes.
 - Location-chain integrity: complete across `#line`, nested, raw,
-  pre-expanded, and pasted paths; `PP-M-02`, `PP-L-03`, and `PP-M-04`
-  confirmed.
+  pre-expanded, and pasted paths; `PP-M-02` and `PP-M-04` are resolved while
+  `PP-L-03` remains confirmed.
 
 ## Unverified observations
 

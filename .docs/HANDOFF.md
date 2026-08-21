@@ -82,8 +82,9 @@ The `IR-H-07` arithmetic review added and closed `IR-H-09`. Broad validation
 after the seeded High tier then exposed `IR-H-12`, a valid-C SysV aggregate
 stack-marker verifier ICE introduced by the `IR-C-10` repair; `IR-H-12` is
 closed at `92c77528`, zero High findings remain, and Medium/Low remediation is
-active. `DRV-M-01` then closed at `a91a8c42`, reducing live debt to 15 Medium
-and 2 Low findings.
+active. `DRV-M-01` then closed at `a91a8c42`; the test-integrity cluster closed
+at `141ffcad`; and the preprocessor/frontend diagnostic cluster closed at
+`385f8aa8`, reducing live debt to 7 Medium and 2 Low findings.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
@@ -147,6 +148,10 @@ matrix are green at that exact code commit.
 live debt to 0/0/12/2. Exact available/missing-tool skip profiles, the focused
 c-testsuite debt contract, the real 220-file differential, and a clean
 detached 41 PASS / 14 XFAIL / 0 XPASS / 0 FAIL audit run are green.
+`PP-M-02`, `PP-M-04`, `FE-M-03`, `FE-M-04`, and `FE-M-05` closed together at
+`385f8aa8`, reducing live debt to 0/0/7/2. Exact macro-note anchors and order,
+adversarial recovery cases, 74+74 preprocessor differential comparisons, and
+a clean detached 46 PASS / 9 XFAIL / 0 XPASS / 0 FAIL audit run are green.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with

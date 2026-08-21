@@ -71,37 +71,49 @@ Resolution: RESOLVED 2026-08-20 by `b1c29124`. Declarator validation now walks
 pointer, return, parameter, member, and type-name positions for nested
 identifier lists while retaining the legal outer K&R definition form.
 
-ID: `FE-M-03`
-Title: one malformed parameter causes a six-error parser cascade
-Severity: Medium — one syntax error produces five follow-on diagnostics,
-obscuring the actionable failure and violating the recovery-quality target.
-Reproducer: `tests/audit-regressions/fe-m-03.c`
-Root cause: after `src/parse/decl.c:1031-1036` reports the missing parameter
-declaration, `src/parse/decl.c:1106` immediately expects `)` without
-synchronizing to the end of the malformed parameter list. Cgfried emits six
-errors; GCC and Clang each emit one and resume at the following declaration.
-Affected sprints: 9, 11.
+~~ID: `FE-M-03`~~
+~~Title: one malformed parameter causes a six-error parser cascade~~
+~~Severity: Medium — one syntax error produces five follow-on diagnostics,~~
+~~obscuring the actionable failure and violating the recovery-quality target.~~
+~~Reproducer: `tests/audit-regressions/fe-m-03.c`~~
+~~Root cause: after `src/parse/decl.c:1031-1036` reports the missing parameter~~
+~~declaration, `src/parse/decl.c:1106` immediately expects `)` without~~
+~~synchronizing to the end of the malformed parameter list. Cgfried emits six~~
+~~errors; GCC and Clang each emit one and resume at the following declaration.~~
+~~Affected sprints: 9, 11.~~
+Resolution: RESOLVED 2026-08-20 by `385f8aa8`. Parameter-list recovery now
+synchronizes to its caller-owned `)` while consuming foreign `]` tokens, so a
+single malformed parameter emits one diagnostic and preserves the following
+declaration.
 
-ID: `FE-M-04`
-Title: an invalid initializer item causes three cascading errors
-Severity: Medium — one invalid initializer element escapes into file-scope
-recovery and creates two unrelated declaration diagnostics.
-Reproducer: `tests/audit-regressions/fe-m-04.c`
-Root cause: `src/parse/decl.c:1600-1617` does not synchronize a poisoned
-initializer item to the next comma or closing brace. Cgfried emits the primary
-expression error plus errors on `2` and `}`; GCC and Clang each emit one.
-Affected sprints: 10, 11.
+~~ID: `FE-M-04`~~
+~~Title: an invalid initializer item causes three cascading errors~~
+~~Severity: Medium — one invalid initializer element escapes into file-scope~~
+~~recovery and creates two unrelated declaration diagnostics.~~
+~~Reproducer: `tests/audit-regressions/fe-m-04.c`~~
+~~Root cause: `src/parse/decl.c:1600-1617` does not synchronize a poisoned~~
+~~initializer item to the next comma or closing brace. Cgfried emits the primary~~
+~~expression error plus errors on `2` and `}`; GCC and Clang each emit one.~~
+~~Affected sprints: 10, 11.~~
+Resolution: RESOLVED 2026-08-20 by `385f8aa8`. Poisoned initializer elements
+now recover at the current list's comma or closing brace with nested delimiter
+depth tracked, preventing semicolons and nested commas from escaping into
+file-scope recovery.
 
-ID: `FE-M-05`
-Title: an invalid _Generic type creates a false duplicate-association error
-Severity: Medium — a malformed association produces an unrelated semantic
-duplicate-type diagnostic after the parser has already identified the error.
-Reproducer: `tests/audit-regressions/fe-m-05.c`
-Root cause: `src/parse/decl.c:1654-1659` recovers from the missing type with an
-unpoisoned `int` type. `src/sema/expr.c:1332-1343` then compares that synthetic
-type with the preceding valid `int` association and emits a false duplicate.
-Cgfried emits two errors; GCC and Clang each emit only the syntax error.
-Affected sprints: 10, 13.
+~~ID: `FE-M-05`~~
+~~Title: an invalid _Generic type creates a false duplicate-association error~~
+~~Severity: Medium — a malformed association produces an unrelated semantic~~
+~~duplicate-type diagnostic after the parser has already identified the error.~~
+~~Reproducer: `tests/audit-regressions/fe-m-05.c`~~
+~~Root cause: `src/parse/decl.c:1654-1659` recovers from the missing type with an~~
+~~unpoisoned `int` type. `src/sema/expr.c:1332-1343` then compares that synthetic~~
+~~type with the preceding valid `int` association and emits a false duplicate.~~
+~~Cgfried emits two errors; GCC and Clang each emit only the syntax error.~~
+~~Affected sprints: 10, 13.~~
+Resolution: RESOLVED 2026-08-20 by `385f8aa8`. Malformed type names now lower
+to `TY_ERROR`; `_Generic` excludes poisoned associations from matching and
+duplicate checks and suppresses no-match cascades derived from that syntax
+error.
 
 ## Attack-surface dispatch
 
@@ -109,7 +121,7 @@ Affected sprints: 10, 13.
 - Typedef-name ambiguity and prototype-scope shadowing: 15 probes complete;
   no other divergence observed.
 - Recovery cascade bounds: 19 seeds complete; `FE-M-03` through `FE-M-05`
-  confirmed.
+  are resolved.
 - Token/AST span spot-check: 50/50 carets landed on the intended token.
 
 ## Unverified observations
