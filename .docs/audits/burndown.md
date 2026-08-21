@@ -29,3 +29,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `d3be586f` | `RT-H-01` target-layout long-double predefine repair | 0 | 18 | 16 | 2 | 36 |
 | 2026-08-20 | `f6ffc1d1` | `OPT-H-04` exact alias-identity proof repair | 0 | 17 | 16 | 2 | 35 |
 | 2026-08-20 | `2b4ab767` | `A64-H-01` tentative TLS COMMON-emission repair | 0 | 16 | 16 | 2 | 34 |
+| 2026-08-20 | `1fc6bdb6` | `IR-H-06` complete returns-twice identity repair | 0 | 15 | 16 | 2 | 33 |

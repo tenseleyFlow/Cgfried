@@ -123,20 +123,25 @@ performs two required reads; both appear in O0 and O2 IR, but neither carries
 both retain two source reads at O2.
 Affected sprint: 20.
 
-ID: `IR-H-06`
-Title: sigsetjmp macro expansion loses the returns-twice marker
-Severity: High — the supported GNU/POSIX spelling bypasses the Sprint 20
-setjmp policy, allowing optimization of a function that must use the
-conservative returns-twice rules.
-Reproducer: `tests/audit-regressions/ir-h-06.c`
-Root cause: direct-call recognition and verifier consistency both use an exact
-three-name list: `setjmp`, `sigsetjmp`, and `_setjmp`
-(`src/lower/expr.c:2316-2321`, `src/ir/verify.c:841-868`). On glibc,
-source-level `sigsetjmp(env, mask)` expands to `__sigsetjmp(env, mask)`, so the
-actual external symbol misses the list. The fixture mirrors that public-header
-expansion without depending on the host header and shows a call to
-`@__sigsetjmp` inside a function lacking the `setjmp` marker.
-Affected sprint: 20.
+~~ID: `IR-H-06`~~
+~~Title: sigsetjmp macro expansion loses the returns-twice marker~~
+~~Severity: High — the supported GNU/POSIX spelling bypasses the Sprint 20~~
+~~setjmp policy, allowing optimization of a function that must use the~~
+~~conservative returns-twice rules.~~
+~~Reproducer: `tests/audit-regressions/ir-h-06.c`~~
+~~Root cause: direct-call recognition and verifier consistency both use an exact~~
+~~three-name list: `setjmp`, `sigsetjmp`, and `_setjmp`~~
+~~(`src/lower/expr.c:2316-2321`, `src/ir/verify.c:841-868`). On glibc,~~
+~~source-level `sigsetjmp(env, mask)` expands to `__sigsetjmp(env, mask)`, so the~~
+~~actual external symbol misses the list. The fixture mirrors that public-header~~
+~~expansion without depending on the host header and shows a call to~~
+~~`@__sigsetjmp` inside a function lacking the `setjmp` marker.~~
+~~Affected sprint: 20.~~
+Resolution: RESOLVED 2026-08-20 by `1fc6bdb6`. Lowering and verification now
+share one exact returns-twice identity predicate over effective asm spelling,
+covering glibc's `__sigsetjmp` expansion without matching near names. The
+marker, pinned local storage, optimized IR, and verifier consistency are all
+regression-pinned.
 
 ID: `IR-H-07`
 Title: global relocation offset wraps the verifier bounds check
