@@ -602,11 +602,14 @@ static bool trip_equal(const TripInfo *a, const TripInfo *b)
            operand_equal(a->induction.bound, b->induction.bound);
 }
 
-static bool access_for_inst(const IrFunc *f, const IrInst *in, ValueId iv,
-                            DepAccess *out, const char **reason)
+static bool access_for_inst(const IrFunc *f, const IrInst *in,
+                            const LoopInduction *induction, DepAccess *out,
+                            const char **reason)
 {
     IrOperand ptr;
     IrType type;
+    i64 step;
+    u32 bits;
 
     if (in->op == IR_LOAD) {
         ptr = in->ops[0];
@@ -617,13 +620,35 @@ static bool access_for_inst(const IrFunc *f, const IrInst *in, ValueId iv,
     } else {
         return false;
     }
-    return dep_access_from_ptr(f, ptr, iv, type_size(type),
-                               (EffTypeId)in->subop, out, reason);
+    if (!dep_access_from_ptr(f, ptr, induction->iv, type_size(type),
+                             (EffTypeId)in->subop, out, reason))
+        return false;
+    bits = affine_type_bits(induction->type);
+    if (induction->step.kind != IROP_ICONST ||
+        !bits_as_i64(induction->step.a, bits,
+                     signed_loop_predicate(induction->pred), &step) ||
+        (induction->subtract_step && step == INT64_MIN)) {
+        *reason = "dep_nonaffine";
+        return false;
+    }
+    if (induction->subtract_step)
+        step = -step;
+    /* OPT-H-02: dep_query measures distance in iteration order, while the
+     * affine recognizer's coefficient is per induction-value unit. Include
+     * the signed induction step so descending loops reverse the dependence
+     * sign and non-unit loops retain their true ordinal distance. */
+    if (!checked_mul(out->stride, step, &out->stride) || !out->stride) {
+        *reason = "dep_nonaffine";
+        return false;
+    }
+    return true;
 }
 
 static bool fusion_dependences_ok(IrModule *m, IrFunc *f, const IrBlock *abody,
-                                  ValueId aiv, const IrBlock *bbody,
-                                  ValueId biv, const OptConfig *cfg)
+                                  const LoopInduction *ainduction,
+                                  const IrBlock *bbody,
+                                  const LoopInduction *binduction,
+                                  const OptConfig *cfg)
 {
     AliasConfig acfg = {
         .func = f,
@@ -639,7 +664,7 @@ static bool fusion_dependences_ok(IrModule *m, IrFunc *f, const IrBlock *abody,
 
         if (ai->op != IR_LOAD && ai->op != IR_STORE)
             continue;
-        if (!access_for_inst(f, ai, aiv, &aa, &reason)) {
+        if (!access_for_inst(f, ai, ainduction, &aa, &reason)) {
             OPT_BAIL(cfg, "fusion", "dep_nonaffine");
             ok = false;
             break;
@@ -651,7 +676,7 @@ static bool fusion_dependences_ok(IrModule *m, IrFunc *f, const IrBlock *abody,
             if ((bi->op != IR_LOAD && bi->op != IR_STORE) ||
                 (ai->op == IR_LOAD && bi->op == IR_LOAD))
                 continue;
-            if (!access_for_inst(f, bi, biv, &ba, &reason)) {
+            if (!access_for_inst(f, bi, binduction, &ba, &reason)) {
                 OPT_BAIL(cfg, "fusion", "dep_nonaffine");
                 ok = false;
                 break;
@@ -799,8 +824,8 @@ static bool fuse_pair(IrModule *m, IrFunc *f, const IrDomTree *dom,
                     OPT_BAIL(cfg, "fusion", "fuse_intervening");
                     return false;
                 }
-    if (!fusion_dependences_ok(m, f, abody, ta.induction.iv, bbody,
-                               tb.induction.iv, cfg))
+    if (!fusion_dependences_ok(m, f, abody, &ta.induction, bbody, &tb.induction,
+                               cfg))
         return false;
 
     /* Save the A backedge before opening its block for appends. */

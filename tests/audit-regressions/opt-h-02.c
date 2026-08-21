@@ -1,4 +1,4 @@
-// XFAIL(audit): OPT-H-02 descending loop fusion reverses dependence direction
+// RESOLVED(audit): OPT-H-02 descending loop fusion reverses dependence direction
 // The second descending loop must observe every value written by the first
 // loop. Fusing the bodies at the same descending induction value instead
 // reads the next element before its producer iteration has executed.

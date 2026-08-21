@@ -378,6 +378,81 @@ static const char *fusion_ir(bool negative, bool mismatch)
            "}\n";
 }
 
+static void fusion_direction_ir(char *text, size_t cap, bool descending,
+                                bool negative, u64 step, const char *scale)
+{
+    const char *start = descending ? "5" : "1";
+    const char *pred = descending ? "sge" : "slt";
+    const char *bound = descending ? "1" : "6";
+    const char *update = descending ? "isub" : "iadd";
+    const char *adjust = negative == descending ? "isub" : "iadd";
+    unsigned long long byte_step = (unsigned long long)step * 4;
+
+    (void)snprintf(text, cap,
+                   "func void @f() {\n"
+                   "entry():\n"
+                   "    %%a = alloca 64, align 8\n"
+                   "    br a.h(i64 %s)\n"
+                   "a.h(i64 %%i):\n"
+                   "    %%ac = icmp %s i64 %%i, %s\n"
+                   "    condbr %%ac, a.body(), middle()\n"
+                   "a.body():\n"
+                   "    %%ao = imul i64 %%i, %s\n"
+                   "    %%ap = ptradd %%a, %%ao\n"
+                   "    store i32 1, %%ap, align 4, etype i32\n"
+                   "    %%an = %s i64 %%i, %llu, nsw\n"
+                   "    br a.h(i64 %%an)\n"
+                   "middle():\n"
+                   "    br b.h(i64 %s)\n"
+                   "b.h(i64 %%j):\n"
+                   "    %%bc = icmp %s i64 %%j, %s\n"
+                   "    condbr %%bc, b.body(), exit()\n"
+                   "b.body():\n"
+                   "    %%bo = imul i64 %%j, %s\n"
+                   "    %%boff = %s i64 %%bo, %llu\n"
+                   "    %%bp = ptradd %%a, %%boff\n"
+                   "    store i32 2, %%bp, align 4, etype i32\n"
+                   "    %%bn = %s i64 %%j, %llu, nsw\n"
+                   "    br b.h(i64 %%bn)\n"
+                   "exit():\n"
+                   "    ret\n"
+                   "}\n",
+                   start, pred, bound, scale, update,
+                   (unsigned long long)step, start, pred, bound, scale, adjust,
+                   byte_step, update, (unsigned long long)step);
+}
+
+static const char *fusion_int64_min_step_ir(void)
+{
+    return "func void @f() {\n"
+           "entry():\n"
+           "    %a = alloca 64, align 8\n"
+           "    br a.h(i64 9223372036854775808)\n"
+           "a.h(i64 %i):\n"
+           "    %ac = icmp sle i64 %i, 9223372036854775808\n"
+           "    condbr %ac, a.body(), middle()\n"
+           "a.body():\n"
+           "    %ao = imul i64 %i, 4\n"
+           "    %ap = ptradd %a, %ao\n"
+           "    store i32 1, %ap, align 4, etype i32\n"
+           "    %an = isub i64 %i, 9223372036854775808, nsw\n"
+           "    br a.h(i64 %an)\n"
+           "middle():\n"
+           "    br b.h(i64 9223372036854775808)\n"
+           "b.h(i64 %j):\n"
+           "    %bc = icmp sle i64 %j, 9223372036854775808\n"
+           "    condbr %bc, b.body(), exit()\n"
+           "b.body():\n"
+           "    %bo = imul i64 %j, 4\n"
+           "    %bp = ptradd %a, %bo\n"
+           "    store i32 2, %bp, align 4, etype i32\n"
+           "    %bn = isub i64 %j, 9223372036854775808, nsw\n"
+           "    br b.h(i64 %bn)\n"
+           "exit():\n"
+           "    ret\n"
+           "}\n";
+}
+
 void test_fusion_adjacent_equal_trip_loops(TestCtx *t)
 {
     DepFix fix;
@@ -435,6 +510,140 @@ void test_fusion_negative_distance_and_trip_mismatch_bail(TestCtx *t)
         if (m)
             T_ASSERT(t, ir_verify(fix.dc, m));
         fclose(report);
+        arena_free_all(&fix.arena);
+    }
+}
+
+void test_fusion_direction_normalizes_dependence_sign(TestCtx *t)
+{
+    u32 descending, negative;
+
+    for (descending = 0; descending < 2; descending++) {
+        for (negative = 0; negative < 2; negative++) {
+            DepFix fix;
+            IrModule *m;
+            OptConfig cfg;
+            FILE *report;
+            char source[2048], log[512];
+            size_t n;
+
+            dep_fix_init(&fix);
+            fusion_direction_ir(source, sizeof(source), descending != 0,
+                                negative != 0, 1, "4");
+            m = dep_parse(&fix, source);
+            T_ASSERT(t, m != NULL);
+            report = tmpfile();
+            T_ASSERT(t, report != NULL);
+            opt_config_init(&cfg, OPT_O3);
+            cfg.verify_after_each = true;
+            cfg.bail_log = true;
+            cfg.report = report;
+            T_ASSERT_EQ_INT(t, m && opt_fusion(m, &cfg), negative == 0);
+            if (m) {
+                T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR),
+                                negative ? 2 : 1);
+                T_ASSERT(t, ir_verify(fix.dc, m));
+            }
+            if (report) {
+                fflush(report);
+                rewind(report);
+                n = fread(log, 1, sizeof(log) - 1, report);
+                log[n] = '\0';
+                T_ASSERT_EQ_INT(t, strstr(log, "fuse_negative_dep") != NULL,
+                                negative != 0);
+                fclose(report);
+            }
+            arena_free_all(&fix.arena);
+        }
+    }
+}
+
+void test_fusion_nonunit_steps_normalize_distance(TestCtx *t)
+{
+    u32 descending, negative;
+
+    for (descending = 0; descending < 2; descending++) {
+        for (negative = 0; negative < 2; negative++) {
+            DepFix fix;
+            IrModule *m;
+            OptConfig cfg;
+            FILE *report;
+            char source[2048], log[512];
+            size_t n;
+
+            dep_fix_init(&fix);
+            fusion_direction_ir(source, sizeof(source), descending != 0,
+                                negative != 0, 2, "4");
+            m = dep_parse(&fix, source);
+            T_ASSERT(t, m != NULL);
+            report = tmpfile();
+            T_ASSERT(t, report != NULL);
+            opt_config_init(&cfg, OPT_O3);
+            cfg.verify_after_each = true;
+            cfg.bail_log = true;
+            cfg.report = report;
+            T_ASSERT_EQ_INT(t, m && opt_fusion(m, &cfg), negative == 0);
+            if (m) {
+                T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR),
+                                negative ? 2 : 1);
+                T_ASSERT(t, ir_verify(fix.dc, m));
+            }
+            if (report) {
+                fflush(report);
+                rewind(report);
+                n = fread(log, 1, sizeof(log) - 1, report);
+                log[n] = '\0';
+                T_ASSERT_EQ_INT(t, strstr(log, "fuse_negative_dep") != NULL,
+                                negative != 0);
+                fclose(report);
+            }
+            arena_free_all(&fix.arena);
+        }
+    }
+}
+
+void test_fusion_step_normalization_overflow_and_int64_min_bail(TestCtx *t)
+{
+    u32 int64_min_step;
+
+    for (int64_min_step = 0; int64_min_step < 2; int64_min_step++) {
+        DepFix fix;
+        IrModule *m;
+        OptConfig cfg;
+        FILE *report;
+        char source[2048], log[512];
+        size_t n;
+
+        dep_fix_init(&fix);
+        if (int64_min_step) {
+            m = dep_parse(&fix, fusion_int64_min_step_ir());
+        } else {
+            fusion_direction_ir(source, sizeof(source), false, false, 2,
+                                "4611686018427387904");
+            m = dep_parse(&fix, source);
+        }
+        T_ASSERT(t, m != NULL);
+        report = tmpfile();
+        T_ASSERT(t, report != NULL);
+        opt_config_init(&cfg, OPT_O3);
+        cfg.verify_after_each = true;
+        cfg.bail_log = true;
+        cfg.report = report;
+        T_ASSERT(t, m && !opt_fusion(m, &cfg));
+        if (m) {
+            T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR), 2);
+            T_ASSERT(t, ir_verify(fix.dc, m));
+        }
+        if (report) {
+            fflush(report);
+            rewind(report);
+            n = fread(log, 1, sizeof(log) - 1, report);
+            log[n] = '\0';
+            T_ASSERT(t,
+                     strstr(log, int64_min_step ? "fuse_trip_mismatch"
+                                                : "dep_nonaffine") != NULL);
+            fclose(report);
+        }
         arena_free_all(&fix.arena);
     }
 }
