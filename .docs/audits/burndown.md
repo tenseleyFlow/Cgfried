@@ -31,3 +31,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `2b4ab767` | `A64-H-01` tentative TLS COMMON-emission repair | 0 | 16 | 16 | 2 | 34 |
 | 2026-08-20 | `1fc6bdb6` | `IR-H-06` complete returns-twice identity repair | 0 | 15 | 16 | 2 | 33 |
 | 2026-08-20 | `5b030fc5` | `OPT-H-02` signed loop-step dependence repair | 0 | 14 | 16 | 2 | 32 |
+| 2026-08-20 | `81ca7347` | `IR-H-09` discovered by the `IR-H-07` arithmetic review | 0 | 15 | 16 | 2 | 33 |
