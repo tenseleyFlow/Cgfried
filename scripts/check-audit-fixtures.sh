@@ -60,6 +60,15 @@ run_cgf()
         >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
 }
 
+run_cgf_memcap()
+{
+    run_id=$1
+    shift
+    (ulimit -v 262144 2>/dev/null || exit 125
+     exec env CGF_INCLUDE_DIR="$ROOT/include" "$CGF" "$@") \
+        >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
+}
+
 run_cgf_runtime()
 {
     run_id=$1
@@ -611,6 +620,21 @@ probe()
             xfail "$id" "$title"
         else
             fail "$id" "unexpected optimized IR round-trip result (status $o1_status)"
+        fi
+        ;;
+    IR-H-09)
+        run_cgf_memcap "$id" -emit-ir "$source"
+        status=$?
+        if [ "$status" -eq 1 ] &&
+           grep -q 'initializer has' "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 4 ] &&
+             grep -q 'out of memory' "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        elif [ "$status" -eq 125 ]; then
+            fail "$id" "could not establish compiler memory cap"
+        else
+            fail "$id" "unexpected oversized-initializer result (status $status)"
         fi
         ;;
     IR-C-09)
