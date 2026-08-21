@@ -107,21 +107,27 @@ compounds, multiple labels and VLA declarations, and VLA declarations in
 `for` initializers. Label boundaries now retain declaration-granular stack
 checkpoints, and no separate VLA lifetime debt was found.
 
-ID: `IR-H-05`
-Title: volatile aggregate sources lose their access marker
-Severity: High — a C volatile-access requirement and the Sprint 20 structural
-law are violated; the current pipeline happens to retain the copies, but its
-count/order tripwire cannot see them, making this latent wrong-code.
-Reproducer: `tests/audit-regressions/ir-h-05.c`
-Root cause: aggregate expressions travel through lowering as bare addresses.
-`lower_assign` passes only the destination lvalue's volatile bit to
-`lower_memcpy_aggregate` (`src/lower/expr.c:904-915`), while aggregate
-initializers and temporaries pass zero. A volatile source assigned to an
-ordinary destination therefore produces an unmarked `memcpy`. The reproducer
-performs two required reads; both appear in O0 and O2 IR, but neither carries
-`volatile`, so `ir_snapshot_volatile_order` excludes them. GCC 16 and Clang 22
-both retain two source reads at O2.
-Affected sprint: 20.
+~~ID: `IR-H-05`~~
+~~Title: volatile aggregate sources lose their access marker~~
+~~Severity: High — a C volatile-access requirement and the Sprint 20 structural~~
+~~law are violated; the current pipeline happens to retain the copies, but its~~
+~~count/order tripwire cannot see them, making this latent wrong-code.~~
+~~Reproducer: `tests/audit-regressions/ir-h-05.c`~~
+~~Root cause: aggregate expressions travel through lowering as bare addresses.~~
+~~`lower_assign` passes only the destination lvalue's volatile bit to~~
+~~`lower_memcpy_aggregate` (`src/lower/expr.c:904-915`), while aggregate~~
+~~initializers and temporaries pass zero. A volatile source assigned to an~~
+~~ordinary destination therefore produces an unmarked `memcpy`. The reproducer~~
+~~performs two required reads; both appear in O0 and O2 IR, but neither carries~~
+~~`volatile`, so `ir_snapshot_volatile_order` excludes them. GCC 16 and Clang 22~~
+~~both retain two source reads at O2.~~
+~~Affected sprint: 20.~~
+Resolution: RESOLVED 2026-08-20 by `54435c86`. Aggregate lowering now carries
+source volatile access provenance through assignments, initializers,
+temporaries, calls, returns, and eagerly captured GNU argument packs. The
+inliner records exact pre-splice pinned provenance, and the pass verifier checks
+clone identity, dominance order, and exhaustive caller-anchor relations. Unit,
+corpus, runtime, optimized-IR, and adversarial verifier tests pin the repair.
 
 ~~ID: `IR-H-06`~~
 ~~Title: sigsetjmp macro expansion loses the returns-twice marker~~
