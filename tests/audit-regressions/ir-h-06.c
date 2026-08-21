@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-H-06 sigsetjmp macro expansion loses the returns-twice marker
+// RESOLVED(audit): IR-H-06 sigsetjmp macro expansion loses the returns-twice marker
 // glibc exposes sigsetjmp as a macro over __sigsetjmp. Lowering must recognize
 // the actual called symbol so later passes keep the containing function in the
 // conservative setjmp policy.

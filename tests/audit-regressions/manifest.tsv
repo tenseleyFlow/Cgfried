@@ -28,7 +28,7 @@ IR-L-02	ir-l-02.cgfir	OPEN	the written comparison type is silently replaced
 IR-C-03	ir-c-03.c	PASS	atomic pointer increment is split into a load and store
 IR-C-04	ir-c-04.c	PASS	backward goto before a VLA declaration leaks stack space
 IR-H-05	ir-h-05.c	OPEN	volatile aggregate sources lose their access marker
-IR-H-06	ir-h-06.c	OPEN	sigsetjmp macro expansion loses the returns-twice marker
+IR-H-06	ir-h-06.c	PASS	sigsetjmp macro expansion loses the returns-twice marker
 IR-H-07	ir-h-07.cgfir	OPEN	global relocation offset wraps the verifier bounds check
 IR-H-08	ir-h-08.c	OPEN	symbolic indirect calls fail optimized IR round-trip
 IR-C-09	ir-c-09.c	PASS	16-byte-aligned Linux AAPCS64 composites ignore the even-register rule

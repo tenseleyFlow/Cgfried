@@ -933,14 +933,6 @@ static void verify_func(V *v, const IrFunc *f)
     v->f = NULL;
 }
 
-/* Check 11: calls_setjmp is set IFF a setjmp-family call exists. The
- * name set matches lowering's recognizer. */
-static bool is_setjmp_name(const char *n)
-{
-    return n && (strcmp(n, "setjmp") == 0 || strcmp(n, "sigsetjmp") == 0 ||
-                 strcmp(n, "_setjmp") == 0);
-}
-
 static void check_setjmp_flag(V *v, const IrFunc *f)
 {
     bool found = false;
@@ -952,7 +944,7 @@ static void check_setjmp_flag(V *v, const IrFunc *f)
         for (in = f->blocks[bi].first; in && !found; in = in->next)
             if (in->op == IR_CALL && in->subop == FUNCREF_EXTERNAL &&
                 in->callee < v->m->nsyms &&
-                is_setjmp_name(v->m->syms[in->callee]))
+                ir_name_is_returns_twice(v->m->syms[in->callee]))
                 found = true;
     }
     if (found != f->calls_setjmp) {

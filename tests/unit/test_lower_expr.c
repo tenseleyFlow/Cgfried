@@ -503,6 +503,45 @@ void test_lower_atomic_live(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_returns_twice_exact_name_policy(TestCtx *t)
+{
+    LowFix f;
+    const char *text;
+
+    T_ASSERT(t, run_lower(&f, "int setjmp(char *);\n"
+                              "int _setjmp(char *);\n"
+                              "int sigsetjmp(char *, int);\n"
+                              "int __sigsetjmp(char *, int);\n"
+                              "int setjmpx(char *);\n"
+                              "int __sigsetjmp_chk(char *, int);\n"
+                              "int renamed(char *, int) "
+                              "__asm__(\"__sigsetjmp\");\n"
+                              "int __sigsetjmp_local(char *, int) "
+                              "__asm__(\"ordinary\");\n"
+                              "int a(char *p) { return setjmp(p); }\n"
+                              "int b(char *p) { return _setjmp(p); }\n"
+                              "int c(char *p) { return sigsetjmp(p, 1); }\n"
+                              "int d(char *p) { return __sigsetjmp(p, 1); }\n"
+                              "int e(char *p) { return setjmpx(p); }\n"
+                              "int f(char *p) { return "
+                              "__sigsetjmp_chk(p, 1); }\n"
+                              "int g(char *p) { return renamed(p, 1); }\n"
+                              "int h(char *p) { return "
+                              "__sigsetjmp_local(p, 1); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    text = txt(&f);
+    T_ASSERT(t, strstr(text, "func i32 @a(ptr %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @b(ptr %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @c(ptr %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @d(ptr %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @e(ptr %0) setjmp {") == NULL);
+    T_ASSERT(t, strstr(text, "func i32 @f(ptr %0) setjmp {") == NULL);
+    T_ASSERT(t, strstr(text, "func i32 @g(ptr %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @h(ptr %0) setjmp {") == NULL);
+    low_free(&f);
+}
+
 void test_lower_gnu_va_arg_pack_specializes_before_call_abi(TestCtx *t)
 {
     LowFix f;

@@ -586,7 +586,8 @@ typedef struct IrFunc {
      * pass a different count and default-promoted types. */
     bool unprototyped;
     /* The blunt setjmp policy (Sprint 20): a function that CALLS
-     * setjmp/sigsetjmp/_setjmp compiles with every local memory-pinned
+     * setjmp/_setjmp/sigsetjmp/__sigsetjmp compiles with every local
+     * memory-pinned
      * (mem2reg skips the whole function) and every call as a full
      * optimization barrier — Sprint 30's pass manager consults this one
      * predicate. longjmp needs nothing: the danger lives entirely in the
@@ -838,6 +839,7 @@ u32 ir_sym_exact_asm(IrModule *m, const char *name);
  * mangling. */
 bool ir_sym_name_is_exact_asm(const char *name);
 const char *ir_sym_asm_spelling(const char *name);
+bool ir_name_is_returns_twice(const char *name);
 IrGlobal *ir_global_new(IrModule *m, const char *name);
 u32 ir_asm_new(IrModule *m, const IrAsm *a); /* returns the 1-based index */
 void ir_module_add_file_asm(IrModule *m, const char *text);

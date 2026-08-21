@@ -2397,11 +2397,9 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 if (callee->cgf_attrs && !lo->m->sym_cgf_attrs[symidx])
                     lo->m->sym_cgf_attrs[symidx] = lower_clone_cgf_attrs(
                         lo, callee->cgf_attrs, attr_ir_args, i);
-                /* The blunt setjmp policy: calling any of the family
-                 * marks the whole function (see IrFunc.calls_setjmp). */
-                if (strcmp(callee->name, "setjmp") == 0 ||
-                    strcmp(callee->name, "sigsetjmp") == 0 ||
-                    strcmp(callee->name, "_setjmp") == 0)
+                /* The blunt returns-twice policy marks the whole function
+                 * (see IrFunc.calls_setjmp and IR-H-06's central name set). */
+                if (ir_name_is_returns_twice(lo->m->syms[symidx]))
                     lo->fn->calls_setjmp = true;
                 rv = ir_build_call(&lo->b, irret, FUNCREF_EXTERNAL, symidx,
                                    args.data, args.len);

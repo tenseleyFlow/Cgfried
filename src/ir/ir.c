@@ -272,6 +272,17 @@ const char *ir_sym_asm_spelling(const char *name)
     return ir_sym_name_is_exact_asm(name) ? name + 1 : name;
 }
 
+bool ir_name_is_returns_twice(const char *name)
+{
+    /* IR-H-06: glibc exposes POSIX sigsetjmp as a call to __sigsetjmp.
+     * Lowering and verification must use one exact identity set or the
+     * optimizer can miss a returns-twice call or reject valid IR. */
+    name = ir_sym_asm_spelling(name);
+    return name &&
+           (strcmp(name, "setjmp") == 0 || strcmp(name, "_setjmp") == 0 ||
+            strcmp(name, "sigsetjmp") == 0 || strcmp(name, "__sigsetjmp") == 0);
+}
+
 /* The record is COPIED into the module: lowering builds it on the stack from
  * the AST and the module owns it for the rest of the pipeline. The returned
  * index is 1-based so that 0 keeps meaning "no record", matching every other

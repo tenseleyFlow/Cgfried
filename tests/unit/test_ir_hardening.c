@@ -73,12 +73,15 @@ void test_setjmp_flag_consistency(TestCtx *t)
 {
     HFix f;
     IrModule *m;
-    static const char *const names[] = {"setjmp", "sigsetjmp", "_setjmp"};
+    static const char *const names[] = {"setjmp", "_setjmp", "sigsetjmp",
+                                        "__sigsetjmp"};
+    static const char *const near_names[] = {"setjmpx", "__sigsetjmp_chk",
+                                             "my_sigsetjmp"};
     int i;
     char src[256];
 
-    /* All three family names satisfy check 11 when marked... */
-    for (i = 0; i < 3; i++) {
+    /* Every exact returns-twice identity satisfies check 11 when marked. */
+    for (i = 0; i < 4; i++) {
         snprintf(src, sizeof(src),
                  "func void @f(ptr %%b) setjmp {\n"
                  "entry():\n"
@@ -89,6 +92,32 @@ void test_setjmp_flag_consistency(TestCtx *t)
         m = h_parse(&f, src);
         T_ASSERT(t, m && ir_verify(f.dc, m));
         T_ASSERT(t, m->funcs[0].calls_setjmp);
+        arena_free_all(&f.arena);
+    }
+    /* Near names neither require nor justify the marker. */
+    for (i = 0; i < 3; i++) {
+        snprintf(src, sizeof(src),
+                 "func void @f(ptr %%b) {\n"
+                 "entry():\n"
+                 "    %%r = call i32 @%s(ptr %%b)\n"
+                 "    ret\n"
+                 "}\n",
+                 near_names[i]);
+        m = h_parse(&f, src);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        T_ASSERT(t, !m->funcs[0].calls_setjmp);
+        arena_free_all(&f.arena);
+
+        snprintf(src, sizeof(src),
+                 "func void @f(ptr %%b) setjmp {\n"
+                 "entry():\n"
+                 "    %%r = call i32 @%s(ptr %%b)\n"
+                 "    ret\n"
+                 "}\n",
+                 near_names[i]);
+        m = h_parse(&f, src);
+        T_ASSERT(t, m && !ir_verify(f.dc, m));
+        T_ASSERT(t, strstr(f.msg, "ir verify [11]") != NULL);
         arena_free_all(&f.arena);
     }
     /* ...an UNMARKED caller fails check 11 in the other direction. */
