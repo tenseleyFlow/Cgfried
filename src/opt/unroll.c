@@ -821,11 +821,11 @@ static void commit_partial_four(IrModule *m, IrFunc *f, const FullPlan *plan)
     map = arena_alloc(m->arena, nmap * sizeof(*map), _Alignof(IrOperand));
     state = arena_alloc(m->arena, (nparams ? nparams : 1) * sizeof(*state),
                         _Alignof(IrOperand));
-    latch_state = arena_alloc(
-        m->arena,
-        (plan->latch->nparams ? plan->latch->nparams : 1) *
-            sizeof(*latch_state),
-        _Alignof(IrOperand));
+    latch_state =
+        arena_alloc(m->arena,
+                    (plan->latch->nparams ? plan->latch->nparams : 1) *
+                        sizeof(*latch_state),
+                    _Alignof(IrOperand));
     memset(map, 0, nmap * sizeof(*map));
 
     /* Peel the constant remainder, preserving the exact serial operation

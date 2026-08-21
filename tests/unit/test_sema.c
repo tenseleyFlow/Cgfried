@@ -298,19 +298,16 @@ void test_sema_type_compatible_table(TestCtx *t)
     compat_is(t, "int()/int(char)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), false);
     p1[0] = sc;
-    compat_is(t, "int()/int(signed char)",
-              F(&tf, i, NULL, 0, false, false),
+    compat_is(t, "int()/int(signed char)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), false);
     p1[0] = uc;
-    compat_is(t, "int()/int(unsigned char)",
-              F(&tf, i, NULL, 0, false, false),
+    compat_is(t, "int()/int(unsigned char)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), false);
     p1[0] = s;
     compat_is(t, "int()/int(short)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), false);
     p1[0] = us;
-    compat_is(t, "int()/int(unsigned short)",
-              F(&tf, i, NULL, 0, false, false),
+    compat_is(t, "int()/int(unsigned short)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), false);
     p1[0] = bl;
     compat_is(t, "int()/int(_Bool)", F(&tf, i, NULL, 0, false, false),
@@ -331,8 +328,7 @@ void test_sema_type_compatible_table(TestCtx *t)
     compat_is(t, "int()/int(double)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), true);
     p1[0] = ld;
-    compat_is(t, "int()/int(long double)",
-              F(&tf, i, NULL, 0, false, false),
+    compat_is(t, "int()/int(long double)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), true);
     p1[0] = P(&tf, c);
     compat_is(t, "int()/int(char*)", F(&tf, i, NULL, 0, false, false),
@@ -346,15 +342,14 @@ void test_sema_type_compatible_table(TestCtx *t)
     compat_is(t, "int()/int(void)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, NULL, 0, true, false), true);
     p1[0] = Q(&tf, i, CGF_QUAL_CONST);
-    compat_is(t, "int()/int(const int)",
-              F(&tf, i, NULL, 0, false, false),
+    compat_is(t, "int()/int(const int)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 1, true, false), true);
     p1[0] = f;
-    compat_is(t, "K&R float definition/float prototype",
-              KRF(&tf, i, p1, 1), F(&tf, i, p1, 1, true, false), false);
+    compat_is(t, "K&R float definition/float prototype", KRF(&tf, i, p1, 1),
+              F(&tf, i, p1, 1, true, false), false);
     p2[0] = d;
-    compat_is(t, "K&R float definition/double prototype",
-              KRF(&tf, i, p1, 1), F(&tf, i, p2, 1, true, false), true);
+    compat_is(t, "K&R float definition/double prototype", KRF(&tf, i, p1, 1),
+              F(&tf, i, p2, 1, true, false), true);
     p1[0] = c;
     p2[0] = i;
     compat_is(t, "K&R char definition/int prototype", KRF(&tf, i, p1, 1),

@@ -2798,8 +2798,8 @@ static void bind_kr_param(Sema *s, AstNode *d, const AstType *ft, u32 pi,
                           Type *pt)
 {
     const char *pname = ft->params[pi].name;
-    Symbol *ps = sym_new(s, pname, SYM_VAR, NS_ORDINARY, pt,
-                         ft->params[pi].span);
+    Symbol *ps =
+        sym_new(s, pname, SYM_VAR, NS_ORDINARY, pt, ft->params[pi].span);
 
     ps->is_param = true;
     ps->defined = true;
@@ -2852,8 +2852,7 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
 
     if (proto && proto->variadic)
         warn_at(s->lang->warnings, WARN_TRADITIONAL, d->span,
-                "'%s' defined as variadic function without prototype",
-                d->name);
+                "'%s' defined as variadic function without prototype", d->name);
 
     if (proto && proto->nparams != ft->nparams) {
         s->nerrors++;

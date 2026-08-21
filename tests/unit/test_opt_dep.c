@@ -417,9 +417,9 @@ static void fusion_direction_ir(char *text, size_t cap, bool descending,
                    "exit():\n"
                    "    ret\n"
                    "}\n",
-                   start, pred, bound, scale, update,
-                   (unsigned long long)step, start, pred, bound, scale, adjust,
-                   byte_step, update, (unsigned long long)step);
+                   start, pred, bound, scale, update, (unsigned long long)step,
+                   start, pred, bound, scale, adjust, byte_step, update,
+                   (unsigned long long)step);
 }
 
 static const char *fusion_int64_min_step_ir(void)
@@ -639,9 +639,8 @@ void test_fusion_step_normalization_overflow_and_int64_min_bail(TestCtx *t)
             rewind(report);
             n = fread(log, 1, sizeof(log) - 1, report);
             log[n] = '\0';
-            T_ASSERT(t,
-                     strstr(log, int64_min_step ? "fuse_trip_mismatch"
-                                                : "dep_nonaffine") != NULL);
+            T_ASSERT(t, strstr(log, int64_min_step ? "fuse_trip_mismatch"
+                                                   : "dep_nonaffine") != NULL);
             fclose(report);
         }
         arena_free_all(&fix.arena);

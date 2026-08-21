@@ -367,8 +367,7 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         if (!proto) {
             const Type *definition = a->old_style_definition
                                          ? a
-                                         : (b->old_style_definition ? b
-                                                                    : NULL);
+                                         : (b->old_style_definition ? b : NULL);
 
             if (definition) {
                 c->old_style_definition = true;

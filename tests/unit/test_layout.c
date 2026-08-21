@@ -384,12 +384,12 @@ void test_layout_zero_width_bitfields_per_target(TestCtx *t)
          * side of the target split. */
         rec_target_is(t, "struct S { long :0; _Alignas(16) int value; };",
                       targets[i].target, 16, 16);
-        rec_target_is(
-            t,
-            "struct S { long :0; int value; } __attribute__((aligned(16)));", /* check_bans allow:
-                                                                                 compiler input,
-                                                                                 not host C */
-            targets[i].target, 16, 16);
+        rec_target_is(t,
+                      "struct S { long :0; int value; } "
+                      "__attribute__((aligned(16)));", /* check_bans allow:
+                                                          compiler input,
+                                                          not host C */
+                      targets[i].target, 16, 16);
     }
 
     /* Every integer base-type alignment participates in the Linux AAPCS64

@@ -121,37 +121,37 @@ void test_abi_classification_table(TestCtx *t)
 
     /* The >= 12 pinned cases, end to end: each callee signature and each
      * call site carries the classified shape. */
-    T_ASSERT(t, run_abi(&f,
-                        "struct II { int a, b; };\n"   /* 8B: 1 INT 8byte */
-                        "struct LL { long a, b; };\n"  /* 16B: pair II */
-                        "struct SD { double d; };\n"   /* 8B: 1 SSE */
-                        "struct FF { float a, b; };\n" /* 8B: 1 SSE packed */
-                        "struct DI { double d; int i; };\n"   /* pair SI */
-                        "struct ID { int i; double d; };\n"   /* pair IS */
-                        "struct SS4 { float a, b, c, d; };\n" /* pair SS */
-                        "struct BIG { char c[17]; };\n"       /* MEMORY */
-                        "struct ARR { int a[4]; };\n" /* pair II via array */
-                        "struct XLD { long double ld; };\n" /* f80: st0 return */
-                        "struct II g_ii; struct LL g_ll; struct SD g_sd;\n"
-                        "struct FF g_ff; struct DI g_di; struct ID g_id;\n"
-                        "struct SS4 g_ss; struct BIG g_big; struct ARR g_arr;\n"
-                        "struct XLD g_xld;\n"
-                        "struct II r_ii(void) { return g_ii; }\n"
-                        "struct LL r_ll(void) { return g_ll; }\n"
-                        "struct SD r_sd(void) { return g_sd; }\n"
-                        "struct DI r_di(void) { return g_di; }\n"
-                        "struct ID r_id(void) { return g_id; }\n"
-                        "struct SS4 r_ss(void) { return g_ss; }\n"
-                        "struct BIG r_big(void) { return g_big; }\n"
-                        "struct XLD r_xld(void) { return g_xld; }\n"
-                        "void t_ii(struct II x); void t_ll(struct LL x);\n"
-                        "void t_ff(struct FF x); void t_big(struct BIG x);\n"
-                        "void t_arr(struct ARR x); void t_xld(struct XLD x);\n"
-                        "long double t_ld(long double v);\n"
-                        "void calls(void) {\n"
-                        "  t_ii(g_ii); t_ll(g_ll); t_ff(g_ff); t_big(g_big);\n"
-                        "  t_arr(g_arr); t_xld(g_xld); t_ld(1.0L);\n"
-                        "}\n"));
+    T_ASSERT(
+        t, run_abi(&f, "struct II { int a, b; };\n"   /* 8B: 1 INT 8byte */
+                       "struct LL { long a, b; };\n"  /* 16B: pair II */
+                       "struct SD { double d; };\n"   /* 8B: 1 SSE */
+                       "struct FF { float a, b; };\n" /* 8B: 1 SSE packed */
+                       "struct DI { double d; int i; };\n"   /* pair SI */
+                       "struct ID { int i; double d; };\n"   /* pair IS */
+                       "struct SS4 { float a, b, c, d; };\n" /* pair SS */
+                       "struct BIG { char c[17]; };\n"       /* MEMORY */
+                       "struct ARR { int a[4]; };\n" /* pair II via array */
+                       "struct XLD { long double ld; };\n" /* f80: st0 return */
+                       "struct II g_ii; struct LL g_ll; struct SD g_sd;\n"
+                       "struct FF g_ff; struct DI g_di; struct ID g_id;\n"
+                       "struct SS4 g_ss; struct BIG g_big; struct ARR g_arr;\n"
+                       "struct XLD g_xld;\n"
+                       "struct II r_ii(void) { return g_ii; }\n"
+                       "struct LL r_ll(void) { return g_ll; }\n"
+                       "struct SD r_sd(void) { return g_sd; }\n"
+                       "struct DI r_di(void) { return g_di; }\n"
+                       "struct ID r_id(void) { return g_id; }\n"
+                       "struct SS4 r_ss(void) { return g_ss; }\n"
+                       "struct BIG r_big(void) { return g_big; }\n"
+                       "struct XLD r_xld(void) { return g_xld; }\n"
+                       "void t_ii(struct II x); void t_ll(struct LL x);\n"
+                       "void t_ff(struct FF x); void t_big(struct BIG x);\n"
+                       "void t_arr(struct ARR x); void t_xld(struct XLD x);\n"
+                       "long double t_ld(long double v);\n"
+                       "void calls(void) {\n"
+                       "  t_ii(g_ii); t_ll(g_ll); t_ff(g_ff); t_big(g_big);\n"
+                       "  t_arr(g_arr); t_xld(g_xld); t_ld(1.0L);\n"
+                       "}\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
 
     /* Returns. */
