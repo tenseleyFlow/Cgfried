@@ -223,11 +223,12 @@ void test_parse_declarator_torture(TestCtx *t)
 void test_parse_comma_declarator_attribute(TestCtx *t)
 {
     ParseFix f;
-    AstNode *tu = parse_src(
-        &f,
-        "int a, __attribute__((weak)) b, c;\n" /* check_bans allow: compiler input */
-        "__attribute__((used)) int x, y;\n",   /* check_bans allow: compiler input */
-        STD_GNU17);
+    AstNode *tu =
+        parse_src(&f,
+                  "int a, "
+                  "__attribute__((weak)) b, c;\n"      /* check_bans allow */
+                  "__attribute__((used)) int x, y;\n", /* check_bans allow */
+                  STD_GNU17);
     AstNode *a;
     AstNode *b;
     AstNode *c;
@@ -256,14 +257,14 @@ void test_parse_attributed_function_pointer(TestCtx *t)
 {
     ParseFix f;
 
-    (void)parse_src(
-        &f,
-        "#define ATTR __attribute__((__noinline__))\n" /* check_bans allow: compiler input */
-        "int call_both(void *p) {\n"
-        "  return ((ATTR int (*)(void))p)() +\n"
-        "         ((int (ATTR *)(void))p)();\n"
-        "}\n",
-        STD_GNU17);
+    (void)parse_src(&f,
+                    "#define ATTR "
+                    "__attribute__((__noinline__))\n" /* check_bans allow */
+                    "int call_both(void *p) {\n"
+                    "  return ((ATTR int (*)(void))p)() +\n"
+                    "         ((int (ATTR *)(void))p)();\n"
+                    "}\n",
+                    STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     pfix_free(&f);
 
@@ -273,7 +274,8 @@ void test_parse_attributed_function_pointer(TestCtx *t)
     (void)parse_src(
         &f,
         "int bad(void *p) {\n"
-        "  return ((int (__attribute__((mode(QI))) *)(void))p)();\n" /* check_bans allow: compiler input */
+        "  return ((int "
+        "(__attribute__((mode(QI))) *)(void))p)();\n" /* check_bans allow */
         "}\n",
         STD_GNU17);
     T_ASSERT(t, f.errors > 0);

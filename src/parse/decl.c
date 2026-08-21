@@ -1218,8 +1218,7 @@ static u32 attribute_lookahead_end(const Parser *p, u32 pos)
     u32 depth = 0;
 
     if (pos >= p->ntoks || p->toks[pos].kind != TOK_KEYWORD ||
-        (p->toks[pos].kw != KW_ATTRIBUTE &&
-         p->toks[pos].kw != KW_ATTRIBUTE2))
+        (p->toks[pos].kw != KW_ATTRIBUTE && p->toks[pos].kw != KW_ATTRIBUTE2))
         return pos;
     pos++;
     if (pos >= p->ntoks || p->toks[pos].kind != TOK_PUNCT ||
@@ -1578,11 +1577,9 @@ static AstNode *parse_member_decl(Parser *p)
         AstNode *n = ast_new(p->arena, AST_DECL, parse_peek(p)->span);
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
 
-        while (parse_at_kw(p, KW_ATTRIBUTE) ||
-               parse_at_kw(p, KW_ATTRIBUTE2))
+        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
             declarator_cgf = parse_cgf_attrs_concat(
-                p, declarator_cgf,
-                parse_cgf_attributes(p, &declarator_gnu));
+                p, declarator_cgf, parse_cgf_attributes(p, &declarator_gnu));
 
         bt->base = base_kind;
         soup_fill_identity(bt, &s);
@@ -1596,8 +1593,7 @@ static AstNode *parse_member_decl(Parser *p)
         else
             n->type = bt; /* unnamed bitfield */
         reject_kr_list(p, start, n->type, false);
-        n->cgf_attrs =
-            parse_cgf_attrs_concat(p, s.cgf_attrs, declarator_cgf);
+        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, declarator_cgf);
         gnu_attrs_merge(&n->gnu, &s.gnu);
         gnu_attrs_merge(&n->gnu, &declarator_gnu);
         while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
@@ -2085,11 +2081,9 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         AstNode *n = ast_new(p->arena, AST_DECL, parse_peek(p)->span);
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
 
-        while (parse_at_kw(p, KW_ATTRIBUTE) ||
-               parse_at_kw(p, KW_ATTRIBUTE2))
+        while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
             declarator_cgf = parse_cgf_attrs_concat(
-                p, declarator_cgf,
-                parse_cgf_attributes(p, &declarator_gnu));
+                p, declarator_cgf, parse_cgf_attributes(p, &declarator_gnu));
 
         bt->base = base_kind;
         soup_fill_identity(bt, &s);
@@ -2101,8 +2095,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->alignas_type = s.alignas_type;
         n->type = parse_declarator(p, bt, &n->name, false);
         reject_kr_list(p, start, n->type, true);
-        n->cgf_attrs =
-            parse_cgf_attrs_concat(p, s.cgf_attrs, declarator_cgf);
+        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, declarator_cgf);
         gnu_attrs_merge(&n->gnu, &s.gnu);
         gnu_attrs_merge(&n->gnu, &declarator_gnu);
         /* The asm label sits between the declarator and any attributes, and
