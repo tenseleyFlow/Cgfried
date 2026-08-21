@@ -445,6 +445,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    $(BUILD)/cgfried > $(BUILD)/inline.log 2>&1; s=$$?; \
 	    cat $(BUILD)/inline.log; exit $$s
 	sh ci/check_skips.sh inlinediff $(BUILD)/inline.log
+	sh tests/scripts/ctestsuite_diff_test.sh
 	sh scripts/ctestsuite_diff.sh $(BUILD)/cgfried > $(BUILD)/ctestsuite.log 2>&1; s=$$?; \
 	    cat $(BUILD)/ctestsuite.log; exit $$s
 	@if [ -d .docs/refs/c-testsuite/tests/single-exec ]; then p=ctestsuite; \
@@ -460,7 +461,13 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-frontend-smoke
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-ir-smoke
 	sh scripts/check_fuzz_crashes.sh
-	sh scripts/check_posix_sh.sh
+	# TI-M-01: keep the POSIX-shell producer connected to its exact skip
+	# profile so losing dash cannot silently disable this harness gate.
+	sh scripts/check_posix_sh.sh > $(BUILD)/posixsh.log 2>&1; s=$$?; \
+	    cat $(BUILD)/posixsh.log; exit $$s
+	@if grep -q '^HARNESS_SKIP ' $(BUILD)/posixsh.log; then \
+	    sh ci/check_skips.sh posixsh-nodash $(BUILD)/posixsh.log; \
+	else sh ci/check_skips.sh posixsh $(BUILD)/posixsh.log; fi
 	$(MAKE) campaign-expected-meta
 	sh scripts/check_bans.sh
 	$(MAKE) torture-import-verify

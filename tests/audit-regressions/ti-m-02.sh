@@ -1,5 +1,5 @@
 #!/bin/sh
-# XFAIL(audit): TI-M-02 the primary XFAIL ledger reports retired float debt as open
+# RESOLVED(audit): TI-M-02 the primary XFAIL ledger reports retired float debt as open
 # Reproducer contract: 0 = baseline defect reproduced, 1 = remediated/XPASS,
 # 2 = malformed checkout or unavailable required tool.
 set -u

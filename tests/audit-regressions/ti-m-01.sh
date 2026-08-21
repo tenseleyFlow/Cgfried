@@ -1,5 +1,5 @@
 #!/bin/sh
-# XFAIL(audit): TI-M-01 the POSIX-shell expected-skip profile is never enforced
+# RESOLVED(audit): TI-M-01 the POSIX-shell expected-skip profile is never enforced
 # Reproducer contract: 0 = baseline defect reproduced, 1 = remediated/XPASS,
 # 2 = malformed checkout or unavailable required tool.
 set -u
@@ -13,7 +13,7 @@ trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 
 producer="$ROOT/scripts/check_posix_sh.sh"
 checker="$ROOT/ci/check_skips.sh"
-expected="$ROOT/ci/expected_skips_posixsh.txt"
+expected="$ROOT/ci/expected_skips_posixsh-nodash.txt"
 makefile="$ROOT/Makefile"
 
 for path in "$producer" "$checker" "$expected" "$makefile"; do
@@ -24,7 +24,8 @@ mkdir "$WORK/empty-path" || exit 2
 PATH="$WORK/empty-path" /bin/sh "$producer" >"$WORK/producer.log" || exit 2
 
 cmp -s "$expected" "$WORK/producer.log" || exit 1
-(CDPATH= cd -- "$ROOT" && sh ci/check_skips.sh posixsh "$WORK/producer.log") \
+(CDPATH= cd -- "$ROOT" && sh ci/check_skips.sh posixsh-nodash \
+    "$WORK/producer.log") \
     >"$WORK/checker.out" 2>"$WORK/checker.err" || exit 2
 
 # The defect is the disconnected ratchet: the producer is in `make test`, but

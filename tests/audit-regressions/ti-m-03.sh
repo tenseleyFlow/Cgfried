@@ -1,5 +1,5 @@
 #!/bin/sh
-# XFAIL(audit): TI-M-03 every live c-testsuite debt row cites an obsolete failure cause
+# RESOLVED(audit): TI-M-03 every live c-testsuite debt row cites an obsolete failure cause
 # Reproducer contract: 0 = baseline defect reproduced, 1 = remediated/XPASS,
 # 2 = malformed checkout or unavailable required tool.
 set -u

@@ -20,6 +20,8 @@ CGF=${1:?usage: ctestsuite_diff.sh path/to/cgfried}
 DIR=${2:-.docs/refs/c-testsuite/tests/single-exec}
 LEDGER=${3:-tests/fixtures/ctestsuite-parse-ledger.txt}
 GCC=${CGF_DIFF_GCC:-gcc}
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/cgf-ctestsuite-diff.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 
 if [ ! -d "$DIR" ]; then
     echo "HARNESS_SKIP suite=ctestsuite test=corpus count=1 reason=\"reference clone .docs/refs/c-testsuite absent\""
@@ -30,8 +32,21 @@ command -v "$GCC" >/dev/null 2>&1 || {
     exit 0
 }
 
-expected=$(grep -v '^#' "$LEDGER" 2>/dev/null | grep -v '^[[:space:]]*$' |
-    awk '{print $1}' | sort || true)
+# TI-M-03: filename-only membership allowed an unrelated failure to inherit a
+# stale waiver. Require one sorted, unique, tab-separated row whose literal
+# diagnostic fingerprint still explains each known disagreement.
+if ! awk -F '\t' '
+    /^#/ || /^[[:space:]]*$/ { next }
+    NF != 4 || $1 !~ /^[0-9][0-9][0-9][0-9][0-9]\.c$/ ||
+        $2 !~ /^XD-[A-Z0-9-]+$/ || $3 == "" || $4 == "" { exit 1 }
+    previous != "" && $1 <= previous { exit 1 }
+    { previous = $1 }
+' "$LEDGER"; then
+    echo "ctestsuite_diff: malformed, unsorted, or duplicate ledger: $LEDGER" >&2
+    exit 1
+fi
+
+expected=$(awk -F '\t' '!/^#/ && !/^[[:space:]]*$/ { print $1 }' "$LEDGER")
 
 # A hang must read as a hang. Without a cap, an infinite loop in the parser
 # shows up as the shell reporting "Killed" (the OOM killer arriving first)
@@ -54,7 +69,8 @@ for f in "$DIR"/*.c; do
     base=$(basename "$f")
     ours=0
     theirs=0
-    $CAP "$CGF" -fsyntax-only -std=c17 "$f" >/dev/null 2>&1 || ours=$?
+    cgf_err="$WORK/$base.cgf.err"
+    $CAP "$CGF" -fsyntax-only -std=c17 "$f" >/dev/null 2>"$cgf_err" || ours=$?
     if [ "$ours" -gt 1 ]; then
         echo "ctestsuite_diff: ABNORMAL exit $ours on $base (124 = hang)" >&2
         newdiff=$((newdiff + 1))
@@ -76,7 +92,14 @@ for f in "$DIR"/*.c; do
         fi
     else
         if [ "$listed" = 1 ]; then
-            xfail=$((xfail + 1))
+            debt_id=$(awk -F '\t' -v file="$base" '$1 == file { print $2; exit }' "$LEDGER")
+            fingerprint=$(awk -F '\t' -v file="$base" '$1 == file { print $3; exit }' "$LEDGER")
+            if grep -Fq -- "$fingerprint" "$cgf_err"; then
+                xfail=$((xfail + 1))
+            else
+                echo "ctestsuite_diff: DIAGNOSTIC DRIFT $base ($debt_id no longer matches: $fingerprint)" >&2
+                newdiff=$((newdiff + 1))
+            fi
         else
             echo "ctestsuite_diff: NEW DISAGREEMENT $base (cgf $([ $ours = 0 ] && echo accept || echo reject), gcc $([ $theirs = 0 ] && echo accept || echo reject))" >&2
             "$CGF" -fsyntax-only -std=c17 "$f" 2>&1 >/dev/null | grep -m1 'error:' >&2 || true
