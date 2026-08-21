@@ -222,8 +222,8 @@ conflicts:
   widening that preserves sound MAY results and converges on recursive updates.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
-Critical reopens the barrier. The Critical count is zero, so remediation now
-continues through the High tier before Medium/Low work.
+Critical or High reopens the barrier. Both counts are zero, so remediation now
+continues through the 16 Medium and 2 Low findings.
 
 ---
 
