@@ -251,6 +251,10 @@ distinct layout debt was found.
 
 ## Unverified observations
 
+- GCC 16.1.1 classifies `union { int :0; long double v; }` as MEMORY/sret,
+  while Clang 22.1.8 classifies it X87/X87UP and returns it in `st0`. Cgfried
+  follows GCC pending a psABI ruling. The corresponding struct shape is not
+  disputed and is covered by the `IR-C-01` mixed-compiler regression.
 - Signed `1 << 31` is accepted by Cgfried and Clang but rejected by GCC under
   pedantic-errors. Oracle disagreement and extension policy are unresolved,
   so this is excluded from all counts.
