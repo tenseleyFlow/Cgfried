@@ -1025,6 +1025,14 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         bool more;
 
         if (parse_eat_punct(p, PUNCT_ELLIPSIS)) {
+            /* FE-H-01: 6.7.6.3 requires a parameter-list before `, ...`;
+             * neither ISO nor GNU C admits a prototype whose entire list is
+             * ellipsis. A preceding declaration need not spell a parameter NAME
+             * -- `f(int, ...)` is valid -- but it must exist. */
+            if (params.len == 0)
+                parse_error(p, start,
+                            "'...' requires at least one parameter "
+                            "declaration before it");
             fn->is_variadic = true;
             break;
         }
@@ -1294,6 +1302,59 @@ static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
     return parse_type_suffixes(p, ast_type_chain(ptrs, base));
 }
 
+/* FE-H-02: an identifier-list function type is valid only as the OUTERMOST type
+ * of a function definition. Walking `next` alone is insufficient: a nested K&R
+ * function can also hide in a prototype parameter. */
+static const AstType *find_kr_list(const AstType *t)
+{
+    u32 i;
+    const AstType *found;
+
+    if (!t)
+        return NULL;
+    if (t->kind == ATY_FUNC) {
+        if (t->is_kr_list)
+            return t;
+        for (i = 0; i < t->nparams; i++) {
+            found = find_kr_list(t->params[i].type);
+            if (found)
+                return found;
+        }
+    }
+    return find_kr_list(t->next);
+}
+
+/* Like find_kr_list, but permits the root function layer for the declaration
+ * path's existing definition-only decision. Every parameter and return-type
+ * derivation remains nested and therefore forbidden. */
+static const AstType *find_nested_kr_list(const AstType *t)
+{
+    u32 i;
+    const AstType *found;
+
+    if (!t)
+        return NULL;
+    if (t->kind != ATY_FUNC)
+        return find_kr_list(t);
+    for (i = 0; i < t->nparams; i++) {
+        found = find_kr_list(t->params[i].type);
+        if (found)
+            return found;
+    }
+    return find_kr_list(t->next);
+}
+
+static void reject_kr_list(Parser *p, const Token *at, const AstType *t,
+                           bool allow_root)
+{
+    const AstType *bad = allow_root ? find_nested_kr_list(t) : find_kr_list(t);
+
+    if (bad)
+        parse_error(p, at,
+                    "parameter names (without types) are only allowed "
+                    "in a function definition");
+}
+
 /* --- struct / union / enum ---------------------------------------------- */
 
 static AstNode *parse_member_decl(Parser *p);
@@ -1446,6 +1507,7 @@ static AstNode *parse_member_decl(Parser *p)
             n->type = parse_declarator(p, bt, &n->name, true);
         else
             n->type = bt; /* unnamed bitfield */
+        reject_kr_list(p, start, n->type, false);
         n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         gnu_attrs_merge(&n->gnu, &s.gnu);
         while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
@@ -1668,6 +1730,7 @@ AstType *parse_type_name(Parser *p)
     /* Abstract declarator: the name is optional, and a type-name that DOES
      * name something is a constraint violation, not a parse failure. */
     ty = parse_declarator(p, base, &name, true);
+    reject_kr_list(p, start, ty, false);
     if (name)
         parse_error(p, start, "a type name cannot declare '%s'", name);
     p->extension_depth = outer_extension_depth;
@@ -1903,6 +1966,7 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->alignas_expr = s.alignas_expr;
         n->alignas_type = s.alignas_type;
         n->type = parse_declarator(p, bt, &n->name, false);
+        reject_kr_list(p, start, n->type, true);
         n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
         gnu_attrs_merge(&n->gnu, &s.gnu);
         /* The asm label sits between the declarator and any attributes, and

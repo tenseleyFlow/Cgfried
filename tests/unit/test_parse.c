@@ -358,6 +358,65 @@ void test_parse_kr_definitions(TestCtx *t)
     (void)tu;
 }
 
+void test_parse_variadic_and_nested_kr_constraints(TestCtx *t)
+{
+    ParseFix f;
+
+    /* FE-H-01: ellipsis cannot be the entire parameter list in either ISO
+     * or GNU C. A preceding typed parameter is sufficient even when unnamed. */
+    (void)parse_src(&f, "int f(...);\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "int f(...);\n", STD_GNU17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "int f(int, ...); int g(int named, ...);\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    pfix_free(&f);
+
+    /* FE-H-02: the old outer-only check missed every derived position below.
+     * Cover a pointer, prototype parameter, record member, return type, type
+     * name, and the typedef-shadowing sibling shape from the audit. */
+    (void)parse_src(&f, "int (*p)(a);\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "void g(int (*p)(a));\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "struct S { int (*p)(a); };\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "int (*f(void))(a);\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "int n = sizeof(int (*)(a));\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    (void)parse_src(&f, "typedef int T; void f(void) { T T, (*p)(T); }\n",
+                    STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    pfix_free(&f);
+
+    /* Controls: the root identifier-list layer remains legal for a function
+     * definition, while typed prototypes and pointer-to-prototype shapes do
+     * not become false positives. */
+    (void)parse_src(&f,
+                    "int old(a) int a; { return a; }\n"
+                    "int proto(int);\n"
+                    "int (*pointer)(int);\n"
+                    "typedef int T; int (*typed)(T);\n",
+                    STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    pfix_free(&f);
+}
+
 /* Accept/reject helper for the specifier matrix. */
 static void spec_ok(TestCtx *t, const char *src)
 {
