@@ -28,23 +28,28 @@ the same service at O0; `-Wno-mem` and `-w` both accept the O0 syntax-only
 form, which confirms the second trigger path without changing service ownership.
 Affected sprints: 32, 41, 42.
 
-ID: `OPT-H-02`
-Title: descending loop fusion reverses dependence direction
-Severity: High — valid ISO C changes observable output at `-O3`. The O0
-control and O3 with only fusion disabled both return 0; normal O3 returns 1.
-Reproducer: `tests/audit-regressions/opt-h-02.c`
-Root cause: `src/opt/dep.c:358-378` records the address coefficient as the
-dependence stride, but `src/opt/dep.c:412-453` treats that value as an
-iteration-order stride. A descending induction has the opposite ordinal
-direction. That missing sign reversal makes the true negative dependence look
-non-negative to `fusion_dependences_ok` at `src/opt/dep.c:624-677`, so
-`fuse_pair` appends the second body after the first at `src/opt/dep.c:827-845`.
-The resulting O3 IR stores `a[i]` and then loads `a[i - 1]` in one descending
-loop body, whereas the original second loop must run only after every producer
-iteration completes. The fixture is accepted and returns 0 with GCC and Clang
-under strict C17 O3. The durable gate pins the enabled and disabled fusion
-states and uses the O0 execution as a control.
-Affected sprint: 35.
+~~ID: `OPT-H-02`~~
+~~Title: descending loop fusion reverses dependence direction~~
+~~Severity: High — valid ISO C changes observable output at `-O3`. The O0~~
+~~control and O3 with only fusion disabled both return 0; normal O3 returns 1.~~
+~~Reproducer: `tests/audit-regressions/opt-h-02.c`~~
+~~Root cause: `src/opt/dep.c:358-378` records the address coefficient as the~~
+~~dependence stride, but `src/opt/dep.c:412-453` treats that value as an~~
+~~iteration-order stride. A descending induction has the opposite ordinal~~
+~~direction. That missing sign reversal makes the true negative dependence look~~
+~~non-negative to `fusion_dependences_ok` at `src/opt/dep.c:624-677`, so~~
+~~`fuse_pair` appends the second body after the first at `src/opt/dep.c:827-845`.~~
+~~The resulting O3 IR stores `a[i]` and then loads `a[i - 1]` in one descending~~
+~~loop body, whereas the original second loop must run only after every producer~~
+~~iteration completes. The fixture is accepted and returns 0 with GCC and Clang~~
+~~under strict C17 O3. The durable gate pins the enabled and disabled fusion~~
+~~states and uses the O0 execution as a control.~~
+~~Affected sprint: 35.~~
+Resolution: RESOLVED 2026-08-20 by `5b030fc5`. Fusion converts each affine
+coefficient from induction-value units to execution-ordinal units with the
+signed loop step before querying dependences. Ascending/descending unit and
+non-unit matrices, negative distances, multiplication overflow, and the
+`INT64_MIN` conservative path are regression-pinned.
 
 ID: `OPT-H-03`
 Title: loop unrolling loses a live latch block parameter
