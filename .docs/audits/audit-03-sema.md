@@ -140,16 +140,21 @@ Cluster hunt: checked zero-width bitfields across all integer base types,
 record positions, structs and unions, and the closed five-target matrix. It
 found the distinct unnamed-nonzero AAPCS64 defect now tracked as `SEMA-C-08`.
 
-ID: `SEMA-H-03`
-Title: old-style function compatibility ignores default promotions
-Severity: High — incompatible function declarations are merged, leaving
-miscompile-adjacent call ABI disagreement latent in the translation unit.
-Reproducer: `tests/audit-regressions/sema-h-03.c`
-Root cause: `src/sema/types.c:154-163` returns true whenever either function
-type lacks a prototype, bypassing the default-promotion and variadic
-compatibility constraints. `char`, `float`, and variadic conflicts all pass;
-GCC rejects them.
-Affected sprints: 12, 16.
+~~ID: `SEMA-H-03`~~
+~~Title: old-style function compatibility ignores default promotions~~
+~~Severity: High — incompatible function declarations are merged, leaving~~
+~~miscompile-adjacent call ABI disagreement latent in the translation unit.~~
+~~Reproducer: `tests/audit-regressions/sema-h-03.c`~~
+~~Root cause: `src/sema/types.c:154-163` returns true whenever either function~~
+~~type lacks a prototype, bypassing the default-promotion and variadic~~
+~~compatibility constraints. `char`, `float`, and variadic conflicts all pass;~~
+~~GCC rejects them.~~
+~~Affected sprints: 12, 16.~~
+Resolution: RESOLVED 2026-08-20 by `1da90129`. Compatibility now applies
+default promotions, parameter counts, variadic policy, and known empty-list
+definition arity symmetrically. Resolved K&R signatures retain declaration-list
+scope/source order, including dependent array parameters, and GCC-compatible
+warning, pedantic, and `-Werror` behavior is pinned.
 
 ID: `SEMA-H-04`
 Title: no-linkage and external-linkage declarations are merged
