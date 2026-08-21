@@ -48,17 +48,22 @@ synthesized in reserved, non-aliasing x12/x13 scratch registers before a
 register add/sub. Conservative pseudo sizes are 28/32 bytes, with TBZ/TBNZ
 range crossovers pinned; ELF and Mach-O relocation forms remain unchanged.
 
-ID: `A64-M-04`
-Title: unwind information omits x19 and epilogue state transitions
-Severity: Medium — generated code executes, but stack unwinding across a
-callee-saved function can recover stale registers and CFA state.
-Reproducer: `tests/audit-regressions/a64-m-04.c`
-Root cause: register allocation records only frame and x29/x30 pair metadata
-at `src/cg/arm64/regalloc.c:2049-2057`; `src/cg/arm64/debug.c:137-193` emits
-only those prologue rows and no callee-save or epilogue restore rules.
-`readelf --debug-dump=frames` shows no x19 offset/restore and no final CFA
-offset zero, while the function saves and restores x19 in its code.
-Affected sprints: 29, 49, 51.
+~~ID: `A64-M-04`~~
+~~Title: unwind information omits x19 and epilogue state transitions~~
+~~Severity: Medium — generated code executes, but stack unwinding across a~~
+~~callee-saved function can recover stale registers and CFA state.~~
+~~Reproducer: `tests/audit-regressions/a64-m-04.c`~~
+~~Root cause: register allocation records only frame and x29/x30 pair metadata~~
+~~at `src/cg/arm64/regalloc.c:2049-2057`; `src/cg/arm64/debug.c:137-193` emits~~
+~~only those prologue rows and no callee-save or epilogue restore rules.~~
+~~`readelf --debug-dump=frames` shows no x19 offset/restore and no final CFA~~
+~~offset zero, while the function saves and restores x19 in its code.~~
+~~Affected sprints: 29, 49, 51.~~
+Resolution: RESOLVED 2026-08-20 by `fb641618`. Frame finalization now records
+the exact callee-save layout and per-return instruction boundaries. The FDE
+emits save/restore rules and every cumulative large-frame CFA transition;
+peepholes treat those labels as rewrite barriers. Decoded large-frame rows
+descend from 8048 through 3952 to zero on each return.
 
 ## Attack-surface dispatch
 
@@ -71,7 +76,7 @@ Affected sprints: 29, 49, 51.
   `ldp`/`stp` limits. `A64-H-02` and `A64-H-03` remain confirmed because the
   TLS/GOT special paths bypass those ordinary selectors.
 - TLS symbol emission: complete focused pass; `A64-H-01` remains confirmed.
-- Unwind state: complete focused pass; `A64-M-04` remains confirmed.
+- Unwind state: complete focused pass; `A64-M-04` resolved at `fb641618`.
 - HFA classification: complete deterministic pass for reachable C types. The
   table covers scalar leaves, one through four leaves, rejection above four, nested
   structs, arrays, overlaying unions, mixed leaf types, zero-length arrays,
@@ -121,9 +126,8 @@ Affected sprints: 29, 49, 51.
   - `A64-H-02`: compiler exit 0, one `add ..., #5000`, GNU assembler exit 1
     with `immediate out of range`.
   - `A64-H-03`: compiler exit 4 at the documented 16 MiB GOT addend ICE.
-  - `A64-M-04`: compiler/assembler/readelf all exit 0 and code saves x19,
-    but frame data contains zero x19 offset rules, zero x19 restore rules,
-    and zero final CFA-offset-zero transitions.
+  - `A64-M-04`: historical baseline omitted x19 offset/restore and final CFA
+    rows; Sprint 61 repair `fb641618` now passes the decoded frame-data lane.
 - Bundled-assembler comparison lanes were skipped because
   `afs-as/target/release/afs-as` was not built. GNU assembler acceptance and
   the direct logical encoding oracle still ran; no afs-as parity claim is
@@ -134,8 +138,8 @@ Affected sprints: 29, 49, 51.
 **CLOSED for Sprint 60 finding collection.** Every F07 attack item is
 explicitly dispatched above with unit, cross-tool, differential, static-oracle,
 or execution evidence. `A64-H-01`, `A64-H-02`, `A64-H-03`, and `A64-M-04`
-remain reproducible and intentionally open for Sprint 61 remediation; each has
-a self-describing `tests/audit-regressions/` fixture and manifest row. Native
+are now resolved in Sprint 61; each retains a self-describing
+`tests/audit-regressions/` fixture and manifest row. Native
 arm64-Darwin mixed-link execution and native ARM64 weak-memory litmus evidence
 are recorded platform limitations, not silent passes. The empty-struct HFA row
 is explicitly blocked before backend entry by the documented front-end

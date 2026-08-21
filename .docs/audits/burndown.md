@@ -50,3 +50,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `a91a8c42` | `DRV-M-01` assembler signal-diagnostic repair | 0 | 0 | 15 | 2 | 17 |
 | 2026-08-20 | `141ffcad` | `TI-M-01` / `TI-M-02` / `TI-M-03` test-integrity repair | 0 | 0 | 12 | 2 | 14 |
 | 2026-08-20 | `385f8aa8` | `PP-M-02` / `PP-M-04` / `FE-M-03` / `FE-M-04` / `FE-M-05` diagnostic-provenance and recovery repair | 0 | 0 | 7 | 2 | 9 |
+| 2026-08-20 | `fb641618` | `X64-M-03` / `A64-M-04` operand-substitution and unwind-state repair | 0 | 0 | 5 | 2 | 7 |
