@@ -156,15 +156,19 @@ definition arity symmetrically. Resolved K&R signatures retain declaration-list
 scope/source order, including dependent array parameters, and GCC-compatible
 warning, pedantic, and `-Werror` behavior is pinned.
 
-ID: `SEMA-H-04`
-Title: no-linkage and external-linkage declarations are merged
-Severity: High — distinct C entities are treated as redeclarations, a scope
-and linkage standards violation adjacent to wrong symbol binding.
-Reproducer: `tests/audit-regressions/sema-h-04.c`
-Root cause: `src/sema/decl.c:1121-1144` rejects only NONE/NONE and a later
-INTERNAL mismatch; either ordering of automatic and block-scope `extern`
-therefore falls through to type merging. GCC and Clang reject both orderings.
-Affected sprint: 12.
+~~ID: `SEMA-H-04`~~
+~~Title: no-linkage and external-linkage declarations are merged~~
+~~Severity: High — distinct C entities are treated as redeclarations, a scope~~
+~~and linkage standards violation adjacent to wrong symbol binding.~~
+~~Reproducer: `tests/audit-regressions/sema-h-04.c`~~
+~~Root cause: `src/sema/decl.c:1121-1144` rejects only NONE/NONE and a later~~
+~~INTERNAL mismatch; either ordering of automatic and block-scope `extern`~~
+~~therefore falls through to type merging. GCC and Clang reject both orderings.~~
+~~Affected sprint: 12.~~
+Resolution: RESOLVED 2026-08-20 by `40d84413`. Same-scope declarations now
+reject a no-linkage/linked mismatch symmetrically before composite-type
+construction. Nested shadowing, visible internal-linkage inheritance, and
+linked incomplete-array composition remain accepted and are pinned.
 
 ~~ID: `SEMA-H-05`~~
 ~~Title: unary negation of a signed minimum is accepted as constant~~
