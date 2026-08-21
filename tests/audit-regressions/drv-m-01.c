@@ -1,4 +1,4 @@
-// XFAIL(audit): DRV-M-01 assembler signal death is reported as ordinary rejection
+// RESOLVED(audit): DRV-M-01 assembler signal death is reported as ordinary rejection
 // Reproduce with:
 //   CGF_AS_PATH=tests/audit-regressions/support/drv-m-01/as-signal.sh \
 //     build/cgfried -c tests/audit-regressions/drv-m-01.c -o /tmp/drv-m-01.o

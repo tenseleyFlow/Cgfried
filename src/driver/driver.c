@@ -919,6 +919,19 @@ static X64PicLevel pic_level_of(const DriverArgs *a)
     return X64_PIC_NONE;
 }
 
+/* DRV-M-01: an assembler killed by a signal did not reject its input. Keep
+ * that transport failure distinct from an ordinary nonzero exit at every
+ * user-input boundary, just as the linker path already does. */
+static void report_assembler_signal(const ToolResult *res,
+                                    const char *source_path)
+{
+    if (res->kind == TOOL_SIGNALED)
+        fprintf(stderr,
+                "cgfried: error: assembler command died with signal %d "
+                "while assembling '%s'\n",
+                res->term_signal, source_path);
+}
+
 /* Most object builds stage assembler text beside the requested output so an
  * assembler rejection leaves a deterministic reproducer.  `/dev/null` is a
  * standard configure-probe output, however, and `/dev/null.cgf.s` is neither
@@ -1185,6 +1198,17 @@ emit_tail:
             return CGF_EXIT_IO;
         }
         if (res.kind != TOOL_EXITED || res.exit_code != 0) {
+            if (res.kind == TOOL_SIGNALED) {
+                if (m->nasms || m->nfile_asms) {
+                    report_assembler_signal(&res, job->path);
+                    buf_free(&b);
+                    return CGF_EXIT_COMPILE;
+                }
+                CGF_ICE("assembler command died with signal %d while "
+                        "assembling cgfried-generated assembly for '%s' "
+                        "(kept at '%s')",
+                        res.term_signal, job->path, s_path);
+            }
             /* Quote the offending line from the buffer we just wrote. */
             char quoted[256];
             u32 ln = 1;
@@ -2218,7 +2242,8 @@ int driver_main(int argc, char **argv)
                     fprintf(stderr, "cgfried: error: %s\n",
                             cgf_tool_missing_hint(TOOL_AS));
                     rc = CGF_EXIT_IO;
-                }
+                } else
+                    report_assembler_signal(&res, in->path);
             } else if (in->kind == IN_ASM_PP || a.mode_E) {
                 /* Preprocess to text; .S then assembles it. */
                 Buf text, deps;
@@ -2294,7 +2319,8 @@ int driver_main(int argc, char **argv)
                             fprintf(stderr, "cgfried: error: %s\n",
                                     cgf_tool_missing_hint(TOOL_AS));
                             rc = CGF_EXIT_IO;
-                        }
+                        } else
+                            report_assembler_signal(&res, in->path);
                         if (rc == CGF_EXIT_OK)
                             unlink(s_tmp);
                     }

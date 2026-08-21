@@ -40,7 +40,7 @@ OPT-H-01	opt-h-01.c	PASS	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	PASS	descending loop fusion reverses dependence direction
 OPT-H-03	opt-h-03.c	PASS	loop unrolling loses a live latch block parameter
 OPT-H-04	opt-h-04.c	PASS	correlated pointer selects collapse to a false must-alias proof
-DRV-M-01	drv-m-01.c	OPEN	assembler signal death is reported as ordinary rejection
+DRV-M-01	drv-m-01.c	PASS	assembler signal death is reported as ordinary rejection
 RT-H-01	rt-h-01.c	PASS	arm64-macos publishes the wrong long-double size macro
 TI-M-01	ti-m-01.sh	OPEN	the POSIX-shell expected-skip profile is never enforced
 TI-M-02	ti-m-02.sh	OPEN	the primary XFAIL ledger reports retired float debt as open

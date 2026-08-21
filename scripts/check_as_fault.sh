@@ -41,4 +41,42 @@ if ! grep -q 'p2align' "$WORK/out.log"; then
     cat "$WORK/out.log" >&2
     exit 1
 fi
-echo "check_as_fault: assembler rejection ICEs with the line quoted"
+
+# DRV-M-01: signal death is transport failure, not an assembler rejection.
+# Pin all three driver boundaries: generated C, inline-asm C, and user .s/.S.
+cat > "$WORK/signal-as.sh" << 'SIGNAL'
+#!/bin/sh
+kill -s TERM $$
+SIGNAL
+chmod +x "$WORK/signal-as.sh"
+
+printf '__asm__("");\nint main(void) { return 0; }\n' > "$WORK/inline.c"
+printf '.text\n.globl f\nf:\n  ret\n' > "$WORK/user.s"
+cp "$WORK/user.s" "$WORK/user.S"
+
+for input in "$WORK/t.c" "$WORK/inline.c" "$WORK/user.s" "$WORK/user.S"; do
+    case $input in
+    "$WORK/t.c") want=4 ;;
+    *) want=1 ;;
+    esac
+    CGF_AS_PATH="$WORK/signal-as.sh" "$CGF" -c "$input" \
+        -o "$WORK/signal.o" > "$WORK/signal.log" 2>&1
+    rc=$?
+    if [ "$rc" -ne "$want" ]; then
+        echo "check_as_fault: $input signal exit $rc, expected $want" >&2
+        cat "$WORK/signal.log" >&2
+        exit 1
+    fi
+    if ! grep -Eq 'signal 15|signal SIGTERM' "$WORK/signal.log"; then
+        echo "check_as_fault: $input did not report SIGTERM" >&2
+        cat "$WORK/signal.log" >&2
+        exit 1
+    fi
+    if grep -q 'assembler rejected' "$WORK/signal.log"; then
+        echo "check_as_fault: $input misreported SIGTERM as rejection" >&2
+        cat "$WORK/signal.log" >&2
+        exit 1
+    fi
+done
+
+echo "check_as_fault: rejection line quoting and signal diagnostics passed"
