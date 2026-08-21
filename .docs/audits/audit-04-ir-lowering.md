@@ -185,18 +185,23 @@ an indirect `%9 = call i32 %6(...)`, while the post-mem2reg dump prints
 the call form, which is why replaying the dump alone cannot expose the bug.
 Affected sprints: 17, 30.
 
-ID: `IR-H-09`
-Title: oversized initializer length wraps before validation
-Severity: High — a tiny malformed textual IR module reaches an enormous arena
-allocation and exits with an internal compiler error instead of a bounded parse
-diagnostic, making the supported `.cgfir -emit-ir` input mode non-robust.
-Reproducer: `tests/audit-regressions/ir-h-09.cgfir`
-Root cause: `src/ir/parse.c:2147-2156` validates initializer text with
-`blob->len != 1 + g->size * 2`. At size `2^63`, the expected length wraps to
-one, so the one-byte `x` token passes and parsing attempts an allocation of
-`2^63` bytes. The comparison and diagnostic must derive bytes from the token's
-validated even hex length without multiplying the declared size.
-Affected sprint: 17.
+~~ID: `IR-H-09`~~
+~~Title: oversized initializer length wraps before validation~~
+~~Severity: High — a tiny malformed textual IR module reaches an enormous arena~~
+~~allocation and exits with an internal compiler error instead of a bounded parse~~
+~~diagnostic, making the supported `.cgfir -emit-ir` input mode non-robust.~~
+~~Reproducer: `tests/audit-regressions/ir-h-09.cgfir`~~
+~~Root cause: `src/ir/parse.c:2147-2156` validates initializer text with~~
+~~`blob->len != 1 + g->size * 2`. At size `2^63`, the expected length wraps to~~
+~~one, so the one-byte `x` token passes and parsing attempts an allocation of~~
+~~`2^63` bytes. The comparison and diagnostic must derive bytes from the token's~~
+~~validated even hex length without multiplying the declared size.~~
+~~Affected sprint: 17.~~
+Resolution: RESOLVED 2026-08-20 by `7f3774f6`. The parser now validates an
+even token-derived hex length and compares its halved byte count with the
+declared size before allocation or decoding. Exact diagnostics remain bounded
+through `UINT64_MAX`, and ordinary, odd-nibble, `2^63`, and maximum-size
+boundaries are pinned.
 
 ~~ID: `IR-C-09`~~
 ~~Title: 16-byte-aligned Linux AAPCS64 composites ignore the even-register rule~~
