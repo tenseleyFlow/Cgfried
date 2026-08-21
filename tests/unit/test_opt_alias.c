@@ -759,6 +759,59 @@ void test_alias_exact_partial_and_adjacent_ranges(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_alias_correlated_selects_are_not_must(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *a4, *a4_again, *forward, *reverse;
+    MemLoc direct, direct_again, selected, selected_reverse;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "func void @f(i32 %choose) {\n"
+                        "entry():\n"
+                        "    %a = alloca 8, align 8\n"
+                        "    %a4 = ptradd %a, 4\n"
+                        "    %a4.again = ptradd %a, 4\n"
+                        "    %forward = select %choose, ptr %a, %a4\n"
+                        "    %reverse = select %choose, ptr %a4, %a\n"
+                        "    ret\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    a4 = alias_find(&m->funcs[0], IR_PTRADD, 0);
+    a4_again = alias_find(&m->funcs[0], IR_PTRADD, 1);
+    forward = alias_find(&m->funcs[0], IR_SELECT, 0);
+    reverse = alias_find(&m->funcs[0], IR_SELECT, 1);
+    direct =
+        alias_memloc(c, ir_op_value(&m->funcs[0], a4->result), 4, ETYPE_I32);
+    direct_again = alias_memloc(c, ir_op_value(&m->funcs[0], a4_again->result),
+                                4, ETYPE_I32);
+    selected = alias_memloc(c, ir_op_value(&m->funcs[0], forward->result), 4,
+                            ETYPE_I32);
+    selected_reverse = alias_memloc(
+        c, ir_op_value(&m->funcs[0], reverse->result), 4, ETYPE_I32);
+
+    /* Distinct but exact direct derivations retain the useful MUST proof. */
+    T_ASSERT_EQ_INT(t, alias_query(c, direct, direct_again), ALIAS_MUST);
+    T_ASSERT_EQ_INT(t, alias_query(c, direct_again, direct), ALIAS_MUST);
+    T_ASSERT(t, alias_covers(c, direct, direct_again));
+    T_ASSERT(t, alias_covers(c, direct_again, direct));
+    T_ASSERT_EQ_INT(t, alias_query(c, selected, selected), ALIAS_MUST);
+    T_ASSERT(t, alias_covers(c, selected, selected));
+    /* Equal path-insensitive hulls do not prove the opposite selects equal. */
+    T_ASSERT_EQ_INT(t, alias_query(c, selected, selected_reverse), ALIAS_MAY);
+    T_ASSERT_EQ_INT(t, alias_query(c, selected_reverse, selected), ALIAS_MAY);
+    T_ASSERT(t, !alias_covers(c, selected, selected_reverse));
+    T_ASSERT(t, !alias_covers(c, selected_reverse, selected));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
 void test_alias_char_wildcard_precedes_type_disjointness(TestCtx *t)
 {
     AliasFix f;

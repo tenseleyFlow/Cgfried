@@ -1,4 +1,4 @@
-// XFAIL(audit): OPT-H-04 correlated pointer selects collapse to a false must-alias proof
+// RESOLVED(audit): OPT-H-04 correlated pointer selects collapse to a false must-alias proof
 // The two selected pointers always name opposite array elements.  Their
 // individual offset hulls are equal, but no concrete execution makes them
 // equal; forwarding the second store through a must-alias answer is wrong.

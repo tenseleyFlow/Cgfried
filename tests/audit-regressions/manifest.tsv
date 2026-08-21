@@ -37,7 +37,7 @@ IR-C-11	ir-c-11.cgfir	PASS	under-aligned atomic scalar accesses pass IR verifica
 OPT-H-01	opt-h-01.c	OPEN	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	OPEN	descending loop fusion reverses dependence direction
 OPT-H-03	opt-h-03.c	OPEN	loop unrolling loses a live latch block parameter
-OPT-H-04	opt-h-04.c	OPEN	correlated pointer selects collapse to a false must-alias proof
+OPT-H-04	opt-h-04.c	PASS	correlated pointer selects collapse to a false must-alias proof
 DRV-M-01	drv-m-01.c	OPEN	assembler signal death is reported as ordinary rejection
 RT-H-01	rt-h-01.c	PASS	arm64-macos publishes the wrong long-double size macro
 TI-M-01	ti-m-01.sh	OPEN	the POSIX-shell expected-skip profile is never enforced

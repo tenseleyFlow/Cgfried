@@ -1146,6 +1146,8 @@ AliasResult alias_query(AliasCtx *c, MemLoc a, MemLoc b)
     bool b_unknown = bits_has(bp, c->unknown_obj);
     u32 ao = bits_singleton(ap, c->nwords);
     u32 bo = bits_singleton(bp, c->nwords);
+    OffRange abase = operand_off(c, a.base);
+    OffRange bbase = operand_off(c, b.base);
     Footprint af = footprint(c, a);
     Footprint bf = footprint(c, b);
     bool distinct_symbols = a.base.kind == IROP_SYMBOL &&
@@ -1155,12 +1157,21 @@ AliasResult alias_query(AliasCtx *c, MemLoc a, MemLoc b)
         ao != UINT32_MAX && ao == bo &&
         ((ao != c->unknown_obj && ao != c->unreferenced_sym_obj) ||
          operand_equal(a.base, b.base));
+    bool exact_locations = abase.set && bbase.set && abase.lo == abase.hi &&
+                           bbase.lo == bbase.hi && a.off_lo == a.off_hi &&
+                           b.off_lo == b.off_hi;
 
     if (a.size == 0 || b.size == 0)
         return ALIAS_NO;
     if (distinct_symbols)
         return ALIAS_NO;
-    if (same_object && af.known && bf.known && af.lo == bf.lo && af.hi == bf.hi)
+    /* OPT-H-04: equal convex hulls are not an identity proof. Opposite or
+     * independently selected pointers can have the same [lo,hi] range while
+     * naming different bytes on every concrete path. Preserve MUST for the
+     * identical operand and for two independently proven exact locations;
+     * every path-dependent hull falls back to MAY. */
+    if (same_object && af.known && bf.known && af.lo == bf.lo &&
+        af.hi == bf.hi && (operand_equal(a.base, b.base) || exact_locations))
         return ALIAS_MUST;
 
     /* Proven provenance/range facts are independent of TBAA.  Character and
@@ -1183,8 +1194,14 @@ bool alias_covers(AliasCtx *c, MemLoc outer, MemLoc inner)
     const u64 *ip = operand_pts(c, inner.base);
     u32 oo = bits_singleton(op, c->nwords);
     u32 io = bits_singleton(ip, c->nwords);
+    OffRange obase = operand_off(c, outer.base);
+    OffRange ibase = operand_off(c, inner.base);
     Footprint of = footprint(c, outer);
     Footprint inf = footprint(c, inner);
+    bool exact_locations = obase.set && ibase.set && obase.lo == obase.hi &&
+                           ibase.lo == ibase.hi &&
+                           outer.off_lo == outer.off_hi &&
+                           inner.off_lo == inner.off_hi;
 
     if (outer.base.kind == IROP_SYMBOL && inner.base.kind == IROP_SYMBOL &&
         outer.base.sym != inner.base.sym)
@@ -1194,5 +1211,9 @@ bool alias_covers(AliasCtx *c, MemLoc outer, MemLoc inner)
     if ((oo == c->unknown_obj || oo == c->unreferenced_sym_obj) &&
         !operand_equal(outer.base, inner.base))
         return false;
-    return of.known && inf.known && of.lo <= inf.lo && of.hi >= inf.hi;
+    /* OPT-H-04: containment of two path-dependent convex hulls does not mean
+     * that the outer access covers the inner access on each concrete path. */
+    return of.known && inf.known &&
+           (operand_equal(outer.base, inner.base) || exact_locations) &&
+           of.lo <= inf.lo && of.hi >= inf.hi;
 }

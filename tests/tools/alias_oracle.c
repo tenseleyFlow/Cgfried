@@ -2,10 +2,9 @@
  *
  * The analysis result is checked against a deliberately independent concrete
  * model.  The model knows only two objects, byte offsets, and the selector
- * environment; it never inspects alias-analysis object ids.  OPT-H-04 is the
- * single expected root cause: distinct select expressions with the same
- * offset hull currently collapse to the same abstract footprint and are
- * reported MUST.
+ * environment; it never inspects alias-analysis object ids.  OPT-H-04's
+ * opposite and independently selected pointers remain permanent cells: equal
+ * offset hulls must never again be mistaken for a MUST proof.
  */
 #include <stdbool.h>
 #include <stdio.h>
@@ -59,7 +58,6 @@ typedef struct Cell {
     EffTypeId left_type;
     EffTypeId right_type;
     bool no_strict_aliasing;
-    bool is_h04;
 } Cell;
 
 static const char ir_source[] =
@@ -84,12 +82,9 @@ static const char ir_source[] =
 
 static const Cell cells[] = {
 #define CELL(name, left, right, left_size, right_size)                         \
-    {name,       left,       right, left_size, right_size,                     \
-     ETYPE_CHAR, ETYPE_CHAR, false, false}
+    {name, left, right, left_size, right_size, ETYPE_CHAR, ETYPE_CHAR, false}
 #define TYPE_CELL(name, left, right, left_type, right_type, no_strict)         \
-    {name, left, right, 4, 4, left_type, right_type, no_strict, false}
-#define H04_CELL(name, left, right)                                            \
-    {name, left, right, 4, 4, ETYPE_CHAR, ETYPE_CHAR, false, true}
+    {name, left, right, 4, 4, left_type, right_type, no_strict}
     CELL("must/direct", PTR_A0, PTR_A0, 4, 4),
     CELL("may/block-param-a", PTR_A4, PTR_BLOCK_A4, 4, 4),
     CELL("may/block-param-b", PTR_B4, PTR_BLOCK_B4, 4, 4),
@@ -117,9 +112,8 @@ static const Cell cells[] = {
               ETYPE_UNION, ETYPE_I32, false),
     CELL("no/zero-left", PTR_A0, PTR_A0, 0, 4),
     CELL("no/zero-right", PTR_A0, PTR_A0, 4, 0),
-    H04_CELL("h04/opposite-offsets", PTR_SELECT_A0_A4, PTR_SELECT_A4_A0),
-    H04_CELL("h04/independent-offsets", PTR_SELECT_A0_A4, PTR_SELECT2_A0_A4),
-#undef H04_CELL
+    CELL("may/h04-opposite", PTR_SELECT_A0_A4, PTR_SELECT_A4_A0, 4, 4),
+    CELL("may/h04-independent", PTR_SELECT_A0_A4, PTR_SELECT2_A0_A4, 4, 4),
 #undef TYPE_CELL
 #undef CELL
 };
@@ -292,7 +286,7 @@ static const char *result_name(AliasResult result)
     return "INVALID";
 }
 
-static int check_cell(Probe *probe, const Cell *cell, bool *saw_h04)
+static int check_cell(Probe *probe, const Cell *cell)
 {
     AliasCtx *alias =
         cell->no_strict_aliasing ? probe->no_strict_alias : probe->strict_alias;
@@ -306,8 +300,6 @@ static int check_cell(Probe *probe, const Cell *cell, bool *saw_h04)
     bool all_equal = true;
     unsigned environment;
     bool sound;
-    bool expected_h04 = false;
-    bool accepted;
 
     for (environment = 0; environment < 4; environment++) {
         ConcretePtr a = concrete_ptr(cell->left, (environment & 1) != 0,
@@ -325,20 +317,15 @@ static int check_cell(Probe *probe, const Cell *cell, bool *saw_h04)
               (!cell->no_strict_aliasing &&
                oracle_type_disjoint(cell->left_type, cell->right_type)))) ||
             (forward == ALIAS_MUST && all_equal);
-    if (cell->is_h04 && forward == ALIAS_MUST && !all_equal) {
-        *saw_h04 = true;
-        expected_h04 = true;
-    }
-    accepted = (sound || expected_h04) && forward == reverse;
+    sound = sound && forward == reverse;
     printf("%-24s %-4s %s\n", cell->name, result_name(forward),
-           accepted ? (expected_h04 ? "expected" : "sound") : "FAIL");
-    return accepted ? 0 : 1;
+           sound ? "sound" : "FAIL");
+    return sound ? 0 : 1;
 }
 
 int main(int argc, char **argv)
 {
     Probe probe;
-    bool saw_h04 = false;
     size_t i;
     int failures = 0;
 
@@ -353,11 +340,7 @@ int main(int argc, char **argv)
         return 2;
     }
     for (i = 0; i < sizeof(cells) / sizeof(cells[0]); i++)
-        failures += check_cell(&probe, &cells[i], &saw_h04);
-    if (!saw_h04) {
-        fprintf(stderr, "alias_oracle: OPT-H-04 was not reproduced\n");
-        failures++;
-    }
+        failures += check_cell(&probe, &cells[i]);
     printf("alias_oracle: %zu cells, %d unexpected\n",
            sizeof(cells) / sizeof(cells[0]), failures);
     probe_destroy(&probe);

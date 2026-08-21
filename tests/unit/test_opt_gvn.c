@@ -282,6 +282,38 @@ void test_opt_gvn_forwards_store_to_load(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_gvn_keeps_opposite_correlated_select_load(TestCtx *t)
+{
+    GvnFix f;
+    IrModule *m;
+    OptConfig cfg;
+    const IrInst *ret;
+
+    gvn_fix_init(&f);
+    m = gvn_parse(&f, "func i32 @f(i32 %choose) {\n"
+                      "entry():\n"
+                      "    %a = alloca 8, align 8\n"
+                      "    %a4 = ptradd %a, 4\n"
+                      "    %p = select %choose, ptr %a, %a4\n"
+                      "    %q = select %choose, ptr %a4, %a\n"
+                      "    store i32 11, %p, align 4, etype i32\n"
+                      "    store i32 22, %q, align 4, etype i32\n"
+                      "    %v = load i32, %p, align 4, etype i32\n"
+                      "    ret i32 %v\n"
+                      "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.verify_after_each = true;
+    if (m) {
+        (void)opt_gvn(m, &cfg);
+        T_ASSERT_EQ_INT(t, count_op(m, IR_LOAD), 1);
+        ret = m->funcs[0].blocks[0].last;
+        T_ASSERT_EQ_INT(t, ret->ops[0].kind, IROP_VALUE);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_gvn_volatile_and_atomic_operations_are_barriers(TestCtx *t)
 {
     static const char *const barriers[] = {

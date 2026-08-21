@@ -137,6 +137,34 @@ void test_opt_dse_exact_overwrite_dies_but_adjacent_and_may_stay(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_dse_keeps_opposite_correlated_select_store(TestCtx *t)
+{
+    DseFix f;
+    IrModule *m;
+    OptConfig cfg;
+
+    fix_init(&f);
+    m = parse(&f, "func i32 @f(i32 %choose) {\n"
+                  "entry():\n"
+                  "    %a = alloca 8, align 8\n"
+                  "    %a4 = ptradd %a, 4\n"
+                  "    %forward = select %choose, ptr %a, %a4\n"
+                  "    %reverse = select %choose, ptr %a4, %a\n"
+                  "    store i32 11, %forward, align 4, etype i32\n"
+                  "    store i32 22, %reverse, align 4, etype i32\n"
+                  "    %value = load i32, %forward, align 4, etype i32\n"
+                  "    ret i32 %value\n"
+                  "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    T_ASSERT(t, m && !run(m, &cfg));
+    if (m) {
+        T_ASSERT_EQ_INT(t, count_op(m, IR_STORE), 2);
+        T_ASSERT_EQ_INT(t, count_op(m, IR_LOAD), 1);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_dse_combines_adjacent_field_stores_to_cover_memset(TestCtx *t)
 {
     DseFix f;
