@@ -18,3 +18,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `1b61459a` | `IR-C-04` backward-goto VLA lifetime repair | 7 | 20 | 16 | 2 | 45 |
 | 2026-08-20 | `eb528221` | `IR-C-01` SysV pure-f80 aggregate-return repair | 6 | 20 | 16 | 2 | 44 |
 | 2026-08-20 | `eb364980` | `IR-C-11` scalar-atomic alignment-contract repair | 5 | 20 | 16 | 2 | 43 |
+| 2026-08-20 | `45f0282c` | `X64-C-01` floating-atomic lowering and link repair | 4 | 20 | 16 | 2 | 42 |
