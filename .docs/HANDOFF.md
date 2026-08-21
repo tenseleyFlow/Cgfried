@@ -77,8 +77,8 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and six of the 20 seeded High
-findings. The `IR-H-07` arithmetic review added `IR-H-09`, so 15 High findings
+Sprint 61 has closed all Critical findings and seven of the 20 seeded High
+findings. The `IR-H-07` arithmetic review added `IR-H-09`, so 14 High findings
 remain before Medium/Low work.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
@@ -115,6 +115,7 @@ at `f6ffc1d1`, `A64-H-01` at `2b4ab767`, `IR-H-06` at `1fc6bdb6`, and
 `OPT-H-02` at `5b030fc5`, so live debt is 0/14/16/2 and High remediation is
 active. The `IR-H-07` arithmetic review then recorded `IR-H-09` at `81ca7347`,
 raising live debt to 0/15/16/2 until that parser-length defect is remediated.
+`IR-H-07` then closed at `ed607727`, returning live debt to 0/14/16/2.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -153,6 +154,9 @@ conflicts:
 - `IR-H-06` — RESOLVED at `1fc6bdb6`; lowering and verification share the
   exact returns-twice symbol set after asm-spelling normalization, including
   glibc's `__sigsetjmp` expansion while excluding near names.
+- `IR-H-07` — RESOLVED at `ed607727`; relocation bounds are checked with
+  ordered subtraction, so exact fits remain valid and wrapped or short
+  eight-byte relocation ranges are rejected before backend consumption.
 - `MS-C-01` — RESOLVED at `7a003d68`; the required `-fsafe` diagnostic floor
   is immutable.
 - `MS-C-04` — RESOLVED at `b1bc4f91`; statically proven null accesses and

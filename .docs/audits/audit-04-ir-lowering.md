@@ -143,18 +143,22 @@ covering glibc's `__sigsetjmp` expansion without matching near names. The
 marker, pinned local storage, optimized IR, and verifier consistency are all
 regression-pinned.
 
-ID: `IR-H-07`
-Title: global relocation offset wraps the verifier bounds check
-Severity: High — the verifier accepts structurally invalid IR that can place an
-eight-byte relocation outside its initializer, a latent wrong-code boundary
-if any producer emits the bad module.
-Reproducer: `tests/audit-regressions/ir-h-07.cgfir`
-Root cause: `src/ir/verify.c:1160` checks `offset + 8 > size` in `u64`.
-At `UINT64_MAX`, the addition wraps to 7 and an eight-byte initializer passes.
-The native IR parser, verifier, printer, and MIR path all accept and preserve
-the impossible relocation. Bounds checks must avoid addition before proving
-the range.
-Affected sprint: 17.
+~~ID: `IR-H-07`~~
+~~Title: global relocation offset wraps the verifier bounds check~~
+~~Severity: High — the verifier accepts structurally invalid IR that can place an~~
+~~eight-byte relocation outside its initializer, a latent wrong-code boundary~~
+~~if any producer emits the bad module.~~
+~~Reproducer: `tests/audit-regressions/ir-h-07.cgfir`~~
+~~Root cause: `src/ir/verify.c:1160` checks `offset + 8 > size` in `u64`.~~
+~~At `UINT64_MAX`, the addition wraps to 7 and an eight-byte initializer passes.~~
+~~The native IR parser, verifier, printer, and MIR path all accept and preserve~~
+~~the impossible relocation. Bounds checks must avoid addition before proving~~
+~~the range.~~
+~~Affected sprint: 17.~~
+Resolution: RESOLVED 2026-08-20 by `ed607727`. Relocation validation now proves
+the offset is within the object before subtracting and requires at least eight
+remaining bytes. Exact fits, one-past values, tiny objects, and `UINT64_MAX`
+boundaries are pinned in unit, corpus, and lifecycle fixtures.
 
 ID: `IR-H-08`
 Title: symbolic indirect calls fail optimized IR round-trip
