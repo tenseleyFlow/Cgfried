@@ -101,8 +101,12 @@ sh "$checker" tests/isa/unlicensed.c "$work/labels_comments.o"
 corpus_list=$work/corpus.list
 find tests/corpus -type f -name '*.c' -print | sort >"$corpus_list"
 corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
-if [ "$corpus_count" -ne 103 ]; then
-    echo "s36_isa_driver: expected 103 corpus C files, found $corpus_count" >&2
+# X64-M-03 added a permanent execution reproducer. Keep this explicit count as
+# a corpus-drift ratchet: adding or removing a source must deliberately repin
+# the ISA matrix after the new inventory passes all six optimization levels.
+expected_corpus_count=104
+if [ "$corpus_count" -ne "$expected_corpus_count" ]; then
+    echo "s36_isa_driver: expected $expected_corpus_count corpus C files, found $corpus_count" >&2
     exit 1
 fi
 
@@ -118,8 +122,9 @@ while IFS= read -r source_path; do
     done
 done <"$corpus_list"
 
-if [ "$checks" -ne 618 ]; then
-    echo "s36_isa_driver: expected exactly 618 object checks, ran $checks" >&2
+expected_checks=$((expected_corpus_count * 6))
+if [ "$checks" -ne "$expected_checks" ]; then
+    echo "s36_isa_driver: expected exactly $expected_checks object checks, ran $checks" >&2
     exit 1
 fi
 

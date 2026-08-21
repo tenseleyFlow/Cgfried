@@ -34,18 +34,18 @@ for f in scripts/*.sh scripts/campaigns/*.sh ci/*.sh ci/campaigns/*.sh \
         status=1
     fi
     rm -f /tmp/cgf_posix_sh.$$
-    # The behavior bashisms a parse cannot see, checked on CODE only
-    # (comments legitimately name these constructs). `[[` must not
-    # match a POSIX character class ([[:space:]]); `local` is left
-    # alone because dash supports it. This file is skipped for the
-    # obvious reason: it is the one script that must SPELL the
-    # patterns, and comment-stripping would eat any allow marker.
+    # The parameter-substitution bashism is a runtime error that dash -n cannot
+    # see, so check it on CODE only (comments legitimately name it). Shell
+    # forms such as process substitution, double-bracket tests, and `function
+    # name()` are syntax errors caught by dash -n; grepping for their spelling
+    # would also reject valid POSIX awk programs embedded in shell strings.
+    # This file is skipped because it must SPELL the remaining pattern, and
+    # comment-stripping would eat an allow marker.
     if [ "$f" = "scripts/check_posix_sh.sh" ]; then
         continue
     fi
     hits=$(sed 's/#.*//' "$f" |
-        grep -nE '<\(|\[\[[^:]|\bfunction [A-Za-z_]+ *\(|\$\{[A-Za-z_]+/' ||
-        true)
+        grep -nE '\$\{[A-Za-z_]+/' || true)
     if [ -n "$hits" ]; then
         echo "check_posix_sh: $f uses a bashism:" >&2
         printf '%s\n' "$hits" | sed 's/^/  /' >&2

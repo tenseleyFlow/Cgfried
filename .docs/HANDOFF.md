@@ -4,7 +4,8 @@ You are picking up **Cgfried**, a from-scratch C17 compiler.
 
 **WHERE THINGS STAND (2026-08-20): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
-Phases 1–11 are CLOSED.**
+Sprint 61 implementation and review are complete with an honest NOT READY
+closeout. Phases 1–11 are CLOSED.**
 Sprints 55–57 were completed out of numerical order while Sprint 54 collected
 its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
@@ -29,8 +30,8 @@ D5 notes are retained only as implementation history. Sprint 60's defensive
 audit is COMPLETE against full-CI-green baseline
 `1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb`: 12 fronts, 50 raw / 50
 deduplicated findings (C12/H20/M16/L2), and 50 durable expected-failure
-reproducers. Sprint 61 is active under its Critical-first priority law while
-the Sprint 58 soak continues independently.
+reproducers. Sprint 61 remediated all seeded and discovered debt, completed
+its independent review, and now waits only on Sprint 58's independent soak.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
@@ -38,9 +39,9 @@ refusal or a deliberate deferral.
 On trunk, continue **Sprint 58's 30-day bootstrap soak**. Record only hosted
 runs that satisfy the machine-readable daily/weekly lane contract in
 `.docs/audits/bootstrap-soak.md`; a missing or red required run resets the
-streak. Sprint 61 remediation may proceed in parallel. Do not claim Sprint 58
-closed, sign off Phase 13, or begin the release landing until the soak reaches
-30/30.
+streak. No Sprint 61 remediation remains. Do not claim Sprint 58 closed, mark
+Phases 12–13 READY, or begin the Sprint 62 release landing until the soak
+reaches 30/30.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -94,7 +95,7 @@ Phase 13/release sign-off.
 
 ---
 
-## Sprint 61 remediation — IMPLEMENTATION COMPLETE; closeout active
+## Sprint 61 remediation and review — COMPLETE; final verdict NOT READY
 
 The phase-boundary preflight is complete. Commit `4b36ba37` promotes the
 aggregate/front ledgers, burndown, and future closeout files to tracked
@@ -182,6 +183,31 @@ silently become a gate; and every baseline-changing commit is checked against
 its exact old/new metric union and rationale. `make -j2 test-bench`, `make -j2
 test-bootstrap`, and a clean detached 55 PASS / 0 XFAIL / 0 XPASS / 0 FAIL
 audit run are green at that exact code commit.
+The full 55-finding lifecycle is therefore 55 PASS / 0 XFAIL / 0 XPASS / 0
+FAIL with live debt 0/0/0/0. All 15 Critical fixes retain cluster-hunt records.
+The post-triage release XFAIL bar is N=0 and is satisfied. Seed 61 selected six
+of 55 remediated findings (10.9%); an independent fresh-detached-worktree
+review rebuilt every exact resolving commit, reran the full audit lifecycle,
+and read each fixing diff against its root cause. All 6/6 passed, so no sample
+doubling or front-wide escalation fired.
+
+Fourteen phase closeout documents now cover all 429 numbered DoD items from
+Sprints 0–61. The structural/meta closeout gate is green. The production
+Sprint 62 entry gate exits red for exactly two honest verdicts: Phase 12 is
+NOT READY because Sprint 58 is 2/30, and Phase 13 inherits that dependency.
+Phases 00–11 are READY. This is the sole remaining release-entry blocker.
+The gate consumes tracked `ci/closeout-dod.tsv` rather than the ignored local
+roadmap, so a fresh clone proves the exact 62-sprint / 429-item inventory.
+
+Final closeout validation completed with `make -j2 test` green: 794 unit
+tests / 4,293,663 assertions, 693 program fixtures, 104 permanent corpus
+fixtures, 55/55 audit regressions PASS, all compiler differentials and fuzz
+smokes green, and the expected missing-tool/sysroot skips ledgered exactly.
+That run found and permanently repaired two stale test-policy ratchets:
+`s36_isa_driver.sh` now expects 104 corpus files / 624 optimization-level
+objects after `X64-M-03`, and `check_posix_sh.sh` now distinguishes valid POSIX
+awk functions embedded in shell scripts from shell-only syntax. Both have
+focused meta-tests in ordinary `make test`.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -265,9 +291,9 @@ conflicts:
   widening that preserves sound MAY results and converges on recursive updates.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
-Critical or High reopens the barrier. The final ledger is 0/0/0/0, so Sprint
-61 implementation is complete and the remaining work is sprint closeout
-verification and ledger finalization.
+Critical or High reopens the barrier. The final ledger is 0/0/0/0, all Sprint
+61 closeout verification and ledger finalization are complete, and the blunt
+verdict remains NOT READY only until Sprint 58 reaches 30/30.
 
 ---
 

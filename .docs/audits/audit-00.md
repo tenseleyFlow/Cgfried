@@ -60,3 +60,42 @@ burndown and the same fixture lifecycle as the original audit debt.
 | `MS-C-06` | `MS-C-05` design review | Critical | `tests/audit-regressions/ms-c-06.c` | RESOLVED `88211779` |
 | `IR-H-09` | `IR-H-07` arithmetic review | High | `tests/audit-regressions/ir-h-09.cgfir` | RESOLVED `7f3774f6` |
 | `IR-H-12` | broad Sprint 61 verification | High | `tests/audit-regressions/ir-h-12.c` | RESOLVED `92c77528` |
+
+## Sprint 61 Critical cluster-hunt record
+
+All 15 Critical closures retain an explicit `Cluster hunt:` record beside the
+resolution in their authoritative front ledger. The durable coverage is:
+
+- F03 sema/layout: `SEMA-C-01`, `SEMA-C-02`, and discovered sibling
+  `SEMA-C-08` in `audit-03-sema.md`.
+- F04 IR/lowering: `IR-C-01`, `IR-C-03`, `IR-C-04`, `IR-C-09`, `IR-C-10`,
+  and discovered sibling `IR-C-11` in `audit-04-ir-lowering.md`.
+- F06 x86_64: `X64-C-01` and `X64-C-02` in `audit-06-x86_64.md`.
+- F09 memory safety: `MS-C-01`, `MS-C-04`, `MS-C-05`, and discovered sibling
+  `MS-C-06` in `audit-09-memory-safety.md`.
+
+The hunts found three new Critical siblings (`SEMA-C-08`, `IR-C-11`, and
+`MS-C-06`); each entered the lifecycle before repair and is now resolved.
+
+## Sprint 61 deterministic re-audit sample
+
+- Seed: **61**.
+- Population: the 55 sorted, deduplicated finding IDs in
+  `tests/audit-regressions/manifest.tsv`.
+- Rule: `scripts/audit-sample.sh` selects every tenth ID cyclically and takes
+  `max(5, ceil(N/10))`; two invocations were byte-identical.
+- Result: **6/6 PASS** (10.9%), no reopened finding, so neither sample doubling
+  nor front-wide escalation fired.
+
+| Finding | Exact resolving commit | Fresh detached verification | Diff/root-cause review |
+|---|---|---|---|
+| `DET-M-03` | `89b68ead` | 55 PASS / 0 XFAIL / 0 XPASS / 0 FAIL | Per-commit exact metric-union and rationale policy rejects incomplete, fabricated, and range-hidden evidence. |
+| `IR-C-09` | `3bc1ae02` | sampled ID PASS; 12 PASS / 40 XFAIL / 0 XPASS / 0 FAIL overall | Linux AAPCS64 even-NGRN state now crosses lowering, IR verification/text, caller/callee placement, and `va_arg`; Apple is the control. |
+| `MS-C-01` | `7a003d68` | sampled ID PASS; 5 PASS / 46 XFAIL / 0 XPASS / 0 FAIL overall | The complete safe-mode diagnostic floor is invariant across exact/group/global options, order, demotion, and pragmas. |
+| `PP-H-01` | `54cf3e67` | sampled ID PASS; 35 PASS / 19 XFAIL / 0 XPASS / 0 FAIL overall | Include frames preserve stable search identity and original effective-chain provenance across quote/angle chains and aliases. |
+| `SEMA-H-05` | `a2e158c9` | sampled ID PASS; 27 PASS / 27 XFAIL / 0 XPASS / 0 FAIL overall | Signed-minimum rejection uses the promoted target type; required constant contexts diagnose while opportunistic folding remains silent. |
+| `A64-H-02` | `2cd05946` | sampled ID PASS; 25 PASS / 29 XFAIL / 0 XPASS / 0 FAIL overall | TLS/GOT paths share arbitrary signed-64-bit addend materialization while preserving immediate fast paths and scratch-register safety. |
+
+For each row, the reviewer created a fresh detached worktree at the exact
+commit, ran `make -j4 all`, ran the full audit lifecycle, read the fixing diff
+against the recorded root cause, and removed the worktree before advancing.

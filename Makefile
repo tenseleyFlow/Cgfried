@@ -145,7 +145,9 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         musl-sweep test-musl-warnings test-tinycc-warnings \
         check-warn-matrix check-format-matrix fuzz-smoke \
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
-        test-a64-corpus test-audit-fixtures audit-opt-generated \
+        test-a64-corpus test-audit-fixtures test-audit-sample \
+        test-closeout-gate check-closeouts test-posix-sh \
+        audit-opt-generated \
         audit-opt-alias \
         test-a64-spill-all test-a64-char-sign test-abi-diff \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap \
@@ -344,6 +346,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(BUILD)/unit_tests
 	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
 	$(MAKE) BUILD=$(BUILD) test-audit-fixtures
+	$(MAKE) BUILD=$(BUILD) test-audit-sample
+	$(MAKE) test-closeout-gate
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bench
 	$(AS_LANE) CGF_TEST_CC=$(BUILD)/cgfried \
 	    $(BUILD)/cgf-test --profile linux-x86_64 tests/programs \
@@ -461,6 +465,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-frontend-smoke
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' fuzz-ir-smoke
 	sh scripts/check_fuzz_crashes.sh
+	$(MAKE) test-posix-sh
 	# TI-M-01: keep the POSIX-shell producer connected to its exact skip
 	# profile so losing dash cannot silently disable this harness gate.
 	sh scripts/check_posix_sh.sh > $(BUILD)/posixsh.log 2>&1; s=$$?; \
@@ -559,7 +564,25 @@ test-a64-debug: $(BUILD)/cgfried
 # PASS; XPASS and resolved-fixture regressions remain red.
 test-audit-fixtures: $(BUILD)/cgfried
 	sh tests/scripts/audit_fixture_lifecycle_test.sh
+	sh tests/scripts/burndown_test.sh
+	sh scripts/check-burndown.sh
 	sh scripts/check-audit-fixtures.sh $(BUILD)/cgfried
+
+# Sprint 61's fresh-context sample is reproducible from its recorded seed.
+test-audit-sample:
+	sh tests/scripts/audit_sample_test.sh
+
+# The validator's meta-test belongs in ordinary CI even while an honest
+# NOT READY closeout keeps the Sprint 62 entry gate red.
+test-closeout-gate:
+	sh tests/scripts/closeout_gate_test.sh
+
+test-posix-sh:
+	sh tests/scripts/posix_sh_test.sh
+
+# Sprint 61's gate-of-gates: run this before Sprint 62 starts.
+check-closeouts: test-closeout-gate
+	sh ci/check-closeouts.sh
 
 # Sprint 60 F05 evidence targets.  They are intentionally opt-in during the
 # audit: a generated failure needs inspection and a durable finding, rather
