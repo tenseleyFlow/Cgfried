@@ -1078,6 +1078,18 @@ probe()
             fi
         fi
         ;;
+    MS-C-06)
+        run_cgf "$id" -fsafe -fsyntax-only "$source"
+        status=$?
+        if [ "$status" -eq 1 ] &&
+           grep -q 'asprintf/vasprintf.*not registered' "$WORK/$id.stderr"; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 0 ] && [ ! -s "$WORK/$id.stderr" ]; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected unregistered-allocator result (status $status)"
+        fi
+        ;;
     MS-M-02|MS-M-03)
         run_cgf "$id" -Wmem -fsyntax-only "$source"
         status=$?
