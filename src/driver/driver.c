@@ -137,7 +137,8 @@ static const char *const help_text[] = {
     "  --help --help=warnings --version -dumpversion -dumpmachine\n"
     "  -print-prog-name=X -print-file-name=X -print-search-dirs\n"
     "  -v                print each subcommand before running it\n"
-    "  -###              print subcommands, run nothing, exit 0\n"
+    "  -###              analyze C inputs internally, print the exact "
+    "subcommand plan, and run no external command\n"
     "  @file             read options from file (recursive, depth 16)\n"
     "\n"
     "Dumps (compiler development):\n"
@@ -214,7 +215,20 @@ typedef struct {
     bool pp_only;           /* preprocess only (mode -E or a .S first stage) */
     Buf *dep_text;          /* non-NULL: the -M depfile lands here */
     const char *dep_target; /* default depfile target (no -MT/-MQ given) */
+    bool *needs_libatomic;  /* invocation-wide link dependency discovery */
+    bool plan_only;         /* internal -### dependency discovery, no output */
 } CompileJob;
+
+static bool module_uses_atomic16_helpers(const IrModule *m)
+{
+    u32 i;
+
+    for (i = 0; i < m->nsyms; i++)
+        if (strcmp(m->syms[i], "__atomic_load_16") == 0 ||
+            strcmp(m->syms[i], "__atomic_store_16") == 0)
+            return true;
+    return false;
+}
 
 /* One process-wide aggregation unit. Multi-input invocations report once,
  * which is the only shape useful to a benchmark gate: per-TU lines would make
@@ -797,7 +811,7 @@ static void optimize_module(IrModule *m, const DriverArgs *a, const char *input,
     char why[256];
     u32 dump_sequence = 0;
     u32 dump_fixpoint = 0;
-    const char *dump_dir = phase_dumps ? phase_dump_dir() : NULL;
+    const char *dump_dir = phase_dumps && !a->dry_run ? phase_dump_dir() : NULL;
 
     opt_config_init(&cfg, (OptLevel)a->opt_level);
     cfg.fast_math.reassoc = a->fast_math;
@@ -963,7 +977,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     char s_path[528];
     char comp_dir[4096];
     FILE *f;
-    const char *dump_dir = phase_dump_dir();
+    const char *dump_dir = job->plan_only ? NULL : phase_dump_dir();
 
     if (dump_dir)
         buf_init(&mir_dump);
@@ -1065,6 +1079,8 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
             x64_mir_print(xf, &mir_dump);
         x64_emit_function(xf, m, i, m->funcs[i].linkage, &b);
     }
+    if (job->needs_libatomic && module_uses_atomic16_helpers(m))
+        *job->needs_libatomic = true;
     x64_emit_globals(m, &b, data_is_pic(a));
     comp_dir[0] = '\0';
     if (a->debug_level && !debug_comp_dir(comp_dir, sizeof(comp_dir))) {
@@ -1080,6 +1096,12 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                             job->path, comp_dir, a->debug_level != 0, &b);
 
 emit_tail:
+    if (job->plan_only) {
+        if (dump_dir)
+            buf_free(&mir_dump);
+        buf_free(&b);
+        return CGF_EXIT_OK;
+    }
     if (a->fsafe)
         buf_append(&b, safe_note_asm, sizeof(safe_note_asm) - 1);
     /* Every target except arm64-macos emits ELF.  An absent GNU-stack note
@@ -1531,7 +1553,7 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
             a->compile_obj || a->link_exe) {
             Parser ps;
             AstNode *tu;
-            const char *dump_dir = phase_dump_dir();
+            const char *dump_dir = job->plan_only ? NULL : phase_dump_dir();
 
             parse_init(&ps, &tl, &pp, dc, arena, &lang);
             tu = parse_translation_unit(&ps);
@@ -2026,6 +2048,7 @@ int driver_main(int argc, char **argv)
             memset(&job, 0, sizeof(job));
             job.path = in->path;
             job.kind = (InputKind)in->kind;
+            job.needs_libatomic = &a.needs_libatomic;
             cgf_ice_set_input(in->path);
 
             if (in->kind == IN_LINK) {
@@ -2139,7 +2162,24 @@ int driver_main(int argc, char **argv)
             }
 
             if (a.dry_run) {
-                /* -###: print the plan, run nothing. */
+                /* X64-C-01: implicit link dependencies can be selected from
+                 * source types, so an exact -### link plan must inspect C
+                 * inputs. Run only the in-process pipeline through isel;
+                 * plan_only stops before output files or external tools.
+                 * Invalid C therefore fails planning just as it fails the
+                 * live build. */
+                if (a.link_exe &&
+                    (in->kind == IN_C || in->kind == IN_CPP_OUT)) {
+                    job.plan_only = true;
+                    rc = run_preprocess(&ast_arena, &ir_arena, dc, &a, &job,
+                                        &stats);
+                    if (rc != CGF_EXIT_OK) {
+                        any_fail = true;
+                        if (status == CGF_EXIT_OK)
+                            status = rc;
+                        continue;
+                    }
+                }
                 if (a.mode_E) {
                     echo_compile_step("-E", in->path, a.output);
                 } else if (job.out == NULL) {
@@ -2399,7 +2439,8 @@ done:
                       "intended to silence earlier diagnostics",
                       a.warn_unknown_negative.data[k]);
     }
-    if (a.fixit_apply_mode != FIXIT_APPLY_NONE && diag_fixit_count(dc) != 0) {
+    if (!a.dry_run && a.fixit_apply_mode != FIXIT_APPLY_NONE &&
+        diag_fixit_count(dc) != 0) {
         DiagFixitApplyReport report;
         DiagFixitApplyMode mode = a.fixit_apply_mode == FIXIT_APPLY_ALL
                                       ? DIAG_FIXITS_ALL

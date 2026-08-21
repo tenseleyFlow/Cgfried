@@ -1066,6 +1066,8 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             VecStr_push(out, "--start-group");
             if (rt)
                 VecStr_push(out, rt);
+            if (da->needs_libatomic)
+                VecStr_push(out, "-latomic");
             if (gccdir) {
                 VecStr_push(out, "-lgcc");
                 VecStr_push(out, "-lgcc_eh");
@@ -1076,6 +1078,8 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             VecStr_push(out, "--start-group");
             if (rt)
                 VecStr_push(out, rt);
+            if (da->needs_libatomic)
+                VecStr_push(out, "-latomic");
             VecStr_push(out, "-lc");
             VecStr_push(out, "--end-group");
         }

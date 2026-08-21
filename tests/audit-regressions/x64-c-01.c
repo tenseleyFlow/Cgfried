@@ -1,4 +1,4 @@
-// XFAIL(audit): X64-C-01 floating atomic accesses are emitted as ordinary loads and stores
+// RESOLVED(audit): X64-C-01 floating atomic accesses are emitted as ordinary loads and stores
 _Atomic double atomic_double;
 _Atomic long double atomic_long_double;
 

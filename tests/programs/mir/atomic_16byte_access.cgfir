@@ -1,0 +1,17 @@
+// X64-C-01 sibling coverage: f128 is the other 16-byte scalar kind accepted
+// by the IR verifier and must use the same indivisible helper path as f80.
+// FLAGS: -O0 -emit-mir
+// MIR_CHECK: mir @load_f128
+// MIR_CHECK: call [rip @__atomic_load_16]
+// MIR_CHECK: mir @store_f128
+// MIR_CHECK: call [rip @__atomic_store_16]
+func f128 @load_f128(ptr %p) {
+entry():
+    %v = load f128, %p, align 16, seq_cst
+    ret f128 %v
+}
+func void @store_f128(ptr %p, f128 %v) {
+entry():
+    store f128 %v, %p, align 16, seq_cst
+    ret
+}

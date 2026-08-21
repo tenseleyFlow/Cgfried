@@ -117,6 +117,40 @@ void test_link_argv_static_grouping(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_link_argv_atomic16_dependency(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+    VecStr v = {0};
+    int isg, ila, ilc, ieg;
+
+    arena_init(&ar);
+    fill_args(&a);
+    a.needs_libatomic = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    isg = argv_index(&v, "--start-group");
+    ila = argv_index(&v, "-latomic");
+    ilc = argv_index(&v, "-lc");
+    ieg = argv_index(&v, "--end-group");
+    T_ASSERT(t, isg > 0 && ila > isg && ilc > ila && ieg > ilc);
+    VecStr_free(&v);
+    args_free(&a);
+
+    fill_args(&a);
+    memset(&v, 0, sizeof(v));
+    a.needs_libatomic = true;
+    a.static_link = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    isg = argv_index(&v, "--start-group");
+    ila = argv_index(&v, "-latomic");
+    ilc = argv_index(&v, "-lc");
+    ieg = argv_index(&v, "--end-group");
+    T_ASSERT(t, isg > 0 && ila > isg && ilc > ila && ieg > ilc);
+    VecStr_free(&v);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
 {
     static const char *const wraps[] = {

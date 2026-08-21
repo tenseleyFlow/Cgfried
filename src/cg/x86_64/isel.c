@@ -928,6 +928,73 @@ static void x87_op0(Isel *is, X64Op op)
     (void)emit(is, op, X64_T);
 }
 
+typedef struct Atomic16Pair {
+    X64VReg lo;
+    X64VReg hi;
+} Atomic16Pair;
+
+static X64VReg atomic16_arg(Isel *is, X64Operand value, X64Width width,
+                            X64Reg fixed)
+{
+    X64VReg arg = newv(is);
+    X64Inst *x = emit(is, X64_OP_MOV, width);
+
+    x->def = arg;
+    x->def_fixed = (u8)(fixed + 1);
+    x->a = value;
+    return arg;
+}
+
+static X64Inst *atomic16_call(Isel *is, const char *name, const X64VReg *args,
+                              const X64Reg *fixed, u32 nargs)
+{
+    u32 sym = ir_sym((IrModule *)is->m, name) + 1;
+    X64Inst *call = emit(is, X64_OP_CALL, X64_Q);
+    u32 i;
+
+    call->a.kind = X64O_MEM;
+    call->a.mem.rip_sym = sym;
+    if (sym_call_needs_plt(is, sym))
+        call->flags |= X64IF_CALL_PLT;
+    for (i = 0; i < nargs; i++)
+        x64_add_xuse(is->xf, call, args[i], (u8)(fixed[i] + 1));
+    return call;
+}
+
+static Atomic16Pair atomic16_load(Isel *is, const IrOperand *ptr)
+{
+    static const X64Reg fixed[] = {X64_RDI, X64_RSI};
+    X64VReg args[2];
+    X64VReg addr = to_vreg(is, ptr);
+    Atomic16Pair out;
+    X64Inst *x;
+
+    args[0] = atomic16_arg(is, ovreg(addr), X64_Q, fixed[0]);
+    args[1] = atomic16_arg(is, oimm(5), X64_L, fixed[1]);
+    (void)atomic16_call(is, "__atomic_load_16", args, fixed, 2);
+    x = emit(is, X64_OP_READREG, X64_Q);
+    x->def = out.lo = newv(is);
+    x->def_fixed = X64_RAX + 1;
+    x = emit(is, X64_OP_READREG, X64_Q);
+    x->def = out.hi = newv(is);
+    x->def_fixed = X64_RDX + 1;
+    return out;
+}
+
+static void atomic16_store(Isel *is, const IrOperand *ptr, X64VReg lo,
+                           X64VReg hi)
+{
+    static const X64Reg fixed[] = {X64_RDI, X64_RSI, X64_RDX, X64_RCX};
+    X64VReg args[4];
+    X64VReg addr = to_vreg(is, ptr);
+
+    args[0] = atomic16_arg(is, ovreg(addr), X64_Q, fixed[0]);
+    args[1] = atomic16_arg(is, ovreg(lo), X64_Q, fixed[1]);
+    args[2] = atomic16_arg(is, ovreg(hi), X64_Q, fixed[2]);
+    args[3] = atomic16_arg(is, oimm(5), X64_L, fixed[3]);
+    (void)atomic16_call(is, "__atomic_store_16", args, fixed, 4);
+}
+
 /* The FP compare recipe table (THE anti-NaN table). ucomi sets ZF/PF/CF
  * like an unsigned compare with unordered => ZF=PF=CF=1; PF is the
  * unordered flag. The swaps turn < into > so the unordered case falls
@@ -1490,27 +1557,83 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_LOAD: {
         if (irt_xmm16(in->type)) {
             X64VReg d = newvv(is);
-            X64Mem mem = fold_addr(is, &in->ops[0]);
-            X64Inst *x = emit(is, X64_OP_VLOAD, X64_X);
+            X64Inst *x;
 
-            x->def = d;
-            x->a.kind = X64O_MEM;
-            x->a.mem = mem;
+            if (in->flags & IRF_SEQ_CST) {
+                Atomic16Pair bits = atomic16_load(is, &in->ops[0]);
+                X64VReg lo = newvv(is);
+                X64VReg hi = newvv(is);
+
+                x = emit(is, X64_OP_MOVQXR, X64_Q);
+                x->def = lo;
+                x->a = ovreg(bits.lo);
+                x = emit(is, X64_OP_MOVQXR, X64_Q);
+                x->def = hi;
+                x->a = ovreg(bits.hi);
+                x = emit(is, X64_OP_VUNPCKLQ, X64_X);
+                x->def = d;
+                x->a = ovreg(lo);
+                x->b = ovreg(hi);
+            } else {
+                X64Mem mem = fold_addr(is, &in->ops[0]);
+
+                x = emit(is, X64_OP_VLOAD, X64_X);
+                x->def = d;
+                x->a.kind = X64O_MEM;
+                x->a.mem = mem;
+            }
+
             is->vals[in->result.v].vr = d;
             break;
         }
         if (irt_sse(in->type)) {
-            X64VReg d = newvf(is);
             X64Mem mem = fold_addr(is, &in->ops[0]);
-            X64Inst *x = emit(is, X64_OP_FLOAD, fpw(in->type));
+            X64VReg d = newvf(is);
+            X64Inst *x;
 
-            x->def = d;
-            x->a.kind = X64O_MEM;
-            x->a.mem = mem;
+            if (in->flags & IRF_SEQ_CST) {
+                X64VReg bits = newv(is);
+
+                /* X64-C-01: select an atomic scalar access in the integer
+                 * register bank. Aligned 32/64-bit GP loads are indivisible
+                 * on x86, while an ordinary FP path discarded the IR atomic
+                 * contract before selection could enforce it. */
+                x = emit(is, X64_OP_LOAD, fpw(in->type));
+                x->def = bits;
+                x->a.kind = X64O_MEM;
+                x->a.mem = mem;
+                x = emit(is, X64_OP_MOVQXR, fpw(in->type));
+                x->def = d;
+                x->a = ovreg(bits);
+            } else {
+                x = emit(is, X64_OP_FLOAD, fpw(in->type));
+                x->def = d;
+                x->a.kind = X64O_MEM;
+                x->a.mem = mem;
+            }
+
             is->vals[in->result.v].vr = d;
             break;
         }
         if (in->type == IRT_F80) {
+            if (in->flags & IRF_SEQ_CST) {
+                Atomic16Pair bits = atomic16_load(is, &in->ops[0]);
+                X64VReg slot = f80_slot(is);
+                X64Inst *x = emit(is, X64_OP_STORE, X64_Q);
+
+                x->a = ovreg(bits.lo);
+                x->b.kind = X64O_MEM;
+                x->b.mem.base = slot;
+                x->b.mem.scale = 1;
+                x = emit(is, X64_OP_STORE, X64_Q);
+                x->a = ovreg(bits.hi);
+                x->b.kind = X64O_MEM;
+                x->b.mem.base = slot;
+                x->b.mem.scale = 1;
+                x->b.mem.disp = 8;
+                is->vals[in->result.v].vr = slot;
+                break;
+            }
             /* A load PRODUCES A VALUE: copy the 10 bytes into a fresh
              * slot so later stores through the pointer cannot alias it
              * (fldt/fstpt, locally balanced). */
@@ -1540,25 +1663,80 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
     case IR_STORE: {
         if (irt_xmm16(in->ops[0].type)) {
             X64VReg v = to_vvreg(is, &in->ops[0]);
-            X64Mem mem = fold_addr(is, &in->ops[1]);
-            X64Inst *x = emit(is, X64_OP_VSTORE, X64_X);
+            X64Inst *x;
 
-            x->a = ovreg(v);
-            x->b.kind = X64O_MEM;
-            x->b.mem = mem;
+            if (in->flags & IRF_SEQ_CST) {
+                X64VReg lo = newv(is);
+                X64VReg shifted = vector_shift_bytes(is, v, 8);
+                X64VReg hi = newv(is);
+
+                x = emit(is, X64_OP_MOVQRX, X64_Q);
+                x->def = lo;
+                x->a = ovreg(v);
+                x = emit(is, X64_OP_MOVQRX, X64_Q);
+                x->def = hi;
+                x->a = ovreg(shifted);
+                atomic16_store(is, &in->ops[1], lo, hi);
+            } else {
+                X64Mem mem = fold_addr(is, &in->ops[1]);
+
+                x = emit(is, X64_OP_VSTORE, X64_X);
+                x->a = ovreg(v);
+                x->b.kind = X64O_MEM;
+                x->b.mem = mem;
+            }
+
             break;
         }
         if (irt_sse(in->ops[0].type)) {
             X64VReg v = to_fvreg(is, &in->ops[0]);
             X64Mem mem = fold_addr(is, &in->ops[1]);
-            X64Inst *x = emit(is, X64_OP_FSTORE, fpw(in->ops[0].type));
+            X64Inst *x;
 
-            x->a = ovreg(v);
-            x->b.kind = X64O_MEM;
-            x->b.mem = mem;
+            if (in->flags & IRF_SEQ_CST) {
+                X64VReg bits = newv(is);
+
+                /* X64-C-01: memory xchg is implicitly locked, making the
+                 * floating store both indivisible and a seq_cst ordering
+                 * point; an FP store followed by a fence cannot repair a
+                 * torn access. */
+                x = emit(is, X64_OP_MOVQRX, fpw(in->ops[0].type));
+                x->def = bits;
+                x->a = ovreg(v);
+                x = emit(is, X64_OP_XCHG, fpw(in->ops[0].type));
+                x->def = bits;
+                x->a = ovreg(bits);
+                x->b.kind = X64O_MEM;
+                x->b.mem = mem;
+            } else {
+                x = emit(is, X64_OP_FSTORE, fpw(in->ops[0].type));
+                x->a = ovreg(v);
+                x->b.kind = X64O_MEM;
+                x->b.mem = mem;
+            }
+
             break;
         }
         if (in->ops[0].type == IRT_F80) {
+            if (in->flags & IRF_SEQ_CST) {
+                X64VReg src = f80_addr(is, &in->ops[0]);
+                X64VReg lo = newv(is);
+                X64VReg hi = newv(is);
+                X64Inst *x = emit(is, X64_OP_LOAD, X64_Q);
+
+                x->def = lo;
+                x->a.kind = X64O_MEM;
+                x->a.mem.base = src;
+                x->a.mem.scale = 1;
+                x = emit(is, X64_OP_LOAD, X64_Q);
+                x->def = hi;
+                x->a.kind = X64O_MEM;
+                x->a.mem.base = src;
+                x->a.mem.scale = 1;
+                x->a.mem.disp = 8;
+                atomic16_store(is, &in->ops[1], lo, hi);
+                break;
+            }
             X64VReg src = f80_addr(is, &in->ops[0]);
             X64Mem mem = fold_addr(is, &in->ops[1]);
             X64Inst *x;

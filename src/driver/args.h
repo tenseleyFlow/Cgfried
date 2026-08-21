@@ -92,13 +92,14 @@ typedef struct {
     bool dry_run;            /* -###: print subcommands, run NOTHING */
 
     /* --- modes --- */
-    bool mode_E;         /* -E: preprocess only; default stdout, -o redirects */
-    bool emit_asm;       /* -S: stop after codegen, <base>.s per input */
-    bool compile_obj;    /* -c: stop after assemble, one .o per input (cwd) */
-    bool link_exe;       /* set by the driver when no stop-mode is given */
-    bool syntax_only;    /* -fsyntax-only */
-    bool dump_macros;    /* -dM (with -E) */
-    bool no_linemarkers; /* -P */
+    bool mode_E;      /* -E: preprocess only; default stdout, -o redirects */
+    bool emit_asm;    /* -S: stop after codegen, <base>.s per input */
+    bool compile_obj; /* -c: stop after assemble, one .o per input (cwd) */
+    bool link_exe;    /* set by the driver when no stop-mode is given */
+    bool needs_libatomic; /* x86 wide atomic helpers were selected */
+    bool syntax_only;     /* -fsyntax-only */
+    bool dump_macros;     /* -dM (with -E) */
+    bool no_linemarkers;  /* -P */
     bool dump_tokens, dump_ast, dump_sema, dump_layout, dump_init;
     bool emit_ir, emit_mir;
     const char *output; /* -o; consumes the next argv even if flag-like */
