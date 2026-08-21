@@ -1373,10 +1373,16 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
 
         for (a = g->align; a > 1; a >>= 1)
             p2++;
-        if (g->is_tentative && !g->is_const) {
-            /* A tentative definition is Mach-O's __common, reached through
-             * .zerofill rather than .comm -- and it still needs its .globl,
-             * which .comm implies on ELF. */
+        if (g->is_tentative && !g->is_tls && !g->is_const) {
+            /* A64-H-01: ELF COMMON has no thread-local form. A tentative TLS
+             * object must therefore continue through the ordinary zero-data
+             * path, which gives it a `.tbss` definition and `@tls_object`
+             * type just like a non-common TLS zero definition. This mirrors
+             * GNU AArch64 output and the x86 backend's established rule.
+             *
+             * A non-TLS tentative definition is Mach-O's __common, reached
+             * through .zerofill rather than .comm -- and it still needs its
+             * .globl, which .comm implies on ELF. */
             if (e.apple) {
                 buf_printf(out, "\t.globl\t%s\n", msym(&e, g->name));
                 buf_printf(out, "\t.zerofill\t__DATA,__common,%s,%llu,%u\n",

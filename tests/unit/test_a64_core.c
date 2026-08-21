@@ -825,6 +825,61 @@ void test_a64_mir_core(TestCtx *t)
     arena_free_all(&arena);
 }
 
+void test_a64_emit_tentative_tls_is_not_common(TestCtx *t)
+{
+    IrGlobal globals[] = {
+        {.name = "ordinary_common",
+         .size = 4,
+         .align = 4,
+         .linkage = IRLINK_COMMON,
+         .is_tentative = true},
+        {.name = "tls_common",
+         .size = 4,
+         .align = 4,
+         .linkage = IRLINK_COMMON,
+         .is_tentative = true,
+         .is_tls = true},
+        {.name = "tls_static",
+         .size = 8,
+         .align = 8,
+         .linkage = IRLINK_INTERNAL,
+         .is_tls = true},
+    };
+    IrModule module = {.globals = globals, .nglobals = CGF_ARRAY_LEN(globals)};
+    TargetSpec previous = cgf_target_selected();
+    Buf text;
+
+    T_ASSERT(t, cgf_target_select("arm64-linux"));
+    buf_init(&text);
+    a64_emit_tls_decls(&module, &text);
+    a64_emit_globals(&module, &text, false);
+    buf_push_u8(&text, 0);
+
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\t.comm\tordinary_common,4,4\n") != NULL);
+    T_ASSERT(t,
+             strstr((const char *)text.data, "\t.comm\ttls_common,") == NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\t.globl\ttls_common\n"
+                       "\t.section\t.tbss,\"awT\",@nobits\n"
+                       "\t.p2align\t2\n"
+                       "\t.type\ttls_common, @tls_object\n"
+                       "\t.size\ttls_common, 4\n"
+                       "tls_common:\n"
+                       "\t.zero\t4\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\t.local\ttls_static\n"
+                       "\t.section\t.tbss,\"awT\",@nobits\n"
+                       "\t.p2align\t3\n"
+                       "\t.type\ttls_static, @tls_object\n"
+                       "\t.size\ttls_static, 8\n"
+                       "tls_static:\n"
+                       "\t.zero\t8\n") != NULL);
+
+    buf_free(&text);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
+}
+
 void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
 {
     Arena arena;
