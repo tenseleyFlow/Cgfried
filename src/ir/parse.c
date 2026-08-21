@@ -136,6 +136,31 @@ static u64 hex_val(char c)
     return (u64)(c - 'A' + 10);
 }
 
+/* Format 2 * value without requiring the mathematical result to fit in u64.
+ * Initializer diagnostics name the expected hex-character count, which may be
+ * as large as 2 * UINT64_MAX even though the parser must never compute that
+ * product in the declared-size type. */
+static void format_twice_u64(char out[21], u64 value)
+{
+    char rev[20];
+    u32 n = 0;
+    u32 carry = 0;
+    u32 i;
+
+    do {
+        u32 doubled = (u32)(value % 10) * 2 + carry;
+
+        rev[n++] = (char)('0' + doubled % 10);
+        carry = doubled / 10;
+        value /= 10;
+    } while (value);
+    if (carry)
+        rev[n++] = (char)('0' + carry);
+    for (i = 0; i < n; i++)
+        out[i] = rev[n - i - 1];
+    out[n] = '\0';
+}
+
 static bool lex_all(P *p, const char *src)
 {
     const char *c = src;
@@ -2134,6 +2159,7 @@ static bool parse_global(P *p)
     g->visibility = parse_visibility_suffix(p);
     if (tok_is(peek(p), "init")) {
         Tok *blob;
+        u64 hex_chars;
         u64 i;
 
         next(p);
@@ -2144,16 +2170,20 @@ static bool parse_global(P *p)
             perr(p, blob, "expected an init image: x<hex bytes>");
             return false;
         }
-        if ((u64)blob->len != 1 + g->size * 2) {
+        hex_chars = (u64)blob->len - 1;
+        if ((hex_chars & 1) != 0 || hex_chars / 2 != g->size) {
+            char needed[21];
+
+            format_twice_u64(needed, g->size);
             perr(p, blob,
-                 "init image is %llu hex chars; size %llu "
-                 "needs %llu",
-                 (unsigned long long)(blob->len - 1),
-                 (unsigned long long)g->size,
-                 (unsigned long long)(g->size * 2));
+                 "initializer has %llu hex chars; size %llu "
+                 "needs %s",
+                 (unsigned long long)hex_chars, (unsigned long long)g->size,
+                 needed);
             return false;
         }
         g->init = arena_alloc(p->arena, g->size ? g->size : 1, 1);
+        /* Length equality above proves i * 2 + 2 stays inside blob. */
         for (i = 0; i < g->size; i++) {
             char hc = blob->s[1 + i * 2];
             char lc = blob->s[2 + i * 2];

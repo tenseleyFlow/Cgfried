@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-H-09 oversized initializer length wraps before validation
+// RESOLVED(audit): IR-H-09 oversized initializer length wraps before validation
 // The textual initializer is intentionally tiny. Its declared byte size makes
 // `1 + size * 2` wrap, so the current parser attempts an enormous allocation
 // instead of rejecting the length mismatch normally.

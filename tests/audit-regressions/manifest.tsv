@@ -31,7 +31,7 @@ IR-H-05	ir-h-05.c	OPEN	volatile aggregate sources lose their access marker
 IR-H-06	ir-h-06.c	PASS	sigsetjmp macro expansion loses the returns-twice marker
 IR-H-07	ir-h-07.cgfir	PASS	global relocation offset wraps the verifier bounds check
 IR-H-08	ir-h-08.c	OPEN	symbolic indirect calls fail optimized IR round-trip
-IR-H-09	ir-h-09.cgfir	OPEN	oversized initializer length wraps before validation
+IR-H-09	ir-h-09.cgfir	PASS	oversized initializer length wraps before validation
 IR-C-09	ir-c-09.c	PASS	16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
 IR-C-10	ir-c-10.c	PASS	stacked 16-byte-aligned composites retain AAPCS64 stack alignment
 IR-C-11	ir-c-11.cgfir	PASS	under-aligned atomic scalar accesses pass IR verification

@@ -816,7 +816,48 @@ void test_ir_parse_errors_have_locations(TestCtx *t)
                         "global @g size 4 align 4 internal init x00ff\n",
                         "<test>");
     T_ASSERT(t, m == NULL);
-    T_ASSERT(t, strstr(f.first_msg, "init image") != NULL);
+    T_ASSERT_EQ_STR(t, f.first_msg,
+                    "initializer has 4 hex chars; size 4 needs 8");
+    fix_free(&f);
+
+    /* The expected hex length is 2^64 and cannot be formed in u64. The
+     * parser must still reject it with the same exact diagnostic shape,
+     * before attempting the declared 2^63-byte allocation. */
+    fix_init(&f);
+    m = ir_parse_module(
+        &f.arena, f.dc,
+        "global @g size 9223372036854775808 align 8 internal init x\n",
+        "<test>");
+    T_ASSERT(t, m == NULL);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_STR(
+        t, f.first_msg,
+        "initializer has 0 hex chars; size 9223372036854775808 needs "
+        "18446744073709551616");
+    fix_free(&f);
+
+    /* Pin both edges of the division-based validation: an odd nibble count
+     * must not truncate to the declared byte size, and doubling UINT64_MAX
+     * must remain exact in the diagnostic. */
+    fix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "global @g size 0 align 1 internal init x0\n",
+                        "<test>");
+    T_ASSERT(t, m == NULL);
+    T_ASSERT_EQ_STR(t, f.first_msg,
+                    "initializer has 1 hex chars; size 0 needs 0");
+    fix_free(&f);
+
+    fix_init(&f);
+    m = ir_parse_module(
+        &f.arena, f.dc,
+        "global @g size 18446744073709551615 align 1 internal init x\n",
+        "<test>");
+    T_ASSERT(t, m == NULL);
+    T_ASSERT_EQ_STR(
+        t, f.first_msg,
+        "initializer has 0 hex chars; size 18446744073709551615 needs "
+        "36893488147419103230");
     fix_free(&f);
 }
 
