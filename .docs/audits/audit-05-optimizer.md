@@ -11,22 +11,27 @@
 
 ## Findings
 
-ID: `OPT-H-01`
-Title: pointer self-increment makes the alias solver diverge
-Severity: High — valid C causes an internal compiler error, which is a High
-finding under the Sprint 60 rubric.
-Reproducer: `tests/audit-regressions/opt-h-01.c`
-Root cause: `src/opt/alias.c:565-590` propagates the pointer-content offset of
-the global slot through a load, and `src/opt/alias.c:658-662` adds four bytes
-for the pointer increment before `src/opt/alias.c:565-569` stores it back to
-the same slot. The resulting offset-hull recurrence is 0, 4, 8, ... .
-`off_join` keeps widening that numeric interval, so the cap at
-`src/opt/alias.c:868-876` fires even though the points-to bitsets have settled.
-The durable gate invokes `-w -O2 -emit-ir`, which reaches the service through
-its direct optimizer client. The default-on memory diagnostics also exercise
-the same service at O0; `-Wno-mem` and `-w` both accept the O0 syntax-only
-form, which confirms the second trigger path without changing service ownership.
-Affected sprints: 32, 41, 42.
+~~ID: `OPT-H-01`~~
+~~Title: pointer self-increment makes the alias solver diverge~~
+~~Severity: High — valid C causes an internal compiler error, which is a High~~
+~~finding under the Sprint 60 rubric.~~
+~~Reproducer: `tests/audit-regressions/opt-h-01.c`~~
+~~Root cause: `src/opt/alias.c:565-590` propagates the pointer-content offset of~~
+~~the global slot through a load, and `src/opt/alias.c:658-662` adds four bytes~~
+~~for the pointer increment before `src/opt/alias.c:565-569` stores it back to~~
+~~the same slot. The resulting offset-hull recurrence is 0, 4, 8, ... .~~
+~~`off_join` keeps widening that numeric interval, so the cap at~~
+~~`src/opt/alias.c:868-876` fires even though the points-to bitsets have settled.~~
+~~The durable gate invokes `-w -O2 -emit-ir`, which reaches the service through~~
+~~its direct optimizer client. The default-on memory diagnostics also exercise~~
+~~the same service at O0; `-Wno-mem` and `-w` both accept the O0 syntax-only~~
+~~form, which confirms the second trigger path without changing service ownership.~~
+~~Affected sprints: 32, 41, 42.~~
+Resolution: RESOLVED 2026-08-20 by `264bb13d`. The solver tracks finite
+points-to progress separately from offset intervals, preserves an exact
+dependency-depth window, then monotonically widens expanding endpoints.
+Self-updates and growing cycles converge conservatively to MAY while bounded
+cycles retain their finite range and the solver cap remains an ICE invariant.
 
 ~~ID: `OPT-H-02`~~
 ~~Title: descending loop fusion reverses dependence direction~~
