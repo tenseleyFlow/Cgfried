@@ -127,6 +127,7 @@ typedef struct PlanUnionSelection {
 typedef struct InitPlan {
     Lower *lo;
     u8 *img;
+    u8 access_flags;
     u64 size;
     RtStore *rt_head, *rt_tail;
     /* relocs found in the constant part (address-constant elements) */
@@ -696,7 +697,7 @@ static IrOperand off_addr(Lower *lo, IrOperand base, i64 off)
 }
 
 static void store_chunk(Lower *lo, IrOperand base, i64 off, IrType t, u64 bits,
-                        u32 align)
+                        u32 align, u8 access_flags)
 {
     Lvalue lv;
 
@@ -705,6 +706,7 @@ static void store_chunk(Lower *lo, IrOperand base, i64 off, IrType t, u64 bits,
     lv.unit = t;
     lv.etype = ETYPE_CHAR; /* constant image bytes, not a typed C access */
     lv.align = align;
+    lv.is_volatile = (access_flags & IRF_VOLATILE) != 0;
     lower_store(lo, lv, ir_op_iconst(t, (i64)bits));
 }
 
@@ -740,6 +742,7 @@ static void emit_stores(Lower *lo, InitPlan *p, IrOperand base, u32 align)
             lv.unit = IRT_PTR;
             lv.etype = ETYPE_PTR;
             lv.align = align < 8 ? align : 8;
+            lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;
             lower_store(lo, lv, sv);
             off += 8;
             r++;
@@ -754,7 +757,7 @@ static void emit_stores(Lower *lo, InitPlan *p, IrOperand base, u32 align)
                                     : IRT_I8;
 
             store_chunk(lo, base, (i64)off, t, read_le(p->img + off, chunk),
-                        align < chunk ? align : chunk);
+                        align < chunk ? align : chunk, p->access_flags);
             off += chunk;
         }
     }
@@ -816,7 +819,7 @@ static void emit_const_part(Lower *lo, InitPlan *p, IrOperand base, u32 align)
     if (all_zero) {
         /* {0} and friends: exactly one memset, any size. */
         ir_build_memset(&lo->b, base, ir_op_iconst(IRT_I32, 0),
-                        lower_i64((i64)p->size), align, 0);
+                        lower_i64((i64)p->size), align, p->access_flags);
         return;
     }
     if (p->size <= LOWER_INIT_STORE_MAX) {
@@ -835,22 +838,23 @@ static void emit_const_part(Lower *lo, InitPlan *p, IrOperand base, u32 align)
             u32 tmpl = emit_template_global(lo, &hp, head, align);
 
             ir_build_memcpy(&lo->b, base, ir_op_symbol(IRT_PTR, tmpl, 0),
-                            lower_i64((i64)head), align, 0);
+                            lower_i64((i64)head), align, p->access_flags);
         }
         ir_build_memset(&lo->b, off_addr(lo, base, (i64)head),
-                        ir_op_iconst(IRT_I32, 0), lower_i64((i64)z), 1, 0);
+                        ir_op_iconst(IRT_I32, 0), lower_i64((i64)z), 1,
+                        p->access_flags);
         return;
     }
     {
         u32 tmpl = emit_template_global(lo, p, p->size, align);
 
         ir_build_memcpy(&lo->b, base, ir_op_symbol(IRT_PTR, tmpl, 0),
-                        lower_i64((i64)p->size), align, 0);
+                        lower_i64((i64)p->size), align, p->access_flags);
     }
 }
 
 /* One runtime element, after the constant part landed. */
-static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
+static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
 {
     if (r->bf) {
         const Member *m = r->bf;
@@ -882,6 +886,7 @@ static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
         lv.bit_shift = (u8)(m->bit_offset - unit_byte * 8);
         lv.bit_width = (u8)m->bit_width;
         lv.is_signed = conv_is_signed(lo->sema, (Type *)m->type);
+        lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;
         lower_store(lo, lv, v);
         return;
     }
@@ -889,8 +894,9 @@ static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
         IrOperand src = lower_rvalue(lo, r->e);
         TypeLayout l = layout_of(lo->sema, r->t);
 
-        lower_memcpy_aggregate(lo, off_addr(lo, base, r->off), src, r->t,
-                               (u32)l.align, 0);
+        lower_memcpy_aggregate(
+            lo, off_addr(lo, base, r->off), src, r->t, (u32)l.align,
+            (u8)(p->access_flags | lower_aggregate_access_flags(r->e)));
         return;
     }
     {
@@ -904,6 +910,7 @@ static void emit_rt_store(Lower *lo, IrOperand base, RtStore *r)
         lv.unit = lower_irtype(lo, r->t);
         lv.etype = lower_efftype(lo, r->t);
         lv.align = (u32)(l.align ? l.align : 1);
+        lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;
         lower_store(lo, lv, v);
     }
 }
@@ -943,7 +950,10 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
         /* struct x = expr: one memcpy (the Sprint 18 §8 law). */
         IrOperand src = lower_rvalue(lo, init);
 
-        lower_memcpy_aggregate(lo, base, src, t, (u32)l.align, 0);
+        lower_memcpy_aggregate(
+            lo, base, src, t, (u32)l.align,
+            (u8)(((t->quals & CGF_QUAL_VOLATILE) ? IRF_VOLATILE : 0) |
+                 lower_aggregate_access_flags(init)));
         return;
     }
     {
@@ -952,6 +962,7 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
 
         memset(&p, 0, sizeof(p));
         p.lo = lo;
+        p.access_flags = (t->quals & CGF_QUAL_VOLATILE) ? IRF_VOLATILE : 0;
         p.size = l.size;
         p.img = arena_alloc(lo->arena, l.size ? (size_t)l.size : 1, 8);
         memset(p.img, 0, l.size ? (size_t)l.size : 1);
@@ -959,6 +970,6 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init)
         emit_const_part(lo, &p, base, (u32)(l.align ? l.align : 1));
         for (r = p.rt_head; r; r = r->next)
             if (r->active)
-                emit_rt_store(lo, base, r);
+                emit_rt_store(lo, &p, base, r);
     }
 }

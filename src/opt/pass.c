@@ -218,8 +218,11 @@ static bool run_one(RunCtx *r, IrModule *m, const OptConfig *cfg,
                 ir_volatile_order_matches(m, volatile_before, &bad_func);
             break;
         case PASS_PINNED_INLINE_CLONES:
-        case PASS_PINNED_METADATA_CLONES:
             pinned_ok = ir_pinned_inline_matches(m, volatile_before, &bad_func);
+            break;
+        case PASS_PINNED_METADATA_CLONES:
+            pinned_ok =
+                ir_pinned_metadata_clones_match(m, volatile_before, &bad_func);
             break;
         case PASS_PINNED_DELETE_FUNCS:
             pinned_ok =

@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-H-05 volatile aggregate sources lose their access marker
+// RESOLVED(audit): IR-H-05 volatile aggregate sources lose their access marker
 // Both structure reads are observable volatile accesses. The IR must mark
 // both copies so every later pass preserves their count and relative order.
 struct pair {

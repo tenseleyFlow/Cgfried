@@ -69,6 +69,48 @@ void test_volatile_count_tripwire(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_volatile_snapshot_tracks_backward_layout_dominance(TestCtx *t)
+{
+    HFix f;
+    IrModule *m = h_parse(&f, "func void @f(ptr %p) {\n"
+                              "entry():\n"
+                              "    br late()\n"
+                              "early():\n"
+                              "    store i32 2, %p, align 4, volatile\n"
+                              "    ret\n"
+                              "late():\n"
+                              "    store i32 1, %p, align 4, volatile\n"
+                              "    br early()\n"
+                              "}\n");
+    Arena scratch;
+    IrVolatileSnapshot snapshot[2];
+    IrBlock *early, *late;
+    IrInst *first, *early_ret, *late_br;
+    u32 bad = 99;
+
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    arena_init(&scratch);
+    ir_snapshot_volatile_order(&scratch, m, snapshot);
+    T_ASSERT_EQ_INT(t, snapshot[0].nops, 2);
+    /* The dominator is later in document order: op[1] must precede op[0]. */
+    T_ASSERT_EQ_INT(t, snapshot[0].precedes[2], 1);
+
+    early = &m->funcs[0].blocks[1];
+    late = &m->funcs[0].blocks[2];
+    first = late->first;
+    late_br = first->next;
+    early_ret = early->first->next;
+    late->first = late_br;
+    late->ninsts--;
+    early->first->next = first;
+    first->next = early_ret;
+    early->ninsts++;
+    T_ASSERT(t, !ir_volatile_order_matches(m, snapshot, &bad));
+    T_ASSERT_EQ_INT(t, bad, 0);
+    arena_free_all(&scratch);
+    arena_free_all(&f.arena);
+}
+
 void test_setjmp_flag_consistency(TestCtx *t)
 {
     HFix f;

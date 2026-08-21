@@ -137,6 +137,7 @@ typedef struct SwitchCtx {
 typedef struct VaPackArg {
     IrOperand value;
     Type *type;
+    u8 access_flags;
 } VaPackArg;
 
 typedef struct VaPackContext {
@@ -284,6 +285,7 @@ void lower_local_init(Lower *lo, IrOperand base, Type *t, AstNode *init);
 IrType lower_irtype(Lower *lo, const Type *t); /* scalars only */
 EffTypeId lower_efftype(Lower *lo, const Type *t);
 bool lower_is_aggregate(const Type *t);
+u8 lower_aggregate_access_flags(const AstNode *e);
 void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
                             u32 align, u8 flags);
 /* Fresh block; the label is arena-formatted for deterministic names. */

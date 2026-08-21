@@ -99,6 +99,75 @@ static IrInst *store_of_iconst(IrFunc *f, i64 value)
     return NULL;
 }
 
+static bool unlink_inst(IrFunc *f, IrInst *needle)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        IrBlock *b = &f->blocks[bi];
+        IrInst *prev = NULL;
+        IrInst *in;
+
+        for (in = b->first; in; prev = in, in = in->next)
+            if (in == needle) {
+                if (prev)
+                    prev->next = in->next;
+                else
+                    b->first = in->next;
+                if (b->last == in)
+                    b->last = prev;
+                b->ninsts--;
+                in->next = NULL;
+                return true;
+            }
+    }
+    return false;
+}
+
+static bool insert_after(IrFunc *f, IrInst *after, IrInst *in)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        IrBlock *b = &f->blocks[bi];
+        IrInst *at;
+
+        for (at = b->first; at; at = at->next)
+            if (at == after) {
+                in->next = at->next;
+                at->next = in;
+                if (b->last == at)
+                    b->last = in;
+                b->ninsts++;
+                return true;
+            }
+    }
+    return false;
+}
+
+static bool insert_before(IrFunc *f, IrInst *before, IrInst *in)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        IrBlock *b = &f->blocks[bi];
+        IrInst *prev = NULL;
+        IrInst *at;
+
+        for (at = b->first; at; prev = at, at = at->next)
+            if (at == before) {
+                in->next = at;
+                if (prev)
+                    prev->next = in;
+                else
+                    b->first = in;
+                b->ninsts++;
+                return true;
+            }
+    }
+    return false;
+}
+
 static void read_report(FILE *report, char *out, size_t cap)
 {
     size_t n;
@@ -180,6 +249,336 @@ void test_opt_inline_single_return_metadata_and_repeatability(TestCtx *t)
                     memcmp(first.data, second.data, first.len) == 0);
     buf_free(&first);
     buf_free(&second);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_multiblock_suffix_preserves_pinned_cfg_order(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    const Pass *passes[] = {&OPT_PASS_INLINE};
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "global @g size 4 align 4 external\n"
+                         "func i32 @leaf(i32 %x) internal {\n"
+                         "entry():\n"
+                         "    %y = iadd i32 %x, 1\n"
+                         "    ret i32 %y\n"
+                         "}\n"
+                         "func void @caller(i32 %x) {\n"
+                         "entry():\n"
+                         "    store i32 1, @g, align 4, volatile, etype i32\n"
+                         "    %y = call i32 @leaf(i32 %x)\n"
+                         "    store i32 2, @g, align 4, volatile, etype i32\n"
+                         "    %c = icmp ne i32 %y, 0\n"
+                         "    condbr %c, yes(), no()\n"
+                         "yes():\n"
+                         "    store i32 3, @g, align 4, volatile, etype i32\n"
+                         "    ret\n"
+                         "no():\n"
+                         "    ret\n"
+                         "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && opt_run_pass_sequence(m, &cfg, passes, 1));
+    if (m) {
+        T_ASSERT(t, ir_verify(f.dc, m));
+        T_ASSERT_EQ_INT(t, func_internal_calls_to(&m->funcs[1], 0), 0);
+        T_ASSERT_EQ_INT(t, ir_count_volatile_ops(&m->funcs[1]), 3);
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_pinned_backward_reversal(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Arena snapshot_arena;
+    IrVolatileSnapshot *snapshot;
+    IrInlinePinnedGroup *group;
+    IrInst *after_anchor;
+    u32 bad = 99;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "global @g size 4 align 4 external\n"
+                         "func void @touch() internal {\n"
+                         "entry():\n"
+                         "    br late()\n"
+                         "early():\n"
+                         "    store i32 2, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "late():\n"
+                         "    store i32 1, @g, align 4, volatile\n"
+                         "    br early()\n"
+                         "}\n"
+                         "func void @caller() {\n"
+                         "entry():\n"
+                         "    store i32 0, @g, align 4, volatile\n"
+                         "    call void @touch()\n"
+                         "    store i32 3, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    arena_init(&snapshot_arena);
+    snapshot = arena_alloc(&snapshot_arena, (m->nfuncs + 1) * sizeof(*snapshot),
+                           _Alignof(IrVolatileSnapshot));
+    ir_snapshot_volatile_order(&snapshot_arena, m, snapshot);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    T_ASSERT(t, opt_inline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m->ninline_pinned_groups, 1);
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    group = &m->inline_pinned_groups[0];
+    T_ASSERT_EQ_INT(t, group->nops, 2);
+    /* Source op[1] dominates source op[0] despite later document layout. */
+    T_ASSERT_EQ_INT(t, group->precedes[2], 1);
+    after_anchor = store_of_iconst(&m->funcs[1], 3);
+    T_ASSERT(t, after_anchor != NULL);
+    T_ASSERT(t, unlink_inst(&m->funcs[1], group->clones[0]));
+    T_ASSERT(t, insert_after(&m->funcs[1], after_anchor, group->clones[0]));
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    T_ASSERT_EQ_INT(t, bad, 1);
+    T_ASSERT(t, unlink_inst(&m->funcs[1], group->clones[0]));
+    T_ASSERT(t, insert_before(&m->funcs[1], after_anchor, group->clones[0]));
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    T_ASSERT(t, unlink_inst(&m->funcs[1], group->clones[1]));
+    T_ASSERT(t, insert_after(&m->funcs[1], group->clones[0], group->clones[1]));
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    T_ASSERT_EQ_INT(t, bad, 1);
+    arena_free_all(&snapshot_arena);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_pinned_clone_group_rejects_duplicate_omission(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Arena snapshot_arena;
+    IrVolatileSnapshot *snapshot;
+    IrInlinePinnedGroup *group;
+    IrInst *duplicate;
+    u32 bi, bad = 99;
+    bool replaced = false;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "global @g size 4 align 4 external\n"
+                         "func void @touch() internal {\n"
+                         "entry():\n"
+                         "    store i32 1, @g, align 4, volatile\n"
+                         "    store i32 2, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "}\n"
+                         "func void @caller() {\n"
+                         "entry():\n"
+                         "    call void @touch()\n"
+                         "    ret\n"
+                         "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    arena_init(&snapshot_arena);
+    snapshot = arena_alloc(&snapshot_arena, (m->nfuncs + 1) * sizeof(*snapshot),
+                           _Alignof(IrVolatileSnapshot));
+    ir_snapshot_volatile_order(&snapshot_arena, m, snapshot);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    T_ASSERT(t, opt_inline(m, &cfg));
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    group = &m->inline_pinned_groups[0];
+    duplicate = arena_alloc(&f.arena, sizeof(*duplicate), _Alignof(IrInst));
+    *duplicate = *group->clones[0];
+    for (bi = 0; bi < m->funcs[1].nblocks && !replaced; bi++) {
+        IrBlock *b = &m->funcs[1].blocks[bi];
+        IrInst *prev = NULL;
+        IrInst *in;
+
+        for (in = b->first; in; prev = in, in = in->next)
+            if (in == group->clones[1]) {
+                duplicate->next = in->next;
+                if (prev)
+                    prev->next = duplicate;
+                else
+                    b->first = duplicate;
+                if (b->last == in)
+                    b->last = duplicate;
+                replaced = true;
+                break;
+            }
+    }
+    T_ASSERT(t, replaced);
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    T_ASSERT_EQ_INT(t, bad, 1);
+    arena_free_all(&snapshot_arena);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_pinned_clone_cannot_alias_original(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Arena snapshot_arena;
+    IrVolatileSnapshot *snapshot;
+    IrInlinePinnedGroup *group;
+    IrInst *original, *actual_clone;
+    u32 bad = 99;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "global @g size 4 align 4 external\n"
+                         "func void @touch() internal {\n"
+                         "entry():\n"
+                         "    store i32 1, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "}\n"
+                         "func void @caller() {\n"
+                         "entry():\n"
+                         "    store i32 0, @g, align 4, volatile\n"
+                         "    call void @touch()\n"
+                         "    ret\n"
+                         "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    original = store_of_iconst(&m->funcs[1], 0);
+    arena_init(&snapshot_arena);
+    snapshot = arena_alloc(&snapshot_arena, (m->nfuncs + 1) * sizeof(*snapshot),
+                           _Alignof(IrVolatileSnapshot));
+    ir_snapshot_volatile_order(&snapshot_arena, m, snapshot);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    T_ASSERT(t, opt_inline(m, &cfg));
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    group = &m->inline_pinned_groups[0];
+    actual_clone = group->clones[0];
+    T_ASSERT(t, original != NULL && actual_clone != NULL);
+    T_ASSERT(t, unlink_inst(&m->funcs[1], actual_clone));
+    group->clones[0] = original;
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    T_ASSERT_EQ_INT(t, bad, 1);
+    arena_free_all(&snapshot_arena);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_pinned_anchor_set_is_exact(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Arena snapshot_arena;
+    IrVolatileSnapshot *snapshot;
+    IrInlinePinnedGroup *group;
+    const IrInst *last_anchor;
+    u32 saved_nanchors, bad = 99;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "global @g size 4 align 4 external\n"
+                         "func void @touch() internal {\n"
+                         "entry():\n"
+                         "    store i32 1, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "}\n"
+                         "func void @caller() {\n"
+                         "entry():\n"
+                         "    store i32 0, @g, align 4, volatile\n"
+                         "    call void @touch()\n"
+                         "    store i32 3, @g, align 4, volatile\n"
+                         "    call void @touch()\n"
+                         "    store i32 4, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    arena_init(&snapshot_arena);
+    snapshot = arena_alloc(&snapshot_arena, (m->nfuncs + 1) * sizeof(*snapshot),
+                           _Alignof(IrVolatileSnapshot));
+    ir_snapshot_volatile_order(&snapshot_arena, m, snapshot);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    T_ASSERT(t, opt_inline(m, &cfg));
+    T_ASSERT_EQ_INT(t, m->ninline_pinned_groups, 2);
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    group = &m->inline_pinned_groups[1];
+    saved_nanchors = group->nanchors;
+    T_ASSERT_EQ_INT(t, saved_nanchors, 4);
+    /* The second site must name all three snapshot originals and the first
+     * site's already-recorded clone, exactly once each. */
+    group->nanchors = 0;
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    group->nanchors = saved_nanchors - 1;
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    group->nanchors = saved_nanchors;
+    last_anchor = group->anchors[saved_nanchors - 1];
+    group->anchors[saved_nanchors - 1] = group->anchors[0];
+    T_ASSERT(t, !ir_pinned_inline_matches(m, snapshot, &bad));
+    group->anchors[saved_nanchors - 1] = last_anchor;
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    arena_free_all(&snapshot_arena);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_inline_conditional_pinned_does_not_claim_post_anchor(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Arena snapshot_arena;
+    IrVolatileSnapshot *snapshot;
+    IrInlinePinnedGroup *group;
+    u32 bad = 99;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f, "global @g size 4 align 4 external\n"
+                         "func void @touch(i32 %c) internal {\n"
+                         "entry():\n"
+                         "    condbr %c, yes(), no()\n"
+                         "yes():\n"
+                         "    store i32 1, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "no():\n"
+                         "    ret\n"
+                         "}\n"
+                         "func void @caller(i32 %c) {\n"
+                         "entry():\n"
+                         "    call void @touch(i32 %c)\n"
+                         "    store i32 2, @g, align 4, volatile\n"
+                         "    ret\n"
+                         "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    arena_init(&snapshot_arena);
+    snapshot = arena_alloc(&snapshot_arena, (m->nfuncs + 1) * sizeof(*snapshot),
+                           _Alignof(IrVolatileSnapshot));
+    ir_snapshot_volatile_order(&snapshot_arena, m, snapshot);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.inline_threshold = 40;
+    T_ASSERT(t, opt_inline(m, &cfg));
+    T_ASSERT(t, ir_pinned_inline_matches(m, snapshot, &bad));
+    group = &m->inline_pinned_groups[0];
+    T_ASSERT_EQ_INT(t, group->nops, 1);
+    T_ASSERT_EQ_INT(t, group->nanchors, 1);
+    /* The source access does not dominate both returns, so it must not be
+     * falsely required to dominate the caller's post-call anchor. */
+    T_ASSERT_EQ_INT(t, group->clone_precedes[0], 0);
+    arena_free_all(&snapshot_arena);
     arena_free_all(&f.arena);
 }
 

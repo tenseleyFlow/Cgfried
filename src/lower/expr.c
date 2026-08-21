@@ -556,8 +556,9 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
     if (is_agg) {
         TypeLayout l = layout_of(lo->sema, rt);
 
-        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, agg_tmp), v, rt,
-                               (u32)l.align, 0);
+        lower_memcpy_aggregate(
+            lo, ir_op_value(lo->fn, agg_tmp), v, rt, (u32)l.align,
+            lower_aggregate_access_flags(e->cond_omits_mid ? e->lhs : e->mid));
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
         ir_build_br(&lo->b, join, NULL, 0);
@@ -574,7 +575,8 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
         TypeLayout l = layout_of(lo->sema, rt);
 
         lower_memcpy_aggregate(lo, ir_op_value(lo->fn, agg_tmp), v, rt,
-                               (u32)l.align, 0);
+                               (u32)l.align,
+                               lower_aggregate_access_flags(e->rhs));
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
         ir_build_br(&lo->b, join, NULL, 0);
@@ -973,9 +975,11 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             Lvalue lv = lower_lvalue(lo, e->lhs);
             IrOperand src = lower_rvalue(lo, e->rhs);
             TypeLayout l = layout_of(lo->sema, sem(e->lhs));
+            u8 flags = lower_aggregate_access_flags(e->rhs);
 
-            lower_memcpy_aggregate(lo, lv.addr, src, sem(e->lhs), (u32)l.align,
-                                   lv.is_volatile ? IRF_VOLATILE : 0);
+            lower_memcpy_aggregate(
+                lo, lv.addr, src, sem(e->lhs), (u32)l.align,
+                (u8)(flags | (lv.is_volatile ? IRF_VOLATILE : 0)));
             return lv.addr;
         }
         {
@@ -2033,7 +2037,8 @@ static void call_arg_reserve(Lower *lo, CallArgBuf *args, u32 extra)
  * by earlier arguments, so a pack captured at the wrapper boundary must be
  * classified again here, under the INNER call's budget. */
 static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
-                           bool anonymous, AbiBudget *budget, CallArgBuf *args)
+                           u8 access_flags, bool anonymous, AbiBudget *budget,
+                           CallArgBuf *args)
 {
     AbiArg plan;
     u8 flags = anonymous ? (u8)IROPF_ANON : 0u;
@@ -2078,7 +2083,7 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
         u32 k;
 
         lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
-                               plan.align, 0);
+                               plan.align, access_flags);
         for (k = 0; k < plan.n; k++) {
             Lvalue lv;
             IrOperand addr = ir_op_value(lo->fn, tmp);
@@ -2103,7 +2108,7 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
         ValueId tmp = lower_temp(lo, type);
 
         lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
-                               plan.align, 0);
+                               plan.align, access_flags);
         args->data[args->len] = ir_op_value(lo->fn, tmp);
         args->data[args->len].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
         if (plan.kind == ABI_ARG_STACK)
@@ -2134,7 +2139,8 @@ static IrOperand va_pack_failed_value(Lower *lo, Type *type)
     return ir_op_undef(lower_irtype(lo, type));
 }
 
-static void bind_va_pack_param(Lower *lo, Symbol *param, IrOperand value)
+static void bind_va_pack_param(Lower *lo, Symbol *param, IrOperand value,
+                               u8 access_flags)
 {
     TypeLayout l;
     ValueId slot;
@@ -2148,7 +2154,7 @@ static void bind_va_pack_param(Lower *lo, Symbol *param, IrOperand value)
     lower_bind_local(lo, param, slot);
     if (lower_is_aggregate(param->type)) {
         lower_memcpy_aggregate(lo, ir_op_value(lo->fn, slot), value,
-                               param->type, (u32)l.align, 0);
+                               param->type, (u32)l.align, access_flags);
     } else {
         ir_build_store_typed(&lo->b, value, ir_op_value(lo->fn, slot),
                              (u32)(l.align ? l.align : 1), 0,
@@ -2158,8 +2164,9 @@ static void bind_va_pack_param(Lower *lo, Symbol *param, IrOperand value)
 
 /* Mandatory source-level specialization for GNU argument-pack wrappers.
  * Every outer argument is evaluated once, named parameters receive fresh
- * local objects, and the anonymous values remain in source form until an
- * inner call consumes the pack through lower_call_arg(). */
+ * local objects, and anonymous aggregates are captured by value immediately
+ * at the wrapper boundary. Later pack forwarding reads only that plain
+ * snapshot, even when wrapper control flow forwards zero or multiple times. */
 static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
                                             Symbol *wrapper)
 {
@@ -2168,6 +2175,7 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
     Type *ret = fty ? fty->base : sem(call);
     u32 nfixed = fty && fty->has_proto ? fty->nparams : 0;
     IrOperand *values;
+    u8 *access_flags;
     bool *constant;
     VaPackArg *pack;
     VaPackContext ctx;
@@ -2196,6 +2204,9 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
     values = arena_alloc(lo->arena,
                          (call->nargs ? call->nargs : 1) * sizeof(*values),
                          _Alignof(IrOperand));
+    access_flags = arena_alloc(
+        lo->arena, (call->nargs ? call->nargs : 1) * sizeof(*access_flags),
+        _Alignof(u8));
     constant = arena_alloc(lo->arena, (nfixed ? nfixed : 1) * sizeof(*constant),
                            _Alignof(bool));
     memset(constant, 0, (nfixed ? nfixed : 1) * sizeof(*constant));
@@ -2210,15 +2221,29 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
         ConstValue cv = constexpr_eval(lo->sema, call->args[i], CE_FOLD);
 
         values[i] = lower_rvalue(lo, call->args[i]);
+        access_flags[i] = lower_aggregate_access_flags(call->args[i]);
         if (i < nfixed)
             constant[i] = cv.kind == CV_INT || cv.kind == CV_FLOAT;
         else {
+            Type *arg_type = sem(call->args[i]);
+
             pack[i - nfixed].value = values[i];
-            pack[i - nfixed].type = sem(call->args[i]);
+            pack[i - nfixed].type = arg_type;
+            pack[i - nfixed].access_flags = access_flags[i];
+            if (lower_is_aggregate(arg_type)) {
+                TypeLayout l = layout_of(lo->sema, arg_type);
+                ValueId tmp = lower_temp(lo, arg_type);
+
+                lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), values[i],
+                                       arg_type, (u32)(l.align ? l.align : 1),
+                                       access_flags[i]);
+                pack[i - nfixed].value = ir_op_value(lo->fn, tmp);
+                pack[i - nfixed].access_flags = 0;
+            }
         }
     }
     for (i = 0; i < nfixed && i < def->nparam_syms; i++)
-        bind_va_pack_param(lo, def->param_syms[i], values[i]);
+        bind_va_pack_param(lo, def->param_syms[i], values[i], access_flags[i]);
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.wrapper = wrapper;
@@ -2368,13 +2393,18 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             for (pi = 0; pi < lo->va_pack->nargs; pi++) {
                 VaPackArg *pa = &lo->va_pack->args[pi];
 
-                lower_call_arg(lo, pa->type, pa->value, true, &budget, &args);
+                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, true,
+                               &budget, &args);
             }
             continue;
         }
         attr_ir_args[i] = args.len + 1;
-        lower_call_arg(lo, sem(a), lower_rvalue(lo, a), anonymous, &budget,
-                       &args);
+        {
+            IrOperand value = lower_rvalue(lo, a);
+
+            lower_call_arg(lo, sem(a), value, lower_aggregate_access_flags(a),
+                           anonymous, &budget, &args);
+        }
     }
 
     {

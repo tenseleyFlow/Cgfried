@@ -1003,6 +1003,8 @@ void ir_snapshot_volatile_order(Arena *arena, const IrModule *m,
         const IrFunc *f = &m->funcs[fi];
         u32 n = 0;
         const IrInst **ops = NULL;
+        u32 *blocks = NULL;
+        u8 *precedes = NULL;
         u32 bi, at = 0;
 
         for (bi = 0; bi < f->nblocks; bi++) {
@@ -1013,21 +1015,95 @@ void ir_snapshot_volatile_order(Arena *arena, const IrModule *m,
                     n++;
         }
         out[fi].func_name = f->name;
-        if (n)
+        if (n) {
             ops = arena_alloc(arena, n * sizeof(*ops), _Alignof(IrInst *));
+            blocks = arena_alloc(arena, n * sizeof(*blocks), _Alignof(u32));
+            precedes = arena_alloc(arena, (size_t)n * n, _Alignof(u8));
+            memset(precedes, 0, (size_t)n * n);
+        }
         for (bi = 0; bi < f->nblocks; bi++) {
             const IrInst *in;
 
             for (in = f->blocks[bi].first; in; in = in->next)
-                if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST))
+                if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) {
                     ops[at++] = in;
+                    blocks[at - 1] = bi;
+                }
+        }
+        if (n) {
+            IrDomTree *dom = ir_domtree_build(arena, f);
+            u32 i, j;
+
+            for (i = 0; i < n; i++)
+                for (j = 0; j < n; j++)
+                    if (i != j && ((blocks[i] == blocks[j] && i < j) ||
+                                   (blocks[i] != blocks[j] &&
+                                    ir_dominates(dom, (BlockId){blocks[i] + 1},
+                                                 (BlockId){blocks[j] + 1}))))
+                        precedes[(size_t)i * n + j] = 1;
         }
         out[fi].ops = ops;
+        out[fi].precedes = precedes;
         out[fi].nops = n;
+        out[fi].inline_group_count = m->ninline_pinned_groups;
     }
     out[m->nfuncs].func_name = NULL;
     out[m->nfuncs].ops = NULL;
+    out[m->nfuncs].precedes = NULL;
     out[m->nfuncs].nops = 0;
+    out[m->nfuncs].inline_group_count = m->ninline_pinned_groups;
+}
+
+static bool find_inst_position(const IrFunc *f, const IrInst *needle,
+                               u32 *block, u32 *position)
+{
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        const IrInst *in;
+        u32 pos = 0;
+
+        for (in = f->blocks[bi].first; in; in = in->next, pos++)
+            if (in == needle) {
+                *block = bi;
+                *position = pos;
+                return true;
+            }
+    }
+    return false;
+}
+
+static bool snapshot_order_preserved(Arena *scratch, const IrFunc *f,
+                                     const IrVolatileSnapshot *snapshot)
+{
+    IrDomTree *dom;
+    u32 *blocks, *positions;
+    u32 i, j;
+
+    if (!snapshot->nops)
+        return true;
+    blocks =
+        arena_alloc(scratch, snapshot->nops * sizeof(*blocks), _Alignof(u32));
+    positions = arena_alloc(scratch, snapshot->nops * sizeof(*positions),
+                            _Alignof(u32));
+    for (i = 0; i < snapshot->nops; i++)
+        if (!find_inst_position(f, snapshot->ops[i], &blocks[i], &positions[i]))
+            return false;
+    dom = ir_domtree_build(scratch, f);
+    for (i = 0; i < snapshot->nops; i++)
+        for (j = 0; j < snapshot->nops; j++) {
+            bool still_precedes;
+
+            if (!snapshot->precedes[(size_t)i * snapshot->nops + j])
+                continue;
+            still_precedes = blocks[i] == blocks[j]
+                                 ? positions[i] < positions[j]
+                                 : ir_dominates(dom, (BlockId){blocks[i] + 1},
+                                                (BlockId){blocks[j] + 1});
+            if (!still_precedes)
+                return false;
+        }
+    return true;
 }
 
 static u32 pinned_count(const IrFunc *f)
@@ -1074,11 +1150,12 @@ static bool pinned_order_matches(const IrModule *m,
                                  const IrVolatileSnapshot *before,
                                  bool allow_removed_funcs, u32 *bad_func)
 {
+    Arena scratch;
     u32 fi, si;
 
+    arena_init(&scratch);
     for (si = 0; before[si].func_name; si++) {
         const IrFunc *f;
-        u32 bi, at = 0;
 
         if (!before[si].nops)
             continue;
@@ -1087,16 +1164,8 @@ static bool pinned_order_matches(const IrModule *m,
             continue;
         if (!f || pinned_count(f) != before[si].nops)
             goto mismatch;
-        for (bi = 0; bi < f->nblocks; bi++) {
-            const IrInst *in;
-
-            for (in = f->blocks[bi].first; in; in = in->next) {
-                if (!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST)))
-                    continue;
-                if (before[si].ops[at++] != in)
-                    goto mismatch;
-            }
-        }
+        if (!snapshot_order_preserved(&scratch, f, &before[si]))
+            goto mismatch;
     }
     /* A newly introduced volatile-bearing function has no snapshot row. */
     for (fi = 0; fi < m->nfuncs; fi++) {
@@ -1105,9 +1174,11 @@ static bool pinned_order_matches(const IrModule *m,
         if (!find_snapshot(before, m->funcs[fi].name))
             goto mismatch;
     }
+    arena_free_all(&scratch);
     return true;
 
 mismatch:
+    arena_free_all(&scratch);
     if (bad_func)
         *bad_func = fi < m->nfuncs ? fi : m->nfuncs;
     return false;
@@ -1157,35 +1228,376 @@ static bool snapshot_has_metadata(const IrVolatileSnapshot *before,
     return false;
 }
 
+static bool inst_precedes(const IrDomTree *dom, u32 ablock, u32 apos,
+                          u32 bblock, u32 bpos)
+{
+    return ablock == bblock ? apos < bpos
+                            : ir_dominates(dom, (BlockId){ablock + 1},
+                                           (BlockId){bblock + 1});
+}
+
+void ir_capture_inline_pinned_plan(IrModule *m, const IrFunc *caller,
+                                   const IrInst *call, const IrFunc *source,
+                                   IrInlinePinnedPlan *out)
+{
+    Arena scratch;
+    IrDomTree *dom;
+    u32 call_block, call_position;
+    u32 bi, oi = 0, ai = 0;
+
+    memset(out, 0, sizeof(*out));
+    out->nops = pinned_count(source);
+    out->nanchors = pinned_count(caller);
+    if (!out->nops)
+        return;
+    out->sources =
+        arena_alloc(m->arena, (size_t)out->nops * sizeof(*out->sources),
+                    _Alignof(IrInst *));
+    if (out->nanchors) {
+        out->anchors =
+            arena_alloc(m->arena, (size_t)out->nanchors * sizeof(*out->anchors),
+                        _Alignof(IrInst *));
+        out->anchor_precedes_call = arena_alloc(
+            m->arena,
+            (size_t)out->nanchors * sizeof(*out->anchor_precedes_call),
+            _Alignof(bool));
+        out->call_precedes_anchor = arena_alloc(
+            m->arena,
+            (size_t)out->nanchors * sizeof(*out->call_precedes_anchor),
+            _Alignof(bool));
+    }
+    if (!find_inst_position(caller, call, &call_block, &call_position))
+        CGF_ICE("inline: call site disappeared before pinned capture");
+    arena_init(&scratch);
+    dom = ir_domtree_build(&scratch, caller);
+    for (bi = 0; bi < caller->nblocks; bi++) {
+        const IrInst *in;
+        u32 position = 0;
+
+        for (in = caller->blocks[bi].first; in; in = in->next, position++)
+            if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) {
+                out->anchors[ai] = in;
+                out->anchor_precedes_call[ai] =
+                    inst_precedes(dom, bi, position, call_block, call_position);
+                out->call_precedes_anchor[ai] =
+                    inst_precedes(dom, call_block, call_position, bi, position);
+                ai++;
+            }
+    }
+    for (bi = 0; bi < source->nblocks; bi++) {
+        const IrInst *in;
+
+        for (in = source->blocks[bi].first; in; in = in->next)
+            if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST))
+                out->sources[oi++] = in;
+    }
+    if (ai != out->nanchors || oi != out->nops)
+        CGF_ICE("inline: pinned capture count disagrees with CFG");
+    arena_free_all(&scratch);
+}
+
+void ir_record_inline_pinned_group(IrModule *m, IrFunc *caller,
+                                   const IrFunc *source,
+                                   const IrInlinePinnedPlan *plan,
+                                   IrInst **clones, u32 nops)
+{
+    Arena scratch;
+    IrInlinePinnedGroup *group;
+    IrDomTree *source_dom;
+    u32 *source_blocks, *source_positions;
+    u32 i, j;
+
+    if (!nops)
+        return;
+    if (m->ninline_pinned_groups == m->cap_inline_pinned_groups) {
+        u32 oldcap = m->cap_inline_pinned_groups;
+        u32 newcap = oldcap ? oldcap * 2 : 8;
+        IrInlinePinnedGroup *next =
+            arena_alloc(m->arena, (size_t)newcap * sizeof(*next),
+                        _Alignof(IrInlinePinnedGroup));
+
+        if (m->ninline_pinned_groups)
+            memcpy(next, m->inline_pinned_groups,
+                   (size_t)m->ninline_pinned_groups * sizeof(*next));
+        m->inline_pinned_groups = next;
+        m->cap_inline_pinned_groups = newcap;
+    }
+    group = &m->inline_pinned_groups[m->ninline_pinned_groups++];
+    memset(group, 0, sizeof(*group));
+    group->caller_name = caller->name;
+    group->source_name = source->name;
+    if (nops != plan->nops)
+        CGF_ICE("inline: pinned clone count disagrees with capture");
+    group->nops = nops;
+    group->sources = arena_alloc(
+        m->arena, (size_t)nops * sizeof(*plan->sources), _Alignof(IrInst *));
+    group->clones = arena_alloc(m->arena, (size_t)nops * sizeof(*clones),
+                                _Alignof(IrInst *));
+    group->precedes = arena_alloc(m->arena, (size_t)nops * nops, _Alignof(u8));
+    memcpy((void *)group->sources, plan->sources,
+           (size_t)nops * sizeof(*plan->sources));
+    memcpy(group->clones, clones, (size_t)nops * sizeof(*clones));
+    memset(group->precedes, 0, (size_t)nops * nops);
+
+    group->nanchors = plan->nanchors;
+    if (plan->nanchors) {
+        group->anchors = arena_alloc(
+            m->arena, (size_t)plan->nanchors * sizeof(*group->anchors),
+            _Alignof(IrInst *));
+        group->anchor_precedes =
+            arena_alloc(m->arena, (size_t)plan->nanchors * nops, _Alignof(u8));
+        group->clone_precedes =
+            arena_alloc(m->arena, (size_t)nops * plan->nanchors, _Alignof(u8));
+        memset(group->anchor_precedes, 0, (size_t)plan->nanchors * nops);
+        memset(group->clone_precedes, 0, (size_t)nops * plan->nanchors);
+        memcpy((void *)group->anchors, plan->anchors,
+               (size_t)plan->nanchors * sizeof(*plan->anchors));
+    }
+
+    arena_init(&scratch);
+    source_blocks = arena_alloc(&scratch, (size_t)nops * sizeof(*source_blocks),
+                                _Alignof(u32));
+    source_positions = arena_alloc(
+        &scratch, (size_t)nops * sizeof(*source_positions), _Alignof(u32));
+    for (i = 0; i < nops; i++)
+        if (!find_inst_position(source, plan->sources[i], &source_blocks[i],
+                                &source_positions[i]))
+            CGF_ICE("inline: pinned clone provenance lost during splice");
+    source_dom = ir_domtree_build(&scratch, source);
+    for (i = 0; i < nops; i++) {
+        bool source_dominates_returns = true;
+
+        for (j = 0; j < nops; j++)
+            if (i != j &&
+                inst_precedes(source_dom, source_blocks[i], source_positions[i],
+                              source_blocks[j], source_positions[j]))
+                group->precedes[(size_t)i * nops + j] = 1;
+        for (j = 0; j < source->nblocks; j++) {
+            const IrInst *ret = source->blocks[j].last;
+            u32 ret_block, ret_position;
+
+            if (!ret || ret->op != IR_RET)
+                continue;
+            if (!find_inst_position(source, ret, &ret_block, &ret_position) ||
+                !inst_precedes(source_dom, source_blocks[i],
+                               source_positions[i], ret_block, ret_position))
+                source_dominates_returns = false;
+        }
+        for (j = 0; j < plan->nanchors; j++) {
+            if (plan->anchor_precedes_call[j])
+                group->anchor_precedes[(size_t)j * nops + i] = 1;
+            if (plan->call_precedes_anchor[j] && source_dominates_returns)
+                group->clone_precedes[(size_t)i * plan->nanchors + j] = 1;
+        }
+    }
+    arena_free_all(&scratch);
+}
+
+static bool recorded_clone_before(const IrModule *m, u32 first_group,
+                                  u32 end_group, const IrInst *needle)
+{
+    u32 gi, oi;
+
+    for (gi = first_group; gi < end_group; gi++)
+        for (oi = 0; oi < m->inline_pinned_groups[gi].nops; oi++)
+            if (m->inline_pinned_groups[gi].clones[oi] == needle)
+                return true;
+    return false;
+}
+
+static u32 recorded_clone_count(const IrModule *m, u32 first_group,
+                                const IrInst *needle)
+{
+    u32 gi, oi, count = 0;
+
+    for (gi = first_group; gi < m->ninline_pinned_groups; gi++)
+        for (oi = 0; oi < m->inline_pinned_groups[gi].nops; oi++)
+            count += m->inline_pinned_groups[gi].clones[oi] == needle;
+    return count;
+}
+
+static u32 inline_expected_anchor_count(const IrModule *m,
+                                        const IrVolatileSnapshot *before,
+                                        u32 first_group, u32 gi,
+                                        const char *caller_name)
+{
+    const IrVolatileSnapshot *snapshot = find_snapshot(before, caller_name);
+    u32 count = snapshot ? snapshot->nops : 0;
+
+    for (; first_group < gi; first_group++)
+        if (strcmp(m->inline_pinned_groups[first_group].caller_name,
+                   caller_name) == 0)
+            count += m->inline_pinned_groups[first_group].nops;
+    return count;
+}
+
+static bool inline_is_expected_anchor(const IrModule *m,
+                                      const IrVolatileSnapshot *before,
+                                      u32 first_group, u32 gi,
+                                      const char *caller_name,
+                                      const IrInst *needle)
+{
+    const IrVolatileSnapshot *snapshot = find_snapshot(before, caller_name);
+    u32 oi;
+
+    if (snapshot)
+        for (oi = 0; oi < snapshot->nops; oi++)
+            if (snapshot->ops[oi] == needle)
+                return true;
+    for (; first_group < gi; first_group++) {
+        const IrInlinePinnedGroup *prior =
+            &m->inline_pinned_groups[first_group];
+
+        if (strcmp(prior->caller_name, caller_name) != 0)
+            continue;
+        for (oi = 0; oi < prior->nops; oi++)
+            if (prior->clones[oi] == needle)
+                return true;
+    }
+    return false;
+}
+
+static u32 inline_anchor_occurrences(const IrInlinePinnedGroup *group,
+                                     const IrInst *needle)
+{
+    u32 i, count = 0;
+
+    for (i = 0; i < group->nanchors; i++)
+        count += group->anchors[i] == needle;
+    return count;
+}
+
+static bool inline_group_matches(Arena *scratch, const IrModule *m,
+                                 const IrVolatileSnapshot *before,
+                                 u32 first_group, u32 gi, u32 *bad_func)
+{
+    const IrInlinePinnedGroup *group = &m->inline_pinned_groups[gi];
+    const IrFunc *caller, *source;
+    IrDomTree *dom;
+    u32 *clone_blocks, *clone_positions, *anchor_blocks, *anchor_positions;
+    u32 fi, i, j;
+
+    caller = find_func_named(m, group->caller_name, &fi);
+    if (!caller || !group->nops)
+        goto mismatch;
+    source = find_func_named(m, group->source_name, NULL);
+    if (!source || pinned_count(source) != group->nops)
+        goto mismatch;
+    if (group->nanchors != inline_expected_anchor_count(m, before, first_group,
+                                                        gi, group->caller_name))
+        goto mismatch;
+    clone_blocks = arena_alloc(
+        scratch, (size_t)group->nops * sizeof(*clone_blocks), _Alignof(u32));
+    clone_positions = arena_alloc(
+        scratch, (size_t)group->nops * sizeof(*clone_positions), _Alignof(u32));
+    anchor_blocks =
+        arena_alloc(scratch,
+                    (size_t)(group->nanchors ? group->nanchors : 1) *
+                        sizeof(*anchor_blocks),
+                    _Alignof(u32));
+    anchor_positions =
+        arena_alloc(scratch,
+                    (size_t)(group->nanchors ? group->nanchors : 1) *
+                        sizeof(*anchor_positions),
+                    _Alignof(u32));
+    for (i = 0; i < group->nops; i++) {
+        u32 source_block, source_position;
+
+        if ((!snapshot_has_pointer(before, group->sources[i]) &&
+             !recorded_clone_before(m, first_group, gi, group->sources[i])) ||
+            !find_inst_position(source, group->sources[i], &source_block,
+                                &source_position) ||
+            snapshot_has_pointer(before, group->clones[i]) ||
+            group->sources[i] == group->clones[i] ||
+            recorded_clone_before(m, first_group, gi, group->clones[i]) ||
+            !pinned_metadata_eq(group->sources[i], group->clones[i]) ||
+            !find_inst_position(caller, group->clones[i], &clone_blocks[i],
+                                &clone_positions[i]))
+            goto mismatch;
+        for (j = 0; j < i; j++)
+            if (group->sources[j] == group->sources[i] ||
+                group->clones[j] == group->clones[i])
+                goto mismatch;
+    }
+    for (i = 0; i < group->nanchors; i++)
+        if (!inline_is_expected_anchor(m, before, first_group, gi,
+                                       group->caller_name, group->anchors[i]) ||
+            inline_anchor_occurrences(group, group->anchors[i]) != 1 ||
+            !find_inst_position(caller, group->anchors[i], &anchor_blocks[i],
+                                &anchor_positions[i]))
+            goto mismatch;
+    dom = ir_domtree_build(scratch, caller);
+    for (i = 0; i < group->nops; i++) {
+        for (j = 0; j < group->nops; j++)
+            if (group->precedes[(size_t)i * group->nops + j] &&
+                !inst_precedes(dom, clone_blocks[i], clone_positions[i],
+                               clone_blocks[j], clone_positions[j]))
+                goto mismatch;
+        for (j = 0; j < group->nanchors; j++) {
+            if (group->anchor_precedes[(size_t)j * group->nops + i] &&
+                !inst_precedes(dom, anchor_blocks[j], anchor_positions[j],
+                               clone_blocks[i], clone_positions[i]))
+                goto mismatch;
+            if (group->clone_precedes[(size_t)i * group->nanchors + j] &&
+                !inst_precedes(dom, clone_blocks[i], clone_positions[i],
+                               anchor_blocks[j], anchor_positions[j]))
+                goto mismatch;
+        }
+    }
+    return true;
+
+mismatch:
+    if (bad_func)
+        *bad_func = fi < m->nfuncs ? fi : m->nfuncs;
+    return false;
+}
+
 bool ir_pinned_inline_matches(const IrModule *m,
                               const IrVolatileSnapshot *before, u32 *bad_func)
 {
-    u32 si, fi, bi;
+    Arena scratch;
+    u32 si, fi = m->nfuncs, bi, snapshot_rows = 0, first_group;
 
+    arena_init(&scratch);
+    while (before[snapshot_rows].func_name)
+        snapshot_rows++;
+    first_group = before[snapshot_rows].inline_group_count;
+    if (first_group > m->ninline_pinned_groups)
+        goto mismatch;
     /* Every original pinned instruction remains in its original function and
-     * in the original order. New clones may appear between those originals,
-     * but cannot make a moved original look legitimate. */
+     * preserves the snapshot's dominance/order relation. Inlining may split a
+     * block at a call and append its continuation after pre-existing successor
+     * blocks, so global block-document order is not an execution-order
+     * invariant. */
     for (si = 0; before[si].func_name; si++) {
         const IrFunc *f = find_func_named(m, before[si].func_name, &fi);
-        u32 at = 0;
+        u32 oi;
 
         if (!f)
             goto mismatch;
-        for (bi = 0; bi < f->nblocks; bi++) {
-            const IrInst *in;
+        for (oi = 0; oi < before[si].nops; oi++) {
+            u32 found = 0;
 
-            for (in = f->blocks[bi].first; in; in = in->next) {
-                if (!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) ||
-                    !snapshot_has_pointer(before, in))
-                    continue;
-                if (at >= before[si].nops || before[si].ops[at++] != in)
-                    goto mismatch;
+            for (bi = 0; bi < f->nblocks; bi++) {
+                const IrInst *in;
+
+                for (in = f->blocks[bi].first; in; in = in->next)
+                    found += in == before[si].ops[oi];
             }
+            if (found != 1)
+                goto mismatch;
         }
-        if (at != before[si].nops)
+        if (!snapshot_order_preserved(&scratch, f, &before[si]))
             goto mismatch;
     }
-    /* New pinned instructions must be faithful clones of a pre-pass source. */
+    for (si = first_group; si < m->ninline_pinned_groups; si++)
+        if (!inline_group_matches(&scratch, m, before, first_group, si,
+                                  bad_func)) {
+            arena_free_all(&scratch);
+            return false;
+        }
+    /* Every new pinned instruction belongs to exactly one recorded clone
+     * group; metadata coincidence is not provenance. */
     for (fi = 0; fi < m->nfuncs; fi++)
         for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
             const IrInst *in;
@@ -1194,13 +1606,64 @@ bool ir_pinned_inline_matches(const IrModule *m,
                 if (!(in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) ||
                     snapshot_has_pointer(before, in))
                     continue;
-                if (!snapshot_has_metadata(before, in))
+                if (recorded_clone_count(m, first_group, in) != 1)
                     goto mismatch;
             }
         }
+    arena_free_all(&scratch);
     return true;
 
 mismatch:
+    arena_free_all(&scratch);
+    if (bad_func)
+        *bad_func = fi < m->nfuncs ? fi : m->nfuncs;
+    return false;
+}
+
+bool ir_pinned_metadata_clones_match(const IrModule *m,
+                                     const IrVolatileSnapshot *before,
+                                     u32 *bad_func)
+{
+    Arena scratch;
+    u32 si, fi, bi;
+
+    arena_init(&scratch);
+    for (si = 0; before[si].func_name; si++) {
+        const IrFunc *f = find_func_named(m, before[si].func_name, &fi);
+        u32 oi;
+
+        if (!f)
+            goto mismatch;
+        for (oi = 0; oi < before[si].nops; oi++) {
+            u32 found = 0;
+
+            for (bi = 0; bi < f->nblocks; bi++) {
+                const IrInst *in;
+
+                for (in = f->blocks[bi].first; in; in = in->next)
+                    found += in == before[si].ops[oi];
+            }
+            if (found != 1)
+                goto mismatch;
+        }
+        if (!snapshot_order_preserved(&scratch, f, &before[si]))
+            goto mismatch;
+    }
+    for (fi = 0; fi < m->nfuncs; fi++)
+        for (bi = 0; bi < m->funcs[fi].nblocks; bi++) {
+            const IrInst *in;
+
+            for (in = m->funcs[fi].blocks[bi].first; in; in = in->next)
+                if ((in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) &&
+                    !snapshot_has_pointer(before, in) &&
+                    !snapshot_has_metadata(before, in))
+                    goto mismatch;
+        }
+    arena_free_all(&scratch);
+    return true;
+
+mismatch:
+    arena_free_all(&scratch);
     if (bad_func)
         *bad_func = fi < m->nfuncs ? fi : m->nfuncs;
     return false;

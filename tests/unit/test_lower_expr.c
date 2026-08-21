@@ -314,6 +314,192 @@ void test_lower_struct_assign_one_memcpy(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_volatile_aggregate_copy_markers(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "struct S { int a, b; };\n"
+                              "volatile struct S src, dst;\n"
+                              "struct S plain;\n"
+                              "void f(void) {\n"
+                              "  struct S local = src;\n"
+                              "  local = src;\n"
+                              "  dst = plain;\n"
+                              "  plain = plain;\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    T_ASSERT_EQ_INT(t, count_of(ir, "memcpy"), 4);
+    T_ASSERT_EQ_INT(t, count_of(ir, "volatile"), 3);
+    T_ASSERT(t, strstr(ir, "memcpy %0, @src, 8, align 4, volatile") != NULL);
+    T_ASSERT(t,
+             strstr(ir, "memcpy @dst, @plain, 8, align 4, volatile") != NULL);
+    T_ASSERT(t, strstr(ir, "memcpy @plain, @plain, 8, align 4\n") != NULL);
+    low_free(&f);
+}
+
+void test_lower_volatile_aggregate_temporary_markers(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "struct S { int a, b; };\n"
+                              "volatile struct S src;\n"
+                              "struct S plain;\n"
+                              "void f(int c) {\n"
+                              "  plain = c ? src : plain;\n"
+                              "  plain = ({ src; });\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* ?: marks only its volatile arm. The statement expression consumes
+     * src before leaving its scope, then copies its ordinary temporary. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "memcpy"), 5);
+    T_ASSERT_EQ_INT(t, count_of(ir, "volatile"), 2);
+    low_free(&f);
+}
+
+void test_lower_volatile_aggregate_initializer_destinations(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "struct S { int a, b; };\n"
+                              "volatile struct S src;\n"
+                              "void f(void) {\n"
+                              "  volatile struct S copied = src;\n"
+                              "  volatile struct S zero = {0};\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    T_ASSERT_EQ_INT(t, count_of(ir, "memcpy"), 1);
+    T_ASSERT(t, strstr(ir, "memcpy %0, @src, 8, align 4, volatile") != NULL);
+    T_ASSERT(t, strstr(ir, "memset %1, 0, 8, align 4, volatile") != NULL);
+    low_free(&f);
+}
+
+void test_lower_volatile_aggregate_call_and_return_markers(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "struct S { int a, b; };\n"
+                              "volatile struct S src;\n"
+                              "int use(struct S);\n"
+                              "int pass(void) { return use(src); }\n"
+                              "struct S get(void) { return src; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    T_ASSERT(t, strstr(ir, "memcpy %0, @src, 8, align 4, volatile") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @src, align 8, volatile") != NULL);
+    low_free(&f);
+}
+
+void test_lower_volatile_anonymous_and_forwarded_aggregate_args(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(
+        t,
+        run_lower(&f, "struct S { int a, b; };\n"
+                      "volatile struct S vol;\n"
+                      "struct S plain;\n"
+                      "int sink(int, ...);\n"
+                      "static inline int forward(int n, ...) {\n"
+                      "  return sink(n, __builtin_va_arg_pack());\n"
+                      "}\n"
+                      "int direct(void) { return sink(0, vol, plain); }\n"
+                      "int packed(void) { return forward(0, vol, plain); }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* Direct placement stages once. Pack aggregates first snapshot at the
+     * wrapper boundary, then stage that plain snapshot for the inner call. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "memcpy"), 6);
+    T_ASSERT_EQ_INT(t, count_of(ir, "volatile"), 2);
+    T_ASSERT_EQ_INT(t, count_of(ir, "@vol, 8, align 4, volatile"), 2);
+    T_ASSERT_EQ_INT(t, count_of(ir, "@plain, 8, align 4, volatile"), 0);
+    T_ASSERT_EQ_INT(t, count_of(ir, "anon"), 4);
+    low_free(&f);
+}
+
+void test_lower_volatile_va_pack_boundary_capture(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t,
+             run_lower(&f, "struct S { int a, b; };\n"
+                           "volatile struct S vol;\n"
+                           "int sink(int, ...);\n"
+                           "static inline int maybe(int emit, ...) {\n"
+                           "  if (emit) return sink(0, "
+                           "__builtin_va_arg_pack());\n"
+                           "  return 7;\n"
+                           "}\n"
+                           "static inline int twice(int n, ...) {\n"
+                           "  return sink(n, __builtin_va_arg_pack()) +\n"
+                           "         sink(n, __builtin_va_arg_pack());\n"
+                           "}\n"
+                           "int never(void) { return maybe(0, vol); }\n"
+                           "int double_forward(void) { return twice(0, vol); "
+                           "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* One source read per wrapper boundary, irrespective of whether the
+     * pack is forwarded zero/one/two times. Forwarding copies are plain. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "@vol, 8, align 4, volatile"), 2);
+    T_ASSERT_EQ_INT(t, count_of(ir, "volatile"), 2);
+    T_ASSERT_EQ_INT(t, count_of(ir, "memcpy"), 5);
+    T_ASSERT_EQ_INT(t, count_of(ir, "anon"), 3);
+    low_free(&f);
+}
+
+void test_lower_volatile_aggregate_return_abi_matrix(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "struct S1 { char x; };\n"
+                              "struct S8 { long x; };\n"
+                              "struct S16 { long x, y; };\n"
+                              "struct S24 { long x, y, z; };\n"
+                              "volatile struct S1 v1; struct S1 p1;\n"
+                              "volatile struct S8 v8; struct S8 p8;\n"
+                              "volatile struct S16 v16; struct S16 p16;\n"
+                              "volatile struct S24 v24; struct S24 p24;\n"
+                              "int sink(int, ...);\n"
+                              "struct S1 r1v(void) { return v1; }\n"
+                              "struct S1 r1p(void) { return p1; }\n"
+                              "struct S8 r8v(void) { return v8; }\n"
+                              "struct S8 r8p(void) { return p8; }\n"
+                              "struct S16 r16v(void) { return v16; }\n"
+                              "struct S16 r16p(void) { return p16; }\n"
+                              "struct S24 r24v(void) { return v24; }\n"
+                              "struct S24 r24p(void) { return p24; }\n"
+                              "static inline struct S24 wrap(int n, ...) {\n"
+                              "  sink(n, __builtin_va_arg_pack());\n"
+                              "  return v24;\n"
+                              "}\n"
+                              "long wrapped(void) { return wrap(0, 1).x; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* Sub-eightbyte staging, exact-eightbyte wire load, pair/SRET copies,
+     * and the specialized wrapper return each carry exactly one marker. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "memcpy"), 7);
+    T_ASSERT_EQ_INT(t, count_of(ir, "volatile"), 5);
+    T_ASSERT(t, strstr(ir, "@v1, 1, align 1, volatile") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @v8, align 8, volatile") != NULL);
+    T_ASSERT(t, strstr(ir, "@v16, 16, align 8, volatile") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(ir, "@v24, 24, align 8, volatile"), 2);
+    T_ASSERT_EQ_INT(t, count_of(ir, "@p1, 1, align 1, volatile"), 0);
+    T_ASSERT_EQ_INT(t, count_of(ir, "load i64, @p8, align 8, volatile"), 0);
+    T_ASSERT_EQ_INT(t, count_of(ir, "@p16, 16, align 8, volatile"), 0);
+    T_ASSERT_EQ_INT(t, count_of(ir, "@p24, 24, align 8, volatile"), 0);
+    low_free(&f);
+}
+
 void test_lower_call_site_copy(TestCtx *t)
 {
     LowFix f;

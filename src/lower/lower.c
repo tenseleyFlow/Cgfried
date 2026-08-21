@@ -122,6 +122,37 @@ void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
     ir_build_memcpy(&lo->b, dst, src, lower_i64((i64)l.size), align, flags);
 }
 
+/* IR-H-05: aggregate rvalues are represented by addresses, so the ordinary
+ * operand cannot say whether consuming that address performs a volatile access.
+ * Keep that source-language fact beside lowering instead of leaking it into
+ * IrOperand (whose flags describe call ABI operands). Materialized aggregate
+ * values such as calls and ?: temporaries are deliberately nonvolatile; the
+ * copy that materializes them carries the selected source's marker. */
+u8 lower_aggregate_access_flags(const AstNode *e)
+{
+    if (!e || !lower_is_aggregate(e->sem_type))
+        return 0;
+    if (e->is_lvalue && (e->sem_type->quals & CGF_QUAL_VOLATILE))
+        return IRF_VOLATILE;
+    switch (e->kind) {
+    case AST_EXPR_PAREN:
+    case AST_EXPR_CAST:
+        return lower_aggregate_access_flags(e->lhs);
+    case AST_EXPR_BINARY:
+        if (e->op == PUNCT_COMMA)
+            return lower_aggregate_access_flags(e->rhs);
+        if (e->op == PUNCT_ASSIGN)
+            return lower_aggregate_access_flags(e->lhs);
+        return 0;
+    case AST_EXPR_GENERIC:
+        return lower_aggregate_access_flags(e->mid);
+    case AST_EXPR_CHOOSE_EXPR:
+        return lower_aggregate_access_flags(e->choose_taken ? e->mid : e->rhs);
+    default:
+        return 0;
+    }
+}
+
 IrType lower_irtype(Lower *lo, const Type *t)
 {
     switch (t->kind) {

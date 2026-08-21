@@ -780,6 +780,31 @@ typedef struct IrAsm {
     u32 nclobber_regs;
 } IrAsm;
 
+/* Transient verifier provenance for one inlined set of pinned operations.
+ * The inliner records exact source/clone identities plus source order and
+ * caller-anchor expectations derived before the call-site splice. */
+typedef struct IrInlinePinnedGroup {
+    const char *caller_name;
+    const char *source_name;
+    const IrInst **sources;
+    IrInst **clones;
+    u8 *precedes;
+    const IrInst **anchors;
+    u8 *anchor_precedes;
+    u8 *clone_precedes;
+    u32 nops;
+    u32 nanchors;
+} IrInlinePinnedGroup;
+
+typedef struct IrInlinePinnedPlan {
+    const IrInst **sources;
+    const IrInst **anchors;
+    bool *anchor_precedes_call;
+    bool *call_precedes_anchor;
+    u32 nops;
+    u32 nanchors;
+} IrInlinePinnedPlan;
+
 typedef struct IrModule {
     Arena *arena;
     DiagCtx *dc;
@@ -821,6 +846,9 @@ typedef struct IrModule {
     u32 cap_file_asms;
     u32 naliases;
     u32 cap_aliases;
+    IrInlinePinnedGroup *inline_pinned_groups;
+    u32 ninline_pinned_groups;
+    u32 cap_inline_pinned_groups;
 } IrModule;
 
 /* --- construction (src/ir/ir.c, src/ir/build.c) -------------------------- */
@@ -1046,7 +1074,11 @@ bool ir_volatile_counts_match(const IrModule *m, const u32 *before,
 typedef struct IrVolatileSnapshot {
     const char *func_name;
     const IrInst **ops;
+    /* Row-major partial order: PRECEDES[a*nops+b] means operation a must
+     * still dominate/precede operation b after a CFG transformation. */
+    u8 *precedes;
     u32 nops;
+    u32 inline_group_count;
 } IrVolatileSnapshot;
 /* `out` has m->nfuncs + 1 entries; the final func_name is NULL.  Stable
  * function identity lets an interprocedural pass compact nonvolatile dead
@@ -1060,5 +1092,15 @@ bool ir_pinned_delete_funcs_matches(const IrModule *m,
                                     u32 *bad_func);
 bool ir_pinned_inline_matches(const IrModule *m,
                               const IrVolatileSnapshot *before, u32 *bad_func);
+bool ir_pinned_metadata_clones_match(const IrModule *m,
+                                     const IrVolatileSnapshot *before,
+                                     u32 *bad_func);
+void ir_capture_inline_pinned_plan(IrModule *m, const IrFunc *caller,
+                                   const IrInst *call, const IrFunc *source,
+                                   IrInlinePinnedPlan *out);
+void ir_record_inline_pinned_group(IrModule *m, IrFunc *caller,
+                                   const IrFunc *source,
+                                   const IrInlinePinnedPlan *plan,
+                                   IrInst **clones, u32 nops);
 
 #endif

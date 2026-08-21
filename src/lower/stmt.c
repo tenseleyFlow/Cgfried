@@ -1006,7 +1006,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
                 if (lower_is_aggregate(ret)) {
                     lower_memcpy_aggregate(
                         lo, ir_op_value(lo->fn, ctx->return_slot), value, ret,
-                        (u32)l.align, 0);
+                        (u32)l.align, lower_aggregate_access_flags(s->lhs));
                 } else {
                     ir_build_store_typed(&lo->b, value,
                                          ir_op_value(lo->fn, ctx->return_slot),
@@ -1065,7 +1065,8 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             TypeLayout l = layout_of(lo->sema, s->lhs->sem_type);
 
             lower_memcpy_aggregate(lo, ir_op_value(lo->fn, lo->sret), src,
-                                   s->lhs->sem_type, (u32)l.align, 0);
+                                   s->lhs->sem_type, (u32)l.align,
+                                   lower_aggregate_access_flags(s->lhs));
         } else if (lo->cur_abi_ret && lo->cur_abi_ret->kind == ABI_RET_SMALL) {
             /* A small aggregate travels as one wire scalar. Usually that is
              * an eightbyte i64/f64; IR-C-01 also uses an f80 for the exact
@@ -1075,19 +1076,23 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             IrOperand src = lower_rvalue(lo, s->lhs);
             AbiRet *ar = lo->cur_abi_ret;
             IrOperand from = src;
+            u8 access_flags = lower_aggregate_access_flags(s->lhs);
             Lvalue lv;
 
             if (ar->size < 8) {
                 ValueId tmp = ir_build_alloca(&lo->b, lower_i64(8), 8);
 
                 lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), src,
-                                       s->lhs->sem_type, ar->align, 0);
+                                       s->lhs->sem_type, ar->align,
+                                       access_flags);
                 from = ir_op_value(lo->fn, tmp);
             }
             memset(&lv, 0, sizeof(lv));
             lv.addr = from;
             lv.unit = ar->small_t;
             lv.align = ar->align > 8 ? ar->align : 8;
+            lv.is_volatile =
+                ar->size >= 8 && (access_flags & IRF_VOLATILE) != 0;
             rv = lower_load(lo, lv);
             have_rv = true;
         } else {
@@ -1149,6 +1154,15 @@ IrOperand lower_stmt_expr(Lower *lo, AstNode *e)
         lower_stmt(lo, body->items[i]);
     if (last && !lo->terminated)
         v = lower_rvalue(lo, last->lhs);
+    if (last && !lo->terminated &&
+        (lower_aggregate_access_flags(last->lhs) & IRF_VOLATILE)) {
+        TypeLayout l = layout_of(lo->sema, e->sem_type);
+        ValueId tmp = lower_temp(lo, e->sem_type);
+
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), v, e->sem_type,
+                               (u32)l.align, IRF_VOLATILE);
+        v = ir_op_value(lo->fn, tmp);
+    }
     if (!lo->terminated)
         scope_exit_here(lo, &scope);
     lo->scopes = scope.prev;

@@ -467,10 +467,17 @@ static bool inline_site(IrModule *m, IrFunc *caller, const IrFunc *callee,
     ValueId join_value = VALUE_INVALID;
     IrOperand single_result = {0};
     IrBlock *call_block;
-    u32 bi, i;
+    IrInlinePinnedPlan pinned_plan;
+    IrInst **pinned_clones = NULL;
+    u32 bi, i, pinned_at = 0;
 
     for (IrInst *in = suffix; in; in = in->next)
         suffix_count++;
+    ir_capture_inline_pinned_plan(m, caller, site->call, callee, &pinned_plan);
+    if (pinned_plan.nops)
+        pinned_clones = arena_alloc(
+            m->arena, (size_t)pinned_plan.nops * sizeof(*pinned_clones),
+            _Alignof(IrInst *));
     map = arena_alloc(m->arena, (callee->nvals + 1) * sizeof(*map),
                       _Alignof(IrOperand));
     memset(map, 0, (callee->nvals + 1) * sizeof(*map));
@@ -548,6 +555,13 @@ static bool inline_site(IrModule *m, IrFunc *caller, const IrFunc *callee,
             for (i = 0; i < clone->nedges; i++)
                 clone->edges[i].target = blocks[clone->edges[i].target.v - 1];
             append_inst(dst, clone);
+            if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) {
+                if (pinned_at >= pinned_plan.nops ||
+                    pinned_plan.sources[pinned_at] != in)
+                    CGF_ICE(
+                        "inline: pinned clone order disagrees with capture");
+                pinned_clones[pinned_at++] = clone;
+            }
         }
     }
     append_local_slots(m, caller, callee, map);
@@ -601,6 +615,10 @@ static bool inline_site(IrModule *m, IrFunc *caller, const IrFunc *callee,
         if (site->call->result.v)
             replace_value(caller, site->call->result, single_result);
     }
+    if (pinned_at != pinned_plan.nops)
+        CGF_ICE("inline: pinned clone count disagrees with source");
+    ir_record_inline_pinned_group(m, caller, callee, &pinned_plan,
+                                  pinned_clones, pinned_plan.nops);
     return true;
 }
 
