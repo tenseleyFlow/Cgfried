@@ -27,3 +27,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `b287c2ef` | `MS-C-05` origin-relative heap-pointer validation repair | 0 | 20 | 16 | 2 | 38 |
 | 2026-08-20 | `21acc9fc` | `SEMA-H-07` selected `_Generic` constant-expression repair | 0 | 19 | 16 | 2 | 37 |
 | 2026-08-20 | `d3be586f` | `RT-H-01` target-layout long-double predefine repair | 0 | 18 | 16 | 2 | 36 |
+| 2026-08-20 | `f6ffc1d1` | `OPT-H-04` exact alias-identity proof repair | 0 | 17 | 16 | 2 | 35 |

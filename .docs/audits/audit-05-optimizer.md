@@ -62,22 +62,26 @@ uses an exact-trip full-unroll loop; O2 is the pass-absent control because the
 unroller runs only at O3 and has no independent disable switch.
 Affected sprints: 34, 35.
 
-ID: `OPT-H-04`
-Title: correlated pointer selects collapse to a false must-alias proof
-Severity: High — valid ISO C returns the wrong result at O2/O3.  GCC and
-Clang under strict C17 O3, plus Cgfried O0/O1, return the required result on
-both runtime-selected paths.
-Reproducer: `tests/audit-regressions/opt-h-04.c`
-Root cause: `src/opt/simplify_cfg.c:368-445` turns the two conditional pointer
-diamonds into opposite `select` expressions.  `src/opt/alias.c:678-685`
-unions each select's two offsets into the same convex `[0,4]` range.  The
-points-to set is one alloca for both pointers, so `alias_query` at
-`src/opt/alias.c:1137-1147` mistakes equal abstract footprints for a
-must-alias proof even though path correlation makes the concrete pointers
-opposites.  `src/opt/gvn.c:390-410` then forwards the second store (`22`) into
-the load through the first pointer.  The gate pins host/O0/O1 controls, both
-runtime paths, and the simplify-CFG-to-GVN phase boundary.
-Affected sprints: 31, 32.
+~~ID: `OPT-H-04`~~
+~~Title: correlated pointer selects collapse to a false must-alias proof~~
+~~Severity: High — valid ISO C returns the wrong result at O2/O3.  GCC and~~
+~~Clang under strict C17 O3, plus Cgfried O0/O1, return the required result on~~
+~~both runtime-selected paths.~~
+~~Reproducer: `tests/audit-regressions/opt-h-04.c`~~
+~~Root cause: `src/opt/simplify_cfg.c:368-445` turns the two conditional pointer~~
+~~diamonds into opposite `select` expressions.  `src/opt/alias.c:678-685`~~
+~~unions each select's two offsets into the same convex `[0,4]` range.  The~~
+~~points-to set is one alloca for both pointers, so `alias_query` at~~
+~~`src/opt/alias.c:1137-1147` mistakes equal abstract footprints for a~~
+~~must-alias proof even though path correlation makes the concrete pointers~~
+~~opposites.  `src/opt/gvn.c:390-410` then forwards the second store (`22`) into~~
+~~the load through the first pointer.  The gate pins host/O0/O1 controls, both~~
+~~runtime paths, and the simplify-CFG-to-GVN phase boundary.~~
+~~Affected sprints: 31, 32.~~
+Resolution: RESOLVED 2026-08-20 by `f6ffc1d1`. Equal convex hulls yield MUST or
+pathwise coverage only for the identical operand or independently exact
+locations. GVN and DSE retain observable accesses, while exact-location
+precision and all 25 independent oracle cells remain green.
 
 ## Probes without findings
 
@@ -109,10 +113,10 @@ Affected sprints: 31, 32.
   character/union wildcards. Every `NO` and `MUST` answer is tested only in
   its proof direction against four independently enumerated selector
   environments, and query symmetry is mandatory; `MAY` remains
-  conservatively acceptable. The two expected unsound cells are correlated
-  and independent-select instances of the already-filed `OPT-H-04` false-MUST
-  root cause; all 25 cells / 100 concrete environments produced zero new
-  unexpected results.
+  conservatively acceptable. At Sprint 60 close, two expected-unsound cells
+  captured the correlated and independent-select instances of `OPT-H-04`.
+  Remediation `f6ffc1d1` removed that exception: both are ordinary MAY cells,
+  and all 25 cells / 100 concrete environments remain sound.
 - Verifier-backed full program coverage: 639/639 program fixtures passed with
   `CGF_VERIFY_AFTER_EACH=1` on 2026-08-20; the imported O2 matrix completed
   with every row classified by its existing policy.
