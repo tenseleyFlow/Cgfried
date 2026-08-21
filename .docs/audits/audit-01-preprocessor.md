@@ -63,16 +63,21 @@ spelling at the outer invocation. Lexer tokens carry that exact source
 location into parser diagnostics, so the primary caret and macro notes remain
 consistent.
 
-ID: `PP-L-03`
-Title: full macro backtraces stop after 256 frames
-Severity: Low — this is a diagnostics completeness defect on unusually deep
-but valid macro chains, not a semantic compiler failure.
-Reproducer: `tests/audit-regressions/pp-l-03.c`
-Root cause: `src/pp/loc.c:208-229` says full mode disables the eight-frame
-cap but collects frames in fixed 256-entry arrays and silently breaks at the
-array bound. The reproducer emits exactly 256 expansion notes and omits the
-outermost invocation under `CGF_DIAG_FULL_BACKTRACE=1`.
-Affected sprint: 7.
+~~ID: `PP-L-03`~~
+~~Title: full macro backtraces stop after 256 frames~~
+~~Severity: Low — this is a diagnostics completeness defect on unusually deep~~
+~~but valid macro chains, not a semantic compiler failure.~~
+~~Reproducer: `tests/audit-regressions/pp-l-03.c`~~
+~~Root cause: `src/pp/loc.c:208-229` says full mode disables the eight-frame~~
+~~cap but collects frames in fixed 256-entry arrays and silently breaks at the~~
+~~array bound. The reproducer emits exactly 256 expansion notes and omits the~~
+~~outermost invocation under `CGF_DIAG_FULL_BACKTRACE=1`.~~
+~~Affected sprint: 7.~~
+Resolution: RESOLVED 2026-08-20 by `addf16b7`. Full mode now measures the exact
+expansion depth with a location-table cycle bound and allocates exact-sized
+frame/name arrays under the compiler's fail-closed allocation policy. The
+ordinary 4-head/elision/3-tail presentation remains unchanged; 300-frame unit
+coverage and the 272-unique-name audit fixture report every full-mode frame.
 
 ~~ID: `PP-M-04`~~
 ~~Title: pre-expanded arguments lose their inner macro backtrace~~
@@ -98,8 +103,8 @@ exact `BAD` -> `ID` -> `OUT` chain without duplicating `OUT`.
 - Blue-paint/rescan and paste/placemarker rules: focused matrix complete and
   clean in both modes.
 - Location-chain integrity: complete across `#line`, nested, raw,
-  pre-expanded, and pasted paths; `PP-M-02` and `PP-M-04` are resolved while
-  `PP-L-03` remains confirmed.
+  pre-expanded, and pasted paths; `PP-M-02`, `PP-M-04`, and `PP-L-03` are
+  resolved.
 
 ## Unverified observations
 
