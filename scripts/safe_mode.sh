@@ -93,6 +93,28 @@ expect_exit 1 "$CGF" -fsafe -fsyntax-only \
     tests/memsafe/safe-link/required-mem-pragma.c
 grep -Fq 'error: read of uninitialized heap memory' "$WORK/cmd.err"
 
+# MS-C-04: proven-null accesses are optional warnings in ordinary C mode but
+# an unweakenable compile-time error under -fsafe, including source pragmas.
+expect_exit 0 "$CGF" -fsyntax-only \
+    tests/memsafe/safe-link/required-null-diagnostic.c
+expect_exit 0 "$CGF" -Wno-null-dereference -fsyntax-only \
+    tests/audit-regressions/ms-c-04.c
+expect_exit 0 "$CGF" -Wnull-dereference -fsyntax-only \
+    tests/audit-regressions/ms-c-04.c
+grep -Fq 'warning: dereference of a pointer proven to be null' "$WORK/cmd.err"
+expect_exit 1 "$CGF" -Werror=null-dereference -fsyntax-only \
+    tests/audit-regressions/ms-c-04.c
+grep -Fq 'error: dereference of a pointer proven to be null' "$WORK/cmd.err"
+expect_exit 1 "$CGF" -fsafe -Wno-null-dereference -fsyntax-only \
+    tests/audit-regressions/ms-c-04.c
+grep -Fq 'error: dereference of a pointer proven to be null' "$WORK/cmd.err"
+expect_exit 1 "$CGF" -fsafe -Wno-error=null-dereference -fsyntax-only \
+    tests/audit-regressions/ms-c-04.c
+grep -Fq 'error: dereference of a pointer proven to be null' "$WORK/cmd.err"
+expect_exit 1 "$CGF" -fsafe -fsyntax-only \
+    tests/memsafe/safe-link/required-null-diagnostic.c
+grep -Fq 'error: dereference of a pointer proven to be null' "$WORK/cmd.err"
+
 "$CGF" -fsafe -c "$ROOT/main.c" -o "$WORK/main.safe.o"
 "$CGF" -fsafe -c "$ROOT/helper.c" -o "$WORK/helper.safe.o"
 "$CGF" -c "$ROOT/helper.c" -o "$WORK/helper.unsafe.o"

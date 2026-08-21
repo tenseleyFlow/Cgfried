@@ -1,4 +1,4 @@
-// XFAIL(audit): MS-C-04 -fsafe accepts a statically proven null dereference
+// RESOLVED(audit): MS-C-04 -fsafe accepts a statically proven null dereference
 // Reproduce with:
 //   build/cgfried -fsafe -fsyntax-only tests/audit-regressions/ms-c-04.c
 // doc/safe-mode.md promises that proven-null dereferences in the default

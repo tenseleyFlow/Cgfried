@@ -46,7 +46,7 @@ TI-M-03	ti-m-03.sh	OPEN	every live c-testsuite debt row cites an obsolete failur
 MS-C-01	ms-c-01.c	PASS	an exact warning opt-out weakens -fsafe initialization safety
 MS-M-02	ms-m-02.c	OPEN	a nonheap equality guard leaves an infeasible leak path
 MS-M-03	ms-m-03.c	OPEN	freopen replacement is falsely reported as leaked
-MS-C-04	ms-c-04.c	OPEN	-fsafe accepts a statically proven null dereference
+MS-C-04	ms-c-04.c	PASS	-fsafe accepts a statically proven null dereference
 MS-C-05	ms-c-05.c	OPEN	far heap out-of-bounds pointers evade the runtime registry
 DET-M-01	det-m-01.sh	OPEN	blocking compile gates have no per-metric noise evidence
 DET-M-02	det-m-02.sh	OPEN	stage1 timing derives MAD from a single sample

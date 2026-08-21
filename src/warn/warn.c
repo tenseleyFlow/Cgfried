@@ -601,7 +601,8 @@ static bool fsafe_required_warning(WarnId id)
 {
     const WarnInfo *info = warn_info_for_id(id);
 
-    return info && ((info->groups & WG_MEM) || id == WARN_UNINITIALIZED);
+    return info && ((info->groups & WG_MEM) || id == WARN_UNINITIALIZED ||
+                    id == WARN_NULL_DEREFERENCE);
 }
 
 /* Returns -1 suppressed, DIAG_WARNING, or DIAG_ERROR. */
@@ -797,7 +798,7 @@ static bool is_memsafe_warning(WarnId id)
            id == WARN_MEM_SUGGEST_ANNOTATIONS ||
            id == WARN_MEM_UNBOUNDED_COPY || id == WARN_MEM_UNINIT_READ ||
            id == WARN_MEM_USE_AFTER_FREE ||
-           id == WARN_MEM_USE_AFTER_FREE_UNKNOWN;
+           id == WARN_MEM_USE_AFTER_FREE_UNKNOWN || id == WARN_NULL_DEREFERENCE;
 }
 
 bool warn_memsafe_needed(const WarnCtx *w)
@@ -816,6 +817,7 @@ bool warn_memsafe_needed(const WarnCtx *w)
         WARN_MEM_UNINIT_READ,
         WARN_MEM_USE_AFTER_FREE,
         WARN_MEM_USE_AFTER_FREE_UNKNOWN,
+        WARN_NULL_DEREFERENCE,
     };
     Span none = {0};
     size_t i;

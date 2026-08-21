@@ -55,6 +55,12 @@ typedef struct MsBinding {
     IrOperand incoming;
 } MsBinding;
 
+typedef enum MsProofKind {
+    MS_PROOF_NONE,
+    MS_PROOF_INDEPENDENT,
+    MS_PROOF_PATH,
+} MsProofKind;
+
 typedef struct MsPath {
     MsFact *facts;
     MsPredicate predicates[MS_MAX_PREDICATES_PER_PATH];
@@ -889,6 +895,136 @@ static bool operand_is_null(const IrFunc *function, IrOperand operand)
            operand_constant(function, operand, &value, 0) && value == 0;
 }
 
+static IrOperand null_base_subject(const IrFunc *function, const MsPath *path,
+                                   IrOperand operand, u32 depth)
+{
+    const IrInst *def;
+
+    operand = path_resolve_binding(path, operand);
+    if (depth > function->nvals || operand.kind != IROP_VALUE)
+        return operand;
+    def = value_def(function, operand);
+    if (def && def->nops >= 1 && def->op == IR_BITCAST &&
+        def->ops[0].type == IRT_PTR)
+        return null_base_subject(function, path, def->ops[0], depth + 1);
+    if (def && def->nops >= 1 && def->op == IR_PTRADD)
+        return null_base_subject(function, path, def->ops[0], depth + 1);
+    return operand;
+}
+
+static IrOperand null_exact_subject(const IrFunc *function, const MsPath *path,
+                                    IrOperand operand, u32 depth)
+{
+    const IrInst *def;
+
+    operand = path_resolve_binding(path, operand);
+    if (depth > function->nvals || operand.kind != IROP_VALUE)
+        return operand;
+    def = value_def(function, operand);
+    if (def && def->nops >= 1 && def->op == IR_BITCAST &&
+        def->ops[0].type == IRT_PTR)
+        return null_exact_subject(function, path, def->ops[0], depth + 1);
+    if (def && def->nops >= 2 && def->op == IR_PTRADD) {
+        i64 offset;
+
+        if (operand_constant(function, def->ops[1], &offset, 0) && offset == 0)
+            return null_exact_subject(function, path, def->ops[0], depth + 1);
+    }
+    return operand;
+}
+
+static bool null_chain_contains_subject(const IrFunc *function,
+                                        const MsPath *path, IrOperand operand,
+                                        IrOperand subject, u32 depth)
+{
+    const IrInst *def;
+    IrOperand exact;
+
+    operand = path_resolve_binding(path, operand);
+    if (depth > function->nvals)
+        return false;
+    exact = null_exact_subject(function, path, operand, depth);
+    if (exact.kind == IROP_VALUE && operand_equal(exact, subject))
+        return true;
+    if (operand.kind != IROP_VALUE)
+        return false;
+    def = value_def(function, operand);
+    if (!def || def->nops < 1 ||
+        (def->op != IR_BITCAST && def->op != IR_PTRADD))
+        return false;
+    /* MS-C-04: walk only from the pointer being used toward its bases.  This
+     * lets a null predicate on any intermediate prove later derivatives
+     * invalid without unsoundly inferring a base null from a null derivative.
+     */
+    return null_chain_contains_subject(function, path, def->ops[0], subject,
+                                       depth + 1);
+}
+
+static MsProofKind path_operand_has_null_base(const MsFunctionResult *result,
+                                              const MsPath *path,
+                                              IrOperand operand)
+{
+    IrOperand resolved = path_resolve_binding(path, operand);
+    IrOperand exact = null_exact_subject(result->function, path, resolved, 0);
+    IrOperand base = null_base_subject(result->function, path, resolved, 0);
+    u32 i;
+
+    if (operand_is_null(result->function, resolved) ||
+        operand_is_null(result->function, exact) ||
+        operand_is_null(result->function, base))
+        return MS_PROOF_INDEPENDENT;
+    if (path->correlations_lost)
+        return MS_PROOF_NONE;
+    for (i = 0; i < path->npredicates; i++) {
+        const MsPredicate *predicate = &path->predicates[i];
+        IrOperand known =
+            null_exact_subject(result->function, path, predicate->subject, 0);
+
+        if (predicate->equal && predicate->constant == 0 &&
+            null_chain_contains_subject(result->function, path, resolved, known,
+                                        0))
+            return MS_PROOF_PATH;
+    }
+    return MS_PROOF_NONE;
+}
+
+static MsProofKind path_operand_is_zero(const MsFunctionResult *result,
+                                        const MsPath *path, IrOperand operand)
+{
+    IrOperand resolved = path_resolve_binding(path, operand);
+    i64 value;
+    u32 i;
+
+    if (operand_constant(result->function, resolved, &value, 0))
+        return value == 0 ? MS_PROOF_INDEPENDENT : MS_PROOF_NONE;
+    if (path->correlations_lost || resolved.kind != IROP_VALUE)
+        return MS_PROOF_NONE;
+    for (i = 0; i < path->npredicates; i++) {
+        const MsPredicate *predicate = &path->predicates[i];
+
+        if (predicate->equal && predicate->constant == 0 &&
+            operand_equal(resolved, predicate->subject))
+            return MS_PROOF_PATH;
+    }
+    return MS_PROOF_NONE;
+}
+
+static bool path_operand_size(const MsFunctionResult *result,
+                              const MsPath *path, IrOperand operand, u64 *size)
+{
+    i64 value;
+
+    if (operand_constant(result->function, operand, &value, 0) && value >= 0) {
+        *size = (u64)value;
+        return true;
+    }
+    if (path_operand_is_zero(result, path, operand) != MS_PROOF_NONE) {
+        *size = 0;
+        return true;
+    }
+    return false;
+}
+
 static bool local_address(const IrFunc *function, IrOperand operand, u32 depth)
 {
     const IrInst *def;
@@ -905,21 +1041,38 @@ static bool local_address(const IrFunc *function, IrOperand operand, u32 depth)
     return false;
 }
 
-static bool family_extent(const MsFunctionResult *result,
+static bool family_extent(const MsFunctionResult *result, const MsPath *path,
                           const MsAllocFamily *family, const IrInst *call,
                           u64 *extent)
 {
-    IrOperand operand;
+    IrOperand first_operand, second_operand;
     i64 first, second = 1;
 
     if (!family || family->size_arg == MS_NO_ARG ||
-        !call_arg(call, family->size_arg, &operand) ||
-        !operand_constant(result->function, operand, &first, 0) || first < 0)
+        !call_arg(call, family->size_arg, &first_operand))
         return false;
-    if (family->size_arg2 != MS_NO_ARG &&
-        (!call_arg(call, family->size_arg2, &operand) ||
-         !operand_constant(result->function, operand, &second, 0) ||
-         second < 0))
+    if (family->size_arg2 != MS_NO_ARG) {
+        if (!call_arg(call, family->size_arg2, &second_operand))
+            return false;
+        /* MS-C-04: either zero factor proves a zero multiplicative extent;
+         * requiring the other factor to be constant would lose that fact. */
+        if (path_operand_is_zero(result, path, first_operand) !=
+                MS_PROOF_NONE ||
+            path_operand_is_zero(result, path, second_operand) !=
+                MS_PROOF_NONE) {
+            *extent = 0;
+            return true;
+        }
+        if (!operand_constant(result->function, second_operand, &second, 0) ||
+            second < 0)
+            return false;
+    } else if (path_operand_is_zero(result, path, first_operand) !=
+               MS_PROOF_NONE) {
+        *extent = 0;
+        return true;
+    }
+    if (!operand_constant(result->function, first_operand, &first, 0) ||
+        first < 0)
         return false;
     if ((u64)second && (u64)first > UINT64_MAX / (u64)second)
         return false;
@@ -1087,8 +1240,16 @@ static bool process_access(MsFunctionResult *result, MsPath *path,
 {
     PtsSet pts = alias_points_to(result->alias, pointer);
     const AllocSite *unique = alias_pts_unique_alloc_site(result->alias, pts);
+    MsProofKind null_proof = path_operand_has_null_base(result, path, pointer);
     bool oob = false;
 
+    /* MS-C-04: a proven-null access is a compile-time fact, not runtime-check
+     * residue. Keep zero-byte library operations exempt because they do not
+     * access storage, even when their pointer value is null. An independent
+     * literal proof survives discarded path correlations. */
+    if ((!size_known || size != 0) && null_proof != MS_PROOF_NONE)
+        add_issue(result, null_proof == MS_PROOF_INDEPENDENT ? NULL : path,
+                  MS_ISSUE_NULL_DEREFERENCE, loc, -1, false, NULL);
     if (unique && !path->correlations_lost) {
         u32 site = alias_alloc_site_id(unique) - 1;
         MsFact *fact = &path->facts[site];
@@ -1249,17 +1410,34 @@ static void process_pointer_value_use(MsFunctionResult *result, MsPath *path,
 }
 
 static bool call_size(const MsFunctionResult *result, const IrInst *call,
-                      u32 first_arg, u32 second_arg, u64 *size)
+                      const MsPath *path, u32 first_arg, u32 second_arg,
+                      u64 *size)
 {
-    IrOperand operand;
+    IrOperand first_operand, second_operand;
     i64 a, b = 1;
 
-    if (!call_arg(call, first_arg, &operand) ||
-        !operand_constant(result->function, operand, &a, 0) || a < 0)
+    if (!call_arg(call, first_arg, &first_operand))
         return false;
-    if (second_arg != MS_NO_ARG &&
-        (!call_arg(call, second_arg, &operand) ||
-         !operand_constant(result->function, operand, &b, 0) || b < 0))
+    if (second_arg != MS_NO_ARG) {
+        if (!call_arg(call, second_arg, &second_operand))
+            return false;
+        /* MS-C-04: a current-path zero in either factor makes the operation
+         * byte-free even when the other factor is unknown. */
+        if (path_operand_is_zero(result, path, first_operand) !=
+                MS_PROOF_NONE ||
+            path_operand_is_zero(result, path, second_operand) !=
+                MS_PROOF_NONE) {
+            *size = 0;
+            return true;
+        }
+        if (!operand_constant(result->function, second_operand, &b, 0) || b < 0)
+            return false;
+    } else if (path_operand_is_zero(result, path, first_operand) !=
+               MS_PROOF_NONE) {
+        *size = 0;
+        return true;
+    }
+    if (!operand_constant(result->function, first_operand, &a, 0) || a < 0)
         return false;
     if ((u64)b && (u64)a > UINT64_MAX / (u64)b)
         return false;
@@ -1305,7 +1483,7 @@ static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
     if (strcmp(name, "memcpy") == 0 || strcmp(name, "memmove") == 0) {
         if (!call_arg(call, 0, &dst) || !call_arg(call, 1, &src))
             return false;
-        known = call_size(result, call, 2, MS_NO_ARG, &size);
+        known = call_size(result, call, path, 2, MS_NO_ARG, &size);
         (void)call_arg(call, 2, &size_operand);
         process_access(result, path, NULL, 0, dst, size_operand, known, size,
                        true, true, block, loc, "wrote through pointer here");
@@ -1316,27 +1494,32 @@ static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
     if (strcmp(name, "memset") == 0) {
         if (!call_arg(call, 0, &dst))
             return false;
-        known = call_size(result, call, 2, MS_NO_ARG, &size);
+        known = call_size(result, call, path, 2, MS_NO_ARG, &size);
         (void)call_arg(call, 2, &size_operand);
         process_access(result, path, NULL, 0, dst, size_operand, known, size,
                        true, true, block, loc, "wrote through pointer here");
         return true;
     }
     if (strcmp(name, "fread") == 0) {
-        if (!call_arg(call, 0, &dst))
+        if (!call_arg(call, 0, &dst) || !call_arg(call, 3, &src))
             return false;
-        known = call_size(result, call, 1, 2, &size);
+        known = call_size(result, call, path, 1, 2, &size);
         if (!call_arg(call, 1, &size_operand))
             size_operand = ir_op_iconst(IRT_I64, 1);
         process_access(result, path, NULL, 0, dst, size_operand, known, size,
                        true, true, block, loc,
                        "library call writes through pointer here");
+        /* MS-C-04: a zero transfer extent exempts only the destination bytes.
+         * fread still dereferences its independent FILE control object. */
+        process_access(result, path, NULL, 3, src, ir_op_iconst(IRT_I64, 1),
+                       false, 0, false, true, block, loc,
+                       "library call reads through pointer here");
         return true;
     }
     if (strcmp(name, "snprintf") == 0) {
         if (!call_arg(call, 0, &dst))
             return false;
-        known = call_size(result, call, 1, MS_NO_ARG, &size);
+        known = call_size(result, call, path, 1, MS_NO_ARG, &size);
         (void)call_arg(call, 1, &size_operand);
         process_access(result, path, NULL, 0, dst, size_operand, known, size,
                        true, true, block, loc,
@@ -1350,6 +1533,21 @@ static bool process_known_memory_call(MsFunctionResult *result, MsPath *path,
     return false;
 }
 
+static bool lib_extent_bounds_arg(const char *name, const MsLibSummary *lib,
+                                  u32 arg)
+{
+    u64 bit = arg < 64 ? 1ull << arg : 0;
+
+    if ((lib->write_mask & bit) != 0)
+        return true;
+    /* MS-C-04: the table's extent fields historically described writes, but
+     * these two reviewed contracts bound a read-only source by the same byte
+     * count.  Do not exempt unrelated dereferences such as snprintf's format
+     * string or fread's FILE object when the destination extent is zero. */
+    return (strcmp(name, "strncpy") == 0 && arg == 1) ||
+           (strcmp(name, "bcopy") == 0 && arg == 0);
+}
+
 static void process_call(MsFunctionResult *result, MsPath *path,
                          const IrInst *call, BlockId block)
 {
@@ -1360,8 +1558,19 @@ static void process_call(MsFunctionResult *result, MsPath *path,
     Span loc = ir_inst_span(result->module, call);
     IrOperand operand;
     u64 extent = 0;
-    bool extent_known = family_extent(result, family, call, &extent);
+    bool extent_known = family_extent(result, path, family, call, &extent);
     u32 first, i;
+
+    if (call->subop == FUNCREF_INDIRECT && call->nops >= 1) {
+        MsProofKind proof =
+            path_operand_has_null_base(result, path, call->ops[0]);
+
+        /* MS-C-04: correlation degradation cannot erase a literal null
+         * callee, but it must suppress conclusions that needed lost facts. */
+        if (proof != MS_PROOF_NONE)
+            add_issue(result, proof == MS_PROOF_INDEPENDENT ? NULL : path,
+                      MS_ISSUE_NULL_DEREFERENCE, loc, -1, false, NULL);
+    }
 
     if (family && family->frees_on_success &&
         call_arg(call, family->frees_arg, &operand))
@@ -1510,7 +1719,7 @@ static void process_call(MsFunctionResult *result, MsPath *path,
         u64 lib_extent = 0;
         bool lib_extent_known =
             lib && lib->write_size_arg >= 0 &&
-            call_size(result, call, (u32)lib->write_size_arg,
+            call_size(result, call, path, (u32)lib->write_size_arg,
                       lib->write_size_arg2 >= 0 ? (u32)lib->write_size_arg2
                                                 : MS_NO_ARG,
                       &lib_extent);
@@ -1570,11 +1779,14 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                            summary->params[arg].write_range_known) {
                     apply_summary_write_range(result, path, actual,
                                               &summary->params[arg], loc);
-                } else if (write && lib && lib_extent_known) {
-                    process_access(result, path, NULL, 0, actual,
-                                   ir_op_iconst(IRT_I64, (i64)lib_extent), true,
-                                   lib_extent, true, true, block, loc,
-                                   "library call writes through pointer here");
+                } else if ((deref || write) && lib && lib_extent_known &&
+                           lib_extent_bounds_arg(name, lib, arg)) {
+                    process_access(
+                        result, path, NULL, 0, actual,
+                        ir_op_iconst(IRT_I64, (i64)lib_extent), true,
+                        lib_extent, write, true, block, loc,
+                        write ? "library call writes through pointer here"
+                              : "library call reads through pointer here");
                 } else if (deref || write) {
                     process_access(result, path, NULL, 0, actual,
                                    ir_op_iconst(IRT_I64, 1), false, 0, write,
@@ -1685,16 +1897,16 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
         break;
     case IR_MEMCPY:
         if (in->nops >= 2) {
-            i64 value = 0;
+            u64 value = 0;
             const IrMemLayout *layout;
             bool source_oob;
-            bool known =
-                in->nops >= 3 &&
-                operand_constant(result->function, in->ops[2], &value, 0) &&
-                value >= 0;
+            /* MS-C-04: direct IR memory operations consume the same current-
+             * path zero proof as summarized library calls. */
+            bool known = in->nops >= 3 &&
+                         path_operand_size(result, path, in->ops[2], &value);
 
-            layout = known ? ir_mem_layout_find(result->module, in, (u64)value)
-                           : NULL;
+            layout =
+                known ? ir_mem_layout_find(result->module, in, value) : NULL;
 
             /* The source is observed before the destination changes.  This
              * is load-before-store even for `*p = *p`, and preserves missing
@@ -1702,14 +1914,13 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
             source_oob = process_access(
                 result, path, in, 0, in->ops[1],
                 in->nops >= 3 ? in->ops[2] : ir_op_iconst(IRT_I64, 0), known,
-                (u64)value, false, false, block, loc,
-                "read through pointer here");
+                value, false, false, block, loc, "read through pointer here");
             if (!source_oob && layout)
                 process_aggregate_uninit(result, path, in->ops[1], layout, loc);
             process_access(result, path, in, 1, in->ops[0],
                            in->nops >= 3 ? in->ops[2]
                                          : ir_op_iconst(IRT_I64, 0),
-                           known, (u64)value, layout == NULL, false, block, loc,
+                           known, value, layout == NULL, false, block, loc,
                            "wrote through pointer here");
             if (layout)
                 mark_aggregate_copy(result, path, in->ops[0], in->ops[1],
@@ -1718,17 +1929,14 @@ static void process_inst(MsFunctionResult *result, MsPath *path,
         break;
     case IR_MEMSET:
         if (in->nops >= 1) {
-            i64 value = 0;
-            bool known =
-                in->nops >= 3 &&
-                operand_constant(result->function, in->ops[2], &value, 0) &&
-                value >= 0;
+            u64 value = 0;
+            bool known = in->nops >= 3 &&
+                         path_operand_size(result, path, in->ops[2], &value);
 
-            process_access(result, path, in, 0, in->ops[0],
-                           in->nops >= 3 ? in->ops[2]
-                                         : ir_op_iconst(IRT_I64, 0),
-                           known, (u64)value, true, true, block, loc,
-                           "wrote through pointer here");
+            process_access(
+                result, path, in, 0, in->ops[0],
+                in->nops >= 3 ? in->ops[2] : ir_op_iconst(IRT_I64, 0), known,
+                value, true, true, block, loc, "wrote through pointer here");
         }
         break;
     case IR_ATOMICRMW:
@@ -2405,9 +2613,9 @@ const MsIssue *ms_result_issue_at(const MsFunctionResult *result, u32 index)
 static WarnId issue_warn_id(const MsIssue *issue)
 {
     static const WarnId ids[MS_ISSUE_COUNT] = {
-        WARN_MEM_USE_AFTER_FREE, WARN_MEM_DOUBLE_FREE, WARN_MEM_LEAK,
-        WARN_MEM_OUT_OF_BOUNDS,  WARN_MEM_UNINIT_READ, WARN_MEM_FREE_NONHEAP,
-        WARN_MEM_REALLOC_ZERO,
+        WARN_MEM_USE_AFTER_FREE, WARN_MEM_DOUBLE_FREE,  WARN_MEM_LEAK,
+        WARN_MEM_OUT_OF_BOUNDS,  WARN_MEM_UNINIT_READ,  WARN_MEM_FREE_NONHEAP,
+        WARN_MEM_REALLOC_ZERO,   WARN_NULL_DEREFERENCE,
     };
 
     if (issue->strict && issue->kind == MS_ISSUE_USE_AFTER_FREE)
@@ -2438,6 +2646,8 @@ static const char *issue_message(const MsIssue *issue)
     case MS_ISSUE_REALLOC_ZERO:
         return "realloc with size 0 is implementation-defined; use free and "
                "assign NULL explicitly";
+    case MS_ISSUE_NULL_DEREFERENCE:
+        return "dereference of a pointer proven to be null";
     case MS_ISSUE_COUNT:
         break;
     }

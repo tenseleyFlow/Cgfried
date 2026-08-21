@@ -44,6 +44,339 @@ static u32 issue_count_kind(const MsFunctionResult *result, MsIssueKind kind)
     return count;
 }
 
+void test_memsafe_lifetime_proven_null_access_matrix(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "func i32 @read() {\n"
+                           "entry():\n"
+                           "    %p = bitcast i64 0 to ptr\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n"
+                           "func void @write() {\n"
+                           "entry():\n"
+                           "    %p = bitcast i64 0 to ptr\n"
+                           "    store i32 1, %p, align 4, etype i32\n"
+                           "    ret\n"
+                           "}\n"
+                           "func void @call() {\n"
+                           "entry():\n"
+                           "    %p = bitcast i64 0 to ptr\n"
+                           "    call void %p()\n"
+                           "    ret\n"
+                           "}\n"
+                           "func i32 @derived() {\n"
+                           "entry():\n"
+                           "    %p = bitcast i64 0 to ptr\n"
+                           "    %q = ptradd %p, 0\n"
+                           "    %v = load i32, %q, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "}\n"
+                           "func i32 @null_branch(ptr %p) {\n"
+                           "entry():\n"
+                           "    %isnull = icmp eq ptr %p, 0\n"
+                           "    condbr %isnull, bad(), good()\n"
+                           "bad():\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "good():\n"
+                           "    ret i32 0\n"
+                           "}\n"
+                           "func i32 @nonnull_guard(ptr %p) {\n"
+                           "entry():\n"
+                           "    %nonnull = icmp ne ptr %p, 0\n"
+                           "    condbr %nonnull, good(), null()\n"
+                           "good():\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "null():\n"
+                           "    ret i32 0\n"
+                           "}\n"
+                           "func i32 @offset_null_test(ptr %p) {\n"
+                           "entry():\n"
+                           "    %q = ptradd %p, 4\n"
+                           "    %isnull = icmp eq ptr %q, 0\n"
+                           "    condbr %isnull, bad(), good()\n"
+                           "bad():\n"
+                           "    %v = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %v\n"
+                           "good():\n"
+                           "    ret i32 0\n"
+                           "}\n"
+                           "func void @zero_size() {\n"
+                           "entry():\n"
+                           "    %p = bitcast i64 0 to ptr\n"
+                           "    memcpy %p, %p, 0, align 1\n"
+                           "    ret\n"
+                           "}\n");
+    u32 i;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    T_ASSERT_EQ_INT(t, module->nfuncs, 8);
+    for (i = 0; i < module->nfuncs; i++) {
+        MsFunctionResult *result =
+            ms_analyze_function(&fix.arena, module, &module->funcs[i], false);
+        u32 expected = i < 5 ? 1 : 0;
+
+        T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE),
+                        expected);
+        ms_result_free(result);
+    }
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_null_and_zero_proofs_after_path_degrade(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix,
+        "sym @fread\n"
+        "sym @malloc\n"
+        "sym @reallocarray\n"
+        "sym @strncpy\n"
+        "sym @bcopy\n"
+        "func i32 @literal(i32 %a, i32 %b, i32 %c, i32 %d, i32 %e) {\n"
+        "entry():\n"
+        "    %ca = icmp eq i32 %a, 0\n"
+        "    condbr %ca, b(), out()\n"
+        "b():\n"
+        "    %cb = icmp eq i32 %b, 0\n"
+        "    condbr %cb, c(), out()\n"
+        "c():\n"
+        "    %cc = icmp eq i32 %c, 0\n"
+        "    condbr %cc, d(), out()\n"
+        "d():\n"
+        "    %cd = icmp eq i32 %d, 0\n"
+        "    condbr %cd, e(), out()\n"
+        "e():\n"
+        "    %ce = icmp eq i32 %e, 0\n"
+        "    condbr %ce, bad(), out()\n"
+        "bad():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    %q = ptradd %p, 4\n"
+        "    %v = load i32, %q, align 4, etype i32\n"
+        "    ret i32 %v\n"
+        "out():\n"
+        "    ret i32 0\n"
+        "}\n"
+        "func void @literal_call(i32 %a) {\n"
+        "entry():\n"
+        "    switch i32 %a, bad(), 0: out(), 1: out(), 2: out(), 3: out(), 4: "
+        "out()\n"
+        "bad():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    %q = ptradd %p, 4\n"
+        "    call void %q()\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func i32 @predicate(ptr %p, i32 %a, i32 %b, i32 %c, i32 %d) {\n"
+        "entry():\n"
+        "    %cp = icmp eq ptr %p, 0\n"
+        "    condbr %cp, a(), out()\n"
+        "a():\n"
+        "    %ca = icmp eq i32 %a, 0\n"
+        "    condbr %ca, b(), out()\n"
+        "b():\n"
+        "    %cb = icmp eq i32 %b, 0\n"
+        "    condbr %cb, c(), out()\n"
+        "c():\n"
+        "    %cc = icmp eq i32 %c, 0\n"
+        "    condbr %cc, d(), out()\n"
+        "d():\n"
+        "    %cd = icmp eq i32 %d, 0\n"
+        "    condbr %cd, lost(), out()\n"
+        "lost():\n"
+        "    %v = load i32, %p, align 4, etype i32\n"
+        "    call void %p()\n"
+        "    ret i32 %v\n"
+        "out():\n"
+        "    ret i32 0\n"
+        "}\n"
+        "func void @first_zero(i64 %size, i64 %count, ptr %stream) {\n"
+        "entry():\n"
+        "    %z = icmp eq i64 %size, 0\n"
+        "    condbr %z, zero(), out()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    %r = call i64 @fread(ptr %p, i64 %size, i64 %count, ptr %stream)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @second_zero(i64 %size, i64 %count, ptr %stream) {\n"
+        "entry():\n"
+        "    %nz = icmp ne i64 %count, 0\n"
+        "    condbr %nz, out(), zero()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    %r = call i64 @fread(ptr %p, i64 %size, i64 %count, ptr %stream)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @ir_memcpy_zero(i64 %size) {\n"
+        "entry():\n"
+        "    %z = icmp eq i64 %size, 0\n"
+        "    condbr %z, zero(), out()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    memcpy %p, %p, %size, align 1\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @ir_memset_zero(i64 %size) {\n"
+        "entry():\n"
+        "    %nz = icmp ne i64 %size, 0\n"
+        "    condbr %nz, out(), zero()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    memset %p, 0, %size, align 1\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @first_extent_zero(i64 %size, i64 %count) {\n"
+        "entry():\n"
+        "    %p = call ptr @malloc(i64 8)\n"
+        "    %z = icmp eq i64 %size, 0\n"
+        "    condbr %z, zero(), out()\n"
+        "zero():\n"
+        "    %q = call ptr @reallocarray(ptr %p, i64 %size, i64 %count)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @second_extent_zero(i64 %size, i64 %count) {\n"
+        "entry():\n"
+        "    %p = call ptr @malloc(i64 8)\n"
+        "    %nz = icmp ne i64 %count, 0\n"
+        "    condbr %nz, out(), zero()\n"
+        "zero():\n"
+        "    %q = call ptr @reallocarray(ptr %p, i64 %size, i64 %count)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func i32 @intermediate_null_access(ptr %p) {\n"
+        "entry():\n"
+        "    %q = ptradd %p, 4\n"
+        "    %isnull = icmp eq ptr %q, 0\n"
+        "    condbr %isnull, bad(), out()\n"
+        "bad():\n"
+        "    %r = ptradd %q, 8\n"
+        "    %s = ptradd %r, 12\n"
+        "    %v = load i32, %s, align 4, etype i32\n"
+        "    ret i32 %v\n"
+        "out():\n"
+        "    ret i32 0\n"
+        "}\n"
+        "func void @intermediate_null_call(ptr %p) {\n"
+        "entry():\n"
+        "    %q = ptradd %p, 4\n"
+        "    %isnull = icmp eq ptr %q, 0\n"
+        "    condbr %isnull, bad(), out()\n"
+        "bad():\n"
+        "    %r = ptradd %q, 8\n"
+        "    %s = ptradd %r, 12\n"
+        "    call void %s()\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @strncpy_source_zero(i64 %size) {\n"
+        "entry():\n"
+        "    %z = icmp eq i64 %size, 0\n"
+        "    condbr %z, zero(), out()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    %r = call ptr @strncpy(ptr %p, ptr %p, i64 %size)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @bcopy_source_zero(i64 %size) {\n"
+        "entry():\n"
+        "    %nz = icmp ne i64 %size, 0\n"
+        "    condbr %nz, out(), zero()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    call void @bcopy(ptr %p, ptr %p, i64 %size)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n"
+        "func void @fread_null_stream_zero(i64 %size) {\n"
+        "entry():\n"
+        "    %z = icmp eq i64 %size, 0\n"
+        "    condbr %z, zero(), out()\n"
+        "zero():\n"
+        "    %p = bitcast i64 0 to ptr\n"
+        "    %r = call i64 @fread(ptr %p, i64 %size, i64 8, ptr %p)\n"
+        "    ret\n"
+        "out():\n"
+        "    ret\n"
+        "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    T_ASSERT_EQ_INT(t, module->nfuncs, 14);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 1);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[1], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 1);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[2], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[3], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[4], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[5], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[6], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[7], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_REALLOC_ZERO), 1);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[8], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_REALLOC_ZERO), 1);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[9], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 1);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[10], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 1);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[11], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[12], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[13], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_lifetime_malloc_free(TestCtx *t)
 {
     MsFix fix;
