@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-L-02 the written comparison type is silently replaced
+// RESOLVED(audit): IR-L-02 the written comparison type is silently replaced
 // The operands are i64 values, but the instruction explicitly claims i32.
 // The parser currently normalizes the annotation to i64 instead of rejecting
 // the inconsistent text.

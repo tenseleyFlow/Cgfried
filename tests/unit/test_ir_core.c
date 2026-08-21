@@ -915,6 +915,63 @@ void test_ir_parse_errors_have_locations(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_comparison_written_type_validation(TestCtx *t)
+{
+    static const char *const bad[] = {
+        "func i32 @bad(i64 %x) {\n"
+        "entry():\n"
+        "    %r = icmp eq i32 %x, %x\n"
+        "    ret i32 %r\n"
+        "}\n",
+        "func i32 @bad(f64 %x) {\n"
+        "entry():\n"
+        "    %r = fcmp oeq f32 %x, %x\n"
+        "    ret i32 %r\n"
+        "}\n",
+        /* The mismatch must also survive until a legal forward SSA reference
+         * resolves; checking only already-defined parameters repeats IR-L-02
+         * for blocks printed in a different layout order. */
+        "func i32 @bad() {\n"
+        "entry():\n"
+        "    br define()\n"
+        "use():\n"
+        "    %r = icmp eq i32 %later, 0\n"
+        "    ret i32 %r\n"
+        "define():\n"
+        "    %later = iadd i64 1, 2\n"
+        "    br use()\n"
+        "}\n",
+    };
+    static const char valid[] = "func i32 @ok(i64 %i, f64 %x) {\n"
+                                "entry():\n"
+                                "    %a = icmp ult i64 %i, 9\n"
+                                "    %b = fcmp uno f64 %x, undef\n"
+                                "    %r = or i32 %a, %b\n"
+                                "    ret i32 %r\n"
+                                "}\n";
+    IrFix f;
+    IrModule *m;
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(bad); i++) {
+        fix_init(&f);
+        m = ir_parse_module(&f.arena, f.dc, bad[i], "<bad-cmp-type>");
+        T_ASSERT(t, m == NULL);
+        T_ASSERT_EQ_INT(t, f.errors, 1);
+        T_ASSERT(t, strstr(f.first_msg, "written comparison type") != NULL);
+        T_ASSERT(t, strstr(f.first_msg, "does not match operand type") != NULL);
+        fix_free(&f);
+    }
+
+    fix_init(&f);
+    m = parse_ok(t, &f, valid);
+    if (m) {
+        T_ASSERT(t, ir_verify(f.dc, m));
+        roundtrip(t, &f, m);
+    }
+    fix_free(&f);
+}
+
 void test_ir_parse_block_param_corners(TestCtx *t)
 {
     IrFix f;

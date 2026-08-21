@@ -63,6 +63,8 @@ typedef struct Fixup {
     IrOperand *slot;
     const char *name; /* arena copy */
     Tok tok;
+    IrType written_cmp_type;
+    bool check_written_cmp_type;
 } Fixup;
 
 typedef struct P {
@@ -638,6 +640,8 @@ static void add_fixup(P *p, IrOperand *slot, const Tok *t)
     p->fixups[p->nfixups].slot = slot;
     p->fixups[p->nfixups].name = tok_name(p, t);
     p->fixups[p->nfixups].tok = *t;
+    p->fixups[p->nfixups].written_cmp_type = IRT_VOID;
+    p->fixups[p->nfixups].check_written_cmp_type = false;
     p->nfixups++;
 }
 
@@ -757,6 +761,33 @@ static bool parse_typed(P *p, IrOperand *slot)
     if (!parse_type(p, &ty, "an operand type"))
         return false;
     return parse_atom(p, ty, slot);
+}
+
+/* IR-L-02: comparisons produce i32, so their written operand type has no
+ * result-type field in which to survive.  Validate it at the textual boundary
+ * instead of silently replacing it with an SSA definition's type.  Forward
+ * references defer the same check until their legal fixup resolves. */
+static bool parse_cmp_atom(P *p, IrType written, IrOperand *slot)
+{
+    Tok *atom = peek(p);
+    u32 old_nfixups = p->nfixups;
+
+    if (!parse_atom(p, written, slot))
+        return false;
+    if (p->nfixups != old_nfixups) {
+        Fixup *fx = &p->fixups[p->nfixups - 1];
+
+        fx->written_cmp_type = written;
+        fx->check_written_cmp_type = true;
+        return true;
+    }
+    if ((IrType)slot->type != written) {
+        perr(p, atom,
+             "written comparison type '%s' does not match operand type '%s'",
+             ir_type_name(written), ir_type_name((IrType)slot->type));
+        return false;
+    }
+    return true;
 }
 
 /* A call argument: typed operand plus an optional ABI annotation
@@ -1278,11 +1309,11 @@ static bool parse_inst(P *p)
         in->subop = (u8)pred;
         in->ops = ops_alloc(p, 2);
         in->nops = 2;
-        if (!parse_atom(p, ty, &in->ops[0]))
+        if (!parse_cmp_atom(p, ty, &in->ops[0]))
             return false;
         if (!expect(p, T_COMMA, "','"))
             return false;
-        if (!parse_atom(p, ty, &in->ops[1]))
+        if (!parse_cmp_atom(p, ty, &in->ops[1]))
             return false;
         if ((IrOp)op == IR_ICMP && peek(p)->kind == T_COMMA &&
             tok_is(peek2(p), "bounds")) {
@@ -2047,6 +2078,15 @@ static bool parse_func(P *p)
 
             *fx->slot = ir_op_value(f, v);
             fx->slot->b = annot;
+            if (fx->check_written_cmp_type &&
+                (IrType)fx->slot->type != fx->written_cmp_type) {
+                perr(p, &fx->tok,
+                     "written comparison type '%s' does not match operand "
+                     "type '%s'",
+                     ir_type_name(fx->written_cmp_type),
+                     ir_type_name((IrType)fx->slot->type));
+                goto out;
+            }
         }
     }
 out:

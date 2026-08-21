@@ -24,7 +24,7 @@ SEMA-H-06	sema-h-06.c	PASS	a record of only zero-length arrays is sized to its a
 SEMA-H-07	sema-h-07.c	PASS	selected _Generic integer result is not an integer constant expression
 SEMA-C-08	sema-c-08.c	PASS	AAPCS64 unnamed nonzero bitfields fail to align aggregates
 IR-C-01	ir-c-01.c	PASS	a 16-byte long-double aggregate is returned by hidden pointer
-IR-L-02	ir-l-02.cgfir	OPEN	the written comparison type is silently replaced
+IR-L-02	ir-l-02.cgfir	PASS	the written comparison type is silently replaced
 IR-C-03	ir-c-03.c	PASS	atomic pointer increment is split into a load and store
 IR-C-04	ir-c-04.c	PASS	backward goto before a VLA declaration leaks stack space
 IR-H-05	ir-h-05.c	PASS	volatile aggregate sources lose their access marker
