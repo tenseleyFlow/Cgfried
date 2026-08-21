@@ -2151,16 +2151,34 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
     if (f->variadic && cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS)
         frame_emit_save_area(f, fr, &rb);
     for (i = 0; i < b->n; i++) {
+        A64Inst original = b->insts[i];
+
         rb.map[i] = rb.n;
-        rb.source_loc = b->insts[i].loc;
-        rb_put(&rb, &b->insts[i]);
+        rb.source_loc = original.loc;
+        if (i == 0) {
+            f->cfi_body_label = ++f->cfi_next_label;
+            original.cfi_label = f->cfi_body_label;
+        }
+        rb_put(&rb, &original);
     }
     rb_commit(&rb, b);
 }
 
 static void frame_emit_epilogue(A64Func *f, const Frame *fr)
 {
-    u32 bi;
+    u32 bi, nret = 0;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        u32 ii;
+
+        for (ii = 0; ii < f->blocks[bi].n; ii++)
+            if (f->blocks[bi].insts[ii].op == A64_OP_RET)
+                nret++;
+    }
+    f->cfi_epilogues = arena_alloc(
+        f->arena, (size_t)(nret ? nret : 1) * sizeof(*f->cfi_epilogues),
+        _Alignof(A64CfiEpilogue));
+    f->cfi_nepilogues = 0;
 
     for (bi = 0; bi < f->nblocks; bi++) {
         A64Block *b = &f->blocks[bi];
@@ -2169,6 +2187,7 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
 
         rb_init(&rb, f->arena, b->n);
         for (ii = 0; ii < b->n; ii++) {
+            A64CfiEpilogue *ep;
             u32 off, i;
 
             rb.map[ii] = rb.n;
@@ -2177,6 +2196,8 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 rb_put(&rb, &b->insts[ii]);
                 continue;
             }
+            ep = &f->cfi_epilogues[f->cfi_nepilogues++];
+            memset(ep, 0, sizeof(*ep));
             /* x29 points at the saved pair and never moves, so every
              * callee-saved reload remains encodable even when a large
              * outgoing area puts that pair far above SP. */
@@ -2227,15 +2248,59 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                 A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_SP,
                                      (i64)fr->total, A64_ADDR_POST);
 
+                ep->before_pair = ++f->cfi_next_label;
+                ep->after_pair = ++f->cfi_next_label;
+                in.cfi_label = ep->before_pair;
+                in.cfi_after_label = ep->after_pair;
                 rb_put(&rb, &in);
             } else {
                 A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_X29, 0,
                                      A64_ADDR_SCALED);
+                u32 before, restored = 0;
 
+                ep->before_pair = ++f->cfi_next_label;
+                ep->after_pair = ++f->cfi_next_label;
+                in.cfi_label = ep->before_pair;
+                in.cfi_after_label = ep->after_pair;
                 rb_put(&rb, &in);
+                before = rb.n;
                 emit_sp_adjust(&rb, A64_OP_ADD, fr->total);
+                ep->nsp = rb.n - before;
+                ep->sp_labels = arena_alloc(
+                    f->arena, (size_t)ep->nsp * sizeof(*ep->sp_labels),
+                    _Alignof(u32));
+                ep->sp_offsets = arena_alloc(
+                    f->arena, (size_t)ep->nsp * sizeof(*ep->sp_offsets),
+                    _Alignof(u32));
+                for (i = 0; i < ep->nsp; i++) {
+                    A64Inst *adj = &rb.v[before + i];
+
+                    if (adj->op != A64_OP_ADD || adj->nops != 3 ||
+                        adj->ops[0].kind != A64O_REG ||
+                        adj->ops[0].reg.id != (u32)A64_SP + 1 ||
+                        adj->ops[1].kind != A64O_REG ||
+                        adj->ops[1].reg.id != (u32)A64_SP + 1 ||
+                        adj->ops[2].kind != A64O_IMM || adj->ops[2].imm <= 0 ||
+                        (u64)restored + (u64)adj->ops[2].imm > fr->total)
+                        CGF_ICE("arm64 regalloc: malformed epilogue SP "
+                                "adjustment");
+                    restored += (u32)adj->ops[2].imm;
+                    ep->sp_labels[i] = ++f->cfi_next_label;
+                    ep->sp_offsets[i] = fr->total - restored;
+                    adj->cfi_after_label = ep->sp_labels[i];
+                }
+                if (restored != fr->total)
+                    CGF_ICE("arm64 regalloc: epilogue CFI restores %u of %u "
+                            "frame bytes",
+                            restored, fr->total);
             }
-            rb_put(&rb, &b->insts[ii]);
+            {
+                A64Inst ret = b->insts[ii];
+
+                ep->after_ret = ++f->cfi_next_label;
+                ret.cfi_after_label = ep->after_ret;
+                rb_put(&rb, &ret);
+            }
         }
         rb_commit(&rb, b);
     }
@@ -2248,8 +2313,12 @@ static void frame_finalize(Ra *ra)
 
     memset(&fr, 0, sizeof(fr));
     frame_collect_saved(f, &fr);
-    if (fr.ngp > 16 || fr.nfp > 8)
+    if (fr.ngp > CGF_ARRAY_LEN(f->cfi_gp) || fr.nfp > CGF_ARRAY_LEN(f->cfi_fp))
         CGF_ICE("arm64 regalloc: impossible callee-saved count");
+    memcpy(f->cfi_gp, fr.gp, fr.ngp * sizeof(*fr.gp));
+    memcpy(f->cfi_fp, fr.fp, fr.nfp * sizeof(*fr.fp));
+    f->cfi_ngp = (u8)fr.ngp;
+    f->cfi_nfp = (u8)fr.nfp;
     fr.base = f->out_args;
     fr.csr_size = 16 + fr.ngp * 8 + fr.nfp * 8;
     /* Round to 16, not 8. Frame objects are placed at `csr_size + offset`, so

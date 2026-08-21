@@ -368,7 +368,9 @@ typedef struct A64Inst {
     };
     u32 flags_src; /* producer index in this block for USES_NZCV */
     u32 loc;
-    u32 debug_label; /* prepared post-RA: .Lloc_<func>_<id>, 0 = none */
+    u32 debug_label;     /* prepared post-RA: .Lloc_<func>_<id>, 0 = none */
+    u32 cfi_label;       /* .Lcfi_<func>_<id> immediately before this insn */
+    u32 cfi_after_label; /* same label family, immediately after this insn */
 } A64Inst;
 
 typedef struct A64Block {
@@ -376,6 +378,20 @@ typedef struct A64Block {
     A64Inst *insts;
     u32 n, cap;
 } A64Block;
+
+/* One return site's unwind transitions. Labels name instruction boundaries
+ * in the emitted function, so the FDE remains correct even when an inline-asm
+ * template contributes an unknown number of instructions between them. */
+typedef struct A64CfiEpilogue {
+    u32 before_pair; /* callee-saved values restored; pair load is next */
+    u32 after_pair;  /* x29/x30 have been restored */
+    /* A64-M-04: one row per ADD, not one row after the whole adjustment.
+     * A signal may arrive between the immediate chunks of a large frame. */
+    u32 *sp_labels;  /* boundary after each separate SP adjustment */
+    u32 *sp_offsets; /* remaining CFA offset at the matching boundary */
+    u32 nsp;
+    u32 after_ret; /* restore the remembered body state for later blocks */
+} A64CfiEpilogue;
 
 typedef struct A64Func {
     const char *name;
@@ -423,6 +439,16 @@ typedef struct A64Func {
      * between them rather than only the final frame-size row. Arena-owned. */
     u32 *cfi_sp_offsets;
     u8 cfi_pair_pre_insns; /* address setup between SP adjust and pair store */
+    /* A64-M-04: the frame pass is the only owner of the exact save layout and
+     * epilogue instruction boundaries. Preserve that truth for .eh_frame
+     * rather than asking the debug encoder to reverse-engineer MIR. */
+    u8 cfi_gp[10];
+    u8 cfi_fp[8];
+    u8 cfi_ngp, cfi_nfp;
+    u32 cfi_body_label;
+    u32 cfi_next_label;
+    A64CfiEpilogue *cfi_epilogues;
+    u32 cfi_nepilogues;
 } A64Func;
 
 typedef enum A64MovKind {

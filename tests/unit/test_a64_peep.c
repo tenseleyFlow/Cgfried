@@ -174,6 +174,41 @@ void test_a64_peep_pair_mem_legality(TestCtx *t)
     arena_free_all(&a);
 }
 
+void test_a64_peep_preserves_cfi_boundaries(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Inst in;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    in = memop(A64_OP_LOAD, a64_phys(A64_X19), a64_phys(A64_X29), 16, 8,
+               A64_ADDR_SCALED);
+    in.cfi_label = 1;
+    a64_block_append(&f, &f.blocks[0], in);
+    in = memop(A64_OP_LOAD, a64_phys(A64_X20), a64_phys(A64_X29), 24, 8,
+               A64_ADDR_SCALED);
+    in.cfi_after_label = 2;
+    a64_block_append(&f, &f.blocks[0], in);
+    T_ASSERT(t, !a64_peep_pair_mem(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 2);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[0].cfi_label, 1);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[1].cfi_after_label, 2);
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_MOV;
+    in.sf = A64_SF64;
+    in.nops = 2;
+    in.ops[0] = treg(a64_phys(A64_X9));
+    in.ops[1] = treg(a64_phys(A64_X9));
+    in.cfi_label = 3;
+    a64_block_append(&f, &f.blocks[0], in);
+    T_ASSERT(t, !a64_peep_post_ra(&f));
+    T_ASSERT_EQ_INT(t, f.blocks[0].n, 3);
+    T_ASSERT_EQ_INT(t, f.blocks[0].insts[2].cfi_label, 3);
+    arena_free_all(&arena);
+}
+
 void test_a64_peep_post_ra_mov_and_add_zero(TestCtx *t)
 {
     Arena a;

@@ -268,10 +268,21 @@ void test_a64_regalloc_successor_entry_call_crossing(TestCtx *t)
             add = &f.blocks[0].insts[ii];
     T_ASSERT(t, add != NULL);
     if (add) {
+        u8 saved = (u8)(add->ops[1].reg.id - 1);
+
         T_ASSERT(t, add->ops[1].reg.physical);
-        T_ASSERT(t, a64_reg_is_callee_saved_gp((u8)(add->ops[1].reg.id - 1)));
+        T_ASSERT(t, a64_reg_is_callee_saved_gp(saved));
         T_ASSERT(t, add->ops[2].reg.physical);
         T_ASSERT(t, !a64_reg_is_callee_saved_gp((u8)(add->ops[2].reg.id - 1)));
+        /* A64-M-04: frame finalization must hand the debug encoder both the
+         * saved-register identity and exact epilogue boundaries. */
+        T_ASSERT_EQ_INT(t, f.cfi_ngp, 1);
+        T_ASSERT_EQ_INT(t, f.cfi_gp[0], saved);
+        T_ASSERT(t, f.cfi_body_label != 0);
+        T_ASSERT_EQ_INT(t, f.cfi_nepilogues, 1);
+        T_ASSERT(t, f.cfi_epilogues[0].before_pair != 0);
+        T_ASSERT(t, f.cfi_epilogues[0].after_pair != 0);
+        T_ASSERT(t, f.cfi_epilogues[0].after_ret != 0);
     }
     arena_free_all(&arena);
 }
@@ -850,6 +861,10 @@ void test_a64_regalloc_large_outgoing_frame_materializes_pair_base(TestCtx *t)
     T_ASSERT(t, f.cfi_sp_offsets[0] < f.frame_bytes);
     T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[1], f.frame_bytes);
     T_ASSERT(t, f.cfi_pair_pre_insns > 0);
+    T_ASSERT_EQ_INT(t, f.cfi_nepilogues, 1);
+    T_ASSERT_EQ_INT(t, f.cfi_epilogues[0].nsp, 2);
+    T_ASSERT(t, f.cfi_epilogues[0].sp_offsets[0] > 0);
+    T_ASSERT_EQ_INT(t, f.cfi_epilogues[0].sp_offsets[1], 0);
     T_ASSERT_EQ_INT(t, a64_mir_verify(&f, dc), 0);
     bb = &f.blocks[0];
     for (ii = 0; ii < bb->n; ii++) {

@@ -15,11 +15,11 @@ SEMA-H-04	sema-h-04.c	PASS	no-linkage and external-linkage declarations are merg
 SEMA-H-05	sema-h-05.c	PASS	unary negation of a signed minimum is accepted as constant
 X64-C-01	x64-c-01.c	PASS	floating atomic accesses are emitted as ordinary loads and stores
 X64-C-02	x64-c-02.c	PASS	large static frame sizes are truncated to 32 bits
-X64-M-03	x64-m-03.c	OPEN	multi-digit inline-assembly operand references consume one digit
+X64-M-03	x64-m-03.c	PASS	multi-digit inline-assembly operand references consume one digit
 A64-H-01	a64-h-01.c	PASS	TLS tentative definitions are emitted as COMMON symbols
 A64-H-02	a64-h-02.c	PASS	large TLS addends are emitted as unencodable immediates
 A64-H-03	a64-h-03.c	PASS	large GOT addends trigger an internal compiler error
-A64-M-04	a64-m-04.c	OPEN	unwind information omits x19 and epilogue state transitions
+A64-M-04	a64-m-04.c	PASS	unwind information omits x19 and epilogue state transitions
 SEMA-H-06	sema-h-06.c	PASS	a record of only zero-length arrays is sized to its alignment
 SEMA-H-07	sema-h-07.c	PASS	selected _Generic integer result is not an integer constant expression
 SEMA-C-08	sema-c-08.c	PASS	AAPCS64 unnamed nonzero bitfields fail to align aggregates

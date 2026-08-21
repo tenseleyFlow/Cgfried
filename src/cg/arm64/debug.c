@@ -134,9 +134,75 @@ static void emit_saved_pair(Buf *out, u32 frame, u32 pair_off)
     emit_uleb(out, (fp_below - 8u) / 8u);
 }
 
-static void emit_fde(Buf *out, const A64Func *f, u32 idx)
+static void emit_advance_label(Buf *out, u32 fidx, u32 label, u32 previous,
+                               u32 prior_insns)
+{
+    /* DW_CFA_advance_loc4's operand is measured in code-alignment units.
+     * A64-M-04: label differences, rather than MIR instruction counts, keep
+     * the unwind program correct across arbitrary-length inline asm. */
+    buf_printf(out, "\t.byte\t4\n\t.long\t(.Lcfi_%u_%u-", fidx, label);
+    if (previous)
+        buf_printf(out, ".Lcfi_%u_%u)/4\n", fidx, previous);
+    else
+        buf_printf(out, ".Lfb%u)/4-%u\n", fidx, prior_insns);
+}
+
+static void emit_offset_rule(Buf *out, u32 dwarf_reg, u32 byte_below_cfa)
+{
+    if (!byte_below_cfa || (byte_below_cfa & 7u))
+        CGF_ICE("a64 CFI: register %u has invalid CFA distance %u", dwarf_reg,
+                byte_below_cfa);
+    if (dwarf_reg < 64) {
+        buf_printf(out, "\t.byte\t%u\n", 0x80u | dwarf_reg);
+    } else {
+        buf_printf(out, "\t.byte\t5\n"); /* DW_CFA_offset_extended */
+        emit_uleb(out, dwarf_reg);
+    }
+    emit_uleb(out, byte_below_cfa / 8u);
+}
+
+static void emit_restore_rule(Buf *out, u32 dwarf_reg)
+{
+    if (dwarf_reg < 64)
+        buf_printf(out, "\t.byte\t%u\n", 0xc0u | dwarf_reg);
+    else {
+        buf_printf(out, "\t.byte\t6\n"); /* DW_CFA_restore_extended */
+        emit_uleb(out, dwarf_reg);
+    }
+}
+
+static void emit_saved_callee_regs(Buf *out, const A64Func *f)
+{
+    u32 i, off = f->cfi_pair_off + 16u;
+
+    for (i = 0; i < f->cfi_ngp; i++, off += 8u) {
+        if (off >= f->cfi_frame)
+            CGF_ICE("a64 CFI: x%u save at %u escapes %u-byte frame",
+                    f->cfi_gp[i], off, f->cfi_frame);
+        emit_offset_rule(out, f->cfi_gp[i], f->cfi_frame - off);
+    }
+    for (i = 0; i < f->cfi_nfp; i++, off += 8u) {
+        if (off >= f->cfi_frame)
+            CGF_ICE("a64 CFI: d%u save at %u escapes %u-byte frame",
+                    (u32)(f->cfi_fp[i] - A64_V0), off, f->cfi_frame);
+        emit_offset_rule(out, 64u + (u32)(f->cfi_fp[i] - A64_V0),
+                         f->cfi_frame - off);
+    }
+}
+
+static void emit_restored_callee_regs(Buf *out, const A64Func *f)
 {
     u32 i;
+
+    for (i = 0; i < f->cfi_ngp; i++)
+        emit_restore_rule(out, f->cfi_gp[i]);
+    for (i = 0; i < f->cfi_nfp; i++)
+        emit_restore_rule(out, 64u + (u32)(f->cfi_fp[i] - A64_V0));
+}
+
+static void emit_fde(Buf *out, const A64Func *f, u32 idx)
+{
+    u32 i, previous, prior_insns;
 
     buf_printf(out,
                ".Lfde%u:\n"
@@ -189,6 +255,55 @@ static void emit_fde(Buf *out, const A64Func *f, u32 idx)
     if (f->cfi_pair_off) {
         buf_printf(out, "\t.byte\t14\n"); /* def_cfa_offset from x29 */
         emit_uleb(out, f->cfi_frame - f->cfi_pair_off);
+    }
+    /* A64-M-04: callee-saved registers become unwind-visible before body
+     * code may repurpose them, and every return path restores both register
+     * and CFA rules at its exact instruction boundaries. */
+    prior_insns =
+        f->cfi_pre_insns ? f->cfi_pre_insns + f->cfi_pair_pre_insns + 2u : 2u;
+    previous = 0;
+    if (f->cfi_body_label) {
+        emit_advance_label(out, idx, f->cfi_body_label, 0, prior_insns);
+        emit_saved_callee_regs(out, f);
+        previous = f->cfi_body_label;
+    }
+    for (i = 0; i < f->cfi_nepilogues; i++) {
+        const A64CfiEpilogue *ep = &f->cfi_epilogues[i];
+
+        emit_advance_label(out, idx, ep->before_pair, previous, 0);
+        buf_printf(out, "\t.byte\t10\n"); /* DW_CFA_remember_state */
+        emit_restored_callee_regs(out, f);
+        buf_printf(out, "\t.byte\t12\n"); /* DW_CFA_def_cfa */
+        emit_uleb(out, A64_DWREG_SP);
+        emit_uleb(out, f->cfi_frame);
+        emit_advance_label(out, idx, ep->after_pair, ep->before_pair, 0);
+        emit_restore_rule(out, A64_DWREG_FP);
+        emit_restore_rule(out, A64_DWREG_LR);
+        if (!ep->nsp) {
+            buf_printf(out, "\t.byte\t14\n"); /* def_cfa_offset */
+            emit_uleb(out, 0);
+        } else {
+            u32 j, last = ep->after_pair;
+
+            /* A64-M-04: a large epilogue restores SP in several ADDs. Each
+             * architectural boundary needs its cumulative remaining CFA
+             * offset, including the intermediate nonzero rows. */
+            for (j = 0; j < ep->nsp; j++) {
+                if ((j && ep->sp_offsets[j] >= ep->sp_offsets[j - 1]) ||
+                    (j + 1 == ep->nsp && ep->sp_offsets[j] != 0))
+                    CGF_ICE("a64 CFI: invalid epilogue CFA offset %u",
+                            ep->sp_offsets[j]);
+                emit_advance_label(out, idx, ep->sp_labels[j], last, 0);
+                buf_printf(out, "\t.byte\t14\n"); /* def_cfa_offset */
+                emit_uleb(out, ep->sp_offsets[j]);
+                last = ep->sp_labels[j];
+            }
+        }
+        emit_advance_label(
+            out, idx, ep->after_ret,
+            ep->nsp ? ep->sp_labels[ep->nsp - 1] : ep->after_pair, 0);
+        buf_printf(out, "\t.byte\t11\n"); /* DW_CFA_restore_state */
+        previous = ep->after_ret;
     }
     buf_printf(out, "\t.p2align\t3\n.Lfde%u_end:\n", idx);
 }

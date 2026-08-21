@@ -287,7 +287,7 @@ static void asm_print_operand(Emit *e, const X64Inst *in, const IrAsm *a, u32 k,
  *
  * The escapes, all measured against gcc:
  *   %%      a literal percent
- *   %0..%9  operand N, at its C type's width
+ *   %0..%63 operand N, at its C type's width
  *   %b %w %k %q  operand N as 8/16/32/64-bit
  *   %[name] the operand declared with that symbolic name
  * An unknown escape is passed through rather than guessed at: the template
@@ -345,7 +345,20 @@ static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
             continue;
         }
         if (*c >= '0' && *c <= '9') {
-            u32 k = (u32)(*c - '0');
+            u32 k = 0;
+
+            /* X64-M-03: an operand number is the whole decimal run, not one
+             * digit followed by template text. IR caps the operand table at
+             * 64 entries, but consume every digit so an out-of-range name is
+             * diagnosed as that one name rather than corrupting assembly. */
+            do {
+                if (k <= (UINT32_MAX - 9u) / 10u)
+                    k = k * 10u + (u32)(*c - '0');
+                else
+                    k = UINT32_MAX;
+                c++;
+            } while (*c >= '0' && *c <= '9');
+            c--;
 
             if (k < a->nops)
                 asm_print_operand(e, in, a, k, wover);

@@ -1,4 +1,4 @@
-// XFAIL(audit): A64-M-04 unwind information omits x19 and epilogue state transitions
+// RESOLVED(audit): A64-M-04 unwind information omits x19 and epilogue state transitions
 extern long external_call(long);
 
 long preserve_across_call(long value) {

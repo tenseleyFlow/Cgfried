@@ -53,6 +53,11 @@ static bool inst_has_side_record_barrier(const A64Inst *in)
     return in->op == A64_OP_CALL || in->op == A64_OP_ASM;
 }
 
+static bool inst_has_cfi_boundary(const A64Inst *in)
+{
+    return in->cfi_label || in->cfi_after_label;
+}
+
 static bool op0_is_def(u16 op)
 {
     switch (op) {
@@ -136,7 +141,11 @@ static bool pairable_mem(const A64Inst *a, const A64Inst *b, A64Reg *ra,
     const A64Mem *mb;
     u8 size;
 
-    if (a->op != b->op || (a->op != A64_OP_LOAD && a->op != A64_OP_STORE) ||
+    /* A64-M-04: frame finalization attaches unwind rows before this pass.
+     * Pairing would drop or move either instruction boundary, so a marked
+     * access is an explicit optimization barrier. */
+    if (inst_has_cfi_boundary(a) || inst_has_cfi_boundary(b) ||
+        a->op != b->op || (a->op != A64_OP_LOAD && a->op != A64_OP_STORE) ||
         a->sf != b->sf ||
         ((a->flags | b->flags) & (A64IF_VOLATILE | A64IF_ATOMIC)))
         return false;
@@ -390,7 +399,8 @@ static bool rewrite_madd(A64Block *b, u32 at)
         return false;
     mul = &b->insts[at];
     add = &b->insts[at + 1];
-    if (mul->op != A64_OP_MUL || add->op != A64_OP_ADD || mul->nops != 3 ||
+    if (inst_has_cfi_boundary(mul) || inst_has_cfi_boundary(add) ||
+        mul->op != A64_OP_MUL || add->op != A64_OP_ADD || mul->nops != 3 ||
         add->nops != 3 || mul->sf != add->sf || mul->flags || add->flags ||
         !reg_operand_parts(mul, 0, &product) ||
         !reg_operand_parts(mul, 1, &lhs) || !reg_operand_parts(mul, 2, &rhs) ||
@@ -494,6 +504,13 @@ static bool peep_local(A64Func *f)
         u32 i = 0;
 
         while (i < b->n) {
+            /* A64-M-04: removing or folding a marked instruction changes an
+             * asynchronous unwind boundary. The frame pass deliberately
+             * runs before this fixpoint, so marked MIR is immutable here. */
+            if (inst_has_cfi_boundary(&b->insts[i])) {
+                i++;
+                continue;
+            }
             if (rewrite_layout_branch(f, bi, i)) {
                 changed = true;
                 continue;

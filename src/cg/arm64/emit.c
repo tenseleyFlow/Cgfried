@@ -1188,10 +1188,15 @@ void a64_emit_function(const A64Func *f, const IrModule *m, u32 fidx,
         if (bi)
             buf_printf(out, "%sf%u_%u:\n", mlabel(&e), fidx, bi + 1);
         for (i = 0; i < b->n; i++) {
+            if (!e.apple && b->insts[i].cfi_label)
+                buf_printf(out, ".Lcfi_%u_%u:\n", fidx, b->insts[i].cfi_label);
             if (f->debug_lines && b->insts[i].debug_label)
                 buf_printf(out, "%sloc_%u_%u:\n", mlabel(&e), fidx,
                            b->insts[i].debug_label);
             emit_inst(&e, &b->insts[i], bi + 2, bi, i);
+            if (!e.apple && b->insts[i].cfi_after_label)
+                buf_printf(out, ".Lcfi_%u_%u:\n", fidx,
+                           b->insts[i].cfi_after_label);
         }
     }
     buf_printf(out, "%sfe%u_0:\n", mlabel(&e), fidx);

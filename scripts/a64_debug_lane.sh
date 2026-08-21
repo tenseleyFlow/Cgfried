@@ -131,6 +131,52 @@ awk '
     END { exit !(intermediate && final) }
 ' "$WORK/big-frame.frames" ||
     fail "large-frame FDE lacks an intermediate 4096-byte CFA row"
+# The inverse path is equally asynchronous: after restoring x29/x30, every
+# ADD to SP needs a smaller CFA row until the caller SP is reached. A64-M-04
+# regressed here when only the last ADD carried a label.
+checks=$((checks + 1))
+awk '
+    /DW_CFA_restore: r30/ {
+        epilogue = 1
+        next
+    }
+    epilogue && /DW_CFA_def_cfa_offset:/ {
+        offset = $NF + 0
+        if (!seen && offset > 0) {
+            seen = 1
+            previous = offset
+        } else if (seen && offset < previous) {
+            descending = 1
+            previous = offset
+        }
+        if (seen && descending && offset == 0)
+            complete = 1
+    }
+    END { exit !complete }
+' "$WORK/big-frame.frames" ||
+    fail "large-frame FDE lacks descending epilogue CFA rows"
+
+# A64-M-04: the frame allocator owns the exact callee-save layout and every
+# epilogue boundary. Require the decoded FDE to expose x19's saved slot, both
+# restores, and a caller-SP CFA row after each return path.
+compile -g -c tests/debug/a64_callee_saved_unwind.c \
+    -o "$WORK/callee-saved.o" 2>"$WORK/callee-saved.err" || {
+    cat "$WORK/callee-saved.err" >&2
+    fail "callee-saved unwind compile"
+}
+"$READELF" --debug-dump=frames "$WORK/callee-saved.o" \
+    >"$WORK/callee-saved.frames" 2>/dev/null
+checks=$((checks + 1))
+grep -q 'DW_CFA_offset: r19' "$WORK/callee-saved.frames" ||
+    fail "callee-saved FDE lacks x19 offset rule"
+checks=$((checks + 1))
+nrestore=$(grep -c 'DW_CFA_restore: r19' "$WORK/callee-saved.frames" || echo 0)
+[ "$nrestore" -ge 2 ] ||
+    fail "callee-saved FDE describes $nrestore x19 restores, want at least 2"
+checks=$((checks + 1))
+nzero=$(grep -c 'DW_CFA_def_cfa_offset: 0' "$WORK/callee-saved.frames" || echo 0)
+[ "$nzero" -ge 2 ] ||
+    fail "callee-saved FDE describes $nzero final CFA rows, want at least 2"
 
 # Determinism: the same input twice, byte for byte.
 compile -g -S "$SRC" -o "$WORK/a.s" 2>/dev/null
