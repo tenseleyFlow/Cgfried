@@ -33,6 +33,7 @@ deliberate escape hatch.
 | Inline assembly | Its memory and control-flow effects are not analyzable. | Move the assembly to a non-safe TU and call it. |
 | `setjmp` or `longjmp` families | Nonlocal control flow skips ordinary lifetime transitions and cleanup. | Return error codes, or isolate the jump in a non-safe TU. |
 | Variable-size `alloca` | It has neither a scoped language extent nor a statically known site size. | Use a language-scoped VLA, or allocate on the heap; constant `alloca` is allowed. Stack spatial instrumentation remains deferred as stated above. |
+| `asprintf` or `vasprintf` | Their returned allocations are not registered with the safe runtime. | Format into storage from a wrapped allocation family, or isolate the call and ownership in a non-safe TU. |
 | Provenance-losing casts through `volatile` or device-I/O integers | Volatility orders accesses but does not preserve pointer provenance. | Put the I/O boundary in a non-safe TU. |
 
 ## `uintptr_t` round trips

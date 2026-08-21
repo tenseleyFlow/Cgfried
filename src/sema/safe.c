@@ -71,6 +71,40 @@ static bool is_integer_constant(SafeCtx *sc, AstNode *e)
     return value.kind == CV_INT;
 }
 
+static bool is_char_pointer(const Type *type)
+{
+    return type && type->kind == TY_PTR && type->base &&
+           type->base->kind == TY_CHAR;
+}
+
+static bool is_unregistered_allocator(const Symbol *sym)
+{
+    const char *name;
+    const Type *type;
+
+    /* MS-C-06: reject only a compatible external identity whose allocation
+     * would bypass runtime registration.  Harmless static or incompatible
+     * same-name functions, and external functions renamed away from the
+     * allocator identity, remain ordinary calls. */
+    if (!sym || sym->kind != SYM_FUNC || sym->linkage != LINK_EXTERNAL)
+        return false;
+    name = sym->asm_name ? sym->asm_name
+                         : (sym->alias_target ? sym->alias_target : sym->name);
+    if (!name ||
+        (strcmp(name, "asprintf") != 0 && strcmp(name, "vasprintf") != 0))
+        return false;
+    type = sym->type;
+    if (!type || type->kind != TY_FUNC || !type->base ||
+        type->base->kind != TY_INT || !type->has_proto || type->nparams < 2 ||
+        !type->params[0] || type->params[0]->kind != TY_PTR ||
+        !is_char_pointer(type->params[0]->base) ||
+        !is_char_pointer(type->params[1]))
+        return false;
+    return strcmp(name, "asprintf") == 0
+               ? type->nparams == 2 && type->variadic
+               : type->nparams == 3 && !type->variadic;
+}
+
 static bool is_uintptr_anchor(AstNode *e)
 {
     e = strip_paren_implicit(e);
@@ -842,6 +876,12 @@ static void walk_node(SafeCtx *sc, AstNode *n)
         safe_error(sc, n->span,
                    "-fsafe rejects setjmp/longjmp control flow; use "
                    "error-code returns or move it to a non-safe TU");
+    if (n->kind == AST_EXPR_IDENT && is_unregistered_allocator(n->sym))
+        safe_error(sc, n->span,
+                   "-fsafe rejects asprintf/vasprintf because their returned "
+                   "allocation is not registered by the safe runtime; use "
+                   "a wrapped allocation family or move the call to a "
+                   "non-safe TU");
 
     if (n->kind == AST_EXPR_CAST && n->lhs && n->sem_type && n->lhs->sem_type) {
         bool to_pointer = n->sem_type->kind == TY_PTR;

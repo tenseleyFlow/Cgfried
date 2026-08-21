@@ -1,4 +1,4 @@
-// XFAIL(audit): MS-C-06 asprintf ownership bypasses safe-runtime registration
+// RESOLVED(audit): MS-C-06 asprintf ownership bypasses safe-runtime registration
 // The memory model treats asprintf/vasprintf output as owned heap storage, but
 // the safe runtime does not wrap either allocator. A far derived pointer from
 // that output therefore reaches a registry miss and is treated as foreign.
