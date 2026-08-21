@@ -687,6 +687,89 @@ void test_ir_verify_check9_refs(TestCtx *t)
     }
     arena_free_all(&f.arena);
 
+    /* IR-C-10: the 16-byte NSAA boundary is meaningful only on the first
+     * flattened leaf of a whole composite already assigned to the stack. */
+    vfix_init(&f);
+    m = ir_parse_module(
+        &f.arena, f.dc,
+        "func void @bad(i64 stackalign16 %lo, i64 onstack %hi) {\n"
+        "entry():\n"
+        "    ret\n"
+        "}\n",
+        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(f32 onstack stackalign16 %lo, "
+                        "f32 onstack %hi) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(i64 onstack %lo, "
+                        "i64 onstack stackalign16 %hi) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(i64 onstack stackalign16 even %lo, "
+                        "i64 onstack %hi) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @callee(i64 onstack stackalign16 %lo, "
+                        "i64 onstack %hi) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n"
+                        "func void @caller(i64 %lo, i64 %hi) {\n"
+                        "entry():\n"
+                        "    call void @callee(i64 %lo onstack, "
+                        "i64 %hi onstack)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 9));
+    }
+    arena_free_all(&f.arena);
+
     /* Symbol operand out of range. */
     vfix_init(&f);
     fn = scaffold(&f, &m, &b);

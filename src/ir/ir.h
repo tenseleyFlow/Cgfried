@@ -527,6 +527,13 @@ typedef enum IrAbiRet {
  * IR print/parse; bits 35..37 and 62..63 are already independently spoken. */
 #define IR_ABI_EVEN_GPR (1ull << 61)
 #define ir_abi_even_gpr(b) (((b) & IR_ABI_EVEN_GPR) != 0)
+/* IR-C-10 / AAPCS64 C.12: this is the first flattened eightbyte of a stacked
+ * composite whose source alignment is at least 16 bytes. Once lowering splits
+ * the value, neither arm64 backend walk can recover that whole-type alignment,
+ * so this distinct marker tells both caller and callee to round NSAA to 16
+ * first. */
+#define IR_ABI_STACK_ALIGN16 (1ull << 60)
+#define ir_abi_stack_align16(b) (((b) & IR_ABI_STACK_ALIGN16) != 0)
 /* High-bit parameter-only C provenance.  It composes with the low ABI
  * annotation fields and is compared by structural equality as part of the
  * full annotation word. */

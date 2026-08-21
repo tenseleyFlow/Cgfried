@@ -2072,6 +2072,8 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
     }
     if (plan.even_gp && !stacked && first_arg < args->len)
         args->data[first_arg].b |= IR_ABI_EVEN_GPR;
+    if (plan.stack_align16 && stacked && first_arg < args->len)
+        args->data[first_arg].b |= IR_ABI_STACK_ALIGN16;
     if (flags || stacked)
         for (; first_arg < args->len; first_arg++)
             args->data[first_arg].argflags |=

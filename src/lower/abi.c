@@ -390,6 +390,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
      * over-large NAMED aggregate does below. */
     if (anon && lo->sema->target.kind == CGF_TARGET_ARM64_MACOS &&
         (a->kind == ABI_ARG_EIGHTBYTES || a->kind == ABI_ARG_HFA)) {
+        if (a->align >= 16)
+            a->stack_align16 = 1;
         if (!abi_replan_as_eightbytes(a, false))
             CGF_ICE("abi_arg_place: anonymous aggregate of %u bytes needs "
                     "more than the %u-leaf plan; Apple's widest HFA is four "
@@ -461,6 +463,9 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
         b->fp = 8;
     if (need_gp)
         b->gp = 8;
+
+    if (a->align >= 16)
+        a->stack_align16 = 1;
 
     if (!abi_replan_as_eightbytes(a, need_fp != 0))
         CGF_ICE("abi_arg_place: stacked aggregate of %u bytes needs %u "

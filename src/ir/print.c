@@ -293,6 +293,9 @@ static void print_call_arg(Buf *out, const IrModule *m, const ValNames *vn,
     if (o->argflags & IROPF_ONSTACK)
         buf_printf(out, " onstack");
     if ((o->kind == IROP_VALUE || o->kind == IROP_SYMBOL) &&
+        ir_abi_stack_align16(o->b))
+        buf_printf(out, " stackalign16");
+    if ((o->kind == IROP_VALUE || o->kind == IROP_SYMBOL) &&
         ir_abi_even_gpr(o->b))
         buf_printf(out, " even");
 }
@@ -633,6 +636,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
             buf_printf(out, "byval(%u) ", ir_arg_size(f->param_annots[i]));
         if (f->param_annots && ir_param_is_onstack(f->param_annots[i]))
             buf_printf(out, "onstack ");
+        if (f->param_annots && ir_abi_stack_align16(f->param_annots[i]))
+            buf_printf(out, "stackalign16 ");
         if (f->param_annots && ir_abi_even_gpr(f->param_annots[i]))
             buf_printf(out, "even ");
         if (f->param_annots && ir_param_is_restrict(f->param_annots[i]))

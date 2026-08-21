@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-C-10 stacked 16-byte-aligned composites lose AAPCS64 stack alignment
+// RESOLVED(audit): IR-C-10 stacked 16-byte-aligned composites retain AAPCS64 stack alignment
 // Eight scalar arguments occupy x0-x7 and `stacked` occupies the first stack
 // slot.  AAPCS64 then rounds the stack offset from 8 to 16 before placing the
 // 16-byte-aligned composite, whose two eightbytes belong at sp+16 and sp+24.

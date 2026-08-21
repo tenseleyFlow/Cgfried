@@ -576,6 +576,9 @@ static void check_inst_misc(V *v, const IrInst *in)
             bool even = (in->ops[i].kind == IROP_VALUE ||
                          in->ops[i].kind == IROP_SYMBOL) &&
                         ir_abi_even_gpr(in->ops[i].b);
+            bool stack_align16 = (in->ops[i].kind == IROP_VALUE ||
+                                  in->ops[i].kind == IROP_SYMBOL) &&
+                                 ir_abi_stack_align16(in->ops[i].b);
 
             if (anon && !(in->flags & IRF_CALL_VARIADIC))
                 verr(v, 9, "arg %u is 'anon' on a call that is not marked 'va'",
@@ -598,6 +601,22 @@ static void check_inst_misc(V *v, const IrInst *in)
                      "arg %u is marked even-GPR but is not an i64 ABI leaf", i);
             if (even && (in->ops[i].argflags & IROPF_ONSTACK))
                 verr(v, 9, "arg %u is both onstack and even-GPR", i);
+            if (stack_align16 && !(in->ops[i].argflags & IROPF_ONSTACK))
+                verr(v, 9, "arg %u is stack-align16 but is not marked onstack",
+                     i);
+            if (stack_align16 && in->ops[i].type != IRT_I64 &&
+                in->ops[i].type != IRT_F64)
+                verr(v, 9,
+                     "arg %u is stack-align16 but is not an eightbyte ABI leaf",
+                     i);
+            if (stack_align16 && even)
+                verr(v, 9, "arg %u is both stack-align16 and even-GPR", i);
+            if (stack_align16 && (i + 1u >= in->nops ||
+                                  !(in->ops[i + 1u].argflags & IROPF_ONSTACK)))
+                verr(v, 9,
+                     "arg %u is stack-align16 but is not the first leaf of a "
+                     "stacked composite",
+                     i);
         }
         if (in->subop == FUNCREF_INTERNAL) {
             if (in->callee >= v->m->nfuncs) {
@@ -639,6 +658,18 @@ static void check_inst_misc(V *v, const IrInst *in)
                                         ir_abi_even_gpr(in->ops[i].b);
                         bool want_even = cf->param_annots &&
                                          ir_abi_even_gpr(cf->param_annots[i]);
+                        bool got_stack_align16 =
+                            (in->ops[i].kind == IROP_VALUE ||
+                             in->ops[i].kind == IROP_SYMBOL) &&
+                            ir_abi_stack_align16(in->ops[i].b);
+                        bool want_stack_align16 =
+                            cf->param_annots &&
+                            ir_abi_stack_align16(cf->param_annots[i]);
+                        bool got_onstack =
+                            (in->ops[i].argflags & IROPF_ONSTACK) != 0;
+                        bool want_onstack =
+                            cf->param_annots &&
+                            ir_param_is_onstack(cf->param_annots[i]);
 
                         if (in->ops[i].type != cf->param_types[i])
                             verr(v, 9,
@@ -676,6 +707,16 @@ static void check_inst_misc(V *v, const IrInst *in)
                             verr(v, 9,
                                  "call to @%s: arg %u even-GPR ABI marker "
                                  "does not match its parameter",
+                                 cf->name, i);
+                        if (got_stack_align16 != want_stack_align16)
+                            verr(v, 9,
+                                 "call to @%s: arg %u stack-align16 ABI marker "
+                                 "does not match its parameter",
+                                 cf->name, i);
+                        if (got_onstack != want_onstack)
+                            verr(v, 9,
+                                 "call to @%s: arg %u onstack ABI marker does "
+                                 "not match its parameter",
                                  cf->name, i);
                     }
                 }
@@ -739,6 +780,24 @@ static void verify_func(V *v, const IrFunc *f)
                  i);
         if (ir_abi_even_gpr(annot) && ir_param_is_onstack(annot))
             verr(v, 4, "parameter %u is both onstack and even-GPR", i);
+        if (ir_abi_stack_align16(annot) && !ir_param_is_onstack(annot))
+            verr(v, 4,
+                 "parameter %u is stack-align16 but is not marked onstack", i);
+        if (ir_abi_stack_align16(annot) && f->param_types[i] != IRT_I64 &&
+            f->param_types[i] != IRT_F64)
+            verr(v, 4,
+                 "parameter %u is stack-align16 but is not an eightbyte ABI "
+                 "leaf",
+                 i);
+        if (ir_abi_stack_align16(annot) && ir_abi_even_gpr(annot))
+            verr(v, 4, "parameter %u is both stack-align16 and even-GPR", i);
+        if (ir_abi_stack_align16(annot) &&
+            (i + 1u >= f->nparams || !f->param_annots ||
+             !ir_param_is_onstack(f->param_annots[i + 1u])))
+            verr(v, 4,
+                 "parameter %u is stack-align16 but is not the first leaf of "
+                 "a stacked composite",
+                 i);
         if (ir_type_is_vector((IrType)f->param_types[i]))
             verr(v, 4, "vector function parameters have no Sprint 36 ABI");
     }

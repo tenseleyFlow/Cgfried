@@ -1128,6 +1128,8 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
                                  ? ir_type_size(arg->type)
                                  : (sf == A64_SF128 ? 16u : 8u);
 
+            if (ir_abi_stack_align16(arg->abi_annot))
+                w.nsaa = (w.nsaa + 15u) & ~15u;
             w.nsaa = (w.nsaa + slot_bytes - 1u) & ~(slot_bytes - 1u);
             store = mk_out_arg_store(arg->value, sf, w.nsaa, slot_bytes);
             rb_put(rb, &store);

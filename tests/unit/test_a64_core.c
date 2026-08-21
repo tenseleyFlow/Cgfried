@@ -501,6 +501,61 @@ void test_a64_isel_bulk_memory_address_materialization(TestCtx *t)
     arena_free_all(&arena);
 }
 
+/* Callee-side mirror of the Linux scalar-stack rule: after v0-v7 are full,
+ * the ninth double arrives at incoming+0 and the following binary128 scalar
+ * is rounded past the incoming+8 hole to incoming+16. */
+void test_a64_isel_aligns_stacked_binary128_scalar(TestCtx *t)
+{
+    static const char source[] =
+        "func void @callee(f64 %d0, f64 %d1, f64 %d2, f64 %d3, "
+        "f64 %d4, f64 %d5, f64 %d6, f64 %d7, f64 %stacked_d, "
+        "f128 %stacked_q) {\n"
+        "entry():\n"
+        "    ret\n"
+        "}\n";
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *module;
+    A64Func *func;
+    bool saw_double = false, saw_binary128 = false, loaded_hole = false;
+    u32 bi, ii;
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    module = ir_parse_module(&arena, dc, source, "<a64-stacked-binary128>");
+    T_ASSERT(t, module != NULL && !diag_had_error(dc));
+    T_ASSERT(t, module && ir_verify(dc, module));
+    if (!module || diag_had_error(dc)) {
+        arena_free_all(&arena);
+        return;
+    }
+    func = a64_isel_function(module, &module->funcs[0], &arena);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(func, dc), 0);
+    for (bi = 0; bi < func->nblocks; bi++) {
+        const A64Block *block = &func->blocks[bi];
+
+        for (ii = 0; ii < block->n; ii++) {
+            const A64Inst *inst = &block->insts[ii];
+            const A64Mem *mem;
+
+            if (inst->op != A64_OP_LOAD || inst->ops[1].kind != A64O_MEM ||
+                inst->ops[1].mem.mode != A64_ADDR_INCOMING)
+                continue;
+            mem = &inst->ops[1].mem;
+            if (mem->offset == 0 && mem->size == 8)
+                saw_double = true;
+            if (mem->offset == 16 && mem->size == 16)
+                saw_binary128 = true;
+            if (mem->offset < 16 && mem->offset + mem->size > 8)
+                loaded_hole = true;
+        }
+    }
+    T_ASSERT(t, saw_double);
+    T_ASSERT(t, saw_binary128);
+    T_ASSERT(t, !loaded_hole);
+    arena_free_all(&arena);
+}
+
 void test_a64_isel_opaque_ops_clobber_cached_compare_flags(TestCtx *t)
 {
     static const struct {

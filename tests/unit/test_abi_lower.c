@@ -434,6 +434,32 @@ void test_abi_aapcs64_even_composite_ir_contract(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_aapcs64_stacked_composite_ir_contract(TestCtx *t)
+{
+    static const char src[] =
+        "struct Q { _Alignas(16) long a; long b; };\n"
+        "long sink(long a0, long a1, long a2, long a3, long a4, long a5, "
+        "long a6, long a7, long stacked, struct Q q) {\n"
+        "  return a0+a1+a2+a3+a4+a5+a6+a7+stacked+q.a+q.b;\n"
+        "}\n"
+        "long call(struct Q q) { return sink(0,1,2,3,4,5,6,7,8,q); }\n";
+    AbiFix f;
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_LINUX));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "onstack stackalign16"), 2);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), " onstack"), 4);
+    T_ASSERT(t, strstr(atxt(&f), "stackalign16 even") == NULL);
+    abi_free(&f);
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_MACOS));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "onstack stackalign16"), 2);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), " onstack"), 4);
+    T_ASSERT(t, strstr(atxt(&f), " even") == NULL);
+    abi_free(&f);
+}
+
 void test_abi_va_list_both_forms_identical(TestCtx *t)
 {
     AbiFix f;

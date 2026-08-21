@@ -567,10 +567,10 @@ void test_a64_regalloc_marshals_aapcs64_arguments(TestCtx *t)
     arena_free_all(&arena);
 }
 
-/* Nine or more integer arguments force the stack case. The outgoing area
- * must own SP+0 at the `bl` — that is where the callee reads it — so the
- * saved x29/x30 pair moves up and the frame is allocated by a separate
- * subtraction instead of the one-instruction pre-index form. */
+/* Eight integer arguments fill x0-x7; the following aligned pair is the first
+ * stack object, so rounding NSAA preserves its sp+0/+8 placement. The outgoing
+ * area must own SP+0 at the `bl` — that is where the callee reads it — so the
+ * saved x29/x30 pair moves up and the frame is allocated separately. */
 void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
 {
     Arena arena;
@@ -597,8 +597,12 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
     call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
                              FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
                              IR_ABIRET_NONE, false, false);
-    for (i = 0; i < 10; i++)
-        a64_call_add_arg(&f, call, v[i], IRT_I64, 0, 0);
+    for (i = 0; i < 10; i++) {
+        u8 flags = i >= 8 ? IROPF_ONSTACK : 0;
+        u64 annot = i == 8 ? IR_ABI_STACK_ALIGN16 : 0;
+
+        a64_call_add_arg(&f, call, v[i], IRT_I64, flags, annot);
+    }
     put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
         treg((A64Reg){0, 0}));
 
@@ -663,6 +667,139 @@ void test_a64_regalloc_stack_arguments_use_the_two_step_frame(TestCtx *t)
                 T_ASSERT_EQ_INT(t, (long long)c->args[i].value.id,
                                 (long long)A64_X0 + 1 + (long long)i);
         }
+    arena_free_all(&arena);
+}
+
+void test_a64_regalloc_aligns_stacked_composite_first_leaf(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg v[11], res;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u8 seen[4] = {0, 0, 0, 0};
+    u32 i, ii;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    for (i = 0; i < 11; i++) {
+        v[i] = a64_newv(&f, A64RC_GP);
+        put(&f, 0, A64_OP_MOVZ, 2, treg(v[i]), timm((i64)i),
+            treg((A64Reg){0, 0}));
+    }
+    res = a64_newv(&f, A64RC_GP);
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    for (i = 0; i < 11; i++) {
+        u64 annot = 0;
+        u16 flags = 0;
+
+        if (i >= 8)
+            flags = IROPF_ONSTACK;
+        if (i == 9)
+            annot = IR_ABI_STACK_ALIGN16;
+        a64_call_add_arg(&f, call, v[i], IRT_I64, flags, annot);
+    }
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+    T_ASSERT_EQ_INT(t, (long long)f.out_args, 32);
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+        const A64Mem *mem;
+        u32 lanes, lane;
+
+        if (cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM) {
+            mem = &cur->ops[1].mem;
+            lanes = 1;
+        } else if (cur->op == A64_OP_STP && cur->ops[2].kind == A64O_MEM) {
+            mem = &cur->ops[2].mem;
+            lanes = 2;
+        } else {
+            continue;
+        }
+        if (!mem->base.physical || mem->base.id != (u32)A64_SP + 1 ||
+            mem->offset < 0 || mem->offset >= 32)
+            continue;
+        for (lane = 0; lane < lanes; lane++) {
+            u32 off = (u32)mem->offset + lane * mem->size;
+
+            if (off < 32)
+                seen[off / 8] = 1;
+        }
+    }
+    T_ASSERT(t, seen[0]);
+    T_ASSERT(t, !seen[1]);
+    T_ASSERT(t, seen[2]);
+    T_ASSERT(t, seen[3]);
+    arena_free_all(&arena);
+}
+
+/* Linux AAPCS64 gives a stacked bare binary128 scalar a naturally aligned
+ * 16-byte slot. A preceding stacked double therefore leaves an eight-byte
+ * hole: the caller must store the scalar at sp+16, not sp+8. */
+void test_a64_regalloc_aligns_stacked_binary128_scalar(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg d, q, res;
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    bool saw_double = false, saw_binary128 = false, wrote_hole = false;
+    u32 i, ii;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    d = a64_newv_width(&f, A64RC_FP, A64_SF64);
+    q = a64_newv_width(&f, A64RC_FP, A64_SF128);
+    res = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_FMOV, 2, treg(d), treg(d), treg((A64Reg){0, 0}));
+    put(&f, 0, A64_OP_FMOV, 2, treg(q), treg(q), treg((A64Reg){0, 0}));
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    for (i = 0; i < 9; i++)
+        a64_call_add_arg(&f, call, d, IRT_F64, 0, 0);
+    a64_call_add_arg(&f, call, q, IRT_F128, 0, 0);
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+    T_ASSERT_EQ_INT(t, (long long)f.out_args, 32);
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+        const A64Mem *mem;
+
+        if (cur->op != A64_OP_STORE || cur->ops[1].kind != A64O_MEM)
+            continue;
+        mem = &cur->ops[1].mem;
+        if (!mem->base.physical || mem->base.id != (u32)A64_SP + 1)
+            continue;
+        if (mem->offset == 0 && mem->size == 8)
+            saw_double = true;
+        if (mem->offset == 16 && mem->size == 16)
+            saw_binary128 = true;
+        if (mem->offset < 16 && mem->offset + mem->size > 8)
+            wrote_hole = true;
+    }
+    T_ASSERT(t, saw_double);
+    T_ASSERT(t, saw_binary128);
+    T_ASSERT(t, !wrote_hole);
     arena_free_all(&arena);
 }
 

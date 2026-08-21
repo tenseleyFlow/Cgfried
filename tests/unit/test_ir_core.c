@@ -527,6 +527,35 @@ void test_ir_even_gpr_marker_roundtrip(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_stack_align16_marker_roundtrip(TestCtx *t)
+{
+    static const char src[] =
+        "func void @callee(i64 onstack %tag, i64 onstack stackalign16 %lo, "
+        "i64 onstack %hi) {\n"
+        "entry():\n"
+        "    ret\n"
+        "}\n"
+        "func void @caller(i64 %tag, i64 %lo, i64 %hi) {\n"
+        "entry():\n"
+        "    call void @callee(i64 %tag onstack, i64 %lo onstack "
+        "stackalign16, i64 %hi onstack)\n"
+        "    ret\n"
+        "}\n";
+    IrFix f;
+    IrModule *m;
+
+    fix_init(&f);
+    m = parse_ok(t, &f, src);
+    if (m) {
+        T_ASSERT(t, ir_abi_stack_align16(m->funcs[0].param_annots[1]));
+        T_ASSERT(t,
+                 ir_abi_stack_align16(m->funcs[1].blocks[0].first->ops[1].b));
+        T_ASSERT(t, ir_verify(f.dc, m));
+        roundtrip(t, &f, m);
+    }
+    fix_free(&f);
+}
+
 void test_ir_exact_asm_symbol_roundtrip(TestCtx *t)
 {
     IrFix f;

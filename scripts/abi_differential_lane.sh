@@ -242,6 +242,58 @@ EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
 
+# IR-C-10 is also outside abigen's repertoire: the source alignment is the
+# contract, but descriptors only encode member shapes. A preceding stacked
+# scalar leaves NSAA at 8; both fixed arguments and variadic overflow must
+# round the following composite to 16 in both mixed-compiler directions.
+check_ir_c10_fixed() {
+    d=$WORK/fixed-ir-c10
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+struct pair16 { _Alignas(16) long first; long second; };
+long fixed_value(long, long, long, long, long, long, long, long, long,
+                 struct pair16);
+long variadic_value(long, long, long, long, long, long, long, long, ...);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    struct pair16 value = {11, 13};
+    if (fixed_value(0, 1, 2, 3, 4, 5, 6, 7, 9, value) != 61)
+        return 1;
+    if (variadic_value(0, 1, 2, 3, 4, 5, 6, 7, 9L, value) != 61)
+        return 2;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+#include <stdarg.h>
+long fixed_value(long a0, long a1, long a2, long a3, long a4, long a5,
+                 long a6, long a7, long stacked, struct pair16 value)
+{
+    return a0+a1+a2+a3+a4+a5+a6+a7+stacked+value.first+value.second;
+}
+long variadic_value(long a0, long a1, long a2, long a3, long a4, long a5,
+                    long a6, long a7, ...)
+{
+    va_list ap;
+    long stacked;
+    struct pair16 value;
+
+    va_start(ap, a7);
+    stacked = va_arg(ap, long);
+    value = va_arg(ap, struct pair16);
+    va_end(ap);
+    return a0+a1+a2+a3+a4+a5+a6+a7+stacked+value.first+value.second;
+}
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # Regenerate sources from a descriptor and test both directions.
 # Returns 0 when both agree.
 check_desc() {
@@ -328,6 +380,18 @@ if [ "$target" = arm64-linux ]; then
         failed=$((failed + 1))
     fi
 fi
+
+case $target in
+arm64-linux|arm64-macos)
+    if check_ir_c10_fixed; then
+        checked=$((checked + 1))
+    else
+        echo "abi_differential: REGRESSION on fixed IR-C-10 stacked composite" \
+            >&2
+        failed=$((failed + 1))
+    fi
+    ;;
+esac
 
 # The permanent fixtures FIRST: every descriptor ever minimized out of a real
 # disagreement, replayed on every run. A generated seed only covers a shape

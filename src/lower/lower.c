@@ -1032,6 +1032,10 @@ static void lower_function(Lower *lo, AstNode *def)
                     pannots[nir_params] |= IR_ABI_EVEN_GPR;
                     any_annot = true;
                 }
+                if (k == 0 && a->stack_align16 && stacked) {
+                    pannots[nir_params] |= IR_ABI_STACK_ALIGN16;
+                    any_annot = true;
+                }
                 /* A stacked aggregate's leaves must ALL be marked, or the
                  * callee reads the first few out of registers the caller
                  * never wrote. */

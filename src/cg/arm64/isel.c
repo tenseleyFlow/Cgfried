@@ -2285,11 +2285,16 @@ static void bind_params(Isel *is, const IrFunc *ir)
             A64Inst *load = emit(is, A64_OP_LOAD, sf);
             A64Operand mem;
             /* Row 3, the callee's half: Apple packs each stack argument at
-             * its natural size and alignment, so reading eightbyte slots
-             * here finds the NEXT argument. marshal_call computes the same
-             * walk on the other side; the two must not drift. */
-            u32 slot_bytes = apple ? ir_type_size(ty) : 8u;
+             * its natural size and alignment. Linux uses eightbyte slots,
+             * except that a bare binary128 scalar owns a full 16-byte slot.
+             * marshal_call computes the same walk on the other side; the two
+             * must not drift. */
+            u32 slot_bytes = apple             ? ir_type_size(ty)
+                             : sf == A64_SF128 ? 16u
+                                               : 8u;
 
+            if (ir->param_annots && ir_abi_stack_align16(ir->param_annots[i]))
+                nsaa = (nsaa + 15u) & ~15u;
             nsaa = (nsaa + slot_bytes - 1u) & ~(slot_bytes - 1u);
             memset(&mem, 0, sizeof(mem));
             mem.kind = A64O_MEM;
