@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-20): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-21): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -20,7 +20,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 25,933-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,145-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -470,9 +470,10 @@ do not call the sprint closed until that operational obligation is complete.
   August 15 was Saturday, so the weekly cross-host and reproducibility lanes
   were correctly not due. Independent review approved the paired evidence.
 - Matching-source hosted torture streams atomically regenerated the ratchet
-  and triage report. The new totals are 25,933 PASS, 6,620 SKIP, and 8,097
-  classified failures across 40,650 cells; 90 buckets, 81 live policy
-  decisions, zero stale/unresolved decisions. Reversed stream order produced
+  and triage report. At that hosted checkpoint the totals were 25,933 PASS,
+  6,620 SKIP, and 8,097 classified failures across 40,650 cells; 90 buckets
+  and 81 live policy decisions, with zero stale/unresolved decisions. Reversed
+  stream order produced
   both committed outputs byte-identically. Final candidate run `31665586870`
   then passed the exact x86 ratchet plus the complete standard CI matrix,
   including ARM-QEMU/native, sanitizers, the 100k frontend fuzz lane,
@@ -562,41 +563,52 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 ## 0. Sprint 56 parallel campaign worktree — COMPLETE
 
-Integrated worktree and branch:
+Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
+The current Sprint 56.5 ledger/declarator refresh is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s56` on
+`s56.5-ledger-refresh`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
   verification and deterministic fixture suites pass.
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
-  bootstrap repairs and matching-source refresh, outcome totals are 25,933
-  PASS, 6,620 SKIP, and 8,097 classified failures.
+  bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator
+  tranche, outcome totals are 26,145 PASS, 6,620 SKIP, and 7,885 classified
+  failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 90 total buckets,
-  81 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 58 `fix-sprint:s56.5-*`, 17 `out-of-scope`,
-  and six `wontfix-0.1.0` decisions.  No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 25,933-cell PASS set.
-  Combined gating passes and reversed input order regenerates both committed
-  artifacts byte-identically. Hosted x86 run `31686587082` accounts for the
-  latest 15-cell increase and reports zero regressions.
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 82 total buckets,
+  73 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 49 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+  and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
+- `tests/torture/passing.txt` is the exact sorted 26,145-cell PASS set. The
+  `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
+  regressions. The arm64 stream uses the repository's cross binutils, QEMU,
+  and `/usr/aarch64-linux-gnu/include`; an earlier host-header stream was
+  quarantined and never published. Combined gating passes, and reversed input
+  order regenerates both committed artifacts byte-identically. Commit
+  `2491cf9d` is the subsequent clang-format-only cleanup of that tranche.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta`, `make torture-meta`, and full `make test` (695 unit
-  tests / 4,284,201 assertions, every corpus/differential/fuzz/cross/policy
-  gate).  Expected local skips are only optional-tool/platform lanes and match
-  their committed ledgers.
+  torture-import-meta torture-meta`, full `make test` (796 unit tests /
+  4,293,674 assertions, 695 program fixtures, and every
+  corpus/differential/fuzz/cross/policy gate), `make bootstrap-O0`, and `make
+  bootstrap-O2`. Both bootstraps reproduce 113 assembly files, 113 objects,
+  the runtime archive, and the compiler byte-identically with no normalization.
+  Expected local skips are only optional-tool/platform lanes and match their
+  committed ledgers.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
 
-No Sprint 56 implementation work remains. Bucket repairs are deliberately
-deferred to the named `s56.5-*` lanes or Sprint 61, exactly as the sprint scope
-requires. Sprint 54 and Phase 11 subsequently closed on their independent
+No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
+and this first Sprint 56.5 declarator tranche retired every bucket they fixed;
+the remaining compiler debt is enumerated by the 49 live `s56.5-*` policy
+decisions. Sprint 54 and Phase 11 subsequently closed on their independent
 fleet evidence.
 
 ---
