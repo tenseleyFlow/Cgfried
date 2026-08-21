@@ -130,3 +130,25 @@ _Noreturn void cgf_safe_fail_access(const char *reason, uintptr_t addr,
     msg_text(&m, "\n");
     fail_message(&m);
 }
+
+_Noreturn void cgf_safe_fail_transform(const char *reason, uint32_t access_site,
+                                       uint32_t alloc_site, uint64_t alloc_size,
+                                       int freed, int bad_canary)
+{
+    CgfMsg m = {{0}, 0};
+
+    msg_text(&m, "cgf-safe: ");
+    msg_text(&m, reason);
+    msg_text(&m, "\n  site: access site #");
+    msg_u64(&m, access_site);
+    msg_text(&m, ", allocation site #");
+    msg_u64(&m, alloc_site);
+    msg_text(&m, " (");
+    msg_u64(&m, alloc_size);
+    msg_text(&m, " bytes)\n  state: ");
+    msg_text(&m, freed ? "freed (in quarantine)" : "live");
+    if (bad_canary)
+        msg_text(&m, ", trailing canary corrupted");
+    msg_text(&m, "\n");
+    fail_message(&m);
+}

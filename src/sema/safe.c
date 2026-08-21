@@ -883,6 +883,17 @@ static void walk_node(SafeCtx *sc, AstNode *n)
                    "a wrapped allocation family or move the call to a "
                    "non-safe TU");
 
+    if (((n->kind == AST_EXPR_BINARY &&
+          (n->op == PUNCT_PLUS_ASSIGN || n->op == PUNCT_MINUS_ASSIGN)) ||
+         (n->kind == AST_EXPR_UNARY &&
+          (n->op == PUNCT_PLUSPLUS || n->op == PUNCT_MINUSMINUS))) &&
+        n->lhs && n->lhs->sem_type && n->lhs->sem_type->kind == TY_PTR &&
+        (n->lhs->sem_type->quals & CGF_QUAL_ATOMIC))
+        safe_error(sc, n->span,
+                   "-fsafe rejects atomic pointer arithmetic because bounds "
+                   "cannot be validated before publication; use a locked "
+                   "non-atomic pointer update or isolate it in a non-safe TU");
+
     if (n->kind == AST_EXPR_CAST && n->lhs && n->sem_type && n->lhs->sem_type) {
         bool to_pointer = n->sem_type->kind == TY_PTR;
         bool from_pointer = n->lhs->sem_type->kind == TY_PTR;

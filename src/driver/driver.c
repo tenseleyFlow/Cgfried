@@ -183,12 +183,13 @@ static void driver_diag_render(void *user, const Diag *d, const DiagCtx *dc)
 
 static LowerOptions driver_lower_options(const DriverArgs *a)
 {
-    LowerOptions options = {LOWER_AUTO_VAR_INIT_NONE};
+    LowerOptions options = {LOWER_AUTO_VAR_INIT_NONE, false};
 
     if (a->trivial_auto_var_init == AUTO_VAR_INIT_ZERO)
         options.auto_var_init = LOWER_AUTO_VAR_INIT_ZERO;
     else if (a->trivial_auto_var_init == AUTO_VAR_INIT_PATTERN)
         options.auto_var_init = LOWER_AUTO_VAR_INIT_PATTERN;
+    options.safe_pointer_checks = a->fcgf_safe;
     return options;
 }
 

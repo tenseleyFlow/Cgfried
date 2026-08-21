@@ -881,6 +881,110 @@ void test_memsafe_instrument_emits_for_unproven_pointer_access(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_memsafe_instrument_checks_pointer_derivation(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "func i32 @f(i64 %offset) {\n"
+                            "entry():\n"
+                            "    %p = call ptr @malloc(i64 8)\n"
+                            "    %q = ptradd %p, %offset\n"
+                            "    %v = load i32, %q, align 4, etype i32\n"
+                            "    ret i32 %v\n"
+                            "}\n");
+    MsCheckStats stats;
+    const IrInst *in;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    T_ASSERT_EQ_INT(t, stats.emitted, 1);
+    in = module->funcs[0].blocks[0].first;
+    while (in &&
+           !(in->op == IR_CALL && in->callee < module->nsyms &&
+             strcmp(module->syms[in->callee], "cgf_safe_check_derive") == 0))
+        in = in->next;
+    T_ASSERT(t, in != NULL);
+    T_ASSERT(t, in && in->nops == 4);
+    T_ASSERT(t, in && in->ops[0].kind == IROP_VALUE && in->ops[0].a == 2);
+    T_ASSERT(t, in && in->ops[1].kind == IROP_VALUE && in->ops[1].a == 1);
+    T_ASSERT(t, in && in->ops[2].kind == IROP_VALUE && in->ops[2].a == 3);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_assigns_unique_derivation_sites(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "sym @malloc\n"
+                            "func i32 @f(i64 %first, i64 %second) {\n"
+                            "entry():\n"
+                            "    %base = call ptr @malloc(i64 8)\n"
+                            "    %p = ptradd %base, %first\n"
+                            "    %q = ptradd %p, %second\n"
+                            "    %v = load i32, %q, align 4, etype i32\n"
+                            "    ret i32 %v\n"
+                            "}\n");
+    MsCheckStats stats;
+    const IrInst *in;
+    u32 sites[2] = {0};
+    u32 count = 0;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    for (in = module->funcs[0].blocks[0].first; in; in = in->next)
+        if (in->op == IR_CALL && in->callee < module->nsyms &&
+            strcmp(module->syms[in->callee], "cgf_safe_check_derive") == 0 &&
+            count < 2)
+            sites[count++] = in->ops[3].a;
+    T_ASSERT_EQ_INT(t, count, 2);
+    T_ASSERT(t, sites[0] != sites[1]);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_instrument_checks_uintptr_round_trip(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func ptr @f(ptr %p) {\n"
+                            "entry():\n"
+                            "    %bits = bitcast ptr %p to i64\n"
+                            "    %adjusted = or i64 %bits, 1\n"
+                            "    %q = bitcast i64 %adjusted to ptr\n"
+                            "    ret ptr %q\n"
+                            "}\n");
+    MsCheckStats stats;
+    const IrInst *in;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    ms_process_module(NULL, module, false, NULL, true, &stats);
+    in = module->funcs[0].blocks[0].first;
+    while (in && !(in->op == IR_CALL && in->callee < module->nsyms &&
+                   strcmp(module->syms[in->callee],
+                          "cgf_safe_check_round_trip") == 0))
+        in = in->next;
+    T_ASSERT(t, in != NULL);
+    T_ASSERT(t, in && in->nops == 3);
+    T_ASSERT(t, in && in->ops[0].kind == IROP_VALUE && in->ops[0].a == 1);
+    T_ASSERT(t, in && in->ops[1].kind == IROP_VALUE && in->ops[1].a == 4);
+    T_ASSERT(t, ir_verify(fix.dc, module));
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_instrument_keeps_statically_diagnosed_oob_access(TestCtx *t)
 {
     SummaryFix fix;

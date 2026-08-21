@@ -979,6 +979,93 @@ void test_memsafe_lifetime_reports_leak_at_return(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_memsafe_lifetime_index_guard_does_not_hide_leak(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @cgf_safe_check_index\n"
+                           "func void @f(i64 %index) {\n"
+                           "entry():\n"
+                           "    %p = call ptr @malloc(i64 8)\n"
+                           "    %off = imul i64 %index, 4\n"
+                           "    %q = ptradd %p, %off\n"
+                           "    call void @cgf_safe_check_index(ptr %p, i64 "
+                           "%index, i64 4, i32 0, ptr %q, i32 1)\n"
+                           "    ret\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_LEAK), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_index_guard_preserves_reload_uaf(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "sym @malloc\n"
+                           "sym @free\n"
+                           "sym @cgf_safe_check_index\n"
+                           "func i8 @f(i64 %index) {\n"
+                           "entry():\n"
+                           "    %slot = alloca 8, align 8\n"
+                           "    %p = call ptr @malloc(i64 16)\n"
+                           "    store ptr %p, %slot, align 8, etype ptr\n"
+                           "    %off = imul i64 %index, 1\n"
+                           "    %q = ptradd %slot, %off\n"
+                           "    call void @cgf_safe_check_index(ptr %slot, i64 "
+                           "%index, i64 1, i32 0, ptr %q, i32 1)\n"
+                           "    %reload = load ptr, %slot, align 8, etype ptr\n"
+                           "    call void @free(ptr %p)\n"
+                           "    %value = load i8, %reload, align 1, etype i8\n"
+                           "    ret i8 %value\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_USE_AFTER_FREE), 1);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_malformed_index_guard_still_escapes(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(&fix, "sym @malloc\n"
+                                          "sym @cgf_safe_check_index\n"
+                                          "func void @f() {\n"
+                                          "entry():\n"
+                                          "    %p = call ptr @malloc(i64 8)\n"
+                                          "    call void "
+                                          "@cgf_safe_check_index(ptr %p)\n"
+                                          "    ret\n"
+                                          "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_exit_state(result, 0, 0), MS_ESCAPED);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_lifetime_escape_suppresses_leak_issue(TestCtx *t)
 {
     MsFix fix;

@@ -637,6 +637,16 @@ static const char *call_name(const IrModule *module, const IrInst *call)
     return module->syms[call->callee];
 }
 
+static bool is_runtime_index_check(const IrModule *module, const IrInst *in)
+{
+    return in && in->op == IR_CALL && in->subop == FUNCREF_EXTERNAL &&
+           in->callee < module->nsyms && in->nops == 6 &&
+           strcmp(module->syms[in->callee], "cgf_safe_check_index") == 0 &&
+           in->ops[0].type == IRT_PTR && in->ops[1].type == IRT_I64 &&
+           in->ops[2].type == IRT_I64 && in->ops[3].type == IRT_I32 &&
+           in->ops[4].type == IRT_PTR && in->ops[5].type == IRT_I32;
+}
+
 static u32 call_first_arg(const IrInst *call)
 {
     return call->subop == FUNCREF_INDIRECT ? 1u : 0u;
@@ -1560,6 +1570,11 @@ static void process_call(MsFunctionResult *result, MsPath *path,
     u64 extent = 0;
     bool extent_known = family_extent(result, path, family, call, &extent);
     u32 first, i;
+
+    /* MS-C-05 lowering-only guard: it observes metadata but neither
+       dereferences nor captures its pointer operands. */
+    if (is_runtime_index_check(result->module, call))
+        return;
 
     if (call->subop == FUNCREF_INDIRECT && call->nops >= 1) {
         MsProofKind proof =
@@ -3149,6 +3164,98 @@ static void splice_runtime_check(MsFunctionResult *result,
     CGF_ICE("memsafe instrumentation lost its target in @%s", function->name);
 }
 
+static void splice_runtime_derive(MsFunctionResult *result, IrInst *derived,
+                                  u32 callee, u32 site_id)
+{
+    IrModule *module = result->module;
+    IrOperand *args;
+    IrInst *check;
+
+    if (!derived || derived->op != IR_PTRADD || derived->nops < 2 ||
+        derived->result.v == 0)
+        return;
+    check = arena_alloc(module->arena, sizeof(*check), _Alignof(IrInst));
+    args = arena_alloc(module->arena, 4 * sizeof(*args), _Alignof(IrOperand));
+    memset(check, 0, sizeof(*check));
+    args[0] = derived->ops[0];
+    args[1] = derived->ops[1];
+    args[2] = ir_op_value(result->function, derived->result);
+    args[3] = ir_op_iconst(IRT_I32, site_id);
+    check->op = IR_CALL;
+    check->type = IRT_VOID;
+    check->subop = FUNCREF_EXTERNAL;
+    check->callee = callee;
+    check->loc = derived->loc;
+    check->ops = args;
+    check->nops = 4;
+    check->next = derived->next;
+    derived->next = check;
+}
+
+static bool round_trip_anchor(const IrFunc *function, IrOperand bits,
+                              IrOperand *origin, u32 depth)
+{
+    const IrInst *def;
+    IrOperand next;
+
+    if (depth > function->nvals || bits.kind != IROP_VALUE)
+        return false;
+    def = value_def(function, bits);
+    if (!def)
+        return false;
+    if (def->op == IR_BITCAST && def->type == IRT_I64 && def->nops == 1 &&
+        def->ops[0].type == IRT_PTR) {
+        *origin = def->ops[0];
+        return true;
+    }
+    if (def->nops != 2)
+        return false;
+    switch (def->op) {
+    case IR_IADD:
+    case IR_AND:
+    case IR_OR:
+        if (def->ops[1].kind == IROP_ICONST)
+            next = def->ops[0];
+        else if (def->ops[0].kind == IROP_ICONST)
+            next = def->ops[1];
+        else
+            return false;
+        break;
+    case IR_ISUB:
+        if (def->ops[1].kind != IROP_ICONST)
+            return false;
+        next = def->ops[0];
+        break;
+    default:
+        return false;
+    }
+    return round_trip_anchor(function, next, origin, depth + 1);
+}
+
+static void splice_runtime_round_trip(MsFunctionResult *result, IrInst *derived,
+                                      IrOperand origin, u32 callee, u32 site_id)
+{
+    IrModule *module = result->module;
+    IrOperand *args;
+    IrInst *check;
+
+    check = arena_alloc(module->arena, sizeof(*check), _Alignof(IrInst));
+    args = arena_alloc(module->arena, 3 * sizeof(*args), _Alignof(IrOperand));
+    memset(check, 0, sizeof(*check));
+    args[0] = origin;
+    args[1] = ir_op_value(result->function, derived->result);
+    args[2] = ir_op_iconst(IRT_I32, site_id);
+    check->op = IR_CALL;
+    check->type = IRT_VOID;
+    check->subop = FUNCREF_EXTERNAL;
+    check->callee = callee;
+    check->loc = derived->loc;
+    check->ops = args;
+    check->nops = 3;
+    check->next = derived->next;
+    derived->next = check;
+}
+
 static void splice_allocation_site(MsFunctionResult *result,
                                    const MsRuntimeAlloc *alloc, u32 callee)
 {
@@ -3196,8 +3303,11 @@ static void splice_allocation_site(MsFunctionResult *result,
 static void instrument_result(MsFunctionResult *result, MsCheckStats *stats)
 {
     u32 callee = UINT32_MAX;
+    u32 derive_callee = UINT32_MAX;
+    u32 round_trip_callee = UINT32_MAX;
     u32 setter = UINT32_MAX;
-    u32 i;
+    u32 i, bi;
+    u32 derive_site = result->naccesses + 1;
     bool changed = false;
 
     for (i = 0; i < result->naccesses; i++) {
@@ -3219,6 +3329,47 @@ static void instrument_result(MsFunctionResult *result, MsCheckStats *stats)
             setter = ir_sym(result->module, "cgf_safe_set_next_site");
         splice_allocation_site(result, &result->allocs[i], setter);
         changed = true;
+    }
+    /* MS-C-05: check a derived pointer while its origin is still
+       registry-locatable.  Waiting until a later access lets a far result
+       look like an unrelated foreign pointer and escape the generic check. */
+    for (bi = 0; bi < result->function->nblocks; bi++) {
+        IrInst *in;
+
+        for (in = result->function->blocks[bi].first; in; in = in->next) {
+            IrOperand origin;
+
+            if (is_runtime_index_check(result->module, in)) {
+                in->ops[5] = ir_op_iconst(IRT_I32, derive_site++);
+                changed = true;
+            } else if (in->op == IR_PTRADD && in->result.v != 0) {
+                /* The raw-index guard is stronger than a check of the
+                   already-wrapped byte offset and must diagnose first. */
+                if (is_runtime_index_check(result->module, in->next))
+                    continue;
+                if (derive_callee == UINT32_MAX)
+                    derive_callee =
+                        ir_sym(result->module, "cgf_safe_check_derive");
+                splice_runtime_derive(result, in, derive_callee, derive_site++);
+                result->function->blocks[bi].ninsts++;
+                changed = true;
+            } else if (in->op == IR_BITCAST && in->type == IRT_PTR &&
+                       in->nops == 1 && in->ops[0].type == IRT_I64 &&
+                       round_trip_anchor(result->function, in->ops[0], &origin,
+                                         0)) {
+                /* MS-C-05: the documented uintptr_t grammar lowers through
+                   modular integer operations, so recognize its constant-op
+                   chain and check the cast-back against the original pointer.
+                 */
+                if (round_trip_callee == UINT32_MAX)
+                    round_trip_callee =
+                        ir_sym(result->module, "cgf_safe_check_round_trip");
+                splice_runtime_round_trip(result, in, origin, round_trip_callee,
+                                          derive_site++);
+                result->function->blocks[bi].ninsts++;
+                changed = true;
+            }
+        }
     }
     if (changed)
         ir_func_renumber(result->module->arena, result->function);

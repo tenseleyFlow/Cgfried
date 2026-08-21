@@ -1158,3 +1158,50 @@ void test_alias_domain_omits_unreferenced_module_symbols(TestCtx *t)
     buf_free(&src);
     arena_free_all(&f.arena);
 }
+
+void test_alias_runtime_index_guard_preserves_heap_pointer_contents(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *slot_call, *pointer_call, *load;
+    AliasAllocSeed seeds[2];
+    const AllocSite *pointer_site;
+    PtsSet loaded;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "sym @malloc\n"
+                        "sym @cgf_safe_check_index\n"
+                        "func ptr @f(i64 %index) {\n"
+                        "entry():\n"
+                        "    %slot = call ptr @malloc(i64 8)\n"
+                        "    %p = call ptr @malloc(i64 16)\n"
+                        "    store ptr %p, %slot, align 8, etype ptr\n"
+                        "    %off = imul i64 %index, 1\n"
+                        "    %q = ptradd %slot, %off\n"
+                        "    call void @cgf_safe_check_index(ptr %slot, i64 "
+                        "%index, i64 1, i32 0, ptr %q, i32 1)\n"
+                        "    %reload = load ptr, %slot, align 8, etype ptr\n"
+                        "    ret ptr %reload\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    slot_call = alias_find(&m->funcs[0], IR_CALL, 0);
+    pointer_call = alias_find(&m->funcs[0], IR_CALL, 1);
+    load = alias_find(&m->funcs[0], IR_LOAD, 0);
+    seeds[0] = (AliasAllocSeed){slot_call, true, ALIAS_NO_OUT_PARAM};
+    seeds[1] = (AliasAllocSeed){pointer_call, true, ALIAS_NO_OUT_PARAM};
+    c = alias_ctx_seeds(m, seeds, 2);
+    pointer_site = alias_alloc_site(c, pointer_call);
+    loaded = alias_points_to(c, ir_op_value(&m->funcs[0], load->result));
+    T_ASSERT(t, pointer_site != NULL);
+    T_ASSERT(t, !loaded.has_unknown);
+    T_ASSERT(t, alias_pts_unique_alloc_site(c, loaded) == pointer_site);
+    T_ASSERT(t,
+             !alias_escapes(c, ir_op_value(&m->funcs[0], slot_call->result)));
+    alias_free(c);
+    arena_free_all(&f.arena);
+}

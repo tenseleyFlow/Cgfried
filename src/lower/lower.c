@@ -1282,6 +1282,7 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
     lo.include_inline_defs = include_inline_defs;
     lo.auto_var_init =
         options ? (u8)options->auto_var_init : LOWER_AUTO_VAR_INIT_NONE;
+    lo.safe_pointer_checks = options && options->safe_pointer_checks;
     lo.m = ir_module_new(arena, dc);
     strmap_init(&lo.globals);
     strmap_init(&lo.emitted_globals);

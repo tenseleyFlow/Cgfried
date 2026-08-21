@@ -301,6 +301,28 @@ static IrOperand addr_plus(Lower *lo, IrOperand base, i64 off)
     return ir_op_value(lo->fn, r);
 }
 
+static void emit_pointer_index_check(Lower *lo, IrOperand origin,
+                                     IrOperand index, IrOperand element_size,
+                                     bool subtract, bool index_signed,
+                                     IrOperand derived)
+{
+    IrOperand args[6];
+
+    if (!lo->safe_pointer_checks)
+        return;
+    /* MS-C-05: preserve raw index, signedness, scale, direction, and result
+       in an opaque guard so modular IR_IMUL/IR_ISUB cannot erase overflow. */
+    args[0] = origin;
+    args[1] = index;
+    args[2] = element_size;
+    args[3] =
+        ir_op_iconst(IRT_I32, (subtract ? 1 : 0) | (index_signed ? 2 : 0));
+    args[4] = derived;
+    args[5] = ir_op_iconst(IRT_I32, 0); /* assigned by memsafe */
+    (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                        ir_sym(lo->m, "cgf_safe_check_index"), args, 6);
+}
+
 Lvalue lower_lvalue(Lower *lo, AstNode *e)
 {
     switch (e->kind) {
@@ -353,8 +375,12 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         ValueId scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, el);
         ValueId sum =
             ir_build_ptradd(&lo->b, base, ir_op_value(lo->fn, scaled));
+        IrOperand result = ir_op_value(lo->fn, sum);
 
-        return lv_of(lo, ir_op_value(lo->fn, sum), sem(e));
+        emit_pointer_index_check(lo, base, wide, el, false,
+                                 is_signed_ty(lo, idx_type), result);
+
+        return lv_of(lo, result, sem(e));
     }
     case AST_EXPR_MEMBER: {
         IrOperand base;
@@ -652,16 +678,20 @@ static IrOperand ptr_index(Lower *lo, IrOperand p, IrOperand n, Type *ptr_ty,
 {
     IrOperand esz = lower_type_size(lo, ptr_ty->base);
     IrOperand wide = lower_scalar_convert(lo, n, idx_ty, type_basic(TY_LONG));
-    ValueId scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, esz);
-    IrOperand off = ir_op_value(lo->fn, scaled);
+    ValueId scaled;
+    IrOperand off;
     ValueId r;
 
+    scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, esz);
+    off = ir_op_value(lo->fn, scaled);
     if (neg) {
         ValueId z = ir_build2(&lo->b, IR_ISUB, IRT_I64, lower_i64(0), off);
 
         off = ir_op_value(lo->fn, z);
     }
     r = ir_build_ptradd(&lo->b, p, off);
+    emit_pointer_index_check(lo, p, wide, esz, neg, is_signed_ty(lo, idx_ty),
+                             ir_op_value(lo->fn, r));
     return ir_op_value(lo->fn, r);
 }
 
@@ -821,9 +851,24 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
          * over the pointer representation. Scaling before atomicrmw preserves
          * C pointer arithmetic for every (including VLA) pointee size; a
          * seq_cst load/ptradd/store pair merely orders a lost-update race. */
-        if (!want_old)
-            result = ir_build2(&lo->b, rmw_compute_op(lo, op, lt), IRT_I64,
-                               ir_op_value(lo->fn, old), step);
+        if (!want_old || lo->safe_pointer_checks) {
+            ValueId next = ir_build2(&lo->b, rmw_compute_op(lo, op, lt),
+                                     IRT_I64, ir_op_value(lo->fn, old), step);
+
+            if (!want_old)
+                result = next;
+            if (lo->safe_pointer_checks) {
+                ValueId old_ptr = ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                            ir_op_value(lo->fn, old));
+                ValueId next_ptr = ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
+                                             ir_op_value(lo->fn, next));
+
+                emit_pointer_index_check(lo, ir_op_value(lo->fn, old_ptr),
+                                         count, width, op == PUNCT_MINUS,
+                                         is_signed_ty(lo, rt),
+                                         ir_op_value(lo->fn, next_ptr));
+            }
+        }
         return ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
                                              ir_op_value(lo->fn, result)));
     }

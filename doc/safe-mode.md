@@ -16,7 +16,7 @@ code.
 
 | Guarantee | Mechanism | Limit |
 |---|---|---|
-| Heap spatial safety | Allocation sizes and pointer offsets flow into opaque bounds checks before safe-TU dereferences. | Stack and global spatial instrumentation are deferred; unsafe-TU accesses are unchecked. |
+| Heap spatial safety | Registered heap-pointer derivations and residual accesses are checked before safe-TU code can use an out-of-bounds result. | Stack and global spatial instrumentation are deferred; unsafe-TU accesses and pointers from unregistered allocators are unchecked. |
 | Heap temporal safety | Freed blocks remain poisoned in a FIFO quarantine and checked accesses trap. | The quarantine retains at most 1024 blocks or 8 MiB; sufficiently old dangling pointers can escape detection. |
 | Definite initialization | Default-tier memory-flow warnings and definite-uninitialized reads are errors; automatic scalar storage is zero-initialized after analysis. | Maybe-uninitialized path heuristics remain warnings; union padding, externally initialized memory, and code outside safe TUs remain outside this guarantee. |
 | Null safety | Proven-null dereferences in the default memory tier are errors and emitted safe accesses carry runtime checks. | Indirect behavior hidden inside unsafe TUs or unsummarized external code is not inspected. |
@@ -34,6 +34,7 @@ deliberate escape hatch.
 | `setjmp` or `longjmp` families | Nonlocal control flow skips ordinary lifetime transitions and cleanup. | Return error codes, or isolate the jump in a non-safe TU. |
 | Variable-size `alloca` | It has neither a scoped language extent nor a statically known site size. | Use a language-scoped VLA, or allocate on the heap; constant `alloca` is allowed. Stack spatial instrumentation remains deferred as stated above. |
 | `asprintf` or `vasprintf` | Their returned allocations are not registered with the safe runtime. | Format into storage from a wrapped allocation family, or isolate the call and ownership in a non-safe TU. |
+| Atomic pointer arithmetic | A read-modify-write publishes the new pointer before a post-update bounds check could reject it. | Protect a non-atomic pointer update with a lock, or isolate the atomic ownership protocol in a non-safe TU. |
 | Provenance-losing casts through `volatile` or device-I/O integers | Volatility orders accesses but does not preserve pointer provenance. | Put the I/O boundary in a non-safe TU. |
 
 ## `uintptr_t` round trips

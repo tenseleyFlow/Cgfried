@@ -183,6 +183,7 @@ typedef struct Lower {
     u32 dead_region;            /* current contiguous unreachable source */
     u32 next_dead_region;       /* stable diagnostic region numbering */
     u8 auto_var_init;           /* LowerAutoVarInit; emission mitigation */
+    bool safe_pointer_checks;   /* preserve raw pointer-index operands */
     /* Non-NULL only while a GNU variadic wrapper body is being specialized
      * into its caller. No pack marker is ever admitted to public IR. */
     VaPackContext *va_pack;
@@ -216,6 +217,7 @@ typedef enum LowerAutoVarInit {
 
 typedef struct LowerOptions {
     LowerAutoVarInit auto_var_init;
+    bool safe_pointer_checks;
 } LowerOptions;
 
 /* Strmap's payload is intentionally generic, but lowering's numeric maps

@@ -332,6 +332,16 @@ static u32 call_first_arg(const IrInst *call)
     return call->subop == FUNCREF_INDIRECT ? 1 : 0;
 }
 
+static bool is_runtime_index_guard(const AliasCtx *c, const IrInst *call)
+{
+    return call->op == IR_CALL && call->subop == FUNCREF_EXTERNAL &&
+           call->callee < c->m->nsyms && call->nops == 6 &&
+           strcmp(c->m->syms[call->callee], "cgf_safe_check_index") == 0 &&
+           call->ops[0].type == IRT_PTR && call->ops[1].type == IRT_I64 &&
+           call->ops[2].type == IRT_I64 && call->ops[3].type == IRT_I32 &&
+           call->ops[4].type == IRT_PTR && call->ops[5].type == IRT_I32;
+}
+
 static void validate_alloc_seeds(const AliasConfig *cfg)
 {
     u32 i;
@@ -710,6 +720,11 @@ static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
             } else if (in->op == IR_CALL) {
                 AllocSite *site = site_for_call(c, in);
 
+                /* This lowering-only guard observes allocation metadata.  It
+                 * neither dereferences nor captures either pointer operand,
+                 * so it has no points-to or memory effect. */
+                if (is_runtime_index_guard(c, in))
+                    continue;
                 if (in->result.v && in->type == IRT_PTR) {
                     bool seeded = false;
                     u32 first = call_first_arg(in);
@@ -785,6 +800,8 @@ static void mark_escapes(AliasCtx *c)
                 in->ops[0].type == IRT_PTR)
                 mark_operand_escaped(c, in->ops[0]);
             else if (in->op == IR_CALL) {
+                if (is_runtime_index_guard(c, in))
+                    continue;
                 oi = in->subop == FUNCREF_INDIRECT ? 1 : 0;
                 for (; oi < in->nops; oi++)
                     if (in->ops[oi].type == IRT_PTR)

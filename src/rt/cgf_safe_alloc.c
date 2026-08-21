@@ -459,6 +459,169 @@ void cgf_safe_check(const void *ptr, size_t access_size, int kind,
                          freed, bad_canary);
 }
 
+void cgf_safe_check_derive(const void *origin, int64_t offset,
+                           const void *derived, uint32_t site_id)
+{
+    CgfSafeHdr *hdr;
+    CgfSafePrefix *prefix;
+    uintptr_t origin_addr, derived_addr, base, origin_offset, derived_offset;
+    uint64_t magnitude;
+    uint64_t alloc_size;
+    uint32_t alloc_site;
+    int freed, bad_canary, invalid_origin, invalid_derived, invalid_offset;
+
+    if (!origin)
+        cgf_safe_fail_null(1, 0, site_id);
+    lock_registry();
+    prefix = find_containing_locked(origin);
+    if (!prefix) {
+        unlock_registry();
+        return;
+    }
+    hdr = prefix->hdr;
+    if (!header_valid(prefix)) {
+        unlock_registry();
+        cgf_safe_fail_free("allocation-header corruption", 0, 0);
+    }
+    origin_addr = (uintptr_t)origin;
+    derived_addr = (uintptr_t)derived;
+    base = (uintptr_t)user_of(hdr);
+    alloc_size = hdr->size;
+    alloc_site = hdr->site_id;
+    freed = hdr->state != CGF_SAFE_LIVE;
+    bad_canary = !canary_ok(hdr);
+    invalid_origin = origin_addr < base;
+    origin_offset = invalid_origin ? 0 : origin_addr - base;
+    invalid_origin = invalid_origin || origin_offset > alloc_size;
+    /* MS-C-05: validate the signed displacement, not only the resulting
+       address.  That catches modular wrap while still allowing one-past. */
+    if (offset < 0) {
+        magnitude = (uint64_t)(-(offset + 1)) + 1;
+        invalid_offset = invalid_origin || magnitude > origin_offset;
+    } else {
+        magnitude = (uint64_t)offset;
+        invalid_offset =
+            invalid_origin || magnitude > alloc_size - origin_offset;
+    }
+    invalid_derived = derived_addr < base;
+    derived_offset = invalid_derived ? 0 : derived_addr - base;
+    invalid_derived = invalid_derived || derived_offset > alloc_size ||
+                      derived_addr != origin_addr + (uintptr_t)(uint64_t)offset;
+    if (!freed && !invalid_origin && !invalid_offset && !invalid_derived) {
+        unlock_registry();
+        return;
+    }
+    unlock_registry();
+    cgf_safe_fail_access(freed ? "use-after-free"
+                               : "out-of-bounds pointer derivation",
+                         derived_addr, base, 0, 0, site_id, alloc_site,
+                         alloc_size, freed, bad_canary);
+}
+
+void cgf_safe_check_round_trip(const void *origin, const void *derived,
+                               uint32_t site_id)
+{
+    CgfSafeHdr *hdr;
+    CgfSafePrefix *prefix;
+    uintptr_t derived_addr, base, derived_offset;
+    uint64_t alloc_size;
+    uint32_t alloc_site;
+    int freed, bad_canary, invalid_derived;
+
+    if (!origin) {
+        if (!derived)
+            return;
+        cgf_safe_fail_null(1, 0, site_id);
+    }
+    lock_registry();
+    prefix = find_containing_locked(origin);
+    if (!prefix) {
+        unlock_registry();
+        return;
+    }
+    hdr = prefix->hdr;
+    if (!header_valid(prefix)) {
+        unlock_registry();
+        cgf_safe_fail_free("allocation-header corruption", 0, 0);
+    }
+    derived_addr = (uintptr_t)derived;
+    base = (uintptr_t)user_of(hdr);
+    alloc_size = hdr->size;
+    alloc_site = hdr->site_id;
+    freed = hdr->state != CGF_SAFE_LIVE;
+    bad_canary = !canary_ok(hdr);
+    invalid_derived = derived_addr < base;
+    derived_offset = invalid_derived ? 0 : derived_addr - base;
+    invalid_derived = invalid_derived || derived_offset > alloc_size;
+    if (!freed && !invalid_derived) {
+        unlock_registry();
+        return;
+    }
+    unlock_registry();
+    cgf_safe_fail_transform(freed ? "use-after-free"
+                                  : "out-of-bounds uintptr_t round trip",
+                            site_id, alloc_site, alloc_size, freed, bad_canary);
+}
+
+void cgf_safe_check_index(const void *origin, uint64_t index,
+                          uint64_t element_size, uint32_t flags,
+                          const void *derived, uint32_t site_id)
+{
+    CgfSafeHdr *hdr;
+    CgfSafePrefix *prefix;
+    uintptr_t origin_addr, derived_addr, base, origin_offset;
+    uint64_t alloc_size, magnitude, available, scaled;
+    uint32_t alloc_site;
+    int freed, bad_canary, invalid_origin, invalid_index, backward;
+
+    if (!origin)
+        cgf_safe_fail_null(1, 0, site_id);
+    lock_registry();
+    prefix = find_containing_locked(origin);
+    if (!prefix) {
+        unlock_registry();
+        return;
+    }
+    hdr = prefix->hdr;
+    if (!header_valid(prefix)) {
+        unlock_registry();
+        cgf_safe_fail_free("allocation-header corruption", 0, 0);
+    }
+    origin_addr = (uintptr_t)origin;
+    derived_addr = (uintptr_t)derived;
+    base = (uintptr_t)user_of(hdr);
+    alloc_size = hdr->size;
+    alloc_site = hdr->site_id;
+    freed = hdr->state != CGF_SAFE_LIVE;
+    bad_canary = !canary_ok(hdr);
+    invalid_origin = origin_addr < base;
+    origin_offset = invalid_origin ? 0 : origin_addr - base;
+    invalid_origin = invalid_origin || origin_offset > alloc_size;
+
+    magnitude =
+        ((flags & 2u) && (index & (UINT64_C(1) << 63))) ? (~index + 1) : index;
+    backward =
+        !!(flags & 1u) ^ !!((flags & 2u) && (index & (UINT64_C(1) << 63)));
+    available = invalid_origin
+                    ? 0
+                    : (backward ? origin_offset : alloc_size - origin_offset);
+    invalid_index = invalid_origin || element_size == 0 ||
+                    magnitude > available / (element_size ? element_size : 1);
+    scaled = index * element_size;
+    if (flags & 1u)
+        scaled = 0 - scaled;
+    invalid_index =
+        invalid_index || derived_addr != origin_addr + (uintptr_t)scaled;
+    if (!freed && !invalid_index) {
+        unlock_registry();
+        return;
+    }
+    unlock_registry();
+    cgf_safe_fail_transform(freed ? "use-after-free"
+                                  : "out-of-bounds pointer index",
+                            site_id, alloc_site, alloc_size, freed, bad_canary);
+}
+
 void *__wrap_malloc(size_t size)
 {
     void *result;

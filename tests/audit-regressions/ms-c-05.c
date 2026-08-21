@@ -1,4 +1,4 @@
-// XFAIL(audit): MS-C-05 far heap out-of-bounds pointers evade the runtime registry
+// RESOLVED(audit): MS-C-05 far heap out-of-bounds pointers evade the runtime registry
 // Reproduce with:
 //   build/cgfried -fsafe tests/audit-regressions/ms-c-05.c -o /tmp/ms-c-05
 //   /tmp/ms-c-05

@@ -76,7 +76,7 @@ static bool run_lower_opts_s(StFix *f, const char *src,
     if (auto_var_init == LOWER_AUTO_VAR_INIT_NONE) {
         f->m = lower_translation_unit(&f->arena, f->dc, &f->sema, tu);
     } else {
-        LowerOptions options = {auto_var_init};
+        LowerOptions options = {auto_var_init, false};
 
         f->m = lower_translation_unit_with_options(&f->arena, f->dc, &f->sema,
                                                    tu, &options);

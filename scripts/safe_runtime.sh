@@ -118,6 +118,27 @@ run_test_suite()
             'invalid-free:cgf-safe: invalid-free: interior pointer' \
             'heap-overflow-write:cgf-safe: heap-overflow-at-free' \
             'oob-read:cgf-safe: out-of-bounds: 4-byte read at p+16' \
+            'far-oob-read:cgf-safe: out-of-bounds pointer index' \
+            'far-negative-read:cgf-safe: out-of-bounds pointer index' \
+            'origin-cross-allocation:cgf-safe: out-of-bounds pointer index' \
+            'select-far-read:cgf-safe: out-of-bounds pointer index' \
+            'loop-instance-far-read:cgf-safe: out-of-bounds pointer index' \
+            'load-store-far-read:cgf-safe: out-of-bounds pointer index' \
+            'helper-call-far-read:cgf-safe: out-of-bounds pointer index' \
+            'one-past-read:cgf-safe: out-of-bounds: 1-byte read at p+8' \
+            'crossing-read:cgf-safe: out-of-bounds: 4-byte read at p+7' \
+            'modular-wrap-derive:cgf-safe: out-of-bounds pointer derivation' \
+            'null-origin-derived:cgf-safe: null-pointer-access' \
+            'index-int64-min:cgf-safe: out-of-bounds pointer index' \
+            'index-uint64-max:cgf-safe: out-of-bounds pointer index' \
+            'index-multiply-wrap:cgf-safe: out-of-bounds pointer index' \
+            'pointer-plus-multiply-wrap:cgf-safe: out-of-bounds pointer index' \
+            'pointer-minus-uint64-max:cgf-safe: out-of-bounds pointer index' \
+            'vla-pointer-index-wrap:cgf-safe: out-of-bounds pointer index' \
+            'uintptr-far-plus:cgf-safe: out-of-bounds uintptr_t round trip' \
+            'uintptr-far-minus:cgf-safe: out-of-bounds uintptr_t round trip' \
+            'uintptr-far-tag:cgf-safe: out-of-bounds uintptr_t round trip' \
+            'uintptr-far-mask:cgf-safe: out-of-bounds uintptr_t round trip' \
             'va-start-oob:cgf-safe: out-of-bounds: 24-byte write at p+0'
         do
             fixture=${spec%%:*}
@@ -131,7 +152,8 @@ run_test_suite()
             fi
         done
 
-        for fixture in churn foreign alignment allocator-family; do
+        for fixture in churn foreign alignment allocator-family zero-byte-memory \
+            uintptr-roundtrip-valid; do
             name=$fixture-$suffix
             if compile "$name" "$opt" "$ROOT/$fixture.c"; then
                 run_plain "$name"
