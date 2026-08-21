@@ -22,7 +22,9 @@
  *
  * Per-op instruction shapes are in print_inst below; operand atoms are
  * %value, signed decimal (iconst), 0xHEX[:0xHEX] (fconst exact bits,
- * hi:lo for f80/f128), @name[+addend], or undef. */
+ * hi:lo for f80/f128), @name[+addend], or undef. An indirect call whose
+ * pointer atom is a symbol uses `call type indirect @name(...)`, keeping it
+ * distinct from the direct `call type @name(...)` spelling. */
 
 static const char *const type_names[] = {
     "i8",  "i16",   "i32",   "i64",   "f32",   "f64",   "f80",   "f128",
@@ -480,6 +482,10 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
             print_sym_name(out,
                            in->callee < m->nsyms ? m->syms[in->callee] : NULL);
         else {
+            /* IR-H-08: promotion can make an indirect callee symbolic. Keep
+             * that form explicit so text cannot reinterpret it as direct. */
+            if (in->ops[0].kind == IROP_SYMBOL)
+                buf_printf(out, "indirect ");
             print_atom(out, m, vn, &in->ops[0]);
             first = 1;
         }

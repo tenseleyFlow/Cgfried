@@ -676,6 +676,60 @@ void test_ir_parse_full_surface(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_symbolic_indirect_call_roundtrip(TestCtx *t)
+{
+    IrFix f;
+    IrModule *m;
+    const IrInst *in;
+    Buf text;
+    const char *printed;
+    static const char src[] = "sym @external\n"
+                              "func void @internal() {\n"
+                              "entry():\n"
+                              "    ret\n"
+                              "}\n"
+                              "func void @calls(ptr %fp) {\n"
+                              "entry():\n"
+                              "    call void @internal()\n"
+                              "    call void @external()\n"
+                              "    call void %fp()\n"
+                              "    call void indirect @internal()\n"
+                              "    ret\n"
+                              "}\n";
+
+    fix_init(&f);
+    m = parse_ok(t, &f, src);
+    if (!m) {
+        fix_free(&f);
+        return;
+    }
+    in = m->funcs[1].blocks[0].first;
+    T_ASSERT_EQ_INT(t, in->subop, FUNCREF_INTERNAL);
+    in = in->next;
+    T_ASSERT_EQ_INT(t, in->subop, FUNCREF_EXTERNAL);
+    in = in->next;
+    T_ASSERT_EQ_INT(t, in->subop, FUNCREF_INDIRECT);
+    T_ASSERT_EQ_INT(t, in->ops[0].kind, IROP_VALUE);
+    in = in->next;
+    T_ASSERT_EQ_INT(t, in->subop, FUNCREF_INDIRECT);
+    T_ASSERT_EQ_INT(t, in->ops[0].kind, IROP_SYMBOL);
+    T_ASSERT_EQ_STR(t, m->syms[in->ops[0].sym], "internal");
+
+    buf_init(&text);
+    ir_print_module_buf(&text, m);
+    buf_push_u8(&text, 0);
+    printed = (const char *)text.data;
+    T_ASSERT(t, strstr(printed, "call void @internal()") != NULL);
+    T_ASSERT(t, strstr(printed, "call void @external()") != NULL);
+    T_ASSERT(t, strstr(printed, "call void %0()") != NULL);
+    T_ASSERT(t, strstr(printed, "call void indirect @internal()") != NULL);
+    buf_free(&text);
+
+    T_ASSERT(t, ir_verify(f.dc, m));
+    roundtrip(t, &f, m);
+    fix_free(&f);
+}
+
 void test_ir_parse_forward_refs(TestCtx *t)
 {
     IrFix f;

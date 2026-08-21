@@ -1472,6 +1472,7 @@ static bool parse_inst(P *p)
         u32 nargs;
         u32 i;
         bool indirect;
+        bool marked_indirect;
         IrOperand *fp = NULL;
         u32 fp_fixup = 0;
 
@@ -1487,8 +1488,11 @@ static bool parse_inst(P *p)
                  "'%%name = call ...'");
             return false;
         }
+        marked_indirect = tok_is(peek(p), "indirect");
+        if (marked_indirect)
+            next(p);
         ct = peek(p);
-        indirect = !tok_is_symbol(ct);
+        indirect = marked_indirect || !tok_is_symbol(ct);
         if (indirect) {
             /* The pointer parses before the arg count is known, so it
              * gets a staging arena slot; if a fixup landed on it, the

@@ -100,6 +100,51 @@ void test_mem2reg_removes_single_block_memory_traffic(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_mem2reg_symbolic_indirect_call_roundtrips(TestCtx *t)
+{
+    OFix f;
+    IrModule *m, *round;
+    OptConfig cfg;
+    Buf text;
+    char *printed;
+    const IrInst *call;
+
+    ofix_init(&f);
+    m = parse_ir(&f, "func i32 @target(i32 %x) {\n"
+                     "entry():\n"
+                     "    ret i32 %x\n"
+                     "}\n"
+                     "func i32 @caller(i32 %x) {\n"
+                     "entry():\n"
+                     "    %slot = alloca 8, align 8\n"
+                     "    store ptr @target, %slot, align 8\n"
+                     "    %fp = load ptr, %slot, align 8\n"
+                     "    %r = call i32 %fp(i32 %x)\n"
+                     "    ret i32 %r\n"
+                     "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    T_ASSERT(t, m && run_mem2reg(m, &cfg));
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    call = m->funcs[1].blocks[0].first;
+    T_ASSERT(t, call != NULL && call->op == IR_CALL);
+    if (call) {
+        T_ASSERT_EQ_INT(t, call->subop, FUNCREF_INDIRECT);
+        T_ASSERT_EQ_INT(t, call->ops[0].kind, IROP_SYMBOL);
+    }
+
+    printed = print_ir(m, &text);
+    T_ASSERT(t, strstr(printed, "call i32 indirect @target(i32 %0)") != NULL);
+    round = ir_parse_module(&f.arena, f.dc, printed, "<mem2reg-roundtrip>");
+    T_ASSERT(t, round != NULL);
+    T_ASSERT(t, round && ir_verify(f.dc, round));
+    T_ASSERT(t, round && ir_module_struct_eq(m, round));
+    buf_free(&text);
+    arena_free_all(&f.arena);
+}
+
 void test_mem2reg_places_one_parameter_at_diamond_idf(TestCtx *t)
 {
     OFix f;
