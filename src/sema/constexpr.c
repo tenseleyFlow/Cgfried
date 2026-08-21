@@ -940,6 +940,12 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         /* The SELECTED arm, and only that one. Folding the other would
          * evaluate an expression the language says is not evaluated. */
         return eval(s, e->choose_taken ? e->mid : e->rhs, m);
+    case AST_EXPR_GENERIC:
+        /* SEMA-H-07: sema stores the selected association in `mid`.
+         * Evaluate only that arm, in the caller's constant-expression mode;
+         * the controlling expression and unselected associations are not
+         * evaluated. */
+        return eval(s, e->mid, m);
     case AST_EXPR_PAREN:
         return eval(s, e->lhs, m);
     case AST_EXPR_IDENT: {
