@@ -187,31 +187,36 @@ arithmetic. Required constant contexts diagnose overflow, opportunistic folds
 remain silent, and signed, unsigned, promotion, and target-width boundaries
 are pinned.
 
-ID: `SEMA-H-06`
-Title: a record of only zero-length arrays is sized to its alignment
-Severity: High — a silent ABI divergence from GCC on a supported GNU shape:
-`sizeof` and every enclosing member offset differ, so a mixed link disagrees
-about layout while each compiler stays self-consistent. Torn toward Critical,
-because across a GCC boundary this IS wrong code and the project treats
-mixed-link layout agreement as a shipped requirement (see `packed`); filed
-High because no single-compiler program miscompiles and the shape is rare.
-Reproducer: `tests/audit-regressions/sema-h-06.c`
-Root cause: `src/sema/layout.c:220-221` and `:280-281` both end with
-`if (tag->size == 0) tag->size = align;`. The struct-path comment claims it is
-"only reachable for a FAM-only shape", and that claim is wrong in both
-directions: a FAM-only struct is REFUSED by sema ("a flexible array member in
-a struct with no other named members is a GNU extension that is not
-supported"), so the named shape cannot reach it, while a record whose members
-are all zero-length arrays does reach it and is silently mis-sized. The union
-path carries the identical fixup with no comment at all.
-Measured (GCC 16.1.1 vs Cgfried, x86_64): `struct { int x[0]; }` 0 vs 4;
-`union { int x[0]; }` 0 vs 4; `struct { int x[0]; int y[0]; }` 0 vs 4;
-`struct { struct A a; int n; }` where `A` is the above, 4 vs 8; array stride
-`sizeof(struct A[2])/2` 0 vs 4. The trailing idioms agree exactly:
-`struct { int n; char p[0]; }` and `struct { char p[0]; int n; }` are both 4
-in each compiler, with `offsetof` agreeing — which is why ordinary code never
-surfaced this.
-Affected sprint: 14.
+~~ID: `SEMA-H-06`~~
+~~Title: a record of only zero-length arrays is sized to its alignment~~
+~~Severity: High — a silent ABI divergence from GCC on a supported GNU shape:~~
+~~`sizeof` and every enclosing member offset differ, so a mixed link disagrees~~
+~~about layout while each compiler stays self-consistent. Torn toward Critical,~~
+~~because across a GCC boundary this IS wrong code and the project treats~~
+~~mixed-link layout agreement as a shipped requirement (see `packed`); filed~~
+~~High because no single-compiler program miscompiles and the shape is rare.~~
+~~Reproducer: `tests/audit-regressions/sema-h-06.c`~~
+~~Root cause: `src/sema/layout.c:220-221` and `:280-281` both end with~~
+~~`if (tag->size == 0) tag->size = align;`. The struct-path comment claims it is~~
+~~"only reachable for a FAM-only shape", and that claim is wrong in both~~
+~~directions: a FAM-only struct is REFUSED by sema ("a flexible array member in~~
+~~a struct with no other named members is a GNU extension that is not~~
+~~supported"), so the named shape cannot reach it, while a record whose members~~
+~~are all zero-length arrays does reach it and is silently mis-sized. The union~~
+~~path carries the identical fixup with no comment at all.~~
+~~Measured (GCC 16.1.1 vs Cgfried, x86_64): `struct { int x[0]; }` 0 vs 4;~~
+~~`union { int x[0]; }` 0 vs 4; `struct { int x[0]; int y[0]; }` 0 vs 4;~~
+~~`struct { struct A a; int n; }` where `A` is the above, 4 vs 8; array stride~~
+~~`sizeof(struct A[2])/2` 0 vs 4. The trailing idioms agree exactly:~~
+~~`struct { int n; char p[0]; }` and `struct { char p[0]; int n; }` are both 4~~
+~~in each compiler, with `offsetof` agreeing — which is why ordinary code never~~
+~~surfaced this.~~
+~~Affected sprint: 14.~~
+Resolution: RESOLVED 2026-08-20 by `52eeaa91`. Record layout now distinguishes
+complete zero-sized members from incomplete flexible arrays and empty-record
+recovery. Zero extent propagates through structs, unions, nesting, and arrays
+while alignment, ordinary leading/trailing idioms, and the closed target matrix
+remain pinned against GCC.
 Cross-front note for F11: `tests/tools/gen_layout.c` never emits a
 zero-length array, so the 2,000-record-per-run layout differential cannot
 reach this shape. The generator's coverage bounds what the differential can
