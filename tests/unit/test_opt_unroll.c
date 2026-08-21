@@ -2,6 +2,7 @@
 #include "unit.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static void silent_sink(void *user, const Diag *diag, const DiagCtx *dc)
 {
@@ -23,6 +24,57 @@ static u32 count_op(const IrFunc *f, IrOp op)
                 count++;
     }
     return count;
+}
+
+static const IrBlock *find_block(const IrFunc *f, const char *name)
+{
+    u32 i;
+
+    for (i = 0; i < f->nblocks; i++)
+        if (strcmp(f->blocks[i].name, name) == 0)
+            return &f->blocks[i];
+    return NULL;
+}
+
+static void assert_permuted_latch_chain(TestCtx *t, const IrBlock *block,
+                                        u32 copies, bool starts_with_params)
+{
+    const IrInst *in;
+    const IrInst *previous_sub = NULL;
+    const IrInst *previous_increment = NULL;
+    u32 seen = 0;
+
+    T_ASSERT(t, block != NULL);
+    if (!block)
+        return;
+    for (in = block->first; in; in = in->next) {
+        if (in->op == IR_ISUB) {
+            T_ASSERT_EQ_INT(t, in->nops, 2);
+            if (seen == 0 && starts_with_params) {
+                T_ASSERT_EQ_INT(t, in->ops[0].kind, IROP_VALUE);
+                T_ASSERT_EQ_INT(t, in->ops[0].a, block->params[1].v);
+                T_ASSERT_EQ_INT(t, in->ops[1].kind, IROP_VALUE);
+                T_ASSERT_EQ_INT(t, in->ops[1].a, block->params[0].v);
+            } else if (seen == 0) {
+                T_ASSERT_EQ_INT(t, in->ops[0].kind, IROP_ICONST);
+                T_ASSERT_EQ_INT(t, in->ops[0].a, 0);
+                T_ASSERT_EQ_INT(t, in->ops[1].kind, IROP_ICONST);
+                T_ASSERT_EQ_INT(t, in->ops[1].a, 10);
+            } else {
+                T_ASSERT(t, previous_sub != NULL);
+                T_ASSERT(t, previous_increment != NULL);
+                T_ASSERT_EQ_INT(t, in->ops[0].kind, IROP_VALUE);
+                T_ASSERT_EQ_INT(t, in->ops[0].a, previous_increment->result.v);
+                T_ASSERT_EQ_INT(t, in->ops[1].kind, IROP_VALUE);
+                T_ASSERT_EQ_INT(t, in->ops[1].a, previous_sub->result.v);
+            }
+            previous_sub = in;
+            seen++;
+        } else if (in->op == IR_IADD) {
+            previous_increment = in;
+        }
+    }
+    T_ASSERT_EQ_INT(t, seen, copies);
 }
 
 static void assert_call_arg_provenance(TestCtx *t, const IrFunc *f)
@@ -139,6 +191,50 @@ void test_unroll_full_single_latch_loop(TestCtx *t)
         assert_call_arg_provenance(t, &m->funcs[0]);
         T_ASSERT_EQ_INT(t, m->funcs[0].blocks[0].last->op, IR_BR);
         T_ASSERT_EQ_INT(t, m->funcs[0].blocks[0].last->edges[0].nargs, 1);
+    }
+    arena_free_all(&arena);
+}
+
+void test_unroll_full_remaps_latch_parameters(TestCtx *t)
+{
+    Arena arena;
+    DiagCtx *dc;
+    DiagSink sink = {silent_sink, NULL};
+    IrModule *m;
+    OptConfig cfg;
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    diag_set_sink(dc, sink);
+    m = ir_parse_module(
+        &arena, dc,
+        "func i32 @sum() {\n"
+        "entry():\n"
+        "    br loop(i32 0, i32 10)\n"
+        "loop(i32 %i, i32 %sum):\n"
+        "    %c = icmp ult i32 %i, 4\n"
+        "    condbr %c, body(i32 %sum, i32 %i), exit(i32 %sum)\n"
+        "body(i32 %rhs, i32 %lhs):\n"
+        "    %sum.next = isub i32 %lhs, %rhs\n"
+        "    %i.next = iadd i32 %i, 1\n"
+        "    br loop(i32 %i.next, i32 %sum.next)\n"
+        "exit(i32 %result):\n"
+        "    ret i32 %result\n"
+        "}\n",
+        "<unroll-full-latch-params>");
+    T_ASSERT(t, m != NULL && ir_verify(dc, m));
+    opt_config_init(&cfg, OPT_O3);
+    cfg.verify_after_each = true;
+    cfg.unroll_threshold = 32;
+    T_ASSERT(t, m && opt_unroll(m, &cfg));
+    if (m) {
+        T_ASSERT(t, ir_verify(dc, m));
+        T_ASSERT_EQ_INT(t, m->funcs[0].nblocks, 2);
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_CONDBR), 0);
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_IADD), 4);
+        T_ASSERT_EQ_INT(t, count_op(&m->funcs[0], IR_ISUB), 4);
+        assert_permuted_latch_chain(t, find_block(&m->funcs[0], "entry"), 4,
+                                    false);
     }
     arena_free_all(&arena);
 }

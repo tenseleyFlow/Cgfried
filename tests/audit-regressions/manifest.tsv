@@ -37,7 +37,7 @@ IR-C-10	ir-c-10.c	PASS	stacked 16-byte-aligned composites retain AAPCS64 stack a
 IR-C-11	ir-c-11.cgfir	PASS	under-aligned atomic scalar accesses pass IR verification
 OPT-H-01	opt-h-01.c	PASS	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	PASS	descending loop fusion reverses dependence direction
-OPT-H-03	opt-h-03.c	OPEN	loop unrolling loses a live latch block parameter
+OPT-H-03	opt-h-03.c	PASS	loop unrolling loses a live latch block parameter
 OPT-H-04	opt-h-04.c	PASS	correlated pointer selects collapse to a false must-alias proof
 DRV-M-01	drv-m-01.c	OPEN	assembler signal death is reported as ordinary rejection
 RT-H-01	rt-h-01.c	PASS	arm64-macos publishes the wrong long-double size macro

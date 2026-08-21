@@ -15,6 +15,20 @@ done(i32 %result):
     ret i32 %result
 }
 
+func i32 @latch_parameter_full(i32 %seed) {
+entry():
+    br loop(i32 0, i32 %seed)
+loop(i32 %i, i32 %sum):
+    %more = icmp ult i32 %i, 4
+    condbr %more, body(i32 %sum, i32 %i), done(i32 %sum)
+body(i32 %rhs, i32 %lhs):
+    %sum2 = isub i32 %lhs, %rhs
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
 func void @unroll_multi_exit(ptr %p, i32 %stop) {
 entry():
     br loop(i32 0)
@@ -56,6 +70,20 @@ loop(i32 %i, i32 %sum):
     condbr %more, body(), done(i32 %sum)
 body():
     %sum2 = iadd i32 %sum, %i
+    %next = iadd i32 %i, 1
+    br loop(i32 %next, i32 %sum2)
+done(i32 %result):
+    ret i32 %result
+}
+
+func i32 @latch_parameter_partial() {
+entry():
+    br loop(i32 0, i32 0)
+loop(i32 %i, i32 %sum):
+    %more = icmp ult i32 %i, 9
+    condbr %more, body(i32 %sum, i32 %i), done(i32 %sum)
+body(i32 %rhs, i32 %lhs):
+    %sum2 = isub i32 %lhs, %rhs
     %next = iadd i32 %i, 1
     br loop(i32 %next, i32 %sum2)
 done(i32 %result):

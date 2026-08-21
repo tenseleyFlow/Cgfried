@@ -512,6 +512,22 @@ static void clone_range(IrModule *m, IrFunc *f, BlockId destination,
     }
 }
 
+static void map_edge_params(const IrBlock *target, const IrEdge *edge,
+                            IrOperand *map, u32 nmap, IrOperand *scratch)
+{
+    u32 i;
+
+    if (edge->nargs != target->nparams)
+        CGF_ICE("unroll: edge arguments no longer match block parameters");
+    for (i = 0; i < target->nparams; i++)
+        scratch[i] = substitute(edge->args[i], map, nmap);
+    for (i = 0; i < target->nparams; i++) {
+        if (target->params[i].v >= nmap)
+            CGF_ICE("unroll: block parameter is outside the clone map");
+        map[target->params[i].v] = scratch[i];
+    }
+}
+
 typedef struct {
     const Loop *loop;
     IrBlock *header;
@@ -520,6 +536,7 @@ typedef struct {
     IrInst *compare;
     IrInst *update;
     IrEdge *preedge;
+    IrEdge *bodyedge;
     IrEdge *backedge;
     IrEdge *exitedge;
     u32 iv_param;
@@ -582,10 +599,14 @@ static bool analyze_full(IrFunc *f, const Loop *loop, const OptConfig *cfg,
         OPT_BAIL(cfg, "unroll", "unroll_shape");
         return false;
     }
-    for (i = 0; i < 2; i++)
-        if (!loop_contains(loop, term->edges[i].target))
+    for (i = 0; i < 2; i++) {
+        if (loop_contains(loop, term->edges[i].target))
+            plan->bodyedge = &term->edges[i];
+        else
             plan->exitedge = &term->edges[i];
-    if (!plan->exitedge ||
+    }
+    if (!plan->bodyedge || plan->bodyedge->target.v != latch_id.v ||
+        plan->bodyedge->nargs != plan->latch->nparams || !plan->exitedge ||
         plan->exitedge->target.v != loop_exit_target(loop, 0).v) {
         OPT_BAIL(cfg, "unroll", "unroll_shape");
         return false;
@@ -715,6 +736,11 @@ static void commit_full(IrModule *m, IrFunc *f, const FullPlan *plan)
                     (plan->header->nparams ? plan->header->nparams : 1) *
                         sizeof(*next_params),
                     _Alignof(IrOperand));
+    IrOperand *latch_params =
+        arena_alloc(m->arena,
+                    (plan->latch->nparams ? plan->latch->nparams : 1) *
+                        sizeof(*latch_params),
+                    _Alignof(IrOperand));
     IrInst *term = plan->preheader->last;
     u64 iteration;
     u32 i;
@@ -726,6 +752,10 @@ static void commit_full(IrModule *m, IrFunc *f, const FullPlan *plan)
     for (iteration = 0; iteration < plan->trip; iteration++) {
         clone_nonterms(m, f, loop_preheader(plan->loop), plan->header, map,
                        nmap);
+        /* OPT-H-03: the header-to-latch edge defines latch block parameters.
+         * Seed those values for every serialized iteration before cloning the
+         * latch, just as the backedge seeds the next header iteration. */
+        map_edge_params(plan->latch, plan->bodyedge, map, nmap, latch_params);
         clone_nonterms(m, f, loop_preheader(plan->loop), plan->latch, map,
                        nmap);
         for (i = 0; i < plan->header->nparams; i++)
@@ -776,6 +806,7 @@ static void commit_partial_four(IrModule *m, IrFunc *f, const FullPlan *plan)
     IrInst *body_last = NULL;
     IrOperand *map;
     IrOperand *state;
+    IrOperand *latch_state;
     u32 nmap = f->nvals + 1;
     u32 nparams = plan->header->nparams;
     u32 i;
@@ -790,6 +821,11 @@ static void commit_partial_four(IrModule *m, IrFunc *f, const FullPlan *plan)
     map = arena_alloc(m->arena, nmap * sizeof(*map), _Alignof(IrOperand));
     state = arena_alloc(m->arena, (nparams ? nparams : 1) * sizeof(*state),
                         _Alignof(IrOperand));
+    latch_state = arena_alloc(
+        m->arena,
+        (plan->latch->nparams ? plan->latch->nparams : 1) *
+            sizeof(*latch_state),
+        _Alignof(IrOperand));
     memset(map, 0, nmap * sizeof(*map));
 
     /* Peel the constant remainder, preserving the exact serial operation
@@ -803,6 +839,7 @@ static void commit_partial_four(IrModule *m, IrFunc *f, const FullPlan *plan)
     map[plan->compare->result.v] = ir_op_iconst((IrType)plan->compare->type, 1);
     detach_terminator(preheader, preterm);
     for (copy = 0; copy < peel; copy++) {
+        map_edge_params(plan->latch, plan->bodyedge, map, nmap, latch_state);
         clone_range(m, f, preheader_id, body_first, body_last, map, nmap);
         for (i = 0; i < nparams; i++)
             state[i] = substitute(plan->backedge->args[i], map, nmap);
@@ -824,6 +861,7 @@ static void commit_partial_four(IrModule *m, IrFunc *f, const FullPlan *plan)
         map[plan->header->params[i].v] = plan->backedge->args[i];
     detach_terminator(latch, latchterm);
     for (copy = 1; copy < 4; copy++) {
+        map_edge_params(plan->latch, plan->bodyedge, map, nmap, latch_state);
         clone_range(m, f, latch_id, body_first, body_last, map, nmap);
         for (i = 0; i < nparams; i++)
             state[i] = substitute(plan->backedge->args[i], map, nmap);

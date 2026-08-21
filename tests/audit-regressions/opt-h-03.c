@@ -1,4 +1,4 @@
-// XFAIL(audit): OPT-H-03 loop unrolling loses a live latch block parameter
+// RESOLVED(audit): OPT-H-03 loop unrolling loses a live latch block parameter
 // The result of f remains live across g's constant-trip loop after inlining.
 // O3 must preserve that predecessor value while unrolling the loop.
 int f(int n)
