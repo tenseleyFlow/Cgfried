@@ -289,6 +289,21 @@ on x86-64 and ARM64, plus naturally aligned controls. Ordinary under-aligned
 non-atomic packed accesses remain legal; no separate alignment-contract debt
 was found.
 
+ID: `IR-H-12`
+Title: SysV spilled aggregate parameters lose their stack ABI marker
+Severity: High — valid ISO C reaches verifier check 9 and exits with an
+internal compiler error once enough fixed aggregate arguments exhaust the
+SysV register budget. This is a deterministic compiler rejection, not wrong
+code, because the verifier stops the mismatched caller/callee contract.
+Reproducer: `tests/audit-regressions/ir-h-12.c`
+Root cause: Sprint 61 commit `ea41dd88` records whether an aggregate parameter
+was originally classified `ABI_ARG_STACK`, then rewrites that classification
+to `ABI_ARG_BYVAL`. Parameter annotation subsequently tests the rewritten
+kind instead of the saved `stacked` fact, so the caller retains
+`IROPF_ONSTACK` while the callee loses `IR_PARAM_ONSTACK`. The verifier
+correctly rejects that mismatch.
+Affected sprints: 20, 61.
+
 ## Attack-surface dispatch
 
 - **Verifier coverage holes — probed.** A single-field textual
