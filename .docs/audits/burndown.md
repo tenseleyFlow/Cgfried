@@ -40,3 +40,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `40d84413` | `SEMA-H-04` no-linkage/entity-separation repair | 0 | 8 | 16 | 2 | 26 |
 | 2026-08-20 | `52eeaa91` | `SEMA-H-06` zero-sized-record-layout repair | 0 | 7 | 16 | 2 | 25 |
 | 2026-08-20 | `7f3774f6` | `IR-H-09` overflow-safe initializer-length repair | 0 | 6 | 16 | 2 | 24 |
+| 2026-08-20 | `088c9934` | `IR-H-08` symbolic-indirect IR-text repair | 0 | 5 | 16 | 2 | 23 |

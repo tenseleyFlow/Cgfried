@@ -77,8 +77,8 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and fourteen of the 20 seeded High
-findings. The `IR-H-07` arithmetic review added and closed `IR-H-09`, so 6 High
+Sprint 61 has closed all Critical findings and fifteen of the 20 seeded High
+findings. The `IR-H-07` arithmetic review added and closed `IR-H-09`, so 5 High
 remain before Medium/Low work.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
@@ -124,6 +124,7 @@ raising live debt to 0/15/16/2 until that parser-length defect is remediated.
 `SEMA-H-04` closed at `40d84413`, reducing live debt to 0/8/16/2.
 `SEMA-H-06` closed at `52eeaa91`, reducing live debt to 0/7/16/2.
 `IR-H-09` closed at `7f3774f6`, reducing live debt to 0/6/16/2.
+`IR-H-08` closed at `088c9934`, reducing live debt to 0/5/16/2.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -169,6 +170,9 @@ conflicts:
 - `IR-H-07` — RESOLVED at `ed607727`; relocation bounds are checked with
   ordered subtraction, so exact fits remain valid and wrapped or short
   eight-byte relocation ranges are rejected before backend consumption.
+- `IR-H-08` — RESOLVED at `088c9934`; textual IR distinguishes symbolic
+  indirect callees from direct calls and preserves that form through
+  optimizer-created parser/printer structural round trips.
 - `MS-C-01` — RESOLVED at `7a003d68`; the required `-fsafe` diagnostic floor
   is immutable.
 - `MS-C-04` — RESOLVED at `b1bc4f91`; statically proven null accesses and

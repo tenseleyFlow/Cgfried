@@ -160,30 +160,34 @@ the offset is within the object before subtracting and requires at least eight
 remaining bytes. Exact fits, one-past values, tiny objects, and `UINT64_MAX`
 boundaries are pinned in unit, corpus, and lifecycle fixtures.
 
-ID: `IR-H-08`
-Title: symbolic indirect calls fail optimized IR round-trip
-Severity: High — valid ISO C terminates with the compiler's internal-error
-exit when the documented `-emit-ir` mode asks the compiler to print its own
-optimized IR.  Ordinary assembly and MIR emission still succeed, so this is a
-diagnostic-format failure rather than a machine-code miscompile, but it makes
-a supported compiler mode unusable on a defined source program.
-Reproducer: `tests/audit-regressions/ir-h-08.c`
-Root cause: after local function-pointer promotion, `mem2reg` replaces an
-indirect callee value with an `IROP_SYMBOL` while deliberately retaining
-`FUNCREF_INDIRECT` (`src/opt/mem2reg.c:1115-1117`).  That shape is verifier
-legal (`src/ir/verify.c:664-668`).  The printer renders its pointer operand as
-`@increment`, exactly the spelling it uses for a direct call
-(`src/ir/print.c:466-479`); the parser necessarily reconstructs that spelling
-as `FUNCREF_INTERNAL` (`src/ir/parse.c:1449-1485`).  The driver's structural
-round-trip check then rejects the semantically changed module at
-`src/driver/driver.c:626-633`.
-Evidence: the strict-C17 host control and Cgfried `-O0 -emit-ir` succeed;
-`-O1 -emit-mir` and `-O1 -S` also succeed.  With
-`CGF_VERIFY_AFTER_EACH=1`, the first changed phase is mem2reg: lowering prints
-an indirect `%9 = call i32 %6(...)`, while the post-mem2reg dump prints
-`%3 = call i32 @increment(...)`.  Reparsing that last text is valid but loses
-the call form, which is why replaying the dump alone cannot expose the bug.
-Affected sprints: 17, 30.
+~~ID: `IR-H-08`~~
+~~Title: symbolic indirect calls fail optimized IR round-trip~~
+~~Severity: High — valid ISO C terminates with the compiler's internal-error~~
+~~exit when the documented `-emit-ir` mode asks the compiler to print its own~~
+~~optimized IR. Ordinary assembly and MIR emission still succeed, so this is a~~
+~~diagnostic-format failure rather than a machine-code miscompile, but it makes~~
+~~a supported compiler mode unusable on a defined source program.~~
+~~Reproducer: `tests/audit-regressions/ir-h-08.c`~~
+~~Root cause: after local function-pointer promotion, `mem2reg` replaces an~~
+~~indirect callee value with an `IROP_SYMBOL` while deliberately retaining~~
+~~`FUNCREF_INDIRECT` (`src/opt/mem2reg.c:1115-1117`). That shape is verifier~~
+~~legal (`src/ir/verify.c:664-668`). The printer renders its pointer operand as~~
+~~`@increment`, exactly the spelling it uses for a direct call~~
+~~(`src/ir/print.c:466-479`); the parser necessarily reconstructs that spelling~~
+~~as `FUNCREF_INTERNAL` (`src/ir/parse.c:1449-1485`). The driver's structural~~
+~~round-trip check then rejects the semantically changed module at~~
+~~`src/driver/driver.c:626-633`.~~
+~~Evidence: the strict-C17 host control and Cgfried `-O0 -emit-ir` succeed;~~
+~~`-O1 -emit-mir` and `-O1 -S` also succeed. With~~
+~~`CGF_VERIFY_AFTER_EACH=1`, the first changed phase is mem2reg: lowering prints~~
+~~an indirect `%9 = call i32 %6(...)`, while the post-mem2reg dump prints~~
+~~`%3 = call i32 @increment(...)`. Reparsing that last text is valid but loses~~
+~~the call form, which is why replaying the dump alone cannot expose the bug.~~
+~~Affected sprints: 17, 30.~~
+Resolution: RESOLVED 2026-08-20 by `088c9934`. Symbolic indirect callees now
+carry an explicit `indirect` marker in textual IR, while direct internal,
+direct external, and value-indirect calls retain their established spellings.
+Parser/printer structural round trips and the mem2reg transition are pinned.
 
 ~~ID: `IR-H-09`~~
 ~~Title: oversized initializer length wraps before validation~~
@@ -331,12 +335,10 @@ was found.
   rejected the illegal combinations already covered by checks 7, 10, 12, and
   13. Module-level boundary arithmetic produced `IR-H-07`; no other acceptance
   survived minimization.
-- **Optimized text round-trip — confirmed `IR-H-08`.**  The existing indirect
-  call round-trip unit covers an SSA-pointer callee only.  Promotion can make
-  that operand symbolic without making the call direct, a shape the verifier
-  permits but the text format cannot distinguish.  The expected-failure gate
-  keeps the `-O0` control, strict host acceptance, and the verifier-enabled
-  `-O1 -emit-ir` failure distinct.
+- **Optimized text round-trip — resolved `IR-H-08`.** Symbolic indirect
+  callees have an explicit textual marker, and direct plus value-indirect
+  syntax remains stable. Structural round-trip units cover the native parser
+  and the optimizer-created mem2reg form.
 - **AAPCS64 placement boundaries — complete.** Named fixed arguments,
   anonymous Linux register-save-area reads, Apple's no-even-register control,
   and caller/callee stack placement were each probed with naturally
