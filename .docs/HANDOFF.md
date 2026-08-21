@@ -77,8 +77,9 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and must now close all 20 High
-findings before Medium/Low work. Sprint 58 remains at 2/30; Sprint 60's
+Sprint 61 has closed all Critical findings and one of the 20 seeded High
+findings; it must close the 19 remaining High findings before Medium/Low work.
+Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
@@ -107,8 +108,9 @@ closed at `eb364980`, `X64-C-01` closed at `45f0282c`, and `MS-C-04` closed at
 `b1bc4f91`, and `IR-C-09` closed at `3bc1ae02`. The `MS-C-05` design review
 then added `MS-C-06`, the unregistered `asprintf`/`vasprintf` allocator-model
 mismatch. `IR-C-10` closed at `ea41dd88`, `MS-C-06` closed at `88211779`, and
-`MS-C-05` closed at `b287c2ef`; the Critical barrier is clear and High
-remediation is next.
+`MS-C-05` closed at `b287c2ef`; the Critical barrier is clear. `SEMA-H-07`
+then closed at `21acc9fc`, so live debt is 0/19/16/2 and High remediation is
+active.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -154,6 +156,9 @@ conflicts:
   origin, index, scale, direction, and supported `uintptr_t` provenance until
   runtime validation, while analysis treats the guards as no-capture and
   no-dereference. Atomic pointer arithmetic is an explicit `-fsafe` refusal.
+- `SEMA-H-07` — RESOLVED at `21acc9fc`; `_Generic` constant evaluation follows
+  only sema's selected association in the caller's constant-expression mode,
+  including nested selections and every integer-constant-expression context.
 
 Every Critical closure requires its own sibling-hunt record. A newly found
 Critical reopens the barrier. The Critical count is zero, so remediation now

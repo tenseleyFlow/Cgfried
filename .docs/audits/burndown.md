@@ -25,3 +25,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `ea41dd88` | `IR-C-10` stacked AAPCS64 composite-alignment repair | 2 | 20 | 16 | 2 | 40 |
 | 2026-08-20 | `88211779` | `MS-C-06` unsupported safe-allocator boundary repair | 1 | 20 | 16 | 2 | 39 |
 | 2026-08-20 | `b287c2ef` | `MS-C-05` origin-relative heap-pointer validation repair | 0 | 20 | 16 | 2 | 38 |
+| 2026-08-20 | `21acc9fc` | `SEMA-H-07` selected `_Generic` constant-expression repair | 0 | 19 | 16 | 2 | 37 |

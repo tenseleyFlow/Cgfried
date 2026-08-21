@@ -203,20 +203,24 @@ zero-length array, so the 2,000-record-per-run layout differential cannot
 reach this shape. The generator's coverage bounds what the differential can
 prove.
 
-ID: `SEMA-H-07`
-Title: selected `_Generic` integer result is not an integer constant expression
-Severity: High — valid C17 is rejected in every context requiring an integer
-constant expression, including `_Static_assert`, enum values, bitfield widths,
-and array bounds. The selected association is an integer constant even though
-the controlling expression is unevaluated; GCC 16.1.1 and Clang 22.1.8 accept
-the minimized reproducer under `-std=c17 -pedantic-errors`.
-Reproducer: `tests/audit-regressions/sema-h-07.c`
-Root cause: semantic typing selects and types `_Generic` in
-`src/sema/expr.c:1501`, but the constant evaluator's expression switch in
-`src/sema/constexpr.c:820-1219` has no `AST_EXPR_GENERIC` case. It reaches the
-default "this is not a constant expression" diagnostic instead of evaluating
-the already-selected association.
-Affected sprints: 10, 15.
+~~ID: `SEMA-H-07`~~
+~~Title: selected `_Generic` integer result is not an integer constant expression~~
+~~Severity: High — valid C17 is rejected in every context requiring an integer~~
+~~constant expression, including `_Static_assert`, enum values, bitfield widths,~~
+~~and array bounds. The selected association is an integer constant even though~~
+~~the controlling expression is unevaluated; GCC 16.1.1 and Clang 22.1.8 accept~~
+~~the minimized reproducer under `-std=c17 -pedantic-errors`.~~
+~~Reproducer: `tests/audit-regressions/sema-h-07.c`~~
+~~Root cause: semantic typing selects and types `_Generic` in~~
+~~`src/sema/expr.c:1501`, but the constant evaluator's expression switch in~~
+~~`src/sema/constexpr.c:820-1219` has no `AST_EXPR_GENERIC` case. It reaches the~~
+~~default "this is not a constant expression" diagnostic instead of evaluating~~
+~~the already-selected association.~~
+~~Affected sprints: 10, 15.~~
+Resolution: RESOLVED 2026-08-20 by `21acc9fc`. Constant evaluation now follows
+the association selected by sema in the caller's constant-expression mode;
+explicit, default, nested, enum, static-assert, bitfield, array-bound, and
+selected-nonconstant cases are regression-pinned.
 
 ~~ID: `SEMA-C-08`~~
 ~~Title: AAPCS64 unnamed nonzero bitfields fail to align aggregates~~
