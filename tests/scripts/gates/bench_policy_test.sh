@@ -97,6 +97,37 @@ run_status 3 "$checker" \
     --message-file "$fixtures/missing-message.txt" \
     --diff-file "$fixtures/diff-src.txt"
 
+# DET-M-03: baseline replacements carry local, numeric old-to-new evidence.
+printf '%s\n' '.benchmarks/baseline-x86_64-linux-gnu.kasumi.txt' \
+    >"$work/diff-baseline.txt"
+printf '%s\n' 'perf: refresh controlled baseline' >"$work/message-baseline-missing.txt"
+run_status 1 "$checker" --message-file "$work/message-baseline-missing.txt" \
+    --diff-file "$work/diff-baseline.txt"
+grep -Fq "requires 'bench-baseline:" "$work/err" || \
+    fail "missing baseline evidence diagnostic was absent"
+
+cat >"$work/message-baseline-valid.txt" <<'EOF'
+perf: refresh controlled baseline
+
+bench-baseline: .benchmarks/baseline-x86_64-linux-gnu.kasumi.txt self.wall_ms_median 100 -> 101; reason: controlled corpus grew by one translation unit
+EOF
+run_status 0 "$checker" --message-file "$work/message-baseline-valid.txt" \
+    --diff-file "$work/diff-baseline.txt"
+
+sed 's/100 -> 101/old -> new/' "$work/message-baseline-valid.txt" \
+    >"$work/message-baseline-nonnumeric.txt"
+run_status 1 "$checker" --message-file "$work/message-baseline-nonnumeric.txt" \
+    --diff-file "$work/diff-baseline.txt"
+
+cat >"$work/diff-two-baselines.txt" <<'EOF'
+.benchmarks/baseline-x86_64-linux-gnu.kasumi.txt
+.benchmarks/baseline-x86_64-linux-gnu.hasu.txt
+EOF
+run_status 1 "$checker" --message-file "$work/message-baseline-valid.txt" \
+    --diff-file "$work/diff-two-baselines.txt"
+grep -Fq "baseline '.benchmarks/baseline-x86_64-linux-gnu.hasu.txt'" \
+    "$work/err" || fail "per-baseline evidence was not enforced"
+
 run_status 0 "$checker" --audit --log-file "$fixtures/audit.tsv"
 expected_skip='`a1b2c3` docs: refresh gate prose [bench skip]'
 grep -Fq "$expected_skip" "$work/out" || \
@@ -135,5 +166,148 @@ run_status 1 env GITHUB_EVENT_BASE="$range_base" \
     "$range_repo" "$checker" "$range_head"
 grep -q "diff touches 'src/opt.c'" "$work/err" || \
     fail "multi-commit pull-request range bypassed policy"
+
+# Initial baseline publication has no old value; only later replacements are
+# subject to DET-M-03 evidence.
+mkdir -p "$range_repo/.benchmarks"
+cat >"$range_repo/.benchmarks/baseline-fixture.txt" <<'EOF'
+self.wall_ms_median=100
+self.maxrss_kb_max=1000
+EOF
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: publish initial fixture baseline'
+initial_baseline=$(git -C "$range_repo" rev-parse HEAD)
+run_status 0 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$initial_baseline"
+
+sed 's/self.wall_ms_median=100/self.wall_ms_median=101/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: unexplained fixture replacement'
+unexplained_baseline=$(git -C "$range_repo" rev-parse HEAD)
+run_status 1 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$unexplained_baseline"
+
+sed 's/self.wall_ms_median=101/self.wall_ms_median=102/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: explain fixture replacement
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 101 -> 102; reason: controlled fixture refresh'
+explained_baseline=$(git -C "$range_repo" rev-parse HEAD)
+run_status 0 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$explained_baseline"
+
+sed 's/self.wall_ms_median=102/self.wall_ms_median=103/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: fabricate fixture evidence
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 999 -> 1000; reason: deliberately wrong fixture values'
+fabricated_baseline=$(git -C "$range_repo" rev-parse HEAD)
+run_status 1 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$fabricated_baseline"
+grep -Fq 'evidence does not match actual' "$work/err" ||
+    fail "fabricated baseline evidence was not rejected"
+
+# The earlier unexplained 100 -> 101 replacement remains a violation when a
+# later, independently compliant replacement is the range tip.
+run_status 1 env GITHUB_EVENT_BASE="$initial_baseline" \
+    GITHUB_EVENT_COMMIT="$explained_baseline" \
+    sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$explained_baseline"
+grep -Fq "baseline '.benchmarks/baseline-fixture.txt' requires" "$work/err" ||
+    fail "compliant range tip hid an earlier unexplained replacement"
+
+sed -e 's/self.wall_ms_median=103/self.wall_ms_median=104/' \
+    -e 's/self.maxrss_kb_max=1000/self.maxrss_kb_max=1100/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: incompletely explain two metrics
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 103 -> 104; reason: controlled fixture refresh'
+partial_two_metric=$(git -C "$range_repo" rev-parse HEAD)
+run_status 1 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$partial_two_metric"
+grep -Fq 'missing evidence for changed metric self.maxrss_kb_max' "$work/err" ||
+    fail "wall-only evidence hid a changed RSS metric"
+
+sed -e 's/self.wall_ms_median=104/self.wall_ms_median=105/' \
+    -e 's/self.maxrss_kb_max=1100/self.maxrss_kb_max=1200/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: explain every changed metric
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 104 -> 105; reason: controlled fixture refresh
+bench-baseline: .benchmarks/baseline-fixture.txt self.maxrss_kb_max 1100 -> 1200; reason: controlled fixture refresh'
+full_two_metric=$(git -C "$range_repo" rev-parse HEAD)
+run_status 0 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$full_two_metric"
+
+sed 's/self.wall_ms_median=105/self.wall_ms_median=106/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+printf '%s\n' 'self.cpu_ms_median=90' >>"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: incompletely explain metric addition
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 105 -> 106; reason: controlled fixture refresh'
+partial_add=$(git -C "$range_repo" rev-parse HEAD)
+run_status 1 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$partial_add"
+grep -Fq 'missing evidence for changed metric self.cpu_ms_median' "$work/err" ||
+    fail "wall evidence hid an added CPU metric"
+
+sed 's/self.wall_ms_median=106/self.wall_ms_median=107/' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+printf '%s\n' 'self.cpu_ms_mad=1' >>"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: explain metric addition
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 106 -> 107; reason: controlled fixture refresh
+bench-baseline: .benchmarks/baseline-fixture.txt self.cpu_ms_mad absent -> 1; reason: begin recording paired CPU dispersion'
+documented_add=$(git -C "$range_repo" rev-parse HEAD)
+run_status 0 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$documented_add"
+
+sed -e 's/self.wall_ms_median=107/self.wall_ms_median=108/' \
+    -e '/^self.maxrss_kb_max=/d' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: incompletely explain metric deletion
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 107 -> 108; reason: controlled fixture refresh'
+partial_delete=$(git -C "$range_repo" rev-parse HEAD)
+run_status 1 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$partial_delete"
+grep -Fq 'missing evidence for changed metric self.maxrss_kb_max' "$work/err" ||
+    fail "wall evidence hid a deleted RSS metric"
+
+sed -e 's/self.wall_ms_median=108/self.wall_ms_median=109/' \
+    -e '/^self.cpu_ms_median=/d' \
+    "$range_repo/.benchmarks/baseline-fixture.txt" >"$work/next-baseline"
+cp "$work/next-baseline" "$range_repo/.benchmarks/baseline-fixture.txt"
+git -C "$range_repo" add .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: explain metric deletion
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 108 -> 109; reason: controlled fixture refresh
+bench-baseline: .benchmarks/baseline-fixture.txt self.cpu_ms_median 90 -> absent; reason: retire obsolete CPU aggregate'
+documented_delete=$(git -C "$range_repo" rev-parse HEAD)
+run_status 0 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$documented_delete"
+
+# Deleting a baseline is explicit in Git history and is not a replacement.
+git -C "$range_repo" rm -q .benchmarks/baseline-fixture.txt
+git -C "$range_repo" commit -q -m 'perf: remove obsolete fixture baseline'
+deleted_baseline=$(git -C "$range_repo" rev-parse HEAD)
+run_status 0 sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+    "$range_repo" "$checker" "$deleted_baseline"
 
 echo "bench policy tests: PASS"

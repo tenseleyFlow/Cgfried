@@ -93,6 +93,9 @@ evidence:
     - outcome
 timing:
   artifact_schema: cgfried.bootstrap-timing.v1
+  # DET-M-02: repeated forced builds make the reported MAD observable.
+  samples: 3
+  rebuild_each_sample: true
   metric: stage1.O2.wall_ms_median
   dashboard: scripts/perf-report.sh
   gate_config: ci/gates.d/stage1-self-time.conf

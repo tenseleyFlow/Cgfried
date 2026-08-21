@@ -51,6 +51,6 @@ MS-M-03	ms-m-03.c	PASS	freopen replacement is falsely reported as leaked
 MS-C-04	ms-c-04.c	PASS	-fsafe accepts a statically proven null dereference
 MS-C-05	ms-c-05.c	PASS	far heap out-of-bounds pointers evade the runtime registry
 MS-C-06	ms-c-06.c	PASS	asprintf ownership bypasses safe-runtime registration
-DET-M-01	det-m-01.sh	OPEN	blocking compile gates have no per-metric noise evidence
-DET-M-02	det-m-02.sh	OPEN	stage1 timing derives MAD from a single sample
-DET-M-03	det-m-03.sh	OPEN	four baseline-bump commits omit required old-to-new evidence
+DET-M-01	det-m-01.sh	PASS	blocking compile gates have no per-metric noise evidence
+DET-M-02	det-m-02.sh	PASS	stage1 timing derives MAD from a single sample
+DET-M-03	det-m-03.sh	PASS	four baseline-bump commits omit required old-to-new evidence

@@ -41,6 +41,14 @@ case $cgf in
 esac
 [ -x "$cgf" ] || fail "Cgfried is unavailable at $cgf"
 
+# DET-M-02: pin both halves of the sampling contract. Repetition without a
+# forced rebuild would time two no-op make invocations after the first sample.
+grep -Eq '"\$stage0/timeit" -n 3 -w 0 ' "$repo/scripts/bootstrap.sh" ||
+    fail "bootstrap timing does not request three measured samples"
+grep -Eq '"\$make_cmd" -B -s --no-print-directory ' \
+    "$repo/scripts/bootstrap.sh" ||
+    fail "bootstrap timing samples are not forced rebuilds"
+
 expect_failure() {
     output=$1
     shift
@@ -486,6 +494,8 @@ write_timing_receipt() {
     timing_user=$4
     timing_sys=$5
     timing_idle=$6
+    timing_cpu=$(awk -v user="$timing_user" -v sys="$timing_sys" \
+        'BEGIN { print user + sys }')
     cat >"$timing_file" <<EOF
 schema=cgfried.bootstrap-timing.v1
 target=x86_64-linux-gnu
@@ -502,6 +512,7 @@ date=2026-08-12T12:00:00Z
 cgf_rev=0123456789abcdef
 cgf_tree=clean
 protocol=cgfried-bootstrap-v1
+samples=3
 level=O2
 jobs=8
 normalization=none
@@ -511,7 +522,11 @@ compiler=/fixture/cgfried
 stage1.O2.wall_ms_median=$timing_wall
 stage1.O2.wall_ms_mad=0
 stage1.O2.user_ms_median=$timing_user
+stage1.O2.user_ms_mad=0
 stage1.O2.sys_ms_median=$timing_sys
+stage1.O2.sys_ms_mad=0
+stage1.O2.cpu_ms_median=$timing_cpu
+stage1.O2.cpu_ms_mad=0
 stage1.O2.maxrss_kb_max=1000
 EOF
 }
@@ -533,6 +548,69 @@ test_time_gate_boundaries_and_control() {
     expect_status 1 "$gate_dir/cpu-regress.out" \
         "$repo/scripts/bootstrap-time-gate.sh" \
         "$gate_dir/base" "$gate_dir/cpu-regress"
+
+    write_timing_receipt "$gate_dir/marginal-cpu-regress" hasu 100 200 0 99
+    sed 's/^stage1.O2.cpu_ms_median=.*/stage1.O2.cpu_ms_median=100/' \
+        "$gate_dir/marginal-cpu-regress" >"$gate_dir/paired-cpu-pass"
+    expect_status 0 "$gate_dir/paired-cpu-pass.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/base" "$gate_dir/paired-cpu-pass"
+
+    sed 's/stage1.O2.wall_ms_mad=0/stage1.O2.wall_ms_mad=10/' \
+        "$gate_dir/base" >"$gate_dir/noisy-wall-base"
+    sed 's/stage1.O2.wall_ms_mad=0/stage1.O2.wall_ms_mad=10/' \
+        "$gate_dir/wall-regress" >"$gate_dir/noisy-wall-result"
+    expect_status 0 "$gate_dir/noisy-wall.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/noisy-wall-base" "$gate_dir/noisy-wall-result"
+
+    sed 's/stage1.O2.cpu_ms_mad=0/stage1.O2.cpu_ms_mad=10/' \
+        "$gate_dir/base" >"$gate_dir/noisy-cpu-base"
+    sed 's/stage1.O2.cpu_ms_mad=0/stage1.O2.cpu_ms_mad=10/' \
+        "$gate_dir/cpu-regress" >"$gate_dir/noisy-cpu-result"
+    expect_status 0 "$gate_dir/noisy-cpu.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/noisy-cpu-base" "$gate_dir/noisy-cpu-result"
+
+    sed 's/^samples=3$/samples=2/' "$gate_dir/boundary" \
+        >"$gate_dir/too-few-samples"
+    expect_status 3 "$gate_dir/too-few-samples.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/base" "$gate_dir/too-few-samples"
+    grep -F 'samples must be at least 3' "$gate_dir/too-few-samples.out" \
+        >/dev/null || fail "bootstrap timing accepted fewer than three samples"
+
+    sed '/^samples=/d' "$gate_dir/boundary" >"$gate_dir/missing-samples"
+    expect_status 3 "$gate_dir/missing-samples.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/base" "$gate_dir/missing-samples"
+    grep -F 'missing samples' "$gate_dir/missing-samples.out" >/dev/null ||
+        fail "bootstrap timing accepted a receipt without sample count"
+    sed '/^samples=/d' "$gate_dir/base" >"$gate_dir/base-missing-samples"
+    expect_status 3 "$gate_dir/base-missing-samples.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/base-missing-samples" "$gate_dir/boundary"
+
+    sed '/^samples=/d;/^stage1.O2.user_ms_mad=/d;/^stage1.O2.sys_ms_mad=/d;/^stage1.O2.cpu_ms_median=/d;/^stage1.O2.cpu_ms_mad=/d' \
+        "$gate_dir/base" >"$gate_dir/legacy-baseline"
+    expect_status 0 "$gate_dir/legacy-baseline.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/legacy-baseline" "$gate_dir/boundary"
+    grep -F 'evidence-only (legacy baseline lacks paired CPU dispersion)' \
+        "$gate_dir/legacy-baseline.out" >/dev/null ||
+        fail "legacy bootstrap baseline was not classified evidence-only"
+    sed 's/^stage1.O2.cpu_ms_median=.*/stage1.O2.cpu_ms_median=999/' \
+        "$gate_dir/boundary" >"$gate_dir/legacy-unsupported-cpu"
+    expect_status 0 "$gate_dir/legacy-unsupported-cpu.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/legacy-baseline" "$gate_dir/legacy-unsupported-cpu"
+    write_timing_receipt "$gate_dir/legacy-wall-regress" hasu 131 80 20 99
+    expect_status 1 "$gate_dir/legacy-wall-regress.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/legacy-baseline" "$gate_dir/legacy-wall-regress"
+    expect_status 3 "$gate_dir/legacy-current.out" \
+        "$repo/scripts/bootstrap-time-gate.sh" \
+        "$gate_dir/base" "$gate_dir/legacy-baseline"
 
     write_timing_receipt "$gate_dir/uncontrolled" hasu 100 80 20 84.99
     expect_status 3 "$gate_dir/uncontrolled.out" \

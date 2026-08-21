@@ -48,6 +48,13 @@ function'" "'raw_vector(values,key,label,parts,n,i) {
     for(i=1;i<=n;i++) if(parts[i] !~ /^[0-9]+([.][0-9]+)?$/) { fail(label " has malformed " key); return 0 }
     return 1
 }
+function exceeds_noise_floor(base_value,result_value,percent,base_mad,result_mad,
+                             nominal,noise,allowance) {
+    nominal=(base_value+0)*percent/100
+    noise=4*((base_mad+0)>(result_mad+0)?(base_mad+0):(result_mad+0))
+    allowance=nominal>noise?nominal:noise
+    return (result_value+0)>(base_value+0)+allowance
+}
 { read_line(FILENAME) }
 END {
     fixed[1]="schema"; fixed[2]="host"; fixed[3]="target"; fixed[4]="workload"
@@ -76,8 +83,21 @@ END {
     metrics[5]="sys_ms_median"; metrics[6]="sys_ms_mad"; metrics[7]="maxrss_kb_max"
     for(i=1;i<=2;i++){numeric(base,controls[i],"baseline");numeric(cur,controls[i],"result")}
     for(i=1;i<=7;i++){numeric(base,metrics[i],"baseline");numeric(cur,metrics[i],"result")}
+    modern[1]="cpu_ms_median"; modern[2]="cpu_ms_mad"
+    modern[3]="maxrss_kb_median"; modern[4]="maxrss_kb_mad"
+    for(i=1;i<=4;i++) {
+        if (modern[i] in base) baseline_modern_fields++
+        numeric(cur,modern[i],"result")
+    }
+    if ("raw.cpu_ms" in base) baseline_modern_fields++
+    if (baseline_modern_fields == 0) baseline_legacy=1
+    else if (baseline_modern_fields != 5) fail("baseline has incomplete modern dispersion metrics")
+    if (!baseline_legacy)
+        for(i=1;i<=4;i++) numeric(base,modern[i],"baseline")
     raw[1]="raw.wall_ms"; raw[2]="raw.user_ms"; raw[3]="raw.sys_ms"; raw[4]="raw.maxrss_kb"
     for(i=1;i<=4;i++){raw_vector(base,raw[i],"baseline");raw_vector(cur,raw[i],"result")}
+    raw_vector(cur,"raw.cpu_ms","result")
+    if (!baseline_legacy) raw_vector(base,"raw.cpu_ms","baseline")
     stats[1]="musl.stat.arena.ast.peak_kb_max"; stats[2]="musl.stat.arena.ast.blocks_max"
     stats[3]="musl.stat.arena.ast.waste_pct_max"; stats[4]="musl.stat.arena.ir.peak_kb_max"
     stats[5]="musl.stat.arena.ir.blocks_max"; stats[6]="musl.stat.arena.ir.waste_pct_max"
@@ -86,13 +106,24 @@ END {
     stats[11]="musl.stat.pp.guard_skips_sum"; stats[12]="musl.stat.pp.tokens_sum"
     for(i=1;i<=12;i++){numeric(base,stats[i],"baseline");numeric(cur,stats[i],"result")}
     if (!bad) {
-        if (cur["wall_ms_median"] > base["wall_ms_median"]*1.30) regression("wall time regressed beyond +30%")
-        if ((cur["user_ms_median"]+cur["sys_ms_median"]) > (base["user_ms_median"]+base["sys_ms_median"])*1.30) regression("user+sys time regressed beyond +30%")
-        if (cur["maxrss_kb_max"] > base["maxrss_kb_max"]*1.20) regression("maximum RSS regressed beyond +20%")
+        if (exceeds_noise_floor(base["wall_ms_median"],cur["wall_ms_median"],30,
+                                base["wall_ms_mad"],cur["wall_ms_mad"]))
+            regression("wall time regressed beyond max(+30%,4*MAD)")
+        if (!baseline_legacy) {
+            if (exceeds_noise_floor(base["cpu_ms_median"],cur["cpu_ms_median"],30,
+                                    base["cpu_ms_mad"],cur["cpu_ms_mad"]))
+                regression("paired CPU time regressed beyond max(+30%,4*MAD)")
+            if (exceeds_noise_floor(base["maxrss_kb_max"],cur["maxrss_kb_max"],20,
+                                    base["maxrss_kb_mad"],cur["maxrss_kb_mad"]))
+                regression("maximum RSS regressed beyond max(+20%,4*MAD)")
+        }
     }
     if (bad) exit 3
     if (regressed) exit 1
-    print "musl-full-build-gate: pass (+30% time, +20% RSS)"
+    if (baseline_legacy)
+        print "musl-full-build-gate: evidence-only (legacy baseline lacks paired CPU/RSS dispersion)"
+    else
+        print "musl-full-build-gate: pass (noise-aware time and RSS)"
 }
 ' "$baseline" "$result"
 status=$?

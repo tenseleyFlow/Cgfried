@@ -54,6 +54,23 @@ make_evidence() {
         echo 'many-tu.corpus=cgf-many-tu-v1:500x200'
         echo 'self_limit=0'
     } >>"$output_file"
+    # Synthetic evidence opts into the DET-M-01 dispersion-aware gates.
+    for lane in sqlite3 self; do
+        cpu=$(awk -F= -v lane="$lane" '
+            $1 == lane ".user_ms_median" { user=$2 }
+            $1 == lane ".sys_ms_median" { sys=$2 }
+            END { print user + sys }
+        ' "$output_file")
+        {
+            echo "$lane.wall_ms_mad=0"
+            echo "$lane.user_ms_mad=0"
+            echo "$lane.sys_ms_mad=0"
+            echo "$lane.cpu_ms_median=$cpu"
+            echo "$lane.cpu_ms_mad=0"
+            echo "$lane.maxrss_kb_median=0"
+            echo "$lane.maxrss_kb_mad=0"
+        } >>"$output_file"
+    done
 }
 
 replace_value() {
@@ -112,10 +129,57 @@ pass_case pass-at-29 "$gate" "$tmp/baseline.txt" \
     "$tmp/pass-29.txt"
 fail_case fail-at-31 1 "self.wall_ms_median regressed" \
     "$gate" "$tmp/baseline.txt" "$tmp/fail-31.txt"
-fail_case fail-cpu-at-31 1 "self.user+sys_ms_median regressed" \
+fail_case fail-cpu-at-31 1 "self.cpu_ms_median regressed" \
     "$gate" "$tmp/baseline.txt" "$tmp/fail-cpu-31.txt"
+replace_value self.user_ms_median 999 "$tmp/pass-boundaries.txt" \
+    "$tmp/paired-cpu-governs.txt"
+pass_case paired-cpu-governs "$gate" "$tmp/baseline.txt" \
+    "$tmp/paired-cpu-governs.txt"
 fail_case fail-rss-at-21 1 "self.maxrss_kb_max regressed" \
     "$gate" "$tmp/baseline.txt" "$tmp/fail-rss-21.txt"
+
+# Values inside four MADs are noise even when they exceed the nominal band.
+replace_value self.wall_ms_mad 10 "$tmp/baseline.txt" "$tmp/noisy-wall-base"
+replace_value self.wall_ms_mad 10 "$tmp/fail-31.txt" "$tmp/noisy-wall-result"
+pass_case wall-four-mad-floor "$gate" "$tmp/noisy-wall-base" \
+    "$tmp/noisy-wall-result"
+replace_value self.cpu_ms_mad 10 "$tmp/baseline.txt" "$tmp/noisy-cpu-base"
+replace_value self.cpu_ms_mad 10 "$tmp/fail-cpu-31.txt" \
+    "$tmp/noisy-cpu-result"
+pass_case cpu-four-mad-floor "$gate" "$tmp/noisy-cpu-base" \
+    "$tmp/noisy-cpu-result"
+replace_value self.maxrss_kb_mad 100 "$tmp/baseline.txt" \
+    "$tmp/noisy-rss-base"
+replace_value self.maxrss_kb_mad 100 "$tmp/fail-rss-21.txt" \
+    "$tmp/noisy-rss-result"
+pass_case rss-four-mad-floor "$gate" "$tmp/noisy-rss-base" \
+    "$tmp/noisy-rss-result"
+sed '/[.]wall_ms_mad=/d;/[.]cpu_ms_median=/d;/[.]cpu_ms_mad=/d;/[.]maxrss_kb_mad=/d' \
+    "$tmp/baseline.txt" >"$tmp/legacy-baseline-metrics.txt"
+pass_case legacy-rss-report-only env BENCH_GATE_KIND=rss "$gate" \
+    "$tmp/legacy-baseline-metrics.txt" "$tmp/pass-boundaries.txt"
+grep -Fx 'benchmark_gate: evidence-only (legacy metrics lack dispersion)' \
+    "$tmp/legacy-rss-report-only.out" >/dev/null
+pass_case legacy-time-report-only env BENCH_GATE_KIND=time "$gate" \
+    "$tmp/legacy-baseline-metrics.txt" "$tmp/pass-boundaries.txt"
+grep -Fx 'benchmark_gate: evidence-only (legacy metrics lack dispersion)' \
+    "$tmp/legacy-time-report-only.out" >/dev/null
+sed '/^self[.]user_ms_median=/d' "$tmp/pass-boundaries.txt" \
+    >"$tmp/legacy-missing-user.txt"
+fail_case legacy-missing-user 3 \
+    "missing required result metric self.user_ms_median" \
+    "$gate" "$tmp/legacy-baseline-metrics.txt" "$tmp/legacy-missing-user.txt"
+sed '/^self[.]sys_ms_median=/d' "$tmp/pass-boundaries.txt" \
+    >"$tmp/legacy-missing-sys.txt"
+fail_case legacy-missing-sys 3 \
+    "missing required result metric self.sys_ms_median" \
+    "$gate" "$tmp/legacy-baseline-metrics.txt" "$tmp/legacy-missing-sys.txt"
+sed '/^self[.]maxrss_kb_max=/d' "$tmp/pass-boundaries.txt" \
+    >"$tmp/legacy-missing-rss.txt"
+fail_case legacy-missing-rss 3 \
+    "missing required result metric self.maxrss_kb_max" \
+    env BENCH_GATE_KIND=rss "$gate" "$tmp/legacy-baseline-metrics.txt" \
+    "$tmp/legacy-missing-rss.txt"
 fail_case missing-metric 3 "missing required result metric self.maxrss_kb_max" \
     "$gate" "$tmp/baseline.txt" "$tmp/missing-rss.txt"
 fail_case malformed-metric 3 "must have a non-negative numeric value" \

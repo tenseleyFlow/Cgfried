@@ -18,7 +18,8 @@ die()
 numeric_receipt()
 {
     file=$1
-    for key in wall_ms_median user_ms_median sys_ms_median maxrss_kb_max; do
+    for key in wall_ms_median user_ms_median sys_ms_median cpu_ms_median \
+        maxrss_kb_max; do
         awk -F= -v key="$key" '
             $1 == key { count++; value = substr($0, length(key) + 2) }
             END {
@@ -153,7 +154,7 @@ awk '
     echo 'route.host_complex=68'
     echo 'route.host_assembler=32'
     echo 'route.total=1354'
-    sed -n '/^wall_ms_median=/p;/^user_ms_median=/p;/^sys_ms_median=/p;/^maxrss_kb_max=/p' \
+    sed -n '/^wall_ms_median=/p;/^user_ms_median=/p;/^sys_ms_median=/p;/^cpu_ms_median=/p;/^maxrss_kb_max=/p' \
         "$timer_receipt"
     cat "$stats"
 } >"$receipt"

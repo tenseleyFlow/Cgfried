@@ -94,15 +94,16 @@ for key in schema musl_commit target compiler_wrapper source_date_epoch jobs \
     ' "$work"/samples/sample-*.txt || die "sample provenance disagrees for $key"
 done
 awk -F= -v runs="$runs" '
-    $1 ~ /^(wall_ms_median|user_ms_median|sys_ms_median|maxrss_kb_max)$/ {
+    $1 ~ /^(wall_ms_median|user_ms_median|sys_ms_median|cpu_ms_median|maxrss_kb_max)$/ {
         count[$1]++
         value=substr($0, length($1)+2)
         if (value !~ /^[0-9]+([.][0-9]+)?$/) bad=1
     }
     END {
         required[1]="wall_ms_median"; required[2]="user_ms_median"
-        required[3]="sys_ms_median"; required[4]="maxrss_kb_max"
-        for(i=1;i<=4;i++) if(count[required[i]] != runs) bad=1
+        required[3]="sys_ms_median"; required[4]="cpu_ms_median"
+        required[5]="maxrss_kb_max"
+        for(i=1;i<=5;i++) if(count[required[i]] != runs) bad=1
         exit bad
     }
 ' "$work"/samples/sample-*.txt || die 'sample metrics are malformed or incomplete'
@@ -180,10 +181,15 @@ raw_vector()
     echo "user_ms_mad=$(mad user_ms_median)"
     echo "sys_ms_median=$(metric sys_ms_median median)"
     echo "sys_ms_mad=$(mad sys_ms_median)"
+    echo "cpu_ms_median=$(metric cpu_ms_median median)"
+    echo "cpu_ms_mad=$(mad cpu_ms_median)"
+    echo "maxrss_kb_median=$(metric maxrss_kb_max median)"
+    echo "maxrss_kb_mad=$(mad maxrss_kb_max)"
     echo "maxrss_kb_max=$(metric maxrss_kb_max max)"
     echo "raw.wall_ms=$(raw_vector wall_ms_median)"
     echo "raw.user_ms=$(raw_vector user_ms_median)"
     echo "raw.sys_ms=$(raw_vector sys_ms_median)"
+    echo "raw.cpu_ms=$(raw_vector cpu_ms_median)"
     echo "raw.maxrss_kb=$(raw_vector maxrss_kb_max)"
     for key in musl.stat.arena.ast.peak_kb_max \
         musl.stat.arena.ast.blocks_max musl.stat.arena.ast.waste_pct_max \

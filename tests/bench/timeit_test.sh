@@ -34,7 +34,13 @@ cat >"$tmp/expected-keys.txt" <<'EOF'
 wall_ms_median
 wall_ms_mad
 user_ms_median
+user_ms_mad
 sys_ms_median
+sys_ms_mad
+cpu_ms_median
+cpu_ms_mad
+maxrss_kb_median
+maxrss_kb_mad
 maxrss_kb_max
 EOF
 if ! cmp -s "$tmp/expected-keys.txt" "$tmp/keys.txt"; then
@@ -43,9 +49,9 @@ fi
 if ! awk -F= '
     BEGIN { valid = 1 }
     NF != 2 || $2 !~ /^[0-9]+([.][0-9]+)?$/ { valid = 0 }
-    END { exit valid && NR == 5 ? 0 : 1 }
+    END { exit valid && NR == 11 ? 0 : 1 }
 ' "$tmp/summary.txt"; then
-    fail "summary did not contain exactly five numeric metric=value lines"
+    fail "summary did not contain exactly eleven numeric metric=value lines"
 fi
 
 raw_count=$(wc -l <"$tmp/raw.txt")

@@ -73,11 +73,20 @@ baseline=$ROOT/.benchmarks/baseline-$target.$host.txt
 gate_status=0
 if [ -r "$baseline" ]; then
     rss_status=0
-    BENCH_SKIP_TIME=1 BENCH_GATE_KIND=rss \
-        "$gate_script" "$baseline" "$result" || rss_status=$?
-    case $rss_status in
-        0) rss_result=pass ;;
-        1) rss_result=trip ;;
+    rss_output=
+    if rss_output=$(BENCH_SKIP_TIME=1 BENCH_GATE_KIND=rss \
+        "$gate_script" "$baseline" "$result"); then
+        rss_status=0
+    else
+        rss_status=$?
+    fi
+    [ -z "$rss_output" ] || printf '%s\n' "$rss_output"
+    case $rss_status:$rss_output in
+        0:'benchmark_gate: pass ('*')') rss_result=pass ;;
+        0:'benchmark_gate: evidence-only (legacy metrics lack dispersion)')
+            rss_result=evidence-only
+            ;;
+        1:*) rss_result=trip ;;
         *) echo "fleet-bench: RSS gate infrastructure failure (status $rss_status)" >&2; exit "$rss_status" ;;
     esac
 
@@ -93,6 +102,9 @@ if [ -r "$baseline" ]; then
     [ -z "$time_output" ] || printf '%s\n' "$time_output"
     case $time_status:$time_output in
     0:'benchmark_gate: pass ('*')') time_result=pass ;;
+    0:'benchmark_gate: evidence-only (legacy metrics lack dispersion)')
+        time_result=evidence-only
+        ;;
     0:'benchmark_gate: provenance-only (uncontrolled timing evidence)')
         time_result=provenance-only
         ;;
@@ -112,6 +124,10 @@ if [ -r "$baseline" ]; then
         gate_status=1
     elif [ "$time_result" = provenance-only ]; then
         gate_result=provenance-only
+        gate_status=0
+    elif [ "$time_result" = evidence-only ] ||
+         [ "$rss_result" = evidence-only ]; then
+        gate_result=evidence-only
         gate_status=0
     else
         gate_result=pass

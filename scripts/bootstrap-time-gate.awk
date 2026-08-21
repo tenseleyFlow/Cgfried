@@ -61,7 +61,18 @@ function same(key,    have_base, have_result) {
              " result=" current[key] ")")
 }
 
-function validate(values, label,    metric, user_metric, sys_metric) {
+# DET-M-01: use the larger of the nominal allowance and four measured MADs.
+function exceeds_noise_floor(base_value, result_value, percent,
+                             base_mad, result_mad,
+                             nominal, noise, allowance) {
+    nominal = (base_value + 0) * percent / 100
+    noise = 4 * ((base_mad + 0) > (result_mad + 0) ?
+                 (base_mad + 0) : (result_mad + 0))
+    allowance = nominal > noise ? nominal : noise
+    return (result_value + 0) > (base_value + 0) + allowance
+}
+
+function validate_common(values, label,    metric, user_metric, sys_metric) {
     require(values, "schema", label)
     require(values, "target", label)
     require(values, "host", label)
@@ -112,6 +123,28 @@ function validate(values, label,    metric, user_metric, sys_metric) {
     numeric(values, "stage1.O2.maxrss_kb_max", label)
 }
 
+function validate_modern(values, label,    cpu_metric) {
+    validate_common(values, label)
+    numeric(values, "samples", label)
+    if ((values["samples"] + 0) < 3)
+        fail(label ": samples must be at least 3")
+    numeric(values, "stage1.O2.user_ms_mad", label)
+    numeric(values, "stage1.O2.sys_ms_mad", label)
+    cpu_metric = "stage1.O2.cpu_ms_median"
+    numeric(values, cpu_metric, label)
+    numeric(values, "stage1.O2.cpu_ms_mad", label)
+}
+
+function modern_field_count(values,    count) {
+    count = 0
+    if ("samples" in values) count++
+    if ("stage1.O2.user_ms_mad" in values) count++
+    if ("stage1.O2.sys_ms_mad" in values) count++
+    if ("stage1.O2.cpu_ms_median" in values) count++
+    if ("stage1.O2.cpu_ms_mad" in values) count++
+    return count
+}
+
 BEGIN {
     if (have_baseline)
         read_file(baseline_file, base)
@@ -120,9 +153,18 @@ BEGIN {
 }
 
 END {
-    validate(current, "result")
-    if (have_baseline)
-        validate(base, "baseline")
+    validate_modern(current, "result")
+    if (have_baseline) {
+        baseline_modern_fields = modern_field_count(base)
+        if (baseline_modern_fields == 0) {
+            baseline_legacy = 1
+            validate_common(base, "baseline")
+        } else {
+            if (baseline_modern_fields != 5)
+                fail("baseline: incomplete modern sampling metrics")
+            validate_modern(base, "baseline")
+        }
+    }
     if (bad)
         exit 3
     if (!have_baseline) {
@@ -149,19 +191,26 @@ END {
     metric = "stage1.O2.wall_ms_median"
     user_metric = "stage1.O2.user_ms_median"
     sys_metric = "stage1.O2.sys_ms_median"
+    cpu_metric = "stage1.O2.cpu_ms_median"
     if (bad)
         exit 3
 
-    if (current[metric] + 0 > (base[metric] + 0) * 1.30)
+    if (exceeds_noise_floor(base[metric], current[metric], 30,
+                            base["stage1.O2.wall_ms_mad"],
+                            current["stage1.O2.wall_ms_mad"]))
         regressed = 1
-    current_cpu = current[user_metric] + current[sys_metric]
-    baseline_cpu = base[user_metric] + base[sys_metric]
-    if (current_cpu > baseline_cpu * 1.30)
+    if (!baseline_legacy &&
+        exceeds_noise_floor(base[cpu_metric], current[cpu_metric], 30,
+                            base["stage1.O2.cpu_ms_mad"],
+                            current["stage1.O2.cpu_ms_mad"]))
         regressed = 1
     if (regressed) {
-        print "bootstrap-time-gate: regression (>30% wall or user+sys)" \
+        print "bootstrap-time-gate: regression (>30% wall or paired CPU)" \
             > "/dev/stderr"
         exit 1
     }
-    print "bootstrap-time-gate: pass"
+    if (baseline_legacy)
+        print "bootstrap-time-gate: evidence-only (legacy baseline lacks paired CPU dispersion)"
+    else
+        print "bootstrap-time-gate: pass"
 }

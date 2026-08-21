@@ -25,7 +25,13 @@ cat <<'EOF'
 wall_ms_median=1
 wall_ms_mad=0
 user_ms_median=1
+user_ms_mad=0
 sys_ms_median=0
+sys_ms_mad=0
+cpu_ms_median=1
+cpu_ms_mad=0
+maxrss_kb_median=1
+maxrss_kb_mad=0
 maxrss_kb_max=1
 EOF
 exit "$status"

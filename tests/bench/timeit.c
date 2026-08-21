@@ -389,8 +389,9 @@ int main(int argc, char **argv)
     size_t runs = 10, warmups = 1, timeout_seconds = 0, i;
     const char *output_path = NULL;
     TimeitSample *samples = NULL;
-    double *wall = NULL, *user = NULL, *sys = NULL;
-    double wall_median, wall_mad, user_median, sys_median;
+    double *wall = NULL, *user = NULL, *sys = NULL, *cpu = NULL, *rss = NULL;
+    double wall_median, wall_mad, user_median, user_mad;
+    double sys_median, sys_mad, cpu_median, cpu_mad, rss_median, rss_mad;
     FILE *raw = NULL;
     struct sigaction old_sigchld;
     struct timespec deadline;
@@ -432,7 +433,9 @@ int main(int argc, char **argv)
     wall = malloc(runs * sizeof(*wall));
     user = malloc(runs * sizeof(*user));
     sys = malloc(runs * sizeof(*sys));
-    if (!samples || !wall || !user || !sys) {
+    cpu = malloc(runs * sizeof(*cpu));
+    rss = malloc(runs * sizeof(*rss));
+    if (!samples || !wall || !user || !sys || !cpu || !rss) {
         fprintf(stderr, "timeit: out of memory\n");
         goto cleanup;
     }
@@ -478,6 +481,8 @@ int main(int argc, char **argv)
         wall[i] = samples[i].wall_ms;
         user[i] = samples[i].user_ms;
         sys[i] = samples[i].sys_ms;
+        cpu[i] = samples[i].user_ms + samples[i].sys_ms;
+        rss[i] = (double)samples[i].maxrss_kb;
         if (samples[i].maxrss_kb > maxrss)
             maxrss = samples[i].maxrss_kb;
         if (raw && !write_raw_sample(raw, i + 1, &samples[i])) {
@@ -489,9 +494,17 @@ int main(int argc, char **argv)
     wall_median = cgf_timeit_median(wall, runs);
     wall_mad = cgf_timeit_mad(wall, runs);
     user_median = cgf_timeit_median(user, runs);
+    user_mad = cgf_timeit_mad(user, runs);
     sys_median = cgf_timeit_median(sys, runs);
+    sys_mad = cgf_timeit_mad(sys, runs);
+    cpu_median = cgf_timeit_median(cpu, runs);
+    cpu_mad = cgf_timeit_mad(cpu, runs);
+    rss_median = cgf_timeit_median(rss, runs);
+    rss_mad = cgf_timeit_mad(rss, runs);
     if (wall_median < 0.0 || wall_mad < 0.0 || user_median < 0.0 ||
-        sys_median < 0.0) {
+        user_mad < 0.0 || sys_median < 0.0 || sys_mad < 0.0 ||
+        cpu_median < 0.0 || cpu_mad < 0.0 || rss_median < 0.0 ||
+        rss_mad < 0.0) {
         fprintf(stderr, "timeit: out of memory while computing statistics\n");
         result = 2;
         goto cleanup;
@@ -499,7 +512,14 @@ int main(int argc, char **argv)
     printf("wall_ms_median=%.6f\n", wall_median);
     printf("wall_ms_mad=%.6f\n", wall_mad);
     printf("user_ms_median=%.6f\n", user_median);
+    /* DET-M-01: every blocking metric needs measured dispersion. */
+    printf("user_ms_mad=%.6f\n", user_mad);
     printf("sys_ms_median=%.6f\n", sys_median);
+    printf("sys_ms_mad=%.6f\n", sys_mad);
+    printf("cpu_ms_median=%.6f\n", cpu_median);
+    printf("cpu_ms_mad=%.6f\n", cpu_mad);
+    printf("maxrss_kb_median=%.6f\n", rss_median);
+    printf("maxrss_kb_mad=%.6f\n", rss_mad);
     printf("maxrss_kb_max=%ld\n", maxrss);
     if (ferror(stdout)) {
         perror("timeit: stdout");
@@ -526,6 +546,8 @@ cleanup:
         perror("timeit: close");
         result = 2;
     }
+    free(rss);
+    free(cpu);
     free(sys);
     free(user);
     free(wall);

@@ -310,9 +310,11 @@ stage_build "$stage0/cgfried" "$stage1"
 prepare_control
 echo 'state=building-stage2' >>"$report"
 echo "bootstrap-$level: stage1 Cgfried self-builds stage2 (timed)"
+# DET-M-02: three forced builds are three real samples; without -B, samples
+# after the first would measure an already-up-to-date tree and fabricate noise.
 env -i PATH="$fixed_path" LC_ALL=C SOURCE_DATE_EPOCH=0 \
-    "$stage0/timeit" -n 1 -w 0 -t 7200 -o "$work/stage1-time.raw" -- \
-    "$make_cmd" -s --no-print-directory -C "$repo" -f ci/bootstrap.mk \
+    "$stage0/timeit" -n 3 -w 0 -t 7200 -o "$work/stage1-time.raw" -- \
+    "$make_cmd" -B -s --no-print-directory -C "$repo" -f ci/bootstrap.mk \
     -j"$jobs" all \
     BOOTSTRAP_ROOT="$stage2" BOOTSTRAP_CGF="$stage1/cgfried" \
     BOOTSTRAP_HOSTCC="$hostcc" BOOTSTRAP_AS="$assembler" \
@@ -334,6 +336,7 @@ mv "$work/stage1-time.txt" "$work/stage1-time.metrics"
     echo "cgf_rev=$cgf_rev"
     echo "cgf_tree=$cgf_tree"
     echo 'protocol=cgfried-bootstrap-v1'
+    echo 'samples=3'
     echo "level=$level"
     echo "jobs=$jobs"
     echo 'normalization=none'
@@ -347,7 +350,13 @@ mv "$work/stage1-time.txt" "$work/stage1-time.metrics"
     sed "s/^wall_ms_median=/stage1.$level.wall_ms_median=/; \
          s/^wall_ms_mad=/stage1.$level.wall_ms_mad=/; \
          s/^user_ms_median=/stage1.$level.user_ms_median=/; \
+         s/^user_ms_mad=/stage1.$level.user_ms_mad=/; \
          s/^sys_ms_median=/stage1.$level.sys_ms_median=/; \
+         s/^sys_ms_mad=/stage1.$level.sys_ms_mad=/; \
+         s/^cpu_ms_median=/stage1.$level.cpu_ms_median=/; \
+         s/^cpu_ms_mad=/stage1.$level.cpu_ms_mad=/; \
+         s/^maxrss_kb_median=/stage1.$level.maxrss_kb_median=/; \
+         s/^maxrss_kb_mad=/stage1.$level.maxrss_kb_mad=/; \
          s/^maxrss_kb_max=/stage1.$level.maxrss_kb_max=/" \
         "$work/stage1-time.metrics"
     echo "stage1.$level.raw_samples=$work/stage1-time.raw"

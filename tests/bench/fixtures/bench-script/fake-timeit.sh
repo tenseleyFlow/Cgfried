@@ -24,5 +24,9 @@ user_ms_median=1.000000
 user_ms_mad=0.000000
 sys_ms_median=0.000000
 sys_ms_mad=0.000000
+cpu_ms_median=1.000000
+cpu_ms_mad=0.000000
+maxrss_kb_median=1.000000
+maxrss_kb_mad=0.000000
 maxrss_kb_max=1
 EOF

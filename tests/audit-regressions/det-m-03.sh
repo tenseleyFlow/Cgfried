@@ -1,5 +1,5 @@
 #!/bin/sh
-# XFAIL(audit): DET-M-03 four baseline-bump commits omit required old-to-new evidence
+# RESOLVED(audit): DET-M-03 four baseline-bump commits omit required old-to-new evidence
 # Reproducer contract: 0 = baseline defect reproduced, 1 = remediated/XPASS,
 # 2 = malformed checkout or unavailable required tool.
 set -u
@@ -7,50 +7,89 @@ LC_ALL=C
 export LC_ALL
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 2
-ROOT=${1:-$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)}
+ROOT_INPUT=${1:-$SCRIPT_DIR/../..}
+ROOT=$(CDPATH= cd -- "$ROOT_INPUT" && pwd) || exit 2
+CHECKER=$ROOT/scripts/check_bench_policy.sh
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/cgf-det-m-03.XXXXXX") || exit 2
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+REPO=$TMP/repo
 
 command -v git >/dev/null 2>&1 || exit 2
-git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || exit 2
+[ -x "$CHECKER" ] || exit 2
+mkdir -p "$REPO/.benchmarks" || exit 2
+git -C "$REPO" init -q || exit 2
+git -C "$REPO" config user.name fixture || exit 2
+git -C "$REPO" config user.email fixture@example.invalid || exit 2
+git -C "$REPO" config commit.gpgsign false || exit 2
 
-bad=0
+cat >"$REPO/.benchmarks/baseline-fixture.txt" <<'EOF'
+self.wall_ms_median=100
+self.maxrss_kb_max=1000
+EOF
+git -C "$REPO" add .benchmarks/baseline-fixture.txt || exit 2
+git -C "$REPO" commit -q -m 'perf: publish fixture baseline' || exit 2
+base=$(git -C "$REPO" rev-parse HEAD) || exit 2
 
-# Positive control: the sole compliant replacement states the workload reason
-# and all three accepted old-to-new RSS values.
-body=$(git -C "$ROOT" show -s --format='%B' \
-    7aef30e886eef61714820f6d6fbc02b5f5e76b04) || exit 2
-printf '%s\n' "$body" | grep -Fq 'self workload grew from 105 to 106 files' || exit 2
-printf '%s\n' "$body" | grep -Fq 'sqlite3 499924 to 500092 KiB' || exit 2
-printf '%s\n' "$body" | grep -Fq 'self 1059216 to 1064708 KiB' || exit 2
-printf '%s\n' "$body" | grep -Fq 'many-tu 1377672 to 1378504 KiB' || exit 2
+run_policy()
+{
+    expected=$1
+    commit=$2
+    shift 2
+    status=0
+    env "$@" sh -c 'cd "$1" && exec "$2" --commit "$3"' sh \
+        "$REPO" "$CHECKER" "$commit" >"$TMP/out" 2>"$TMP/err" || status=$?
+    if [ "$status" -eq "$expected" ]; then
+        return 0
+    fi
+    if [ "$status" -eq 0 ] || [ "$status" -eq 1 ]; then
+        return 1
+    fi
+    return 2
+}
 
-# Initial native replacements: subject only, neither old-to-new values nor why.
-body=$(git -C "$ROOT" show -s --format='%B' \
-    4be79b6e4cd2a35850cdde3e3fc7e6ed34024b7c) || exit 2
-[ "$(printf '%s\n' "$body" | sed '/^$/d' | wc -l)" -eq 1 ] && bad=$((bad + 1))
+sed -e 's/wall_ms_median=100/wall_ms_median=101/' \
+    -e 's/maxrss_kb_max=1000/maxrss_kb_max=1100/' \
+    "$REPO/.benchmarks/baseline-fixture.txt" >"$TMP/next" || exit 2
+cp "$TMP/next" "$REPO/.benchmarks/baseline-fixture.txt" || exit 2
+git -C "$REPO" add .benchmarks/baseline-fixture.txt || exit 2
+git -C "$REPO" commit -q -m 'perf: incompletely explain replacement
 
-# Controlled Kasumi replacement: why is present, but no old-to-new value.
-body=$(git -C "$ROOT" show -s --format='%B' \
-    b87a278984ee32b2ef29db452caa9a7ebea6fa85) || exit 2
-if ! printf '%s\n' "$body" | grep -Eq '([0-9][[:space:]]*(->|to)[[:space:]]*[0-9])'; then
-    bad=$((bad + 1))
-fi
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 100 -> 101; reason: controlled fixture refresh' || exit 2
+incomplete=$(git -C "$REPO" rev-parse HEAD) || exit 2
+run_policy 1 "$incomplete"
+case $? in 0) ;; 1) echo 'DET-M-03 reproduced: incomplete evidence was accepted'; exit 0 ;; *) exit 2 ;; esac
+grep -Fq 'missing evidence for changed metric self.maxrss_kb_max' "$TMP/err" || exit 2
 
-# Hasu and Nomad state compile old-to-new values, but replace an entire
-# runtime baseline with only an unquantified "stable/improve" assertion.
-for commit in \
-    787b9cec3619c2ade234e37372448d9730e25079 \
-    9c50e6d1ecd0a9ac57067eacec8b3d0be05e401
-do
-    body=$(git -C "$ROOT" show -s --format='%B' "$commit") || exit 2
-    printf '%s\n' "$body" |
-        grep -Eq '(runtime|kernel) medians remain stable( or improve)?' || exit 2
-    bad=$((bad + 1))
-done
+sed -e 's/wall_ms_median=101/wall_ms_median=102/' \
+    -e 's/maxrss_kb_max=1100/maxrss_kb_max=1200/' \
+    "$REPO/.benchmarks/baseline-fixture.txt" >"$TMP/next" || exit 2
+cp "$TMP/next" "$REPO/.benchmarks/baseline-fixture.txt" || exit 2
+git -C "$REPO" add .benchmarks/baseline-fixture.txt || exit 2
+git -C "$REPO" commit -q -m 'perf: fabricate replacement evidence
 
-if [ "$bad" -eq 0 ]; then
-    exit 1
-fi
-[ "$bad" -eq 4 ] || exit 2
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 999 -> 1000; reason: deliberately false fixture values
+bench-baseline: .benchmarks/baseline-fixture.txt self.maxrss_kb_max 999 -> 1000; reason: deliberately false fixture values' || exit 2
+fabricated=$(git -C "$REPO" rev-parse HEAD) || exit 2
+run_policy 1 "$fabricated"
+case $? in 0) ;; 1) echo 'DET-M-03 reproduced: fabricated evidence was accepted'; exit 0 ;; *) exit 2 ;; esac
+grep -Fq 'evidence does not match actual' "$TMP/err" || exit 2
 
-echo 'DET-M-03 reproduced: 4/5 commits that modified an existing baseline omit complete old-to-new metric evidence'
-exit 0
+sed -e 's/wall_ms_median=102/wall_ms_median=103/' \
+    -e 's/maxrss_kb_max=1200/maxrss_kb_max=1300/' \
+    "$REPO/.benchmarks/baseline-fixture.txt" >"$TMP/next" || exit 2
+cp "$TMP/next" "$REPO/.benchmarks/baseline-fixture.txt" || exit 2
+git -C "$REPO" add .benchmarks/baseline-fixture.txt || exit 2
+git -C "$REPO" commit -q -m 'perf: explain complete replacement
+
+bench-baseline: .benchmarks/baseline-fixture.txt self.wall_ms_median 102 -> 103; reason: controlled fixture refresh
+bench-baseline: .benchmarks/baseline-fixture.txt self.maxrss_kb_max 1200 -> 1300; reason: controlled fixture refresh' || exit 2
+complete=$(git -C "$REPO" rev-parse HEAD) || exit 2
+run_policy 0 "$complete"
+case $? in 0) ;; 1) echo 'DET-M-03 reproduced: complete exact evidence was rejected'; exit 0 ;; *) exit 2 ;; esac
+
+# Range checking must expose either earlier violation even though the tip is
+# locally compliant.
+run_policy 1 "$complete" GITHUB_EVENT_BASE="$base" GITHUB_EVENT_COMMIT="$complete"
+case $? in 0) ;; 1) echo 'DET-M-03 reproduced: a compliant tip hid an earlier violation'; exit 0 ;; *) exit 2 ;; esac
+
+exit 1

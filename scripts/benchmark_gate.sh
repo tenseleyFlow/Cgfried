@@ -123,7 +123,7 @@ function'" "'read_metric(line, file, line_no,    equals, key, value) {
 
     # Provenance and report-only stats may contain strings.  Gated metrics
     # must be non-negative decimal numbers.
-    if (key ~ /(wall_ms_median|user_ms_median|sys_ms_median|maxrss_kb_max)$/ &&
+    if (key ~ /(wall_ms_(median|mad)|user_ms_(median|mad)|sys_ms_(median|mad)|cpu_ms_(median|mad)|maxrss_kb_(median|mad|max))$/ &&
         value !~ /^[0-9]+([.][0-9]+)?$/) {
         schema_fail(file ":" line_no ": gated metric " key \
              " must have a non-negative numeric value")
@@ -184,13 +184,20 @@ function'" "'check_self_corpus(values, label,    value) {
         schema_fail(label " self.corpus must expose its revision/content and file count")
 }
 
-function'" "'check_limit(label, baseline_value, current_value, percent,
-                     baseline_total, limit) {
-    baseline_total = baseline_value + 0
-    limit = baseline_total * (100 + percent) / 100
+# DET-M-01: block only when both observations carry dispersion. Four MADs is
+# the established runtime-gate floor; legacy CPU/RSS data stays report-only.
+function'" "'check_noise_limit(label, baseline_value, current_value, percent,
+                           baseline_mad, current_mad,
+                           nominal, noise, allowance, limit) {
+    nominal = (baseline_value + 0) * percent / 100
+    noise = 4 * ((baseline_mad + 0) > (current_mad + 0) ?
+                 (baseline_mad + 0) : (current_mad + 0))
+    allowance = nominal > noise ? nominal : noise
+    limit = (baseline_value + 0) + allowance
     if ((current_value + 0) > limit) {
         regression(label " regressed: baseline=" baseline_value \
-             " result=" current_value " limit=+" percent "%")
+             " result=" current_value " threshold=max(+" percent \
+             "%,4*MAD) limit=" limit)
     } else {
         passed++
     }
@@ -273,32 +280,63 @@ END {
     for (key in baseline) {
         if (key ~ /maxrss_kb_max$/ &&
             (gate_kind == "all" || gate_kind == "rss")) {
-            gated++
-            if (require_metric(key))
-                check_limit(key, baseline[key], current[key], 20)
+            prefix = key
+            sub(/maxrss_kb_max$/, "", prefix)
+            mad_key = prefix "maxrss_kb_mad"
+            have_metric = require_metric(key)
+            if (mad_key in baseline) {
+                gated++
+                have_mad = require_metric(mad_key)
+                if (have_metric && have_mad)
+                    check_noise_limit(key, baseline[key], current[key], 20,
+                                      baseline[mad_key], current[mad_key])
+            } else {
+                legacy_unsupported = 1
+            }
         } else if (!skip_time && key ~ /wall_ms_median$/ &&
                    (gate_kind == "all" || gate_kind == "time")) {
-            gated++
             have_metric = require_metric(key)
-            if (have_metric && !provenance_only)
-                check_limit(key, baseline[key], current[key], 30)
+            mad_key = key
+            sub(/median$/, "mad", mad_key)
+            if (mad_key in baseline) {
+                gated++
+                have_mad = require_metric(mad_key)
+                if (have_metric && have_mad && !provenance_only)
+                    check_noise_limit(key, baseline[key], current[key], 30,
+                                      baseline[mad_key], current[mad_key])
+            } else {
+                legacy_unsupported = 1
+            }
         } else if (!skip_time && key ~ /user_ms_median$/ &&
                    (gate_kind == "all" || gate_kind == "time")) {
             prefix = key
             sub(/user_ms_median$/, "", prefix)
             sys_key = prefix "sys_ms_median"
-            gated++
+            cpu_key = prefix "cpu_ms_median"
+            cpu_mad_key = prefix "cpu_ms_mad"
             have_user = require_metric(key)
             if (!(sys_key in baseline)) {
-                schema_fail("baseline metric " key " requires paired metric " sys_key)
+                schema_fail("baseline metric " key \
+                            " requires paired metric " sys_key)
                 have_sys = 0
             } else {
                 have_sys = require_metric(sys_key)
             }
-            if (have_user && have_sys && !provenance_only)
-                check_limit(prefix "user+sys_ms_median",
-                            baseline[key] + baseline[sys_key],
-                            current[key] + current[sys_key], 30)
+            if ((cpu_key in baseline) != (cpu_mad_key in baseline)) {
+                schema_fail("baseline paired CPU metrics must include both " \
+                            cpu_key " and " cpu_mad_key)
+            } else if ((cpu_key in baseline) && (cpu_mad_key in baseline)) {
+                gated++
+                have_cpu = require_metric(cpu_key)
+                have_cpu_mad = require_metric(cpu_mad_key)
+                if (have_user && have_sys && have_cpu && have_cpu_mad &&
+                    !provenance_only)
+                    check_noise_limit(cpu_key, baseline[cpu_key],
+                                      current[cpu_key], 30,
+                                      baseline[cpu_mad_key], current[cpu_mad_key])
+            } else {
+                legacy_unsupported = 1
+            }
         } else if (!skip_time && key ~ /sys_ms_median$/ &&
                    (gate_kind == "all" || gate_kind == "time")) {
             prefix = key
@@ -309,7 +347,7 @@ END {
         }
     }
 
-    if (!gated)
+    if (!gated && !legacy_unsupported)
         schema_fail("baseline contains no active gated metrics")
     if (schema_failed)
         exit 3
@@ -317,6 +355,8 @@ END {
         exit 1
     if (provenance_only)
         print "benchmark_gate: provenance-only (uncontrolled timing evidence)"
+    else if (legacy_unsupported)
+        print "benchmark_gate: evidence-only (legacy metrics lack dispersion)"
     else
         print "benchmark_gate: pass (" passed " comparisons)"
 }

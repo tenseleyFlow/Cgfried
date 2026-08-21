@@ -147,6 +147,106 @@ validate_message()
     fi
 }
 
+extract_baseline_evidence()
+{
+    evidence_path=$1
+    evidence_message=$2
+    awk -v path="$evidence_path" '
+        index($0, "bench-baseline: " path " ") == 1 {
+            mentioned++
+            rest = substr($0, length("bench-baseline: " path " ") + 1)
+            if (rest ~ /^[A-Za-z0-9_.:-]+ (absent|[0-9]+([.][0-9]+)?) -> (absent|[0-9]+([.][0-9]+)?); reason: .+$/) {
+                metric = rest
+                sub(/ .*/, "", metric)
+                values = rest
+                sub(/^[^ ]+ /, "", values)
+                old = values
+                sub(/ .*/, "", old)
+                sub(/^[^ ]+ -> /, "", values)
+                new = values
+                sub(/;.*/, "", new)
+                if (old == "absent" && new == "absent") bad = 1
+                else if (seen[metric]++) bad = 1
+                else print metric "\t" old "\t" new
+            } else {
+                bad = 1
+            }
+        }
+        END { if (!mentioned || bad) exit 1 }
+    ' "$evidence_message"
+}
+
+verify_baseline_replacement()
+{
+    replacement_commit=$1
+    replacement_parent=$2
+    replacement_path=$3
+    replacement_message=$4
+
+    make_tmp_dir
+    evidence_blob=$tmp_dir/baseline-evidence
+    extract_baseline_evidence "$replacement_path" "$replacement_message" \
+        >"$evidence_blob" ||
+        die_policy "baseline '$replacement_path' requires 'bench-baseline: PATH METRIC OLD|absent -> NEW|absent; reason: WHY'"
+    old_blob=$tmp_dir/baseline-old
+    new_blob=$tmp_dir/baseline-new
+    git show "$replacement_parent:$replacement_path" >"$old_blob" 2>/dev/null ||
+        die_input "cannot read parent baseline '$replacement_path'"
+    git show "$replacement_commit:$replacement_path" >"$new_blob" 2>/dev/null ||
+        die_input "cannot read replacement baseline '$replacement_path'"
+    evidence_error=$(awk -F= -v old_file="$old_blob" -v new_file="$new_blob" \
+        -v evidence_file="$evidence_blob" '
+        function policy_metric(key) {
+            return key ~ /(^|[.])(wall_ms_(median|mad)|user_ms_(median|mad)|sys_ms_(median|mad)|cpu_ms_(median|mad)|maxrss_kb_(median|mad|max)|size)$/
+        }
+        function read_metrics(file, values, counts, keys,    line,key,value) {
+            while ((getline line < file) > 0) {
+                if (line !~ /^[A-Za-z0-9_.:-]+=[0-9]+([.][0-9]+)?$/) continue
+                key=line; sub(/=.*/,"",key)
+                if (!policy_metric(key)) continue
+                value=substr(line,length(key)+2)
+                values[key]=value; counts[key]++; keys[key]=1
+            }
+            close(file)
+        }
+        BEGIN {
+            read_metrics(old_file,old,old_count,keys)
+            read_metrics(new_file,new,new_count,keys)
+            while ((getline line < evidence_file) > 0) {
+                split(line,field,"\t")
+                evidence_old[field[1]]=field[2]
+                evidence_new[field[1]]=field[3]
+                evidence_seen[field[1]]=1
+            }
+            close(evidence_file)
+            for (key in keys) {
+                if (old_count[key] > 1 || new_count[key] > 1) {
+                    print "metric " key " is not unique in baseline blobs"
+                    bad=1
+                    continue
+                }
+                actual_old=(key in old)?old[key]:"absent"
+                actual_new=(key in new)?new[key]:"absent"
+                if (actual_old == actual_new) continue
+                changed[key]=1
+                if (!(key in evidence_seen)) {
+                    print "missing evidence for changed metric " key
+                    bad=1
+                } else if (evidence_old[key] != actual_old || evidence_new[key] != actual_new) {
+                    print "evidence does not match actual " key " values (" actual_old " -> " actual_new ")"
+                    bad=1
+                }
+            }
+            for (key in evidence_seen)
+                if (!(key in changed)) {
+                    print "evidence metric " key " is not a changed gated metric"
+                    bad=1
+                }
+            exit bad ? 1 : 0
+        }
+    ') || die_policy "baseline '$replacement_path' $evidence_error"
+}
+
 extract_overrides()
 {
     awk '
@@ -302,6 +402,7 @@ test "$audit" -eq 0 || run_audit
 test -z "$log_file" || die_input "--log-file requires --audit"
 
 policy_commit=${GITHUB_EVENT_COMMIT-}
+policy_base=
 if test -n "$commit_id"; then
     policy_commit=$commit_id
 fi
@@ -372,6 +473,51 @@ if grep -Fq '[bench skip]' "$msg_path"; then
         fi
     done <"$diff_path"
     test "$saw_path" -eq 1 || die_policy "[bench skip] requires a non-empty docs-only diff"
+fi
+
+# DET-M-03: every replacement commit carries one locally verifiable numeric
+# old-to-new metric and a reason. Initial publication and deletion are not
+# replacements. In CI range mode each commit is checked independently, so a
+# compliant tip cannot hide an earlier unexplained replacement.
+if test -n "$diff_file"; then
+    while IFS= read -r path || test -n "$path"; do
+        case $path in
+            .benchmarks/baseline-*.txt)
+                extract_baseline_evidence "$path" "$msg_path" >/dev/null ||
+                    die_policy "baseline '$path' requires 'bench-baseline: PATH METRIC OLD|absent -> NEW|absent; reason: WHY'"
+                ;;
+        esac
+    done <"$diff_path"
+else
+    if test -z "$policy_base"; then
+        if git rev-parse --verify "$policy_commit^" >/dev/null 2>&1; then
+            policy_base=$policy_commit^
+        else
+            policy_base=$policy_commit
+        fi
+    fi
+    commits_path=$tmp_dir/commits
+    git rev-list --reverse "$policy_base..$policy_commit" >"$commits_path" 2>/dev/null ||
+        die_input "cannot enumerate baseline policy range"
+    while IFS= read -r replacement_commit; do
+        test -n "$replacement_commit" || continue
+        replacement_parent=$replacement_commit^
+        replacement_message=$tmp_dir/message-$replacement_commit
+        git show -s --format=%B "$replacement_commit" >"$replacement_message" 2>/dev/null ||
+            die_input "cannot read commit message for $replacement_commit"
+        replacement_paths=$tmp_dir/paths-$replacement_commit
+        git diff-tree --no-commit-id --name-only --diff-filter=M -r \
+            "$replacement_parent" "$replacement_commit" >"$replacement_paths" 2>/dev/null ||
+            die_input "cannot read commit diff for $replacement_commit"
+        while IFS= read -r path || test -n "$path"; do
+            case $path in
+                .benchmarks/baseline-*.txt)
+                    verify_baseline_replacement "$replacement_commit" \
+                        "$replacement_parent" "$path" "$replacement_message"
+                    ;;
+            esac
+        done <"$replacement_paths"
+    done <"$commits_path"
 fi
 
 test -n "$overrides" || overrides=none

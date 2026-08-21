@@ -37,6 +37,7 @@ receipt()
     user=$4
     sys=$5
     rss=$6
+    cpu=$(awk -v user="$user" -v sys="$sys" 'BEGIN { print user + sys }')
     {
         echo 'schema=cgfried.musl-full-build.v1'
         echo "host=$host"
@@ -70,10 +71,15 @@ receipt()
         echo 'user_ms_mad=10'
         echo "sys_ms_median=$sys"
         echo 'sys_ms_mad=5'
+        echo "cpu_ms_median=$cpu"
+        echo 'cpu_ms_mad=10'
+        echo "maxrss_kb_median=$rss"
+        echo 'maxrss_kb_mad=10'
         echo "maxrss_kb_max=$rss"
         echo 'raw.wall_ms=1,2,3,4,5,6,7,8,9,10'
         echo 'raw.user_ms=1,2,3,4,5,6,7,8,9,10'
         echo 'raw.sys_ms=1,2,3,4,5,6,7,8,9,10'
+        echo 'raw.cpu_ms=1,2,3,4,5,6,7,8,9,10'
         echo 'raw.maxrss_kb=1,2,3,4,5,6,7,8,9,10'
         echo 'musl.stat.arena.ast.peak_kb_max=10'
         echo 'musl.stat.arena.ast.blocks_max=2'
@@ -92,13 +98,40 @@ receipt()
 
 receipt "$tmp/base" kasumi 1000 700 300 1000
 receipt "$tmp/pass" kasumi 1300 900 400 1200
-expect 0 'pass (+30% time, +20% RSS)' "$gate" "$tmp/base" "$tmp/pass"
+expect 0 'pass (noise-aware time and RSS)' "$gate" "$tmp/base" "$tmp/pass"
+committed_legacy=$root/.benchmarks/baseline-musl-full-build-x86_64-linux-musl.kasumi.txt
+cp "$committed_legacy" "$tmp/legacy-current-modern"
+{
+    echo 'cpu_ms_median=13640.006'
+    echo 'cpu_ms_mad=20'
+    echo 'maxrss_kb_median=408800'
+    echo 'maxrss_kb_mad=400'
+    echo 'raw.cpu_ms=13636.864,13608.480,13609.505,13632.397,13617.356,13623.630,13612.208,13640.956,13649.821,13641.484'
+} >>"$tmp/legacy-current-modern"
+expect 0 'evidence-only (legacy baseline lacks paired CPU/RSS dispersion)' \
+    "$gate" "$committed_legacy" "$tmp/legacy-current-modern"
+sed -e 's/^cpu_ms_median=.*/cpu_ms_median=999999/' \
+    -e 's/^maxrss_kb_max=.*/maxrss_kb_max=9999999/' \
+    "$tmp/legacy-current-modern" >"$tmp/legacy-unsupported-regressions"
+expect 0 'evidence-only (legacy baseline lacks paired CPU/RSS dispersion)' \
+    "$gate" "$committed_legacy" "$tmp/legacy-unsupported-regressions"
+sed 's/^wall_ms_median=.*/wall_ms_median=18000/' \
+    "$tmp/legacy-current-modern" >"$tmp/legacy-wall-regression"
+expect 1 'wall time regressed beyond max(+30%,4*MAD)' \
+    "$gate" "$committed_legacy" "$tmp/legacy-wall-regression"
+sed '/^cpu_ms_median=/d;/^cpu_ms_mad=/d;/^maxrss_kb_median=/d;/^maxrss_kb_mad=/d;/^raw.cpu_ms=/d' \
+    "$tmp/pass" >"$tmp/legacy-current"
+expect 3 'result missing cpu_ms_median' "$gate" "$tmp/base" "$tmp/legacy-current"
 receipt "$tmp/wall" kasumi 1300.1 700 300 1000
-expect 1 'wall time regressed beyond +30%' "$gate" "$tmp/base" "$tmp/wall"
+expect 1 'wall time regressed beyond max(+30%,4*MAD)' "$gate" "$tmp/base" "$tmp/wall"
 receipt "$tmp/cpu" kasumi 1000 1000 300.1 1000
-expect 1 'user+sys time regressed beyond +30%' "$gate" "$tmp/base" "$tmp/cpu"
+expect 1 'paired CPU time regressed beyond max(+30%,4*MAD)' "$gate" "$tmp/base" "$tmp/cpu"
 receipt "$tmp/rss" kasumi 1000 700 300 1200.1
-expect 1 'maximum RSS regressed beyond +20%' "$gate" "$tmp/base" "$tmp/rss"
+expect 1 'maximum RSS regressed beyond max(+20%,4*MAD)' "$gate" "$tmp/base" "$tmp/rss"
+sed 's/^maxrss_kb_mad=10$/maxrss_kb_mad=100/' "$tmp/base" >"$tmp/noisy-rss-base"
+sed 's/^maxrss_kb_mad=10$/maxrss_kb_mad=100/' "$tmp/rss" >"$tmp/noisy-rss-result"
+expect 0 'pass (noise-aware time and RSS)' "$gate" \
+    "$tmp/noisy-rss-base" "$tmp/noisy-rss-result"
 receipt "$tmp/host" hasu 1000 700 300 1000
 expect 3 'host does not match baseline' "$gate" "$tmp/base" "$tmp/host"
 sed '/^route.cgf_c=/d' "$tmp/pass" >"$tmp/routes"
@@ -129,6 +162,12 @@ case $out in
 */sample-02.txt) wall=300; user=90; sys=30; rss=1200 ;;
 *) wall=200; user=80; sys=40; rss=1100 ;;
 esac
+case $out in
+*/sample-0[1-4].txt) user=0; sys=0 ;;
+*/sample-0[5-7].txt) user=0; sys=100 ;;
+*/sample-0[89].txt | */sample-10.txt) user=100; sys=0 ;;
+esac
+cpu=$((user + sys))
 mkdir -p "$(dirname "$out")"
 cat >"$out" <<EOT
 schema=cgfried.musl-full-build-sample.v1
@@ -144,6 +183,7 @@ route.total=1354
 wall_ms_median=$wall
 user_ms_median=$user
 sys_ms_median=$sys
+cpu_ms_median=$cpu
 maxrss_kb_max=$rss
 musl.stat.arena.ast.peak_kb_max=10
 musl.stat.arena.ast.blocks_max=2
@@ -179,6 +219,12 @@ CGF_MUSL_BUILD_CGF_REVISION=1111111111111111111111111111111111111111 \
     "$bench" "$tmp/source" "$tmp/bench work" "$tmp/bench.txt"
 grep -F 'wall_ms_median=200' "$tmp/bench.txt" >/dev/null || fail 'bench median is wrong'
 grep -F 'wall_ms_mad=0' "$tmp/bench.txt" >/dev/null || fail 'bench MAD is wrong'
+grep -F 'user_ms_median=0' "$tmp/bench.txt" >/dev/null || fail 'user median is wrong'
+grep -F 'sys_ms_median=0' "$tmp/bench.txt" >/dev/null || fail 'system median is wrong'
+grep -F 'cpu_ms_median=100' "$tmp/bench.txt" >/dev/null || fail 'paired CPU median was derived from marginal medians'
+grep -F 'cpu_ms_mad=0' "$tmp/bench.txt" >/dev/null || fail 'paired CPU MAD is wrong'
+grep -F 'maxrss_kb_median=1100' "$tmp/bench.txt" >/dev/null || fail 'bench RSS median is wrong'
+grep -F 'maxrss_kb_mad=0' "$tmp/bench.txt" >/dev/null || fail 'bench RSS MAD is wrong'
 grep -F 'maxrss_kb_max=1200' "$tmp/bench.txt" >/dev/null || fail 'bench RSS maximum is wrong'
 grep -F 'raw.wall_ms=100,300,200,200,200,200,200,200,200,200' "$tmp/bench.txt" >/dev/null || fail 'raw sample order is wrong'
 [ ! -e "$tmp/bench work/warmup" ] || fail 'completed warmup build tree was retained'
@@ -232,6 +278,7 @@ cat <<EOT
 wall_ms_median=100
 user_ms_median=70
 sys_ms_median=20
+cpu_ms_median=90
 maxrss_kb_max=1000
 EOT
 EOF
