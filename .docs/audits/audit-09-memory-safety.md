@@ -97,19 +97,24 @@ payload, and canary, so the registry cannot recover the base allocation and
 the process exits 0 instead of trapping.
 Affected sprints: 44, 46.
 
-ID: `MS-C-06`
-Title: asprintf ownership bypasses safe-runtime registration
-Severity: Critical — safe mode classifies `asprintf`/`vasprintf` output as
-owned heap storage, yet far accesses through that storage bypass the runtime
-registry and therefore the documented heap-spatial guarantee.
-Reproducer: `tests/audit-regressions/ms-c-06.c`
-Root cause: `src/memsafe/checks.c` declares both functions as allocation
-families whose result is written through argument zero, while the runtime and
-linker wrap only nine other allocation APIs. The returned libc allocation has
-no Cgfried header or registry entry, so residual checks treat it as foreign
-and silently accept a far pointer. Safe mode must either register these
-families or reject the unsupported ownership boundary.
-Affected sprints: 43, 44, 46.
+~~ID: `MS-C-06`~~
+~~Title: asprintf ownership bypasses safe-runtime registration~~
+~~Severity: Critical — safe mode classifies `asprintf`/`vasprintf` output as~~
+~~owned heap storage, yet far accesses through that storage bypass the runtime~~
+~~registry and therefore the documented heap-spatial guarantee.~~
+~~Reproducer: `tests/audit-regressions/ms-c-06.c`~~
+~~Root cause: `src/memsafe/checks.c` declares both functions as allocation~~
+~~families whose result is written through argument zero, while the runtime and~~
+~~linker wrap only nine other allocation APIs. The returned libc allocation has~~
+~~no Cgfried header or registry entry, so residual checks treat it as foreign~~
+~~and silently accept a far pointer. Safe mode must either register these~~
+~~families or reject the unsupported ownership boundary.~~
+~~Affected sprints: 43, 44, 46.~~
+Resolution: RESOLVED 2026-08-20 by `88211779`.
+Cluster hunt: direct calls, address-taking, compatible aliases, and effective
+linker names for both unsupported families are rejected. Static and
+incompatible same-name functions plus declarations renamed away from the libc
+identities remain valid, so the boundary rule does not become a name-only ban.
 
 ## Real-corpus false-positive recount
 

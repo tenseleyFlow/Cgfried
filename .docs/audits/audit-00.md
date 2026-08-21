@@ -57,4 +57,4 @@ burndown and the same fixture lifecycle as the original audit debt.
 |---|---|---|---|---|
 | `SEMA-C-08` | `SEMA-C-02` sibling hunt | Critical | `tests/audit-regressions/sema-c-08.c` | RESOLVED `bdd523c0` |
 | `IR-C-11` | `X64-C-01` sibling hunt | Critical | `tests/audit-regressions/ir-c-11.cgfir` | RESOLVED `eb364980` |
-| `MS-C-06` | `MS-C-05` design review | Critical | `tests/audit-regressions/ms-c-06.c` | OPEN |
+| `MS-C-06` | `MS-C-05` design review | Critical | `tests/audit-regressions/ms-c-06.c` | RESOLVED `88211779` |
