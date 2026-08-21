@@ -152,6 +152,13 @@ struct Type {
     u32 nparams;
     bool variadic;
     bool has_proto;
+    /* An unprototyped DEFINITION has a known parameter count even though an
+     * `f()` declaration does not. Keep its resolved signature separate from
+     * params/nparams: those fields remain the prototype ABI contract. */
+    bool old_style_definition;
+    bool kr_definition;
+    Type **old_style_params;
+    u32 nold_style_params;
 
     TagDecl *tag; /* TY_STRUCT / TY_UNION / TY_ENUM */
 };

@@ -171,6 +171,25 @@ static Type *F(TypeFix *tf, Type *ret, Type **params, u32 n, bool proto,
     return f;
 }
 
+static Type *KRF(TypeFix *tf, Type *ret, Type **params, u32 n)
+{
+    Type *f = F(tf, ret, NULL, 0, false, false);
+
+    f->old_style_definition = true;
+    f->kr_definition = true;
+    f->old_style_params = params;
+    f->nold_style_params = n;
+    return f;
+}
+
+static Type *ODF(TypeFix *tf, Type *ret)
+{
+    Type *f = F(tf, ret, NULL, 0, false, false);
+
+    f->old_style_definition = true;
+    return f;
+}
+
 static void compat_is(TestCtx *t, const char *what, Type *a, Type *b, bool want)
 {
     bool got = type_compatible(a, b);
@@ -189,18 +208,30 @@ static void compat_is(TestCtx *t, const char *what, Type *a, Type *b, bool want)
 void test_sema_type_compatible_table(TestCtx *t)
 {
     TypeFix tf;
-    Type *i, *u, *l, *c, *sc, *uc, *v, *d;
+    Type *i, *u, *l, *c, *sc, *uc, *s, *us, *bl, *v, *f, *d, *ld;
+    TagDecl enum_tag;
+    Type *en;
     Type *p1[2], *p2[2];
 
     arena_init(&tf.ar);
+    memset(&enum_tag, 0, sizeof(enum_tag));
     i = type_basic(TY_INT);
     u = type_basic(TY_UINT);
     l = type_basic(TY_LONG);
     c = type_basic(TY_CHAR);
     sc = type_basic(TY_SCHAR);
     uc = type_basic(TY_UCHAR);
+    s = type_basic(TY_SHORT);
+    us = type_basic(TY_USHORT);
+    bl = type_basic(TY_BOOL);
     v = type_basic(TY_VOID);
+    f = type_basic(TY_FLOAT);
     d = type_basic(TY_DOUBLE);
+    ld = type_basic(TY_LDOUBLE);
+    enum_tag.kind = TY_ENUM;
+    enum_tag.complete = true;
+    enum_tag.enum_underlying = i;
+    en = type_tag(&tf.ar, &enum_tag);
 
     /* Basic kinds: identical or nothing. `int` and `long` are distinct
      * even at equal width — this is what keeps %ld checking honest. */
@@ -252,8 +283,9 @@ void test_sema_type_compatible_table(TestCtx *t)
     compat_is(t, "int*[4]/int*[4]", A(&tf, P(&tf, i), true, 4),
               A(&tf, P(&tf, i), true, 4), true);
 
-    /* Functions: compatible return type, and an unprototyped declarator is
-     * compatible with any parameter list. */
+    /* Functions: an unprototyped declaration is compatible only with a
+     * nonvariadic prototype whose parameter types survive the default
+     * argument promotions unchanged. compat_is checks both orderings. */
     p1[0] = i;
     p1[1] = P(&tf, c);
     p2[0] = i;
@@ -262,6 +294,81 @@ void test_sema_type_compatible_table(TestCtx *t)
               F(&tf, i, NULL, 0, false, false), true);
     compat_is(t, "int()/int(int,char*)", F(&tf, i, NULL, 0, false, false),
               F(&tf, i, p1, 2, true, false), true);
+    p1[0] = c;
+    compat_is(t, "int()/int(char)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = sc;
+    compat_is(t, "int()/int(signed char)",
+              F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = uc;
+    compat_is(t, "int()/int(unsigned char)",
+              F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = s;
+    compat_is(t, "int()/int(short)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = us;
+    compat_is(t, "int()/int(unsigned short)",
+              F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = bl;
+    compat_is(t, "int()/int(_Bool)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = f;
+    compat_is(t, "int()/int(float)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), false);
+    p1[0] = i;
+    compat_is(t, "int()/int(int)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = u;
+    compat_is(t, "int()/int(unsigned)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = l;
+    compat_is(t, "int()/int(long)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = d;
+    compat_is(t, "int()/int(double)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = ld;
+    compat_is(t, "int()/int(long double)",
+              F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = P(&tf, c);
+    compat_is(t, "int()/int(char*)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = en;
+    compat_is(t, "int()/int(enum)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = i;
+    compat_is(t, "int()/int(int,...)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, true), false);
+    compat_is(t, "int()/int(void)", F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, NULL, 0, true, false), true);
+    p1[0] = Q(&tf, i, CGF_QUAL_CONST);
+    compat_is(t, "int()/int(const int)",
+              F(&tf, i, NULL, 0, false, false),
+              F(&tf, i, p1, 1, true, false), true);
+    p1[0] = f;
+    compat_is(t, "K&R float definition/float prototype",
+              KRF(&tf, i, p1, 1), F(&tf, i, p1, 1, true, false), false);
+    p2[0] = d;
+    compat_is(t, "K&R float definition/double prototype",
+              KRF(&tf, i, p1, 1), F(&tf, i, p2, 1, true, false), true);
+    p1[0] = c;
+    p2[0] = i;
+    compat_is(t, "K&R char definition/int prototype", KRF(&tf, i, p1, 1),
+              F(&tf, i, p2, 1, true, false), true);
+    compat_is(t, "empty-list definition/int prototype", ODF(&tf, i),
+              F(&tf, i, p2, 1, true, false), false);
+    compat_is(t, "empty-list definition/void prototype", ODF(&tf, i),
+              F(&tf, i, NULL, 0, true, false), true);
+    compat_is(t, "K&R definition/variadic prototype", KRF(&tf, i, p2, 1),
+              F(&tf, i, p2, 1, true, true), false);
+    compat_is(t, "K&R count mismatch", KRF(&tf, i, p2, 1),
+              F(&tf, i, p1, 2, true, false), false);
+    p1[0] = i;
+    p1[1] = P(&tf, c);
     compat_is(t, "int(int,char*)/int(int,char*)", F(&tf, i, p1, 2, true, false),
               F(&tf, i, p1, 2, true, false), true);
     compat_is(t, "int(int,char*)/int(int,int*)", F(&tf, i, p1, 2, true, false),
@@ -328,6 +435,15 @@ void test_sema_type_composite_table(TestCtx *t)
     c = type_composite(&tf.ar, F(&tf, i, NULL, 0, false, false),
                        F(&tf, i, NULL, 0, false, false));
     T_ASSERT(t, !c->has_proto);
+
+    p1[0] = type_basic(TY_FLOAT);
+    c = type_composite(&tf.ar, KRF(&tf, i, p1, 1),
+                       F(&tf, i, NULL, 0, false, false));
+    T_ASSERT(t, !c->has_proto);
+    T_ASSERT(t, c->old_style_definition);
+    T_ASSERT(t, c->kr_definition);
+    T_ASSERT_EQ_INT(t, (int)c->nold_style_params, 1);
+    T_ASSERT(t, c->old_style_params[0] == type_basic(TY_FLOAT));
 
     /* Composites recurse through pointers and arrays. */
     c = type_composite(&tf.ar, P(&tf, A(&tf, i, false, 0)),

@@ -1143,7 +1143,15 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
         return;
     }
 
-    if (!type_compatible(prev->type, cur->type)) {
+    /* GCC diagnoses a prototype-first K&R mismatch at the parameter after
+     * the definition is entered (warning by default, pedantic error), while
+     * the reverse order is an immediate conflicting-type error. Preserve
+     * that diagnostic policy without weakening symmetric type compatibility. */
+    if (!type_compatible(prev->type, cur->type) &&
+        !(prev->type && cur->type && prev->type->kind == TY_FUNC &&
+          cur->type->kind == TY_FUNC && prev->type->has_proto &&
+          cur->type->kr_definition &&
+          type_compatible(prev->type->base, cur->type->base))) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, cur->span,
                   "conflicting types for '%s' ('%s' vs '%s')", cur->name,
@@ -2184,6 +2192,17 @@ static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
     }
 }
 
+static void mark_old_style_definition(AstNode *d, Type *type)
+{
+    const AstType *ft = d->type;
+
+    if (d->kind != AST_FUNC_DEF || !type || type->kind != TY_FUNC ||
+        type->has_proto || !ft || ft->kind != ATY_FUNC)
+        return;
+    type->old_style_definition = true;
+    type->kr_definition = ft->is_kr_list;
+}
+
 static void declare_one(Sema *s, AstNode *d)
 {
     bool auto_type_decl;
@@ -2261,6 +2280,7 @@ static void declare_one(Sema *s, AstNode *d)
      * function all arrive here; the function is what gnu_mode_apply's
      * inappropriate-type error catches, matching gcc. */
     type = gnu_mode_apply(s, type, &d->gnu, d->span);
+    mark_old_style_definition(d, type);
     /* gcc gives directly-written `may_alias` semantics on a typedef (and on
      * record definitions, handled by complete_struct), not on an ordinary
      * object declaration. Keeping that distinction also means a typedef of
@@ -2739,17 +2759,85 @@ static void check_main_signature(Sema *s, AstNode *d, Type *ftype)
  * prototype. THE trap: `void f(x) float x; {}` against `void f(float);`
  * is INCOMPATIBLE, because default promotion carries the K&R float to
  * double — same story for char and short against themselves. */
+static u32 kr_param_index(const AstType *ft, const char *name)
+{
+    u32 i;
+
+    for (i = 0; i < ft->nparams; i++)
+        if (ft->params[i].name == name)
+            return i;
+    return (u32)-1;
+}
+
+static Type *adjust_kr_param_type(Sema *s, Type *pt)
+{
+    if (pt && pt->kind == TY_ARRAY)
+        return type_ptr(s->arena, pt->base);
+    if (pt && pt->kind == TY_FUNC)
+        return type_ptr(s->arena, pt);
+    return pt;
+}
+
+static void bind_kr_param(Sema *s, AstNode *d, const AstType *ft, u32 pi,
+                          Type *pt)
+{
+    const char *pname = ft->params[pi].name;
+    Symbol *ps = sym_new(s, pname, SYM_VAR, NS_ORDINARY, pt,
+                         ft->params[pi].span);
+
+    ps->is_param = true;
+    ps->defined = true;
+    if (scope_lookup_local(s->scope, pname, NS_ORDINARY)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, ft->params[pi].span,
+                  "redefinition of parameter '%s'", pname);
+        return;
+    }
+    scope_declare(s, ps);
+    if (d->param_syms && pi < d->nparam_syms)
+        d->param_syms[pi] = ps;
+}
+
 static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
 {
     const AstType *ft = d->type;
+    Type *definition = d->sem_type;
     Type *proto = NULL;
-    u32 pi;
+    u32 ki, pi;
+
+    /* Resolve inside the already-pushed function scope, in identifier-list
+     * order. A later VLA parameter may depend on an earlier parameter name;
+     * eager file-scope capture incorrectly rejects that valid K&R shape. */
+    if (definition && definition->kind == TY_FUNC) {
+        definition->nold_style_params = ft->nparams;
+        if (ft->nparams)
+            definition->old_style_params = arena_alloc(
+                s->arena, ft->nparams * sizeof(Type *), _Alignof(Type *));
+        if (definition->old_style_params)
+            memset(definition->old_style_params, 0,
+                   ft->nparams * sizeof(Type *));
+        /* With only preceding unprototyped declarations, merging may have
+         * produced a distinct surviving Type. Point it at the same signature
+         * storage so a later prototype sees the resolved definition. */
+        if (fsym && fsym->type && fsym->type->kind == TY_FUNC &&
+            !fsym->type->has_proto) {
+            fsym->type->old_style_definition = true;
+            fsym->type->kr_definition = true;
+            fsym->type->nold_style_params = ft->nparams;
+            fsym->type->old_style_params = definition->old_style_params;
+        }
+    }
 
     /* An earlier PROTOTYPE to check against: the merged symbol type keeps
      * it (the composite of prototype and K&R list is the prototype). */
     if (fsym && fsym->type && fsym->type->kind == TY_FUNC &&
         fsym->type->has_proto)
         proto = fsym->type;
+
+    if (proto && proto->variadic)
+        warn_at(s->lang->warnings, WARN_TRADITIONAL, d->span,
+                "'%s' defined as variadic function without prototype",
+                d->name);
 
     if (proto && proto->nparams != ft->nparams) {
         s->nerrors++;
@@ -2760,41 +2848,58 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
         proto = NULL;
     }
 
+    /* Declaration-list order is semantically observable: `int n; int a[n];`
+     * makes n visible while resolving a, even when the identifier list uses
+     * another order. Resolve and bind each declarator as it appears. */
+    for (ki = 0; ki < d->nkr_decls; ki++) {
+        AstNode *kd = d->kr_decls[ki];
+        AstNode *one = kd;
+        u32 sib = 0;
+
+        while (one) {
+            u32 index = kr_param_index(ft, one->name);
+
+            if (index == (u32)-1) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, one->span,
+                          "declaration for parameter '%s' but no such "
+                          "parameter",
+                          one->name);
+            } else {
+                Type *pt = adjust_kr_param_type(
+                    s, type_from_ast(s, one->type, one->span));
+
+                if (definition && definition->kind == TY_FUNC &&
+                    index < definition->nold_style_params)
+                    definition->old_style_params[index] = pt;
+                bind_kr_param(s, d, ft, index, pt);
+            }
+            one = sib < kd->nitems ? kd->items[sib++] : NULL;
+        }
+    }
+
+    /* Names omitted from the declaration list default to int and enter
+     * scope only after that list, matching GCC's dependent-VLA behavior. */
     for (pi = 0; pi < ft->nparams; pi++) {
         const char *pname = ft->params[pi].name;
-        Type *pt = NULL;
-        Symbol *ps;
-        u32 ki;
 
-        if (!pname)
+        if (!pname || !definition || definition->kind != TY_FUNC ||
+            definition->old_style_params[pi])
             continue;
-        /* Find this name in the K&R declaration list. */
-        for (ki = 0; ki < d->nkr_decls && !pt; ki++) {
-            AstNode *kd = d->kr_decls[ki];
-            AstNode *one = kd;
-            u32 sib = 0;
+        warn_at_ex(s->lang->warnings, WARN_MISSING_PARAMETER_TYPE,
+                   ft->params[pi].span, WARN_SUPPRESS_IN_MACRO,
+                   "type of '%s' defaults to 'int'", pname);
+        definition->old_style_params[pi] = type_basic(TY_INT);
+        bind_kr_param(s, d, ft, pi, type_basic(TY_INT));
+    }
 
-            while (one) {
-                if (one->name == pname) {
-                    pt = type_from_ast(s, one->type, one->span);
-                    break;
-                }
-                one = sib < kd->nitems ? kd->items[sib++] : NULL;
-            }
-        }
-        if (!pt) {
-            /* No declaration: implicitly int, with gcc's Wextra warning. */
-            warn_at_ex(s->lang->warnings, WARN_MISSING_PARAMETER_TYPE,
-                       ft->params[pi].span, WARN_SUPPRESS_IN_MACRO,
-                       "type of '%s' defaults to 'int'", pname);
-            pt = type_basic(TY_INT);
-        }
-        if (pt->kind == TY_ARRAY)
-            pt = type_ptr(s->arena, pt->base);
-        else if (pt->kind == TY_FUNC)
-            pt = type_ptr(s->arena, pt);
+    for (pi = 0; proto && pi < ft->nparams && pi < proto->nparams; pi++) {
+        const char *pname = ft->params[pi].name;
+        Type *pt = definition && definition->kind == TY_FUNC
+                       ? definition->old_style_params[pi]
+                       : type_basic(TY_ERROR);
 
-        if (proto && pi < proto->nparams) {
+        if (pname) {
             /* Compatibility is judged on the PROMOTED K&R type. */
             Type *promoted = conv_promote_type(s, pt);
             Type *want = conv_strip_quals(s, proto->params[pi]);
@@ -2802,26 +2907,13 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
             if (pt->kind == TY_FLOAT)
                 promoted = type_basic(TY_DOUBLE);
             if (!type_compatible(conv_strip_quals(s, promoted), want))
-                warn_at(s->lang->warnings, WARN_TRADITIONAL,
-                        ft->params[pi].span,
-                        "promoted argument '%s' doesn't match prototype ('%s' "
-                        "promotes to '%s', prototype says '%s')",
-                        pname, type_to_str(s->arena, pt),
-                        type_to_str(s->arena, promoted),
-                        type_to_str(s->arena, proto->params[pi]));
-        }
-
-        ps = sym_new(s, pname, SYM_VAR, NS_ORDINARY, pt, ft->params[pi].span);
-        ps->is_param = true;
-        ps->defined = true;
-        if (scope_lookup_local(s->scope, pname, NS_ORDINARY)) {
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, ft->params[pi].span,
-                      "redefinition of parameter '%s'", pname);
-        } else {
-            scope_declare(s, ps);
-            if (d->param_syms && pi < d->nparam_syms)
-                d->param_syms[pi] = ps;
+                warn_pedwarn_at(
+                    s->lang->warnings, WARN_TRADITIONAL, ft->params[pi].span,
+                    "promoted argument '%s' doesn't match prototype ('%s' "
+                    "promotes to '%s', prototype says '%s')",
+                    pname, type_to_str(s->arena, pt),
+                    type_to_str(s->arena, promoted),
+                    type_to_str(s->arena, proto->params[pi]));
         }
     }
 }

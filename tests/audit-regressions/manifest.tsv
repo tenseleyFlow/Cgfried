@@ -10,7 +10,7 @@ FE-M-04	fe-m-04.c	OPEN	an invalid initializer item causes three cascading errors
 FE-M-05	fe-m-05.c	OPEN	an invalid _Generic type creates a false duplicate-association error
 SEMA-C-01	sema-c-01.c	PASS	signed-minimum division by minus one crashes constant evaluation
 SEMA-C-02	sema-c-02.c	PASS	AAPCS64 zero-width bitfields fail to raise record alignment
-SEMA-H-03	sema-h-03.c	OPEN	old-style function compatibility ignores default promotions
+SEMA-H-03	sema-h-03.c	PASS	old-style function compatibility ignores default promotions
 SEMA-H-04	sema-h-04.c	OPEN	no-linkage and external-linkage declarations are merged
 SEMA-H-05	sema-h-05.c	OPEN	unary negation of a signed minimum is accepted as constant
 X64-C-01	x64-c-01.c	PASS	floating atomic accesses are emitted as ordinary loads and stores

@@ -151,15 +151,106 @@ bool type_is_complete(const Type *t)
 
 /* --- compatibility (6.2.7, 6.7.6) ---------------------------------------- */
 
+static bool survives_default_arg_promotions(const Type *t)
+{
+    if (!t || t->kind == TY_ERROR)
+        return true; /* suppress cascades from an already-poisoned parameter */
+    switch (t->kind) {
+    case TY_BOOL:
+    case TY_CHAR:
+    case TY_SCHAR:
+    case TY_UCHAR:
+    case TY_SHORT:
+    case TY_USHORT:
+    case TY_FLOAT:
+        return false;
+    default:
+        return true;
+    }
+}
+
+static const Type *default_promoted_param(const Type *t)
+{
+    if (!t)
+        return t;
+    switch (t->kind) {
+    case TY_BOOL:
+    case TY_CHAR:
+    case TY_SCHAR:
+    case TY_UCHAR:
+    case TY_SHORT:
+    case TY_USHORT:
+        return type_basic(TY_INT);
+    case TY_FLOAT:
+        return type_basic(TY_DOUBLE);
+    case TY_ENUM:
+        return t->tag && t->tag->enum_underlying ? t->tag->enum_underlying
+                                                 : type_basic(TY_INT);
+    default:
+        return t;
+    }
+}
+
+static bool old_style_definition_matches(const Type *old_style,
+                                         const Type *proto)
+{
+    u32 i;
+
+    if (proto->variadic)
+        return false;
+    if (!old_style->kr_definition)
+        return proto->nparams == 0;
+    if (old_style->nold_style_params != proto->nparams)
+        return false;
+    for (i = 0; i < proto->nparams; i++) {
+        Type old_unqual, proto_unqual;
+        const Type *old_param =
+            default_promoted_param(old_style->old_style_params[i]);
+        const Type *proto_param = proto->params[i];
+
+        if (old_param && old_param->quals) {
+            old_unqual = *old_param;
+            old_unqual.quals = 0;
+            old_param = &old_unqual;
+        }
+        if (proto_param && proto_param->quals) {
+            proto_unqual = *proto_param;
+            proto_unqual.quals = 0;
+            proto_param = &proto_unqual;
+        }
+        if (!type_compatible(old_param, proto_param))
+            return false;
+    }
+    return true;
+}
+
 static bool params_compatible(const Type *a, const Type *b)
 {
     u32 i;
 
-    /* An unprototyped declarator is compatible with anything on the
-     * parameter side — that is the whole point of `int f();` and why the
-     * composite keeps the prototype. */
-    if (!a->has_proto || !b->has_proto)
+    if (!a->has_proto || !b->has_proto) {
+        const Type *old_style, *proto;
+
+        if (!a->has_proto && !b->has_proto)
+            return true;
+        proto = a->has_proto ? a : b;
+        old_style = a->has_proto ? b : a;
+        /* SEMA-H-03: a definition is not an unspecified declaration. Its
+         * resolved identifier-list signature (or its known zero parameters
+         * for `f(){}`) must participate whichever operand comes first. */
+        if (old_style->old_style_definition)
+            return old_style_definition_matches(old_style, proto);
+        /* SEMA-H-03, C11 6.7.6.3p15: an empty identifier-list declaration
+         * matches a prototype only when there is no ellipsis and every
+         * fixed parameter already has its default-promoted type. Otherwise
+         * calls compiled through the old declaration use a different ABI. */
+        if (proto->variadic)
+            return false;
+        for (i = 0; i < proto->nparams; i++)
+            if (!survives_default_arg_promotions(proto->params[i]))
+                return false;
         return true;
+    }
     if (a->nparams != b->nparams || a->variadic != b->variadic)
         return false;
     for (i = 0; i < a->nparams; i++) {
@@ -273,8 +364,20 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_func(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
-        if (!proto)
+        if (!proto) {
+            const Type *definition = a->old_style_definition
+                                         ? a
+                                         : (b->old_style_definition ? b
+                                                                    : NULL);
+
+            if (definition) {
+                c->old_style_definition = true;
+                c->kr_definition = definition->kr_definition;
+                c->nold_style_params = definition->nold_style_params;
+                c->old_style_params = definition->old_style_params;
+            }
             return c; /* neither had one: still unprototyped */
+        }
         c->has_proto = true;
         c->variadic = proto->variadic;
         c->nparams = proto->nparams;
