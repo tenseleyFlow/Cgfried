@@ -837,6 +837,19 @@ probe()
             fail "$id" "unexpected atomic-alignment verifier result"
         fi
         ;;
+    IR-H-12)
+        run_cgf "$id" -std=c17 -fsyntax-only "$source"
+        status=$?
+        if [ "$status" -eq 0 ]; then
+            xpass "$id" "$title"
+        elif [ "$status" -eq 4 ] &&
+             grep -q 'onstack ABI marker does not match its parameter' \
+                 "$WORK/$id.stderr"; then
+            xfail "$id" "$title"
+        else
+            fail "$id" "unexpected SysV aggregate-stack result (status $status)"
+        fi
+        ;;
     OPT-H-01)
         # This reaches the shared service through its optimizer client.
         # `-w` removes the independent default warning-analysis path, so an

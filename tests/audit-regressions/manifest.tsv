@@ -35,6 +35,7 @@ IR-H-09	ir-h-09.cgfir	PASS	oversized initializer length wraps before validation
 IR-C-09	ir-c-09.c	PASS	16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
 IR-C-10	ir-c-10.c	PASS	stacked 16-byte-aligned composites retain AAPCS64 stack alignment
 IR-C-11	ir-c-11.cgfir	PASS	under-aligned atomic scalar accesses pass IR verification
+IR-H-12	ir-h-12.c	OPEN	SysV spilled aggregate parameters lose their stack ABI marker
 OPT-H-01	opt-h-01.c	PASS	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	PASS	descending loop fusion reverses dependence direction
 OPT-H-03	opt-h-03.c	PASS	loop unrolling loses a live latch block parameter
