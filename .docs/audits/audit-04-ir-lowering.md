@@ -204,29 +204,35 @@ controls. The shared `even` marker round-trips, matches across internal calls,
 and is verifier-rejected on wrong types or stacked carriers; stack alignment
 remains separately tracked as `IR-C-10`.
 
-ID: `IR-C-10`
-Title: stacked 16-byte-aligned composites lose AAPCS64 stack alignment
-Severity: Critical — valid cross-object calls disagree on incoming stack
-locations. After eight scalar register arguments and one stacked scalar, both
-Linux AAPCS64 and Apple arm64 must round the next stack argument offset from 8
-to 16. Cgfried instead places the composite's two eightbytes at +8 and +16;
-its callee reads those same wrong locations rather than +16 and +24. The
-compiler is self-consistent, so only a psABI oracle or mixed-link direction
-exposes the wrong-code boundary.
-Reproducer: `tests/audit-regressions/ir-c-10.c`
-Root cause: lowering flattens a small composite into separately annotated
-eightbyte IR operands (`src/lower/expr.c:1953-2042` and
-`src/lower/lower.c:946-1005`). Once flattened, neither arm64 placement walk
-retains the composite's 16-byte alignment. The caller aligns each outgoing
-leaf only to its scalar slot width (`src/cg/arm64/regalloc.c:1110-1125`), and
-the callee independently does the same for incoming leaves
-(`src/cg/arm64/isel.c:2270-2305`).
-Evidence: both fixture host controls run successfully. On Linux and Apple,
-Cgfried's caller emits a paired store combining the +0 stacked scalar with the
-+8 first aggregate word, followed by the second word at +16. Both generated
-callees mirror those offsets. GCC 16's Linux arm64 control stores the scalar at
-+0 and the pair at +16/+24.
-Affected sprints: 20, 47, 48, 50.
+~~ID: `IR-C-10`~~
+~~Title: stacked 16-byte-aligned composites lose AAPCS64 stack alignment~~
+~~Severity: Critical — valid cross-object calls disagree on incoming stack~~
+~~locations. After eight scalar register arguments and one stacked scalar, both~~
+~~Linux AAPCS64 and Apple arm64 must round the next stack argument offset from 8~~
+~~to 16. Cgfried instead places the composite's two eightbytes at +8 and +16;~~
+~~its callee reads those same wrong locations rather than +16 and +24. The~~
+~~compiler is self-consistent, so only a psABI oracle or mixed-link direction~~
+~~exposes the wrong-code boundary.~~
+~~Reproducer: `tests/audit-regressions/ir-c-10.c`~~
+~~Root cause: lowering flattens a small composite into separately annotated~~
+~~eightbyte IR operands (`src/lower/expr.c:1953-2042` and~~
+~~`src/lower/lower.c:946-1005`). Once flattened, neither arm64 placement walk~~
+~~retains the composite's 16-byte alignment. The caller aligns each outgoing~~
+~~leaf only to its scalar slot width (`src/cg/arm64/regalloc.c:1110-1125`), and~~
+~~the callee independently does the same for incoming leaves~~
+~~(`src/cg/arm64/isel.c:2270-2305`).~~
+~~Evidence: both fixture host controls run successfully. On Linux and Apple,~~
+~~Cgfried's caller emits a paired store combining the +0 stacked scalar with the~~
+~~+8 first aggregate word, followed by the second word at +16. Both generated~~
+~~callees mirror those offsets. GCC 16's Linux arm64 control stores the scalar at~~
+~~+0 and the pair at +16/+24.~~
+~~Affected sprints: 20, 47, 48, 50.~~
+Resolution: RESOLVED 2026-08-20 by `ea41dd88`.
+Cluster hunt: checked Linux and Apple fixed/variadic caller and callee walks,
+GP/FP exhaustion, aligned HFA and indirect controls, marker round-trip and
+verifier compatibility, and the adjacent bare-binary128 scalar rule. The hunt
+found and repaired the Linux callee's matching 16-byte scalar-slot drift; 13
+mixed-link signatures now agree with GCC in both directions.
 
 ~~ID: `IR-C-11`~~
 ~~Title: under-aligned atomic scalar accesses pass IR verification~~

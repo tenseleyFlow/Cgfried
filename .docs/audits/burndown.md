@@ -22,3 +22,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `b1bc4f91` | `MS-C-04` statically proven null-access repair | 3 | 20 | 16 | 2 | 41 |
 | 2026-08-20 | `3bc1ae02` | `IR-C-09` Linux AAPCS64 even-register repair | 2 | 20 | 16 | 2 | 40 |
 | 2026-08-20 | `e19475ce` | `MS-C-06` discovered by the `MS-C-05` design review | 3 | 20 | 16 | 2 | 41 |
+| 2026-08-20 | `ea41dd88` | `IR-C-10` stacked AAPCS64 composite-alignment repair | 2 | 20 | 16 | 2 | 40 |
