@@ -47,3 +47,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `54435c86` | `IR-H-05` volatile aggregate-access repair | 0 | 0 | 16 | 2 | 18 |
 | 2026-08-20 | `074c83d9` | `IR-H-12` discovered by broad Sprint 61 verification | 0 | 1 | 16 | 2 | 19 |
 | 2026-08-20 | `92c77528` | `IR-H-12` SysV aggregate stack-marker repair | 0 | 0 | 16 | 2 | 18 |
+| 2026-08-20 | `a91a8c42` | `DRV-M-01` assembler signal-diagnostic repair | 0 | 0 | 15 | 2 | 17 |

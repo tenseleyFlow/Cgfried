@@ -9,33 +9,28 @@
 
 ## Findings
 
-ID: `DRV-M-01`
-Title: assembler signal death is reported as ordinary rejection
-Severity: Medium — the driver returns the phase-appropriate numeric status,
-but suppresses the cause of death. User-provided assembly exits 1 with no
-driver diagnostic at all; generated assembly reports an ICE saying that the
-assembler rejected the text; and a translation unit containing inline asm
-reports ordinary rejection. None says that the assembler died by signal.
-Reproducer: `tests/audit-regressions/drv-m-01.c`, with the deterministic fake
-assembler at `tests/audit-regressions/support/drv-m-01/as-signal.sh`.
-Root cause: all three assembler callers inspect only success versus failure.
-`src/driver/driver.c:1156-1207` turns every non-success result into the same
-rejection path, and the user `.s` paths at `src/driver/driver.c:2173-2181` and
-`src/driver/driver.c:2250-2258` map the status without rendering
-`ToolResult.term_signal`. The linker path does distinguish `TOOL_EXITED` from
-`TOOL_SIGNALED` at `src/driver/driver.c:2352-2366`.
-Affected sprints: 2, 24, 26.
+~~ID: `DRV-M-01`~~
+~~Title: assembler signal death is reported as ordinary rejection~~
+~~Severity: Medium — the driver returns the phase-appropriate numeric status,~~
+~~but suppresses the cause of death. User-provided assembly exits 1 with no~~
+~~driver diagnostic at all; generated assembly reports an ICE saying that the~~
+~~assembler rejected the text; and a translation unit containing inline asm~~
+~~reports ordinary rejection. None says that the assembler died by signal.~~
+~~Reproducer: `tests/audit-regressions/drv-m-01.c`, with the deterministic fake~~
+~~assembler at `tests/audit-regressions/support/drv-m-01/as-signal.sh`.~~
+~~Root cause: all three assembler callers inspect only success versus failure.~~
+~~`src/driver/driver.c:1156-1207` turns every non-success result into the same~~
+~~rejection path, and the user `.s` paths at `src/driver/driver.c:2173-2181` and~~
+~~`src/driver/driver.c:2250-2258` map the status without rendering~~
+~~`ToolResult.term_signal`. The linker path does distinguish `TOOL_EXITED` from~~
+~~`TOOL_SIGNALED` at `src/driver/driver.c:2352-2366`.~~
+~~Affected sprints: 2, 24, 26.~~
 
-The manifest row needed when the shared ledger is updated is:
-
-```text
-DRV-M-01\tdrv-m-01.c\tassembler signal death is reported as ordinary rejection
-```
-
-The audit fixture runner also needs a `DRV-M-01` dispatch row that invokes the
-compiler with `CGF_AS_PATH` set to the support script. Baseline XFAIL is exit
-1, `assembler rejected` present, and `signal 15` absent; remediation XPASS is
-exit 1 with a diagnostic naming signal 15.
+Resolution: RESOLVED 2026-08-20 by `a91a8c42`. Generated C keeps the required
+ICE status but names the terminating signal; inline-assembly C and user `.s`
+or `.S` inputs report the signal and retain exit 1. Ordinary assembler
+rejection remains distinct, and the deterministic exit/signal matrix covers
+all four input paths.
 
 ## Sprint-26 flag-surface matrix
 
@@ -112,9 +107,9 @@ inherits stdout/stderr.
 | Tool/input/failure | Exit | Partial output | Driver diagnostic |
 | --- | ---: | --- | --- |
 | assembler, generated C, exit 7 | 4 | both lines preserved as `[as] ...` | ICE: generated assembly rejected |
-| assembler, generated C, `SIGTERM` | 4 | both lines preserved as `[as] ...` | ICE says rejected; does not name signal (`DRV-M-01`) |
+| assembler, generated C, `SIGTERM` | 4 | both lines preserved as `[as] ...` | ICE names signal 15 |
 | assembler, user `.s`, exit 7 | 1 | both lines preserved as `[as] ...` | child text only |
-| assembler, user `.s`, `SIGTERM` | 1 | both lines preserved as `[as] ...` | child text only; does not name signal (`DRV-M-01`) |
+| assembler, user `.s` / `.S`, `SIGTERM` | 1 | both lines preserved as `[as] ...` | driver diagnostic names signal 15 |
 | assembler, nonexistent path | 3 | none expected | guidance names `CGF_AS_PATH` |
 | linker, exit 7 | 2 | stdout and stderr preserved | `linker command failed with exit code 7` |
 | linker, `SIGTERM` | 2 | stdout and stderr preserved | `linker command died with signal 15` |
@@ -130,9 +125,9 @@ also passed 713 tests / 4,292,653 assertions with zero failures.
 **CLOSED for Sprint 60 finding collection.** Every F08 checklist item has an
 explicit matrix above: the Sprint-26 flag surface, accept/reject/last-wins
 behavior, position-sensitive archives and groups, assembler/linker exits and
-partial output, and dependency generation against GCC. `DRV-M-01` remains
-reproducible and intentionally open for Sprint 61 remediation. No compiler
-source was modified.
+partial output, and dependency generation against GCC. Sprint 61 resolved
+`DRV-M-01` at `a91a8c42`; its clean detached validation reported 38 PASS / 17
+XFAIL / 0 XPASS / 0 FAIL across all 55 audit checks.
 
 The bundled `afs-as`/`afs-ld` executables were absent, so this audit used the
 system GNU tools plus deterministic fake subprocesses. That is a declared

@@ -82,7 +82,8 @@ The `IR-H-07` arithmetic review added and closed `IR-H-09`. Broad validation
 after the seeded High tier then exposed `IR-H-12`, a valid-C SysV aggregate
 stack-marker verifier ICE introduced by the `IR-C-10` repair; `IR-H-12` is
 closed at `92c77528`, zero High findings remain, and Medium/Low remediation is
-active.
+active. `DRV-M-01` then closed at `a91a8c42`, reducing live debt to 15 Medium
+and 2 Low findings.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
@@ -139,6 +140,9 @@ Broad validation then recorded `IR-H-12` at `074c83d9`, raising live debt to
 repaired.
 `IR-H-12` closed at `92c77528`, restoring live debt to 0/0/16/2 and clearing
 the High tier again.
+`DRV-M-01` closed at `a91a8c42`, reducing live debt to 0/0/15/2. A clean
+detached build, all 55 audit lifecycle checks, and the assembler exit/signal
+matrix are green at that exact code commit.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -223,7 +227,7 @@ conflicts:
 
 Every Critical closure requires its own sibling-hunt record. A newly found
 Critical or High reopens the barrier. Both counts are zero, so remediation now
-continues through the 16 Medium and 2 Low findings.
+continues through the 15 Medium and 2 Low findings.
 
 ---
 
