@@ -1208,6 +1208,57 @@ static AstType *parse_type_suffixes(Parser *p, AstType *inner)
     return head;
 }
 
+/* Look through one GNU attribute construct without producing diagnostics.
+ * This is used only for the `(` ambiguity below: an attribute may prefix a
+ * parameter declaration (`f((attr int x))`) or a grouped pointer declarator
+ * (`(attr *)(void)`), so the token after the complete attribute decides.
+ * The real parser still consumes and validates the construct exactly once. */
+static u32 attribute_lookahead_end(const Parser *p, u32 pos)
+{
+    u32 depth = 0;
+
+    if (pos >= p->ntoks || p->toks[pos].kind != TOK_KEYWORD ||
+        (p->toks[pos].kw != KW_ATTRIBUTE &&
+         p->toks[pos].kw != KW_ATTRIBUTE2))
+        return pos;
+    pos++;
+    if (pos >= p->ntoks || p->toks[pos].kind != TOK_PUNCT ||
+        p->toks[pos].punct != PUNCT_LPAREN)
+        return pos;
+    for (; pos < p->ntoks; pos++) {
+        const Token *t = &p->toks[pos];
+
+        if (t->kind != TOK_PUNCT)
+            continue;
+        if (t->punct == PUNCT_LPAREN)
+            depth++;
+        else if (t->punct == PUNCT_RPAREN && --depth == 0)
+            return pos + 1;
+    }
+    return pos;
+}
+
+/* AstType has no attribute-bearing declarator layer. Optimization-only and
+ * diagnostic-only attributes can therefore be consumed here with their
+ * ordinary -Wattributes warning. Anything whose implemented meaning would
+ * affect a symbol or type is rejected rather than silently attached to the
+ * wrong layer. */
+static void parse_inner_declarator_attributes(Parser *p)
+{
+    while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2)) {
+        const Token *at = parse_peek(p);
+        GnuDeclAttrs gnu = {0};
+        CgfAttr *cgf = parse_cgf_attributes(p, &gnu);
+
+        if (cgf || gnu_attrs_any_symbol_property(&gnu) ||
+            gnu_attrs_any_type_property(&gnu))
+            parse_error(p, at,
+                        "an implemented attribute cannot appear inside a "
+                        "declarator because this position has no "
+                        "attribute-bearing type layer");
+    }
+}
+
 /* THE declarator recursion.
  *
  *   int (*(*f[3])(void))[5]
@@ -1232,18 +1283,27 @@ static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
     if (name)
         *name = NULL;
 
+    parse_inner_declarator_attributes(p);
+
     /* 1. Pointer prefix (with qualifier lists), innermost applied LAST. */
     while (parse_at_punct(p, PUNCT_STAR)) {
         AstType *ptr = ast_type_new(p->arena, ATY_PTR, parse_peek(p)->span);
         p->pos++;
-        while (parse_peek(p)->kind == TOK_KEYWORD &&
-               (kw_is_qualifier((Keyword)parse_peek(p)->kw) ||
-                parse_peek(p)->kw == KW_ATOMIC)) {
-            if (parse_peek(p)->kw == KW_ATOMIC)
-                ptr->ptr_quals |= AST_QUAL_ATOMIC;
-            else
-                ptr->ptr_quals |= qual_bit((Keyword)parse_peek(p)->kw);
-            p->pos++;
+        for (;;) {
+            if (parse_peek(p)->kind == TOK_KEYWORD &&
+                (kw_is_qualifier((Keyword)parse_peek(p)->kw) ||
+                 parse_peek(p)->kw == KW_ATOMIC)) {
+                if (parse_peek(p)->kw == KW_ATOMIC)
+                    ptr->ptr_quals |= AST_QUAL_ATOMIC;
+                else
+                    ptr->ptr_quals |= qual_bit((Keyword)parse_peek(p)->kw);
+                p->pos++;
+            } else if (parse_at_kw(p, KW_ATTRIBUTE) ||
+                       parse_at_kw(p, KW_ATTRIBUTE2)) {
+                parse_inner_declarator_attributes(p);
+            } else {
+                break;
+            }
         }
         /* Prepend: the LAST '*' parsed binds closest to the base. */
         ptr->next = ptrs;
@@ -1263,9 +1323,18 @@ static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
             is_group = false; /* (T) is a parameter list */
         if (is_group && nx->kind == TOK_KEYWORD) {
             /* A specifier keyword after '(' means parameters — unless it
-             * is a qualifier applying to a pointer inside the group. */
+             * is an attribute followed by a pointer inside the group. */
             u32 save = p->pos;
+
             p->pos++;
+            while (parse_at_kw(p, KW_ATTRIBUTE) ||
+                   parse_at_kw(p, KW_ATTRIBUTE2)) {
+                u32 after = attribute_lookahead_end(p, p->pos);
+
+                if (after == p->pos)
+                    break;
+                p->pos = after;
+            }
             is_group = !parse_at_decl_specs(p);
             p->pos = save;
         }
@@ -1504,8 +1573,16 @@ static AstNode *parse_member_decl(Parser *p)
     }
 
     for (;;) {
+        CgfAttr *declarator_cgf = NULL;
+        GnuDeclAttrs declarator_gnu = {0};
         AstNode *n = ast_new(p->arena, AST_DECL, parse_peek(p)->span);
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
+
+        while (parse_at_kw(p, KW_ATTRIBUTE) ||
+               parse_at_kw(p, KW_ATTRIBUTE2))
+            declarator_cgf = parse_cgf_attrs_concat(
+                p, declarator_cgf,
+                parse_cgf_attributes(p, &declarator_gnu));
 
         bt->base = base_kind;
         soup_fill_identity(bt, &s);
@@ -1519,8 +1596,10 @@ static AstNode *parse_member_decl(Parser *p)
         else
             n->type = bt; /* unnamed bitfield */
         reject_kr_list(p, start, n->type, false);
-        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
+        n->cgf_attrs =
+            parse_cgf_attrs_concat(p, s.cgf_attrs, declarator_cgf);
         gnu_attrs_merge(&n->gnu, &s.gnu);
+        gnu_attrs_merge(&n->gnu, &declarator_gnu);
         while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2))
             n->cgf_attrs = parse_cgf_attrs_concat(
                 p, n->cgf_attrs, parse_cgf_attributes(p, &n->gnu));
@@ -2001,8 +2080,16 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
     }
 
     for (;;) {
+        CgfAttr *declarator_cgf = NULL;
+        GnuDeclAttrs declarator_gnu = {0};
         AstNode *n = ast_new(p->arena, AST_DECL, parse_peek(p)->span);
         AstType *bt = ast_type_new(p->arena, ATY_BASE, start->span);
+
+        while (parse_at_kw(p, KW_ATTRIBUTE) ||
+               parse_at_kw(p, KW_ATTRIBUTE2))
+            declarator_cgf = parse_cgf_attrs_concat(
+                p, declarator_cgf,
+                parse_cgf_attributes(p, &declarator_gnu));
 
         bt->base = base_kind;
         soup_fill_identity(bt, &s);
@@ -2014,8 +2101,10 @@ AstNode *parse_declaration(Parser *p, bool allow_func_def)
         n->alignas_type = s.alignas_type;
         n->type = parse_declarator(p, bt, &n->name, false);
         reject_kr_list(p, start, n->type, true);
-        n->cgf_attrs = parse_cgf_attrs_concat(p, s.cgf_attrs, NULL);
+        n->cgf_attrs =
+            parse_cgf_attrs_concat(p, s.cgf_attrs, declarator_cgf);
         gnu_attrs_merge(&n->gnu, &s.gnu);
+        gnu_attrs_merge(&n->gnu, &declarator_gnu);
         /* The asm label sits between the declarator and any attributes, and
          * gcc accepts attributes on either side of it, so both are read in a
          * loop rather than in a fixed order. */

@@ -10,6 +10,5 @@
 # A filename that still disagrees for a different reason is new debt, not a
 # continuation of the listed deferral.
 #
-00210.c	XD-S10-FNPTR-DECL	function returning a function	attributed function-pointer declarator is formed as a function returning a function
 00216.c	XD-S10-RANGE-DESIGNATOR	GNU range designators are not supported	GNU range designators remain outside the supported initializer grammar
 00219.c	XD-S10-GENERIC-COMPAT	_Generic association for 'const int' duplicates an earlier one	_Generic compatible-type association handling rejects this qualified association
