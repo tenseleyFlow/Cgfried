@@ -28,17 +28,25 @@ observations. Remediation remains Sprint 61 work.
 
 ## Findings
 
-ID: `PP-H-01`
-Title: mixed-delimiter `#include_next` reuses an incompatible search index
-Severity: High — valid GNU preprocessing used by system headers can fail or
-select the wrong header, a conformance violation with build-blocking impact.
-Reproducer: `tests/audit-regressions/pp-h-01.c`
-Root cause: `src/pp/directive.c:504-519` builds quote and angle chains with
-different index spaces, but `src/pp/directive.c:611-619` resumes from the
-current frame's positional `found_dir` without preserving which chain shaped
-that index. Quote-to-angle fatals instead of finding the second header; the
-reverse direction can repeat the first. GCC and Clang emit both markers once.
-Affected sprints: 4, 6.
+~~ID: `PP-H-01`~~
+~~Title: mixed-delimiter `#include_next` reuses an incompatible search index~~
+~~Severity: High — valid GNU preprocessing used by system headers can fail or~~
+~~select the wrong header, a conformance violation with build-blocking impact.~~
+~~Reproducer: `tests/audit-regressions/pp-h-01.c`~~
+~~Root cause: `src/pp/directive.c:504-519` builds quote and angle chains with~~
+~~different index spaces, but `src/pp/directive.c:611-619` resumes from the~~
+~~current frame's positional `found_dir` without preserving which chain shaped~~
+~~that index. Quote-to-angle fatals instead of finding the second header; the~~
+~~reverse direction can repeat the first. GCC and Clang emit both markers once.~~
+~~Affected sprints: 4, 6.~~
+Resolution: RESOLVED 2026-08-20 by `54cf3e67`. Include frames now retain the
+stable search-class identity and original effective chain that located them;
+directory aliases deduplicate by cached device/inode identity without changing
+source-adjacent or configured system-header classification. Mixed delimiters,
+two `-iquote` directories, repeated/lexical/absolute/symlink aliases, and both
+`-MM` classification edges match GCC and Clang. A lost saved origin fails the
+internal invariant instead of silently restarting the chain, and the Sprint 7
+1000-header-by-20 fast path remains 6x.
 
 ID: `PP-M-02`
 Title: dynamic builtins lose their containing macro backtrace
@@ -77,8 +85,7 @@ Affected sprints: 5, 7.
 ## Attack-surface dispatch
 
 - Preprocessor oracle corpus: 74 C17 and 74 GNU17 comparisons complete for
-  both the current and historical two-compiler pairs; `PP-H-01` remains the
-  only confirmed semantic divergence.
+  both the current and historical two-compiler pairs; `PP-H-01` is resolved.
 - Blue-paint/rescan and paste/placemarker rules: focused matrix complete and
   clean in both modes.
 - Location-chain integrity: complete across `#line`, nested, raw,

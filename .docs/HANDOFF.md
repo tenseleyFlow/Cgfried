@@ -77,9 +77,9 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and eighteen of the 20 seeded High
-findings. The `IR-H-07` arithmetic review added and closed `IR-H-09`, so 2 High
-remain before Medium/Low work.
+Sprint 61 has closed all Critical findings and nineteen of the 20 seeded High
+findings. The `IR-H-07` arithmetic review added and closed `IR-H-09`, so 1 High
+remains before Medium/Low work.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
@@ -128,6 +128,7 @@ raising live debt to 0/15/16/2 until that parser-length defect is remediated.
 `FE-H-01` and `FE-H-02` closed together at `b1c29124`, reducing live debt to
 0/3/16/2.
 `OPT-H-03` closed at `43b0de28`, reducing live debt to 0/2/16/2.
+`PP-H-01` closed at `54cf3e67`, reducing live debt to 0/1/16/2.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with

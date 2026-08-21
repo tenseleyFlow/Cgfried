@@ -43,3 +43,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `088c9934` | `IR-H-08` symbolic-indirect IR-text repair | 0 | 5 | 16 | 2 | 23 |
 | 2026-08-20 | `b1c29124` | `FE-H-01` / `FE-H-02` declarator-constraint repair | 0 | 3 | 16 | 2 | 21 |
 | 2026-08-20 | `43b0de28` | `OPT-H-03` latch-parameter unroll repair | 0 | 2 | 16 | 2 | 20 |
+| 2026-08-20 | `54cf3e67` | `PP-H-01` stable include-search provenance repair | 0 | 1 | 16 | 2 | 19 |
