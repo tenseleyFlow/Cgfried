@@ -77,8 +77,8 @@ cross-front review found no root-cause aliases.
   is empty: Sprint 60 landed only reproducers, audit tooling, and ledger
   evidence. Remediation begins in Sprint 61.
 
-Sprint 61 has closed all Critical findings and three of the 20 seeded High
-findings; it must close the 17 remaining High findings before Medium/Low work.
+Sprint 61 has closed all Critical findings and four of the 20 seeded High
+findings; it must close the 16 remaining High findings before Medium/Low work.
 Sprint 58 remains at 2/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
@@ -109,8 +109,9 @@ closed at `eb364980`, `X64-C-01` closed at `45f0282c`, and `MS-C-04` closed at
 then added `MS-C-06`, the unregistered `asprintf`/`vasprintf` allocator-model
 mismatch. `IR-C-10` closed at `ea41dd88`, `MS-C-06` closed at `88211779`, and
 `MS-C-05` closed at `b287c2ef`; the Critical barrier is clear. `SEMA-H-07`
-then closed at `21acc9fc`, followed by `RT-H-01` at `d3be586f` and `OPT-H-04`
-at `f6ffc1d1`, so live debt is 0/17/16/2 and High remediation is active.
+then closed at `21acc9fc`, followed by `RT-H-01` at `d3be586f`, `OPT-H-04`
+at `f6ffc1d1`, and `A64-H-01` at `2b4ab767`, so live debt is 0/16/16/2 and
+High remediation is active.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -143,6 +144,9 @@ conflicts:
 - `X64-C-01` — RESOLVED at `45f0282c`; floating seq_cst accesses retain their
   atomic contract, wide helpers pull in `libatomic`, and content-aware `-###`
   remains free of filesystem and external-tool side effects.
+- `A64-H-01` — RESOLVED at `2b4ab767`; tentative TLS definitions bypass ELF
+  COMMON and retain `.tbss`, TLS symbol typing, and TLSLE relocations, while
+  ordinary COMMON and the effective Mach-O zero-fill form remain unchanged.
 - `MS-C-01` — RESOLVED at `7a003d68`; the required `-fsafe` diagnostic floor
   is immutable.
 - `MS-C-04` — RESOLVED at `b1bc4f91`; statically proven null accesses and

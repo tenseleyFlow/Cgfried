@@ -9,15 +9,19 @@
 
 ## Findings
 
-ID: `A64-H-01`
-Title: TLS tentative definitions are emitted as COMMON symbols
-Severity: High — valid `-fcommon` TLS output is rejected by the assembler and
-cannot produce an object file.
-Reproducer: `tests/audit-regressions/a64-h-01.c`
-Root cause: `src/cg/arm64/emit.c:1371-1389` handles tentative definitions
-with `.comm` before the TLS section selection at lines 1427-1433. References
-still use TLS relocations, so GNU assembler rejects the inconsistent symbol.
-Affected sprints: 49, 51.
+~~ID: `A64-H-01`~~
+~~Title: TLS tentative definitions are emitted as COMMON symbols~~
+~~Severity: High — valid `-fcommon` TLS output is rejected by the assembler and~~
+~~cannot produce an object file.~~
+~~Reproducer: `tests/audit-regressions/a64-h-01.c`~~
+~~Root cause: `src/cg/arm64/emit.c:1371-1389` handles tentative definitions~~
+~~with `.comm` before the TLS section selection at lines 1427-1433. References~~
+~~still use TLS relocations, so GNU assembler rejects the inconsistent symbol.~~
+~~Affected sprints: 49, 51.~~
+Resolution: RESOLVED 2026-08-20 by `2b4ab767`. Tentative TLS objects now bypass
+ELF COMMON and use the established `.tbss`/`@tls_object` path. Cross-assembled
+section, symbol, and TLSLE relocation evidence matches AArch64 GCC; ordinary
+non-TLS COMMON and the effective Mach-O zero-fill form remain unchanged.
 
 ID: `A64-H-02`
 Title: large TLS addends are emitted as unencodable immediates
