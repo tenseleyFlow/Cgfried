@@ -31,31 +31,41 @@ source-pragma attempts against every default-tier memory diagnostic plus
 definite uninitialized reads; non-safe and optional-warning behavior stayed
 unchanged.
 
-ID: `MS-M-02`
-Title: a nonheap equality guard leaves an infeasible leak path
-Severity: Medium — a default-tier false positive on an ordinary ownership
-idiom makes `-Wmem` noisy on real code, but does not miscompile or weaken a
-safe-mode runtime guarantee.
-Reproducer: `tests/audit-regressions/ms-m-02.c`
-Root cause: the lifetime path state preserves the opened-resource fact across
-`file != stdin` without correlating the equality branch with the fact that
-`stdin` is nonheap. It consequently reports a leak on an infeasible path. In
-curl `src/tool_parsecfg.c`, the only `fopen` result is closed when
-`file != stdin`; when the close is skipped, the value is the published
-standard stream instead.
-Affected sprints: 42, 43.
+~~ID: `MS-M-02`~~
+~~Title: a nonheap equality guard leaves an infeasible leak path~~
+~~Severity: Medium — a default-tier false positive on an ordinary ownership~~
+~~idiom makes `-Wmem` noisy on real code, but does not miscompile or weaken a~~
+~~safe-mode runtime guarantee.~~
+~~Reproducer: `tests/audit-regressions/ms-m-02.c`~~
+~~Root cause: the lifetime path state preserves the opened-resource fact across~~
+~~`file != stdin` without correlating the equality branch with the fact that~~
+~~`stdin` is nonheap. It consequently reports a leak on an infeasible path. In~~
+~~curl `src/tool_parsecfg.c`, the only `fopen` result is closed when~~
+~~`file != stdin`; when the close is skipped, the value is the published~~
+~~standard stream instead.~~
+~~Affected sprints: 42, 43.~~
+Resolution: RESOLVED 2026-08-20 by `687c92a7`.
+Cluster hunt: equality pruning now consumes path-local MUST pointer origins;
+selects remain MAY, non-pointer slot overwrites install an explicit unknown,
+and origin-capacity or join precision loss permanently disables the proof on
+that path. Basic overwrite, nine-origin saturation, select, block-parameter,
+and long-`&&` leak controls pin the conservative boundary.
 
-ID: `MS-M-03`
-Title: freopen replacement is falsely reported as leaked
-Severity: Medium — a default-tier false positive rejects a conventional
-standard-stream replacement under `-Werror=mem`, but does not miscompile.
-Reproducer: `tests/audit-regressions/ms-m-03.c`
-Root cause: the built-in resource model treats a successful `freopen` result
-as newly acquired local ownership. It does not model the API invariant that
-the return is the same stream object supplied as the third argument, still
-published through `stderr`. This is the second curl diagnostic, at
-`src/tool_stderr.c:63`.
-Affected sprint: 43.
+~~ID: `MS-M-03`~~
+~~Title: freopen replacement is falsely reported as leaked~~
+~~Severity: Medium — a default-tier false positive rejects a conventional~~
+~~standard-stream replacement under `-Werror=mem`, but does not miscompile.~~
+~~Reproducer: `tests/audit-regressions/ms-m-03.c`~~
+~~Root cause: the built-in resource model treats a successful `freopen` result~~
+~~as newly acquired local ownership. It does not model the API invariant that~~
+~~the return is the same stream object supplied as the third argument, still~~
+~~published through `stderr`. This is the second curl diagnostic, at~~
+~~`src/tool_stderr.c:63`.~~
+~~Affected sprint: 43.~~
+Resolution: RESOLVED 2026-08-20 by `687c92a7`.
+Cluster hunt: successful replacement of stdin/stdout/stderr remains escaped,
+while a nonstandard owned stream remains locally owned and still produces the
+required leak diagnostic when not closed.
 
 ~~ID: `MS-C-04`~~
 ~~Title: -fsafe accepts a statically proven null dereference~~
@@ -133,7 +143,7 @@ Every emitted `-Wmem` diagnostic in the three required corpora was triaged:
 |---|---|---|---|
 | musl | commit `b306b16af15c89a04d8e0c55cac2dadbeb39c083`; exact identity-set baseline | 1,293/1,361 analyzed, 68 pinned syntax deferrals, zero diagnostics | no finding |
 | SQLite | 3.46.1; pinned amalgamation, shell, and speedtest sources under the campaign flags | 3/3 translation units accepted, zero diagnostics | no finding |
-| curl | 8.9.1 archive SHA-256 `f292f6cc051d5bbabf725ef85d432dfeacc8711dd717ea97612ae590643801e5`; the 222 source commands recovered from the successful pinned build | 222/222 accepted, two diagnostics | both false: `MS-M-02` and `MS-M-03` |
+| curl | 8.9.1 archive SHA-256 `f292f6cc051d5bbabf725ef85d432dfeacc8711dd717ea97612ae590643801e5`; the 222 source commands recovered from the successful pinned build | 222/222 accepted, two diagnostics | both false positives, resolved together at `687c92a7` (`MS-M-02`, `MS-M-03`) |
 
 The curl recount is source-command coverage, not a claim that every
 conditionally excluded curl source was analyzed. Its exact results and
@@ -218,5 +228,5 @@ F09 is closed with five raw and five deduplicated findings: three Critical and
 two Medium. Every required review item has evidence: all real-corpus
 diagnostics were classified, every safe-mode claim was dispatched to a
 mechanism or a Critical finding, and the zero-entry allowlist plus link escape
-surface was re-audited. The durable regression gate owns the five expected
-failures; the focused existing suites remain green.
+surface was re-audited. The durable regression gate owns all five findings;
+all five lifecycle rows now PASS and the focused existing suites remain green.

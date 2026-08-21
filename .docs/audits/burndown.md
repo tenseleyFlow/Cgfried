@@ -53,3 +53,4 @@ merge; counts describe findings still open after that merge.
 | 2026-08-20 | `fb641618` | `X64-M-03` / `A64-M-04` operand-substitution and unwind-state repair | 0 | 0 | 5 | 2 | 7 |
 | 2026-08-20 | `addf16b7` | `PP-L-03` complete full-macro-backtrace repair | 0 | 0 | 5 | 1 | 6 |
 | 2026-08-20 | `7a4b9cb6` | `IR-L-02` written-comparison-type validation repair | 0 | 0 | 5 | 0 | 5 |
+| 2026-08-20 | `687c92a7` | `MS-M-02` / `MS-M-03` ownership-path and `freopen` repair | 0 | 0 | 3 | 0 | 3 |
