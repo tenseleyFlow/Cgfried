@@ -143,6 +143,10 @@ the High tier again.
 `DRV-M-01` closed at `a91a8c42`, reducing live debt to 0/0/15/2. A clean
 detached build, all 55 audit lifecycle checks, and the assembler exit/signal
 matrix are green at that exact code commit.
+`TI-M-01`, `TI-M-02`, and `TI-M-03` closed together at `141ffcad`, reducing
+live debt to 0/0/12/2. Exact available/missing-tool skip profiles, the focused
+c-testsuite debt contract, the real 220-file differential, and a clean
+detached 41 PASS / 14 XFAIL / 0 XPASS / 0 FAIL audit run are green.
 One central integrator owns `manifest.tsv`, the tracked front ledgers, and
 `burndown.md` so
 each finding's fixture-state flip, strikethrough, and count update travel with
@@ -227,7 +231,7 @@ conflicts:
 
 Every Critical closure requires its own sibling-hunt record. A newly found
 Critical or High reopens the barrier. Both counts are zero, so remediation now
-continues through the 15 Medium and 2 Low findings.
+continues through the 12 Medium and 2 Low findings.
 
 ---
 

@@ -49,71 +49,54 @@ Sprint 61 work.
 
 ## Findings
 
-ID: `TI-M-01`
-Title: the POSIX-shell expected-skip profile is never enforced
-Severity: Medium — a CI/test harness can silently stop checking every shell
-script, a test-integrity failure rather than a compiler semantic failure.
-Reproducer: `tests/audit-regressions/ti-m-01.sh`. With an empty `PATH`,
-`PATH=/tmp/f11-empty-path /bin/sh scripts/check_posix_sh.sh` exits zero and
-emits the exact line in `ci/expected_skips_posixsh.txt`; explicitly running
-`sh ci/check_skips.sh posixsh <log>` accepts it. `Makefile:463`, however, runs
-the producer directly without logging it or invoking `check_skips.sh`, and no
-other Makefile or workflow site checks the profile.
-Root cause: the expected profile was added with the producer in commit
-`b08d204c`, but the recipe omitted the same producer/log/profile sequence used
-by every other skip-aware lane.
-Affected sprint: 28.
-Manifest row, integrated by the shared fixture owner:
-`TI-M-01<TAB>ti-m-01.sh<TAB>the POSIX-shell expected-skip profile is never enforced`.
-The shared manifest and audit harness were intentionally not modified by F11.
+~~ID: `TI-M-01`~~
+~~Title: the POSIX-shell expected-skip profile is never enforced~~
+~~Severity: Medium — a CI/test harness can silently stop checking every shell~~
+~~script, a test-integrity failure rather than a compiler semantic failure.~~
+~~Reproducer: `tests/audit-regressions/ti-m-01.sh`. With an empty `PATH`, the~~
+~~producer emits the committed skip, but the Makefile never checks it.~~
+~~Root cause: the expected profile was added with the producer in commit~~
+~~`b08d204c`, but the recipe omitted the producer/log/profile sequence.~~
+~~Affected sprint: 28.~~
+Resolution: RESOLVED 2026-08-20 by `141ffcad`. `make test` now records the
+POSIX-shell producer and selects an exact empty or no-dash skip profile; both
+tool-available and tool-missing paths are pinned.
 
-ID: `TI-M-02`
-Title: the primary XFAIL ledger reports retired float debt as open
-Severity: Medium — the debt source of truth contradicts the implementation and
-its own close-in-place policy, a direct documentation/code mismatch.
-Reproducer: `tests/audit-regressions/ti-m-02.sh`.
-`.docs/audits/xfail-debt.md` still marks
-`XD-S08-FPHOST` open and has never changed since its creation. Commit
-`51bc2d68` says it retired the debt; `scripts/check_bans.sh` names that
-retirement and rejects host float conversion; the clean ban run plus 329
-soft-float assertions confirm the seam is gone. The row also uses `XD-...`
-although this ledger says runner-visible IDs are `XF-NNNN`; the runner loader
-only indexes `| XF-` rows, so this sole row cannot be cited by a real XFAIL.
-Root cause: Sprint 15 retired the implementation seam but did not close the
-historical ledger row, and the earlier debt ID namespace never matched the
-runner's enforced namespace.
-Affected sprints: 8, 15.
-Manifest row, integrated by the shared fixture owner:
-`TI-M-02<TAB>ti-m-02.sh<TAB>the primary XFAIL ledger reports retired float debt as open`.
+~~ID: `TI-M-02`~~
+~~Title: the primary XFAIL ledger reports retired float debt as open~~
+~~Severity: Medium — the debt source of truth contradicts the implementation~~
+~~and its own close-in-place policy.~~
+~~Reproducer: `tests/audit-regressions/ti-m-02.sh`.~~
+~~Root cause: Sprint 15 retired the implementation seam but did not close the~~
+~~historical ledger row, and the earlier debt ID namespace never matched the~~
+~~runner's enforced namespace.~~
+~~Affected sprints: 8, 15.~~
+Resolution: RESOLVED 2026-08-20 by `141ffcad`. `XD-S08-FPHOST` is closed in
+place while retaining its historical implementation-debt ID; the ledger now
+distinguishes such provenance rows from runner-visible `XF-NNNN` fixture IDs.
 
-ID: `TI-M-03`
-Title: every live c-testsuite debt row cites an obsolete failure cause
-Severity: Medium — the exact disagreement ratchet still catches XPASS and new
-diffs, but its ownership and reason fields no longer describe the failures it
-permits, a test-ledger/code mismatch.
-Reproducer: `tests/audit-regressions/ti-m-03.sh`, with minimized cases under
-`tests/audit-regressions/support/ti-m-03/`.
-`scripts/ctestsuite_diff.sh build/cgfried` reports
-217 agreement / 3 known-deferred / 0 new / 0 XPASS. Focused replay shows:
+~~ID: `TI-M-03`~~
+~~Title: every live c-testsuite debt row cites an obsolete failure cause~~
+~~Severity: Medium — filename-only membership lets unrelated failures inherit~~
+~~stale waivers.~~
+~~Reproducer: `tests/audit-regressions/ti-m-03.sh`, with minimized cases under~~
+~~`tests/audit-regressions/support/ti-m-03/`.~~
+~~Focused replay showed:~~
 
-- `00210.c` is cited as unsupported GNU attributes landing in Sprint 55, but
-  attributes now parse as warnings and the actual errors are “function
-  returning a function” and an invalid cast involving the attributed function
-  pointer.
-- `00216.c` is cited as `__builtin_va_list` landing in Sprint 28, but its
-  actual errors are unsupported GNU range designators.
-- `00219.c` is also cited as `__builtin_va_list`, but its actual errors are
-  duplicate compatible-type associations in `_Generic`.
+- ~~`00210.c` was attributed to unsupported GNU attributes, but now fails on a
+  function returning a function.~~
+- ~~`00216.c` was attributed to `__builtin_va_list`, but now fails on GNU range
+  designators.~~
+- ~~`00219.c` was attributed to `__builtin_va_list`, but now fails on a
+  duplicate compatible `_Generic` association.~~
 
-GCC accepts all three under the harness's C17 command. Sprints 28 and 55 are
-closed, so none of the cited owners remains truthful.
-Root cause: the differential ratchets only filename membership. It does not
-assert that the stable debt ID or reason still matches the compiler's present
-diagnostic, so unrelated fixes changed the first failure without forcing a
-ledger update.
-Affected sprints: 10, 28, 55.
-Manifest row, integrated by the shared fixture owner:
-`TI-M-03<TAB>ti-m-03.sh<TAB>every live c-testsuite debt row cites an obsolete failure cause`.
+~~Root cause: the differential ratchets only filename membership and never~~
+~~asserts that a debt ID or reason still matches the current diagnostic.~~
+~~Affected sprints: 10, 28, 55.~~
+Resolution: RESOLVED 2026-08-20 by `141ffcad`. The ledger has a validated,
+sorted tab schema with stable debt IDs and literal diagnostic fingerprints;
+drift is a new failure. The focused contract suite and the real 220-file lane
+pass at 217 agreement / 3 known-deferred / 0 new / 0 XPASS.
 
 ### Shared checker dispatch contract
 
@@ -160,9 +143,9 @@ not overclaim a total coverage absence.
 
 ## Attack-surface dispatch
 
-- XFAIL/debt audit: complete; `TI-M-02` and `TI-M-03` confirmed.
+- XFAIL/debt audit: complete; `TI-M-02` and `TI-M-03` resolved.
 - Skip-discipline audit: complete over 32 profiles and 18 profile records;
-  `TI-M-01` confirmed.
+  `TI-M-01` resolved.
 - Ratchet-file honesty: complete over the named ratchet families; no confirmed
   unexplained loosening.
 - Direct-unit coverage: complete over 111 source modules; 11 gaps mapped.
