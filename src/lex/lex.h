@@ -78,6 +78,7 @@ typedef struct Token {
     u8 enc;                /* EncPrefix for char consts */
     bool float_ext_suffix; /* q/Q or TS 18661 F<N>[x] spelling; the parser
                               emits its suppressible -Wpedantic diagnostic */
+    SrcLoc loc;            /* exact pp provenance for later diagnostics */
     Span span;
     const char *spelling; /* interned; idents/keywords/puncts and the exact
                              float spelling (see lex_fp_interim) */

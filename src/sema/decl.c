@@ -731,6 +731,8 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
                          quals_from_ast, since the spelling set it */
     }
     switch (at->base) {
+    case ABT_ERROR:
+        return type_basic(TY_ERROR);
     case ABT_TYPEOF: {
         /* THE TYPE IS THE OPERAND'S, QUALIFIERS AND ALL. `const int c;
          * typeof(c) k;` gives a CONST k -- gcc rejects `k = 3` with

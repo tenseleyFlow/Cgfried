@@ -29,6 +29,8 @@ static SrcLoc push_ent(LocTable *t, LocEnt e)
     return (SrcLoc)t->len; /* ids are index+1; 0 = SRCLOC_INVALID */
 }
 
+static const LocEnt *ent(const LocTable *t, SrcLoc loc);
+
 SrcLoc pp_loc_file(LocTable *t, FileId f, u32 line, u32 col)
 {
     LocEnt e;
@@ -56,6 +58,85 @@ SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from,
     e.macro_name = macro_name;
     e.macro_def_loc = macro_def_loc;
     return push_ent(t, e);
+}
+
+static size_t expansion_depth(const LocTable *t, SrcLoc loc, SrcLoc *terminal)
+{
+    size_t n = 0;
+
+    while (loc != SRCLOC_INVALID && pp_loc_is_expansion(t, loc)) {
+        n++;
+        loc = pp_loc_expansion_parent(t, loc);
+    }
+    *terminal = loc;
+    return n;
+}
+
+static void collect_expansions(const LocTable *t, SrcLoc loc, SrcLoc *frames,
+                               size_t n)
+{
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        frames[i] = loc;
+        loc = pp_loc_expansion_parent(t, loc);
+    }
+}
+
+SrcLoc pp_loc_graft_expansions(LocTable *t, SrcLoc loc, SrcLoc expanded_from,
+                               const char *macro_name, SrcLoc macro_def_loc)
+{
+    SrcLoc old_terminal, inv_terminal;
+    SrcLoc *old_frames;
+    SrcLoc *inv_frames;
+    SrcLoc parent;
+    SrcLoc spelling;
+    size_t nold, ninv, keep, oi, ii;
+
+    if (!pp_loc_is_expansion(t, loc))
+        CGF_ICE("pp_loc_graft_expansions: location is not an expansion");
+    if (expanded_from == SRCLOC_INVALID)
+        CGF_ICE("pp_loc_graft_expansions: invalid invocation");
+
+    nold = expansion_depth(t, loc, &old_terminal);
+    ninv = expansion_depth(t, expanded_from, &inv_terminal);
+    old_frames = cgf_xmalloc(nold * sizeof(*old_frames));
+    inv_frames = ninv ? cgf_xmalloc(ninv * sizeof(*inv_frames)) : NULL;
+    collect_expansions(t, loc, old_frames, nold);
+    if (ninv)
+        collect_expansions(t, expanded_from, inv_frames, ninv);
+
+    /* A common suffix denotes the same enclosing expansions reached through
+     * the argument and through the new macro invocation. Compare outward-in:
+     * exact terminal identity establishes the base case, then name/definition
+     * identity extends it without conflating recursive invocations. */
+    oi = nold;
+    ii = ninv;
+    if (old_terminal == inv_terminal) {
+        while (oi > 0 && ii > 0) {
+            const LocEnt *old = ent(t, old_frames[oi - 1]);
+            const LocEnt *inv = ent(t, inv_frames[ii - 1]);
+
+            if (!old->macro_name || old->macro_name != inv->macro_name ||
+                old->macro_def_loc != inv->macro_def_loc)
+                break;
+            oi--;
+            ii--;
+        }
+    }
+    keep = oi;
+    spelling = keep < nold ? old_frames[keep] : old_terminal;
+    parent =
+        pp_loc_expansion(t, spelling, expanded_from, macro_name, macro_def_loc);
+    for (oi = keep; oi > 0; oi--) {
+        LocEnt old = *ent(t, old_frames[oi - 1]);
+        parent = pp_loc_expansion(t, old.w0, parent, old.macro_name,
+                                  old.macro_def_loc);
+    }
+
+    free(inv_frames);
+    free(old_frames);
+    return parent;
 }
 
 u32 pp_loc_mark(LocTable *t, SrcLoc loc)

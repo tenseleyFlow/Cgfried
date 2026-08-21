@@ -54,6 +54,8 @@ AstType *ast_type_chain(AstType *head, AstType *tail)
 const char *ast_base_type_name(AstBaseType b)
 {
     switch (b) {
+    case ABT_ERROR:
+        return "<error-type>";
     case ABT_NONE:
         return "int"; /* implicit int */
     case ABT_VA_LIST:

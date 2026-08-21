@@ -16,6 +16,13 @@ typedef struct {
     Parser ps;
     int errors;
     int warnings;
+    int declarator_expansion_notes;
+    int bad_expansion_notes;
+    int id_expansion_notes;
+    int out_expansion_notes;
+    u32 bad_expansion_line;
+    u32 id_expansion_line;
+    u32 out_expansion_line;
 } ParseFix;
 
 static void count_sink(void *user, const Diag *d, const DiagCtx *dc)
@@ -27,6 +34,22 @@ static void count_sink(void *user, const Diag *d, const DiagCtx *dc)
         f->errors++;
     else if (d->level == DIAG_WARNING)
         f->warnings++;
+    else if (d->level == DIAG_NOTE &&
+             strstr(d->message, "in expansion of macro 'DECLARATOR'"))
+        f->declarator_expansion_notes++;
+    else if (d->level == DIAG_NOTE &&
+             strstr(d->message, "in expansion of macro 'BAD'")) {
+        f->bad_expansion_notes++;
+        f->bad_expansion_line = d->span.line;
+    } else if (d->level == DIAG_NOTE &&
+               strstr(d->message, "in expansion of macro 'ID'")) {
+        f->id_expansion_notes++;
+        f->id_expansion_line = d->span.line;
+    } else if (d->level == DIAG_NOTE &&
+               strstr(d->message, "in expansion of macro 'OUT'")) {
+        f->out_expansion_notes++;
+        f->out_expansion_line = d->span.line;
+    }
 }
 
 VEC_DECL(PpVecP, PpToken);
@@ -94,6 +117,38 @@ static void pfix_free(ParseFix *f)
     pp_loc_free(&f->pp.loc);
     strmap_free(&f->pp.macros);
     arena_free_all(&f->arena);
+}
+
+void test_parse_dynamic_builtin_macro_backtrace(TestCtx *t)
+{
+    ParseFix f;
+
+    (void)parse_src(&f,
+                    "#define DECLARATOR __COUNTER__\n"
+                    "int DECLARATOR;\n",
+                    STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    T_ASSERT(t, f.declarator_expansion_notes > 0);
+    pfix_free(&f);
+}
+
+void test_parse_preexpanded_argument_backtrace_anchors(TestCtx *t)
+{
+    ParseFix f;
+
+    (void)parse_src(&f,
+                    "#define BAD 09\n"
+                    "#define ID(x) x\n"
+                    "#define OUT(x) ID(x)\n"
+                    "int value = OUT(BAD);\n",
+                    STD_C17);
+    T_ASSERT_EQ_INT(t, f.bad_expansion_notes, 1);
+    T_ASSERT_EQ_INT(t, f.id_expansion_notes, 1);
+    T_ASSERT_EQ_INT(t, f.out_expansion_notes, 1);
+    T_ASSERT_EQ_INT(t, f.bad_expansion_line, 4);
+    T_ASSERT_EQ_INT(t, f.id_expansion_line, 3);
+    T_ASSERT_EQ_INT(t, f.out_expansion_line, 4);
+    pfix_free(&f);
 }
 
 /* Declarator round-trip: parse `src`, render the FIRST declaration's type,

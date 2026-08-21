@@ -76,7 +76,13 @@ void parse_error(Parser *p, const Token *at, const char *fmt, ...)
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
     p->nerrors++;
-    diag_emit(p->dc, DIAG_ERROR, at->span, "%s", msg);
+    /* PP-M-02: Span preserves where to render, but not the expansion-parent
+     * chain needed for notes. Keep parser diagnostics on the pp provenance
+     * path when one exists; synthetic tokens retain the old span-only path. */
+    if (at->loc != SRCLOC_INVALID)
+        pp_diag_at(p->pp, DIAG_ERROR, at->loc, at->span.len, "%s", msg);
+    else
+        diag_emit(p->dc, DIAG_ERROR, at->span, "%s", msg);
 }
 
 /* The span just PAST the previous token: where a missing ';' or ')' should
@@ -1041,6 +1047,11 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
                         "expected a parameter declaration but "
                         "found '%s'",
                         tok_desc(start));
+            /* FE-M-03: the ')' belongs to this parameter-list production.
+             * Synchronize to it before the ordinary closing-token path so a
+             * single malformed parameter cannot escape into the declarator
+             * and following declaration. */
+            parse_sync(p, SYNC_PAREN);
             break;
         }
         p->extension_depth = s.extension_depth;
@@ -1660,6 +1671,38 @@ static AstNode *parse_initializer(Parser *p)
             parse_expect_punct(p, PUNCT_ASSIGN, "after designator list");
 
         item = parse_initializer(p);
+        if (item && item->poisoned) {
+            u32 paren_depth = 0;
+            u32 bracket_depth = 0;
+            u32 brace_depth = 0;
+
+            /* FE-M-04: initializer-list recovery has different boundaries
+             * from declaration/statement recovery. Resume only at this
+             * list's next comma or closing brace; semicolons inside the bad
+             * item are not restart points. Nested delimiters are consumed so
+             * their commas and braces cannot be mistaken for ours. */
+            while (parse_peek(p)->kind != TOK_EOF) {
+                if (paren_depth == 0 && bracket_depth == 0 &&
+                    brace_depth == 0 &&
+                    (parse_at_punct(p, PUNCT_COMMA) ||
+                     parse_at_punct(p, PUNCT_RBRACE)))
+                    break;
+                if (parse_at_punct(p, PUNCT_LPAREN))
+                    paren_depth++;
+                else if (parse_at_punct(p, PUNCT_LBRACKET))
+                    bracket_depth++;
+                else if (parse_at_punct(p, PUNCT_LBRACE))
+                    brace_depth++;
+                else if (parse_at_punct(p, PUNCT_RPAREN) && paren_depth)
+                    paren_depth--;
+                else if (parse_at_punct(p, PUNCT_RBRACKET) && bracket_depth)
+                    bracket_depth--;
+                else if (parse_at_punct(p, PUNCT_RBRACE) && brace_depth)
+                    brace_depth--;
+                p->pos++;
+            }
+            p->recovering = false;
+        }
         if (item && desigs.len) {
             item->ndesignators = (u32)desigs.len;
             item->designators = arena_alloc(
@@ -1717,7 +1760,11 @@ AstType *parse_type_name(Parser *p)
         parse_error(p, start, "expected a type name but found '%s'",
                     tok_desc(start));
         base = ast_type_new(p->arena, ATY_BASE, start->span);
-        base->base = ABT_INT;
+        /* FE-M-05: recovery types must remain poisoned. Inventing `int`
+         * turns a syntax error into false duplicate/matching diagnostics in
+         * _Generic and lets other type-name consumers reason about a type
+         * the source never contained. */
+        base->base = ABT_ERROR;
         return base;
     }
     p->extension_depth = s.extension_depth;

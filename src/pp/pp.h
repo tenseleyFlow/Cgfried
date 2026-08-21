@@ -118,6 +118,11 @@ void pp_loc_free(LocTable *t);
 SrcLoc pp_loc_file(LocTable *t, FileId f, u32 line, u32 col);
 SrcLoc pp_loc_expansion(LocTable *t, SrcLoc spelled_at, SrcLoc expanded_from,
                         const char *macro_name, SrcLoc macro_def_loc);
+/* Graft the expansion frames rooted at `loc` ahead of a new enclosing macro
+ * frame. A suffix already present in `expanded_from` is retained only there,
+ * while the old argument-use edge remains the new frame's spelling anchor. */
+SrcLoc pp_loc_graft_expansions(LocTable *t, SrcLoc loc, SrcLoc expanded_from,
+                               const char *macro_name, SrcLoc macro_def_loc);
 /* Assigns and returns a stable preprocessing-order sequence. Idempotence is
  * required because the raw stream may unget and revisit the same token. */
 u32 pp_loc_mark(LocTable *t, SrcLoc loc);

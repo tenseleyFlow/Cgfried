@@ -409,6 +409,21 @@ static PpToken wrap_tok(Preprocessor *pp, PpToken t, SrcLoc inv,
     return t;
 }
 
+static PpToken wrap_preexpanded_arg(Preprocessor *pp, PpToken t, SrcLoc inv,
+                                    const MacroDef *m)
+{
+    /* PP-M-04: ordinary argument substitution must retain the argument's
+     * already-expanded provenance before the containing macro frame, anchored
+     * at the argument use. The graft also trims an enclosing suffix already
+     * carried by the invocation, avoiding BAD -> OUT -> ID -> OUT. */
+    if (t.loc != SRCLOC_INVALID && pp_loc_is_expansion(&pp->loc, t.loc)) {
+        t.loc = pp_loc_graft_expansions(&pp->loc, t.loc, inv, m->name, m->loc);
+        t.flags &= (u8)~PPTOK_F_BOL;
+        return t;
+    }
+    return wrap_tok(pp, t, inv, m);
+}
+
 PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc)
 {
     char buf[4160];
@@ -416,6 +431,7 @@ PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc)
     u32 line = 0, col = 0;
     const char *path = "<unknown>";
     u32 shown;
+    SrcLoc provenance = loc;
 
     /* __LINE__/__FILE__ report the INVOCATION point (gcc parity): walk
      * expansion parents to the outermost use site, not the spelling site
@@ -443,6 +459,13 @@ PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc)
                 path = r->path;
         }
     }
+
+    /* PP-M-02: the generated token spells at the outer invocation, but its
+     * diagnostic parent must remain the dynamic builtin's containing macro
+     * chain. The anonymous bridge separates those two location roles. */
+    if (provenance != SRCLOC_INVALID &&
+        pp_loc_is_expansion(&pp->loc, provenance))
+        loc = pp_loc_expansion(&pp->loc, loc, provenance, NULL, SRCLOC_INVALID);
 
     switch ((MacroBuiltinKind)m->builtin_kind) {
     case MACRO_BUILTIN_LINE:
@@ -723,7 +746,8 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
                 u32 k;
                 arg_expanded(pp, a);
                 for (k = 0; k < a->nexp; k++) {
-                    PpToken t = wrap_tok(pp, a->expanded[k], inv, m);
+                    PpToken t =
+                        wrap_preexpanded_arg(pp, a->expanded[k], inv, m);
                     if (k == 0) /* UNION: body spacing or the arg's own
                                    (gcc emits "2 +(3,4)" — tinycc pp/02) */
                         t.flags |= bt->flags & PPTOK_F_SPACE;

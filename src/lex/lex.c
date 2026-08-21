@@ -175,6 +175,7 @@ TokenList lex_convert(Preprocessor *pp, const PpToken *toks, u32 ntoks,
         memset(&t, 0, sizeof(t));
         /* The span comes from the pp-token's SrcLoc — never synthesized,
          * or Sprint 7's expansion backtraces lose their anchor. */
+        t.loc = p->loc;
         t.span = pp_span(pp, p->loc, p->len);
         t.spelling = p->spelling;
 
@@ -245,8 +246,10 @@ TokenList lex_convert(Preprocessor *pp, const PpToken *toks, u32 ntoks,
          * driver-level line with no caret — the least useful form of the
          * most confusing error. Pointing at the final token at least names
          * the construct that was left open. */
-        if (out.len)
+        if (out.len) {
+            eof.loc = out.data[out.len - 1].loc;
             eof.span = out.data[out.len - 1].span;
+        }
         TokVecL_push(&out, eof);
     }
 

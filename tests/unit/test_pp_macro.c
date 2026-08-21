@@ -508,3 +508,88 @@ void test_pp_expansion_loc_chain(TestCtx *t)
     }
     mfix_free(&f);
 }
+
+void test_pp_dynamic_builtin_retains_containing_macro(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[4];
+    SrcLoc loc;
+    FileId fid;
+    u32 line, col;
+    bool saw_declarator = false;
+
+    mfix_init(&f);
+    T_ASSERT_EQ_INT(
+        t, run_pp(&f, "#define DECLARATOR __COUNTER__\nDECLARATOR\n", toks, 4),
+        1);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "0");
+    pp_loc_resolve(&f.pp.loc, toks[0].loc, &fid, &line, &col);
+    T_ASSERT_EQ_INT(t, line, 2);
+    for (loc = toks[0].loc;
+         loc != SRCLOC_INVALID && pp_loc_is_expansion(&f.pp.loc, loc);
+         loc = pp_loc_expansion_parent(&f.pp.loc, loc)) {
+        const char *name = pp_loc_macro_name(&f.pp.loc, loc);
+        if (name && strcmp(name, "DECLARATOR") == 0)
+            saw_declarator = true;
+    }
+    T_ASSERT(t, saw_declarator);
+    mfix_free(&f);
+}
+
+void test_pp_preexpanded_argument_retains_inner_macro(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[4];
+    SrcLoc loc;
+    const char *names[4] = {NULL, NULL, NULL, NULL};
+    u32 nname = 0;
+
+    mfix_init(&f);
+    T_ASSERT_EQ_INT(t,
+                    run_pp(&f,
+                           "#define ARG_BAD 09\n#define PASS(x) x\n"
+                           "PASS(ARG_BAD)\n",
+                           toks, 4),
+                    1);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "09");
+    for (loc = toks[0].loc;
+         loc != SRCLOC_INVALID && pp_loc_is_expansion(&f.pp.loc, loc);
+         loc = pp_loc_expansion_parent(&f.pp.loc, loc)) {
+        const char *name = pp_loc_macro_name(&f.pp.loc, loc);
+        if (name && nname < CGF_ARRAY_LEN(names))
+            names[nname++] = name;
+    }
+    T_ASSERT_EQ_INT(t, nname, 2);
+    T_ASSERT_EQ_STR(t, names[0], "ARG_BAD");
+    T_ASSERT_EQ_STR(t, names[1], "PASS");
+    mfix_free(&f);
+}
+
+void test_pp_nested_preexpanded_argument_has_no_duplicate_suffix(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[4];
+    SrcLoc loc;
+    const char *names[5] = {NULL, NULL, NULL, NULL, NULL};
+    u32 nname = 0;
+
+    mfix_init(&f);
+    T_ASSERT_EQ_INT(t,
+                    run_pp(&f,
+                           "#define BAD 09\n#define ID(x) x\n"
+                           "#define OUT(x) ID(x)\nOUT(BAD)\n",
+                           toks, 4),
+                    1);
+    for (loc = toks[0].loc;
+         loc != SRCLOC_INVALID && pp_loc_is_expansion(&f.pp.loc, loc);
+         loc = pp_loc_expansion_parent(&f.pp.loc, loc)) {
+        const char *name = pp_loc_macro_name(&f.pp.loc, loc);
+        if (name && nname < CGF_ARRAY_LEN(names))
+            names[nname++] = name;
+    }
+    T_ASSERT_EQ_INT(t, nname, 3);
+    T_ASSERT_EQ_STR(t, names[0], "BAD");
+    T_ASSERT_EQ_STR(t, names[1], "ID");
+    T_ASSERT_EQ_STR(t, names[2], "OUT");
+    mfix_free(&f);
+}

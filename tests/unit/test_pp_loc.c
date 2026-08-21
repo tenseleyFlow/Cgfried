@@ -66,3 +66,28 @@ void test_pp_loc_expansion_chain(TestCtx *t)
     T_ASSERT_EQ_INT(t, line, 2);
     pp_loc_free(&lt);
 }
+
+void test_pp_loc_graft_expansion_chain(TestCtx *t)
+{
+    LocTable lt;
+    SrcLoc spell1, old_use, call, inner, grafted;
+    FileId f;
+    u32 line, col;
+
+    pp_loc_init(&lt);
+    spell1 = pp_loc_file(&lt, 1, 2, 3);
+    old_use = pp_loc_file(&lt, 1, 20, 5);
+    call = pp_loc_file(&lt, 1, 30, 1);
+    inner = pp_loc_expansion(&lt, spell1, old_use, "INNER", spell1);
+
+    grafted = pp_loc_graft_expansions(&lt, inner, call, "OUTER", spell1);
+    T_ASSERT_EQ_STR(t, pp_loc_macro_name(&lt, grafted), "INNER");
+    grafted = pp_loc_expansion_parent(&lt, grafted);
+    T_ASSERT_EQ_STR(t, pp_loc_macro_name(&lt, grafted), "OUTER");
+    /* INNER's note anchor is the old argument use, not its definition. */
+    pp_loc_resolve(&lt, grafted, &f, &line, &col);
+    T_ASSERT_EQ_INT(t, line, 20);
+    T_ASSERT_EQ_INT(t, col, 5);
+    T_ASSERT(t, pp_loc_expansion_parent(&lt, grafted) == call);
+    pp_loc_free(&lt);
+}

@@ -100,8 +100,13 @@ void parse_sync(Parser *p, SyncSet set)
             parse_at_punct(p, PUNCT_RBRACKET)) {
             if (depth == 0) {
                 /* A closer for a bracket opened OUTSIDE this production.
-                 * SYNC_PAREN stops here so the caller can consume it;
-                 * everything else must not run past it either. */
+                 * SYNC_PAREN's only caller owns ')'. A stray ']' is not its
+                 * closer, so FE-M-03 recovery consumes it and keeps looking;
+                 * everything else must not run past an external closer. */
+                if (set == SYNC_PAREN && parse_at_punct(p, PUNCT_RBRACKET)) {
+                    p->pos++;
+                    continue;
+                }
                 break;
             }
             depth--;
@@ -121,14 +126,14 @@ void parse_sync(Parser *p, SyncSet set)
     /* PROGRESS: a caller that called us because it could not proceed must
      * not find the cursor where it left it.
      *
-     * EXCEPT on '}', where PROGRESS and SCOPE BALANCE collide: forcing an
-     * advance there would consume the brace the caller still needs to
-     * close its block, unbalancing the scope stack for the rest of the
-     * file. Standing still is safe because '}' terminates the block loop
-     * anyway — progress happens one level up. (The unit test that walks
-     * parse_sync from every position is what surfaced this.) */
+     * EXCEPT on a caller-owned closer. On '}', PROGRESS and SCOPE BALANCE
+     * collide: forcing an advance would consume the brace the caller still
+     * needs to close its block. FE-M-03 establishes the same ownership rule
+     * for SYNC_PAREN: ')' belongs to the parameter-list production, so
+     * recovery must leave it for its normal closing-token path. */
     if (p->pos == start && parse_peek(p)->kind != TOK_EOF &&
-        !parse_at_punct(p, PUNCT_RBRACE))
+        !parse_at_punct(p, PUNCT_RBRACE) &&
+        !(set == SYNC_PAREN && parse_at_punct(p, PUNCT_RPAREN)))
         p->pos++;
 
     /* Recovery complete: diagnostics are meaningful again. */

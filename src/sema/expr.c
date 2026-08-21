@@ -1311,6 +1311,7 @@ static AstNode *expr_generic(Sema *s, AstNode *e)
     Type *ct;
     AstNode *chosen = NULL;
     AstNode *fallback = NULL;
+    bool has_poisoned_type = false;
     u32 i;
 
     e->lhs = ctrl;
@@ -1331,10 +1332,18 @@ static AstNode *expr_generic(Sema *s, AstNode *e)
         }
         at = sema_type_from_ast(s, assoc->type, assoc->span);
         assoc->sem_type = at;
+        /* FE-M-05: the parser already diagnosed a malformed association
+         * type. TY_ERROR is neither a match candidate nor compatible with
+         * another association for duplicate checking. */
+        if (!at || at->kind == TY_ERROR) {
+            has_poisoned_type = true;
+            continue;
+        }
         /* No two associations may name compatible types — otherwise the
          * selection would be ambiguous rather than merely unmatched. */
         for (j = 0; j < i; j++)
             if (e->items[j] && e->items[j]->sem_type && e->items[j]->type &&
+                e->items[j]->sem_type->kind != TY_ERROR &&
                 type_compatible(conv_strip_quals(s, e->items[j]->sem_type),
                                 conv_strip_quals(s, at))) {
                 err(s, assoc->span,
@@ -1348,6 +1357,10 @@ static AstNode *expr_generic(Sema *s, AstNode *e)
 
     if (!chosen)
         chosen = fallback;
+    /* A missing match is not independently actionable when the association
+     * that might have matched was already rejected by the parser. */
+    if (!chosen && has_poisoned_type)
+        return poison(s, e);
     if (!chosen) {
         err(s, e->span,
             "no _Generic association matches the controlling type '%s'",

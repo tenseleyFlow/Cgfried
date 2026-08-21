@@ -689,3 +689,40 @@ void test_conv_generic_selection(TestCtx *t)
     /* An array decays before matching, so `int *` is what matches. */
     expr_type_is(t, "_Generic(garr, int *: gl, default: gi)", "long");
 }
+
+void test_conv_generic_malformed_type_is_poison(TestCtx *t)
+{
+    SrcFix f;
+    AstNode *tu;
+
+    /* FE-M-05: the parser's one syntax diagnostic must not become a false
+     * duplicate-int diagnostic in sema, and the following declaration must
+     * remain available after the malformed association. */
+    tu = run_src(&f,
+                 "int f(void) { return _Generic(1, int: 1, : 2); }\n"
+                 "int after;\n",
+                 CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    src_fix_free(&f);
+
+    /* A poisoned earlier association must not compare compatible with a
+     * later valid one merely because TY_ERROR is broadly compatible. */
+    tu = run_src(&f,
+                 "int f(void) { return _Generic(1, : 2, int: 1); }\n"
+                 "int after;\n",
+                 CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    src_fix_free(&f);
+
+    /* Nor should a missing-match diagnostic cascade from the association
+     * type that the parser already rejected. */
+    tu = run_src(&f,
+                 "int f(void) { return _Generic(1.0, : 2, int: 1); }\n"
+                 "int after;\n",
+                 CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    src_fix_free(&f);
+}

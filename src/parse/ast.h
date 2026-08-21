@@ -172,6 +172,7 @@ typedef enum AstBaseType {
      * __auto_type k = c;` gives a MUTABLE int -- measured, and the
      * opposite of what typeof does with the same operand. */
     ABT_AUTO_TYPE,
+    ABT_ERROR, /* poisoned type-name: sema maps directly to TY_ERROR */
 } AstBaseType;
 
 typedef enum AstTypeKind {

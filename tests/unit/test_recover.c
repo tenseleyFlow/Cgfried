@@ -156,13 +156,15 @@ void test_recover_sync_always_progresses(TestCtx *t)
                 before = f.ps.pos;
                 parse_sync(&f.ps, sets[si]);
                 after = f.ps.pos;
-                /* Two positions where standing still is CORRECT: at EOF,
-                 * and on a '}' — advancing there would eat the brace the
-                 * caller needs to close its block (SCOPE BALANCE wins over
-                 * PROGRESS, and the block loop supplies the progress one
-                 * level up). */
-                if (after == before && (parse_peek(&f.ps)->kind == TOK_EOF ||
-                                        parse_at_punct(&f.ps, PUNCT_RBRACE))) {
+                /* Caller-owned closers are the deliberate exceptions to
+                 * PROGRESS: block recovery leaves '}', while FE-M-03's
+                 * SYNC_PAREN leaves ')' for the parameter-list production.
+                 * The caller supplies progress one level up. */
+                if (after == before &&
+                    (parse_peek(&f.ps)->kind == TOK_EOF ||
+                     parse_at_punct(&f.ps, PUNCT_RBRACE) ||
+                     (sets[si] == SYNC_PAREN &&
+                      parse_at_punct(&f.ps, PUNCT_RPAREN)))) {
                     t->assertions++;
                     continue;
                 }
@@ -205,6 +207,61 @@ void test_recover_sync_stops_before_rbrace(TestCtx *t)
         }
         t->assertions++;
     }
+    rfix_free(&f);
+}
+
+void test_recover_frontend_medium_cascades(TestCtx *t)
+{
+    RecFix f;
+    AstNode *tu;
+
+    /* FE-M-03: both an empty middle parameter and a trailing comma produce
+     * one primary diagnostic, consume their own ')', and preserve `after`. */
+    tu = parse_src_r(&f,
+                     "int malformed(int a, , int b);\n"
+                     "int after(void);\n",
+                     0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    rfix_free(&f);
+
+    /* A foreign ']' is consumed on the way to the parameter list's ')'; it
+     * must not be mistaken for a caller-owned closer and stranded. */
+    tu = parse_src_r(&f,
+                     "int malformed(int a, ]);\n"
+                     "int after(void);\n",
+                     0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    rfix_free(&f);
+
+    tu = parse_src_r(&f,
+                     "int malformed(int a,);\n"
+                     "int after(void);\n",
+                     0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    rfix_free(&f);
+
+    /* FE-M-04: a semicolon in the bad element is not a declaration restart;
+     * recovery resumes at the initializer's comma and retains later items. */
+    tu = parse_src_r(&f,
+                     "int a[3] = {1, struct S; 2, 3};\n"
+                     "int after;\n",
+                     0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
+    T_ASSERT_EQ_INT(t, tu->decls[0]->init->nitems, 3);
+    rfix_free(&f);
+
+    /* Nested commas/braces belong to the malformed item; only the enclosing
+     * initializer's boundary may resume this production. */
+    tu = parse_src_r(&f,
+                     "int a[3] = {1, struct S { int x, y; }, 3};\n"
+                     "int after;\n",
+                     0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, tu->ndecls, 2);
     rfix_free(&f);
 }
 

@@ -1,13 +1,13 @@
 # Finding ID	Fixture	State	Title
 PP-H-01	pp-h-01.c	PASS	mixed-delimiter include_next reuses an incompatible search index
-PP-M-02	pp-m-02.c	OPEN	dynamic builtins lose their containing macro backtrace
+PP-M-02	pp-m-02.c	PASS	dynamic builtins lose their containing macro backtrace
 PP-L-03	pp-l-03.c	OPEN	full macro backtraces stop after 256 frames
-PP-M-04	pp-m-04.c	OPEN	pre-expanded arguments lose their inner macro backtrace
+PP-M-04	pp-m-04.c	PASS	pre-expanded arguments lose their inner macro backtrace
 FE-H-01	fe-h-01.c	PASS	an unnamed variadic prototype is accepted in ISO C
 FE-H-02	fe-h-02.c	PASS	nested K&R identifier list escapes the definition-only constraint
-FE-M-03	fe-m-03.c	OPEN	one malformed parameter causes a six-error parser cascade
-FE-M-04	fe-m-04.c	OPEN	an invalid initializer item causes three cascading errors
-FE-M-05	fe-m-05.c	OPEN	an invalid _Generic type creates a false duplicate-association error
+FE-M-03	fe-m-03.c	PASS	one malformed parameter causes a six-error parser cascade
+FE-M-04	fe-m-04.c	PASS	an invalid initializer item causes three cascading errors
+FE-M-05	fe-m-05.c	PASS	an invalid _Generic type creates a false duplicate-association error
 SEMA-C-01	sema-c-01.c	PASS	signed-minimum division by minus one crashes constant evaluation
 SEMA-C-02	sema-c-02.c	PASS	AAPCS64 zero-width bitfields fail to raise record alignment
 SEMA-H-03	sema-h-03.c	PASS	old-style function compatibility ignores default promotions
