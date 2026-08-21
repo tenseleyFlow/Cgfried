@@ -485,6 +485,48 @@ void test_ir_roundtrip_builder_loop(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_even_gpr_marker_roundtrip(TestCtx *t)
+{
+    static const char src[] =
+        "func void @callee(i64 %tag, i64 even %lo, i64 %hi) {\n"
+        "entry():\n"
+        "    ret\n"
+        "}\n"
+        "func void @caller(i64 %tag, i64 %lo, i64 %hi) {\n"
+        "entry():\n"
+        "    call void @callee(i64 %tag, i64 %lo even, i64 %hi)\n"
+        "    ret\n"
+        "}\n";
+    IrFix f;
+    IrModule *m;
+
+    fix_init(&f);
+    m = parse_ok(t, &f, src);
+    if (m) {
+        T_ASSERT(t, ir_abi_even_gpr(m->funcs[0].param_annots[1]));
+        T_ASSERT(t, ir_abi_even_gpr(m->funcs[1].blocks[0].first->ops[1].b));
+        T_ASSERT(t, ir_verify(f.dc, m));
+        roundtrip(t, &f, m);
+    }
+    fix_free(&f);
+
+    /* Constants use operand.b as value storage, so treating `even` as a
+     * generic suffix would corrupt wide constants as well as inventing an
+     * ABI boundary with no SSA leaf to carry it. */
+    fix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "sym @external\n"
+                        "func void @bad() {\n"
+                        "entry():\n"
+                        "    call void @external(i64 1 even)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<bad-even>");
+    T_ASSERT(t, m == NULL);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    fix_free(&f);
+}
+
 void test_ir_exact_asm_symbol_roundtrip(TestCtx *t)
 {
     IrFix f;

@@ -520,6 +520,13 @@ typedef enum IrAbiRet {
 #define ir_arg_annot(kind, size) (((u64)(kind) << 32) | (u64)(u32)(size))
 #define ir_arg_kind(b) ((u32)((b) >> 32) & 0x7u)
 #define ir_arg_size(b) ((u32)(b))
+/* Linux AAPCS64 C.10: this leaf starts a 16-byte-aligned composite and NGRN
+ * was odd, so the arm64 caller/callee walks must skip to the next even GPR.
+ * The bit is inert on every other target. It lives in the shared annotation
+ * word because calls and definitions must preserve the same boundary through
+ * IR print/parse; bits 35..37 and 62..63 are already independently spoken. */
+#define IR_ABI_EVEN_GPR (1ull << 61)
+#define ir_abi_even_gpr(b) (((b) & IR_ABI_EVEN_GPR) != 0)
 /* High-bit parameter-only C provenance.  It composes with the low ABI
  * annotation fields and is compared by structural equality as part of the
  * full annotation word. */

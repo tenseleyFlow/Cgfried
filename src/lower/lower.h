@@ -365,6 +365,7 @@ typedef enum {
 typedef struct AbiArg {
     u8 kind;                  /* AbiArgKind */
     u8 n;                     /* EIGHTBYTES: 1-2; HFA: 1-4 */
+    u8 even_gp;               /* Linux AAPCS64: first leaf starts at even xN */
     IrType t[ABI_MAX_LEAVES]; /* eightbyte / HFA-leaf IR types */
     u32 size;
     u32 align;

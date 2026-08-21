@@ -34,7 +34,7 @@ static void abi_sink(void *user, const Diag *d, const DiagCtx *dc)
 
 VEC_DECL(PpVecA, PpToken);
 
-static bool run_abi(AbiFix *f, const char *src)
+static bool run_abi_target(AbiFix *f, const char *src, TargetKind target_kind)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -58,7 +58,7 @@ static bool run_abi(AbiFix *f, const char *src)
     lang.std = STD_C17;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
-    target.kind = CGF_TARGET_X86_64_LINUX_GNU;
+    target.kind = target_kind;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
     pp_begin(&f->pp, sf, NULL);
@@ -80,6 +80,11 @@ static bool run_abi(AbiFix *f, const char *src)
     ir_print_module_buf(&f->text, f->m);
     buf_push_u8(&f->text, 0);
     return true;
+}
+
+static bool run_abi(AbiFix *f, const char *src)
+{
+    return run_abi_target(f, src, CGF_TARGET_X86_64_LINUX_GNU);
 }
 
 static void abi_free(AbiFix *f)
@@ -395,6 +400,37 @@ void test_abi_va_arg_shapes(TestCtx *t)
     T_ASSERT_EQ_INT(t, acount(atxt(&f), "va.reg"), 2 * 2);
     /* the 16-aligned long double bumps the overflow cursor via mask */
     T_ASSERT(t, strstr(atxt(&f), ", -16") != NULL);
+    abi_free(&f);
+}
+
+void test_abi_aapcs64_even_composite_ir_contract(TestCtx *t)
+{
+    static const char src[] =
+        "typedef __builtin_va_list va_list;\n"
+        "struct Q { _Alignas(16) long a; long b; };\n"
+        "long sink(long tag, struct Q q) { return tag + q.a + q.b; }\n"
+        "long call(struct Q q) { return sink(1, q); }\n"
+        "long variadic(long tag, ...) {\n"
+        "  va_list ap; struct Q q; __builtin_va_start(ap, tag);\n"
+        "  q = __builtin_va_arg(ap, struct Q); __builtin_va_end(ap);\n"
+        "  return q.a + q.b;\n"
+        "}\n";
+    AbiFix f;
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_LINUX));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f),
+                       "func i64 @sink(i64 %0, i64 even %1, i64 %2)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), " even, i64 ") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "iadd i32 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), ", 15") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "and i32 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), ", -16") != NULL);
+    abi_free(&f);
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_MACOS));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), " even") == NULL);
     abi_free(&f);
 }
 

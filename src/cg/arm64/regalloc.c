@@ -1068,6 +1068,15 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
              * still receives its first real argument in x0, so the indirect
              * result register consumes no NGRN. */
             phys = A64_X8;
+        } else if (!apple && ir_abi_even_gpr(arg->abi_annot)) {
+            /* IR-C-09: lowering marked the first leaf of one naturally
+             * 16-byte-aligned Linux composite. Skip odd NGRN before placing
+             * that leaf; Apple deliberately keeps consecutive x registers. */
+            w.ngrn = (w.ngrn + 1u) & ~1u;
+            if (w.ngrn < 8)
+                phys = (u8)(A64_X0 + w.ngrn++);
+            else
+                w.ngrn = 8;
         } else if (arg->argflags & IROPF_ONSTACK) {
             /* AAPCS64 C.4/C.12: an aggregate that did not fit ENTIRELY in
              * the remaining registers is passed entirely on the stack, and

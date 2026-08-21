@@ -573,6 +573,9 @@ static void check_inst_misc(V *v, const IrInst *in)
          * computed per-argument rather than once. */
         for (i = in->subop == FUNCREF_INDIRECT ? 1u : 0u; i < in->nops; i++) {
             bool anon = (in->ops[i].argflags & IROPF_ANON) != 0;
+            bool even = (in->ops[i].kind == IROP_VALUE ||
+                         in->ops[i].kind == IROP_SYMBOL) &&
+                        ir_abi_even_gpr(in->ops[i].b);
 
             if (anon && !(in->flags & IRF_CALL_VARIADIC))
                 verr(v, 9, "arg %u is 'anon' on a call that is not marked 'va'",
@@ -590,6 +593,11 @@ static void check_inst_misc(V *v, const IrInst *in)
                 ir_type_size((IrType)in->ops[i].type) >= 4)
                 verr(v, 9, "arg %u is %u bytes wide and cannot need widening",
                      i, ir_type_size((IrType)in->ops[i].type));
+            if (even && in->ops[i].type != IRT_I64)
+                verr(v, 9,
+                     "arg %u is marked even-GPR but is not an i64 ABI leaf", i);
+            if (even && (in->ops[i].argflags & IROPF_ONSTACK))
+                verr(v, 9, "arg %u is both onstack and even-GPR", i);
         }
         if (in->subop == FUNCREF_INTERNAL) {
             if (in->callee >= v->m->nfuncs) {
@@ -626,6 +634,11 @@ static void check_inst_misc(V *v, const IrInst *in)
                                            ? ir_arg_kind(in->ops[i].b)
                                            : IR_ARG_NONE;
                         u32 want_kind = IR_ARG_NONE;
+                        bool got_even = (in->ops[i].kind == IROP_VALUE ||
+                                         in->ops[i].kind == IROP_SYMBOL) &&
+                                        ir_abi_even_gpr(in->ops[i].b);
+                        bool want_even = cf->param_annots &&
+                                         ir_abi_even_gpr(cf->param_annots[i]);
 
                         if (in->ops[i].type != cf->param_types[i])
                             verr(v, 9,
@@ -659,6 +672,11 @@ static void check_inst_misc(V *v, const IrInst *in)
                                  "not match %u",
                                  cf->name, i, ir_arg_size(in->ops[i].b),
                                  ir_arg_size(cf->param_annots[i]));
+                        if (got_even != want_even)
+                            verr(v, 9,
+                                 "call to @%s: arg %u even-GPR ABI marker "
+                                 "does not match its parameter",
+                                 cf->name, i);
                     }
                 }
                 if (in->type != cf->ret)
@@ -714,6 +732,13 @@ static void verify_func(V *v, const IrFunc *f)
 
         if (ir_param_is_restrict(annot) && f->param_types[i] != IRT_PTR)
             verr(v, 4, "parameter %u is marked restrict but is not ptr", i);
+        if (ir_abi_even_gpr(annot) && f->param_types[i] != IRT_I64)
+            verr(v, 4,
+                 "parameter %u is marked even-GPR but is not an i64 ABI "
+                 "leaf",
+                 i);
+        if (ir_abi_even_gpr(annot) && ir_param_is_onstack(annot))
+            verr(v, 4, "parameter %u is both onstack and even-GPR", i);
         if (ir_type_is_vector((IrType)f->param_types[i]))
             verr(v, 4, "vector function parameters have no Sprint 36 ABI");
     }

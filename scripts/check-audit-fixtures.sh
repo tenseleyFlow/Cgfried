@@ -643,6 +643,10 @@ probe()
              in_fn { print }
              in_fn && /bl[[:space:]]+_?fixed_sink$/ { exit }' \
             "$apple_asm" >"$WORK/$id.apple.fixed"
+        # Only the final marshal window determines the call ABI. Earlier
+        # x1/x2 moves feed make_pair and are not evidence about fixed_sink.
+        tail -n 8 "$WORK/$id.linux.fixed" >"$WORK/$id.linux.call"
+        tail -n 8 "$WORK/$id.apple.fixed" >"$WORK/$id.apple.call"
         awk '/^func .*@variadic_sink\(/ { in_fn = 1 }
              in_fn { print }
              in_fn && /^}/ { exit }' "$linux_ir" \
@@ -652,23 +656,23 @@ probe()
         apple_control_regs=0
         linux_aligned_va=0
         if grep -Eq 'mov[[:space:]]+x1, x[0-9]+$' \
-               "$WORK/$id.linux.fixed" &&
+               "$WORK/$id.linux.call" &&
            grep -Eq 'mov[[:space:]]+x2, x[0-9]+$' \
-               "$WORK/$id.linux.fixed"; then
+               "$WORK/$id.linux.call"; then
             linux_wrong_regs=1
         fi
         if { grep -Eq 'mov[[:space:]]+x2, x[0-9]+$' \
-                 "$WORK/$id.linux.fixed" &&
+                 "$WORK/$id.linux.call" &&
              grep -Eq 'mov[[:space:]]+x3, x[0-9]+$' \
-                 "$WORK/$id.linux.fixed"; } ||
-           grep -Eq 'ldp[[:space:]]+x2, x3,' "$WORK/$id.linux.fixed"; then
+                 "$WORK/$id.linux.call"; } ||
+           grep -Eq 'ldp[[:space:]]+x2, x3,' "$WORK/$id.linux.call"; then
             linux_fixed_regs=1
         fi
         if { grep -Eq 'mov[[:space:]]+x1, x[0-9]+$' \
-                 "$WORK/$id.apple.fixed" &&
+                 "$WORK/$id.apple.call" &&
              grep -Eq 'mov[[:space:]]+x2, x[0-9]+$' \
-                 "$WORK/$id.apple.fixed"; } ||
-           grep -Eq 'ldp[[:space:]]+x1, x2,' "$WORK/$id.apple.fixed"; then
+                 "$WORK/$id.apple.call"; } ||
+           grep -Eq 'ldp[[:space:]]+x1, x2,' "$WORK/$id.apple.call"; then
             apple_control_regs=1
         fi
         if grep -Eq 'iadd i32 .* 15$' "$WORK/$id.linux.va" &&

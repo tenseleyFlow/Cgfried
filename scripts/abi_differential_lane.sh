@@ -195,6 +195,53 @@ EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
 
+# IR-C-09 is outside abigen's repertoire because its composites never carry
+# an explicit 16-byte alignment. Exercise fixed and variadic placement in
+# both mixed-compiler directions: Linux C.10 must skip x1, while va_arg must
+# find the same value at the rounded register-save-area offset.
+check_ir_c09_fixed() {
+    d=$WORK/fixed-ir-c09
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+struct pair16 { _Alignas(16) long first; long second; };
+long fixed_value(long tag, struct pair16 value);
+long variadic_value(long tag, ...);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    struct pair16 value = {11, 13};
+    if (fixed_value(7, value) != 31)
+        return 1;
+    if (variadic_value(5, value) != 29)
+        return 2;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+#include <stdarg.h>
+long fixed_value(long tag, struct pair16 value)
+{
+    return tag + value.first + value.second;
+}
+long variadic_value(long tag, ...)
+{
+    va_list ap;
+    struct pair16 value;
+
+    va_start(ap, tag);
+    value = va_arg(ap, struct pair16);
+    va_end(ap);
+    return tag + value.first + value.second;
+}
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # Regenerate sources from a descriptor and test both directions.
 # Returns 0 when both agree.
 check_desc() {
@@ -267,6 +314,16 @@ if [ "$target" = x86_64-linux-gnu ]; then
         checked=$((checked + 1))
     else
         echo "abi_differential: REGRESSION on fixed IR-C-01 zero-width shapes" \
+            >&2
+        failed=$((failed + 1))
+    fi
+fi
+
+if [ "$target" = arm64-linux ]; then
+    if check_ir_c09_fixed; then
+        checked=$((checked + 1))
+    else
+        echo "abi_differential: REGRESSION on fixed IR-C-09 aligned composite" \
             >&2
         failed=$((failed + 1))
     fi

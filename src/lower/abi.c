@@ -420,6 +420,17 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
         return; /* SCALAR: the walk charges it from the IR type. */
     }
 
+    /* IR-C-09 / AAPCS64 C.10: Linux rounds NGRN up to an even register for
+     * a 16-byte-aligned composite. Apple deliberately deleted this rule, so
+     * x1:x2 remains correct there. Record the skipped register on the WHOLE
+     * argument plan: after lowering splits it into leaves, neither backend
+     * can rediscover which leaf began the aligned C argument. */
+    if (lo->sema->target.kind == CGF_TARGET_ARM64_LINUX && need_gp &&
+        a->kind == ABI_ARG_EIGHTBYTES && a->align >= 16 && (b->gp & 1u)) {
+        b->gp++;
+        a->even_gp = 1;
+    }
+
     if (b->gp + need_gp <= 6 + (aapcs ? 2u : 0u) && b->fp + need_fp <= 8) {
         b->gp += need_gp;
         b->fp += need_fp;

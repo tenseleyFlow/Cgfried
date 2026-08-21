@@ -583,6 +583,110 @@ void test_ir_verify_check9_refs(TestCtx *t)
     }
     arena_free_all(&f.arena);
 
+    /* IR-C-09: a direct call must preserve the same even-NGRN boundary as
+     * the definition. Otherwise caller and callee silently disagree by one
+     * register even though their flattened IR types still match. */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @callee(i64 even %x) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n"
+                        "func void @caller(i64 %x) {\n"
+                        "entry():\n"
+                        "    call void @callee(i64 %x)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 9));
+    }
+    arena_free_all(&f.arena);
+
+    /* The marker describes a flattened integer leaf, never a source-level
+     * scalar parameter or a non-integer IR value. */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(ptr even %p) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
+    /* A skipped-register boundary and a stacked leaf are mutually exclusive:
+     * IR-C-10's NSAA alignment is a separate contract. Pin both sides so a
+     * caller cannot silently skip a register for a callee reading the stack. */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(i64 onstack even %x) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "sym @external\n"
+                        "func void @caller(i64 %x) {\n"
+                        "entry():\n"
+                        "    call void @external(i64 %x onstack even)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 9));
+    }
+    arena_free_all(&f.arena);
+
+    /* External and indirect calls have no definition signature to compare,
+     * so the generic call-argument check must still reject non-i64 carriers. */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "sym @external\n"
+                        "func void @caller(ptr %p) {\n"
+                        "entry():\n"
+                        "    call void @external(ptr %p even)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 9));
+    }
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @caller(ptr %fp, ptr %p) {\n"
+                        "entry():\n"
+                        "    call void %fp(ptr %p even)\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 9));
+    }
+    arena_free_all(&f.arena);
+
     /* Symbol operand out of range. */
     vfix_init(&f);
     fn = scaffold(&f, &m, &b);

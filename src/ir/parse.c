@@ -806,6 +806,14 @@ static bool parse_call_arg(P *p, IrOperand *slot)
         next(p);
         slot->argflags |= IROPF_ONSTACK;
     }
+    if (peek(p)->kind == T_IDENT && tok_is(peek(p), "even")) {
+        if (slot->kind != IROP_VALUE && slot->kind != IROP_SYMBOL) {
+            perr(p, peek(p), "'even' requires an SSA value or symbol");
+            return false;
+        }
+        next(p);
+        slot->b |= IR_ABI_EVEN_GPR;
+    }
     return true;
 }
 
@@ -1807,6 +1815,11 @@ static bool parse_func(P *p)
             if (tok_is(peek(p), "onstack")) {
                 next(p);
                 pannots[nparams] |= IR_PARAM_ONSTACK;
+                any_annot = true;
+            }
+            if (tok_is(peek(p), "even")) {
+                next(p);
+                pannots[nparams] |= IR_ABI_EVEN_GPR;
                 any_annot = true;
             }
             if (tok_is(peek(p), "restrict")) {

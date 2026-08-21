@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-C-09 16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
+// RESOLVED(audit): IR-C-09 16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
 // AAPCS64 rule C.10 rounds the next general-purpose register number up to an
 // even number before passing a 16-byte-aligned composite.  With `tag` in x0,
 // Linux must therefore leave x1 unused and pass `value` in x2:x3.  Cgfried

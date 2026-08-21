@@ -493,6 +493,65 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     abi_close(&f);
 }
 
+void test_abi_aapcs64_linux_even_composite_registers(TestCtx *t)
+{
+    static const struct {
+        u32 start;
+        u32 end;
+        u8 stacked;
+        u8 padded;
+    } boundaries[] = {
+        {0, 2, 0, 0}, {1, 4, 0, 1}, {2, 4, 0, 0},
+        {5, 8, 0, 1}, {6, 8, 0, 0}, {7, 8, 1, 1},
+    };
+    AbiFix f;
+    AbiArg got;
+    AbiBudget b;
+    Type *aligned, *ordinary;
+    u32 i;
+
+    abi_open(&f,
+             "struct Q { _Alignas(16) long a; long b; };\n"
+             "struct P { long a; long b; };\n",
+             CGF_TARGET_ARM64_LINUX);
+    aligned = tag_type(&f, "Q");
+    ordinary = tag_type(&f, "P");
+
+    /* Register starts 0/1/2 and the 5/6/7 exhaustion edge pin both the
+     * even-NGRN adjustment and its transition to whole-argument stacking. */
+    for (i = 0; i < sizeof(boundaries) / sizeof(boundaries[0]); i++) {
+        abi_classify_arg(&f.lo, aligned, &got);
+        abi_budget_init(&f.lo, &b, NULL);
+        b.gp = boundaries[i].start;
+        abi_arg_place(&f.lo, &got, &b, false);
+        T_ASSERT_EQ_INT(t, (int)b.gp, (int)boundaries[i].end);
+        T_ASSERT_EQ_INT(t, (int)(got.kind == ABI_ARG_STACK),
+                        boundaries[i].stacked);
+        T_ASSERT_EQ_INT(t, (int)got.even_gp, boundaries[i].padded);
+    }
+
+    /* Eight-byte alignment never skips a register. */
+    abi_classify_arg(&f.lo, ordinary, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    b.gp = 1;
+    abi_arg_place(&f.lo, &got, &b, false);
+    T_ASSERT_EQ_INT(t, (int)b.gp, 3);
+    T_ASSERT_EQ_INT(t, (int)got.even_gp, 0);
+    abi_close(&f);
+
+    /* Apple arm64 deliberately removed the even-register rule. */
+    abi_open(&f, "struct Q { _Alignas(16) long a; long b; };\n",
+             CGF_TARGET_ARM64_MACOS);
+    aligned = tag_type(&f, "Q");
+    abi_classify_arg(&f.lo, aligned, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    b.gp = 1;
+    abi_arg_place(&f.lo, &got, &b, false);
+    T_ASSERT_EQ_INT(t, (int)b.gp, 3);
+    T_ASSERT_EQ_INT(t, (int)got.even_gp, 0);
+    abi_close(&f);
+}
+
 /* ABI-004: what ANONYMITY changes on Apple, and what it does not.
  *
  * Every row here was measured against clang targeting arm64-apple-macos --

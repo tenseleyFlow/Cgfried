@@ -1172,6 +1172,21 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
         offlv.is_signed = true;
         off = lower_load(lo, offlv);
 
+        if (lo->sema->target.kind == CGF_TARGET_ARM64_LINUX && is_agg &&
+            plan.kind == ABI_ARG_EIGHTBYTES && plan.align >= 16 && !fp_path) {
+            /* IR-C-09: __gr_offs is a negative byte offset. Adding 15 and
+             * masking by -16 advances an x1 position to x2 before both the
+             * fit test and save-area address calculation. Apple has a
+             * pointer cursor and deliberately does not use this path. */
+            ValueId up = ir_build2(&lo->b, IR_IADD, IRT_I32, off,
+                                   ir_op_iconst(IRT_I32, 15));
+            ValueId aligned =
+                ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, up),
+                          ir_op_iconst(IRT_I32, -16));
+
+            off = ir_op_value(lo->fn, aligned);
+        }
+
         below = ir_build_icmp(&lo->b, ICMP_SLT, off, ir_op_iconst(IRT_I32, 0));
         ir_build_condbr(&lo->b, ir_op_value(lo->fn, below), cross, NULL, 0,
                         stack, NULL, 0);
@@ -2055,6 +2070,8 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
         args->data[args->len++] = value;
         break;
     }
+    if (plan.even_gp && !stacked && first_arg < args->len)
+        args->data[first_arg].b |= IR_ABI_EVEN_GPR;
     if (flags || stacked)
         for (; first_arg < args->len; first_arg++)
             args->data[first_arg].argflags |=

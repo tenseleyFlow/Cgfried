@@ -1028,6 +1028,10 @@ static void lower_function(Lower *lo, AstNode *def)
             u32 k;
 
             for (k = 0; k < a->n; k++) {
+                if (k == 0 && a->even_gp && !stacked) {
+                    pannots[nir_params] |= IR_ABI_EVEN_GPR;
+                    any_annot = true;
+                }
                 /* A stacked aggregate's leaves must ALL be marked, or the
                  * callee reads the first few out of registers the caller
                  * never wrote. */

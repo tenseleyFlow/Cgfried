@@ -2224,6 +2224,14 @@ static void bind_params(Isel *is, const IrFunc *ir)
         A64Reg dst = is->vals[ir->param_vals[i].v].reg;
         u8 phys = A64_REG_NONE;
 
+        if (!apple && ir->param_annots &&
+            ir_abi_even_gpr(ir->param_annots[i])) {
+            /* IR-C-09: this is the first leaf of one naturally
+             * 16-byte-aligned Linux composite. The whole-type lowering pass
+             * preserved C.10's otherwise-lost even-NGRN boundary for us. */
+            ngrn = (ngrn + 1u) & ~1u;
+        }
+
         if (i == 0 && hidden_ret && ir->abi_ret != IR_ABIRET_SRET) {
             /* Pair: nothing arrives. The callee still needs somewhere to
              * build the value, so it allocates that somewhere itself; IR_RET
