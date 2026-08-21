@@ -33,6 +33,7 @@ IR-H-07	ir-h-07.cgfir	OPEN	global relocation offset wraps the verifier bounds ch
 IR-H-08	ir-h-08.c	OPEN	symbolic indirect calls fail optimized IR round-trip
 IR-C-09	ir-c-09.c	OPEN	16-byte-aligned Linux AAPCS64 composites ignore the even-register rule
 IR-C-10	ir-c-10.c	OPEN	stacked 16-byte-aligned composites lose AAPCS64 stack alignment
+IR-C-11	ir-c-11.cgfir	OPEN	under-aligned atomic scalar accesses pass IR verification
 OPT-H-01	opt-h-01.c	OPEN	pointer self-increment makes the alias solver diverge
 OPT-H-02	opt-h-02.c	OPEN	descending loop fusion reverses dependence direction
 OPT-H-03	opt-h-03.c	OPEN	loop unrolling loses a live latch block parameter

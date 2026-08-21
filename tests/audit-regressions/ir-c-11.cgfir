@@ -1,0 +1,27 @@
+// XFAIL(audit): IR-C-11 under-aligned atomic scalar accesses pass IR verification
+// Every seq_cst scalar access must carry its type's natural alignment. The
+// x86 and ARM backends otherwise rely on indivisible naturally aligned machine
+// accesses even though the verifier accepts these weaker contracts.
+func f32 @load_f32(ptr %p) {
+entry():
+    %v = load f32, %p, align 1, seq_cst
+    ret f32 %v
+}
+
+func void @store_f64(ptr %p, f64 %v) {
+entry():
+    store f64 %v, %p, align 1, seq_cst
+    ret
+}
+
+func i64 @load_i64(ptr %p) {
+entry():
+    %v = load i64, %p, align 1, seq_cst
+    ret i64 %v
+}
+
+func void @store_i32(ptr %p, i32 %v) {
+entry():
+    store i32 %v, %p, align 2, seq_cst
+    ret
+}

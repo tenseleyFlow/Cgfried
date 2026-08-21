@@ -479,20 +479,23 @@ probe()
         fi
         ;;
     IR-C-01)
-        asm="$WORK/$id.s"
-        run_cgf "$id" -O0 -S "$source" -o "$asm"
+        ir="$WORK/$id.stdout"
+        run_cgf "$id" -O0 -emit-ir "$source"
         status=$?
         if [ "$status" -ne 0 ]; then
             fail "$id" "valid long-double aggregate fixture was rejected"
-        # Every one of the three calls sets up a hidden return pointer today.
-        # The psABI returns all three in st0, so a correct compiler emits none.
-        elif [ "$(grep -c 'movq[[:space:]]*%rax,[[:space:]]*%rdi' "$asm")" \
-               -eq 3 ]; then
-            xfail "$id" "$title"
-        elif ! grep -q '%rdi' "$asm"; then
+        elif grep -q 'func f80 @bare(f80' "$ir" &&
+             grep -q 'call f80 @ret_struct()' "$ir" &&
+             grep -q 'call f80 @ret_union()' "$ir" &&
+             grep -q 'call f80 @ret_array()' "$ir"; then
             xpass "$id" "$title"
+        elif grep -q 'func f80 @bare(f80' "$ir" &&
+             grep -q 'call void @ret_struct(ptr .*abi(sret)' "$ir" &&
+             grep -q 'call void @ret_union(ptr .*abi(sret)' "$ir" &&
+             grep -q 'call void @ret_array(ptr .*abi(sret)' "$ir"; then
+            xfail "$id" "$title"
         else
-            fail "$id" "unexpected long-double aggregate return sequence"
+            fail "$id" "unexpected long-double aggregate IR contract"
         fi
         ;;
     IR-L-02)
@@ -783,6 +786,27 @@ probe()
             xpass "$id" "$title"
         else
             fail "$id" "unexpected Linux or Apple stack aggregate placement"
+        fi
+        ;;
+    IR-C-11)
+        run_cgf "$id.x86" --target=x86_64-linux-gnu -emit-ir "$source"
+        x86_status=$?
+        run_cgf "$id.arm" --target=arm64-linux -emit-ir "$source"
+        arm_status=$?
+        if [ "$x86_status" -eq 0 ] && [ "$arm_status" -eq 0 ]; then
+            xfail "$id" "$title"
+        elif [ "$x86_status" -eq 1 ] && [ "$arm_status" -eq 1 ] &&
+             grep -q "'load' of f32.*alignment 1" \
+                 "$WORK/$id.x86.stderr" &&
+             grep -q "'store' of f64.*alignment 1" \
+                 "$WORK/$id.x86.stderr" &&
+             grep -q "'load' of i64.*alignment 1" \
+                 "$WORK/$id.arm.stderr" &&
+             grep -q "'store' of i32.*alignment 2" \
+                 "$WORK/$id.arm.stderr"; then
+            xpass "$id" "$title"
+        else
+            fail "$id" "unexpected atomic-alignment verifier result"
         fi
         ;;
     OPT-H-01)
