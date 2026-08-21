@@ -681,6 +681,145 @@ void test_alias_load_and_store_constraints(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_alias_self_updates_widen_content_offsets(TestCtx *t)
+{
+    u32 decrement;
+
+    for (decrement = 0; decrement < 2; decrement++) {
+        AliasFix f;
+        IrModule *m;
+        AliasCtx *c;
+        IrInst *load;
+        IrOperand loaded, object;
+        MemLoc loaded_loc, object_loc;
+        char source[1024];
+        i64 lo = 0, hi = 0;
+
+        alias_fix_init(&f);
+        (void)snprintf(source, sizeof(source),
+                       "global @object size 16 align 8 external\n"
+                       "global @cursor size 8 align 8 external\n"
+                       "func ptr @f() {\n"
+                       "entry():\n"
+                       "    store ptr @object, @cursor, align 8, etype ptr\n"
+                       "    %%old = load ptr, @cursor, align 8, etype ptr\n"
+                       "    %%next = ptradd %%old, %s4\n"
+                       "    store ptr %%next, @cursor, align 8, etype ptr\n"
+                       "    ret ptr %%old\n"
+                       "}\n",
+                       decrement ? "-" : "");
+        m = alias_parse(&f, source);
+        T_ASSERT(t, m != NULL);
+        if (!m) {
+            arena_free_all(&f.arena);
+            continue;
+        }
+        c = alias_ctx(m, false);
+        load = alias_find(&m->funcs[0], IR_LOAD, 0);
+        loaded = ir_op_value(&m->funcs[0], load->result);
+        object = ir_op_symbol(IRT_PTR, ir_sym(m, "object"), 0);
+        T_ASSERT(t, pts_equal(alias_points_to(c, loaded),
+                              alias_points_to(c, object)));
+        T_ASSERT(t, !alias_offset_range(c, loaded, &lo, &hi));
+        loaded_loc = alias_memloc(c, loaded, 4, ETYPE_I32);
+        object_loc = alias_memloc(c, object, 4, ETYPE_I32);
+        T_ASSERT_EQ_INT(t, alias_query(c, loaded_loc, object_loc), ALIAS_MAY);
+        alias_free(c);
+        arena_free_all(&f.arena);
+    }
+}
+
+void test_alias_bounded_nonself_content_cycle_keeps_range(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *first_load, *second_load;
+    i64 lo = 0, hi = 0;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %object = alloca 32, align 8\n"
+                        "    %p4 = ptradd %object, 4\n"
+                        "    %p8 = ptradd %object, 8\n"
+                        "    %left = alloca 8, align 8\n"
+                        "    %right = alloca 8, align 8\n"
+                        "    store ptr %p4, %left, align 8, etype ptr\n"
+                        "    store ptr %p8, %left, align 8, etype ptr\n"
+                        "    %x = load ptr, %left, align 8, etype ptr\n"
+                        "    store ptr %x, %right, align 8, etype ptr\n"
+                        "    %y = load ptr, %right, align 8, etype ptr\n"
+                        "    store ptr %y, %left, align 8, etype ptr\n"
+                        "    ret ptr %y\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    first_load = alias_find(&m->funcs[0], IR_LOAD, 0);
+    second_load = alias_find(&m->funcs[0], IR_LOAD, 1);
+    T_ASSERT(
+        t, alias_offset_range(c, ir_op_value(&m->funcs[0], first_load->result),
+                              &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 4);
+    T_ASSERT_EQ_INT(t, hi, 8);
+    T_ASSERT(
+        t, alias_offset_range(c, ir_op_value(&m->funcs[0], second_load->result),
+                              &lo, &hi));
+    T_ASSERT_EQ_INT(t, lo, 4);
+    T_ASSERT_EQ_INT(t, hi, 8);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
+void test_alias_unbounded_nonself_content_cycle_widens(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrInst *object, *second_load;
+    IrOperand loaded, base;
+    i64 lo = 0, hi = 0;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "func ptr @f() {\n"
+                        "entry():\n"
+                        "    %object = alloca 32, align 8\n"
+                        "    %left = alloca 8, align 8\n"
+                        "    %right = alloca 8, align 8\n"
+                        "    store ptr %object, %left, align 8, etype ptr\n"
+                        "    %x = load ptr, %left, align 8, etype ptr\n"
+                        "    %x4 = ptradd %x, 4\n"
+                        "    store ptr %x4, %right, align 8, etype ptr\n"
+                        "    %y = load ptr, %right, align 8, etype ptr\n"
+                        "    %y4 = ptradd %y, 4\n"
+                        "    store ptr %y4, %left, align 8, etype ptr\n"
+                        "    ret ptr %y\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    object = alias_find(&m->funcs[0], IR_ALLOCA, 0);
+    second_load = alias_find(&m->funcs[0], IR_LOAD, 1);
+    loaded = ir_op_value(&m->funcs[0], second_load->result);
+    base = ir_op_value(&m->funcs[0], object->result);
+    T_ASSERT(t,
+             pts_equal(alias_points_to(c, loaded), alias_points_to(c, base)));
+    T_ASSERT(t, !alias_offset_range(c, loaded, &lo, &hi));
+    T_ASSERT_EQ_INT(t,
+                    alias_query(c, alias_memloc(c, loaded, 4, ETYPE_I32),
+                                alias_memloc(c, base, 4, ETYPE_I32)),
+                    ALIAS_MAY);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
 void test_alias_ptradd_constant_and_unknown_offset_constraints(TestCtx *t)
 {
     AliasFix f;

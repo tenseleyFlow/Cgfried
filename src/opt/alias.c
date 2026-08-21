@@ -50,6 +50,8 @@ struct AliasCtx {
     u32 nalloc_sites;
     u32 *param_obj;         /* parameter ordinal -> provenance object id + 1 */
     DepRangeCtx *range_ctx; /* built lazily, shared by every ptradd query */
+    bool pts_changed;       /* solver bitsets grew in the current iteration */
+    bool widen_offsets;     /* post-fixed-point interval widening phase */
 };
 
 static void *zalloc(size_t n, size_t size)
@@ -113,6 +115,22 @@ static bool bits_or(u64 *dst, const u64 *src, u32 nwords)
         dst[i] |= src[i];
         changed |= old != dst[i];
     }
+    return changed;
+}
+
+static bool solver_bits_or(AliasCtx *c, u64 *dst, const u64 *src)
+{
+    bool changed = bits_or(dst, src, c->nwords);
+
+    c->pts_changed |= changed;
+    return changed;
+}
+
+static bool solver_bit_add(AliasCtx *c, u64 *bits, u32 id)
+{
+    bool changed = bit_add_changed(bits, id);
+
+    c->pts_changed |= changed;
     return changed;
 }
 
@@ -182,7 +200,7 @@ static const u64 *operand_pts(const AliasCtx *c, IrOperand o)
 
 static bool union_operand(AliasCtx *c, u64 *dst, IrOperand o)
 {
-    return bits_or(dst, operand_pts(c, o), c->nwords);
+    return solver_bits_or(c, dst, operand_pts(c, o));
 }
 
 static i64 sat_add(i64 a, i64 b, bool *overflow)
@@ -198,7 +216,7 @@ static i64 sat_add(i64 a, i64 b, bool *overflow)
     return a + b;
 }
 
-static bool off_join(OffRange *dst, OffRange src)
+static bool off_join(AliasCtx *c, OffRange *dst, OffRange src)
 {
     i64 lo, hi;
 
@@ -212,6 +230,18 @@ static bool off_join(OffRange *dst, OffRange src)
     hi = dst->hi > src.hi ? dst->hi : src.hi;
     if (lo == dst->lo && hi == dst->hi)
         return false;
+    /* OPT-H-01: offset hulls form an infinite-height interval lattice.
+     * Preserve exact/range precision while points-to sets settle and for one
+     * complete acyclic propagation depth afterwards.  If an endpoint still
+     * moves in the widening phase, make only that direction unbounded.  This
+     * is the standard interval widening: it soundly closes recurrences such
+     * as p = p + 4 without turning a bounded opposite endpoint unknown. */
+    if (c->widen_offsets) {
+        if (lo < dst->lo)
+            lo = INT64_MIN;
+        if (hi > dst->hi)
+            hi = INT64_MAX;
+    }
     dst->lo = lo;
     dst->hi = hi;
     return true;
@@ -556,7 +586,7 @@ static bool propagate_edges(AliasCtx *c)
                         continue;
                     changed |= union_operand(c, vrow(c, p.v), e->args[ai]);
                     changed |=
-                        off_join(&c->voff[p.v], operand_off(c, e->args[ai]));
+                        off_join(c, &c->voff[p.v], operand_off(c, e->args[ai]));
                 }
             }
     }
@@ -574,9 +604,9 @@ static bool propagate_store(AliasCtx *c, IrOperand val, IrOperand ptr)
     for (obj = 0; obj < c->nobj; obj++) {
         if (!unknown_target && !bits_has(targets, obj))
             continue;
-        changed |= bits_or(mrow(c, obj), values, c->nwords);
-        changed |= bits_or(stored_row(c, obj), values, c->nwords);
-        changed |= off_join(&c->moff[obj], operand_off(c, val));
+        changed |= solver_bits_or(c, mrow(c, obj), values);
+        changed |= solver_bits_or(c, stored_row(c, obj), values);
+        changed |= off_join(c, &c->moff[obj], operand_off(c, val));
     }
     return changed;
 }
@@ -590,14 +620,14 @@ static bool propagate_load(AliasCtx *c, ValueId result, IrOperand ptr)
     u32 obj;
 
     if (unknown_target) {
-        changed |= bits_or(dst, c->unknown_pts, c->nwords);
-        changed |= off_join(&c->voff[result.v],
+        changed |= solver_bits_or(c, dst, c->unknown_pts);
+        changed |= off_join(c, &c->voff[result.v],
                             (OffRange){true, INT64_MIN, INT64_MAX});
     }
     for (obj = 0; obj < c->nobj; obj++) {
         if (unknown_target || bits_has(targets, obj)) {
-            changed |= bits_or(dst, mrow(c, obj), c->nwords);
-            changed |= off_join(&c->voff[result.v], c->moff[obj]);
+            changed |= solver_bits_or(c, dst, mrow(c, obj));
+            changed |= off_join(c, &c->voff[result.v], c->moff[obj]);
         }
     }
     return changed;
@@ -647,9 +677,9 @@ static bool poison_call_memory(AliasCtx *c, const IrInst *call,
     }
     for (obj = 0; obj < c->nobj; obj++)
         if (bits_has(reachable, obj) && !bits_has(exact_publish, obj)) {
-            changed |= bits_or(mrow(c, obj), c->unknown_pts, c->nwords);
-            changed |=
-                off_join(&c->moff[obj], (OffRange){true, INT64_MIN, INT64_MAX});
+            changed |= solver_bits_or(c, mrow(c, obj), c->unknown_pts);
+            changed |= off_join(c, &c->moff[obj],
+                                (OffRange){true, INT64_MIN, INT64_MAX});
         }
     free(exact_publish);
     free(reachable);
@@ -668,7 +698,7 @@ static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
             if (in->op == IR_PTRADD && in->result.v && in->nops == 2) {
                 changed |= union_operand(c, vrow(c, in->result.v), in->ops[0]);
                 changed |= off_join(
-                    &c->voff[in->result.v],
+                    c, &c->voff[in->result.v],
                     shifted_off(c, operand_off(c, in->ops[0]), in->ops[1]));
             } else if (in->op == IR_BITCAST && in->result.v && in->nops == 1 &&
                        ((in->type == IRT_PTR && in->ops[0].type == IRT_I64) ||
@@ -677,21 +707,21 @@ static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
                     !bits_empty(operand_pts(c, in->ops[0]), c->nwords)) {
                     changed |=
                         union_operand(c, vrow(c, in->result.v), in->ops[0]);
-                    changed |= off_join(&c->voff[in->result.v],
+                    changed |= off_join(c, &c->voff[in->result.v],
                                         operand_off(c, in->ops[0]));
                 } else {
-                    changed |= bits_or(vrow(c, in->result.v), c->unknown_pts,
-                                       c->nwords);
-                    changed |= off_join(&c->voff[in->result.v],
+                    changed |= solver_bits_or(c, vrow(c, in->result.v),
+                                              c->unknown_pts);
+                    changed |= off_join(c, &c->voff[in->result.v],
                                         (OffRange){true, INT64_MIN, INT64_MAX});
                 }
             } else if (in->op == IR_SELECT && in->result.v &&
                        in->type == IRT_PTR && in->nops == 3) {
                 changed |= union_operand(c, vrow(c, in->result.v), in->ops[1]);
                 changed |= union_operand(c, vrow(c, in->result.v), in->ops[2]);
-                changed |= off_join(&c->voff[in->result.v],
+                changed |= off_join(c, &c->voff[in->result.v],
                                     operand_off(c, in->ops[1]));
-                changed |= off_join(&c->voff[in->result.v],
+                changed |= off_join(c, &c->voff[in->result.v],
                                     operand_off(c, in->ops[2]));
             } else if (in->op == IR_LOAD && in->result.v &&
                        in->type == IRT_PTR && in->nops == 1) {
@@ -710,11 +740,11 @@ static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
                 for (obj = 0; obj < c->nobj; obj++)
                     if (unknown_target || bits_has(targets, obj)) {
                         changed |=
-                            bits_or(mrow(c, obj), c->unknown_pts, c->nwords);
-                        changed |= bits_or(stored_row(c, obj), c->unknown_pts,
-                                           c->nwords);
+                            solver_bits_or(c, mrow(c, obj), c->unknown_pts);
+                        changed |= solver_bits_or(c, stored_row(c, obj),
+                                                  c->unknown_pts);
                         changed |=
-                            off_join(&c->moff[obj],
+                            off_join(c, &c->moff[obj],
                                      (OffRange){true, INT64_MIN, INT64_MAX});
                     }
             } else if (in->op == IR_CALL) {
@@ -739,14 +769,14 @@ static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
                         seeded = true;
                         arg = in->ops[first + ret->arg];
                         changed |= union_operand(c, vrow(c, in->result.v), arg);
-                        changed |= off_join(&c->voff[in->result.v],
+                        changed |= off_join(c, &c->voff[in->result.v],
                                             operand_off(c, arg));
                     }
                     if (!seeded && !(site && site->owns_result)) {
-                        changed |= bits_or(vrow(c, in->result.v),
-                                           c->unknown_pts, c->nwords);
+                        changed |= solver_bits_or(c, vrow(c, in->result.v),
+                                                  c->unknown_pts);
                         changed |=
-                            off_join(&c->voff[in->result.v],
+                            off_join(c, &c->voff[in->result.v],
                                      (OffRange){true, INT64_MIN, INT64_MAX});
                     }
                 }
@@ -759,11 +789,12 @@ static bool propagate_insts(AliasCtx *c, const AliasConfig *cfg)
 
                     for (obj = 0; obj < c->nobj; obj++)
                         if (unknown_target || bits_has(targets, obj)) {
-                            changed |= bit_add_changed(mrow(c, obj), site->obj);
                             changed |=
-                                bit_add_changed(stored_row(c, obj), site->obj);
-                            changed |=
-                                off_join(&c->moff[obj], (OffRange){true, 0, 0});
+                                solver_bit_add(c, mrow(c, obj), site->obj);
+                            changed |= solver_bit_add(c, stored_row(c, obj),
+                                                      site->obj);
+                            changed |= off_join(c, &c->moff[obj],
+                                                (OffRange){true, 0, 0});
                         }
                 }
                 /* No mod/ref summaries yet: globals and objects reachable
@@ -840,7 +871,7 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
 {
     AliasCtx *c;
     u32 nalloca, nrestrict, nsyms;
-    u32 iteration, cap;
+    u32 iteration, cap, offset_depth, stable_pts_iterations = 0;
 
     if (!m || !cfg || !cfg->func)
         CGF_ICE("alias_build: module and function are required");
@@ -878,14 +909,30 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     c->param_obj = zalloc(c->f->nparams, sizeof(u32));
     init_roots(c, cfg);
 
-    /* Every constraint is monotone over finite bitsets/range hulls.  The cap
-     * is a corruption guard, not a precision bailout: one new bit or one
-     * range-end widening must occur on each changing iteration. */
+    /* Points-to constraints are a finite bit lattice. Offset hulls are not:
+     * a positive cycle can grow 0,4,8,... forever. Wait until the points-to
+     * fixed point, then allow one full dependency-graph depth for exact and
+     * bounded interval propagation before enabling standard widening. An
+     * acyclic offset fact has at most nvals+nobj nodes to cross; a genuinely
+     * expanding cycle becomes one-sided or fully unbounded after widening.
+     *
+     * The cap remains a corruption guard, not a fallback. Widening makes the
+     * complete product lattice finite, so reaching it still means a solver
+     * invariant is broken. */
+    offset_depth = c->f->nvals + c->nobj + 1;
     cap = (c->f->nvals + c->nobj + 1) * (c->nobj + 2) * 2;
     for (iteration = 0; iteration < cap; iteration++) {
-        bool changed = propagate_edges(c);
+        bool changed;
+
+        c->pts_changed = false;
+        c->widen_offsets = stable_pts_iterations >= offset_depth;
+        changed = propagate_edges(c);
 
         changed |= propagate_insts(c, cfg);
+        if (c->pts_changed)
+            stable_pts_iterations = 0;
+        else if (stable_pts_iterations < offset_depth)
+            stable_pts_iterations++;
         if (!changed)
             break;
     }

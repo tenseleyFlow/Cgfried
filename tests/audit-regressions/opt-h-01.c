@@ -1,4 +1,4 @@
-// XFAIL(audit): OPT-H-01 pointer self-increment makes the alias solver diverge
+// RESOLVED(audit): OPT-H-01 pointer self-increment makes the alias solver diverge
 // This is valid C: after the assignment, postfix ++ produces the one-past
 // pointer value and returns the original pointer without dereferencing either.
 int object, *cursor;
