@@ -784,28 +784,33 @@ static bool decl_group_has_vla(const AstNode *d)
     return false;
 }
 
-static bool compound_has_vla(const AstNode *s)
-{
-    u32 i;
+/* Per-label VLA positions are kept out of lower.h deliberately: they are an
+ * implementation detail shared only by this pre-pass and stmt.c's goto
+ * emission. Keep the matching definition there byte-for-byte compatible. */
+typedef struct VlaLabelState {
+    const AstNode *compound;
+    const AstNode *checkpoint_decl;
+    ValueId token;
+    struct VlaLabelState *next;
+} VlaLabelState;
 
-    for (i = 0; i < s->nitems; i++) {
-        const AstNode *it = s->items[i];
+typedef struct VlaPosition {
+    const AstNode *compound;
+    const AstNode *next_decl;
+    struct VlaPosition *prev;
+} VlaPosition;
 
-        if (it && it->kind == AST_STMT_DECL && decl_group_has_vla(it->lhs))
-            return true;
-    }
-    return false;
-}
-
-/* The label pre-pass also records, per label, TWO enclosing compounds, and
+/* The label pre-pass also records TWO kinds of enclosing state per label, and
  * the difference between them is load-bearing:
  *
- *   label_vla    the innermost VLA-BEARING compound. A goto's stack restore
- *                walks down to exactly that one (sema's VM jump rules already
- *                proved the label's chain is a subset of every goto's chain).
- *   label_scope  the whole CHAIN of enclosing compounds, VLA or not. A goto's
- *                CLEANUP calls walk down to the innermost compound common to
- *                that chain and the goto's own scope stack.
+ *   label_vla    one checkpoint per enclosing compound whose next direct
+ *                declaration is variably modified. The declaration fills in
+ *                its stacksave token when it lowers; a backward goto restores
+ *                the outermost applicable token.
+ *   label_scope  the whole CHAIN of enclosing lexical scopes, VLA or not. A
+ *                goto's CLEANUP calls walk down to the innermost scope common
+ *                to that chain and the goto's own scope stack. A for-init
+ *                declaration owns a scope too, despite having no compound.
  *
  * Neither shortcut works for cleanups, and each failed differently:
  *
@@ -820,12 +825,11 @@ static bool compound_has_vla(const AstNode *s)
  * goto and again when its scope really ends. Both were caught by executing a
  * fixture against gcc rather than by reading this code.
  *
- * THE VLA SIBLING NEEDS NONE OF THIS, and the reason is not that it is
- * simpler: 6.8.6.1p1 FORBIDS jumping into the scope of a variably-modified
- * declaration, and sema enforces it, so the label's VLA compound is always on
- * the goto's stack. `cleanup` has no such rule — gcc compiles the jump — so
- * the general answer is the only correct one here. */
-static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain,
+ * IR-C-04: compound-only VLA metadata loses the declaration boundary. A
+ * label before a VLA and a label after it inhabit the same compound but need
+ * different restore states; multiple VLAs need one boundary apiece. Reverse
+ * source-order collection records the first declaration after each label. */
+static void collect_labels(Lower *lo, AstNode *s, VlaPosition *vla_positions,
                            LabelScope *scope_chain)
 {
     u32 i;
@@ -836,39 +840,71 @@ static void collect_labels(Lower *lo, AstNode *s, const AstNode *vla_chain,
     case AST_STMT_LABEL: {
         char buf[128];
         BlockId b;
+        VlaLabelState *head = NULL;
+        VlaPosition *pos;
+
+        for (pos = vla_positions; pos; pos = pos->prev)
+            if (pos->next_decl) {
+                VlaLabelState *state = arena_alloc(
+                    lo->arena, sizeof(VlaLabelState), _Alignof(VlaLabelState));
+
+                state->compound = pos->compound;
+                state->checkpoint_decl = pos->next_decl;
+                state->token = VALUE_INVALID;
+                state->next = head;
+                head = state;
+            }
 
         snprintf(buf, sizeof(buf), "L.%s", s->name ? s->name : "?");
         b = ir_block_new(lo->m, lo->fn, arena_strdup(lo->arena, buf));
         lower_u32map_put(lo, &lo->labels, s->name, strlen(s->name), b.v);
-        strmap_put(&lo->label_vla, s->name, strlen(s->name), (void *)vla_chain);
+        strmap_put(&lo->label_vla, s->name, strlen(s->name), head);
         strmap_put(&lo->label_scope, s->name, strlen(s->name),
                    (void *)scope_chain);
-        collect_labels(lo, s->body, vla_chain, scope_chain);
+        collect_labels(lo, s->body, vla_positions, scope_chain);
         return;
     }
     case AST_STMT_COMPOUND: {
-        const AstNode *inner = compound_has_vla(s) ? s : vla_chain;
+        LabelScope *here =
+            arena_alloc(lo->arena, sizeof(LabelScope), _Alignof(LabelScope));
+        const AstNode *next_vla = NULL;
+
+        here->compound = s;
+        here->prev = scope_chain;
+        for (i = s->nitems; i-- > 0;) {
+            VlaPosition pos;
+            AstNode *item = s->items[i];
+
+            pos.compound = s;
+            pos.next_decl = next_vla;
+            pos.prev = vla_positions;
+            collect_labels(lo, item, &pos, here);
+            if (item && item->kind == AST_STMT_DECL &&
+                decl_group_has_vla(item->lhs))
+                next_vla = item;
+        }
+        return;
+    }
+    case AST_STMT_IF:
+        collect_labels(lo, s->body, vla_positions, scope_chain);
+        collect_labels(lo, s->rhs, vla_positions, scope_chain);
+        return;
+    case AST_STMT_SWITCH:
+    case AST_STMT_WHILE:
+    case AST_STMT_DO:
+    case AST_STMT_CASE:
+    case AST_STMT_DEFAULT:
+        collect_labels(lo, s->body, vla_positions, scope_chain);
+        return;
+    case AST_STMT_FOR: {
         LabelScope *here =
             arena_alloc(lo->arena, sizeof(LabelScope), _Alignof(LabelScope));
 
         here->compound = s;
         here->prev = scope_chain;
-        for (i = 0; i < s->nitems; i++)
-            collect_labels(lo, s->items[i], inner, here);
+        collect_labels(lo, s->body, vla_positions, here);
         return;
     }
-    case AST_STMT_IF:
-        collect_labels(lo, s->body, vla_chain, scope_chain);
-        collect_labels(lo, s->rhs, vla_chain, scope_chain);
-        return;
-    case AST_STMT_SWITCH:
-    case AST_STMT_WHILE:
-    case AST_STMT_DO:
-    case AST_STMT_FOR:
-    case AST_STMT_CASE:
-    case AST_STMT_DEFAULT:
-        collect_labels(lo, s->body, vla_chain, scope_chain);
-        return;
     default:
         return;
     }

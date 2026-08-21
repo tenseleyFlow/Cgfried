@@ -1,4 +1,4 @@
-// XFAIL(audit): IR-C-04 backward goto before a VLA declaration leaks stack space
+// RESOLVED(audit): IR-C-04 backward goto before a VLA declaration leaks stack space
 // The label is outside the VLA object's scope because that scope begins after
 // its declarator. Each trip through the declaration therefore creates a new
 // object, and the backward edge must first release the previous allocation.

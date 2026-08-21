@@ -82,6 +82,14 @@ static void ensure_open_block(Lower *lo, const char *why)
 /* --- VLA scope machinery (Sprint 20) ---------------------------------------
  */
 
+/* Matching private layout in lower.c; label_vla stores these as void*. */
+typedef struct VlaLabelState {
+    const AstNode *compound;
+    const AstNode *checkpoint_decl;
+    ValueId token;
+    struct VlaLabelState *next;
+} VlaLabelState;
+
 static bool type_is_vla_chain(const Type *t)
 {
     for (; t; t = t->base)
@@ -130,23 +138,66 @@ static void vla_restore_until(Lower *lo, LexScope *stop)
         ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, outer));
 }
 
-/* goto: restore down to the label's innermost VLA compound (sema already
- * proved the label's chain is a subset of ours). */
+/* A goto restores the outermost scope it leaves, or the earliest VLA
+ * checkpoint after the target label in a scope it keeps. */
 static void vla_restore_for_goto(Lower *lo, const char *label)
 {
     void *hit = strmap_get(&lo->label_vla, label, strlen(label));
-    const AstNode *target = hit; /* innermost VLA compound at the label */
+    const VlaLabelState *states = hit;
+    void *scope_hit = strmap_get(&lo->label_scope, label, strlen(label));
+    const LabelScope *target = scope_hit;
     LexScope *sc;
     ValueId outer = VALUE_INVALID;
 
     for (sc = lo->scopes; sc; sc = sc->prev) {
-        if (sc->compound == target)
-            break;
-        if (sc->token.v)
+        const LabelScope *t;
+        const VlaLabelState *state;
+        bool at_target_scope = false;
+
+        for (t = target; t; t = t->prev)
+            if (t->compound == sc->compound) {
+                at_target_scope = true;
+                break;
+            }
+        if (!at_target_scope && sc->token.v) {
             outer = sc->token;
+            continue;
+        }
+        for (state = states; state; state = state->next)
+            if (state->compound == sc->compound && state->token.v) {
+                outer = state->token;
+                break;
+            }
     }
     if (outer.v)
         ir_build_stackrestore(&lo->b, ir_op_value(lo->fn, outer));
+}
+
+/* Fill every label boundary whose first following VLA is this declaration.
+ * One stacksave is shared by all such labels and becomes the lexical scope's
+ * normal-exit token when it is that scope's first VLA. */
+static void vla_checkpoint_decl(Lower *lo, const AstNode *decl_stmt)
+{
+    StrmapIter it = strmap_iter(&lo->label_vla);
+    const char *key;
+    size_t key_len;
+    void *val;
+    ValueId token = VALUE_INVALID;
+
+    while (strmap_iter_next(&it, &key, &key_len, &val)) {
+        VlaLabelState *state;
+
+        (void)key;
+        (void)key_len;
+        for (state = val; state; state = state->next)
+            if (state->checkpoint_decl == decl_stmt) {
+                if (!token.v)
+                    token = ir_build_stacksave(&lo->b);
+                state->token = token;
+            }
+    }
+    if (token.v && lo->scopes && !lo->scopes->token.v)
+        lo->scopes->token = token;
 }
 
 /* --- cleanup scope machinery ------------------------------------------------
@@ -712,6 +763,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
     }
     case AST_STMT_DECL:
         ensure_open_block(lo, "dead");
+        vla_checkpoint_decl(lo, s);
         lower_local_decl(lo, s->lhs);
         return;
     case AST_STMT_ASM:

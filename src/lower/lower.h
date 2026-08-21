@@ -169,7 +169,7 @@ typedef struct Lower {
     SwitchCtx *switches;
     LexScope *scopes;   /* innermost first */
     Strmap vla_sizes;   /* Type* -> ValueId of the cached byte size */
-    Strmap label_vla;   /* label name -> innermost VLA compound (AST) */
+    Strmap label_vla;   /* label name -> private VlaLabelState chain */
     Strmap label_scope; /* label name -> innermost enclosing compound (AST) */
     ValueId sret;       /* hidden aggregate-return pointer, or 0 */
     const char *fname;

@@ -122,6 +122,40 @@ static int scount(const char *hay, const char *needle)
     return n;
 }
 
+static const char *slast(const char *hay, const char *needle)
+{
+    const char *last = NULL;
+    const char *hit;
+
+    while ((hit = strstr(hay, needle)) != NULL) {
+        last = hit;
+        hay = hit + 1;
+    }
+    return last;
+}
+
+static bool previous_line_has(const char *text, const char *at,
+                              const char *needle)
+{
+    const char *line = at;
+    const char *prev;
+    const char *hit;
+    size_t len;
+
+    while (line > text && line[-1] != '\n')
+        line--;
+    if (line == text)
+        return false;
+    prev = line - 1;
+    while (prev > text && prev[-1] != '\n')
+        prev--;
+    len = (size_t)((line - 1) - prev);
+    if (strlen(needle) > len)
+        return false;
+    hit = strstr(prev, needle);
+    return hit && hit < line - 1;
+}
+
 void test_lower_loop_shapes(TestCtx *t)
 {
     StFix f;
@@ -355,6 +389,120 @@ void test_lower_goto_over_decl(TestCtx *t)
                                 "}\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
     T_ASSERT(t, strstr(stxt(&f), "L.skip") != NULL);
+    st_free(&f);
+}
+
+void test_lower_goto_vla_declaration_boundaries(TestCtx *t)
+{
+    StFix f;
+    const char *before;
+    const char *after;
+
+    /* IR-C-04: a label before a VLA is a stack checkpoint, even when both
+     * are in the same compound. A label after that declaration is not: its
+     * backward edge must retain the still-live VLA. Multiple declarations
+     * therefore require distinct position-sensitive checkpoints. */
+    T_ASSERT(t, run_lower_s(&f, "int f(int n) {\n"
+                                "  int count = 0;\n"
+                                "before:\n"
+                                "  ;\n"
+                                "  int a[n];\n"
+                                "after_a:\n"
+                                "  ;\n"
+                                "  int b[n + 1];\n"
+                                "  a[0] = 1; b[0] = count++;\n"
+                                "  if (count < 2) goto after_a;\n"
+                                "  if (count == 2) goto before;\n"
+                                "  return a[0] + b[0];\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "stacksave"), 2);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "stackrestore"), 2);
+    before = slast(stxt(&f), "br L.before");
+    after = slast(stxt(&f), "br L.after_a");
+    T_ASSERT(t, before != NULL && after != NULL);
+    T_ASSERT(t, before && previous_line_has(stxt(&f), before, "stackrestore"));
+    T_ASSERT(t, after && previous_line_has(stxt(&f), after, "stackrestore"));
+    st_free(&f);
+}
+
+void test_lower_goto_vla_nested_compound(TestCtx *t)
+{
+    StFix f;
+
+    /* The outermost restored checkpoint subsumes every inner dynamic alloca;
+     * loop re-entry must execute both stacksaves again on the next pass. */
+    T_ASSERT(t, run_lower_s(&f, "int f(int n, int again) {\n"
+                                "outer:\n"
+                                "  ;\n"
+                                "  int a[n];\n"
+                                "  {\n"
+                                "    int b[n + 1];\n"
+                                "    if (again) goto outer;\n"
+                                "    return a[0] + b[0];\n"
+                                "  }\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "stacksave"), 2);
+    T_ASSERT(t, strstr(stxt(&f), "stackrestore") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "br L.outer") != NULL);
+    st_free(&f);
+}
+
+void test_lower_goto_vla_forward_and_live_label(TestCtx *t)
+{
+    StFix f;
+    const char *forward;
+    const char *backward;
+
+    /* A forward goto to a checkpoint has no token yet and therefore emits no
+     * restore. Conversely, a backward goto to a label after the declaration
+     * keeps that VLA live and must not restore its scope token. */
+    T_ASSERT(t, run_lower_s(&f, "int f(int n, int skip) {\n"
+                                "  if (skip) goto before;\n"
+                                "before:\n"
+                                "  ;\n"
+                                "  int a[n];\n"
+                                "after:\n"
+                                "  a[0] = skip--;\n"
+                                "  if (skip > 0) goto after;\n"
+                                "  return a[0];\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "stacksave"), 1);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "stackrestore"), 0);
+    forward = strstr(stxt(&f), "br L.before");
+    backward = slast(stxt(&f), "br L.after");
+    T_ASSERT(t, forward != NULL && backward != NULL);
+    T_ASSERT(t,
+             forward && !previous_line_has(stxt(&f), forward, "stackrestore"));
+    T_ASSERT(t, backward &&
+                    !previous_line_has(stxt(&f), backward, "stackrestore"));
+    st_free(&f);
+}
+
+void test_lower_goto_keeps_for_init_vla_live(TestCtx *t)
+{
+    StFix f;
+    const char *backward;
+
+    /* A for-init declaration owns a lexical scope that encloses the body.
+     * Jumping between labels in that body stays inside the scope, so restoring
+     * its VLA token would end the object's lifetime too early. */
+    T_ASSERT(t, run_lower_s(&f, "int f(int n) {\n"
+                                "  for (int a[n], i = 0; i < 2; i++) {\n"
+                                "again:\n"
+                                "    a[0] = i;\n"
+                                "    if (i++ == 0) goto again;\n"
+                                "  }\n"
+                                "  return 0;\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "stacksave"), 1);
+    backward = slast(stxt(&f), "br L.again");
+    T_ASSERT(t, backward != NULL);
+    T_ASSERT(t, backward &&
+                    !previous_line_has(stxt(&f), backward, "stackrestore"));
     st_free(&f);
 }
 
