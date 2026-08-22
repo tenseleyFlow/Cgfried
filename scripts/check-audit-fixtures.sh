@@ -69,6 +69,44 @@ run_cgf_memcap()
         >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
 }
 
+# Classify the three DWARF state changes A64-M-04 requires directly from the
+# emitted FDE when cross binutils are unavailable.  This is not a byte-presence
+# shortcut: all three required opcodes must occur inside the FDE.  Return 0 for
+# the complete repair, 1 for the original omission, and 2 for a partial stream.
+a64_unwind_text_state()
+{
+    awk '
+        /^[.]Lfde0:/ { in_fde = 1; next }
+        /^[.]Lfde0_end:/ { in_fde = 0 }
+        in_fde && /[.]cfi_offset[[:space:]]+x?19/ { offset = 1 }
+        in_fde && /[.]cfi_restore[[:space:]]+x?19/ { restore = 1 }
+        in_fde && /[.]cfi_def_cfa_offset[[:space:]]+0/ { cfa0 = 1 }
+        in_fde && match($0, /[.]byte[[:space:]]+/) {
+            bytes = substr($0, RSTART + RLENGTH)
+            sub(/[[:space:]]*#.*/, "", bytes)
+            n = split(bytes, value, ",")
+            for (i = 1; i <= n; i++) {
+                gsub(/[[:space:]]/, "", value[i])
+                byte = value[i] + 0
+                if (byte == 147)
+                    offset = 1
+                if (byte == 211)
+                    restore = 1
+                if (previous_was_cfa && byte == 0)
+                    cfa0 = 1
+                previous_was_cfa = byte == 14
+            }
+        }
+        END {
+            if (offset && restore && cfa0)
+                exit 0
+            if (!offset && !restore)
+                exit 1
+            exit 2
+        }
+    ' "$1"
+}
+
 run_cgf_runtime()
 {
     run_id=$1
@@ -623,7 +661,15 @@ probe()
         fi
         ;;
     IR-H-09)
-        run_cgf_memcap "$id" -emit-ir "$source"
+        # The cap protects the OPEN fixture from the historical allocation.
+        # A resolved compiler rejects before allocating; ASan reserves a large
+        # virtual address range at startup and therefore cannot run under this
+        # address-space cap even though its real memory use is small.
+        if [ "$fixture_state" = OPEN ]; then
+            run_cgf_memcap "$id" -emit-ir "$source"
+        else
+            run_cgf "$id" -emit-ir "$source"
+        fi
         status=$?
         if [ "$status" -eq 1 ] &&
            grep -q 'initializer has' "$WORK/$id.stderr"; then
@@ -1267,10 +1313,16 @@ probe()
                     fail "$id" "unwind repair is incomplete"
                 fi
             fi
-        elif ! grep -Eq '\.byte[[:space:]]+147([,[:space:]]|$)|\.cfi_offset[[:space:]]+x?19' "$asm"; then
-            xfail "$id" "$title"
         else
-            fail "$id" "cross tools absent and unwind state is not classifiable"
+            a64_unwind_text_state "$asm"
+            text_status=$?
+            if [ "$text_status" -eq 0 ]; then
+                xpass "$id" "$title"
+            elif [ "$text_status" -eq 1 ]; then
+                xfail "$id" "$title"
+            else
+                fail "$id" "unwind repair is incomplete in emitted FDE"
+            fi
         fi
         ;;
     *)

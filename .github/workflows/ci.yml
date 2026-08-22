@@ -455,19 +455,8 @@ jobs:
             build/bench/kernels-x86_64-linux-gnu.txt
           if-no-files-found: error
           retention-days: 90
-      - name: prove timing skip and RSS enforcement
-        run: |
-          BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
-            tests/bench/fixtures/gate/baseline.txt \
-            tests/bench/fixtures/gate/skip-time.txt
-          s=0
-          BENCH_SKIP_TIME=1 scripts/benchmark_gate.sh \
-            tests/bench/fixtures/gate/baseline.txt \
-            tests/bench/fixtures/gate/fail-rss-21.txt || s=$?
-          [ "$s" -eq 1 ] || {
-            echo "seeded RSS regression returned $s, expected 1" >&2
-            exit 1
-          }
+      - name: prove dispersion-aware timing and RSS policy
+        run: sh tests/bench/benchmark_gate_test.sh
       - name: prove the Sprint 54 size boundary in CI
         run: |
           scripts/size_gate.sh --gate \
