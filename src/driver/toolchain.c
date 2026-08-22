@@ -753,10 +753,14 @@ const char *cgf_probe_crt_dir(char *diag, size_t diag_sz)
     return dir;
 }
 
-/* F-S27-STATICLIBGCC: the sprint file claimed --start-group rt -lc
+/* GCC-private runtime directory probe. F-S27-STATICLIBGCC: the sprint file
+ * claimed --start-group rt -lc
  * --end-group suffices for static glibc; empirically its libc.a .cold
  * paths reference _Unwind_Resume/__gcc_personality_v0 (libgcc_eh), so
  * gcc's real static line adds -lgcc -lgcc_eh from its PRIVATE dir.
+ * Dynamic wide-atomic links need this directory too: distributions may keep
+ * the unversioned libatomic.so linker name here while ld's default paths only
+ * contain libatomic.so.1.
  * Probe the filesystem for it (highest version wins) — never spawn gcc,
  * never bake a version path. Absent (musl, freestanding): proceed
  * without; ld's error stays visible. */
@@ -1054,15 +1058,17 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
             VecStr_push(out, li->val);
     }
     if (want_libs) {
+        const char *gccdir = (da->static_link || da->needs_libatomic)
+                                 ? locate_libgcc_dir()
+                                 : NULL;
+
         rt = locate_rt_archive(t);
+        if (gccdir)
+            VecStr_push(out, joined2(ar, "-L", gccdir));
         if (da->static_link) {
             /* F-S27-STATICLIBGCC: glibc's libc.a needs libgcc_eh's
              * unwind symbols; mirror gcc's static group when the
              * private libgcc dir exists. */
-            const char *gccdir = locate_libgcc_dir();
-
-            if (gccdir)
-                VecStr_push(out, joined2(ar, "-L", gccdir));
             VecStr_push(out, "--start-group");
             if (rt)
                 VecStr_push(out, rt);

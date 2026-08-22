@@ -37,6 +37,16 @@ static int argv_index_suffix(const VecStr *v, const char *suffix)
     return -1;
 }
 
+static int argv_index_prefix(const VecStr *v, const char *prefix)
+{
+    size_t i, n = strlen(prefix);
+
+    for (i = 0; i < v->len && v->data[i]; i++)
+        if (strncmp(v->data[i], prefix, n) == 0)
+            return (int)i;
+    return -1;
+}
+
 static void push_link(DriverArgs *a, u8 kind, const char *val)
 {
     LinkInput li;
@@ -122,17 +132,18 @@ void test_link_argv_atomic16_dependency(TestCtx *t)
     Arena ar;
     DriverArgs a;
     VecStr v = {0};
-    int isg, ila, ilc, ieg;
+    int ilg, isg, ila, ilc, ieg;
 
     arena_init(&ar);
     fill_args(&a);
     a.needs_libatomic = true;
     T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    ilg = argv_index_prefix(&v, "-L/usr/lib/gcc/");
     isg = argv_index(&v, "--start-group");
     ila = argv_index(&v, "-latomic");
     ilc = argv_index(&v, "-lc");
     ieg = argv_index(&v, "--end-group");
-    T_ASSERT(t, isg > 0 && ila > isg && ilc > ila && ieg > ilc);
+    T_ASSERT(t, ilg > 0 && isg > ilg && ila > isg && ilc > ila && ieg > ilc);
     VecStr_free(&v);
     args_free(&a);
 

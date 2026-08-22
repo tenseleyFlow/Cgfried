@@ -110,6 +110,11 @@ if ! grep -q -- '-latomic' "$work/wide-dynamic.plan" ||
     echo "x86_atomics_lane: wide -### plan omitted libatomic/static state" >&2
     exit 1
 fi
+if ! grep -q -- '-L/usr/lib/gcc/' "$work/wide-dynamic.plan" ||
+   ! grep -q -- '-L/usr/lib/gcc/' "$work/wide-live.plan"; then
+    echo "x86_atomics_lane: dynamic wide link omitted GCC's runtime dir" >&2
+    exit 1
+fi
 if grep -q -- '-latomic' "$work/narrow.plan"; then
     echo "x86_atomics_lane: narrow -### plan added an unused libatomic" >&2
     exit 1
