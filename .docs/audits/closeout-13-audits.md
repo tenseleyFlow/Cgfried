@@ -28,6 +28,6 @@ None. At remediation baseline `89b68ead`, [the Sprint 61 burndown](burndown.md) 
 
 ## Verdict
 
-All Sprint 61 remediation and review evidence is complete; the all-READY gate remains blocked only by Sprint 58's 2/30 soak through Phase 12.
+All Sprint 61 remediation and review evidence is complete; the all-READY gate remains blocked only by Sprint 58's 4/30 soak through Phase 12.
 
 NOT READY

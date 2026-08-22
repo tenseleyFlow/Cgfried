@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-21): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-22): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,7 +11,7 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 2/30 after a required-lane reset on August 18 and remains operationally
+at 4/30 after a required-lane reset on August 18 and remains operationally
 OPEN. Sprint 59's controlled Kasumi/Hasu
 SQLite baselines and qualifying 15-variant nightly are independently audited
 and complete. The
@@ -89,7 +89,7 @@ at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
 cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
 closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
-Sprint 58 remains at 2/30; Sprint 60's
+Sprint 58 remains at 4/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
@@ -194,7 +194,7 @@ doubling or front-wide escalation fired.
 Fourteen phase closeout documents now cover all 429 numbered DoD items from
 Sprints 0–61. The structural/meta closeout gate is green. The production
 Sprint 62 entry gate exits red for exactly two honest verdicts: Phase 12 is
-NOT READY because Sprint 58 is 2/30, and Phase 13 inherits that dependency.
+NOT READY because Sprint 58 is 4/30, and Phase 13 inherits that dependency.
 Phases 00–11 are READY. This is the sole remaining release-entry blocker.
 The gate consumes tracked `ci/closeout-dod.tsv` rather than the ignored local
 roadmap, so a fresh clone proves the exact 62-sprint / 429-item inventory.
@@ -380,13 +380,13 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (2/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (4/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19 and 20 are days
-1 and 2 of the current streak; the ledger still needs 28 consecutive dates, so
+cancelled before bootstrap and retained no artifact. August 19–22 are days
+1–4 of the current streak; the ledger still needs 26 consecutive dates, so
 do not call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
@@ -481,7 +481,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 2/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 4/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -489,11 +489,13 @@ do not call the sprint closed until that operational obligation is complete.
   failed the evidence-manifest step, and retained no O0 artifact. ARM run
   [`32097369403`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32097369403)
   passed both lanes but cannot cure the missing daily x86 lane. Matching-head
-  x86/ARM pairs on August 19 (`af914c89`, runs `32205833254`/`32214058949`)
-  and August 20 (`6460c3c2`, runs `32321924998`/`32330135984`) are current
-  days 1 and 2. Continue recording distinct UTC dates and every due weekly
-  cross/reproducibility result; any missing or red required run breaks the
-  streak. The August 16–20 ZIP/internal hashes have not yet been independently
+  x86/ARM pairs on August 19 (`af914c89`, runs `32205833254`/`32214058949`),
+  August 20 (`6460c3c2`, runs `32321924998`/`32330135984`), August 21
+  (`db6f114a`, runs `32437193020`/`32445410094`), and August 22 (`9cdc3e87`,
+  runs `32544159147`/`32550348530`) are current days 1–4. Continue recording
+  distinct UTC dates and every due weekly cross/reproducibility result; any
+  missing or red required run breaks the
+  streak. The August 16–22 ZIP/internal hashes have not yet been independently
   recomputed, so do not overstate that evidence.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
