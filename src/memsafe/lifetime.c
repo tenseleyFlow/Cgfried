@@ -127,6 +127,7 @@ struct MsFunctionResult {
     Arena *arena;
     IrModule *module;
     IrFunc *function;
+    IrDomTree *dom;
     const MsSummarySet *summaries;
     AliasCtx *alias;
     const MsAllocFamily **families;
@@ -423,6 +424,47 @@ static void path_forget_pointer_origin(MsPath *path, IrOperand subject)
         path->npointer_origins--;
         return;
     }
+}
+
+static bool operand_defined_in_loop(const MsFunctionResult *result,
+                                    IrOperand operand, BlockId header)
+{
+    BlockId defined;
+
+    if (!result->dom || operand.kind != IROP_VALUE || operand.a == 0 ||
+        operand.a > result->function->nvals)
+        return false;
+    defined = result->function->vals[operand.a - 1].def_block;
+    return defined.v && ir_dominates(result->dom, header, defined);
+}
+
+static void path_forget_loop_correlations(const MsFunctionResult *result,
+                                          MsPath *path, BlockId header)
+{
+    u32 read, write = 0;
+
+    for (read = 0; read < path->npredicates; read++)
+        if (!operand_defined_in_loop(result, path->predicates[read].subject,
+                                     header))
+            path->predicates[write++] = path->predicates[read];
+    path->npredicates = write;
+
+    write = 0;
+    for (read = 0; read < path->nbindings; read++) {
+        IrOperand param =
+            ir_op_value(result->function, path->bindings[read].param);
+
+        if (!operand_defined_in_loop(result, param, header))
+            path->bindings[write++] = path->bindings[read];
+    }
+    path->nbindings = write;
+
+    write = 0;
+    for (read = 0; read < path->npointer_origins; read++)
+        if (!operand_defined_in_loop(
+                result, path->pointer_origins[read].subject, header))
+            path->pointer_origins[write++] = path->pointer_origins[read];
+    path->npointer_origins = write;
 }
 
 static IrOperand unknown_pointer_origin(void)
@@ -1238,6 +1280,28 @@ static MsProofKind path_operand_is_zero(const MsFunctionResult *result,
     return MS_PROOF_NONE;
 }
 
+static bool path_operand_constant(const MsFunctionResult *result,
+                                  const MsPath *path, IrOperand operand,
+                                  i64 *value)
+{
+    IrOperand resolved = path_resolve_binding(path, operand);
+    u32 i;
+
+    if (operand_constant(result->function, resolved, value, 0))
+        return true;
+    if (path->correlations_lost || resolved.kind != IROP_VALUE)
+        return false;
+    for (i = 0; i < path->npredicates; i++) {
+        const MsPredicate *predicate = &path->predicates[i];
+
+        if (predicate->equal && operand_equal(resolved, predicate->subject)) {
+            *value = predicate->constant;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool path_operand_size(const MsFunctionResult *result,
                               const MsPath *path, IrOperand operand, u64 *size)
 {
@@ -1975,6 +2039,7 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                 u32 arg = i - first;
                 bool deref = false, write = false, escape = false;
                 bool may_free = false, must_free = false;
+                bool requires_nonnull = false;
                 IrOperand actual = call->ops[i];
 
                 if (summary && arg < summary->nparams) {
@@ -1984,15 +2049,18 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                     escape = e->escapes;
                     may_free = e->may_free;
                     must_free = e->must_free;
+                    requires_nonnull = e->requires_nonnull;
                     if (summary->partial || summary->top) {
                         deref = true;
                         write = true;
+                        requires_nonnull = true;
                         escape = !e->annot_no_escape && !e->annot_borrow;
                         if (!e->annot_borrow && !e->annot_takes_ownership)
                             may_free = true;
                     }
                 } else if (summary && (summary->top || summary->partial)) {
                     deref = write = escape = actual.type == IRT_PTR;
+                    requires_nonnull = actual.type == IRT_PTR;
                 } else if (lib && arg < 64) {
                     u64 bit = 1ull << arg;
                     deref = (lib->deref_mask & bit) != 0;
@@ -2001,6 +2069,7 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                     may_free = (lib->free_mask & bit) != 0;
                     if (arg >= ms_lib_summary_variadic_from(lib))
                         deref = write = escape = true;
+                    requires_nonnull = deref || write;
                 }
                 if (actual.type != IRT_PTR)
                     continue;
@@ -2009,6 +2078,13 @@ static void process_call(MsFunctionResult *result, MsPath *path,
                 if (family && family->frees_on_success &&
                     arg == family->frees_arg)
                     continue;
+                /* A may-dereference summary can still be explicitly
+                 * null-safe: when the actual is proven zero, every access in
+                 * the callee is dominated by its non-null guard and this path
+                 * performs no memory operation. */
+                if ((deref || write) && !requires_nonnull &&
+                    path_operand_is_zero(result, path, actual) != MS_PROOF_NONE)
+                    deref = write = false;
                 if ((summary && (summary->top || summary->partial)) && deref) {
                     PtsSet pts = alias_points_to(result->alias, actual);
                     const AllocSite *unique =
@@ -2481,6 +2557,56 @@ static bool path_edge_feasible(const MsFunctionResult *result,
         return (constant != 0) == (edge == 0);
     {
         const IrInst *cmp = value_def(function, condition);
+        IrOperand folded_value;
+        IrOperand folded_ops[2];
+        IrInst folded;
+        OptConfig cfg;
+        i64 values[2];
+        bool known[2];
+        u32 i;
+
+        /* Resolve both block-parameter bindings and exact path predicates,
+         * then let the shared integer folder evaluate every ICMP flavor.  A
+         * branch such as `count != 0` can make a later `0 < count` edge
+         * impossible even though the raw SSA operands are not constants. */
+        if (cmp && cmp->op == IR_ICMP && cmp->nops == 2) {
+            folded = *cmp;
+            folded.ops = folded_ops;
+            for (i = 0; i < 2; i++) {
+                known[i] = path_operand_constant(result, path, cmp->ops[i],
+                                                 &values[i]);
+                if (known[i])
+                    folded_ops[i] =
+                        ir_op_iconst((IrType)cmp->ops[i].type, (u64)values[i]);
+            }
+            /* Unsigned zero is the least representable value regardless of
+             * width.  These one-sided comparisons therefore have an exact
+             * result even when the other operand remains path-variable. */
+            if ((!known[0] && known[1] && values[1] == 0 &&
+                 (cmp->subop == ICMP_ULT || cmp->subop == ICMP_UGE)) ||
+                (known[0] && values[0] == 0 && !known[1] &&
+                 (cmp->subop == ICMP_UGT || cmp->subop == ICMP_ULE))) {
+                bool truth = cmp->subop == ICMP_UGE || cmp->subop == ICMP_ULE;
+
+                return truth == (edge == 0);
+            }
+            /* Pointer null constants are represented as ICONST operands but
+             * deliberately are not integer-foldable.  Equality still has an
+             * exact result once both bit patterns are known. */
+            if (known[0] && known[1] &&
+                (cmp->subop == ICMP_EQ || cmp->subop == ICMP_NE) &&
+                cmp->ops[0].type == IRT_PTR) {
+                bool truth = cmp->subop == ICMP_EQ ? values[0] == values[1]
+                                                   : values[0] != values[1];
+
+                return truth == (edge == 0);
+            }
+            opt_config_init(&cfg, OPT_O0);
+            if (known[0] && known[1] &&
+                opt_fold_inst(&folded, &folded_value, &cfg) &&
+                folded_value.kind == IROP_ICONST)
+                return (folded_value.a != 0) == (edge == 0);
+        }
 
         /* MS-M-02: a non-null live allocation cannot equal a standard stream
          * or another proven non-heap identity.  Pruning that equality edge
@@ -2506,7 +2632,8 @@ static bool path_edge_feasible(const MsFunctionResult *result,
 }
 
 static bool path_bind_target(MsFunctionResult *result, MsPath *path,
-                             const IrEdge *edge, const IrBlock *target)
+                             const IrEdge *edge, const IrBlock *target,
+                             bool backedge)
 {
     MsBinding next[MS_MAX_BINDINGS_PER_PATH];
     u32 i;
@@ -2522,6 +2649,19 @@ static bool path_bind_target(MsFunctionResult *result, MsPath *path,
         path_degrade_facts(result, path);
         return true;
     }
+    if (backedge) {
+        /* A loop parameter receives a new dynamic value even though its IR id
+         * is reused.  Binding it to an operand defined in the loop body lets
+         * next-iteration predicates walk backward through the previous
+         * iteration's static definition.  Treat loop-carried values as
+         * unknown at the header, while preserving allocation-state facts. */
+        return true;
+    }
+    /* A block parameter remains the current SSA value throughout ordinary
+     * successor blocks.  Retain its substitution until another parameterized
+     * edge replaces it. */
+    if (target->nparams == 0)
+        return true;
     for (i = 0; i < target->nparams; i++) {
         IrOperand subject = ir_op_value(result->function, target->params[i]);
 
@@ -2548,7 +2688,8 @@ static u32 feasible_edge_count(const MsFunctionResult *result,
 }
 
 static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
-                                 const MsPath *source, const IrInst *term)
+                                 const MsPath *source, const IrInst *term,
+                                 u32 source_block)
 {
     u32 feasible = feasible_edge_count(result, source, term);
     Span loc = ir_inst_span(result->module, term);
@@ -2570,6 +2711,7 @@ static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
         MsPredicate predicate;
         IrOperand pointer;
         bool pointer_nonnull;
+        bool backedge;
         u32 target;
 
         if (!path_edge_feasible(result, source, term, i))
@@ -2578,6 +2720,14 @@ static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
         if (!target || target > result->function->nblocks)
             continue;
         path = path_clone(result, source);
+        backedge = result->dom && ir_dominates(result->dom, (BlockId){target},
+                                               (BlockId){source_block + 1});
+        /* Instruction and block-parameter ids defined inside the dominated
+         * loop region denote a new dynamic value on every iteration.  Drop
+         * only their correlations: bindings and predicates for values defined
+         * before the loop remain invariant and keep infeasible edges pruned. */
+        if (backedge)
+            path_forget_loop_correlations(result, &path, (BlockId){target});
         if (result->split_budget_exhausted) {
             path.correlations_lost = true;
             path_degrade_facts(result, &path);
@@ -2596,8 +2746,13 @@ static void propagate_successors(MsFunctionResult *result, MsWorklist *work,
                 refine_pointer_branch(result, &path, pointer, pointer_nonnull,
                                       loc);
         }
+        /* A conditional backedge may have just added a predicate for its
+         * current dynamic iteration.  It must not describe the reused SSA ids
+         * when the loop header executes again. */
+        if (backedge)
+            path_forget_loop_correlations(result, &path, (BlockId){target});
         if (!path_bind_target(result, &path, &term->edges[i],
-                              &result->function->blocks[target - 1]))
+                              &result->function->blocks[target - 1], backedge))
             continue;
         add_block_path(result, work, target - 1, &path);
     }
@@ -2728,6 +2883,7 @@ ms_analyze_function_with_summaries(Arena *arena, IrModule *module,
     result->arena = arena;
     result->module = module;
     result->function = function;
+    result->dom = ir_domtree_build(arena, function);
     u32 nreturn_seeds = 0;
 
     if (summaries)
@@ -2810,7 +2966,7 @@ ms_analyze_function_with_summaries(Arena *arena, IrModule *module,
                               in ? ir_inst_span(module, in) : (Span){0});
             add_exit_path(result, &path);
         } else if (in->nedges) {
-            propagate_successors(result, &work, &path, in);
+            propagate_successors(result, &work, &path, in, item.block);
         }
     }
     free(work.items);

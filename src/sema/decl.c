@@ -1489,13 +1489,14 @@ static bool init_expr_initializes_whole(Type *target, const AstNode *init)
 
 static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
 {
-    AstNode *init = slot ? *slot : NULL;
+    AstNode *init;
     AstNode **designators;
     u32 ndesignators;
     AssignCtx ctx;
 
-    if (!target || !init)
+    if (!target || !slot || !*slot)
         return;
+    init = *slot;
     /* A string literal initializes an array directly; it is not an
      * assignment to the array object. */
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
@@ -1513,12 +1514,13 @@ static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
 
 static AstNode *sema_init_scalar(Sema *s, Type *target, AstNode **slot)
 {
-    AstNode *init = slot ? *slot : NULL;
+    AstNode *init;
     AstNode **designators;
     u32 ndesignators;
 
-    if (!init)
+    if (!slot || !*slot)
         return NULL;
+    init = *slot;
 
     /* Designators belong to the initializer ITEM, not to the expression
      * nested inside it.  Expression typing and assignment conversion may
@@ -1539,11 +1541,12 @@ static AstNode *sema_init_scalar(Sema *s, Type *target, AstNode **slot)
 
 static void sema_init_value(Sema *s, Type *target, AstNode **slot)
 {
-    AstNode *init = slot ? *slot : NULL;
+    AstNode *init;
     u32 i;
 
-    if (!init)
+    if (!slot || !*slot)
         return;
+    init = *slot;
     /* 6.7.9p14 permits an optional brace pair around a string literal used
      * to initialize a character array.  Normalize it here so the aggregate
      * cursor does not mistake the literal for the first scalar element;

@@ -394,9 +394,17 @@ static u32 global_sym_index(Lower *lo, Symbol *sym)
 
 IrOperand lower_sym_addr(Lower *lo, Symbol *sym)
 {
-    u32 *hit = ptrmap_get_u32(&lo->locals, sym);
+    u32 *hit;
 
-    if (sym && sym->kind == SYM_FUNC && sym->uses_va_arg_pack) {
+    /* Every caller resolves an identifier before asking lowering for its
+     * address.  Keep that invariant explicit: besides producing a useful ICE
+     * if a future caller violates it, this closes the impossible null path for
+     * the safe-mode analysis that dogfoods the compiler itself. */
+    if (!sym)
+        CGF_ICE("lower_sym_addr called without a resolved symbol");
+    hit = ptrmap_get_u32(&lo->locals, sym);
+
+    if (sym->kind == SYM_FUNC && sym->uses_va_arg_pack) {
         if (!lo->failed)
             diag_emit(lo->dc, DIAG_ERROR, sym->span,
                       "cannot take the address of variadic argument-pack "

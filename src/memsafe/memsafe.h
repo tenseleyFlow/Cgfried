@@ -136,6 +136,11 @@ typedef struct MsFunctionResult MsFunctionResult;
 
 typedef struct MsParamSummary {
     bool dereferenced;
+    /* At least one summarized access is reachable without a dominating
+     * non-null guard on this parameter.  `dereferenced` remains a may-effect;
+     * this separate bit is what makes a proven-null call-site diagnostic
+     * certain. */
+    bool requires_nonnull;
     bool written;
     bool escapes;
     bool may_free;
@@ -170,7 +175,7 @@ typedef struct MsSummary {
     Span returns_ownership_span;
     bool annot_returns_owned;
     bool top;
-    bool partial; /* external annotation: unspecified dimensions stay TOP */
+    bool partial; /* some effects remain TOP, including inherited uncertainty */
 } MsSummary;
 
 /* Compact built-in contracts cover external libc calls without inventing

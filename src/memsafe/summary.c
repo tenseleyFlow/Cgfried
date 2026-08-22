@@ -332,6 +332,78 @@ static bool lib_write_extent(const IrFunc *function, const MsLibSummary *lib,
     return true;
 }
 
+static bool summary_exact_param(const IrFunc *func, IrOperand operand,
+                                u32 param, u32 depth)
+{
+    const IrInst *def;
+
+    if (!func || param >= func->nparams || operand.kind != IROP_VALUE ||
+        depth > func->nvals)
+        return false;
+    if (operand.a == func->param_vals[param].v)
+        return true;
+    def = summary_value_def(func, operand);
+    return def && def->op == IR_BITCAST && def->nops == 1 &&
+           summary_exact_param(func, def->ops[0], param, depth + 1);
+}
+
+static bool summary_param_guarded_nonnull(const IrFunc *func,
+                                          const IrDomTree *dom, u32 param,
+                                          BlockId access)
+{
+    u32 bi;
+
+    if (!func || !dom || !access.v)
+        return false;
+    for (bi = 0; bi < func->nblocks; bi++) {
+        const IrInst *term = func->blocks[bi].last;
+        const IrInst *cmp;
+        IrOperand subject;
+        i64 constant;
+        u32 nonnull_edge;
+        BlockId guarded;
+
+        if (!term || term->op != IR_CONDBR || term->nops != 1 ||
+            term->nedges != 2 ||
+            !(cmp = summary_value_def(func, term->ops[0])) ||
+            cmp->op != IR_ICMP || cmp->nops != 2 ||
+            (cmp->subop != ICMP_EQ && cmp->subop != ICMP_NE))
+            continue;
+        if (summary_operand_constant(func, cmp->ops[0], &constant, 0) &&
+            constant == 0) {
+            subject = cmp->ops[1];
+        } else if (summary_operand_constant(func, cmp->ops[1], &constant, 0) &&
+                   constant == 0) {
+            subject = cmp->ops[0];
+        } else {
+            continue;
+        }
+        if (!summary_exact_param(func, subject, param, 0))
+            continue;
+        nonnull_edge = cmp->subop == ICMP_NE ? 0u : 1u;
+        guarded = term->edges[nonnull_edge].target;
+        if (guarded.v && guarded.v <= func->nblocks &&
+            ir_dominates(dom, guarded, access))
+            return true;
+    }
+    return false;
+}
+
+static void mark_nonnull_requirement(AliasCtx *alias, const IrFunc *func,
+                                     const IrDomTree *dom, MsSummary *summary,
+                                     IrOperand operand, BlockId access,
+                                     bool required)
+{
+    u32 p;
+
+    if (!required || operand.type != IRT_PTR)
+        return;
+    for (p = 0; p < summary->nparams; p++)
+        if (pts_param(alias, operand, p) &&
+            !summary_param_guarded_nonnull(func, dom, p, access))
+            summary->params[p].requires_nonnull = true;
+}
+
 static void mark_operand_params(AliasCtx *alias, MsSummary *summary,
                                 IrOperand operand, u64 deref, u64 write,
                                 u64 escape, u64 free_mask, bool returned,
@@ -566,7 +638,8 @@ static void collect_alias_seeds(Arena *arena, IrModule *module, IrFunc *func,
     *nreturn_out = nr;
 }
 
-static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
+static void infer_call(AliasCtx *alias, IrFunc *func, const IrDomTree *dom,
+                       BlockId block, MsSummary *summary,
                        const MsSummarySet *set, const Callgraph *cg,
                        u32 active_scc, const IrInst *call)
 {
@@ -591,10 +664,18 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
         summary->top = true;
         return;
     }
+    /* A direct call to an imprecise summary does not make its possible
+     * pointer effects definite in the caller.  Preserve that uncertainty
+     * transitively: lifetime analysis treats PARTIAL effects as may-effects,
+     * so a NULL opaque callback context is not diagnosed as certainly
+     * dereferenced merely because the callback target was indirect. */
+    if (callee && (callee->top || callee->partial))
+        summary->partial = true;
     lib_extent_known = lib_write_extent(func, lib, call, &lib_extent);
     for (ai = first; ai < call->nops; ai++) {
         u32 arg = ai - first;
         u64 d = 0, w = 0, e = 0, f = 0;
+        bool requires_nonnull = false;
 
         if (callee && (!callee->top || callee->partial) &&
             arg < callee->nparams) {
@@ -602,11 +683,13 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
             w = callee->params[arg].written;
             e = callee->params[arg].escapes;
             f = callee->params[arg].may_free;
+            requires_nonnull = callee->params[arg].requires_nonnull;
             if (callee->partial) {
                 d = 1;
                 w = 1;
                 e = !callee->params[arg].annot_no_escape &&
                     !callee->params[arg].annot_borrow;
+                requires_nonnull = true;
             }
         } else if (lib && arg < 64) {
             u64 bit = 1ull << arg;
@@ -616,8 +699,10 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
             f = lib->free_mask & bit;
             if (arg >= ms_lib_summary_variadic_from(lib))
                 d = w = e = 1;
+            requires_nonnull = d != 0 || w != 0;
         } else if (callee && callee->top) {
             d = w = e = 1;
+            requires_nonnull = true;
             if (arg < callee->nparams) {
                 e = !callee->params[arg].annot_no_escape &&
                     !callee->params[arg].annot_borrow;
@@ -626,6 +711,8 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
         }
         mark_operand_params(alias, summary, call->ops[ai], d, w, e, f, false,
                             loc);
+        mark_nonnull_requirement(alias, func, dom, summary, call->ops[ai],
+                                 block, requires_nonnull);
         if (w && callee && arg < callee->nparams &&
             callee->params[arg].write_range_known)
             mark_write_subrange(alias, summary, call->ops[ai],
@@ -636,21 +723,6 @@ static void infer_call(AliasCtx *alias, IrFunc *func, MsSummary *summary,
         else if (w)
             mark_unknown_write(alias, summary, call->ops[ai]);
     }
-}
-
-static bool summary_exact_param(const IrFunc *func, IrOperand operand,
-                                u32 param, u32 depth)
-{
-    const IrInst *def;
-
-    if (!func || param >= func->nparams || operand.kind != IROP_VALUE ||
-        depth > func->nvals)
-        return false;
-    if (operand.a == func->param_vals[param].v)
-        return true;
-    def = summary_value_def(func, operand);
-    return def && def->op == IR_BITCAST && def->nops == 1 &&
-           summary_exact_param(func, def->ops[0], param, depth + 1);
 }
 
 static bool summary_call_must_free_arg(const MsSummarySet *set,
@@ -741,6 +813,7 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
     AliasReturnSeed *returns;
     AliasConfig cfg = {0};
     AliasCtx *alias;
+    IrDomTree *dom;
     u32 na, nr, bi;
     bool saw_pointer_return = false;
     bool any_owned_return = false;
@@ -756,6 +829,7 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
     cfg.nreturn_seeds = nr;
     cfg.track_param_origins = true;
     alias = alias_build(set->module, &cfg);
+    dom = ir_domtree_build(arena, func);
     for (bi = 0; bi < func->nblocks; bi++) {
         const IrInst *in;
         for (in = func->blocks[bi].first; in; in = in->next) {
@@ -763,14 +837,21 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
             u32 p;
             switch ((IrOp)in->op) {
             case IR_LOAD:
-                if (in->nops)
+                if (in->nops) {
                     mark_operand_params(alias, summary, in->ops[0], 1, 0, 0, 0,
                                         false, loc);
+                    mark_nonnull_requirement(alias, func, dom, summary,
+                                             in->ops[0], (BlockId){bi + 1},
+                                             true);
+                }
                 break;
             case IR_STORE:
                 if (in->nops >= 2) {
                     mark_operand_params(alias, summary, in->ops[1], 1, 1, 0, 0,
                                         false, loc);
+                    mark_nonnull_requirement(alias, func, dom, summary,
+                                             in->ops[1], (BlockId){bi + 1},
+                                             true);
                     mark_write_range(alias, summary, in->ops[1],
                                      ir_type_size((IrType)in->ops[0].type));
                     if (in->ops[0].type == IRT_PTR &&
@@ -787,6 +868,12 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
                                         false, loc);
                     mark_operand_params(alias, summary, in->ops[1], 1, 0, 0, 0,
                                         false, loc);
+                    mark_nonnull_requirement(alias, func, dom, summary,
+                                             in->ops[0], (BlockId){bi + 1},
+                                             true);
+                    mark_nonnull_requirement(alias, func, dom, summary,
+                                             in->ops[1], (BlockId){bi + 1},
+                                             true);
                     if (in->nops >= 3 &&
                         summary_operand_constant(func, in->ops[2], &size, 0) &&
                         size >= 0)
@@ -801,6 +888,9 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
 
                     mark_operand_params(alias, summary, in->ops[0], 1, 1, 0, 0,
                                         false, loc);
+                    mark_nonnull_requirement(alias, func, dom, summary,
+                                             in->ops[0], (BlockId){bi + 1},
+                                             true);
                     if (in->nops >= 3 &&
                         summary_operand_constant(func, in->ops[2], &size, 0) &&
                         size >= 0)
@@ -810,7 +900,8 @@ static void infer_function(Arena *arena, MsSummarySet *set, u32 fi,
                 }
                 break;
             case IR_CALL:
-                infer_call(alias, func, summary, set, cg, active_scc, in);
+                infer_call(alias, func, dom, (BlockId){bi + 1}, summary, set,
+                           cg, active_scc, in);
                 break;
             case IR_RET:
                 if (in->nops == 1 && in->ops[0].type == IRT_PTR) {
@@ -995,7 +1086,11 @@ static bool annotation_simple_abi(const Type *function)
 
 static Span annotation_decl_start(const AstNode *decl)
 {
-    const AstType *type = decl ? decl->type : NULL;
+    const AstType *type;
+
+    if (!decl)
+        CGF_ICE("annotation_decl_start called without a declaration");
+    type = decl->type;
 
     while (type && type->next)
         type = type->next;

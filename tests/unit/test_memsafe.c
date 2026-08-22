@@ -68,6 +68,53 @@ static void expect_check_stats(TestCtx *t, const IrModule *module,
     T_ASSERT_EQ_INT(t, safe_check_count(module), stats->emitted);
 }
 
+void test_memsafe_loop_binding_survives_plain_successors(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func i32 @walk_twice(ptr %head, ptr %needle) {\n"
+                            "entry():\n"
+                            "    br outer(i32 0)\n"
+                            "outer(i32 %round):\n"
+                            "    %more = icmp ult i32 %round, 2\n"
+                            "    condbr %more, setup(), done()\n"
+                            "setup():\n"
+                            "    br loop(ptr %head)\n"
+                            "loop(ptr %in):\n"
+                            "    %live = icmp ne ptr %in, 0\n"
+                            "    condbr %live, body(), after()\n"
+                            "body():\n"
+                            "    %match = icmp eq ptr %in, %needle\n"
+                            "    condbr %match, after(), advance()\n"
+                            "advance():\n"
+                            "    %link = ptradd %in, 8\n"
+                            "    %next = load ptr, %link, align 8, etype ptr\n"
+                            "    br loop(ptr %next)\n"
+                            "after():\n"
+                            "    %empty = icmp eq ptr %in, 0\n"
+                            "    condbr %empty, step(), found()\n"
+                            "step():\n"
+                            "    %next_round = iadd i32 %round, 1\n"
+                            "    br outer(i32 %next_round)\n"
+                            "found():\n"
+                            "    ret i32 1\n"
+                            "done():\n"
+                            "    ret i32 0\n"
+                            "}\n");
+    MsFunctionResult *analysis;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    analysis =
+        ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_issue_count(analysis), 0);
+    ms_result_free(analysis);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_state_join_exhaustive(TestCtx *t)
 {
     MsState a, b;
@@ -594,7 +641,98 @@ void test_memsafe_summary_recursive_top_does_not_prove_owned_return(TestCtx *t)
     T_ASSERT(t, recursive && recursive->top);
     T_ASSERT(t, recursive && recursive->returns_ownership);
     T_ASSERT(t, wrapper && !wrapper->top);
+    T_ASSERT(t, wrapper && wrapper->partial);
     T_ASSERT(t, wrapper && !wrapper->returns_ownership);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_preserves_indirect_call_uncertainty(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module = summary_parse(
+        &fix, "func void @callback_wrapper(ptr %fp, ptr %ctx) internal {\n"
+              "entry():\n"
+              "    call void %fp(ptr %ctx)\n"
+              "    ret\n"
+              "}\n"
+              "func void @caller(ptr %fp, ptr %ctx) {\n"
+              "entry():\n"
+              "    call void @callback_wrapper(ptr %fp, ptr %ctx)\n"
+              "    ret\n"
+              "}\n");
+    MsSummarySet *set;
+    const MsSummary *wrapper;
+    const MsSummary *caller;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    wrapper = ms_summary_get(set, 0);
+    caller = ms_summary_get(set, 1);
+    T_ASSERT(t, wrapper && wrapper->top);
+    T_ASSERT(t, caller && !caller->top);
+    T_ASSERT(t, caller && caller->partial);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_summary_distinguishes_guarded_null_access(TestCtx *t)
+{
+    SummaryFix fix;
+    IrModule *module =
+        summary_parse(&fix, "func void @guarded(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    %nonnull = icmp ne ptr %p, 0\n"
+                            "    condbr %nonnull, read(), done()\n"
+                            "read():\n"
+                            "    %value = load i32, %p, align 4, etype i32\n"
+                            "    br done()\n"
+                            "done():\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @unguarded(ptr %p) internal {\n"
+                            "entry():\n"
+                            "    %value = load i32, %p, align 4, etype i32\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @guarded_wrapper(ptr %p) {\n"
+                            "entry():\n"
+                            "    call void @guarded(ptr %p)\n"
+                            "    ret\n"
+                            "}\n"
+                            "func void @unguarded_wrapper(ptr %p) {\n"
+                            "entry():\n"
+                            "    call void @unguarded(ptr %p)\n"
+                            "    ret\n"
+                            "}\n");
+    MsSummarySet *set;
+    const MsSummary *guarded;
+    const MsSummary *unguarded;
+    const MsSummary *guarded_wrapper;
+    const MsSummary *unguarded_wrapper;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    set = ms_summary_build(&fix.arena, module, false, NULL);
+    guarded = ms_summary_get(set, 0);
+    unguarded = ms_summary_get(set, 1);
+    guarded_wrapper = ms_summary_get(set, 2);
+    unguarded_wrapper = ms_summary_get(set, 3);
+    T_ASSERT(t, guarded && guarded->params[0].dereferenced);
+    T_ASSERT(t, guarded && !guarded->params[0].requires_nonnull);
+    T_ASSERT(t, unguarded && unguarded->params[0].dereferenced);
+    T_ASSERT(t, unguarded && unguarded->params[0].requires_nonnull);
+    T_ASSERT(t, guarded_wrapper && guarded_wrapper->params[0].dereferenced);
+    T_ASSERT(t,
+             guarded_wrapper && !guarded_wrapper->params[0].requires_nonnull);
+    T_ASSERT(t, unguarded_wrapper && unguarded_wrapper->params[0].dereferenced);
+    T_ASSERT(t, unguarded_wrapper &&
+                    unguarded_wrapper->params[0].requires_nonnull);
     arena_free_all(&fix.arena);
 }
 

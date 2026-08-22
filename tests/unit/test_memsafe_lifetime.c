@@ -487,6 +487,110 @@ void test_memsafe_lifetime_null_test_survives_block_parameter(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_memsafe_lifetime_prunes_constant_block_parameter_null_edge(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module =
+        parse_module(&fix, "func i32 @f() {\n"
+                           "entry():\n"
+                           "    %null = bitcast i64 0 to ptr\n"
+                           "    br join(ptr %null)\n"
+                           "join(ptr %p):\n"
+                           "    %isnull = icmp eq ptr %p, 0\n"
+                           "    condbr %isnull, safe(), impossible()\n"
+                           "safe():\n"
+                           "    ret i32 0\n"
+                           "impossible():\n"
+                           "    %value = load i32, %p, align 4, etype i32\n"
+                           "    ret i32 %value\n"
+                           "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, ms_result_exit_count(result), 1);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_does_not_reuse_loop_value_predicates(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "sym @strchr\n"
+              "sym @strlen\n"
+              "func i64 @scan(ptr %input) {\n"
+              "entry():\n"
+              "    br loop(ptr %input)\n"
+              "loop(ptr %cursor):\n"
+              "    %byte = load i8, %cursor, align 1, etype i8\n"
+              "    %live = icmp ne i8 %byte, 0\n"
+              "    condbr %live, search(), done(i64 0)\n"
+              "search():\n"
+              "    %comma = call ptr @strchr(ptr %cursor, i32 44)\n"
+              "    %found = icmp ne ptr %comma, 0\n"
+              "    condbr %found, advance(), tail()\n"
+              "advance():\n"
+              "    %next = ptradd %comma, 1\n"
+              "    br loop(ptr %next)\n"
+              "tail():\n"
+              "    %length = call i64 @strlen(ptr %cursor)\n"
+              "    br done(i64 %length)\n"
+              "done(i64 %result):\n"
+              "    ret i64 %result\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
+void test_memsafe_lifetime_prunes_ordered_compare_from_known_scalar(TestCtx *t)
+{
+    MsFix fix;
+    IrModule *module = parse_module(
+        &fix, "func i32 @optional_buffer(i32 %count, i32 %index) {\n"
+              "entry():\n"
+              "    %none = bitcast i64 0 to ptr\n"
+              "    %needed = icmp ne i32 %count, 0\n"
+              "    condbr %needed, allocate(), join(ptr %none)\n"
+              "allocate():\n"
+              "    %buffer = alloca 4, align 4, etype i32\n"
+              "    br join(ptr %buffer)\n"
+              "join(ptr %selected):\n"
+              "    %enter = icmp ult i32 %index, %count\n"
+              "    condbr %enter, body(), done()\n"
+              "body():\n"
+              "    %value = load i32, %selected, align 4, etype i32\n"
+              "    ret i32 %value\n"
+              "done():\n"
+              "    ret i32 0\n"
+              "}\n");
+    MsFunctionResult *result;
+
+    T_ASSERT(t, module != NULL);
+    if (!module) {
+        arena_free_all(&fix.arena);
+        return;
+    }
+    result = ms_analyze_function(&fix.arena, module, &module->funcs[0], false);
+    T_ASSERT_EQ_INT(t, issue_count_kind(result, MS_ISSUE_NULL_DEREFERENCE), 0);
+    ms_result_free(result);
+    arena_free_all(&fix.arena);
+}
+
 void test_memsafe_lifetime_unknown_call_escapes(TestCtx *t)
 {
     MsFix fix;
