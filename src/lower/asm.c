@@ -526,6 +526,18 @@ void lower_asm(Lower *lo, AstNode *s)
         }
         if (!bind_local_register_operand(lo, op, src))
             return;
+        /* Constraint decoding lives here because its vocabulary is target
+         * specific.  Once `m` has selected the memory class, its C operand
+         * must designate an object; an rvalue such as `sizeof x` has no
+         * address for the backend to pass.  Diagnose at this boundary rather
+         * than sending an rvalue into lower_lvalue(). */
+        if (op->cls == ASM_CLS_MEM && (!src->expr || !src->expr->is_lvalue)) {
+            asm_error(lo, src->span,
+                      "an asm memory operand with constraint \"%s\" must be "
+                      "an lvalue",
+                      op->constraint);
+            return;
+        }
         if (src->expr && src->expr->sem_type) {
             TypeLayout l = layout_of(lo->sema, src->expr->sem_type);
 

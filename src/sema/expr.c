@@ -1509,6 +1509,20 @@ static AstNode *expr(Sema *s, AstNode *e)
                 type_to_str(s->arena, op->sem_type));
             return poison(s, e);
         }
+        /* C11 6.5.4p2 requires scalar types, but that is only the outer
+         * constraint.  The scalar conversion rules provide no conversion
+         * between a floating type and a pointer type; gcc and clang both
+         * reject it.  Letting it reach lowering creates an ill-typed
+         * `fptoui ... to ptr` instruction instead of a source diagnostic. */
+        if (to->kind != TY_VOID && op->sem_type &&
+            ((to->kind == TY_PTR && type_is_floating(op->sem_type)) ||
+             (type_is_floating(to) && op->sem_type->kind == TY_PTR))) {
+            err(s, e->span,
+                "cannot cast between floating and pointer types ('%s' to "
+                "'%s')",
+                type_to_str(s->arena, op->sem_type), type_to_str(s->arena, to));
+            return poison(s, e);
+        }
         return e;
     }
     case AST_EXPR_GENERIC:
