@@ -12320,6 +12320,16 @@ torture-compile/pr43186.c@O3@arm64-linux
 torture-compile/pr43186.c@O3@x86_64-linux-gnu
 torture-compile/pr43186.c@Os@arm64-linux
 torture-compile/pr43186.c@Os@x86_64-linux-gnu
+torture-compile/pr43188.c@O0@arm64-linux
+torture-compile/pr43188.c@O0@x86_64-linux-gnu
+torture-compile/pr43188.c@O1@arm64-linux
+torture-compile/pr43188.c@O1@x86_64-linux-gnu
+torture-compile/pr43188.c@O2@arm64-linux
+torture-compile/pr43188.c@O2@x86_64-linux-gnu
+torture-compile/pr43188.c@O3@arm64-linux
+torture-compile/pr43188.c@O3@x86_64-linux-gnu
+torture-compile/pr43188.c@Os@arm64-linux
+torture-compile/pr43188.c@Os@x86_64-linux-gnu
 torture-compile/pr43255.c@O0@arm64-linux
 torture-compile/pr43255.c@O0@x86_64-linux-gnu
 torture-compile/pr43255.c@O1@arm64-linux

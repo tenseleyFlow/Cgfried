@@ -20,7 +20,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 26,145-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,155-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -575,27 +575,28 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator
-  tranche, outcome totals are 26,145 PASS, 6,620 SKIP, and 7,885 classified
+  tranches, outcome totals are 26,155 PASS, 6,620 SKIP, and 7,875 classified
   failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 82 total buckets,
-  73 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 49 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 81 total buckets,
+  72 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 48 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,145-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,155-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
-  regressions. The arm64 stream uses the repository's cross binutils, QEMU,
-  and `/usr/aarch64-linux-gnu/include`; an earlier host-header stream was
+  regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
+  the declarator-type-attributes bucket, again with zero regressions. The
+  arm64 stream uses the repository's cross binutils, QEMU, and
+  `/usr/aarch64-linux-gnu/include`; an earlier host-header stream was
   quarantined and never published. Combined gating passes, and reversed input
-  order regenerates both committed artifacts byte-identically. Commit
-  `2491cf9d` is the subsequent clang-format-only cleanup of that tranche.
+  order regenerates both committed artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (796 unit tests /
-  4,293,674 assertions, 695 program fixtures, and every
+  torture-import-meta torture-meta`, full `make test` (799 unit tests /
+  4,293,703 assertions, 697 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), `make bootstrap-O0`, and `make
   bootstrap-O2`. Both bootstraps reproduce 113 assembly files, 113 objects,
   the runtime archive, and the compiler byte-identically with no normalization.
@@ -606,8 +607,8 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
   target-complete, and provenance checked.
 
 No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
-and this first Sprint 56.5 declarator tranche retired every bucket they fixed;
-the remaining compiler debt is enumerated by the 49 live `s56.5-*` policy
+and the Sprint 56.5 declarator tranches retired every bucket they fixed; the
+remaining compiler debt is enumerated by the 48 live `s56.5-*` policy
 decisions. Sprint 54 and Phase 11 subsequently closed on their independent
 fleet evidence.
 

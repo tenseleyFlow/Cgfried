@@ -7,7 +7,6 @@
 -	073307837dcc1b051c517c46997080291ea26133ddf35af0e3139fe4931e0a6c	parse	all	GNU imaginary floating suffixes exercise complex arithmetic, which Cgfried explicitly excludes from the v0.1.0 language scope.	out-of-scope
 -	087e22d20269bf72f0f467ee68df2ecc04c2ceeb7dd9d73b38b716c761f5b1cb	sema	all	GNU scalar-to-union casts used for representation access are rejected before lowering.	fix-sprint:s56.5-gnu-scalar-to-union-casts
 -	096dd9e887332c12b2e8ce28ecae73e02dc2a007495596ef99a67e9cc8e3d128	run	all	An eight-bit positive-only enum bitfield is loaded with signed rather than unsigned extension.	fix-sprint:s56.5-enum-bitfield-zero-extension
--	0b153abc0ce9943e51f25fa32bd475669718c781dc78628dbba56e6b16abb16c	parse	all	An aligned attribute on an inner pointer declarator requires an attribute-bearing type layer that AstType and Type do not yet represent.	fix-sprint:s56.5-declarator-type-attributes
 -	0c2661f71dc283b5d3141d5aead0f8add44c3878ade8e9b0d08482860df6a2fa	ld	all	The case requires libm, but the torture execution link contract does not yet add the required math library.	fix-sprint:s56.5-torture-libm-linkage
 -	0c6f5475c400ab79f1a12d301c82b04860d2803f7956b7313947e54f334cb189	run	all	Flattened aggregate initialization assigns values to the nested array and trailing struct members in the wrong order.	fix-sprint:s56.5-flattened-aggregate-initializers
 -	1bee8da051ce7f8b888b00500383c6a9df265d662f65d5387d4439303836f0cd	parse	all	The case uses imaginary floating suffixes and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
