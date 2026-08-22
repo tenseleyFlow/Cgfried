@@ -50,17 +50,28 @@ touches the bitfield container logic, which Sprint 14 records as already
 having produced two bugs (a zero-width member claiming a whole container, a
 narrow member claiming its declared type's container).
 
-So rules 1-4 land first, and **a packed struct containing a bitfield stays a
-hard error until rule 5 lands**. Implementing half of packed silently would
-give a bitfield-bearing packed struct the wrong layout with no diagnostic,
-which is the failure mode the whole tier table exists to prevent.
+So rules 1-4 landed first, and **a packed struct containing a bitfield stayed a
+hard error until rule 5 landed in Sprint 56.5**. That staging prevented the
+half-implemented layout from silently producing a wrong ABI.
 
-## What landed, and what did not
+## What landed
 
-Rules 1-4 are implemented and rule 5 is not. A bit-field in a packed struct is
-a HARD ERROR naming the gap, so the half that is missing cannot be applied
-silently. An `_Atomic` member of a packed struct is refused permanently rather
-than pending: arm64's exclusive instructions require natural alignment, and an
+All five rules are implemented. Rule 5 applies to both a packed record and a
+member-level suffix after the width. Nonzero fields allocate from the current
+bit without the ordinary declared-unit straddle check; explicit `aligned`
+still wins (even `aligned(1)` starts a bitfield at the next byte), and
+zero-width fields retain their allocation barrier. Linux
+AAPCS64 also retains the zero-width base type's record-alignment contribution,
+while SysV and Apple do not. Those target answers were measured directly from
+GCC and are pinned across the closed five-target table.
+
+Layout is only half of rule 5. A packed 64-bit field may begin at bit 7 and
+therefore occupy nine bytes, beyond the IR's largest scalar unit. Lowering uses
+bytewise gather/scatter with per-byte read-modify-write masks for packed
+bitfields; static initializer images already used exact bit positions. This
+also keeps volatile accesses honest without over-claiming alignment. An
+`_Atomic` member of a packed struct remains refused permanently rather than
+pending: arm64's exclusive instructions require natural alignment, and an
 atomic that quietly is not one is worse than a diagnostic.
 
 Beyond the layout rules, two things had to change that this file did not
@@ -114,17 +125,13 @@ becomes live at once.
 accepting the file IS the proof. Extending `tests/tools/gen_layout.c` to emit
 packed structs makes every generated case a packed case.
 
-The one thing the generator must NOT do until rule 5 lands is emit a packed
-struct containing a bitfield — it would hit the hard error rather than
-produce a disagreement, which reads as a lane failure rather than as the
-honest refusal it is.
-
-That is now done: a generated record is packed one time in three and any
-member may carry its own `packed`, with bit-fields suppressed in a packed
-record. 2,000 records across five seeds agree with gcc, and 189 of every 400
-generated files contain a `packed` — checked, because a differential that
-generates none of the construct it was extended for is the vacuous pass this
-project keeps re-finding.
+The generator now emits bitfields inside packed records and may attach
+member-level `packed`/`aligned` after a bitfield width. A generated record is
+packed one time in three and any member may carry its own `packed`; the layout
+differential therefore exercises rule 5 rather than suppressing it. Focused
+fixtures separately pin the bit positions and byte images that `offsetof`
+cannot express for a bitfield, including a cross-container 31-bit field and
+the nine-byte 64-bit boundary case.
 
 The gate was then MUTATED before being trusted: forcing the member offsets
 while letting the record keep its alignment — precisely the trap named in rule

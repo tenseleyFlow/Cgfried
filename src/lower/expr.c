@@ -107,10 +107,147 @@ static IrOperand bitfield_extract(Lower *lo, IrOperand value, IrType unit,
     return ir_op_value(lo->fn, out);
 }
 
+static IrOperand packed_byte_addr(Lower *lo, IrOperand base, u32 byte)
+{
+    ValueId at;
+
+    if (byte == 0)
+        return base;
+    at = ir_build_ptradd(&lo->b, base, ir_op_iconst(IRT_I64, (i64)byte));
+    return ir_op_value(lo->fn, at);
+}
+
+static IrOperand packed_bitfield_result(Lower *lo, const Lvalue *lv,
+                                        IrOperand bits)
+{
+    IrOperand result =
+        bitfield_extract(lo, bits, IRT_I64, 0, lv->bit_width, lv->is_signed);
+
+    if (lv->unit != IRT_I64) {
+        ValueId narrowed = ir_build1(&lo->b, IR_TRUNC, lv->unit, result);
+
+        result = ir_op_value(lo->fn, narrowed);
+    }
+    return result;
+}
+
+/* Packed bitfields are gathered and scattered one byte at a time. GCC's
+ * layout permits a 64-bit field at bit 7, whose nine-byte extent cannot be
+ * represented by this IR's largest scalar unit. Byte operations are valid on
+ * every closed target and preserve adjacent bits through exact
+ * read-modify-write masks. */
+static IrOperand packed_bitfield_load(Lower *lo, const Lvalue *lv)
+{
+    IrOperand bits = ir_op_iconst(IRT_I64, 0);
+    u32 remaining = lv->bit_width;
+    u32 source_bit = lv->bit_shift;
+    u32 result_bit = 0;
+    u32 byte = 0;
+
+    while (remaining) {
+        u32 take = 8 - source_bit;
+        ValueId raw;
+        ValueId wide;
+        IrOperand piece;
+        ValueId next;
+
+        if (take > remaining)
+            take = remaining;
+        raw = ir_build_load_typed(&lo->b, IRT_I8,
+                                  packed_byte_addr(lo, lv->addr, byte), 1,
+                                  lv_flags(lv), lv->etype);
+        wide = ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, raw));
+        piece = ir_op_value(lo->fn, wide);
+        if (source_bit) {
+            next = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, source_bit));
+            piece = ir_op_value(lo->fn, next);
+        }
+        next = ir_build2(&lo->b, IR_AND, IRT_I64, piece,
+                         ir_op_iconst(IRT_I64, (i64)((1u << take) - 1)));
+        piece = ir_op_value(lo->fn, next);
+        if (result_bit) {
+            next = ir_build2(&lo->b, IR_SHL, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, result_bit));
+            piece = ir_op_value(lo->fn, next);
+        }
+        next = ir_build2(&lo->b, IR_OR, IRT_I64, bits, piece);
+        bits = ir_op_value(lo->fn, next);
+        remaining -= take;
+        result_bit += take;
+        source_bit = 0;
+        byte++;
+    }
+    return packed_bitfield_result(lo, lv, bits);
+}
+
+static IrOperand packed_bitfield_store(Lower *lo, const Lvalue *lv,
+                                       IrOperand value)
+{
+    IrOperand wide = value;
+    IrOperand result;
+    u32 remaining = lv->bit_width;
+    u32 dest_bit = lv->bit_shift;
+    u32 value_bit = 0;
+    u32 byte = 0;
+
+    if (wide.type != IRT_I64) {
+        ValueId zext = ir_build1(&lo->b, IR_ZEXT, IRT_I64, wide);
+
+        wide = ir_op_value(lo->fn, zext);
+    }
+    result = packed_bitfield_result(lo, lv, wide);
+    while (remaining) {
+        u32 take = 8 - dest_bit;
+        u32 mask;
+        IrOperand addr;
+        ValueId raw;
+        ValueId cleared;
+        IrOperand piece = wide;
+        ValueId next;
+        ValueId narrowed;
+        ValueId inserted;
+
+        if (take > remaining)
+            take = remaining;
+        mask = ((1u << take) - 1) << dest_bit;
+        addr = packed_byte_addr(lo, lv->addr, byte);
+        raw = ir_build_load_typed(&lo->b, IRT_I8, addr, 1, lv_flags(lv),
+                                  lv->etype);
+        cleared = ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, raw),
+                            ir_op_iconst(IRT_I8, (i64)(u8)~mask));
+        if (value_bit) {
+            next = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, value_bit));
+            piece = ir_op_value(lo->fn, next);
+        }
+        if (dest_bit) {
+            next = ir_build2(&lo->b, IR_SHL, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, dest_bit));
+            piece = ir_op_value(lo->fn, next);
+        }
+        narrowed = ir_build1(&lo->b, IR_TRUNC, IRT_I8, piece);
+        inserted =
+            ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, narrowed),
+                      ir_op_iconst(IRT_I8, mask));
+        next = ir_build2(&lo->b, IR_OR, IRT_I8, ir_op_value(lo->fn, cleared),
+                         ir_op_value(lo->fn, inserted));
+        ir_build_store_typed(&lo->b, ir_op_value(lo->fn, next), addr, 1,
+                             lv_flags(lv), lv->etype);
+        remaining -= take;
+        value_bit += take;
+        dest_bit = 0;
+        byte++;
+    }
+    return result;
+}
+
 IrOperand lower_load(Lower *lo, Lvalue lv)
 {
     ValueId raw;
 
+    if (lv.packed_bitfield)
+        return packed_bitfield_load(lo, &lv);
     raw = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv_ir_align(&lv),
                               lv_flags(&lv), lv.etype);
     if (!lv.is_bitfield)
@@ -121,6 +258,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 
 IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 {
+    if (lv.packed_bitfield)
+        return packed_bitfield_store(lo, &lv, v);
     if (!lv.is_bitfield) {
         ir_build_store_typed(&lo->b, v, lv.addr, lv_ir_align(&lv),
                              lv_flags(&lv), lv.etype);
@@ -429,6 +568,41 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 lv.align = 1;
             if (rec->kind == TY_UNION)
                 lv.etype = ETYPE_UNION;
+            return lv;
+        }
+        if (m->packed) {
+            /* `off` includes anonymous-member nesting plus this member's
+             * byte offset. Rebase to the containing record, then address the
+             * first byte touched by the packed field; lower_load/store gather
+             * and scatter its possibly cross-container extent. */
+            u64 outer = off - m->offset;
+
+            memset(&lv, 0, sizeof(lv));
+            lv.addr = addr_plus(lo, base, (i64)(outer + m->bit_offset / 8));
+            switch (m->container_size) {
+            case 1:
+                lv.unit = IRT_I8;
+                break;
+            case 2:
+                lv.unit = IRT_I16;
+                break;
+            case 4:
+                lv.unit = IRT_I32;
+                break;
+            default:
+                lv.unit = IRT_I64;
+                break;
+            }
+            lv.align = 1;
+            lv.etype =
+                rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
+            lv.is_bitfield = true;
+            lv.packed_bitfield = true;
+            lv.bit_shift = (u8)(m->bit_offset % 8);
+            lv.bit_width = (u8)m->bit_width;
+            lv.is_signed = is_signed_ty(lo, m->type);
+            if (sem(e) && (sem(e)->quals & CGF_QUAL_VOLATILE))
+                lv.is_volatile = true;
             return lv;
         }
         {

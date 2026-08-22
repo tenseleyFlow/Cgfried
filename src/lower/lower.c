@@ -74,10 +74,17 @@ static void lower_mem_ranges(Lower *lo, Type *t, u64 base, LowerMemRanges *out)
 
                 if (m->bit_width == 0 || m->container_size == 0)
                     continue;
-                cbits = m->container_size * 8;
-                unit = (m->bit_offset / cbits) * m->container_size;
-                lower_mem_range_add(out, base + unit,
-                                    base + unit + m->container_size);
+                if (m->packed) {
+                    u64 first = m->bit_offset / 8;
+                    u64 last = (m->bit_offset + m->bit_width + 7) / 8;
+
+                    lower_mem_range_add(out, base + first, base + last);
+                } else {
+                    cbits = m->container_size * 8;
+                    unit = (m->bit_offset / cbits) * m->container_size;
+                    lower_mem_range_add(out, base + unit,
+                                        base + unit + m->container_size);
+                }
             } else {
                 lower_mem_ranges(lo, m->type, base + m->offset, out);
             }

@@ -114,20 +114,28 @@ wrong while looking right:
   it in a register. Mixed links against gcc agree in both directions on
   x86_64 and arm64-linux.
 
-Packed BIT-FIELDS are rule 5 of that audit and are NOT implemented; a bit-field
-in a packed struct is a hard error naming the gap, because half of packed
-applied silently is the failure mode this document exists to prevent. An
-`_Atomic` member of a packed struct is refused for good: arm64's exclusive
-instructions require natural alignment, and an atomic that quietly is not one
-is worse than a diagnostic.
+Packed BIT-FIELDS implement rule 5 of that audit. A suffix after the width
+binds to that member (`unsigned x:7 __attribute__((packed))`), nonzero packed
+fields continue at the current bit even when that crosses the declared type's
+storage-unit boundary, and a zero-width field keeps its target-specific
+barrier. Lowering gathers and scatters bytes rather than pretending every
+field fits one scalar container: a packed 64-bit field beginning at bit 7
+occupies nine bytes. Focused execution covers ordinary, signed, volatile,
+static-initializer, compound-assignment, and by-value ABI paths on x86-64, with
+ARM64 codegen evidence at O0 and O2. An `_Atomic` member of a packed struct is
+still refused for good: arm64's exclusive instructions require natural
+alignment, and an atomic that quietly is not one is worse than a diagnostic.
 
 `aligned` is the inverse of `_Alignas` in the one way that matters:
 
 - **It only ever RAISES.** A request weaker than the natural alignment is
   silently declined, where `_Alignas` makes the same request a constraint
   violation (6.7.5p4). So **`aligned(1)` is not a spelling of `packed`** — the
-  member stays at its natural offset. Every consumer stores into an
-  `align_override` field read with `>`, which is exactly that rule.
+  ordinary member stays at its natural offset. A bit-field is the measured
+  exception: it has no address of its own, and GCC uses even `aligned(1)` to
+  start it at the next byte boundary while retaining the base type's record
+  alignment. The layout tests pin that placement separately from ordinary
+  members.
 - All five represented positions work: record (trailing, and between the
   keyword and the tag — a LEADING attribute gcc ignores, same as `packed`),
   member, object, function, and the pointer layer after `*` in a declarator.

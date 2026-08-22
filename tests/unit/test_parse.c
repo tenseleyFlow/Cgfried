@@ -680,6 +680,44 @@ void test_parse_records_and_enums(TestCtx *t)
     (void)tu;
 }
 
+void test_parse_bitfield_suffix_attributes(TestCtx *t)
+{
+    ParseFix f;
+    AstNode *tu = parse_src(
+        &f,
+        "struct S {\n"
+        "  unsigned first : 7 "
+        "__attribute__((packed));\n" /* check_bans allow */
+        "  unsigned second : 5 "
+        "__attribute__((aligned(4), deprecated));\n" /* check_bans allow */
+        "  unsigned third : 3;\n"
+        "};\n",
+        STD_GNU17);
+    AstNode *rec;
+    AstNode *first;
+    AstNode *second;
+    AstNode *third;
+
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, (int)tu->ndecls, 1);
+    rec = tu->decls[0]->type->record;
+    T_ASSERT(t, rec != NULL);
+    T_ASSERT_EQ_INT(t, (int)rec->nmembers, 3);
+    first = rec->members[0];
+    second = rec->members[1];
+    third = rec->members[2];
+    T_ASSERT(t, first->is_bitfield);
+    T_ASSERT(t, first->gnu.packed);
+    T_ASSERT(t, second->is_bitfield);
+    T_ASSERT(t, second->gnu.aligned_expr != NULL);
+    T_ASSERT(t, second->gnu.deprecated);
+    T_ASSERT(t, third->is_bitfield);
+    T_ASSERT(t, !third->gnu.packed);
+    T_ASSERT(t, third->gnu.aligned_expr == NULL);
+    T_ASSERT(t, !third->gnu.deprecated);
+    pfix_free(&f);
+}
+
 void test_parse_initializers(TestCtx *t)
 {
     ParseFix f;

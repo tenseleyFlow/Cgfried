@@ -135,6 +135,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
     for (m = tag->members; m; m = m->next) {
         TypeLayout ml;
         u64 malign;
+        u64 natural_align;
 
         if (!m->type || !layout_is_complete_for_size(m->type)) {
             /* A flexible array member has no size and contributes none;
@@ -144,7 +145,8 @@ static void layout_struct(Sema *s, TagDecl *tag)
             continue;
         }
         ml = layout_of(s, m->type);
-        malign = ml.align;
+        natural_align = ml.align;
+        malign = natural_align;
         if (!m->is_bitfield && ml.size == 0)
             has_zero_sized_member = true;
         /* `packed` drops the member's alignment to 1. The record's own
@@ -174,14 +176,30 @@ static void layout_struct(Sema *s, TagDecl *tag)
                  * record requirement. SEMA-C-02: without this target split,
                  * `struct { long :0; int x; }` was 4/4 instead of 8/8 and
                  * disagreed with AAPCS64 callers and callees. */
-                offset_bits = align_up(offset_bits, unit_bits);
-                if (s->target.kind == CGF_TARGET_ARM64_LINUX && malign > align)
-                    align = malign;
+                u64 barrier_bits = unit_bits;
+                u64 zero_align = natural_align;
+
+                if (m->align_override > zero_align)
+                    zero_align = m->align_override;
+                if (m->align_override * 8 > barrier_bits)
+                    barrier_bits = m->align_override * 8;
+                offset_bits = align_up(offset_bits, barrier_bits);
+                /* AAPCS64 applies a zero-width field's BASE-TYPE alignment
+                 * even when packed; SysV and Apple treat it only as an
+                 * allocation barrier. GCC's target hook makes this split
+                 * explicit, and the five-target table pins it. */
+                if (s->target.kind == CGF_TARGET_ARM64_LINUX &&
+                    zero_align > align)
+                    align = zero_align;
                 m->bit_offset = offset_bits;
                 m->offset = offset_bits / 8;
                 m->laid_out = true;
                 continue;
             }
+            /* An explicit GNU `aligned` still controls placement even when
+             * `packed` reduced the implicit requirement to one byte. */
+            if (m->align_override)
+                offset_bits = align_up(offset_bits, m->align_override * 8);
             /* Rule 1: place at the current bit offset unless the field
              * would STRADDLE a boundary of its declared type — that is,
              * unless it fits in what remains of the current declared-type
@@ -189,7 +207,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
              * implementations miss: in `struct { char a:7; int b:25; }`
              * the int window is bytes 0-3, bits 7..31 are free, and 25
              * fits — so b lands at bit 7, NOT at bit 32. */
-            {
+            if (!m->packed) {
                 u64 window_start = offset_bits / unit_bits * unit_bits;
                 u64 used_in_window = offset_bits - window_start;
 
@@ -247,6 +265,7 @@ static void layout_union(Sema *s, TagDecl *tag)
 
     for (m = tag->members; m; m = m->next) {
         TypeLayout ml;
+        u64 natural_align;
 
         m->offset = 0;
         m->bit_offset = 0;
@@ -254,6 +273,7 @@ static void layout_union(Sema *s, TagDecl *tag)
         if (!m->type || !layout_is_complete_for_size(m->type))
             continue;
         ml = layout_of(s, m->type);
+        natural_align = ml.align;
         m->container_size = ml.size;
         if (!m->is_bitfield && ml.size == 0)
             has_zero_sized_member = true;
@@ -284,9 +304,14 @@ static void layout_union(Sema *s, TagDecl *tag)
 
             if (bytes > size)
                 size = bytes;
-            if (m->bit_width == 0 && s->target.kind == CGF_TARGET_ARM64_LINUX &&
-                ml.align > align)
-                align = ml.align;
+            if (m->bit_width == 0 && s->target.kind == CGF_TARGET_ARM64_LINUX) {
+                u64 zero_align = natural_align;
+
+                if (m->align_override > zero_align)
+                    zero_align = m->align_override;
+                if (zero_align > align)
+                    align = zero_align;
+            }
             /* SEMA-C-08: Linux AAPCS64 applies the base-type alignment to an
              * unnamed nonzero union bitfield too; it still contributes only
              * its actual width to storage. */

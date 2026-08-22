@@ -1627,6 +1627,13 @@ static AstNode *parse_member_decl(Parser *p)
             /* The WIDTH is an expression; Sprint 14/15 check it. */
             n->is_bitfield = true;
             n->bitfield_width = parse_cond_expr(p);
+            /* GNU attributes may follow the width rather than the
+             * declarator. They bind to this member only, just like a suffix
+             * before the colon. */
+            while (parse_at_kw(p, KW_ATTRIBUTE) ||
+                   parse_at_kw(p, KW_ATTRIBUTE2))
+                n->cgf_attrs = parse_cgf_attrs_concat(
+                    p, n->cgf_attrs, parse_cgf_attributes(p, &n->gnu));
         }
         if (!first)
             first = n;

@@ -536,18 +536,6 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         mem->deprecated_msg = m->gnu.deprecated_msg;
         mem->packed = tag->packed || m->gnu.packed;
         if (mem->packed) {
-            /* Rule 5 of .docs/audits/packed-layout.md -- packed bitfields
-             * allocate bit-contiguously with no storage-unit alignment -- is
-             * NOT implemented, and half of packed applied silently is the one
-             * failure mode the whole tier table exists to prevent. */
-            if (mem->is_bitfield) {
-                s->nerrors++;
-                diag_emit(s->dc, DIAG_ERROR, m->span,
-                          "a bit-field in a packed struct is not yet "
-                          "supported: packed bit-fields allocate without "
-                          "storage-unit alignment, which this compiler does "
-                          "not implement yet (docs/gnu-extensions.md)");
-            }
             /* Ordinary unaligned loads and stores are fine on both targets;
              * the exclusive instructions that implement _Atomic on arm64 are
              * not. An atomic that silently is not one is worse than an

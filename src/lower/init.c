@@ -865,7 +865,9 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
 
         v = lower_scalar_convert(lo, v, r->e->sem_type, (Type *)m->type);
         memset(&lv, 0, sizeof(lv));
-        lv.addr = off_addr(lo, base, r->off + (i64)unit_byte);
+        lv.addr =
+            off_addr(lo, base,
+                     r->off + (i64)(m->packed ? m->bit_offset / 8 : unit_byte));
         switch (m->container_size) {
         case 1:
             lv.unit = IRT_I8;
@@ -880,10 +882,12 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
             lv.unit = IRT_I64;
             break;
         }
-        lv.align = (u32)m->container_size;
+        lv.align = m->packed ? 1 : (u32)m->container_size;
         lv.etype = lower_efftype(lo, m->type);
         lv.is_bitfield = true;
-        lv.bit_shift = (u8)(m->bit_offset - unit_byte * 8);
+        lv.packed_bitfield = m->packed;
+        lv.bit_shift =
+            (u8)(m->packed ? m->bit_offset % 8 : m->bit_offset - unit_byte * 8);
         lv.bit_width = (u8)m->bit_width;
         lv.is_signed = conv_is_signed(lo->sema, (Type *)m->type);
         lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;

@@ -97,18 +97,10 @@ static const char *member_packed(Prng *rng)
     return prng_below(rng, 8) == 0 ? PACKED_SPELLING : "";
 }
 
-/* `no_bitfields` is set for a PACKED record. Rule 5 of
- * .docs/audits/packed-layout.md -- packed bitfields allocate with no
- * storage-unit alignment -- is not implemented, and the compiler refuses that
- * combination by name, so generating one would read as a lane failure rather
- * than as the honest refusal it is. */
-static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth,
-                        bool no_bitfields)
+static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth)
 {
     u32 pick = prng_below(rng, 100);
 
-    if (no_bitfields && pick >= 60 && pick < 90)
-        pick = prng_below(rng, 60);
     if (pick < 45) {
         /* A plain scalar. */
         const char *ty =
@@ -139,15 +131,18 @@ static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth,
         u32 ti = prng_below(rng, (u32)(sizeof(bf_types) / sizeof(*bf_types)));
         u32 maxw = bf_bits[ti];
         u32 form = prng_below(rng, 10);
+        char ab[64];
+        const char *pa = member_packed(rng);
+        const char *aa = member_aligned(rng, ab, sizeof(ab));
 
         if (form == 0) {
-            buf_printf(b, "  %s :0;\n", bf_types[ti]);
+            buf_printf(b, "  %s :0%s%s;\n", bf_types[ti], pa, aa);
         } else if (form == 1) {
-            buf_printf(b, "  %s :%u;\n", bf_types[ti],
-                       1 + prng_below(rng, maxw));
+            buf_printf(b, "  %s :%u%s%s;\n", bf_types[ti],
+                       1 + prng_below(rng, maxw), pa, aa);
         } else {
-            buf_printf(b, "  %s m%u:%u;\n", bf_types[ti], idx,
-                       1 + prng_below(rng, maxw));
+            buf_printf(b, "  %s m%u:%u%s%s;\n", bf_types[ti], idx,
+                       1 + prng_below(rng, maxw), pa, aa);
         }
     } else if (depth < 2) {
         /* A nested anonymous struct or union: layout nests normally even
@@ -158,7 +153,7 @@ static void emit_member(Prng *rng, Buf *b, u32 idx, u32 depth,
         buf_printf(b, "  struct {\n");
         for (k = 0; k < n; k++) {
             buf_printf(b, "  ");
-            emit_member(rng, b, idx * 10 + k, depth + 1, no_bitfields);
+            emit_member(rng, b, idx * 10 + k, depth + 1);
         }
         /* A nested aggregate needs a named member for the same reason the
          * outer one does. */
@@ -213,7 +208,7 @@ int main(int argc, char **argv)
         packed = prng_below(&rng, 3) == 0;
         buf_printf(&b, "%s S {\n", is_union ? "union" : "struct");
         for (k = 0; k < nmembers; k++)
-            emit_member(&rng, &b, k, 0, packed);
+            emit_member(&rng, &b, k, 0);
         /* At least one NAMED member, always: a struct made only of
          * unnamed bitfields is the GNU no-named-member extension (gcc
          * gives it size 0), not valid ISO C, and this differential is

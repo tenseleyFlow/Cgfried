@@ -564,6 +564,104 @@ void test_layout_bit_positions(TestCtx *t)
     lay_free(&f);
 }
 
+void test_layout_packed_bitfields(TestCtx *t)
+{
+    struct {
+        TargetKind target;
+        u64 zero_size;
+        u64 zero_align;
+    } targets[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 5, 1},
+        {CGF_TARGET_ARM64_LINUX, 8, 4},
+        {CGF_TARGET_ARM64_MACOS, 5, 1},
+        {CGF_TARGET_X86_64_LINUX_MUSL, 5, 1},
+        {CGF_TARGET_X86_64_FREEBSD, 5, 1},
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        TargetKind target = targets[i].target;
+
+        rec_target_is(t,
+                      "struct S { char a; unsigned b:3; unsigned c:30; } "
+                      "__attribute__((packed));", /* check_bans allow */
+                      target, 6, 1);
+        rec_target_is(t,
+                      "struct S { unsigned half:16; unsigned long whole:32 "
+                      "__attribute__((packed)); };", /* check_bans allow */
+                      target, 8, 4);
+        rec_target_is(t,
+                      "struct S { unsigned a:31; unsigned b:31 "
+                      "__attribute__((packed)); };", /* check_bans allow */
+                      target, 8, 4);
+        rec_target_is(t,
+                      "struct S { unsigned char a:7; unsigned long b:64 "
+                      "__attribute__((packed)); };", /* check_bans allow */
+                      target, 9, 1);
+        rec_target_is(
+            t,
+            "struct S { unsigned char a:7; unsigned b:30 "
+            "__attribute__((packed, aligned(4))); };", /* check_bans allow */
+            target, 8, 4);
+        rec_target_is(t,
+                      "struct S { unsigned char a:7; unsigned b:16 "
+                      "__attribute__((aligned(1))); };", /* check_bans allow */
+                      target, 4, 4);
+        rec_target_is(
+            t,
+            "struct S { unsigned char a:7; unsigned b:16 "
+            "__attribute__((packed, aligned(1))); };", /* check_bans allow */
+            target, 3, 1);
+        rec_target_is(
+            t,
+            "struct S { unsigned a:3; unsigned :0 "
+            "__attribute__((packed)); unsigned b:3; } " /* check_bans allow */
+            "__attribute__((packed));",                 /* check_bans allow */
+            target, targets[i].zero_size, targets[i].zero_align);
+    }
+
+    {
+        LayFix f;
+        Symbol *sym;
+        Member *m;
+
+        (void)run_lay(&f,
+                      "struct S { unsigned a:31; unsigned b:31 "
+                      "__attribute__((packed)); };\n", /* check_bans allow */
+                      CGF_TARGET_X86_64_LINUX_GNU);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        sym = scope_lookup(f.sema.file_scope,
+                           intern_str(&f.in, intern_cstr(&f.in, "S")), NS_TAG);
+        T_ASSERT(t, sym != NULL);
+        T_ASSERT(t, sym->tag != NULL);
+        layout_record(&f.sema, sym->tag->type);
+        m = sym->tag->members;
+        T_ASSERT(t, m != NULL);
+        T_ASSERT(t, m->next != NULL);
+        T_ASSERT_EQ_INT(t, (int)m->bit_offset, 0);
+        T_ASSERT_EQ_INT(t, (int)m->next->bit_offset, 31);
+        T_ASSERT(t, m->next->packed);
+        lay_free(&f);
+
+        (void)run_lay(
+            &f,
+            "struct S { unsigned char a:7; unsigned b:16 "
+            "__attribute__((aligned(1))); };\n", /* check_bans allow */
+            CGF_TARGET_X86_64_LINUX_GNU);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        sym = scope_lookup(f.sema.file_scope,
+                           intern_str(&f.in, intern_cstr(&f.in, "S")), NS_TAG);
+        T_ASSERT(t, sym != NULL);
+        T_ASSERT(t, sym->tag != NULL);
+        layout_record(&f.sema, sym->tag->type);
+        m = sym->tag->members;
+        T_ASSERT(t, m != NULL);
+        T_ASSERT(t, m->next != NULL);
+        T_ASSERT_EQ_INT(t, (int)m->next->bit_offset, 8);
+        lay_free(&f);
+    }
+}
+
 /* --- SysV x86-64 classification ------------------------------------------ */
 
 static int classify_src(LayFix *f, const char *body, AbiClass out[2])
