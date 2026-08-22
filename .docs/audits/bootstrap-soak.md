@@ -72,6 +72,15 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-08-21 | `db6f114ac38c34d675f190485a7c9af157296c31` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32437193020](https://github.com/tenseleyFlow/Cgfried/actions/runs/32437193020) + [ARM run 32445410094](https://github.com/tenseleyFlow/Cgfried/actions/runs/32445410094) |
 | 2026-08-22 | `9cdc3e87928b28e9485022840ca736a6739c4f7d` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32544159147](https://github.com/tenseleyFlow/Cgfried/actions/runs/32544159147) + [ARM run 32550348530](https://github.com/tenseleyFlow/Cgfried/actions/runs/32550348530) |
 
+Manual full-lattice checkpoint [run
+32603828216](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
+also passed on 2026-08-22 at exact head
+`8fb99082a1356045aeb942766307b7899e59ce84`: x86 O0/O2, x86 O2
+reproducibility, native ARM64 O0/O2 including both ABI differentials, and the
+complete cross-host comparison are green. This supplemental observation does
+not create a fifth distinct UTC date and does not replace the scheduled Sunday
+weekly run required by the gate contract.
+
 The 2026-08-13 and 2026-08-14 full-activation rows each retain
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
@@ -102,6 +111,8 @@ retain the four daily artifacts:
 `sprint58-bootstrap-arm64-linux-native-O0`, and
 `sprint58-bootstrap-arm64-linux-native-O2`. Weekly cross-host and x86
 reproducibility artifacts are correctly absent on those non-Sunday dates.
+The supplemental August 22 full-lattice run retains the complete eight-artifact
+set without changing that cadence conclusion.
 
 The August 18 x86 run retains `sprint58-bootstrap-x86_64-linux-O2` but no
 `sprint58-bootstrap-x86_64-linux-O0` artifact. The separate ARM run retains
@@ -182,11 +193,37 @@ SHA-256 digests for the retained artifact ZIPs:
     `e1aca2af5d2b022f5208d53bc2d309bec07364d7dead85d98620d317ee9ae773`
   - `sprint58-bootstrap-arm64-linux-native-O2`:
     `5de22dc671aad66875cc61eff684ca259b3f78075636aba3357024ac3e8c673d`
+- 2026-08-22 manual full-lattice run `32603828216`:
+  - `sprint58-bootstrap-x86_64-linux-O0`:
+    `80574b816ca08dc309b069da86508d856ade8f5d3e217f4bfd2de4fc6f84f06e`
+  - `sprint58-bootstrap-x86_64-linux-O2`:
+    `7d85e88eea2d7f6a00d52b8c9653ef7f63b0937631ca539afb8752686f214ca3`
+  - `sprint58-bootstrap-arm64-linux-native-O0`:
+    `d6542cc9a200a7010d79328b4da330dc9a1b383b2c0462bb0dfa50f0c85e7bc2`
+  - `sprint58-bootstrap-arm64-linux-native-O2`:
+    `c9888348842668674712d4ccf2fd1f46ac37c82677e84bd94c86faec91c3f66a`
+  - `sprint58-bootstrap-arm64-cross-input`:
+    `1e8b8140abf7883806221ab57ae89f04ce123d5ea7b5e6bbfb9b1e1b64ffc12c`
+  - `sprint58-bootstrap-arm64-cross-native`:
+    `00b52e7838a866a6d10cecafb5f3ae037b22ab2ff9ad7b283f813c66bc05eb81`
+  - `sprint58-bootstrap-arm64-cross-x86`:
+    `4fa88006597f655e9aec48a07b61795ecbac35e42a0e10b736c7c95f19c3c9b3`
+  - `sprint58-bootstrap-arm64-cross-final`:
+    `0cd94066a7df47979f15f7f375d54c7f0eea7ac488fe9337a9c900ce08fb8654`
 
-These are API-reported digests, not hashes recomputed by this documentation
-pass. This pass did not download the ZIP bytes or independently recompute the
-internal manifest and payload hashes. That independent content audit remains
-an explicit evidence gap; the ledger does not claim it was performed.
+These are API-reported ZIP digests, not locally recomputed ZIP hashes. For the
+August 16–22 scheduled evidence, this documentation pass did not download the
+ZIP bytes or independently recompute the internal manifest and payload hashes.
+That independent content audit remains an explicit evidence gap for those
+runs; the ledger does not claim it was performed.
+
+The supplemental manual run is independently stronger evidence: a fresh
+download of its final artifact matched all seven embedded provenance hashes,
+verified both 113-entry assembly manifests against the retained files, and
+byte-compared all 228 corresponding assembly, object, runtime-archive, and
+compiler payload files with zero differences. Its x86 run manifest records
+`reproducibility_outcome=success`; its native O2 manifest records both
+`int128_abi_outcome=success` and `fp128_abi_outcome=success`.
 
 Fresh downloads of the final artifacts independently reverified all seven
 embedded provenance hashes and byte-compared both 113-file assembly/object

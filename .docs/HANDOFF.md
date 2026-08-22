@@ -12,7 +12,11 @@ audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
 at 4/30 after a required-lane reset on August 18 and remains operationally
-OPEN. Sprint 59's controlled Kasumi/Hasu
+OPEN. Supplemental full-lattice manual run
+[`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
+is green at exact head `8fb99082`; because it is a second August 22
+observation, it neither advances the distinct-date count nor replaces the
+scheduled Sunday weekly gate. Sprint 59's controlled Kasumi/Hasu
 SQLite baselines and qualifying 15-variant nightly are independently audited
 and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
@@ -494,9 +498,15 @@ do not call the sprint closed until that operational obligation is complete.
   (`db6f114a`, runs `32437193020`/`32445410094`), and August 22 (`9cdc3e87`,
   runs `32544159147`/`32550348530`) are current days 1–4. Continue recording
   distinct UTC dates and every due weekly cross/reproducibility result; any
-  missing or red required run breaks the
-  streak. The August 16–22 ZIP/internal hashes have not yet been independently
-  recomputed, so do not overstate that evidence.
+  missing or red required run breaks the streak. Supplemental manual run
+  [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
+  passed all seven jobs and retained all eight artifacts at exact head
+  `8fb99082`. A fresh download verified all seven embedded provenance hashes,
+  both 113-entry assembly manifests, and all 228 corresponding payload files
+  byte-for-byte. It is additional current-head evidence, not a fifth UTC date
+  or a substitute for the scheduled Sunday run. The August 16–22 scheduled
+  ZIP/internal hashes have not yet been independently recomputed, so do not
+  overstate that separate evidence.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
 soak and therefore owns the next contiguous closure step.
