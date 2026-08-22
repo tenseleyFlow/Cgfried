@@ -136,6 +136,22 @@ void test_lower_verifies_and_roundtrips(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(
+        t,
+        run_lower(
+            &f, "int *__attribute__((aligned(16))) *p;\n" /* check_bans allow */
+                "int main(void) { return **p; }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "load ptr, @p, align 8") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "load i32") != NULL);
+    low_free(&f);
+}
+
 void test_lower_old_style_calls_keep_loose_contract(TestCtx *t)
 {
     LowFix f;

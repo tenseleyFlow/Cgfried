@@ -879,8 +879,17 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                             quals_from_ast(at->quals));
     case ATY_PTR:
         inner = type_from_ast(s, at->next, span);
-        return type_qualify(s->arena, type_ptr(s->arena, inner),
-                            quals_from_ast(at->ptr_quals));
+        {
+            GnuDeclAttrs aligned = {0};
+            Type *ptr = type_ptr(s->arena, inner);
+
+            aligned.aligned_expr = at->ptr_aligned_expr;
+            aligned.aligned_bare = at->ptr_aligned_bare;
+            aligned.aligned_conflict = at->ptr_aligned_conflict;
+            ptr = type_with_alignment(s->arena, ptr,
+                                      gnu_aligned_value(s, &aligned, at->span));
+            return type_qualify(s->arena, ptr, quals_from_ast(at->ptr_quals));
+        }
     case ATY_ARRAY: {
         Type *arr;
 
@@ -908,6 +917,17 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                       "an array of structs with a flexible array member is "
                       "a GNU extension that is not supported");
             inner = type_basic(TY_ERROR);
+        }
+        if (inner && inner->kind != TY_ERROR && inner->align_override) {
+            TypeLayout el = layout_of(s, inner);
+
+            if (el.align > el.size) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, span,
+                          "alignment of array elements is greater than "
+                          "element size");
+                inner = type_basic(TY_ERROR);
+            }
         }
         arr = type_array(s->arena, inner);
         arr->size_expr = at->array_size;
@@ -1270,6 +1290,7 @@ Type *sema_array_complete_from_init(Sema *s, Type *t, const AstNode *init)
     sized = type_array(s->arena, t->base);
     sized->quals = t->quals;
     sized->may_alias = t->may_alias;
+    sized->align_override = t->align_override;
     sized->has_size = true;
     sized->size = n;
     sized->size_expr = t->size_expr;
@@ -1657,9 +1678,10 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
  * WEAKEN an alignment, it may not appear on a typedef, a bitfield, a
  * parameter or a `register` object, and the value must be a power of two.
  * Returns the requested alignment, or 0 for "none". */
-/* Folds an `aligned(N)` argument. Shared by all four positions -- record,
- * member, object, function -- because four copies would drift and the drift is
- * invisible until one position disagrees with another.
+/* Folds an `aligned(N)` argument. Shared by all five represented positions --
+ * record, member, object, function, and a declarator type layer -- because
+ * copies would drift and the drift is invisible until one position disagrees
+ * with another.
  *
  * The RULE that separates it from `_Alignas`: it only ever RAISES. Every
  * caller stores into an align_override field that is consumed with `>`, so a
@@ -1792,6 +1814,7 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
         if (layout_of(s, cand).size == want) {
             Type *mapped = type_qualify(s->arena, cand, t->quals);
 
+            mapped = type_with_alignment(s->arena, mapped, t->align_override);
             return t->may_alias ? type_may_alias(s->arena, mapped) : mapped;
         }
     }
@@ -3643,6 +3666,7 @@ static void finish_symbol(Sema *s, Symbol *sym)
 
             one->quals = sym->type->quals;
             one->may_alias = sym->type->may_alias;
+            one->align_override = sym->type->align_override;
             one->has_size = true;
             one->size = 1;
             sym->type = one;

@@ -136,6 +136,10 @@ struct Type {
      * metadata, while layout, ABI classification, and compatibility remain
      * exactly those of the underlying C type. */
     bool may_alias;
+    /* GNU `aligned` attached to a declarator TYPE layer. This changes that
+     * layer's layout but is not a C compatibility qualifier; size is
+     * unchanged and compatible redeclarations retain the strongest request. */
+    u64 align_override;
 
     Type *base; /* TY_PTR pointee / TY_ARRAY element / TY_FUNC return */
 
@@ -371,6 +375,7 @@ typedef struct VmGoto {
 Type *type_basic(TypeKind k);
 Type *type_qualify(Arena *ar, const Type *t, unsigned quals);
 Type *type_may_alias(Arena *ar, const Type *t);
+Type *type_with_alignment(Arena *ar, const Type *t, u64 align);
 Type *type_ptr(Arena *ar, Type *pointee);
 Type *type_array(Arena *ar, Type *elem);
 Type *type_func(Arena *ar, Type *ret);

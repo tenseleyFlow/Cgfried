@@ -282,6 +282,26 @@ void test_parse_attributed_function_pointer(TestCtx *t)
     pfix_free(&f);
 }
 
+void test_parse_inner_pointer_aligned_attribute(TestCtx *t)
+{
+    ParseFix f;
+    AstNode *tu = parse_src(
+        &f, "int *__attribute__((aligned(16))) *p;\n", /* check_bans allow */
+        STD_GNU17);
+    AstType *outer;
+
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, (int)tu->ndecls, 1);
+    outer = tu->decls[0]->type;
+    T_ASSERT(t, outer != NULL);
+    T_ASSERT_EQ_INT(t, outer->kind, ATY_PTR);
+    T_ASSERT(t, outer->next != NULL);
+    T_ASSERT_EQ_INT(t, outer->next->kind, ATY_PTR);
+    T_ASSERT(t, outer->next->next != NULL);
+    T_ASSERT_EQ_INT(t, outer->next->next->kind, ATY_BASE);
+    pfix_free(&f);
+}
+
 void test_parse_system_float128_compat_typedef(TestCtx *t)
 {
     ParseFix f;

@@ -348,24 +348,31 @@ TypeLayout layout_of(Sema *s, Type *t)
          * which is why sizeof and the stride can never diverge. */
         r.size = el.size * (t->has_size ? t->size : 0);
         r.align = el.align;
-        return r;
+        break;
     }
     case TY_STRUCT:
     case TY_UNION:
         if (!t->tag || !t->tag->complete)
-            return r;
-        layout_record(s, t);
-        r.size = t->tag->size;
-        r.align = t->tag->align;
-        return r;
+            break;
+        else {
+            layout_record(s, t);
+            r.size = t->tag->size;
+            r.align = t->tag->align;
+            break;
+        }
     case TY_ENUM:
         /* An enum has the size of its compatible integer type. */
-        return basic_layout(s, t->tag && t->tag->enum_underlying
-                                   ? t->tag->enum_underlying
-                                   : type_basic(TY_INT));
+        r = basic_layout(s, t->tag && t->tag->enum_underlying
+                                ? t->tag->enum_underlying
+                                : type_basic(TY_INT));
+        break;
     default:
-        return basic_layout(s, t);
+        r = basic_layout(s, t);
+        break;
     }
+    if (t->align_override > r.align)
+        r.align = t->align_override;
+    return r;
 }
 
 u64 layout_offsetof(Sema *s, Type *rec, const Member *m)

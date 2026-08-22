@@ -1237,24 +1237,47 @@ static u32 attribute_lookahead_end(const Parser *p, u32 pos)
     return pos;
 }
 
-/* AstType has no attribute-bearing declarator layer. Optimization-only and
- * diagnostic-only attributes can therefore be consumed here with their
- * ordinary -Wattributes warning. Anything whose implemented meaning would
- * affect a symbol or type is rejected rather than silently attached to the
- * wrong layer. */
-static void parse_inner_declarator_attributes(Parser *p)
+/* Consume attributes inside a declarator. A post-`*` GNU `aligned` belongs to
+ * that exact pointer layer, so the caller supplies it here. Other implemented
+ * symbol/type properties still fail closed: none has a represented meaning at
+ * this grammar position. A leading attribute before any `*` has no layer and
+ * follows the same fail-closed rule. */
+static void parse_inner_declarator_attributes(Parser *p, AstType *ptr)
 {
+    GnuDeclAttrs aligned = {0};
+
+    if (ptr) {
+        aligned.aligned_expr = ptr->ptr_aligned_expr;
+        aligned.aligned_bare = ptr->ptr_aligned_bare;
+        aligned.aligned_conflict = ptr->ptr_aligned_conflict;
+    }
     while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2)) {
         const Token *at = parse_peek(p);
         GnuDeclAttrs gnu = {0};
         CgfAttr *cgf = parse_cgf_attributes(p, &gnu);
 
+        if (ptr &&
+            (gnu.aligned_expr || gnu.aligned_bare || gnu.aligned_conflict)) {
+            GnuDeclAttrs one = {0};
+
+            one.aligned_expr = gnu.aligned_expr;
+            one.aligned_bare = gnu.aligned_bare;
+            one.aligned_conflict = gnu.aligned_conflict;
+            gnu_attrs_merge(&aligned, &one);
+            gnu.aligned_expr = NULL;
+            gnu.aligned_bare = false;
+            gnu.aligned_conflict = false;
+        }
         if (cgf || gnu_attrs_any_symbol_property(&gnu) ||
             gnu_attrs_any_type_property(&gnu))
             parse_error(p, at,
                         "an implemented attribute cannot appear inside a "
-                        "declarator because this position has no "
-                        "attribute-bearing type layer");
+                        "declarator at this position");
+    }
+    if (ptr) {
+        ptr->ptr_aligned_expr = aligned.aligned_expr;
+        ptr->ptr_aligned_bare = aligned.aligned_bare;
+        ptr->ptr_aligned_conflict = aligned.aligned_conflict;
     }
 }
 
@@ -1282,7 +1305,7 @@ static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
     if (name)
         *name = NULL;
 
-    parse_inner_declarator_attributes(p);
+    parse_inner_declarator_attributes(p, NULL);
 
     /* 1. Pointer prefix (with qualifier lists), innermost applied LAST. */
     while (parse_at_punct(p, PUNCT_STAR)) {
@@ -1299,7 +1322,7 @@ static AstType *parse_declarator(Parser *p, AstType *base, const char **name,
                 p->pos++;
             } else if (parse_at_kw(p, KW_ATTRIBUTE) ||
                        parse_at_kw(p, KW_ATTRIBUTE2)) {
-                parse_inner_declarator_attributes(p);
+                parse_inner_declarator_attributes(p, ptr);
             } else {
                 break;
             }

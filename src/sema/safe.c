@@ -234,7 +234,7 @@ static bool category_layout_equal(SafeCtx *sc, Type *a, Type *b)
             return false;
         la = layout_of(sc->sema, a);
         lb = layout_of(sc->sema, b);
-        return la.size == lb.size;
+        return la.size == lb.size && la.align == lb.align;
     }
     if (a->kind == TY_ARRAY || b->kind == TY_ARRAY)
         return a->kind == b->kind && a->has_size == b->has_size &&

@@ -413,6 +413,62 @@ void test_layout_zero_width_bitfields_per_target(TestCtx *t)
                   CGF_TARGET_ARM64_LINUX, 16, 8);
 }
 
+void test_layout_inner_pointer_aligned_attribute(TestCtx *t)
+{
+    LayFix f;
+    Symbol *p;
+    Symbol *q;
+    Symbol *r;
+    Symbol *rec;
+    TypeLayout l;
+
+    (void)run_lay(&f,
+                  "typedef int * "
+                  "__attribute__" /* check_bans allow */
+                  "((aligned(16))) aligned_ptr;\n"
+                  "int *"
+                  "__attribute__" /* check_bans allow */
+                  "((aligned(16))) *p;\n"
+                  "extern aligned_ptr q;\n"
+                  "extern int *q;\n"
+                  "extern int *r;\n"
+                  "extern aligned_ptr r;\n"
+                  "struct S { __typeof__(*p) value; char tail; };\n",
+                  CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+
+    p = scope_lookup(f.sema.file_scope,
+                     intern_str(&f.in, intern_cstr(&f.in, "p")), NS_ORDINARY);
+    T_ASSERT(t, p != NULL);
+    l = layout_of(&f.sema, p->type);
+    T_ASSERT_EQ_INT(t, (int)l.size, 8);
+    T_ASSERT_EQ_INT(t, (int)l.align, 8);
+    T_ASSERT(t, p->type->base != NULL);
+    l = layout_of(&f.sema, p->type->base);
+    T_ASSERT_EQ_INT(t, (int)l.size, 8);
+    T_ASSERT_EQ_INT(t, (int)l.align, 16);
+    T_ASSERT(t, type_compatible(p->type->base,
+                                type_ptr(&f.arena, type_basic(TY_INT))));
+
+    q = scope_lookup(f.sema.file_scope,
+                     intern_str(&f.in, intern_cstr(&f.in, "q")), NS_ORDINARY);
+    r = scope_lookup(f.sema.file_scope,
+                     intern_str(&f.in, intern_cstr(&f.in, "r")), NS_ORDINARY);
+    T_ASSERT(t, q != NULL);
+    T_ASSERT(t, r != NULL);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, q->type).align, 16);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, r->type).align, 16);
+
+    rec = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "S")), NS_TAG);
+    T_ASSERT(t, rec != NULL);
+    T_ASSERT(t, rec->tag != NULL);
+    l = layout_of(&f.sema, rec->tag->type);
+    T_ASSERT_EQ_INT(t, (int)l.size, 16);
+    T_ASSERT_EQ_INT(t, (int)l.align, 16);
+    lay_free(&f);
+}
+
 void test_layout_unnamed_nonzero_bitfields_per_target(TestCtx *t)
 {
     struct {

@@ -46,8 +46,9 @@ struct S  { char a; int b A(1); };                /* aligned(1) on a member */
 4. **The bare form is 16 on x86-64 AND arm64-linux** — measured on both, not
    assumed. It is gcc's `BIGGEST_ALIGNMENT`. If a target ever disagrees this
    belongs in `TargetLayout`, not in a constant.
-5. **All four positions are live**: record (trailing, and between keyword and
-   tag), member, object, function.
+5. **All five represented positions are live**: record (trailing, and between
+   keyword and tag), member, object, function, and a pointer layer after `*`
+   in a declarator.
 
 ## What is already in place
 
@@ -63,11 +64,25 @@ rule 1 needs no new logic — only the value has to arrive.
 
 ## What landed
 
-All four positions, both targets, verified by execution rather than by reading
-directives. `IrFunc.align` carries the function position and round-trips as
-` align(N)`; `cg_func_p2align` is the one place a byte count becomes a
-directive exponent, shared so the two emitters cannot drift on a rule that
-belongs to the attribute rather than to either backend.
+The original four positions, both targets, were verified by execution rather
+than by reading directives. `IrFunc.align` carries the function position and
+round-trips as ` align(N)`; `cg_func_p2align` is the one place a byte count
+becomes a directive exponent, shared so the two emitters cannot drift on a
+rule that belongs to the attribute rather than to either backend.
+
+Sprint 56.5 added the fifth represented position: `AstType` records an
+`aligned` request on the exact pointer layer after `*`, and `Type` carries the
+folded override without treating it as a compatibility qualifier. The pointer
+keeps its natural size, `_Alignof` observes the stronger request, containing
+aggregates inherit it, and compatible redeclarations preserve the maximum.
+Scalar IR loads and stores remain capped at their natural alignment, as
+required by IR-C-11; the C over-alignment still controls object placement and
+aggregate layout. Arrays whose element alignment exceeds element size are
+rejected, matching gcc.
+
+A grouped prefix attribute before the first `*` remains fail-closed because
+that grammar position still has no represented type layer. It must not be
+silently attached to the object or to an adjacent pointer layer.
 
 The argument is folded in sema as a constant expression, which the audit called
 "probably not much more work" and which was correct: `aligned(4 * 8)` works,

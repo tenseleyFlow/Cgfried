@@ -76,6 +76,21 @@ Type *type_may_alias(Arena *ar, const Type *t)
     return a;
 }
 
+Type *type_with_alignment(Arena *ar, const Type *t, u64 align)
+{
+    Type *a;
+
+    if (!t || align <= t->align_override)
+        return (Type *)t;
+    /* Basic types are process-global interned nodes, and derived types may be
+     * shared by typedef lookup. Never mutate either in place: the alignment
+     * belongs only to the attributed spelling that requested it. */
+    a = type_new(ar, t->kind);
+    *a = *t;
+    a->align_override = align;
+    return a;
+}
+
 Type *type_ptr(Arena *ar, Type *pointee)
 {
     Type *t = type_new(ar, TY_PTR);
@@ -340,6 +355,9 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_ptr(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
+        c->align_override = a->align_override > b->align_override
+                                ? a->align_override
+                                : b->align_override;
         return c;
     case TY_ARRAY:
         /* The size comes from whichever declaration HAS one: this is what
@@ -347,6 +365,9 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_array(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
+        c->align_override = a->align_override > b->align_override
+                                ? a->align_override
+                                : b->align_override;
         if (a->has_size) {
             c->has_size = true;
             c->size = a->size;
@@ -364,6 +385,9 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_func(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
+        c->align_override = a->align_override > b->align_override
+                                ? a->align_override
+                                : b->align_override;
         if (!proto) {
             const Type *definition = a->old_style_definition
                                          ? a
@@ -397,8 +421,13 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         }
         return c;
     }
-    default:
-        return a->may_alias || b->may_alias ? type_may_alias(ar, a) : a;
+    default: {
+        Type *out = a->may_alias || b->may_alias ? type_may_alias(ar, a) : a;
+        u64 align = a->align_override > b->align_override ? a->align_override
+                                                          : b->align_override;
+
+        return type_with_alignment(ar, out, align);
+    }
     }
 }
 

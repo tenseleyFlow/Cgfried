@@ -212,6 +212,13 @@ struct AstType {
 
     /* ATY_PTR */
     u32 ptr_quals;
+    /* GNU `aligned` written in the pointer qualifier list belongs to this
+     * exact pointer layer: `int * aligned(16) *p` over-aligns `*p`, not p.
+     * Keep the unevaluated expression until sema has a target and the shared
+     * constant-expression evaluator. */
+    AstNode *ptr_aligned_expr;
+    bool ptr_aligned_bare;
+    bool ptr_aligned_conflict;
 
     /* ATY_ARRAY: the SIZE EXPRESSION, never a computed value. */
     AstNode *array_size;

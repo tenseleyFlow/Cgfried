@@ -128,16 +128,25 @@ is worse than a diagnostic.
   violation (6.7.5p4). So **`aligned(1)` is not a spelling of `packed`** — the
   member stays at its natural offset. Every consumer stores into an
   `align_override` field read with `>`, which is exactly that rule.
-- All four positions work: record (trailing, and between the keyword and the
-  tag — a LEADING attribute gcc ignores, same as `packed`), member, object and
-  function. The function position aligns the CODE and both emitters take the
-  max against their own default padding.
+- All five represented positions work: record (trailing, and between the
+  keyword and the tag — a LEADING attribute gcc ignores, same as `packed`),
+  member, object, function, and the pointer layer after `*` in a declarator.
+  The function position aligns the CODE and both emitters take the max against
+  their own default padding. Pointer-layer alignment changes that layer's
+  `_Alignof` and aggregate layout without changing type compatibility or
+  pointer size; compatible redeclarations retain the strongest request.
 - The argument is a constant EXPRESSION, not a literal. `aligned(4 * 8)` and
   `aligned(sizeof(long))` appear in real headers, so it is folded in sema by
   the evaluator `_Alignas` already uses. The no-argument form is the target's
   biggest alignment, measured as 16 on x86-64 and arm64-linux.
 - It COMPOSES with `packed` rather than conflicting: packed forces the member
   offsets, aligned sets the record's alignment, and the size rounds up to it.
+
+The pointer-layer spelling currently requires a preceding `*`, for example
+`int *__attribute__((aligned(16))) *p`. A grouped prefix attribute such as
+`int (__attribute__((aligned(16))) *p)` remains a hard error: that grammar
+position still has no represented type layer, so guessing would bind the
+attribute to the wrong type.
 
 Landing it found two things nothing else had: `_Alignas` on an OBJECT did
 nothing at all on any target, and `layout_union` never read `align_override`,

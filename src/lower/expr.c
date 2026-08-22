@@ -63,6 +63,20 @@ static u8 lv_flags(const Lvalue *lv)
                 (lv->is_atomic ? IRF_SEQ_CST : 0));
 }
 
+/* IR-C-11 deliberately represents scalar memory-operation alignment only up
+ * to the scalar's natural alignment. A GNU over-aligned C type still drives
+ * object allocation and aggregate layout, but claiming more on a scalar load
+ * or store carries no additional semantics and violates the verifier/backend
+ * contract. Under-alignment remains intact for packed objects. */
+static u32 lv_ir_align(const Lvalue *lv)
+{
+    u32 natural = ir_type_size(lv->unit);
+
+    if (natural && lv->align > natural)
+        return natural;
+    return lv->align;
+}
+
 /* Extract a bitfield by placing its sign bit at the top of an integer and
  * shifting it back down.  ARM64 has no 8- or 16-bit arithmetic registers:
  * selecting an i8 `shl 5; lshr 5` directly as W operations would clear five
@@ -97,8 +111,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 {
     ValueId raw;
 
-    raw = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv.align, lv_flags(&lv),
-                              lv.etype);
+    raw = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv_ir_align(&lv),
+                              lv_flags(&lv), lv.etype);
     if (!lv.is_bitfield)
         return ir_op_value(lo->fn, raw);
     return bitfield_extract(lo, ir_op_value(lo->fn, raw), lv.unit, lv.bit_shift,
@@ -108,16 +122,17 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 {
     if (!lv.is_bitfield) {
-        ir_build_store_typed(&lo->b, v, lv.addr, lv.align, lv_flags(&lv),
-                             lv.etype);
+        ir_build_store_typed(&lo->b, v, lv.addr, lv_ir_align(&lv),
+                             lv_flags(&lv), lv.etype);
         return v;
     }
     {
         /* Read-modify-write; and the RESULT of the assignment is the
          * re-narrowed stored value, not the incoming RHS. */
         u64 mask = lv.bit_width >= 64 ? ~0ull : ((1ull << lv.bit_width) - 1);
-        ValueId old = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv.align,
-                                          lv_flags(&lv), lv.etype);
+        ValueId old =
+            ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv_ir_align(&lv),
+                                lv_flags(&lv), lv.etype);
         ValueId clr =
             ir_build2(&lo->b, IR_AND, lv.unit, ir_op_value(lo->fn, old),
                       ir_op_iconst(lv.unit, (i64) ~(mask << lv.bit_shift)));
@@ -131,7 +146,7 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
                       ir_op_value(lo->fn, shifted));
 
         ir_build_store_typed(&lo->b, ir_op_value(lo->fn, ins), lv.addr,
-                             lv.align, lv_flags(&lv), lv.etype);
+                             lv_ir_align(&lv), lv_flags(&lv), lv.etype);
         return bitfield_extract(lo, ir_op_value(lo->fn, nv), lv.unit, 0,
                                 lv.bit_width, lv.is_signed);
     }
