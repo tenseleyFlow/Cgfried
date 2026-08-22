@@ -20,7 +20,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 26,155-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,265-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -575,28 +575,31 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator
-  tranches, outcome totals are 26,155 PASS, 6,620 SKIP, and 7,875 classified
-  failures.
+  and packed-bitfield tranches, outcome totals are 26,265 PASS, 6,620 SKIP,
+  and 7,765 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 81 total buckets,
-  72 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 48 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 79 total buckets,
+  70 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 46 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,155-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,265-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
-  the declarator-type-attributes bucket, again with zero regressions. The
+  the declarator-type-attributes bucket, again with zero regressions.
+  `e227d4f1` implemented suffix attributes on bitfields plus packed-bitfield
+  layout/lowering and promoted 110 cells (11 cases across both targets and all
+  five optimization levels) with zero regressions. The
   arm64 stream uses the repository's cross binutils, QEMU, and
   `/usr/aarch64-linux-gnu/include`; an earlier host-header stream was
   quarantined and never published. Combined gating passes, and reversed input
   order regenerates both committed artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (799 unit tests /
-  4,293,703 assertions, 697 program fixtures, and every
+  torture-import-meta torture-meta`, full `make test` (801 unit tests /
+  4,293,770 assertions, 698 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), `make bootstrap-O0`, and `make
   bootstrap-O2`. Both bootstraps reproduce 113 assembly files, 113 objects,
   the runtime archive, and the compiler byte-identically with no normalization.
@@ -607,10 +610,10 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
   target-complete, and provenance checked.
 
 No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
-and the Sprint 56.5 declarator tranches retired every bucket they fixed; the
-remaining compiler debt is enumerated by the 48 live `s56.5-*` policy
-decisions. Sprint 54 and Phase 11 subsequently closed on their independent
-fleet evidence.
+and the Sprint 56.5 declarator and packed-bitfield tranches retired every
+bucket they fixed; the remaining compiler debt is enumerated by the 46 live
+`s56.5-*` policy decisions. Sprint 54 and Phase 11 subsequently closed on
+their independent fleet evidence.
 
 ---
 

@@ -32,7 +32,6 @@
 -	737ff185cf3959109ce8d0dd4bfa4cb1ce024b2ddc5b45d604a5b78292ea2caf	ICE	all	x86 switch lowering leaves a large case constant in an immediate form that requires movabs	fix-sprint:s56.5-x86-imm64-materialization
 -	759ab6b2e233e715bd42b543868bd046fd8e396ab73ca78a4e2ce7a213324010	ICE	all	arm64 ABI planning caps stacked aggregate arguments at four leaves and ICEs on a valid 64-byte argument	fix-sprint:s56.5-arm64-stacked-large-aggregate-abi
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
--	81808be8dc972fea877faff22a28f890bd5c0468563a0471589dc76daaaf2952	parse	all	A packed attribute following a bitfield declarator is not accepted or bound to that member.	fix-sprint:s56.5-bitfield-suffix-attributes
 -	82945e9550f35c73abe3693f52a63ffdb9513b97cadf8ca4a22f585b738b53ff	sema	all	An incomplete static array is not completed from an array compound-literal initializer.	fix-sprint:s56.5-compound-literal-array-completion
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	89938bfb2700a23731e0b730cfc1d58f7ec13bd0059bda1e9aedc616cc40c36a	sema	all	Runtime VLA dimensions are incorrectly treated as incomplete when sizeof is applied to a multidimensional VLA.	fix-sprint:s56.5-multidimensional-vla-sizeof
@@ -41,7 +40,6 @@
 -	91d2215b56a7eef42a5038abc931eace3e3f0478ed15892b898474014e9ab6d1	pp	all	The preprocessor does not recognize GCC's deprecated #predicate(answer) assertion syntax inside #if expressions.	fix-sprint:s56.5-gnu-pp-assertions
 -	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
--	9c4fd675f5535ded37de21e44b0d9e02aa23a68d9735178cbf65808d83cc65d0	sema	all	Packed-struct bit-fields are refused although packed layout is an implemented Sprint 55 attribute contract.	fix-sprint:s56.5-packed-bitfields
 -	a1baad615656922dd0c5cf03bae7bde4254cdc850813b578887e94bd88520db6	ld	all	Only the first file-scope declarator in a comma-separated tentative-definition declaration is emitted, leaving sibling globals undefined.	fix-sprint:s56.5-sibling-global-emission
 -	a4c8056106f26408c6570535e107b3a683db2ce282297fc9b52c2e57268e5ee7	sema	all	Static-initializer folding rejects the constant difference between two subobject addresses in the same aggregate.	fix-sprint:s56.5-static-subobject-pointer-difference
 -	a8a165d75ac747bc8398b95018f15e9ec04be1fae4c417d91fc62a5e5722fba6	sema	all	Expression typing rejects GNU void dereference expressions and also misclassifies a conditional between compatible enum and int pointers as void pointer.	fix-sprint:s56.5-void-deref-and-pointer-composite
