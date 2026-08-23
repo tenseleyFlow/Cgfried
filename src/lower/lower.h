@@ -55,7 +55,7 @@ typedef struct Lvalue {
     bool packed_bitfield;
     bool is_volatile;
     bool is_atomic; /* _Atomic: loads/stores carry seq_cst (Sprint 20) */
-    bool is_signed; /* of the FIELD type: drives the re-narrowing */
+    bool is_signed; /* of the FIELD representation: drives re-narrowing */
     u32 align;
 } Lvalue;
 

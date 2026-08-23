@@ -233,6 +233,28 @@ void test_lower_bitfield_signed_rw(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_enum_bitfield_uses_value_range_signedness(TestCtx *t)
+{
+    LowFix f;
+
+    /* Cgfried keeps a small enum compatible with int, but follows gcc's
+     * implementation-defined enum-bitfield rule: an enum whose enumerators
+     * are all nonnegative is an unsigned field representation. A negative
+     * enumerator makes the field representation signed. The two reads must
+     * therefore select different extraction shifts even though both enum
+     * compatible types are int. */
+    T_ASSERT(t,
+             run_lower(&f, "enum Pos { P = 148 };\n"
+                           "enum Neg { N = -1, Z = 0 };\n"
+                           "struct B { enum Pos p : 8; enum Neg n : 8; } g;\n"
+                           "int rp(void) { return g.p; }\n"
+                           "int rn(void) { return g.n; }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "ashr i32"), 1);
+    low_free(&f);
+}
+
 void test_lower_bitfield_assign_result_narrowed(TestCtx *t)
 {
     LowFix f;
