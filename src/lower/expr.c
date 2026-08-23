@@ -600,7 +600,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             lv.packed_bitfield = true;
             lv.bit_shift = (u8)(m->bit_offset % 8);
             lv.bit_width = (u8)m->bit_width;
-            lv.is_signed = is_signed_ty(lo, m->type);
+            lv.is_signed = m->bitfield_is_signed;
             if (sem(e) && (sem(e)->quals & CGF_QUAL_VOLATILE))
                 lv.is_volatile = true;
             return lv;
@@ -640,7 +640,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             lv.is_bitfield = true;
             lv.bit_shift = (u8)shift;
             lv.bit_width = (u8)m->bit_width;
-            lv.is_signed = is_signed_ty(lo, m->type);
+            lv.is_signed = m->bitfield_is_signed;
             if (sem(e) && (sem(e)->quals & CGF_QUAL_VOLATILE))
                 lv.is_volatile = true;
             return lv;

@@ -67,6 +67,13 @@ struct Member {
     Type *type;
     AstNode *bitfield_width; /* the EXPRESSION; Sprint 15 evaluates it */
     bool is_bitfield;
+    /* Effective bit-field representation signedness. This normally follows
+     * `type`, but gcc represents an enum bit-field as unsigned when every
+     * enumerator is nonnegative even when the enum's compatible type is int.
+     * Keep that implementation-defined choice on the member: changing the
+     * enum's general conversion signedness would be a different language
+     * rule with effects far beyond bit-field extraction. */
+    bool bitfield_is_signed;
     Span span;
 
     /* Filled by layout_record (Sprint 14). `offset` is in BYTES from the
@@ -109,21 +116,22 @@ struct TagDecl {
     Member *members;
     u32 nmembers;
     Type *enum_underlying; /* TY_ENUM only, chosen per gcc's ladder */
-    AstNode *enum_ast;     /* originating AST_ENUM_DECL; switch warnings use
-                              its declaration-ordered enumerator list */
-    bool has_fam;          /* last member is a flexible array (6.7.2.1p18) */
-    bool defining;         /* completion in progress: a nested definition of
-                              the same tag is a "nested redefinition", not a
-                              completion of OURSELVES — without this check a
-                              self-referential member cycle forms and every
-                              later member walk recurses forever (found by
-                              the fuzzer, seed 1773) */
-    u64 align_override;    /* _Alignas on the record, 0 = none */
-    bool packed;           /* the record carries `packed`: every member is
-                              placed at alignment 1 and the record's own
-                              alignment drops to 1 with it -- forgetting the
-                              second half gives right offsets and wrong
-                              sizeof (.docs/audits/packed-layout.md) */
+    bool enum_has_negative; /* drives gcc-compatible enum-bitfield sign */
+    AstNode *enum_ast;      /* originating AST_ENUM_DECL; switch warnings use
+                               its declaration-ordered enumerator list */
+    bool has_fam;           /* last member is a flexible array (6.7.2.1p18) */
+    bool defining;          /* completion in progress: a nested definition of
+                               the same tag is a "nested redefinition", not a
+                               completion of OURSELVES — without this check a
+                               self-referential member cycle forms and every
+                               later member walk recurses forever (found by
+                               the fuzzer, seed 1773) */
+    u64 align_override;     /* _Alignas on the record, 0 = none */
+    bool packed;            /* the record carries `packed`: every member is
+                               placed at alignment 1 and the record's own
+                               alignment drops to 1 with it -- forgetting the
+                               second half gives right offsets and wrong
+                               sizeof (.docs/audits/packed-layout.md) */
     Span span;
     Type *type; /* the one Type node that names this tag */
 };

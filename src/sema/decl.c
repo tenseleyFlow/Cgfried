@@ -482,6 +482,16 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         if (m->is_bitfield) {
             i64 wv = 0;
 
+            /* gcc's implementation-defined enum-bitfield representation is
+             * unsigned when the enum has no negative enumerator. This is
+             * deliberately member metadata: Cgfried's existing compatible-
+             * type policy keeps a small enum as int, while extraction still
+             * needs the enum's value-range sign. */
+            mem->bitfield_is_signed =
+                mt && mt->kind == TY_ENUM && mt->tag && mt->tag->complete
+                    ? mt->tag->enum_has_negative
+                    : conv_is_signed(s, mt);
+
             if (m->bitfield_width && enum_fold(s, m->bitfield_width, &wv)) {
                 u64 type_bits = layout_of(s, mt).size * 8;
 
@@ -670,6 +680,7 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
     }
 
     tag->enum_underlying = enum_underlying(s, lo, hi, any_negative);
+    tag->enum_has_negative = any_negative;
     tag->complete = true;
 
     /* 6.7.2.2p3 gives enum CONSTANTS type `int` — but only the ones that

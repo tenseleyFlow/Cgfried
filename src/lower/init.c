@@ -889,7 +889,7 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         lv.bit_shift =
             (u8)(m->packed ? m->bit_offset % 8 : m->bit_offset - unit_byte * 8);
         lv.bit_width = (u8)m->bit_width;
-        lv.is_signed = conv_is_signed(lo->sema, (Type *)m->type);
+        lv.is_signed = m->bitfield_is_signed;
         lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;
         lower_store(lo, lv, v);
         return;
