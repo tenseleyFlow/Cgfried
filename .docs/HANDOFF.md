@@ -24,7 +24,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 26,265-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,295-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -586,32 +586,39 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
   verification and deterministic fixture suites pass.
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
-  bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator
-  and packed-bitfield tranches, outcome totals are 26,265 PASS, 6,620 SKIP,
-  and 7,765 classified failures.
+  bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
+  packed-bitfield, and enum-bitfield tranches, outcome totals are 26,295 PASS,
+  6,620 SKIP, and 7,735 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 79 total buckets,
-  70 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 46 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 78 total buckets,
+  69 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 45 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,265-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,295-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
   `e227d4f1` implemented suffix attributes on bitfields plus packed-bitfield
   layout/lowering and promoted 110 cells (11 cases across both targets and all
-  five optimization levels) with zero regressions. The
+  five optimization levels) with zero regressions. `7fa70484` then recorded
+  enum value-range signedness on bit-field members without changing Cgfried's
+  general enum compatible-type policy. It promoted 30 cells with zero
+  regressions: `ctestsuite/00218.c` and GCC torture cases `20000914-1.c` and
+  `20030714-1.c`, on both targets at all five levels. The
   arm64 stream uses the repository's cross binutils, QEMU, and
   `/usr/aarch64-linux-gnu/include`; an earlier host-header stream was
-  quarantined and never published. Combined gating passes, and reversed input
-  order regenerates both committed artifacts byte-identically.
+  quarantined and never published. A bare-QEMU local stream that omitted the
+  loader sysroot was likewise rejected by the regression check and replaced
+  with a qualifying `scripts/qemu-run.sh` stream before ledger publication.
+  Combined gating passes, and reversed input order regenerates both committed
+  artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (801 unit tests /
-  4,293,770 assertions, 698 program fixtures, and every
+  torture-import-meta torture-meta`, full `make test` (808 unit tests /
+  4,293,797 assertions, 701 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), `make bootstrap-O0`, and `make
   bootstrap-O2`. Both bootstraps reproduce 113 assembly files, 113 objects,
   the runtime archive, and the compiler byte-identically with no normalization.
@@ -622,10 +629,10 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
   target-complete, and provenance checked.
 
 No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
-and the Sprint 56.5 declarator and packed-bitfield tranches retired every
-bucket they fixed; the remaining compiler debt is enumerated by the 46 live
-`s56.5-*` policy decisions. Sprint 54 and Phase 11 subsequently closed on
-their independent fleet evidence.
+and the Sprint 56.5 declarator, packed-bitfield, and enum-bitfield tranches
+retired every bucket they fixed; the remaining compiler debt is enumerated by
+the 45 live `s56.5-*` policy decisions. Sprint 54 and Phase 11 subsequently
+closed on their independent fleet evidence.
 
 ---
 
