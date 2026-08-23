@@ -115,7 +115,7 @@ struct TagDecl {
     bool complete;
     Member *members;
     u32 nmembers;
-    Type *enum_underlying; /* TY_ENUM only, chosen per gcc's ladder */
+    Type *enum_underlying;  /* TY_ENUM only, chosen per gcc's ladder */
     bool enum_has_negative; /* drives gcc-compatible enum-bitfield sign */
     AstNode *enum_ast;      /* originating AST_ENUM_DECL; switch warnings use
                                its declaration-ordered enumerator list */
