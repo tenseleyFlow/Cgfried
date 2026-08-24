@@ -2133,8 +2133,9 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     /* IEEE bit patterns, written as bits — never as a host double
      * (the no-host-FPU law: these are the same values Sprint 15's
      * softfloat produces, and a host literal would be a second source
-     * of truth). __builtin_nan("") is the default quiet NaN; a
-     * non-empty payload string is not supported and sema rejects it. */
+     * of truth). Sf represents NaN classification rather than payload bits,
+     * so every accepted __builtin_nan payload spelling uses this canonical
+     * quiet-NaN image in both constexpr and runtime lowering. */
     case SEMA_BUILTIN_HUGE_VAL:
     case SEMA_BUILTIN_INF:
         *out = ir_op_fconst(IRT_F64, 0x7ff0000000000000ULL, 0);

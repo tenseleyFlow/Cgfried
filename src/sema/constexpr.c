@@ -212,6 +212,17 @@ static ConstValue cv_int(Sema *s, Type *t, u64 bits)
     return v;
 }
 
+static ConstValue cv_special_float(Type *t, SfClass cls)
+{
+    ConstValue v;
+
+    memset(&v, 0, sizeof(v));
+    v.kind = CV_FLOAT;
+    v.type = t;
+    v.f.cls = cls;
+    return v;
+}
+
 /* Truncates to the type's width and sign-extends if the type is signed —
  * the operation every fold ends with, so a value never carries bits its
  * type cannot hold. */
@@ -288,6 +299,33 @@ static bool is_null_pointer_value(const ConstValue *v)
 {
     return v && v->kind == CV_INT && v->i == 0 && v->type &&
            v->type->kind == TY_PTR;
+}
+
+/* Lowering pools ordinary string literals by encoding and bytes, while
+ * function-name objects use their own pool.  Constant folding must use the
+ * same identity rule: two AST nodes for `"x"` name one emitted object, but a
+ * file-scope compound literal remains distinct unless it is the same node. */
+static bool same_anonymous_object(const AstNode *a, const AstNode *b)
+{
+    if (a == b)
+        return true;
+    if (!a || !b || a->kind != AST_EXPR_STRING || b->kind != AST_EXPR_STRING ||
+        a->is_func_name != b->is_func_name || !a->tok || !b->tok ||
+        a->tok->str.enc != b->tok->str.enc ||
+        a->tok->str.nbytes != b->tok->str.nbytes)
+        return false;
+    return a->tok->str.nbytes == 0 ||
+           memcmp(a->tok->str.bytes, b->tok->str.bytes, a->tok->str.nbytes) ==
+               0;
+}
+
+static bool same_address_origin(const ConstValue *a, const ConstValue *b)
+{
+    if (a->sym != b->sym)
+        return false;
+    if (a->sym)
+        return true;
+    return same_anonymous_object(a->anon, b->anon);
 }
 
 /* A null pointer used while folding the offsetof idiom is an address origin,
@@ -427,6 +465,27 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
         return v;
     }
 
+    if (e->kind == AST_EXPR_COMPOUND_LIT) {
+        ConstValue v;
+
+        if (!e->is_static_storage) {
+            ce_error(s, m, e->span,
+                     "initializer element is not computable at load time: "
+                     "the compound literal has automatic storage duration");
+            return cv_error();
+        }
+        if (m != CE_ADDR && m != CE_FOLD) {
+            ce_error(s, m, e->span,
+                     "an address is not an integer constant expression");
+            return cv_error();
+        }
+        memset(&v, 0, sizeof(v));
+        v.kind = CV_ADDR;
+        v.type = e->sem_type;
+        v.anon = e;
+        return v;
+    }
+
     base = eval(s, e, m);
     if (is_null_pointer_value(&base)) {
         base = null_address(base.type);
@@ -477,7 +536,11 @@ static bool multiply_overflows(Sema *s, Type *t, u64 a, u64 b)
 
 static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
 {
-    ConstValue l = eval(s, e->lhs, m);
+    bool pointer_difference =
+        e->op == PUNCT_MINUS && e->lhs->sem_type && e->rhs->sem_type &&
+        e->lhs->sem_type->kind == TY_PTR && e->rhs->sem_type->kind == TY_PTR;
+    CeMode operand_mode = pointer_difference && m == CE_ARITH ? CE_ADDR : m;
+    ConstValue l = eval(s, e->lhs, operand_mode);
     ConstValue r;
     Type *t = e->sem_type;
     u64 res;
@@ -491,20 +554,19 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
     if (e->op == PUNCT_PIPEPIPE && l.kind == CV_INT && l.i != 0)
         return cv_int(s, type_basic(TY_INT), 1);
 
-    r = eval(s, e->rhs, m);
+    r = eval(s, e->rhs, operand_mode);
     if (r.kind == CV_ERROR)
         return r;
 
     /* Fold pointer subtraction when both operands name the same object.  The
      * null/null case is the traditional offsetof macro; ordinary same-symbol
      * differences such as `&a[3] - &a[1]` follow the same C rule. */
-    if (e->op == PUNCT_MINUS && e->lhs->sem_type && e->rhs->sem_type &&
-        e->lhs->sem_type->kind == TY_PTR && e->rhs->sem_type->kind == TY_PTR) {
+    if (pointer_difference) {
         ConstValue la = is_null_pointer_value(&l) ? null_address(l.type) : l;
         ConstValue ra = is_null_pointer_value(&r) ? null_address(r.type) : r;
 
-        if (la.kind == CV_ADDR && ra.kind == CV_ADDR && la.sym == ra.sym &&
-            la.anon == ra.anon) {
+        if (la.kind == CV_ADDR && ra.kind == CV_ADDR &&
+            same_address_origin(&la, &ra)) {
             i64 bytes = la.addend - ra.addend;
             u64 scale = 1;
 
@@ -1123,9 +1185,19 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         return e->cond_omits_mid ? c : eval(s, e->mid, m);
     }
     case AST_EXPR_CAST: {
-        ConstValue o = eval(s, e->lhs, m == CE_ICE ? CE_ARITH : m);
+        CeMode cast_mode = m == CE_ICE ? CE_ARITH : m;
+        Type *from = e->lhs ? e->lhs->sem_type : NULL;
+        ConstValue o;
         Type *to = e->sem_type;
 
+        if (e->implicit && from && from->kind == TY_ARRAY && to &&
+            to->kind == TY_PTR) {
+            bool from_null = false;
+
+            o = eval_lvalue_address(s, e->lhs, cast_mode, &from_null);
+        } else {
+            o = eval(s, e->lhs, cast_mode);
+        }
         if (o.kind == CV_ERROR)
             return o;
         if (o.kind == CV_ADDR) {
@@ -1232,11 +1304,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         return cv_int(s, e->sem_type, off);
     }
     case AST_EXPR_CALL: {
-        /* The byte swaps are the only calls that fold. gcc accepts them
-         * where an ICE is required -- `static int a[__builtin_bswap16(
-         * 0x0100)]` and `enum { E = __builtin_bswap32(1) }` both compile
-         * -- so refusing here would reject code glibc's headers write.
-         * Everything else is a call and is not constant. */
+        /* These compiler-owned builtins have compile-time semantics.  Keep
+         * constant_p's answer identical to lowering: addresses do not count
+         * as known constants at this optimization-independent stage. */
         unsigned bytes = sema_builtin_bswap_bytes((u16)e->op);
 
         if (bytes && e->nargs == 1) {
@@ -1245,6 +1315,26 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             if (a.kind != CV_INT)
                 return cv_error();
             return cv_int(s, e->sem_type, cgf_bswap(a.i, bytes));
+        }
+        if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
+            ConstValue a = eval(s, e->args[0], CE_FOLD);
+
+            return cv_int(s, e->sem_type,
+                          a.kind == CV_INT || a.kind == CV_FLOAT);
+        }
+        if (e->op == SEMA_BUILTIN_HUGE_VAL || e->op == SEMA_BUILTIN_HUGE_VALF ||
+            e->op == SEMA_BUILTIN_INF || e->op == SEMA_BUILTIN_INFF ||
+            e->op == SEMA_BUILTIN_NAN || e->op == SEMA_BUILTIN_NANF) {
+            if (m == CE_ICE) {
+                ce_error(s, m, e->span,
+                         "a floating constant is not an integer constant "
+                         "expression");
+                return cv_error();
+            }
+            return cv_special_float(e->sem_type, (e->op == SEMA_BUILTIN_NAN ||
+                                                  e->op == SEMA_BUILTIN_NANF)
+                                                     ? SF_NAN
+                                                     : SF_INF);
         }
         ce_error(s, m, e->span, "this is not a constant expression");
         return cv_error();
