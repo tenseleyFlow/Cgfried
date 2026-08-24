@@ -2918,7 +2918,7 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             Type *vt = e->lhs ? sem(e->lhs)
                               : sema_type_from_ast(lo->sema, e->type, e->span);
 
-            if (vt && vt->is_vla)
+            if (type_is_runtime_sized_array(vt))
                 return lower_type_size(lo, vt);
             return ir_op_undef(IRT_I64);
         }

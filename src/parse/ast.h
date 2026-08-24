@@ -367,6 +367,11 @@ struct AstNode {
      * that scope is popped when the body ends — this array is how Sprint
      * 18's lowering still reaches them to bind IR parameters. */
     struct Symbol **param_syms;
+    /* The corresponding parameter declaration types BEFORE 6.7.6.3p7/p8
+     * array/function adjustment. Entry-time VLA bound evaluation needs the
+     * discarded outer array layer; body uses still read param_syms' adjusted
+     * pointer type. */
+    struct Type **param_decl_types;
     u32 nparam_syms;
 
     /* AST_TRANSLATION_UNIT */

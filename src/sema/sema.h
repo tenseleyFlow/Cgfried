@@ -401,6 +401,10 @@ bool type_is_integer(const Type *t);
 bool type_is_floating(const Type *t);
 bool type_is_arithmetic(const Type *t);
 bool type_is_complete(const Type *t);
+/* True only when `t` itself is an array whose contiguous array derivation
+ * contains a VLA layer. A pointer to a VLA is pointer-sized, so pointers stop
+ * the walk. */
+bool type_is_runtime_sized_array(const Type *t);
 /* The C11 scalar-operand constraint, shared by `!`, `&&`, `||`, `?:` and
  * every controlling expression. Call it after conv_decay. */
 bool sema_require_scalar(Sema *s, const AstNode *e);

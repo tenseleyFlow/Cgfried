@@ -331,6 +331,10 @@ void lower_prebind_locals(Lower *lo, AstNode *body);
  * fresh computation for an undeclared VLA type (sizeof(int[n]) — C17
  * says the size expression evaluates there). */
 IrOperand lower_type_size(Lower *lo, Type *t);
+/* Evaluate and cache every VLA layer named by a declaration. The walk passes
+ * through pointer layers because pointer-to-VLA declarations still evaluate
+ * their bounds even though the declared object itself is pointer-sized. */
+void lower_prime_vla_sizes(Lower *lo, Type *t);
 
 /* --- SysV ABI plans (src/lower/abi.c) ------------------------------------- */
 

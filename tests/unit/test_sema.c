@@ -159,6 +159,26 @@ static Type *A(TypeFix *tf, Type *elem, bool sized, u64 n)
     return a;
 }
 
+void test_sema_runtime_sized_array_predicate(TestCtx *t)
+{
+    TypeFix tf;
+    Type *inner;
+    Type *outer;
+    Type *ptr;
+
+    arena_init(&tf.ar);
+    inner = A(&tf, type_basic(TY_INT), false, 0);
+    inner->is_vla = true;
+    outer = A(&tf, inner, true, 3);
+    ptr = P(&tf, inner);
+
+    T_ASSERT(t, type_is_runtime_sized_array(inner));
+    T_ASSERT(t, type_is_runtime_sized_array(outer));
+    T_ASSERT(t, !type_is_runtime_sized_array(ptr));
+    T_ASSERT(t, !type_is_runtime_sized_array(type_basic(TY_INT)));
+    arena_free_all(&tf.ar);
+}
+
 static Type *F(TypeFix *tf, Type *ret, Type **params, u32 n, bool proto,
                bool variadic)
 {

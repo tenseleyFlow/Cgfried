@@ -1,7 +1,6 @@
 # cgf-torture-triage-policy-v1
 # columns=signal	fingerprint	phase	variant	hypothesis	disposition
 -	-	cg	all	The ten-thousand-level expression nesting stress exceeds the supported translation limit and now reaches the harness output guard before a bounded diagnostic is retained.	out-of-scope
--	-	run	non-optdiv	VLA parameter-bound side effects are evaluated with the wrong ordering or cardinality, so sub receives 10 instead of 11.	fix-sprint:s56.5-vla-parameter-bound-side-effects
 -	03642ec037628939d63f557579ae8895dd1b51e49365ffe769eea1fb1efa0797	parse	all	GNU __alignof__ expression form is rejected even though GNU expression extensions are otherwise supported.	fix-sprint:s56.5-alignof-expression
 -	06b3e0e177e7540cdb368d991c85fa819d09cc8d4e610d7f6f9ee33dfdd53c10	ICE	all	Accepted asm-label and large-shift cases produce assembler-invalid backend text instead of legal target assembly.	fix-sprint:s56.5-assembler-invalid-output
 -	073307837dcc1b051c517c46997080291ea26133ddf35af0e3139fe4931e0a6c	parse	all	GNU imaginary floating suffixes exercise complex arithmetic, which Cgfried explicitly excludes from the v0.1.0 language scope.	out-of-scope
@@ -32,7 +31,6 @@
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	82945e9550f35c73abe3693f52a63ffdb9513b97cadf8ca4a22f585b738b53ff	sema	all	An incomplete static array is not completed from an array compound-literal initializer.	fix-sprint:s56.5-compound-literal-array-completion
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
--	89938bfb2700a23731e0b730cfc1d58f7ec13bd0059bda1e9aedc616cc40c36a	sema	all	Runtime VLA dimensions are incorrectly treated as incomplete when sizeof is applied to a multidimensional VLA.	fix-sprint:s56.5-multidimensional-vla-sizeof
 -	8d61a6cd5e279f461d9b8326daed634ac0d1ac6efe2f9cfa38669290d6137fe4	ld	all	GNU89's plain alloca spelling is emitted as an external call instead of lowering through the implemented alloca builtin.	fix-sprint:s56.5-gnu-alloca-alias
 -	90b3c7e710b66595490d7160026f5ab0d8246476e2d4143febe0d361bc48c061	parse	all	The parser does not accept the historical GNU field-colon designated-initializer syntax.	fix-sprint:s56.5-old-style-designators
 -	91d2215b56a7eef42a5038abc931eace3e3f0478ed15892b898474014e9ab6d1	pp	all	The preprocessor does not recognize GCC's deprecated #predicate(answer) assertion syntax inside #if expressions.	fix-sprint:s56.5-gnu-pp-assertions
@@ -47,7 +45,6 @@
 -	b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9	sema	all	GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.	wontfix-0.1.0
 -	b97306b069e9fa49dc42de21ce16c5095369585ba07b1a9833d61be77b99e683	sema	all	The valid GCC "=t" x87 output with a "0" tied double input is rejected by Cgfried's restricted x87 operand-shape lowering.	fix-sprint:s56.5-x87-tied-double-operand-shape
 -	c0cda5231420c23bdfdec54c0367f9cfb03120dae294b0351b7a16294bac87ac	cg	all	Large macro-expanded or optimization-heavy cases exceed the compiler timeout, exposing frontend or code-generation scalability limits.	fix-sprint:s56.5-compiler-scalability-timeout
--	c2fcb3becbded033d3b707693a8dc98bc8b07ee0a64130ac57481b20d79780f2	ICE	all	VLA array-parameter adjustment loses the local alloca binding during lowering	fix-sprint:s56.5-vla-parameter-lowering
 -	cc5dfe026bb1609d02fc9a84176be08676c8368afe27a452bcfa84e94873550a	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb	run	all	UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals	fix-sprint:s56.5-utf8-wide-literal-decoding
 -	d2a3673523fa1086b58179c65a40f750586e433d12880533ff901759e5e9ad76	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope

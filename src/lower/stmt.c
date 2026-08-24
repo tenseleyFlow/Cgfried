@@ -114,16 +114,6 @@ static bool type_is_vla_chain(const Type *t)
  * Walking base through arrays AND pointers is the whole point; lower_type_size
  * already recurses through an array's element type, so caching the outermost
  * VLA caches everything under it. */
-static void lower_vla_sizes_in_decl(Lower *lo, Type *t)
-{
-    for (; t; t = t->base) {
-        if (t->kind == TY_ARRAY && t->is_vla)
-            (void)lower_type_size(lo, t);
-        else if (t->kind != TY_ARRAY && t->kind != TY_PTR)
-            break;
-    }
-}
-
 /* Restores the OUTERMOST live token among the scopes from the innermost
  * up to (but excluding) `stop` — one restore subsumes the inner ones. */
 static void vla_restore_until(Lower *lo, LexScope *stop)
@@ -351,7 +341,7 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         return;
     if (!sym || sym->kind != SYM_VAR)
         return; /* typedef/tag/enum-only declarations */
-    lower_vla_sizes_in_decl(lo, sym->type);
+    lower_prime_vla_sizes(lo, sym->type);
     if (sym->type && type_is_vla_chain(sym->type)) {
         /* VLA: the size expressions evaluate exactly ONCE, here, in
          * declaration order (lower_type_size caches per Type node — a

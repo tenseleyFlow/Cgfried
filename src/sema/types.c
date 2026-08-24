@@ -187,6 +187,14 @@ bool type_is_complete(const Type *t)
     }
 }
 
+bool type_is_runtime_sized_array(const Type *t)
+{
+    for (; t && t->kind == TY_ARRAY; t = t->base)
+        if (t->is_vla)
+            return true;
+    return false;
+}
+
 /* --- compatibility (6.2.7, 6.7.6) ---------------------------------------- */
 
 static bool survives_default_arg_promotions(const Type *t)
