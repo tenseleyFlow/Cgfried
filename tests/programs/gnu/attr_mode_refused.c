@@ -2,7 +2,6 @@
 // ERROR_EXPECTED: mode 'DF' names a floating type
 // ERROR_EXPECTED: mode 'TF' names a floating type
 // ERROR_EXPECTED: mode 'V4SI' names a vector type
-// ERROR_EXPECTED: not supported on an enumerated type
 // ERROR_EXPECTED: not supported on a pointer
 // ERROR_EXPECTED: not supported on a function parameter
 // ERROR_EXPECTED: mode applied to inappropriate type '_Bool'
@@ -31,10 +30,10 @@
  *   V*       a vector type, with no SysV or AAPCS64 parameter contract
  *            (the same reason `vector_size` is refused)
  *
- * The enum and pointer rows are a different kind of no, and they get a
- * different message for it: gcc accepts both, so borrowing gcc's
- * "inappropriate type" wording there would tell the author their program
- * is invalid C when it is only unsupported here.
+ * The pointer row is a different kind of no, and it gets a different message
+ * for it: gcc accepts it, so borrowing gcc's "inappropriate type" wording
+ * there would tell the author their program is invalid C when it is only
+ * unsupported here. Enum modes are covered by attr_enum_mode.c.
  *
  * The parameter row is the one that would otherwise be a WARNING. A
  * parameter has no symbol, so every other attribute warns and drops there;
@@ -45,9 +44,7 @@ typedef float df_mode __attribute__((__mode__(__DF__)));
 typedef float tf_mode __attribute__((__mode__(__TF__)));
 typedef int v4si_mode __attribute__((__mode__(__V4SI__)));
 
-/* gcc accepts these two; we refuse them with a message that says so. */
-enum E { E0 };
-typedef enum E enum_mode __attribute__((__mode__(__DI__)));
+/* gcc accepts this; we refuse it with a message that says so. */
 typedef int *ptr_mode __attribute__((__mode__(__DI__)));
 
 /* gcc rejects these two as well, with the wording this one borrows. */

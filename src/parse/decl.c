@@ -768,6 +768,13 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                     here.aligned_expr = NULL;
                     here.aligned_bare = false;
                 }
+                if (here.mode && s->record && s->record->is_definition &&
+                    s->other_base == ABT_ENUM) {
+                    /* Measured: `enum E {...} mode(QI) x;` changes E, while
+                     * `enum E {...} x mode(QI);` changes only x. */
+                    s->record->record_mode = here.mode;
+                    here.mode = GNU_MODE_NONE;
+                }
                 gnu_attrs_merge(&s->gnu, &here);
                 s->saw_any = true;
                 continue;
@@ -1662,6 +1669,17 @@ static AstNode *parse_enum_specifier(Parser *p)
     AstNode *en = ast_new(p->arena, AST_ENUM_DECL, parse_peek(p)->span);
     NodeVec items = {NULL, 0, 0};
 
+    /* As with record attributes, this position belongs to the tag itself.
+     * Keep mode here rather than merging it into the surrounding declaration:
+     * only the parser can still distinguish `enum mode(QI) E` from a leading
+     * declaration attribute. */
+    while (parse_at_kw(p, KW_ATTRIBUTE) || parse_at_kw(p, KW_ATTRIBUTE2)) {
+        GnuDeclAttrs inner = {0};
+
+        (void)parse_cgf_attributes(p, &inner);
+        if (inner.mode)
+            en->record_mode = inner.mode;
+    }
     if (parse_peek(p)->kind == TOK_IDENT) {
         en->tag = parse_peek(p)->spelling;
         scope_declare_tag(p, en->tag);

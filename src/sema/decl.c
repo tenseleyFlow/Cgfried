@@ -13,7 +13,8 @@
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
 static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
-static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span);
+static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
+                            bool binds_enum_definition, Span span);
 
 static bool alignment_is_supported(Sema *s, Span span, i64 want)
 {
@@ -471,7 +472,7 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         /* A member's mode changes the RECORD's layout, so it has to land
          * before the Member is built rather than beside the alignment
          * override further down. */
-        mt = gnu_mode_apply(s, mt, &m->gnu, m->span);
+        mt = gnu_mode_apply(s, mt, &m->gnu, false, m->span);
 
         mem = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
         memset(mem, 0, sizeof(*mem));
@@ -696,6 +697,12 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
             if (sym_it->enum_value > int_max || sym_it->enum_value < int_min)
                 sym_it->type = tag->enum_underlying;
         }
+    }
+    if (rec->record_mode) {
+        GnuDeclAttrs mode = {0};
+
+        mode.mode = rec->record_mode;
+        (void)gnu_mode_apply(s, tag->type, &mode, true, rec->span);
     }
 }
 
@@ -1734,11 +1741,12 @@ static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
 
 /* Apply `mode(M)` to a declaration's type, or report why it cannot be.
  *
- * The rule is one sentence, measured rather than read: the MODE supplies
- * the width and the DECLARATION supplies the signedness. A `typedef int r`
- * carrying `__mode__(__word__)` is exactly `long` on LP64 -- gcc's
- * types_compatible_p says identical, not merely the same size -- and the
- * `unsigned` spelling gives exactly `unsigned long`.
+ * For plain integers the rule is one sentence, measured rather than read:
+ * the MODE supplies the width and the DECLARATION supplies the signedness.
+ * A `typedef int r` carrying `__mode__(__word__)` is exactly `long` on LP64
+ * -- gcc's types_compatible_p says identical, not merely the same size --
+ * and the `unsigned` spelling gives exactly `unsigned long`. Enums use the
+ * same width mapping but derive signedness from their enumerator range.
  *
  * Picking the FIRST basic type of that width in rank order is what makes
  * that true: `long` and `long long` are both 8 bytes here, and gcc chooses
@@ -1750,7 +1758,63 @@ static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span)
  * accept the pointer case (a pointer is already DI, so it is a no-op
  * there), and refusing it is the safe direction: a clean error on a
  * construct no header in /usr/include uses, rather than a guess. */
-static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
+static bool enum_mode_values_fit(Sema *s, const Type *t, const Type *repr)
+{
+    const AstNode *rec = t && t->tag ? t->tag->enum_ast : NULL;
+    u32 bits = conv_int_bits(s, repr);
+    bool is_signed = conv_is_signed(s, repr);
+    u32 i;
+
+    if (!rec)
+        return false;
+    for (i = 0; i < rec->nmembers; i++) {
+        const AstNode *m = rec->members[i];
+        i64 value;
+
+        if (!m || !m->sym)
+            continue;
+        value = m->sym->enum_value;
+        if (is_signed) {
+            i64 min;
+            i64 max;
+
+            if (bits >= 64)
+                continue;
+            min = -((i64)1 << (bits - 1));
+            max = ((i64)1 << (bits - 1)) - 1;
+            if (value < min || value > max)
+                return false;
+        } else {
+            u64 max = bits >= 64 ? ~0ull : ((1ull << bits) - 1);
+
+            if (value < 0 || (u64)value > max)
+                return false;
+        }
+    }
+    return true;
+}
+
+static void enum_mode_retype_constants(Sema *s, Type *t, Type *repr)
+{
+    const AstNode *rec = t && t->tag ? t->tag->enum_ast : NULL;
+    IntWidths w = cgf_target_int_widths(s->target);
+    i64 int_max = ((i64)1 << (w.int_bits - 1)) - 1;
+    i64 int_min = -((i64)1 << (w.int_bits - 1));
+    u32 i;
+
+    if (!rec)
+        return;
+    for (i = 0; i < rec->nmembers; i++) {
+        AstNode *m = rec->members[i];
+
+        if (m && m->sym &&
+            (m->sym->enum_value < int_min || m->sym->enum_value > int_max))
+            m->sym->type = repr;
+    }
+}
+
+static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
+                            bool binds_enum_definition, Span span)
 {
     static const TypeKind by_rank[] = {TY_SCHAR, TY_SHORT, TY_INT, TY_LONG,
                                        TY_LLONG};
@@ -1766,16 +1830,22 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
         return t;
     /* TWO KINDS OF NO, and they must not share a message. gcc REJECTS a
      * mode on a function, a _Bool or a floating type, so those take gcc's
-     * own wording. gcc ACCEPTS it on an enum and on a pointer, and we do
-     * not -- borrowing the rejection wording there would tell the user
-     * their program is invalid C when it is only unsupported here. */
-    if (t->kind == TY_ENUM || t->kind == TY_PTR) {
+     * own wording. gcc ACCEPTS it on a pointer and we do not -- borrowing
+     * the rejection wording there would tell the user their program is
+     * invalid C when it is only unsupported here. */
+    if (t->kind == TY_PTR) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, span,
-                  "the 'mode' attribute is not supported on %s: only a "
+                  "the 'mode' attribute is not supported on a pointer: only a "
                   "plain integer declaration can take one "
-                  "(docs/gnu-extensions.md)",
-                  t->kind == TY_ENUM ? "an enumerated type" : "a pointer");
+                  "(docs/gnu-extensions.md)");
+        return t;
+    }
+    if (t->kind == TY_ENUM && (!t->tag || !t->tag->complete)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "the 'mode' attribute on an incomplete enumerated type is "
+                  "not supported");
         return t;
     }
     if (!type_is_integer(t) || t->kind == TY_BOOL) {
@@ -1809,7 +1879,11 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
     case GNU_MODE_NONE:
         return t;
     }
-    is_signed = conv_is_signed(s, t);
+    /* GCC chooses the unsigned representation when every enumerator is
+     * nonnegative and the signed one when any enumerator is negative. A
+     * plain integer declaration continues to supply signedness itself. */
+    is_signed =
+        t->kind == TY_ENUM ? t->tag->enum_has_negative : conv_is_signed(s, t);
     for (i = 0; i < sizeof(by_rank) / sizeof(by_rank[0]); i++) {
         Type *cand = type_basic(is_signed ? by_rank[i] : by_rank_u[i]);
 
@@ -1817,7 +1891,24 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g, Span span)
             Type *mapped = type_qualify(s->arena, cand, t->quals);
 
             mapped = type_with_alignment(s->arena, mapped, t->align_override);
-            return t->may_alias ? type_may_alias(s->arena, mapped) : mapped;
+            if (t->may_alias)
+                mapped = type_may_alias(s->arena, mapped);
+            if (t->kind == TY_ENUM) {
+                if (!enum_mode_values_fit(s, t, mapped)) {
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, span,
+                              "specified mode too small for enumerated "
+                              "values");
+                    return t;
+                }
+                if (binds_enum_definition) {
+                    t->tag->enum_underlying = mapped;
+                    enum_mode_retype_constants(s, t, mapped);
+                    return t;
+                }
+                return type_enum_with_repr(s->arena, t, mapped);
+            }
+            return mapped;
         }
     }
     s->nerrors++;
@@ -2322,7 +2413,7 @@ static void declare_one(Sema *s, AstNode *d)
      * the symbol -- because `mode` REPLACES it. A typedef, an object and a
      * function all arrive here; the function is what gnu_mode_apply's
      * inappropriate-type error catches, matching gcc. */
-    type = gnu_mode_apply(s, type, &d->gnu, d->span);
+    type = gnu_mode_apply(s, type, &d->gnu, false, d->span);
     mark_old_style_definition(d, type);
     /* gcc gives directly-written `may_alias` semantics on a typedef (and on
      * record definitions, handled by complete_struct), not on an ordinary

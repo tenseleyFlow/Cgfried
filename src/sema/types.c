@@ -123,6 +123,29 @@ Type *type_tag(Arena *ar, TagDecl *tag)
     return t;
 }
 
+Type *type_enum_with_repr(Arena *ar, const Type *t, Type *repr)
+{
+    Type *mode;
+
+    if (!t || t->kind != TY_ENUM || !repr || !type_is_integer(repr) ||
+        repr->kind == TY_ENUM)
+        CGF_ICE("type_enum_with_repr requires an enum and a basic integer");
+    mode = type_new(ar, TY_ENUM);
+    *mode = *t;
+    mode->enum_repr = repr;
+    return mode;
+}
+
+Type *type_enum_underlying(const Type *t)
+{
+    if (!t || t->kind != TY_ENUM)
+        return NULL;
+    if (t->enum_repr)
+        return t->enum_repr;
+    return t->tag && t->tag->enum_underlying ? t->tag->enum_underlying
+                                             : type_basic(TY_INT);
+}
+
 bool type_is_basic(const Type *t)
 {
     return t && t->kind <= TY_FLOAT64X;
@@ -199,8 +222,8 @@ static const Type *default_promoted_param(const Type *t)
     case TY_FLOAT:
         return type_basic(TY_DOUBLE);
     case TY_ENUM:
-        return t->tag && t->tag->enum_underlying ? t->tag->enum_underlying
-                                                 : type_basic(TY_INT);
+        t = type_enum_underlying(t);
+        return survives_default_arg_promotions(t) ? t : type_basic(TY_INT);
     default:
         return t;
     }
@@ -328,10 +351,17 @@ bool type_compatible(const Type *a, const Type *b)
         return type_compatible(a->base, b->base) && params_compatible(a, b);
     case TY_STRUCT:
     case TY_UNION:
-    case TY_ENUM:
         /* Within one translation unit, tag identity IS compatibility.
          * Member-wise comparison only matters across TUs (6.2.7p1). */
         return a->tag == b->tag;
+    case TY_ENUM:
+        /* A mode on an existing tag is a distinct enum view. Two such views
+         * are compatible exactly when their tag and explicit mode match;
+         * even mode(SI) is distinct from the un-attributed enum, matching
+         * GCC's types_compatible_p result. */
+        if (a->tag != b->tag || (!!a->enum_repr != !!b->enum_repr))
+            return false;
+        return !a->enum_repr || type_compatible(a->enum_repr, b->enum_repr);
     default:
         return true; /* same basic kind, same quals */
     }

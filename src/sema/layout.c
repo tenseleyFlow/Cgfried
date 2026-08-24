@@ -387,9 +387,7 @@ TypeLayout layout_of(Sema *s, Type *t)
         }
     case TY_ENUM:
         /* An enum has the size of its compatible integer type. */
-        r = basic_layout(s, t->tag && t->tag->enum_underlying
-                                ? t->tag->enum_underlying
-                                : type_basic(TY_INT));
+        r = basic_layout(s, type_enum_underlying(t));
         break;
     default:
         r = basic_layout(s, t);

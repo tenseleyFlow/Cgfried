@@ -206,7 +206,23 @@ IrType lower_irtype(Lower *lo, const Type *t)
     case TY_ENUM: {
         TypeLayout l = layout_of(lo->sema, (Type *)t);
 
-        return l.size == 8 ? IRT_I64 : IRT_I32;
+        /* GNU mode(QI/HI) permits an enum representation narrower than int.
+         * Preserve that storage width in IR: collapsing it to i32 makes the
+         * value disagree with its ABI classification and loses the required
+         * sign/zero extension at call boundaries. */
+        switch (l.size) {
+        case 1:
+            return IRT_I8;
+        case 2:
+            return IRT_I16;
+        case 4:
+            return IRT_I32;
+        case 8:
+            return IRT_I64;
+        default:
+            CGF_ICE("enum has unsupported %llu-byte representation",
+                    (unsigned long long)l.size);
+        }
     }
     case TY_PTR:
         return IRT_PTR;
@@ -269,7 +285,16 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
     case TY_ARRAY:
         return ETYPE_AGGREGATE;
     case TY_ENUM:
-        return lower_irtype(lo, t) == IRT_I64 ? ETYPE_I64 : ETYPE_I32;
+        switch (lower_irtype(lo, t)) {
+        case IRT_I8:
+            return ETYPE_I8;
+        case IRT_I16:
+            return ETYPE_I16;
+        case IRT_I32:
+            return ETYPE_I32;
+        default:
+            return ETYPE_I64;
+        }
     default:
         return ETYPE_UNKNOWN;
     }
