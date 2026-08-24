@@ -11,8 +11,14 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 4/30 after a required-lane reset on August 18 and remains operationally
-OPEN. Supplemental full-lattice manual run
+at 6/30 after a required-lane reset on August 18 and remains operationally
+OPEN. Scheduled Sunday full-lattice run
+[`32617645741`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32617645741)
+is green at exact head `b54fda67`, and matching-head x86/ARM runs
+[`32686915858`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32686915858)
+and
+[`32688703871`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32688703871)
+are green at `83f846e8` on August 24. Supplemental full-lattice manual run
 [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
 is green at exact head `8fb99082`; because it is a second August 22
 observation, it neither advances the distinct-date count nor replaces the
@@ -93,7 +99,7 @@ at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
 cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
 closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
-Sprint 58 remains at 4/30; Sprint 60's
+Sprint 58 remains at 6/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
@@ -198,7 +204,7 @@ doubling or front-wide escalation fired.
 Fourteen phase closeout documents now cover all 429 numbered DoD items from
 Sprints 0–61. The structural/meta closeout gate is green. The production
 Sprint 62 entry gate exits red for exactly two honest verdicts: Phase 12 is
-NOT READY because Sprint 58 is 4/30, and Phase 13 inherits that dependency.
+NOT READY because Sprint 58 is 6/30, and Phase 13 inherits that dependency.
 Phases 00–11 are READY. This is the sole remaining release-entry blocker.
 The gate consumes tracked `ci/closeout-dod.tsv` rather than the ignored local
 roadmap, so a fresh clone proves the exact 62-sprint / 429-item inventory.
@@ -384,13 +390,13 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (4/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (6/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19–22 are days
-1–4 of the current streak; the ledger still needs 26 consecutive dates, so
+cancelled before bootstrap and retained no artifact. August 19–24 are days
+1–6 of the current streak; the ledger still needs 24 consecutive dates, so
 do not call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
@@ -485,7 +491,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 4/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 6/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -495,10 +501,13 @@ do not call the sprint closed until that operational obligation is complete.
   passed both lanes but cannot cure the missing daily x86 lane. Matching-head
   x86/ARM pairs on August 19 (`af914c89`, runs `32205833254`/`32214058949`),
   August 20 (`6460c3c2`, runs `32321924998`/`32330135984`), August 21
-  (`db6f114a`, runs `32437193020`/`32445410094`), and August 22 (`9cdc3e87`,
-  runs `32544159147`/`32550348530`) are current days 1–4. Continue recording
-  distinct UTC dates and every due weekly cross/reproducibility result; any
-  missing or red required run breaks the streak. Supplemental manual run
+  (`db6f114a`, runs `32437193020`/`32445410094`), August 22 (`9cdc3e87`,
+  runs `32544159147`/`32550348530`), full Sunday activation on August 23
+  (`b54fda67`, run `32617645741`), and matching-head x86/ARM evidence on
+  August 24 (`83f846e8`, runs `32686915858`/`32688703871`) are current days
+  1–6. Continue recording distinct UTC dates and every due weekly
+  cross/reproducibility result; any missing or red required run breaks the
+  streak. Supplemental manual run
   [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
   passed all seven jobs and retained all eight artifacts at exact head
   `8fb99082`. A fresh download verified all seven embedded provenance hashes,
@@ -506,7 +515,12 @@ do not call the sprint closed until that operational obligation is complete.
   byte-for-byte. It is additional current-head evidence, not a fifth UTC date
   or a substitute for the scheduled Sunday run. The August 16–22 scheduled
   ZIP/internal hashes have not yet been independently recomputed, so do not
-  overstate that separate evidence.
+  overstate that separate evidence. Fresh August 23–24 downloads verified all
+  1,356 daily run-manifest hashes per date, all eight stage manifests per date,
+  and all 912 fixed-point payload comparisons per date. August 23's final
+  cross artifact also verified 7/7 embedded provenance hashes, 226/226
+  assembly-manifest hashes, and 228/228 paired final payloads with
+  `normalization=none`.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
 soak and therefore owns the next contiguous closure step.
