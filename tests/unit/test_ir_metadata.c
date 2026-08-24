@@ -165,12 +165,19 @@ void test_lower_effective_type_classes(TestCtx *t)
     Arena arena;
     Lower lo;
     Sema sema;
+    TagDecl enum_tag;
+    Type *enum_type;
 
     arena_init(&arena);
     memset(&lo, 0, sizeof(lo));
     memset(&sema, 0, sizeof(sema));
+    memset(&enum_tag, 0, sizeof(enum_tag));
     sema.target.kind = CGF_TARGET_X86_64_LINUX_GNU;
     lo.sema = &sema;
+    enum_tag.kind = TY_ENUM;
+    enum_tag.complete = true;
+    enum_tag.enum_underlying = type_basic(TY_INT);
+    enum_type = type_tag(&arena, &enum_tag);
 
     T_ASSERT_EQ_INT(t, lower_efftype(&lo, type_basic(TY_CHAR)), ETYPE_CHAR);
     T_ASSERT_EQ_INT(t, lower_efftype(&lo, type_basic(TY_SCHAR)), ETYPE_CHAR);
@@ -182,6 +189,16 @@ void test_lower_effective_type_classes(TestCtx *t)
     T_ASSERT_EQ_INT(t, lower_efftype(&lo, type_basic(TY_FLOAT)), ETYPE_F32);
     T_ASSERT_EQ_INT(t, lower_efftype(&lo, type_ptr(&arena, type_basic(TY_INT))),
                     ETYPE_PTR);
+    T_ASSERT_EQ_INT(
+        t,
+        lower_efftype(
+            &lo, type_enum_with_repr(&arena, enum_type, type_basic(TY_UCHAR))),
+        ETYPE_I8);
+    T_ASSERT_EQ_INT(
+        t,
+        lower_efftype(
+            &lo, type_enum_with_repr(&arena, enum_type, type_basic(TY_USHORT))),
+        ETYPE_I16);
     arena_free_all(&arena);
 }
 

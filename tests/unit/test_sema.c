@@ -874,6 +874,91 @@ void test_sema_enums(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_enum_mode_attributes(TestCtx *t)
+{
+    SemaFix f;
+    Symbol *sym;
+    Symbol *tag;
+
+    run_sema(&f,
+             "typedef enum { U0, U255 = 255 } "
+             "__attribute__((mode(QI))) U8;\n" /* check_bans allow */
+             "typedef enum { N128 = -128, P127 = 127 } "
+             "__attribute__((mode(QI))) I8;\n" /* check_bans allow */
+             "typedef enum Direct { D0, D1 } "
+             "__attribute__((mode(HI))) Direct;\n" /* check_bans allow */
+             "typedef enum Suffix { S0, S1 } Suffix "
+             "__attribute__((mode(QI)));\n" /* check_bans allow */
+             "__attribute__((mode(QI))) "   /* check_bans allow */
+             "enum Leading { L0, L1 } leading;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sym = lookup(&f, "U8");
+    T_ASSERT(t, sym && sym->type && sym->type->kind == TY_ENUM);
+    T_ASSERT(t, sym && type_enum_underlying(sym->type) == type_basic(TY_UCHAR));
+    sym = lookup(&f, "I8");
+    T_ASSERT(t, sym && type_enum_underlying(sym->type) == type_basic(TY_SCHAR));
+    tag = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Direct")), NS_TAG);
+    T_ASSERT(t, tag && tag->tag &&
+                    tag->tag->enum_underlying == type_basic(TY_USHORT));
+    tag = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Suffix")), NS_TAG);
+    T_ASSERT(t, tag && tag->tag &&
+                    tag->tag->enum_underlying == type_basic(TY_INT));
+    sym = lookup(&f, "Suffix");
+    T_ASSERT(t, sym && type_enum_underlying(sym->type) == type_basic(TY_UCHAR));
+    tag =
+        scope_lookup(f.sema.file_scope,
+                     intern_str(&f.in, intern_cstr(&f.in, "Leading")), NS_TAG);
+    T_ASSERT(t, tag && tag->tag &&
+                    tag->tag->enum_underlying == type_basic(TY_INT));
+    sym = lookup(&f, "leading");
+    T_ASSERT(t, sym && type_enum_underlying(sym->type) == type_basic(TY_UCHAR));
+    sfix_free(&f);
+
+    /* A mode on a use of an existing tag is a distinct enum view. It must
+     * not mutate the tag's ordinary representation, while repeated uses of
+     * the same mode remain compatible with one another. */
+    run_sema(&f,
+             "enum Base { B0, B1 };\n"
+             "typedef enum Base "
+             "__attribute__((mode(QI))) " /* check_bans allow */
+             "Narrow1;\n"
+             "typedef enum Base "
+             "__attribute__((mode(QI))) " /* check_bans allow */
+             "Narrow2;\n"
+             "typedef enum Base "
+             "__attribute__((mode(HI))) " /* check_bans allow */
+             "Wide;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    tag = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Base")), NS_TAG);
+    T_ASSERT(t, tag && tag->tag &&
+                    tag->tag->enum_underlying == type_basic(TY_INT));
+    sym = lookup(&f, "Narrow1");
+    T_ASSERT(t, sym && type_enum_underlying(sym->type) == type_basic(TY_UCHAR));
+    {
+        Symbol *same = lookup(&f, "Narrow2");
+        Symbol *wide = lookup(&f, "Wide");
+
+        T_ASSERT(t, same && type_compatible(sym->type, same->type));
+        T_ASSERT(t, wide && !type_compatible(sym->type, wide->type));
+        T_ASSERT(t, tag && !type_compatible(sym->type, tag->type));
+    }
+    sfix_free(&f);
+
+    run_sema(&f,
+             "typedef enum { TOO_HIGH = 256 } "
+             "__attribute__((mode(QI))) TooHigh;\n" /* check_bans allow */
+             "typedef enum { TOO_LOW = -129 } "
+             "__attribute__((mode(QI))) TooLow;\n", /* check_bans allow */
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+}
+
 void test_sema_extended_alignment_limit(TestCtx *t)
 {
     SemaFix f;

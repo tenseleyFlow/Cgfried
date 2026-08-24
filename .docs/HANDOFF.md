@@ -24,7 +24,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 26,295-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,335-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -577,9 +577,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 ledger/declarator refresh is isolated in
+The current Sprint 56.5 enum-integer-mode refresh is isolated in
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s56` on
-`s56.5-ledger-refresh`.
+`s56.5-enum-integer-mode`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -587,18 +587,18 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
 - Full O0/O1/O2/O3/Os matrices completed for `x86_64-linux-gnu` and
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
-  packed-bitfield, and enum-bitfield tranches, outcome totals are 26,295 PASS,
-  6,620 SKIP, and 7,735 classified failures.
+  packed-bitfield, enum-bitfield, and enum-integer-mode tranches, outcome
+  totals are 26,335 PASS, 6,620 SKIP, and 7,695 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 78 total buckets,
-  69 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 45 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 77 total buckets,
+  68 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 44 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,295-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,335-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
@@ -608,7 +608,12 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
   enum value-range signedness on bit-field members without changing Cgfried's
   general enum compatible-type policy. It promoted 30 cells with zero
   regressions: `ctestsuite/00218.c` and GCC torture cases `20000914-1.c` and
-  `20030714-1.c`, on both targets at all five levels. The
+  `20030714-1.c`, on both targets at all five levels. The current
+  `s56.5-enum-integer-mode` tranche implements QI/HI/SI/DI representations on
+  enum definitions and attributed enum views, including exact promotion,
+  layout, effective-type metadata, and ABI extension behavior. It promoted 40
+  cells with zero regressions: `20040901-1.c`, `20050107-1.c`,
+  `20050119-1.c`, and `20050119-2.c`, on both targets at all five levels. The
   arm64 stream uses the repository's cross binutils, QEMU, and
   `/usr/aarch64-linux-gnu/include`; an earlier host-header stream was
   quarantined and never published. A bare-QEMU local stream that omitted the
@@ -617,22 +622,22 @@ The current Sprint 56.5 ledger/declarator refresh is isolated in
   Combined gating passes, and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (808 unit tests /
-  4,293,797 assertions, 701 program fixtures, and every
-  corpus/differential/fuzz/cross/policy gate), `make bootstrap-O0`, and `make
-  bootstrap-O2`. Both bootstraps reproduce 113 assembly files, 113 objects,
-  the runtime archive, and the compiler byte-identically with no normalization.
-  Expected local skips are only optional-tool/platform lanes and match their
-  committed ledgers.
+  torture-import-meta torture-meta`, full `make test` (809 unit tests /
+  4,293,815 assertions, 703 program fixtures, and every
+  corpus/differential/fuzz/cross/policy gate), strict GCC and Clang builds,
+  `make bootstrap-O0`, and `make bootstrap-O2`. Both bootstraps reproduce 113
+  assembly files, 113 objects, the runtime archive, and the compiler
+  byte-identically with no normalization. Expected local skips are only
+  optional-tool/platform lanes and match their committed ledgers.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
 
 No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
-and the Sprint 56.5 declarator, packed-bitfield, and enum-bitfield tranches
-retired every bucket they fixed; the remaining compiler debt is enumerated by
-the 45 live `s56.5-*` policy decisions. Sprint 54 and Phase 11 subsequently
-closed on their independent fleet evidence.
+and the Sprint 56.5 declarator, packed-bitfield, enum-bitfield, and
+enum-integer-mode tranches retired every bucket they fixed; the remaining
+compiler debt is enumerated by the 44 live `s56.5-*` policy decisions. Sprint
+54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
 

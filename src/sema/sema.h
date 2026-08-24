@@ -173,6 +173,11 @@ struct Type {
     u32 nold_style_params;
 
     TagDecl *tag; /* TY_STRUCT / TY_UNION / TY_ENUM */
+    /* GNU mode(M) on a USE of an existing enum tag creates a distinct enum
+     * view with M's representation without changing the tag itself. NULL
+     * means use tag->enum_underlying. A mode written on the enum definition
+     * changes the tag and therefore leaves this NULL. */
+    Type *enum_repr; /* TY_ENUM only */
 };
 
 /* C11 6.2.3: FOUR namespaces. Ordinary holds objects, functions, typedefs
@@ -388,6 +393,8 @@ Type *type_ptr(Arena *ar, Type *pointee);
 Type *type_array(Arena *ar, Type *elem);
 Type *type_func(Arena *ar, Type *ret);
 Type *type_tag(Arena *ar, TagDecl *tag);
+Type *type_enum_with_repr(Arena *ar, const Type *t, Type *repr);
+Type *type_enum_underlying(const Type *t);
 
 bool type_is_basic(const Type *t);
 bool type_is_integer(const Type *t);

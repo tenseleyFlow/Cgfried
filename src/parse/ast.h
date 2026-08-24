@@ -293,6 +293,11 @@ struct AstNode {
      * warned about, it simply stays where it is. */
     AstNode *record_aligned_expr;
     bool record_aligned_bare;
+    /* `mode(M)` bound to an enum DEFINITION. An attribute after the closing
+     * brace or between `enum` and its tag changes the tag's representation;
+     * a leading or declarator-suffix attribute changes only that declaration.
+     * The parser is the last layer that can preserve this GCC distinction. */
+    u8 record_mode;    /* GnuMode; AST_ENUM_DECL only */
     const char *tag;   /* NULL when anonymous */
     AstNode **members; /* AST_DECL / AST_STATIC_ASSERT / nested records */
     u32 nmembers;

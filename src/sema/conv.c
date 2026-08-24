@@ -84,7 +84,7 @@ int conv_rank(const Type *t)
     case TY_ULLONG:
         return 6;
     case TY_ENUM:
-        return 4; /* ranks with its compatible type */
+        return conv_rank(type_enum_underlying(t));
     default:
         return 0;
     }
@@ -111,9 +111,7 @@ bool conv_is_signed(Sema *s, const Type *t)
     case TY_LLONG:
         return true;
     case TY_ENUM:
-        return t->tag && t->tag->enum_underlying
-                   ? conv_is_signed(s, t->tag->enum_underlying)
-                   : true;
+        return conv_is_signed(s, type_enum_underlying(t));
     default:
         return false;
     }
@@ -145,9 +143,7 @@ u32 conv_int_bits(Sema *s, const Type *t)
     case TY_ULLONG:
         return w.llong_bits;
     case TY_ENUM:
-        return t->tag && t->tag->enum_underlying
-                   ? conv_int_bits(s, t->tag->enum_underlying)
-                   : w.int_bits;
+        return conv_int_bits(s, type_enum_underlying(t));
     default:
         return 0;
     }
@@ -231,8 +227,7 @@ Type *conv_promote_type(Sema *s, Type *t)
     if (!t)
         return t;
     if (t->kind == TY_ENUM)
-        return t->tag && t->tag->enum_underlying ? t->tag->enum_underlying
-                                                 : type_basic(TY_INT);
+        return conv_promote_type(s, type_enum_underlying(t));
     if (!type_is_integer(t) || conv_rank(t) >= conv_rank(type_basic(TY_INT)))
         return conv_strip_quals(s, t);
     /* 6.3.1.1p2: a type of lesser rank promotes to int if int represents
