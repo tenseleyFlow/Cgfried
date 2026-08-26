@@ -669,11 +669,16 @@ The current Sprint 56.5 aggregate-initializer refresh is isolated in
   gated together before the totals above advance. PR #30 is the review and
   evidence boundary; promote only from matching exact-head x86 and native ARM
   streams, then rerun the full PR gate before merge.
+  PR fuzz seed `38877` also exposed a prototype-first K&R definition whose
+  declaration-list pointer parameter was unrelated to the prototype's scalar
+  parameter. Sema now rejects that constraint violation before the composite
+  prototype ABI reaches lowering; the classic short/float default-promotion
+  mismatches retain their existing traditional-warning policy.
   Combined gating passes, and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,827 assertions, 710 program fixtures, and every
+  4,293,827 assertions, 711 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
