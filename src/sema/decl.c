@@ -3143,14 +3143,36 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
 
             if (pt->kind == TY_FLOAT)
                 promoted = type_basic(TY_DOUBLE);
-            if (!type_compatible(conv_strip_quals(s, promoted), want))
-                warn_pedwarn_at(
-                    s->lang->warnings, WARN_TRADITIONAL, ft->params[pi].span,
-                    "promoted argument '%s' doesn't match prototype ('%s' "
-                    "promotes to '%s', prototype says '%s')",
-                    pname, type_to_str(s->arena, pt),
-                    type_to_str(s->arena, promoted),
-                    type_to_str(s->arena, proto->params[pi]));
+            if (!type_compatible(conv_strip_quals(s, promoted), want)) {
+                const char *declared = type_to_str(s->arena, pt);
+                const char *promoted_name = type_to_str(s->arena, promoted);
+                const char *prototype_name =
+                    type_to_str(s->arena, proto->params[pi]);
+
+                /* GCC keeps its traditional warning for the narrow/float
+                 * case where the declaration-list type itself matches the
+                 * prototype and only default promotion makes it differ.
+                 * Unrelated types are a hard conflicting-definition
+                 * constraint: continuing would bind the body parameter to
+                 * one type while lowering the composite prototype ABI. */
+                if (type_compatible(conv_strip_quals(s, pt), want)) {
+                    warn_pedwarn_at(
+                        s->lang->warnings, WARN_TRADITIONAL,
+                        ft->params[pi].span,
+                        "promoted argument '%s' doesn't match prototype "
+                        "('%s' promotes to '%s', prototype says '%s')",
+                        pname, declared, promoted_name, prototype_name);
+                } else {
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, ft->params[pi].span,
+                              "promoted argument '%s' doesn't match prototype "
+                              "('%s' promotes to '%s', prototype says '%s')",
+                              pname, declared, promoted_name, prototype_name);
+                    if (fsym)
+                        diag_emit(s->dc, DIAG_NOTE, fsym->span,
+                                  "previous prototype is here");
+                }
+            }
         }
     }
 }
