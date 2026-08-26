@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-24): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-26): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,14 +11,14 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 6/30 after a required-lane reset on August 18 and remains operationally
+at 8/30 after a required-lane reset on August 18 and remains operationally
 OPEN. Scheduled Sunday full-lattice run
 [`32617645741`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32617645741)
 is green at exact head `b54fda67`, and matching-head x86/ARM runs
-[`32686915858`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32686915858)
+[`32919964767`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767)
 and
-[`32688703871`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32688703871)
-are green at `83f846e8` on August 24. Supplemental full-lattice manual run
+[`32928733136`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32928733136)
+are green at `69113c47` on August 26. Supplemental full-lattice manual run
 [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
 is green at exact head `8fb99082`; because it is a second August 22
 observation, it neither advances the distinct-date count nor replaces the
@@ -99,7 +99,7 @@ at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
 cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
 closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
-Sprint 58 remains at 6/30; Sprint 60's
+Sprint 58 remains at 8/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
@@ -390,13 +390,13 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (6/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (8/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19–24 are days
-1–6 of the current streak; the ledger still needs 24 consecutive dates, so
+cancelled before bootstrap and retained no artifact. August 19–26 are days
+1–8 of the current streak; the ledger still needs 22 consecutive dates, so
 do not call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
@@ -491,7 +491,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 6/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 8/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -504,8 +504,10 @@ do not call the sprint closed until that operational obligation is complete.
   (`db6f114a`, runs `32437193020`/`32445410094`), August 22 (`9cdc3e87`,
   runs `32544159147`/`32550348530`), full Sunday activation on August 23
   (`b54fda67`, run `32617645741`), and matching-head x86/ARM evidence on
-  August 24 (`83f846e8`, runs `32686915858`/`32688703871`) are current days
-  1–6. Continue recording distinct UTC dates and every due weekly
+  August 24 (`83f846e8`, runs `32686915858`/`32688703871`), August 25
+  (`65cd4928`, runs `32798572708`/`32807232448`), and August 26
+  (`69113c47`, runs `32919964767`/`32928733136`) are current days 1–8.
+  Continue recording distinct UTC dates and every due weekly
   cross/reproducibility result; any missing or red required run breaks the
   streak. Supplemental manual run
   [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
@@ -515,7 +517,7 @@ do not call the sprint closed until that operational obligation is complete.
   byte-for-byte. It is additional current-head evidence, not a fifth UTC date
   or a substitute for the scheduled Sunday run. The August 16–22 scheduled
   ZIP/internal hashes have not yet been independently recomputed, so do not
-  overstate that separate evidence. Fresh August 23–24 downloads verified all
+  overstate that separate evidence. Fresh August 23–26 downloads verified all
   1,356 daily run-manifest hashes per date, all eight stage manifests per date,
   and all 912 fixed-point payload comparisons per date. August 23's final
   cross artifact also verified 7/7 embedded provenance hashes, 226/226
@@ -591,9 +593,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 VLA-semantics refresh is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-vla` on
-`s56.5-vla-semantics`.
+The current Sprint 56.5 aggregate-initializer refresh is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-aggregate` on
+`s56.5-aggregate-initializers`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -645,7 +647,7 @@ The current Sprint 56.5 VLA-semantics refresh is isolated in
   file-scope compound-literal member addresses, and static infinity/NaN
   initializers. Pointer differences between distinct objects remain rejected
   by a focused negative regression.
-  The current `s56.5-vla-semantics` tranche then retired three more buckets
+  The `s56.5-vla-semantics` tranche then retired three more buckets
   and promoted 30 cells with zero PASS regressions: `20040317-1.c`,
   `20071108-1.c`, and `970217-1.c`, on both targets at all five optimization
   levels. Parameter array bounds now evaluate once on function entry after
@@ -657,16 +659,25 @@ The current Sprint 56.5 VLA-semantics refresh is isolated in
   ARM evidence used a runtime-backed driver with shipped headers, the ARM
   sysroot include, cross binutils/CRT, and QEMU loader all explicit; streams
   missing any of those routes were quarantined before publication.
+  The current `s56.5-aggregate-initializers` tranche makes incomplete-array
+  completion follow the initializer current-object cursor instead of counting
+  raw scalar syntax items. Static, automatic, designated, aggregate-valued,
+  and compound-literal regressions are green; `ctestsuite/00205.c` is
+  byte-identical to GCC at O0/O1/O2/O3/Os on native x86 and compiles for
+  arm64-linux at all five levels. Its ten target-complete matrix cells are not
+  yet added to the published PASS ratchet: fresh x86 and ARM streams must be
+  gated together before the totals above advance.
   Combined gating passes, and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,819 assertions, 709 program fixtures, and every
-  corpus/differential/fuzz/cross/policy gate), strict GCC and Clang builds,
-  `make bootstrap-O0`, and `make bootstrap-O2`. Both bootstraps reproduce 113
-  assembly files, 113 objects, the runtime archive, and the compiler
-  byte-identically with no normalization. Expected local skips are only
-  optional-tool/platform lanes and match their committed ledgers.
+  4,293,827 assertions, 710 program fixtures, and every
+  corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
+  and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
+  bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
+  and the compiler byte-identically with no normalization. Expected local
+  skips are only optional-tool/platform lanes and match their committed
+  ledgers.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -674,8 +685,10 @@ The current Sprint 56.5 VLA-semantics refresh is isolated in
 No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
 and the Sprint 56.5 declarator, packed-bitfield, enum-bitfield,
 enum-integer-mode, static-subobject-pointer-difference, and VLA-semantics
-tranches retired every bucket they fixed; the remaining compiler debt is
-enumerated by the 38 live `s56.5-*` policy decisions. Sprint
+tranches retired every bucket they fixed. The aggregate-initializer tranche is
+implemented locally and awaits its target-complete matrix refresh; the
+remaining compiler debt is enumerated by the 38 live `s56.5-*` policy
+decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
