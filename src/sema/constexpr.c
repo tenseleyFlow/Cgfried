@@ -1277,6 +1277,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                           : (e->lhs ? e->lhs->sem_type : NULL);
 
         if (!t || (!layout_is_complete_for_size(t) &&
+                   !type_is_runtime_sized_array(t) &&
                    !(e->kind == AST_EXPR_SIZEOF &&
                      (t->kind == TY_VOID || t->kind == TY_FUNC)))) {
             ce_error(s, m, e->span,
@@ -1286,7 +1287,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         }
         /* A VLA's size is a RUNTIME value, so it is not an ICE however it
          * is spelled. */
-        if (t->kind == TY_ARRAY && t->is_vla) {
+        if (e->kind == AST_EXPR_SIZEOF && type_is_runtime_sized_array(t)) {
             ce_error(s, m, e->span,
                      "'sizeof' applied to a variable-length array is not "
                      "constant");

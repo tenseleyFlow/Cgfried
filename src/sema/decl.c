@@ -11,6 +11,7 @@
  * always an error and never a wrong answer. */
 
 static Type *type_from_ast(Sema *s, const AstType *at, Span span);
+static Type *adjust_param_type(Sema *s, Type *pt);
 static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
 static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
@@ -1025,10 +1026,7 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                  * pointer-to-element, and of function type to pointer-to
                  * -function. Doing it HERE means every later pass sees the
                  * adjusted type and no one re-derives the rule. */
-                if (pt && pt->kind == TY_ARRAY)
-                    pt = type_ptr(s->arena, pt->base);
-                else if (pt && pt->kind == TY_FUNC)
-                    pt = type_ptr(s->arena, pt);
+                pt = adjust_param_type(s, pt);
                 /* The parser consumes the one legal `(void)` spelling as
                  * an empty parameter list.  Any void type that survives as
                  * an actual parameter is therefore constrained-invalid:
@@ -2903,13 +2901,76 @@ static u32 kr_param_index(const AstType *ft, const char *name)
     return (u32)-1;
 }
 
-static Type *adjust_kr_param_type(Sema *s, Type *pt)
+static Type *adjust_param_type(Sema *s, Type *pt)
 {
     if (pt && pt->kind == TY_ARRAY)
         return type_ptr(s->arena, pt->base);
     if (pt && pt->kind == TY_FUNC)
         return type_ptr(s->arena, pt);
     return pt;
+}
+
+/* A definition's parameter declarators reuse the parser AST that was first
+ * typed while building the function type in prototype scope. The expression
+ * nodes therefore still point at the short-lived prototype symbols even
+ * after type_from_ast returns early on their existing sem_type. Retarget only
+ * those parameter references to the definition-scope symbols; the expression
+ * was already fully checked, so replaying sema would duplicate diagnostics
+ * and implicit conversions. */
+static void rebind_parameter_refs(Sema *s, AstNode *e);
+
+static void rebind_parameter_ast_type(Sema *s, const AstType *at)
+{
+    u32 i;
+
+    if (!at)
+        return;
+    rebind_parameter_ast_type(s, at->next);
+    rebind_parameter_ast_type(s, at->atomic_inner);
+    rebind_parameter_ast_type(s, at->typeof_type);
+    rebind_parameter_refs(s, at->typeof_expr);
+    rebind_parameter_refs(s, at->ptr_aligned_expr);
+    rebind_parameter_refs(s, at->array_size);
+    for (i = 0; i < at->nparams; i++)
+        rebind_parameter_ast_type(s, at->params[i].type);
+}
+
+static void rebind_parameter_refs(Sema *s, AstNode *e)
+{
+    u32 i;
+
+    if (!e)
+        return;
+    if (e->kind == AST_EXPR_IDENT && e->sym && e->sym->is_param) {
+        Symbol *body = scope_lookup(s->scope, e->name, NS_ORDINARY);
+
+        if (body && body->is_param && body != e->sym) {
+            e->sym = body;
+            e->sem_type = body->type;
+            body->reads++;
+        }
+    }
+    rebind_parameter_ast_type(s, e->type);
+    rebind_parameter_ast_type(s, e->type2);
+    rebind_parameter_refs(s, e->lhs);
+    rebind_parameter_refs(s, e->mid);
+    rebind_parameter_refs(s, e->rhs);
+    rebind_parameter_refs(s, e->init);
+    rebind_parameter_refs(s, e->body);
+    rebind_parameter_refs(s, e->desig_index);
+    for (i = 0; i < e->nargs; i++)
+        rebind_parameter_refs(s, e->args[i]);
+    for (i = 0; i < e->nitems; i++)
+        rebind_parameter_refs(s, e->items[i]);
+    for (i = 0; i < e->ndesignators; i++)
+        rebind_parameter_refs(s, e->designators[i]);
+}
+
+static void rebind_parameter_type(Sema *s, Type *t)
+{
+    for (; t && (t->kind == TY_ARRAY || t->kind == TY_PTR); t = t->base)
+        if (t->kind == TY_ARRAY && t->size_expr)
+            rebind_parameter_refs(s, t->size_expr);
 }
 
 static void bind_kr_param(Sema *s, AstNode *d, const AstType *ft, u32 pi,
@@ -2999,12 +3060,14 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
                           "parameter",
                           one->name);
             } else {
-                Type *pt = adjust_kr_param_type(
-                    s, type_from_ast(s, one->type, one->span));
+                Type *decl_type = type_from_ast(s, one->type, one->span);
+                Type *pt = adjust_param_type(s, decl_type);
 
                 if (definition && definition->kind == TY_FUNC &&
                     index < definition->nold_style_params)
                     definition->old_style_params[index] = pt;
+                if (d->param_decl_types && index < d->nparam_syms)
+                    d->param_decl_types[index] = decl_type;
                 bind_kr_param(s, d, ft, index, pt);
             }
             one = sib < kd->nitems ? kd->items[sib++] : NULL;
@@ -3023,6 +3086,8 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
                    ft->params[pi].span, WARN_SUPPRESS_IN_MACRO,
                    "type of '%s' defaults to 'int'", pname);
         definition->old_style_params[pi] = type_basic(TY_INT);
+        if (d->param_decl_types && pi < d->nparam_syms)
+            d->param_decl_types[pi] = type_basic(TY_INT);
         bind_kr_param(s, d, ft, pi, type_basic(TY_INT));
     }
 
@@ -3186,7 +3251,10 @@ static void sema_decl(Sema *s, AstNode *d)
                 d->param_syms =
                     arena_alloc(s->arena, ft->nparams * sizeof(Symbol *),
                                 _Alignof(Symbol *));
+                d->param_decl_types = arena_alloc(
+                    s->arena, ft->nparams * sizeof(Type *), _Alignof(Type *));
                 memset(d->param_syms, 0, ft->nparams * sizeof(Symbol *));
+                memset(d->param_decl_types, 0, ft->nparams * sizeof(Type *));
                 d->nparam_syms = ft->nparams;
             }
             if (ft && ft->kind == ATY_FUNC && ft->is_kr_list) {
@@ -3198,18 +3266,19 @@ static void sema_decl(Sema *s, AstNode *d)
             } else if (ft && ft->kind == ATY_FUNC) {
                 for (pi = 0; pi < ft->nparams; pi++) {
                     Symbol *ps;
+                    Type *decl_type;
                     Type *pt;
 
                     if (!ft->params[pi].name)
                         continue;
-                    pt = type_from_ast(s, ft->params[pi].type,
-                                       ft->params[pi].span);
+                    decl_type = type_from_ast(s, ft->params[pi].type,
+                                              ft->params[pi].span);
+                    rebind_parameter_type(s, decl_type);
+                    if (d->param_decl_types && pi < d->nparam_syms)
+                        d->param_decl_types[pi] = decl_type;
                     /* The same 6.7.6.3p7/p8 adjustment the prototype path
                      * applies: the BODY sees the pointer, not the array. */
-                    if (pt && pt->kind == TY_ARRAY)
-                        pt = type_ptr(s->arena, pt->base);
-                    else if (pt && pt->kind == TY_FUNC)
-                        pt = type_ptr(s->arena, pt);
+                    pt = adjust_param_type(s, decl_type);
                     ps = sym_new(s, ft->params[pi].name, SYM_VAR, NS_ORDINARY,
                                  pt, ft->params[pi].span);
                     ps->is_param = true;

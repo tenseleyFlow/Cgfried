@@ -519,10 +519,18 @@ IrOperand lower_type_size(Lower *lo, Type *t)
 
     if (!t)
         return lower_i64(0);
-    if (!t->is_vla) {
+    if (t->kind != TY_ARRAY || !type_is_runtime_sized_array(t)) {
         TypeLayout l = layout_of(lo->sema, t);
 
         return lower_i64((i64)l.size);
+    }
+    if (!t->is_vla) {
+        if (!t->has_size)
+            CGF_ICE("lower_type_size reached an incomplete array");
+        n = lower_i64((i64)t->size);
+        inner = lower_type_size(lo, t->base);
+        prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
+        return ir_op_value(lo->fn, prod);
     }
     hit = lower_u32map_get(&lo->vla_sizes, (const char *)&t, sizeof(t));
     if (hit) {
@@ -537,6 +545,16 @@ IrOperand lower_type_size(Lower *lo, Type *t)
     prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
     lower_u32map_put(lo, &lo->vla_sizes, (const char *)&t, sizeof(t), prod.v);
     return ir_op_value(lo->fn, prod);
+}
+
+void lower_prime_vla_sizes(Lower *lo, Type *t)
+{
+    for (; t; t = t->base) {
+        if (t->kind == TY_ARRAY && t->is_vla)
+            (void)lower_type_size(lo, t);
+        else if (t->kind != TY_ARRAY && t->kind != TY_PTR)
+            break;
+    }
 }
 
 ValueId lower_temp(Lower *lo, Type *t)
@@ -1297,6 +1315,14 @@ static void lower_function(Lower *lo, AstNode *def)
             }
         }
     }
+
+    /* 6.9.1p10: parameter array size expressions execute on entry, after
+     * the incoming parameter values are bound and in declaration order.
+     * The body symbols carry adjusted pointer types, so sema preserves the
+     * original declaration layers separately for this evaluation. */
+    for (i = 0; i < def->nparam_syms; i++)
+        if (def->param_decl_types && def->param_decl_types[i])
+            lower_prime_vla_sizes(lo, def->param_decl_types[i]);
 
     lower_prebind_locals(lo, def->body);
     lower_stmt(lo, def->body);

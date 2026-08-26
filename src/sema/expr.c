@@ -1268,10 +1268,12 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
          * itself EVALUATED (sizeof(int[f()]) calls f), so the unevaluated
          * flag the parser set comes OFF; Sprint 18 lowers the side
          * effects, Sprint 15's folder already refuses to fold it. */
-        if (operand && operand->kind == TY_ARRAY && operand->is_vla) {
-            if (e->lhs)
-                e->lhs->unevaluated = false;
-            e->unevaluated = false;
+        if (type_is_runtime_sized_array(operand)) {
+            if (e->kind == AST_EXPR_SIZEOF) {
+                if (e->lhs)
+                    e->lhs->unevaluated = false;
+                e->unevaluated = false;
+            }
             e->sem_type = type_basic(TY_ULONG);
             e->is_lvalue = false;
             return e;

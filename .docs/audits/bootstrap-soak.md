@@ -25,15 +25,15 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 4/30 consecutive distinct UTC dates green.** The current streak
+**RUNNING: 6/30 consecutive distinct UTC dates green.** The current streak
 started on 2026-08-19. The first streak began on 2026-08-13 and reached 5/30
 through 2026-08-17. It reset on 2026-08-18 because the required x86 O0 job was
 cancelled during system-toolchain installation: bootstrap was skipped, the
 evidence-manifest step failed, and no x86 O0 artifact was retained. The green
 native ARM64 pair on that date cannot cure a missing required daily lane.
 August 19 is therefore day 1 of the new streak, August 20 is day 2, August 21
-is day 3, and August 22 is day 4. A missing or red required run resets the
-streak.
+is day 3, August 22 is day 4, August 23 is day 5, and August 24 is day 6. A
+missing or red required run resets the streak.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -71,6 +71,8 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-08-20 | `6460c3c2c666fab58ad6fafb9ea371755302dcff` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32321924998](https://github.com/tenseleyFlow/Cgfried/actions/runs/32321924998) + [ARM run 32330135984](https://github.com/tenseleyFlow/Cgfried/actions/runs/32330135984) |
 | 2026-08-21 | `db6f114ac38c34d675f190485a7c9af157296c31` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32437193020](https://github.com/tenseleyFlow/Cgfried/actions/runs/32437193020) + [ARM run 32445410094](https://github.com/tenseleyFlow/Cgfried/actions/runs/32445410094) |
 | 2026-08-22 | `9cdc3e87928b28e9485022840ca736a6739c4f7d` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32544159147](https://github.com/tenseleyFlow/Cgfried/actions/runs/32544159147) + [ARM run 32550348530](https://github.com/tenseleyFlow/Cgfried/actions/runs/32550348530) |
+| 2026-08-23 | `b54fda679e95e7543d4125f1c850474adc6ac290` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 32617645741](https://github.com/tenseleyFlow/Cgfried/actions/runs/32617645741) |
+| 2026-08-24 | `83f846e8ba4b83a58ec273fa4e2c1b6055f2a51a` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32686915858](https://github.com/tenseleyFlow/Cgfried/actions/runs/32686915858) + [ARM run 32688703871](https://github.com/tenseleyFlow/Cgfried/actions/runs/32688703871) |
 
 Manual full-lattice checkpoint [run
 32603828216](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
@@ -99,13 +101,14 @@ The 2026-08-15 paired evidence retains the four applicable x86/native-ARM64
 lane artifacts. Weekly cross-host and x86 reproducibility artifacts are
 correctly absent because their Sunday cadence was not due.
 
-The 2026-08-16 full activation retains the same eight-artifact set as the
-August 13 and 14 full activations: the four daily artifacts listed above,
+The 2026-08-16 and 2026-08-23 full activations retain the same eight-artifact
+set as the August 13 and 14 full activations: the four daily artifacts listed
+above,
 `sprint58-bootstrap-arm64-cross-input`,
 `sprint58-bootstrap-arm64-cross-native`,
 `sprint58-bootstrap-arm64-cross-x86`, and
-`sprint58-bootstrap-arm64-cross-final`. The August 17 and 19–22 paired runs
-retain the four daily artifacts:
+`sprint58-bootstrap-arm64-cross-final`. The August 17, 19–22, and 24 paired
+runs retain the four daily artifacts:
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
 `sprint58-bootstrap-arm64-linux-native-O0`, and
@@ -210,6 +213,32 @@ SHA-256 digests for the retained artifact ZIPs:
     `4fa88006597f655e9aec48a07b61795ecbac35e42a0e10b736c7c95f19c3c9b3`
   - `sprint58-bootstrap-arm64-cross-final`:
     `0cd94066a7df47979f15f7f375d54c7f0eea7ac488fe9337a9c900ce08fb8654`
+- 2026-08-23 scheduled full-lattice run `32617645741`:
+  - `sprint58-bootstrap-x86_64-linux-O0`:
+    `2e1897b8925de890473149e5c84cd5078b61eaeeaeedbbbbeb07f17c8b022e45`
+  - `sprint58-bootstrap-x86_64-linux-O2`:
+    `ce547d227844b2632478276ca755c0f5e1b408a1eda71743619b602c4c50c112`
+  - `sprint58-bootstrap-arm64-linux-native-O0`:
+    `d78315a5ba12a5fed7ee8a4d2e6c76e55122e475801fae461f3e09eb6e18f8a2`
+  - `sprint58-bootstrap-arm64-linux-native-O2`:
+    `8a6367eb8010e5506a80e274b8a1a5b63f9a60efd4865f2326c1aa57f77db45a`
+  - `sprint58-bootstrap-arm64-cross-input`:
+    `43124e39af8c906b11a4c7a3a43fe5a49ad9140d74047500fa2c1e1b37953e0b`
+  - `sprint58-bootstrap-arm64-cross-native`:
+    `05b469be30a4285e4da4280a84a299f53c5a182670334016085b48bcf0b1f31e`
+  - `sprint58-bootstrap-arm64-cross-x86`:
+    `9dfcd4499ca3687ba2629dd5a8fc1f2cb3e3d64c585db410b2edf02a9490ffae`
+  - `sprint58-bootstrap-arm64-cross-final`:
+    `ecdb0b45a67626d409746df2b217f1d20e6b2747bce9042cc3ab4e8224ee1759`
+- 2026-08-24 x86 run `32686915858` and ARM run `32688703871`:
+  - `sprint58-bootstrap-x86_64-linux-O0`:
+    `5cc9c49adef67f84d5e62332099482cf750e189f0addf44351c77cd374d90c6e`
+  - `sprint58-bootstrap-x86_64-linux-O2`:
+    `9150d868b02a8a8deb4d3bd8aa38c7b6ee3f22db38a355e3d2f6428bf3afbf57`
+  - `sprint58-bootstrap-arm64-linux-native-O0`:
+    `920d899755195deeb8cdf23ebe34e2ce3764d286546f52bc3aebb912d0843d75`
+  - `sprint58-bootstrap-arm64-linux-native-O2`:
+    `8c3630e7346b8d8dde920e9073dacd53772a9d9641cd034ba21aa8e8504d060f`
 
 These are API-reported ZIP digests, not locally recomputed ZIP hashes. For the
 August 16–22 scheduled evidence, this documentation pass did not download the
@@ -224,6 +253,18 @@ byte-compared all 228 corresponding assembly, object, runtime-archive, and
 compiler payload files with zero differences. Its x86 run manifest records
 `reproducibility_outcome=success`; its native O2 manifest records both
 `int128_abi_outcome=success` and `fp128_abi_outcome=success`.
+
+The August 23–24 reconciliation is also content-audited. Across each date's
+four daily artifacts, fresh downloads verified all 1,356 run-manifest hashes,
+all eight 228-entry fixed-point stage manifests, and 912 stage1/stage2 payload
+comparisons with zero differences; every run manifest records the exact table
+commit, `normalization=none`, and `outcome=success`. The August 23 final
+cross-host artifact additionally matched all seven embedded provenance hashes,
+both 113-entry assembly manifests, the canonical header archive, and all 228
+paired assembly/object/archive/compiler payloads byte-for-byte. The three
+intermediate cross-host ZIPs were not separately downloaded; their GitHub API
+digests are recorded above, while the final artifact independently
+authenticates the exact inputs the comparison consumed.
 
 Fresh downloads of the final artifacts independently reverified all seven
 embedded provenance hashes and byte-compared both 113-file assembly/object
