@@ -666,7 +666,9 @@ The current Sprint 56.5 aggregate-initializer refresh is isolated in
   byte-identical to GCC at O0/O1/O2/O3/Os on native x86 and compiles for
   arm64-linux at all five levels. Its ten target-complete matrix cells are not
   yet added to the published PASS ratchet: fresh x86 and ARM streams must be
-  gated together before the totals above advance.
+  gated together before the totals above advance. PR #30 is the review and
+  evidence boundary; promote only from matching exact-head x86 and native ARM
+  streams, then rerun the full PR gate before merge.
   Combined gating passes, and reversed input order regenerates both committed
   artifacts byte-identically.
 - Fresh validation is green: `make torture-import-verify
