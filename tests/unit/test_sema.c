@@ -747,6 +747,47 @@ void test_sema_incomplete_types(TestCtx *t)
         T_ASSERT_EQ_INT(t, (int)sym->type->size, 4);
     }
     sfix_free(&f);
+
+    /* Brace elision advances through the element's subobjects before it
+     * advances the incomplete OUTER array. Counting syntax items made this
+     * six-element array instead of two even though initialization stored the
+     * values into two complete records. */
+    run_sema(&f,
+             "struct P { int a[2]; int b; };\n"
+             "struct P flat[] = { 1, 2, 3, 4, 5, 6 };\n"
+             "struct P braced[] = { { { 1, 2 }, 3 }, "
+             "{ { 4, 5 }, 6 } };\n"
+             "struct P designated[] = { [3] = { { 1, 2 }, 3 } };\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    {
+        Symbol *flat = lookup(&f, "flat");
+        Symbol *braced = lookup(&f, "braced");
+        Symbol *designated = lookup(&f, "designated");
+
+        T_ASSERT(t, flat && flat->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)flat->type->size, 2);
+        T_ASSERT(t, braced && braced->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)braced->type->size, 2);
+        T_ASSERT(t, designated && designated->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)designated->type->size, 4);
+    }
+    sfix_free(&f);
+
+    /* Aggregate-valued items consume one complete element. This is why
+     * declaration completion runs after initializer typing: syntax alone
+     * cannot tell that an identifier, call, or conditional has record type. */
+    run_sema(&f,
+             "struct P { int a[2]; int b; };\n"
+             "void f(void) {\n"
+             "  struct P one = { { 1, 2 }, 3 };\n"
+             "  struct P whole[] = { one, (struct P){ { 4, 5 }, 6 } };\n"
+             "  int size[(sizeof whole / sizeof whole[0]) == 2 ? 1 : -1];\n"
+             "  (void)size;\n"
+             "}\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
 }
 
 void test_sema_redeclaration(TestCtx *t)
