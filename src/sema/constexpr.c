@@ -1399,6 +1399,7 @@ typedef struct {
 typedef struct {
     Sema *s;
     InitImage *img;
+    u64 semantic_size;
     bool ok;
     InitUnionSelection *unions;
     u32 nunions;
@@ -1556,6 +1557,16 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
 
     if (!tok)
         return;
+    /* A GNU static FAM initializer enlarges the emitted image without
+     * completing the semantic array type. Its capacity is precisely the
+     * payload appended beyond sizeof(record), not all bytes remaining after
+     * the member offset (which would incorrectly count tail padding). */
+    if (!t->has_size && t->base && c->img->size >= c->semantic_size) {
+        TypeLayout elem = layout_of(c->s, t->base);
+
+        if (elem.size)
+            cap = (c->img->size - c->semantic_size) / elem.size;
+    }
     /* A later designated initializer replaces the whole selected array
      * subobject, including any relocation left by an overlapping union
      * member.  The image starts zeroed, but source-order overrides do not. */
@@ -1955,8 +1966,8 @@ static void fill(InitCtx *c, Type *t, AstNode *init, u64 off)
     }
 }
 
-bool constexpr_eval_initializer(Sema *s, Type *type, AstNode *init,
-                                InitImage *out)
+bool constexpr_eval_initializer_sized(Sema *s, Type *type, AstNode *init,
+                                      u64 storage_size, InitImage *out)
 {
     InitCtx c;
     TypeLayout l;
@@ -1966,19 +1977,31 @@ bool constexpr_eval_initializer(Sema *s, Type *type, AstNode *init,
     if (!type || !layout_is_complete_for_size(type))
         return false;
     l = layout_of(s, type);
-    out->size = l.size;
-    out->bytes = arena_alloc(s->arena, l.size ? (size_t)l.size : 1, 16);
+    if (storage_size == 0)
+        storage_size = l.size;
+    if (storage_size < l.size || storage_size > SIZE_MAX)
+        return false;
+    out->size = storage_size;
+    out->bytes =
+        arena_alloc(s->arena, storage_size ? (size_t)storage_size : 1, 16);
     /* Zero FIRST, so every byte the initializer does not mention — every
      * padding byte, every trailing element — is deterministic. */
-    memset(out->bytes, 0, l.size ? (size_t)l.size : 1);
+    memset(out->bytes, 0, storage_size ? (size_t)storage_size : 1);
 
     c.s = s;
     c.img = out;
+    c.semantic_size = l.size;
     c.ok = true;
     if (init)
         fill(&c, type, init, 0);
     (void)img_zero;
     return c.ok;
+}
+
+bool constexpr_eval_initializer(Sema *s, Type *type, AstNode *init,
+                                InitImage *out)
+{
+    return constexpr_eval_initializer_sized(s, type, init, 0, out);
 }
 
 /* -fdump-init. The bytes are printed in memory order so a fixture can be
@@ -2002,7 +2025,8 @@ void constexpr_dump_initializers(Sema *s, AstNode *tu, FILE *f)
         sym = scope_lookup(s->file_scope, d->name, NS_ORDINARY);
         if (!sym || !sym->type)
             continue;
-        if (!constexpr_eval_initializer(s, sym->type, d->init, &img)) {
+        if (!constexpr_eval_initializer_sized(s, sym->type, d->init,
+                                              sym->init_storage_size, &img)) {
             fprintf(f, "%s: <not a constant initializer>\n", d->name);
             continue;
         }

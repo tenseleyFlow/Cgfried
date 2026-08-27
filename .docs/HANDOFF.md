@@ -593,9 +593,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 aggregate-initializer refresh is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-aggregate` on
-`s56.5-aggregate-initializers`.
+The current Sprint 56.5 flexible-array-initializer tranche is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-flex` on
+`s56.5-flexible-array-initializer`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -701,6 +701,18 @@ The current Sprint 56.5 aggregate-initializer refresh is isolated in
   mismatches retain their existing traditional-warning policy.
   Combined gating passes, and reversed input order regenerates both committed
   artifacts byte-identically.
+  The current `s56.5-flexible-array-initializer` tranche implements GNU
+  initialization of a flexible array member for file-scope and block-scope
+  static objects. The semantic record type stays unchanged, so `sizeof` keeps
+  its declared value, while symbol-level storage metadata enlarges only the
+  emitted definition by `sizeof(record) + initialized payload`; this includes
+  GCC's counterintuitive tail-padding case. Positional, string, sparse
+  designated, and local-static regressions pass; automatic-storage use is
+  rejected and `-pedantic` retains the extension warning. GCC torture cases
+  `compile/pr45919.c` and `execute/20010924-1.c` pass at O0/O1/O2/O3/Os on
+  native x86 and compile for arm64-linux at all five levels. Their 40
+  target-complete cells are not yet in the published PASS ratchet: exact-head
+  hosted x86 and native ARM streams must be gated together before promotion.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
   4,293,827 assertions, 711 program fixtures, and every
@@ -718,9 +730,10 @@ No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
 and the Sprint 56.5 declarator, packed-bitfield, enum-bitfield,
 enum-integer-mode, static-subobject-pointer-difference, and VLA-semantics
 tranches retired every bucket they fixed. The aggregate-initializer tranche is
-implemented and its target-complete ratchet is published locally; only the
-post-promotion PR/native CI rerun and merge remain. The remaining compiler debt
-is enumerated by the 38 live `s56.5-*` policy decisions. Sprint
+implemented, its target-complete ratchet is published, and PR #30 is merged.
+The flexible-array-initializer tranche is implemented locally and awaits its
+exact-head target-complete matrix refresh. The remaining compiler debt is
+enumerated by the 38 live `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---

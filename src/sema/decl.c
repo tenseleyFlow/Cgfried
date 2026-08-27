@@ -1520,6 +1520,96 @@ static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
     return true;
 }
 
+static Member *flexible_array_member(Type *record)
+{
+    Member *m;
+
+    if (!record || record->kind != TY_STRUCT || !record->tag ||
+        !record->tag->has_fam)
+        return NULL;
+    for (m = record->tag->members; m; m = m->next)
+        if (m->type && m->type->kind == TY_ARRAY && !m->type->has_size)
+            return m;
+    return NULL;
+}
+
+static void fam_note_cursor(const InitCursor *cursor, const Type *fam,
+                            bool *found, u64 *high)
+{
+    u32 i;
+
+    for (i = 0; i < cursor->depth; i++) {
+        u64 next;
+
+        if (cursor->frames[i].aggregate != fam)
+            continue;
+        *found = true;
+        next = cursor->frames[i].pos + 1;
+        if (next > *high)
+            *high = next;
+    }
+}
+
+/* GNU's static FAM initializer extension keeps the declared struct type
+ * unchanged and appends storage for the initialized array elements. Walk the
+ * same current-object model used by initializer typing so positional brace
+ * elision, a whole string, and `[index]` designators all compute the same
+ * extent as the stores they describe. */
+static bool fam_size_from_init(Sema *s, Type *record, const AstNode *init,
+                               Member **member_out, u64 *count_out)
+{
+    Member *fam_member = flexible_array_member(record);
+    Type *fam;
+    InitCursor cursor;
+    bool found = false;
+    u64 high = 0;
+    u32 i;
+
+    if (!fam_member || !init || init->kind != AST_INIT_LIST)
+        return false;
+    fam = fam_member->type;
+    init_cursor_start(&cursor, record);
+    for (i = 0; i < init->nitems; i++) {
+        const AstNode *item = init->items[i];
+
+        if (!item)
+            continue;
+        if (item->ndesignators &&
+            !init_cursor_designate(s, &cursor, record, item))
+            continue;
+        if (!cursor.depth || !cursor.current)
+            continue;
+
+        fam_note_cursor(&cursor, fam, &found, &high);
+        if (cursor.current == fam && (item->kind == AST_INIT_LIST ||
+                                      init_expr_initializes_whole(fam, item))) {
+            u64 count;
+
+            found = true;
+            if (array_size_from_init(s, fam, item, &count) && count > high)
+                high = count;
+            init_cursor_advance(&cursor);
+            continue;
+        }
+        if (item->kind == AST_INIT_LIST ||
+            init_expr_initializes_whole(cursor.current, item)) {
+            init_cursor_advance(&cursor);
+            continue;
+        }
+        while (init_is_aggregate(cursor.current) &&
+               !init_expr_initializes_whole(cursor.current, item))
+            if (!init_cursor_descend(&cursor))
+                break;
+        fam_note_cursor(&cursor, fam, &found, &high);
+        init_cursor_advance(&cursor);
+    }
+    if (!found)
+        return false;
+    *member_out = fam_member;
+    *count_out = high;
+    return true;
+}
+
 static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
 {
     AstNode *init;
@@ -1655,24 +1745,44 @@ static void sema_init_value(Sema *s, Type *target, AstNode **slot)
 static void sema_init_expr(Sema *s, Type *target, AstNode *d,
                            bool is_static_init)
 {
+    Member *fam_member = NULL;
+    u64 fam_count = 0;
+
     if (!d->init)
         return;
-    if (d->init->kind == AST_INIT_LIST) {
-        /* Initializing the FLEXIBLE MEMBER is GNU's static-init extension:
-         * the image would need a size the type does not have. Counting
-         * items against named members catches the positional form; the
-         * designated form is caught by the same count once designators
-         * reposition (kept simple deliberately — the corpus shapes are
-         * positional). */
-        if (target && (target->kind == TY_STRUCT) && target->tag &&
-            target->tag->has_fam && d->init->nitems >= target->tag->nmembers) {
+    sema_init_value(s, target, &d->init);
+
+    if (fam_size_from_init(s, target, d->init, &fam_member, &fam_count)) {
+        TypeLayout record_layout;
+        TypeLayout element_layout;
+
+        if (!is_static_init) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, d->init->span,
-                      "initialization of a flexible array member is a GNU "
-                      "extension that is not supported");
+                      "non-static initialization of a flexible array "
+                      "member");
+        } else {
+            if (s->lang->pedantic)
+                warn_at(s->lang->warnings, WARN_PEDANTIC, d->init->span,
+                        "initialization of a flexible array member");
+            layout_record(s, target);
+            record_layout = layout_of(s, target);
+            element_layout = layout_of(s, fam_member->type->base);
+            if (element_layout.size != 0 &&
+                fam_count >
+                    (UINT64_MAX - record_layout.size) / element_layout.size) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, d->init->span,
+                          "flexible array initializer is too large");
+            } else if (d->sym) {
+                /* GCC appends the payload to sizeof(record), even when the
+                 * FAM begins inside the record's tail padding. That is why
+                 * this is not `member.offset + payload`. */
+                d->sym->init_storage_size =
+                    record_layout.size + fam_count * element_layout.size;
+            }
         }
     }
-    sema_init_value(s, target, &d->init);
 
     /* An object with STATIC storage duration is initialized before any
      * code runs, so its initializer must be a CONSTANT — and an address

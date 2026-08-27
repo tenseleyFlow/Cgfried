@@ -832,7 +832,9 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
     default: { /* DEF_INIT */
         InitImage img;
 
-        if (init && constexpr_eval_initializer(lo->sema, sym->type, init, &img))
+        if (init &&
+            constexpr_eval_initializer_sized(lo->sema, sym->type, init,
+                                             sym->init_storage_size, &img))
             global_from_image(lo, g, &img);
         else
             g->size = l.size;

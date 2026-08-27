@@ -229,6 +229,12 @@ struct Symbol {
     bool defined;   /* has an initializer, or is a function definition */
     bool is_param;
     bool static_storage; /* object address is a link-time constant */
+    /* GNU permits a static-storage struct object's flexible array member to
+     * be initialized. The declared type remains incomplete at that member,
+     * so `sizeof object` must stay the ordinary record size; only the emitted
+     * definition grows by the initialized payload. Zero means "use the
+     * semantic layout size". */
+    u64 init_storage_size;
     u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
     u32 writes; /* assignments after declaration; initializer is not one */
     bool tls;   /* _Thread_local */
@@ -493,6 +499,12 @@ typedef struct {
  * Padding is ZERO — both for determinism and to match gcc. */
 bool constexpr_eval_initializer(Sema *s, Type *type, AstNode *init,
                                 InitImage *out);
+/* As above, but emits an explicitly enlarged object image while preserving
+ * `type` as the semantic type. Used only by GNU static flexible-array-member
+ * initializers, whose symbol storage is larger than `sizeof(type)`; zero
+ * selects the semantic layout size. */
+bool constexpr_eval_initializer_sized(Sema *s, Type *type, AstNode *init,
+                                      u64 storage_size, InitImage *out);
 /* -fdump-init: one line per file-scope object with an initializer, as
  * hex bytes plus any relocations. This is exactly what Sprint 19 emits. */
 void constexpr_dump_initializers(Sema *s, AstNode *tu, FILE *f);

@@ -788,6 +788,43 @@ void test_sema_incomplete_types(TestCtx *t)
              STD_C17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     sfix_free(&f);
+
+    /* GNU static FAM initialization enlarges emitted STORAGE without
+     * completing or otherwise changing the declared struct type. */
+    run_sema(&f,
+             "struct S { int head; int tail[]; };\n"
+             "struct S direct = { 1, { 2 } };\n"
+             "struct S sparse = { .tail = { [2] = 7 } };\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    {
+        Symbol *direct = lookup(&f, "direct");
+        Symbol *sparse = lookup(&f, "sparse");
+
+        T_ASSERT(t, direct && direct->type->kind == TY_STRUCT);
+        T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, direct->type).size, 4);
+        T_ASSERT_EQ_INT(t, (int)direct->init_storage_size, 8);
+        T_ASSERT(t, sparse && sparse->type == direct->type);
+        T_ASSERT_EQ_INT(t, (int)sparse->init_storage_size, 16);
+    }
+    sfix_free(&f);
+
+    /* The extension is limited to static storage, matching GCC. */
+    run_sema(&f,
+             "struct S { int head; int tail[]; };\n"
+             "void f(void) { struct S bad = { 1, { 2 } }; (void)bad; }\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    /* A block-scope static has static storage duration and is accepted. */
+    run_sema(&f,
+             "struct S { int head; int tail[]; };\n"
+             "void f(void) { static struct S ok = { 1, { 2, 3 } }; "
+             "(void)ok; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
 }
 
 void test_sema_redeclaration(TestCtx *t)
