@@ -5,7 +5,6 @@
 -	06b3e0e177e7540cdb368d991c85fa819d09cc8d4e610d7f6f9ee33dfdd53c10	ICE	all	Accepted asm-label and large-shift cases produce assembler-invalid backend text instead of legal target assembly.	fix-sprint:s56.5-assembler-invalid-output
 -	073307837dcc1b051c517c46997080291ea26133ddf35af0e3139fe4931e0a6c	parse	all	GNU imaginary floating suffixes exercise complex arithmetic, which Cgfried explicitly excludes from the v0.1.0 language scope.	out-of-scope
 -	087e22d20269bf72f0f467ee68df2ecc04c2ceeb7dd9d73b38b716c761f5b1cb	sema	all	GNU scalar-to-union casts used for representation access are rejected before lowering.	fix-sprint:s56.5-gnu-scalar-to-union-casts
--	090a233b4373a8dd976d3d124b7ea1efb3744c63dcae0b1a81bdfaae351c798c	cg	all	Three 100,000-declaration or label stress cases exceed the 30-second x86 compiler timeout, exposing the same frontend and code-generation scalability limit as the native ARM timeout family.	fix-sprint:s56.5-compiler-scalability-timeout
 -	0c2661f71dc283b5d3141d5aead0f8add44c3878ade8e9b0d08482860df6a2fa	ld	all	The case requires libm, but the torture execution link contract does not yet add the required math library.	fix-sprint:s56.5-torture-libm-linkage
 -	1bee8da051ce7f8b888b00500383c6a9df265d662f65d5387d4439303836f0cd	parse	all	The case uses imaginary floating suffixes and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
 -	2082b1f4d8085345bd3ead486cdd5244655c0b103571ee5a780f92679bac374c	run	all	Pragma push_macro and pop_macro do not preserve and restore macro definitions independently of same-named macros.	fix-sprint:s56.5-pragma-macro-stack
@@ -48,7 +47,6 @@
 -	cc5dfe026bb1609d02fc9a84176be08676c8368afe27a452bcfa84e94873550a	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb	run	all	UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals	fix-sprint:s56.5-utf8-wide-literal-decoding
 -	d2a3673523fa1086b58179c65a40f750586e433d12880533ff901759e5e9ad76	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope
--	d9666dc4a0d584ad384b4e3a2cc92ecb5c9d2946c1d15fbead406b8bf7b9cc5e	sema	all	GNU initialization of a flexible array member remains rejected by a stale Sprint 55 deferral.	fix-sprint:s56.5-flexible-array-initializer
 -	e578de15b58de70f4d707195edcd798c9ae00241d327927a5a4414878810ea33	parse	all	The cases use GNU complex types or complex component operators, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	e83262900091a3f95ecb503518ea616ec0814569020da57daccd5240c82d49a2	parse	all	The union member uses GNU complex integer type and real/imaginary component operators, outside the v0.1.0 language scope.	out-of-scope
 -	eb35ff3aa15c37c48869e89bea29b63daea35ed97aee8f0feb16f7ab6ece52e9	sema	all	GNU flexible-array-bearing structs are rejected when embedded in another struct even though Sprint 16 deferred this accepted GNU form to Sprint 55.	fix-sprint:s56.5-nested-flexible-array-members

@@ -605,17 +605,17 @@ The current Sprint 56.5 flexible-array-initializer tranche is isolated in
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
   packed-bitfield, enum-bitfield, enum-integer-mode, static-subobject
   pointer-difference, VLA-semantics, and aggregate-initializer tranches,
-  outcome totals are 26,475 PASS, 6,620 SKIP, and 7,555 classified failures.
+  outcome totals are 26,515 PASS, 6,620 SKIP, and 7,515 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 71 total buckets,
-  62 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 38 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 69 total buckets,
+  60 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 36 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,475-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,515-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
@@ -692,8 +692,7 @@ The current Sprint 56.5 flexible-array-initializer tranche is isolated in
   `dea222492d826b7bbe70dc49e62f80e3ec7358d0d22a0d715ecbd02f58e12ca5`
   and
   `f6fa98b3a4ab16137e0ccdccafd510623600ba2382f4642edcee11b06bce5f82`.
-  PR #30 remains the review boundary and requires a fully green
-  post-promotion PR/native rerun before merge.
+  PR #30 subsequently passed its post-promotion PR/native reruns and merged.
   PR fuzz seed `38877` also exposed a prototype-first K&R definition whose
   declaration-list pointer parameter was unrelated to the prototype's scalar
   parameter. Sema now rejects that constraint violation before the composite
@@ -708,14 +707,49 @@ The current Sprint 56.5 flexible-array-initializer tranche is isolated in
   emitted definition by `sizeof(record) + initialized payload`; this includes
   GCC's counterintuitive tail-padding case. Positional, string, sparse
   designated, and local-static regressions pass; automatic-storage use is
-  rejected and `-pedantic` retains the extension warning. GCC torture cases
-  `compile/pr45919.c` and `execute/20010924-1.c` pass at O0/O1/O2/O3/Os on
-  native x86 and compile for arm64-linux at all five levels. Their 40
-  target-complete cells are not yet in the published PASS ratchet: exact-head
-  hosted x86 and native ARM streams must be gated together before promotion.
+  rejected and `-pedantic` retains the extension warning. The complete
+  historical bucket comprised four GCC torture cases:
+  `compile/pr45919.c`, `compile/pr98407.c`, `execute/20010924-1.c`, and
+  `execute/pr33382.c`. All four now pass at O0/O1/O2/O3/Os on both targets.
+  Pre-promotion PR CI
+  [run 33035847559](https://github.com/tenseleyFlow/Cgfried/actions/runs/33035847559)
+  passed every non-torture job, including the repaired ordinary test lane,
+  sanitizers, 100k frontend fuzzing, QEMU, toolchain, macOS/ARM, and campaign
+  jobs; its only failure was the expected 20 uncommitted x86 PASS cells. The
+  hosted merge stream SHA-256 is
+  `91414cd9bc163422e07ac3e1ab46c5b6d14f35716729730360a02428496ceb52`.
+  Exact-head native full-lattice
+  [run 33035855464](https://github.com/tenseleyFlow/Cgfried/actions/runs/33035855464)
+  passed every non-ARM-torture job and refused only the matching 20 native
+  ARM64 PASS cells at `b10c4f71765b354672222b0171575d5425920354`; its stream
+  SHA-256 is
+  `6a3a4a88aae7b6624ea9347f8ebff1bf9aaa062a568397e5161ae5487f46c2cc`.
+  GitHub's PR checkout records synthetic merge revision
+  `91f613ca1788777116b347cab135af18865497e6`, so that hosted x86 stream is
+  confirmation-only. `make torture-baseline` regenerated the publishable
+  same-head x86 stream locally as
+  `10f59a4ed0d14e68b570a73fe68a6479a690e0bc32691609f04c617e1eee1f1f`
+  and atomically combined it with native ARM. The streams share compiler-source
+  SHA-256
+  `d2b327606f3ae8be7b09160125b4e9247d39eb3dd2148d83082fb4ee2d192f79`
+  plus identical harness and manifest hashes; hosted and local x86
+  classification rows are byte-identical.
+  The publication promoted exactly those 40 cells with zero PASS regression
+  and retired fingerprint `d9666dc4...`. It also removed the stale duplicate
+  x86 timeout fingerprint `090a233b...`: its 15 cells now normalize under the
+  existing `c0cda523...` timeout class alongside the same ten ARM cells, with
+  no behavioral movement. The resulting overlay is 60 applied / 0 stale / 0
+  unresolved and has 7,515 classified failures. Reversed input order
+  regenerates both outputs byte-identically; the PASS and triage SHA-256 values
+  are respectively
+  `7fba03a00166ffda46f1935ce8294b645962d5dbcd8f5daaf14f41703a1b7852`
+  and
+  `99c51451a7fab2230b6f167e4d3e6ebb53d623f139a4ae32920bed353066b229`.
+  PR #40 is the review boundary and now requires fully green post-promotion
+  PR/native reruns before merge.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,827 assertions, 711 program fixtures, and every
+  4,293,835 assertions, 714 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -731,9 +765,9 @@ and the Sprint 56.5 declarator, packed-bitfield, enum-bitfield,
 enum-integer-mode, static-subobject-pointer-difference, and VLA-semantics
 tranches retired every bucket they fixed. The aggregate-initializer tranche is
 implemented, its target-complete ratchet is published, and PR #30 is merged.
-The flexible-array-initializer tranche is implemented locally and awaits its
-exact-head target-complete matrix refresh. The remaining compiler debt is
-enumerated by the 38 live `s56.5-*` policy decisions. Sprint
+The flexible-array-initializer tranche is implemented and its exact-head
+target-complete ratchet is published on PR #40. The remaining compiler debt is
+enumerated by the 36 live `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
