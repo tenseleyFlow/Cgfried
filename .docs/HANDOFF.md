@@ -593,9 +593,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 flexible-array-initializer tranche is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-flex` on
-`s56.5-flexible-array-initializer`.
+The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-nested-fam` on
+`s56.5-nested-flexible-array-members`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -747,9 +747,25 @@ The current Sprint 56.5 flexible-array-initializer tranche is isolated in
   `99c51451a7fab2230b6f167e4d3e6ebb53d623f139a4ae32920bed353066b229`.
   PR #40 is the review boundary and now requires fully green post-promotion
   PR/native reruns before merge.
+- The current `s56.5-nested-flexible-array-members` tranche separates a
+  record's direct final FAM from recursive FAM containment. ISO-valid union
+  containment propagates silently; GNU struct-member and array-element uses
+  retain the record's fixed `sizeof` and warn under `-pedantic`. Initializing
+  a buried flexible tail remains a hard error, matching GCC: the containment
+  extension does not invent storage inside an enclosing object. Unit coverage
+  pins direct/recursive flags, union and array propagation, direct static-FAM
+  preservation, and braced/flat/designated nested-initializer rejection. The
+  permanent program fixtures pin the PR16566 non-lvalue expressions, the
+  pedantic diagnostic, and the nested-initializer safety boundary. All ten
+  x86-64 bucket cells pass at O0/O1/O2/O3/Os; all ten ARM64 cells emit assembly
+  at the same levels. Native ARM object evidence, full hosted CI, and atomic
+  two-target ratchet promotion remain the publication boundary, so the
+  committed 26,515-cell PASS set and its live policy row are intentionally
+  unchanged on this implementation branch. The GNU tier table becomes 31
+  implemented / 6 parsed-ignored / 8 refused when this branch integrates.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,835 assertions, 714 program fixtures, and every
+  4,293,845 assertions, 717 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
