@@ -49,7 +49,6 @@
 -	d2a3673523fa1086b58179c65a40f750586e433d12880533ff901759e5e9ad76	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope
 -	e578de15b58de70f4d707195edcd798c9ae00241d327927a5a4414878810ea33	parse	all	The cases use GNU complex types or complex component operators, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	e83262900091a3f95ecb503518ea616ec0814569020da57daccd5240c82d49a2	parse	all	The union member uses GNU complex integer type and real/imaginary component operators, outside the v0.1.0 language scope.	out-of-scope
--	eb35ff3aa15c37c48869e89bea29b63daea35ed97aee8f0feb16f7ab6ece52e9	sema	all	GNU flexible-array-bearing structs are rejected when embedded in another struct even though Sprint 16 deferred this accepted GNU form to Sprint 55.	fix-sprint:s56.5-nested-flexible-array-members
 -	ef08225eb7c8eae8444a144fc059c944c4d777a17209092f661c7671b59e78a9	as	all	The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.	out-of-scope
 -	f0bc10177e20eb2f0a1a67cdf600fb7f0e43ce8a6600f73a7c51df8943d83791	parse	all	GNU imaginary floating suffixes exercise complex arithmetic, which Cgfried explicitly excludes from the v0.1.0 language scope.	out-of-scope
 -	f3a8a201c01269b5a2cccf5f1eac8bdde70f5dbc79692886a1639eab549fb354	sema	all	composite-type formation fails to inherit the prior bound when an inner extern redeclares the array with incomplete type	fix-sprint:s56.5-composite-array-bound
