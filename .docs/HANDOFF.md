@@ -30,7 +30,7 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
 implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 26,465-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,475-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -604,8 +604,8 @@ The current Sprint 56.5 aggregate-initializer refresh is isolated in
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
   packed-bitfield, enum-bitfield, enum-integer-mode, static-subobject
-  pointer-difference, and VLA-semantics tranches, outcome totals are 26,465
-  PASS, 6,620 SKIP, and 7,565 classified failures.
+  pointer-difference, VLA-semantics, and aggregate-initializer tranches,
+  outcome totals are 26,475 PASS, 6,620 SKIP, and 7,555 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
@@ -615,7 +615,7 @@ The current Sprint 56.5 aggregate-initializer refresh is isolated in
   62 durable overlay decisions, zero stale, zero unresolved, and no misc
   bucket. The overlay contains 38 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,465-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,475-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
@@ -664,11 +664,36 @@ The current Sprint 56.5 aggregate-initializer refresh is isolated in
   raw scalar syntax items. Static, automatic, designated, aggregate-valued,
   and compound-literal regressions are green; `ctestsuite/00205.c` is
   byte-identical to GCC at O0/O1/O2/O3/Os on native x86 and compiles for
-  arm64-linux at all five levels. Its ten target-complete matrix cells are not
-  yet added to the published PASS ratchet: fresh x86 and ARM streams must be
-  gated together before the totals above advance. PR #30 is the review and
-  evidence boundary; promote only from matching exact-head x86 and native ARM
-  streams, then rerun the full PR gate before merge.
+  arm64-linux at all five levels. Exact implementation-head PR CI
+  [run 33023706534](https://github.com/tenseleyFlow/Cgfried/actions/runs/33023706534)
+  passed every non-torture job, including the repaired 100k-iteration fuzz
+  lane, and refused only the five uncommitted x86 PASS cells. Exact-head native
+  full-lattice
+  [run 33023617265](https://github.com/tenseleyFlow/Cgfried/actions/runs/33023617265)
+  passed every non-ARM-torture job and refused only the matching five native
+  ARM64 PASS cells at `9df93a59708a6730681fb7cb3ef0711e539d872d`.
+  The downloaded ARM stream SHA-256 is
+  `22ed4efcd90418652b26ce239aa5c3d4f779e507cde3f42ccc2cbea82cd91d15`;
+  the hosted PR merge stream, used only as confirmation, is
+  `1cd5021429c7109bbde5adca435719220acbd251c5177cd94319b6f7c2389fdd`.
+  `make torture-baseline` then regenerated the exact implementation-head x86
+  stream locally as
+  `10a5a5c654748cdffb5fae98433c763c785941e74775aafe36bb1701b3536344`
+  and atomically combined it with the native ARM stream. Their common
+  compiler-source SHA-256 is
+  `9575bde4df3a3430f2261c85f77ad312602958fac88d810670b91a5b9676c8fe`;
+  the shared harness and both manifest hashes also match. The publication
+  promoted exactly the ten `00205.c` cells with no PASS regression, retired
+  the resolved `s56.5-flattened-aggregate-initializers` policy row, and
+  reconciled the four previously unresolved report buckets to durable policy
+  decisions. The resulting overlay is 62 applied / 0 stale / 0 unresolved.
+  Reversing the two input streams regenerates both outputs byte-identically;
+  the committed PASS and triage SHA-256 values are respectively
+  `dea222492d826b7bbe70dc49e62f80e3ec7358d0d22a0d715ecbd02f58e12ca5`
+  and
+  `f6fa98b3a4ab16137e0ccdccafd510623600ba2382f4642edcee11b06bce5f82`.
+  PR #30 remains the review boundary and requires a fully green
+  post-promotion PR/native rerun before merge.
   PR fuzz seed `38877` also exposed a prototype-first K&R definition whose
   declaration-list pointer parameter was unrelated to the prototype's scalar
   parameter. Sema now rejects that constraint violation before the composite
@@ -693,9 +718,9 @@ No original Sprint 56 campaign-infrastructure work remains. Sprint 61 repairs
 and the Sprint 56.5 declarator, packed-bitfield, enum-bitfield,
 enum-integer-mode, static-subobject-pointer-difference, and VLA-semantics
 tranches retired every bucket they fixed. The aggregate-initializer tranche is
-implemented locally and awaits its target-complete matrix refresh; the
-remaining compiler debt is enumerated by the 38 live `s56.5-*` policy
-decisions. Sprint
+implemented and its target-complete ratchet is published locally; only the
+post-promotion PR/native CI rerun and merge remain. The remaining compiler debt
+is enumerated by the 38 live `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---

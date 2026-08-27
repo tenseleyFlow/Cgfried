@@ -2016,6 +2016,16 @@ ctestsuite/00204.c@O1@x86_64-linux-gnu
 ctestsuite/00204.c@O2@x86_64-linux-gnu
 ctestsuite/00204.c@O3@x86_64-linux-gnu
 ctestsuite/00204.c@Os@x86_64-linux-gnu
+ctestsuite/00205.c@O0@arm64-linux
+ctestsuite/00205.c@O0@x86_64-linux-gnu
+ctestsuite/00205.c@O1@arm64-linux
+ctestsuite/00205.c@O1@x86_64-linux-gnu
+ctestsuite/00205.c@O2@arm64-linux
+ctestsuite/00205.c@O2@x86_64-linux-gnu
+ctestsuite/00205.c@O3@arm64-linux
+ctestsuite/00205.c@O3@x86_64-linux-gnu
+ctestsuite/00205.c@Os@arm64-linux
+ctestsuite/00205.c@Os@x86_64-linux-gnu
 ctestsuite/00207.c@O0@arm64-linux
 ctestsuite/00207.c@O0@x86_64-linux-gnu
 ctestsuite/00207.c@O1@arm64-linux
