@@ -305,7 +305,8 @@ static void lower_local_static(Lower *lo, Symbol *sym, AstNode *init)
     if (init) {
         InitImage img;
 
-        if (constexpr_eval_initializer(lo->sema, sym->type, init, &img)) {
+        if (constexpr_eval_initializer_sized(lo->sema, sym->type, init,
+                                             sym->init_storage_size, &img)) {
             u32 i;
 
             g->size = img.size;
