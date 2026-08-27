@@ -28,8 +28,10 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
-implemented / 6 parsed-ignored / 8 refused**.
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **31
+implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
+old-style-designator tranche raises the implementation branch to 32
+implemented.
 Sprint 56's campaign machine, triage map, and 26,475-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -593,9 +595,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-nested-fam` on
-`s56.5-nested-flexible-array-members`.
+The current Sprint 56.5 old-style-designator tranche is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-old-style-designators` on
+`s56.5-old-style-designators`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -785,10 +787,31 @@ The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
   `9d7a6165417dc5c24880d034486e7c6ab1c73ccfa50d46006c144442ec9a668c`
   and
   `ebee8ef52aae36f86cd1189e2fc2faa84aab37253b61cbcb0d7a79186340ed51`.
-  The GNU tier table is now 31 implemented / 6 parsed-ignored / 8 refused.
+  PR #41 subsequently passed its post-promotion native rerun and bootstrap;
+  it merged as `4408a873`. The GNU tier table on `trunk` is now 31 implemented
+  / 6 parsed-ignored / 8 refused.
+- The current `s56.5-old-style-designators` tranche recognizes GNU's
+  historical `field: value` initializer spelling only at the start of an
+  initializer-list item and materializes the existing field-designator AST.
+  Current-object traversal, override handling, static images, automatic
+  initialization, compound literals, and both backends therefore reuse the
+  standard `.field = value` path. `-pedantic` emits GCC's obsolete-designator
+  warning, while `__extension__` suppresses it. Permanent fixtures cover
+  static, automatic, nested, and compound-literal initializers plus the
+  warning and suppression boundary; the GNU tier table is 32 / 6 / 8 on the
+  branch. Adding those two deterministic fuzz inputs intentionally changes
+  the 5,000-iteration sequence digest from `acde131a08f5ca93` to
+  `389f09592ae84eb1`, reproduced twice before repinning.
+  The original 70-cell parse bucket decomposes honestly after this repair:
+  six sources pass at all five levels on x86-64 and compile to ARM assembly at
+  all five levels, while `compile/init-3.c` advances to the already-documented
+  GNU empty-record refusal `b28fda1f...`. Thus exactly 60 cells are eligible
+  for target-complete promotion and the remaining ten belong to the existing
+  `wontfix-0.1.0` bucket. No PASS ratchet or policy row has been changed yet;
+  matching hosted x86 and native ARM streams are still required.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,845 assertions, 717 program fixtures, and every
+  4,293,849 assertions, 719 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -806,7 +829,8 @@ tranches retired every bucket they fixed. The aggregate-initializer tranche is
 implemented, its target-complete ratchet is published, and PR #30 is merged.
 The flexible-array-initializer tranche is implemented, published, and merged
 through PR #40. The nested-flexible-array-member tranche is implemented and its
-exact-head target-complete ratchet is published on PR #41. The remaining
+exact-head target-complete ratchet is merged through PR #41. The old-style
+designator tranche is implemented locally but not yet published. The remaining
 compiler debt is enumerated by the 35 live `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 

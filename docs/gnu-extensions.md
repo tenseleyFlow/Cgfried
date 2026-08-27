@@ -81,6 +81,7 @@ predefine.
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 | binary integer constants (`0b...`) | `tests/programs/gnu/binary_integer_constants.c` | chibicc's UTF-8 codec; bit-mask-heavy systems code |
 | nested flexible-array-member records and arrays | `tests/programs/gnu/nested_flexible_array_member.c` | GCC torture PR16566; GNU layouts that embed the fixed prefix of a FAM-bearing record |
+| old-style field designators (`field: value`) | `tests/programs/gnu/old_style_designators.c` | historical GNU initializers retained in GCC's torture corpus |
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
