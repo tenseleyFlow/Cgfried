@@ -1763,10 +1763,32 @@ static AstNode *parse_initializer(Parser *p)
     for (;;) {
         AstNode *item;
         NodeVec desigs = {NULL, 0, 0};
+        bool old_style_field = false;
+
+        /* GNU C's historical field designator spells `.field = value` as
+         * `field: value`.  Preserve it as the same AST designator so every
+         * current-object and override rule downstream stays shared.  This
+         * lookahead is unambiguous at the start of an initializer item: an
+         * ordinary assignment expression cannot begin with `ident :`. */
+        if (parse_peek(p)->kind == TOK_IDENT &&
+            parse_peek_n(p, 1)->kind == TOK_PUNCT &&
+            parse_peek_n(p, 1)->punct == PUNCT_COLON) {
+            const Token *field = parse_peek(p);
+            AstNode *d = ast_new(p->arena, AST_DESIGNATOR, field->span);
+
+            d->desig_is_field = true;
+            d->desig_field = field->spelling;
+            p->pos += 2;
+            old_style_field = true;
+            NodeVec_push(&desigs, d);
+            if (!p->extension_depth)
+                warn_at(p->lang->warnings, WARN_PEDANTIC, field->span,
+                        "obsolete use of designated initializer with ':'");
+        }
 
         /* Designator chain: [expr] and .field, repeatable ([2].x[1]). */
-        while (parse_at_punct(p, PUNCT_LBRACKET) ||
-               parse_at_punct(p, PUNCT_DOT)) {
+        while (!old_style_field && (parse_at_punct(p, PUNCT_LBRACKET) ||
+                                    parse_at_punct(p, PUNCT_DOT))) {
             AstNode *d = ast_new(p->arena, AST_DESIGNATOR, parse_peek(p)->span);
             if (parse_eat_punct(p, PUNCT_LBRACKET)) {
                 d->desig_index = parse_cond_expr(p);
@@ -1790,7 +1812,7 @@ static AstNode *parse_initializer(Parser *p)
             }
             NodeVec_push(&desigs, d);
         }
-        if (desigs.len)
+        if (desigs.len && !old_style_field)
             parse_expect_punct(p, PUNCT_ASSIGN, "after designator list");
 
         item = parse_initializer(p);

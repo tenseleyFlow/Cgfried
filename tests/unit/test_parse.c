@@ -739,6 +739,17 @@ void test_parse_initializers(TestCtx *t)
     T_ASSERT_EQ_INT(t, tu->decls[0]->init->items[0]->ndesignators, 3);
     pfix_free(&f);
 
+    /* GNU's historical `field: value` spelling is represented by the same
+     * field-designator node as `.field = value`. */
+    tu = parse_src(&f, "struct P { int x; }; struct P p = { x: 7 };\n",
+                   STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, tu->decls[1]->init->items[0]->ndesignators, 1);
+    T_ASSERT(t, tu->decls[1]->init->items[0]->designators[0]->desig_is_field);
+    T_ASSERT_EQ_STR(
+        t, tu->decls[1]->init->items[0]->designators[0]->desig_field, "x");
+    pfix_free(&f);
+
     /* GNU range designators are deliberately refused. */
     tu = parse_src(&f, "int a[4] = { [1 ... 3] = 0 };\n", STD_C17);
     T_ASSERT(t, f.errors >= 1);

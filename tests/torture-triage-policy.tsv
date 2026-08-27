@@ -31,7 +31,6 @@
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	85d8b226e143af78038272dd79f5312eb0b394436408cbeab5a1893200b436e5	sema	all	Array-to-pointer conversion is applied to an array compound literal before an incomplete static array can be completed from the aggregate initializer.	fix-sprint:s56.5-compound-literal-array-completion
 -	8d61a6cd5e279f461d9b8326daed634ac0d1ac6efe2f9cfa38669290d6137fe4	ld	all	GNU89's plain alloca spelling is emitted as an external call instead of lowering through the implemented alloca builtin.	fix-sprint:s56.5-gnu-alloca-alias
--	90b3c7e710b66595490d7160026f5ab0d8246476e2d4143febe0d361bc48c061	parse	all	The parser does not accept the historical GNU field-colon designated-initializer syntax.	fix-sprint:s56.5-old-style-designators
 -	91d2215b56a7eef42a5038abc931eace3e3f0478ed15892b898474014e9ab6d1	pp	all	The preprocessor does not recognize GCC's deprecated #predicate(answer) assertion syntax inside #if expressions.	fix-sprint:s56.5-gnu-pp-assertions
 -	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope

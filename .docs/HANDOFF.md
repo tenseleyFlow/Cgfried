@@ -28,9 +28,11 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **30
-implemented / 6 parsed-ignored / 8 refused**.
-Sprint 56's campaign machine, triage map, and 26,475-cell PASS ratchet are
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **31
+implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
+old-style-designator tranche raises the implementation branch to 32
+implemented.
+Sprint 56's campaign machine, triage map, and 26,595-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -593,9 +595,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-nested-fam` on
-`s56.5-nested-flexible-array-members`.
+The current Sprint 56.5 old-style-designator tranche is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-old-style-designators` on
+`s56.5-old-style-designators`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -605,18 +607,19 @@ The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
   packed-bitfield, enum-bitfield, enum-integer-mode, static-subobject
   pointer-difference, VLA-semantics, aggregate-initializer,
-  flexible-array-initializer, and nested-flexible-array-member tranches,
-  outcome totals are 26,535 PASS, 6,620 SKIP, and 7,495 classified failures.
+  flexible-array-initializer, nested-flexible-array-member, and old-style-
+  designator tranches, outcome totals are 26,595 PASS, 6,620 SKIP, and 7,435
+  classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 68 total buckets,
-  59 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 35 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 67 total buckets,
+  58 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 34 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,535-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,595-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
@@ -785,10 +788,56 @@ The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
   `9d7a6165417dc5c24880d034486e7c6ab1c73ccfa50d46006c144442ec9a668c`
   and
   `ebee8ef52aae36f86cd1189e2fc2faa84aab37253b61cbcb0d7a79186340ed51`.
-  The GNU tier table is now 31 implemented / 6 parsed-ignored / 8 refused.
+  PR #41 subsequently passed its post-promotion native rerun and bootstrap;
+  it merged as `4408a873`. The GNU tier table on `trunk` is now 31 implemented
+  / 6 parsed-ignored / 8 refused.
+- The current `s56.5-old-style-designators` tranche recognizes GNU's
+  historical `field: value` initializer spelling only at the start of an
+  initializer-list item and materializes the existing field-designator AST.
+  Current-object traversal, override handling, static images, automatic
+  initialization, compound literals, and both backends therefore reuse the
+  standard `.field = value` path. `-pedantic` emits GCC's obsolete-designator
+  warning, while `__extension__` suppresses it. Permanent fixtures cover
+  static, automatic, nested, and compound-literal initializers plus the
+  warning and suppression boundary; the GNU tier table is 32 / 6 / 8 on the
+  branch. Adding those two deterministic fuzz inputs intentionally changes
+  the 5,000-iteration sequence digest from `acde131a08f5ca93` to
+  `389f09592ae84eb1`, reproduced twice before repinning.
+  The original 70-cell parse bucket decomposes honestly after this repair:
+  six sources pass at all five levels on x86-64 and compile to ARM assembly at
+  all five levels, while `compile/init-3.c` advances to the already-documented
+  GNU empty-record refusal `b28fda1f...`. Thus exactly 60 cells are eligible
+  for target-complete promotion and the remaining ten belong to the existing
+  `wontfix-0.1.0` bucket. Pre-promotion PR CI
+  [run 33051366758](https://github.com/tenseleyFlow/Cgfried/actions/runs/33051366758)
+  produced hosted x86 stream SHA-256
+  `e755a8084f9412ec7e847c278343f0d85c25fba1dbfbc2032719ac87f6c4a621`
+  at synthetic merge revision `091fac4718cfa4d1799972b383b053b03d35cf75`
+  and refused exactly the 30 uncommitted x86 PASS cells. Exact implementation-
+  head native full-lattice
+  [run 33051386292](https://github.com/tenseleyFlow/Cgfried/actions/runs/33051386292)
+  produced ARM stream SHA-256
+  `50f5e743e305f93d898b9362219b65cbef14dbff39eee0fe0ec6ab09bf13ab51`
+  and refused exactly the matching 30 native PASS cells at
+  `333876424a085ca7b61ea1cb656fc6cd739c3dc5`. The publishable same-head x86
+  stream was regenerated locally as
+  `4f5638f6075ec465ba2c5f924bc8b57b1e7d42f059da178aa63d9b717314ab6f`.
+  All three streams share compiler-source SHA-256
+  `ff31cafeae29c8e1ba19c4ed2139fb621bae4d542f9f99a68ec0c0d4657a51ae`
+  plus identical harness and manifest hashes; hosted and local x86
+  classification rows are byte-identical with SHA-256
+  `cd12b88b6cb82bfdf89f68eb262ce1d61a8ab30ca5118586203b4f9e1c752e30`.
+  Atomic publication promoted exactly those 60 cells, retired fingerprint
+  `90b3c7e7...`, and preserved all ten `init-3.c` cells under `b28fda1f...`.
+  The resulting overlay is 58 applied / 0 stale / 0 unresolved and has 7,435
+  classified failures. Reversed input order regenerates both outputs byte-
+  identically; the PASS and triage SHA-256 values are respectively
+  `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
+  and
+  `1fbf09c06953c8ab0e11fb49c9f70bf7c7eaa0919a710c2cd0e8be33b9fbd958`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,845 assertions, 717 program fixtures, and every
+  4,293,849 assertions, 719 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -806,8 +855,10 @@ tranches retired every bucket they fixed. The aggregate-initializer tranche is
 implemented, its target-complete ratchet is published, and PR #30 is merged.
 The flexible-array-initializer tranche is implemented, published, and merged
 through PR #40. The nested-flexible-array-member tranche is implemented and its
-exact-head target-complete ratchet is published on PR #41. The remaining
-compiler debt is enumerated by the 35 live `s56.5-*` policy decisions. Sprint
+exact-head target-complete ratchet is merged through PR #41. The old-style
+designator tranche is implemented and its exact-head target-complete ratchet is
+published on PR #42. The remaining compiler debt is enumerated by the 34 live
+`s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
