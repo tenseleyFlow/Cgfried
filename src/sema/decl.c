@@ -1230,54 +1230,8 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
 
 /* --- declarations -------------------------------------------------------- */
 
-/* An array declared without a bound is COMPLETED by its initializer
- * (6.7.9p22): `int a[] = {1,2,3}` is int[3]. This needs no constant
- * evaluation for the common case — it is a count of top-level items — but
- * a designator moves the cursor, so `int a[] = {[5] = 1}` is int[6]. That
- * index does need folding, which the enumerator folder already does. */
-static bool array_size_from_init(Sema *s, const AstNode *init, u64 *out)
-{
-    u64 pos = 0, high = 0;
-    u32 i;
-
-    if (!init)
-        return false;
-    if (init->kind == AST_EXPR_STRING ||
-        (init->kind == AST_INIT_LIST && init->nitems == 1 && init->items[0] &&
-         init->items[0]->kind == AST_EXPR_STRING &&
-         init->items[0]->ndesignators == 0)) {
-        /* `char s[] = "abc"` is char[4]. The lexer's nbytes is the
-         * ENCODED CONTENT and excludes the terminator (verified against
-         * --dump-tokens), so the +1 is the terminator the array must hold.
-         * 6.7.9p14 also permits one surrounding brace pair. */
-        const AstNode *str =
-            init->kind == AST_EXPR_STRING ? init : init->items[0];
-
-        if (!str->tok)
-            return false;
-        *out = (u64)str->tok->str.nbytes + 1;
-        return true;
-    }
-    if (init->kind != AST_INIT_LIST)
-        return false;
-    for (i = 0; i < init->nitems; i++) {
-        const AstNode *item = init->items[i];
-
-        if (item && item->ndesignators > 0) {
-            const AstNode *d0 = item->designators[0];
-            i64 idx;
-
-            if (d0 && !d0->desig_is_field && d0->desig_index &&
-                enum_fold(s, d0->desig_index, &idx) && idx >= 0)
-                pos = (u64)idx;
-        }
-        pos++;
-        if (pos > high)
-            high = pos;
-    }
-    *out = high;
-    return true;
-}
+static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
+                                 u64 *out);
 
 /* The shared completion, so a declaration and a compound literal cannot
  * drift. Returns `t` unchanged when the rule does not apply -- no type, not
@@ -1289,7 +1243,7 @@ Type *sema_array_complete_from_init(Sema *s, Type *t, const AstNode *init)
 
     if (!t || t->kind != TY_ARRAY || t->has_size || t->is_vla || !init)
         return t;
-    if (!array_size_from_init(s, init, &n))
+    if (!array_size_from_init(s, t, init, &n))
         return t;
     sized = type_array(s->arena, t->base);
     sized->quals = t->quals;
@@ -1503,6 +1457,69 @@ static bool init_expr_initializes_whole(Type *target, const AstNode *init)
     return init->sem_type && type_compatible(target, init->sem_type);
 }
 
+/* An array declared without a bound is COMPLETED by its initializer
+ * (6.7.9p22). Counting syntax items is correct only when the element type is
+ * scalar: with `struct S a[] = { 1, 2, 3, 4 };`, brace elision makes several
+ * scalar items initialize subobjects of ONE array element. Use the same
+ * current-object cursor as initializer typing so bound inference cannot drift
+ * from the stores it describes. The initializer has already been typed when
+ * aggregate-valued expressions need `sem_type`; string literals are handled
+ * directly because their terminator contributes to the bound. */
+static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
+                                 u64 *out)
+{
+    InitCursor cursor;
+    u64 high = 0;
+    u32 i;
+
+    if (!array || array->kind != TY_ARRAY || !init)
+        return false;
+    if (init->kind == AST_EXPR_STRING ||
+        (init->kind == AST_INIT_LIST && init->nitems == 1 && init->items[0] &&
+         init->items[0]->kind == AST_EXPR_STRING &&
+         init->items[0]->ndesignators == 0)) {
+        const AstNode *str =
+            init->kind == AST_EXPR_STRING ? init : init->items[0];
+
+        if (!str->tok)
+            return false;
+        *out = (u64)str->tok->str.nbytes + 1;
+        return true;
+    }
+    if (init->kind != AST_INIT_LIST)
+        return false;
+
+    init_cursor_start(&cursor, array);
+    for (i = 0; i < init->nitems; i++) {
+        const AstNode *item = init->items[i];
+        u64 outer;
+
+        if (!item)
+            continue;
+        if (item->ndesignators &&
+            !init_cursor_designate(s, &cursor, array, item))
+            continue;
+        if (!cursor.depth || !cursor.current)
+            continue;
+        outer = cursor.frames[0].pos;
+        if (outer + 1 > high)
+            high = outer + 1;
+
+        if (item->kind == AST_INIT_LIST ||
+            init_expr_initializes_whole(cursor.current, item)) {
+            init_cursor_advance(&cursor);
+            continue;
+        }
+        while (init_is_aggregate(cursor.current) &&
+               !init_expr_initializes_whole(cursor.current, item))
+            if (!init_cursor_descend(&cursor))
+                break;
+        init_cursor_advance(&cursor);
+    }
+    *out = high;
+    return true;
+}
+
 static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
 {
     AstNode *init;
@@ -1678,6 +1695,21 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
         ConstValue cv = constexpr_eval(
             s, d->init, target->kind == TY_PTR ? CE_ADDR : CE_ARITH);
         (void)cv; /* constexpr_eval reports the specific reason itself */
+    }
+}
+
+static void finish_array_completion(Sema *s, AstNode *d, Symbol *sym,
+                                    bool deferred)
+{
+    if (!deferred)
+        return;
+    sym->type = sema_array_complete_from_init(s, sym->type, d->init);
+    d->sem_type = sym->type;
+    if (!type_is_complete(sym->type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "variable '%s' has incomplete type '%s'", d->name,
+                  type_to_str(s->arena, sym->type));
     }
 }
 
@@ -2346,6 +2378,7 @@ static void declare_one(Sema *s, AstNode *d)
     bool static_init;
     bool file_scope = s->scope->kind == SCOPE_FILE;
     bool had_prior_prototype = false;
+    bool deferred_array_completion;
     u64 alignas_req;
 
     if (!d || !d->name)
@@ -2435,11 +2468,6 @@ static void declare_one(Sema *s, AstNode *d)
     is_func = type && type->kind == TY_FUNC;
     alignas_req = check_alignas(s, d, type);
 
-    /* Completion event: an unsized array with an initializer takes its
-     * size from that initializer. Doing it before the incomplete-type
-     * check below is what makes `int a[] = {1,2,3};` legal. */
-    type = sema_array_complete_from_init(s, type, d->init);
-
     if (d->storage & AST_SC_TYPEDEF) {
         sym = sym_new(s, d->name, SYM_TYPEDEF, NS_ORDINARY, type, d->span);
         sym->linkage = LINK_NONE;
@@ -2464,6 +2492,14 @@ static void declare_one(Sema *s, AstNode *d)
             !(d->storage & AST_SC_EXTERN))
             sym->tentative = true;
     }
+    /* The current-object walk needs expression types to distinguish brace
+     * elision from one aggregate-valued initializer. Defer only this one
+     * completeness event until the declaration is in scope and its
+     * initializer has been typed; every other incomplete definition keeps
+     * the ordinary immediate diagnostic below. */
+    deferred_array_completion = !is_func && sym->kind != SYM_TYPEDEF &&
+                                d->init && type && type->kind == TY_ARRAY &&
+                                !type->has_size && !type->is_vla;
 
     /* --- Sprint 16 constraints, all needing the storage class ---------- */
 
@@ -2705,7 +2741,8 @@ static void declare_one(Sema *s, AstNode *d)
      * a[];` and a tentative `int a[];` are both fine, so the check is on
      * definitions only. */
     if (!is_func && sym->kind != SYM_TYPEDEF && sym->defined && type &&
-        type->kind != TY_ERROR && !type_is_complete(type)) {
+        type->kind != TY_ERROR && !type_is_complete(type) &&
+        !deferred_array_completion) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, d->span,
                   "variable '%s' has incomplete type '%s'", d->name,
@@ -2783,12 +2820,14 @@ static void declare_one(Sema *s, AstNode *d)
          * merged into an earlier one, or its expressions never get
          * checked at all. */
         sema_init_expr(s, prev->type, d, static_init);
+        finish_array_completion(s, d, prev, deferred_array_completion);
         return;
     }
     append_valid_attrs(s, sym, d, type);
     scope_declare(s, sym);
     d->sym = sym; /* lowering resolves the DECL to its symbol */
     sema_init_expr(s, sym->type, d, static_init);
+    finish_array_completion(s, d, sym, deferred_array_completion);
 }
 
 /* A forwarding-pack wrapper is specialized more than once, potentially in
@@ -3104,14 +3143,36 @@ static void declare_kr_params(Sema *s, AstNode *d, Symbol *fsym)
 
             if (pt->kind == TY_FLOAT)
                 promoted = type_basic(TY_DOUBLE);
-            if (!type_compatible(conv_strip_quals(s, promoted), want))
-                warn_pedwarn_at(
-                    s->lang->warnings, WARN_TRADITIONAL, ft->params[pi].span,
-                    "promoted argument '%s' doesn't match prototype ('%s' "
-                    "promotes to '%s', prototype says '%s')",
-                    pname, type_to_str(s->arena, pt),
-                    type_to_str(s->arena, promoted),
-                    type_to_str(s->arena, proto->params[pi]));
+            if (!type_compatible(conv_strip_quals(s, promoted), want)) {
+                const char *declared = type_to_str(s->arena, pt);
+                const char *promoted_name = type_to_str(s->arena, promoted);
+                const char *prototype_name =
+                    type_to_str(s->arena, proto->params[pi]);
+
+                /* GCC keeps its traditional warning for the narrow/float
+                 * case where the declaration-list type itself matches the
+                 * prototype and only default promotion makes it differ.
+                 * Unrelated types are a hard conflicting-definition
+                 * constraint: continuing would bind the body parameter to
+                 * one type while lowering the composite prototype ABI. */
+                if (type_compatible(conv_strip_quals(s, pt), want)) {
+                    warn_pedwarn_at(
+                        s->lang->warnings, WARN_TRADITIONAL,
+                        ft->params[pi].span,
+                        "promoted argument '%s' doesn't match prototype "
+                        "('%s' promotes to '%s', prototype says '%s')",
+                        pname, declared, promoted_name, prototype_name);
+                } else {
+                    s->nerrors++;
+                    diag_emit(s->dc, DIAG_ERROR, ft->params[pi].span,
+                              "promoted argument '%s' doesn't match prototype "
+                              "('%s' promotes to '%s', prototype says '%s')",
+                              pname, declared, promoted_name, prototype_name);
+                    if (fsym)
+                        diag_emit(s->dc, DIAG_NOTE, fsym->span,
+                                  "previous prototype is here");
+                }
+            }
         }
     }
 }
