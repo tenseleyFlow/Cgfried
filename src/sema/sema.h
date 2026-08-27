@@ -119,7 +119,8 @@ struct TagDecl {
     bool enum_has_negative; /* drives gcc-compatible enum-bitfield sign */
     AstNode *enum_ast;      /* originating AST_ENUM_DECL; switch warnings use
                                its declaration-ordered enumerator list */
-    bool has_fam;           /* last member is a flexible array (6.7.2.1p18) */
+    bool has_fam;           /* direct last-member flexible array (6.7.2.1p18) */
+    bool contains_fam;      /* direct or recursively contained flexible array */
     bool defining;          /* completion in progress: a nested definition of
                                the same tag is a "nested redefinition", not a
                                completion of OURSELVES — without this check a

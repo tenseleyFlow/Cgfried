@@ -713,6 +713,38 @@ void test_sema_incomplete_types(TestCtx *t)
     T_ASSERT(t, f.errors >= 1);
     sfix_free(&f);
 
+    /* A union may contain a FAM-bearing struct in ISO C. GCC extends that
+     * recursively to struct members and array elements, whose fixed layout
+     * is still well-defined because the flexible tail contributes no size. */
+    run_sema(&f,
+             "struct F { int head; int tail[]; };\n"
+             "union U { struct F f; long fallback; };\n"
+             "struct O { union U u; int end; };\n"
+             "struct A { struct F array[2]; };\n"
+             "struct F array[2];\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    {
+        const char *fname = intern_str(&f.in, intern_cstr(&f.in, "F"));
+        const char *uname = intern_str(&f.in, intern_cstr(&f.in, "U"));
+        const char *oname = intern_str(&f.in, intern_cstr(&f.in, "O"));
+        const char *aname = intern_str(&f.in, intern_cstr(&f.in, "A"));
+        Symbol *ftag = scope_lookup(f.sema.scope, fname, NS_TAG);
+        Symbol *utag = scope_lookup(f.sema.scope, uname, NS_TAG);
+        Symbol *otag = scope_lookup(f.sema.scope, oname, NS_TAG);
+        Symbol *atag = scope_lookup(f.sema.scope, aname, NS_TAG);
+
+        T_ASSERT(t, ftag && ftag->type->tag->has_fam);
+        T_ASSERT(t, ftag && ftag->type->tag->contains_fam);
+        T_ASSERT(t, utag && !utag->type->tag->has_fam);
+        T_ASSERT(t, utag && utag->type->tag->contains_fam);
+        T_ASSERT(t, otag && !otag->type->tag->has_fam);
+        T_ASSERT(t, otag && otag->type->tag->contains_fam);
+        T_ASSERT(t, atag && !atag->type->tag->has_fam);
+        T_ASSERT(t, atag && atag->type->tag->contains_fam);
+    }
+    sfix_free(&f);
+
     /* void objects are never definable. */
     run_sema(&f, "void v;\n", STD_C17);
     T_ASSERT(t, f.errors >= 1);
@@ -824,6 +856,19 @@ void test_sema_incomplete_types(TestCtx *t)
              "(void)ok; }\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* GCC does not allocate a recursively buried flexible tail. The GNU
+     * containment extension permits the TYPE, but not an initializer that
+     * tries to populate that nested array. */
+    run_sema(&f,
+             "struct F { int head; int tail[]; };\n"
+             "struct O { struct F f; };\n"
+             "static struct O braced = { { 1, { 2 } } };\n"
+             "static struct O flat = { 1, 2 };\n"
+             "static struct O designated = { .f.tail = { [2] = 3 } };\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors >= 3);
     sfix_free(&f);
 }
 

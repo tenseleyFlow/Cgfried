@@ -593,9 +593,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 flexible-array-initializer tranche is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-flex` on
-`s56.5-flexible-array-initializer`.
+The current Sprint 56.5 nested-flexible-array-member tranche is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-nested-fam` on
+`s56.5-nested-flexible-array-members`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -604,18 +604,19 @@ The current Sprint 56.5 flexible-array-initializer tranche is isolated in
   `arm64-linux`: 20,325 cells per target, 40,650 total. After the Sprint 58
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
   packed-bitfield, enum-bitfield, enum-integer-mode, static-subobject
-  pointer-difference, VLA-semantics, and aggregate-initializer tranches,
-  outcome totals are 26,515 PASS, 6,620 SKIP, and 7,515 classified failures.
+  pointer-difference, VLA-semantics, aggregate-initializer,
+  flexible-array-initializer, and nested-flexible-array-member tranches,
+  outcome totals are 26,535 PASS, 6,620 SKIP, and 7,495 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 69 total buckets,
-  60 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 36 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 68 total buckets,
+  59 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 35 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,515-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,535-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
@@ -745,11 +746,49 @@ The current Sprint 56.5 flexible-array-initializer tranche is isolated in
   `7fba03a00166ffda46f1935ce8294b645962d5dbcd8f5daaf14f41703a1b7852`
   and
   `99c51451a7fab2230b6f167e4d3e6ebb53d623f139a4ae32920bed353066b229`.
-  PR #40 is the review boundary and now requires fully green post-promotion
-  PR/native reruns before merge.
+  PR #40 subsequently passed its post-promotion PR/native reruns and merged.
+- The current `s56.5-nested-flexible-array-members` tranche separates a
+  record's direct final FAM from recursive FAM containment. ISO-valid union
+  containment propagates silently; GNU struct-member and array-element uses
+  retain the record's fixed `sizeof` and warn under `-pedantic`. Initializing
+  a buried flexible tail remains a hard error, matching GCC: the containment
+  extension does not invent storage inside an enclosing object. Unit coverage
+  pins direct/recursive flags, union and array propagation, direct static-FAM
+  preservation, and braced/flat/designated nested-initializer rejection. The
+  permanent program fixtures pin the PR16566 non-lvalue expressions, the
+  pedantic diagnostic, and the nested-initializer safety boundary.
+  Pre-promotion PR CI
+  [run 33044896781](https://github.com/tenseleyFlow/Cgfried/actions/runs/33044896781)
+  refused only the ten uncommitted x86 PASS cells; its hosted stream SHA-256 is
+  `e0a0571894fcc500092810fd20fd2db2eeabe6028cd7da689073a7aa74046e91`.
+  Exact-head native full-lattice
+  [run 33044919989](https://github.com/tenseleyFlow/Cgfried/actions/runs/33044919989)
+  passed every non-ARM-torture job and refused only the matching ten native
+  ARM64 PASS cells at `384cf82aed68bb842f892a5ab569987c5c3d9550`; its stream
+  SHA-256 is
+  `5b180bf498db0d1307ccd8021b15e2d4ab214e5a09969526a845ad911f797b42`.
+  GitHub's PR checkout records synthetic merge revision
+  `752ae66e9544db5c4bf4716c0231bc6cbfddb0d8`, so that hosted x86 stream is
+  confirmation-only. The publishable same-head x86 stream was regenerated
+  locally as
+  `f625ec23653e3006d10bb571c9f1549385be25b85283a5f8880bc18a8a90fcad`
+  and atomically combined with native ARM. The streams share compiler-source
+  SHA-256
+  `7371392480559c37a122ed342d1eb7de092fb1fe0646ad991cfd33a9841895a3`
+  plus identical harness and manifest hashes; hosted and local x86
+  classification rows are byte-identical. The publication promoted exactly
+  the 20 `pr16566-{1,3}.c` cells with zero PASS regression and retired
+  fingerprint `eb35ff3a...`. The resulting overlay is 59 applied / 0 stale /
+  0 unresolved and has 7,495 classified failures. Reversed input order
+  regenerates both outputs byte-identically; the PASS and triage SHA-256 values
+  are respectively
+  `9d7a6165417dc5c24880d034486e7c6ab1c73ccfa50d46006c144442ec9a668c`
+  and
+  `ebee8ef52aae36f86cd1189e2fc2faa84aab37253b61cbcb0d7a79186340ed51`.
+  The GNU tier table is now 31 implemented / 6 parsed-ignored / 8 refused.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,835 assertions, 714 program fixtures, and every
+  4,293,845 assertions, 717 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -765,9 +804,10 @@ and the Sprint 56.5 declarator, packed-bitfield, enum-bitfield,
 enum-integer-mode, static-subobject-pointer-difference, and VLA-semantics
 tranches retired every bucket they fixed. The aggregate-initializer tranche is
 implemented, its target-complete ratchet is published, and PR #30 is merged.
-The flexible-array-initializer tranche is implemented and its exact-head
-target-complete ratchet is published on PR #40. The remaining compiler debt is
-enumerated by the 36 live `s56.5-*` policy decisions. Sprint
+The flexible-array-initializer tranche is implemented, published, and merged
+through PR #40. The nested-flexible-array-member tranche is implemented and its
+exact-head target-complete ratchet is published on PR #41. The remaining
+compiler debt is enumerated by the 35 live `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---

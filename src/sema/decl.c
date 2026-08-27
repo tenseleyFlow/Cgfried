@@ -373,6 +373,17 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     }
 }
 
+static bool type_contains_fam(const Type *type)
+{
+    if (!type)
+        return false;
+    if ((type->kind == TY_STRUCT || type->kind == TY_UNION) && type->tag)
+        return type->tag->contains_fam;
+    if (type->kind == TY_ARRAY)
+        return type_contains_fam(type->base);
+    return false;
+}
+
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                        bool is_last_decl)
 {
@@ -419,18 +430,23 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                 mt = type_basic(TY_ERROR);
             } else {
                 tag->has_fam = true;
+                tag->contains_fam = true;
             }
         }
-        /* A struct that ends in a FAM cannot itself be a member: the FAM
-         * would be buried mid-object. A POINTER to one is fine. */
-        if (mt && (mt->kind == TY_STRUCT || mt->kind == TY_UNION) && mt->tag &&
-            mt->tag->has_fam) {
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, m->span,
-                      "a struct with a flexible array member cannot be a "
-                      "member of another struct (the GNU form is not "
-                      "supported)");
-            mt = type_basic(TY_ERROR);
+        /* ISO C permits a union to contain a FAM-bearing struct and carries
+         * that property through nested unions. GCC also permits such a type
+         * in a struct, with a pedantic diagnostic, and gives the containing
+         * record its ordinary fixed layout. Track recursive containment
+         * separately from `has_fam`: only a DIRECT FAM may extend a static
+         * definition's storage in sema_init_expr. */
+        if (type_contains_fam(mt)) {
+            if (tag->kind == TY_STRUCT &&
+                (mt->kind == TY_STRUCT || mt->kind == TY_UNION) &&
+                s->lang->pedantic)
+                warn_at(s->lang->warnings, WARN_PEDANTIC, m->span,
+                        "invalid use of structure with flexible array "
+                        "member");
+            tag->contains_fam = true;
         }
 
         /* A member of incomplete type has no size, so the struct could
@@ -916,14 +932,13 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
             inner = type_basic(TY_ERROR);
         }
         if (inner && (inner->kind == TY_STRUCT || inner->kind == TY_UNION) &&
-            inner->tag && inner->tag->has_fam) {
-            /* An ARRAY of FAM-bearing structs has no meaningful stride —
-             * where would each element's flexible tail go? */
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, span,
-                      "an array of structs with a flexible array member is "
-                      "a GNU extension that is not supported");
-            inner = type_basic(TY_ERROR);
+            inner->tag && inner->tag->contains_fam && s->lang->pedantic) {
+            /* GCC's extension uses the record's ordinary fixed sizeof as
+             * the array stride; the flexible tail contributes no storage to
+             * an element. This is useful for compatibility but remains a
+             * constraint violation in strictly conforming C. */
+            warn_at(s->lang->warnings, WARN_PEDANTIC, span,
+                    "invalid use of structure with flexible array member");
         }
         if (inner && inner->kind != TY_ERROR && inner->align_override) {
             TypeLayout el = layout_of(s, inner);
@@ -1610,6 +1625,80 @@ static bool fam_size_from_init(Sema *s, Type *record, const AstNode *init,
     return true;
 }
 
+/* GCC's nested-FAM extension changes which TYPES may be formed; it does not
+ * create storage for a flexible tail buried inside another object. Detect an
+ * initializer that reaches such a tail with the same current-object cursor
+ * used for typing. This covers explicit braces, brace elision, and chained
+ * designators without confusing the declared record's own direct FAM, whose
+ * static-storage extension is handled by fam_size_from_init above. */
+static bool cursor_reaches_nested_fam(const InitCursor *cursor, Type *root,
+                                      bool declared_root)
+{
+    Member *direct = declared_root ? flexible_array_member(root) : NULL;
+    u32 i;
+
+    for (i = 0; i < cursor->depth; i++) {
+        Type *aggregate = cursor->frames[i].aggregate;
+
+        if (!aggregate || aggregate->kind != TY_ARRAY || aggregate->has_size ||
+            aggregate->is_vla)
+            continue;
+        if (direct && direct->type == aggregate && i == 1 &&
+            cursor->frames[0].aggregate == root)
+            continue;
+        return true;
+    }
+    return false;
+}
+
+static bool nested_fam_initialized(Sema *s, Type *target, const AstNode *init,
+                                   bool declared_root)
+{
+    InitCursor cursor;
+    Member *direct = declared_root ? flexible_array_member(target) : NULL;
+    Member *unused_member;
+    u64 unused_count;
+    u32 i;
+
+    if (!target || !init || init->kind != AST_INIT_LIST)
+        return false;
+    if (!declared_root &&
+        fam_size_from_init(s, target, init, &unused_member, &unused_count))
+        return true;
+
+    init_cursor_start(&cursor, target);
+    for (i = 0; i < init->nitems; i++) {
+        const AstNode *item = init->items[i];
+
+        if (!item)
+            continue;
+        if (item->ndesignators &&
+            !init_cursor_designate(s, &cursor, target, item))
+            continue;
+        if (!cursor.depth || !cursor.current)
+            continue;
+        if (item->kind == AST_INIT_LIST) {
+            bool initializes_direct =
+                direct && cursor.depth == 1 && cursor.current == direct->type;
+
+            if (cursor_reaches_nested_fam(&cursor, target, declared_root) ||
+                (!initializes_direct &&
+                 nested_fam_initialized(s, cursor.current, item, false)))
+                return true;
+            init_cursor_advance(&cursor);
+            continue;
+        }
+        while (init_is_aggregate(cursor.current) &&
+               !init_expr_initializes_whole(cursor.current, item))
+            if (!init_cursor_descend(&cursor))
+                break;
+        if (cursor_reaches_nested_fam(&cursor, target, declared_root))
+            return true;
+        init_cursor_advance(&cursor);
+    }
+    return false;
+}
+
 static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
 {
     AstNode *init;
@@ -1751,6 +1840,14 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
     if (!d->init)
         return;
     sema_init_value(s, target, &d->init);
+
+    if (target && target->kind != TY_ERROR && type_contains_fam(target) &&
+        nested_fam_initialized(s, target, d->init, true)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->init->span,
+                  "initialization of flexible array member in a nested "
+                  "context");
+    }
 
     if (fam_size_from_init(s, target, d->init, &fam_member, &fam_count)) {
         TypeLayout record_layout;
