@@ -423,6 +423,20 @@ void test_parse_floatn_pedantic_warnings(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT_EQ_INT(t, f.warnings, 1);
     pfix_free(&f);
+
+    (void)parse_src_with_options(
+        &f, "__extension__ __extension__ _Float32 repeated = 1.0F32;\n",
+        STD_C17, false, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    pfix_free(&f);
+
+    /* GCC permits the marker only before the whole declaration. It is not
+     * a specifier that can float through an otherwise-started soup. */
+    (void)parse_src_with_options(&f, "const __extension__ int misplaced;\n",
+                                 STD_C17, false, true);
+    T_ASSERT(t, f.errors > 0);
+    pfix_free(&f);
 }
 
 void test_parse_typedef_ambiguity(TestCtx *t)

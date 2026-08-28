@@ -237,6 +237,18 @@ void test_expr_cast_vs_call(TestCtx *t)
     expr_is(t, "__alignof__(T)", "(alignof<T>)");
     expr_is(t, "__alignof__(a)", "(alignof a)");
     expr_is(t, "__alignof__ a", "(alignof a)");
+
+    /* `__extension__` is an expression prefix, not a type-name specifier.
+     * In particular, the opening `(` must stay a parenthesized expression
+     * when the next token is the marker; otherwise cast lookahead consumes
+     * the marker as declaration soup and rejects the real operand. */
+    expr_is(t, "(__extension__ (a + b))", "(a + b)");
+    expr_is(t, "(__extension__ __extension__ (a + b))", "(a + b)");
+    expr_is(t, "__extension__ (T)a", "(cast<T> a)");
+    expr_is(t, "(__extension__ ((struct S){0}.m))",
+            "((complit<struct S>[1]).m)");
+    expr_is(t, "sizeof(__extension__ (a + b))", "(sizeof (a + b))");
+    expr_is(t, "__alignof__(__extension__ (a + b))", "(alignof (a + b))");
 }
 
 void test_expr_compound_literals(TestCtx *t)
@@ -382,6 +394,9 @@ void test_expr_deferrals_and_errors(TestCtx *t)
     /* Prefix ++ takes a unary-expression, so a cast operand is a syntax
      * error rather than a silent acceptance. */
     expr_bad(t, "typedef int T; int x; int f(void){ return ++(T)x; }\n");
+    /* The marker prefixes the whole declaration/expression. It is not a
+     * type specifier that may appear inside a cast's type-name. */
+    expr_bad(t, "int f(void){ return (const __extension__ int)1; }\n");
     /* _Generic constraints checkable at parse time. */
     expr_bad(
         t, "int a; int f(void){ return _Generic(a, default:1, default:2); }\n");
