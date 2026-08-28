@@ -11,7 +11,8 @@
  *
  * The grammar (parse.c accepts precisely this; the two files are a pair):
  *
- *   module  := (sym | global | func)*
+ *   module  := (ident | sym | global | func)*
+ *   ident   := "ident" STR                      ; exact object-comment bytes
  *   sym     := "sym" symname                    ; full table, index order
  *   global  := "global" symname "size" INT "align" INT linkage
  *              ["tentative"] ["init" HEX*]
@@ -161,13 +162,16 @@ static ValNames vn_build(Arena *a, const IrFunc *f)
  * NEWLINE AND TAB ARE ESCAPED TOO, which the section case never needed and
  * the asm case cannot do without: an asm template is routinely multi-line
  * (`"movl %1, %0\n\taddl $1, %0"`), and a raw newline inside a quoted string
- * would end the instruction's LINE in a line-oriented format. The IR parser
- * decodes exactly these four. */
-static void print_quoted(Buf *out, const char *s)
+ * would end the instruction's LINE in a line-oriented format. Other control
+ * and non-ASCII bytes use fixed-width \xHH escapes; #ident needs that form to
+ * preserve embedded NULs through an IR round trip. */
+static void print_quoted_bytes(Buf *out, const u8 *s, u32 len)
 {
+    u32 i;
+
     buf_printf(out, "\"");
-    for (; *s; s++) {
-        switch (*s) {
+    for (i = 0; i < len; i++) {
+        switch (s[i]) {
         case '"':
             buf_printf(out, "\\\"");
             break;
@@ -181,11 +185,19 @@ static void print_quoted(Buf *out, const char *s)
             buf_printf(out, "\\t");
             break;
         default:
-            buf_printf(out, "%c", *s);
+            if (s[i] < 0x20 || s[i] >= 0x7f)
+                buf_printf(out, "\\x%02x", s[i]);
+            else
+                buf_printf(out, "%c", s[i]);
             break;
         }
     }
     buf_printf(out, "\"");
+}
+
+static void print_quoted(Buf *out, const char *s)
+{
+    print_quoted_bytes(out, (const u8 *)s, (u32)strlen(s));
 }
 
 static void print_val(Buf *out, const ValNames *vn, u32 id)
@@ -720,6 +732,11 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
 {
     u32 i, j;
 
+    for (i = 0; i < m->nidents; i++) {
+        buf_printf(out, "ident ");
+        print_quoted_bytes(out, m->idents[i].bytes, m->idents[i].len);
+        buf_printf(out, "\n");
+    }
     for (i = 0; i < m->nsyms; i++) {
         buf_printf(out, "sym ");
         print_sym_name(out, m->syms[i]);

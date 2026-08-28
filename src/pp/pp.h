@@ -404,7 +404,14 @@ typedef struct Preprocessor {
         sets it; the predefine block is the only consumer. */
     bool freestanding; /* -trigraphs (gcc parity: default off) */
     bool verbose;      /* -v: print the include search list */
-    bool emit_pragmas; /* -E/.S preserve pragma lines; compilation consumes */
+    bool emit_pragmas; /* -E preserves accepted passthrough directives */
+
+    /* GNU #ident / #sccs payloads after macro expansion, in source order.
+     * They remain pp string tokens until phase 5 decodes escapes through the
+     * ordinary target-aware string-literal path. */
+    PpToken *idents;
+    u32 nidents;
+    u32 cap_idents;
 
     /* Include search chains (set up by the driver before pp_begin). */
     const char *iquote_dirs[PP_MAX_DIRS];
@@ -463,7 +470,7 @@ typedef struct Preprocessor {
     u32 inc_once_skipped;
     u64 tokens_emitted; /* post-expansion tokens delivered by pp_next */
 
-    /* Pending -E passthrough tokens (#pragma lines). */
+    /* Pending -E passthrough tokens (#pragma and GNU #ident lines). */
     PpToken *pass;
     u32 npass;
     u32 pass_pos;

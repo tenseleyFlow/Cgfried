@@ -2,6 +2,7 @@
 #define CGF_CG_SHARED_H
 
 #include "util/base.h"
+#include "util/buf.h"
 
 /* Target-neutral backend substrate. Backends expose their MIR through this
  * read-only view, then retain ownership of instruction constraints, physical
@@ -81,6 +82,12 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
                     const CgLinearScanPolicy *policy, CgSpillSlots *slots);
 
 struct IrFunc;
+struct IrModule;
+
+/* Emit GNU #ident payloads into the conventional ELF .comment section.
+ * Numeric bytes keep this accepted by both gas and the bundled afs-as, and a
+ * dedicated helper keeps x86_64 and arm64-linux byte-for-byte aligned. */
+void cg_emit_elf_idents(const struct IrModule *m, Buf *out);
 
 /* A function's `.p2align` exponent: the backend's own default, RAISED by any
  * `aligned(N)` on the function. Shared so the two emitters cannot drift on a

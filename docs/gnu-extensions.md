@@ -83,6 +83,7 @@ predefine.
 | nested flexible-array-member records and arrays | `tests/programs/gnu/nested_flexible_array_member.c` | GCC torture PR16566; GNU layouts that embed the fixed prefix of a FAM-bearing record |
 | old-style field designators (`field: value`) | `tests/programs/gnu/old_style_designators.c` | historical GNU initializers retained in GCC's torture corpus |
 | range designators (`[first ... last]`) | `tests/programs/gnu/range_designators.c` | compact lookup tables and generated initializers; the inclusive upper bound completes unsized arrays |
+| `#ident` / `#sccs` | `tests/programs/gnu/ident_directive.c` | source and generated version strings retained in ELF object metadata |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form
@@ -93,6 +94,16 @@ fixture covers static and automatic storage, relocations, inferred bounds,
 aggregate leaves, compound literals, chained ranges, and override behavior;
 the companion pedantic fixture proves the ISO warning and `__extension__`
 suppression boundary.
+
+`#ident` expands its argument, requires one ordinary string literal, and
+preserves source order in dedicated IR metadata. Linux targets decode the
+literal through the normal execution-character path and emit its exact bytes
+into ELF `.comment`; numeric assembly directives keep the result accepted by
+both gas and the bundled `afs-as`, including embedded NUL bytes. `#sccs` is
+the deprecated synonym and canonicalizes to `#ident` under `-E`. The Mach-O
+target deliberately consumes the directive without object output, matching
+the target-hook semantics documented by GCC and the behavior measured from
+Clang on that object format.
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every

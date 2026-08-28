@@ -1548,6 +1548,8 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
         PpTokVecD collected = {NULL, 0, 0};
         LangOpts lang;
         TokenList tl;
+        IrIdent *source_idents = NULL;
+        u32 nsource_idents = 0;
         u32 k;
 
         memset(&lang, 0, sizeof(lang));
@@ -1570,6 +1572,20 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
             PpTokVecD_push(&collected, t);
         tl = lex_convert(&pp, collected.data, (u32)collected.len, &lang,
                          cgf_target_selected(), arena);
+        if (pp.nidents) {
+            source_idents = arena_alloc(arena, pp.nidents * sizeof(IrIdent),
+                                        _Alignof(IrIdent));
+            for (k = 0; k < pp.nidents; k++) {
+                TokenList one = lex_convert(&pp, &pp.idents[k], 1, &lang,
+                                            cgf_target_selected(), arena);
+
+                if (!one.n || one.toks[0].kind != TOK_STRING)
+                    CGF_ICE("validated #ident did not convert to a string");
+                source_idents[k].bytes = one.toks[0].str.bytes;
+                source_idents[k].len = one.toks[0].str.nbytes;
+            }
+            nsource_idents = pp.nidents;
+        }
         if (a->dump_tokens)
             for (k = 0; k < tl.n; k++)
                 dump_token(&tl.toks[k]);
@@ -1664,6 +1680,9 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
 
                         m = lower_translation_unit_with_options(
                             ir_arena, dc, &sema, tu, &lower_options);
+                        for (k = 0; m && k < nsource_idents; k++)
+                            ir_module_add_ident(m, source_idents[k].bytes,
+                                                source_idents[k].len);
                         verify_generated_module(dc, m, job->path);
                     }
                     if (m && !diag_had_error(dc))

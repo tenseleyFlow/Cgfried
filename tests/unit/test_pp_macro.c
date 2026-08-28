@@ -178,6 +178,74 @@ void test_pp_gnu_named_variadic_table_and_diagnostics(TestCtx *t)
     mfix_free(&f);
 }
 
+void test_pp_gnu_ident_directives(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[8];
+
+    mfix_init(&f);
+    f.pp.emit_pragmas = true;
+    T_ASSERT_EQ_INT(t,
+                    run_pp(&f,
+                           "#define TAG \"macro\"\n"
+                           "#ident TAG\n"
+                           "#sccs \"alias\"\n",
+                           toks, CGF_ARRAY_LEN(toks)),
+                    6);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, f.pp.nidents, 2);
+    T_ASSERT_EQ_STR(t, f.pp.idents[0].spelling, "\"macro\"");
+    T_ASSERT_EQ_STR(t, f.pp.idents[1].spelling, "\"alias\"");
+    T_ASSERT_EQ_INT(t, toks[0].punct, PUNCT_HASH);
+    T_ASSERT_EQ_STR(t, toks[1].spelling, "ident");
+    T_ASSERT_EQ_STR(t, toks[2].spelling, "\"macro\"");
+    T_ASSERT_EQ_INT(t, toks[3].punct, PUNCT_HASH);
+    T_ASSERT_EQ_STR(t, toks[4].spelling, "ident");
+    T_ASSERT_EQ_STR(t, toks[5].spelling, "\"alias\"");
+    mfix_free(&f);
+
+    /* Directives in skipped groups are not expanded, diagnosed, or kept. */
+    mfix_init(&f);
+    run_pp(&f,
+           "#if 0\n#ident NOT_A_STRING\n#endif\n"
+           "#ident \"kept\"\n",
+           NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.pp.nidents, 1);
+    T_ASSERT_EQ_STR(t, f.pp.idents[0].spelling, "\"kept\"");
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#ident 123\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, f.pp.nidents, 0);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#ident L\"wide\"\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, f.pp.nidents, 0);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#ident \"first\" \"extra\"\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_CPP);
+    T_ASSERT_EQ_INT(t, f.pp.nidents, 1);
+    T_ASSERT_EQ_STR(t, f.pp.idents[0].spelling, "\"first\"");
+    mfix_free(&f);
+
+    mfix_init(&f);
+    T_ASSERT(t, warn_flag(f.pp.warn, "-pedantic"));
+    run_pp(&f, "#ident \"pedantic\"\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_PEDANTIC);
+    mfix_free(&f);
+}
+
 void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
 {
     MacFix f;

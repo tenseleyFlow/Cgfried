@@ -98,6 +98,12 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source)
             clone_array(arena, source->mem_layouts[i].ranges,
                         source->mem_layouts[i].nranges, sizeof(IrByteRange),
                         _Alignof(IrByteRange));
+    copy->nidents = copy->cap_idents = source->nidents;
+    copy->idents = clone_array(arena, source->idents, source->nidents,
+                               sizeof(*source->idents), _Alignof(IrIdent));
+    for (i = 0; i < copy->nidents; i++)
+        copy->idents[i].bytes = clone_array(arena, source->idents[i].bytes,
+                                            source->idents[i].len, 1, 1);
     copy->nglobals = copy->cap_globals = source->nglobals;
     copy->globals = clone_array(arena, source->globals, source->nglobals,
                                 sizeof(*source->globals), _Alignof(IrGlobal));
@@ -310,6 +316,22 @@ void ir_module_add_file_asm(IrModule *m, const char *text)
         m->cap_file_asms = nc;
     }
     m->file_asms[m->nfile_asms++] = text;
+}
+
+void ir_module_add_ident(IrModule *m, const u8 *bytes, u32 len)
+{
+    IrIdent *id;
+
+    if (m->nidents == m->cap_idents) {
+        u32 nc = m->cap_idents ? m->cap_idents * 2 : 4;
+
+        m->idents = grow(m->arena, m->idents, m->nidents, nc,
+                         sizeof(*m->idents), _Alignof(IrIdent));
+        m->cap_idents = nc;
+    }
+    id = &m->idents[m->nidents++];
+    id->len = len;
+    id->bytes = clone_array(m->arena, bytes, len, 1, 1);
 }
 
 IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target)
@@ -972,8 +994,14 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
     u32 i, j;
 
     if (a->nfuncs != b->nfuncs || a->nglobals != b->nglobals ||
-        a->nsyms != b->nsyms || a->naliases != b->naliases)
+        a->nsyms != b->nsyms || a->naliases != b->naliases ||
+        a->nidents != b->nidents)
         return false;
+    for (i = 0; i < a->nidents; i++)
+        if (a->idents[i].len != b->idents[i].len ||
+            (a->idents[i].len && memcmp(a->idents[i].bytes, b->idents[i].bytes,
+                                        a->idents[i].len) != 0))
+            return false;
     for (i = 0; i < a->nsyms; i++)
         if (!str_eq(a->syms[i], b->syms[i]) ||
             a->sym_attrs[i].is_weak != b->sym_attrs[i].is_weak ||
