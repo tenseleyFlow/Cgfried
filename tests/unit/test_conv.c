@@ -412,6 +412,7 @@ static void expr_type_is(TestCtx *t, const char *stmt, const char *want)
              "int gi; long gl; unsigned int gu; unsigned long gul;\n"
              "short gs; unsigned short gus; char gc; signed char gsc;\n"
              "unsigned char guc; float gf; double gd; long long gll;\n"
+             "const int gci; int *const gcip;\n"
              "_Bool gb; int *gip; const char *gcp; char *gp; void *gvp;\n"
              "int garr[4]; int gfn(int);\n"
              "void wrapper(void) { %s; }\n",
@@ -688,6 +689,24 @@ void test_conv_generic_selection(TestCtx *t)
     expr_type_is(t, "_Generic(gd, double: gip, default: gi)", "int *");
     /* An array decays before matching, so `int *` is what matches. */
     expr_type_is(t, "_Generic(garr, int *: gl, default: gi)", "long");
+}
+
+void test_conv_generic_qualified_associations(TestCtx *t)
+{
+    SrcFix f;
+
+    /* Association types retain their declared top-level qualifiers.  The
+     * controlling expression alone undergoes lvalue conversion, so these
+     * qualified associations are distinct but cannot match the converted
+     * unqualified controlling type. */
+    expr_type_is(t, "_Generic(gci, const int: gc, int: gl)", "long");
+    expr_type_is(t, "_Generic(gcip, int *const: gc, int *: gl)", "long");
+
+    /* Actually compatible association types remain a constraint error. */
+    (void)run_src(&f, "int f(void) { return _Generic(0, int: 1, int: 2); }\n",
+                  CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    src_fix_free(&f);
 }
 
 void test_conv_generic_malformed_type_is_poison(TestCtx *t)
