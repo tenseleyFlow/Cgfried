@@ -11,8 +11,12 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 9/30 after a required-lane reset on August 18 and remains operationally
-OPEN. Scheduled Sunday full-lattice run
+at 10/30 after a required-lane reset on August 18 and remains operationally
+OPEN. Matching-head August 28 x86/ARM runs
+[`33168831416`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168831416)
+and
+[`33184794811`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33184794811)
+are green at `5277c7fc`. Scheduled Sunday full-lattice run
 [`32617645741`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32617645741)
 is green at exact head `b54fda67`, and matching-head x86/ARM runs
 [`32919964767`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767)
@@ -35,13 +39,14 @@ performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **37
-implemented / 6 parsed-ignored / 8 refused** on `trunk` after PR #47. The
-current `s56.5-extension-type-name` branch repairs `__extension__` declaration
-and cast-expression disambiguation without changing that tier count and has
-published its provenance-matched target-complete torture evidence.
-Sprint 56's campaign machine, triage map, and 26,665-cell `trunk` PASS ratchet
-are complete; the current extension-type-name publication raises that ratchet
-to 26,695.
+implemented / 6 parsed-ignored / 8 refused** on `trunk` after PR #47. PR #48's
+extension-type-name repair is merged as `1d6da267`; it does not change that
+tier count. The current `s56.5-generic-qualified-associations` branch repairs
+top-level-qualified `_Generic` associations and has published its
+provenance-matched target-complete torture evidence.
+Sprint 56's campaign machine, triage map, and 26,695-cell `trunk` PASS ratchet
+are complete; the current generic-qualified-association publication raises
+that ratchet to 26,705.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1112,6 +1117,63 @@ and green post-publication CI.
   `fb0e6b81a39dc9e1e8efce814deee4e1bf30edf74f4fac2965fa5f85cbe3e142`
   and
   `040ce629a331fc2e34487da2c792d10518cc636b6822a00da4c46b03f2753a13`.
+- The current `s56.5-generic-qualified-associations` tranche preserves
+  top-level qualifiers while validating `_Generic` association compatibility,
+  so `int` and `const int` remain distinct association types. Targeted
+  conversion/sema tests and `ctestsuite/00219.c` pass at O0/O1/O2/O3/Os on
+  native x86-64, native ARM64, and the local Darwin ARM64 compiler. PR #49
+  pre-publication CI
+  [run 33188071491](https://github.com/tenseleyFlow/Cgfried/actions/runs/33188071491)
+  passed every ordinary lane, including macOS ARM64, native ARM, QEMU,
+  sanitizers, campaigns, and the 100k frontend fuzz lane; only the expected
+  five uncommitted x86-64 PASS cells failed. Exact-head native full-lattice
+  [run 33188196659](https://github.com/tenseleyFlow/Cgfried/actions/runs/33188196659)
+  likewise refused only the matching five ARM64 cells at `216b85ad`.
+  GitHub's PR checkout produced a synthetic-merge x86 stream, so the
+  publishable x86 stream was regenerated from the exact branch head on
+  Kasumi. Its SHA-256 is
+  `7a2340937a097c7e00797b8a57d1aa3e4d742186edea05ceda2d04630cf5fec6`;
+  the native ARM stream SHA-256 is
+  `fd5037dda9535681e6d13399cbcf91251865c503606ba0876712e660bb7e8fdf`.
+  Both name source revision `216b85adccf9e5fbc292629977cc57dd214a8574`
+  and share compiler-source SHA-256
+  `b98affe80005b19d25a48719d510283e8a60c751ffe10ff61f3f4c593e66fe8f`
+  plus identical harness and manifest hashes. `make torture-baseline`
+  regenerated the x86 stream byte-identically and atomically promoted exactly
+  the ten `00219.c` cells with zero PASS regression. It retired fingerprint
+  `501d37ef...`; Kasumi's GCC 16 build reaches Cgfried's explicit 256-level
+  bracket-nesting limit for `limits-exprparen.c` before the ARM-shaped harness
+  output guard, so exact fingerprint `e52eb570...` now records the same
+  deliberate translation-limit stress as `out-of-scope`. The result is 26,705
+  PASS cells, 7,325 classified failures, 60 buckets, 51 applied decisions,
+  zero stale/unresolved decisions, and 26 live `s56.5-*` repair rows. Reversing
+  the two streams regenerates both outputs byte-identically; the PASS and
+  triage SHA-256 values are respectively
+  `97f08637f9496d2b66050713cda5d48f0d10545e5176d0ebdbb2d8271f4fd329`
+  and
+  `3b13ec4287013fc059068850421ac9d2a22d636154a12b53034d3532dfe9e916`.
+- The August 28 machine transfer to Apple silicon does **not** require a native
+  support campaign. On Darwin ARM64, `make build/cgfried` produces a native
+  Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
+  signs, and runs. `make tools` builds both bundled Rust tools natively,
+  `tests/macos/run.sh` passes all 16 builds and eight programs with both system
+  and bundled linkers, and `scripts/macho_objdiff_lane.sh` reports all ten
+  objects byte-identical to Apple `as`. The only local developer-test gap is
+  the x86 simulator helper in `tests/unit/x64sim.h`: it assumes an x86-host
+  10-byte `long double`, while Darwin ARM64 uses eight bytes, so Apple Clang 21
+  rejects that helper's `memcpy` under `-Werror`. This is a unit-harness
+  portability issue, not a Cgfried Darwin codegen failure; targeted non-x86
+  sema/conversion tests pass with that warning demoted. Keep it as a separate
+  narrow harness-portability tranche rather than blocking compiler-gap work.
+  Independently, `tests/scripts/gates/torture_runner_test.sh` reproduces a
+  Darwin-only nondeterminism: repeated signal and XFAIL-signal fixtures retain
+  identical normalized text but receive different fingerprints. Production
+  x86/ARM Linux streams and their reversed-order publication are deterministic;
+  fix the volatile pre-normalization signal detail in the same narrow harness
+  tranche. The triage and matrix failure-injection fixtures also miss their
+  expected injected failure on Darwin (the staged atomic outputs themselves
+  remain byte-identical); include their host path/tool assumptions in that
+  harness tranche.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (816 unit tests /
   4,293,948 assertions, 731 program fixtures, and every
@@ -1140,9 +1202,10 @@ merged through PR #42 as `6ef24ca2`; range designators are merged through PR
 merged through PR #44 as `d52e44d1`; GNU macro pragma stacks are merged through
 PR #46 as `eba78f27`. The alignof extension tranche is implemented and its
 target-complete ratchet merged through PR #47 as `5277c7fc`. The
-extension-type-name tranche is implemented and its target-complete ratchet is
-published on PR #48. The remaining compiler debt is enumerated by the 27 live
-`s56.5-*` policy rows. Sprint
+extension-type-name tranche is implemented and merged through PR #48 as
+`1d6da267`. The generic-qualified-association tranche is implemented and its
+target-complete ratchet is published on PR #49. The remaining compiler debt is
+enumerated by the 26 live `s56.5-*` policy rows. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
