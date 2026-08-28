@@ -1358,18 +1358,20 @@ static AstNode *expr_generic(Sema *s, AstNode *e)
             continue;
         }
         /* No two associations may name compatible types — otherwise the
-         * selection would be ambiguous rather than merely unmatched. */
+         * selection would be ambiguous rather than merely unmatched.
+         * Association types do NOT undergo lvalue conversion: top-level
+         * qualifiers distinguish `int` from `const int` here.  Only the
+         * controlling expression was converted above. */
         for (j = 0; j < i; j++)
             if (e->items[j] && e->items[j]->sem_type && e->items[j]->type &&
                 e->items[j]->sem_type->kind != TY_ERROR &&
-                type_compatible(conv_strip_quals(s, e->items[j]->sem_type),
-                                conv_strip_quals(s, at))) {
+                type_compatible(e->items[j]->sem_type, at)) {
                 err(s, assoc->span,
                     "_Generic association for '%s' duplicates an earlier one",
                     type_to_str(s->arena, at));
                 break;
             }
-        if (!chosen && type_compatible(conv_strip_quals(s, at), ct))
+        if (!chosen && type_compatible(at, ct))
             chosen = assoc;
     }
 
