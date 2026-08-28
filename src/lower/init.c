@@ -109,11 +109,19 @@ u32 lower_func_name_object(Lower *lo, const AstNode *e)
  * (CE_FOLD never diagnoses), runtime elements append to the residue
  * list in SOURCE order. */
 
+typedef struct RtValue {
+    AstNode *key;
+    bool materialized;
+    IrOperand value;
+    struct RtValue *next;
+} RtValue;
+
 typedef struct RtStore {
     i64 off;
     Type *t;          /* scalar or aggregate element type */
     AstNode *e;       /* the expression to evaluate at runtime */
     const Member *bf; /* bitfield member, or NULL */
+    RtValue *value;
     bool active;
     struct RtStore *next;
 } RtStore;
@@ -139,6 +147,7 @@ typedef struct InitPlan {
     } relocs[32];
     u32 nrelocs;
     bool reloc_overflow;
+    RtValue *rt_values;
     PlanUnionSelection *unions;
     u32 nunions;
     u32 cap_unions;
@@ -147,11 +156,25 @@ typedef struct InitPlan {
 static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
 {
     RtStore *r = arena_alloc(p->lo->arena, sizeof(RtStore), _Alignof(RtStore));
+    AstNode *key = e && e->init_range_origin ? e->init_range_origin : e;
+    RtValue *value;
+
+    for (value = p->rt_values; value; value = value->next)
+        if (value->key == key)
+            break;
+    if (!value) {
+        value = arena_alloc(p->lo->arena, sizeof(*value), _Alignof(RtValue));
+        memset(value, 0, sizeof(*value));
+        value->key = key;
+        value->next = p->rt_values;
+        p->rt_values = value;
+    }
 
     r->off = off;
     r->t = t;
     r->e = e;
     r->bf = bf;
+    r->value = value;
     r->active = true;
     r->next = NULL;
     if (p->rt_tail)
@@ -469,8 +492,16 @@ static bool plan_cursor_designate(InitPlan *p, PlanCursor *cursor, Type *root,
 
             if (frame->aggregate->kind != TY_ARRAY || !designator->desig_index)
                 return false;
-            index =
-                constexpr_eval(p->lo->sema, designator->desig_index, CE_FOLD);
+            if (designator->desig_bounds_checked) {
+                if (!designator->desig_bounds_valid)
+                    return false;
+                index = (ConstValue){0};
+                index.kind = CV_INT;
+                index.i = (u64)designator->desig_index_value;
+            } else {
+                index = constexpr_eval(p->lo->sema, designator->desig_index,
+                                       CE_FOLD);
+            }
             if (index.kind != CV_INT || (i64)index.i < 0)
                 return false;
             pos = index.i;
@@ -853,14 +884,25 @@ static void emit_const_part(Lower *lo, InitPlan *p, IrOperand base, u32 align)
     }
 }
 
-/* One runtime element, after the constant part landed. */
+static IrOperand materialize_rt_value(Lower *lo, RtStore *r)
+{
+    if (!r->value->materialized) {
+        r->value->value = lower_rvalue(lo, r->e);
+        r->value->materialized = true;
+    }
+    return r->value->value;
+}
+
+/* One runtime element, after the constant part landed.  Expanded GNU range
+ * items share an RtValue, so a side-effecting initializer is evaluated once
+ * and its SSA value is reused for every surviving selected subobject. */
 static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
 {
     if (r->bf) {
         const Member *m = r->bf;
         u64 cbits = m->container_size * 8;
         u64 unit_byte = (m->bit_offset / cbits) * m->container_size;
-        IrOperand v = lower_rvalue(lo, r->e);
+        IrOperand v = materialize_rt_value(lo, r);
         Lvalue lv;
 
         v = lower_scalar_convert(lo, v, r->e->sem_type, (Type *)m->type);
@@ -895,7 +937,7 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         return;
     }
     if (lower_is_aggregate(r->t)) {
-        IrOperand src = lower_rvalue(lo, r->e);
+        IrOperand src = materialize_rt_value(lo, r);
         TypeLayout l = layout_of(lo->sema, r->t);
 
         lower_memcpy_aggregate(
@@ -904,7 +946,7 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         return;
     }
     {
-        IrOperand v = lower_rvalue(lo, r->e);
+        IrOperand v = materialize_rt_value(lo, r);
         TypeLayout l = layout_of(lo->sema, r->t);
         Lvalue lv;
 

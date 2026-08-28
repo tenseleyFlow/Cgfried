@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-26): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-27): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,14 +11,20 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 8/30 after a required-lane reset on August 18 and remains operationally
+at 9/30 after a required-lane reset on August 18 and remains operationally
 OPEN. Scheduled Sunday full-lattice run
 [`32617645741`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32617645741)
 is green at exact head `b54fda67`, and matching-head x86/ARM runs
 [`32919964767`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767)
 and
 [`32928733136`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32928733136)
-are green at `69113c47` on August 26. Supplemental full-lattice manual run
+are green at `69113c47` on August 26. Matching-head x86/ARM runs
+[`33056638768`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33056638768)
+and
+[`33080889159`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33080889159)
+are green at `6ef24ca2` on August 27; retained O0/O2 manifests record all four
+fixed points plus both ARM O2 ABI differentials as successful. Supplemental
+full-lattice manual run
 [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
 is green at exact head `8fb99082`; because it is a second August 22
 observation, it neither advances the distinct-date count nor replaces the
@@ -28,10 +34,8 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **31
-implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
-old-style-designator tranche raises the implementation branch to 32
-implemented.
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **32
+implemented / 6 parsed-ignored / 8 refused** on `trunk`.
 Sprint 56's campaign machine, triage map, and 26,595-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -101,7 +105,7 @@ at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
 cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
 closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
-Sprint 58 remains at 8/30; Sprint 60's
+Sprint 58 remains at 9/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
@@ -392,13 +396,13 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (8/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (9/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19–26 are days
-1–8 of the current streak; the ledger still needs 22 consecutive dates, so
+cancelled before bootstrap and retained no artifact. August 19–27 are days
+1–9 of the current streak; the ledger still needs 21 consecutive dates, so
 do not call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
@@ -493,7 +497,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 8/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 9/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -508,7 +512,8 @@ do not call the sprint closed until that operational obligation is complete.
   (`b54fda67`, run `32617645741`), and matching-head x86/ARM evidence on
   August 24 (`83f846e8`, runs `32686915858`/`32688703871`), August 25
   (`65cd4928`, runs `32798572708`/`32807232448`), and August 26
-  (`69113c47`, runs `32919964767`/`32928733136`) are current days 1–8.
+  (`69113c47`, runs `32919964767`/`32928733136`), and August 27
+  (`6ef24ca2`, runs `33056638768`/`33080889159`) are current days 1–9.
   Continue recording distinct UTC dates and every due weekly
   cross/reproducibility result; any missing or red required run breaks the
   streak. Supplemental manual run
@@ -524,7 +529,10 @@ do not call the sprint closed until that operational obligation is complete.
   and all 912 fixed-point payload comparisons per date. August 23's final
   cross artifact also verified 7/7 embedded provenance hashes, 226/226
   assembly-manifest hashes, and 228/228 paired final payloads with
-  `normalization=none`.
+  `normalization=none`. For August 27, all four retained run manifests were
+  inspected at exact head `6ef24ca2` and report successful x86-64/ARM64 O0/O2
+  outcomes; the separate full payload-rehash audit has not been repeated for
+  that date.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
 soak and therefore owns the next contiguous closure step.
@@ -595,9 +603,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 old-style-designator tranche is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-old-style-designators` on
-`s56.5-old-style-designators`.
+The current Sprint 56.5 range-designator tranche is isolated in
+`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-range-designators` on
+`s56.5-range-designators`.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -789,9 +797,9 @@ The current Sprint 56.5 old-style-designator tranche is isolated in
   and
   `ebee8ef52aae36f86cd1189e2fc2faa84aab37253b61cbcb0d7a79186340ed51`.
   PR #41 subsequently passed its post-promotion native rerun and bootstrap;
-  it merged as `4408a873`. The GNU tier table on `trunk` is now 31 implemented
+  it merged as `4408a873`. The GNU tier table on `trunk` was then 31 implemented
   / 6 parsed-ignored / 8 refused.
-- The current `s56.5-old-style-designators` tranche recognizes GNU's
+- The merged `s56.5-old-style-designators` tranche recognizes GNU's
   historical `field: value` initializer spelling only at the start of an
   initializer-list item and materializes the existing field-designator AST.
   Current-object traversal, override handling, static images, automatic
@@ -799,8 +807,8 @@ The current Sprint 56.5 old-style-designator tranche is isolated in
   standard `.field = value` path. `-pedantic` emits GCC's obsolete-designator
   warning, while `__extension__` suppresses it. Permanent fixtures cover
   static, automatic, nested, and compound-literal initializers plus the
-  warning and suppression boundary; the GNU tier table is 32 / 6 / 8 on the
-  branch. Adding those two deterministic fuzz inputs intentionally changes
+  warning and suppression boundary; the GNU tier table is 32 / 6 / 8 on
+  `trunk`. Adding those two deterministic fuzz inputs intentionally changes
   the 5,000-iteration sequence digest from `acde131a08f5ca93` to
   `389f09592ae84eb1`, reproduced twice before repinning.
   The original 70-cell parse bucket decomposes honestly after this repair:
@@ -835,9 +843,49 @@ The current Sprint 56.5 old-style-designator tranche is isolated in
   `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
   and
   `1fbf09c06953c8ab0e11fb49c9f70bf7c7eaa0919a710c2cd0e8be33b9fbd958`.
+- The active `s56.5-range-designators` tranche recognizes GNU's inclusive
+  `[first ... last]` spelling, folds each endpoint once as a nonnegative ICE,
+  completes unsized arrays from the highest selected endpoint, and expands
+  chained ranges as a Cartesian product through the existing current-object
+  machinery. Static images, relocations, automatic aggregates, compound
+  literals, later overrides, and both backends reuse the ordinary designator
+  paths. Runtime values are materialized once per original range initializer,
+  preserving GNU's side-effect-once rule even for aggregate leaves.
+  `-pedantic` warns while `__extension__` suppresses the warning. The tracked
+  GNU tier table is 33 implemented / 6 parsed-ignored / 8 refused on this
+  branch; `trunk` remains 32 / 6 / 8 until integration. Focused unit, runner,
+  x86-64 O2 execution, ARM64 O0/O2 assembly, and the 220-file parser
+  differential are green. Adding the two deterministic fuzz inputs changes
+  the 5,000-iteration sequence digest from `389f09592ae84eb1` to
+  `08590e5f9c6ebe35`, reproduced twice after formatting before repinning. The
+  full repository suite is also green: 810 unit tests / 4,293,858 assertions,
+  720 program fixtures, 104 corpus fixtures, and every differential, fuzz,
+  cross, policy, and formatting gate. Full sanitizer and strict-Clang runs are
+  green. Exact implementation-head PR CI
+  [run 33134253176](https://github.com/tenseleyFlow/Cgfried/actions/runs/33134253176)
+  passed every job, including the 100k-iteration fuzz lane and hosted x86
+  torture. Exact-head native full-lattice
+  [run 33135159935](https://github.com/tenseleyFlow/Cgfried/actions/runs/33135159935)
+  passed at `dc9af72d7fd307e984205d493740da4eb1cc7d55`; its ARM stream
+  SHA-256 is
+  `f66340ec1e8efd5ffbfa0c2030f5b51e121ae66accfe208ca778ae3d6342a0e7`.
+  The publishable same-head x86 stream was regenerated locally as
+  `9b7d6918bb7767470e6be76052896d4950963870a12b6c7dede5e5bd9ab9eb25`.
+  Both streams share compiler-source SHA-256
+  `df2640077d2cf19a6ed1a69ba4c888603f629777b7ab62ca3a345c961438bf31`
+  plus identical harness and manifest hashes. Atomic publication retired
+  range-designator fingerprint `33116fbd...` without changing the PASS
+  ratchet: the ten residual `ctestsuite/00216.c` cells now normalize under the
+  existing GNU empty-record refusal `b28fda1f...`. The resulting overlay is
+  57 applied / 0 stale / 0 unresolved and retains 7,435 classified failures.
+  Reversing the two inputs regenerates both outputs byte-identically; the PASS
+  and triage SHA-256 values are respectively
+  `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
+  and
+  `ba039f0eca2b3476027ee506e1e9c02943726bc02914e11480b69b5f08f8ce15`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,849 assertions, 719 program fixtures, and every
+  4,293,858 assertions, 720 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -857,7 +905,8 @@ The flexible-array-initializer tranche is implemented, published, and merged
 through PR #40. The nested-flexible-array-member tranche is implemented and its
 exact-head target-complete ratchet is merged through PR #41. The old-style
 designator tranche is implemented and its exact-head target-complete ratchet is
-published on PR #42. The remaining compiler debt is enumerated by the 34 live
+merged through PR #42 as `6ef24ca2`. The remaining compiler debt is enumerated
+by the 33 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 

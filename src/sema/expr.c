@@ -16,24 +16,6 @@
 
 static AstNode *expr(Sema *s, AstNode *e);
 
-static void expr_init_list(Sema *s, AstNode *list)
-{
-    u32 i;
-
-    if (!list || list->kind != AST_INIT_LIST)
-        return;
-    for (i = 0; i < list->nitems; i++) {
-        AstNode *item = list->items[i];
-
-        if (!item)
-            continue;
-        if (item->kind == AST_INIT_LIST)
-            expr_init_list(s, item);
-        else
-            list->items[i] = expr(s, item);
-    }
-}
-
 static AstNode *poison(Sema *s, AstNode *e)
 {
     if (e) {
@@ -1665,10 +1647,8 @@ static AstNode *expr(Sema *s, AstNode *e)
         /* Initializer expressions are part of the compound literal's
          * evaluation.  Type them before leaving the enclosing scope so
          * identifier reads count for the unused-* family. */
-        if (e->init && e->init->kind == AST_INIT_LIST)
-            expr_init_list(s, e->init);
-        else if (e->init)
-            e->init = expr(s, e->init);
+        if (e->init)
+            sema_type_initializer(s, t, &e->init);
         /* AN UNSIZED ARRAY LITERAL TAKES ITS BOUND FROM THE INITIALIZER, the
          * same 6.7.9p22 completion a declaration gets -- 6.5.2.5p4 says the
          * literal's type is the type-name's, and for an array of unknown size

@@ -1793,10 +1793,15 @@ static AstNode *parse_initializer(Parser *p)
             if (parse_eat_punct(p, PUNCT_LBRACKET)) {
                 d->desig_index = parse_cond_expr(p);
                 if (parse_at_punct(p, PUNCT_ELLIPSIS)) {
-                    parse_error(p, parse_peek(p),
-                                "GNU range designators are not supported");
+                    const Token *ellipsis = parse_peek(p);
+
                     p->pos++;
-                    (void)parse_cond_expr(p);
+                    d->desig_range_end = parse_cond_expr(p);
+                    if (!p->extension_depth)
+                        warn_at(p->lang->warnings, WARN_PEDANTIC,
+                                ellipsis->span,
+                                "ISO C forbids specifying range of elements "
+                                "to initialize");
                 }
                 parse_expect_punct(p, PUNCT_RBRACKET, "after designator");
             } else {

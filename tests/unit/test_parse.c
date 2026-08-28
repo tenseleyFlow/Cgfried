@@ -750,11 +750,13 @@ void test_parse_initializers(TestCtx *t)
         t, tu->decls[1]->init->items[0]->designators[0]->desig_field, "x");
     pfix_free(&f);
 
-    /* GNU range designators are deliberately refused. */
+    /* GNU ranges retain both endpoint expressions for sema. */
     tu = parse_src(&f, "int a[4] = { [1 ... 3] = 0 };\n", STD_C17);
-    T_ASSERT(t, f.errors >= 1);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, tu->decls[0]->init->items[0]->ndesignators, 1);
+    T_ASSERT(t, tu->decls[0]->init->items[0]->designators[0]->desig_range_end !=
+                    NULL);
     pfix_free(&f);
-    (void)tu;
 }
 
 void test_parse_spans_in_bounds(TestCtx *t)
