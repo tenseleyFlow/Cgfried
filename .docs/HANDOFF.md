@@ -34,12 +34,13 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **34
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **35
 implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
-`s56.5-gnu-pp-assertions` branch raises the implemented tier to 35 and
-publishes its provenance-matched target-complete torture evidence.
-Sprint 56's campaign machine, triage map, and 26,615-cell PASS ratchet are
-complete. Sprint 57's pinned compile-the-world campaigns, truthful
+`s56.5-pragma-macro-stack` branch raises the implemented tier to 36 while its
+provenance-matched target-complete torture evidence is collected.
+Sprint 56's campaign machine, triage map, and 26,615-cell `trunk` PASS ratchet
+are complete; the current pragma publication raises that ratchet to 26,635.
+Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
 machine, compiler repairs, numeric scale policy, and closure evidence are
@@ -980,12 +981,65 @@ and green post-publication CI.
   `60feb4bac9c8a388d39911a65b38dd28a9e4f2684008178ab6475b9d5ea9e028`
   and
   `98b9b11129eac39cfe6cbcf6f07aa49977e4e43f8020fb0beaed40ed91aadfb9`.
+  Post-publication CI
+  [run 33154192442](https://github.com/tenseleyFlow/Cgfried/actions/runs/33154192442)
+  passed all required jobs, including the 38m23s frontend-fuzz lane, and PR
+  #45 merged as `90d1b397`.
+- The current `s56.5-pragma-macro-stack` tranche implements GNU
+  `#pragma push_macro` / `#pragma pop_macro` and their `_Pragma` forms with
+  arena-owned definition snapshots, independent per-name LIFO stacks,
+  undefined-state restoration, and point-sensitive macro-history events.
+  Ordinary, `L`, `u`, `U`, and `u8` string-token operands follow GCC's raw
+  spelling behavior; unmatched pops are silent, valid prefixes with trailing
+  tokens apply then warn, and malformed operands hard-error. GNU tiers are 36
+  implemented / 6 parsed-ignored / 8 refused on this branch. Full `make test`
+  is green at 816 unit tests / 4,293,945 assertions, 728 program fixtures, and
+  104 permanent corpus fixtures. The deterministic frontend-fuzz digest moved
+  from `5b0f8176143e751e` to `4f3b5b345891f2a3`, was independently reproduced
+  twice before repinning, and passes under ASan+UBSan. Full `make test-san`, a
+  strict Clang build, and byte-identical 114-file `bootstrap-O0` and
+  `bootstrap-O2` runs are green.
+  Exact-head x86-64 torture at `2723597b` produces only ten new PASS cells:
+  `ctestsuite/00206.c` and `torture-execute/pushpop_macro.c`, each at
+  O0/O1/O2/O3/Os. Its stream SHA-256 is
+  `35a71bda1748dbb5912bf425514e931d69b5a14d7acbf0322b11dfb5fe3b18bc`;
+  compiler-source, harness, torture-manifest, and ctestsuite-manifest SHA-256
+  values are respectively
+  `d69b68eff22ed81ad0988d054feb31147571fba7e23653e2be38e2fe4dc42b19`,
+  `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`,
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The dedicated `00206.c` fingerprint is
+  `2082b1f4d8085345bd3ead486cdd5244655c0b103571ee5a780f92679bac374c`.
+  `pushpop_macro.c` was hidden inside the coarse runtime-SIGABRT fingerprint
+  `de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731`;
+  publication promotes its five cells but retains that policy row for the
+  unrelated abort families. Pre-publication PR #46 CI
+  [run 33157598323](https://github.com/tenseleyFlow/Cgfried/actions/runs/33157598323)
+  passed every non-torture job, including fuzz, sanitizers, QEMU, and both
+  compiler builds; hosted torture refused only the ten x86-64 cells above.
+  Exact-head native full-lattice
+  [run 33157603729](https://github.com/tenseleyFlow/Cgfried/actions/runs/33157603729)
+  passed all fourteen non-torture jobs and refused only the matching ten ARM64
+  cells. The ARM64 stream SHA-256 is
+  `e8e08b9df061fb2296c99c6c5f5dc4e81678fb902fd2fb310f7a50c14ed4f9fe`;
+  its common provenance matches the x86-64 stream exactly.
+  Atomic publication promotes exactly twenty target-level cells with zero
+  PASS regression, retires only fingerprint `2082b1f4...`, and preserves the
+  generic runtime-abort decision. The result is 26,635 PASS cells, 7,395
+  classified failures, 63 buckets, 54 applied decisions, zero stale/unresolved
+  decisions, and 30 live `s56.5-*` repair decisions. Reversing the two evidence
+  streams regenerates both outputs byte-identically; the PASS and triage
+  SHA-256 values are respectively
+  `161fbcc12e25be9ae2260f173ed1d44d898f4bc0fbea606a93a0fc20e0c08de1`
+  and
+  `9cfc7d3a01c1c31764c571ea41422c77b5d35ca140782f33f5f32a9f96882d46`.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (812 unit tests /
-  4,293,894 assertions, 724 program fixtures, and every
+  torture-import-meta torture-meta`, full `make test` (816 unit tests /
+  4,293,945 assertions, 728 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
-  bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
+  bootstraps reproduce 114 assembly files, 114 objects, the runtime archive,
   and the compiler byte-identically with no normalization. Expected local
   skips are only optional-tool/platform lanes and match their committed
   ledgers.
@@ -1005,7 +1059,7 @@ designator tranche is implemented and its exact-head target-complete ratchet is
 merged through PR #42 as `6ef24ca2`; range designators are merged through PR
 #43. GNU `#ident` is implemented and its exact-head target-complete ratchet is
 merged through PR #44 as `d52e44d1`. The remaining compiler debt is enumerated
-by the 31 live
+by the 30 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
