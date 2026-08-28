@@ -134,6 +134,32 @@ void test_sema_rejects_invalid_lowering_inputs(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_extern_void_symbol(TestCtx *t)
+{
+    SemaFix f;
+    const char *marker_name;
+    Symbol *marker;
+
+    run_sema(&f,
+             "extern void marker;\n"
+             "static unsigned long address = (unsigned long)&marker;\n",
+             STD_GNU17);
+    marker_name = intern_str(&f.in, intern_cstr(&f.in, "marker"));
+    marker = scope_lookup(f.sema.file_scope, marker_name, NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, marker != NULL);
+    T_ASSERT(t, marker && marker->type && marker->type->kind == TY_VOID);
+    T_ASSERT(t, marker && marker->linkage == LINK_EXTERNAL);
+    T_ASSERT(t, marker && !marker->defined && !marker->tentative);
+    sfix_free(&f);
+
+    /* The extension is declaration-only: an ordinary void object remains a
+     * constraint violation rather than becoming a zero-sized definition. */
+    run_sema(&f, "void marker;\n", STD_GNU17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+}
+
 /* --- the compatibility truth table --------------------------------------- */
 
 typedef struct {

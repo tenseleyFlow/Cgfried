@@ -587,9 +587,13 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
     if (l.kind == CV_ADDR || r.kind == CV_ADDR) {
         ConstValue addr = l.kind == CV_ADDR ? l : r;
         ConstValue off = l.kind == CV_ADDR ? r : l;
+        bool integer_reloc = addr.type && type_is_integer(addr.type);
         u64 scale = 1;
 
-        if (m != CE_ADDR && m != CE_FOLD) {
+        /* GNU pointer-to-integer static initializers retain the relocation
+         * through integer addends. Ordinary pointer arithmetic still needs
+         * CE_ADDR/CE_FOLD and therefore cannot leak into an ICE. */
+        if (m != CE_ADDR && m != CE_FOLD && !(m == CE_ARITH && integer_reloc)) {
             ce_error(s, m, e->span,
                      "an address is not an integer constant expression");
             return cv_error();
@@ -1185,10 +1189,17 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         return e->cond_omits_mid ? c : eval(s, e->mid, m);
     }
     case AST_EXPR_CAST: {
-        CeMode cast_mode = m == CE_ICE ? CE_ARITH : m;
         Type *from = e->lhs ? e->lhs->sem_type : NULL;
-        ConstValue o;
         Type *to = e->sem_type;
+        CeMode cast_mode = m == CE_ICE ? CE_ARITH : m;
+        ConstValue o;
+
+        /* A pointer-width integer initializer may carry a linker relocation.
+         * Evaluate the pointer operand in address mode so the cast below can
+         * retain that relocation; CE_ICE deliberately keeps rejecting it. */
+        if (m == CE_ARITH && from && from->kind == TY_PTR && to &&
+            type_is_integer(to))
+            cast_mode = CE_ADDR;
 
         if (e->implicit && from && from->kind == TY_ARRAY && to &&
             to->kind == TY_PTR) {

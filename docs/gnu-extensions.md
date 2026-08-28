@@ -87,6 +87,7 @@ predefine.
 | `#assert` / `#unassert` and `#predicate(answer)` | `tests/programs/gnu/pp_assertions.c` | legacy system headers and GCC torture sources that still use cpplib assertions |
 | `#pragma push_macro` / `pop_macro` | `tests/programs/gnu/pragma_macro_stack.c` | headers that temporarily replace a public macro and then restore the caller's definition |
 | `__alignof__` / `__alignof` expression and incomplete-type forms | `tests/programs/gnu/alignof_extensions.c` | GCC-compatible alignment queries used by allocators, stack-alignment checks, and historical system code |
+| non-defining `extern void` linker symbols | `tests/programs/gnu/extern_void_symbol.c` | linker-script boundary symbols whose address participates in a static integer relocation |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form
@@ -140,6 +141,12 @@ Cast-vs-expression and block-item lookahead therefore inspect beyond leading
 markers without consuming them: `__extension__ int x` is a declaration, while
 both `__extension__ (x + 1);` and `(__extension__ (x + 1))` are expressions.
 Forms such as `const __extension__ int x` remain rejected, matching GCC.
+
+GNU `extern void marker;` declares a linker-defined boundary symbol without
+defining a zero-sized object. Its address may be cast to a pointer-width
+integer in a static initializer and retains the symbol relocation plus any
+constant addend. Removing `extern`, adding an initializer, or otherwise
+turning the declaration into a definition remains a constraint error.
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
