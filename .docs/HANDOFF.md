@@ -45,7 +45,9 @@ tier count. PR #49's generic-qualified-association repair and target-complete
 ratchet are merged as `d8ccfc04`, raising the `trunk` PASS ratchet to 26,705.
 The current `s56.5-extern-void-symbols` branch adds non-defining GNU
 `extern void` linker symbols and raises its branch-local GNU tier table to
-38 implemented / 6 parsed-ignored / 8 refused.
+38 implemented / 6 parsed-ignored / 8 refused. Its exact-head target-complete
+publication raises the branch-local PASS ratchet to 26,715 and leaves 25 live
+`s56.5-*` repair rows.
 Sprint 56's campaign machine, triage map, and 26,705-cell `trunk` PASS ratchet
 are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -1170,8 +1172,33 @@ and green post-publication CI.
   commit `55a5b2a6` is patch-identical to the transferred implementation.
   Native Darwin validation builds the compiler, passes the focused sema unit
   and `extern_void_symbol.c` fixture, and compiles torture exemplar
-  `20011114-1.c` at O0/O1/O2/O3/Os as Mach-O arm64. The target-complete
-  x86/ARM ratchet has not yet been generated, so do not promote its cells yet.
+  `20011114-1.c` at O0/O1/O2/O3/Os as Mach-O arm64. PR #50 pre-publication CI
+  [run 33197652607](https://github.com/tenseleyFlow/Cgfried/actions/runs/33197652607)
+  passed every completed non-torture job, including macOS ARM64, native ARM,
+  QEMU, sanitizers, campaigns, and ordinary tests; hosted torture refused only
+  the expected five uncommitted x86-64 PASS cells while the long 100k frontend
+  fuzz job continued. Exact-head native full-lattice
+  [run 33197694401](https://github.com/tenseleyFlow/Cgfried/actions/runs/33197694401)
+  passed every non-ARM-torture job and refused only the matching five ARM64
+  cells at `4376c643`.
+  The publishable exact-head x86-64 and ARM64 streams have SHA-256 values
+  `76cad4d95ae5c26aacb31fe428afb4be4ef348470a2373663e0ec2d80ba1570e`
+  and
+  `89839c97b0b747910f30b2a322c44e5ef4a2f61a3be8f05144d3b3095d5c037d`.
+  Both name source revision `4376c6434f85bf4d769bfe50e0319583203a95ca`
+  and share compiler-source SHA-256
+  `e5e1a15fec23ff59131824835f38e77633a0f2cf842435211c0a552991fd7675`
+  plus identical harness and manifest hashes. A formal `make
+  torture-baseline` regenerated the exact x86 stream byte-identically and
+  atomically promoted exactly the ten `20011114-1.c` cells with zero PASS
+  regression. It retired fingerprint `356cb2e2...`; the result is 26,715 PASS
+  cells, 7,315 classified failures, 59 buckets, 50 applied decisions, zero
+  stale/unresolved decisions, and 25 live `s56.5-*` repair rows. Reversing the
+  two evidence streams regenerates both outputs byte-identically; the PASS and
+  triage SHA-256 values are respectively
+  `8ba6feb371b5291b134a36fdf88d6f527f3c3745e0fd182800f9d00aeb594d03`
+  and
+  `d7257d510dfa591bc62a5e9c0b5cd2049d6278297a325406e900e688d3e5f261`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -1225,8 +1252,9 @@ target-complete ratchet merged through PR #47 as `5277c7fc`. The
 extension-type-name tranche is implemented and merged through PR #48 as
 `1d6da267`. The generic-qualified-association tranche is implemented,
 target-complete, and merged through PR #49 as `d8ccfc04`. The extern-void
-tranche is the current isolated compiler branch. The remaining compiler debt is
-enumerated by the 26 live `s56.5-*` policy rows. Sprint
+tranche is implemented and its target-complete ratchet is published on the
+current isolated PR #50 branch. The remaining compiler debt is enumerated by
+the 25 live `s56.5-*` policy rows. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
