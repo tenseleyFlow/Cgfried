@@ -604,9 +604,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
 The latest integrated Sprint 56.5 range-designator tranche landed through PR
-#43 at merge commit `6c1cd12b`. The current GNU `#ident` tranche is published
-on PR #44 at exact implementation head `e05e23c0`; its post-publication CI and
-merge are the only remaining operational steps.
+#43 at merge commit `6c1cd12b`. The GNU `#ident` tranche is integrated through
+PR #44 at merge commit `d52e44d1` after exact-head target-complete publication
+and green post-publication CI.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -921,6 +921,16 @@ merge are the only remaining operational steps.
   `e878f6e83bc5cfafb9e4e9d053c7e41b7946676f6e87a0f88e4345712b5973bb`
   and
   `5de49e9e6e873238e50717c0494be87ebba785e4f576b6ba561e717f6dd6d3e9`.
+  Post-publication CI
+  [run 33146881168](https://github.com/tenseleyFlow/Cgfried/actions/runs/33146881168)
+  passed all 21 jobs at `58b4a385`, including hosted x86 torture, sanitizers,
+  QEMU, and the 100k frontend fuzz lane. Exact-head native full-lattice
+  [run 33146886319](https://github.com/tenseleyFlow/Cgfried/actions/runs/33146886319)
+  passed the ARM64 ratchet, and bootstrap runs
+  [33146878030](https://github.com/tenseleyFlow/Cgfried/actions/runs/33146878030)
+  and
+  [33146881396](https://github.com/tenseleyFlow/Cgfried/actions/runs/33146881396)
+  passed O0/O2. PR #44 merged as `d52e44d1`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (812 unit tests /
   4,293,894 assertions, 724 program fixtures, and every
@@ -945,7 +955,8 @@ exact-head target-complete ratchet is merged through PR #41. The old-style
 designator tranche is implemented and its exact-head target-complete ratchet is
 merged through PR #42 as `6ef24ca2`; range designators are merged through PR
 #43. GNU `#ident` is implemented and its exact-head target-complete ratchet is
-published on PR #44. The remaining compiler debt is enumerated by the 32 live
+merged through PR #44 as `d52e44d1`. The remaining compiler debt is enumerated
+by the 32 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
