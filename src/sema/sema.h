@@ -361,6 +361,11 @@ typedef struct Sema {
      * forbids it defining modifiable static objects or referencing
      * internal linkage — gcc warns; observed and matched. */
     bool cur_inline_candidate;
+    /* >0 while typing an initializer for an object with static storage.
+     * GNU permits a compatible array compound literal to initialize an
+     * array only in this constant-image context; automatic array copies
+     * remain rejected like GCC's "non-constant array expression" case. */
+    u32 static_init_depth;
     /* The synthesized __builtin_va_list type (Sprint 19): array[1] of
      * the SysV record — built on first use, one per TU. */
     Type *va_list_type;
@@ -422,6 +427,10 @@ bool sema_require_switch_integer(Sema *s, const AstNode *e);
  * have the same width, and `char`/`signed char`/`unsigned char` are three
  * distinct types (6.2.5p15) even where char is signed. */
 bool type_compatible(const Type *a, const Type *b);
+/* GNU whole-array initialization copies values rather than binding one array
+ * object to another, so qualifiers on each array element layer do not affect
+ * compatibility. Bounds still must agree when both are present. */
+bool type_array_initializer_compatible(const Type *target, const Type *source);
 /* 6.2.7p3. `int a[]` + `int a[10]` -> `int[10]`; `int f()` + a prototype
  * -> the prototype. Requires the two to be compatible. */
 Type *type_composite(Arena *ar, Type *a, Type *b);

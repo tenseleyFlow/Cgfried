@@ -357,6 +357,7 @@ static AstNode *finish_compound_literal(Parser *p, AstType *ty, Span sp)
      * with no keyword to consult: static at file scope, automatic at block
      * scope. Only the parser still knows. */
     n->is_static_storage = p->scope_depth == 0;
+    n->suppress_pedantic = p->extension_depth != 0;
     n->init = parse_braced_initializer(p);
     return n;
 }
