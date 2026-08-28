@@ -1008,6 +1008,61 @@ static u32 pragma_seq(Preprocessor *pp, SrcLoc anchor)
     return pp_span(pp, anchor, 1).seq;
 }
 
+/* GCC treats the pragma operand as the raw contents of one string token:
+ * encoding prefixes are ignored, but escapes are not decoded. Thus "\\x58"
+ * names a distinct (normally nonexistent) macro rather than X. */
+static const char *pragma_macro_name(Preprocessor *pp, const PpToken *tok)
+{
+    const char *s;
+    size_t quote = 0;
+
+    if (tok->kind != PPTOK_STRLIT)
+        return NULL;
+    s = tok->spelling;
+    if (tok->len >= 2 && s[0] == '"') {
+        quote = 0;
+    } else if (tok->len >= 3 && (s[0] == 'L' || s[0] == 'u' || s[0] == 'U') &&
+               s[1] == '"') {
+        quote = 1;
+    } else if (tok->len >= 4 && s[0] == 'u' && s[1] == '8' && s[2] == '"') {
+        quote = 2;
+    } else {
+        return NULL;
+    }
+    if (tok->len < quote + 2 || s[tok->len - 1] != '"')
+        return NULL;
+    return intern_str(pp->interner, intern(pp->interner, s + quote + 1,
+                                           tok->len - (u32)quote - 2));
+}
+
+static void pragma_macro_stack(Preprocessor *pp, PpToken *toks, u32 n,
+                               SrcLoc anchor)
+{
+    const char *action = toks[0].spelling;
+    const char *name = NULL;
+    bool shape_ok = n >= 4 && toks[1].kind == PPTOK_PUNCT &&
+                    toks[1].punct == PUNCT_LPAREN &&
+                    toks[3].kind == PPTOK_PUNCT &&
+                    toks[3].punct == PUNCT_RPAREN;
+
+    if (shape_ok)
+        name = pragma_macro_name(pp, &toks[2]);
+    if (!shape_ok || !name) {
+        pp_diag_at(pp, DIAG_ERROR, toks[0].loc, toks[0].len,
+                   "invalid '#pragma %s' directive", action);
+        return;
+    }
+
+    if (strcmp(action, "push_macro") == 0)
+        pp_macro_stack_push(pp, name);
+    else
+        (void)pp_macro_stack_pop(pp, name, anchor);
+
+    if (n > 4)
+        pp_warn_at(pp, WARN_PRAGMAS, toks[4].loc, toks[4].len,
+                   "extra tokens at end of '#pragma %s' directive", action);
+}
+
 static void pragma_system_header(Preprocessor *pp, SrcLoc anchor)
 {
     FileId f = 0;
@@ -1102,6 +1157,12 @@ static void pragma_diagnostic(Preprocessor *pp, PpToken *toks, u32 n,
 static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n,
                              SrcLoc anchor)
 {
+    if (n >= 1 && toks[0].kind == PPTOK_IDENT &&
+        (strcmp(toks[0].spelling, "push_macro") == 0 ||
+         strcmp(toks[0].spelling, "pop_macro") == 0)) {
+        pragma_macro_stack(pp, toks, n, anchor);
+        return false;
+    }
     if (n >= 1 && toks[0].kind == PPTOK_IDENT &&
         strcmp(toks[0].spelling, "once") == 0) {
         /* Record the CURRENT file's identity; later includes of the same
