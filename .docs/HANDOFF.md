@@ -36,9 +36,9 @@ reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **34
 implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
-`s56.5-gnu-pp-assertions` branch raises the implemented tier to 35 without yet
-changing the target-complete torture ratchet.
-Sprint 56's campaign machine, triage map, and 26,605-cell PASS ratchet are
+`s56.5-gnu-pp-assertions` branch raises the implemented tier to 35 and
+publishes its provenance-matched target-complete torture evidence.
+Sprint 56's campaign machine, triage map, and 26,615-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -951,11 +951,35 @@ and green post-publication CI.
   114 assembly files, 114 objects, the runtime archive, and the compiler byte-
   identically with no normalization.
   The exact fingerprint is
-  `91d2215b56a7eef42a5038abc931eace3e3f0478ed15892b898474014e9ab6d1`:
-  its ten x86-64/ARM64 target-level cells remain deliberately unpromoted until
-  exact implementation-head hosted x86 and native ARM64 evidence is collected
-  and provenance-matched. The policy overlay therefore still has 32 live
-  `s56.5-*` decisions and `tests/torture/passing.txt` remains at 26,605 cells.
+  `91d2215b56a7eef42a5038abc931eace3e3f0478ed15892b898474014e9ab6d1`.
+  Pre-publication PR CI
+  [run 33152515629](https://github.com/tenseleyFlow/Cgfried/actions/runs/33152515629)
+  passed every completed non-torture job at implementation head `dcf58165`;
+  hosted torture refused only the five newly passing x86-64 cells. Exact-head
+  native full-lattice
+  [run 33152534012](https://github.com/tenseleyFlow/Cgfried/actions/runs/33152534012)
+  passed all fourteen non-torture jobs and refused only the matching five
+  ARM64 cells. The publishable x86-64 and ARM64 streams have SHA-256 values
+  `e9c57d187452752b4b847539942e9055c43f676994b4588e248437e2ffa3b5fa`
+  and
+  `c0f34a451447c1127d69b6bc7b0db6f35121479f9170f6b559cde5fa0a93f10c`.
+  They share source revision `dcf58165`, compiler-source SHA-256
+  `3b45a7f0698486cda6384e6487b2251f75540194594b75966fe4591364b290be`,
+  harness SHA-256
+  `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Atomic publication promotes exactly the ten `950919-1.c` target-level cells
+  with zero PASS regression and retires the assertion fingerprint. The result
+  is 26,615 PASS cells, 7,415 classified failures, 64 buckets, 55 applied
+  decisions, zero stale/unresolved decisions, and 31 live `s56.5-*` repair
+  decisions. Reversing the two evidence streams regenerates both outputs
+  byte-identically; the PASS and triage SHA-256 values are respectively
+  `60feb4bac9c8a388d39911a65b38dd28a9e4f2684008178ab6475b9d5ea9e028`
+  and
+  `98b9b11129eac39cfe6cbcf6f07aa49977e4e43f8020fb0beaed40ed91aadfb9`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (812 unit tests /
   4,293,894 assertions, 724 program fixtures, and every
