@@ -133,6 +133,14 @@ their result type's natural alignment. GNU's `void` and function-type queries
 return the target extension alignment of one; `-pedantic` retains GCC's
 diagnostic boundary without rejecting the translation unit.
 
+GNU `__extension__` prefixes a whole declaration or cast-expression; it is
+not a type specifier that may float inside declaration soup. Leading markers
+may repeat and suppress pedantic diagnostics across the complete operand.
+Cast-vs-expression and block-item lookahead therefore inspect beyond leading
+markers without consuming them: `__extension__ int x` is a declaration, while
+both `__extension__ (x + 1);` and `(__extension__ (x + 1))` are expressions.
+Forms such as `const __extension__ int x` remain rejected, matching GCC.
+
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
 symbol, on x86_64 AND arm64, and `weak`'s fixture links a strong definition

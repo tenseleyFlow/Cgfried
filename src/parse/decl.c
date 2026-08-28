@@ -531,6 +531,20 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
     u32 outer_extension_depth = p->extension_depth;
 
     memset(s, 0, sizeof(*s));
+
+    /* GNU `__extension__` prefixes a DECLARATION; it is not a declaration
+     * specifier that may float through the soup. GCC accepts
+     * `__extension__ const int x` (and repeated leading markers), but rejects
+     * `const __extension__ int x`. Consuming it once, before the ordinary
+     * specifier loop, preserves that boundary and scopes pedwarn suppression
+     * over the complete declaration. Expression-position markers are kept
+     * out by parse_at_decl_specs(), which requires a real specifier after the
+     * leading markers. */
+    while (parse_at_kw(p, KW_EXTENSION)) {
+        p->extension_depth++;
+        p->pos++;
+    }
+
     for (;;) {
         const Token *t = parse_peek(p);
 
@@ -798,13 +812,6 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 s->saw_any = true;
                 continue;
             }
-            case KW_EXTENSION:
-                /* Declaration-position `__extension__` scopes over the
-                 * remaining soup, including nested typeof/_Alignas operands.
-                 * `done` restores the caller's expression-level depth. */
-                p->extension_depth++;
-                p->pos++;
-                continue;
             default:
                 goto done;
             }
@@ -888,7 +895,19 @@ bool parse_is_known_builtin(const char *name)
 
 bool parse_at_decl_specs(Parser *p)
 {
+    u32 lookahead = 0;
     const Token *t = parse_peek(p);
+
+    /* At block scope the marker can begin either a declaration or an
+     * expression. Look through every leading marker, but call it a
+     * declaration only when an actual declaration specifier follows.
+     * This keeps `__extension__ int x` on the declaration path and
+     * `__extension__ (x + 1)` on the expression path without consuming
+     * parser state during the probe. */
+    while (t->kind == TOK_KEYWORD && t->kw == KW_EXTENSION) {
+        lookahead++;
+        t = parse_peek_n(p, lookahead);
+    }
 
     if (t->kind == TOK_IDENT) {
         /* The builtins we IMPLEMENT are expressions, not types, so a
@@ -962,7 +981,6 @@ bool parse_at_decl_specs(Parser *p)
     case KW_ALT_BUILTIN_VA_LIST:
     case KW_ATTRIBUTE:
     case KW_ATTRIBUTE2:
-    case KW_EXTENSION:
     case KW_STATIC_ASSERT:
     case KW_ALIGNAS:
         return true;
@@ -1894,6 +1912,14 @@ AstNode *parse_braced_initializer(Parser *p)
  * is a typedef. */
 bool parse_at_type_name(Parser *p)
 {
+    const Token *t = parse_peek(p);
+
+    /* GNU `__extension__` prefixes expressions and declarations, never a
+     * type-name. Treating the marker itself as declaration soup misroutes
+     * `(__extension__ expr)` into the cast path before the real operand is
+     * visible. */
+    if (t->kind == TOK_KEYWORD && t->kw == KW_EXTENSION)
+        return false;
     return parse_at_decl_specs(p);
 }
 

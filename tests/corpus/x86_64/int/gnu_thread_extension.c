@@ -1,7 +1,7 @@
 // ENV: CGF_AS=0
 // OPT_EQ: all
 // EXIT_CODE: 0
-// CHECK: 7 42 8 1
+// CHECK: 7 42 11 1
 /* `__thread` and `__extension__`, executed. gcc-verified.
  *
  * `__thread` IS AN ALIAS, and the alias-ness is what this proves: it
@@ -19,8 +19,10 @@
  *
  * `__extension__` is SWALLOWED. Its only job is suppressing the pedwarns
  * its operand would provoke, and a construct that pedwarns is one we accept
- * or reject on its own merits. Both positions appear: the EXPRESSION one
- * (new) and the DECLARATION one (working since Sprint 9).
+ * or reject on its own merits. Both declaration and expression positions
+ * appear. The expression cases also pin both ambiguity boundaries: a block
+ * item beginning directly with the marker is not a declaration, and a `(`
+ * followed by the marker is not the start of a cast type-name.
  *
  * In tests/corpus rather than tests/programs on purpose -- tests/corpus is
  * outside FE_FUZZ_CORPUS, so an executable fixture here costs no digest
@@ -36,6 +38,10 @@ extern int printf(const char *, ...);
 
 __thread int slot = 7;
 
+struct box {
+    int value;
+};
+
 __extension__ static int read_slot(void)
 {
     return slot;
@@ -49,6 +55,9 @@ int main(void)
 
     slot = 42;
     e = __extension__(first + 1);
+    (__extension__(e += 1));
+    __extension__(e += 1);
+    e += (__extension__ ((struct box){1}).value);
     printf("%d %d %d %lld\n", first, slot, e, wide);
     return 0;
 }
