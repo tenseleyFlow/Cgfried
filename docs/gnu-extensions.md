@@ -86,6 +86,7 @@ predefine.
 | `#ident` / `#sccs` | `tests/programs/gnu/ident_directive.c` | source and generated version strings retained in ELF object metadata |
 | `#assert` / `#unassert` and `#predicate(answer)` | `tests/programs/gnu/pp_assertions.c` | legacy system headers and GCC torture sources that still use cpplib assertions |
 | `#pragma push_macro` / `pop_macro` | `tests/programs/gnu/pragma_macro_stack.c` | headers that temporarily replace a public macro and then restore the caller's definition |
+| `__alignof__` / `__alignof` expression and incomplete-type forms | `tests/programs/gnu/alignof_extensions.c` | GCC-compatible alignment queries used by allocators, stack-alignment checks, and historical system code |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form
@@ -124,6 +125,13 @@ operand are raw preprocessing tokens: a macro named `push_macro` cannot change
 the operation, and a macro that expands to a string is not accepted as the
 operand. Encoding prefixes are ignored while escapes remain undecoded,
 matching GCC's token-level name rule.
+
+GNU `__alignof__` accepts either a type name or an unevaluated unary
+expression. Expression queries preserve alignment attached to a declaration
+or member, including through parentheses, while value-producing operators use
+their result type's natural alignment. GNU's `void` and function-type queries
+return the target extension alignment of one; `-pedantic` retains GCC's
+diagnostic boundary without rejecting the translation unit.
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every

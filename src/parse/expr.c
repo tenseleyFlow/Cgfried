@@ -541,26 +541,39 @@ static AstNode *parse_alignof(Parser *p)
 {
     const Token *kw = parse_peek(p);
     AstNode *n;
+    bool gnu_form;
+    u32 save;
 
+    gnu_form = kw->kw == KW_ALT_ALIGNOF || kw->kw == KW_ALT_ALIGNOF2;
     p->pos++;
     n = expr_new(p, AST_EXPR_ALIGNOF, kw->span);
+    n->tok = kw;
     n->unevaluated = true;
-    if (!parse_at_punct(p, PUNCT_LPAREN)) {
-        /* `_Alignof expr` is a GNU extension; ISO takes only a type-name. */
+
+    save = p->pos;
+    if (parse_at_punct(p, PUNCT_LPAREN)) {
+        p->pos++;
+        if (parse_at_type_name(p)) {
+            n->type = parse_type_name(p);
+            parse_expect_punct(p, PUNCT_RPAREN, "after the type name");
+            return n;
+        }
+        p->pos = save;
+    }
+
+    if (!gnu_form) {
         parse_error(p, parse_peek(p),
-                    "'_Alignof' requires a parenthesized type name (the "
-                    "GNU expression form is not supported)");
+                    "'_Alignof' requires a parenthesized type name");
         return n;
     }
-    p->pos++;
-    if (!parse_at_type_name(p)) {
-        parse_error(p, parse_peek(p),
-                    "'_Alignof' requires a type name (the GNU expression "
-                    "form is not supported)");
-        return n;
-    }
-    n->type = parse_type_name(p);
-    parse_expect_punct(p, PUNCT_RPAREN, "after the type name");
+
+    /* GNU's __alignof__ follows sizeof's unary-expression grammar, including
+     * the parenthesized expression form. The operand is typed, but never
+     * evaluated; declaration/member alignment can therefore be recovered by
+     * sema without lowering its side effects. */
+    p->unevaluated++;
+    n->lhs = parse_unary_expr(p);
+    p->unevaluated--;
     return n;
 }
 

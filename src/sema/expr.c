@@ -108,6 +108,12 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     }
     e->sym = sym;
     e->sem_type = sym->type;
+    if (sym->align_override) {
+        u64 natural = layout_of(s, sym->type).align;
+
+        e->sem_lvalue_align =
+            sym->align_override > natural ? sym->align_override : natural;
+    }
     sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
                          sym->gnu.deprecated_msg, e->span);
     if (sym->kind == SYM_VAR ||
@@ -897,6 +903,14 @@ static AstNode *expr_member(Sema *s, AstNode *e)
         through_may_alias ? type_may_alias(s->arena, m->type) : m->type;
     e->sem_type = ot->quals ? type_qualify(s->arena, member_type, ot->quals)
                             : member_type;
+    {
+        u64 member_align = m->packed ? 1 : layout_of(s, m->type).align;
+
+        if (m->align_override > member_align)
+            member_align = m->align_override;
+        e->sem_lvalue_align = member_align;
+    }
+    e->sem_is_bitfield = m->is_bitfield;
     /* `f().m` is not an lvalue even though it has struct type — the
      * lvalue bit has to come from the object, not from the member. */
     e->is_lvalue = e->is_arrow ? true : obj->is_lvalue;
@@ -1245,6 +1259,11 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
         Type *operand = e->type ? sema_type_from_ast(s, e->type, e->span)
                                 : (e->lhs ? e->lhs->sem_type : NULL);
 
+        if (e->kind == AST_EXPR_ALIGNOF && e->lhs && e->lhs->sem_is_bitfield) {
+            err(s, e->span, "'__alignof__' applied to a bit-field");
+            return poison(s, e);
+        }
+
         /* A VLA operand is COMPLETE — its size just is not a constant.
          * sizeof evaluates it at runtime, and 6.5.3.4p2 makes the operand
          * itself EVALUATED (sizeof(int[f()]) calls f), so the unevaluated
@@ -1265,6 +1284,21 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
             warn_pedwarn_at(s->lang->warnings, WARN_POINTER_ARITH, e->span,
                             "invalid application of 'sizeof' to type '%s'",
                             type_to_str(s->arena, operand));
+            e->sem_type = type_basic(TY_ULONG);
+            e->is_lvalue = false;
+            return e;
+        }
+        if (e->kind == AST_EXPR_ALIGNOF && operand &&
+            (operand->kind == TY_VOID || operand->kind == TY_FUNC)) {
+            if (operand->kind == TY_VOID)
+                warn_pedwarn_at(
+                    s->lang->warnings, WARN_POINTER_ARITH, e->span,
+                    "invalid application of '__alignof__' to a void type");
+            else
+                warn_pedwarn_at(
+                    s->lang->warnings, WARN_PEDANTIC, e->span,
+                    "ISO C does not permit '_Alignof' applied to a function "
+                    "type");
             e->sem_type = type_basic(TY_ULONG);
             e->is_lvalue = false;
             return e;
@@ -1427,6 +1461,8 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->lhs = expr(s, e->lhs);
         e->sem_type = e->lhs->sem_type;
         e->is_lvalue = e->lhs->is_lvalue;
+        e->sem_lvalue_align = e->lhs->sem_lvalue_align;
+        e->sem_is_bitfield = e->lhs->sem_is_bitfield;
         e->poisoned = e->poisoned || e->lhs->poisoned;
         return e;
     case AST_EXPR_UNARY:

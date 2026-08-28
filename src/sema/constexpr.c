@@ -1279,6 +1279,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         if (!t || (!layout_is_complete_for_size(t) &&
                    !type_is_runtime_sized_array(t) &&
                    !(e->kind == AST_EXPR_SIZEOF &&
+                     (t->kind == TY_VOID || t->kind == TY_FUNC)) &&
+                   !(e->kind == AST_EXPR_ALIGNOF &&
                      (t->kind == TY_VOID || t->kind == TY_FUNC)))) {
             ce_error(s, m, e->span,
                      "invalid application of '%s' to an incomplete type",
@@ -1293,9 +1295,15 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                      "constant");
             return cv_error();
         }
-        return cv_int(s, e->sem_type,
-                      e->kind == AST_EXPR_SIZEOF ? layout_of(s, t).size
-                                                 : layout_of(s, t).align);
+        if (e->kind == AST_EXPR_SIZEOF)
+            return cv_int(s, e->sem_type, layout_of(s, t).size);
+        else {
+            u64 align = layout_of(s, t).align;
+
+            if (e->lhs && e->lhs->sem_lvalue_align)
+                align = e->lhs->sem_lvalue_align;
+            return cv_int(s, e->sem_type, align);
+        }
     }
     case AST_EXPR_OFFSETOF: {
         u64 off = 0;

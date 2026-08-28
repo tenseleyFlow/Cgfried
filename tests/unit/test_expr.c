@@ -234,6 +234,9 @@ void test_expr_cast_vs_call(TestCtx *t)
     expr_is(t, "sizeof *p", "(sizeof (* p))");
     expr_is(t, "sizeof -1", "(sizeof (- 1))");
     expr_is(t, "_Alignof(T)", "(alignof<T>)");
+    expr_is(t, "__alignof__(T)", "(alignof<T>)");
+    expr_is(t, "__alignof__(a)", "(alignof a)");
+    expr_is(t, "__alignof__ a", "(alignof a)");
 }
 
 void test_expr_compound_literals(TestCtx *t)
@@ -365,8 +368,9 @@ void test_expr_deferrals_and_errors(TestCtx *t)
      * allowed only inside a function"). The accepting cases are pinned by
      * tests/corpus/x86_64/int/stmt_expr.c, which EXECUTES them. */
     expr_bad(t, "int g = ({ 1; });\n");
-    expr_bad(t, "int f(int a) { return _Alignof a; }\n"); /* GNU alignof */
-    expr_bad(t, "void f(void *p) { goto *p; }\n");        /* computed goto */
+    /* Only the __-spelled GNU operators accept an expression operand. */
+    expr_bad(t, "int f(int a) { return _Alignof a; }\n");
+    expr_bad(t, "void f(void *p) { goto *p; }\n"); /* computed goto */
     /* `&&lab` — the address-of-label operator. `&&` is a single token, so
      * it reaches primary rather than the unary path, and without an
      * explicit case it reports only "expected an expression". */
