@@ -844,12 +844,22 @@ typedef struct IrModule {
     const char **file_asms;
     u32 nfile_asms;
     u32 cap_file_asms;
+    /* GNU #ident byte strings. Dedicated metadata keeps compiler-generated
+     * object comments out of user inline asm and preserves embedded NULs. */
+    struct IrIdent *idents;
+    u32 nidents;
+    u32 cap_idents;
     u32 naliases;
     u32 cap_aliases;
     IrInlinePinnedGroup *inline_pinned_groups;
     u32 ninline_pinned_groups;
     u32 cap_inline_pinned_groups;
 } IrModule;
+
+typedef struct IrIdent {
+    const u8 *bytes;
+    u32 len;
+} IrIdent;
 
 /* --- construction (src/ir/ir.c, src/ir/build.c) -------------------------- */
 
@@ -871,6 +881,7 @@ bool ir_name_is_returns_twice(const char *name);
 IrGlobal *ir_global_new(IrModule *m, const char *name);
 u32 ir_asm_new(IrModule *m, const IrAsm *a); /* returns the 1-based index */
 void ir_module_add_file_asm(IrModule *m, const char *text);
+void ir_module_add_ident(IrModule *m, const u8 *bytes, u32 len);
 IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target);
 IrAlias *ir_alias_find(IrModule *m, const char *name);
 IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,

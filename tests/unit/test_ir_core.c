@@ -472,6 +472,42 @@ static void roundtrip(TestCtx *t, IrFix *f, IrModule *m)
     buf_free(&b2);
 }
 
+void test_ir_ident_metadata_roundtrip_and_clone(TestCtx *t)
+{
+    static const u8 payload[] = {'a', 0, 'b', 0xff};
+    IrFix f;
+    Arena clones;
+    IrModule *m;
+    IrModule *copy;
+    Buf text;
+
+    fix_init(&f);
+    arena_init(&clones);
+    m = ir_module_new(&f.arena, f.dc);
+    ir_module_add_ident(m, payload, CGF_ARRAY_LEN(payload));
+    ir_module_add_ident(m, payload, 0);
+
+    buf_init(&text);
+    ir_print_module_buf(&text, m);
+    buf_push_u8(&text, 0);
+    T_ASSERT_EQ_STR(t, (const char *)text.data,
+                    "ident \"a\\x00b\\xff\"\nident \"\"\n");
+    buf_free(&text);
+    roundtrip(t, &f, m);
+
+    copy = ir_module_clone(&clones, m);
+    T_ASSERT(t, copy && ir_module_struct_eq(m, copy));
+    if (copy) {
+        T_ASSERT_EQ_INT(t, copy->nidents, 2);
+        T_ASSERT(t, copy->idents[0].bytes != m->idents[0].bytes);
+        T_ASSERT(t, copy->idents[0].len == CGF_ARRAY_LEN(payload) &&
+                        memcmp(copy->idents[0].bytes, payload,
+                               CGF_ARRAY_LEN(payload)) == 0);
+    }
+    arena_free_all(&clones);
+    fix_free(&f);
+}
+
 void test_ir_roundtrip_builder_loop(TestCtx *t)
 {
     IrFix f;

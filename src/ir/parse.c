@@ -34,11 +34,10 @@ typedef enum TokKind {
     T_XAIDENT, /* @!name: exact assembler spelling */
     T_INT,     /* [+-]?digits, value in ival as i64 bits */
     T_HEX,     /* 0x..., value in ival */
-    /* "..." — a quoted byte string. A section name is the only user today,
-     * and it needs one: `.note.GNU-stack` does not lex as an identifier here
-     * (no leading '.', no '-'), and a section name is an arbitrary string
-     * rather than a name in any of this format's namespaces. Only \" and \\
-     * are escapes, the same two ISO gives _Pragma's destringize. */
+    /* "..." — a quoted byte string. Section names and asm text need quoting;
+     * module `ident` records additionally need embedded-NUL fidelity. The
+     * lexer decodes the printer's \n, \t, \" and \\ forms plus fixed-width
+     * \xHH bytes. */
     T_STR,
     T_LP,
     T_RP,
@@ -220,12 +219,25 @@ static bool lex_all(P *p, const char *src)
             col++;
             dst = arena_alloc(p->arena, strlen(c) + 1, 1);
             while (*c && *c != '"') {
-                /* The four escapes print_quoted emits. `\n` and `\t` are
+                /* The escapes print_quoted_bytes emits. `\n` and `\t` are
                  * DECODED rather than passed through because an asm
                  * template really contains those bytes -- passing the
                  * two-character spelling would hand the assembler a
                  * backslash-n and round-tripping would then differ from
                  * the original. */
+                if (*c == '\\' && c[1] == 'x') {
+                    if (!is_hex_digit(c[2]) || !is_hex_digit(c[3])) {
+                        Tok bad = t;
+
+                        bad.len = 2;
+                        perr(p, &bad, "expected two hex digits after '\\\\x'");
+                        return false;
+                    }
+                    dst[n++] = (char)((hex_val(c[2]) << 4) | hex_val(c[3]));
+                    c += 4;
+                    col += 4;
+                    continue;
+                }
                 if (*c == '\\' && c[1] == 'n') {
                     dst[n++] = '\n';
                     c += 2;
@@ -2331,7 +2343,15 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
 
         if (t->kind == T_EOF)
             break;
-        if (tok_is(t, "sym")) {
+        if (tok_is(t, "ident")) {
+            Tok *bytes;
+
+            next(&p);
+            bytes = expect(&p, T_STR, "a quoted #ident byte string");
+            if (!bytes)
+                goto fail;
+            ir_module_add_ident(m, (const u8 *)bytes->s, bytes->len);
+        } else if (tok_is(t, "sym")) {
             Tok *nm;
             u32 sym;
             bool weak = false;
@@ -2361,7 +2381,8 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             if (!parse_func(&p))
                 goto fail;
         } else {
-            perr(&p, t, "expected 'sym', 'alias', 'global', or 'func'");
+            perr(&p, t,
+                 "expected 'ident', 'sym', 'alias', 'global', or 'func'");
             goto fail;
         }
     }

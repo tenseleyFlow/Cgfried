@@ -7,6 +7,23 @@
 #include "ir/ir.h"
 #include "util/sort.h"
 
+void cg_emit_elf_idents(const IrModule *m, Buf *out)
+{
+    u32 i, j;
+
+    if (!m->nidents)
+        return;
+    /* ELF .comment conventionally begins with a NUL. GNU as's `.ident`
+     * creates that byte once, then appends each decoded string and its NUL. */
+    buf_printf(out, "\t.section\t.comment,\"\",@progbits\n");
+    buf_printf(out, "\t.byte\t0\n");
+    for (i = 0; i < m->nidents; i++) {
+        for (j = 0; j < m->idents[i].len; j++)
+            buf_printf(out, "\t.byte\t%u\n", m->idents[i].bytes[j]);
+        buf_printf(out, "\t.byte\t0\n");
+    }
+}
+
 static void bit_set(u64 *words, u32 bit)
 {
     words[bit >> 6] |= 1ull << (bit & 63);

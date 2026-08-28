@@ -11,7 +11,6 @@
 -	23af7754f9be9ce88a3c3ee27dd514f3c5f3fc71fb93562c41a282be2e1ab505	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope
 -	31c786bdddd648d22e6d6b264d944e323874292e54902d0803498fc8451e2704	ICE	all	The valid greater-than-2-GiB automatic frame reaches arm64 regalloc, whose frame-object accounting ICEs above 2 GiB; retained attribute warnings supply the current normalized fingerprint.	fix-sprint:s56.5-arm64-large-stack-frame
 -	31dd1e91bebbd5fad8aef76683a6729f7c1ca76edf2982ba87e33b259a5c7a37	ICE	all	IR verification treats a call through an old-style non-prototype declaration as if the later prototype's fixed arity already applied.	fix-sprint:s56.5-unprototyped-call-ir
--	3563161491e75bebdf12602cda39e1a37df2973eaf8f944662c69abb98b6adbe	pp	all	The GNU #ident preprocessing directive is rejected instead of being consumed and represented or safely ignored.	fix-sprint:s56.5-gnu-ident-directive
 -	356cb2e2b1bed51b107023d33508d405e238b0b154adea090a4ae053b4fc61b5	sema	all	GNU extern-void symbol declarations used solely for address constants are rejected as void objects.	fix-sprint:s56.5-extern-void-symbols
 -	36853079a0fded16af84c567c7fbf2556e105b6053547abae732d74906b5cd90	parse	all	The implemented __extension__ marker is not accepted in a cast type-name before a compound literal.	fix-sprint:s56.5-extension-type-name
 -	48e045cd63ef0497bf3a9f14f4807d91118562a0f430cc6a6de6b5b80ffb9342	sema	all	GNU __alignof__(void) is rejected instead of returning the target's extension alignment.	fix-sprint:s56.5-alignof-void

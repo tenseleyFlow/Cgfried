@@ -1587,6 +1587,8 @@ void a64_emit_globals(const IrModule *m, Buf *out, bool pic)
     for (i = 0; i < m->nfile_asms; i++) {
         buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->file_asms[i]);
     }
+    if (!e.apple)
+        cg_emit_elf_idents(m, out);
     /* Undefined ELF symbols have no IrGlobal/IrFunc record to carry GNU
      * attributes.  Emit their declarations explicitly; Mach-O needs the
      * distinct `.weak_reference` model and rejects these attributes earlier. */

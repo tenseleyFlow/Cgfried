@@ -984,6 +984,7 @@ void x64_emit_globals(const IrModule *m, Buf *out, bool pic)
     for (i = 0; i < m->nfile_asms; i++) {
         buf_printf(out, "#APP\n\t%s\n#NO_APP\n", m->file_asms[i]);
     }
+    cg_emit_elf_idents(m, out);
 
     /* Definitions carry attributes on IrGlobal/IrFunc.  Undefined symbols
      * have neither, but weak/visibility still change linker semantics: a

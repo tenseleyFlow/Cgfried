@@ -1166,6 +1166,8 @@ typedef enum {
     DK_ERROR,
     DK_WARNING,
     DK_PRAGMA,
+    DK_IDENT,
+    DK_SCCS,
     DK_LINEMARKER,
     DK_NULL,
     DK_UNKNOWN,
@@ -1208,6 +1210,10 @@ static DirKind classify(const PpToken *t)
         return DK_WARNING;
     if (strcmp(s, "pragma") == 0)
         return DK_PRAGMA;
+    if (strcmp(s, "ident") == 0)
+        return DK_IDENT;
+    if (strcmp(s, "sccs") == 0)
+        return DK_SCCS;
     return DK_UNKNOWN;
 }
 
@@ -1474,6 +1480,55 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
             return true;
         }
         return false;
+    }
+    case DK_IDENT:
+    case DK_SCCS: {
+        PpToken *toks;
+        PpToken *expanded;
+        PpToken *out;
+        u32 n = read_line(pp, &toks);
+
+        n = pp_expand_list(pp, toks, n, &expanded);
+        pp_pedwarn_at(pp, WARN_PEDANTIC, name.loc, name.len,
+                      "'#%s' is a GCC extension", name.spelling);
+        /* GCC accepts one ordinary string literal. Encoding-prefixed strings
+         * are a different directive shape, not an alternate object encoding. */
+        if (n == 0 || expanded[0].kind != PPTOK_STRLIT ||
+            expanded[0].len == 0 || expanded[0].spelling[0] != '"') {
+            pp_diag_at(pp, DIAG_ERROR, name.loc, name.len,
+                       "invalid #%s directive", name.spelling);
+            return false;
+        }
+        if (n > 1)
+            pp_warn_at(pp, WARN_CPP, expanded[1].loc, expanded[1].len,
+                       "extra tokens at end of #%s directive", name.spelling);
+        if (pp->nidents == pp->cap_idents) {
+            u32 cap = pp->cap_idents ? pp->cap_idents * 2 : 4;
+            PpToken *grown = arena_alloc(pp->arena, cap * sizeof(PpToken),
+                                         _Alignof(PpToken));
+
+            if (pp->nidents)
+                memcpy(grown, pp->idents, pp->nidents * sizeof(PpToken));
+            pp->idents = grown;
+            pp->cap_idents = cap;
+        }
+        pp->idents[pp->nidents++] = expanded[0];
+
+        /* GCC canonicalizes deprecated #sccs to #ident under -E and prints
+         * only the accepted first argument when trailing tokens were warned. */
+        out = arena_alloc(pp->arena, 3 * sizeof(PpToken), _Alignof(PpToken));
+        out[0] = *hash;
+        out[1] = name;
+        out[1].spelling =
+            intern_str(pp->interner, intern(pp->interner, "ident", 5));
+        out[1].len = 5;
+        out[1].flags &= (u8)~PPTOK_F_SPACE;
+        out[2] = expanded[0];
+        out[2].flags &= (u8)~PPTOK_F_BOL;
+        out[2].flags |= PPTOK_F_SPACE;
+        *passthrough = out;
+        *npassthrough = 3;
+        return true;
     }
     case DK_NULL:
         return false;
