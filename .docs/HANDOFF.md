@@ -860,11 +860,32 @@ The current Sprint 56.5 range-designator tranche is isolated in
   `08590e5f9c6ebe35`, reproduced twice after formatting before repinning. The
   full repository suite is also green: 810 unit tests / 4,293,858 assertions,
   720 program fixtures, 104 corpus fixtures, and every differential, fuzz,
-  cross, policy, and formatting gate. Sanitizer, strict-Clang, and exact-head
-  torture evidence remain the tranche's publication gates.
+  cross, policy, and formatting gate. Full sanitizer and strict-Clang runs are
+  green. Exact implementation-head PR CI
+  [run 33134253176](https://github.com/tenseleyFlow/Cgfried/actions/runs/33134253176)
+  passed every job, including the 100k-iteration fuzz lane and hosted x86
+  torture. Exact-head native full-lattice
+  [run 33135159935](https://github.com/tenseleyFlow/Cgfried/actions/runs/33135159935)
+  passed at `dc9af72d7fd307e984205d493740da4eb1cc7d55`; its ARM stream
+  SHA-256 is
+  `f66340ec1e8efd5ffbfa0c2030f5b51e121ae66accfe208ca778ae3d6342a0e7`.
+  The publishable same-head x86 stream was regenerated locally as
+  `9b7d6918bb7767470e6be76052896d4950963870a12b6c7dede5e5bd9ab9eb25`.
+  Both streams share compiler-source SHA-256
+  `df2640077d2cf19a6ed1a69ba4c888603f629777b7ab62ca3a345c961438bf31`
+  plus identical harness and manifest hashes. Atomic publication retired
+  range-designator fingerprint `33116fbd...` without changing the PASS
+  ratchet: the ten residual `ctestsuite/00216.c` cells now normalize under the
+  existing GNU empty-record refusal `b28fda1f...`. The resulting overlay is
+  57 applied / 0 stale / 0 unresolved and retains 7,435 classified failures.
+  Reversing the two inputs regenerates both outputs byte-identically; the PASS
+  and triage SHA-256 values are respectively
+  `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
+  and
+  `ba039f0eca2b3476027ee506e1e9c02943726bc02914e11480b69b5f08f8ce15`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,849 assertions, 719 program fixtures, and every
+  4,293,858 assertions, 720 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -885,7 +906,7 @@ through PR #40. The nested-flexible-array-member tranche is implemented and its
 exact-head target-complete ratchet is merged through PR #41. The old-style
 designator tranche is implemented and its exact-head target-complete ratchet is
 merged through PR #42 as `6ef24ca2`. The remaining compiler debt is enumerated
-by the 34 live
+by the 33 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
