@@ -273,6 +273,16 @@ typedef struct PpMacroEvent {
     u32 seq;
 } PpMacroEvent;
 
+/* GNU push_macro/pop_macro snapshots are per-name LIFO stacks. A single
+ * intrusive list keeps unlike names independent while retaining arena-only
+ * ownership; pop unlinks the newest matching entry and leaves intervening
+ * names untouched. A NULL definition records that the name was undefined. */
+typedef struct PpMacroSave {
+    const char *name;
+    const MacroDef *definition;
+    struct PpMacroSave *next;
+} PpMacroSave;
+
 /* GNU cpplib assertions occupy a namespace separate from macros. Answers are
  * token sequences: leading/trailing whitespace is insignificant, while the
  * presence of whitespace between two answer tokens participates in identity.
@@ -451,6 +461,7 @@ typedef struct Preprocessor {
     PpMacroEvent *macro_events; /* arena-owned lexical definition history */
     size_t nmacro_events;
     size_t macro_events_cap;
+    PpMacroSave *macro_saves; /* #pragma push_macro snapshots */
 
     PpFrame *frames; /* include stack; frames[nframes-1] is active */
     size_t nframes;
@@ -575,6 +586,8 @@ void pp_end(Preprocessor *pp);                /* frees engine-owned buffers */
 void pp_macro_define_line(Preprocessor *pp, const PpToken *toks, u32 n);
 void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc);
 const MacroDef *pp_macro_lookup(const Preprocessor *pp, const char *name);
+void pp_macro_stack_push(Preprocessor *pp, const char *name);
+bool pp_macro_stack_pop(Preprocessor *pp, const char *name, SrcLoc loc);
 /* Macro definition active immediately before lexical sequence `seq`, or
  * NULL. Unlike pp_macro_lookup(), this is point-sensitive across later
  * redefinitions and #undef directives. */

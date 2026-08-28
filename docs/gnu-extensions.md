@@ -85,6 +85,7 @@ predefine.
 | range designators (`[first ... last]`) | `tests/programs/gnu/range_designators.c` | compact lookup tables and generated initializers; the inclusive upper bound completes unsized arrays |
 | `#ident` / `#sccs` | `tests/programs/gnu/ident_directive.c` | source and generated version strings retained in ELF object metadata |
 | `#assert` / `#unassert` and `#predicate(answer)` | `tests/programs/gnu/pp_assertions.c` | legacy system headers and GCC torture sources that still use cpplib assertions |
+| `#pragma push_macro` / `pop_macro` | `tests/programs/gnu/pragma_macro_stack.c` | headers that temporarily replace a public macro and then restore the caller's definition |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form
@@ -114,6 +115,15 @@ collapsed. Multiple answers may be attached to one predicate, an answer-less
 them all. The implementation keeps source insertion order in arena-owned
 lists, accepts the facility in ISO modes with a pedwarn, and preserves GCC's
 deprecated-warning behavior when `-Wdeprecated` is requested.
+
+`#pragma push_macro("name")` saves the current definition on a per-name LIFO
+stack; `pop_macro` restores it, including the undefined state. Stacks for
+different names remain independent, an unmatched pop is a silent no-op, and
+the `_Pragma` spelling reaches the same handler. The directive keywords and
+operand are raw preprocessing tokens: a macro named `push_macro` cannot change
+the operation, and a macro that expands to a string is not accepted as the
+operand. Encoding prefixes are ignored while escapes remain undecoded,
+matching GCC's token-level name rule.
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every

@@ -379,6 +379,34 @@ void pp_macro_undef(Preprocessor *pp, const char *name, SrcLoc loc)
     macro_event_append(pp, name, NULL, loc);
 }
 
+void pp_macro_stack_push(Preprocessor *pp, const char *name)
+{
+    PpMacroSave *save =
+        arena_alloc(pp->arena, sizeof(*save), _Alignof(PpMacroSave));
+
+    save->name = name;
+    save->definition = pp_macro_lookup(pp, name);
+    save->next = pp->macro_saves;
+    pp->macro_saves = save;
+}
+
+bool pp_macro_stack_pop(Preprocessor *pp, const char *name, SrcLoc loc)
+{
+    PpMacroSave **link = &pp->macro_saves;
+    PpMacroSave *save;
+
+    while (*link && (*link)->name != name)
+        link = &(*link)->next;
+    if (!*link)
+        return false; /* GCC silently ignores an unmatched pop. */
+
+    save = *link;
+    *link = save->next;
+    strmap_put(&pp->macros, name, strlen(name), (void *)save->definition);
+    macro_event_append(pp, name, save->definition, loc);
+    return true;
+}
+
 /* --- expansion helpers -------------------------------------------------- */
 
 static PpToken make_tok(Preprocessor *pp, PpTokKind kind, const char *spell,

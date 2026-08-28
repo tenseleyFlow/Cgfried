@@ -358,6 +358,106 @@ void test_pp_gnu_assertion_diagnostics(TestCtx *t)
     mfix_free(&f);
 }
 
+void test_pp_pragma_macro_stack(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[12];
+    u32 n;
+
+    mfix_init(&f);
+    n = run_pp(&f,
+               "#define push_macro shadow_push\n"
+               "#define pop_macro shadow_pop\n"
+               "#define X one\n"
+               "#pragma push_macro(\"X\")\n"
+               "#undef X\n#define X two\n"
+               "#pragma push_macro(\"X\")\n"
+               "#undef X\n#define X three\n"
+               "X\n#pragma pop_macro(\"X\")\nX\n"
+               "#pragma pop_macro(\"X\")\nX\n"
+               "#define Y why\n"
+               "#pragma push_macro(\"Y\")\n"
+               "#pragma push_macro(\"X\")\n"
+               "#undef Y\n#undef X\n#define X changed\n"
+               "#pragma pop_macro(\"Y\")\nY\n"
+               "#pragma pop_macro(\"X\")\nX\n"
+               "#pragma push_macro(\"MISSING\")\n"
+               "#define MISSING born\n"
+               "#pragma pop_macro(\"MISSING\")\n"
+               "#ifdef MISSING\nbad\n#else\ngone\n#endif\n",
+               toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, n, 6);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "three");
+    T_ASSERT_EQ_STR(t, toks[1].spelling, "two");
+    T_ASSERT_EQ_STR(t, toks[2].spelling, "one");
+    T_ASSERT_EQ_STR(t, toks[3].spelling, "why");
+    T_ASSERT_EQ_STR(t, toks[4].spelling, "one");
+    T_ASSERT_EQ_STR(t, toks[5].spelling, "gone");
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "MISSING") == NULL);
+    mfix_free(&f);
+
+    /* _Pragma reaches the same handler, and prefixed string tokens name the
+     * same macro while preserving the raw, non-decoded payload rule. */
+    mfix_init(&f);
+    n = run_pp(&f,
+               "#define A before\n"
+               "_Pragma(\"push_macro(\\\"A\\\")\")\n"
+               "#undef A\n#define A after\nA\n"
+               "_Pragma(\"pop_macro(\\\"A\\\")\")\nA\n"
+               "#define W wide\n#pragma push_macro(L\"W\")\n"
+               "#undef W\n#define W changed\n"
+               "#pragma pop_macro(L\"W\")\nW\n",
+               toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, n, 3);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "after");
+    T_ASSERT_EQ_STR(t, toks[1].spelling, "before");
+    T_ASSERT_EQ_STR(t, toks[2].spelling, "wide");
+    mfix_free(&f);
+}
+
+void test_pp_pragma_macro_stack_diagnostics(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[4];
+    u32 n;
+
+    /* Pragma operands are raw: a macro expanding to a string is invalid. */
+    mfix_init(&f);
+    run_pp(&f, "#define NAME \"X\"\n#pragma push_macro(NAME)\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    /* A valid prefix is applied before trailing tokens are diagnosed. */
+    mfix_init(&f);
+    n = run_pp(&f,
+               "#define X old\n#pragma push_macro(\"X\") trailing\n"
+               "#undef X\n#define X new\n#pragma pop_macro(\"X\")\nX\n",
+               toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_PRAGMAS);
+    T_ASSERT_EQ_INT(t, n, 1);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "old");
+    mfix_free(&f);
+
+    /* Unmatched pops are silent, and skipped groups do not parse pragmas. */
+    mfix_init(&f);
+    T_ASSERT(t, warn_flag(f.pp.warn, "-pedantic"));
+    n = run_pp(&f,
+               "#pragma pop_macro(\"NEVER\")\n"
+               "#if 0\n#pragma push_macro(BROKEN)\n#endif\nkept\n",
+               toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, n, 1);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "kept");
+    mfix_free(&f);
+}
+
 void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
 {
     MacFix f;
