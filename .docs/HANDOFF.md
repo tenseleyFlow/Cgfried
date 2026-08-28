@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-27): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-28): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -34,9 +34,9 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **33
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **34
 implemented / 6 parsed-ignored / 8 refused** on `trunk`.
-Sprint 56's campaign machine, triage map, and 26,595-cell PASS ratchet are
+Sprint 56's campaign machine, triage map, and 26,605-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -603,9 +603,10 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The latest Sprint 56.5 range-designator tranche is integrated through PR #43
-at merge commit `6c1cd12b`; its former worktree and branch retain only local
-evidence and cleanup state.
+The latest integrated Sprint 56.5 range-designator tranche landed through PR
+#43 at merge commit `6c1cd12b`. The current GNU `#ident` tranche is published
+on PR #44 at exact implementation head `e05e23c0`; its post-publication CI and
+merge are the only remaining operational steps.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -616,18 +617,18 @@ evidence and cleanup state.
   packed-bitfield, enum-bitfield, enum-integer-mode, static-subobject
   pointer-difference, VLA-semantics, aggregate-initializer,
   flexible-array-initializer, nested-flexible-array-member,
-  old-style-designator, and range-designator tranches, outcome totals are
-  26,595 PASS, 6,620 SKIP, and 7,435 classified failures.
+  old-style-designator, range-designator, and GNU-ident tranches, outcome totals
+  are 26,605 PASS, 6,620 SKIP, and 7,425 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 66 total buckets,
-  57 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 33 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 65 total buckets,
+  56 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 32 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
-- `tests/torture/passing.txt` is the exact sorted 26,595-cell PASS set. The
+- `tests/torture/passing.txt` is the exact sorted 26,605-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
   regressions; `3eb97e5c` then promoted all ten `pr43188.c` cells and retired
   the declarator-type-attributes bucket, again with zero regressions.
@@ -888,9 +889,41 @@ evidence and cleanup state.
   then passed all 21 jobs at `52b627af`, including hosted torture, sanitizers,
   and the full fuzz budget; both bootstrap workflows were also green. PR #43
   merged as `6c1cd12b`.
+- The current `s56.5-gnu-ident-directive` tranche implements GNU `#ident` and
+  deprecated `#sccs` end to end: macro-expanded directive parsing, exact-byte
+  IR metadata and round trips, target-aware string decoding, and ELF
+  `.comment` emission shared by x86-64 and ARM64. Darwin consumes the directive
+  without emitting an ELF-only section. GNU tiers are now 34 implemented / 6
+  parsed-ignored / 8 refused. Full local validation is green with 812 unit
+  tests / 4,293,894 assertions, 724 program fixtures, 104 corpus fixtures, and
+  every differential, fuzz, cross-target, policy, and formatting gate. The
+  5,000-iteration frontend sequence digest is `c936967b364a5c43`, reproduced
+  twice before repinning. Pre-publication PR CI
+  [run 33144370788](https://github.com/tenseleyFlow/Cgfried/actions/runs/33144370788)
+  passed every completed non-torture job; hosted torture refused only the five
+  newly passing x86 cells. Its synthetic-merge x86 stream SHA-256 is
+  `99c80ad9fbb8ae26ebd2fbcdba2c84cd194074f228e54e42df39273325737192`,
+  and its classification body is byte-identical to the publishable local
+  stream. Exact-head native full-lattice
+  [run 33144389270](https://github.com/tenseleyFlow/Cgfried/actions/runs/33144389270)
+  refused only the matching five ARM64 cells; that stream SHA-256 is
+  `a77e947f9004140beb29728b9acf67ebce787d7a60dc2e37c911a553e150beb7`.
+  `make torture-baseline` regenerated the exact-head x86 stream as
+  `fc4105f49dcc73d4b544553e95d26be0dab21b649093d5070a063c6a417608d1`.
+  Both publishable streams share compiler-source SHA-256
+  `09ab4987c601f7f96ff13bf8b3e8e42f5ce361c7ecb6d89e8b2c17c3af0ed1fc`
+  plus identical harness and manifest hashes. Atomic publication promoted
+  exactly the ten `20010510-1.c` cells with zero PASS regression and retired
+  fingerprint `35631614...`. The resulting overlay is 56 applied / 0 stale /
+  0 unresolved with 7,425 classified failures. Reversing the two input streams
+  regenerates both outputs byte-identically; the PASS and triage SHA-256 values
+  are respectively
+  `e878f6e83bc5cfafb9e4e9d053c7e41b7946676f6e87a0f88e4345712b5973bb`
+  and
+  `5de49e9e6e873238e50717c0494be87ebba785e4f576b6ba561e717f6dd6d3e9`.
 - Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (810 unit tests /
-  4,293,858 assertions, 720 program fixtures, and every
+  torture-import-meta torture-meta`, full `make test` (812 unit tests /
+  4,293,894 assertions, 724 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
   and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
   bootstraps reproduce 113 assembly files, 113 objects, the runtime archive,
@@ -910,8 +943,9 @@ The flexible-array-initializer tranche is implemented, published, and merged
 through PR #40. The nested-flexible-array-member tranche is implemented and its
 exact-head target-complete ratchet is merged through PR #41. The old-style
 designator tranche is implemented and its exact-head target-complete ratchet is
-merged through PR #42 as `6ef24ca2`. The remaining compiler debt is enumerated
-by the 33 live
+merged through PR #42 as `6ef24ca2`; range designators are merged through PR
+#43. GNU `#ident` is implemented and its exact-head target-complete ratchet is
+published on PR #44. The remaining compiler debt is enumerated by the 32 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 

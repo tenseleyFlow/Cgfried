@@ -2806,6 +2806,16 @@ torture-compile/20010503-1.c@O3@arm64-linux
 torture-compile/20010503-1.c@O3@x86_64-linux-gnu
 torture-compile/20010503-1.c@Os@arm64-linux
 torture-compile/20010503-1.c@Os@x86_64-linux-gnu
+torture-compile/20010510-1.c@O0@arm64-linux
+torture-compile/20010510-1.c@O0@x86_64-linux-gnu
+torture-compile/20010510-1.c@O1@arm64-linux
+torture-compile/20010510-1.c@O1@x86_64-linux-gnu
+torture-compile/20010510-1.c@O2@arm64-linux
+torture-compile/20010510-1.c@O2@x86_64-linux-gnu
+torture-compile/20010510-1.c@O3@arm64-linux
+torture-compile/20010510-1.c@O3@x86_64-linux-gnu
+torture-compile/20010510-1.c@Os@arm64-linux
+torture-compile/20010510-1.c@Os@x86_64-linux-gnu
 torture-compile/20010518-1.c@O0@arm64-linux
 torture-compile/20010518-1.c@O0@x86_64-linux-gnu
 torture-compile/20010518-1.c@O1@arm64-linux
