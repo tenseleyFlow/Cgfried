@@ -843,6 +843,25 @@ The current Sprint 56.5 range-designator tranche is isolated in
   `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
   and
   `1fbf09c06953c8ab0e11fb49c9f70bf7c7eaa0919a710c2cd0e8be33b9fbd958`.
+- The active `s56.5-range-designators` tranche recognizes GNU's inclusive
+  `[first ... last]` spelling, folds each endpoint once as a nonnegative ICE,
+  completes unsized arrays from the highest selected endpoint, and expands
+  chained ranges as a Cartesian product through the existing current-object
+  machinery. Static images, relocations, automatic aggregates, compound
+  literals, later overrides, and both backends reuse the ordinary designator
+  paths. Runtime values are materialized once per original range initializer,
+  preserving GNU's side-effect-once rule even for aggregate leaves.
+  `-pedantic` warns while `__extension__` suppresses the warning. The tracked
+  GNU tier table is 33 implemented / 6 parsed-ignored / 8 refused on this
+  branch; `trunk` remains 32 / 6 / 8 until integration. Focused unit, runner,
+  x86-64 O2 execution, ARM64 O0/O2 assembly, and the 220-file parser
+  differential are green. Adding the two deterministic fuzz inputs changes
+  the 5,000-iteration sequence digest from `389f09592ae84eb1` to
+  `08590e5f9c6ebe35`, reproduced twice after formatting before repinning. The
+  full repository suite is also green: 810 unit tests / 4,293,858 assertions,
+  720 program fixtures, 104 corpus fixtures, and every differential, fuzz,
+  cross, policy, and formatting gate. Sanitizer, strict-Clang, and exact-head
+  torture evidence remain the tranche's publication gates.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
   4,293,849 assertions, 719 program fixtures, and every

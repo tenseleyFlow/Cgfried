@@ -771,6 +771,33 @@ void test_sema_incomplete_types(TestCtx *t)
     }
     sfix_free(&f);
 
+    /* A GNU range completes an unsized array from its inclusive upper
+     * endpoint. Chained ranges expand as a Cartesian product while retaining
+     * the ordinary current-object rules at each array level. */
+    run_sema(&f,
+             "int r[] = { [2 ... 5] = 1 };\n"
+             "int m[][4] = { [0 ... 1][1 ... 3] = 7 };\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    {
+        Symbol *r = lookup(&f, "r");
+        Symbol *m = lookup(&f, "m");
+
+        T_ASSERT(t, r && r->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)r->type->size, 6);
+        T_ASSERT(t, m && m->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)m->type->size, 2);
+    }
+    sfix_free(&f);
+
+    run_sema(&f, "int bad[4] = { [3 ... 1] = 0 };\n", STD_GNU17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    run_sema(&f, "int bad[4] = { [1 ... 4] = 0 };\n", STD_GNU17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
     /* A string literal completes a char array, terminator included. */
     run_sema(&f, "char s[] = \"abc\";\n", STD_C17);
     {

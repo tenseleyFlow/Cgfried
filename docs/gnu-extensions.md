@@ -82,6 +82,17 @@ predefine.
 | binary integer constants (`0b...`) | `tests/programs/gnu/binary_integer_constants.c` | chibicc's UTF-8 codec; bit-mask-heavy systems code |
 | nested flexible-array-member records and arrays | `tests/programs/gnu/nested_flexible_array_member.c` | GCC torture PR16566; GNU layouts that embed the fixed prefix of a FAM-bearing record |
 | old-style field designators (`field: value`) | `tests/programs/gnu/old_style_designators.c` | historical GNU initializers retained in GCC's torture corpus |
+| range designators (`[first ... last]`) | `tests/programs/gnu/range_designators.c` | compact lookup tables and generated initializers; the inclusive upper bound completes unsized arrays |
+
+Range designators are normalized after semantic analysis into the same
+current-object path used by ordinary array designators. Chained ranges form
+the Cartesian product of their inclusive bounds, later designators retain the
+ordinary override rules, and a nonconstant automatic initializer is
+materialized once and reused across every selected element. The permanent
+fixture covers static and automatic storage, relocations, inferred bounds,
+aggregate leaves, compound literals, chained ranges, and override behavior;
+the companion pedantic fixture proves the ISO warning and `__extension__`
+suppression boundary.
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every

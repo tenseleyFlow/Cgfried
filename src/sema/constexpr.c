@@ -1727,11 +1727,17 @@ static bool fill_cursor_designate(InitCtx *c, FillCursor *cursor, Type *root,
         } else {
             i64 idx;
 
-            if (f->aggregate->kind != TY_ARRAY || !desig->desig_index ||
-                !sema_require_ice(c->s, desig->desig_index, &idx,
-                                  "an array designator") ||
-                idx < 0)
+            if (f->aggregate->kind != TY_ARRAY || !desig->desig_index)
                 return false;
+            if (desig->desig_bounds_checked) {
+                if (!desig->desig_bounds_valid)
+                    return false;
+                idx = desig->desig_index_value;
+            } else if (!sema_require_ice(c->s, desig->desig_index, &idx,
+                                         "an array designator") ||
+                       idx < 0) {
+                return false;
+            }
             pos = (u64)idx;
         }
         f->pos = pos;

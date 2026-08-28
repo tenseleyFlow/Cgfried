@@ -322,6 +322,21 @@ struct AstNode {
     bool desig_is_field;
     const char *desig_field;
     AstNode *desig_index;
+    /* GNU `[first ... last]` keeps both expressions until sema proves they
+     * are nonnegative integer constant expressions.  Sema then expands the
+     * inclusive range into ordinary concrete designators so every existing
+     * current-object, override, static-image, and lowering path stays shared.
+     * The cached value also keeps later consumers from folding a designator
+     * more than once. */
+    AstNode *desig_range_end;
+    i64 desig_index_value;
+    i64 desig_range_end_value;
+    bool desig_bounds_checked;
+    bool desig_bounds_valid;
+    /* Expanded range items are shallow copies of one typed initializer.
+     * Lowering keys runtime-value materialization on this origin so GNU's
+     * side-effect-once rule survives the expansion. */
+    AstNode *init_range_origin;
 
     /* Expressions */
     const Token *tok; /* literal/identifier token */

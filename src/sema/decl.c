@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "sema/sema.h"
+#include "util/vec.h"
 #include "warn/warn.h"
 
 /* Declarations: AST types to semantic Types, tag scoping, linkage,
@@ -16,6 +17,8 @@ static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
 static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
                             bool binds_enum_definition, Span span);
+
+VEC_DECL(InitNodeVec, AstNode *);
 
 static bool alignment_is_supported(Sema *s, Span span, i64 want)
 {
@@ -1282,6 +1285,55 @@ static Member *init_find_member(Type *t, const char *name)
     return NULL;
 }
 
+/* Fold one array designator exactly once.  Range endpoints remain syntax in
+ * the parser, then become cached semantic values here; every later consumer
+ * reads the same result rather than independently re-evaluating an ICE. */
+static bool init_designator_bounds(Sema *s, AstNode *desig, u64 *first,
+                                   u64 *last)
+{
+    i64 lo;
+    i64 hi;
+
+    if (!desig || desig->desig_is_field || !desig->desig_index)
+        return false;
+    if (desig->desig_bounds_checked) {
+        if (!desig->desig_bounds_valid)
+            return false;
+        *first = (u64)desig->desig_index_value;
+        *last = (u64)desig->desig_range_end_value;
+        return true;
+    }
+
+    desig->desig_bounds_checked = true;
+    desig->desig_bounds_valid = false;
+    if (!sema_require_ice(s, desig->desig_index, &lo, "an array designator"))
+        return false;
+    if (lo < 0) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, desig->desig_index->span,
+                  "array designator index is negative");
+        return false;
+    }
+    hi = lo;
+    if (desig->desig_range_end) {
+        if (!sema_require_ice(s, desig->desig_range_end, &hi,
+                              "an array designator range endpoint"))
+            return false;
+        if (hi < lo) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, desig->desig_range_end->span,
+                      "empty index range in initializer");
+            return false;
+        }
+    }
+    desig->desig_index_value = lo;
+    desig->desig_range_end_value = hi;
+    desig->desig_bounds_valid = true;
+    *first = (u64)lo;
+    *last = (u64)hi;
+    return true;
+}
+
 /* Follow an initializer item's designator chain from the declared object.
  * The parser preserves `[2].x[1]` as three nodes; every array designator
  * selects the element type and every field designator selects that member.
@@ -1294,7 +1346,7 @@ static Type *init_designated_type(Type *root, const AstNode *item)
     u32 i;
 
     for (i = 0; item && i < item->ndesignators && t; i++) {
-        const AstNode *desig = item->designators[i];
+        AstNode *desig = item->designators[i];
 
         if (!desig)
             return NULL;
@@ -1428,7 +1480,7 @@ static bool init_cursor_designate(Sema *s, InitCursor *c, Type *root,
 
     init_cursor_start(c, root);
     for (i = 0; item && i < item->ndesignators; i++) {
-        const AstNode *desig = item->designators[i];
+        AstNode *desig = item->designators[i];
         InitCursorFrame *f;
         u64 pos;
 
@@ -1441,12 +1493,19 @@ static bool init_cursor_designate(Sema *s, InitCursor *c, Type *root,
                 !init_member_position(f->aggregate, desig->desig_field, &pos))
                 return false;
         } else {
-            i64 idx;
+            u64 last;
 
-            if (f->aggregate->kind != TY_ARRAY || !desig->desig_index ||
-                !enum_fold(s, desig->desig_index, &idx) || idx < 0)
+            if (f->aggregate->kind != TY_ARRAY ||
+                !init_designator_bounds(s, desig, &pos, &last))
                 return false;
-            pos = (u64)idx;
+            if (desig->desig_range_end && f->aggregate->has_size &&
+                last >= f->aggregate->size) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, desig->desig_range_end->span,
+                          "array designator range exceeds array bounds");
+                desig->desig_bounds_valid = false;
+                return false;
+            }
         }
         f->pos = pos;
         c->current = init_child_type(f->aggregate, pos);
@@ -1461,6 +1520,125 @@ static bool init_cursor_designate(Sema *s, InitCursor *c, Type *root,
         }
     }
     return true;
+}
+
+static bool init_item_ranges_valid(const AstNode *item, u64 *combinations)
+{
+    u64 count = 1;
+    bool has_range = false;
+    u32 i;
+
+    for (i = 0; item && i < item->ndesignators; i++) {
+        const AstNode *desig = item->designators[i];
+        u64 width;
+
+        if (!desig || !desig->desig_range_end)
+            continue;
+        has_range = true;
+        if (!desig->desig_bounds_checked || !desig->desig_bounds_valid)
+            return false;
+        width =
+            (u64)(desig->desig_range_end_value - desig->desig_index_value) + 1;
+        if (width > UINT32_MAX || count > UINT32_MAX / width)
+            count = (u64)UINT32_MAX + 1;
+        else
+            count *= width;
+    }
+    *combinations = has_range ? count : 0;
+    return true;
+}
+
+static void init_expand_combinations(Sema *s, AstNode *item, u32 at,
+                                     AstNode **selected, InitNodeVec *out)
+{
+    AstNode *desig;
+
+    if (at == item->ndesignators) {
+        AstNode *copy = arena_alloc(s->arena, sizeof(*copy), _Alignof(AstNode));
+
+        *copy = *item;
+        copy->init_range_origin =
+            item->init_range_origin ? item->init_range_origin : item;
+        copy->designators =
+            arena_alloc(s->arena, item->ndesignators * sizeof(AstNode *),
+                        _Alignof(AstNode *));
+        memcpy(copy->designators, selected,
+               item->ndesignators * sizeof(AstNode *));
+        InitNodeVec_push(out, copy);
+        return;
+    }
+
+    desig = item->designators[at];
+    if (desig && desig->desig_range_end) {
+        i64 index = desig->desig_index_value;
+
+        for (;;) {
+            AstNode *concrete =
+                arena_alloc(s->arena, sizeof(*concrete), _Alignof(AstNode));
+
+            *concrete = *desig;
+            concrete->desig_range_end = NULL;
+            concrete->desig_index_value = index;
+            concrete->desig_range_end_value = index;
+            concrete->desig_bounds_checked = true;
+            concrete->desig_bounds_valid = true;
+            selected[at] = concrete;
+            init_expand_combinations(s, item, at + 1, selected, out);
+            if (index == desig->desig_range_end_value)
+                break;
+            index++;
+        }
+        return;
+    }
+    selected[at] = desig;
+    init_expand_combinations(s, item, at + 1, selected, out);
+}
+
+/* Normalize GNU ranges only after the initializer value has been typed once.
+ * A range becomes ordinary concrete designators, including the Cartesian
+ * product for chained ranges such as `[0 ... 1][2 ... 3]`.  The shared origin
+ * on each shallow item copy lets lowering materialize every runtime leaf once
+ * and reuse that SSA value for all selected subobjects. */
+static void init_expand_ranges(Sema *s, AstNode *list)
+{
+    InitNodeVec expanded = {NULL, 0, 0};
+    bool changed = false;
+    u32 i;
+
+    if (!list || list->kind != AST_INIT_LIST)
+        return;
+    for (i = 0; i < list->nitems; i++) {
+        AstNode *item = list->items[i];
+        u64 combinations = 0;
+
+        if (!item || !init_item_ranges_valid(item, &combinations) ||
+            combinations == 0) {
+            InitNodeVec_push(&expanded, item);
+            continue;
+        }
+        if (combinations > UINT32_MAX - expanded.len) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, item->span,
+                      "range initializer expands to too many elements");
+            InitNodeVec_push(&expanded, item);
+            continue;
+        }
+        {
+            AstNode **selected =
+                arena_alloc(s->arena, item->ndesignators * sizeof(AstNode *),
+                            _Alignof(AstNode *));
+
+            init_expand_combinations(s, item, 0, selected, &expanded);
+        }
+        changed = true;
+    }
+    if (changed) {
+        list->items = arena_alloc(s->arena, expanded.len * sizeof(AstNode *),
+                                  _Alignof(AstNode *));
+        memcpy(list->items, expanded.data, expanded.len * sizeof(AstNode *));
+        list->nitems = (u32)expanded.len;
+    }
+    InitNodeVec_free(&expanded);
 }
 
 static bool init_expr_initializes_whole(Type *target, const AstNode *init)
@@ -1819,6 +1997,7 @@ static void sema_init_value(Sema *s, Type *target, AstNode **slot)
             sema_init_assign_typed(s, cursor.current, &init->items[i]);
             init_cursor_advance(&cursor);
         }
+        init_expand_ranges(s, init);
         return;
     }
 
@@ -1826,6 +2005,11 @@ static void sema_init_value(Sema *s, Type *target, AstNode **slot)
      * entries for recovery, but only the first initializes the object. */
     for (i = 0; i < init->nitems; i++)
         sema_init_value(s, i == 0 ? target : NULL, &init->items[i]);
+}
+
+void sema_type_initializer(Sema *s, Type *target, AstNode **slot)
+{
+    sema_init_value(s, target, slot);
 }
 
 /* Types an initializer and checks each scalar element against its current
@@ -1839,7 +2023,7 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
 
     if (!d->init)
         return;
-    sema_init_value(s, target, &d->init);
+    sema_type_initializer(s, target, &d->init);
 
     if (target && target->kind != TY_ERROR && type_contains_fam(target) &&
         nested_fam_initialized(s, target, d->init, true)) {
@@ -3092,6 +3276,8 @@ static void validate_va_pack_body_node(Sema *s, const Symbol *fn, AstNode *n)
     validate_va_pack_body_node(s, fn, n->rhs);
     validate_va_pack_body_node(s, fn, n->init);
     validate_va_pack_body_node(s, fn, n->body);
+    validate_va_pack_body_node(s, fn, n->desig_index);
+    validate_va_pack_body_node(s, fn, n->desig_range_end);
     for (i = 0; i < n->nargs; i++)
         validate_va_pack_body_node(s, fn, n->args[i]);
     for (i = 0; i < n->nitems; i++)
@@ -3204,6 +3390,7 @@ static void rebind_parameter_refs(Sema *s, AstNode *e)
     rebind_parameter_refs(s, e->init);
     rebind_parameter_refs(s, e->body);
     rebind_parameter_refs(s, e->desig_index);
+    rebind_parameter_refs(s, e->desig_range_end);
     for (i = 0; i < e->nargs; i++)
         rebind_parameter_refs(s, e->args[i]);
     for (i = 0; i < e->nitems; i++)
@@ -4261,6 +4448,8 @@ static void check_va_pack_uses(Sema *s, AstNode *n, Symbol *current)
     check_va_pack_uses(s, n->rhs, current);
     check_va_pack_uses(s, n->init, current);
     check_va_pack_uses(s, n->body, current);
+    check_va_pack_uses(s, n->desig_index, current);
+    check_va_pack_uses(s, n->desig_range_end, current);
     for (i = 0; i < n->nargs; i++)
         check_va_pack_uses(s, n->args[i], current);
     for (i = 0; i < n->nitems; i++)

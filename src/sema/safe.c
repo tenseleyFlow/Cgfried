@@ -953,6 +953,7 @@ static void walk_node(SafeCtx *sc, AstNode *n)
     for (i = 0; i < n->ndesignators; i++)
         walk_node(sc, n->designators[i]);
     walk_node(sc, n->desig_index);
+    walk_node(sc, n->desig_range_end);
     walk_node(sc, n->lhs);
     walk_node(sc, n->rhs);
     walk_node(sc, n->mid);
