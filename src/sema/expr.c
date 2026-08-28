@@ -974,18 +974,35 @@ static AstNode *expr_call(Sema *s, AstNode *e)
 {
     AstNode *callee;
     Type *ft;
+    Symbol *direct_sym = NULL;
+    const char *builtin_suffix = NULL;
     u32 i;
     u32 explicit_nargs = e->nargs;
     bool has_va_pack = false;
     const char *callee_name = NULL;
+
+    if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name) {
+        direct_sym = scope_lookup(s->scope, e->lhs->name, NS_ORDINARY);
+        if (strncmp(e->lhs->name, "__builtin_", 10) == 0) {
+            builtin_suffix = e->lhs->name + 10;
+        } else if (s->lang->gnu_mode && !s->lang->freestanding &&
+                   strcmp(e->lhs->name, "alloca") == 0 &&
+                   (!direct_sym || direct_sym->kind == SYM_FUNC)) {
+            /* gcc treats a direct hosted-GNU call to plain `alloca` as the
+             * compiler builtin, including when a function declaration is
+             * visible. A local function-pointer object with the same name
+             * remains an ordinary indirect call. In freestanding mode gcc
+             * emits the external call, so the alias is deliberately off. */
+            builtin_suffix = "alloca";
+        }
+    }
 
     /* C89 implicit-function recovery: introduce one file-scope `int f()`
      * symbol before ordinary identifier typing. Later calls find it, so
      * the diagnostic is first-use-only and a later declaration follows the
      * normal redeclaration path. */
     if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name &&
-        strncmp(e->lhs->name, "__builtin_", 10) != 0 &&
-        !scope_lookup(s->scope, e->lhs->name, NS_ORDINARY)) {
+        !builtin_suffix && !direct_sym) {
         Type *fn = type_func(s->arena, type_basic(TY_INT));
         Symbol *implicit =
             sym_new(s, e->lhs->name, SYM_FUNC, NS_ORDINARY, fn, e->lhs->span);
@@ -1008,15 +1025,14 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     e->lhs->name);
     }
 
-    /* The va_* builtins are not declared functions — recognize the names
-     * BEFORE ordinary resolution would call them undeclared. Arguments
-     * are typed and decayed (a va_list is an ARRAY and decays to the
-     * record pointer, which is exactly what lowering wants); the marker
-     * on `op` is what lowering dispatches on. */
-    if (e->lhs && e->lhs->kind == AST_EXPR_IDENT && e->lhs->name &&
-        strncmp(e->lhs->name, "__builtin_", 10) == 0) {
+    /* Compiler builtins are not declared functions — recognize their names
+     * BEFORE ordinary resolution would call them undeclared. This also owns
+     * the hosted-GNU plain `alloca` alias selected above. Arguments are typed
+     * and decayed (a va_list is an ARRAY and decays to the record pointer,
+     * exactly what lowering wants); `op` is lowering's dispatch marker. */
+    if (builtin_suffix) {
         int want = 0, kind = 0;
-        u16 b = sema_builtin_lookup(e->lhs->name + 10, &want, &kind);
+        u16 b = sema_builtin_lookup(builtin_suffix, &want, &kind);
 
         if (b) {
             if (want >= 0 && (int)e->nargs != want) {

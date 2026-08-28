@@ -160,6 +160,32 @@ void test_sema_gnu_extern_void_symbol(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_alloca_alias(TestCtx *t)
+{
+    SemaFix f;
+    const char *alloca_name;
+    Symbol *alloca_sym;
+
+    run_sema(&f, "void f(unsigned long n) { void *p = alloca(n); (void)p; }\n",
+             STD_GNU89);
+    alloca_name = intern_str(&f.in, intern_cstr(&f.in, "alloca"));
+    alloca_sym = scope_lookup(f.sema.file_scope, alloca_name, NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    /* A hosted GNU call is the plain spelling of __builtin_alloca, not an
+     * implicitly declared external function that will fail at link time. */
+    T_ASSERT(t, alloca_sym == NULL);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(unsigned long n) { void *p = (void *)alloca(n); "
+             "(void)p; }\n",
+             STD_C89);
+    alloca_name = intern_str(&f.in, intern_cstr(&f.in, "alloca"));
+    alloca_sym = scope_lookup(f.sema.file_scope, alloca_name, NS_ORDINARY);
+    T_ASSERT(t, alloca_sym && alloca_sym->kind == SYM_FUNC);
+    sfix_free(&f);
+}
+
 /* --- the compatibility truth table --------------------------------------- */
 
 typedef struct {
