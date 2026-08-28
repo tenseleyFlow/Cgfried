@@ -1005,7 +1005,7 @@ designator tranche is implemented and its exact-head target-complete ratchet is
 merged through PR #42 as `6ef24ca2`; range designators are merged through PR
 #43. GNU `#ident` is implemented and its exact-head target-complete ratchet is
 merged through PR #44 as `d52e44d1`. The remaining compiler debt is enumerated
-by the 32 live
+by the 31 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
