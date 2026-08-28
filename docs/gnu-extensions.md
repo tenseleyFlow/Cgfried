@@ -84,6 +84,7 @@ predefine.
 | old-style field designators (`field: value`) | `tests/programs/gnu/old_style_designators.c` | historical GNU initializers retained in GCC's torture corpus |
 | range designators (`[first ... last]`) | `tests/programs/gnu/range_designators.c` | compact lookup tables and generated initializers; the inclusive upper bound completes unsized arrays |
 | `#ident` / `#sccs` | `tests/programs/gnu/ident_directive.c` | source and generated version strings retained in ELF object metadata |
+| `#assert` / `#unassert` and `#predicate(answer)` | `tests/programs/gnu/pp_assertions.c` | legacy system headers and GCC torture sources that still use cpplib assertions |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form
@@ -104,6 +105,15 @@ the deprecated synonym and canonicalizes to `#ident` under `-E`. The Mach-O
 target deliberately consumes the directive without object output, matching
 the target-hook semantics documented by GCC and the behavior measured from
 Clang on that object format.
+
+GNU preprocessor assertions use a namespace separate from macros. Predicates
+and answers are never macro-expanded; an answer is compared as a token
+sequence with leading/trailing whitespace ignored and internal whitespace
+collapsed. Multiple answers may be attached to one predicate, an answer-less
+`#predicate` test asks whether any remain, and `#unassert predicate` removes
+them all. The implementation keeps source insertion order in arena-owned
+lists, accepts the facility in ISO modes with a pedwarn, and preserves GCC's
+deprecated-warning behavior when `-Wdeprecated` is requested.
 
 The two symbol-property rows are verified against the ELF symbol table rather
 than the emitted directive: `readelf -sW` agrees with gcc on binding and visibility for every
