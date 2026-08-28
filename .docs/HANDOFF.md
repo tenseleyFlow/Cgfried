@@ -34,12 +34,14 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **36
-implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
-`s56.5-alignof-extensions` branch raises the implemented tier to 37 and
-publishes its provenance-matched target-complete torture evidence.
-Sprint 56's campaign machine, triage map, and 26,635-cell `trunk` PASS ratchet
-are complete; the current alignof publication raises that ratchet to 26,665.
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **37
+implemented / 6 parsed-ignored / 8 refused** on `trunk` after PR #47. The
+current `s56.5-extension-type-name` branch repairs `__extension__` declaration
+and cast-expression disambiguation without changing that tier count and has
+published its provenance-matched target-complete torture evidence.
+Sprint 56's campaign machine, triage map, and 26,665-cell `trunk` PASS ratchet
+are complete; the current extension-type-name publication raises that ratchet
+to 26,695.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1076,6 +1078,40 @@ and green post-publication CI.
   `98d1cd1e25e77b1b990cb2eeb755d973de6f9eb72c0be58cb9a8bcf0f096e07c`
   and
   `28ac212395a7ec59be985949b5c037cd14eb2220221e2a95185609e9219c5596`.
+- The current `s56.5-extension-type-name` tranche treats GNU `__extension__`
+  as a prefix on whole declarations and cast expressions while keeping an
+  expression-position marker out of declaration/type-name lookahead. Parser,
+  diagnostic, executable, and targeted torture regressions are green; the
+  complete local suite passed with 816 unit tests / 4,293,958 assertions, 731
+  program fixtures, and 104 corpus fixtures. PR #48 pre-publication CI
+  [run 33168882651](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168882651)
+  passed every completed ordinary lane and refused only fifteen new x86-64
+  PASS cells; exact-head native full-lattice
+  [run 33168896428](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168896428)
+  refused only the identical fifteen ARM64 cells. The publishable exact-head
+  x86-64 and ARM64 streams have SHA-256 values
+  `4edce9ce45d6a656f6dde4c9b77f493402e91a464df0acc9276e237d5667028c`
+  and
+  `611bcad69505ad6a31f3291763ed880c178077a1e11b7147188f0847ced94730`.
+  Both are stamped at `e0c5604c` and share compiler-source, harness,
+  torture-manifest, and ctestsuite-manifest SHA-256 values
+  `fc6a8ca3288e0f9e4606fbbcd70c787f49c52c0c6a2dfde32be402ce8200cbbd`,
+  `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`,
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Atomic publication promotes exactly thirty cells: `20011217-2.c`,
+  `990117-1.c`, and `pr37056.c` at all five levels on both targets, with zero
+  PASS regression. The residual compile-only `pr33382.c` cells now normalize
+  under the existing broad unsupported-builtin fingerprint `70f8ab7d...` and
+  its `wontfix-0.1.0` policy, so only the resolved `36853079...` row was
+  retired. The result is 26,695 PASS cells, 7,335 classified failures, 60
+  buckets, 51 applied decisions, zero stale/unresolved decisions, and 27 live
+  `s56.5-*` policy rows. Reversing the two evidence streams regenerates both
+  outputs byte-identically; the PASS and triage SHA-256 values are
+  respectively
+  `fb0e6b81a39dc9e1e8efce814deee4e1bf30edf74f4fac2965fa5f85cbe3e142`
+  and
+  `040ce629a331fc2e34487da2c792d10518cc636b6822a00da4c46b03f2753a13`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (816 unit tests /
   4,293,948 assertions, 731 program fixtures, and every
@@ -1103,9 +1139,10 @@ merged through PR #42 as `6ef24ca2`; range designators are merged through PR
 #43. GNU `#ident` is implemented and its exact-head target-complete ratchet is
 merged through PR #44 as `d52e44d1`; GNU macro pragma stacks are merged through
 PR #46 as `eba78f27`. The alignof extension tranche is implemented and its
-target-complete ratchet is published on PR #47. The remaining compiler debt is
-enumerated by the 28 live
-`s56.5-*` policy decisions. Sprint
+target-complete ratchet merged through PR #47 as `5277c7fc`. The
+extension-type-name tranche is implemented and its target-complete ratchet is
+published on PR #48. The remaining compiler debt is enumerated by the 27 live
+`s56.5-*` policy rows. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
