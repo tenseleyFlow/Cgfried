@@ -246,6 +246,118 @@ void test_pp_gnu_ident_directives(TestCtx *t)
     mfix_free(&f);
 }
 
+void test_pp_gnu_assertions(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[8];
+    u32 n;
+
+    mfix_init(&f);
+    n = run_pp(
+        &f,
+        "#define def EXPANDED\n"
+        "#define MAC EXPANDED_TOO\n"
+        "#define abc macro_value\n"
+        "#define GENERATED #generated(MAC)\n"
+        "#assert abc(def)\n"
+        "#assert abc(ghi)\n"
+        "#assert space(s p a c e)\n"
+        "#assert generated(MAC)\n"
+        "#if !defined(abc) || !#abc(def) || #abc(EXPANDED) || "
+        "!#abc(ghi) || !#abc\n#error lookup\n#endif\n"
+        "#if !#space(s p  a  c e) || #space(space)\n#error spacing\n#endif\n"
+        "#if !GENERATED\n#error generated\n#endif\n"
+        "#unassert abc(ghi)\n"
+        "#if !#abc || !#abc(def) || #abc(ghi)\n#error one\n#endif\n"
+        "#unassert abc\n"
+        "#if #abc || #abc(def)\n#error all\n#endif\n"
+        "kept\n",
+        toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, n, 1);
+    T_ASSERT_EQ_STR(t, toks[0].spelling, "kept");
+    /* Assertion predicates coexist with same-spelled macros. */
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "abc") != NULL);
+    mfix_free(&f);
+
+    /* Reassertion is harmless but visible, matching cpplib. */
+    mfix_init(&f);
+    run_pp(&f, "#assert same(answer)\n#assert same(answer)\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_CPP);
+    mfix_free(&f);
+
+    /* Skipped groups neither parse nor mutate assertion state. */
+    mfix_init(&f);
+    run_pp(&f,
+           "#if 0\n#assert broken\n#unassert live\n#endif\n"
+           "#assert live(answer)\n#if !#live(answer)\n#error skipped\n#endif\n",
+           NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    mfix_free(&f);
+}
+
+void test_pp_gnu_assertion_diagnostics(TestCtx *t)
+{
+    MacFix f;
+
+    mfix_init(&f);
+    run_pp(&f, "#assert\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#assert 12(answer)\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#assert pred\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#assert pred()\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#unassert pred trailing\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    run_pp(&f, "#if #\n#endif\n", NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    mfix_free(&f);
+
+    /* ISO pedwarns take precedence over deprecation warnings. */
+    mfix_init(&f);
+    T_ASSERT(t, warn_flag(f.pp.warn, "-pedantic"));
+    T_ASSERT(t, warn_flag(f.pp.warn, "-Wdeprecated"));
+    run_pp(&f,
+           "#assert pred(answer)\n#if #pred(answer)\n#endif\n"
+           "#unassert pred(answer)\n",
+           NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 3);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_PEDANTIC);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    T_ASSERT(t, warn_flag(f.pp.warn, "-Wdeprecated"));
+    run_pp(&f,
+           "#assert pred(answer)\n#if #pred(answer)\n#endif\n"
+           "#unassert pred(answer)\n",
+           NULL, 0);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 3);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_DEPRECATED);
+    mfix_free(&f);
+}
+
 void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
 {
     MacFix f;

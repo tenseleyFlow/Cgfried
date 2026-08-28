@@ -35,7 +35,9 @@ performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **34
-implemented / 6 parsed-ignored / 8 refused** on `trunk`.
+implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
+`s56.5-gnu-pp-assertions` branch raises the implemented tier to 35 without yet
+changing the target-complete torture ratchet.
 Sprint 56's campaign machine, triage map, and 26,605-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -931,6 +933,29 @@ and green post-publication CI.
   and
   [33146881396](https://github.com/tenseleyFlow/Cgfried/actions/runs/33146881396)
   passed O0/O2. PR #44 merged as `d52e44d1`.
+- The current `s56.5-gnu-pp-assertions` tranche implements deprecated GNU
+  cpplib assertions end to end: raw `#assert`/`#unassert` directives, multiple
+  answers in a macro-independent namespace, exact raw-token answer matching,
+  answer-less predicate tests, macro-produced assertion operators, skipped-
+  group behavior, and GCC-compatible pedantic/deprecation precedence. GNU
+  tiers are 35 implemented / 6 parsed-ignored / 8 refused on this branch.
+  Permanent fixtures cover the extension semantics and malformed inputs; the
+  live GCC torture exemplar `torture-compile/950919-1.c` passes locally at all
+  five optimization levels. Adding those fixtures intentionally changes the
+  deterministic frontend-fuzz digest from `c936967b364a5c43` to
+  `5b0f8176143e751e`, independently reproduced twice with the normal build and
+  once under ASan+UBSan before repinning. Full `make test` is green at 814 unit
+  tests / 4,293,918 assertions, 727 program fixtures, and 104 permanent corpus
+  fixtures; full ASan+UBSan, both 74-case ppdiff modes, and a strict Clang build
+  are also green. `make bootstrap-O0` and `make bootstrap-O2` each reproduce
+  114 assembly files, 114 objects, the runtime archive, and the compiler byte-
+  identically with no normalization.
+  The exact fingerprint is
+  `91d2215b56a7eef42a5038abc931eace3e3f0478ed15892b898474014e9ab6d1`:
+  its ten x86-64/ARM64 target-level cells remain deliberately unpromoted until
+  exact implementation-head hosted x86 and native ARM64 evidence is collected
+  and provenance-matched. The policy overlay therefore still has 32 live
+  `s56.5-*` decisions and `tests/torture/passing.txt` remains at 26,605 cells.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (812 unit tests /
   4,293,894 assertions, 724 program fixtures, and every

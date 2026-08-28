@@ -563,11 +563,12 @@ static PpVal eval_cond(EvalCtx *c, bool live)
     return cond;
 }
 
-/* Replace `defined X` / `defined ( X )` BEFORE the expansion seam. A
- * `defined` produced BY expansion is UB (6.10.1p4); we match gcc and
- * evaluate it as `defined` with no diagnostic (see the sprint file). */
-static u32 replace_defined(Preprocessor *pp, const PpToken *in, u32 n,
-                           PpToken *out, SrcLoc line_loc, bool *ok)
+/* Replace `defined` and GNU `#predicate(answer)` operators before ordinary
+ * macro expansion so their operands stay raw. A second pass handles either
+ * operator when macro expansion produces it; generated `defined` is UB per
+ * 6.10.1p4, but gcc evaluates it, so both extensions follow the same seam. */
+static u32 replace_operators(Preprocessor *pp, const PpToken *in, u32 n,
+                             PpToken *out, bool *ok)
 {
     u32 i = 0, o = 0;
 
@@ -599,11 +600,28 @@ static u32 replace_defined(Preprocessor *pp, const PpToken *in, u32 n,
             out[o].len = 1;
             out[o].loc = loc;
             o++;
+        } else if (in[i].kind == PPTOK_PUNCT && in[i].punct == PUNCT_HASH) {
+            u32 consumed = 0;
+            bool valid;
+            bool value = pp_assert_test_tokens(pp, in + i + 1, n - i - 1,
+                                               in[i].loc, &consumed, &valid);
+
+            if (!valid) {
+                *ok = false;
+                return 0;
+            }
+            memset(&out[o], 0, sizeof(PpToken));
+            out[o].kind = PPTOK_PPNUM;
+            out[o].spelling = value ? "1" : "0";
+            out[o].len = 1;
+            out[o].loc = in[i].loc;
+            out[o].flags = in[i].flags;
+            o++;
+            i += consumed + 1;
         } else {
             out[o++] = in[i++];
         }
     }
-    (void)line_loc;
     return o;
 }
 
@@ -621,7 +639,7 @@ bool pp_eval_condition(Preprocessor *pp, const PpToken *toks, u32 n, SrcLoc loc)
     }
 
     scratch = arena_alloc(pp->arena, n * sizeof(PpToken), _Alignof(PpToken));
-    sn = replace_defined(pp, toks, n, scratch, loc, &ok);
+    sn = replace_operators(pp, toks, n, scratch, &ok);
     if (!ok)
         return false;
     {
@@ -635,7 +653,7 @@ bool pp_eval_condition(Preprocessor *pp, const PpToken *toks, u32 n, SrcLoc loc)
         pp->in_if_line = false;
         scratch = arena_alloc(pp->arena, (en ? en : 1) * sizeof(PpToken),
                               _Alignof(PpToken));
-        sn = replace_defined(pp, ex, en, scratch, loc, &ok);
+        sn = replace_operators(pp, ex, en, scratch, &ok);
         if (!ok)
             return false;
     }

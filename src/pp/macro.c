@@ -928,6 +928,35 @@ u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out)
             continue;
         }
 
+        /* GNU assertion operators produced by expansion are parsed lazily by
+         * cpplib: the predicate and optional answer are therefore not macro-
+         * expanded. Preserve that region for ppexpr's second replacement
+         * pass. Like cpplib, the first ')' terminates an assertion answer. */
+        if (pp->in_if_line && t.kind == PPTOK_PUNCT && t.punct == PUNCT_HASH) {
+            u32 take = 1;
+            u32 end;
+
+            if (i + 1 < work.len && work.data[i + 1].kind == PPTOK_IDENT) {
+                take = 2;
+                if (i + 2 < work.len && work.data[i + 2].kind == PPTOK_PUNCT &&
+                    work.data[i + 2].punct == PUNCT_LPAREN) {
+                    for (end = i + 3; end < work.len; end++)
+                        if (work.data[end].kind == PPTOK_PUNCT &&
+                            work.data[end].punct == PUNCT_RPAREN) {
+                            take = end - i + 1;
+                            break;
+                        }
+                    if (end == work.len)
+                        take = (u32)work.len - i;
+                }
+            }
+            while (take--) {
+                PpTokVec_push(&res, work.data[i]);
+                i++;
+            }
+            continue;
+        }
+
         if (t.kind != PPTOK_IDENT || pp_hs_contains(t.hideset, t.spelling) ||
             !(m = pp_macro_lookup(pp, t.spelling))) {
             PpTokVec_push(&res, t);

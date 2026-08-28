@@ -1168,6 +1168,8 @@ typedef enum {
     DK_PRAGMA,
     DK_IDENT,
     DK_SCCS,
+    DK_ASSERT,
+    DK_UNASSERT,
     DK_LINEMARKER,
     DK_NULL,
     DK_UNKNOWN,
@@ -1214,6 +1216,10 @@ static DirKind classify(const PpToken *t)
         return DK_IDENT;
     if (strcmp(s, "sccs") == 0)
         return DK_SCCS;
+    if (strcmp(s, "assert") == 0)
+        return DK_ASSERT;
+    if (strcmp(s, "unassert") == 0)
+        return DK_UNASSERT;
     return DK_UNKNOWN;
 }
 
@@ -1529,6 +1535,17 @@ static bool handle_directive(Preprocessor *pp, const PpToken *hash,
         *passthrough = out;
         *npassthrough = 3;
         return true;
+    }
+    case DK_ASSERT:
+    case DK_UNASSERT: {
+        PpToken *toks;
+        u32 n = read_line(pp, &toks);
+
+        if (k == DK_ASSERT)
+            pp_assert_define_line(pp, toks, n, name.loc);
+        else
+            pp_assert_undef_line(pp, toks, n, name.loc);
+        return false;
     }
     case DK_NULL:
         return false;

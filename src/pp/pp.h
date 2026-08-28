@@ -273,6 +273,23 @@ typedef struct PpMacroEvent {
     u32 seq;
 } PpMacroEvent;
 
+/* GNU cpplib assertions occupy a namespace separate from macros. Answers are
+ * token sequences: leading/trailing whitespace is insignificant, while the
+ * presence of whitespace between two answer tokens participates in identity.
+ * Both lists are arena-owned and retain deterministic source insertion order.
+ */
+typedef struct PpAssertionAnswer {
+    PpToken *toks;
+    u32 ntoks;
+    struct PpAssertionAnswer *next;
+} PpAssertionAnswer;
+
+typedef struct PpAssertion {
+    const char *predicate;
+    PpAssertionAnswer *answers;
+    struct PpAssertion *next;
+} PpAssertion;
+
 /* --- Conditional stack -------------------------------------------------- */
 
 typedef struct PpCond {
@@ -412,6 +429,11 @@ typedef struct Preprocessor {
     PpToken *idents;
     u32 nidents;
     u32 cap_idents;
+
+    /* Deprecated GNU #assert/#unassert state. This is deliberately separate
+     * from `macros`: #ifdef and defined() must never see predicates. */
+    PpAssertion *assertions;
+    PpAssertion *assertions_tail;
 
     /* Include search chains (set up by the driver before pp_begin). */
     const char *iquote_dirs[PP_MAX_DIRS];
@@ -560,6 +582,16 @@ const MacroDef *pp_macro_lookup_at_seq(const Preprocessor *pp, const char *name,
                                        u32 seq);
 /* As `defined`/#ifdef see it: macros PLUS _Pragma (gcc+clang parity). */
 bool pp_name_is_defined(const Preprocessor *pp, const char *name);
+
+/* GNU cpplib assertions. Directive answers are never macro-expanded. The
+ * expression helper consumes tokens after the leading `#`; a missing answer
+ * means "does this predicate have any asserted answer?". */
+void pp_assert_define_line(Preprocessor *pp, const PpToken *toks, u32 n,
+                           SrcLoc directive_loc);
+void pp_assert_undef_line(Preprocessor *pp, const PpToken *toks, u32 n,
+                          SrcLoc directive_loc);
+bool pp_assert_test_tokens(Preprocessor *pp, const PpToken *toks, u32 n,
+                           SrcLoc hash_loc, u32 *consumed, bool *ok);
 
 /* One collected macro argument: raw tokens always; the pre-expanded form
  * computed LAZILY (an argument used only as a #/## operand must never be
