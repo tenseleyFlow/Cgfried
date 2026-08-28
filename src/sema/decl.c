@@ -3154,7 +3154,12 @@ static void declare_one(Sema *s, AstNode *d)
                                          : "variable '%s' has incomplete type",
                   d->name);
     }
-    if (!is_func && sym->kind != SYM_TYPEDEF && type && type->kind == TY_VOID) {
+    /* GNU permits an `extern void marker;` declaration for linker-defined
+     * boundary symbols whose only useful operation is taking their address.
+     * It still does not define storage: every void definition, tentative
+     * definition, or non-extern block object remains a constraint error. */
+    if (!is_func && sym->kind != SYM_TYPEDEF && type && type->kind == TY_VOID &&
+        (sym->defined || !(d->storage & AST_SC_EXTERN))) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, d->span, "variable '%s' declared void",
                   d->name);

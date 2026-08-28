@@ -41,12 +41,15 @@ are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
 54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **37
 implemented / 6 parsed-ignored / 8 refused** on `trunk` after PR #47. PR #48's
 extension-type-name repair is merged as `1d6da267`; it does not change that
-tier count. The current `s56.5-generic-qualified-associations` branch repairs
-top-level-qualified `_Generic` associations and has published its
-provenance-matched target-complete torture evidence.
-Sprint 56's campaign machine, triage map, and 26,695-cell `trunk` PASS ratchet
-are complete; the current generic-qualified-association publication raises
-that ratchet to 26,705.
+tier count. PR #49's generic-qualified-association repair and target-complete
+ratchet are merged as `d8ccfc04`, raising the `trunk` PASS ratchet to 26,705.
+The current `s56.5-extern-void-symbols` branch adds non-defining GNU
+`extern void` linker symbols and raises its branch-local GNU tier table to
+38 implemented / 6 parsed-ignored / 8 refused. Its exact-head target-complete
+publication raises the branch-local PASS ratchet to 26,715 and leaves 25 live
+`s56.5-*` repair rows.
+Sprint 56's campaign machine, triage map, and 26,705-cell `trunk` PASS ratchet
+are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -115,7 +118,7 @@ at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
 cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
 closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
-Sprint 58 remains at 9/30; Sprint 60's
+Sprint 58 remains at 10/30; Sprint 60's
 out-of-order closure does not advance the contiguous closure ratchet or permit
 Phase 13/release sign-off.
 
@@ -406,13 +409,13 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (9/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (10/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19–27 are days
-1–9 of the current streak; the ledger still needs 21 consecutive dates, so
+cancelled before bootstrap and retained no artifact. August 19–28 are days
+1–10 of the current streak; the ledger still needs 20 consecutive dates, so
 do not call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
@@ -507,7 +510,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 9/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at 10/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -522,8 +525,9 @@ do not call the sprint closed until that operational obligation is complete.
   (`b54fda67`, run `32617645741`), and matching-head x86/ARM evidence on
   August 24 (`83f846e8`, runs `32686915858`/`32688703871`), August 25
   (`65cd4928`, runs `32798572708`/`32807232448`), and August 26
-  (`69113c47`, runs `32919964767`/`32928733136`), and August 27
-  (`6ef24ca2`, runs `33056638768`/`33080889159`) are current days 1–9.
+  (`69113c47`, runs `32919964767`/`32928733136`), August 27
+  (`6ef24ca2`, runs `33056638768`/`33080889159`), and August 28
+  (`5277c7fc`, runs `33168831416`/`33184794811`) are current days 1–10.
   Continue recording distinct UTC dates and every due weekly
   cross/reproducibility result; any missing or red required run breaks the
   streak. Supplemental manual run
@@ -539,10 +543,11 @@ do not call the sprint closed until that operational obligation is complete.
   and all 912 fixed-point payload comparisons per date. August 23's final
   cross artifact also verified 7/7 embedded provenance hashes, 226/226
   assembly-manifest hashes, and 228/228 paired final payloads with
-  `normalization=none`. For August 27, all four retained run manifests were
-  inspected at exact head `6ef24ca2` and report successful x86-64/ARM64 O0/O2
-  outcomes; the separate full payload-rehash audit has not been repeated for
-  that date.
+  `normalization=none`. For August 27–28, all four retained daily artifacts
+  per date have successful GitHub job/workflow conclusions at their exact
+  matching heads, and their API-reported ZIP digests are recorded in the
+  ledger; the separate full payload-rehash audit has not been repeated for
+  those dates.
 
 `ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
 soak and therefore owns the next contiguous closure step.
@@ -1117,7 +1122,7 @@ and green post-publication CI.
   `fb0e6b81a39dc9e1e8efce814deee4e1bf30edf74f4fac2965fa5f85cbe3e142`
   and
   `040ce629a331fc2e34487da2c792d10518cc636b6822a00da4c46b03f2753a13`.
-- The current `s56.5-generic-qualified-associations` tranche preserves
+- The merged `s56.5-generic-qualified-associations` tranche preserves
   top-level qualifiers while validating `_Generic` association compatibility,
   so `int` and `const int` remain distinct association types. Targeted
   conversion/sema tests and `ctestsuite/00219.c` pass at O0/O1/O2/O3/Os on
@@ -1152,6 +1157,48 @@ and green post-publication CI.
   `97f08637f9496d2b66050713cda5d48f0d10545e5176d0ebdbb2d8271f4fd329`
   and
   `3b13ec4287013fc059068850421ac9d2a22d636154a12b53034d3532dfe9e916`.
+  Publication commit `c79f551a` then passed complete standard CI
+  [run 33193846144](https://github.com/tenseleyFlow/Cgfried/actions/runs/33193846144),
+  including hosted x86 torture and the 100k sanitizer fuzz lane, plus a green
+  exact-head native full-lattice
+  [run 33193961044](https://github.com/tenseleyFlow/Cgfried/actions/runs/33193961044).
+  PR #49 merged as `d8ccfc04`; 26,705 PASS cells and 26 live repair rows are
+  now the `trunk` baseline.
+- The current `s56.5-extern-void-symbols` tranche accepts only a non-defining
+  `extern void marker;` declaration for linker-script boundary symbols. Its
+  address can retain a linker relocation and constant integer addend in a
+  static pointer-width integer initializer; removing `extern`, adding an
+  initializer, or otherwise defining a void object still errors. Restacked
+  commit `55a5b2a6` is patch-identical to the transferred implementation.
+  Native Darwin validation builds the compiler, passes the focused sema unit
+  and `extern_void_symbol.c` fixture, and compiles torture exemplar
+  `20011114-1.c` at O0/O1/O2/O3/Os as Mach-O arm64. PR #50 pre-publication CI
+  [run 33197652607](https://github.com/tenseleyFlow/Cgfried/actions/runs/33197652607)
+  passed every completed non-torture job, including macOS ARM64, native ARM,
+  QEMU, sanitizers, campaigns, and ordinary tests; hosted torture refused only
+  the expected five uncommitted x86-64 PASS cells while the long 100k frontend
+  fuzz job continued. Exact-head native full-lattice
+  [run 33197694401](https://github.com/tenseleyFlow/Cgfried/actions/runs/33197694401)
+  passed every non-ARM-torture job and refused only the matching five ARM64
+  cells at `4376c643`.
+  The publishable exact-head x86-64 and ARM64 streams have SHA-256 values
+  `76cad4d95ae5c26aacb31fe428afb4be4ef348470a2373663e0ec2d80ba1570e`
+  and
+  `89839c97b0b747910f30b2a322c44e5ef4a2f61a3be8f05144d3b3095d5c037d`.
+  Both name source revision `4376c6434f85bf4d769bfe50e0319583203a95ca`
+  and share compiler-source SHA-256
+  `e5e1a15fec23ff59131824835f38e77633a0f2cf842435211c0a552991fd7675`
+  plus identical harness and manifest hashes. A formal `make
+  torture-baseline` regenerated the exact x86 stream byte-identically and
+  atomically promoted exactly the ten `20011114-1.c` cells with zero PASS
+  regression. It retired fingerprint `356cb2e2...`; the result is 26,715 PASS
+  cells, 7,315 classified failures, 59 buckets, 50 applied decisions, zero
+  stale/unresolved decisions, and 25 live `s56.5-*` repair rows. Reversing the
+  two evidence streams regenerates both outputs byte-identically; the PASS and
+  triage SHA-256 values are respectively
+  `8ba6feb371b5291b134a36fdf88d6f527f3c3745e0fd182800f9d00aeb594d03`
+  and
+  `d7257d510dfa591bc62a5e9c0b5cd2049d6278297a325406e900e688d3e5f261`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -1203,9 +1250,11 @@ merged through PR #44 as `d52e44d1`; GNU macro pragma stacks are merged through
 PR #46 as `eba78f27`. The alignof extension tranche is implemented and its
 target-complete ratchet merged through PR #47 as `5277c7fc`. The
 extension-type-name tranche is implemented and merged through PR #48 as
-`1d6da267`. The generic-qualified-association tranche is implemented and its
-target-complete ratchet is published on PR #49. The remaining compiler debt is
-enumerated by the 26 live `s56.5-*` policy rows. Sprint
+`1d6da267`. The generic-qualified-association tranche is implemented,
+target-complete, and merged through PR #49 as `d8ccfc04`. The extern-void
+tranche is implemented and its target-complete ratchet is published on the
+current isolated PR #50 branch. The remaining compiler debt is enumerated by
+the 25 live `s56.5-*` policy rows. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---

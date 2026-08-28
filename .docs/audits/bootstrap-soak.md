@@ -25,7 +25,7 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 9/30 consecutive distinct UTC dates green.** The current streak
+**RUNNING: 10/30 consecutive distinct UTC dates green.** The current streak
 started on 2026-08-19. The first streak began on 2026-08-13 and reached 5/30
 through 2026-08-17. It reset on 2026-08-18 because the required x86 O0 job was
 cancelled during system-toolchain installation: bootstrap was skipped, the
@@ -33,8 +33,8 @@ evidence-manifest step failed, and no x86 O0 artifact was retained. The green
 native ARM64 pair on that date cannot cure a missing required daily lane.
 August 19 is therefore day 1 of the new streak, August 20 is day 2, August 21
 is day 3, August 22 is day 4, August 23 is day 5, August 24 is day 6, August
-25 is day 7, August 26 is day 8, and August 27 is day 9. A missing or red
-required run resets the streak.
+25 is day 7, August 26 is day 8, August 27 is day 9, and August 28 is day 10.
+A missing or red required run resets the streak.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -77,6 +77,7 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-08-25 | `65cd492820d009ddb69b8d23ffe1213792fde209` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32798572708](https://github.com/tenseleyFlow/Cgfried/actions/runs/32798572708) + [ARM run 32807232448](https://github.com/tenseleyFlow/Cgfried/actions/runs/32807232448) |
 | 2026-08-26 | `69113c47f5880e12cef84d40bb2242765d005888` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32919964767](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767) + [ARM run 32928733136](https://github.com/tenseleyFlow/Cgfried/actions/runs/32928733136) |
 | 2026-08-27 | `6ef24ca219b8c47bd72f7f2bb821463e60d42a1d` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33056638768](https://github.com/tenseleyFlow/Cgfried/actions/runs/33056638768) + [ARM run 33080889159](https://github.com/tenseleyFlow/Cgfried/actions/runs/33080889159) |
+| 2026-08-28 | `5277c7fc871261bf52aa290f68cedb1c5209a88f` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33168831416](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168831416) + [ARM run 33184794811](https://github.com/tenseleyFlow/Cgfried/actions/runs/33184794811) |
 
 Manual full-lattice checkpoint [run
 32603828216](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
@@ -111,7 +112,7 @@ above,
 `sprint58-bootstrap-arm64-cross-input`,
 `sprint58-bootstrap-arm64-cross-native`,
 `sprint58-bootstrap-arm64-cross-x86`, and
-`sprint58-bootstrap-arm64-cross-final`. The August 17, 19–22, and 24–26
+`sprint58-bootstrap-arm64-cross-final`. The August 17, 19–22, and 24–28
 paired runs retain the four daily artifacts:
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
@@ -261,6 +262,24 @@ SHA-256 digests for the retained artifact ZIPs:
     `a7747843b379738589c3180c1e0bb74fee518b5642c26837c9b078a93502b753`
   - `sprint58-bootstrap-arm64-linux-native-O2`:
     `ddece12fb04d162b9daef1af133577bdc382f922d9cc987881f8fe2714d39cf8`
+- 2026-08-27 x86 run `33056638768` and ARM run `33080889159`:
+  - `sprint58-bootstrap-x86_64-linux-O0`:
+    `f77fcb1ac12c8cf3de073fa9e6758554a32cf337f9ed904f1cc94494df71571e`
+  - `sprint58-bootstrap-x86_64-linux-O2`:
+    `d22bb8c89085ba62331591ba6a6b1481c19c032aaf03e821862d89c0a8e932d2`
+  - `sprint58-bootstrap-arm64-linux-native-O0`:
+    `3182333d9c0fd7d78adcc0f2a9d566851ff9e4f05a1f0d4dec09b6b942d07e36`
+  - `sprint58-bootstrap-arm64-linux-native-O2`:
+    `578d8731bc86c678d00755fb310760756edf84d9636daece4faf12b27d01e6e6`
+- 2026-08-28 x86 run `33168831416` and ARM run `33184794811`:
+  - `sprint58-bootstrap-x86_64-linux-O0`:
+    `a09209fbc58a0eb8f2db036abc0b13d800edc6257d7bb05fab0c5c74fba0f0fb`
+  - `sprint58-bootstrap-x86_64-linux-O2`:
+    `ade3989237824e85a5b081ad72ac3674df3e933dd89aa7c262b6424c5396cc08`
+  - `sprint58-bootstrap-arm64-linux-native-O0`:
+    `290ca9c3ee8ba21057051ff5376257f5c1f83a211a5b6de914fc9aec1e4e8464`
+  - `sprint58-bootstrap-arm64-linux-native-O2`:
+    `f407cc0662b14a2cd014238c374f8e3ef407b73f5ffb5fa59c97a64dd7460b74`
 
 These are API-reported ZIP digests, not locally recomputed ZIP hashes. For the
 August 16–22 scheduled evidence, this documentation pass did not download the
@@ -287,6 +306,12 @@ paired assembly/object/archive/compiler payloads byte-for-byte. The three
 intermediate cross-host ZIPs were not separately downloaded; their GitHub API
 digests are recorded above, while the final artifact independently
 authenticates the exact inputs the comparison consumed.
+
+The August 27–28 paired runs retain all four required daily artifacts at their
+respective exact matching heads. Their GitHub API artifact digests are recorded
+above, and each job and workflow conclusion is successful. The separate full
+payload-rehash audit has not been repeated for those dates, so this ledger does
+not claim the stronger August 23–26 content audit for them.
 
 Fresh downloads of the final artifacts independently reverified all seven
 embedded provenance hashes and byte-compared both 113-file assembly/object
