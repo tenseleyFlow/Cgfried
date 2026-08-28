@@ -328,9 +328,15 @@ void ast_expr_render(const AstNode *e, Buf *out)
         }
         return;
     case AST_EXPR_ALIGNOF:
-        buf_printf(out, "(alignof<");
-        ast_type_render(e->type, out);
-        buf_printf(out, ">)");
+        if (e->type) {
+            buf_printf(out, "(alignof<");
+            ast_type_render(e->type, out);
+            buf_printf(out, ">)");
+        } else {
+            buf_printf(out, "(alignof ");
+            ast_expr_render(e->lhs, out);
+            buf_printf(out, ")");
+        }
         return;
     case AST_EXPR_GENERIC:
         buf_printf(out, "(_Generic ");

@@ -352,6 +352,13 @@ struct AstNode {
     bool unevaluated; /* operand of sizeof/_Alignof, or a _Generic
                        * controlling expression: sema and lowering must
                        * never emit code for it (6.5.1.1p2, 6.5.3.4p2) */
+    /* GNU __alignof__(expr) observes alignment attached to a declaration or
+     * member, not merely the expression's Type. Sema records the exact
+     * lvalue alignment when it differs from or refines the type -- including
+     * a packed member LOWERING it; zero means "use the Type". Parenthesis
+     * preserves it, while value-producing operators intentionally do not. */
+    u64 sem_lvalue_align;
+    bool sem_is_bitfield; /* resolved member expression; not addressable */
     /* AST_EXPR_STRING synthesized for C11 `__func__` or GNU
      * `__FUNCTION__` / `__PRETTY_FUNCTION__`. Its element type is const char,
      * unlike an ordinary string literal's char, while lowering can share the
