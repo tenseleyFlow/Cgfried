@@ -25,7 +25,7 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 8/30 consecutive distinct UTC dates green.** The current streak
+**RUNNING: 9/30 consecutive distinct UTC dates green.** The current streak
 started on 2026-08-19. The first streak began on 2026-08-13 and reached 5/30
 through 2026-08-17. It reset on 2026-08-18 because the required x86 O0 job was
 cancelled during system-toolchain installation: bootstrap was skipped, the
@@ -33,8 +33,8 @@ evidence-manifest step failed, and no x86 O0 artifact was retained. The green
 native ARM64 pair on that date cannot cure a missing required daily lane.
 August 19 is therefore day 1 of the new streak, August 20 is day 2, August 21
 is day 3, August 22 is day 4, August 23 is day 5, August 24 is day 6, August
-25 is day 7, and August 26 is day 8. A missing or red required run resets the
-streak.
+25 is day 7, August 26 is day 8, and August 27 is day 9. A missing or red
+required run resets the streak.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -76,6 +76,7 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-08-24 | `83f846e8ba4b83a58ec273fa4e2c1b6055f2a51a` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32686915858](https://github.com/tenseleyFlow/Cgfried/actions/runs/32686915858) + [ARM run 32688703871](https://github.com/tenseleyFlow/Cgfried/actions/runs/32688703871) |
 | 2026-08-25 | `65cd492820d009ddb69b8d23ffe1213792fde209` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32798572708](https://github.com/tenseleyFlow/Cgfried/actions/runs/32798572708) + [ARM run 32807232448](https://github.com/tenseleyFlow/Cgfried/actions/runs/32807232448) |
 | 2026-08-26 | `69113c47f5880e12cef84d40bb2242765d005888` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32919964767](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767) + [ARM run 32928733136](https://github.com/tenseleyFlow/Cgfried/actions/runs/32928733136) |
+| 2026-08-27 | `6ef24ca219b8c47bd72f7f2bb821463e60d42a1d` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33056638768](https://github.com/tenseleyFlow/Cgfried/actions/runs/33056638768) + [ARM run 33080889159](https://github.com/tenseleyFlow/Cgfried/actions/runs/33080889159) |
 
 Manual full-lattice checkpoint [run
 32603828216](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
