@@ -34,12 +34,12 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **35
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **36
 implemented / 6 parsed-ignored / 8 refused** on `trunk`; the current
-`s56.5-pragma-macro-stack` branch raises the implemented tier to 36 while its
-provenance-matched target-complete torture evidence is collected.
-Sprint 56's campaign machine, triage map, and 26,615-cell `trunk` PASS ratchet
-are complete; the current pragma publication raises that ratchet to 26,635.
+`s56.5-alignof-extensions` branch raises the implemented tier to 37 and
+publishes its provenance-matched target-complete torture evidence.
+Sprint 56's campaign machine, triage map, and 26,635-cell `trunk` PASS ratchet
+are complete; the current alignof publication raises that ratchet to 26,665.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -985,7 +985,7 @@ and green post-publication CI.
   [run 33154192442](https://github.com/tenseleyFlow/Cgfried/actions/runs/33154192442)
   passed all required jobs, including the 38m23s frontend-fuzz lane, and PR
   #45 merged as `90d1b397`.
-- The current `s56.5-pragma-macro-stack` tranche implements GNU
+- The `s56.5-pragma-macro-stack` tranche implements GNU
   `#pragma push_macro` / `#pragma pop_macro` and their `_Pragma` forms with
   arena-owned definition snapshots, independent per-name LIFO stacks,
   undefined-state restoration, and point-sensitive macro-history events.
@@ -1034,15 +1034,58 @@ and green post-publication CI.
   `161fbcc12e25be9ae2260f173ed1d44d898f4bc0fbea606a93a0fc20e0c08de1`
   and
   `9cfc7d3a01c1c31764c571ea41422c77b5d35ca140782f33f5f32a9f96882d46`.
+  Post-publication CI
+  [run 33160370673](https://github.com/tenseleyFlow/Cgfried/actions/runs/33160370673)
+  passed every required job, including the 35m frontend-fuzz lane, and PR #46
+  merged as `eba78f27`.
+- The current `s56.5-alignof-extensions` tranche implements GNU
+  `__alignof__` / `__alignof` type and unevaluated-expression forms. Sema
+  preserves exact aligned-declaration, effective-member, packed-member, and
+  parenthesized-lvalue alignment; bitfields are rejected; GNU void and
+  function forms return the target extension alignment with GCC-compatible
+  pedantic warning groups. GNU tiers are 37 implemented / 6 parsed-ignored /
+  8 refused on this branch. Full `make test` is green at 816 unit tests /
+  4,293,948 assertions, 731 program fixtures, and 104 permanent corpus
+  fixtures. The deterministic frontend-fuzz digest moved from
+  `4f3b5b345891f2a3` to `d9ec583ab2f56992`, was reproduced twice before
+  repinning, and passes under ASan+UBSan. Full `make test-san` and a strict
+  Clang build are green.
+  Pre-publication PR #47 CI
+  [run 33162872170](https://github.com/tenseleyFlow/Cgfried/actions/runs/33162872170)
+  passed all nineteen non-torture jobs and refused only the expected fifteen
+  x86-64 PASS additions. Matching-head native full-lattice
+  [run 33162897964](https://github.com/tenseleyFlow/Cgfried/actions/runs/33162897964)
+  passed all fourteen non-torture jobs and refused only the matching fifteen
+  ARM64 additions. Exact-head x86-64 and ARM64 streams have SHA-256 values
+  `e67599c70160bbf87a9e55161ade19f3153ccf675c9145b71a81a304202fceab`
+  and
+  `6adc440ea5bc7d9bea521dbd345ba18c1c749f988e2136930a418b26aabe49df`.
+  Both are stamped at `4e247d4b` and share compiler-source, harness,
+  torture-manifest, and ctestsuite-manifest SHA-256 values
+  `256baaf51ceb54fedf5dbc249396d51ec9131ac644d6be149ec8fd68a37bcf5a`,
+  `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`,
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Atomic publication promotes exactly thirty target-level cells with zero
+  PASS regression and retires fingerprints `03642ec0...` and `48e045cd...`.
+  The result is 26,665 PASS cells, 7,365 classified failures, 61 buckets, 52
+  applied decisions, zero stale/unresolved decisions, and 28 live `s56.5-*`
+  repair decisions. Reversing the two evidence streams regenerates both
+  outputs byte-identically; the PASS and triage SHA-256 values are
+  respectively
+  `98d1cd1e25e77b1b990cb2eeb755d973de6f9eb72c0be58cb9a8bcf0f096e07c`
+  and
+  `28ac212395a7ec59be985949b5c037cd14eb2220221e2a95185609e9219c5596`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (816 unit tests /
-  4,293,945 assertions, 728 program fixtures, and every
+  4,293,948 assertions, 731 program fixtures, and every
   corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
-  and Clang builds, `make bootstrap-O0`, and `make bootstrap-O2`. Both
-  bootstraps reproduce 114 assembly files, 114 objects, the runtime archive,
-  and the compiler byte-identically with no normalization. Expected local
-  skips are only optional-tool/platform lanes and match their committed
-  ledgers.
+  and Clang builds. Exact-head bootstrap push and PR
+  [runs 33162857672](https://github.com/tenseleyFlow/Cgfried/actions/runs/33162857672)
+  and
+  [33162871482](https://github.com/tenseleyFlow/Cgfried/actions/runs/33162871482)
+  both pass O0/O2. Expected local skips are only optional-tool/platform lanes
+  and match their committed ledgers.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -1058,8 +1101,10 @@ exact-head target-complete ratchet is merged through PR #41. The old-style
 designator tranche is implemented and its exact-head target-complete ratchet is
 merged through PR #42 as `6ef24ca2`; range designators are merged through PR
 #43. GNU `#ident` is implemented and its exact-head target-complete ratchet is
-merged through PR #44 as `d52e44d1`. The remaining compiler debt is enumerated
-by the 30 live
+merged through PR #44 as `d52e44d1`; GNU macro pragma stacks are merged through
+PR #46 as `eba78f27`. The alignof extension tranche is implemented and its
+target-complete ratchet is published on PR #47. The remaining compiler debt is
+enumerated by the 28 live
 `s56.5-*` policy decisions. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
