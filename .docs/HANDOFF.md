@@ -34,7 +34,7 @@ and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
 reporting, policy checks, scheduler integration, and controlled-power model
 are implemented. Kasumi, Hasu, and Nomad each have accepted controlled Sprint
-54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **32
+54 evidence on three distinct UTC dates. Sprint 55's GNU tier table is **33
 implemented / 6 parsed-ignored / 8 refused** on `trunk`.
 Sprint 56's campaign machine, triage map, and 26,595-cell PASS ratchet are
 complete. Sprint 57's pinned compile-the-world campaigns, truthful
@@ -603,9 +603,9 @@ has closed the gap, so `ci/closed_sprints.txt` now includes Sprint 57.
 
 Integrated campaign implementation:
 `/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried` on `trunk`.
-The current Sprint 56.5 range-designator tranche is isolated in
-`/home/mfwolffe/GithubOrgs/tenseleyFlow/Cgfried-s565-range-designators` on
-`s56.5-range-designators`.
+The latest Sprint 56.5 range-designator tranche is integrated through PR #43
+at merge commit `6c1cd12b`; its former worktree and branch retain only local
+evidence and cleanup state.
 
 - Imported byte-pristine gcc c-torture and c-testsuite corpora contain 2,016
   compile, 1,752 execute, 78 IEEE, and 219 c-testsuite cases.  Both import
@@ -615,17 +615,17 @@ The current Sprint 56.5 range-designator tranche is isolated in
   bootstrap repairs, Sprint 61 remediation, and the Sprint 56.5 declarator,
   packed-bitfield, enum-bitfield, enum-integer-mode, static-subobject
   pointer-difference, VLA-semantics, aggregate-initializer,
-  flexible-array-initializer, nested-flexible-array-member, and old-style-
-  designator tranches, outcome totals are 26,595 PASS, 6,620 SKIP, and 7,435
-  classified failures.
+  flexible-array-initializer, nested-flexible-array-member,
+  old-style-designator, and range-designator tranches, outcome totals are
+  26,595 PASS, 6,620 SKIP, and 7,435 classified failures.
 - The v2 streams share source/compiler/harness/manifest provenance.  The final
   harness hash is
   `b6e50c45f810d83e0b9e5b5adcc722f8ec2a5e2afdc98a0611386507b01a07b5`.
   Volatile GNU-ld identifiers and section offsets are normalized; 451 linker
   failures per target collapse into four semantic fingerprints.
-- `.docs/audits/torture-triage.md` has 100% bucket coverage: 67 total buckets,
-  58 durable overlay decisions, zero stale, zero unresolved, and no misc
-  bucket. The overlay contains 34 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
+- `.docs/audits/torture-triage.md` has 100% bucket coverage: 66 total buckets,
+  57 durable overlay decisions, zero stale, zero unresolved, and no misc
+  bucket. The overlay contains 33 `fix-sprint:s56.5-*`, 18 `out-of-scope`,
   and six `wontfix-0.1.0` decisions. No TORT XFAIL was minted.
 - `tests/torture/passing.txt` is the exact sorted 26,595-cell PASS set. The
   `e941403d` refresh promoted 103 x86-64 and 98 arm64 cells with zero
@@ -837,13 +837,13 @@ The current Sprint 56.5 range-designator tranche is isolated in
   `cd12b88b6cb82bfdf89f68eb262ce1d61a8ab30ca5118586203b4f9e1c752e30`.
   Atomic publication promoted exactly those 60 cells, retired fingerprint
   `90b3c7e7...`, and preserved all ten `init-3.c` cells under `b28fda1f...`.
-  The resulting overlay is 58 applied / 0 stale / 0 unresolved and has 7,435
+  The resulting overlay is 57 applied / 0 stale / 0 unresolved and has 7,435
   classified failures. Reversed input order regenerates both outputs byte-
   identically; the PASS and triage SHA-256 values are respectively
   `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
   and
-  `1fbf09c06953c8ab0e11fb49c9f70bf7c7eaa0919a710c2cd0e8be33b9fbd958`.
-- The active `s56.5-range-designators` tranche recognizes GNU's inclusive
+  `ba039f0eca2b3476027ee506e1e9c02943726bc02914e11480b69b5f08f8ce15`.
+- The merged `s56.5-range-designators` tranche recognizes GNU's inclusive
   `[first ... last]` spelling, folds each endpoint once as a nonnegative ICE,
   completes unsized arrays from the highest selected endpoint, and expands
   chained ranges as a Cartesian product through the existing current-object
@@ -852,8 +852,8 @@ The current Sprint 56.5 range-designator tranche is isolated in
   paths. Runtime values are materialized once per original range initializer,
   preserving GNU's side-effect-once rule even for aggregate leaves.
   `-pedantic` warns while `__extension__` suppresses the warning. The tracked
-  GNU tier table is 33 implemented / 6 parsed-ignored / 8 refused on this
-  branch; `trunk` remains 32 / 6 / 8 until integration. Focused unit, runner,
+  GNU tier table is 33 implemented / 6 parsed-ignored / 8 refused on `trunk`.
+  Focused unit, runner,
   x86-64 O2 execution, ARM64 O0/O2 assembly, and the 220-file parser
   differential are green. Adding the two deterministic fuzz inputs changes
   the 5,000-iteration sequence digest from `389f09592ae84eb1` to
@@ -883,6 +883,11 @@ The current Sprint 56.5 range-designator tranche is isolated in
   `e10c32ea7c0e7486654f66d244980503ea0f9025bc44af61daa3a2eee64b7749`
   and
   `ba039f0eca2b3476027ee506e1e9c02943726bc02914e11480b69b5f08f8ce15`.
+  Post-publication CI
+  [run 33138150747](https://github.com/tenseleyFlow/Cgfried/actions/runs/33138150747)
+  then passed all 21 jobs at `52b627af`, including hosted torture, sanitizers,
+  and the full fuzz budget; both bootstrap workflows were also green. PR #43
+  merged as `6c1cd12b`.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (810 unit tests /
   4,293,858 assertions, 720 program fixtures, and every
