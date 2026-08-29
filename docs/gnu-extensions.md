@@ -88,6 +88,7 @@ predefine.
 | `#pragma push_macro` / `pop_macro` | `tests/programs/gnu/pragma_macro_stack.c` | headers that temporarily replace a public macro and then restore the caller's definition |
 | `__alignof__` / `__alignof` expression and incomplete-type forms | `tests/programs/gnu/alignof_extensions.c` | GCC-compatible alignment queries used by allocators, stack-alignment checks, and historical system code |
 | non-defining `extern void` linker symbols | `tests/programs/gnu/extern_void_symbol.c` | linker-script boundary symbols whose address participates in a static integer relocation |
+| hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form

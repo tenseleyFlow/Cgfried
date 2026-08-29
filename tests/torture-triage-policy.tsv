@@ -22,7 +22,6 @@
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	85d8b226e143af78038272dd79f5312eb0b394436408cbeab5a1893200b436e5	sema	all	Array-to-pointer conversion is applied to an array compound literal before an incomplete static array can be completed from the aggregate initializer.	fix-sprint:s56.5-compound-literal-array-completion
--	8d61a6cd5e279f461d9b8326daed634ac0d1ac6efe2f9cfa38669290d6137fe4	ld	all	GNU89's plain alloca spelling is emitted as an external call instead of lowering through the implemented alloca builtin.	fix-sprint:s56.5-gnu-alloca-alias
 -	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	a1baad615656922dd0c5cf03bae7bde4254cdc850813b578887e94bd88520db6	ld	all	Only the first file-scope declarator in a comma-separated tentative-definition declaration is emitted, leaving sibling globals undefined.	fix-sprint:s56.5-sibling-global-emission
