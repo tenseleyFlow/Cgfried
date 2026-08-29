@@ -405,6 +405,16 @@ fingerprint_file()
     fingerprint_text "$ff_diag"
 }
 
+# A runtime signal carries no semantic diagnostic: timeout/core-dump wording is
+# supplied by the host and can even be identical for SIGABRT and SIGSEGV.  The
+# testcase is the smallest stable semantic identity available.  Key it without
+# target or optimization level so one source converges across the whole matrix,
+# while unrelated wrong-result families no longer collapse into one bucket.
+fingerprint_runtime_signal()
+{
+    fingerprint_text "runtime-signal suite=$1 file=$2 signal=$3"
+}
+
 validate_flags()
 {
     vf_flags=$1
@@ -725,7 +735,9 @@ run_case()
         fi
     fi
     if [ "$outcome" != PASS ] && [ "$outcome" != SKIP ]; then
-        if [ "$fp" = - ]; then
+        if [ "$outcome" = SIGNAL ]; then
+            fp=$(fingerprint_runtime_signal "$suite" "$file" "$signal")
+        elif [ "$fp" = - ]; then
             fp=$(fingerprint_file "$run_err" "$source")
         fi
         if [ "$xfail" -ne 0 ]; then outcome=XFAIL; signal=-; case_show_xfail=1; fi

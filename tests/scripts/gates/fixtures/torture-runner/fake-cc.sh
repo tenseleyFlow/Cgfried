@@ -190,7 +190,7 @@ wrong-exit.c)
 exit124.c)
     printf '%s\n' '#!/bin/sh' 'exit 124' > "$output"
     ;;
-signal.c | xfail-signal.c)
+signal.c | signal-alt.c | xfail-signal.c)
     printf '%s\n' '#!/bin/sh' 'kill -TERM $$' > "$output"
     ;;
 timeout.c)
