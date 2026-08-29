@@ -36,7 +36,7 @@ VEC_DECL(PpVecS, PpToken);
 
 /* Runs the whole front end over `src` and leaves the Sema state open for
  * inspection — the file scope is still current, so scope_lookup works. */
-static void run_sema(SemaFix *f, const char *src, CStd std)
+static void run_sema_opts(SemaFix *f, const char *src, CStd std, bool pedantic)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -60,6 +60,9 @@ static void run_sema(SemaFix *f, const char *src, CStd std)
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
+    lang.pedantic = pedantic;
+    if (pedantic)
+        (void)warn_flag(lang.warnings, "pedantic");
     f->pp.warn = lang.warnings;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
@@ -74,6 +77,11 @@ static void run_sema(SemaFix *f, const char *src, CStd std)
     tu = parse_translation_unit(&f->ps);
     sema_init(&f->sema, &f->arena, f->dc, &f->in, &lang, target);
     sema_run(&f->sema, tu);
+}
+
+static void run_sema(SemaFix *f, const char *src, CStd std)
+{
+    run_sema_opts(f, src, std, false);
 }
 
 static void sfix_free(SemaFix *f)
@@ -183,6 +191,76 @@ void test_sema_gnu_alloca_alias(TestCtx *t)
     alloca_name = intern_str(&f.in, intern_cstr(&f.in, "alloca"));
     alloca_sym = scope_lookup(f.sema.file_scope, alloca_name, NS_ORDINARY);
     T_ASSERT(t, alloca_sym && alloca_sym->kind == SYM_FUNC);
+    sfix_free(&f);
+}
+
+void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
+{
+    SemaFix f;
+    const char *array_name;
+    Symbol *array;
+
+    run_sema(&f,
+             "static const unsigned short array[] = "
+             "(const unsigned short[]){ 1, 2, 3 };\n",
+             STD_GNU17);
+    array_name = intern_str(&f.in, intern_cstr(&f.in, "array"));
+    array = scope_lookup(f.sema.file_scope, array_name, NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, array != NULL);
+    T_ASSERT(t, array && array->type && array->type->kind == TY_ARRAY);
+    T_ASSERT(t, array && array->type && array->type->has_size);
+    T_ASSERT(t, array && array->type && array->type->size == 3);
+    sfix_free(&f);
+
+    /* This is a value copy, so source/destination element qualifiers do not
+     * make otherwise identical array types incompatible. */
+    run_sema(&f,
+             "static const int qualified[] = (int[]){ 1, 2 }; "
+             "static int unqualified[] = (const int[]){ 3, 4 };\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* The extension is a constant-image rule, not general array assignment:
+     * an automatic destination and an ordinary array expression still fail. */
+    run_sema(&f,
+             "void f(void) { int array[] = (int[]){ 1, 2 }; (void)array; }\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f, "static int source[2]; static int array[2] = source;\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    /* Both completed bounds and element types remain compatibility gates. */
+    run_sema(&f, "static int array[1] = (int[2]){ 1, 2 };\n", STD_GNU17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f, "static int array[] = (long[]){ 1, 2 };\n", STD_GNU17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema_opts(&f, "static int array[] = (int[]){ 1, 2 };\n", STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    sfix_free(&f);
+
+    /* Both declaration- and expression-position `__extension__` cover a
+     * warning that sema emits after the parser's suppression scope ends. */
+    run_sema_opts(&f, "__extension__ static int array[] = (int[]){ 1, 2 };\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    run_sema_opts(&f, "static int array[] = __extension__ (int[]){ 1, 2 };\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
     sfix_free(&f);
 }
 

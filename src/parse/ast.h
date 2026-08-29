@@ -370,6 +370,11 @@ struct AstNode {
      * `&(struct S){0}` case. Recorded here because the parser is the only
      * pass that still knows which scope it was written in. */
     bool is_static_storage;
+    /* `__extension__` suppresses pedantic diagnostics over its declaration
+     * or expression operand. Most such warnings are emitted while parsing,
+     * but compound-literal array initialization is recognized only in sema,
+     * so preserve the parser's otherwise-transient suppression here. */
+    bool suppress_pedantic;
 
     /* --- filled in by SEMA (Sprint 13 onward), NULL/false before it runs.
      * Implicit conversions are MATERIALIZED as AST_EXPR_CAST nodes with

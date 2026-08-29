@@ -375,6 +375,25 @@ bool type_compatible(const Type *a, const Type *b)
     }
 }
 
+bool type_array_initializer_compatible(const Type *target, const Type *source)
+{
+    Type target_unqual;
+    Type source_unqual;
+
+    if (!target || !source || target->kind != TY_ARRAY ||
+        source->kind != TY_ARRAY)
+        return false;
+    if (target->has_size && source->has_size && target->size != source->size)
+        return false;
+    if (target->base->kind == TY_ARRAY || source->base->kind == TY_ARRAY)
+        return type_array_initializer_compatible(target->base, source->base);
+    target_unqual = *target->base;
+    source_unqual = *source->base;
+    target_unqual.quals = 0;
+    source_unqual.quals = 0;
+    return type_compatible(&target_unqual, &source_unqual);
+}
+
 Type *type_composite(Arena *ar, Type *a, Type *b)
 {
     Type *c;

@@ -1647,7 +1647,19 @@ static bool init_expr_initializes_whole(Type *target, const AstNode *init)
         return false;
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
         return true;
+    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_COMPOUND_LIT &&
+        init->sem_type && init->sem_type->kind == TY_ARRAY)
+        return type_array_initializer_compatible(target, init->sem_type);
     return init->sem_type && type_compatible(target, init->sem_type);
+}
+
+static bool init_is_compatible_array_compound_literal(Type *target,
+                                                      const AstNode *init)
+{
+    return target && target->kind == TY_ARRAY && init &&
+           init->kind == AST_EXPR_COMPOUND_LIT && init->sem_type &&
+           init->sem_type->kind == TY_ARRAY &&
+           type_array_initializer_compatible(target, init->sem_type);
 }
 
 /* An array declared without a bound is COMPLETED by its initializer
@@ -1667,6 +1679,16 @@ static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
 
     if (!array || array->kind != TY_ARRAY || !init)
         return false;
+    /* GNU's static whole-array initializer copies the compound literal's
+     * brace image. An incomplete destination consequently inherits the
+     * source literal's already-completed bound, just as it does from a
+     * direct initializer list. Do not count syntax again: the compound
+     * literal owns its own current-object walk and designated bounds. */
+    if (init_is_compatible_array_compound_literal(array, init) &&
+        init->sem_type->has_size) {
+        *out = init->sem_type->size;
+        return true;
+    }
     if (init->kind == AST_EXPR_STRING ||
         (init->kind == AST_INIT_LIST && init->nitems == 1 && init->items[0] &&
          init->items[0]->kind == AST_EXPR_STRING &&
@@ -1888,9 +1910,21 @@ static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
         return;
     init = *slot;
     /* A string literal initializes an array directly; it is not an
-     * assignment to the array object. */
+     * assignment to the array object. GNU gives a compatible array compound
+     * literal the same whole-object treatment for static initialization.
+     * Keeping the exception here is load-bearing: conv_assignable would
+     * decay the literal to a pointer and both lose the source bound and
+     * diagnose an array/pointer mismatch. */
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
         return;
+    if (s->static_init_depth &&
+        init_is_compatible_array_compound_literal(target, init)) {
+        if (s->lang->pedantic && !init->suppress_pedantic)
+            warn_at(s->lang->warnings, WARN_PEDANTIC, init->span,
+                    "initialization of an array from a compound literal is "
+                    "a GNU extension");
+        return;
+    }
     designators = init->designators;
     ndesignators = init->ndesignators;
     memset(&ctx, 0, sizeof(ctx));
@@ -2023,7 +2057,11 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
 
     if (!d->init)
         return;
+    if (is_static_init)
+        s->static_init_depth++;
     sema_type_initializer(s, target, &d->init);
+    if (is_static_init)
+        s->static_init_depth--;
 
     if (target && target->kind != TY_ERROR && type_contains_fam(target) &&
         nested_fam_initialized(s, target, d->init, true)) {

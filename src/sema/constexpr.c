@@ -1967,10 +1967,16 @@ static void fill(InitCtx *c, Type *t, AstNode *init, u64 off)
      * ADDRESS instead, which is the decay case in eval() and reaches here
      * through fill_scalar, so unwrapping there would silently store the
      * pointee where a pointer belongs. */
-    if (init->kind == AST_EXPR_COMPOUND_LIT && init->init &&
-        (t->kind == TY_ARRAY || t->kind == TY_STRUCT || t->kind == TY_UNION) &&
-        init->sem_type && type_compatible(init->sem_type, t))
-        init = init->init;
+    if (init->kind == AST_EXPR_COMPOUND_LIT && init->init && init->sem_type &&
+        (t->kind == TY_ARRAY || t->kind == TY_STRUCT || t->kind == TY_UNION)) {
+        bool compatible =
+            t->kind == TY_ARRAY
+                ? type_array_initializer_compatible(t, init->sem_type)
+                : type_compatible(init->sem_type, t);
+
+        if (compatible)
+            init = init->init;
+    }
     switch (t->kind) {
     case TY_ARRAY:
         fill_array(c, t, init, off);
