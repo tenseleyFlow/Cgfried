@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-28): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-29): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -46,13 +46,16 @@ ratchet are merged as `d8ccfc04`. PR #50's non-defining GNU `extern void`
 linker-symbol repair is merged as `e2439e79`, raising the `trunk` PASS ratchet
 to 26,715 and its GNU tier table to 38 implemented / 6 parsed-ignored / 8
 refused. PR #51's hosted GNU plain `alloca(...)` spelling is merged as
-`d7d59fa`, raising the `trunk` GNU tier table to 39 / 6 / 8 and its PASS
-ratchet to 26,725. The current `s56.5-compound-literal-array-completion`
-branch adds GNU static whole-array initialization from a compatible compound
-literal, raises its branch-local GNU tier table to 40 / 6 / 8, and publishes
-a 26,735-cell target-complete PASS ratchet with 23 live `s56.5-*` repair rows.
-Sprint 56's campaign machine, triage map, and 26,725-cell `trunk` PASS ratchet
-are complete.
+`d7d59fa`, raising the GNU tier table to 39 / 6 / 8 and the PASS ratchet to
+26,725. PR #52's compound-literal array-completion repair is merged as
+`cfaec8d`, raising the GNU tier table to 40 / 6 / 8 and the target-complete
+PASS ratchet to 26,735. The current `s56.5-torture-failure-decomposition`
+branch keeps that PASS set unchanged while replacing one host-diagnostic
+runtime-abort bucket with 15 testcase-stable buckets. Its published triage has
+71 buckets, 62 applied decisions, zero stale/unresolved decisions, and 37
+live repair rows representing 32 remaining `s56.5-*` compiler tranches.
+Sprint 56's campaign machine, triage map, and 26,735-cell PASS ratchet are
+complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1258,7 +1261,7 @@ and green post-publication CI.
   [33221425367](https://github.com/tenseleyFlow/Cgfried/actions/runs/33221425367).
   PR #51 merged as `d7d59fa`; 26,725 PASS cells and 24 live repair rows are
   now the `trunk` baseline.
-- The current `s56.5-compound-literal-array-completion` tranche treats a
+- The `s56.5-compound-literal-array-completion` tranche treats a
   compatible array compound literal as a GNU static whole-array initializer.
   An incomplete destination inherits the literal's completed bound; normal
   pedantic mode diagnoses the extension, while `__extension__` suppresses
@@ -1303,28 +1306,65 @@ and green post-publication CI.
   GNU `timeout` surfaced SIGSEGV/SIGABRT as host-specific `Segmentation
   fault`/`Aborted` text. Do not add policy variants for those emulator-only
   fingerprints; Kasumi remains the documented native x86 publication host.
+  Publication commit `e57a72e` passed complete CI and PR #52 merged as
+  `cfaec8d`; the 26,735 PASS cells and 23 live repair rows became the `trunk`
+  baseline.
+- The current `s56.5-torture-failure-decomposition` tranche fixes the harness
+  truth before selecting another compiler repair. Runtime `SIGNAL` failures
+  now hash `(suite, testcase, signal)` rather than host `timeout`/core-dump
+  wording: one testcase converges across target and optimization lanes, while
+  unrelated wrong-result families cannot collapse. The former 150-cell abort
+  bucket is now 15 ten-cell testcase buckets. Its policy also corrects
+  `stdarg-4.c`: both globals are emitted; the undefined `f1i`/`f2i` calls come
+  from ignored GNU `always_inline` combined with C17 inline fallback rules.
+  Implementation head `42b8f95f02e257e8b494ad26e857338aa11dc73a` passed
+  complete PR CI
+  [run 33279454060](https://github.com/tenseleyFlow/Cgfried/actions/runs/33279454060)
+  and both required bootstrap levels
+  [run 33279454012](https://github.com/tenseleyFlow/Cgfried/actions/runs/33279454012).
+  Exact-head full-lattice
+  [run 33279462432](https://github.com/tenseleyFlow/Cgfried/actions/runs/33279462432)
+  is green on attempt 2 after attempt 1's isolated `raise-race-static` runtime
+  race; both attempts' native ARM torture streams are byte-identical. The
+  retained ARM stream SHA-256 is
+  `b8185e6327aeb9bf31f51f0944179861ab66fa7c0a8ac62474e196172e4dff91`;
+  Kasumi's independently regenerated exact-head x86 stream is
+  `895fd3bfe0a2f4b7c079458bb78ea0afaa685b3785c255d4a48697bbd979cea4`.
+  Both name the implementation head and share compiler-source SHA-256
+  `7e1ab9aaa5960d6daf68ad17c8a25ae520f3e42f1816a71507af1209730b068e`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and identical manifest hashes. Formal `make torture-baseline` regenerated
+  the x86 stream byte-identically and kept the target-complete PASS ratchet at
+  26,735 with zero regression. The published result is 7,295 classified
+  failures, 71 buckets, 62 applied decisions, zero stale/unresolved decisions,
+  and 37 live repair rows representing 32 unique compiler tranches. Reversing
+  the evidence streams regenerates both outputs byte-identically; PASS and
+  triage SHA-256 values are respectively
+  `50cbd08e0820fad479deb207d419db66d2b0f1a23973f1e393fd855cb198bdf4`
+  and
+  `c2b6c2a3a34c98f51596725e2e9fa15add41b649ff28573bf3c7d2f5500ca7d5`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
   signs, and runs. `make tools` builds both bundled Rust tools natively,
   `tests/macos/run.sh` passes all 16 builds and eight programs with both system
   and bundled linkers, and `scripts/macho_objdiff_lane.sh` reports all ten
-  objects byte-identical to Apple `as`. The only local developer-test gap is
-  the x86 simulator helper in `tests/unit/x64sim.h`: it assumes an x86-host
+  objects byte-identical to Apple `as`. One local developer-test gap is the
+  x86 simulator helper in `tests/unit/x64sim.h`: it assumes an x86-host
   10-byte `long double`, while Darwin ARM64 uses eight bytes, so Apple Clang 21
   rejects that helper's `memcpy` under `-Werror`. This is a unit-harness
   portability issue, not a Cgfried Darwin codegen failure; targeted non-x86
   sema/conversion tests pass with that warning demoted. Keep it as a separate
   narrow harness-portability tranche rather than blocking compiler-gap work.
-  Independently, `tests/scripts/gates/torture_runner_test.sh` reproduces a
-  Darwin-only nondeterminism: repeated signal and XFAIL-signal fixtures retain
-  identical normalized text but receive different fingerprints. Production
-  x86/ARM Linux streams and their reversed-order publication are deterministic;
-  fix the volatile pre-normalization signal detail in the same narrow harness
-  tranche. The triage and matrix failure-injection fixtures also miss their
-  expected injected failure on Darwin (the staged atomic outputs themselves
-  remain byte-identical); include their host path/tool assumptions in that
-  harness tranche.
+  The current failure-decomposition tranche fixes the earlier Darwin signal
+  fingerprint nondeterminism; its distinct-testcase and cross-target assertions
+  pass locally. The full runner gate now proceeds to an older Darwin-only phase
+  probe mismatch (`cg-fail.c` has an empty phase instead of `cg`). The triage
+  and matrix failure-injection fixtures also miss their expected injected
+  failure on Darwin (the staged atomic outputs themselves remain
+  byte-identical). Keep those host path/tool assumptions with the x64 simulator
+  issue in the separate harness-portability tranche.
 - Fresh validation is green: `make torture-import-verify
   torture-import-meta torture-meta`, full `make test` (816 unit tests /
   4,293,948 assertions, 731 program fixtures, and every
@@ -1359,9 +1399,10 @@ target-complete, and merged through PR #49 as `d8ccfc04`. The extern-void
 tranche is implemented, target-complete, and merged through PR #50 as
 `e2439e79`. The GNU `alloca` alias tranche is implemented, target-complete,
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
-tranche is implemented and its target-complete ratchet is published on the
-current isolated PR #52 branch. The remaining compiler debt is enumerated by
-the 23 live `s56.5-*` policy rows. Sprint
+tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
+The failure-decomposition tranche is implemented and published on the current
+isolated PR #53 branch. The remaining compiler debt is enumerated by 37 live
+`s56.5-*` policy rows representing 32 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
