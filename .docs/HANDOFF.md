@@ -45,11 +45,13 @@ tier count. PR #49's generic-qualified-association repair and target-complete
 ratchet are merged as `d8ccfc04`. PR #50's non-defining GNU `extern void`
 linker-symbol repair is merged as `e2439e79`, raising the `trunk` PASS ratchet
 to 26,715 and its GNU tier table to 38 implemented / 6 parsed-ignored / 8
-refused. The current `s56.5-gnu-alloca-alias` branch adds the hosted GNU plain
-`alloca(...)` spelling, raises its branch-local GNU tier table to 39 / 6 / 8,
-and publishes a 26,725-cell target-complete PASS ratchet with 24 live
-`s56.5-*` repair rows.
-Sprint 56's campaign machine, triage map, and 26,715-cell `trunk` PASS ratchet
+refused. PR #51's hosted GNU plain `alloca(...)` spelling is merged as
+`d7d59fa`, raising the `trunk` GNU tier table to 39 / 6 / 8 and its PASS
+ratchet to 26,725. The current `s56.5-compound-literal-array-completion`
+branch adds GNU static whole-array initialization from a compatible compound
+literal, raises its branch-local GNU tier table to 40 / 6 / 8, and publishes
+a 26,735-cell target-complete PASS ratchet with 23 live `s56.5-*` repair rows.
+Sprint 56's campaign machine, triage map, and 26,725-cell `trunk` PASS ratchet
 are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -1210,7 +1212,7 @@ and green post-publication CI.
   [33201125834](https://github.com/tenseleyFlow/Cgfried/actions/runs/33201125834).
   PR #50 merged as `e2439e79`; 26,715 PASS cells and 25 live repair rows are
   now the `trunk` baseline.
-- The current `s56.5-gnu-alloca-alias` tranche recognizes a direct plain
+- The merged `s56.5-gnu-alloca-alias` tranche recognizes a direct plain
   `alloca(...)` call as the existing compiler builtin only in hosted GNU mode.
   Strict ISO and freestanding modes retain their ordinary external-call
   behavior, and a local function-pointer object named `alloca` remains an
@@ -1246,6 +1248,61 @@ and green post-publication CI.
   `4529e1d33c03b9b499bee6cc7ac8ee1e67b07ae7df31cc84adcb6d3907f920ea`
   and
   `25f26a7aa93fd7aaf8874206b15048d7885d493562b06e59181360ed830d7dc6`.
+  Publication commit `574cf3f` then passed complete standard CI
+  [run 33221425350](https://github.com/tenseleyFlow/Cgfried/actions/runs/33221425350),
+  exact-head native full-lattice
+  [run 33221503684](https://github.com/tenseleyFlow/Cgfried/actions/runs/33221503684),
+  and push/PR O0/O2 bootstrap runs
+  [33221423351](https://github.com/tenseleyFlow/Cgfried/actions/runs/33221423351)
+  and
+  [33221425367](https://github.com/tenseleyFlow/Cgfried/actions/runs/33221425367).
+  PR #51 merged as `d7d59fa`; 26,725 PASS cells and 24 live repair rows are
+  now the `trunk` baseline.
+- The current `s56.5-compound-literal-array-completion` tranche treats a
+  compatible array compound literal as a GNU static whole-array initializer.
+  An incomplete destination inherits the literal's completed bound; normal
+  pedantic mode diagnoses the extension, while `__extension__` suppresses
+  that diagnostic without suppressing unrelated warnings. Focused sema
+  coverage passes 21 tests / 334 assertions on Darwin ARM64, both native GNU
+  fixtures pass, and `pr48517.c` compiles at O0/O1/O2/O3/Os. PR #52
+  pre-publication CI
+  [run 33227213979](https://github.com/tenseleyFlow/Cgfried/actions/runs/33227213979)
+  passed every non-torture job, including sanitizers and the 100k frontend
+  fuzz lane; hosted torture refused only the expected five uncommitted x86-64
+  PASS cells. Exact-head native full-lattice
+  [run 33227213051](https://github.com/tenseleyFlow/Cgfried/actions/runs/33227213051)
+  passed every non-ARM-torture job and refused only the matching five ARM64
+  cells at `0e0578f64a7c3a119230cf0bed103a0c8afd6a44`; push and PR bootstrap
+  runs
+  [33227212388](https://github.com/tenseleyFlow/Cgfried/actions/runs/33227212388)
+  and
+  [33227213994](https://github.com/tenseleyFlow/Cgfried/actions/runs/33227213994)
+  both pass O0/O2.
+  GitHub's PR checkout produced source revision `24e1677b...` for its
+  synthetic-merge x86 stream, so it could not truthfully combine with the
+  exact-head ARM artifact. The publishable x86 stream was regenerated at the
+  exact branch head on Kasumi. Its SHA-256 is
+  `0d11d5cb07dffdf31bdd31b7f24571cdc2d5e267d83ab89d62732f50bcc3612e`;
+  the retained native ARM stream SHA-256 is
+  `31ce76e34af6ceee55024278c5c4072e1a26ab9454e72e00d42d0281f1157c3c`.
+  Both name source revision `0e0578f64a7c3a119230cf0bed103a0c8afd6a44`
+  and share compiler-source SHA-256
+  `7e1ab9aaa5960d6daf68ad17c8a25ae520f3e42f1816a71507af1209730b068e`
+  plus identical harness and manifest hashes. A formal `make
+  torture-baseline` atomically promoted exactly the ten `pr48517.c` cells
+  with zero PASS regression and retired fingerprint `85d8b226...`. The
+  result is 26,735 PASS cells, 7,295 classified failures, 57 buckets, 48
+  applied decisions, zero stale/unresolved decisions, and 23 live `s56.5-*`
+  repair rows. Reversing the two evidence streams regenerates both outputs
+  byte-identically; the PASS and triage SHA-256 values are respectively
+  `50cbd08e0820fad479deb207d419db66d2b0f1a23973f1e393fd855cb198bdf4`
+  and
+  `fc8bee62348f5a48b9da90f4d5325fe13d885f40ebf7f1ac9cd212ea5a25870d`.
+  The Apple-silicon `yew-s57` x86 emulator completed the same exact-head
+  matrix, but triage correctly refused its diagnostic-only stream because
+  GNU `timeout` surfaced SIGSEGV/SIGABRT as host-specific `Segmentation
+  fault`/`Aborted` text. Do not add policy variants for those emulator-only
+  fingerprints; Kasumi remains the documented native x86 publication host.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -1300,10 +1357,11 @@ extension-type-name tranche is implemented and merged through PR #48 as
 `1d6da267`. The generic-qualified-association tranche is implemented,
 target-complete, and merged through PR #49 as `d8ccfc04`. The extern-void
 tranche is implemented, target-complete, and merged through PR #50 as
-`e2439e79`. The GNU `alloca` alias tranche is implemented and its
-target-complete ratchet is published on the current isolated PR #51 branch.
-The remaining compiler debt is enumerated by the 24 live `s56.5-*` policy
-rows. Sprint
+`e2439e79`. The GNU `alloca` alias tranche is implemented, target-complete,
+and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
+tranche is implemented and its target-complete ratchet is published on the
+current isolated PR #52 branch. The remaining compiler debt is enumerated by
+the 23 live `s56.5-*` policy rows. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
