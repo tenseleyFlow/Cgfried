@@ -1957,6 +1957,36 @@ static void fill(InitCtx *c, Type *t, AstNode *init, u64 off)
 {
     if (!t || !init)
         return;
+    /* A GNU cast from a scalar union member type is the static-image
+     * equivalent of a member-designated compound literal. Reuse the
+     * initializer cursor so relocatable pointer members, union selection,
+     * and deterministic zeroed padding follow the ordinary initializer
+     * path. Aggregate-valued casts remain nonconstant, as in GCC. */
+    if (t->kind == TY_UNION && init->kind == AST_EXPR_CAST && !init->implicit &&
+        init->lhs && init->sem_type && type_compatible(t, init->sem_type)) {
+        Member *selected = type_union_cast_member(t, init->lhs->sem_type);
+
+        if (selected && (type_is_arithmetic(selected->type) ||
+                         selected->type->kind == TY_PTR)) {
+            FillCursor cursor;
+            Member *m;
+            u64 pos = 0;
+
+            for (m = t->tag->members; m && m != selected; m = m->next) {
+                if (m->is_bitfield && !m->name)
+                    continue;
+                pos++;
+            }
+            fill_cursor_start(c, &cursor, t, off);
+            cursor.frames[0].pos = pos;
+            if (!fill_cursor_select(c, &cursor)) {
+                c->ok = false;
+                return;
+            }
+            fill_cursor_value(c, &cursor, init->lhs);
+            return;
+        }
+    }
     /* INITIALIZING AN AGGREGATE FROM A COMPOUND LITERAL OF ITS OWN TYPE is
      * initializing it from that literal's braces:
      *

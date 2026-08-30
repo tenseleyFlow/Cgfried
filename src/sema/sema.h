@@ -427,6 +427,13 @@ bool sema_require_switch_integer(Sema *s, const AstNode *e);
  * have the same width, and `char`/`signed char`/`unsigned char` are three
  * distinct types (6.2.5p15) even where char is signed. */
 bool type_compatible(const Type *a, const Type *b);
+/* GNU `(union U)value` selects the first non-bit-field member whose type
+ * exactly matches the operand after lvalue conversion. This is deliberately
+ * stricter than C compatibility: an enum does not match its compatible
+ * integer representation, and merely convertible arithmetic types do not
+ * match. Top-level qualifiers alone are ignored. */
+Member *type_union_cast_member(const Type *union_type,
+                               const Type *operand_type);
 /* GNU whole-array initialization copies values rather than binding one array
  * object to another, so qualifiers on each array element layer do not affect
  * compatibility. Bounds still must agree when both are present. */

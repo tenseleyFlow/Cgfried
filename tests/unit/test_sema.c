@@ -231,14 +231,64 @@ void test_sema_gnu_aggregate_self_cast(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.warnings, 2);
     sfix_free(&f);
 
-    /* Do not accidentally absorb the adjacent scalar-to-union tranche or
-     * permit casts between distinct aggregate tags. */
+    /* Do not permit casts between distinct aggregate tags or accept a
+     * merely convertible scalar when no union member has its exact type. */
     run_sema(&f,
              "struct A { int x; }; struct B { int x; };\n"
              "union U { int x; };\n"
-             "void f(struct A a) { (struct B)a; (union U)1; }\n",
+             "void f(struct A a) { (struct B)a; (union U)1.0; }\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+}
+
+void test_sema_gnu_cast_to_union_member_type(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "enum E { E0 }; struct P { int x; };\n"
+             "union U { int i; char *p; struct P pair; enum E e; };\n"
+             "void f(int i, const int ci, char *p, struct P pair, enum E e) "
+             "{ (union U)i; (union U)ci; (union U)p; (union U)pair; "
+             "(union U)e; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    run_sema_opts(&f,
+                  "union U { int i; char *p; };\n"
+                  "void f(int i, char *p) { (union U)i; (union U)p; "
+                  "__extension__ (union U)i; "
+                  "__extension__ (union U)p; }\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 2);
+    sfix_free(&f);
+
+    /* Matching is exact after top-level qualifier removal. Do not use the
+     * enum/integer compatibility bridge, arithmetic conversions, pointer
+     * conversions, distinct aggregate tags, or a bit-field's base type. */
+    run_sema(&f,
+             "enum E { E0 }; struct A { int x; }; struct B { int x; };\n"
+             "union I { int i; }; union D { double d; }; "
+             "union P { char *p; }; union UA { struct A a; }; "
+             "union BF { unsigned bits : 3; };\n"
+             "void f(enum E e, float x, void *p, struct B b, unsigned u) "
+             "{ (union I)e; (union D)x; (union P)p; (union UA)b; "
+             "(union BF)u; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+
+    /* Aggregate-member casts are valid rvalues, but not constant expressions
+     * suitable for static initialization. */
+    run_sema(&f,
+             "struct P { int x; }; union U { struct P pair; };\n"
+             "static union U u = (union U)(struct P){ 1 };\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors >= 1);
     sfix_free(&f);
 }
 
