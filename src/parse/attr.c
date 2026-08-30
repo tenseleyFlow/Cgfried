@@ -10,6 +10,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
         return;
     dst->weak |= src->weak;
     dst->gnu_inline |= src->gnu_inline;
+    dst->always_inline |= src->always_inline;
     dst->packed |= src->packed;
     if (src->aligned_expr || src->aligned_bare) {
         if (dst->aligned_expr || dst->aligned_bare)
@@ -77,11 +78,12 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
  * without a word. */
 bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
 {
-    return g->weak || g->gnu_inline || g->packed || g->visibility || g->used ||
-           g->aligned_expr || g->aligned_bare || g->constructor ||
-           g->destructor || g->alias_target || g->asm_name || g->section_name ||
-           g->cleanup_fn || g->deprecated || g->warn_unused_result ||
-           g->has_format || g->nonnull_all || g->nonnull_mask || g->noreturn;
+    return g->weak || g->gnu_inline || g->always_inline || g->packed ||
+           g->visibility || g->used || g->aligned_expr || g->aligned_bare ||
+           g->constructor || g->destructor || g->alias_target || g->asm_name ||
+           g->section_name || g->cleanup_fn || g->deprecated ||
+           g->warn_unused_result || g->has_format || g->nonnull_all ||
+           g->nonnull_mask || g->noreturn;
 }
 
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
@@ -668,6 +670,11 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "gnu_inline")) {
                             gnu->gnu_inline = true;
+                            break;
+                        }
+                        if (gnu &&
+                            gnu_attr_is(name->spelling, "always_inline")) {
+                            gnu->always_inline = true;
                             break;
                         }
                         if (gnu && gnu_attr_is(name->spelling, "visibility")) {

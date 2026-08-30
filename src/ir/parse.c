@@ -1843,6 +1843,8 @@ static bool parse_func(P *p)
     u8 fn_visibility = GNU_VIS_UNSPEC;
     u32 fn_align = 0;
     bool fn_used = false;
+    bool fn_always_inline = false;
+    bool fn_inline_only = false;
     const char *fn_section = NULL;
     bool fn_ctor = false;
     bool fn_dtor = false;
@@ -1947,6 +1949,14 @@ static bool parse_func(P *p)
         next(p);
         fn_used = true;
     }
+    if (tok_is(peek(p), "always_inline")) {
+        next(p);
+        fn_always_inline = true;
+    }
+    if (tok_is(peek(p), "inline_only")) {
+        next(p);
+        fn_inline_only = true;
+    }
     if (tok_is(peek(p), "align")) {
         Tok *av;
 
@@ -2021,6 +2031,8 @@ static bool parse_func(P *p)
     f->visibility = fn_visibility;
     f->align = fn_align;
     f->is_used = fn_used;
+    f->always_inline = fn_always_inline;
+    f->inline_only = fn_inline_only;
     f->section = fn_section;
     f->is_ctor = fn_ctor;
     f->is_dtor = fn_dtor;

@@ -560,6 +560,13 @@ typedef struct IrFunc {
     /* `used`: nothing here references it, keep it anyway. Consumed by IPO's
      * reachability, which is the only thing that deletes a whole function. */
     bool is_used;
+    /* GNU always_inline is a mandatory source-semantic transform, not an
+     * optimization-level hint. `inline_only` records that C17 gives this body
+     * no external definition. Emission IR carries such a body only when it is
+     * always_inline, then the mandatory strip pass removes it after every
+     * direct call has been consumed; analysis IR may retain other bodies. */
+    bool always_inline;
+    bool inline_only;
     /* `section("name")` on a FUNCTION: which output section its code lands in.
      * NULL means the backend's default. */
     const char *section;

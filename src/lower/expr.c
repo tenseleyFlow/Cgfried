@@ -2518,6 +2518,19 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     callee = direct_callee(e->lhs);
     if (callee && callee->uses_va_arg_pack)
         return lower_va_pack_wrapper_call(lo, e, callee);
+    /* Lowering runs after whole-translation-unit sema, so a definition that
+     * appears later is already visible here.  A declaration-only
+     * always_inline call has no body the mandatory IR pass could possibly
+     * splice; diagnose the source construct instead of emitting an ordinary
+     * external call and silently breaking the attribute's contract. */
+    if (callee && callee->gnu.always_inline && !callee->func_def) {
+        if (!lo->failed)
+            diag_emit(lo->dc, DIAG_ERROR, e->span,
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "function body not available",
+                      callee->name);
+        lo->failed = true;
+    }
     if (callee) {
         static const char *const known[] = {
             "abort", "exit", "_Exit", "quick_exit", "longjmp", "siglongjmp"};

@@ -132,8 +132,12 @@ u32 ipo_callgraph_bottom_up_scc(const Callgraph *cg, u32 ordinal);
 
 extern const Pass OPT_PASS_IPO;
 extern const Pass OPT_PASS_INLINE;
+extern const Pass OPT_PASS_FORCE_INLINE;
+extern const Pass OPT_PASS_STRIP_INLINE_ONLY;
 bool opt_ipo(IrModule *m, const OptConfig *cfg);
 bool opt_inline(IrModule *m, const OptConfig *cfg);
+bool opt_force_inline(IrModule *m, const OptConfig *cfg);
+bool opt_strip_inline_only(IrModule *m, const OptConfig *cfg);
 
 /* Sprint 34 loop infrastructure.  Analysis is scratch-arena-owned and pure;
  * canonicalization is a separate mutation because adding block parameters,

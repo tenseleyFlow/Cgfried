@@ -23,7 +23,6 @@
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
--	a1baad615656922dd0c5cf03bae7bde4254cdc850813b578887e94bd88520db6	ld	all	The globals are both emitted; stdarg-4 instead leaves calls to f1i and f2i undefined because GNU always_inline is ignored while C17 inline definitions emit no fallback body.	fix-sprint:s56.5-gnu-always-inline
 -	a8a165d75ac747bc8398b95018f15e9ec04be1fae4c417d91fc62a5e5722fba6	sema	all	Expression typing rejects GNU void dereference expressions and also misclassifies a conditional between compatible enum and int pointers as void pointer.	fix-sprint:s56.5-void-deref-and-pointer-composite
 -	aace2c03842f0e2505bcb4d7ea1906463cf98a369466b5c20a2753de0e9efc31	ld	all	O0 emission retains unreachable or unreferenced calls deliberately named link_error	fix-sprint:s56.5-dead-code-link-elimination
 -	acf3af7f1c9c3a7c11b6175147cd3c92078cd42a313164f6b5145b98513ab18c	parse	all	GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope	wontfix-0.1.0

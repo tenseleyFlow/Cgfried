@@ -1028,10 +1028,11 @@ static void lower_function(Lower *lo, AstNode *def)
     if (sym->uses_va_arg_pack)
         return;
     /* The Sprint 16 inline matrix: an INL_INLINE_DEF provides no external
-     * definition and nothing else in this TU is forced to call it — gcc
-     * emits nothing for it without an `extern` declaration, and neither
-     * do we. (Sprint 33's inliner will read the body from the AST.) */
-    if (sym->inline_kind == INL_INLINE_DEF && !lo->include_inline_defs)
+     * definition and gcc emits nothing for it without an `extern`
+     * declaration. Keep an always_inline body temporarily as mandatory
+     * inliner input; the strip pass removes it before backend emission. */
+    if (sym->inline_kind == INL_INLINE_DEF && !lo->include_inline_defs &&
+        !sym->gnu.always_inline)
         return;
     ft = sym->type;
 
@@ -1173,6 +1174,8 @@ static void lower_function(Lower *lo, AstNode *def)
         lo->fn->linkage = IRLINK_INTERNAL;
     lo->fn->is_weak = sym->gnu.weak;
     lo->fn->is_used = sym->gnu.used;
+    lo->fn->always_inline = sym->gnu.always_inline;
+    lo->fn->inline_only = sym->inline_kind == INL_INLINE_DEF;
     lo->fn->section = sym->section_name;
     lo->fn->is_ctor = sym->gnu.constructor;
     lo->fn->is_dtor = sym->gnu.destructor;
@@ -1453,7 +1456,8 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
                 continue;
             if (sym->uses_va_arg_pack)
                 continue;
-            if (sym->inline_kind == INL_INLINE_DEF && !include_inline_defs)
+            if (sym->inline_kind == INL_INLINE_DEF && !include_inline_defs &&
+                !sym->gnu.always_inline)
                 continue; /* not emitted; calls go through the symbol */
             ptrmap_put_u32(&lo, &lo.func_ids, sym, ++fidx);
         }
