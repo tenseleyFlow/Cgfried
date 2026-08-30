@@ -203,6 +203,45 @@ void test_sema_void_dereference_is_void_expression(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_aggregate_self_cast(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "struct S { int x; }; typedef struct S ST;\n"
+             "union U { unsigned u; int i; }; typedef union U UT;\n"
+             "struct S fs(struct S s) { return (ST)s; }\n"
+             "union U fu(union U u) { return (UT)u; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* ISO mode still accepts GCC's extension, but -Wpedantic names each
+     * explicit cast. __extension__ suppresses its entire cast operand. */
+    run_sema_opts(&f,
+                  "struct S { int x; }; union U { int x; };\n"
+                  "void f(struct S s, union U u) {\n"
+                  "  (struct S)s; (union U)u;\n"
+                  "  __extension__ (struct S)s;\n"
+                  "  __extension__ (union U)u;\n"
+                  "}\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 2);
+    sfix_free(&f);
+
+    /* Do not accidentally absorb the adjacent scalar-to-union tranche or
+     * permit casts between distinct aggregate tags. */
+    run_sema(&f,
+             "struct A { int x; }; struct B { int x; };\n"
+             "union U { int x; };\n"
+             "void f(struct A a) { (struct B)a; (union U)1; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_alloca_alias(TestCtx *t)
 {
     SemaFix f;
