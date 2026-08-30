@@ -2889,11 +2889,41 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
     case AST_EXPR_CAST: {
         Type *to = sem(e);
         Type *from = sem(e->lhs);
+        Member *union_member;
 
         /* Array/function decay: the "value" of the operand is already an
          * address; the cast is a no-op re-labelling. */
         if (from && (from->kind == TY_ARRAY || from->kind == TY_FUNC))
             return lower_rvalue(lo, e->lhs);
+        union_member = e->implicit ? NULL : type_union_cast_member(to, from);
+        if (union_member) {
+            Type *member_type = union_member->type;
+            TypeLayout member_layout = layout_of(lo->sema, member_type);
+            ValueId tmp = lower_temp(lo, to);
+            IrOperand base = ir_op_value(lo->fn, tmp);
+            IrOperand dst = addr_plus(
+                lo, base, (i64)layout_offsetof(lo->sema, to, union_member));
+            IrOperand value = lower_rvalue(lo, e->lhs);
+            u32 align = (u32)(member_layout.align ? member_layout.align : 1);
+
+            if (union_member->packed || (to->tag && to->tag->packed))
+                align = 1;
+            if (lower_is_aggregate(member_type)) {
+                u8 flags = lower_aggregate_access_flags(e->lhs);
+
+                if (member_type->quals & CGF_QUAL_VOLATILE)
+                    flags |= IRF_VOLATILE;
+                lower_memcpy_aggregate(lo, dst, value, member_type, align,
+                                       flags);
+            } else {
+                Lvalue lv = lv_of(lo, dst, member_type);
+
+                lv.align = align;
+                lv.etype = ETYPE_UNION;
+                lower_store(lo, lv, value);
+            }
+            return base;
+        }
         if (lower_is_aggregate(to))
             return lower_rvalue(lo, e->lhs);
         {

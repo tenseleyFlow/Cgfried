@@ -1509,6 +1509,69 @@ and green post-publication CI.
   `995a91ff47d4ab1eef7d2484545af9e0f209173cb8b477903d394e19a99d320f`.
   The next semantic tranche is `s56.5-gnu-scalar-to-union-casts`, now 20
   target-complete cells across `pr42708-1.c` and `960416-1.c`.
+- The `s56.5-gnu-scalar-to-union-casts` tranche implements GCC's cast-to-union
+  extension for an operand whose post-lvalue-conversion type exactly matches
+  an ordinary non-bit-field member. Top-level qualifiers are ignored, while
+  enum/integer compatibility, arithmetic conversions, pointer conversions,
+  distinct aggregate tags, and bit-field base types do not create a match.
+  Runtime lowering materializes a union temporary, evaluates the operand once,
+  and supports scalar, pointer, and aggregate members; duplicate matching
+  member types select the first member. Static images accept arithmetic and
+  relocatable pointer members, while aggregate-valued casts remain
+  nonconstant, matching GCC. ISO modes emit the GCC-compatible pedantic
+  diagnostic `ISO C forbids casts to union type`, promote it under
+  `-pedantic-errors`, and honor `__extension__` suppression. Apple ARM64 and
+  Kasumi both pass all 24 semantic tests / 355 assertions and the two focused
+  program fixtures. Kasumi passes the full 828 unit tests / 4,294,072
+  assertions; native Apple ARM64 and Kasumi x86 execution passes at
+  O0/O1/O2/O3/Os, both Linux backends compile the repaired torture cases at
+  all five levels, and GCC 16 independently passes the runtime oracle while
+  rejecting the deliberately nonconstant static aggregate boundary. Adding
+  the two fixture sources intentionally changes the deterministic frontend
+  fuzz corpus; Apple and Kasumi independently reproduce digest
+  `1c9763a611841567`, and the 2,000-iteration smoke has zero findings.
+  Implementation head `36cc1587f2d82ab6daaf01a14e71b2e8d3124514`
+  passes every non-torture job in pre-publication PR CI
+  [run 33299790343](https://github.com/tenseleyFlow/Cgfried/actions/runs/33299790343),
+  including sanitizers and the 100k frontend fuzz lane; torture refuses
+  exactly the ten expected uncommitted x86 cells. Push and PR bootstrap runs
+  [33299782548](https://github.com/tenseleyFlow/Cgfried/actions/runs/33299782548)
+  and
+  [33299790338](https://github.com/tenseleyFlow/Cgfried/actions/runs/33299790338)
+  both pass O0/O2. Exact-head native full-lattice
+  [run 33299836646](https://github.com/tenseleyFlow/Cgfried/actions/runs/33299836646)
+  passes every other job and refuses only the matching ten ARM64 cells. The
+  retained ARM stream (artifact `9728741604`) has SHA-256
+  `f560fd721e77fe19f474bbd5160ab3fd57a3b400bfbe8efb6687974ad4ee2043`.
+  The hosted PR x86 stream (artifact `9728786023`) has SHA-256
+  `48855d239e8778275e2c022fd0584ec2156408b674a425d191bab4772817c369`
+  and independently confirms the same ten promotions with zero regression;
+  it is confirmation-only because Actions checked out GitHub's synthetic
+  merge revision. Formal Kasumi publication regenerated the exact branch-head
+  x86 stream as
+  `964b41bd6b047692ec57f58fcafd76720f54338f06dfa2420057feb06b69de8b`.
+  The two authoritative streams name the implementation head and share
+  compiler-source SHA-256
+  `134e083558f2ab8698f455e2c76a12e70be97e818095a940b1f6c1473d196be0`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Formal `make torture-baseline` promotes exactly twenty cells with zero PASS
+  regression and retires fingerprints
+  `087e22d20269bf72f0f467ee68df2ecc04c2ceeb7dd9d73b38b716c761f5b1cb`
+  and
+  `ae6394ea751369cfa3f15c078e72a70e5989fc74012072b928877865cabac9cb`.
+  Publication yields 26,795 PASS cells, 7,235 classified failures, 65 buckets,
+  56 applied decisions, zero stale/unresolved decisions, and 32 live repair
+  rows representing 28 unique compiler tranches. Reversing the two evidence
+  streams regenerates both outputs byte-identically; PASS and triage SHA-256
+  values are respectively
+  `38e1cd03ad031062b53ce242f802f24833ed8d5489b96e66ff4e0a4207cb93a9`
+  and
+  `b2f9361018d0febdb5e0d2ad30c486abeaeb4ed22820a6fcf1691ee6fee9ab32`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,

@@ -1534,6 +1534,7 @@ static AstNode *expr(Sema *s, AstNode *e)
     case AST_EXPR_CAST: {
         Type *to = sema_type_from_ast(s, e->type, e->span);
         AstNode *op;
+        Member *union_member;
 
         e->lhs = op = conv_decay(s, expr(s, e->lhs));
         e->sem_type = to;
@@ -1557,6 +1558,23 @@ static AstNode *expr(Sema *s, AstNode *e)
                     s->lang->warnings, WARN_PEDANTIC, e->span,
                     "ISO C forbids casting nonscalar to the same type");
             return e;
+        }
+        /* GNU C also permits a cast to a union from the exact type of one
+         * of its ordinary (non-bit-field) members. The result is a temporary
+         * union rvalue with that member initialized. This is not an ordinary
+         * scalar conversion: `float` does not match a `double` member, and
+         * an enum does not match a member of its compatible integer type. */
+        union_member = type_union_cast_member(to, op->sem_type);
+        if (union_member) {
+            if (!e->suppress_pedantic)
+                warn_pedwarn_at(s->lang->warnings, WARN_PEDANTIC, e->span,
+                                "ISO C forbids casts to union type");
+            return e;
+        }
+        if (to->kind == TY_UNION) {
+            err(s, e->span,
+                "cast to union type from type not present in union");
+            return poison(s, e);
         }
         if (to->kind != TY_VOID && !type_is_arithmetic(to) &&
             to->kind != TY_PTR) {

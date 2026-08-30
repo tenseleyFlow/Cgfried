@@ -1662,6 +1662,19 @@ static bool init_is_compatible_array_compound_literal(Type *target,
            type_array_initializer_compatible(target, init->sem_type);
 }
 
+static bool init_is_gnu_union_member_cast(Type *target, const AstNode *init)
+{
+    Member *selected;
+
+    if (!target || target->kind != TY_UNION || !init ||
+        init->kind != AST_EXPR_CAST || init->implicit || !init->lhs ||
+        !init->sem_type || !type_compatible(target, init->sem_type))
+        return false;
+    selected = type_union_cast_member(target, init->lhs->sem_type);
+    return selected && (type_is_arithmetic(selected->type) ||
+                        selected->type->kind == TY_PTR);
+}
+
 /* An array declared without a bound is COMPLETED by its initializer
  * (6.7.9p22). Counting syntax items is correct only when the element type is
  * scalar: with `struct S a[] = { 1, 2, 3, 4 };`, brace elision makes several
@@ -2120,7 +2133,8 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
         target->kind != TY_ERROR && target->kind != TY_ARRAY &&
         !(d->init->kind == AST_EXPR_COMPOUND_LIT &&
           (target->kind == TY_STRUCT || target->kind == TY_UNION) &&
-          d->init->sem_type && type_compatible(d->init->sem_type, target))) {
+          d->init->sem_type && type_compatible(d->init->sem_type, target)) &&
+        !init_is_gnu_union_member_cast(target, d->init)) {
         ConstValue cv = constexpr_eval(
             s, d->init, target->kind == TY_PTR ? CE_ADDR : CE_ARITH);
         (void)cv; /* constexpr_eval reports the specific reason itself */

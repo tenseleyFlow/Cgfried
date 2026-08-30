@@ -392,6 +392,32 @@ bool type_compatible(const Type *a, const Type *b)
     }
 }
 
+Member *type_union_cast_member(const Type *union_type, const Type *operand_type)
+{
+    Member *m;
+
+    if (!union_type || union_type->kind != TY_UNION || !union_type->tag ||
+        !operand_type)
+        return NULL;
+    for (m = union_type->tag->members; m; m = m->next) {
+        Type member_unqual;
+        Type operand_unqual;
+
+        /* GCC does not treat a bit-field's declared base type as a member
+         * type available to this extension. Unnamed fields are therefore
+         * excluded with the named ones. */
+        if (!m->type || m->is_bitfield || m->type->kind != operand_type->kind)
+            continue;
+        member_unqual = *m->type;
+        operand_unqual = *operand_type;
+        member_unqual.quals = 0;
+        operand_unqual.quals = 0;
+        if (type_compatible(&member_unqual, &operand_unqual))
+            return m;
+    }
+    return NULL;
+}
+
 bool type_array_initializer_compatible(const Type *target, const Type *source)
 {
     Type target_unqual;
