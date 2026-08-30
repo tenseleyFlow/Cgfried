@@ -62,14 +62,15 @@ PR #57's GNU scalar-to-union tranche is merged as `9b5d04d1`, raising the
 target-complete PASS ratchet to 26,795 with 32 live repair rows representing
 28 compiler tranches. PR #59's iterative symbol-finalization prerequisite is
 merged as `ecc5cd36`; it removes the host-stack dependency exposed by the
-100,000-declaration torture limits without changing the ratchet. The current
-PR #58 decomposes the formerly shared
-constant-expression fingerprint and implements only GCC's const-scalar-object
-folding in later static initializers. Its target-complete publication candidate
-raises the ratchet to 26,805 with 66 buckets, 57 applied decisions, zero
-stale/unresolved decisions, and the same 32 live repair rows. Sprint 56's
-campaign machine, triage map, and 26,805-cell publication candidate are
-complete.
+100,000-declaration torture limits without changing the ratchet. PR #58's
+constant-expression decomposition and const-scalar-object folding tranche is
+merged as `ea708db7`; its target-complete publication raises the ratchet to
+26,805 with 66 buckets, 57 applied decisions, zero stale/unresolved decisions,
+and the same 32 live repair rows. The current
+`s56.5-runtime-vla-offsetof` tranche implements the next isolated gap,
+`pr41935.c` runtime array indices in GNU `__builtin_offsetof`; publication is
+not yet claimed. Sprint 56's campaign machine, triage map, and 26,805-cell
+published baseline are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1598,7 +1599,7 @@ and green post-publication CI.
   including the complete x86 torture matrix and 36-minute frontend fuzz job,
   and both O0/O2 bootstrap runs are green. PR #59 merged as `ecc5cd36` from
   implementation commit `ca8cf5e0`; PR #58 is rebased onto that prerequisite.
-- The current `s56.5-constexpr-context-decomposition` PR #58 first source-
+- The merged `s56.5-constexpr-context-decomposition` PR #58 first source-
   audited fingerprint
   `719f040fbd028be5e8a9f8add4109a1d3215b8a6e44d8084de50159c6182fe7c`
   into three independent ten-cell gaps: `pr83222.c` const scalar objects in
@@ -1666,9 +1667,38 @@ and green post-publication CI.
   `4d4ad8bbe70285e29aa3b4f557eb1ba74ef6d694cb7ccc17168709803e58bcde`
   and
   `59a4dbae2157719a612d49d1b978d53497140903ee2d331d1a0475a2f6368154`.
-  Take `pr41935.c` runtime VLA `__builtin_offsetof` next, then `pr38789.c`
-  immediate-asm timing as a separate tranche; neither is a const-object-
-  folding follow-on.
+  PR #58 merged as `ea708db7` from publication head `3ae4b471`; the next
+  tranche is `pr41935.c` runtime VLA `__builtin_offsetof`.
+- The current `s56.5-runtime-vla-offsetof` tranche implements that isolated
+  `pr41935.c` gap. A fully constant designator still folds as an integer
+  constant expression, while GNU runtime indices remain ordinary expressions
+  and are rejected if an enum, array bound, or other ICE context requires a
+  constant. Lowering walks the already-typed designator from its synthetic
+  base outward, adds static member offsets, and scales each runtime index by
+  `lower_type_size()` so multidimensional VLA strides reuse the existing
+  evaluated-size machinery. It performs integer offset arithmetic rather than
+  creating a pointer: negative and out-of-range indices are accepted, no
+  object is accessed, and no memory-safety bounds guard is emitted. Bit-field,
+  bad-member, and bad-first-type diagnostics retain their existing boundary.
+
+  Implementation head `4817868` passes the focused 831st unit regression / 7
+  assertions, the complete 67-test lowering family / 396 assertions, all ten
+  builtins fixtures, and native Apple ARM64 execution of both the permanent
+  boundary fixture and imported `pr41935.c` at O0/O1/O2/O3/Os. GCC 15 agrees
+  on the runtime, evaluation-order, negative/out-of-range, constant-expression,
+  and pedantic boundaries. On Hasu, strict GCC 15 and Clang 21 compiler builds
+  succeed; the sysroot-corrected x86 builtins suite and `pr41935.c` five-level
+  runtime matrix pass with the ordinary compiler, while the ASan/UBSan build
+  passes the focused unit and complete builtins suite. A deterministic
+  10,000-iteration sanitizer-backed frontend fuzz run reports zero findings,
+  and every torture/import classification, provenance,
+  ordering, determinism, matrix, and atomic-import meta-test passes. Hasu's one
+  residual full-unit failure is its pre-existing NixOS-only assertion that a
+  discovered libgcc directory begins `/usr/lib/gcc/`; all compiler, semantic,
+  and lowering units pass. Next: push the implementation, run PR CI and the
+  exact ARM full lattice, capture a fresh sysroot-corrected x86 lattice, then
+  publish only the ten `pr41935.c` cells. Take `pr38789.c` immediate-asm timing
+  afterward as a separate tranche.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
