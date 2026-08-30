@@ -23,7 +23,6 @@
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
--	a8a165d75ac747bc8398b95018f15e9ec04be1fae4c417d91fc62a5e5722fba6	sema	all	Expression typing rejects GNU void dereference expressions and also misclassifies a conditional between compatible enum and int pointers as void pointer.	fix-sprint:s56.5-void-deref-and-pointer-composite
 -	aace2c03842f0e2505bcb4d7ea1906463cf98a369466b5c20a2753de0e9efc31	ld	all	O0 emission retains unreachable or unreferenced calls deliberately named link_error	fix-sprint:s56.5-dead-code-link-elimination
 -	acf3af7f1c9c3a7c11b6175147cd3c92078cd42a313164f6b5145b98513ab18c	parse	all	GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope	wontfix-0.1.0
 -	ae6394ea751369cfa3f15c078e72a70e5989fc74012072b928877865cabac9cb	sema	all	GNU same-type union casts are rejected instead of behaving as aggregate identity conversions	fix-sprint:s56.5-gnu-aggregate-self-cast
@@ -34,7 +33,6 @@
 -	cc5dfe026bb1609d02fc9a84176be08676c8368afe27a452bcfa84e94873550a	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb	run	all	UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals	fix-sprint:s56.5-utf8-wide-literal-decoding
 -	d2a3673523fa1086b58179c65a40f750586e433d12880533ff901759e5e9ad76	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope
--	e52eb5707422df12f2923cc404dd36f80c00c96e1901f9885f67a72595134e73	parse	all	The ten-thousand-level expression nesting stress reaches Cgfried's explicit bracket-nesting translation limit on hosts where parsing stops before the harness output guard.	out-of-scope
 -	e578de15b58de70f4d707195edcd798c9ae00241d327927a5a4414878810ea33	parse	all	The cases use GNU complex types or complex component operators, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	e83262900091a3f95ecb503518ea616ec0814569020da57daccd5240c82d49a2	parse	all	The union member uses GNU complex integer type and real/imaginary component operators, outside the v0.1.0 language scope.	out-of-scope
 -	ef08225eb7c8eae8444a144fc059c944c4d777a17209092f661c7671b59e78a9	as	all	The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.	out-of-scope
