@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "parse/parse.h"
@@ -108,6 +109,34 @@ void test_sema_basic_types_interned(TestCtx *t)
     T_ASSERT(t, type_basic(TY_CHAR) != type_basic(TY_UCHAR));
     T_ASSERT(t, type_basic(TY_SCHAR) != type_basic(TY_UCHAR));
     T_ASSERT(t, !type_compatible(type_basic(TY_CHAR), type_basic(TY_SCHAR)));
+}
+
+void test_sema_finish_large_symbol_chain_is_iterative(TestCtx *t)
+{
+    enum { NSYMS = 100000 };
+    Sema sema = {0};
+    Scope scope = {0};
+    Symbol *symbols;
+    size_t i;
+
+    /* limits-enumconst.c creates 100,000 file-scope symbols. This synthetic
+     * chain isolates the end-of-TU walk: recursive declaration-order reversal
+     * exhausts the native Darwin ARM64 stack before the first symbol can be
+     * finalized. */
+    symbols = calloc(NSYMS, sizeof(*symbols));
+    T_ASSERT(t, symbols != NULL);
+    if (!symbols)
+        return;
+    for (i = 0; i < NSYMS; i++) {
+        symbols[i].kind = SYM_ENUM_CONST;
+        symbols[i].next = i ? &symbols[i - 1] : NULL;
+    }
+    scope.ordinary = &symbols[NSYMS - 1];
+    sema.file_scope = &scope;
+
+    sema_finish(&sema);
+    T_ASSERT(t, scope.ordinary == &symbols[NSYMS - 1]);
+    free(symbols);
 }
 
 void test_sema_rejects_invalid_lowering_inputs(TestCtx *t)
