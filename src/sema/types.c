@@ -328,6 +328,8 @@ static bool params_compatible(const Type *a, const Type *b)
 
 bool type_compatible(const Type *a, const Type *b)
 {
+    Type unqual;
+
     if (a == b)
         return true;
     if (!a || !b)
@@ -336,11 +338,26 @@ bool type_compatible(const Type *a, const Type *b)
      * is that nothing is diagnosed about an already-diagnosed construct. */
     if (a->kind == TY_ERROR || b->kind == TY_ERROR)
         return true;
-    if (a->kind != b->kind)
-        return false;
     /* Qualifiers are part of type identity everywhere below the top level.
      * Callers that want lvalue conversion strip them first (Sprint 13). */
     if (a->quals != b->quals)
+        return false;
+    /* 6.7.2.2p4: every enum is compatible with its implementation-chosen
+     * integer representation.  Keep distinct enum tags distinct below, but
+     * bridge an enum/basic-integer pair here.  GCC exposes this through both
+     * __builtin_types_compatible_p and conditional pointer composition; the
+     * latter is what torture enum-3.c relies on. */
+    if (a->kind == TY_ENUM && b->kind != TY_ENUM && type_is_integer(b)) {
+        unqual = *b;
+        unqual.quals = 0;
+        return type_compatible(type_enum_underlying(a), &unqual);
+    }
+    if (b->kind == TY_ENUM && a->kind != TY_ENUM && type_is_integer(a)) {
+        unqual = *a;
+        unqual.quals = 0;
+        return type_compatible(&unqual, type_enum_underlying(b));
+    }
+    if (a->kind != b->kind)
         return false;
 
     switch (a->kind) {

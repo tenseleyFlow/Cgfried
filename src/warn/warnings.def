@@ -186,6 +186,9 @@ W(WARN_VARIADIC_MACROS, "variadic-macros", WG_PEDANTIC, WD_PEDANTIC, WL_PEDWARN)
 W(WARN_VISIBILITY, "visibility", WG_NONE, WD_ON, WL_WARN)
 W(WARN_VLA, "vla", WG_NONE, WD_OFF, WL_WARN)
 W(WARN_VLA_LARGER_THAN, "vla-larger-than", WG_NONE, WD_OFF, WL_WARN)
+/* GCC 8 and GCC 16 emit this diagnostic by default without an option name.
+ * Use Clang's spelling so Cgfried's warning remains suppressible. */
+W(WARN_VOID_PTR_DEREFERENCE, "void-ptr-dereference", WG_NONE, WD_ON, WL_WARN)
 W(WARN_VOLATILE_REGISTER_VAR, "volatile-register-var", WG_ALL, WD_WALL, WL_WARN)
 W(WARN_WRITE_STRINGS, "write-strings", WG_NONE, WD_OFF, WL_WARN)
 W(WARN_ZERO_LENGTH_ARRAY, "zero-length-array", WG_NONE, WD_ON, WL_PEDWARN)

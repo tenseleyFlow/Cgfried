@@ -49,15 +49,18 @@ refused. PR #51's hosted GNU plain `alloca(...)` spelling is merged as
 `d7d59fa`, raising the GNU tier table to 39 / 6 / 8 and the PASS ratchet to
 26,725. PR #52's compound-literal array-completion repair is merged as
 `cfaec8d`, raising the GNU tier table to 40 / 6 / 8 and the target-complete
-PASS ratchet to 26,735. The current `s56.5-torture-failure-decomposition`
-tranche is merged through PR #53 as `008cf61`; it kept that PASS set unchanged
-while replacing one host-diagnostic runtime-abort bucket with 15
-testcase-stable buckets. The current `s56.5-gnu-always-inline` PR #54
-implements GNU `always_inline`, raises the GNU tier table to 41 / 6 / 8, and
-publishes a target-complete 26,745-cell PASS ratchet. Its triage has 70
-buckets, 61 applied decisions, zero stale/unresolved decisions, and 36 live
-repair rows representing 31 remaining `s56.5-*` compiler tranches. Sprint
-56's campaign machine, triage map, and 26,745-cell PASS ratchet are complete.
+PASS ratchet to 26,735. The `s56.5-torture-failure-decomposition` tranche is
+merged through PR #53 as `008cf61`; it kept that PASS set unchanged while
+replacing one host-diagnostic runtime-abort bucket with 15 testcase-stable
+buckets. PR #54's `s56.5-gnu-always-inline` tranche is merged as `fc6ebe9`; it
+raises the GNU tier table to 41 / 6 / 8 and the target-complete PASS ratchet to
+26,745. The current `s56.5-void-deref-and-pointer-composite` PR #55 implements
+WG14 DR106 void-pointer dereference semantics and enum-compatible-integer
+pointer composition. Its publication candidate raises the target-complete
+PASS ratchet to 26,765 with 68 buckets, 59 applied decisions, zero
+stale/unresolved decisions, and 35 live repair rows representing 30 remaining
+`s56.5-*` compiler tranches. Sprint 56's campaign machine, triage map, and
+26,765-cell publication candidate are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1400,6 +1403,51 @@ and green post-publication CI.
   `fba35b5fac513ae1c381da34af8165411f8f900be37e9c6bc3f4286a343c3db6`
   and
   `0564e5d8baebe52b6fcf5faa826f72aff3ecf4043f6fbc2633693375445b895c`.
+- The current `s56.5-void-deref-and-pointer-composite` tranche implements
+  WG14 DR106 semantics for dereferencing plain and qualified `void *`:
+  semantic analysis preserves a non-lvalue qualified-void expression, emits
+  the default-on suppressible `-Wvoid-ptr-dereference` diagnostic, and lowering
+  retains pointer-expression side effects without issuing a load. It also
+  implements C 6.7.2.2p4 compatibility between an enum and its chosen integer
+  representation, repairing conditional pointer composition between the
+  corresponding pointer types while preserving distinct enum-tag rules.
+  Darwin ARM64 focused sema/lowering validation passes, warning controls and
+  the warning matrix pass, and `enum-3.c` executes at O0/O1/O2/O3/Os on both
+  native Apple ARM64 and Kasumi x86-64 Linux. Kasumi's full unit suite passes
+  826 tests / 4,294,061 assertions with zero failures. Implementation head
+  `cf82fee9473feab06cd6a3c1927e56d78ea30cdb` passed every non-torture job in
+  pre-publication PR CI
+  [run 33290766860](https://github.com/tenseleyFlow/Cgfried/actions/runs/33290766860);
+  torture refused exactly the ten expected uncommitted x86-64 PASS cells.
+  Push and PR bootstrap runs
+  [33290765612](https://github.com/tenseleyFlow/Cgfried/actions/runs/33290765612)
+  and
+  [33290766846](https://github.com/tenseleyFlow/Cgfried/actions/runs/33290766846)
+  both pass O0/O2. Exact-head native full-lattice
+  [run 33290781792](https://github.com/tenseleyFlow/Cgfried/actions/runs/33290781792)
+  passes every other job and refuses only the matching ten ARM64 cells. The
+  formally regenerated Kasumi x86 stream SHA-256 is
+  `1909524633a0453bd8c2e039de5e739fe495339d44470550bf667ae2fb0f14fc`;
+  the native ARM stream is
+  `24b4ea8cddabfe208756d2f39baa8cf2de749814b241be00f427b9094656e151`.
+  Both name the exact implementation head and share compiler-source SHA-256
+  `e24c081b0efe2fea60a38e014814ef5024d44ccbb96aac9f6d42b3d99d831405`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Formal `make torture-baseline` atomically promotes exactly twenty cells and
+  retires the repaired decision plus one independently proven stale host
+  variant. The publication result is 26,765 PASS cells, 7,265 classified
+  failures, 68 buckets, 59 applied decisions, zero stale/unresolved decisions,
+  and 35 live repair rows representing 30 unique compiler tranches. Reversing
+  the evidence streams regenerates both outputs byte-identically; PASS and
+  triage SHA-256 values are respectively
+  `d14d4a64ab2a29a56d04b675213a111ecd2288092d65226bab5cf63491279c64`
+  and
+  `8a5d5097c088bcd0201bafc470688577bb6f6a320b07f006e496c9a13212acc1`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,

@@ -168,6 +168,41 @@ void test_sema_gnu_extern_void_symbol(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_void_dereference_is_void_expression(TestCtx *t)
+{
+    SemaFix f;
+
+    /* WG14 DR 106 names these exact discarded, conditional, and comma
+     * contexts as well formed, for qualified void as well as plain void.
+     * Five dereferences occur in each group, so the default-on diagnostic
+     * count also proves that both conditional arms are typed. */
+    run_sema(&f,
+             "void f(void *p, const void *cp, volatile void *vp, int i) {\n"
+             "  *p; i ? *p : *p; *p, *p;\n"
+             "  *cp; i ? *cp : *cp; *cp, *cp;\n"
+             "  *vp; i ? *vp : *vp; *vp, *vp;\n"
+             "}\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 15);
+    sfix_free(&f);
+
+    /* An enum is compatible with its implementation-chosen integer type.
+     * This makes the conditional pointer type non-void and keeps the signed
+     * comparison in GCC torture enum-3.c. */
+    run_sema(&f,
+             "enum E { EMIN = (-2147483647 - 1) };\n"
+             "_Static_assert(__builtin_types_compatible_p(enum E, int),\n"
+             "  \"enum must be compatible with its int representation\");\n"
+             "_Static_assert(__builtin_types_compatible_p(enum E *, int *),\n"
+             "  \"pointers to compatible enum and int must be compatible\");\n"
+             "int f(enum E *ep, int *ip) { return *(1 ? ep : ip) > 0; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_alloca_alias(TestCtx *t)
 {
     SemaFix f;
@@ -394,6 +429,8 @@ void test_sema_type_compatible_table(TestCtx *t)
     compat_is(t, "void/void", v, v, true);
     compat_is(t, "void/int", v, i, false);
     compat_is(t, "double/int", d, i, false);
+    compat_is(t, "enum/compatible int", en, i, true);
+    compat_is(t, "enum/unsigned int", en, u, false);
 
     /* Qualifiers are part of type identity. */
     compat_is(t, "const int/int", Q(&tf, i, CGF_QUAL_CONST), i, false);
@@ -405,6 +442,7 @@ void test_sema_type_compatible_table(TestCtx *t)
     /* Pointers: compatible pointees, and IDENTICALLY qualified pointees. */
     compat_is(t, "int*/int*", P(&tf, i), P(&tf, i), true);
     compat_is(t, "int*/long*", P(&tf, i), P(&tf, l), false);
+    compat_is(t, "enum*/compatible int*", P(&tf, en), P(&tf, i), true);
     compat_is(t, "int*/const int*", P(&tf, i),
               P(&tf, Q(&tf, i, CGF_QUAL_CONST)), false);
     compat_is(t, "const int*/const int*", P(&tf, Q(&tf, i, CGF_QUAL_CONST)),
