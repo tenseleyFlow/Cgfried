@@ -34,8 +34,18 @@ run()
     suite=$2
     manifest=$3
     shift 3
+    run_target "$name" "$suite" "$manifest" x86_64-linux-gnu "$@"
+}
+
+run_target()
+{
+    name=$1
+    suite=$2
+    manifest=$3
+    run_target_name=$4
+    shift 4
     env CGF_TORTURE_TIMEOUT=1 "$@" "$runner" --cc "$fake_cc" \
-        --suite "$suite" --level O2 --target x86_64-linux-gnu \
+        --suite "$suite" --level O2 --target "$run_target_name" \
         --manifest "$manifest" --output "$tmp/$name.tsv" --work "$tmp/$name.work"
 }
 
@@ -66,7 +76,7 @@ expect_phase()
 
 torture_manifest=$tmp/torture.MANIFEST
 for rel in execute/xfail.c execute/xfail-signal.c execute/xpass.c execute/wrong-exit.c execute/timeout.c \
-    execute/skip.c execute/signal.c execute/pass.c execute/ice.c \
+    execute/skip.c execute/signal.c execute/signal-alt.c execute/pass.c execute/ice.c \
     execute/compile-fail.c; do
     disposition=pass
     requirement=-
@@ -95,6 +105,7 @@ expect_outcome "$execute" pass.c PASS
 expect_outcome "$execute" compile-fail.c COMPILE_FAIL
 expect_outcome "$execute" wrong-exit.c WRONG_EXIT
 expect_outcome "$execute" signal.c SIGNAL
+expect_outcome "$execute" signal-alt.c SIGNAL
 expect_outcome "$execute" timeout.c TIMEOUT
 expect_outcome "$execute" ice.c ICE
 expect_outcome "$execute" skip.c SKIP
@@ -108,8 +119,8 @@ awk -F "$tab" '$3 == "xfail.c" && $10 ~ /^xfail:TORT-999 / { found=1 } END { exi
 awk -F "$tab" '$3 == "requirement.c" && $10 == "skip-unless:label_values" { found=1 } END { exit !found }' "$execute"
 awk -F "$tab" '$3 == "int128-requirement.c" && $10 == "skip-unless:int128" { found=1 } END { exit !found }' "$execute"
 
-[ "$(wc -l < "$execute" | tr -d ' ')" -eq 14 ] || {
-    echo "torture_runner_test: execute result did not have two headers plus twelve rows" >&2
+[ "$(wc -l < "$execute" | tr -d ' ')" -eq 15 ] || {
+    echo "torture_runner_test: execute result did not have two headers plus thirteen rows" >&2
     exit 1
 }
 sed -n '1p' "$execute" | grep -F -x '# cgf-torture-results-v1' >/dev/null
@@ -131,6 +142,35 @@ run execute-repeat torture-execute "$torture_manifest"
 cmp "$execute" "$tmp/execute-repeat.tsv" || {
     echo "torture_runner_test: repeated result was not deterministic" >&2
     diff -u "$execute" "$tmp/execute-repeat.tsv" >&2 || true
+    exit 1
+}
+
+# Runtime signal fingerprints are testcase identities, not host timeout
+# diagnostics.  Two sources killed by the same signal must stay separate,
+# while one source must converge across target lanes.
+signal_fp=$(awk -F "$tab" '$3 == "signal.c" {print $8}' "$execute")
+signal_alt_fp=$(awk -F "$tab" '$3 == "signal-alt.c" {print $8}' "$execute")
+expected_signal_fp=$(printf '%s\n' \
+    'runtime-signal suite=torture-execute file=signal.c signal=15' | \
+    sha256sum | awk '{print $1}')
+[ "$signal_fp" = "$expected_signal_fp" ] || {
+    echo "torture_runner_test: runtime signal fingerprint contract drifted" >&2
+    exit 1
+}
+[ "$signal_fp" != "$signal_alt_fp" ] || {
+    echo "torture_runner_test: distinct runtime signal testcases merged" >&2
+    exit 1
+}
+signal_manifest=$tmp/signal.MANIFEST
+for rel in signal.c signal-alt.c; do
+    printf 'execute/%s\t%s\trun\t-\t-\trun\t-\n' "$rel" \
+        "$(hash "$fixtures/execute/$rel")"
+done > "$signal_manifest"
+run_target signal-arm torture-execute "$signal_manifest" arm64-linux
+arm_signal_fp=$(awk -F "$tab" '$3 == "signal.c" {print $8}' \
+    "$tmp/signal-arm.tsv")
+[ "$arm_signal_fp" = "$signal_fp" ] || {
+    echo "torture_runner_test: runtime signal fingerprint depended on target" >&2
     exit 1
 }
 
