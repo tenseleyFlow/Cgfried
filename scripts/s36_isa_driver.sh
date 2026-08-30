@@ -101,10 +101,11 @@ sh "$checker" tests/isa/unlicensed.c "$work/labels_comments.o"
 corpus_list=$work/corpus.list
 find tests/corpus -type f -name '*.c' -print | sort >"$corpus_list"
 corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
-# X64-M-03 added a permanent execution reproducer. Keep this explicit count as
-# a corpus-drift ratchet: adding or removing a source must deliberately repin
-# the ISA matrix after the new inventory passes all six optimization levels.
-expected_corpus_count=104
+# Keep this explicit count as a corpus-drift ratchet: adding or removing a
+# source must deliberately repin the ISA matrix after the new inventory passes
+# all six optimization levels. The const-object static-initializer fixture is
+# the 105th permanent execution case.
+expected_corpus_count=105
 if [ "$corpus_count" -ne "$expected_corpus_count" ]; then
     echo "s36_isa_driver: expected $expected_corpus_count corpus C files, found $corpus_count" >&2
     exit 1

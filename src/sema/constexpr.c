@@ -240,7 +240,7 @@ static u64 fit(Sema *s, Type *t, u64 bits)
 
 static bool is_required(CeMode m)
 {
-    return m != CE_FOLD;
+    return m != CE_FOLD && m != CE_VLA;
 }
 
 static void ce_error(Sema *s, CeMode m, Span sp, const char *fmt, ...)
@@ -249,7 +249,7 @@ static void ce_error(Sema *s, CeMode m, Span sp, const char *fmt, ...)
     char msg[512];
 
     if (!is_required(m))
-        return; /* CE_FOLD fails silently: it is opportunistic */
+        return; /* Opportunistic folds fail silently. */
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
@@ -1020,6 +1020,22 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
 
         if (sym && sym->kind == SYM_ENUM_CONST)
             return cv_int(s, e->sem_type, (u64)sym->enum_value);
+        /* GCC treats an already-initialized, top-level const scalar object
+         * as foldable in later static initializers. It deliberately does
+         * NOT promote the name to an integer constant expression, so keep
+         * CE_ICE on the ordinary rejection path below. The declaration pass
+         * records only initializers that have already folded silently; using
+         * CE_FOLD again preserves that GNU extension's full value shape
+         * (including relocatable const pointers) without emitting a second
+         * diagnostic from the initializer's source location. */
+        if (sym && sym->kind == SYM_VAR && sym->foldable_const_init &&
+            m != CE_ICE && m != CE_VLA) {
+            v = eval(s, sym->foldable_const_init, CE_FOLD);
+            if (v.kind != CV_ERROR) {
+                v.type = e->sem_type;
+                return v;
+            }
+        }
         /* A FUNCTION or an array designator is an address constant even
          * without an explicit `&`. */
         if (sym &&

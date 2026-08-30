@@ -979,11 +979,12 @@ static Type *type_from_ast(Sema *s, const AstType *at, Span span)
                           "the size of an array has non-integer type '%s'",
                           type_to_str(s->arena, bound->sem_type));
             }
-            /* CE_FOLD, deliberately: failing to fold is not an error here —
-             * it is what MAKES this a VLA. The constraints on where a VLA
-             * may live are checked at the declaration, where the storage
-             * class is known. */
-            cv = constexpr_eval(s, bound, CE_FOLD);
+            /* CE_VLA, deliberately: failing to fold is not an error here —
+             * it is what MAKES this a VLA. Unlike general opportunistic
+             * folding, this mode must not treat a const object's value as an
+             * ICE. The constraints on where a VLA may live are checked at
+             * the declaration, where the storage class is known. */
+            cv = constexpr_eval(s, bound, CE_VLA);
             if (cv.kind == CV_INT) {
                 i64 n = (i64)cv.i;
 
@@ -2060,6 +2061,35 @@ void sema_type_initializer(Sema *s, Type *target, AstNode **slot)
     sema_init_value(s, target, slot);
 }
 
+/* Retains the typed expression behind GCC's const-object folding extension.
+ * One brace pair may surround a scalar initializer; sema_init_value has
+ * already typed and assignment-converted its first item by the time this is
+ * called. Aggregates and arrays are separate image-copy extensions and stay
+ * out of this deliberately scalar rule. */
+static void remember_foldable_const_init(Sema *s, Type *target, AstNode *d)
+{
+    AstNode *init;
+    ConstValue value;
+
+    if (!d || !d->sym || d->sym->kind != SYM_VAR ||
+        d->sym->foldable_const_init || !target || !d->init ||
+        !(target->quals & CGF_QUAL_CONST) ||
+        (target->quals & (CGF_QUAL_VOLATILE | CGF_QUAL_ATOMIC)) ||
+        (!type_is_arithmetic(target) && target->kind != TY_PTR))
+        return;
+
+    init = d->init;
+    if (init->kind == AST_INIT_LIST) {
+        if (init->nitems != 1 || !init->items[0] ||
+            init->items[0]->kind == AST_INIT_LIST)
+            return;
+        init = init->items[0];
+    }
+    value = constexpr_eval(s, init, CE_FOLD);
+    if (value.kind != CV_ERROR)
+        d->sym->foldable_const_init = init;
+}
+
 /* Types an initializer and checks each scalar element against its current
  * object. Materializing these conversions is load-bearing for both static
  * initializer bytes and the Sprint 38 conversion-warning postpass. */
@@ -2140,6 +2170,7 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
             s, d->init, target->kind == TY_PTR ? CE_ADDR : CE_ARITH);
         (void)cv; /* constexpr_eval reports the specific reason itself */
     }
+    remember_foldable_const_init(s, target, d);
 }
 
 static void finish_array_completion(Sema *s, AstNode *d, Symbol *sym,

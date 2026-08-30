@@ -321,6 +321,55 @@ void test_sema_gnu_cast_to_union_member_type(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_const_object_static_initializer_folding(TestCtx *t)
+{
+    SemaFix f;
+
+    /* GCC folds an already-declared top-level const scalar object's typed
+     * initializer into later static initializers. This includes arithmetic
+     * chains, relocatable pointer values, one scalar brace pair, and an
+     * automatic const object whose initializer itself folds. GCC accepts the
+     * extension silently even with -std=c17 -pedantic. */
+    run_sema_opts(
+        &f,
+        "const char a = 0x42; const double b = (double)a; "
+        "const double c = 1 + a; double d = c + 1; "
+        "static char text[] = \"x\"; char *const p = text; "
+        "static char *q = p; static int values[8]; const int n = { 3 }; "
+        "static int *r = values + n; "
+        "extern const int later; const int later = 9; "
+        "static int after = later; "
+        "void f(void) { const int local = 7; static int x = local; }\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* It remains a value-folding extension, not a reclassification as an
+     * integer constant expression. */
+    run_sema(&f,
+             "const int n = 3; enum E { e = n }; int a[n]; "
+             "void f(int x) { switch (x) { case n: break; } }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    /* Top-level const is required. Volatile/atomic objects, a pointer whose
+     * pointee alone is const, a runtime automatic initializer, and a use
+     * before the defining initializer all remain nonconstant. */
+    run_sema(&f,
+             "extern int source(void); static int value; "
+             "const volatile int v = 1; static int vv = v; "
+             "const _Atomic int a = 2; static int aa = a; "
+             "const int *p = &value; static const int *q = p; "
+             "void f(void) { const int n = source(); static int x = n; } "
+             "extern const int later; static int before = later; "
+             "const int later = 3;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_alloca_alias(TestCtx *t)
 {
     SemaFix f;

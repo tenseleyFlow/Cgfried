@@ -14860,6 +14860,16 @@ torture-compile/pr83164.c@O3@arm64-linux
 torture-compile/pr83164.c@O3@x86_64-linux-gnu
 torture-compile/pr83164.c@Os@arm64-linux
 torture-compile/pr83164.c@Os@x86_64-linux-gnu
+torture-compile/pr83222.c@O0@arm64-linux
+torture-compile/pr83222.c@O0@x86_64-linux-gnu
+torture-compile/pr83222.c@O1@arm64-linux
+torture-compile/pr83222.c@O1@x86_64-linux-gnu
+torture-compile/pr83222.c@O2@arm64-linux
+torture-compile/pr83222.c@O2@x86_64-linux-gnu
+torture-compile/pr83222.c@O3@arm64-linux
+torture-compile/pr83222.c@O3@x86_64-linux-gnu
+torture-compile/pr83222.c@Os@arm64-linux
+torture-compile/pr83222.c@Os@x86_64-linux-gnu
 torture-compile/pr84111.c@O0@arm64-linux
 torture-compile/pr84111.c@O0@x86_64-linux-gnu
 torture-compile/pr84111.c@O1@arm64-linux
