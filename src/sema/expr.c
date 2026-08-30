@@ -1705,8 +1705,9 @@ static AstNode *expr(Sema *s, AstNode *e)
         /* __builtin_offsetof(T, designator): the designator chain is
          * typed against a synthetic lvalue of T, so every ordinary
          * member/index rule (anonymous members, array bounds, the
-         * not-a-member diagnostic) applies unchanged. The result is a
-         * size_t ICE that Sprint 15's engine folds. */
+         * not-a-member diagnostic) applies unchanged. A fully constant
+         * designator remains a size_t ICE. GNU also permits runtime array
+         * indices; lowering computes those as byte-offset arithmetic. */
         Type *rec = sema_type_from_ast(s, e->type, e->span);
         AstNode *base = e->lhs;
 
@@ -1728,14 +1729,15 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = false;
         if (quiet(e->lhs, NULL))
             return poison(s, e);
-        /* Fold HERE, not at lowering: offsetof is an ICE by definition,
-         * so a bad designator must be a sema error at its own location
-         * rather than an ICE from a fold that "cannot fail". */
-        {
-            ConstValue cv = constexpr_eval(s, e, CE_ICE);
-
-            if (cv.kind != CV_INT)
-                return poison(s, e);
+        /* A bit-field never has an address, even on the GNU runtime-index
+         * path. Other malformed member/index shapes were already rejected
+         * by the ordinary expression rules above. Constant-expression
+         * contexts call the folder themselves and still reject a runtime
+         * index as non-ICE. */
+        if (e->lhs->sem_is_bitfield) {
+            err(s, e->lhs->span,
+                "'__builtin_offsetof' applied to a bit-field member");
+            return poison(s, e);
         }
         return e;
     }
