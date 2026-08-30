@@ -19,6 +19,7 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
                             bool binds_enum_definition, Span span);
 
 VEC_DECL(InitNodeVec, AstNode *);
+VEC_DECL(SymbolVec, Symbol *);
 
 static bool alignment_is_supported(Sema *s, Span span, i64 want)
 {
@@ -4268,12 +4269,8 @@ static void sema_stmt(Sema *s, AstNode *st)
     }
 }
 
-static void finish_symbol(Sema *s, Symbol *sym)
+static void finish_one_symbol(Sema *s, Symbol *sym)
 {
-    if (!sym)
-        return;
-    finish_symbol(s, sym->next); /* declaration order */
-
     if (sym->kind == SYM_FUNC) {
         /* THE inline matrix (6.7.4p7). The decision needs every
          * declaration in the TU, which is why it lives here and nowhere
@@ -4376,6 +4373,23 @@ static void finish_symbol(Sema *s, Symbol *sym)
                         : DEF_ZERO_INIT;
 }
 
+/* File-scope symbols are linked newest first, but end-of-TU decisions and
+ * warnings must run in declaration order. An older recursive reversal made
+ * translation-limit inputs such as limits-enumconst.c consume one native
+ * stack frame per symbol (100,000 in that case). Keep the ordering without
+ * tying supported declaration counts to the host's thread-stack size. */
+static void finish_symbols(Sema *s, Symbol *chain)
+{
+    SymbolVec symbols = {0};
+    Symbol *sym;
+
+    for (sym = chain; sym; sym = sym->next)
+        SymbolVec_push(&symbols, sym);
+    while (symbols.len)
+        finish_one_symbol(s, symbols.data[--symbols.len]);
+    SymbolVec_free(&symbols);
+}
+
 /* An alias's TARGET must be defined in this translation unit -- gcc's rule,
  * and the one that makes an alias a purely local fact the emitter can settle
  * with a single `.set`. It is an END-OF-TU question for the same reason the
@@ -4449,7 +4463,7 @@ void sema_finish(Sema *s)
 {
     if (s->file_scope) {
         mark_alias_targets_used(s->file_scope->ordinary);
-        finish_symbol(s, s->file_scope->ordinary);
+        finish_symbols(s, s->file_scope->ordinary);
         check_alias_targets(s, s->file_scope->ordinary);
     }
 }
