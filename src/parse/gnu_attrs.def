@@ -34,7 +34,7 @@
 GA(access, GA_IGNORE)
 GA(alloc_align, GA_IGNORE)
 GA(alloc_size, GA_IGNORE)
-GA(always_inline, GA_IGNORE)
+GA(always_inline, GA_IMPLEMENTED)
 GA(artificial, GA_IGNORE)
 GA(cold, GA_IGNORE)
 GA(const, GA_IGNORE)

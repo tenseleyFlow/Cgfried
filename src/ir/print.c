@@ -677,6 +677,10 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " align(%u)", f->align);
     if (f->is_used)
         buf_printf(out, " used");
+    if (f->always_inline)
+        buf_printf(out, " always_inline");
+    if (f->inline_only)
+        buf_printf(out, " inline_only");
     if (f->section) {
         buf_printf(out, " section(");
         print_quoted(out, f->section);

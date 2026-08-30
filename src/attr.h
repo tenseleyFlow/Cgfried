@@ -67,6 +67,13 @@ typedef struct GnuDeclAttrs {
      * definition's storage class separately: a prior `extern` declaration
      * must not turn a later plain definition into an extern-inline one. */
     bool gnu_inline;
+    /* `always_inline`: every direct call whose body is available in this
+     * translation unit must be expanded, even at -O0.  Like gnu_inline it is
+     * a symbol property: headers commonly put the attribute on a prototype
+     * and the `inline` definition on a later declaration.  Cgfried keeps the
+     * ordinary C inline-emission decision separate -- this flag commands the
+     * call transform; it does not itself define or suppress a symbol. */
+    bool always_inline;
     u8 visibility; /* GnuVisibility */
     /* `packed` on a MEMBER declaration. The record-level spelling never
      * reaches here: the parser hands it straight to the record it follows,

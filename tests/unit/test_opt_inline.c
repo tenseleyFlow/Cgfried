@@ -1102,6 +1102,168 @@ void test_opt_inline_threshold_config_table(TestCtx *t)
     }
 }
 
+void test_opt_force_inline_o0_strip_and_retention(TestCtx *t)
+{
+    static const char inline_only_src[] =
+        "func i32 @forced(i32 %x) always_inline inline_only {\n"
+        "entry():\n"
+        "    %a = iadd i32 %x, 1\n"
+        "    ret i32 %a\n"
+        "}\n"
+        "func i32 @caller(i32 %x) {\n"
+        "entry():\n"
+        "    %r = call i32 @forced(i32 %x)\n"
+        "    ret i32 %r\n"
+        "}\n";
+    static const char retained_src[] =
+        "func i32 @forced(i32 %x) always_inline {\n"
+        "entry():\n"
+        "    ret i32 %x\n"
+        "}\n"
+        "func i32 @caller(i32 %x) {\n"
+        "entry():\n"
+        "    %r = call i32 @forced(i32 %x)\n"
+        "    ret i32 %r\n"
+        "}\n";
+    u32 debug;
+
+    for (debug = 0; debug < 2; debug++) {
+        InlineFix f;
+        IrModule *m;
+        IrModule *round;
+        OptConfig cfg;
+        Buf text;
+        char *printed;
+
+        inline_fix_init(&f);
+        m = inline_parse(&f, inline_only_src);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        printed = inline_print(m, &text);
+        T_ASSERT(t, strstr(printed, " always_inline inline_only {") != NULL);
+        round = ir_parse_module(&f.arena, f.dc, printed,
+                                "<force-inline-roundtrip>");
+        T_ASSERT(t, round && ir_module_struct_eq(m, round));
+        opt_config_init(&cfg, OPT_O0);
+        cfg.debug_info = debug != 0;
+        cfg.verify_after_each = true;
+        T_ASSERT(t, m && opt_run_pipeline(m, &cfg));
+        T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 1);
+        T_ASSERT_EQ_STR(t, m && m->nfuncs ? m->funcs[0].name : NULL, "caller");
+        T_ASSERT_EQ_INT(
+            t, m && m->nfuncs ? func_op_count(&m->funcs[0], IR_CALL) : 1, 0);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        buf_free(&text);
+        arena_free_all(&f.arena);
+    }
+
+    {
+        InlineFix f;
+        IrModule *m;
+        OptConfig cfg;
+
+        inline_fix_init(&f);
+        m = inline_parse(&f, retained_src);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        opt_config_init(&cfg, OPT_O0);
+        cfg.verify_after_each = true;
+        T_ASSERT(t, m && opt_run_pipeline(m, &cfg));
+        T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 2);
+        T_ASSERT_EQ_INT(
+            t, m && m->nfuncs > 1 ? func_op_count(&m->funcs[1], IR_CALL) : 1,
+            0);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        arena_free_all(&f.arena);
+    }
+}
+
+void test_opt_force_inline_recursive_call_is_diagnostic(TestCtx *t)
+{
+    InlineFix f;
+    IrModule *m;
+    OptConfig cfg;
+
+    inline_fix_init(&f);
+    m = inline_parse(&f,
+                     "func i32 @forced(i32 %x) always_inline inline_only {\n"
+                     "entry():\n"
+                     "    %r = call i32 @forced(i32 %x)\n"
+                     "    ret i32 %r\n"
+                     "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O0);
+    T_ASSERT(t, m && !opt_run_pipeline(m, &cfg));
+    T_ASSERT(t, diag_had_error(f.dc));
+    T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 1);
+    arena_free_all(&f.arena);
+}
+
+void test_opt_force_inline_uses_narrow_legality_rules(TestCtx *t)
+{
+    static const char *const accepted[] = {
+        /* The full callgraph is recursive, but the forced-target graph is
+         * not: after @forced is spliced, @outer's self-call is ordinary. */
+        "func void @forced() always_inline inline_only {\n"
+        "entry():\n    call void @outer()\n    ret\n}\n"
+        "func void @outer() {\n"
+        "entry():\n    call void @forced()\n    ret\n}\n",
+        /* An old-style body is safe when this particular call matches its
+         * concrete lowered parameter signature exactly. */
+        "func void @forced() unproto always_inline inline_only {\n"
+        "entry():\n    ret\n}\n"
+        "func void @caller() {\n"
+        "entry():\n    call void @forced()\n    ret\n}\n",
+        /* Constant allocas are backend-assigned frame objects, so cloning one
+         * into a cyclic CFG does not dynamically grow the stack. */
+        "func void @forced() always_inline inline_only {\n"
+        "entry():\n    %p = alloca 8, align 8\n    ret\n}\n"
+        "func void @caller(i32 %c) {\n"
+        "entry():\n    br loop()\n"
+        "loop():\n    call void @forced()\n"
+        "    condbr %c, loop(), exit()\n"
+        "exit():\n    ret\n}\n",
+    };
+    u32 i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(accepted); i++) {
+        InlineFix f;
+        IrModule *m;
+        OptConfig cfg;
+
+        inline_fix_init(&f);
+        m = inline_parse(&f, accepted[i]);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        opt_config_init(&cfg, OPT_O0);
+        cfg.verify_after_each = true;
+        T_ASSERT(t, m && opt_run_pipeline(m, &cfg));
+        T_ASSERT(t, !diag_had_error(f.dc));
+        T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 1);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        arena_free_all(&f.arena);
+    }
+
+    {
+        InlineFix f;
+        IrModule *m;
+        OptConfig cfg;
+
+        inline_fix_init(&f);
+        m = inline_parse(
+            &f, "func void @forced(i64 %n) always_inline inline_only {\n"
+                "entry():\n    %p = alloca %n, align 8\n    ret\n}\n"
+                "func void @caller(i32 %c, i64 %n) {\n"
+                "entry():\n    br loop()\n"
+                "loop():\n    call void @forced(i64 %n)\n"
+                "    condbr %c, loop(), exit()\n"
+                "exit():\n    ret\n}\n");
+        T_ASSERT(t, m && ir_verify(f.dc, m));
+        opt_config_init(&cfg, OPT_O0);
+        T_ASSERT(t, m && !opt_run_pipeline(m, &cfg));
+        T_ASSERT(t, diag_had_error(f.dc));
+        T_ASSERT_EQ_INT(t, m ? m->nfuncs : 0, 2);
+        arena_free_all(&f.arena);
+    }
+}
+
 void test_opt_inline_name_collision_and_roundtrip(TestCtx *t)
 {
     InlineFix f;

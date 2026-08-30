@@ -2987,6 +2987,21 @@ static void declare_one(Sema *s, AstNode *d)
         d->gnu.gnu_inline = false;
     }
 
+    /* GCC retains always_inline on a FUNCTION even without the inline
+     * specifier (and still forces direct calls), but warns because that shape
+     * also emits an ordinary out-of-line definition.  On every other
+     * declaration there is no call target to transform, so warn and drop it
+     * before the symbol-property union can poison a later redeclaration. */
+    if (d->gnu.always_inline && sym->kind != SYM_FUNC) {
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'always_inline' attribute ignored");
+        d->gnu.always_inline = false;
+    } else if (d->gnu.always_inline && (d->func_specs & AST_FS_INLINE) == 0) {
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'always_inline' function might not be inlinable unless also "
+                "declared 'inline'");
+    }
+
     /* UNION across declarations, not replacement: an attribute on any
      * declaration of a symbol applies to the symbol. gcc's rule, and the
      * one musl's weak_alias pattern depends on -- the attribute and the

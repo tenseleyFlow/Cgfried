@@ -66,6 +66,8 @@ static bool level_stage(OptLevel level, PipelineStage *out)
 
 bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
 {
+    const Pass *mandatory[] = {&OPT_PASS_FORCE_INLINE,
+                               &OPT_PASS_STRIP_INLINE_ONLY};
     const Pass *scalar[CGF_ARRAY_LEN(pipeline)];
     const Pass *fusion[CGF_ARRAY_LEN(pipeline)];
     const Pass *vector[CGF_ARRAY_LEN(pipeline)];
@@ -75,6 +77,7 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
     u32 nscalar = 0, nfusion = 0, nvector = 0, nloops = 0, nunroll = 0;
     u32 i;
     bool changed = false;
+    bool needs_force_inline = false;
 
     /* Growth accounting spans every fixpoint visit inside this top-level run,
      * but a caller may deliberately run a new pipeline over the same module
@@ -82,9 +85,20 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
     for (i = 0; i < m->nfuncs; i++) {
         m->funcs[i].opt_inline_growth_left = 0;
         m->funcs[i].opt_inline_growth_initialized = false;
+        needs_force_inline |= m->funcs[i].always_inline;
     }
+    /* GNU always_inline is a source contract, not a profitability choice.
+     * Run it before the optimization-level gate, then discard C inline-only
+     * bodies that existed solely as splice input.  Keeping these as two
+     * passes lets the pass manager audit pinned clones first and whole-body
+     * deletion second, with the exact policy appropriate to each mutation. */
+    if (needs_force_inline)
+        changed |=
+            opt_run_pass_sequence(m, cfg, mandatory, CGF_ARRAY_LEN(mandatory));
+    if (diag_had_error(m->dc))
+        return changed;
     if (!level_stage(cfg->level, &stage))
-        return opt_run_pass_sequence(m, cfg, NULL, 0);
+        return changed;
     for (i = 0; i < CGF_ARRAY_LEN(pipeline); i++) {
         const PipelineEntry *e = &pipeline[i];
         bool selected = e->introduced_at <= stage;
@@ -116,8 +130,11 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
             break;
         }
     }
-    if (cfg->level == OPT_O1)
-        return opt_run_pass_sequence(m, cfg, scalar, nscalar);
+    if (cfg->level == OPT_O1) {
+        bool scalar_changed = opt_run_pass_sequence(m, cfg, scalar, nscalar);
+
+        return changed || scalar_changed;
+    }
 
     changed |= opt_run_fixpoint(m, cfg, scalar, nscalar, 10);
     changed |= opt_run_fixpoint(m, cfg, fusion, nfusion, 10);

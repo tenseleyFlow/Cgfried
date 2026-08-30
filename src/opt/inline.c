@@ -1,6 +1,7 @@
 #include "opt/opt.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "util/arena.h"
@@ -21,8 +22,10 @@ typedef struct {
     u32 insts;
     u32 returns;
     bool has_alloca;
+    bool has_dynamic_alloca;
     bool has_va_start;
     bool recursive;
+    bool force_recursive;
     u8 *control_params;
 } InlFuncFacts;
 
@@ -154,6 +157,49 @@ static bool recursive_node(const Callgraph *g, u32 node)
     return false;
 }
 
+/* Ordinary inlining refuses any recursive SCC. Mandatory inlining needs the
+ * narrower question: will repeatedly expanding calls whose TARGET is marked
+ * always_inline ever return to this function? A forced helper may call an
+ * ordinary outer function which calls the helper back; expanding the helper
+ * once merely turns that edge into an ordinary recursive call, exactly as
+ * GCC does. Only a cycle made entirely of forced-target edges is unbounded. */
+static bool force_recursive_node(const IrModule *m, const Callgraph *g,
+                                 u32 node)
+{
+    bool *seen;
+    u32 *work;
+    u32 nwork = 0;
+    bool recursive = false;
+
+    seen = cgf_xmalloc((m->nfuncs ? m->nfuncs : 1) * sizeof(*seen));
+    work = cgf_xmalloc((m->nfuncs ? m->nfuncs : 1) * sizeof(*work));
+    memset(seen, 0, m->nfuncs * sizeof(*seen));
+    seen[node] = true;
+    work[nwork++] = node;
+    while (nwork && !recursive) {
+        u32 from = work[--nwork];
+        u32 ei;
+
+        for (ei = 0; ei < ipo_callgraph_edge_count(g, from); ei++) {
+            u32 to = ipo_callgraph_edge(g, from, ei);
+
+            if (to >= m->nfuncs || !m->funcs[to].always_inline)
+                continue;
+            if (to == node) {
+                recursive = true;
+                break;
+            }
+            if (!seen[to]) {
+                seen[to] = true;
+                work[nwork++] = to;
+            }
+        }
+    }
+    free(seen);
+    free(work);
+    return recursive;
+}
+
 static void scan_func_facts(InlScanCache *cache, const IrModule *m,
                             const Callgraph *graph, u32 fi,
                             bool count_direct_calls)
@@ -165,8 +211,17 @@ static void scan_func_facts(InlScanCache *cache, const IrModule *m,
     facts->insts = 0;
     facts->returns = 0;
     facts->has_alloca = false;
+    facts->has_dynamic_alloca = false;
     facts->has_va_start = false;
-    facts->recursive = recursive_node(graph, fi);
+    /* The callgraph describes the module before any splicing.  Preserve its
+     * cycle facts when rescanning a mutated caller; forced expansion only
+     * removes a forced edge or exposes forced edges already present in the
+     * original graph. */
+    if (count_direct_calls) {
+        facts->recursive = recursive_node(graph, fi);
+        facts->force_recursive =
+            f->always_inline && force_recursive_node(m, graph, fi);
+    }
     memset(facts->control_params, 0,
            f->nparams * sizeof(*facts->control_params));
     for (bi = 0; bi < f->nblocks; bi++) {
@@ -178,6 +233,9 @@ static void scan_func_facts(InlScanCache *cache, const IrModule *m,
             facts->insts++;
             facts->returns += in->op == IR_RET;
             facts->has_alloca |= in->op == IR_ALLOCA;
+            facts->has_dynamic_alloca |=
+                in->op == IR_ALLOCA &&
+                (in->nops == 0 || in->ops[0].kind != IROP_ICONST);
             facts->has_va_start |= in->op == IR_VA_START;
             if (in == f->blocks[bi].last &&
                 (in->op == IR_CONDBR || in->op == IR_SWITCH) && in->nops &&
@@ -310,6 +368,19 @@ static bool block_in_loop(InlLoopCache *cache, const IrFunc *f, u32 block)
 done:
     cache->blocks[block] = in_loop ? INL_LOOP_YES : INL_LOOP_NO;
     return in_loop;
+}
+
+static bool call_matches_unprototyped_body(const IrInst *call,
+                                           const IrFunc *callee)
+{
+    u32 i;
+
+    if (call->nops != callee->nparams)
+        return false;
+    for (i = 0; i < call->nops; i++)
+        if (call->ops[i].type != callee->param_types[i])
+            return false;
+    return true;
 }
 
 static bool block_name_exists(const IrFunc *f, const char *name)
@@ -630,6 +701,7 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
     const IrInst *call = site->call;
     const IrFunc *callee;
     OptConfig fc = *cfg;
+    bool forced;
     u64 threshold;
     u32 i;
 
@@ -641,41 +713,73 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
     if (call->subop != FUNCREF_INTERNAL || call->callee >= m->nfuncs)
         return false;
     callee = &m->funcs[call->callee];
+    forced = callee->always_inline;
     /* An ownership annotation is a call-boundary contract and may be
      * deliberately stronger than the current body.  Splicing that body
      * would erase the promised effect before memsafe applies summaries. */
     if (callee->cgf_attrs) {
-        OPT_BAIL(&fc, "inline", "inl_memsafe_contract");
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "ownership call-boundary contract cannot be preserved",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_memsafe_contract");
         return false;
     }
     /* The current DWARF backend has no abstract-origin/inlined-subroutine
      * records.  Splicing a debug build would silently erase source-level
      * breakpoint and backtrace frames promised by Sprint 29. */
-    if (cfg->debug_info) {
+    if (cfg->debug_info && !forced) {
         OPT_BAIL(&fc, "inline", "inl_debug_info");
         return false;
     }
     if (callee->variadic && cache->funcs[call->callee].has_va_start) {
-        OPT_BAIL(&fc, "inline", "inl_va_start");
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "variadic argument state cannot be spliced safely",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_va_start");
         return false;
     }
     /* A no-prototype call may omit body parameters or pass differently
      * promoted types.  Mapping the callee's concrete parameter SSA values
      * onto such operands would either index past the call or change C's
      * old-style ABI semantics. */
-    if (callee->unprototyped) {
-        OPT_BAIL(&fc, "inline", "inl_unprototyped_signature");
+    if (callee->unprototyped &&
+        (!forced || !call_matches_unprototyped_body(call, callee))) {
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "function has an unprototyped signature",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_unprototyped_signature");
         return false;
     }
     if (caller->calls_setjmp || callee->calls_setjmp) {
-        OPT_BAIL(&fc, "inline", "inl_setjmp");
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "setjmp frame cannot be spliced safely",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_setjmp");
         return false;
     }
     /* A no-return splice would make the caller suffix unreachable.  Leave it
      * intact until the pinned-operation audit can distinguish intentionally
      * dead suffixes from transformations that lose observable operations. */
     if (cache->funcs[call->callee].returns == 0) {
-        OPT_BAIL(&fc, "inline", "inl_noreturn");
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "function has no returning path",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_noreturn");
         return false;
     }
     /* x87 f80 values obey the backend's memory law: lowering represents
@@ -685,23 +789,46 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
      * f80 callees need no join and remain eligible.  musl's floatscan campaign
      * reached this through hexfloat at -O3. */
     if (callee->ret == IRT_F80 && cache->funcs[call->callee].returns > 1) {
-        OPT_BAIL(&fc, "inline", "inl_f80_multiret");
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "multiple long-double return paths are not supported",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_f80_multiret");
         return false;
     }
     /* A recursive callee cannot be spliced even into a caller outside its
      * SCC: the cloned recursive edge would otherwise become a fresh eligible
      * site on the next scan/fixpoint iteration and expand without bound. */
-    if (cache->funcs[call->callee].recursive ||
-        ipo_callgraph_scc_of(graph, caller_index) ==
-            ipo_callgraph_scc_of(graph, call->callee)) {
-        OPT_BAIL(&fc, "inline", "inl_recursion");
+    if ((forced && cache->funcs[call->callee].force_recursive) ||
+        (!forced && (cache->funcs[call->callee].recursive ||
+                     ipo_callgraph_scc_of(graph, caller_index) ==
+                         ipo_callgraph_scc_of(graph, call->callee)))) {
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "recursive call",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_recursion");
         return false;
     }
-    if (cache->funcs[call->callee].has_alloca &&
+    if ((forced ? cache->funcs[call->callee].has_dynamic_alloca
+                : cache->funcs[call->callee].has_alloca) &&
         block_in_loop(loops, caller, site->block)) {
-        OPT_BAIL(&fc, "inline", "inl_alloca_in_loop");
+        if (forced)
+            diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
+                      "inlining failed in call to 'always_inline' '%s': "
+                      "alloca in a repeated caller region cannot preserve "
+                      "callee lifetime",
+                      callee->name);
+        else
+            OPT_BAIL(&fc, "inline", "inl_alloca_in_loop");
         return false;
     }
+    if (forced)
+        return true;
     threshold = cfg->inline_threshold;
     if (callee->linkage == IRLINK_INTERNAL &&
         cache->direct_calls[call->callee] == 1 &&
@@ -723,7 +850,7 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
     return true;
 }
 
-bool opt_inline(IrModule *m, const OptConfig *cfg)
+static bool run_inline(IrModule *m, const OptConfig *cfg, bool forced_only)
 {
     Callgraph *graph;
     InlScanCache cache;
@@ -742,7 +869,7 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
             u32 serial = 0;
             bool func_changed = false;
 
-            if (!m->funcs[fi].opt_inline_growth_initialized) {
+            if (!forced_only && !m->funcs[fi].opt_inline_growth_initialized) {
                 m->funcs[fi].opt_inline_growth_left =
                     growth_budget(cache.funcs[fi].insts);
                 m->funcs[fi].opt_inline_growth_initialized = true;
@@ -774,6 +901,11 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
                          prev = in, in = in->next) {
                         if (in->op != IR_CALL)
                             continue;
+                        if (forced_only &&
+                            (in->subop != FUNCREF_INTERNAL ||
+                             in->callee >= m->nfuncs ||
+                             !m->funcs[in->callee].always_inline))
+                            continue;
                         site.block = bi;
                         site.call = in;
                         site.prev = prev;
@@ -791,12 +923,14 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
                 {
                     u32 callee = site.call->callee;
                     u32 growth = cache.funcs[callee].insts;
+                    bool forced = m->funcs[callee].always_inline;
 
                     if (!cache.direct_calls[callee])
                         CGF_ICE("inline: direct-call cache underflow");
                     cache.direct_calls[callee]--;
                     add_cloned_direct_calls(&cache, m, &m->funcs[callee]);
-                    m->funcs[fi].opt_inline_growth_left -= growth;
+                    if (!forced)
+                        m->funcs[fi].opt_inline_growth_left -= growth;
                 }
                 func_changed |= inline_site(
                     m, &m->funcs[fi], &m->funcs[site.call->callee], &site,
@@ -819,4 +953,91 @@ bool opt_inline(IrModule *m, const OptConfig *cfg)
     return changed;
 }
 
+bool opt_force_inline(IrModule *m, const OptConfig *cfg)
+{
+    return run_inline(m, cfg, true);
+}
+
+bool opt_inline(IrModule *m, const OptConfig *cfg)
+{
+    return run_inline(m, cfg, false);
+}
+
+/* Remove always-inline bodies that C's inline rules say are not external
+ * definitions. They were admitted to emission IR only so always_inline had
+ * something concrete to splice. Every internal call must be gone first;
+ * symbol operands (address taking, indirect calls, relocations) deliberately
+ * keep naming the external fallback and therefore need no function-index
+ * remap. */
+bool opt_strip_inline_only(IrModule *m, const OptConfig *cfg)
+{
+    bool *keep;
+    u32 *map;
+    u32 i, out = 0;
+    bool changed = false;
+
+    (void)cfg;
+    if (diag_had_error(m->dc))
+        return false;
+    for (i = 0; i < m->nfuncs; i++) {
+        u32 bi;
+
+        for (bi = 0; bi < m->funcs[i].nblocks; bi++) {
+            IrInst *in;
+
+            for (in = m->funcs[i].blocks[bi].first; in; in = in->next)
+                if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
+                    in->callee < m->nfuncs &&
+                    m->funcs[in->callee].inline_only &&
+                    m->funcs[in->callee].always_inline) {
+                    diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, in),
+                              "inlining failed in call to 'always_inline' "
+                              "'%s': function was not inlined",
+                              m->funcs[in->callee].name);
+                    return false;
+                }
+        }
+    }
+    keep = cgf_xmalloc((m->nfuncs ? m->nfuncs : 1) * sizeof(*keep));
+    map = cgf_xmalloc((m->nfuncs ? m->nfuncs : 1) * sizeof(*map));
+    for (i = 0; i < m->nfuncs; i++) {
+        keep[i] = !(m->funcs[i].inline_only && m->funcs[i].always_inline);
+        changed |= !keep[i];
+    }
+    if (!changed) {
+        free(keep);
+        free(map);
+        return false;
+    }
+    for (i = 0; i < m->nfuncs; i++)
+        if (keep[i]) {
+            map[i] = out;
+            if (out != i)
+                m->funcs[out] = m->funcs[i];
+            out++;
+        }
+    m->nfuncs = out;
+    for (i = 0; i < m->nfuncs; i++) {
+        u32 bi;
+
+        for (bi = 0; bi < m->funcs[i].nblocks; bi++) {
+            IrInst *in;
+
+            for (in = m->funcs[i].blocks[bi].first; in; in = in->next)
+                if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL) {
+                    if (!keep[in->callee])
+                        CGF_ICE("inline: stripped function still has a caller");
+                    in->callee = map[in->callee];
+                }
+        }
+    }
+    free(keep);
+    free(map);
+    return true;
+}
+
 const Pass OPT_PASS_INLINE = {"inline", opt_inline, PASS_PINNED_INLINE_CLONES};
+const Pass OPT_PASS_FORCE_INLINE = {"force-inline", opt_force_inline,
+                                    PASS_PINNED_INLINE_CLONES};
+const Pass OPT_PASS_STRIP_INLINE_ONLY = {
+    "strip-inline-only", opt_strip_inline_only, PASS_PINNED_DELETE_FUNCS};

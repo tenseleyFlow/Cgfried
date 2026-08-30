@@ -193,6 +193,66 @@ void test_s16_inline_matrix(TestCtx *t)
     s16_free(&f);
 }
 
+void test_s16_gnu_always_inline_symbol_contract(TestCtx *t)
+{
+    S16Fix f;
+    Symbol *sym;
+
+    /* The attribute is a unioned symbol property: a prototype may supply it
+     * while a later inline definition supplies the body.  Both GNU wrapped
+     * and bare spellings normalize to the same bit. */
+    run16_std(&f,
+              "inline int "
+              "__attribute__((__always_inline__)) " /* check_bans allow */
+              "f(int);\n"
+              "inline int f(int x) { return x + 1; }\n",
+              true, STD_GNU17);
+    sym = sym16(&f, "f");
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT(t, sym && sym->gnu.always_inline);
+    T_ASSERT(t, sym && sym->inline_kind == INL_INLINE_DEF);
+    s16_free(&f);
+
+    /* A definition may introduce the property after an unadorned prototype. */
+    run16_std(&f,
+              "inline int f(int);\n"
+              "inline "
+              "__attribute__((always_inline)) " /* check_bans allow */
+              "int f(int x) "
+              "{ return x + 1; }\n",
+              true, STD_GNU17);
+    sym = sym16(&f, "f");
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT(t, sym && sym->gnu.always_inline);
+    T_ASSERT(t, sym && sym->inline_kind == INL_INLINE_DEF);
+    s16_free(&f);
+
+    /* GCC keeps the force-inline property without an inline specifier, but
+     * warns that the unusual spelling may also need an out-of-line body. */
+    run16_std(&f,
+              "int __attribute__((always_inline)) " /* check_bans allow */
+              "f(int);\n",
+              true, STD_GNU17);
+    sym = sym16(&f, "f");
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT(t, sym && sym->gnu.always_inline);
+    s16_free(&f);
+
+    /* There is no call target on an object.  Warn and discard the property so
+     * it cannot leak through the generic redeclaration merge. */
+    run16_std(&f,
+              "int x __attribute__((always_inline));\n", /* check_bans allow */
+              true, STD_GNU17);
+    sym = sym16(&f, "x");
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    T_ASSERT(t, sym && !sym->gnu.always_inline);
+    s16_free(&f);
+}
+
 void test_s16_tentative_resolution(TestCtx *t)
 {
     S16Fix f;
