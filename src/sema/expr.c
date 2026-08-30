@@ -291,8 +291,19 @@ static AstNode *expr_unary(Sema *s, AstNode *e)
             return poison(s, e);
         }
         if (op->sem_type->base->kind == TY_VOID) {
-            err(s, e->span, "cannot dereference a 'void *'");
-            return poison(s, e);
+            /* WG14 DR 106: the discarded, conditional, and comma uses of
+             * `*pv` are well formed.  The result is a void expression, not
+             * an object lvalue, so lowering evaluates the pointer operand
+             * but must not manufacture a load from an object that cannot
+             * exist.  GCC warns unconditionally without making this a
+             * pedantic error; expose Clang's controllable warning spelling
+             * rather than shipping an unsilenceable diagnostic. */
+            warn_at(s->lang->warnings, WARN_VOID_PTR_DEREFERENCE, e->span,
+                    "dereferencing '%s' pointer",
+                    type_to_str(s->arena, op->sem_type));
+            e->sem_type = op->sem_type->base;
+            e->is_lvalue = false;
+            return e;
         }
         e->sem_type = op->sem_type->base;
         e->is_lvalue = true; /* *p is an object */

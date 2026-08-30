@@ -289,6 +289,7 @@ additional raw GCC records and therefore are not part of the 222-row source coun
 | -Wunused-command-line-argument | — | out-of-scope: CGF driver diagnostic absent from the GCC 8 raw warning inventory | — |
 | -Wvisibility | -Wvisibility | done | tests/warn/pragma/migrated_policy.c |
 | -Wvla-larger-than | — | out-of-scope: normalized parameter spelling; memory analysis is owned by Phase 9 (Sprint 42) | — |
+| -Wvoid-ptr-dereference | -Wvoid-ptr-dereference | done | tests/warn/frontend/pointer-arith/fire-void-deref.c |
 | -Wzero-length-array | -Wzero-length-array | done | tests/warn/pragma/migrated_policy.c |
 
 ## GCC 8 differential divergence ledger

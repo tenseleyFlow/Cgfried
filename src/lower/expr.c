@@ -2760,6 +2760,15 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
     case PUNCT_STAR: {
         Lvalue lv;
 
+        if (sem(e) && sem(e)->kind == TY_VOID) {
+            /* DR 106's accepted void dereference has no object value to
+             * load.  The pointer expression is still evaluated: `*next()`
+             * must call next even though the resulting void expression is
+             * discarded.  As with a lowered void conditional, the dummy is
+             * an internal return convention that no typed consumer may use. */
+            (void)lower_rvalue(lo, e->lhs);
+            return ir_op_undef(IRT_I32);
+        }
         if (lower_is_aggregate(sem(e)) || (sem(e) && sem(e)->kind == TY_FUNC)) {
             /* *f on a function or *p on an aggregate: the VALUE is the
              * address itself. */

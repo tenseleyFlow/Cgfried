@@ -620,6 +620,28 @@ void test_lower_conditional_pointer_integer_recovery(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_void_deref_effects_without_load(TestCtx *t)
+{
+    LowFix f;
+
+    /* A void dereference evaluates its pointer operand but cannot load a
+     * value.  There are five syntactic next() calls: one discarded, two in
+     * the conditional CFG, and two comma operands. */
+    T_ASSERT(t, run_lower(&f, "void *next(void);\n"
+                              "void f(int c) {\n"
+                              "  *next(); c ? *next() : *next();\n"
+                              "  *next(), *next();\n"
+                              "}\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @next()"), 5);
+    /* Reading the integer condition may require an i32 load at O0; the
+     * forbidden operation is a load THROUGH next()'s returned pointer. */
+    T_ASSERT(t, strstr(txt(&f), "load ptr") == NULL);
+    T_ASSERT(t, strstr(txt(&f), "load i8") == NULL);
+    low_free(&f);
+}
+
 void test_lower_conditional_f80_uses_memory_join(TestCtx *t)
 {
     LowFix f;
