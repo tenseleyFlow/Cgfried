@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-29): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-30): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -50,12 +50,14 @@ refused. PR #51's hosted GNU plain `alloca(...)` spelling is merged as
 26,725. PR #52's compound-literal array-completion repair is merged as
 `cfaec8d`, raising the GNU tier table to 40 / 6 / 8 and the target-complete
 PASS ratchet to 26,735. The current `s56.5-torture-failure-decomposition`
-branch keeps that PASS set unchanged while replacing one host-diagnostic
-runtime-abort bucket with 15 testcase-stable buckets. Its published triage has
-71 buckets, 62 applied decisions, zero stale/unresolved decisions, and 37
-live repair rows representing 32 remaining `s56.5-*` compiler tranches.
-Sprint 56's campaign machine, triage map, and 26,735-cell PASS ratchet are
-complete.
+tranche is merged through PR #53 as `008cf61`; it kept that PASS set unchanged
+while replacing one host-diagnostic runtime-abort bucket with 15
+testcase-stable buckets. The current `s56.5-gnu-always-inline` PR #54
+implements GNU `always_inline`, raises the GNU tier table to 41 / 6 / 8, and
+publishes a target-complete 26,745-cell PASS ratchet. Its triage has 70
+buckets, 61 applied decisions, zero stale/unresolved decisions, and 36 live
+repair rows representing 31 remaining `s56.5-*` compiler tranches. Sprint
+56's campaign machine, triage map, and 26,745-cell PASS ratchet are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1344,6 +1346,60 @@ and green post-publication CI.
   `50cbd08e0820fad479deb207d419db66d2b0f1a23973f1e393fd855cb198bdf4`
   and
   `c2b6c2a3a34c98f51596725e2e9fa15add41b649ff28573bf3c7d2f5500ca7d5`.
+- The current `s56.5-gnu-always-inline` tranche implements the GNU
+  `always_inline` function attribute, including bare and parenthesized
+  spellings, union across compatible redeclarations, C inline-only body
+  retention, and mandatory direct-call inlining at every optimization level.
+  Mandatory calls bypass profitability and debug-info bailouts but diagnose
+  unsafe unsupported shapes; forced-recursion detection follows only
+  `always_inline` edges. Exact old-style signatures and caller-loop constant
+  allocas are supported, dynamic allocas are refused, address references stay
+  external, and the temporary inline-only analysis bodies are stripped after
+  inlining. Darwin ARM64 focused validation passes 3 optimizer tests / 44
+  assertions, 1 sema test / 14 assertions, the native fixture, strict compiler
+  construction, and native `stdarg-4.c` execution at O0/O1/O2/O3/Os. Kasumi
+  passes full `make test` (824 unit tests / 4,294,044 assertions, 736 program
+  fixtures, and all 104 corpus cases plus bootstrap/differential/fuzz/campaign/
+  policy/format gates) and full Clang 22 ASan+UBSan validation with zero
+  findings. GCC 16's sanitizer frontend ICEs in its own `vartrack` pass while
+  compiling unchanged x86 instruction selection; strict normal GCC and Apple
+  Clang builds are green. All 270 runnable existing `always_inline` torture
+  compile-status cells preserve their prior accept/refuse result.
+  Implementation head `bfdb8f151e59149a0b995e84db74f817ee1af948` passed every
+  non-torture job in pre-publication PR CI
+  [run 33285501834](https://github.com/tenseleyFlow/Cgfried/actions/runs/33285501834),
+  including sanitizers and the 100k frontend fuzz lane; torture refused exactly
+  the five expected uncommitted x86-64 `stdarg-4.c` PASS cells. Push and PR
+  bootstrap runs
+  [33285490181](https://github.com/tenseleyFlow/Cgfried/actions/runs/33285490181)
+  and
+  [33285501875](https://github.com/tenseleyFlow/Cgfried/actions/runs/33285501875)
+  both pass O0/O2. Exact-head native full-lattice
+  [run 33285511199](https://github.com/tenseleyFlow/Cgfried/actions/runs/33285511199)
+  passes every non-ARM-torture job and refuses only the matching five ARM64
+  cells. The retained Kasumi x86 stream SHA-256 is
+  `d2bde40536c78d84415e5d1147e57d0a29c4839522a3eab623c27b5d95993197`;
+  the native ARM stream is
+  `4e38cac4cc51720c87603b579efd18dc1b31908e5511a695f15895b5a4c9bfa4`.
+  Both name the exact implementation head and share compiler-source SHA-256
+  `5c082b98dd1668bbb4f53783829603c665bc61505f6852738fc6383c5cddc115`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Formal `make torture-baseline` regenerated the x86 stream byte-identically,
+  atomically promoted exactly ten `stdarg-4.c` cells with zero PASS regression,
+  and retired fingerprint `a1baad615656922dd0c5cf03bae7bde4254cdc850813b578887e94bd88520db6`.
+  The published result is 26,745 PASS cells, 7,285 classified failures, 70
+  buckets, 61 applied decisions, zero stale/unresolved decisions, and 36 live
+  repair rows representing 31 unique compiler tranches. Reversing the evidence
+  streams regenerates both outputs byte-identically; PASS and triage SHA-256
+  values are respectively
+  `fba35b5fac513ae1c381da34af8165411f8f900be37e9c6bc3f4286a343c3db6`
+  and
+  `0564e5d8baebe52b6fcf5faa826f72aff3ecf4043f6fbc2633693375445b895c`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -1357,7 +1413,7 @@ and green post-publication CI.
   portability issue, not a Cgfried Darwin codegen failure; targeted non-x86
   sema/conversion tests pass with that warning demoted. Keep it as a separate
   narrow harness-portability tranche rather than blocking compiler-gap work.
-  The current failure-decomposition tranche fixes the earlier Darwin signal
+  The merged failure-decomposition tranche fixes the earlier Darwin signal
   fingerprint nondeterminism; its distinct-testcase and cross-target assertions
   pass locally. The full runner gate now proceeds to an older Darwin-only phase
   probe mismatch (`cg-fail.c` has an empty phase instead of `cg`). The triage
