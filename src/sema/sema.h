@@ -293,10 +293,16 @@ struct Symbol {
      * precede the definition work after whole-TU sema has completed. */
     AstNode *func_def;
     bool uses_va_arg_pack;
-    u8 inline_kind;     /* InlineKind, valid after sema_finish */
-    u8 def_kind;        /* DefKind, valid after sema_finish */
-    i64 enum_value;     /* SYM_ENUM_CONST */
-    TagDecl *tag;       /* SYM_TAG */
+    u8 inline_kind; /* InlineKind, valid after sema_finish */
+    u8 def_kind;    /* DefKind, valid after sema_finish */
+    i64 enum_value; /* SYM_ENUM_CONST */
+    /* GNU folds the already-validated initializer of a non-volatile,
+     * top-level const scalar object when that object's VALUE appears in a
+     * later constant initializer. This does not make the identifier an ICE:
+     * enum values, case labels, and array bounds still reject it. NULL means
+     * either that no initializer has been seen yet or that it did not fold. */
+    AstNode *foldable_const_init; /* SYM_VAR */
+    TagDecl *tag;                 /* SYM_TAG */
     CgfAttr *cgf_attrs; /* merged ownership contract, source-ordered */
 
     Symbol *next; /* intrusive chain within one scope, newest first */
@@ -469,7 +475,12 @@ typedef enum {
     CE_ICE,   /* integer constant expression: the strict constraint check */
     CE_ARITH, /* arithmetic constant expression: floats allowed */
     CE_ADDR,  /* address constant: &object + offset */
-    CE_FOLD   /* opportunistic; failure is silent */
+    CE_FOLD,  /* opportunistic GNU-aware fold; failure is silent */
+    /* Array bounds use opportunistic folding to distinguish a fixed array
+     * from a VLA, but a const-object value is still not an ICE. Keeping that
+     * one exclusion explicit prevents GNU static-initializer folding from
+     * turning `const int n = 3; int a[n];` into a fixed-size array. */
+    CE_VLA
 } CeMode;
 
 typedef enum { CV_INT, CV_FLOAT, CV_ADDR, CV_ERROR } CvKind;
