@@ -57,13 +57,19 @@ raises the GNU tier table to 41 / 6 / 8 and the target-complete PASS ratchet to
 26,745. PR #55's `s56.5-void-deref-and-pointer-composite` tranche is merged as
 `91d282e`; it implements WG14 DR106 void-pointer dereference semantics and
 enum-compatible-integer pointer composition, raising the PASS ratchet to
-26,765. The current `s56.5-gnu-aggregate-self-cast` PR #56 implements GNU
-aggregate identity casts with pedantic diagnostics and `__extension__`
-suppression. Its publication candidate raises the target-complete PASS ratchet
-to 26,775 with 67 buckets, 58 applied decisions, zero stale/unresolved
-decisions, and 34 live repair rows representing 29 remaining `s56.5-*`
-compiler tranches. Sprint 56's campaign machine, triage map, and 26,775-cell
-publication candidate are complete.
+26,765. PR #56's GNU aggregate self-cast tranche is merged as `0295bd50`, and
+PR #57's GNU scalar-to-union tranche is merged as `9b5d04d1`, raising the
+target-complete PASS ratchet to 26,795 with 32 live repair rows representing
+28 compiler tranches. PR #59's iterative symbol-finalization prerequisite is
+merged as `ecc5cd36`; it removes the host-stack dependency exposed by the
+100,000-declaration torture limits without changing the ratchet. The current
+PR #58 decomposes the formerly shared
+constant-expression fingerprint and implements only GCC's const-scalar-object
+folding in later static initializers. Its target-complete publication candidate
+raises the ratchet to 26,805 with 66 buckets, 57 applied decisions, zero
+stale/unresolved decisions, and the same 32 live repair rows. Sprint 56's
+campaign machine, triage map, and 26,805-cell publication candidate are
+complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1451,7 +1457,7 @@ and green post-publication CI.
   `d14d4a64ab2a29a56d04b675213a111ecd2288092d65226bab5cf63491279c64`
   and
   `8a5d5097c088bcd0201bafc470688577bb6f6a320b07f006e496c9a13212acc1`.
-- The current `s56.5-gnu-aggregate-self-cast` tranche accepts explicit casts
+- The merged `s56.5-gnu-aggregate-self-cast` tranche accepts explicit casts
   between compatible same-tag struct or union types as address-preserving GNU
   aggregate identity conversions. It emits the GCC-compatible pedantic
   diagnostic `ISO C forbids casting nonscalar to the same type`, promotes it
@@ -1507,10 +1513,12 @@ and green post-publication CI.
   `fee438d61501aefe19374eca3d4756af5615ffc4eb69d6df1c3848064e4aa057`
   and
   `995a91ff47d4ab1eef7d2484545af9e0f209173cb8b477903d394e19a99d320f`.
-  The next semantic tranche is `s56.5-gnu-scalar-to-union-casts`, now 20
-  target-complete cells across `pr42708-1.c` and `960416-1.c`.
-- The `s56.5-gnu-scalar-to-union-casts` tranche implements GCC's cast-to-union
-  extension for an operand whose post-lvalue-conversion type exactly matches
+  PR #56 merged as `0295bd50`; the next completed semantic tranche was
+  `s56.5-gnu-scalar-to-union-casts`, with 20 target-complete cells across
+  `pr42708-1.c` and `960416-1.c`.
+- The merged `s56.5-gnu-scalar-to-union-casts` tranche implements GCC's
+  cast-to-union extension for an operand whose post-lvalue-conversion type
+  exactly matches
   an ordinary non-bit-field member. Top-level qualifiers are ignored, while
   enum/integer compatibility, arithmetic conversions, pointer conversions,
   distinct aggregate tags, and bit-field base types do not create a match.
@@ -1572,6 +1580,95 @@ and green post-publication CI.
   `38e1cd03ad031062b53ce242f802f24833ed8d5489b96e66ff4e0a4207cb93a9`
   and
   `b2f9361018d0febdb5e0d2ad30c486abeaeb4ed22820a6fcf1691ee6fee9ab32`.
+  PR #57 merged as `9b5d04d1`; the next tranche is the isolated
+  `pr83222.c` const-scalar-object static-initializer folding gap.
+- PR #59 isolated and repaired the prerequisite exposed while recapturing
+  exact evidence for that next tranche. `finish_symbol()` recursively walked
+  the parser's newest-first symbol chain before reversing it; the imported
+  100,000-declaration limit therefore exhausted the host stack on Darwin
+  ARM64 and could also corrupt the diagnostic location on Linux. The repair
+  accumulates the chain in an explicit `SymbolVec` and finalizes it
+  iteratively in declaration order, with a 100,000-symbol unit regression.
+  Apple ARM64 passes the 25-test semantic suite / 357 assertions and 50/50
+  repeated limit compiles. A Clang-built x86 compiler passes 100/100 repeated
+  compiles and the 829-test / 4,294,074-assertion unit suite; a GCC 15 build on
+  Hasu passes another 100/100. Focused ASan/UBSan and pinned clang-format 22
+  are green. PR CI
+  [run 33325396417](https://github.com/tenseleyFlow/Cgfried/actions/runs/33325396417),
+  including the complete x86 torture matrix and 36-minute frontend fuzz job,
+  and both O0/O2 bootstrap runs are green. PR #59 merged as `ecc5cd36` from
+  implementation commit `ca8cf5e0`; PR #58 is rebased onto that prerequisite.
+- The current `s56.5-constexpr-context-decomposition` PR #58 first source-
+  audited fingerprint
+  `719f040fbd028be5e8a9f8add4109a1d3215b8a6e44d8084de50159c6182fe7c`
+  into three independent ten-cell gaps: `pr83222.c` const scalar objects in
+  later static initializers, `pr38789.c` immediate asm validation before
+  `__builtin_constant_p` branch elimination, and `pr41935.c` runtime VLA
+  indices in `__builtin_offsetof`. This tranche implements only `pr83222.c`.
+  Semantic analysis retains an already-typed initializer only for a top-level
+  const, nonvolatile, non-atomic arithmetic or pointer object after that
+  initializer folds; later non-ICE constant contexts may reuse its value. A
+  distinct opportunistic VLA-folding mode keeps const object names out of
+  enum values, case labels, and fixed array bounds. GCC 16 confirms the same
+  acceptance and rejection boundary. Apple ARM64 passes 25 semantic tests /
+  359 assertions and native runtime execution at O0/O1/O2/O3/Os. Rebased PR
+  CI passes 830 unit tests / 4,294,078 assertions, every ordinary corpus and
+  policy gate, and 100,000 sanitizer-backed frontend-fuzz iterations with
+  zero findings. Both Linux backends compile `pr83222.c` at all five levels.
+
+  Implementation head `1ac926f56a611b433f9ddcd365bd49a4beb8c10a`
+  passes every non-torture job in pre-publication PR CI
+  [run 33327197597](https://github.com/tenseleyFlow/Cgfried/actions/runs/33327197597);
+  hosted torture refuses exactly the five expected uncommitted x86 cells.
+  Push and PR bootstrap runs
+  [33327196820](https://github.com/tenseleyFlow/Cgfried/actions/runs/33327196820)
+  and
+  [33327197606](https://github.com/tenseleyFlow/Cgfried/actions/runs/33327197606)
+  both pass O0/O2. Exact-head native full-lattice
+  [run 33327204072](https://github.com/tenseleyFlow/Cgfried/actions/runs/33327204072)
+  passes all fourteen other jobs and refuses only the matching five ARM64
+  cells. Its retained ARM stream (artifact `9736778213`) has SHA-256
+  `141d01ae8cd59800f2ed18d5006f30064d76df17a6ab27d81b1b3900f6d19bb0`.
+
+  Hasu's NixOS deployment has no FHS headers, CRT, or default binutils paths;
+  a bare-host capture was therefore rejected by the old-PASS gate rather than
+  mistaken for compiler evidence. Formal publication uses the repository's
+  argv-preserving sysroot wrapper over a coherent GCC 15 glibc target root and
+  explicit native assembler/linker paths. Its validation capture and fresh
+  `make torture-baseline` run regenerate the exact branch-head x86 stream
+  byte-identically as
+  `2c88bacc6d677f2ca3fb93afb11ed0093ea676558cd66512014dca6a9bb6281b`.
+  The authoritative streams name the implementation head and share compiler-
+  source SHA-256
+  `12ee678b9b2e24d02cd90c405202836818fa2d875ff48212ef152bd94911af8b`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and the unchanged manifest hashes; their ARM and x86 compiler binary hashes
+  are respectively
+  `07530b6ed35a9c64c1fb6726dd9d2b445e6dd1c5d96334febb7cf7447edca052`
+  and
+  `66db8d56b9f82738e379972e5268f4b400659c4ae3b6b1f81a7b2de39ba57b22`;
+  the corresponding driver hashes are
+  `07530b6ed35a9c64c1fb6726dd9d2b445e6dd1c5d96334febb7cf7447edca052`
+  and
+  `da88a93bd43c72a6aaf081150b28a8154bbec87322e05faac5239135d0747bdb`.
+  Formal `make torture-baseline` promotes exactly ten `pr83222.c` cells with
+  zero PASS regression. The old fingerprint remains a 20-cell bucket for the
+  two source-audited gaps above. Hasu's required wrapper makes two existing
+  identifier-limit timeouts normalize with a `scripts/` command path; that
+  host-specific fingerprint is separately classified under the same compiler-
+  scalability tranche. Publication is 26,805 PASS cells, 7,225 classified
+  failures, 66 buckets, 57 applied decisions, zero stale/unresolved decisions,
+  and 32 live repair rows representing 28 compiler tranches. Reversing the
+  two evidence streams
+  regenerates both outputs byte-identically; PASS and triage SHA-256 values
+  are respectively
+  `4d4ad8bbe70285e29aa3b4f557eb1ba74ef6d694cb7ccc17168709803e58bcde`
+  and
+  `59a4dbae2157719a612d49d1b978d53497140903ee2d331d1a0475a2f6368154`.
+  Take `pr41935.c` runtime VLA `__builtin_offsetof` next, then `pr38789.c`
+  immediate-asm timing as a separate tranche; neither is a const-object-
+  folding follow-on.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
