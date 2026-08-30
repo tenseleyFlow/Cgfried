@@ -54,13 +54,16 @@ merged through PR #53 as `008cf61`; it kept that PASS set unchanged while
 replacing one host-diagnostic runtime-abort bucket with 15 testcase-stable
 buckets. PR #54's `s56.5-gnu-always-inline` tranche is merged as `fc6ebe9`; it
 raises the GNU tier table to 41 / 6 / 8 and the target-complete PASS ratchet to
-26,745. The current `s56.5-void-deref-and-pointer-composite` PR #55 implements
-WG14 DR106 void-pointer dereference semantics and enum-compatible-integer
-pointer composition. Its publication candidate raises the target-complete
-PASS ratchet to 26,765 with 68 buckets, 59 applied decisions, zero
-stale/unresolved decisions, and 35 live repair rows representing 30 remaining
-`s56.5-*` compiler tranches. Sprint 56's campaign machine, triage map, and
-26,765-cell publication candidate are complete.
+26,745. PR #55's `s56.5-void-deref-and-pointer-composite` tranche is merged as
+`91d282e`; it implements WG14 DR106 void-pointer dereference semantics and
+enum-compatible-integer pointer composition, raising the PASS ratchet to
+26,765. The current `s56.5-gnu-aggregate-self-cast` PR #56 implements GNU
+aggregate identity casts with pedantic diagnostics and `__extension__`
+suppression. Its publication candidate raises the target-complete PASS ratchet
+to 26,775 with 67 buckets, 58 applied decisions, zero stale/unresolved
+decisions, and 34 live repair rows representing 29 remaining `s56.5-*`
+compiler tranches. Sprint 56's campaign machine, triage map, and 26,775-cell
+publication candidate are complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1403,7 +1406,7 @@ and green post-publication CI.
   `fba35b5fac513ae1c381da34af8165411f8f900be37e9c6bc3f4286a343c3db6`
   and
   `0564e5d8baebe52b6fcf5faa826f72aff3ecf4043f6fbc2633693375445b895c`.
-- The current `s56.5-void-deref-and-pointer-composite` tranche implements
+- The merged `s56.5-void-deref-and-pointer-composite` tranche implements
   WG14 DR106 semantics for dereferencing plain and qualified `void *`:
   semantic analysis preserves a non-lvalue qualified-void expression, emits
   the default-on suppressible `-Wvoid-ptr-dereference` diagnostic, and lowering
@@ -1448,6 +1451,64 @@ and green post-publication CI.
   `d14d4a64ab2a29a56d04b675213a111ecd2288092d65226bab5cf63491279c64`
   and
   `8a5d5097c088bcd0201bafc470688577bb6f6a320b07f006e496c9a13212acc1`.
+- The current `s56.5-gnu-aggregate-self-cast` tranche accepts explicit casts
+  between compatible same-tag struct or union types as address-preserving GNU
+  aggregate identity conversions. It emits the GCC-compatible pedantic
+  diagnostic `ISO C forbids casting nonscalar to the same type`, promotes it
+  under `-pedantic-errors`, and preserves `__extension__` suppression by
+  carrying the parser's suppression state on the explicit-cast AST node until
+  semantic analysis. Distinct aggregate tags and scalar/pointer-to-union casts
+  remain rejected. Focused Darwin ARM64 validation passes 1 semantic test / 5
+  assertions, all 23 semantic tests / 349 assertions, both new program
+  fixtures, and native O0/O1/O2/O3/Os execution. Kasumi passes the full 827
+  unit tests / 4,294,066 assertions, both fixtures, native execution at all
+  five optimization levels, and the frontend fuzz smoke. Adding the two
+  fixture sources intentionally changed the deterministic frontend-fuzz
+  sequence; Apple ARM64 and Kasumi independently reproduced digest
+  `5593b66bc5bf02cf` before it was repinned.
+  Implementation head `b61f598f3441a52b2f81a67ea97f95d74d812f73`
+  passed every non-torture job in pre-publication PR CI
+  [run 33294900014](https://github.com/tenseleyFlow/Cgfried/actions/runs/33294900014),
+  including sanitizers and the 100k frontend fuzz lane; torture refused
+  exactly the five expected uncommitted x86-64 `20010605-2.c` PASS cells.
+  Push and PR bootstrap runs
+  [33294898204](https://github.com/tenseleyFlow/Cgfried/actions/runs/33294898204)
+  and
+  [33294900011](https://github.com/tenseleyFlow/Cgfried/actions/runs/33294900011)
+  both pass O0/O2. Exact-head native full-lattice
+  [run 33294922631](https://github.com/tenseleyFlow/Cgfried/actions/runs/33294922631)
+  passes every other job and refuses only the matching five ARM64 cells. The
+  retained native ARM stream (artifact `9727253525`) has SHA-256
+  `a5c702113e14fa4f500b3388c50b4a96f96d798d742999c677c931fed9b2fb2b`.
+  The hosted PR x86 stream has SHA-256
+  `281dc963b90d5811821ad6c5c0b98892d993255c834f5016c4a6fdd21247c1ae`
+  and independently confirms the same five promotions with zero regression;
+  it is confirmation-only because Actions checked out GitHub's synthetic
+  merge revision. Formal Kasumi publication regenerated the exact branch-head
+  x86 stream as
+  `cf5bb0e92b25a060bca1654349eed7e395300b48ae0c2e113a3383bd4581f3d4`.
+  The two authoritative streams name the implementation head and share
+  compiler-source SHA-256
+  `4b3005e4f0f9a151d884fd81974c9391b126ef8cba54b657bcf9009545861a19`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and identical manifest hashes. Formal `make torture-baseline` promotes
+  exactly ten `20010605-2.c` cells with zero PASS regression and retires
+  fingerprint `f9c7d944f95255e125b87ba41cc8c076edc1534f3b1f60329baf2d2af9660dfb`.
+  Source audit proved that fingerprint
+  `ae6394ea751369cfa3f15c078e72a70e5989fc74012072b928877865cabac9cb`
+  is instead a pointer-to-union cast, so its durable policy moves to the
+  existing `s56.5-gnu-scalar-to-union-casts` tranche. The publication result
+  is 26,775 PASS cells, 7,255 classified failures, 67 buckets, 58 applied
+  decisions, zero stale/unresolved decisions, and 34 live repair rows
+  representing 29 unique compiler tranches. Reversing the two evidence
+  streams regenerates every output byte-identically; PASS and triage SHA-256
+  values are respectively
+  `fee438d61501aefe19374eca3d4756af5615ffc4eb69d6df1c3848064e4aa057`
+  and
+  `995a91ff47d4ab1eef7d2484545af9e0f209173cb8b477903d394e19a99d320f`.
+  The next semantic tranche is `s56.5-gnu-scalar-to-union-casts`, now 20
+  target-complete cells across `pr42708-1.c` and `960416-1.c`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,

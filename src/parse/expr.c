@@ -652,6 +652,12 @@ static AstNode *parse_cast_expr(Parser *p)
                     p, finish_compound_literal(p, ty, t->span));
             n = expr_new(p, AST_EXPR_CAST, t->span);
             n->type = ty;
+            /* Most cast constraints are ISO rules, but GNU permits an
+             * aggregate to be cast to its own type and diagnoses that
+             * extension only under -Wpedantic.  Preserve __extension__'s
+             * lexical suppression until sema knows whether this is that
+             * aggregate identity case. */
+            n->suppress_pedantic = p->extension_depth != 0;
             n->lhs = parse_cast_expr(p); /* right-associative */
             return parse_poison_from(n, n->lhs);
         }

@@ -1540,6 +1540,24 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = false;
         if (quiet(op, NULL))
             return poison(s, e);
+        /* GNU C permits a struct or union value to be explicitly cast to
+         * its own compatible type.  This is an aggregate identity
+         * conversion: lowering already represents aggregate rvalues by
+         * address, so the cast needs no data transformation.  Keep this
+         * deliberately narrower than GNU's separate scalar-to-union
+         * extension; distinct tags and every other nonscalar cast still
+         * take the ordinary constraint diagnostics below. */
+        if (op->sem_type && (to->kind == TY_STRUCT || to->kind == TY_UNION) &&
+            (op->sem_type->kind == TY_STRUCT ||
+             op->sem_type->kind == TY_UNION) &&
+            type_compatible(conv_strip_quals(s, to),
+                            conv_strip_quals(s, op->sem_type))) {
+            if (!e->suppress_pedantic)
+                warn_pedwarn_at(
+                    s->lang->warnings, WARN_PEDANTIC, e->span,
+                    "ISO C forbids casting nonscalar to the same type");
+            return e;
+        }
         if (to->kind != TY_VOID && !type_is_arithmetic(to) &&
             to->kind != TY_PTR) {
             err(s, e->span, "cannot cast to non-scalar type '%s'",
