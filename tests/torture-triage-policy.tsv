@@ -11,7 +11,6 @@
 -	577b3a7c47b959332a58fa4e5b7a6cfcfb6e422ec958ce295551830122e30730	pp	all	The shipped va_start macro cannot handle GNU ellipsis-only functions whose invocation has no last named parameter.	fix-sprint:s56.5-gnu-varargs-without-named-parameter
 -	5af19e793c6f35ae33c0aa34abf6552c58591c99400d16038ff878b4332002d0	sema	all	arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal	wontfix-0.1.0
 -	5e10d749ed583a36c352321e1e6165c368cf45cb4074a3abdc3559c01df8443b	sema	all	The GCC s symbolic-address inline-asm constraint is not implemented, so constant object and string addresses are rejected before lowering.	fix-sprint:s56.5-symbolic-asm-constant-constraint
--	616e5e0e7b869f0c5d51017e18b7c302d45c0e17036ad9fe165a756a42427650	run	all	CFG reachability and label-edge lowering mishandle gotos into syntactically dead loop and statement-expression regions.	fix-sprint:s56.5-label-reachable-dead-regions
 -	61f7d78fdc241146d501a94c8a4318e23bd540586c8eab78ee1478c26d74d3e4	as	all	The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.	out-of-scope
 -	6315641ba67866fc0ce23827d143e76d664e050b8b0c57fccaa7b1d735aad925	sema	all	allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal	wontfix-0.1.0
 -	63894c5b52edea1018992f21ad3550b33865536439f4fd724edc5e49bc0bd974	parse	all	The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
@@ -31,7 +30,6 @@
 -	cc5dfe026bb1609d02fc9a84176be08676c8368afe27a452bcfa84e94873550a	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb	run	all	UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals	fix-sprint:s56.5-utf8-wide-literal-decoding
 -	d2a3673523fa1086b58179c65a40f750586e433d12880533ff901759e5e9ad76	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope
--	e52eb5707422df12f2923cc404dd36f80c00c96e1901f9885f67a72595134e73	parse	all	The ten-thousand-level expression nesting stress reaches Cgfried's explicit bracket-nesting translation limit on hosts where parsing stops before the harness output guard.	out-of-scope
 -	e578de15b58de70f4d707195edcd798c9ae00241d327927a5a4414878810ea33	parse	all	The cases use GNU complex types or complex component operators, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	e83262900091a3f95ecb503518ea616ec0814569020da57daccd5240c82d49a2	parse	all	The union member uses GNU complex integer type and real/imaginary component operators, outside the v0.1.0 language scope.	out-of-scope
 -	ef08225eb7c8eae8444a144fc059c944c4d777a17209092f661c7671b59e78a9	as	all	The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.	out-of-scope
