@@ -421,6 +421,24 @@ void test_lower_stmt_expr_label_prepass(TestCtx *t)
     st_free(&f);
 }
 
+void test_lower_stmt_expr_terminated_typed_continuation(TestCtx *t)
+{
+    StFix f;
+
+    /* The statement expression has int type despite its goto.  Its enclosing
+     * addition must lower into an orphan continuation with an undef operand,
+     * leaving the real edge to the label intact and never appending after the
+     * goto terminator. */
+    T_ASSERT(t, run_lower_s(&f, "int f(void) {\n"
+                                "  return ({ goto escaped; 13; }) + 1;\n"
+                                "escaped:\n"
+                                "  return 9;\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "br L.escaped") != NULL);
+    st_free(&f);
+}
+
 void test_lower_goto_vla_declaration_boundaries(TestCtx *t)
 {
     StFix f;
