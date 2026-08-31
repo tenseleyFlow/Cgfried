@@ -163,6 +163,16 @@ void test_pp_expr_charconst(TestCtx *t)
     /* Multi-char packs big-endian like gcc; int-typed. */
     ev(t, "'ab' == (('a' << 8) | 'b')", true);
     ev(t, "L'x' == 'x'", true);
+    /* Prefixed constants retain their code-unit width in preprocessing
+     * expressions. In particular, octal 0400 must not narrow to a zero
+     * ordinary byte before #if observes it. */
+    ev(t, "L'\\400' == 256", true);
+    ev(t, "L'\\x100' == 256", true);
+    ev(t, "u'\\400' == 256", true);
+    ev(t, "U'\\400' == 256", true);
+    /* Keep preprocessing aligned with lex_char_const for the GNU
+     * implementation-defined prefixed multichar spelling. */
+    ev(t, "L'ab' == 'b'", true);
     ev_err(t, "''");
 }
 

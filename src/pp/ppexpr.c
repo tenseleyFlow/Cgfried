@@ -136,10 +136,15 @@ static PpVal parse_charconst(EvalCtx *c, const PpToken *t)
     size_t len = t->len, i = 0;
     u64 v = 0;
     int nchars = 0;
+    bool prefixed = false;
 
-    /* Skip encoding prefix; value semantics identical for our targets. */
-    if (s[i] == 'L' || s[i] == 'u' || s[i] == 'U')
+    /* Preserve the prefix so a valid L/u/U constant keeps its decoded
+     * code-unit value. Only an ordinary character is narrowed to the
+     * execution char width below. */
+    if (s[i] == 'L' || s[i] == 'u' || s[i] == 'U') {
+        prefixed = true;
         i++;
+    }
     if (i >= len || s[i] != '\'')
         goto bad;
     i++;
@@ -231,19 +236,29 @@ static PpVal parse_charconst(EvalCtx *c, const PpToken *t)
             ch = (u64)(unsigned char)s[i];
             i++;
         }
-        v = (v << 8) | (ch & 0xFF);
+        if (prefixed)
+            v = ch; /* L'ab': gcc and the phase-5 lexer keep the last char */
+        else
+            v = (v << 8) | (ch & 0xFF);
         nchars++;
     }
     if (i >= len || s[i] != '\'' || nchars == 0)
         goto bad;
     if (nchars > 1) {
-        /* gcc pedwarns on multi-char; hook is Sprint 37, value matches. */
+        if (prefixed) {
+            pp_warn_at(c->pp, WARN_MULTICHAR, t->loc, t->len,
+                       "character constant too long for its type");
+            return make_val(v, false);
+        }
+        /* Ordinary multichar constants pack big-endian in intmax_t. */
         if (nchars > 8) {
             eval_error(c, t, "character constant too long");
             return make_val(0, false);
         }
         return make_val(v, false);
     }
+    if (prefixed)
+        return make_val(v, false);
     /* Single char: int-typed, sign per target `char` (signed on
      * x86_64-linux-gnu; per-target charsign threading arrives with sema). */
     return make_val((u64)(i64)(i8)(u8)v, false);
