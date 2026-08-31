@@ -1512,6 +1512,11 @@ static AstNode *expr(Sema *s, AstNode *e)
                     type_to_str(s->arena, op->sem_type));
                 return poison(s, e);
             }
+            if (!type_is_arithmetic(op->sem_type) && !is_ptr(op->sem_type)) {
+                err(s, e->span, "invalid operand of type '%s' to '%s'",
+                    type_to_str(s->arena, op->sem_type), ast_punct_name(e->op));
+                return poison(s, e);
+            }
             mark_lvalue_write(op, false);
             e->sem_type = conv_strip_quals(s, op->sem_type);
             e->is_lvalue = false;
