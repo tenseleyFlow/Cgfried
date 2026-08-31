@@ -1667,38 +1667,55 @@ and green post-publication CI.
   `4d4ad8bbe70285e29aa3b4f557eb1ba74ef6d694cb7ccc17168709803e58bcde`
   and
   `59a4dbae2157719a612d49d1b978d53497140903ee2d331d1a0475a2f6368154`.
-  PR #58 merged as `ea708db7` from publication head `3ae4b471`; the next
-  tranche is `pr41935.c` runtime VLA `__builtin_offsetof`.
-- The current `s56.5-runtime-vla-offsetof` tranche implements that isolated
-  `pr41935.c` gap. A fully constant designator still folds as an integer
-  constant expression, while GNU runtime indices remain ordinary expressions
-  and are rejected if an enum, array bound, or other ICE context requires a
-  constant. Lowering walks the already-typed designator from its synthetic
-  base outward, adds static member offsets, and scales each runtime index by
-  `lower_type_size()` so multidimensional VLA strides reuse the existing
-  evaluated-size machinery. It performs integer offset arithmetic rather than
-  creating a pointer: negative and out-of-range indices are accepted, no
-  object is accessed, and no memory-safety bounds guard is emitted. Bit-field,
-  bad-member, and bad-first-type diagnostics retain their existing boundary.
+  PR #58 merged as `ea708db7` from publication head `3ae4b471`; its successor
+  is the `pr41935.c` runtime VLA `__builtin_offsetof` tranche.
+- The `s56.5-runtime-vla-offsetof` tranche (PR #60) implements GNU runtime
+  array indices in `__builtin_offsetof`, retiring the isolated `pr41935.c`
+  gap. Fully constant designators still fold as `size_t` integer constant
+  expressions; runtime indices are ordinary expressions and remain rejected
+  where an ICE is required. Lowering recursively accumulates static member
+  offsets and each evaluated array stride as integer byte arithmetic, retaining
+  source-order index effects and VLA strides without materializing a pointer or
+  emitting an object-bounds guard. Negative and out-of-range indices therefore
+  remain arithmetic-only, while existing bit-field, bad-member, and bad-first-
+  type diagnostics are preserved.
 
-  Implementation head `4817868` passes the focused 831st unit regression / 7
-  assertions, the complete 67-test lowering family / 396 assertions, all ten
-  builtins fixtures, and native Apple ARM64 execution of both the permanent
-  boundary fixture and imported `pr41935.c` at O0/O1/O2/O3/Os. GCC 15 agrees
-  on the runtime, evaluation-order, negative/out-of-range, constant-expression,
-  and pedantic boundaries. On Hasu, strict GCC 15 and Clang 21 compiler builds
-  succeed; the sysroot-corrected x86 builtins suite and `pr41935.c` five-level
-  runtime matrix pass with the ordinary compiler, while the ASan/UBSan build
-  passes the focused unit and complete builtins suite. A deterministic
-  10,000-iteration sanitizer-backed frontend fuzz run reports zero findings,
-  and every torture/import classification, provenance,
-  ordering, determinism, matrix, and atomic-import meta-test passes. Hasu's one
-  residual full-unit failure is its pre-existing NixOS-only assertion that a
-  discovered libgcc directory begins `/usr/lib/gcc/`; all compiler, semantic,
-  and lowering units pass. Next: push the implementation, run PR CI and the
-  exact ARM full lattice, capture a fresh sysroot-corrected x86 lattice, then
-  publish only the ten `pr41935.c` cells. Take `pr38789.c` immediate-asm timing
-  afterward as a separate tranche.
+  Final behavior head `cb66dda41fc4ce73b93102c071cd10e281373d61` also repairs
+  an independent pre-existing semantic hole exposed by the enlarged frontend
+  fuzz corpus: postfix `++`/`--` now enforce the same arithmetic-or-pointer
+  requirement as prefix operators, so record lvalues produce an ordinary source
+  diagnostic rather than reaching lowering and ICEing. The permanent
+  `err_postfix_record_incdec.c` fixture covers both operators. The fixture set
+  changes the deterministic 5,000-iteration corpus pin to
+  `fb220f5b6b11282e`; CI's ASan/UBSan 100,000-iteration fixed-seed run reports
+  zero findings and an empty crash-reproducer check.
+
+  Final five-level evidence uses the same behavior head on both targets. The
+  native ARM64 matrix [run 33347735075](https://github.com/tenseleyFlow/Cgfried/actions/runs/33347735075)
+  artifact stream has SHA-256
+  `a5afb18b27ce93fbd7f9d1a74b7d25d1d065b5810763b1ac3d04e8098874fb6c`;
+  the fresh sysroot-corrected Hasu x86-64 stream has SHA-256
+  `7688d80ce8dadbea502d30923e292a14cdec2b3b269740d29edddb9b81108c77`.
+  Both share compiler-source SHA-256
+  `85cec107be41cc17387bd45fb7cc140517c72f78cfaba177e974d81e8c5697fb`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and unchanged manifest hashes. ARM's compiler/driver hash is
+  `2a4db38fac974d7ea268e72c674a19c2a9cc2f0fb0cc1385730750f10292c9df`;
+  x86's compiler and driver hashes are respectively
+  `9279920b7f8f0fd910400d68b368d0fa92082cdd52ad375b544a2a46764699a3`
+  and `da88a93bd43c72a6aaf081150b28a8154bbec87322e05faac5239135d0747bdb`.
+  Each target contributes exactly its five `pr41935.c` execute passes, with no
+  regression. Formal `make torture-baseline` publishes 26,815 PASS cells,
+  7,215 classified failures, 67 buckets, 58 applied decisions, and zero stale
+  or unresolved decisions. The fresh x86 host again reaches the documented
+  256-level bracket-nesting limit for `limits-exprparen.c`; its prior durable
+  `out-of-scope` policy row is restored rather than treated as a new compiler
+  gap. Reversed evidence-stream order regenerates the PASS ledger and triage
+  audit byte-identically; their SHA-256 values are respectively
+  `e9b25a92b4412b0f388a6f0bcb6bff44f16b37239fc3518ec3625ed8a93655dc`
+  and `cbe920e7bcfd93441af82f75dcbc7e4a91879906b11a54fdd36c2e8be642d1f4`.
+  The next isolated compiler tranche is `pr38789.c` immediate-asm timing.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -1720,16 +1737,12 @@ and green post-publication CI.
   failure on Darwin (the staged atomic outputs themselves remain
   byte-identical). Keep those host path/tool assumptions with the x64 simulator
   issue in the separate harness-portability tranche.
-- Fresh validation is green: `make torture-import-verify
-  torture-import-meta torture-meta`, full `make test` (816 unit tests /
-  4,293,948 assertions, 731 program fixtures, and every
-  corpus/differential/fuzz/cross/policy gate), full `make test-san`, strict GCC
-  and Clang builds. Exact-head bootstrap push and PR
-  [runs 33162857672](https://github.com/tenseleyFlow/Cgfried/actions/runs/33162857672)
-  and
-  [33162871482](https://github.com/tenseleyFlow/Cgfried/actions/runs/33162871482)
-  both pass O0/O2. Expected local skips are only optional-tool/platform lanes
-  and match their committed ledgers.
+- The behavior-head CI [run 33347696647](https://github.com/tenseleyFlow/Cgfried/actions/runs/33347696647)
+  passes every check other than its intentionally pre-publication x86 PASS-set
+  gate: that gate reports only the five uncommitted `pr41935.c` promotions and
+  no regression. Both bootstrap runs pass, as do full test, sanitizer, macOS
+  ARM64, QEMU ARM64, toolchain, campaign, formatting, and fuzz lanes. A fresh
+  CI run is required after the publication commit before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -1756,8 +1769,8 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is implemented and published on the current
-isolated PR #53 branch. The remaining compiler debt is enumerated by 37 live
-`s56.5-*` policy rows representing 32 unique repair tranches. Sprint
+isolated PR #53 branch. The remaining compiler debt is enumerated by 33 live
+`s56.5-*` policy rows representing 28 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
