@@ -921,6 +921,54 @@ typedef struct VlaPosition {
  * different restore states; multiple VLAs need one boundary apiece. Reverse
  * source-order collection records the first declaration after each label. */
 static void collect_labels(Lower *lo, AstNode *s, VlaPosition *vla_positions,
+                           LabelScope *scope_chain);
+
+/* Labels have function scope, whereas GNU statement expressions are ordinary
+ * expression nodes whose bodies contain ordinary statements.  The label
+ * pre-pass must therefore cross the expression/statement boundary before
+ * lowering starts: a later goto can enter a statement expression nested in a
+ * syntactically dead arm.  Walking the expression's structural children here
+ * is intentionally narrower than lowering -- it finds only embedded
+ * statement bodies and never emits their values or side effects. */
+static void collect_labels_expr(Lower *lo, AstNode *e,
+                                VlaPosition *vla_positions,
+                                LabelScope *scope_chain)
+{
+    u32 i;
+
+    if (!e)
+        return;
+    if (e->kind == AST_EXPR_STMT) {
+        collect_labels(lo, e->lhs, vla_positions, scope_chain);
+        return;
+    }
+    collect_labels_expr(lo, e->lhs, vla_positions, scope_chain);
+    collect_labels_expr(lo, e->mid, vla_positions, scope_chain);
+    collect_labels_expr(lo, e->rhs, vla_positions, scope_chain);
+    collect_labels_expr(lo, e->init, vla_positions, scope_chain);
+    for (i = 0; i < e->nargs; i++)
+        collect_labels_expr(lo, e->args[i], vla_positions, scope_chain);
+    for (i = 0; i < e->nitems; i++)
+        collect_labels_expr(lo, e->items[i], vla_positions, scope_chain);
+}
+
+/* A declaration group's siblings share the head node's `items` array.  An
+ * initializer can contain a statement expression just like an expression
+ * statement can, so inspect every declarator in source order. */
+static void collect_labels_decl_group(Lower *lo, AstNode *d,
+                                      VlaPosition *vla_positions,
+                                      LabelScope *scope_chain)
+{
+    u32 i;
+
+    if (!d)
+        return;
+    collect_labels_expr(lo, d->init, vla_positions, scope_chain);
+    for (i = 0; i < d->nitems; i++)
+        collect_labels_decl_group(lo, d->items[i], vla_positions, scope_chain);
+}
+
+static void collect_labels(Lower *lo, AstNode *s, VlaPosition *vla_positions,
                            LabelScope *scope_chain)
 {
     u32 i;
@@ -977,14 +1025,20 @@ static void collect_labels(Lower *lo, AstNode *s, VlaPosition *vla_positions,
         return;
     }
     case AST_STMT_IF:
+        collect_labels_expr(lo, s->lhs, vla_positions, scope_chain);
         collect_labels(lo, s->body, vla_positions, scope_chain);
         collect_labels(lo, s->rhs, vla_positions, scope_chain);
         return;
     case AST_STMT_SWITCH:
     case AST_STMT_WHILE:
     case AST_STMT_DO:
+        collect_labels_expr(lo, s->lhs, vla_positions, scope_chain);
+        collect_labels(lo, s->body, vla_positions, scope_chain);
+        return;
     case AST_STMT_CASE:
     case AST_STMT_DEFAULT:
+        collect_labels_expr(lo, s->lhs, vla_positions, scope_chain);
+        collect_labels_expr(lo, s->rhs, vla_positions, scope_chain);
         collect_labels(lo, s->body, vla_positions, scope_chain);
         return;
     case AST_STMT_FOR: {
@@ -993,9 +1047,27 @@ static void collect_labels(Lower *lo, AstNode *s, VlaPosition *vla_positions,
 
         here->compound = s;
         here->prev = scope_chain;
+        if (s->lhs && s->lhs->kind == AST_DECL)
+            collect_labels_decl_group(lo, s->lhs, vla_positions, here);
+        else
+            collect_labels(lo, s->lhs, vla_positions, here);
+        collect_labels_expr(lo, s->mid, vla_positions, here);
+        collect_labels_expr(lo, s->rhs, vla_positions, here);
         collect_labels(lo, s->body, vla_positions, here);
         return;
     }
+    case AST_STMT_DECL:
+        collect_labels_decl_group(lo, s->lhs, vla_positions, scope_chain);
+        return;
+    case AST_STMT_EXPR:
+    case AST_STMT_RETURN:
+        collect_labels_expr(lo, s->lhs, vla_positions, scope_chain);
+        return;
+    case AST_STMT_ASM:
+        for (i = 0; i < s->asm_nops; i++)
+            collect_labels_expr(lo, s->asm_ops[i].expr, vla_positions,
+                                scope_chain);
+        return;
     default:
         return;
     }

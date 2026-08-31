@@ -4,31 +4,31 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `3b55af5d5d1daa0b74e34e92fc4ca73c72114f32`
-- compiler-source-sha256: `22a860a0f33b8c59954ab3650195ea263bf1973cfd5dc500cde2f7769c1e57b7`
+- source-revision: `6b773a8046440aa976d3bdcf42f88a95b2263111`
+- compiler-source-sha256: `03546ecf9dede1f7ea626c886b5ba3acfcfbbed056418ee2a43cf7613160c802`
 - harness-sha256: `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`
 - torture-manifest-sha256: `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `c7c8eb9787e95c50bc5c2a95165179476f6e4a48b0bcb38c95d86437537ab27d` | `c7c8eb9787e95c50bc5c2a95165179476f6e4a48b0bcb38c95d86437537ab27d` |
-| x86_64-linux-gnu | `4121da44792b21c688322e64d5be36937408dfd5a2e28b20d3abfb0dd6d7ffec` | `da88a93bd43c72a6aaf081150b28a8154bbec87322e05faac5239135d0747bdb` |
+| arm64-linux | `c0b7dd7db8325f006c8c11fc7de3c06e0cc83818aee7babe8b26180706c3c877` | `c0b7dd7db8325f006c8c11fc7de3c06e0cc83818aee7babe8b26180706c3c877` |
+| x86_64-linux-gnu | `68ecf7da93137466cc99a8678848dc964721416e04123dbe58927c2b296a9fad` | `da88a93bd43c72a6aaf081150b28a8154bbec87322e05faac5239135d0747bdb` |
 
 ## Baseline
 
 | Suite | Level | Target | Total | PASS | SKIP | XFAIL | Fail | Applicable pass |
 |---|---:|---|---:|---:|---:|---:|---:|---:|
-| ctestsuite | O0 | arm64-linux | 219 | 214 | 0 | 0 | 5 | 97.72% |
-| ctestsuite | O0 | x86_64-linux-gnu | 219 | 215 | 0 | 0 | 4 | 98.17% |
-| ctestsuite | O1 | arm64-linux | 219 | 214 | 0 | 0 | 5 | 97.72% |
-| ctestsuite | O1 | x86_64-linux-gnu | 219 | 215 | 0 | 0 | 4 | 98.17% |
-| ctestsuite | O2 | arm64-linux | 219 | 214 | 0 | 0 | 5 | 97.72% |
-| ctestsuite | O2 | x86_64-linux-gnu | 219 | 215 | 0 | 0 | 4 | 98.17% |
-| ctestsuite | O3 | arm64-linux | 219 | 214 | 0 | 0 | 5 | 97.72% |
-| ctestsuite | O3 | x86_64-linux-gnu | 219 | 215 | 0 | 0 | 4 | 98.17% |
-| ctestsuite | Os | arm64-linux | 219 | 214 | 0 | 0 | 5 | 97.72% |
-| ctestsuite | Os | x86_64-linux-gnu | 219 | 215 | 0 | 0 | 4 | 98.17% |
+| ctestsuite | O0 | arm64-linux | 219 | 215 | 0 | 0 | 4 | 98.17% |
+| ctestsuite | O0 | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
+| ctestsuite | O1 | arm64-linux | 219 | 215 | 0 | 0 | 4 | 98.17% |
+| ctestsuite | O1 | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
+| ctestsuite | O2 | arm64-linux | 219 | 215 | 0 | 0 | 4 | 98.17% |
+| ctestsuite | O2 | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
+| ctestsuite | O3 | arm64-linux | 219 | 215 | 0 | 0 | 4 | 98.17% |
+| ctestsuite | O3 | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
+| ctestsuite | Os | arm64-linux | 219 | 215 | 0 | 0 | 4 | 98.17% |
+| ctestsuite | Os | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
 | torture-compile | O0 | arm64-linux | 2016 | 1423 | 376 | 0 | 217 | 86.77% |
 | torture-compile | O0 | x86_64-linux-gnu | 2016 | 1421 | 376 | 0 | 219 | 86.65% |
 | torture-compile | O1 | arm64-linux | 2016 | 1423 | 376 | 0 | 217 | 86.77% |
@@ -459,6 +459,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ### Bucket 21
 
 - Count: 10
+- Cluster: signal=`-`; phase=`cg`
+- Fingerprint: `-`
+- Exemplars: torture-compile/limits-exprparen.c@O0@arm64-linux, torture-compile/limits-exprparen.c@O0@x86_64-linux-gnu, torture-compile/limits-exprparen.c@O1@arm64-linux
+- Diagnostic: output limit exceeded
+- Labels: -
+- Tags: -
+- Optdiv members: 0 of 10
+- Optdiv exemplars: -
+- Hypothesis: The ten-thousand-level expression nesting stress exceeds the supported translation limit and now reaches the harness output guard before a bounded diagnostic is retained.
+- Disposition: `out-of-scope`
+
+### Bucket 22
+
+- Count: 10
 - Cluster: signal=`-`; phase=`parse`
 - Fingerprint: `1bee8da051ce7f8b888b00500383c6a9df265d662f65d5387d4439303836f0cd`
 - Exemplars: torture-execute/complex-5.c@O0@arm64-linux, torture-execute/complex-5.c@O0@x86_64-linux-gnu, torture-execute/complex-5.c@O1@arm64-linux
@@ -470,7 +484,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case uses imaginary floating suffixes and complex arithmetic, which are explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 22
+### Bucket 23
 
 - Count: 10
 - Cluster: signal=`-`; phase=`ICE`
@@ -484,7 +498,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: IR verification treats a call through an old-style non-prototype declaration as if the later prototype's fixed arity already applied.
 - Disposition: `fix-sprint:s56.5-unprototyped-call-ir`
 
-### Bucket 23
+### Bucket 24
 
 - Count: 10
 - Cluster: signal=`-`; phase=`pp`
@@ -498,7 +512,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The shipped va_start macro cannot handle GNU ellipsis-only functions whose invocation has no last named parameter.
 - Disposition: `fix-sprint:s56.5-gnu-varargs-without-named-parameter`
 
-### Bucket 24
+### Bucket 25
 
 - Count: 10
 - Cluster: signal=`-`; phase=`sema`
@@ -511,20 +525,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Optdiv exemplars: -
 - Hypothesis: The GCC s symbolic-address inline-asm constraint is not implemented, so constant object and string addresses are rejected before lowering.
 - Disposition: `fix-sprint:s56.5-symbolic-asm-constant-constraint`
-
-### Bucket 25
-
-- Count: 10
-- Cluster: signal=`-`; phase=`run`
-- Fingerprint: `616e5e0e7b869f0c5d51017e18b7c302d45c0e17036ad9fe165a756a42427650`
-- Exemplars: ctestsuite/00213.c@O0@arm64-linux, ctestsuite/00213.c@O0@x86_64-linux-gnu, ctestsuite/00213.c@O1@arm64-linux
-- Diagnostic: stdout differs from expected output
-- Labels: -
-- Tags: c89, portable
-- Optdiv members: 0 of 10
-- Optdiv exemplars: -
-- Hypothesis: CFG reachability and label-edge lowering mishandle gotos into syntactically dead loop and statement-expression regions.
-- Disposition: `fix-sprint:s56.5-label-reachable-dead-regions`
 
 ### Bucket 26
 
@@ -964,20 +964,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ### Bucket 56
 
 - Count: 5
-- Cluster: signal=`-`; phase=`cg`
-- Fingerprint: `-`
-- Exemplars: torture-compile/limits-exprparen.c@O0@arm64-linux, torture-compile/limits-exprparen.c@O1@arm64-linux, torture-compile/limits-exprparen.c@O2@arm64-linux
-- Diagnostic: output limit exceeded
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 5
-- Optdiv exemplars: -
-- Hypothesis: The ten-thousand-level expression nesting stress exceeds the supported translation limit and now reaches the harness output guard before a bounded diagnostic is retained.
-- Disposition: `out-of-scope`
-
-### Bucket 57
-
-- Count: 5
 - Cluster: signal=`-`; phase=`ICE`
 - Fingerprint: `31c786bdddd648d22e6d6b264d944e323874292e54902d0803498fc8451e2704`
 - Exemplars: torture-compile/20031023-4.c@O0@arm64-linux, torture-compile/20031023-4.c@O1@arm64-linux, torture-compile/20031023-4.c@O2@arm64-linux
@@ -989,7 +975,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The valid greater-than-2-GiB automatic frame reaches arm64 regalloc, whose frame-object accounting ICEs above 2 GiB; retained attribute warnings supply the current normalized fingerprint.
 - Disposition: `fix-sprint:s56.5-arm64-large-stack-frame`
 
-### Bucket 58
+### Bucket 57
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -1003,7 +989,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 59
+### Bucket 58
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -1017,7 +1003,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.
 - Disposition: `out-of-scope`
 
-### Bucket 60
+### Bucket 59
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -1031,7 +1017,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 61
+### Bucket 60
 
 - Count: 5
 - Cluster: signal=`-`; phase=`ICE`
@@ -1045,7 +1031,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: x86 switch lowering leaves a large case constant in an immediate form that requires movabs
 - Disposition: `fix-sprint:s56.5-x86-imm64-materialization`
 
-### Bucket 62
+### Bucket 61
 
 - Count: 5
 - Cluster: signal=`-`; phase=`ICE`
@@ -1059,7 +1045,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: arm64 ABI planning caps stacked aggregate arguments at four leaves and ICEs on a valid 64-byte argument
 - Disposition: `fix-sprint:s56.5-arm64-stacked-large-aggregate-abi`
 
-### Bucket 63
+### Bucket 62
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -1073,21 +1059,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The valid GCC "=t" x87 output with a "0" tied double input is rejected by Cgfried's restricted x87 operand-shape lowering.
 - Disposition: `fix-sprint:s56.5-x87-tied-double-operand-shape`
 
-### Bucket 64
-
-- Count: 5
-- Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `e52eb5707422df12f2923cc404dd36f80c00c96e1901f9885f67a72595134e73`
-- Exemplars: torture-compile/limits-exprparen.c@O0@x86_64-linux-gnu, torture-compile/limits-exprparen.c@O1@x86_64-linux-gnu, torture-compile/limits-exprparen.c@O2@x86_64-linux-gnu
-- Diagnostic: <source>:<loc>: error: bracket nesting exceeds 256
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 5
-- Optdiv exemplars: -
-- Hypothesis: The ten-thousand-level expression nesting stress reaches Cgfried's explicit bracket-nesting translation limit on hosts where parsing stops before the harness output guard.
-- Disposition: `out-of-scope`
-
-### Bucket 65
+### Bucket 63
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -1101,7 +1073,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.
 - Disposition: `out-of-scope`
 
-### Bucket 66
+### Bucket 64
 
 - Count: 2
 - Cluster: signal=`-`; phase=`ld`
@@ -1117,13 +1089,13 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Policy Overlay
 
-- Applied decisions: 57
+- Applied decisions: 55
 - Stale decisions: 0
 
 ## Coverage
 
-- Failed cells: 7203
-- Bucketed cells: 7203
+- Failed cells: 7193
+- Bucketed cells: 7193
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

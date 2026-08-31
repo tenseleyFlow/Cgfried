@@ -68,8 +68,10 @@ merged as `ea708db7`; its target-complete publication raises the ratchet to
 26,805 with 66 buckets, 57 applied decisions, zero stale/unresolved decisions,
 and the same 32 live repair rows. PR #60's runtime VLA `__builtin_offsetof`
 tranche is merged as `b56b4f5`; the committed ratchet contains 26,818 PASS
-cells. The current `s56.5-immediate-asm-constant-p-timing` tranche on PR #61
-is target-complete at 26,830 PASS cells and awaits only fresh
+cells. PR #61's immediate-asm timing tranche is merged as `ff3b9d66`, raising
+the ratchet to 26,830 PASS cells. The current
+`s56.5-label-reachable-dead-regions` tranche on PR #62 is target-complete at
+26,840 PASS cells with 55 applied policy decisions and awaits only fresh
 post-publication CI before merge. Sprint 56's campaign machine and triage map
 remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -1775,6 +1777,49 @@ and green post-publication CI.
   PASS and triage SHA-256 values are respectively
   `f2bf6dfbbc6510429b852e67f621c3bb287e1ed2fcaa684b2e2914b6f5d37cdc`
   and `2ca63462e5df48690b37686e122ea2db0544320a41a776f5dc11db58a96231a3`.
+  Fresh post-publication PR and native-ARM CI must be green before merging.
+- The `s56.5-label-reachable-dead-regions` tranche (PR #62) resolves the
+  isolated `ctestsuite/00213.c` gap: gotos can now enter labels embedded in
+  syntactically dead GNU statement expressions and loop regions. The lowering
+  label prepass recurses through expression children and declaration
+  initializers, including statement-expression bodies. A terminated typed
+  statement expression now materializes a typed `undef` and a dead
+  continuation block, preserving the real terminator while leaving a valid
+  target for a precollected label. The permanent GNU fixture covers entry into
+  a dead statement expression, terminated-expression cleanup, and the outer
+  conditional; focused lowering tests pin both the prepass and typed
+  continuation behavior. Its corpus addition re-pins the deterministic
+  frontend-fuzz digest.
+
+  Behavior head `6b773a8046440aa976d3bdcf42f88a95b2263111` passed all
+  non-torture PR checks in
+  [run 33413949242](https://github.com/tenseleyFlow/Cgfried/actions/runs/33413949242);
+  its hosted x86 gate reported only the five uncommitted `00213.c` PASS cells.
+  Exact-head native ARM64
+  [run 33414115169](https://github.com/tenseleyFlow/Cgfried/actions/runs/33414115169)
+  reported only the matching five ARM cells. The bare Hasu Nix capture was
+  rejected because it did not use a coherent target root; the repository's
+  argv-preserving `fleet-cgf-sysroot.sh` wrapper, explicit native assembler and
+  linker, and GCC-derived glibc sysroot then produced the publishable exact-head
+  x86 stream. Its SHA-256 is
+  `0845d48c7ba8c2d50e13465b6de3046f903b3aec9de26fb1d5e9bca6d39ae2c0`;
+  the native ARM stream SHA-256 is
+  `ed689e321cec65d7972c5767836a693e6a2774c0a70785a2ae011fef2d2c2d66`.
+  They share the behavior revision, compiler-source SHA-256
+  `03546ecf9dede1f7ea626c886b5ba3acfcfbbed056418ee2a43cf7613160c802`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and both manifest hashes. A fresh end-to-end `make torture-baseline` run
+  atomically promotes exactly the ten `00213.c` target-level cells with zero
+  PASS regression. It retires fingerprint `616e5e0e...` and the independently
+  stale `e52eb570...` parse-limit decision: both targets now classify that
+  stress case through the existing generic `cg` output-limit policy. The
+  published state is 26,840 PASS cells, 7,193 classified failures, 64 buckets,
+  55 applied decisions, and zero stale or unresolved decisions. Reversing the
+  two evidence streams regenerates both outputs byte-identically; PASS and
+  triage SHA-256 values are respectively
+  `02d899a3d64c62de969bdacd27106282830466a3c700e8c069b817a224b2050d`
+  and `1ca9959ee675fea7a23e593e9cd9670172cfe9cf0ad40d2456d9fcd0fb0283e3`.
   Fresh post-publication PR and native-ARM CI must be green before merging.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
