@@ -590,6 +590,42 @@ void test_lower_eval_order_left_to_right(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_runtime_offsetof_uses_vla_stride(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+    const char *left;
+    const char *right;
+    const char *constant;
+
+    T_ASSERT(t,
+             run_lower(&f, "int left(int); int right(int);\n"
+                           "unsigned long dynamic(int n, int i, int j) {\n"
+                           "  typedef int Row[n];\n"
+                           "  struct S { int head; Row rows[n]; };\n"
+                           "  return __builtin_offsetof(\n"
+                           "      struct S, rows[left(i)][right(j)]);\n"
+                           "}\n"
+                           "struct F { int values[4]; };\n"
+                           "unsigned long constant(void) {\n"
+                           "  return __builtin_offsetof(struct F, values[2]);\n"
+                           "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    left = strstr(ir, "call i32 @left");
+    right = strstr(ir, "call i32 @right");
+    T_ASSERT(t, left != NULL && right != NULL && left < right);
+    /* n * sizeof(int), then each runtime index times its own stride. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "imul i64"), 3);
+    /* offsetof is integer arithmetic even for negative or out-of-range
+     * indices: it must not materialize a pointer or a safety guard. */
+    T_ASSERT(t, strstr(ir, "ptradd") == NULL);
+    T_ASSERT(t, strstr(ir, "cgf_safe_check_index") == NULL);
+    constant = strstr(ir, "func i64 @constant()");
+    T_ASSERT(t, constant != NULL && strstr(constant, "ret i64 8") != NULL);
+    low_free(&f);
+}
+
 void test_lower_compound_assign_roundtrip(TestCtx *t)
 {
     LowFix f;

@@ -2832,6 +2832,56 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
 /* --- rvalue dispatch -------------------------------------------------------
  */
 
+/* GNU __builtin_offsetof permits runtime array indices. The designator is a
+ * synthetic lvalue chain, but evaluating it must produce only an integer byte
+ * offset: out-of-range and negative indices are accepted and no pointer-safety
+ * check applies. Recurse from the placeholder outward so index side effects
+ * retain the source order. */
+static IrOperand lower_offsetof_designator(Lower *lo, AstNode *e)
+{
+    while (e && e->kind == AST_EXPR_CAST && e->implicit && e->lhs)
+        e = e->lhs;
+    if (!e)
+        CGF_ICE("offsetof reached an empty designator");
+
+    switch (e->kind) {
+    case AST_EXPR_OFFSETOF_BASE:
+        return lower_i64(0);
+    case AST_EXPR_MEMBER: {
+        IrOperand base = lower_offsetof_designator(lo, e->lhs);
+        Type *rec = e->lhs ? sem(e->lhs) : NULL;
+        Member *member = NULL;
+        u64 off = 0;
+
+        if (!member_offset(lo, rec, e->name, &member, &off) || !member)
+            CGF_ICE("offsetof member did not survive sema");
+        if (off == 0)
+            return base;
+        return ir_op_value(lo->fn, ir_build2(&lo->b, IR_IADD, IRT_I64, base,
+                                             lower_i64((i64)off)));
+    }
+    case AST_EXPR_INDEX: {
+        IrOperand base = lower_offsetof_designator(lo, e->lhs);
+        Type *arr = e->lhs ? sem(e->lhs) : NULL;
+        IrOperand idx = lower_rvalue(lo, e->rhs);
+        IrOperand stride;
+        ValueId scaled;
+        ValueId sum;
+
+        if (!arr || !arr->base)
+            CGF_ICE("offsetof array type did not survive sema");
+        idx = lower_scalar_convert(lo, idx, sem(e->rhs), type_basic(TY_LONG));
+        stride = lower_type_size(lo, arr->base);
+        scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, idx, stride);
+        sum = ir_build2(&lo->b, IR_IADD, IRT_I64, base,
+                        ir_op_value(lo->fn, scaled));
+        return ir_op_value(lo->fn, sum);
+    }
+    default:
+        CGF_ICE("offsetof designator did not survive sema");
+    }
+}
+
 IrOperand lower_rvalue(Lower *lo, AstNode *e)
 {
     switch (e->kind) {
@@ -2999,13 +3049,11 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         }
         return ir_op_iconst(IRT_I32, (i64)lo->va_pack->nargs);
     case AST_EXPR_OFFSETOF: {
-        /* Always an ICE — sema typed it and the folder computed the
-         * byte offset, so there is nothing to evaluate at run time. */
-        ConstValue cv = constexpr_eval(lo->sema, e, CE_ICE);
+        ConstValue cv = constexpr_eval(lo->sema, e, CE_FOLD);
 
-        if (cv.kind != CV_INT)
-            CGF_ICE("offsetof did not fold at lowering");
-        return ir_op_iconst(lower_irtype(lo, sem(e)), (i64)cv.i);
+        if (cv.kind == CV_INT)
+            return ir_op_iconst(lower_irtype(lo, sem(e)), (i64)cv.i);
+        return lower_offsetof_designator(lo, e->lhs);
     }
     case AST_EXPR_TYPES_COMPATIBLE:
         /* Sema already answered; this is a plain int constant. */
