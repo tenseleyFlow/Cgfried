@@ -15,7 +15,6 @@
 -	61f7d78fdc241146d501a94c8a4318e23bd540586c8eab78ee1478c26d74d3e4	as	all	The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.	out-of-scope
 -	6315641ba67866fc0ce23827d143e76d664e050b8b0c57fccaa7b1d735aad925	sema	all	allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal	wontfix-0.1.0
 -	63894c5b52edea1018992f21ad3550b33865536439f4fd724edc5e49bc0bd974	parse	all	The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
--	719f040fbd028be5e8a9f8add4109a1d3215b8a6e44d8084de50159c6182fe7c	sema	all	Immediate asm operands are validated before __builtin_constant_p branch elimination, so a dead nonconstant i-constraint operand is rejected.	fix-sprint:s56.5-immediate-asm-constant-p-timing
 -	737ff185cf3959109ce8d0dd4bfa4cb1ce024b2ddc5b45d604a5b78292ea2caf	ICE	all	x86 switch lowering leaves a large case constant in an immediate form that requires movabs	fix-sprint:s56.5-x86-imm64-materialization
 -	759ab6b2e233e715bd42b543868bd046fd8e396ab73ca78a4e2ce7a213324010	ICE	all	arm64 ABI planning caps stacked aggregate arguments at four leaves and ICEs on a valid 64-byte argument	fix-sprint:s56.5-arm64-stacked-large-aggregate-abi
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
@@ -24,6 +23,7 @@
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	aace2c03842f0e2505bcb4d7ea1906463cf98a369466b5c20a2753de0e9efc31	ld	all	O0 emission retains unreachable or unreferenced calls deliberately named link_error	fix-sprint:s56.5-dead-code-link-elimination
 -	acf3af7f1c9c3a7c11b6175147cd3c92078cd42a313164f6b5145b98513ab18c	parse	all	GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope	wontfix-0.1.0
+-	add5d1b5434902c13407bd6dc8375b494e7494f6bc64e4d894f1fa50bfc97033	cg	all	The 32,000-identifier block and external declaration limits exceed the compiler timeout on Hasu's NixOS sysroot-wrapped stream; its absolute wrapper path yields this host-specific normalized fingerprint of the existing scalability gap.	fix-sprint:s56.5-compiler-scalability-timeout
 -	afb9f891e77ea9ff3bedc8426dab776716e83fb433d22c8e2f1ed92a0df6cd4c	parse	all	The case uses GNU complex declarations and component operators, outside the v0.1.0 language scope.	out-of-scope
 -	b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9	sema	all	GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.	wontfix-0.1.0
 -	b97306b069e9fa49dc42de21ce16c5095369585ba07b1a9833d61be77b99e683	sema	all	The valid GCC "=t" x87 output with a "0" tied double input is rejected by Cgfried's restricted x87 operand-shape lowering.	fix-sprint:s56.5-x87-tied-double-operand-shape
@@ -37,7 +37,6 @@
 -	ef08225eb7c8eae8444a144fc059c944c4d777a17209092f661c7671b59e78a9	as	all	The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.	out-of-scope
 -	f0bc10177e20eb2f0a1a67cdf600fb7f0e43ce8a6600f73a7c51df8943d83791	parse	all	GNU imaginary floating suffixes exercise complex arithmetic, which Cgfried explicitly excludes from the v0.1.0 language scope.	out-of-scope
 -	f3a8a201c01269b5a2cccf5f1eac8bdde70f5dbc79692886a1639eab549fb354	sema	all	composite-type formation fails to inherit the prior bound when an inner extern redeclares the array with incomplete type	fix-sprint:s56.5-composite-array-bound
--	f3ebc21bfbffd8cedf47d6a9d255768a44ae919fda43bffbd69dcc19d4ae2d82	cg	all	The 32,000-identifier block and external declaration limits exceed the compiler timeout; Hasu's required NixOS sysroot wrapper gives the timed command a scripts path, producing this host-specific fingerprint of the existing scalability gap.	fix-sprint:s56.5-compiler-scalability-timeout
 -	f3ff5037426a3f4ed405b6fbc638a4d4d9d4411875a6434a2502a3cc083c5d58	parse	all	transparent_union is deliberately refused because ignoring its calling-convention semantics would miscompile calls.	wontfix-0.1.0
 -	f6e3227c914735cdb08ca070859e01469beb8bd02551aa2274362048b0685cf0	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	f765937aa5544b30bfa7277c9210cf239099e5f3c63a6598adb06d05a6dbab46	parse	all	The declaration uses GNU complex long double type, outside the v0.1.0 language scope.	out-of-scope

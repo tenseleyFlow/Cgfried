@@ -11931,6 +11931,16 @@ torture-compile/pr38771.c@O3@arm64-linux
 torture-compile/pr38771.c@O3@x86_64-linux-gnu
 torture-compile/pr38771.c@Os@arm64-linux
 torture-compile/pr38771.c@Os@x86_64-linux-gnu
+torture-compile/pr38789.c@O0@arm64-linux
+torture-compile/pr38789.c@O0@x86_64-linux-gnu
+torture-compile/pr38789.c@O1@arm64-linux
+torture-compile/pr38789.c@O1@x86_64-linux-gnu
+torture-compile/pr38789.c@O2@arm64-linux
+torture-compile/pr38789.c@O2@x86_64-linux-gnu
+torture-compile/pr38789.c@O3@arm64-linux
+torture-compile/pr38789.c@O3@x86_64-linux-gnu
+torture-compile/pr38789.c@Os@arm64-linux
+torture-compile/pr38789.c@Os@x86_64-linux-gnu
 torture-compile/pr38807.c@O0@arm64-linux
 torture-compile/pr38807.c@O0@x86_64-linux-gnu
 torture-compile/pr38807.c@O1@arm64-linux
@@ -18470,6 +18480,8 @@ torture-execute/20030316-1.c@O3@arm64-linux
 torture-execute/20030316-1.c@O3@x86_64-linux-gnu
 torture-execute/20030316-1.c@Os@arm64-linux
 torture-execute/20030316-1.c@Os@x86_64-linux-gnu
+torture-execute/20030330-1.c@O0@arm64-linux
+torture-execute/20030330-1.c@O0@x86_64-linux-gnu
 torture-execute/20030330-1.c@O1@arm64-linux
 torture-execute/20030330-1.c@O1@x86_64-linux-gnu
 torture-execute/20030330-1.c@O2@arm64-linux
