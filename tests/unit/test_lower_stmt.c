@@ -392,6 +392,35 @@ void test_lower_goto_over_decl(TestCtx *t)
     st_free(&f);
 }
 
+void test_lower_stmt_expr_label_prepass(TestCtx *t)
+{
+    StFix f;
+
+    /* A GNU statement expression is stored under an expression node, but
+     * its labels still have function scope.  The label's block must exist
+     * before the syntactically dead loop lowers, or the later goto loses its
+     * edge instead of re-entering the loop body. */
+    T_ASSERT(t, run_lower_s(&f, "int f(void) {\n"
+                                "  int j = 1;\n"
+                                "  return ({\n"
+                                "    int count = 0;\n"
+                                "    if (0) {\n"
+                                "      while (j--) {\n"
+                                "        count += 10;\n"
+                                "entered:\n"
+                                "        count++;\n"
+                                "      }\n"
+                                "    }\n"
+                                "    if (j >= 0) goto entered;\n"
+                                "    count;\n"
+                                "  });\n"
+                                "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(stxt(&f), "L.entered") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "br L.entered") != NULL);
+    st_free(&f);
+}
+
 void test_lower_goto_vla_declaration_boundaries(TestCtx *t)
 {
     StFix f;

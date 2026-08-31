@@ -1253,8 +1253,20 @@ IrOperand lower_stmt_expr(Lower *lo, AstNode *e)
                                (u32)l.align, IRF_VOLATILE);
         v = ir_op_value(lo->fn, tmp);
     }
-    if (!lo->terminated)
+    if (!lo->terminated) {
         scope_exit_here(lo, &scope);
+    } else {
+        /* A statement expression can end an enclosing expression early with
+         * a goto, break, continue, or return.  Its real terminator is
+         * already in the CFG; reopen only an orphan continuation so callers
+         * can finish lowering their syntactic expression without appending
+         * after that terminator.  The final unreachable-block sweep removes
+         * the continuation, while a label edge into the expression remains
+         * live. */
+        if (e->sem_type && e->sem_type->kind != TY_VOID)
+            v = ir_op_undef(lower_irtype(lo, e->sem_type));
+        ensure_open_block(lo, "dead");
+    }
     lo->scopes = scope.prev;
     return v;
 }
