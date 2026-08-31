@@ -844,8 +844,11 @@ void test_lower_gnu_va_arg_pack_specializes_before_call_abi(TestCtx *t)
     T_ASSERT(t, strstr(txt(&f), "i32 2 anon, i32 3 anon") != NULL);
     T_ASSERT(t, strstr(txt(&f), "vapack.ret") != NULL);
     /* The wrapper parameter inherits constant knowledge from the literal
-     * outer actual even though it has been materialized in a local slot. */
-    T_ASSERT(t, strstr(txt(&f), "icmp ne i32 1, 0") != NULL);
+     * outer actual even though it has been materialized in a local slot. The
+     * known answer now selects its CFG arm directly instead of building an
+     * icmp for lower_cond(). */
+    T_ASSERT(t, strstr(txt(&f), "br if.then") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "icmp ne i32 1, 0") == NULL);
     low_free(&f);
 }
 

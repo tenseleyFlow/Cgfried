@@ -96,9 +96,9 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
         changed |=
             opt_run_pass_sequence(m, cfg, mandatory, CGF_ARRAY_LEN(mandatory));
     if (diag_had_error(m->dc))
-        return changed;
+        goto done;
     if (!level_stage(cfg->level, &stage))
-        return changed;
+        goto done;
     for (i = 0; i < CGF_ARRAY_LEN(pipeline); i++) {
         const PipelineEntry *e = &pipeline[i];
         bool selected = e->introduced_at <= stage;
@@ -133,7 +133,8 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
     if (cfg->level == OPT_O1) {
         bool scalar_changed = opt_run_pass_sequence(m, cfg, scalar, nscalar);
 
-        return changed || scalar_changed;
+        changed |= scalar_changed;
+        goto done;
     }
 
     changed |= opt_run_fixpoint(m, cfg, scalar, nscalar, 10);
@@ -149,5 +150,11 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
         if (unrolled)
             changed |= opt_run_fixpoint(m, cfg, loops, nloops, 10);
     }
+done:
+    /* IR text embeds asm records in print order.  CFG cleanup and cloning
+     * may have removed or duplicated instructions since lowering, so make
+     * the table match that textual representation before callers inspect or
+     * serialize the optimized module. */
+    ir_module_canonicalize_asms(m);
     return changed;
 }

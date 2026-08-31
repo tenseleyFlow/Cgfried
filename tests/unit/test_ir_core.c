@@ -508,6 +508,52 @@ void test_ir_ident_metadata_roundtrip_and_clone(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_asm_records_canonicalize_for_roundtrip(TestCtx *t)
+{
+    IrFix f;
+    IrModule *m;
+    IrFunc *fn;
+    BlockId entry, then_, join, else_;
+    IrBuilder b;
+    IrAsm unused = {.tmpl = "# unused", .is_volatile = true};
+    IrAsm then_asm = {.tmpl = "# then", .is_volatile = true};
+    IrAsm else_asm = {.tmpl = "# else", .is_volatile = true};
+    IrAsm join_asm = {.tmpl = "# join", .is_volatile = true};
+
+    fix_init(&f);
+    m = ir_module_new(&f.arena, f.dc);
+    fn = ir_func_new(m, "asm_order", IRT_VOID, NULL, 0);
+    entry = ir_block_new(m, fn, "entry");
+    then_ = ir_block_new(m, fn, "if.then");
+    join = ir_block_new(m, fn, "if.join");
+    else_ = ir_block_new(m, fn, "if.else");
+
+    /* Source lowering visits then, else, then join, while print.c emits the
+     * layout order then, join, else.  Seed an unused record too: CFG cleanup
+     * leaves precisely that shape behind for a dead asm arm. */
+    (void)ir_asm_new(m, &unused);
+    ir_builder_at(&b, m, fn, entry);
+    ir_build_condbr(&b, ir_op_iconst(IRT_I32, 1), then_, NULL, 0, else_, NULL,
+                    0);
+    ir_builder_at(&b, m, fn, then_);
+    ir_build_asm(&b, ir_asm_new(m, &then_asm), NULL, 0);
+    ir_build_br(&b, join, NULL, 0);
+    ir_builder_at(&b, m, fn, else_);
+    ir_build_asm(&b, ir_asm_new(m, &else_asm), NULL, 0);
+    ir_build_br(&b, join, NULL, 0);
+    ir_builder_at(&b, m, fn, join);
+    ir_build_asm(&b, ir_asm_new(m, &join_asm), NULL, 0);
+    ir_build_ret(&b, NULL);
+
+    ir_module_canonicalize_asms(m);
+    T_ASSERT_EQ_INT(t, m->nasms, 3);
+    T_ASSERT_EQ_INT(t, fn->blocks[then_.v - 1].first->callee, 1);
+    T_ASSERT_EQ_INT(t, fn->blocks[join.v - 1].first->callee, 2);
+    T_ASSERT_EQ_INT(t, fn->blocks[else_.v - 1].first->callee, 3);
+    roundtrip(t, &f, m);
+    fix_free(&f);
+}
+
 void test_ir_roundtrip_builder_loop(TestCtx *t)
 {
     IrFix f;

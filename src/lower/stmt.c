@@ -57,6 +57,83 @@ static void mark_config_branch(Lower *lo, const AstNode *condition)
         ir_branch_mark_flow_provenance(&lo->b);
 }
 
+/* __builtin_constant_p is deliberately a lowering-time answer rather than a
+ * general C integer constant expression: its argument can be an automatic
+ * object, and the answer is still the known integer 0.  constexpr_eval() is
+ * the source of truth for the ARGUMENT, while this recognizer preserves the
+ * builtin's distinct outer contract for a statement condition. */
+static bool constant_p_condition(Lower *lo, const AstNode *e, bool *taken)
+{
+    bool negate = false;
+    const AstNode *core;
+    ConstValue cv;
+    u32 i;
+
+    while (e && (e->kind == AST_EXPR_PAREN ||
+                 (e->kind == AST_EXPR_CAST && e->implicit)))
+        e = e->lhs;
+    while (e && e->kind == AST_EXPR_UNARY && e->op == PUNCT_BANG) {
+        negate = !negate;
+        e = e->lhs;
+        while (e && (e->kind == AST_EXPR_PAREN ||
+                     (e->kind == AST_EXPR_CAST && e->implicit)))
+            e = e->lhs;
+    }
+    if (!e || e->kind != AST_EXPR_CALL || e->op != SEMA_BUILTIN_CONSTANT_P ||
+        e->nargs != 1)
+        return false;
+    /* Variadic-pack wrapper specialization may know a named parameter's
+     * outer argument even though the parameter has been materialized in a
+     * local slot.  Keep this answer in lockstep with lower_rvalue's builtin
+     * implementation before consulting the general constant engine. */
+    core = e->args[0];
+    while (core && (core->kind == AST_EXPR_PAREN ||
+                    (core->kind == AST_EXPR_CAST && core->implicit)))
+        core = core->lhs;
+    if (lo->va_pack && core && core->kind == AST_EXPR_IDENT && core->sym) {
+        for (i = 0; i < lo->va_pack->nparams; i++) {
+            if (lo->va_pack->params[i] != core->sym)
+                continue;
+            *taken = lo->va_pack->param_constant[i];
+            if (negate)
+                *taken = !*taken;
+            return true;
+        }
+    }
+    cv = constexpr_eval(lo->sema, e->args[0], CE_FOLD);
+    *taken = cv.kind == CV_INT || cv.kind == CV_FLOAT;
+    if (negate)
+        *taken = !*taken;
+    return true;
+}
+
+static void defer_config_removal(Lower *lo, BlockId block)
+{
+    DeferredConfigRemoval *pending = arena_alloc(
+        lo->arena, sizeof(*pending), _Alignof(DeferredConfigRemoval));
+
+    pending->block = block;
+    pending->next = NULL;
+    if (lo->deferred_config_removals_tail)
+        lo->deferred_config_removals_tail->next = pending;
+    else
+        lo->deferred_config_removals = pending;
+    lo->deferred_config_removals_tail = pending;
+}
+
+void lower_record_deferred_config_removals(Lower *lo)
+{
+    DeferredConfigRemoval *pending;
+
+    if (lo->failed)
+        return;
+    for (pending = lo->deferred_config_removals; pending;
+         pending = pending->next)
+        if (!ir_func_block_reachable(lo->fn, pending->block))
+            ir_func_record_removed(lo->fn, pending->block,
+                                   IR_CFG_REMOVED_CONFIG);
+}
+
 /* Terminate-then-continue: statements after a terminator open a fresh
  * block. If nothing ever branches to it, ir_func_remove_unreachable
  * deletes it after the function completes — the verifier's orphan check
@@ -771,14 +848,36 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
     case AST_STMT_IF: {
         BlockId tb, eb, join;
         IrOperand c;
+        bool known;
+        bool taken;
+        bool configuration_dependent;
 
         ensure_open_block(lo, "dead");
-        c = lower_cond(lo, s->lhs);
+        configuration_dependent = expr_is_configuration_dependent(s->lhs);
+        known = constant_p_condition(lo, s->lhs, &taken);
+        if (!known)
+            c = lower_cond(lo, s->lhs);
         tb = lower_new_block(lo, "if.then");
         join = lower_new_block(lo, "if.join");
         eb = s->rhs ? lower_new_block(lo, "if.else") : join;
-        ir_build_condbr(&lo->b, c, tb, NULL, 0, eb, NULL, 0);
-        mark_config_branch(lo, s->lhs);
+        /* `__builtin_constant_p` answers at this lowering point.  Make that
+         * answer a real CFG edge now, before target-aware asm constraints are
+         * checked.  We nevertheless lower BOTH source arms: a goto or switch
+         * case can enter a syntactically untaken arm, and the later
+         * reachability cleanup retains exactly those externally entered
+         * blocks.  Configuration provenance is recorded separately for an
+         * untaken arm, because a direct BR has no false edge to carry it. */
+        if (known) {
+            ir_build_br(&lo->b, taken ? tb : eb, NULL, 0);
+            if (configuration_dependent) {
+                mark_config_branch(lo, s->lhs);
+                if (s->rhs || !taken)
+                    defer_config_removal(lo, taken ? eb : tb);
+            }
+        } else {
+            ir_build_condbr(&lo->b, c, tb, NULL, 0, eb, NULL, 0);
+            mark_config_branch(lo, s->lhs);
+        }
         lower_at(lo, tb);
         lower_stmt(lo, s->body);
         lower_branch_to(lo, join);

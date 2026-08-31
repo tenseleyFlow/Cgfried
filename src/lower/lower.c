@@ -1223,6 +1223,10 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->cur_return_type = ft->base;
     lo->dead_region = 0;
     lo->next_dead_region = 0;
+    lo->deferred_asm_immediates = NULL;
+    lo->deferred_asm_immediates_tail = NULL;
+    lo->deferred_config_removals = NULL;
+    lo->deferred_config_removals_tail = NULL;
 
     entry = ir_block_new(lo->m, lo->fn, "entry");
     /* The function body compound is the OUTERMOST scope, and passing it as
@@ -1352,6 +1356,11 @@ static void lower_function(Lower *lo, AstNode *def)
         }
     }
 
+    /* Inline asm immediate constraints are target-aware lowering facts, but
+     * their diagnostics belong only to blocks the final source CFG can reach.
+     * This must run after every goto/case edge exists and before codegen. */
+    lower_record_deferred_config_removals(lo);
+    lower_asm_validate_deferred_immediates(lo);
     ir_func_remove_unreachable_with_log(lo->fn);
     /* Lowering fills join blocks after later-created ones, so creation
      * order != document order; renumber so the printed module reparses
@@ -1479,6 +1488,8 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
     strmap_free(&lo.vla_sizes);
     strmap_free(&lo.label_vla);
     strmap_free(&lo.label_scope);
+    if (!lo.failed)
+        ir_module_canonicalize_asms(lo.m);
     return lo.failed ? NULL : lo.m;
 }
 
