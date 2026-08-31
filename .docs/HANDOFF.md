@@ -66,11 +66,12 @@ merged as `ecc5cd36`; it removes the host-stack dependency exposed by the
 constant-expression decomposition and const-scalar-object folding tranche is
 merged as `ea708db7`; its target-complete publication raises the ratchet to
 26,805 with 66 buckets, 57 applied decisions, zero stale/unresolved decisions,
-and the same 32 live repair rows. The current
-`s56.5-runtime-vla-offsetof` tranche implements the next isolated gap,
-`pr41935.c` runtime array indices in GNU `__builtin_offsetof`; publication is
-not yet claimed. Sprint 56's campaign machine, triage map, and 26,805-cell
-published baseline are complete.
+and the same 32 live repair rows. PR #60's runtime VLA `__builtin_offsetof`
+tranche is merged as `b56b4f5`; the committed ratchet contains 26,818 PASS
+cells. The current `s56.5-immediate-asm-constant-p-timing` tranche on PR #61
+is target-complete at 26,830 PASS cells and awaits only fresh
+post-publication CI before merge. Sprint 56's campaign machine and triage map
+remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1716,6 +1717,65 @@ and green post-publication CI.
   `e9b25a92b4412b0f388a6f0bcb6bff44f16b37239fc3518ec3625ed8a93655dc`
   and `cbe920e7bcfd93441af82f75dcbc7e4a91879906b11a54fdd36c2e8be642d1f4`.
   The next isolated compiler tranche is `pr38789.c` immediate-asm timing.
+- The `s56.5-immediate-asm-constant-p-timing` tranche (PR #61) resolves that
+  `pr38789.c` gap. Statement lowering now recognizes direct
+  `__builtin_constant_p` conditions (including parens, implicit casts, and
+  `!`) using the same lowering-time constant and va-pack specialization rules
+  as the builtin expression. It emits the known CFG edge before target-aware
+  asm validation, while still lowering both source arms so labels, gotos, and
+  switch entries can retain a syntactically dead arm when it is reachable by a
+  real edge. Immediate-operand diagnostics are deferred until the completed
+  CFG proves their asm block reachable; macro configuration
+  provenance is likewise recorded after reachability rather than erased by
+  early folding. The associated IR asm table is canonicalized in print order,
+  so `-emit-ir` round-trips functions whose source/lowering order differs from
+  their final CFG layout.
+
+  The permanent fixtures cover the dead immediate arm, a live nonconstant
+  immediate rejection, a label-reachable dead arm, and IR round-tripping.
+  Apple-silicon targeted builds and both Linux code-generation targets pass the
+  focused O0/O1/O2/O3/Os checks. Exact behavior head
+  `3b55af5d5d1daa0b74e34e92fc4ca73c72114f32` passed every non-torture job in
+  pre-publication PR CI
+  [run 33357926160](https://github.com/tenseleyFlow/Cgfried/actions/runs/33357926160),
+  including the full ordinary and sanitizer suites, macOS/ARM, native/QEMU
+  ARM, toolchain and campaign lanes, and 100,000 ASan/UBSan frontend-fuzz
+  iterations with zero findings and a clean crash ledger. Its x86 torture gate
+  refused only the six uncommitted x86 cells. Exact-head native ARM64 lattice
+  [run 33358002679](https://github.com/tenseleyFlow/Cgfried/actions/runs/33358002679)
+  likewise refused only the matching six ARM cells; its retained stream SHA-256
+  is `b8574cf1fa34ed539aec1a13b315e2a107cf43fe8f8ccbfc54d7a950a29c04bc`.
+
+  The publishable Hasu x86-64 stream has SHA-256
+  `d1606b67845395e6e5f11bcd3b044f62d6e4880af80d7fb194c0d663758ecbb7`.
+  It and the native ARM stream share source revision `3b55af5`, compiler-source
+  SHA-256 `22a860a0f33b8c59954ab3650195ea263bf1973cfd5dc500cde2f7769c1e57b7`,
+  harness SHA-256 `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and both manifest hashes. The ARM compiler/driver SHA-256 is
+  `c7c8eb9787e95c50bc5c2a95165179476f6e4a48b0bcb38c95d86437537ab27d`;
+  x86 compiler and driver hashes are respectively
+  `4121da44792b21c688322e64d5be36937408dfd5a2e28b20d3abfb0dd6d7ffec`
+  and `da88a93bd43c72a6aaf081150b28a8154bbec87322e05faac5239135d0747bdb`.
+  The first target-complete baseline attempt surfaced no compiler movement but
+  rekeyed the pre-existing Hasu identifier-limit timeout because the absolute
+  sysroot-wrapper path normalizes differently: stale
+  `f3ebc21b...` is replaced by `add5d1b...` under the same
+  `fix-sprint:s56.5-compiler-scalability-timeout` disposition. The required
+  end-to-end `make torture-baseline` rerun then completed cleanly.
+
+  Publication promotes exactly twelve cells with zero PASS regression: the
+  five `torture-compile/pr38789.c` levels on each target, plus the O0
+  `torture-execute/20030330-1.c` cell on each target. The latter is the same
+  lowering improvement deleting an unreachable `link_error` reference; the
+  still-failing `medce-1.c` keeps the broader dead-code-link policy live. The
+  committed output has 26,830 PASS cells, 7,203 classified failures, 66
+  buckets, 57 applied decisions, and zero stale or unresolved decisions. The
+  immediate-asm policy fingerprint `719f040f...` is retired. Reversing the two
+  identical-provenance input streams regenerates both outputs byte-identically;
+  PASS and triage SHA-256 values are respectively
+  `f2bf6dfbbc6510429b852e67f621c3bb287e1ed2fcaa684b2e2914b6f5d37cdc`
+  and `2ca63462e5df48690b37686e122ea2db0544320a41a776f5dc11db58a96231a3`.
+  Fresh post-publication PR and native-ARM CI must be green before merging.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,

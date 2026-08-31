@@ -887,6 +887,11 @@ const char *ir_sym_asm_spelling(const char *name);
 bool ir_name_is_returns_twice(const char *name);
 IrGlobal *ir_global_new(IrModule *m, const char *name);
 u32 ir_asm_new(IrModule *m, const IrAsm *a); /* returns the 1-based index */
+/* Textual IR writes asm records inline, so its parser reconstructs their
+ * table in function/block/instruction print order.  Rebuild the internal
+ * table in that order after CFG-changing work, dropping dead records and
+ * giving each surviving IR_ASM instruction its own record. */
+void ir_module_canonicalize_asms(IrModule *m);
 void ir_module_add_file_asm(IrModule *m, const char *text);
 void ir_module_add_ident(IrModule *m, const u8 *bytes, u32 len);
 IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target);
@@ -1023,6 +1028,10 @@ void ir_func_remove_unreachable(IrFunc *f);
 /* Same cleanup, retaining the first source span from each removed block for
  * the flow-warning analysis clone. */
 void ir_func_remove_unreachable_with_log(IrFunc *f);
+/* Reachability in the current, pre-compaction CFG.  Lowering uses this for
+ * diagnostics whose validity depends on whether a source construct survives
+ * a compiler-known control-flow decision. */
+bool ir_func_block_reachable(const IrFunc *f, BlockId block);
 void ir_func_record_removed(IrFunc *f, BlockId block, u8 flags);
 void ir_func_record_removed_span(IrFunc *f, BlockId block, Span loc, u8 flags);
 void ir_func_record_removed_region(IrFunc *f, BlockId block, Span loc,

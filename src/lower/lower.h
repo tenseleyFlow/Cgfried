@@ -157,6 +157,27 @@ typedef struct VaPackContext {
     Type *return_type;
 } VaPackContext;
 
+/* An i/n/N asm operand is target-valid only when its instruction survives
+ * source-level constant control flow.  Lowering records the check without
+ * diagnosing immediately, then asm.c validates it against the completed CFG.
+ * `block` is filled after all operand expressions have lowered, because a
+ * later conditional operand may move the asm itself into a join block. */
+typedef struct DeferredAsmImmediate {
+    AstNode *expr;
+    const char *constraint;
+    Span span;
+    BlockId block;
+    struct DeferredAsmImmediate *next;
+} DeferredAsmImmediate;
+
+/* A configuration-derived __builtin_constant_p branch is known while
+ * lowering, but flow warnings still need to know why its untaken arm vanished.
+ * Record the candidate arm until all forward goto/case entries are present. */
+typedef struct DeferredConfigRemoval {
+    BlockId block;
+    struct DeferredConfigRemoval *next;
+} DeferredConfigRemoval;
+
 typedef struct Lower {
     Arena *arena;
     DiagCtx *dc;
@@ -187,8 +208,12 @@ typedef struct Lower {
     Symbol *initializing_sym;   /* exact direct -Winit-self provenance */
     u32 dead_region;            /* current contiguous unreachable source */
     u32 next_dead_region;       /* stable diagnostic region numbering */
-    u8 auto_var_init;           /* LowerAutoVarInit; emission mitigation */
-    bool safe_pointer_checks;   /* preserve raw pointer-index operands */
+    DeferredAsmImmediate *deferred_asm_immediates;
+    DeferredAsmImmediate *deferred_asm_immediates_tail;
+    DeferredConfigRemoval *deferred_config_removals;
+    DeferredConfigRemoval *deferred_config_removals_tail;
+    u8 auto_var_init;         /* LowerAutoVarInit; emission mitigation */
+    bool safe_pointer_checks; /* preserve raw pointer-index operands */
     /* Non-NULL only while a GNU variadic wrapper body is being specialized
      * into its caller. No pack marker is ever admitted to public IR. */
     VaPackContext *va_pack;
@@ -274,6 +299,10 @@ IrOperand lower_cond(Lower *lo, AstNode *e);
 /* --- statements (src/lower/stmt.c) ---------------------------------------- */
 
 void lower_stmt(Lower *lo, AstNode *s);
+/* Validate the i/n/N operands delayed until the function CFG is complete. */
+void lower_asm_validate_deferred_immediates(Lower *lo);
+/* Preserve configuration provenance for a known, ultimately unreachable arm. */
+void lower_record_deferred_config_removals(Lower *lo);
 /* A GNU statement expression `({ ... })`. Lives in stmt.c because it needs
  * LexScope and scope_exit_here; called from lower_rvalue, because the thing
  * it produces is a VALUE. */

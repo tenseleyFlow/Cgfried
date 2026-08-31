@@ -638,6 +638,10 @@ static int emit_ir_print(Arena *arena, DiagCtx *dc, IrModule *m,
     Buf b1, b2;
     IrModule *m2;
 
+    /* Lowering and the pipeline normalize this already; repeat it at the
+     * textual boundary so a final instrumentation pass cannot leave an
+     * inline-asm table ordered by stale construction history. */
+    ir_module_canonicalize_asms(m);
     buf_init(&b1);
     ir_print_module_buf(&b1, m);
     buf_push_u8(&b1, 0); /* the parser wants a C string */

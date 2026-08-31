@@ -478,9 +478,11 @@ void lower_asm(Lower *lo, AstNode *s)
     IrAsm a;
     IrAsmOp ops[64];
     IrOperand vals[64];
+    DeferredAsmImmediate *deferred[64];
     u8 clobregs[64];
     u32 n = 0;
     u32 nclob = 0;
+    u32 ndeferred = 0;
     u32 i;
 
     memset(&a, 0, sizeof(a));
@@ -546,34 +548,37 @@ void lower_asm(Lower *lo, AstNode *s)
             op->size = 8;
         }
         if (op->cls == ASM_CLS_IMM) {
-            /* `i` and `n` require an assemble-time constant, so the operand
-             * must FOLD -- and a diagnostic beats emitting `$0`, which is
-             * what an unpopulated field silently produced in the first
-             * draft: `"i"(100)` added zero and the fixture read 2 for 102. */
+            /* `i` and `n` require an assemble-time constant.  The source
+             * arm can, however, be removed by __builtin_constant_p before
+             * code generation; diagnosing here would reject a constraint
+             * that never reaches an asm instruction.  Carry a harmless
+             * placeholder through lowering, then validate it after the CFG
+             * has its real constant edge.  CE_FOLD is deliberately silent;
+             * the deferred CE_ICE call owns the user diagnostic. */
             ConstValue cv;
+            DeferredAsmImmediate *pending;
 
             if (nd_immediate) {
                 vals[n] = ir_op_iconst(IRT_I64, op->imm);
                 n++;
                 continue;
             }
-            cv = constexpr_eval(lo->sema, src->expr, CE_ICE);
-
-            if (cv.kind != CV_INT) {
-                asm_error(lo, src->span,
-                          "an asm operand with constraint \"%s\" must be an "
-                          "integer constant expression",
-                          op->constraint);
-                return;
-            }
-            if (strcmp(op->constraint, "N") == 0 && cv.i > 255) {
-                asm_error(lo, src->span,
-                          "an asm operand with constraint \"N\" must be an "
-                          "unsigned 8-bit integer constant");
-                return;
-            }
-            op->imm = (i64)cv.i;
-            vals[n] = ir_op_iconst(IRT_I64, (i64)cv.i);
+            cv = constexpr_eval(lo->sema, src->expr, CE_FOLD);
+            op->imm = cv.kind == CV_INT ? (i64)cv.i : 0;
+            vals[n] = ir_op_iconst(IRT_I64, op->imm);
+            pending = arena_alloc(lo->arena, sizeof(*pending),
+                                  _Alignof(DeferredAsmImmediate));
+            pending->expr = src->expr;
+            pending->constraint = op->constraint;
+            pending->span = src->span;
+            pending->block = BLOCK_INVALID;
+            pending->next = NULL;
+            if (lo->deferred_asm_immediates_tail)
+                lo->deferred_asm_immediates_tail->next = pending;
+            else
+                lo->deferred_asm_immediates = pending;
+            lo->deferred_asm_immediates_tail = pending;
+            deferred[ndeferred++] = pending;
             n++;
             continue;
         }
@@ -654,5 +659,36 @@ void lower_asm(Lower *lo, AstNode *s)
         memcpy(a.clobber_regs, clobregs, nclob);
         a.nclobber_regs = nclob;
     }
+    /* A later operand may lower a conditional expression and move the asm to
+     * its join block, so attach every delayed immediate check only here. */
+    for (i = 0; i < ndeferred; i++)
+        deferred[i]->block = lo->b.block;
     ir_build_asm(&lo->b, ir_asm_new(lo->m, &a), vals, n);
+}
+
+void lower_asm_validate_deferred_immediates(Lower *lo)
+{
+    DeferredAsmImmediate *pending;
+
+    for (pending = lo->deferred_asm_immediates; pending && !lo->failed;
+         pending = pending->next) {
+        ConstValue cv;
+
+        if (!ir_func_block_reachable(lo->fn, pending->block))
+            continue;
+        cv = constexpr_eval(lo->sema, pending->expr, CE_ICE);
+        if (cv.kind != CV_INT) {
+            asm_error(lo, pending->span,
+                      "an asm operand with constraint \"%s\" must be an "
+                      "integer constant expression",
+                      pending->constraint);
+            return;
+        }
+        if (strcmp(pending->constraint, "N") == 0 && cv.i > 255) {
+            asm_error(lo, pending->span,
+                      "an asm operand with constraint \"N\" must be an "
+                      "unsigned 8-bit integer constant");
+            return;
+        }
+    }
 }

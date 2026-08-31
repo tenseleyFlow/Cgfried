@@ -306,6 +306,63 @@ u32 ir_asm_new(IrModule *m, const IrAsm *a)
     return m->nasms;
 }
 
+void ir_module_canonicalize_asms(IrModule *m)
+{
+    IrAsm *ordered;
+    u32 old_nasms;
+    u32 n = 0;
+    u32 next = 0;
+    u32 fi, bi;
+
+    if (!m)
+        return;
+    old_nasms = m->nasms;
+    /* print.c writes functions, blocks, and instructions in these exact
+     * nested orders.  One textual `asm` reconstructs one table record, even
+     * if an optimizer cloned an IR_ASM instruction, so normalize to that
+     * representation rather than retaining construction-history indices. */
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        IrFunc *f = &m->funcs[fi];
+
+        for (bi = 0; bi < f->nblocks; bi++) {
+            IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next) {
+                if (in->op != IR_ASM)
+                    continue;
+                if (!in->callee || in->callee > old_nasms)
+                    CGF_ICE("IR_ASM in '%s' references invalid asm record %u",
+                            f->name, in->callee);
+                n++;
+            }
+        }
+    }
+    if (!n) {
+        /* CFG cleanup can delete the last asm instruction while the arena
+         * still owns records created during source lowering. */
+        m->nasms = 0;
+        return;
+    }
+    ordered = arena_alloc(m->arena, n * sizeof(*ordered), _Alignof(IrAsm));
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        IrFunc *f = &m->funcs[fi];
+
+        for (bi = 0; bi < f->nblocks; bi++) {
+            IrInst *in;
+
+            for (in = f->blocks[bi].first; in; in = in->next) {
+                if (in->op != IR_ASM)
+                    continue;
+                ordered[next] = m->asms[in->callee - 1];
+                in->callee = ++next;
+            }
+        }
+    }
+    m->asms = ordered;
+    m->nasms = n;
+    m->cap_asms = n;
+}
+
 void ir_module_add_file_asm(IrModule *m, const char *text)
 {
     if (m->nfile_asms == m->cap_file_asms) {
@@ -775,6 +832,42 @@ void ir_func_remove_unreachable(IrFunc *f)
 void ir_func_remove_unreachable_with_log(IrFunc *f)
 {
     remove_unreachable(f, true);
+}
+
+bool ir_func_block_reachable(const IrFunc *f, BlockId block)
+{
+    Arena scratch;
+    bool *reach;
+    u32 *work;
+    u32 nwork = 0;
+    bool result;
+
+    if (!f || !block.v || block.v > f->nblocks)
+        return false;
+    arena_init(&scratch);
+    reach = arena_alloc(&scratch, f->nblocks * sizeof(bool), _Alignof(bool));
+    work = arena_alloc(&scratch, f->nblocks * sizeof(u32), _Alignof(u32));
+    memset(reach, 0, f->nblocks * sizeof(bool));
+    reach[0] = true;
+    work[nwork++] = 0;
+    while (nwork) {
+        u32 b = work[--nwork];
+        const IrInst *in;
+        u32 i;
+
+        for (in = f->blocks[b].first; in; in = in->next)
+            for (i = 0; i < in->nedges; i++) {
+                u32 t = in->edges[i].target.v;
+
+                if (t >= 1 && t <= f->nblocks && !reach[t - 1]) {
+                    reach[t - 1] = true;
+                    work[nwork++] = t - 1;
+                }
+            }
+    }
+    result = reach[block.v - 1];
+    arena_free_all(&scratch);
+    return result;
 }
 
 /* --- canonical value renumbering ------------------------------------------ */
