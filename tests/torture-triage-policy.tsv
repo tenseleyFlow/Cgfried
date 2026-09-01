@@ -13,7 +13,6 @@
 -	61f7d78fdc241146d501a94c8a4318e23bd540586c8eab78ee1478c26d74d3e4	as	all	The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.	out-of-scope
 -	6315641ba67866fc0ce23827d143e76d664e050b8b0c57fccaa7b1d735aad925	sema	all	allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal	wontfix-0.1.0
 -	63894c5b52edea1018992f21ad3550b33865536439f4fd724edc5e49bc0bd974	parse	all	The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
--	737ff185cf3959109ce8d0dd4bfa4cb1ce024b2ddc5b45d604a5b78292ea2caf	ICE	all	x86 switch lowering leaves a large case constant in an immediate form that requires movabs	fix-sprint:s56.5-x86-imm64-materialization
 -	759ab6b2e233e715bd42b543868bd046fd8e396ab73ca78a4e2ce7a213324010	ICE	all	arm64 ABI planning caps stacked aggregate arguments at four leaves and ICEs on a valid 64-byte argument	fix-sprint:s56.5-arm64-stacked-large-aggregate-abi
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
@@ -37,7 +36,6 @@
 -	f6e3227c914735cdb08ca070859e01469beb8bd02551aa2274362048b0685cf0	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	f765937aa5544b30bfa7277c9210cf239099e5f3c63a6598adb06d05a6dbab46	parse	all	The declaration uses GNU complex long double type, outside the v0.1.0 language scope.	out-of-scope
 -	fa6021f7913ae8533903065c2ea43cf97c022e38d708bbeee2ccca8638647ce7	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
-11	bf558482bc8fd20af6fe24421928787fd7ca5ae7891adb6bdf239b39a56ca5ae	cg	all	The 100,000-case-label stress exceeds the constrained x86 QEMU guest's code-generation stack, surfacing the existing large-switch scalability gap as SIGSEGV.	fix-sprint:s56.5-compiler-scalability-timeout
 11	de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731	cg	all	The 100,000-case-label stress drives arm64 code generation beyond the bounded compiler budget; the hosted native process surfaces the failure as SIGSEGV while the local cross-target reproduction exhausts its timeout.	fix-sprint:s56.5-arm64-large-switch-scalability
 6	225de8a38f9b3f9c763137df7509cbf7d11311902b2357d389e99f4820d1bd3d	run	non-optdiv	bitfld-5 isolates arithmetic width preservation for a 40-bit unsigned long long bit-field passed through a struct argument.	fix-sprint:s56.5-bitfield-expression-precision
 6	27f6214b615bb83b6c752664d40c40eecac1962ae4b19b683f2cd41405ed506b	run	non-optdiv	20070919-1 isolates assignment and statement-expression copying of variably sized record objects.	fix-sprint:s56.5-vla-record-copy
