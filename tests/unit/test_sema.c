@@ -926,7 +926,63 @@ void test_sema_linkage_p4_block_extern(TestCtx *t)
      * composite array completion. */
     run_sema(&f,
              "static int a[10];\n"
-             "void g(void) { extern int a[]; extern int a[10]; }\n",
+             "void g(void) { extern int a[]; "
+             "_Static_assert(sizeof(a) == 10 * sizeof(int), \"bound\"); "
+             "extern int a[10]; }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* A linked extern in an INNER scope gets the composite type without
+     * mutating the spelling visible again after that scope ends. */
+    run_sema(&f,
+             "extern int a[10];\n"
+             "void g(void) { extern int a[]; "
+             "_Static_assert(sizeof(a) == 10 * sizeof(int), \"bound\"); }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void g(void) { extern int a[10]; { extern int a[]; "
+             "_Static_assert(sizeof(a) == 10 * sizeof(int), \"bound\"); } "
+             "}\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "extern int a[];\n"
+             "void g(void) { extern int a[10]; "
+             "_Static_assert(sizeof(a) == 10 * sizeof(int), \"bound\"); }\n"
+             "int after[sizeof(a) ? 1 : -1];\n",
+             STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    /* Compatibility is part of forming that composite. The old path used
+     * the visible declaration only to choose linkage and silently accepted
+     * all three mismatches. */
+    run_sema(&f, "extern int a[10]; void g(void) { extern int a[11]; }\n",
+             STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    run_sema(&f, "extern int a; void g(void) { extern long a; }\n", STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "extern int f(int *); "
+             "void g(void) { extern int f(long *); }\n",
+             STD_C17);
+    T_ASSERT(t, f.errors >= 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "extern int f(); "
+             "void g(void) { extern int f(int); int (*p)(int) = f; "
+             "(void)p; }\n",
              STD_C17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     sfix_free(&f);
