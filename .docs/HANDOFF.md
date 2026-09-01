@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-30): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-08-31): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -69,11 +69,12 @@ merged as `ea708db7`; its target-complete publication raises the ratchet to
 and the same 32 live repair rows. PR #60's runtime VLA `__builtin_offsetof`
 tranche is merged as `b56b4f5`; the committed ratchet contains 26,818 PASS
 cells. PR #61's immediate-asm timing tranche is merged as `ff3b9d66`, raising
-the ratchet to 26,830 PASS cells. The current
-`s56.5-label-reachable-dead-regions` tranche on PR #62 is target-complete at
-26,840 PASS cells with 55 applied policy decisions and awaits only fresh
-post-publication CI before merge. Sprint 56's campaign machine and triage map
-remain complete while Sprint 58 continues its independent soak.
+the ratchet to 26,830 PASS cells. PR #62's label-reachable-dead-regions
+tranche is merged as `5cf4bbf`, raising the target-complete PASS ratchet to
+26,840. The current `s56.5-wide-character-pp-constant` tranche on PR #63 is
+target-complete at 26,850 PASS cells with 55 applied policy decisions and
+awaits fresh post-publication CI before merge. Sprint 56's campaign machine
+and triage map remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1820,7 +1821,69 @@ and green post-publication CI.
   triage SHA-256 values are respectively
   `02d899a3d64c62de969bdacd27106282830466a3c700e8c069b817a224b2050d`
   and `1ca9959ee675fea7a23e593e9cd9670172cfe9cf0ad40d2456d9fcd0fb0283e3`.
+  Post-publication standard CI
+  [run 33440592643](https://github.com/tenseleyFlow/Cgfried/actions/runs/33440592643)
+  and exact-head native ARM64
+  [run 33440632683](https://github.com/tenseleyFlow/Cgfried/actions/runs/33440632683)
+  are fully green. PR #62 merged as `5cf4bbf`.
+- The `s56.5-wide-character-pp-constant` tranche (PR #63) resolves the
+  isolated `torture-execute/widechar-1.c` gap. Preprocessor character-constant
+  evaluation now preserves decoded code-unit values for `L`, `u`, and `U`
+  prefixes instead of narrowing every constant through a signed byte.
+  Prefixed multicharacter constants retain the final decoded code unit and
+  warn, matching the ordinary lexer and GCC behavior, while ordinary
+  multicharacter packing is unchanged. Focused preprocessor unit coverage pins
+  `L'\400'`, `L'\x100'`, `u'\400'`, `U'\400'`, and `L'ab'`; a permanent
+  program fixture pins preprocessing/ordinary-lexer agreement and imported
+  macro structure. The new corpus member re-pins the deterministic frontend
+  fuzz digest.
+
+  Apple-silicon validation builds the native compiler, passes all 57 native
+  preprocessor fixtures, the focused 72-assertion expression suite, both
+  differential modes, sanitizer frontend checks, and 5,000 fixed-seed
+  sanitizer fuzz iterations with a clean crash ledger. Cross-target source
+  emission passes for x86-64 and ARM64 at O0/O1/O2/O3/Os, and the imported
+  `widechar-1.c` executable passes natively on Darwin ARM64. Behavior head
+  `af3481a7a3e2a994355f67a1f1377e3be8a4d559` passed every non-torture PR
+  check in
+  [run 33447732579](https://github.com/tenseleyFlow/Cgfried/actions/runs/33447732579);
+  its hosted x86 gate refused only the five newly passing `widechar-1.c`
+  cells. Exact-head native ARM64
+  [run 33447767719](https://github.com/tenseleyFlow/Cgfried/actions/runs/33447767719)
+  refused only the matching five ARM cells.
+
+  The publishable exact-head x86 stream was regenerated in the dedicated
+  Ubuntu 24.04 x86-64 QEMU verification guest and has SHA-256
+  `009721f67d859bd0cddc13a91829b97e2b78d23a1efcd5d94c987421b336b98e`;
+  the native ARM stream SHA-256 is
+  `826127d6ef52813c9498c15305676f5e9842b3e2b151a430c47d038d763fa5e3`.
+  Both streams contain all 20,325 target cells and share the behavior
+  revision, compiler-source SHA-256
+  `5dfa0e371575c077a1986b48867a51f02bf0eff346145ac684a085c5d51807cc`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and unchanged manifest hashes. The x86 compiler/driver SHA-256 is
+  `b4defb6814c2ea41d1c31fe2aa53f47b6d3164b0b9e22424870a8800810bd471`;
+  ARM's is
+  `caf00d66d9eb53d64aa05073f8fae6a1218050c3c4eb21868fd54332ee0ff1ec`.
+
+  Target-complete publication promotes exactly the ten `widechar-1.c`
+  target-level cells with zero PASS regression and retires fingerprint
+  `34623465...`. The coherent QEMU stream restores the documented
+  `e52eb570...` bracket-depth translation-limit class and replaces the stale
+  Hasu-only `add5d1b...` path-derived timeout with `bf558482...`, the same
+  existing 100,000-case-label scalability gap surfaced as SIGSEGV in the
+  constrained guest. The published state is 26,850 PASS cells, 7,183
+  classified failures, 64 buckets, 55 applied decisions, and zero stale or
+  unresolved decisions. Reversing the evidence streams regenerates both
+  outputs byte-identically; PASS and triage SHA-256 values are respectively
+  `28122dd67e086353d0f9651aa16024a55cb84dcfc5cf3e279574b529cb2761b0`
+  and `7dc4306bea6c7290f0ba28b246ce381ebb4761f038d9473eaab8f43db66a3100`.
   Fresh post-publication PR and native-ARM CI must be green before merging.
+  The next evidence-led compiler candidate is `s56.5-composite-array-bound`;
+  keep its first tranche narrow because sibling probes also expose broader
+  incompatible cross-scope extern array/function acceptance. Follow it with
+  `s56.5-unprototyped-call-ir`.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -1873,9 +1936,9 @@ tranche is implemented, target-complete, and merged through PR #50 as
 `e2439e79`. The GNU `alloca` alias tranche is implemented, target-complete,
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
-The failure-decomposition tranche is implemented and published on the current
-isolated PR #53 branch. The remaining compiler debt is enumerated by 33 live
-`s56.5-*` policy rows representing 28 unique repair tranches. Sprint
+The failure-decomposition tranche is merged through PR #53. The remaining
+compiler debt is enumerated by 30 live `s56.5-*` policy rows representing 25
+unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
