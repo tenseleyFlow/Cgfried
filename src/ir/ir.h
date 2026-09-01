@@ -355,6 +355,14 @@ typedef struct IrEdge {
 
 /* Memory-op flags. */
 #define IRF_VOLATILE 0x1u
+/* IR_CALL: the declaration visible at this call site had no prototype.
+ * This is distinct from both an unprototyped function DEFINITION and a
+ * variadic prototype: verifier/IPO decisions are per call, x86-64 owes the
+ * SysV AL protocol, and Apple arm64 still uses ordinary register placement.
+ * Instruction flags are opcode-specific, so the bit deliberately shares the
+ * memory-only VOLATILE spelling without growing IrInst past its 48-byte
+ * budget. Printed ` unproto` after the argument list. */
+#define IRF_CALL_UNPROTOTYPED 0x1u
 #define IRF_SEQ_CST 0x2u /* the only atomic ordering in v0.1.0 */
 /* IR_CALL: the callee's C type is variadic. Codegen owes such a call the
  * AL protocol (mov $n_xmm_args, %eax before the call) — a fact only the
@@ -963,6 +971,7 @@ void ir_build_memset(IrBuilder *b, IrOperand dst, IrOperand byte,
                      IrOperand size, u32 align, u8 flags);
 ValueId ir_build_select(IrBuilder *b, IrOperand c, IrOperand x, IrOperand y);
 void ir_call_mark_variadic(IrBuilder *b);
+void ir_call_mark_unprototyped(IrBuilder *b);
 void ir_call_mark_noreturn(IrBuilder *b);
 void ir_load_mark_self_init(IrBuilder *b);
 void ir_branch_mark_flow_provenance(IrBuilder *b);

@@ -519,6 +519,30 @@ void test_ir_verify_check9_refs(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.errors, 0);
     arena_free_all(&f.arena);
 
+    /* The body may have a later prototype even though this particular call
+     * was formed through an earlier `f()` declaration. The per-call marker,
+     * not the final function signature, owns the loose contract. */
+    vfix_init(&f);
+    m = ir_module_new(&f.arena, f.dc);
+    ir_func_new(m, "callee", IRT_VOID, pt, 1);
+    {
+        BlockId e;
+
+        fn = &m->funcs[0];
+        e = ir_block_new(m, fn, "entry");
+        ir_builder_at(&b, m, fn, e);
+        ir_build_ret(&b, NULL);
+        fn = ir_func_new(m, "caller", IRT_VOID, NULL, 0);
+        e = ir_block_new(m, fn, "entry");
+        ir_builder_at(&b, m, fn, e);
+        ir_build_call(&b, IRT_VOID, FUNCREF_INTERNAL, 0, NULL, 0);
+        ir_call_mark_unprototyped(&b);
+        ir_build_ret(&b, NULL);
+    }
+    T_ASSERT(t, ir_verify(f.dc, m));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    arena_free_all(&f.arena);
+
     vfix_init(&f);
     m = ir_module_new(&f.arena, f.dc);
     ir_func_new(m, "callee", IRT_VOID, pt, 1);

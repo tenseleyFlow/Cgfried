@@ -2550,12 +2550,16 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             call_noreturn = strcmp(callee->name, "err") == 0 ||
                             strcmp(callee->name, "errx") == 0;
     }
-    /* The callee's function type: through the symbol, or through the
-     * called pointer's pointee. */
-    if (callee)
-        fty = callee->type;
-    else if (sem(e->lhs) && sem(e->lhs)->kind == TY_PTR)
+    /* The callee's CALL-SITE function type comes from the typed expression,
+     * even for a direct symbol. Whole-translation-unit lowering sees the
+     * symbol's final composite type, which may contain a prototype declared
+     * only after this call; rereading it would retroactively change both the
+     * verifier contract and target calling convention. */
+    if (sem(e->lhs) && sem(e->lhs)->kind == TY_PTR && sem(e->lhs)->base &&
+        sem(e->lhs)->base->kind == TY_FUNC)
         fty = sem(e->lhs)->base;
+    else if (callee)
+        fty = callee->type;
     ret = fty ? fty->base : sem(e);
     abi_classify_ret(lo, ret, &aret);
     hidden = aret.kind == ABI_RET_SRET || aret.kind == ABI_RET_PAIR ||
@@ -2640,8 +2644,10 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         } else {
             rv = ir_build_call_indirect(&lo->b, irret, fp, args.data, args.len);
         }
-        /* AL protocol (Sprint 23): only the front end knows the callee's
-         * C type is variadic; the call instruction carries the fact. */
+        /* Prototype provenance and the variadic AL protocol are call-site
+         * facts; a later declaration must not rewrite either one. */
+        if (fty && !fty->has_proto)
+            ir_call_mark_unprototyped(&lo->b);
         if (fty && fty->variadic)
             ir_call_mark_variadic(&lo->b);
         if (call_noreturn)

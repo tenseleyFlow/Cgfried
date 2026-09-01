@@ -1581,6 +1581,10 @@ static bool parse_inst(P *p)
         }
         if (!expect(p, T_RP, "')'"))
             return false;
+        if (tok_is(peek(p), "unproto")) {
+            next(p);
+            in->flags |= IRF_CALL_UNPROTOTYPED;
+        }
         if (tok_is(peek(p), "va")) {
             next(p);
             in->flags |= IRF_CALL_VARIADIC;

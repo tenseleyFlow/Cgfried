@@ -170,6 +170,37 @@ void test_lower_old_style_calls_keep_loose_contract(TestCtx *t)
     if (round)
         T_ASSERT(t, ir_module_struct_eq(f.m, round));
     low_free(&f);
+
+    /* A later prototype becomes the entity's final composite type, but it
+     * cannot retroactively constrain an earlier call. A call after the
+     * definition does see the prototype and remains strict. */
+    T_ASSERT(t, run_lower(&f, "static int f();\n"
+                              "int before(void) { return f(); }\n"
+                              "static int f(int x) { return x; }\n"
+                              "int after(void) { return f(7); }\n"
+                              "static int extra();\n"
+                              "int before_extra(void) { return extra(1, 2); }\n"
+                              "static int extra(int x) { return x; }\n"
+                              "static double promoted();\n"
+                              "double before_promoted(float x) {\n"
+                              "  return promoted(x);\n"
+                              "}\n"
+                              "static double promoted(double x) {\n"
+                              "  return x;\n"
+                              "}\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @f() unproto") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @f(i32 7) unproto") == NULL);
+    T_ASSERT(t,
+             strstr(txt(&f), "call i32 @extra(i32 1, i32 2) unproto") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "call f64 @promoted(f64 %") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), " unproto"), 3);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<later-prototype-rt>");
+    T_ASSERT(t, round != NULL);
+    if (round)
+        T_ASSERT(t, ir_module_struct_eq(f.m, round));
+    low_free(&f);
 }
 
 void test_lower_bitfield_unsigned_rw(TestCtx *t)

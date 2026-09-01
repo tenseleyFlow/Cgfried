@@ -442,6 +442,15 @@ void ir_call_mark_variadic(IrBuilder *b)
     blk->last->flags |= IRF_CALL_VARIADIC;
 }
 
+void ir_call_mark_unprototyped(IrBuilder *b)
+{
+    IrBlock *blk = &b->f->blocks[b->block.v - 1];
+
+    if (!blk->last || blk->last->op != IR_CALL)
+        CGF_ICE("ir_call_mark_unprototyped: last instruction is not a call");
+    blk->last->flags |= IRF_CALL_UNPROTOTYPED;
+}
+
 void ir_call_mark_noreturn(IrBuilder *b)
 {
     IrBlock *blk = &b->f->blocks[b->block.v - 1];
