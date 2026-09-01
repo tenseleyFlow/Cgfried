@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-08-31): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-01): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -72,11 +72,13 @@ cells. PR #61's immediate-asm timing tranche is merged as `ff3b9d66`, raising
 the ratchet to 26,830 PASS cells. PR #62's label-reachable-dead-regions
 tranche is merged as `5cf4bbf`, raising the target-complete PASS ratchet to
 26,840. PR #63's wide-character-preprocessor-constant tranche is merged as
-`a8a23acd`, raising the target-complete PASS ratchet to 26,850. The current
-`s56.5-composite-array-bound` tranche on PR #64 is target-complete at 26,860
-PASS cells with 54 applied policy decisions and awaits fresh
-post-publication CI before merge. Sprint 56's campaign machine and triage map
-remain complete while Sprint 58 continues its independent soak.
+`a8a23acd`, raising the target-complete PASS ratchet to 26,850. PR #64's
+composite-array-bound tranche is merged as `1b8ec6ae`, raising the
+target-complete PASS ratchet to 26,860. The current
+`s56.5-unprototyped-call-ir` tranche on PR #65 is target-complete at 26,870
+PASS cells with 53 applied policy decisions and awaits fresh post-publication
+CI before merge. Sprint 56's campaign machine and triage map remain complete
+while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -1944,9 +1946,67 @@ and green post-publication CI.
   byte-identically; PASS and triage SHA-256 values are respectively
   `1cb02241a6b32fb44232c6831546dc94ba6d3517caeb9fc1602d9523c7dde5aa`
   and `541bd4e238f8c6648302dff89965dd37b3fcd43a465eace3b7496560e5015d91`.
-  Fresh post-publication PR and native-ARM CI must be green before merging.
-  The next evidence-led compiler candidate is
+  Post-publication standard CI and exact-head native ARM64 were fully green.
+  PR #64 merged as `1b8ec6ae`. The next evidence-led compiler candidate was
   `s56.5-unprototyped-call-ir`.
+- The `s56.5-unprototyped-call-ir` tranche (PR #65) resolves the isolated
+  `torture-compile/pr71109.c` gap. Lowering now obtains a direct call's
+  function type from the declaration visible at that call site rather than
+  rereading the symbol's final whole-translation-unit composite type. An
+  explicit IR `unproto` call flag preserves that provenance through text
+  round trips: verification leaves the default-promoted argument count and
+  types unconstrained while still checking a hidden return pointer, and
+  inlining/IPO conservatively decline transformations that require a fixed
+  signature. x86-64 emits the SysV `%al` XMM-register count for an
+  unprototyped call; Apple ARM64 deliberately retains ordinary register
+  placement rather than variadic stack placement. The marker is per call and
+  remains distinct from both an old-style function definition and a variadic
+  prototype.
+
+  Apple-silicon validation passes 108 affected unit tests / 856 assertions,
+  the permanent lowering and x86 MIR fixtures, and x86-64/ARM64 source
+  emission for the imported case at O0/O1/O2/O3/Os. Unsanitized and
+  ASan+UBSan frontend fuzz runs each complete 2,000 iterations with zero
+  findings; the affected sanitizer suites, import/policy/seam/registry gates,
+  and the pinned clang-format 22 check are green. Behavior head
+  `f5a1dfd870cf4212ad5576ccff7f88f7a1b59d61` passed every non-torture job in
+  [run 33532567867](https://github.com/tenseleyFlow/Cgfried/actions/runs/33532567867),
+  including the 100,000-iteration frontend fuzz lane; hosted x86 torture
+  refused only the five new `pr71109.c` PASS cells. Exact-head native ARM64
+  [run 33534736755](https://github.com/tenseleyFlow/Cgfried/actions/runs/33534736755)
+  refused only the matching five ARM cells.
+
+  The publishable x86 stream was regenerated at the exact behavior head in
+  the dedicated Ubuntu 24.04 x86-64 QEMU verification guest. Its SHA-256 is
+  `71f93b888f7c859544fde13637d9081a846407af9feae469ae443974d2539be0`;
+  the native ARM stream SHA-256 is
+  `bcd7a02b9f52ce78ccc1aa7bca649e4dbbab07f003f164767849e1f59dd11f9d`.
+  Each stream contains all 20,325 target cells. They share the exact behavior
+  revision, compiler-source SHA-256
+  `212fc033d87d9f01902002f04ae3de2d63196f30c723fde381e44826e627a1b2`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 compiler/driver SHA-256 is
+  `3dd3414d12c81cea5a6a134e998007ddfa359ff287d578fb6a0e2494abbecdff`;
+  ARM's is
+  `519e47fe7f377da868f251668a801344e4fca6c80b51653b1acbe16feedf6b1f`.
+
+  Target-complete publication promotes exactly the ten `pr71109.c`
+  target-level cells with zero PASS regression and retires fingerprint
+  `31dd1e91...`. The published state is 26,870 ratchet lines, 7,163
+  classified failures, 62 buckets, 53 applied decisions, 28 live repair rows
+  representing 23 repair tranches, and zero stale or unresolved decisions.
+  Reversing the evidence streams regenerates both outputs byte-identically;
+  PASS and triage SHA-256 values are respectively
+  `59fa746409e5618b6b6cfd6366eb61c7545fb96a8834d1ccef3495e85bafffe3`
+  and `3b07952881d3d53dec16edd5e190a03985590071789a17850455699d2ac09e00`.
+  Fresh post-publication standard CI and exact-head native ARM64 must be green
+  before merging. Select the next compiler-gap candidate from this newly
+  generated triage only after those gates are green.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,

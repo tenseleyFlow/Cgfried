@@ -508,6 +508,8 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
             print_call_arg(out, m, vn, &in->ops[i]);
         }
         buf_printf(out, ")");
+        if (in->flags & IRF_CALL_UNPROTOTYPED)
+            buf_printf(out, " unproto");
         if (in->flags & IRF_CALL_VARIADIC)
             buf_printf(out, " va");
         if (in->flags & IRF_NORETURN)

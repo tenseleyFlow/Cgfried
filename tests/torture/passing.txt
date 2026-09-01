@@ -14360,6 +14360,16 @@ torture-compile/pr70916.c@O3@arm64-linux
 torture-compile/pr70916.c@O3@x86_64-linux-gnu
 torture-compile/pr70916.c@Os@arm64-linux
 torture-compile/pr70916.c@Os@x86_64-linux-gnu
+torture-compile/pr71109.c@O0@arm64-linux
+torture-compile/pr71109.c@O0@x86_64-linux-gnu
+torture-compile/pr71109.c@O1@arm64-linux
+torture-compile/pr71109.c@O1@x86_64-linux-gnu
+torture-compile/pr71109.c@O2@arm64-linux
+torture-compile/pr71109.c@O2@x86_64-linux-gnu
+torture-compile/pr71109.c@O3@arm64-linux
+torture-compile/pr71109.c@O3@x86_64-linux-gnu
+torture-compile/pr71109.c@Os@arm64-linux
+torture-compile/pr71109.c@Os@x86_64-linux-gnu
 torture-compile/pr71272.c@O0@arm64-linux
 torture-compile/pr71272.c@O0@x86_64-linux-gnu
 torture-compile/pr71272.c@O1@arm64-linux

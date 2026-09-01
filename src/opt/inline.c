@@ -748,12 +748,12 @@ static bool eligible(IrModule *m, u32 caller_index, const CallSite *site,
      * promoted types.  Mapping the callee's concrete parameter SSA values
      * onto such operands would either index past the call or change C's
      * old-style ABI semantics. */
-    if (callee->unprototyped &&
+    if ((callee->unprototyped || (call->flags & IRF_CALL_UNPROTOTYPED) != 0) &&
         (!forced || !call_matches_unprototyped_body(call, callee))) {
         if (forced)
             diag_emit(m->dc, DIAG_ERROR, ir_inst_span(m, call),
                       "inlining failed in call to 'always_inline' '%s': "
-                      "function has an unprototyped signature",
+                      "call has an unprototyped signature",
                       callee->name);
         else
             OPT_BAIL(&fc, "inline", "inl_unprototyped_signature");

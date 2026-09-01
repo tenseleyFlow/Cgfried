@@ -2359,7 +2359,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 argx[nargx++].fixed = fix;
             }
         }
-        if (in->flags & IRF_CALL_VARIADIC) {
+        if (in->flags & (IRF_CALL_VARIADIC | IRF_CALL_UNPROTOTYPED)) {
             X64VReg t = newv(is);
 
             x = emit(is, X64_OP_MOV, X64_L);

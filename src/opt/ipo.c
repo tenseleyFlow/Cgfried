@@ -472,6 +472,16 @@ static bool specialization_constant(IrOperand op)
     return op.kind == IROP_ICONST || op.kind == IROP_FCONST;
 }
 
+static bool has_unprototyped_call(const Callgraph *g, u32 callee)
+{
+    u32 ci;
+
+    for (ci = g->call_offsets[callee]; ci < g->call_offsets[callee + 1]; ci++)
+        if (g->calls[ci].call->flags & IRF_CALL_UNPROTOTYPED)
+            return true;
+    return false;
+}
+
 static void drop_call_arg(IrModule *m, const Callgraph *g, u32 callee, u32 arg)
 {
     u32 ci;
@@ -677,6 +687,13 @@ bool opt_ipo(IrModule *m, const OptConfig *cfg)
             }
             if (f->unprototyped) {
                 OPT_BAIL(cfg, "ipo", "ipo_unprototyped_signature");
+                continue;
+            }
+            /* A direct call formed before a later prototype may have fewer
+             * operands, differently promoted operands, or both. Signature
+             * specialization cannot rewrite that loose call contract. */
+            if (has_unprototyped_call(g, fi)) {
+                OPT_BAIL(cfg, "ipo", "ipo_unprototyped_call");
                 continue;
             }
             if (func_reads_common(m, f))

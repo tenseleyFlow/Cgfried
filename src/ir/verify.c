@@ -470,7 +470,7 @@ static void check_inst_misc(V *v, const IrInst *in)
     u32 i;
 
     /* 7: flags only where they mean something. */
-    if (in->flags & IRF_VOLATILE) {
+    if ((in->flags & IRF_VOLATILE) && in->op != IR_CALL) {
         if (!is_mem || in->op == IR_ALLOCA)
             verr(v, 7, "'volatile' on '%s', which cannot carry it",
                  ir_op_name((IrOp)in->op));
@@ -624,22 +624,23 @@ static void check_inst_misc(V *v, const IrInst *in)
                      in->callee, v->m->nfuncs);
             } else {
                 const IrFunc *cf = &v->m->funcs[in->callee];
+                bool unprototyped = cf->unprototyped ||
+                                    (in->flags & IRF_CALL_UNPROTOTYPED) != 0;
 
-                /* Old-style callees have concrete body parameters but no
-                 * call-site prototype: count and default-promoted operand
-                 * types are intentionally unconstrained.  A hidden return
-                 * pointer remains an ABI invariant and is checked below. */
-                if (!cf->unprototyped &&
-                    (cf->variadic ? in->nops < cf->nparams
-                                  : in->nops != cf->nparams))
+                /* An old-style definition, or a call formed through an
+                 * earlier no-prototype declaration, has no fixed call-site
+                 * contract: count and default-promoted operand types are
+                 * intentionally unconstrained. A hidden return pointer
+                 * remains an ABI invariant and is checked below. */
+                if (!unprototyped && (cf->variadic ? in->nops < cf->nparams
+                                                   : in->nops != cf->nparams))
                     verr(v, 9, "call to @%s passes %u args; it takes %s%u",
                          cf->name, in->nops, cf->variadic ? "at least " : "",
                          cf->nparams);
                 else {
                     u32 checked =
-                        cf->unprototyped
-                            ? (cf->abi_ret != IR_ABIRET_NONE ? 1u : 0u)
-                            : cf->nparams;
+                        unprototyped ? (cf->abi_ret != IR_ABIRET_NONE ? 1u : 0u)
+                                     : cf->nparams;
 
                     if (checked && in->nops == 0) {
                         verr(v, 9,
