@@ -1248,6 +1248,35 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
     (void)storage;
 }
 
+/* A block-scope extern may redeclare a visible entity from an OUTER scope.
+ * It gets a fresh scope entry -- references after the block must still see
+ * the outer declaration's spelling -- but within the inner scope its type is
+ * the composite of every visible linked declaration (6.2.7p4).  This is
+ * deliberately not merge_redeclaration(): mutating the outer symbol would
+ * incorrectly leak an inner array completion into the outer scope. */
+static Type *composite_visible_extern(Sema *s, const Symbol *visible,
+                                      const Symbol *cur, u32 storage)
+{
+    if (!visible || !(storage & AST_SC_EXTERN) ||
+        visible->linkage == LINK_NONE || cur->linkage == LINK_NONE ||
+        visible->linkage != cur->linkage)
+        return cur->type;
+
+    if (visible->kind != cur->kind ||
+        !type_compatible(visible->type, cur->type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, cur->span,
+                  "conflicting types for '%s' ('%s' vs '%s')", cur->name,
+                  type_to_str(s->arena, cur->type),
+                  type_to_str(s->arena, visible->type));
+        diag_emit(s->dc, DIAG_NOTE, visible->span,
+                  "previous declaration is here");
+        return type_basic(TY_ERROR);
+    }
+
+    return type_composite(s->arena, visible->type, cur->type);
+}
+
 /* --- declarations -------------------------------------------------------- */
 
 static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
@@ -2848,7 +2877,7 @@ static void declare_one(Sema *s, AstNode *d)
     Type *type;
     Symbol *sym;
     Symbol *prev;
-    Symbol *visible;
+    Symbol *visible = NULL;
     bool is_func;
     bool static_init;
     bool file_scope = s->scope->kind == SCOPE_FILE;
@@ -2966,6 +2995,10 @@ static void declare_one(Sema *s, AstNode *d)
         if (file_scope && !is_func && !sym->defined &&
             !(d->storage & AST_SC_EXTERN))
             sym->tentative = true;
+    }
+    if (!scope_lookup_local(s->scope, d->name, NS_ORDINARY)) {
+        type = composite_visible_extern(s, visible, sym, d->storage);
+        sym->type = type;
     }
     /* The current-object walk needs expression types to distinguish brace
      * elision from one aggregate-valued initializer. Defer only this one
