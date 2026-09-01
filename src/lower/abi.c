@@ -114,9 +114,12 @@ static void classify_arg_aapcs64(Lower *lo, Type *t, AbiArg *out)
     if (layout_is_hfa(lo->sema, t, &base, &leaves)) {
         int i;
 
+        if (leaves < 1 || leaves > ABI_MAX_HFA_LEAVES)
+            CGF_ICE("abi: HFA has %d leaves, expected 1-%u", leaves,
+                    (unsigned)ABI_MAX_HFA_LEAVES);
         out->kind = ABI_ARG_HFA;
         out->n = (u8)leaves;
-        for (i = 0; i < leaves && i < ABI_MAX_LEAVES; i++)
+        for (i = 0; i < leaves; i++)
             out->t[i] = hfa_leaf_irtype(lo, base);
         return;
     }
@@ -343,7 +346,7 @@ static bool abi_replan_as_eightbytes(AbiArg *a, bool fp_bank)
     IrType leaf = fp_bank ? IRT_F64 : IRT_I64;
     u32 k;
 
-    if (words > ABI_MAX_LEAVES)
+    if (words > ABI_MAX_STACK_LEAVES)
         return false;
     a->n = (u8)(words ? words : 1);
     for (k = 0; k < a->n; k++)
@@ -382,8 +385,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
      * ceil(size/8) eightbytes fixes that and coincides with the natural
      * layout when the leaves are already 8 bytes wide.
      *
-     * The 4-leaf cap cannot bite here: Apple's long double is double, so the
-     * widest HFA is four doubles -- exactly 32 bytes, exactly 4 eightbytes.
+     * The stack-leaf cap cannot bite here: the widest supported HFA is four
+     * binary128 leaves -- exactly 64 bytes, exactly 8 eightbytes.
      *
      * Register budget deliberately untouched: an anonymous argument neither
      * takes nor exhausts a register, so it must not pin a bank the way an
@@ -394,9 +397,9 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
             a->stack_align16 = 1;
         if (!abi_replan_as_eightbytes(a, false))
             CGF_ICE("abi_arg_place: anonymous aggregate of %u bytes needs "
-                    "more than the %u-leaf plan; Apple's widest HFA is four "
-                    "doubles, so this should be unreachable",
-                    a->size, (unsigned)ABI_MAX_LEAVES);
+                    "more than the %u-leaf stack plan; no supported HFA "
+                    "exceeds four binary128 leaves",
+                    a->size, (unsigned)ABI_MAX_STACK_LEAVES);
         return;
     }
 
@@ -470,5 +473,5 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
     if (!abi_replan_as_eightbytes(a, need_fp != 0))
         CGF_ICE("abi_arg_place: stacked aggregate of %u bytes needs %u "
                 "eightbytes, over the %u-leaf plan",
-                a->size, (a->size + 7u) / 8u, (unsigned)ABI_MAX_LEAVES);
+                a->size, (a->size + 7u) / 8u, (unsigned)ABI_MAX_STACK_LEAVES);
 }

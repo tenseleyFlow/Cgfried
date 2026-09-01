@@ -400,15 +400,18 @@ typedef enum {
     ABI_ARG_STACK
 } AbiArgKind;
 
-/* Four: an HFA has up to four leaves. SysV never sets n > 2. */
-#define ABI_MAX_LEAVES 4
+/* An HFA has at most four register leaves. Once an AAPCS64 HFA is forced to
+ * the stack it is re-planned as eightbyte byte carriers; four binary128
+ * leaves therefore need eight stack leaves. SysV never sets n > 2. */
+#define ABI_MAX_HFA_LEAVES 4
+#define ABI_MAX_STACK_LEAVES (ABI_MAX_HFA_LEAVES * 2)
 
 typedef struct AbiArg {
-    u8 kind;                  /* AbiArgKind */
-    u8 n;                     /* EIGHTBYTES: 1-2; HFA: 1-4 */
-    u8 even_gp;               /* Linux AAPCS64: first leaf starts at even xN */
-    u8 stack_align16;         /* AAPCS64: first stack leaf aligns NSAA to 16 */
-    IrType t[ABI_MAX_LEAVES]; /* eightbyte / HFA-leaf IR types */
+    u8 kind;          /* AbiArgKind */
+    u8 n;             /* EIGHTBYTES: 1-2; HFA: 1-4; STACK: 1-8 */
+    u8 even_gp;       /* Linux AAPCS64: first leaf starts at even xN */
+    u8 stack_align16; /* AAPCS64: first stack leaf aligns NSAA to 16 */
+    IrType t[ABI_MAX_STACK_LEAVES]; /* eightbyte / HFA-leaf IR types */
     u32 size;
     u32 align;
 } AbiArg;

@@ -442,9 +442,11 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     AbiArg got;
     AbiBudget b;
     Type *ty;
+    u32 k;
 
     abi_open(&f,
              "struct H4 { double d[4]; };\n"
+             "struct Q4 { long double q[4]; };\n"
              "struct P { long a, b; };\n"
              "struct S { char big[64]; };\n",
              CGF_TARGET_ARM64_LINUX);
@@ -489,6 +491,25 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
     T_ASSERT_EQ_INT(t, (int)b.fp, 8);
+
+    /* Linux binary128 makes the widest HFA 64 bytes. In registers it is four
+     * q-register leaves; once the FP bank is exhausted, AAPCS64 passes the
+     * same value in eight ordinary stack eightbytes. The stack plan is wider
+     * than the register plan, but it must not change the pinned FP budget. */
+    ty = tag_type(&f, "Q4");
+    abi_classify_arg(&f.lo, ty, &got);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_HFA);
+    T_ASSERT_EQ_INT(t, (int)got.n, 4);
+    T_ASSERT_EQ_INT(t, (int)got.t[0], IRT_F128);
+    abi_budget_init(&f.lo, &b, NULL);
+    b.fp = 8;
+    abi_arg_place(&f.lo, &got, &b, false);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
+    T_ASSERT_EQ_INT(t, (int)got.n, 8);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 1);
+    T_ASSERT_EQ_INT(t, (int)b.fp, 8);
+    for (k = 0; k < got.n; k++)
+        T_ASSERT_EQ_INT(t, (int)got.t[k], IRT_F64);
 
     abi_close(&f);
 }

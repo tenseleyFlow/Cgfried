@@ -460,6 +460,31 @@ void test_abi_aapcs64_stacked_composite_ir_contract(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_aapcs64_stacked_f128_hfa_ir_contract(TestCtx *t)
+{
+    static const char src[] =
+        "struct Q4 { long double q[4]; };\n"
+        "long double sink(struct Q4 a, struct Q4 b, struct Q4 c) {\n"
+        "  return c.q[3];\n"
+        "}\n"
+        "long double call(struct Q4 a, struct Q4 b, struct Q4 c) {\n"
+        "  return sink(a, b, c);\n"
+        "}\n";
+    AbiFix f;
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_LINUX));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    /* Two four-q-register HFAs exhaust v0-v7. The third is flattened into
+     * eight f64 byte carriers at both function boundaries and at the inner
+     * call. Only the first carrier owns the 16-byte stack boundary. */
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), " onstack"), 24);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "onstack stackalign16"), 3);
+    T_ASSERT(t, strstr(atxt(&f), "func f128 @sink(f128 %0") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "f64 onstack stackalign16 %8") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "call f128 @sink(f128 %") != NULL);
+    abi_free(&f);
+}
+
 void test_abi_sysv_stacked_fixed_aggregate_ir_contract(TestCtx *t)
 {
     /* Like c-testsuite 00204.c, fixed small aggregates exhaust the SysV GP
