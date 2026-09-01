@@ -284,6 +284,107 @@ void test_x64_isel_accepts_more_than_sixty_four_call_arguments(TestCtx *t)
     arena_free_all(&a);
 }
 
+static X64Func *isel_i64_switch(Arena *a, DiagCtx *dc, const char *name,
+                                const i64 *case_vals, u32 n)
+{
+    IrModule *m = ir_module_new(a, dc);
+    IrType params[1] = {IRT_I64};
+    IrFunc *f = ir_func_new(m, name, IRT_I32, params, 1);
+    BlockId entry = ir_block_new(m, f, "entry");
+    BlockId def = ir_block_new(m, f, "default");
+    BlockId case_blks[5];
+    IrBuilder b;
+    IrOperand result;
+    u32 i;
+
+    for (i = 0; i < n; i++)
+        case_blks[i] = ir_block_new(m, f, "case");
+    ir_builder_at(&b, m, f, entry);
+    ir_build_switch(&b, ir_op_value(f, f->param_vals[0]), def, case_vals,
+                    case_blks, n);
+    ir_builder_at(&b, m, f, def);
+    result = ir_op_iconst(IRT_I32, -1);
+    ir_build_ret(&b, &result);
+    for (i = 0; i < n; i++) {
+        ir_builder_at(&b, m, f, case_blks[i]);
+        result = ir_op_iconst(IRT_I32, (i64)i);
+        ir_build_ret(&b, &result);
+    }
+    return x64_isel_function(m, f, a, X64_PIC_NONE);
+}
+
+/* Every qword ALU immediate is a sign-extended imm32. Switch selection must
+ * therefore use the same register-materialization rule as ordinary IR
+ * arithmetic, both for a sparse compare and for a dense table's minimum
+ * subtraction. Materialization must precede the flag-defining consumer. */
+void test_x64_isel_switch_imm64_materializes_before_flags(TestCtx *t)
+{
+    static const i64 sparse_cases[] = {INT64_C(0x40000), INT64_C(0x40001),
+                                       INT64_C(0x80000000)};
+    static const i64 dense_cases[] = {
+        INT64_C(0x100000000), INT64_C(0x100000001), INT64_C(0x100000002),
+        INT64_C(0x100000003), INT64_C(0x100000004)};
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    X64Func *sparse, *dense;
+    X64VReg sparse_imm = {0}, dense_imm = {0};
+    u32 sparse_mov = UINT32_MAX, sparse_cmp = UINT32_MAX;
+    u32 dense_mov = UINT32_MAX, dense_sub = UINT32_MAX;
+    u32 i;
+    int errors;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    sparse = isel_i64_switch(&a, dc, "sparse_imm64", sparse_cases,
+                             CGF_ARRAY_LEN(sparse_cases));
+    dense = isel_i64_switch(&a, dc, "dense_imm64", dense_cases,
+                            CGF_ARRAY_LEN(dense_cases));
+
+    for (i = 0; i < sparse->blocks[0].n; i++) {
+        const X64Inst *x = &sparse->blocks[0].insts[i];
+
+        if (x->op == X64_OP_MOV && x->width == X64_L && x->a.kind == X64O_IMM &&
+            x->a.imm == INT64_C(0x80000000)) {
+            sparse_mov = i;
+            sparse_imm = x->def;
+        }
+        if (x->op == X64_OP_CMP && x->b.kind == X64O_VREG && sparse_imm.v &&
+            x->b.r.v == sparse_imm.v)
+            sparse_cmp = i;
+    }
+    T_ASSERT(t, sparse_mov != UINT32_MAX && sparse_cmp > sparse_mov);
+
+    for (i = 0; i < dense->blocks[0].n; i++) {
+        const X64Inst *x = &dense->blocks[0].insts[i];
+
+        if (x->op == X64_OP_MOVABS && x->a.kind == X64O_IMM &&
+            x->a.imm == INT64_C(0x100000000)) {
+            dense_mov = i;
+            dense_imm = x->def;
+        }
+        if (x->op == X64_OP_SUB && x->b.kind == X64O_VREG && dense_imm.v &&
+            x->b.r.v == dense_imm.v)
+            dense_sub = i;
+    }
+    T_ASSERT(t, dense_mov != UINT32_MAX && dense_sub > dense_mov);
+
+    errors = x64_mir_verify(sparse, dc) + x64_mir_verify(dense, dc);
+    T_ASSERT_EQ_INT(t, errors, 0);
+    if (!errors) {
+        x64_regalloc(sparse);
+        x64_regalloc(dense);
+        T_ASSERT_EQ_INT(t, x64_mir_verify(sparse, dc), 0);
+        T_ASSERT_EQ_INT(t, x64_mir_verify(dense, dc), 0);
+    }
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}
+
 /* LCSSA may place one block parameter on an edge for every value live out of
  * a loop.  Edge copies therefore follow IR cardinality rather than a backend
  * convenience limit: dropping even the last copy leaves its destination

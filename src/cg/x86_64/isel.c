@@ -650,6 +650,21 @@ static X64Operand to_src(Isel *is, const IrOperand *o, X64Width w)
     return ovreg(to_vreg(is, o));
 }
 
+/* Switch edges carry raw i64 case values rather than IrOperands. Preserve
+ * their existing narrow-width immediate spelling, but route qword constants
+ * through the ordinary source rule: cmpq/subq only encode a sign-extended
+ * imm32, so a value outside that range must materialize first (using movl's
+ * free zero extension where possible, otherwise movabs). */
+static X64Operand switch_const_src(Isel *is, X64Width w, i64 value)
+{
+    if (w == X64_Q) {
+        IrOperand c = ir_op_iconst(IRT_I64, value);
+
+        return to_src(is, &c, w);
+    }
+    return oimm(value);
+}
+
 /* Address folding for load/store: [base + index*scale + disp] built from
  * the light pattern records; symbols go RIP-relative. */
 static X64Mem fold_addr(Isel *is, const IrOperand *addr)
@@ -2073,10 +2088,12 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->def = idx;
                 x->a = ovreg(v);
                 if (min) {
+                    X64Operand min_src = switch_const_src(is, w, min);
+
                     x = emit(is, X64_OP_SUB, w);
                     x->def = idx;
                     x->a = ovreg(idx);
-                    x->b = oimm(min);
+                    x->b = min_src;
                 }
                 x = emit(is, X64_OP_CMP, w);
                 x->a = ovreg(idx);
@@ -2095,10 +2112,12 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                  * determinism. Balancing remains a post-v0.1.0 tradeoff. */
                 for (i = 1; i <= n; i++) {
                     u32 t = edge_target(is, &in->edges[i]);
+                    X64Operand case_src =
+                        switch_const_src(is, w, in->edges[i].case_val);
                     X64Inst *x = emit(is, X64_OP_CMP, w);
 
                     x->a = ovreg(v);
-                    x->b = oimm(in->edges[i].case_val);
+                    x->b = case_src;
                     x = emit(is, X64_OP_JCC, X64_Q);
                     x->cc = X64_CC_E;
                     x->flags = X64IF_USES_FLAGS;

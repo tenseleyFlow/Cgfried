@@ -74,11 +74,12 @@ tranche is merged as `5cf4bbf`, raising the target-complete PASS ratchet to
 26,840. PR #63's wide-character-preprocessor-constant tranche is merged as
 `a8a23acd`, raising the target-complete PASS ratchet to 26,850. PR #64's
 composite-array-bound tranche is merged as `1b8ec6ae`, raising the
-target-complete PASS ratchet to 26,860. The current
-`s56.5-unprototyped-call-ir` tranche on PR #65 is target-complete at 26,870
-PASS cells with 53 applied policy decisions and awaits fresh post-publication
-CI before merge. Sprint 56's campaign machine and triage map remain complete
-while Sprint 58 continues its independent soak.
+target-complete PASS ratchet to 26,860. PR #65's unprototyped-call IR tranche
+is merged as `3db23ef`, raising the target-complete PASS ratchet to 26,870.
+The current `s56.5-x86-imm64-materialization` tranche on PR #66 is
+target-complete at 26,875 PASS cells with 51 applied policy decisions and
+awaits fresh post-publication CI before merge. Sprint 56's campaign machine
+and triage map remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -2004,6 +2005,70 @@ and green post-publication CI.
   PASS and triage SHA-256 values are respectively
   `59fa746409e5618b6b6cfd6366eb61c7545fb96a8834d1ccef3495e85bafffe3`
   and `3b07952881d3d53dec16edd5e190a03985590071789a17850455699d2ac09e00`.
+  Post-publication standard CI
+  [run 33546057571](https://github.com/tenseleyFlow/Cgfried/actions/runs/33546057571)
+  and exact-head native ARM64
+  [run 33546067582](https://github.com/tenseleyFlow/Cgfried/actions/runs/33546067582)
+  are fully green. PR #65 merged as `3db23ef`. The next evidence-led candidate
+  was `s56.5-x86-imm64-materialization`.
+- The `s56.5-x86-imm64-materialization` tranche (PR #66) resolves the isolated
+  `torture-compile/20030323-1.c` x86-64 gap. x86-64 `cmpq` and `subq` encode
+  only sign-extended 32-bit immediates, so switch lowering now routes wide
+  qword case constants through ordinary source materialization. The sparse
+  `0x80000000` boundary uses a zero-extending `mov.l`; the dense true-wide
+  `0x100000000` minimum uses `movabs.q`. Both materializations are deliberately
+  emitted before the flag-defining compare or subtract. Non-qword immediates
+  retain the existing direct-immediate path.
+
+  Apple-silicon validation passes the eight affected x86 instruction-selection
+  tests / 78 assertions, the permanent sparse/dense MIR fixture before and
+  after register allocation, and source emission for both Linux targets at
+  O0/O1/O2/O3/Os. Fifty of the 52 x86-named unit groups pass locally; the two
+  exceptions are the already-documented Darwin ARM64 x87/long-double simulator
+  limitation. Unsanitized and ASan+UBSan frontend fuzz runs each complete 2,000
+  iterations with zero findings, and the affected sanitizer, import, policy,
+  seam, verifier, registry, ban, closeout, and formatting gates are green.
+  Behavior head `03a8d941ef999b93878f02317f2e998b9ba55962` passed every
+  non-torture PR job in
+  [run 33552023363](https://github.com/tenseleyFlow/Cgfried/actions/runs/33552023363),
+  including 100,000 ASan+UBSan frontend-fuzz iterations; hosted x86 torture
+  refused only the five newly passing `20030323-1.c` cells. Exact-head full
+  lattice
+  [run 33552075202](https://github.com/tenseleyFlow/Cgfried/actions/runs/33552075202)
+  passed all 15 jobs and supplied the native ARM64 publication stream.
+
+  The publishable x86 stream was regenerated at the exact behavior head in a
+  disposable Ubuntu 24.04 x86-64 QEMU guest. Its SHA-256 is
+  `d2fc063e8a274c61a4614e7f4067afed6281236295097b15db6bf6904ab03b0f`;
+  the native ARM stream SHA-256 is
+  `d540ccca6bc3aff8e78940288d2267c9182e7a750c53666af7aed82d121ac9a3`.
+  Each stream contains all 20,325 target cells. They share the exact behavior
+  revision, compiler-source SHA-256
+  `bf947db09fabea77a2b290d610a4b9cd36ad5e8a2f123264c9df1d2a51199c46`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 compiler/driver SHA-256 is
+  `3b9245f8a2e15a4eabb9ba756da753b6722d670ba033b3c971ec1a7e88a4ffbc`;
+  ARM's is
+  `daba209554e1569b7410fbee0ba317b55f86d7c7d3b076225835fc34b59db86a`.
+
+  Target-complete publication promotes exactly the five x86-64
+  `20030323-1.c` cells with zero PASS regression and retires fingerprint
+  `737ff185...`. Both exact streams now surface `limits-caselabels.c` through
+  the already-live `de25f493...` timeout fingerprint, so the stale x86-only
+  `bf558482...` direct-SIGSEGV variant is also retired. The published state is
+  26,875 ratchet lines, 7,158 classified failures, 60 buckets, 51 applied
+  decisions, 26 live repair rows representing 22 repair tranches, and zero
+  stale or unresolved decisions. Reversing the evidence streams regenerates
+  both outputs byte-identically; PASS and triage SHA-256 values are
+  respectively
+  `7fb713dd5feaad3d34d3ae1109ad826b4e0284d2a7be4bed3f158252faa51da2`
+  and
+  `c6ce2740c4219ae92613523323aa824112361fbb21e4093eb90ca1d05b5bd534`.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
   before merging. Select the next compiler-gap candidate from this newly
   generated triage only after those gates are green.
