@@ -76,10 +76,13 @@ tranche is merged as `5cf4bbf`, raising the target-complete PASS ratchet to
 composite-array-bound tranche is merged as `1b8ec6ae`, raising the
 target-complete PASS ratchet to 26,860. PR #65's unprototyped-call IR tranche
 is merged as `3db23ef`, raising the target-complete PASS ratchet to 26,870.
-The current `s56.5-x86-imm64-materialization` tranche on PR #66 is
-target-complete at 26,875 PASS cells with 51 applied policy decisions and
-awaits fresh post-publication CI before merge. Sprint 56's campaign machine
-and triage map remain complete while Sprint 58 continues its independent soak.
+PR #66's x86 immediate-materialization tranche is merged as `7b79b9ad`,
+raising the target-complete ratchet to 26,875 lines. The current
+`s56.5-arm64-stacked-large-aggregate-abi` tranche on PR #67 is target-complete
+at 26,880 ratchet lines (26,877 PASS keys) with 49 applied policy decisions
+and awaits fresh post-publication CI before merge. Sprint 56's campaign
+machine and triage map remain complete while Sprint 58 continues its
+independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -2069,6 +2072,73 @@ and green post-publication CI.
   `7fb713dd5feaad3d34d3ae1109ad826b4e0284d2a7be4bed3f158252faa51da2`
   and
   `c6ce2740c4219ae92613523323aa824112361fbb21e4093eb90ca1d05b5bd534`.
+  Post-publication standard CI
+  [run 33564164263](https://github.com/tenseleyFlow/Cgfried/actions/runs/33564164263)
+  and exact-head native ARM64
+  [run 33564217151](https://github.com/tenseleyFlow/Cgfried/actions/runs/33564217151)
+  are fully green. PR #66 merged as `7b79b9ad`; the next evidence-led
+  candidate was `s56.5-arm64-stacked-large-aggregate-abi`.
+- The `s56.5-arm64-stacked-large-aggregate-abi` tranche (PR #67) resolves the
+  isolated `ctestsuite/00204.c` ARM64 gap. Linux AAPCS64 permits an HFA of four
+  binary128 leaves in v-registers. Once earlier arguments exhaust v0-v7, that
+  same 64-byte value moves to the stack as ordinary bytes and needs eight
+  eightbyte carriers. Cgfried incorrectly shared the architectural four-leaf
+  HFA limit with this flattened stack form and ICEd before producing IR.
+  Argument planning now separates the four register leaves from the eight
+  stack carriers, preserves the first carrier's 16-byte NSAA alignment, and
+  leaves the exhausted FP budget pinned.
+
+  Apple-silicon validation passes 13 affected AAPCS64 tests / 224 assertions,
+  the broader 36-test ABI suite / 630 assertions, the permanent target-specific
+  IR fixture, and full `00204.c` ARM64 emission plus AArch64 ELF assembly at
+  O0/O1/O2/O3/Os. The affected tests, fixture, five-level source matrix, and
+  2,000 fixed-seed frontend fuzz cases also pass under ASan+UBSan. Unsanitized
+  fuzz completes 2,000 cases with zero findings; three independent 5,000-case
+  digest runs agree before the intended corpus repin. Import, policy,
+  target-seam, verifier, registry, ban, closeout, diff, and pinned
+  clang-format 22 gates are green. Behavior head
+  `9d83f1015bcd3cadf0e352271cf776d92eae4817` passes every standard PR job in
+  [run 33569350627](https://github.com/tenseleyFlow/Cgfried/actions/runs/33569350627),
+  including full test, both ARM lanes, x86 torture, and 100,000 ASan+UBSan
+  frontend-fuzz iterations.
+
+  Exact-head full-lattice
+  [run 33569374675](https://github.com/tenseleyFlow/Cgfried/actions/runs/33569374675)
+  passes all 14 non-gate jobs and retains the native ARM64 stream; its gate
+  rejects exactly the five newly passing `00204.c` cells and no regressions.
+  The publishable x86 stream was regenerated at the same exact behavior head
+  in the retained Ubuntu 24.04 x86-64 QEMU guest and passes its committed
+  ratchet gate. The x86 stream SHA-256 is
+  `3ecc9f3e857f046ad05363dea2670f68ddc9e0113211f074b25549b37833bd7a`;
+  the native ARM stream SHA-256 is
+  `0a8d7a62130fb5fcbcd9106952487b13cfed893a64b8b8b0024a7624913af38c`.
+  Each stream contains all 20,325 target cells. They share the exact behavior
+  revision, compiler-source SHA-256
+  `2399a08118c83410357a71e432d90f6d08473af78dbf3388ca8aed38b2e19040`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 compiler/driver SHA-256 is
+  `fbc43707c14ca5a1461db6c61760834ac8cdd8d543cd1773814b4c11a1b6f58e`;
+  ARM's is
+  `8b3a28d642f76443868e8467d1ec202d5e230147e53850e31526133f6a3e21ac`.
+
+  Target-complete publication promotes exactly the five ARM64 `00204.c`
+  cells with zero PASS regression and retires fingerprint `759ab6b2...`.
+  Both exact streams now surface the deep-expression limit through the
+  already-covered output guard, so the stale host-specific `e52eb570...`
+  parse-diagnostic variant is also retired without counting it as a compiler
+  repair. The published state is 26,880 ratchet lines / 26,877 PASS keys,
+  7,153 classified failures, 58 buckets, 49 applied decisions, 25 live repair
+  rows representing 21 repair tranches, and zero stale or unresolved
+  decisions. Reversing the evidence streams regenerates both outputs
+  byte-identically; PASS and triage SHA-256 values are respectively
+  `676280470bdce1ce9a06a7199e4548fcc31ca6bbdb721cebec767cd3322ad1c9`
+  and
+  `6bdef25c3ef444d913b52b5afb2245c941f8825246acd830528b2e5f9c18f14b`.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
   before merging. Select the next compiler-gap candidate from this newly
   generated triage only after those gates are green.
