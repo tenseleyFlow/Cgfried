@@ -621,6 +621,24 @@ void test_lower_eval_order_left_to_right(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_asm_rmw_output_evaluated_once(TestCtx *t)
+{
+    LowFix f;
+
+    /* A `+` output is one read-write operand, not two evaluations of its
+     * lvalue expression.  Lowering may append a tied input for the old value,
+     * but it must load that value through the address produced for the
+     * output. */
+    T_ASSERT(t, run_lower(&f, "volatile int *next(void);\n"
+                              "void update(void) {\n"
+                              "  __asm__(\"\" : \"+r\"(*next()));\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @next()"), 1);
+    T_ASSERT(t, strstr(txt(&f), "load i32, %0, align 4, volatile") != NULL);
+    low_free(&f);
+}
+
 void test_lower_runtime_offsetof_uses_vla_stride(TestCtx *t)
 {
     LowFix f;
