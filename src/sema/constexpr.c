@@ -1342,7 +1342,11 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         /* These compiler-owned builtins have compile-time semantics.  Keep
          * constant_p's answer identical to lowering: addresses do not count
          * as known constants at this optimization-independent stage. */
+        const AstNode *callee = e->lhs;
         unsigned bytes = sema_builtin_bswap_bytes((u16)e->op);
+
+        while (callee && callee->kind == AST_EXPR_PAREN)
+            callee = callee->lhs;
 
         if (bytes && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], m);
@@ -1350,6 +1354,24 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             if (a.kind != CV_INT)
                 return cv_error();
             return cv_int(s, e->sem_type, cgf_bswap(a.i, bytes));
+        }
+        if (e->op == SEMA_BUILTIN_LLABS && e->nargs == 1 && callee &&
+            callee->kind == AST_EXPR_IDENT && callee->name &&
+            strcmp(callee->name, "__builtin_llabs") == 0) {
+            ConstValue a = eval(s, e->args[0], m);
+
+            /* Only the explicitly spelled compiler builtin is an ICE. A
+             * hosted direct `llabs` call shares lowering but remains a
+             * library call to the constant-expression rules, matching gcc.
+             * LLONG_MIN has no representable absolute value. */
+            if (a.kind != CV_INT)
+                return cv_error();
+            if (signed_minimum_value(s, e->sem_type, a.i)) {
+                ce_error(s, m, e->span, "overflow in constant expression");
+                return cv_error();
+            }
+            return cv_int(s, e->sem_type,
+                          (a.i & (1ull << 63)) != 0 ? 0 - a.i : a.i);
         }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);

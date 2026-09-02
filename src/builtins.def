@@ -12,16 +12,17 @@
  *   BK_VOIDP    void * result
  *   BK_DOUBLE   double result
  *   BK_FLOAT    float result
+ *   BK_LLONG    long long result AND parameter
  *   BK_ARG0     same type as argument 0 (after promotion)
  *   BK_U16      uint16_t result AND parameter
  *   BK_U32      uint32_t result AND parameter
  *   BK_U64      uint64_t result AND parameter
  *   BK_SPECIAL  sema types it by hand
  *
- * The BK_U* rules are the only ones that also constrain the ARGUMENT:
- * these builtins have real prototypes, so the argument converts as if by
- * assignment. That is observable — gcc warns "unsigned conversion from
- * 'int' to 'short unsigned int' changes value" for
+ * BK_U* and BK_LLONG also constrain the ARGUMENT: these builtins have real
+ * prototypes, so the argument converts as if by assignment. That is
+ * observable — gcc warns "unsigned conversion from 'int' to 'short unsigned
+ * int' changes value" for
  * __builtin_bswap16(0x11223344) and then swaps the TRUNCATED 0x3344.
  *
  * Names NOT in this table keep the parser's honest deferral. Adding a
@@ -49,6 +50,9 @@ B(memmove, MEMMOVE, 3, BK_VOIDP)
 B(memset, MEMSET, 3, BK_VOIDP)
 B(memcmp, MEMCMP, 3, BK_INT)
 B(strlen, STRLEN, 1, BK_SIZE)
+
+/* integer library intrinsics */
+B(llabs, LLABS, 1, BK_LLONG)
 
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
 B(huge_val, HUGE_VAL, 0, BK_DOUBLE)

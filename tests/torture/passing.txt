@@ -18375,6 +18375,16 @@ torture-execute/20021120-2.c@O3@arm64-linux
 torture-execute/20021120-2.c@O3@x86_64-linux-gnu
 torture-execute/20021120-2.c@Os@arm64-linux
 torture-execute/20021120-2.c@Os@x86_64-linux-gnu
+torture-execute/20021127-1.c@O0@arm64-linux
+torture-execute/20021127-1.c@O0@x86_64-linux-gnu
+torture-execute/20021127-1.c@O1@arm64-linux
+torture-execute/20021127-1.c@O1@x86_64-linux-gnu
+torture-execute/20021127-1.c@O2@arm64-linux
+torture-execute/20021127-1.c@O2@x86_64-linux-gnu
+torture-execute/20021127-1.c@O3@arm64-linux
+torture-execute/20021127-1.c@O3@x86_64-linux-gnu
+torture-execute/20021127-1.c@Os@arm64-linux
+torture-execute/20021127-1.c@Os@x86_64-linux-gnu
 torture-execute/20021204-1.c@O0@arm64-linux
 torture-execute/20021204-1.c@O0@x86_64-linux-gnu
 torture-execute/20021204-1.c@O1@arm64-linux

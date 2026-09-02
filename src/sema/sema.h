@@ -708,6 +708,7 @@ typedef enum {
     BK_VOIDP,
     BK_DOUBLE,
     BK_FLOAT,
+    BK_LLONG,
     BK_ARG0,
     BK_U16,
     BK_U32,
