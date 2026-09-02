@@ -86,8 +86,10 @@ policy decisions. PR #69's `s56.5-dead-code-link-elimination` tranche is
 merged as `fe3fcf59`, raising the target-complete ratchet to 26,887 lines
 (26,884 PASS keys). PR #70's `s56.5-asm-rmw-single-evaluation` tranche is
 merged as `29d3c3d0`, raising the target-complete ratchet to 26,897 lines
-(26,894 PASS keys). The current `s56.5-vla-typedef-size` tranche on PR #71 is
-target-complete at 26,917 ratchet lines (26,914 PASS keys), with 45 applied
+(26,894 PASS keys). PR #71's `s56.5-vla-typedef-size` tranche is merged as
+`c8dd9f18`, raising the target-complete ratchet to 26,917 lines (26,914 PASS
+keys). The current `s56.5-builtin-llabs-semantics` tranche on PR #72 is
+target-complete at 26,927 ratchet lines (26,924 PASS keys), with 44 applied
 policy decisions and zero stale or unresolved decisions, and awaits fresh
 post-publication standard and exact native ARM64 CI. Sprint 56's campaign
 machine and triage map remain complete while Sprint 58 continues its
@@ -2426,9 +2428,76 @@ and green post-publication CI.
   `78beb6d77318f29a84d518d84a94b4f3cc527da5e58ac18665b33098fc0496ae`
   and
   `5bd7e1c22547990b211fa579e19426ae2d39b25787d3ad861c44a5eb32313a5f`.
+  Fresh post-publication standard CI and exact-head native ARM64 are green;
+  PR #71 merged as `c8dd9f18`. The next selected compiler-gap candidate was
+  `s56.5-builtin-llabs-semantics` (`20021127-1.c`, ten cells).
+- The `s56.5-builtin-llabs-semantics` tranche (PR #72) resolves all ten
+  target-complete `torture-execute/20021127-1.c` cells. A direct call to the
+  hosted C99 library spelling now uses compiler intrinsic semantics when a
+  compatible external `long long (long long)` declaration is visible; GNU89
+  follows GCC's hosted extension. Strict C89, freestanding mode, incompatible
+  declarations, TU-local functions, shadowing function-pointer objects, and
+  address-taking retain ordinary symbol semantics. `__builtin_llabs` remains
+  available independently of hosted mode, converts its argument by its real
+  prototype, evaluates it exactly once, and folds as an integer constant
+  expression without turning the plain library alias into an ICE. Runtime
+  lowering is a signed compare/subtract/select sequence; `LLONG_MIN` retains
+  the library operation's undefined-behavior boundary.
+
+  Behavior head `960f7215d33619c260e1936e8a05d579b67166a6` passes 845 unit
+  tests / 4,294,234 assertions, focused ASan+UBSan coverage, all five imported
+  levels on native Apple ARM64 and Linux x86-64, and all 15 target/level
+  cross-codegen cells for x86_64-linux-gnu, arm64-linux, and arm64-macos. The
+  closed x86-64/SSE2 ISA matrix passes exactly 642 objects across 107 permanent
+  corpus sources. Standard PR
+  [run 33677822185](https://github.com/tenseleyFlow/Cgfried/actions/runs/33677822185)
+  passes every non-ratchet job, including macOS ARM64, both Linux ARM lanes,
+  sanitizers, all campaigns, and 100,000-case frontend fuzzing; its x86 gate
+  rejects only the five unpublished `20021127-1.c` cells and no regression.
+  Exact-head nightly
+  [run 33677860932](https://github.com/tenseleyFlow/Cgfried/actions/runs/33677860932)
+  likewise passes every campaign and rejects only the matching five native
+  ARM cells. Push and PR bootstrap runs
+  [33677779256](https://github.com/tenseleyFlow/Cgfried/actions/runs/33677779256)
+  and
+  [33677822225](https://github.com/tenseleyFlow/Cgfried/actions/runs/33677822225)
+  are green at O0 and O2.
+
+  The clean exact-head x86 stream SHA-256 is
+  `f139ed772c5c046869b81c0e80fc25772978243e61b2bbb8b0ce98996882d5e7`;
+  the native ARM stream SHA-256 is
+  `4d44985c812ea918389b4694075cc5bd7a87811baef80922d4038a1fffc92689`.
+  The formal x86 and PR-CI PASS sets are byte-identical. Their only ten row
+  differences are the already-policy-covered host-capacity variants for
+  `limits-caselabels.c` (timeout versus SIGSEGV) and `limits-exprparen.c`
+  (output guard versus explicit bracket-limit diagnostic). Both exact-head
+  target streams contain all 20,325 cells and share the behavior revision,
+  compiler-source SHA-256
+  `72928e7e63e0a2a3326566d90813b074dfa9ab77fd4374c3ebd1a30d7989a7db`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 compiler/driver SHA-256 is
+  `cbe511c2bdd284473acafaff269cb0567eb2ae9eb276bc9cd9b7fac6cdce45e1`;
+  ARM's is
+  `b16b504675183c6e50e075c7e019ebbb3fb806e09de2fbe70a40d85bab4972d1`.
+
+  Formal target-complete publication promotes exactly those ten
+  `20021127-1.c` cells with zero PASS regression and retires fingerprint
+  `8b3f9d0d...`. The published state is 26,927 ratchet lines / 26,924 PASS
+  keys, 7,106 classified failures, 53 buckets, 44 applied decisions, 19 live
+  repair rows representing 15 repair tranches, and zero stale or unresolved
+  decisions. Reversing the evidence streams regenerates both outputs
+  byte-identically; PASS and triage SHA-256 values are respectively
+  `53769be6dedc9ec10cee51f6a534aefd2bffbd1ca9de398ff7fd6afbff1ced97`
+  and
+  `94c72743206bd43b4fa985faa262e02ecb6e0a8ccdfb98839b95396dabf69686`.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
-  before merging. The next recommended compiler-gap candidate after that gate
-  is `s56.5-builtin-llabs-semantics` (`20021127-1.c`, ten cells).
+  before merging. The next recommended target-complete compiler gap is
+  `s56.5-aligned-typedef-object-layout` (`20050215-1.c`, ten cells).
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
