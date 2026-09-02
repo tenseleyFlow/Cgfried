@@ -92,8 +92,7 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
      * impossible reference can make a valid translation unit fail to link.
      * Keep this narrower than simplify_cfg so O0 block shape is otherwise
      * untouched, and run it through the normal verifier/pinned audit. */
-    changed |=
-        opt_run_pass_sequence(m, cfg, semantic, CGF_ARRAY_LEN(semantic));
+    changed |= opt_run_pass_sequence(m, cfg, semantic, CGF_ARRAY_LEN(semantic));
     if (diag_had_error(m->dc))
         goto done;
     /* GNU always_inline is a source contract, not a profitability choice.

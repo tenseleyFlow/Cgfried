@@ -274,10 +274,10 @@ test_real_compiler_emits_ordered_phase_tree() {
     # fp02.  The fp03 anchor proves fixpoint identity remains global across
     # groups instead of silently restarting at each manager call.
     for anchor in \
-        400002-ir-fp01-i01-p01-sccp.cgfir \
-        400013-ir-fp01-i02-p01-sccp.cgfir \
-        400024-ir-fp01-i03-p01-sccp.cgfir \
-        400034-ir-fp03-i01-p00-licm.cgfir; do
+        400003-ir-fp01-i01-p01-sccp.cgfir \
+        400014-ir-fp01-i02-p01-sccp.cgfir \
+        400025-ir-fp01-i03-p01-sccp.cgfir \
+        400035-ir-fp03-i01-p00-licm.cgfir; do
         grep -Fx "$anchor" "$optimizer_manifest" >/dev/null ||
             fail "optimizer sequence omitted fixed anchor $anchor"
     done
@@ -380,7 +380,7 @@ test_bisector_localizes_real_phase_tree() {
         "$tmp/stage1" "$tmp/stage2" --source "$source" \
         --stage1-cc "$tmp/phase-dump-good" \
         --stage2-cc "$tmp/phase-dump-bad" -- -O2
-    grep -Fx 'bisect-nondet: first differing phase boundary: 400013-ir-fp01-i02-p01-sccp.cgfir' \
+    grep -Fx 'bisect-nondet: first differing phase boundary: 400014-ir-fp01-i02-p01-sccp.cgfir' \
         "$output" >/dev/null ||
         fail "bisector did not localize the real compiler dump tree"
 }
@@ -405,7 +405,7 @@ test_bisector_rejects_identically_incomplete_phase_trees() {
         fail "bisector accepted identically incomplete phase trees"
 }
 
-test_bisector_accepts_complete_o0_phase_trees_without_passes() {
+test_bisector_accepts_complete_o0_phase_trees_with_semantic_cleanup() {
     source=$tmp/complete-o0-phase-tree.c
     output=$tmp/complete-o0-phase-tree.out
 
@@ -416,7 +416,7 @@ test_bisector_accepts_complete_o0_phase_trees_without_passes() {
         "$tmp/stage1" "$tmp/stage2" --source "$source" \
         --stage1-cc "$cgf" --stage2-cc "$cgf" -- -O0 \
         >"$output" 2>&1; then
-        fail "bisector rejected a complete O0 tree with no pass invocations"
+        fail "bisector rejected a complete O0 tree with semantic cleanup"
     fi
 }
 
@@ -1135,7 +1135,7 @@ test_real_compiler_emits_ordered_phase_tree
 test_concurrent_real_compiler_phase_trees_are_isolated
 test_bisector_localizes_real_phase_tree
 test_bisector_rejects_identically_incomplete_phase_trees
-test_bisector_accepts_complete_o0_phase_trees_without_passes
+test_bisector_accepts_complete_o0_phase_trees_with_semantic_cleanup
 test_bootstrap_refuses_unowned_nonempty_work_directory
 test_control_capture_is_canonical_and_controlled
 test_time_gate_boundaries_and_control

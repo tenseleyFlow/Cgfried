@@ -18,7 +18,7 @@ case $0 in
     ;;
 *phase-dump-bad*)
     if [ "${CGF_DUMP_IR:-}" = all ]; then
-        dump=$CGF_DUMP_IR_DIR/400013-ir-fp01-i02-p01-sccp.cgfir
+        dump=$CGF_DUMP_IR_DIR/400014-ir-fp01-i02-p01-sccp.cgfir
         [ -f "$dump" ] || {
             echo "phase-dump-wrapper: missing pinned boundary: $dump" >&2
             exit 1

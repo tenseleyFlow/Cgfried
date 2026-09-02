@@ -4,8 +4,7 @@
 
 #include "util/arena.h"
 
-const Pass OPT_PASS_PRUNE_CFG = {"prune_cfg", opt_prune_cfg,
-                                 PASS_PINNED_EXACT};
+const Pass OPT_PASS_PRUNE_CFG = {"prune_cfg", opt_prune_cfg, PASS_PINNED_EXACT};
 const Pass OPT_PASS_SIMPLIFY_CFG = {"simplify_cfg", opt_simplify_cfg,
                                     PASS_PINNED_EXACT};
 

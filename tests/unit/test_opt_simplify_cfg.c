@@ -176,8 +176,8 @@ void test_prune_cfg_o0_removes_dead_link_but_preserves_case_entry(TestCtx *t)
     cfg.verify_after_each = true;
     T_ASSERT_EQ_STR(t, OPT_PASS_PRUNE_CFG.name, "prune_cfg");
     T_ASSERT_EQ_INT(t, OPT_PASS_PRUNE_CFG.pinned_policy, PASS_PINNED_EXACT);
-    T_ASSERT(t, m && opt_run_pass_sequence(m, &cfg, passes,
-                                           CGF_ARRAY_LEN(passes)));
+    T_ASSERT(
+        t, m && opt_run_pass_sequence(m, &cfg, passes, CGF_ARRAY_LEN(passes)));
     if (m) {
         Buf printed;
         char *text;
@@ -191,8 +191,8 @@ void test_prune_cfg_o0_removes_dead_link_but_preserves_case_entry(TestCtx *t)
         T_ASSERT_EQ_INT(t, count_op(m, IR_CONDBR), 0);
         T_ASSERT_EQ_INT(t, count_op(m, IR_SWITCH), 1);
         T_ASSERT(t, ir_verify(f.dc, m));
-        T_ASSERT(t, !opt_run_pass_sequence(m, &cfg, passes,
-                                            CGF_ARRAY_LEN(passes)));
+        T_ASSERT(
+            t, !opt_run_pass_sequence(m, &cfg, passes, CGF_ARRAY_LEN(passes)));
         buf_free(&printed);
     }
     arena_free_all(&f.arena);
