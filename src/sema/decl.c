@@ -3538,9 +3538,23 @@ static void rebind_parameter_refs(Sema *s, AstNode *e)
 
 static void rebind_parameter_type(Sema *s, Type *t)
 {
+    const Member *m;
+
     for (; t && (t->kind == TY_ARRAY || t->kind == TY_PTR); t = t->base)
         if (t->kind == TY_ARRAY && t->size_expr)
             rebind_parameter_refs(s, t->size_expr);
+    /* A GNU record parameter may contain a VLA member whose bound names an
+     * earlier parameter (`struct { int values[n]; }`). The record was first
+     * typed in prototype scope, just like an ordinary array parameter, so
+     * retarget every runtime-sized member before entry lowering evaluates
+     * the record extent. Restricting the descent to runtime-sized members
+     * also stops at pointers and therefore cannot chase self-referential
+     * record graphs. */
+    if (t && (t->kind == TY_STRUCT || t->kind == TY_UNION) && t->tag &&
+        type_is_runtime_sized(t))
+        for (m = t->tag->members; m; m = m->next)
+            if (m->type && type_is_runtime_sized(m->type))
+                rebind_parameter_type(s, m->type);
 }
 
 static void bind_kr_param(Sema *s, AstNode *d, const AstType *ft, u32 pi,
@@ -3773,7 +3787,7 @@ static void sema_decl(Sema *s, AstNode *d)
          * complete a tag, which is the whole point of the line. */
         reject_nonfunction_attrs(s, d->cgf_attrs);
         if (d->type)
-            (void)type_from_ast(s, d->type, d->span);
+            d->sem_type = type_from_ast(s, d->type, d->span);
         return;
     case AST_STMT_ASM:
         /* File-scope basic asm declares nothing and names nothing: the text

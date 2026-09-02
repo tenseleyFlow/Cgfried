@@ -355,15 +355,17 @@ void lower_unimplemented(Lower *lo, Span span, const char *what, int sprint);
  * lowering. A goto may legally enter their lexical block after the
  * declaration, so every later load must still be dominated by its alloca. */
 void lower_prebind_locals(Lower *lo, AstNode *body);
-/* The byte size of a type as an i64 operand: a constant for complete
- * types, the cached (evaluated-once) value for a declared VLA, or a
- * fresh computation for an undeclared VLA type (sizeof(int[n]) — C17
- * says the size expression evaluates there). */
+/* The byte size of a type as an i64 operand: a constant for fixed-size
+ * types, the cached (evaluated-once) value for a declared runtime-sized
+ * type, or a fresh computation for an undeclared one (sizeof(int[n]) —
+ * C17 says the size expression evaluates there). GNU records containing
+ * VLA members are runtime-sized too. */
 IrOperand lower_type_size(Lower *lo, Type *t);
-/* Evaluate and cache every VLA layer named by a declaration. The walk passes
- * through pointer layers because pointer-to-VLA declarations still evaluate
- * their bounds even though the declared object itself is pointer-sized. */
-void lower_prime_vla_sizes(Lower *lo, Type *t);
+/* Evaluate and cache every runtime-sized layer named by a declaration. The
+ * walk passes through pointer layers because pointer-to-VLA declarations
+ * still evaluate their bounds even though the declared object is
+ * pointer-sized. */
+void lower_prime_runtime_sizes(Lower *lo, Type *t);
 
 /* --- SysV ABI plans (src/lower/abi.c) ------------------------------------- */
 

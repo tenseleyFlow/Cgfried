@@ -1286,6 +1286,7 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
         Type *operand = e->type ? sema_type_from_ast(s, e->type, e->span)
                                 : (e->lhs ? e->lhs->sem_type : NULL);
 
+        e->sem_operand_type = operand;
         if (e->kind == AST_EXPR_ALIGNOF && e->lhs && e->lhs->sem_is_bitfield) {
             err(s, e->span, "'__alignof__' applied to a bit-field");
             return poison(s, e);
@@ -1296,7 +1297,7 @@ static AstNode *expr_sizeof(Sema *s, AstNode *e)
          * itself EVALUATED (sizeof(int[f()]) calls f), so the unevaluated
          * flag the parser set comes OFF; Sprint 18 lowers the side
          * effects, Sprint 15's folder already refuses to fold it. */
-        if (type_is_runtime_sized_array(operand)) {
+        if (type_is_runtime_sized(operand)) {
             if (e->kind == AST_EXPR_SIZEOF) {
                 if (e->lhs)
                     e->lhs->unevaluated = false;

@@ -423,6 +423,10 @@ bool type_is_complete(const Type *t);
  * contains a VLA layer. A pointer to a VLA is pointer-sized, so pointers stop
  * the walk. */
 bool type_is_runtime_sized_array(const Type *t);
+/* True when sizeof(t) depends on a VLA bound, including GNU records that
+ * contain variably sized members. Pointers stop the walk because their own
+ * size is fixed even when their pointee is variably modified. */
+bool type_is_runtime_sized(const Type *t);
 /* The C11 scalar-operand constraint, shared by `!`, `&&`, `||`, `?:` and
  * every controlling expression. Call it after conv_decay. */
 bool sema_require_scalar(Sema *s, const AstNode *e);
