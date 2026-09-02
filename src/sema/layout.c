@@ -622,6 +622,18 @@ static bool hfa_walk(Sema *s, Type *t, Type **base, int *count)
 {
     if (!t)
         return false;
+    if (t->align_override) {
+        Type ordinary = *t;
+
+        /* An over-aligned typedef/type layer can add the same aggregate
+         * padding as an over-aligned member. AAPCS64 then stops treating the
+         * aggregate as homogeneous. A reducing exact request adds no padding
+         * and remains eligible. */
+        ordinary.align_override = 0;
+        ordinary.align_is_exact = false;
+        if (layout_of(s, t).align > layout_of(s, &ordinary).align)
+            return false;
+    }
     switch (t->kind) {
     case TY_FLOAT:
     case TY_DOUBLE:

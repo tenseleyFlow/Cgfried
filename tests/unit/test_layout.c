@@ -975,6 +975,12 @@ void test_layout_hfa(TestCtx *t)
          * aggregate stops being an HFA. clang --target=aarch64-linux-gnu
          * passes this one in x0/x1 while the natural pair goes to s0/s1. */
         {"struct S { _Alignas(16) float a; float b; };", false, 0},
+        {"typedef float F __attribute__((aligned(16))); " /* check_bans allow */
+         "struct S { F a, b; };",
+         false, 0},
+        {"typedef float F __attribute__((aligned(1))); " /* check_bans allow */
+         "struct S { F a, b; };",
+         true, 2},
     };
     u32 i;
 
