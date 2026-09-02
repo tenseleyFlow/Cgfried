@@ -396,6 +396,29 @@ void test_sema_gnu_alloca_alias(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_llabs_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    /* The explicitly spelled compiler builtin folds as an ICE, including
+     * through the direct-call parentheses that expression sema accepts. */
+    run_sema_opts(&f,
+                  "_Static_assert((__builtin_llabs)(-7) == 7, \"llabs\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* A compatible hosted declaration selects identical runtime lowering,
+     * but plain llabs remains a library call rather than an ICE. */
+    run_sema_opts(&f,
+                  "long long llabs(long long); "
+                  "_Static_assert(llabs(-9) == 9, \"plain llabs\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
 {
     SemaFix f;

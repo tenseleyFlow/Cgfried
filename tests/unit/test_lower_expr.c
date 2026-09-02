@@ -37,7 +37,8 @@ VEC_DECL(PpVecL, PpToken);
 
 /* Front end + lowering + verify + print. Returns false if lowering
  * refused (a deferral fired). */
-static bool run_lower(LowFix *f, const char *src)
+static bool run_lower_opts(LowFix *f, const char *src, CStd std,
+                           bool freestanding)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -58,9 +59,12 @@ static bool run_lower(LowFix *f, const char *src)
     pp_init(&f->pp, &f->arena, f->dc, &f->in);
 
     memset(&lang, 0, sizeof(lang));
-    lang.std = STD_C17;
+    lang.std = std;
+    lang.gnu_mode = std >= STD_GNU89;
+    lang.freestanding = freestanding;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
+    f->pp.freestanding = freestanding;
     target.kind = CGF_TARGET_X86_64_LINUX_GNU;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
@@ -83,6 +87,11 @@ static bool run_lower(LowFix *f, const char *src)
     ir_print_module_buf(&f->text, f->m);
     buf_push_u8(&f->text, 0);
     return true;
+}
+
+static bool run_lower(LowFix *f, const char *src)
+{
+    return run_lower_opts(f, src, STD_C17, false);
 }
 
 static void low_free(LowFix *f)
@@ -133,6 +142,77 @@ void test_lower_verifies_and_roundtrips(TestCtx *t)
     }
     T_ASSERT_EQ_INT(t, f.m->nfuncs, 2);
     T_ASSERT(t, strstr(txt(&f), "call i32 @add(") != NULL);
+    low_free(&f);
+}
+
+void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
+{
+    static const char declared_call[] =
+        "long long source(void); long long llabs(long long); "
+        "long long use(void) { return llabs(source()); }\n";
+    bool ok;
+    LowFix f;
+
+    T_ASSERT(t, run_lower_opts(&f, declared_call, STD_C99, false));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @llabs("), 0);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i64") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "isub i64 0,") != NULL);
+    T_ASSERT(t, strstr(txt(&f), " = select ") != NULL);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f, declared_call, STD_GNU89, false));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @llabs("), 0);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "long long source(void); "
+                               "long long llabs(long long); "
+                               "long long use(void) { "
+                               "return (llabs)(source()); }\n",
+                               STD_C99, false));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @llabs("), 0);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f, declared_call, STD_C89, false));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @llabs("), 1);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f, declared_call, STD_C99, true));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @llabs("), 1);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "int llabs(int); "
+                               "int use(int x) { return llabs(x); }\n",
+                               STD_C99, false));
+    T_ASSERT(t, strstr(txt(&f), "call i32 @llabs(i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i64") == NULL);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(
+                    &f,
+                    "long long use(long long (*llabs)(long long), long long x) "
+                    "{ return llabs(x); }\n",
+                    STD_C99, false));
+    T_ASSERT(t, strstr(txt(&f), "call i64 %") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i64") == NULL);
+    low_free(&f);
+
+    ok = run_lower_opts(&f,
+                        "long long source(void); "
+                        "long long use(void) { "
+                        "return __builtin_llabs(source()); }\n",
+                        STD_C89, true);
+    T_ASSERT(t, ok);
+    if (ok) {
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @llabs("), 0);
+        T_ASSERT(t, strstr(txt(&f), "icmp slt i64") != NULL);
+    }
     low_free(&f);
 }
 

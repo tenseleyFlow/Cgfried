@@ -103,9 +103,9 @@ find tests/corpus -type f -name '*.c' -print | sort >"$corpus_list"
 corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
 # Keep this explicit count as a corpus-drift ratchet: adding or removing a
 # source must deliberately repin the ISA matrix after the new inventory passes
-# all six optimization levels. The const-object static-initializer fixture is
-# the 105th permanent execution case.
-expected_corpus_count=106
+# all six optimization levels. The hosted llabs fixture is the 107th permanent
+# execution case.
+expected_corpus_count=107
 if [ "$corpus_count" -ne "$expected_corpus_count" ]; then
     echo "s36_isa_driver: expected $expected_corpus_count corpus C files, found $corpus_count" >&2
     exit 1
