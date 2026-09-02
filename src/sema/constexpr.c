@@ -1300,25 +1300,24 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
     }
     case AST_EXPR_SIZEOF:
     case AST_EXPR_ALIGNOF: {
-        Type *t = e->type ? sema_type_from_ast(s, e->type, e->span)
-                          : (e->lhs ? e->lhs->sem_type : NULL);
+        Type *t = e->sem_operand_type;
 
-        if (!t || (!layout_is_complete_for_size(t) &&
-                   !type_is_runtime_sized_array(t) &&
-                   !(e->kind == AST_EXPR_SIZEOF &&
-                     (t->kind == TY_VOID || t->kind == TY_FUNC)) &&
-                   !(e->kind == AST_EXPR_ALIGNOF &&
-                     (t->kind == TY_VOID || t->kind == TY_FUNC)))) {
+        if (!t ||
+            (!layout_is_complete_for_size(t) && !type_is_runtime_sized(t) &&
+             !(e->kind == AST_EXPR_SIZEOF &&
+               (t->kind == TY_VOID || t->kind == TY_FUNC)) &&
+             !(e->kind == AST_EXPR_ALIGNOF &&
+               (t->kind == TY_VOID || t->kind == TY_FUNC)))) {
             ce_error(s, m, e->span,
                      "invalid application of '%s' to an incomplete type",
                      e->kind == AST_EXPR_SIZEOF ? "sizeof" : "_Alignof");
             return cv_error();
         }
-        /* A VLA's size is a RUNTIME value, so it is not an ICE however it
-         * is spelled. */
-        if (e->kind == AST_EXPR_SIZEOF && type_is_runtime_sized_array(t)) {
+        /* A variably modified type's size is a RUNTIME value, so it is not
+         * an ICE however it is spelled. */
+        if (e->kind == AST_EXPR_SIZEOF && type_is_runtime_sized(t)) {
             ce_error(s, m, e->span,
-                     "'sizeof' applied to a variable-length array is not "
+                     "'sizeof' applied to a variably modified type is not "
                      "constant");
             return cv_error();
         }

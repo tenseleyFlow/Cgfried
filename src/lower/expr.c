@@ -3023,10 +3023,9 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
              * declaration and cached (never re-evaluated — the fixture
              * with a side-effecting bound pins it); a bare VLA type-name
              * evaluates here, which is C17's rule. */
-            Type *vt = e->lhs ? sem(e->lhs)
-                              : sema_type_from_ast(lo->sema, e->type, e->span);
+            Type *vt = e->sem_operand_type;
 
-            if (type_is_runtime_sized_array(vt))
+            if (type_is_runtime_sized(vt))
                 return lower_type_size(lo, vt);
             return ir_op_undef(IRT_I64);
         }

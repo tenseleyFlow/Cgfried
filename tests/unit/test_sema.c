@@ -491,23 +491,36 @@ static Type *A(TypeFix *tf, Type *elem, bool sized, u64 n)
     return a;
 }
 
-void test_sema_runtime_sized_array_predicate(TestCtx *t)
+void test_sema_runtime_sized_type_predicate(TestCtx *t)
 {
     TypeFix tf;
+    TagDecl tag = {0};
+    Member member = {0};
     Type *inner;
     Type *outer;
     Type *ptr;
+    Type *record;
 
     arena_init(&tf.ar);
     inner = A(&tf, type_basic(TY_INT), false, 0);
     inner->is_vla = true;
     outer = A(&tf, inner, true, 3);
     ptr = P(&tf, inner);
+    tag.kind = TY_STRUCT;
+    tag.complete = true;
+    tag.members = &member;
+    member.type = inner;
+    record = type_tag(&tf.ar, &tag);
 
     T_ASSERT(t, type_is_runtime_sized_array(inner));
     T_ASSERT(t, type_is_runtime_sized_array(outer));
     T_ASSERT(t, !type_is_runtime_sized_array(ptr));
     T_ASSERT(t, !type_is_runtime_sized_array(type_basic(TY_INT)));
+    T_ASSERT(t, type_is_runtime_sized(inner));
+    T_ASSERT(t, type_is_runtime_sized(outer));
+    T_ASSERT(t, type_is_runtime_sized(record));
+    T_ASSERT(t, !type_is_runtime_sized(ptr));
+    T_ASSERT(t, !type_is_runtime_sized(type_basic(TY_INT)));
     arena_free_all(&tf.ar);
 }
 

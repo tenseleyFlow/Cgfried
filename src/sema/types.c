@@ -195,6 +195,22 @@ bool type_is_runtime_sized_array(const Type *t)
     return false;
 }
 
+bool type_is_runtime_sized(const Type *t)
+{
+    const Member *m;
+
+    if (!t)
+        return false;
+    if (t->kind == TY_ARRAY)
+        return t->is_vla || type_is_runtime_sized(t->base);
+    if ((t->kind != TY_STRUCT && t->kind != TY_UNION) || !t->tag)
+        return false;
+    for (m = t->tag->members; m; m = m->next)
+        if (type_is_runtime_sized(m->type))
+            return true;
+    return false;
+}
+
 /* --- compatibility (6.2.7, 6.7.6) ---------------------------------------- */
 
 static bool survives_default_arg_promotions(const Type *t)

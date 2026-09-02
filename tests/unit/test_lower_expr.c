@@ -664,14 +664,124 @@ void test_lower_runtime_offsetof_uses_vla_stride(TestCtx *t)
     left = strstr(ir, "call i32 @left");
     right = strstr(ir, "call i32 @right");
     T_ASSERT(t, left != NULL && right != NULL && left < right);
-    /* n * sizeof(int), then each runtime index times its own stride. */
-    T_ASSERT_EQ_INT(t, count_of(ir, "imul i64"), 3);
+    /* The tag declaration now evaluates its runtime record extent before
+     * either index call. After left(), only the two index-by-stride
+     * multiplications remain; the cached Row stride is reused. */
+    T_ASSERT_EQ_INT(t, count_of(left ? left : "", "imul i64"), 2);
     /* offsetof is integer arithmetic even for negative or out-of-range
      * indices: it must not materialize a pointer or a safety guard. */
     T_ASSERT(t, strstr(ir, "ptradd") == NULL);
     T_ASSERT(t, strstr(ir, "cgf_safe_check_index") == NULL);
     constant = strstr(ir, "func i64 @constant()");
     T_ASSERT(t, constant != NULL && strstr(constant, "ret i64 8") != NULL);
+    low_free(&f);
+}
+
+void test_lower_vla_typedef_size_uses_declaration_extent(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+    const char *bound;
+    const char *branch;
+
+    T_ASSERT(t, run_lower(&f, "int bound(void);\n"
+                              "unsigned long size(int pick) {\n"
+                              "  typedef int Row[bound()];\n"
+                              "  if (pick) return sizeof(Row);\n"
+                              "  return 2 * sizeof(Row);\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    bound = strstr(ir, "call i32 @bound()");
+    branch = strstr(ir, "condbr");
+    /* A VM typedef evaluates its bound once at the declaration. Both
+     * sizeof uses read that cached extent, including across the branch. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "call i32 @bound()"), 1);
+    T_ASSERT(t, bound != NULL && branch != NULL && bound < branch);
+    T_ASSERT_EQ_INT(t, count_of(ir, "imul i64"), 2);
+    T_ASSERT(t, strstr(ir, "ret i64 1") == NULL);
+    low_free(&f);
+}
+
+void test_lower_runtime_record_size_uses_tag_declaration_extent(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+    const char *bound;
+    const char *increment;
+
+    T_ASSERT(t, run_lower(&f, "int bound(void);\n"
+                              "unsigned long size(int n) {\n"
+                              "  struct S { char lead; int values[bound()]; "
+                              "char tail; };\n"
+                              "  n++;\n"
+                              "  return sizeof(struct S);\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    bound = strstr(ir, "call i32 @bound()");
+    increment = strstr(ir, "iadd i32");
+    /* A tag-only declaration has no symbol for lower_one_decl to visit, but
+     * GNU VLA members still evaluate there. sizeof reads the one cached
+     * record extent, including ordinary-member alignment and tail padding. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "call i32 @bound()"), 1);
+    T_ASSERT(t, bound != NULL && increment != NULL && bound < increment);
+    T_ASSERT(t, strstr(ir, "udiv i64") != NULL);
+    T_ASSERT(t, strstr(ir, "ret i64 1") == NULL);
+    low_free(&f);
+}
+
+void test_lower_vla_parameter_incomplete_outer_primes_inner(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t, run_lower(&f, "unsigned long size(int n, int values[][n]) {\n"
+                              "  return sizeof values[0];\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    /* Parameter adjustment keeps the outer [] incomplete. Entry lowering
+     * must descend through it and cache the inner VLA, never ask for the
+     * nonexistent total size of the parameter declaration. */
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "imul i64"), 1);
+    T_ASSERT(t, strstr(txt(&f), "ret i64 1") == NULL);
+    low_free(&f);
+}
+
+void test_lower_runtime_record_parameter_rebinds_bound(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(
+        t,
+        run_lower(&f, "void consume(int n, struct { int values[n]; } value) {\n"
+                      "  (void)value;\n"
+                      "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    /* The member bound is first typed in prototype scope. Function-entry
+     * runtime sizing must read the definition-scope parameter slot, not the
+     * discarded prototype symbol (GCC torture compile/20020210-1.c). */
+    T_ASSERT(t, strstr(txt(&f), "load i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "imul i64") != NULL);
+    low_free(&f);
+}
+
+void test_lower_runtime_record_array_uses_dynamic_alloca(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "void use(int n) {\n"
+                              "  struct S { int values[n]; } objects[2];\n"
+                              "  objects[1].values[0] = 7;\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* A fixed array is still runtime-sized when its element record contains
+     * a VLA member. It must bypass static prebinding and allocate the cached
+     * runtime byte extent under the scope's stack-save token. */
+    T_ASSERT(t, strstr(ir, "stacksave") != NULL);
+    T_ASSERT(t, strstr(ir, "stackrestore") != NULL);
+    T_ASSERT(t, strstr(ir, "alloca 1, align") == NULL);
     low_free(&f);
 }
 

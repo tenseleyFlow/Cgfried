@@ -167,20 +167,11 @@ typedef struct VlaLabelState {
     struct VlaLabelState *next;
 } VlaLabelState;
 
-static bool type_is_vla_chain(const Type *t)
-{
-    for (; t; t = t->base)
-        if (t->kind == TY_ARRAY && t->is_vla)
-            return true;
-        else if (t->kind != TY_ARRAY)
-            break;
-    return false;
-}
-
 /* C17 6.7.6.2p4: the size expression of a VLA type is evaluated when the
  * DECLARATION is reached, whether or not that declaration creates an object
- * of the type. `char (*p)[width]` declares a POINTER, so type_is_vla_chain
- * never sees it -- yet `p[i]` still has to scale by `width`.
+ * of the type. `char (*p)[width]` declares a fixed-size POINTER, yet `p[i]`
+ * still has to scale by `width`, so declaration priming walks pointer layers
+ * even though dynamic object allocation does not.
  *
  * Computing that lazily at the first use put the definition wherever the
  * first subscript happened to be, which in musl's lsearch.c is inside a loop
@@ -415,16 +406,30 @@ static void lower_one_decl(Lower *lo, AstNode *d)
     TypeLayout l;
     ValueId slot;
 
-    if (!d->name || (d->storage & AST_SC_TYPEDEF))
+    if (!d->name) {
+        /* A GNU tag-only declaration can itself introduce a runtime-sized
+         * record (`struct S { char bytes[n]; };`). Its VLA bound is evaluated
+         * here even though the declaration creates no ordinary identifier. */
+        lower_prime_runtime_sizes(lo, d->sem_type);
         return;
+    }
+    if (d->storage & AST_SC_TYPEDEF) {
+        /* A variably modified typedef evaluates its bounds where the
+         * declaration appears, just like a VLA object declaration. It has no
+         * storage to allocate, but later sizeof(T) must read this cached
+         * extent rather than evaluate the bound again. */
+        lower_prime_runtime_sizes(lo, d->sem_type);
+        return;
+    }
     if (!sym || sym->kind != SYM_VAR)
         return; /* typedef/tag/enum-only declarations */
-    lower_prime_vla_sizes(lo, sym->type);
-    if (sym->type && type_is_vla_chain(sym->type)) {
-        /* VLA: the size expressions evaluate exactly ONCE, here, in
-         * declaration order (lower_type_size caches per Type node — a
-         * later sizeof READS the cache). The scope's stacksave is lazy:
-         * emitted at its first VLA. */
+    lower_prime_runtime_sizes(lo, sym->type);
+    if (sym->type && type_is_runtime_sized(sym->type)) {
+        /* A VLA or GNU record containing one needs its runtime byte extent,
+         * including fixed arrays of such records. The size expressions
+         * evaluate exactly ONCE, here, in declaration order (lower_type_size
+         * caches per Type node — a later sizeof READS the cache). The
+         * scope's stacksave is lazy: emitted at its first dynamic object. */
         IrOperand bytes = lower_type_size(lo, sym->type);
         Type *elem = sym->type;
         TypeLayout el;
@@ -521,7 +526,7 @@ static void prebind_one_decl(Lower *lo, AstNode *d)
     sym = d->sym;
     if (!sym || sym->kind != SYM_VAR || (d->storage & AST_SC_STATIC) ||
         (d->storage & AST_SC_EXTERN) || !sym->type ||
-        type_is_vla_chain(sym->type) ||
+        type_is_runtime_sized(sym->type) ||
         !layout_is_complete_for_size(sym->type) || lower_local_slot(lo, sym).v)
         return;
     l = layout_of(lo->sema, sym->type);

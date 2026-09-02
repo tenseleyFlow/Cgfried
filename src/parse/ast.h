@@ -382,6 +382,11 @@ struct AstNode {
      * lowering and -Wconversion both read the tree, and a conversion that
      * exists only as a rule gets applied twice or not at all. */
     struct Type *sem_type;
+    /* Sema resolves a sizeof/_Alignof type-name while its lexical scope is
+     * still alive. Constant evaluation and lowering run after that scope has
+     * closed, so they must consume this type instead of resolving the syntax
+     * again (a block-scope VLA typedef is the observable case). */
+    struct Type *sem_operand_type;
     struct Symbol *sym; /* AST_EXPR_IDENT: the declaration it resolved to */
     bool is_lvalue;
     bool implicit; /* AST_EXPR_CAST: inserted by sema, not written */

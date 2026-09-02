@@ -507,30 +507,174 @@ void lower_bind_static(Lower *lo, Symbol *sym, u32 sym_index)
     ptrmap_put_u32(lo, &lo->globals, sym, sym_index + 1);
 }
 
-/* VLA byte sizes are evaluated ONCE at declaration and cached by Type
- * node identity (sizeof reads the cache — fixture-pinned with a
- * side-effecting bound). An UNDECLARED VLA type computes fresh, which is
- * exactly C17's rule for sizeof(int[n]). */
+static IrOperand lower_size_binary(Lower *lo, IrOp op, IrOperand a, IrOperand b)
+{
+    ValueId v = ir_build2(&lo->b, op, IRT_I64, a, b);
+
+    return ir_op_value(lo->fn, v);
+}
+
+static IrOperand lower_size_align_up(Lower *lo, IrOperand value, u64 align)
+{
+    if (align <= 1)
+        return value;
+    value = lower_size_binary(lo, IR_IADD, value, lower_i64((i64)align - 1));
+    value = lower_size_binary(lo, IR_UDIV, value, lower_i64((i64)align));
+    return lower_size_binary(lo, IR_IMUL, value, lower_i64((i64)align));
+}
+
+static u64 lower_runtime_type_align(Lower *lo, Type *t);
+
+static u64 lower_runtime_member_align(Lower *lo, const Member *m)
+{
+    u64 align = lower_runtime_type_align(lo, m->type);
+
+    if (m->packed)
+        align = 1;
+    if (m->align_override > align)
+        align = m->align_override;
+    return align;
+}
+
+static u64 lower_runtime_type_align(Lower *lo, Type *t)
+{
+    const Member *m;
+    u64 align = 1;
+
+    if (!t)
+        return align;
+    if (t->kind == TY_ARRAY) {
+        align = lower_runtime_type_align(lo, t->base);
+    } else if ((t->kind == TY_STRUCT || t->kind == TY_UNION) && t->tag &&
+               type_is_runtime_sized(t)) {
+        for (m = t->tag->members; m; m = m->next) {
+            u64 member_align;
+
+            if (!m->type)
+                continue;
+            member_align = lower_runtime_member_align(lo, m);
+            if (m->is_bitfield) {
+                if (m->bit_width == 0) {
+                    if (lo->sema->target.kind != CGF_TARGET_ARM64_LINUX)
+                        continue;
+                    member_align = lower_runtime_type_align(lo, m->type);
+                    if (m->align_override > member_align)
+                        member_align = m->align_override;
+                } else if (!m->name &&
+                           lo->sema->target.kind != CGF_TARGET_ARM64_LINUX) {
+                    continue;
+                }
+            }
+            if (member_align > align)
+                align = member_align;
+        }
+        if (t->tag->align_override > align)
+            align = t->tag->align_override;
+    } else {
+        align = layout_of(lo->sema, t).align;
+    }
+    if (t->align_override > align)
+        align = t->align_override;
+    return align;
+}
+
+static IrOperand lower_runtime_record_size(Lower *lo, Type *t)
+{
+    const Member *m;
+    u64 record_align = lower_runtime_type_align(lo, t);
+
+    if (t->kind == TY_UNION) {
+        IrOperand largest = lower_i64(0);
+
+        for (m = t->tag->members; m; m = m->next) {
+            IrOperand member_size;
+            ValueId larger;
+            ValueId selected;
+
+            if (!m->type)
+                continue;
+            if (m->is_bitfield)
+                member_size = lower_i64((i64)(m->bit_width + 7) / 8);
+            else
+                member_size = lower_type_size(lo, m->type);
+            larger = ir_build_icmp(&lo->b, ICMP_UGT, member_size, largest);
+            selected = ir_build_select(&lo->b, ir_op_value(lo->fn, larger),
+                                       member_size, largest);
+            largest = ir_op_value(lo->fn, selected);
+        }
+        return lower_size_align_up(lo, largest, record_align);
+    }
+    {
+        IrOperand bits = lower_i64(0);
+
+        for (m = t->tag->members; m; m = m->next) {
+            u64 member_align;
+
+            if (!m->type)
+                continue;
+            member_align = lower_runtime_member_align(lo, m);
+            if (m->is_bitfield) {
+                u64 unit_bits = layout_of(lo->sema, m->type).size * 8;
+                u64 width = m->bit_width;
+
+                if (width == 0) {
+                    u64 barrier = unit_bits;
+
+                    if (m->align_override * 8 > barrier)
+                        barrier = m->align_override * 8;
+                    bits = lower_size_align_up(lo, bits, barrier);
+                    continue;
+                }
+                if (m->align_override)
+                    bits = lower_size_align_up(lo, bits, m->align_override * 8);
+                if (!m->packed && unit_bits) {
+                    IrOperand used = lower_size_binary(
+                        lo, IR_UREM, bits, lower_i64((i64)unit_bits));
+                    IrOperand need = lower_size_binary(lo, IR_IADD, used,
+                                                       lower_i64((i64)width));
+                    IrOperand aligned =
+                        lower_size_align_up(lo, bits, unit_bits);
+                    ValueId crosses = ir_build_icmp(&lo->b, ICMP_UGT, need,
+                                                    lower_i64((i64)unit_bits));
+                    ValueId selected = ir_build_select(
+                        &lo->b, ir_op_value(lo->fn, crosses), aligned, bits);
+
+                    bits = ir_op_value(lo->fn, selected);
+                }
+                bits =
+                    lower_size_binary(lo, IR_IADD, bits, lower_i64((i64)width));
+                continue;
+            }
+            bits = lower_size_align_up(lo, bits, 8);
+            bits = lower_size_align_up(lo, bits, member_align * 8);
+            bits = lower_size_binary(
+                lo, IR_IADD, bits,
+                lower_size_binary(lo, IR_IMUL, lower_type_size(lo, m->type),
+                                  lower_i64(8)));
+        }
+        bits = lower_size_align_up(lo, bits, 8);
+        return lower_size_align_up(
+            lo, lower_size_binary(lo, IR_UDIV, bits, lower_i64(8)),
+            record_align);
+    }
+}
+
+/* Runtime byte sizes are evaluated ONCE at declaration and cached by Type
+ * node identity (sizeof reads the cache — fixture-pinned with a side-effecting
+ * bound). This includes GNU records containing VLA members as well as C VLA
+ * arrays. An UNDECLARED runtime-sized type computes fresh at its sizeof. */
 IrOperand lower_type_size(Lower *lo, Type *t)
 {
     u32 *hit;
-    IrOperand n, inner;
+    IrOperand n, inner, result;
     ValueId prod;
 
     if (!t)
         return lower_i64(0);
-    if (t->kind != TY_ARRAY || !type_is_runtime_sized_array(t)) {
+    if (!type_is_runtime_sized(t)) {
         TypeLayout l = layout_of(lo->sema, t);
 
         return lower_i64((i64)l.size);
-    }
-    if (!t->is_vla) {
-        if (!t->has_size)
-            CGF_ICE("lower_type_size reached an incomplete array");
-        n = lower_i64((i64)t->size);
-        inner = lower_type_size(lo, t->base);
-        prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
-        return ir_op_value(lo->fn, prod);
     }
     hit = lower_u32map_get(&lo->vla_sizes, (const char *)&t, sizeof(t));
     if (hit) {
@@ -538,22 +682,48 @@ IrOperand lower_type_size(Lower *lo, Type *t)
 
         return ir_op_value(lo->fn, v);
     }
-    n = lower_rvalue(lo, t->size_expr);
-    n = lower_scalar_convert(lo, n, t->size_expr->sem_type,
-                             type_basic(TY_LONG));
-    inner = lower_type_size(lo, t->base);
-    prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
+    if (t->kind == TY_STRUCT || t->kind == TY_UNION) {
+        result = lower_runtime_record_size(lo, t);
+        if (result.kind != IROP_VALUE)
+            result = lower_size_binary(lo, IR_IADD, result, lower_i64(0));
+        lower_u32map_put(lo, &lo->vla_sizes, (const char *)&t, sizeof(t),
+                         (u32)result.a);
+        return result;
+    }
+    if (!t->is_vla) {
+        if (!t->has_size)
+            CGF_ICE("lower_type_size reached an incomplete array");
+        n = lower_i64((i64)t->size);
+        inner = lower_type_size(lo, t->base);
+        prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
+    } else {
+        n = lower_rvalue(lo, t->size_expr);
+        n = lower_scalar_convert(lo, n, t->size_expr->sem_type,
+                                 type_basic(TY_LONG));
+        inner = lower_type_size(lo, t->base);
+        prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
+    }
     lower_u32map_put(lo, &lo->vla_sizes, (const char *)&t, sizeof(t), prod.v);
     return ir_op_value(lo->fn, prod);
 }
 
-void lower_prime_vla_sizes(Lower *lo, Type *t)
+void lower_prime_runtime_sizes(Lower *lo, Type *t)
 {
     for (; t; t = t->base) {
-        if (t->kind == TY_ARRAY && t->is_vla)
+        if ((t->kind == TY_STRUCT || t->kind == TY_UNION) &&
+            type_is_runtime_sized(t)) {
             (void)lower_type_size(lo, t);
-        else if (t->kind != TY_ARRAY && t->kind != TY_PTR)
             break;
+        } else if (t->kind == TY_ARRAY && type_is_runtime_sized(t) &&
+                   (t->is_vla || t->has_size)) {
+            /* Parameter adjustment preserves an intentionally incomplete
+             * outer `[]`. It has no total size to cache, but its inner VLA
+             * still evaluates on entry, so descend through that wrapper. */
+            (void)lower_type_size(lo, t);
+            break;
+        } else if (t->kind != TY_ARRAY && t->kind != TY_PTR) {
+            break;
+        }
     }
 }
 
@@ -1403,7 +1573,7 @@ static void lower_function(Lower *lo, AstNode *def)
      * original declaration layers separately for this evaluation. */
     for (i = 0; i < def->nparam_syms; i++)
         if (def->param_decl_types && def->param_decl_types[i])
-            lower_prime_vla_sizes(lo, def->param_decl_types[i]);
+            lower_prime_runtime_sizes(lo, def->param_decl_types[i]);
 
     lower_prebind_locals(lo, def->body);
     lower_stmt(lo, def->body);
