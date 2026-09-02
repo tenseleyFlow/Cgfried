@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `9d83f1015bcd3cadf0e352271cf776d92eae4817`
-- compiler-source-sha256: `2399a08118c83410357a71e432d90f6d08473af78dbf3388ca8aed38b2e19040`
+- source-revision: `ba0f28846b0d95c6b0bba72af89819a33ac6925b`
+- compiler-source-sha256: `cfa83d4489ce65b5be8fce2a67dc4d75779d6f895a85b9c6999aaae50adeafd2`
 - harness-sha256: `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`
 - torture-manifest-sha256: `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `8b3a28d642f76443868e8467d1ec202d5e230147e53850e31526133f6a3e21ac` | `8b3a28d642f76443868e8467d1ec202d5e230147e53850e31526133f6a3e21ac` |
-| x86_64-linux-gnu | `fbc43707c14ca5a1461db6c61760834ac8cdd8d543cd1773814b4c11a1b6f58e` | `fbc43707c14ca5a1461db6c61760834ac8cdd8d543cd1773814b4c11a1b6f58e` |
+| arm64-linux | `2e6033becdf06770a3f47cca0ac3a19dfb596ee967f0c8401a588a13ec3e98c5` | `2e6033becdf06770a3f47cca0ac3a19dfb596ee967f0c8401a588a13ec3e98c5` |
+| x86_64-linux-gnu | `a2936e9317ec6101f5a4534a0c532732a5406358bec9c0376e5fc3ad1e78d3e0` | `a2936e9317ec6101f5a4534a0c532732a5406358bec9c0376e5fc3ad1e78d3e0` |
 
 ## Baseline
 
@@ -30,15 +30,15 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | Os | arm64-linux | 219 | 216 | 0 | 0 | 3 | 98.63% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
 | torture-compile | O0 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1424 | 376 | 0 | 216 | 86.83% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
 | torture-compile | O1 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
 | torture-compile | O2 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
 | torture-compile | O3 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
 | torture-compile | Os | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
 | torture-execute | O0 | arm64-linux | 1752 | 1028 | 257 | 0 | 467 | 68.76% |
 | torture-execute | O0 | x86_64-linux-gnu | 1752 | 1028 | 257 | 0 | 467 | 68.76% |
 | torture-execute | O1 | arm64-linux | 1752 | 1029 | 257 | 0 | 466 | 68.83% |
@@ -963,20 +963,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ### Bucket 56
 
 - Count: 5
-- Cluster: signal=`-`; phase=`sema`
-- Fingerprint: `b97306b069e9fa49dc42de21ce16c5095369585ba07b1a9833d61be77b99e683`
-- Exemplars: torture-compile/pr34966.c@O0@x86_64-linux-gnu, torture-compile/pr34966.c@O1@x86_64-linux-gnu, torture-compile/pr34966.c@O2@x86_64-linux-gnu
-- Diagnostic: <source>:<loc>: error: unsupported x87 asm operand shape; supported forms are one read-write long double ("+t"), musl's t<path> remainder loop, and a clobbered t input converted to memory
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 5
-- Optdiv exemplars: -
-- Hypothesis: The valid GCC "=t" x87 output with a "0" tied double input is rejected by Cgfried's restricted x87 operand-shape lowering.
-- Disposition: `fix-sprint:s56.5-x87-tied-double-operand-shape`
-
-### Bucket 57
-
-- Count: 5
 - Cluster: signal=`-`; phase=`as`
 - Fingerprint: `ef08225eb7c8eae8444a144fc059c944c4d777a17209092f661c7671b59e78a9`
 - Exemplars: torture-compile/920521-1.c@O0@arm64-linux, torture-compile/920521-1.c@O1@arm64-linux, torture-compile/920521-1.c@O2@arm64-linux
@@ -988,7 +974,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.
 - Disposition: `out-of-scope`
 
-### Bucket 58
+### Bucket 57
 
 - Count: 2
 - Cluster: signal=`-`; phase=`ld`
@@ -1004,13 +990,13 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Policy Overlay
 
-- Applied decisions: 49
+- Applied decisions: 48
 - Stale decisions: 0
 
 ## Coverage
 
-- Failed cells: 7153
-- Bucketed cells: 7153
+- Failed cells: 7148
+- Bucketed cells: 7148
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

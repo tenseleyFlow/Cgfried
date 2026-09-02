@@ -21,7 +21,6 @@
 -	acf3af7f1c9c3a7c11b6175147cd3c92078cd42a313164f6b5145b98513ab18c	parse	all	GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope	wontfix-0.1.0
 -	afb9f891e77ea9ff3bedc8426dab776716e83fb433d22c8e2f1ed92a0df6cd4c	parse	all	The case uses GNU complex declarations and component operators, outside the v0.1.0 language scope.	out-of-scope
 -	b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9	sema	all	GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.	wontfix-0.1.0
--	b97306b069e9fa49dc42de21ce16c5095369585ba07b1a9833d61be77b99e683	sema	all	The valid GCC "=t" x87 output with a "0" tied double input is rejected by Cgfried's restricted x87 operand-shape lowering.	fix-sprint:s56.5-x87-tied-double-operand-shape
 -	c0cda5231420c23bdfdec54c0367f9cfb03120dae294b0351b7a16294bac87ac	cg	all	Large macro-expanded or optimization-heavy cases exceed the compiler timeout, exposing frontend or code-generation scalability limits.	fix-sprint:s56.5-compiler-scalability-timeout
 -	cc5dfe026bb1609d02fc9a84176be08676c8368afe27a452bcfa84e94873550a	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb	run	all	UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals	fix-sprint:s56.5-utf8-wide-literal-decoding
