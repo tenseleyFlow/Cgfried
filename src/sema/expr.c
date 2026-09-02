@@ -108,8 +108,17 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     }
     e->sym = sym;
     e->sem_type = sym->type;
-    if (sym->align_override)
-        e->sem_lvalue_align = sym->align_override;
+    if (sym->align_override) {
+        u64 effective = sym->align_override;
+
+        if (sym->align_natural_floor) {
+            u64 natural = layout_of(s, sym->type).align;
+
+            if (natural > effective)
+                effective = natural;
+        }
+        e->sem_lvalue_align = effective;
+    }
     sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
                          sym->gnu.deprecated_msg, e->span);
     if (sym->kind == SYM_VAR ||
@@ -915,6 +924,14 @@ static AstNode *expr_member(Sema *s, AstNode *e)
 
         if (m->align_override > member_align)
             member_align = m->align_override;
+        /* A dot expression cannot promise stronger alignment than its base
+         * object. This matters for a direct GNU-aligned object whose record
+         * type remains naturally aligned: `underaligned.member` inherits the
+         * declaration's weaker address guarantee. Nested dot accesses carry
+         * the same cap transitively. */
+        if (!e->is_arrow && obj->sem_lvalue_align &&
+            obj->sem_lvalue_align < member_align)
+            member_align = obj->sem_lvalue_align;
         e->sem_lvalue_align = member_align;
     }
     e->sem_is_bitfield = m->is_bitfield;

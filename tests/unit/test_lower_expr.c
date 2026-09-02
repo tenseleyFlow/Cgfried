@@ -248,7 +248,18 @@ void test_lower_aligned_typedef_controls_objects_and_accesses(TestCtx *t)
                "__attribute__" /* check_bans allow */
                "((aligned(1)));\n"
                "struct Tight { char lead; Low value; char tail; } tight;\n"
-               "long long get(void) { return tight.value + low + direct; }\n"));
+               "extern struct Later plain_incomplete;\n"
+               "struct Later { long long value; };\n"
+               "extern struct LaterDirect direct_incomplete "
+               "__attribute__" /* check_bans allow */
+               "((aligned(1)));\n"
+               "struct LaterDirect { long long value; };\n"
+               "struct DirectComplete { long long value; } "
+               "direct_complete __attribute__" /* check_bans allow */
+               "((aligned(1)));\n"
+               "long long get(void) { return tight.value + low + direct + "
+               "plain_incomplete.value + direct_incomplete.value + "
+               "direct_complete.value; }\n"));
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, ir_verify(f.dc, f.m));
     ir = txt(&f);
@@ -259,6 +270,9 @@ void test_lower_aligned_typedef_controls_objects_and_accesses(TestCtx *t)
     T_ASSERT(t, strstr(ir, "load i64, @tight+1, align 1") != NULL);
     T_ASSERT(t, strstr(ir, "load i64, @low, align 1") != NULL);
     T_ASSERT(t, strstr(ir, "load i64, @direct, align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @plain_incomplete, align 8") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @direct_incomplete, align 8") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @direct_complete, align 1") != NULL);
     low_free(&f);
 }
 

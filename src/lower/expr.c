@@ -572,6 +572,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
              * the claim has to come down. */
             if (m->packed || (rec->tag && rec->tag->packed))
                 lv.align = 1;
+            if (e->sem_lvalue_align && e->sem_lvalue_align < lv.align)
+                lv.align = (u32)e->sem_lvalue_align;
             if (rec->kind == TY_UNION)
                 lv.etype = ETYPE_UNION;
             return lv;
@@ -641,6 +643,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 break;
             }
             lv.align = (u32)m->container_size;
+            if (e->sem_lvalue_align && e->sem_lvalue_align < lv.align)
+                lv.align = (u32)e->sem_lvalue_align;
             lv.etype =
                 rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
             lv.is_bitfield = true;

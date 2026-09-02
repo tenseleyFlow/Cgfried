@@ -246,12 +246,17 @@ struct Symbol {
     u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
     u32 writes; /* assignments after declaration; initializer is not one */
     bool tls;   /* _Thread_local */
-    /* Effective OBJECT alignment, or minimum FUNCTION alignment; 0 means no
-     * function request. Each object declaration contributes either its type
-     * alignment, exact GNU `aligned`, or stronger `_Alignas`, and
-     * redeclarations retain the maximum effective value. Members have had a
-     * separate field since Sprint 14. */
+    /* Effective OBJECT alignment at declaration time, or minimum FUNCTION
+     * alignment; 0 means no function request. Each object declaration
+     * contributes either its type alignment, exact GNU `aligned`, or stronger
+     * `_Alignas`, and redeclarations retain the maximum effective value.
+     * Members have had a separate field since Sprint 14. */
     u64 align_override;
+    /* At least one object declaration had no direct GNU `aligned`, so its
+     * type's alignment remains a live floor. This cannot be folded into
+     * align_override: an extern declaration may name an incomplete record
+     * whose natural alignment rises when the tag is completed later. */
+    bool align_natural_floor;
     /* `alias("target")`: this symbol is a NAME for another one defined in the
      * same TU. Interned at the point sema resolves it, so it compares by
      * pointer with every other symbol name. */

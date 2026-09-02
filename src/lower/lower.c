@@ -827,9 +827,10 @@ static bool lower_object_is_const(const Type *t)
     return t && (t->quals & CGF_QUAL_CONST) != 0;
 }
 
-/* An object's alignment is its type's unless its declaration supplies an
- * exact GNU `aligned`; `_Alignas` can only raise that result. Sema records the
- * declaration's effective value and merges redeclarations by maximum.
+/* An object's alignment is exact when every contributing complete declaration
+ * supplies GNU `aligned`; a plain or incomplete declaration keeps the final
+ * type alignment as a live floor. `_Alignas` can only raise that result. Sema
+ * records both facts while merging redeclarations.
  *
  * It lives in one place because it was previously in none: every object path
  * -- file-scope global, function-local static, automatic slot -- took the
@@ -838,8 +839,11 @@ static bool lower_object_is_const(const Type *t)
  * no diagnostic anywhere. */
 u32 lower_object_align(const Symbol *sym, u64 natural)
 {
-    u64 a = sym && sym->align_override ? sym->align_override
-                                       : (natural ? natural : 1);
+    u64 a = natural ? natural : 1;
+
+    if (sym && sym->align_override &&
+        (!sym->align_natural_floor || sym->align_override > a))
+        a = sym->align_override;
 
     if (a > CGF_MAX_OBJECT_ALIGN)
         CGF_ICE("lowering received unsupported object alignment %llu",

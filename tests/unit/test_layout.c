@@ -513,7 +513,17 @@ void test_layout_aligned_typedef_is_an_exact_type_property(TestCtx *t)
         "((aligned(1))); extern long long redecl_a;\n"
         "extern long long redecl_b; extern long long redecl_b "
         "__attribute__" /* check_bans allow */
-        "((aligned(1)));\n",
+        "((aligned(1)));\n"
+        "extern struct Later plain_incomplete;\n"
+        "struct Later { int value; };\n"
+        "int plain_incomplete_align[__alignof__(plain_incomplete) == 4 "
+        "? 1 : -1];\n"
+        "extern struct LaterDirect direct_incomplete "
+        "__attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "struct LaterDirect { int value; };\n"
+        "int direct_incomplete_align[__alignof__(direct_incomplete) == 4 "
+        "? 1 : -1];\n",
         CGF_TARGET_X86_64_LINUX_GNU);
     T_ASSERT_EQ_INT(t, f.errors, 0);
 

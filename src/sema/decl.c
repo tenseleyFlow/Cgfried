@@ -2859,6 +2859,7 @@ static void carry_symbol_attrs(Symbol *prev, const Symbol *fresh)
     gnu_attrs_merge(&prev->gnu, &fresh->gnu);
     if (fresh->align_override > prev->align_override)
         prev->align_override = fresh->align_override;
+    prev->align_natural_floor |= fresh->align_natural_floor;
     if (fresh->section_name)
         prev->section_name = fresh->section_name;
     if (fresh->asm_name)
@@ -3136,6 +3137,10 @@ static void declare_one(Sema *s, AstNode *d)
     if (sym->kind == SYM_VAR) {
         u64 effective = layout_of(s, type).align;
 
+        /* GCC keeps the natural floor for an incomplete object type even
+         * when this declaration writes `aligned`: its final alignment is not
+         * yet known, so completion may strengthen the object later. */
+        sym->align_natural_floor = !has_gnu_align || !type_is_complete(type);
         if (has_gnu_align && gnu_align_req)
             effective = gnu_align_req;
         if (alignas_req > effective)
