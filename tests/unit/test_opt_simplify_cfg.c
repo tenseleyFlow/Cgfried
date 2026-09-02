@@ -148,6 +148,56 @@ void test_cfg_const_switch_preserves_live_cases(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_prune_cfg_o0_removes_dead_link_but_preserves_case_entry(TestCtx *t)
+{
+    CfgFix f;
+    IrModule *m;
+    OptConfig cfg;
+    const Pass *passes[] = {&OPT_PASS_PRUNE_CFG};
+
+    fix_init(&f);
+    m = parse(&f, "func void @f(i32 %x) {\n"
+                  "entry():\n"
+                  "    switch i32 %x, join(), 0: case0(), 1: case1()\n"
+                  "case0():\n"
+                  "    %c = icmp ne i32 0, 0\n"
+                  "    condbr %c, dead(), join()\n"
+                  "case1():\n"
+                  "    call void @bar()\n"
+                  "    br join()\n"
+                  "dead():\n"
+                  "    call void @link_error()\n"
+                  "    br case1()\n"
+                  "join():\n"
+                  "    ret\n"
+                  "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O0);
+    cfg.verify_after_each = true;
+    T_ASSERT_EQ_STR(t, OPT_PASS_PRUNE_CFG.name, "prune_cfg");
+    T_ASSERT_EQ_INT(t, OPT_PASS_PRUNE_CFG.pinned_policy, PASS_PINNED_EXACT);
+    T_ASSERT(
+        t, m && opt_run_pass_sequence(m, &cfg, passes, CGF_ARRAY_LEN(passes)));
+    if (m) {
+        Buf printed;
+        char *text;
+
+        buf_init(&printed);
+        ir_print_module_buf(&printed, m);
+        buf_push_u8(&printed, 0);
+        text = (char *)printed.data;
+        T_ASSERT(t, strstr(text, "call void @link_error()") == NULL);
+        T_ASSERT(t, strstr(text, "call void @bar()") != NULL);
+        T_ASSERT_EQ_INT(t, count_op(m, IR_CONDBR), 0);
+        T_ASSERT_EQ_INT(t, count_op(m, IR_SWITCH), 1);
+        T_ASSERT(t, ir_verify(f.dc, m));
+        T_ASSERT(
+            t, !opt_run_pass_sequence(m, &cfg, passes, CGF_ARRAY_LEN(passes)));
+        buf_free(&printed);
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_simplify_cfg_merges_straight_line_and_forwards_args(TestCtx *t)
 {
     CfgFix f;

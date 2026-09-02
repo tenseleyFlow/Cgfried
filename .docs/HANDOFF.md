@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-01): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-02): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -79,11 +79,15 @@ is merged as `3db23ef`, raising the target-complete PASS ratchet to 26,870.
 PR #66's x86 immediate-materialization tranche is merged as `7b79b9ad`,
 raising the target-complete ratchet to 26,875 lines. PR #67's ARM64 stacked
 large-aggregate ABI tranche is merged as `01d95ccc`, raising the
-target-complete ratchet to 26,880 lines (26,877 PASS keys). The current
-`s56.5-x87-tied-double-operand-shape` tranche on PR #68 is target-complete at
-26,885 ratchet lines (26,882 PASS keys) with 48 applied policy decisions and
-awaits fresh post-publication CI. Sprint 56's campaign machine and triage map
-remain complete while Sprint 58 continues its independent soak.
+target-complete ratchet to 26,880 lines (26,877 PASS keys). PR #68's x87 tied
+double-operand-shape tranche is merged as `a80346d5`, raising the
+target-complete ratchet to 26,885 lines (26,882 PASS keys) with 48 applied
+policy decisions. The current `s56.5-dead-code-link-elimination` tranche on
+PR #69 is target-complete at 26,887 ratchet lines (26,884 PASS keys), with 47
+applied policy decisions and zero stale or unresolved decisions, and awaits
+fresh post-publication standard and exact native ARM64 CI. Sprint 56's campaign
+machine and triage map remain complete while Sprint 58 continues its
+independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -2213,6 +2217,75 @@ and green post-publication CI.
   `d86997a0a9e993a0d659719f77f2a17629c516b41801965cf855cb094121c773`
   and
   `d4b605debe22cdbe1ee5abd8332b1267c7964d2298d360c973db2e2a475aaaaa`.
+  Post-publication standard CI
+  [run 33587631250](https://github.com/tenseleyFlow/Cgfried/actions/runs/33587631250)
+  and exact-head native ARM64
+  [run 33587641895](https://github.com/tenseleyFlow/Cgfried/actions/runs/33587641895)
+  are fully green. PR #68 merged as `a80346d5`; the next evidence-led
+  candidate was `s56.5-dead-code-link-elimination`.
+- The `s56.5-dead-code-link-elimination` tranche (PR #69) resolves the exact
+  two-cell `torture-execute/medce-1.c@O0` gap on x86 and ARM. The source uses
+  nested constant control flow around an independently reachable switch case;
+  Cgfried retained an entry-unreachable block containing a deliberately
+  undefined `link_error` call at O0 even though its optimized levels already
+  removed the reference. A narrow mandatory `OPT_PASS_PRUNE_CFG` pass now
+  folds only exactly provable constant terminators and deletes only blocks
+  unreachable from function entry at every optimization level. Full
+  straight-line and diamond merging remains in the O1+ `simplify_cfg` pass,
+  and independently reachable labels and case entries remain preserved.
+
+  The permanent regression checks the imported shape at every optimization
+  level and requires no `link_error` reference in x86 Linux, ARM64 Linux, or
+  ARM64 macOS assembly. A focused pass-manager unit covers dead-link pruning
+  alongside preservation of a separately reachable case entry. Native Apple
+  ARM64 fixture, optimizer/lowering unit, sanitized focused, assembly, and
+  frontend-fuzz validation is clean. The retained Ubuntu x86-64 guest reports
+  837 unit tests / 4,294,170 assertions / zero failures and passes the fixture
+  normally, with `CGF_SPILL_ALL=1`, and under focused ASan+UBSan. Three
+  independent 5,000-case frontend sequences agree on the intended digest
+  repin. The only local broad-test limitations remain the documented Apple
+  x87 simulator `long double` assumption and a QEMU wall-clock timeout on an
+  existing heavy preprocessor fuzz seed; neither produces a compiler or
+  sanitizer finding.
+
+  Corrected behavior head `3a15afd338ed62d0722f2be4e02a8bbf7dd1bbc6`
+  passes every non-torture job in standard PR
+  [run 33595484569](https://github.com/tenseleyFlow/Cgfried/actions/runs/33595484569),
+  including 100,000 ASan+UBSan frontend-fuzz iterations; its x86 gate rejects
+  exactly the new O0 `medce-1.c` PASS and no regression. Exact-head nightly
+  [run 33595474814](https://github.com/tenseleyFlow/Cgfried/actions/runs/33595474814)
+  passes all 14 non-ratchet jobs; native ARM rejects exactly its corresponding
+  O0 `medce-1.c` PASS and no regression.
+
+  The clean behavior-head x86 stream was generated as five isolated
+  optimization-level shards in the retained Ubuntu guest and contains all
+  20,325 unique target cells. Its SHA-256 is
+  `761a2642b4eda6db659f2be52a543e4d98b7d2aa684226ad2a37d59043af427f`;
+  the exact native ARM artifact SHA-256 is
+  `5bd507a07af43a30f09345d6084caf6c5d191c31443a5ea0fa9d218bd0f83f5a`.
+  They share the behavior revision, compiler-source SHA-256
+  `77e97982c9dd6d2c7dbf6cc5d18d0c7f6aebb45d3a35d2a642dda8c343692849`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 compiler/driver SHA-256 is
+  `e3bfdd5fc92b7ea9ca98293c9a57ad3d5bcd04bdeefc019ab5141ac54c18cb9d`;
+  ARM's is
+  `7a8c15bfcc6e03872acebd1cdca75a6de79510badeca3d8265f6c3f403be9c2f`.
+
+  Target-complete publication promotes exactly the two O0 `medce-1.c` cells
+  with zero PASS regression and retires fingerprint `aace2c03...`. The
+  published state is 26,887 ratchet lines / 26,884 PASS keys, 7,146 classified
+  failures, 56 buckets, 47 applied decisions, 23 live repair rows representing
+  19 repair tranches, and zero stale or unresolved decisions. Reversing the
+  evidence streams regenerates both outputs byte-identically; PASS and triage
+  SHA-256 values are respectively
+  `23d9d64d84e527a57844975a25cdfd697c4faf983ecc3b0a31d50a04c1bceca4`
+  and
+  `82fe9ed6485af11cd3dcbbb49a1e5adc8ff6bdeee48d8c474ee88bb3afbfcedc`.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
   before merging. Select the next compiler-gap candidate from this newly
   generated triage only after those gates are green.
@@ -2269,7 +2342,7 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. The remaining
-compiler debt is enumerated by 29 live `s56.5-*` policy rows representing 24
+compiler debt is enumerated by 23 live `s56.5-*` repair rows representing 19
 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 

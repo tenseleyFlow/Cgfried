@@ -4,6 +4,7 @@
 
 #include "util/arena.h"
 
+const Pass OPT_PASS_PRUNE_CFG = {"prune_cfg", opt_prune_cfg, PASS_PINNED_EXACT};
 const Pass OPT_PASS_SIMPLIFY_CFG = {"simplify_cfg", opt_simplify_cfg,
                                     PASS_PINNED_EXACT};
 
@@ -71,7 +72,7 @@ static const IrInst *value_definition(const IrFunc *f, ValueId value)
     return NULL;
 }
 
-/* simplify-cfg owns edge pruning, so it also resolves the small tree of
+/* CFG cleanup owns edge pruning, so it also resolves the small tree of
  * exact scalar operations feeding a terminator. This is deliberately not a
  * general optimizer: it asks the shared exact folder only for constants and
  * never rewrites a value instruction. */
@@ -564,15 +565,24 @@ static bool merge_straight_lines(IrFunc *f)
     return changed;
 }
 
+static bool prune_func_cfg(IrModule *m, IrFunc *f, const OptConfig *cfg)
+{
+    bool changed = false;
+
+    if (fold_const_edges(f, cfg))
+        changed = true;
+    if (remove_semantic_unreachable(m, f))
+        changed = true;
+    return changed;
+}
+
 static bool simplify_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     OptConfig local = *cfg;
     bool changed = false;
 
     local.current_func = f->name;
-    if (fold_const_edges(f, &local))
-        changed = true;
-    if (remove_semantic_unreachable(m, f))
+    if (prune_func_cfg(m, f, &local))
         changed = true;
     if (collapse_diamonds(m, f, &local))
         changed = true;
@@ -580,6 +590,28 @@ static bool simplify_func(IrModule *m, IrFunc *f, const OptConfig *cfg)
         changed = true;
     if (changed)
         ir_func_renumber(m->arena, f);
+    return changed;
+}
+
+bool opt_prune_cfg(IrModule *m, const OptConfig *cfg)
+{
+    bool changed = false;
+    u32 fi;
+
+    if (!m || !cfg)
+        return false;
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        IrFunc *f = &m->funcs[fi];
+        OptConfig local = *cfg;
+        bool function_changed;
+
+        local.current_func = f->name;
+        function_changed = prune_func_cfg(m, f, &local);
+        if (function_changed) {
+            ir_func_renumber(m->arena, f);
+            changed = true;
+        }
+    }
     return changed;
 }
 

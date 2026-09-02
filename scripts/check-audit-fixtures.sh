@@ -1053,9 +1053,9 @@ probe()
                 xpass "$id" "$title"
             elif [ "$o2_zero_status" -eq 1 ] && [ "$o2_one_status" -eq 1 ] && \
                  grep -q '^    %10 = load i32, %5, align 4, etype i32$' \
-                     "$phase_dir/400006-ir-fp01-i01-p05-simplify_cfg.cgfir" && \
+                     "$phase_dir/400007-ir-fp01-i01-p05-simplify_cfg.cgfir" && \
                  grep -q '^    ret i32 22$' \
-                     "$phase_dir/400007-ir-fp01-i01-p06-gvn.cgfir"; then
+                     "$phase_dir/400008-ir-fp01-i01-p06-gvn.cgfir"; then
                 xfail "$id" "$title"
             else
                 fail "$id" "unexpected O2 alias-selection result $o2_zero_status/$o2_one_status"
