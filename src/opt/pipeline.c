@@ -66,6 +66,7 @@ static bool level_stage(OptLevel level, PipelineStage *out)
 
 bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
 {
+    const Pass *semantic[] = {&OPT_PASS_PRUNE_CFG};
     const Pass *mandatory[] = {&OPT_PASS_FORCE_INLINE,
                                &OPT_PASS_STRIP_INLINE_ONLY};
     const Pass *scalar[CGF_ARRAY_LEN(pipeline)];
@@ -87,6 +88,14 @@ bool opt_run_pipeline(IrModule *m, const OptConfig *cfg)
         m->funcs[i].opt_inline_growth_initialized = false;
         needs_force_inline |= m->funcs[i].always_inline;
     }
+    /* Constant control-flow is a semantic cleanup even at O0: retaining an
+     * impossible reference can make a valid translation unit fail to link.
+     * Keep this narrower than simplify_cfg so O0 block shape is otherwise
+     * untouched, and run it through the normal verifier/pinned audit. */
+    changed |=
+        opt_run_pass_sequence(m, cfg, semantic, CGF_ARRAY_LEN(semantic));
+    if (diag_had_error(m->dc))
+        goto done;
     /* GNU always_inline is a source contract, not a profitability choice.
      * Run it before the optimization-level gate, then discard C inline-only
      * bodies that existed solely as splice input.  Keeping these as two

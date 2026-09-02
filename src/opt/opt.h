@@ -95,19 +95,22 @@ bool opt_sccp(IrModule *m, const OptConfig *cfg);
 bool opt_simplify(IrModule *m, const OptConfig *cfg);
 bool opt_cse(IrModule *m, const OptConfig *cfg);
 
-/* Sprint 32 memory/global workhorses.  DCE and CFG cleanup join O1; GVN,
- * DSE, and jump threading are O2 rows. */
+/* Sprint 32 memory/global workhorses. DCE and full CFG simplification join
+ * O1; exact constant-edge pruning is mandatory even at O0. GVN, DSE, and
+ * jump threading are O2 rows. */
 extern const Pass OPT_PASS_GVN;
 extern const Pass OPT_PASS_DCE;
 extern const Pass OPT_PASS_DSE;
+extern const Pass OPT_PASS_PRUNE_CFG;
 extern const Pass OPT_PASS_SIMPLIFY_CFG;
 extern const Pass OPT_PASS_JUMP_THREAD;
 bool opt_gvn(IrModule *m, const OptConfig *cfg);
 bool opt_dce(IrModule *m, const OptConfig *cfg);
 bool opt_dse(IrModule *m, const OptConfig *cfg);
+bool opt_prune_cfg(IrModule *m, const OptConfig *cfg);
 bool opt_simplify_cfg(IrModule *m, const OptConfig *cfg);
 bool opt_jump_thread(IrModule *m, const OptConfig *cfg);
-/* Exact constant-edge query shared by simplify-cfg and analysis clients.
+/* Exact constant-edge query shared by CFG pruning and analysis clients.
  * It recursively asks the common scalar folder for the bounded definition
  * tree feeding a terminator, without mutating the function. */
 bool opt_cfg_edge_feasible(const IrFunc *f, const IrInst *term, u32 edge);
