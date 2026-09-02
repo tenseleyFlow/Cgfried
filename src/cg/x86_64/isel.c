@@ -927,6 +927,34 @@ static X64VReg f80_addr(Isel *is, const IrOperand *o)
     }
 }
 
+/* GNU's `t`/`u` constraints name x87 stack locations, not a C type.  f80 IR
+ * values already live in memory; SSE-width floating values need one local
+ * spill so fld can convert them into the same stack-modelled representation. */
+static X64VReg x87_asm_input_addr(Isel *is, const IrOperand *o)
+{
+    X64VReg src, slot;
+    X64Inst *x;
+
+    if (o->type == IRT_F80)
+        return f80_addr(is, o);
+    if (!irt_sse(o->type))
+        CGF_ICE("x86_64 isel: x87 asm input has non-floating IR type %u",
+                o->type);
+    src = to_fvreg(is, o);
+    slot = f80_slot(is);
+    x = emit(is, X64_OP_FSTORE, fpw(o->type));
+    x->a = ovreg(src);
+    x->b.kind = X64O_MEM;
+    x->b.mem.base = slot;
+    x->b.mem.scale = 1;
+    return slot;
+}
+
+static X64Width x87_asm_width(u8 size)
+{
+    return size == 4 ? X64_L : size == 8 ? X64_Q : X64_T;
+}
+
 /* One x87 memory op: fld/fstp/fild/fistp/fnstcw/fldcw at [addr+disp]. */
 static void x87_mem(Isel *is, X64Op op, X64Width w, X64VReg addr, i32 disp)
 {
@@ -3225,9 +3253,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 continue; /* no register: printed as $N */
             if (o->cls == ASM_CLS_X87 || o->cls == ASM_CLS_X87UP) {
                 if (!o->is_output) {
-                    X64VReg src = f80_addr(is, &in->ops[k]);
+                    X64VReg src = x87_asm_input_addr(is, &in->ops[k]);
 
-                    x87_mem(is, X64_OP_X87_FLD, X64_T, src, 0);
+                    x87_mem(is, X64_OP_X87_FLD, x87_asm_width(o->size), src, 0);
                     if (o->cls == ASM_CLS_X87UP)
                         has_x87_up = true;
                     else if (x87_outidx == (u32)-1)
@@ -3411,7 +3439,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             if (k == x87_outidx) {
                 X64Mem mem = fold_addr(is, &in->ops[k]);
 
-                st = emit(is, X64_OP_X87_FSTP, X64_T);
+                st = emit(is, X64_OP_X87_FSTP, x87_asm_width(a->ops[k].size));
                 st->a.kind = X64O_MEM;
                 st->a.mem = mem;
                 continue;

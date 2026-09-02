@@ -371,16 +371,33 @@ static bool validate_x87_shape(Lower *lo, const AstNode *s, const IrAsmOp *ops,
         !ops[2].is_output && ops[2].cls == ASM_CLS_X87UP && !ops[3].is_output &&
         ops[3].cls == ASM_CLS_X87 && ops[3].tied_to == 0)
         return true;
+    /* One floating value tied to st(0), either GNU's read-write `+t`
+     * spelling or its equivalent write-only `=t` output plus a matching
+     * `0` input.  fld/fstp carry the C width, so f32/f64 values make the
+     * same locally balanced stack shape as an f80 long double. */
     if (s->asm_noutputs == 1 && n == 2 && ops[0].is_output &&
-        ops[0].cls == ASM_CLS_X87 && constraint_has(ops[0].constraint, '+') &&
-        !ops[1].is_output && ops[1].cls == ASM_CLS_X87 && ops[1].tied_to == 0 &&
-        s->asm_ops[0].expr && s->asm_ops[0].expr->sem_type &&
-        lower_irtype(lo, s->asm_ops[0].expr->sem_type) == IRT_F80)
-        return true;
+        ops[0].cls == ASM_CLS_X87 && !ops[1].is_output &&
+        ops[1].cls == ASM_CLS_X87 && ops[1].tied_to == 0 &&
+        s->asm_ops[0].expr && s->asm_ops[0].expr->sem_type) {
+        IrType out_type = lower_irtype(lo, s->asm_ops[0].expr->sem_type);
+        IrType in_type = out_type;
+
+        if (!constraint_has(ops[0].constraint, '+')) {
+            if (s->asm_nops < 2 || !s->asm_ops[1].expr ||
+                !s->asm_ops[1].expr->sem_type)
+                goto unsupported;
+            in_type = lower_irtype(lo, s->asm_ops[1].expr->sem_type);
+        }
+        if (in_type == out_type &&
+            (out_type == IRT_F32 || out_type == IRT_F64 || out_type == IRT_F80))
+            return true;
+    }
+unsupported:
     asm_error(lo, s->span,
               "unsupported x87 asm operand shape; supported forms are one "
-              "read-write long double (\"+t\"), musl's t/u remainder "
-              "loop, and a clobbered t input converted to memory");
+              "tied floating st(0) value (\"+t\" or \"=t\"/\"0\"), "
+              "musl's t/u remainder loop, and a clobbered t input converted "
+              "to memory");
     return false;
 }
 
@@ -526,6 +543,17 @@ void lower_asm(Lower *lo, AstNode *s)
                                       src->span)) {
             return;
         }
+        /* A numeric matching constraint inherits its output's physical
+         * location.  Register ties already consult the output explicitly in
+         * each backend; x87 must also inherit the class here because st(0)
+         * is stack-modelled rather than allocator-visible. */
+        if (op->tied_to >= 0 && (u32)op->tied_to < n &&
+            ops[op->tied_to].is_output &&
+            (ops[op->tied_to].cls == ASM_CLS_X87 ||
+             ops[op->tied_to].cls == ASM_CLS_X87UP)) {
+            op->cls = ops[op->tied_to].cls;
+            op->reg = ops[op->tied_to].reg;
+        }
         if (!bind_local_register_operand(lo, op, src))
             return;
         /* Constraint decoding lives here because its vocabulary is target
@@ -543,7 +571,10 @@ void lower_asm(Lower *lo, AstNode *s)
         if (src->expr && src->expr->sem_type) {
             TypeLayout l = layout_of(lo->sema, src->expr->sem_type);
 
-            op->size = (u8)(l.size > 8 ? 8 : (l.size ? l.size : 1));
+            if (op->cls == ASM_CLS_X87 || op->cls == ASM_CLS_X87UP)
+                op->size = (u8)(l.size > 16 ? 16 : (l.size ? l.size : 1));
+            else
+                op->size = (u8)(l.size > 8 ? 8 : (l.size ? l.size : 1));
         } else {
             op->size = 8;
         }
@@ -611,6 +642,7 @@ void lower_asm(Lower *lo, AstNode *s)
         ops[n].is_output = false;
         ops[n].cls = ops[i].cls;
         ops[n].reg = ops[i].reg;
+        ops[n].size = ops[i].size;
         ops[n].tied_to = (i32)i;
         /* Its VALUE, not its address: the tied input reads the object. */
         vals[n] = lower_rvalue(lo, s->asm_ops[i].expr);
