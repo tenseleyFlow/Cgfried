@@ -495,6 +495,8 @@ void lower_asm(Lower *lo, AstNode *s)
     IrAsm a;
     IrAsmOp ops[64];
     IrOperand vals[64];
+    Lvalue output_lvalues[64];
+    bool output_lvalue_valid[64] = {false};
     DeferredAsmImmediate *deferred[64];
     u8 clobregs[64];
     u32 n = 0;
@@ -619,6 +621,8 @@ void lower_asm(Lower *lo, AstNode *s)
             Lvalue lv = lower_lvalue(lo, src->expr);
 
             vals[n] = lv.addr;
+            output_lvalues[i] = lv;
+            output_lvalue_valid[i] = true;
         } else if (op->cls == ASM_CLS_MEM) {
             Lvalue lv = lower_lvalue(lo, src->expr);
 
@@ -644,8 +648,17 @@ void lower_asm(Lower *lo, AstNode *s)
         ops[n].reg = ops[i].reg;
         ops[n].size = ops[i].size;
         ops[n].tied_to = (i32)i;
-        /* Its VALUE, not its address: the tied input reads the object. */
-        vals[n] = lower_rvalue(lo, s->asm_ops[i].expr);
+        /* Its VALUE, not its address: the tied input reads the object.  Reuse
+         * the output's lvalue descriptor so an address expression with side
+         * effects is evaluated only once, while volatile/atomic/bitfield
+         * access properties still reach the load. */
+        if (!output_lvalue_valid[i]) {
+            asm_error(lo, s->asm_ops[i].span,
+                      "a read-write asm output cannot use an immediate "
+                      "constraint");
+            return;
+        }
+        vals[n] = lower_load(lo, output_lvalues[i]);
         n++;
     }
 
