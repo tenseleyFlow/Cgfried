@@ -379,9 +379,9 @@ void cg_linear_scan(CgInterval *intervals, u32 nvregs,
 }
 
 /* Alignment is a byte count in the source and an EXPONENT in the directive, so
- * the conversion happens exactly once, here. A request below the backend's own
- * default is declined -- `aligned` only ever raises -- and a non-power-of-two
- * cannot arrive, sema having rejected it. */
+ * the conversion happens exactly once, here. A FUNCTION request below the
+ * backend's own default is declined, and a non-power-of-two cannot arrive,
+ * sema having rejected it. */
 unsigned cg_func_p2align(const struct IrFunc *irf, unsigned dflt)
 {
     unsigned p2 = 0;

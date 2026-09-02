@@ -196,19 +196,23 @@ ARM64 codegen evidence at O0 and O2. An `_Atomic` member of a packed struct is
 still refused for good: arm64's exclusive instructions require natural
 alignment, and an atomic that quietly is not one is worse than a diagnostic.
 
-`aligned` is the inverse of `_Alignas` in the one way that matters:
+`aligned` has two measured policies, selected by its grammar position:
 
-- **It only ever RAISES.** A request weaker than the natural alignment is
-  silently declined, where `_Alignas` makes the same request a constraint
-  violation (6.7.5p4). So **`aligned(1)` is not a spelling of `packed`** — the
-  ordinary member stays at its natural offset. A bit-field is the measured
-  exception: it has no address of its own, and GCC uses even `aligned(1)` to
-  start it at the next byte boundary while retaining the base type's record
-  alignment. The layout tests pin that placement separately from ordinary
-  members.
-- All five represented positions work: record (trailing, and between the
+- **Records and ordinary members only RAISE.** A weaker request is silently
+  declined, where `_Alignas` makes it a constraint violation (6.7.5p4). Thus
+  member `aligned(1)` is not a spelling of `packed`. A bit-field is the
+  measured exception: it has no address of its own, and GCC uses even
+  `aligned(1)` to start it at the next byte boundary while retaining the base
+  type's record alignment.
+- **Objects, typedefs, and declarator type layers are exact.** They may reduce
+  as well as increase alignment without changing size or type compatibility.
+  An attributed typedef survives aliases and controls object, member, array,
+  and automatic layout without mutating the named tag it aliases. Compatible
+  object/type redeclarations retain the strongest effective alignment.
+- All six represented positions work: record (trailing, and between the
   keyword and the tag — a LEADING attribute gcc ignores, same as `packed`),
-  member, object, function, and the pointer layer after `*` in a declarator.
+  member, object, function, typedef, and the pointer layer after `*` in a
+  declarator.
   The function position aligns the CODE and both emitters take the max against
   their own default padding. Pointer-layer alignment changes that layer's
   `_Alignof` and aggregate layout without changing type compatibility or

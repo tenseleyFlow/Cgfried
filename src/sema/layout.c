@@ -393,7 +393,7 @@ TypeLayout layout_of(Sema *s, Type *t)
         r = basic_layout(s, t);
         break;
     }
-    if (t->align_override > r.align)
+    if (t->align_override && (t->align_is_exact || t->align_override > r.align))
         r.align = t->align_override;
     return r;
 }

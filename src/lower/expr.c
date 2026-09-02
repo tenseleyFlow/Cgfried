@@ -490,6 +490,12 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             return lv;
         }
         lv = lv_of(lo, lower_sym_addr(lo, e->sym), sem(e));
+        /* A direct GNU object attribute changes the declaration's alignment,
+         * not its C type. Sema records that effective lvalue alignment on the
+         * identifier; this is observable for reductions, where recomputing
+         * from the natural type would overstate every load/store claim. */
+        if (e->sem_lvalue_align)
+            lv.align = (u32)e->sem_lvalue_align;
         return lv;
     }
     case AST_EXPR_STRING: {

@@ -1137,6 +1137,8 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
     }
 
     if (prev->kind == SYM_TYPEDEF || cur->kind == SYM_TYPEDEF) {
+        bool cur_has_aligned;
+
         if (prev->kind != cur->kind) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, cur->span,
@@ -1161,6 +1163,14 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
             warn_at(s->lang->warnings, WARN_TYPEDEF_REDEFINITION, cur->span,
                     "redefinition of typedef '%s' is a C11 feature", cur->name);
         }
+        /* A repeated typedef retains its first effective alignment unless a
+         * later declaration explicitly supplies a stronger `aligned`. A bare
+         * redefinition does not reset a reduced typedef to the underlying
+         * type's natural alignment. */
+        cur_has_aligned = cur->gnu.aligned_expr || cur->gnu.aligned_bare;
+        if (cur_has_aligned &&
+            layout_of(s, cur->type).align > layout_of(s, prev->type).align)
+            prev->type = cur->type;
         return;
     }
 
@@ -1298,6 +1308,7 @@ Type *sema_array_complete_from_init(Sema *s, Type *t, const AstNode *init)
     sized->quals = t->quals;
     sized->may_alias = t->may_alias;
     sized->align_override = t->align_override;
+    sized->align_is_exact = t->align_is_exact;
     sized->has_size = true;
     sized->size = n;
     sized->size_expr = t->size_expr;
@@ -2221,15 +2232,15 @@ static void finish_array_completion(Sema *s, AstNode *d, Symbol *sym,
  * WEAKEN an alignment, it may not appear on a typedef, a bitfield, a
  * parameter or a `register` object, and the value must be a power of two.
  * Returns the requested alignment, or 0 for "none". */
-/* Folds an `aligned(N)` argument. Shared by all five represented positions --
- * record, member, object, function, and a declarator type layer -- because
- * copies would drift and the drift is invisible until one position disagrees
- * with another.
+/* Folds an `aligned(N)` argument. Shared by all six represented positions --
+ * record, member, object, function, typedef, and a declarator type layer --
+ * because copies would drift and the drift is invisible until one position
+ * disagrees with another.
  *
- * The RULE that separates it from `_Alignas`: it only ever RAISES. Every
- * caller stores into an align_override field that is consumed with `>`, so a
- * request weaker than natural is declined by the consumer rather than being an
- * error here. That is why `aligned(1)` is not a spelling of `packed`.
+ * Position supplies the policy after folding. Record/member consumers use the
+ * request as a minimum, while typedef/type-layer and object consumers use it
+ * as an exact alignment. `_Alignas` remains a distinct constraint-checked
+ * minimum.
  *
  * Returns 0 for "nothing requested", which is also what a zero or unfoldable
  * argument yields -- the diagnostic is emitted at the point of failure. */
@@ -2424,7 +2435,11 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
         if (layout_of(s, cand).size == want) {
             Type *mapped = type_qualify(s->arena, cand, t->quals);
 
-            mapped = type_with_alignment(s->arena, mapped, t->align_override);
+            if (t->align_override) {
+                mapped =
+                    type_with_alignment(s->arena, mapped, t->align_override);
+                mapped->align_is_exact = t->align_is_exact;
+            }
             if (t->may_alias)
                 mapped = type_may_alias(s->arena, mapped);
             if (t->kind == TY_ENUM) {
@@ -2814,7 +2829,7 @@ static void append_valid_attrs(Sema *s, Symbol *sym, const AstNode *d,
  * fixture wrote the attribute and the definition together.
  *
  * The rule per field is the one that field already documents: union for the
- * flags, MAX for alignment (it may only ever raise), last-wins for the
+ * flags, MAX for the entity's effective alignment, and last-wins for the
  * string-valued ones. An alias also carries its defining side effects, since
  * naming a target is what makes the declaration a definition. */
 /* `deprecated` fires at the USE, and there are THREE kinds of use that
@@ -2884,6 +2899,8 @@ static void declare_one(Sema *s, AstNode *d)
     bool had_prior_prototype = false;
     bool deferred_array_completion;
     u64 alignas_req;
+    u64 gnu_align_req;
+    bool has_gnu_align;
 
     if (!d || !d->name)
         return;
@@ -2969,6 +2986,15 @@ static void declare_one(Sema *s, AstNode *d)
             type = type_may_alias(s->arena, type);
         }
     }
+    has_gnu_align =
+        d->gnu.aligned_expr || d->gnu.aligned_bare || d->gnu.aligned_conflict;
+    gnu_align_req = gnu_aligned_value(s, &d->gnu, d->span);
+    /* On a typedef, `aligned` belongs to the TYPE rather than to the typedef
+     * symbol. GCC carries it through aliases and object/member/array layout,
+     * while the underlying named tag remains unchanged. Unlike the record and
+     * member positions, this is an exact request and may reduce alignment. */
+    if ((d->storage & AST_SC_TYPEDEF) && gnu_align_req)
+        type = type_with_alignment(s->arena, type, gnu_align_req);
     is_func = type && type->kind == TY_FUNC;
     alignas_req = check_alignas(s, d, type);
 
@@ -3102,21 +3128,27 @@ static void declare_one(Sema *s, AstNode *d)
         sym->gnu.weak = false;
     }
 
-    /* MAX across declarations, like the inline matrix: two declarations of
-     * one object are one object, and _Alignas may only ever RAISE. Before
-     * this the value was computed, validated and dropped on the floor.
-     *
-     * `aligned` folds into the same field. The two spellings differ in what a
-     * WEAKENING means -- a constraint violation for _Alignas, a silent decline
-     * for aligned -- and taking the max is both. */
-    {
-        u64 ga = gnu_aligned_value(s, &d->gnu, d->span);
+    /* Each object declaration contributes its EFFECTIVE alignment, and the
+     * entity keeps the strongest across redeclarations. A direct GNU request
+     * is exact (and can therefore reduce the type's alignment); an
+     * unattributed declaration contributes the type alignment. `_Alignas`
+     * has already rejected weakening and can only raise that result. */
+    if (sym->kind == SYM_VAR) {
+        u64 effective = layout_of(s, type).align;
 
-        if (ga > alignas_req)
-            alignas_req = ga;
+        if (has_gnu_align && gnu_align_req)
+            effective = gnu_align_req;
+        if (alignas_req > effective)
+            effective = alignas_req;
+        sym->align_override = effective;
+    } else if (sym->kind == SYM_FUNC) {
+        /* Function alignment remains a minimum over the backend's ordinary
+         * entry alignment; a weaker request has no observable effect. */
+        if (gnu_align_req > alignas_req)
+            alignas_req = gnu_align_req;
+        if (alignas_req > sym->align_override)
+            sym->align_override = alignas_req;
     }
-    if (alignas_req > sym->align_override)
-        sym->align_override = alignas_req;
 
     if (d->gnu.section_name)
         sym->section_name = intern_str(
@@ -4431,6 +4463,7 @@ static void finish_one_symbol(Sema *s, Symbol *sym)
             one->quals = sym->type->quals;
             one->may_alias = sym->type->may_alias;
             one->align_override = sym->type->align_override;
+            one->align_is_exact = sym->type->align_is_exact;
             one->has_size = true;
             one->size = 1;
             sym->type = one;

@@ -17,9 +17,10 @@ static char g_arr[3] A(32);
 int g_expr A(4 * 8) = 3; /* a constant EXPRESSION, not a literal */
 /* No argument: the target's biggest alignment, 16 on both Linux targets. */
 int g_bare __attribute__((aligned)) = 4;
-/* Weaker than natural: silently declined, never an error. The object keeps
- * its natural 4 and the program still runs. */
+/* An object request is exact: GCC permits this to reduce the declaration's
+ * alignment without changing the int type's size or natural alignment. */
 int g_weak A(1) = 5;
+_Static_assert(__alignof__(g_weak) == 1, "exact object alignment");
 
 static void aligned_fn(void) A(64);
 static void aligned_fn(void)
@@ -47,20 +48,18 @@ int main(void)
         return 4;
     if (((unsigned long)&g_bare & 15u) != 0)
         return 5;
-    if (((unsigned long)&g_weak & 3u) != 0)
-        return 6;
     if (!local_static())
-        return 7;
+        return 6;
     if (((unsigned long)&loc & 63u) != 0)
-        return 8;
+        return 7;
     /* The FUNCTION position aligns the CODE. */
     if (((unsigned long)(void *)aligned_fn & 63u) != 0)
-        return 9;
+        return 8;
 
     aligned_fn();
     if (g_pre != 1 || g_suf != 2 || g_expr != 3)
-        return 10;
+        return 9;
     if (g_bare != 4 || g_weak != 5 || loc != 7)
-        return 11;
+        return 10;
     return 0;
 }

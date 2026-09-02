@@ -147,8 +147,15 @@ struct Type {
     bool may_alias;
     /* GNU `aligned` attached to a declarator TYPE layer. This changes that
      * layer's layout but is not a C compatibility qualifier; size is
-     * unchanged and compatible redeclarations retain the strongest request. */
+     * unchanged and compatible redeclarations retain the strongest request.
+     *
+     * A directly attributed type has an EXACT alignment: unlike record and
+     * member `aligned`, GCC permits a typedef or pointer layer to reduce its
+     * natural alignment. A composite type has floor semantics unless both
+     * inputs were exact, because an unattributed declaration contributes the
+     * natural alignment to the redeclaration maximum. */
     u64 align_override;
+    bool align_is_exact;
 
     Type *base; /* TY_PTR pointee / TY_ARRAY element / TY_FUNC return */
 
@@ -239,11 +246,11 @@ struct Symbol {
     u32 reads;  /* value/address uses; a plain assignment lhs is corrected */
     u32 writes; /* assignments after declaration; initializer is not one */
     bool tls;   /* _Thread_local */
-    /* _Alignas on the OBJECT, 0 = none. Merged across declarations by MAX,
-     * which is what makes a raise legal and a weakening impossible. Members
-     * have had this since Sprint 14 as Member.align_override; objects had
-     * their alignment VALIDATED and then discarded, so `_Alignas(64) int g`
-     * emitted `.p2align 2` and the address was not 64-aligned at run time. */
+    /* Effective OBJECT alignment, or minimum FUNCTION alignment; 0 means no
+     * function request. Each object declaration contributes either its type
+     * alignment, exact GNU `aligned`, or stronger `_Alignas`, and
+     * redeclarations retain the maximum effective value. Members have had a
+     * separate field since Sprint 14. */
     u64 align_override;
     /* `alias("target")`: this symbol is a NAME for another one defined in the
      * same TU. Interned at the point sema resolves it, so it compares by

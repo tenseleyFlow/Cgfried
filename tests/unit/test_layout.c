@@ -469,6 +469,143 @@ void test_layout_inner_pointer_aligned_attribute(TestCtx *t)
     lay_free(&f);
 }
 
+void test_layout_aligned_typedef_is_an_exact_type_property(TestCtx *t)
+{
+    LayFix f;
+    Symbol *sym;
+    TypeLayout l;
+
+    (void)run_lay(
+        &f,
+        "typedef struct Tagged { char c[8]; } V "
+        "__attribute__((aligned(8)));\n" /* check_bans allow */
+        "typedef V W; V object;\n"
+        "struct Holder { char lead; W value; char tail; };\n"
+        "typedef long long Low __attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "typedef Low Four __attribute__" /* check_bans allow */
+        "((aligned(4)));\n"
+        "typedef Four Two __attribute__" /* check_bans allow */
+        "((aligned(2)));\n"
+        "typedef long long KeepLow __attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "typedef long long KeepLow;\n"
+        "typedef long long Grow __attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "typedef long long Grow __attribute__" /* check_bans allow */
+        "((aligned(8)));\n"
+        "typedef long long KeepHigh __attribute__" /* check_bans allow */
+        "((aligned(8)));\n"
+        "typedef long long KeepHigh __attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "struct Tight { char lead; Low value; char tail; };\n"
+        "int *__attribute__" /* check_bans allow */
+        "((aligned(1))) *p;\n"
+        "extern Low merged; extern long long merged;\n"
+        "long long direct __attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "typedef long long High __attribute__" /* check_bans allow */
+        "((aligned(16)));\n"
+        "High lowered __attribute__" /* check_bans allow */
+        "((aligned(1)));\n"
+        "_Alignas(16) Low raised;\n"
+        "extern long long redecl_a __attribute__" /* check_bans allow */
+        "((aligned(1))); extern long long redecl_a;\n"
+        "extern long long redecl_b; extern long long redecl_b "
+        "__attribute__" /* check_bans allow */
+        "((aligned(1)));\n",
+        CGF_TARGET_X86_64_LINUX_GNU);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "V")), NS_ORDINARY);
+    T_ASSERT(t, sym != NULL && sym->kind == SYM_TYPEDEF);
+    l = layout_of(&f.sema, sym->type);
+    T_ASSERT_EQ_INT(t, (int)l.size, 8);
+    T_ASSERT_EQ_INT(t, (int)l.align, 8);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Tagged")), NS_TAG);
+    T_ASSERT(t, sym != NULL && sym->tag != NULL);
+    l = layout_of(&f.sema, sym->tag->type);
+    T_ASSERT_EQ_INT(t, (int)l.size, 8);
+    T_ASSERT_EQ_INT(t, (int)l.align, 1);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Holder")), NS_TAG);
+    T_ASSERT(t, sym != NULL && sym->tag != NULL);
+    l = layout_of(&f.sema, sym->tag->type);
+    T_ASSERT_EQ_INT(t, (int)l.size, 24);
+    T_ASSERT_EQ_INT(t, (int)l.align, 8);
+
+    sym =
+        scope_lookup(f.sema.file_scope,
+                     intern_str(&f.in, intern_cstr(&f.in, "Low")), NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 1);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Four")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 4);
+    sym =
+        scope_lookup(f.sema.file_scope,
+                     intern_str(&f.in, intern_cstr(&f.in, "Two")), NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 2);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "KeepLow")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 1);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Grow")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 8);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "KeepHigh")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 8);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Tight")), NS_TAG);
+    l = layout_of(&f.sema, sym->tag->type);
+    T_ASSERT_EQ_INT(t, (int)l.size, 10);
+    T_ASSERT_EQ_INT(t, (int)l.align, 1);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "p")), NS_ORDINARY);
+    T_ASSERT(t, sym != NULL && sym->type != NULL && sym->type->base != NULL);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type->base).align, 1);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "merged")),
+                       NS_ORDINARY);
+    T_ASSERT(t, sym != NULL);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 8);
+    T_ASSERT_EQ_INT(t, (int)sym->align_override, 8);
+
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "direct")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 8);
+    T_ASSERT_EQ_INT(t, (int)sym->align_override, 1);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "lowered")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, sym->type).align, 16);
+    T_ASSERT_EQ_INT(t, (int)sym->align_override, 1);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "raised")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)sym->align_override, 16);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "redecl_a")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)sym->align_override, 8);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "redecl_b")),
+                       NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, (int)sym->align_override, 8);
+    lay_free(&f);
+}
+
 void test_layout_unnamed_nonzero_bitfields_per_target(TestCtx *t)
 {
     struct {

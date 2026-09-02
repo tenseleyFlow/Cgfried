@@ -108,12 +108,8 @@ static AstNode *expr_ident(Sema *s, AstNode *e)
     }
     e->sym = sym;
     e->sem_type = sym->type;
-    if (sym->align_override) {
-        u64 natural = layout_of(s, sym->type).align;
-
-        e->sem_lvalue_align =
-            sym->align_override > natural ? sym->align_override : natural;
-    }
+    if (sym->align_override)
+        e->sem_lvalue_align = sym->align_override;
     sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
                          sym->gnu.deprecated_msg, e->span);
     if (sym->kind == SYM_VAR ||

@@ -4316,8 +4316,9 @@ labels, `section`, `constructor`, `destructor`, `cleanup`.
   the offsets alone and every offset a reader checks is right while `sizeof`
   keeps its tail padding. Injecting exactly that takes the layout differential
   400/400 -> 277/400, failing on `_Alignof` and never on an offset.
-- **`aligned`**: the INVERSE of `_Alignas` -- it only ever RAISES, so a weaker
-  request is silently declined and `aligned(1)` is NOT a spelling of `packed`.
+- **`aligned`**: record/member positions only raise, so member `aligned(1)` is
+  not a spelling of `packed`; object, typedef, and declarator-type positions
+  are exact and may reduce alignment without changing size or compatibility.
 - **`alias`**: two bugs only a real LINK showed. IPO deleted a static function
   reachable only through its alias (a `.set` is not a relocation, so the
   callgraph never saw it), and `.weak_definition` is Mach-O's spelling that

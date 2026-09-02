@@ -80,15 +80,30 @@ Type *type_with_alignment(Arena *ar, const Type *t, u64 align)
 {
     Type *a;
 
-    if (!t || align <= t->align_override)
+    if (!t || !align)
         return (Type *)t;
     /* Basic types are process-global interned nodes, and derived types may be
-     * shared by typedef lookup. Never mutate either in place: the alignment
-     * belongs only to the attributed spelling that requested it. */
+     * shared by typedef lookup. Never mutate either in place: the exact
+     * alignment belongs only to the attributed spelling that requested it.
+     * GCC permits a typedef and a declarator type layer to lower alignment as
+     * well as raise it, so a new explicit request REPLACES an inherited one. */
     a = type_new(ar, t->kind);
     *a = *t;
     a->align_override = align;
+    a->align_is_exact = true;
     return a;
+}
+
+static void composite_alignment(Type *out, const Type *a, const Type *b)
+{
+    out->align_override = a->align_override > b->align_override
+                              ? a->align_override
+                              : b->align_override;
+    /* `none` means the natural alignment, so combining an unattributed type
+     * with an exact one must restore the natural floor. Only two explicitly
+     * exact inputs leave a result that may remain below natural alignment. */
+    out->align_is_exact =
+        out->align_override && a->align_is_exact && b->align_is_exact;
 }
 
 Type *type_ptr(Arena *ar, Type *pointee)
@@ -471,9 +486,7 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_ptr(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
-        c->align_override = a->align_override > b->align_override
-                                ? a->align_override
-                                : b->align_override;
+        composite_alignment(c, a, b);
         return c;
     case TY_ARRAY:
         /* The size comes from whichever declaration HAS one: this is what
@@ -481,9 +494,7 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_array(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
-        c->align_override = a->align_override > b->align_override
-                                ? a->align_override
-                                : b->align_override;
+        composite_alignment(c, a, b);
         if (a->has_size) {
             c->has_size = true;
             c->size = a->size;
@@ -501,9 +512,7 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         c = type_func(ar, type_composite(ar, a->base, b->base));
         c->quals = a->quals;
         c->may_alias = a->may_alias || b->may_alias;
-        c->align_override = a->align_override > b->align_override
-                                ? a->align_override
-                                : b->align_override;
+        composite_alignment(c, a, b);
         if (!proto) {
             const Type *definition = a->old_style_definition
                                          ? a
@@ -542,7 +551,11 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         u64 align = a->align_override > b->align_override ? a->align_override
                                                           : b->align_override;
 
-        return type_with_alignment(ar, out, align);
+        if (align) {
+            out = type_with_alignment(ar, out, align);
+            out->align_is_exact = a->align_is_exact && b->align_is_exact;
+        }
+        return out;
     }
     }
 }
