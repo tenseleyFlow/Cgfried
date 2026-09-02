@@ -77,12 +77,13 @@ composite-array-bound tranche is merged as `1b8ec6ae`, raising the
 target-complete PASS ratchet to 26,860. PR #65's unprototyped-call IR tranche
 is merged as `3db23ef`, raising the target-complete PASS ratchet to 26,870.
 PR #66's x86 immediate-materialization tranche is merged as `7b79b9ad`,
-raising the target-complete ratchet to 26,875 lines. The current
-`s56.5-arm64-stacked-large-aggregate-abi` tranche on PR #67 is target-complete
-at 26,880 ratchet lines (26,877 PASS keys) with 49 applied policy decisions
-and awaits fresh post-publication CI before merge. Sprint 56's campaign
-machine and triage map remain complete while Sprint 58 continues its
-independent soak.
+raising the target-complete ratchet to 26,875 lines. PR #67's ARM64 stacked
+large-aggregate ABI tranche is merged as `01d95ccc`, raising the
+target-complete ratchet to 26,880 lines (26,877 PASS keys). The current
+`s56.5-x87-tied-double-operand-shape` tranche on PR #68 is target-complete at
+26,885 ratchet lines (26,882 PASS keys) with 48 applied policy decisions and
+awaits fresh post-publication CI. Sprint 56's campaign machine and triage map
+remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -2139,6 +2140,79 @@ and green post-publication CI.
   `676280470bdce1ce9a06a7199e4548fcc31ca6bbdb721cebec767cd3322ad1c9`
   and
   `6bdef25c3ef444d913b52b5afb2245c941f8825246acd830528b2e5f9c18f14b`.
+  Post-publication standard CI
+  [run 33577031792](https://github.com/tenseleyFlow/Cgfried/actions/runs/33577031792)
+  and exact-head native ARM64
+  [run 33577037721](https://github.com/tenseleyFlow/Cgfried/actions/runs/33577037721)
+  are fully green. PR #67 merged as `01d95ccc`; the next evidence-led
+  candidate was `s56.5-x87-tied-double-operand-shape`.
+- The `s56.5-x87-tied-double-operand-shape` tranche (PR #68) resolves the
+  isolated five-cell x86 `torture-compile/pr34966.c` gap. GNU permits a
+  binary32, binary64, or extended value to be tied to `st(0)` through either a
+  read-write `+t` operand or the equivalent `=t` output plus numeric `0`
+  input. Cgfried left the numeric input in its generic register class,
+  validated only the long-double `+t` spelling, and hard-coded `fldt`/`fstpt`
+  in x86 selection. Matching inputs now inherit the output's x87 class and
+  width. The backend keeps memory-resident f80 values unchanged, spills f32
+  and f64 inputs from SSE to a local slot, and emits width-correct
+  `flds`/`fstps`, `fldl`/`fstpl`, or `fldt`/`fstpt` pairs.
+
+  The permanent GNU fixture checks exact float and double assembly mnemonics
+  and runtime bit preservation. Apple-silicon validation compiles and
+  assembles the imported case at O0/O1/O2/O3/Os, preserves the existing f80
+  constraint fixture, passes focused sanitized emission and assembly, and
+  completes 2,000 sanitized plus 2,000 unsanitized frontend-fuzz cases with
+  zero findings. Three independent 5,000-case sequences agree on the intended
+  corpus digest repin. Import, ban, closeout, strict clang-format 22, and
+  deterministic fuzz-smoke gates pass. In the Ubuntu 24.04 x86-64 verification
+  guest, the new and existing x87 fixtures pass normally, with
+  `CGF_SPILL_ALL=1`, and under ASan+UBSan. The full native unit suite reports
+  836 tests / 4,294,160 assertions / zero failures; the broad `make test` gate
+  reaches only the documented minimal-image absence of the Clang ppdiff
+  oracle after all preceding lanes pass.
+
+  Behavior head `ba0f28846b0d95c6b0bba72af89819a33ac6925b` passes every
+  non-torture standard PR job in
+  [run 33583393103](https://github.com/tenseleyFlow/Cgfried/actions/runs/33583393103),
+  including 100,000 ASan+UBSan frontend-fuzz iterations; its x86 gate rejects
+  exactly the five newly passing `pr34966.c` cells and no regression. Exact-head
+  full-lattice
+  [run 33583428581](https://github.com/tenseleyFlow/Cgfried/actions/runs/33583428581)
+  is fully green and retains the unchanged native ARM64 stream. Because the PR
+  checkout artifact names GitHub's synthetic merge revision, the publishable
+  exact-head x86 stream was regenerated from the clean behavior receipt in the
+  retained Ubuntu x86-64 guest. Five optimization-level shards use the
+  repository's canonical runner with isolated work roots; their identical
+  provenance headers and deterministically sorted rows form all 20,325 unique
+  target cells.
+
+  The x86 stream SHA-256 is
+  `dbdf05c58a6f6812443cf960e7f5fbbff507e8d981b34a2adc2b207daa845032`;
+  the native ARM stream SHA-256 is
+  `22805ff9467295bf73da60ededf65f90d9294b1e7ef5f941370eac313c52977f`.
+  They share the exact behavior revision, compiler-source SHA-256
+  `cfa83d4489ce65b5be8fce2a67dc4d75779d6f895a85b9c6999aaae50adeafd2`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 compiler/driver SHA-256 is
+  `a2936e9317ec6101f5a4534a0c532732a5406358bec9c0376e5fc3ad1e78d3e0`;
+  ARM's is
+  `2e6033becdf06770a3f47cca0ac3a19dfb596ee967f0c8401a588a13ec3e98c5`.
+
+  Target-complete publication promotes exactly the five x86 `pr34966.c`
+  cells with zero PASS regression and retires fingerprint `b97306b0...`. The
+  published state is 26,885 ratchet lines / 26,882 PASS keys, 7,148 classified
+  failures, 57 buckets, 48 applied decisions, 24 live repair rows representing
+  20 repair tranches, and zero stale or unresolved decisions. Reversing the
+  evidence streams regenerates both outputs byte-identically; PASS and triage
+  SHA-256 values are respectively
+  `d86997a0a9e993a0d659719f77f2a17629c516b41801965cf855cb094121c773`
+  and
+  `d4b605debe22cdbe1ee5abd8332b1267c7964d2298d360c973db2e2a475aaaaa`.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
   before merging. Select the next compiler-gap candidate from this newly
   generated triage only after those gates are green.

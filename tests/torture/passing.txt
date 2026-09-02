@@ -11407,10 +11407,15 @@ torture-compile/pr34448.c@O3@x86_64-linux-gnu
 torture-compile/pr34448.c@Os@arm64-linux
 torture-compile/pr34448.c@Os@x86_64-linux-gnu
 torture-compile/pr34966.c@O0@arm64-linux
+torture-compile/pr34966.c@O0@x86_64-linux-gnu
 torture-compile/pr34966.c@O1@arm64-linux
+torture-compile/pr34966.c@O1@x86_64-linux-gnu
 torture-compile/pr34966.c@O2@arm64-linux
+torture-compile/pr34966.c@O2@x86_64-linux-gnu
 torture-compile/pr34966.c@O3@arm64-linux
+torture-compile/pr34966.c@O3@x86_64-linux-gnu
 torture-compile/pr34966.c@Os@arm64-linux
+torture-compile/pr34966.c@Os@x86_64-linux-gnu
 torture-compile/pr34993.c@O0@arm64-linux
 torture-compile/pr34993.c@O0@x86_64-linux-gnu
 torture-compile/pr34993.c@O1@arm64-linux
