@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `ba0f28846b0d95c6b0bba72af89819a33ac6925b`
-- compiler-source-sha256: `cfa83d4489ce65b5be8fce2a67dc4d75779d6f895a85b9c6999aaae50adeafd2`
+- source-revision: `3a15afd338ed62d0722f2be4e02a8bbf7dd1bbc6`
+- compiler-source-sha256: `77e97982c9dd6d2c7dbf6cc5d18d0c7f6aebb45d3a35d2a642dda8c343692849`
 - harness-sha256: `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`
 - torture-manifest-sha256: `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `2e6033becdf06770a3f47cca0ac3a19dfb596ee967f0c8401a588a13ec3e98c5` | `2e6033becdf06770a3f47cca0ac3a19dfb596ee967f0c8401a588a13ec3e98c5` |
-| x86_64-linux-gnu | `a2936e9317ec6101f5a4534a0c532732a5406358bec9c0376e5fc3ad1e78d3e0` | `a2936e9317ec6101f5a4534a0c532732a5406358bec9c0376e5fc3ad1e78d3e0` |
+| arm64-linux | `7a8c15bfcc6e03872acebd1cdca75a6de79510badeca3d8265f6c3f403be9c2f` | `7a8c15bfcc6e03872acebd1cdca75a6de79510badeca3d8265f6c3f403be9c2f` |
+| x86_64-linux-gnu | `e3bfdd5fc92b7ea9ca98293c9a57ad3d5bcd04bdeefc019ab5141ac54c18cb9d` | `e3bfdd5fc92b7ea9ca98293c9a57ad3d5bcd04bdeefc019ab5141ac54c18cb9d` |
 
 ## Baseline
 
@@ -39,8 +39,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | torture-compile | O3 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
 | torture-compile | Os | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
 | torture-compile | Os | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
-| torture-execute | O0 | arm64-linux | 1752 | 1028 | 257 | 0 | 467 | 68.76% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1028 | 257 | 0 | 467 | 68.76% |
+| torture-execute | O0 | arm64-linux | 1752 | 1029 | 257 | 0 | 466 | 68.83% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1029 | 257 | 0 | 466 | 68.83% |
 | torture-execute | O1 | arm64-linux | 1752 | 1029 | 257 | 0 | 466 | 68.83% |
 | torture-execute | O1 | x86_64-linux-gnu | 1752 | 1029 | 257 | 0 | 466 | 68.83% |
 | torture-execute | O2 | arm64-linux | 1752 | 1029 | 257 | 0 | 466 | 68.83% |
@@ -974,29 +974,15 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.
 - Disposition: `out-of-scope`
 
-### Bucket 57
-
-- Count: 2
-- Cluster: signal=`-`; phase=`ld`
-- Fingerprint: `aace2c03842f0e2505bcb4d7ea1906463cf98a369466b5c20a2753de0e9efc31`
-- Exemplars: torture-execute/medce-1.c@O0@arm64-linux, torture-execute/medce-1.c@O0@x86_64-linux-gnu
-- Diagnostic: [ld-class=deliberate-link-error] (<section>+<offset>): undefined reference to <id>
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 2
-- Optdiv exemplars: -
-- Hypothesis: O0 emission retains unreachable or unreferenced calls deliberately named link_error
-- Disposition: `fix-sprint:s56.5-dead-code-link-elimination`
-
 ## Policy Overlay
 
-- Applied decisions: 48
+- Applied decisions: 47
 - Stale decisions: 0
 
 ## Coverage
 
-- Failed cells: 7148
-- Bucketed cells: 7148
+- Failed cells: 7146
+- Bucketed cells: 7146
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

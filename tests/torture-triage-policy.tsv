@@ -17,7 +17,6 @@
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
--	aace2c03842f0e2505bcb4d7ea1906463cf98a369466b5c20a2753de0e9efc31	ld	all	O0 emission retains unreachable or unreferenced calls deliberately named link_error	fix-sprint:s56.5-dead-code-link-elimination
 -	acf3af7f1c9c3a7c11b6175147cd3c92078cd42a313164f6b5145b98513ab18c	parse	all	GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope	wontfix-0.1.0
 -	afb9f891e77ea9ff3bedc8426dab776716e83fb433d22c8e2f1ed92a0df6cd4c	parse	all	The case uses GNU complex declarations and component operators, outside the v0.1.0 language scope.	out-of-scope
 -	b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9	sema	all	GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.	wontfix-0.1.0
