@@ -186,6 +186,14 @@ AstNode *conv_lvalue(Sema *s, AstNode *e)
     if (t->quals) {
         AstNode *c = conv_cast(s, e, conv_strip_quals(s, t));
 
+        /* This is the language's lvalue conversion, not a source cast. A
+         * qualified bit-field remains subject to bit-field promotion after
+         * its top-level qualifiers are removed. */
+        if (c != e && e->sem_is_bitfield) {
+            c->sem_bitfield_width = e->sem_bitfield_width;
+            c->sem_is_bitfield = true;
+            c->sem_bitfield_is_signed = e->sem_bitfield_is_signed;
+        }
         return c;
     }
     e->is_lvalue = false;
@@ -241,14 +249,42 @@ Type *conv_promote_type(Sema *s, Type *t)
     return type_basic(TY_UINT);
 }
 
+Type *conv_promote_bitfield_type(Sema *s, Type *t, u32 width, bool is_signed)
+{
+    IntWidths w = cgf_target_int_widths(s->target);
+
+    if (!t)
+        return t;
+    /* GNU accepts every integer base type for a bit-field. Its integer
+     * promotion nevertheless follows the field's effective precision, not
+     * the rank of that base: `unsigned long long : 3` promotes to int while
+     * a 35-bit field retains its declared extended type. */
+    if (!type_is_integer(t) || width > w.int_bits)
+        return conv_strip_quals(s, t);
+    if (width < w.int_bits || is_signed)
+        return type_basic(TY_INT);
+    return type_basic(TY_UINT);
+}
+
+static Type *conv_promote_expr_type(Sema *s, const AstNode *e)
+{
+    if (e && e->sem_is_bitfield)
+        return conv_promote_bitfield_type(s, e->sem_type, e->sem_bitfield_width,
+                                          e->sem_bitfield_is_signed);
+    return conv_promote_type(s, e ? e->sem_type : NULL);
+}
+
 AstNode *conv_promote(Sema *s, AstNode *e)
 {
     Type *promoted;
 
     if (!e || !e->sem_type)
         return e;
+    /* Capture the promotion before lvalue conversion: a qualified bit-field
+     * may acquire an implicit qualifier-stripping cast that intentionally is
+     * not itself a bit-field expression. */
+    promoted = conv_promote_expr_type(s, e);
     e = conv_decay(s, e);
-    promoted = conv_promote_type(s, e->sem_type);
     if (promoted == e->sem_type)
         return e;
     return conv_cast(s, e, promoted);
@@ -368,11 +404,18 @@ Type *conv_uac_type(Sema *s, Type *a, Type *b)
 
 Type *conv_uac(Sema *s, AstNode **a, AstNode **b)
 {
+    Type *ap;
+    Type *bp;
     Type *result;
 
+    /* 6.3.1.8 applies the integer promotions before choosing the common
+     * type. Record expression-specific bit-field precision before decay can
+     * wrap a qualified lvalue in a cast. */
+    ap = conv_promote_expr_type(s, *a);
+    bp = conv_promote_expr_type(s, *b);
     *a = conv_decay(s, *a);
     *b = conv_decay(s, *b);
-    result = conv_uac_type(s, (*a)->sem_type, (*b)->sem_type);
+    result = conv_uac_type(s, ap, bp);
     *a = conv_cast(s, *a, result);
     *b = conv_cast(s, *b, result);
     return result;

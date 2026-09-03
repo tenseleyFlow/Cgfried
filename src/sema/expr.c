@@ -198,15 +198,36 @@ static bool is_ptr(const Type *t)
  * arrives as that pointer itself and the test is "compatible with va_list".
  * Lowering makes the two uniform by taking the ADDRESS in the second case --
  * decay does it for free in the first. */
-static bool is_va_list_cursor(Sema *s, const Type *t)
+static AstNode *expr_va_list_cursor(Sema *s, AstNode *e)
+{
+    Type *va;
+
+    e = expr(s, e);
+    if (quiet(e, NULL))
+        return e;
+    va = sema_va_list_type(s);
+    /* Array-form cursors are passed by their ordinary array-to-pointer
+     * conversion. Apple's cursor is a pointer OBJECT: keep that lvalue
+     * intact because va_start/va_arg/va_end update the object itself and
+     * lowering therefore needs its address. Ordinary lvalue conversion
+     * would both erase a rejecting qualifier and manufacture an rvalue
+     * cast which cannot be addressed. */
+    return va && va->kind == TY_ARRAY ? conv_decay(s, e) : e;
+}
+
+static bool is_va_list_cursor(Sema *s, const AstNode *e)
 {
     Type *va = sema_va_list_type(s);
+    const Type *t = e ? e->sem_type : NULL;
 
-    if (!va)
+    if (!va || !t)
         return false;
     if (va->kind != TY_ARRAY)
-        return type_compatible(conv_strip_quals(s, (Type *)t),
-                               conv_strip_quals(s, va));
+        /* The pointer-form cursor must be the actual, unqualified va_list
+         * object. A cast/rvalue has nowhere to store the advanced cursor;
+         * const/volatile/restrict/_Atomic variants are likewise rejected by
+         * Clang on Apple rather than silently stripped. */
+        return e->is_lvalue && type_compatible(t, va);
     return is_ptr(t) && va->base &&
            type_compatible(conv_strip_quals(s, t->base),
                            conv_strip_quals(s, va->base));
@@ -935,6 +956,10 @@ static AstNode *expr_member(Sema *s, AstNode *e)
         e->sem_lvalue_align = member_align;
     }
     e->sem_is_bitfield = m->is_bitfield;
+    if (m->is_bitfield) {
+        e->sem_bitfield_width = m->bit_width;
+        e->sem_bitfield_is_signed = m->bitfield_is_signed;
+    }
     /* `f().m` is not an lvalue even though it has struct type — the
      * lvalue bit has to come from the object, not from the member. */
     e->is_lvalue = e->is_arrow ? true : obj->is_lvalue;
@@ -1093,8 +1118,15 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     direct_ident->name, want, want == 1 ? "" : "s");
                 return poison(s, e);
             }
-            for (i = 0; i < e->nargs; i++)
-                e->args[i] = conv_decay(s, expr(s, e->args[i]));
+            for (i = 0; i < e->nargs; i++) {
+                bool cursor_arg =
+                    (b == SEMA_BUILTIN_VA_START || b == SEMA_BUILTIN_VA_END ||
+                     b == SEMA_BUILTIN_VA_COPY) &&
+                    i < (b == SEMA_BUILTIN_VA_COPY ? 2u : 1u);
+
+                e->args[i] = cursor_arg ? expr_va_list_cursor(s, e->args[i])
+                                        : conv_decay(s, expr(s, e->args[i]));
+            }
             if (b == SEMA_BUILTIN_VA_START || b == SEMA_BUILTIN_VA_END ||
                 b == SEMA_BUILTIN_VA_COPY) {
                 u32 cursors = b == SEMA_BUILTIN_VA_COPY ? 2u : 1u;
@@ -1102,7 +1134,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 for (i = 0; i < cursors; i++) {
                     if (quiet(e->args[i], NULL))
                         return poison(s, e);
-                    if (!is_va_list_cursor(s, e->args[i]->sem_type)) {
+                    if (!is_va_list_cursor(s, e->args[i])) {
                         err(s, e->args[i]->span,
                             "argument %u to '%s' is not a va_list",
                             (unsigned)i + 1, direct_ident->name);
@@ -1469,6 +1501,9 @@ static AstNode *expr_generic(Sema *s, AstNode *e)
     chosen->lhs = conv_decay(s, expr(s, chosen->lhs));
     e->sem_type = chosen->lhs->sem_type;
     e->is_lvalue = false;
+    e->sem_bitfield_width = chosen->lhs->sem_bitfield_width;
+    e->sem_is_bitfield = chosen->lhs->sem_is_bitfield;
+    e->sem_bitfield_is_signed = chosen->lhs->sem_bitfield_is_signed;
     e->mid = chosen->lhs; /* what lowering will emit */
     return e;
 }
@@ -1541,7 +1576,9 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->sem_type = e->lhs->sem_type;
         e->is_lvalue = e->lhs->is_lvalue;
         e->sem_lvalue_align = e->lhs->sem_lvalue_align;
+        e->sem_bitfield_width = e->lhs->sem_bitfield_width;
         e->sem_is_bitfield = e->lhs->sem_is_bitfield;
+        e->sem_bitfield_is_signed = e->lhs->sem_bitfield_is_signed;
         e->poisoned = e->poisoned || e->lhs->poisoned;
         return e;
     case AST_EXPR_UNARY:
@@ -1721,6 +1758,10 @@ static AstNode *expr(Sema *s, AstNode *e)
             e->sem_type =
                 sel && sel->sem_type ? sel->sem_type : type_basic(TY_ERROR);
             e->is_lvalue = sel ? sel->is_lvalue : false;
+            e->sem_bitfield_width = sel ? sel->sem_bitfield_width : 0;
+            e->sem_is_bitfield = sel ? sel->sem_is_bitfield : false;
+            e->sem_bitfield_is_signed =
+                sel ? sel->sem_bitfield_is_signed : false;
         }
         return e;
     }
@@ -1744,12 +1785,12 @@ static AstNode *expr(Sema *s, AstNode *e)
          * really is a va_list is deliberately loose — glibc's macros
          * pass both the array and its decayed pointer, and the SysV
          * record address is the same either way. */
-        e->lhs = conv_decay(s, expr(s, e->lhs));
+        e->lhs = expr_va_list_cursor(s, e->lhs);
         e->sem_type = sema_type_from_ast(s, e->type, e->span);
         e->is_lvalue = false;
         if (quiet(e->lhs, NULL))
             return poison(s, e);
-        if (!is_va_list_cursor(s, e->lhs->sem_type)) {
+        if (!is_va_list_cursor(s, e->lhs)) {
             err(s, e->lhs->span,
                 "first argument to '__builtin_va_arg' is not a va_list");
             return poison(s, e);

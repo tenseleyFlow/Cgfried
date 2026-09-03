@@ -358,7 +358,13 @@ struct AstNode {
      * a packed member LOWERING it; zero means "use the Type". Parenthesis
      * preserves it, while value-producing operators intentionally do not. */
     u64 sem_lvalue_align;
+    /* A bit-field's declared base type is not enough to perform the integer
+     * promotions: GNU permits long and long long bases, but a narrow field
+     * still promotes according to the field's effective precision. Keep the
+     * resolved member facts on expressions that preserve bit-field identity. */
+    u32 sem_bitfield_width;
     bool sem_is_bitfield; /* resolved member expression; not addressable */
+    bool sem_bitfield_is_signed;
     /* AST_EXPR_STRING synthesized for C11 `__func__` or GNU
      * `__FUNCTION__` / `__PRETTY_FUNCTION__`. Its element type is const char,
      * unlike an ordinary string literal's char, while lowering can share the

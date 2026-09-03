@@ -232,6 +232,42 @@ void test_sema_void_dereference_is_void_expression(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_bitfield_integer_promotions(TestCtx *t)
+{
+    SemaFix f;
+
+    /* GNU permits bit-field bases wider than int, but promotion follows the
+     * field's effective precision. Parentheses, a qualified containing
+     * object, and __builtin_choose_expr all preserve bit-field identity;
+     * an explicit cast deliberately ends it. */
+    run_sema(
+        &f,
+        "struct B { unsigned int u3 : 3; signed long s32 : 32; "
+        "unsigned long u32 : 32; unsigned long long ull3 : 3; "
+        "unsigned long long ull35 : 35; };\n"
+        "#define SAME(E, T) __builtin_types_compatible_p(__typeof__(E), T)\n"
+        "_Static_assert(SAME(+(((struct B *)0)->u3), int), \"u3\");\n"
+        "_Static_assert(SAME(+((const struct B *)0)->u3, int), \"const\");\n"
+        "_Static_assert(SAME(+((struct B *)0)->s32, int), \"s32\");\n"
+        "_Static_assert(SAME(+((struct B *)0)->u32, unsigned int), \"u32\");\n"
+        "_Static_assert(SAME(+((struct B *)0)->ull3, int), \"ull3\");\n"
+        "_Static_assert(SAME(+((struct B *)0)->ull35, unsigned long long), "
+        "\"ull35\");\n"
+        "_Static_assert(SAME((int)1 % ((struct B *)0)->u3, int), \"uac\");\n"
+        "_Static_assert(SAME((int)1 % ((const struct B *)0)->u3, int), "
+        "\"qualified uac\");\n"
+        "_Static_assert(SAME((int)1 % (unsigned int)((struct B *)0)->u3, "
+        "unsigned int), \"cast\");\n"
+        "_Static_assert(SAME(+_Generic(0, default: ((struct B *)0)->u3), int), "
+        "\"generic\");\n"
+        "_Static_assert(SAME(+__builtin_choose_expr(1, ((struct B *)0)->u3, "
+        "((struct B *)0)->u32), int), \"choose\");\n",
+        STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_aggregate_self_cast(TestCtx *t)
 {
     SemaFix f;
