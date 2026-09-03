@@ -885,6 +885,8 @@ void test_lower_runtime_record_parameter_rebinds_bound(TestCtx *t)
      * discarded prototype symbol (GCC torture compile/20020210-1.c). */
     T_ASSERT(t, strstr(txt(&f), "load i32") != NULL);
     T_ASSERT(t, strstr(txt(&f), "imul i64") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func void @consume(i32 %0, ptr %1)") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "byval(") == NULL);
     low_free(&f);
 }
 
@@ -905,6 +907,47 @@ void test_lower_runtime_record_array_uses_dynamic_alloca(TestCtx *t)
     T_ASSERT(t, strstr(ir, "stacksave") != NULL);
     T_ASSERT(t, strstr(ir, "stackrestore") != NULL);
     T_ASSERT(t, strstr(ir, "alloca 1, align") == NULL);
+    low_free(&f);
+}
+
+void test_lower_runtime_record_copy_uses_cached_extent(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(&f, "void copy(int n, void *raw) {\n"
+                              "  struct S { char bytes[n]; } *p = raw, a, b;\n"
+                              "  a = p[0];\n"
+                              "  b = a;\n"
+                              "  p[1] = b;\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* A runtime record has a one-byte recovery layout, but every real object
+     * and assignment uses the declaration-time cached extent. Dynamic copies
+     * are libc calls because both selectors reserve IR memcpy for constants. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "call ptr @memcpy"), 3);
+    T_ASSERT(t, strstr(ir, "memcpy %") == NULL);
+    T_ASSERT(t, strstr(ir, "alloca 1, align 1, etype aggregate") == NULL);
+    T_ASSERT(t, strstr(ir, "call ptr @memcpy(ptr %") != NULL);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "void copy(int n, void *raw) {\n"
+                              "  struct S { char bytes[n]; };\n"
+                              "  volatile struct S *source = raw;\n"
+                              "  struct S value;\n"
+                              "  value = *source;\n"
+                              "  *source = value;\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* Calling libc would erase volatile aggregate accesses, so this narrow
+     * corner uses a byte loop with an observable load and store each trip. */
+    T_ASSERT_EQ_INT(t, count_of(ir, "vmcopy.head"), 6);
+    T_ASSERT_EQ_INT(t, count_of(ir, "call ptr @memcpy"), 0);
+    T_ASSERT(t,
+             strstr(ir, "load i8") != NULL && strstr(ir, "store i8") != NULL);
+    T_ASSERT(t, count_of(ir, "volatile") >= 4);
     low_free(&f);
 }
 

@@ -122,11 +122,76 @@ void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
 {
     TypeLayout l = layout_of(lo->sema, t);
     LowerMemRanges ranges = {0};
+    IrOperand size;
 
-    lower_mem_ranges(lo, t, 0, &ranges);
-    ir_mem_layout_register(lo->m, ir_builder_span(&lo->b), l.size,
-                           ranges.ranges, ranges.n, ranges.suppress);
-    ir_build_memcpy(&lo->b, dst, src, lower_i64((i64)l.size), align, flags);
+    if (!type_is_runtime_sized(t)) {
+        lower_mem_ranges(lo, t, 0, &ranges);
+        ir_mem_layout_register(lo->m, ir_builder_span(&lo->b), l.size,
+                               ranges.ranges, ranges.n, ranges.suppress);
+        ir_build_memcpy(&lo->b, dst, src, lower_i64((i64)l.size), align, flags);
+        return;
+    }
+
+    /* The declaration-time VLA extent is cached by lower_type_size and is
+     * the byte count for every later assignment and ABI snapshot. Runtime
+     * records have no constant padding map to register with memsafe. */
+    size = lower_type_size(lo, t);
+    if (!(flags & IRF_VOLATILE)) {
+        IrOperand args[3] = {dst, src, size};
+
+        /* Both selectors intentionally require IR_MEMCPY to have a constant
+         * size. Keep that compact intrinsic for fixed aggregates and express
+         * a genuinely dynamic copy through the ordinary libc contract. */
+        (void)ir_build_call(&lo->b, IRT_PTR, FUNCREF_EXTERNAL,
+                            ir_sym(lo->m, "memcpy"), args, 3);
+        return;
+    }
+    {
+        /* A libc call would discard volatile access semantics. Copy one byte
+         * per iteration so each source read and destination write remains an
+         * observable volatile access even though the extent is dynamic. */
+        BlockId head = lower_new_block(lo, "vmcopy.head");
+        BlockId body = lower_new_block(lo, "vmcopy.body");
+        BlockId done = lower_new_block(lo, "vmcopy.done");
+        ValueId index = ir_block_param(lo->m, lo->fn, head, IRT_I64);
+        IrOperand zero = lower_i64(0);
+
+        ir_build_br(&lo->b, head, &zero, 1);
+        lower_at(lo, head);
+        {
+            ValueId more = ir_build_icmp(&lo->b, ICMP_ULT,
+                                         ir_op_value(lo->fn, index), size);
+
+            ir_build_condbr(&lo->b, ir_op_value(lo->fn, more), body, NULL, 0,
+                            done, NULL, 0);
+        }
+        lower_at(lo, body);
+        {
+            IrOperand off = ir_op_value(lo->fn, index);
+            ValueId src_at = ir_build_ptradd(&lo->b, src, off);
+            ValueId dst_at = ir_build_ptradd(&lo->b, dst, off);
+            Lvalue src_lv = {0};
+            Lvalue dst_lv = {0};
+            IrOperand byte;
+            ValueId next;
+            IrOperand next_op;
+
+            src_lv.addr = ir_op_value(lo->fn, src_at);
+            src_lv.unit = IRT_I8;
+            src_lv.align = 1;
+            src_lv.is_volatile = true;
+            byte = lower_load(lo, src_lv);
+            dst_lv.addr = ir_op_value(lo->fn, dst_at);
+            dst_lv.unit = IRT_I8;
+            dst_lv.align = 1;
+            dst_lv.is_volatile = true;
+            lower_store(lo, dst_lv, byte);
+            next = ir_build2(&lo->b, IR_IADD, IRT_I64, off, lower_i64(1));
+            next_op = ir_op_value(lo->fn, next);
+            ir_build_br(&lo->b, head, &next_op, 1);
+        }
+        lower_at(lo, done);
+    }
 }
 
 /* IR-H-05: aggregate rvalues are represented by addresses, so the ordinary
@@ -730,10 +795,12 @@ void lower_prime_runtime_sizes(Lower *lo, Type *t)
 ValueId lower_temp(Lower *lo, Type *t)
 {
     TypeLayout l = layout_of(lo->sema, t);
+    IrOperand size = type_is_runtime_sized(t)
+                         ? lower_type_size(lo, t)
+                         : lower_i64((i64)(l.size ? l.size : 1));
 
     lo->ntemps++;
-    return ir_build_alloca_typed(&lo->b, lower_i64((i64)(l.size ? l.size : 1)),
-                                 (u32)(l.align ? l.align : 1),
+    return ir_build_alloca_typed(&lo->b, size, (u32)(l.align ? l.align : 1),
                                  lower_efftype(lo, t));
 }
 
@@ -1384,6 +1451,12 @@ static void lower_function(Lower *lo, AstNode *def)
             }
             break;
         }
+        case ABI_ARG_INDIRECT:
+            /* A runtime-sized aggregate is represented by the address of the
+             * caller's dynamic copy. It is a plain pointer ABI operand: a
+             * byval annotation would make SysV copy a fixed byte count. */
+            ptypes[nir_params++] = IRT_PTR;
+            break;
         default: /* BYVAL and STACK */
             /* The annotation lands on IrFunc.param_annots after
              * ir_func_new — a bare ptr param would look like a pointer
@@ -1539,7 +1612,8 @@ static void lower_function(Lower *lo, AstNode *def)
                 ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
                 pi += a->n;
             } else if (a &&
-                       (a->kind == ABI_ARG_BYVAL || a->kind == ABI_ARG_STACK)) {
+                       (a->kind == ABI_ARG_BYVAL || a->kind == ABI_ARG_STACK ||
+                        a->kind == ABI_ARG_INDIRECT)) {
                 /* Both arrive as the ADDRESS of a copy the caller already
                  * made, so the local IS that address and no store happens.
                  * STACK reaching the scalar branch below instead stored the

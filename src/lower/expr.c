@@ -1393,6 +1393,9 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
         nslots = plan.n;
         hfa_leaf = (i64)ir_type_size(plan.t[0]);
         break;
+    case ABI_ARG_INDIRECT:
+        indirect = true;
+        break;
     default:
         /* Over 16 bytes: the caller passed a POINTER, so the slot holds an
          * address and the object lives behind it. */
@@ -1618,7 +1621,7 @@ static IrOperand lower_va_arg_apple(Lower *lo, AstNode *e, IrOperand ap)
         AbiArg plan;
 
         abi_classify_arg(lo, t, &plan);
-        indirect = plan.kind == ABI_ARG_BYVAL;
+        indirect = plan.kind == ABI_ARG_BYVAL || plan.kind == ABI_ARG_INDIRECT;
         if (indirect)
             slot = 8; /* the slot holds a pointer, not the object */
     }
@@ -1689,6 +1692,7 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
     {
         TypeLayout l = layout_of(lo->sema, t);
         bool is_agg = lower_is_aggregate(t);
+        bool indirect = false;
         u32 n = 1;
         bool reg_ok = true;
         /* Eightbytes PER CLASS rather than a single "is this the FP path"
@@ -1717,6 +1721,9 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
                 else
                     ngp++;
             }
+        } else if (plan.kind == ABI_ARG_INDIRECT) {
+            indirect = true;
+            ngp = 1;
         } else {
             reg_ok = false; /* MEMORY class: no register branch at all */
         }
@@ -1733,7 +1740,7 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
              * before the next anonymous argument. Invisible with one MEMORY
              * vararg, because only the SECOND one reads from a cursor the
              * first moved. Both arm64 va_arg paths already round to 8. */
-            u64 slot = ((u64)l.size + 7) & ~7ull;
+            u64 slot = indirect ? 8 : ((u64)l.size + 7) & ~7ull;
 
             if (reg_ok) {
                 BlockId reg = lower_new_block(lo, "va.reg");
@@ -1897,7 +1904,7 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
                 ovlv.unit = IRT_PTR;
                 ovlv.align = 8;
                 ov = lower_load(lo, ovlv);
-                if (l.align > 8) {
+                if (!indirect && l.align > 8) {
                     /* Align the cursor up before reading (16-aligned types:
                      * long double and 16-aligned aggregates). */
                     ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, ov);
@@ -1926,23 +1933,35 @@ static IrOperand lower_va_arg(Lower *lo, AstNode *e)
                 ir_build_br(&lo->b, join, &from_mem, 1);
             }
             lower_at(lo, join);
-            if (is_agg) {
-                ValueId tmp = lower_temp(lo, t);
-
-                lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp),
-                                       ir_op_value(lo->fn, addr), t,
-                                       (u32)(l.align > 8 ? 8 : l.align), 0);
-                return ir_op_value(lo->fn, tmp);
-            }
             {
-                Lvalue lv;
+                IrOperand at = ir_op_value(lo->fn, addr);
 
-                memset(&lv, 0, sizeof(lv));
-                lv.addr = ir_op_value(lo->fn, addr);
-                lv.unit = lower_irtype(lo, t);
-                lv.align = (u32)(l.align > 8 ? 8 : l.align);
-                lv.is_signed = type_is_integer(t) && is_signed_ty(lo, t);
-                return lower_load(lo, lv);
+                if (indirect) {
+                    Lvalue plv;
+
+                    memset(&plv, 0, sizeof(plv));
+                    plv.addr = at;
+                    plv.unit = IRT_PTR;
+                    plv.align = 8;
+                    at = lower_load(lo, plv);
+                }
+                if (is_agg) {
+                    ValueId tmp = lower_temp(lo, t);
+
+                    lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), at, t,
+                                           (u32)(l.align > 8 ? 8 : l.align), 0);
+                    return ir_op_value(lo->fn, tmp);
+                }
+                {
+                    Lvalue lv;
+
+                    memset(&lv, 0, sizeof(lv));
+                    lv.addr = at;
+                    lv.unit = lower_irtype(lo, t);
+                    lv.align = (u32)(l.align > 8 ? 8 : l.align);
+                    lv.is_signed = type_is_integer(t) && is_signed_ty(lo, t);
+                    return lower_load(lo, lv);
+                }
             }
         }
     }
@@ -2328,6 +2347,14 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
         if (plan.kind == ABI_ARG_STACK)
             args->data[args->len].argflags |= (u8)IROPF_ONSTACK;
         args->len++;
+        break;
+    }
+    case ABI_ARG_INDIRECT: {
+        ValueId tmp = lower_temp(lo, type);
+
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
+                               plan.align, access_flags);
+        args->data[args->len++] = ir_op_value(lo->fn, tmp);
         break;
     }
     default:

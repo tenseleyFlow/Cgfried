@@ -399,7 +399,12 @@ typedef enum {
     ABI_ARG_EIGHTBYTES,
     ABI_ARG_BYVAL,
     ABI_ARG_HFA,
-    ABI_ARG_STACK
+    ABI_ARG_STACK,
+    /* GNU records containing VLA members have no compile-time byte size.
+     * GCC passes them through one ordinary pointer slot on both SysV and
+     * AAPCS64; unlike BYVAL, SysV must not copy the pointee onto the outgoing
+     * stack. This is a lowering-only shape and needs no IR annotation. */
+    ABI_ARG_INDIRECT
 } AbiArgKind;
 
 /* An HFA has at most four register leaves. Once an AAPCS64 HFA is forced to

@@ -403,6 +403,55 @@ void test_abi_va_arg_shapes(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_va_arg_runtime_record_is_indirect(TestCtx *t)
+{
+    static const char src[] =
+        "typedef __builtin_va_list va_list;\n"
+        "int bound(void);\n"
+        "void sink(int tag, ...) {\n"
+        "  struct R { _Alignas(16) char bytes[bound()]; } value;\n"
+        "  va_list ap; __builtin_va_start(ap, tag);\n"
+        "  value = __builtin_va_arg(ap, struct R);\n"
+        "  value = __builtin_va_arg(ap, struct R);\n"
+        "  __builtin_va_end(ap);\n"
+        "}\n"
+        "void caller(int n) {\n"
+        "  struct R { _Alignas(16) char bytes[n]; } first, second;\n"
+        "  sink(0, first, second);\n"
+        "}\n";
+    static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
+                                         CGF_TARGET_ARM64_LINUX};
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        AbiFix f;
+        const char *ir;
+
+        T_ASSERT(t, run_abi_target(&f, src, targets[i]));
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = atxt(&f);
+        /* The runtime extent is established once at the callee declaration,
+         * then reused by both va_arg materializations and assignments. */
+        T_ASSERT_EQ_INT(t, acount(ir, "call i32 @bound()"), 1);
+        T_ASSERT_EQ_INT(t, acount(ir, "call ptr @memcpy"), 6);
+        T_ASSERT(t, strstr(ir, "alloca 1, align 1, etype aggregate") == NULL);
+        /* GCC passes every variably-sized record through a private copy's
+         * pointer, even below eight bytes. A SysV byval annotation would
+         * instead copy fixed pointee bytes into the outgoing stack area. */
+        T_ASSERT(t, strstr(ir, "call void @sink(i32 0, ptr %") != NULL);
+        T_ASSERT(t, strstr(ir, "ptr %") != NULL);
+        T_ASSERT(t, strstr(ir, " anon, ptr %") != NULL);
+        T_ASSERT(t, strstr(ir, "byval(") == NULL);
+        /* Each retrieval consumes one integer/pointer slot and loads the
+         * pointee address before the dynamic copy. */
+        T_ASSERT(t, acount(ir, "load ptr") >= 2);
+        T_ASSERT(t, strstr(ir, "iadd i32 %") != NULL);
+        T_ASSERT(t, strstr(ir, ", 8") != NULL);
+        T_ASSERT(t, strstr(ir, ", -16") == NULL);
+        abi_free(&f);
+    }
+}
+
 void test_abi_aapcs64_even_composite_ir_contract(TestCtx *t)
 {
     static const char src[] =
