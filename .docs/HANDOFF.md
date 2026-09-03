@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-02): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-03): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -89,12 +89,16 @@ merged as `29d3c3d0`, raising the target-complete ratchet to 26,897 lines
 (26,894 PASS keys). PR #71's `s56.5-vla-typedef-size` tranche is merged as
 `c8dd9f18`, raising the target-complete ratchet to 26,917 lines (26,914 PASS
 keys). PR #72's `s56.5-builtin-llabs-semantics` tranche is merged as
-`2380c739`, raising the ratchet to 26,927 lines (26,924 PASS keys). The current
-`s56.5-aligned-typedef-object-layout` tranche on PR #73 is target-complete at
-26,937 ratchet lines (26,934 PASS keys), with 43 applied policy decisions and
-zero stale or unresolved decisions, and awaits fresh post-publication standard
-and exact native ARM64 CI. Sprint 56's campaign machine and triage map remain
-complete while Sprint 58 continues its independent soak.
+`2380c739`, raising the ratchet to 26,927 lines (26,924 PASS keys). PR #73's
+`s56.5-aligned-typedef-object-layout` tranche is merged as `eb456acd`, raising
+the target-complete ratchet to 26,937 lines (26,934 PASS keys). The current
+`s56.5-vla-va-arg` tranche on PR #74 is target-complete at 26,957 ratchet lines
+(26,954 PASS keys), with 40 applied policy decisions, one retained stale
+cross-host variant, and zero unresolved decisions; it awaits fresh
+post-publication standard and exact native ARM64 CI. Its documented GNU tier
+table is 42 implemented / 6 parsed-ignored / 8 refused. Sprint 56's campaign
+machine and triage map remain complete while Sprint 58 continues its
+independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -2572,6 +2576,84 @@ and green post-publication CI.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
   before merging. The next recommended target-complete compiler gap is
   `s56.5-vla-va-arg` (`20020412-1.c`, ten cells).
+- The `s56.5-vla-va-arg` tranche (PR #74) resolves the coupled twenty
+  target-complete `torture-execute/20020412-1.c` and `20070919-1.c` cells.
+  GCC 13.3 measurements on SysV x86-64 and AAPCS64 establish the extension
+  ABI: every variably sized record argument is a caller-owned private copy
+  passed through one ordinary pointer slot, independent of runtime size.
+  `va_arg` consumes that single register or overflow slot, dereferences it,
+  and copies the declaration-time cached extent. Cgfried now gives this shape
+  a lowering-only indirect classification rather than a fixed-size `byval`
+  annotation. Ordinary runtime record assignments and temporaries use the
+  same cached extent through libc `memcpy`; volatile runtime records retain
+  observable byte loads and stores through an explicit dynamic loop.
+
+  The originally selected `20020412-1.c` ABI repair necessarily exposed the
+  already-tracked dynamic-copy primitive needed by `20070919-1.c`, so the
+  tranche publishes both honest buckets rather than leaving an incidental
+  XPASS. Permanent fixtures cover sizes 1, 5, 8, 9, 16, and 17, consecutive
+  register and forced-overflow varargs, caller snapshot isolation, assignment
+  chains, statement-expression results, aligned pointer slots, named
+  parameters, and volatile copies. Behavior head
+  `a7697298086db01a7a9c951243a3d318080d2d19` passes 849 Linux unit tests /
+  4,294,319 assertions, focused combined ASan+UBSan checks, 110/110 x86
+  permanent corpus programs, 94/94 applicable ARM programs under the full
+  double-emulated lane, and exactly 660 objects across 110 sources in the
+  closed x86-64/SSE2 ISA matrix. Native Apple ARM64 passes both imported cases
+  and both fixtures at O0/O1/O2/O3/Os.
+
+  Pre-publication standard PR
+  [run 33709458788](https://github.com/tenseleyFlow/Cgfried/actions/runs/33709458788)
+  passes every non-ratchet job, including native Apple ARM64, both Linux ARM
+  lanes, sanitizers, all campaigns, and 100,000-case frontend fuzzing; its x86
+  gate rejects only the ten unpublished x86 cells and no regression. Exact
+  native ARM64
+  [run 33709456313](https://github.com/tenseleyFlow/Cgfried/actions/runs/33709456313)
+  likewise rejects only the matching ten ARM cells while every other nightly
+  campaign passes. Push and PR bootstrap runs
+  [33709456205](https://github.com/tenseleyFlow/Cgfried/actions/runs/33709456205)
+  and
+  [33709458819](https://github.com/tenseleyFlow/Cgfried/actions/runs/33709458819)
+  are green at O0 and O2.
+
+  Both exact-head target streams contain all 20,325 cells and share compiler-
+  source SHA-256
+  `2917eb0f618f25c12d2e88170ee8ac8a4f393b330de257e2f84a8fa72b36bc95`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The exact x86 compiler/driver SHA-256 is
+  `1db978481c1afdd099640b4c0732fc718039faed20fd6a01d8916235a8523c18`;
+  ARM's is
+  `6daee46da463b59ae4bb87348e4d9712134e049a80c48ab302033d82a05b1ed7`.
+  Exact x86 and native ARM stream SHA-256 values are respectively
+  `c107cbd6db130cb972bdcc0e035ecbc6c4db75a89415fef2748e2729a7f281c1`
+  and
+  `5ca477ea8c5892b6ec706e3de3f87cdfbc262c5404a54dfef58ae3b89559199e`.
+
+  The exact x86 and PR-CI PASS sets are byte-identical. Their only five
+  differing keys are the already-policy-covered `limits-caselabels.c` host
+  capacity variant (ten differing rows). All current streams reach the output
+  guard for `limits-exprparen.c`; its previously observed explicit bracket-
+  limit fingerprint remains deliberately retained as one stale cross-host
+  policy decision. Formal target-complete publication promotes exactly the
+  twenty VLA-record cells with zero PASS regression and retires fingerprints
+  `27f6214b...` and `cd599d47...`. The published state is 26,957 ratchet lines /
+  26,954 PASS keys, 7,076 classified failures, 49 observed buckets, 40 applied
+  decisions, 16 live repair rows representing 12 repair tranches, one retained
+  stale host variant, and zero unresolved decisions. Reversing the evidence
+  streams regenerates both outputs byte-identically; PASS and triage SHA-256
+  values are respectively
+  `64eb243ef9347b35995e77e8b5f92bca29cdf25302cd685f0dbf84e499630363`
+  and
+  `0a0e0d0b017237dcf063a049621a0fbf50dfdfda1bac8c0e7983d836078d8d22`.
+  Fresh post-publication standard CI and exact-head native ARM64 must be green
+  before merging. The next recommended target-complete compiler gap is
+  `s56.5-bitfield-integer-promotions` (`bf-sign-2.c` and `bitfld-1.c`, twenty
+  cells).
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
