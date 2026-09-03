@@ -218,10 +218,11 @@ static AstNode *expr_va_list_cursor(Sema *s, AstNode *e)
 static bool is_va_list_cursor(Sema *s, const AstNode *e)
 {
     Type *va = sema_va_list_type(s);
-    const Type *t = e ? e->sem_type : NULL;
+    const Type *t;
 
-    if (!va || !t)
+    if (!e || !va || !e->sem_type)
         return false;
+    t = e->sem_type;
     if (va->kind != TY_ARRAY)
         /* The pointer-form cursor must be the actual, unqualified va_list
          * object. A cast/rvalue has nowhere to store the advanced cursor;
