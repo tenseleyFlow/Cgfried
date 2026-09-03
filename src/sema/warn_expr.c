@@ -158,6 +158,9 @@ static Type *promoted_original_type(Sema *s, AstNode *e)
     e = source_expr(e);
     if (!e || !e->sem_type)
         return NULL;
+    if (e->sem_is_bitfield)
+        return conv_promote_bitfield_type(s, e->sem_type, e->sem_bitfield_width,
+                                          e->sem_bitfield_is_signed);
     return type_is_integer(e->sem_type) ? conv_promote_type(s, e->sem_type)
                                         : e->sem_type;
 }

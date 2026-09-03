@@ -432,6 +432,23 @@ void test_lower_bitfield_assign_result_narrowed(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_bitfield_compound_uses_effective_precision(TestCtx *t)
+{
+    LowFix f;
+
+    /* GNU permits the long long base, but this three-bit field promotes to
+     * signed int before `/=`. With base-type arithmetic, -1 would become a
+     * huge unsigned divisor and produce zero rather than the stored value 7. */
+    T_ASSERT(t, run_lower(&f, "struct B { unsigned long long u : 3; } g;\n"
+                              "unsigned long long f(void) {\n"
+                              "  g.u = 1; return g.u /= -1;\n"
+                              "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "sdiv i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "udiv i64") == NULL);
+    low_free(&f);
+}
+
 void test_lower_shortcircuit_zero_allocas(TestCtx *t)
 {
     LowFix f;

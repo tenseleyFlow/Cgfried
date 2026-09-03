@@ -482,6 +482,11 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
     switch (e->kind) {
     case AST_EXPR_PAREN:
         return lower_lvalue(lo, e->lhs);
+    case AST_EXPR_CHOOSE_EXPR:
+        /* GNU choose_expr has the value category of its selected arm. Sema
+         * typed both arms and recorded the constant selection; only that arm
+         * may be evaluated, including when an intrinsic needs its address. */
+        return lower_lvalue(lo, e->choose_taken ? e->mid : e->rhs);
     case AST_EXPR_IDENT: {
         Lvalue lv;
 
@@ -1122,9 +1127,18 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
                 oldv = ir_op_value(lo->fn, f);
             }
             if (op == PUNCT_SHL || op == PUNCT_SHR)
-                common = conv_promote_type(lo->sema, lt);
-            else
-                common = conv_uac_type(lo->sema, lt, rt);
+                common = lv.is_bitfield
+                             ? conv_promote_bitfield_type(
+                                   lo->sema, lt, lv.bit_width, lv.is_signed)
+                             : conv_promote_type(lo->sema, lt);
+            else {
+                Type *left = lv.is_bitfield
+                                 ? conv_promote_bitfield_type(
+                                       lo->sema, lt, lv.bit_width, lv.is_signed)
+                                 : lt;
+
+                common = conv_uac_type(lo->sema, left, rt);
+            }
             a = lower_scalar_convert(lo, oldv, lt, common);
             b2 = lower_scalar_convert(lo, rhs, rt, common);
             r = build_source_arith(lo, arith_op_for(lo, op, common),
@@ -1233,9 +1247,18 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             IrOperand back;
 
             if (op == PUNCT_SHL || op == PUNCT_SHR)
-                common = conv_promote_type(lo->sema, lt);
-            else
-                common = conv_uac_type(lo->sema, lt, rt);
+                common = lv.is_bitfield
+                             ? conv_promote_bitfield_type(
+                                   lo->sema, lt, lv.bit_width, lv.is_signed)
+                             : conv_promote_type(lo->sema, lt);
+            else {
+                Type *left = lv.is_bitfield
+                                 ? conv_promote_bitfield_type(
+                                       lo->sema, lt, lv.bit_width, lv.is_signed)
+                                 : lt;
+
+                common = conv_uac_type(lo->sema, left, rt);
+            }
             a = lower_scalar_convert(lo, old, lt, common);
             b2 = lower_scalar_convert(lo, rhs, rt, common);
             r = build_source_arith(lo, arith_op_for(lo, op, common),

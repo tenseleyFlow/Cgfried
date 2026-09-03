@@ -621,6 +621,7 @@ Type *conv_uac(Sema *s, AstNode **a, AstNode **b);
 /* The type-level halves, so the unit suite can build a truth table
  * without constructing expressions. */
 Type *conv_promote_type(Sema *s, Type *t);
+Type *conv_promote_bitfield_type(Sema *s, Type *t, u32 width, bool is_signed);
 Type *conv_uac_type(Sema *s, Type *a, Type *b);
 Type *conv_strip_quals(Sema *s, const Type *t);
 int conv_rank(const Type *t);

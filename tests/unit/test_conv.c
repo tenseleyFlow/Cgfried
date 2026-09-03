@@ -222,6 +222,21 @@ void test_conv_promotions(TestCtx *t)
                     type_basic(TY_FLOAT32X));
     T_ASSERT(t, conv_promote_type(&f.sema, type_basic(TY_FLOAT64X)) ==
                     type_basic(TY_FLOAT64X));
+
+    /* A GNU bit-field's effective precision, not the rank of its declared
+     * base, decides the integer promotion. This is why narrow long and long
+     * long fields still become signed int. At exactly int width signedness
+     * selects int versus unsigned int; wider fields retain the base type. */
+    T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULLONG), 3,
+                                           false) == type_basic(TY_INT));
+    T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULONG), 31,
+                                           false) == type_basic(TY_INT));
+    T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_LONG), 32,
+                                           true) == type_basic(TY_INT));
+    T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULONG), 32,
+                                           false) == type_basic(TY_UINT));
+    T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULLONG), 35,
+                                           false) == type_basic(TY_ULLONG));
     conv_fix_free(&f);
 }
 
