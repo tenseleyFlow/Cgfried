@@ -23,9 +23,9 @@ struct R3 {
     int b A(8);
 };
 
-/* THE RULE that separates `aligned` from `_Alignas`: it only ever RAISES.
- * R6 asks for 4 where the natural alignment is 8 and is silently declined --
- * a constraint violation for _Alignas, a no-op here. */
+/* The RECORD-position rule: `aligned` only ever RAISES. R6 asks for 4 where
+ * the natural alignment is 8 and is silently declined -- a constraint
+ * violation for _Alignas, a no-op here. */
 struct R6 {
     char a;
     long b;

@@ -88,11 +88,12 @@ typedef struct GnuDeclAttrs {
      * `aligned_bare` is the no-argument form, which gcc defines as the
      * target's biggest alignment (measured: 16 on x86-64 AND arm64-linux).
      *
-     * Unlike `_Alignas`, `aligned` only ever RAISES: asking for less than the
-     * natural alignment is silently declined rather than being a constraint
-     * violation, so `aligned(1)` is NOT a spelling of `packed`. Every consumer
-     * of an align_override field already compares with `>`, which is exactly
-     * that rule. */
+     * Position matters. On a record or ordinary member, `aligned` only ever
+     * RAISES: asking for less than natural alignment is silently declined, so
+     * `aligned(1)` is not a spelling of `packed`. On an object, typedef, or
+     * declarator type layer, GCC treats the request as exact and permits a
+     * reduction. Sema keeps those two policies separate after this shared
+     * syntax has been folded. */
     struct AstNode *aligned_expr;
     bool aligned_bare;
     /* Two `aligned` attributes on ONE declaration. gcc takes the maximum;

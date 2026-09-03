@@ -490,6 +490,12 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             return lv;
         }
         lv = lv_of(lo, lower_sym_addr(lo, e->sym), sem(e));
+        /* A direct GNU object attribute changes the declaration's alignment,
+         * not its C type. Sema records that effective lvalue alignment on the
+         * identifier; this is observable for reductions, where recomputing
+         * from the natural type would overstate every load/store claim. */
+        if (e->sem_lvalue_align)
+            lv.align = (u32)e->sem_lvalue_align;
         return lv;
     }
     case AST_EXPR_STRING: {
@@ -566,6 +572,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
              * the claim has to come down. */
             if (m->packed || (rec->tag && rec->tag->packed))
                 lv.align = 1;
+            if (e->sem_lvalue_align && e->sem_lvalue_align < lv.align)
+                lv.align = (u32)e->sem_lvalue_align;
             if (rec->kind == TY_UNION)
                 lv.etype = ETYPE_UNION;
             return lv;
@@ -635,6 +643,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 break;
             }
             lv.align = (u32)m->container_size;
+            if (e->sem_lvalue_align && e->sem_lvalue_align < lv.align)
+                lv.align = (u32)e->sem_lvalue_align;
             lv.etype =
                 rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
             lv.is_bitfield = true;

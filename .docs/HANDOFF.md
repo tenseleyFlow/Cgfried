@@ -88,12 +88,13 @@ merged as `fe3fcf59`, raising the target-complete ratchet to 26,887 lines
 merged as `29d3c3d0`, raising the target-complete ratchet to 26,897 lines
 (26,894 PASS keys). PR #71's `s56.5-vla-typedef-size` tranche is merged as
 `c8dd9f18`, raising the target-complete ratchet to 26,917 lines (26,914 PASS
-keys). The current `s56.5-builtin-llabs-semantics` tranche on PR #72 is
-target-complete at 26,927 ratchet lines (26,924 PASS keys), with 44 applied
-policy decisions and zero stale or unresolved decisions, and awaits fresh
-post-publication standard and exact native ARM64 CI. Sprint 56's campaign
-machine and triage map remain complete while Sprint 58 continues its
-independent soak.
+keys). PR #72's `s56.5-builtin-llabs-semantics` tranche is merged as
+`2380c739`, raising the ratchet to 26,927 lines (26,924 PASS keys). The current
+`s56.5-aligned-typedef-object-layout` tranche on PR #73 is target-complete at
+26,937 ratchet lines (26,934 PASS keys), with 43 applied policy decisions and
+zero stale or unresolved decisions, and awaits fresh post-publication standard
+and exact native ARM64 CI. Sprint 56's campaign machine and triage map remain
+complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -2495,9 +2496,82 @@ and green post-publication CI.
   `53769be6dedc9ec10cee51f6a534aefd2bffbd1ca9de398ff7fd6afbff1ced97`
   and
   `94c72743206bd43b4fa985faa262e02ecb6e0a8ccdfb98839b95396dabf69686`.
+  Fresh post-publication standard CI and exact-head native ARM64 are green;
+  PR #72 merged as `2380c739`. The next recommended target-complete compiler
+  gap is
+  `s56.5-aligned-typedef-object-layout` (`20050215-1.c`, ten cells).
+- The `s56.5-aligned-typedef-object-layout` tranche (PR #73) resolves all ten
+  target-complete `torture-execute/20050215-1.c` cells. GCC measurements pin
+  the positional GNU `aligned` rules that the earlier implementation had
+  conflated: record and ordinary-member requests are minimums, while typedef,
+  declarator-type, and direct-object requests are exact and may reduce natural
+  alignment. An aligned typedef now carries that exact layout through aliases,
+  arrays, members, and object placement without mutating an underlying named
+  tag. Direct under-aligned objects and members retain honest IR access
+  alignment, compatible redeclarations keep their strongest effective object
+  alignment, and an incomplete object declaration retains the completed type's
+  natural alignment as a live floor. On AAPCS64, an over-aligned typedef
+  aggregate is no longer misclassified as an HFA; a reducing request remains
+  eligible because it adds no padding.
+
+  Behavior head `cf7b21be5ff0f61754b2356aa29fd3d1ca576821` passes 847 unit
+  tests / 4,294,279 assertions, focused ASan+UBSan coverage for exact typedef
+  layout, object/member lowering, and AArch64 HFA classification, and a
+  500/500 GCC layout differential. The closed x86-64/SSE2 ISA matrix passes
+  exactly 648 objects across 108 permanent corpus sources. Exact runtime
+  coverage passes 18/18 executions across the imported case and two permanent
+  fixtures, native Apple ARM64 passes the imported case at five levels and both
+  fixtures at six, and cross-codegen passes all 30 target/level cells for
+  x86_64-linux-gnu, arm64-linux, and arm64-macos.
+
+  The first native ARM nightly at implementation head `2f56f816` correctly
+  caught five-level regressions in both `20001109-1.c` and `20001109-2.c`:
+  incomplete extern records had frozen their object alignment before tag
+  completion. The live natural-floor repair is pinned by focused semantic and
+  lowering regressions. The repaired exact-head nightly
+  [run 33695727338](https://github.com/tenseleyFlow/Cgfried/actions/runs/33695727338)
+  passes every campaign and rejects only the five unpublished native ARM
+  `20050215-1.c` cells. Final pre-publication standard PR
+  [run 33695975607](https://github.com/tenseleyFlow/Cgfried/actions/runs/33695975607)
+  passes every non-ratchet job, including native Apple ARM64, both Linux ARM
+  lanes, sanitizers, all campaigns, and 100,000-case frontend fuzzing; its x86
+  gate rejects only the matching five cells and no regression.
+
+  Both exact-head target streams contain all 20,325 cells and share
+  compiler-source SHA-256
+  `514b997534b38e74f3417c71f028272e6c09e8841338e88a7d04d7dcef8f74e5`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The exact x86 compiler/driver SHA-256 is
+  `8bf91d9d1d7c2096a4b24eaf505cae6b5e0efe46a8372d24050ad6b20aef4bd0`;
+  ARM's is
+  `134c83f53a278fed49ebe1802c7f1dc4e349501a6e58b885f63fc00e030bf4a6`.
+  Exact x86 and native ARM stream SHA-256 values are respectively
+  `26b4534e40e1f48929af24863fd750500c553bfd1ef5e28ec4971196b215e4c3`
+  and
+  `50bcea8ce68673daef4e3489eea698765f76165e80641e94a60b980a213f7b2f`.
+
+  The exact x86 and PR-CI PASS sets are byte-identical. Their only ten row
+  differences are the already-policy-covered host-capacity variants for
+  `limits-caselabels.c` (timeout versus SIGSEGV) and `limits-exprparen.c`
+  (output guard versus explicit bracket-limit diagnostic). Formal
+  target-complete publication promotes exactly the ten `20050215-1.c` cells
+  with zero PASS regression and retires fingerprint `f6d3c6c3...`. The
+  published state is 26,937 ratchet lines / 26,934 PASS keys, 7,096 classified
+  failures, 52 buckets, 43 applied decisions, 18 live repair rows representing
+  14 repair tranches, and zero stale or unresolved decisions. Reversing the
+  evidence streams regenerates both outputs byte-identically; PASS and triage
+  SHA-256 values are respectively
+  `38447ed2bbc0e627f3cd2b4d433d0786de5832dc29f63795727f883fbf9d9774`
+  and
+  `2fcb4d24a2dc681bc9b9a57a6b5a033872af4c0e2fc0368bbdc6cd7dce2d99fc`.
   Fresh post-publication standard CI and exact-head native ARM64 must be green
   before merging. The next recommended target-complete compiler gap is
-  `s56.5-aligned-typedef-object-layout` (`20050215-1.c`, ten cells).
+  `s56.5-vla-va-arg` (`20020412-1.c`, ten cells).
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
@@ -4316,8 +4390,9 @@ labels, `section`, `constructor`, `destructor`, `cleanup`.
   the offsets alone and every offset a reader checks is right while `sizeof`
   keeps its tail padding. Injecting exactly that takes the layout differential
   400/400 -> 277/400, failing on `_Alignof` and never on an offset.
-- **`aligned`**: the INVERSE of `_Alignas` -- it only ever RAISES, so a weaker
-  request is silently declined and `aligned(1)` is NOT a spelling of `packed`.
+- **`aligned`**: record/member positions only raise, so member `aligned(1)` is
+  not a spelling of `packed`; object, typedef, and declarator-type positions
+  are exact and may reduce alignment without changing size or compatibility.
 - **`alias`**: two bugs only a real LINK showed. IPO deleted a static function
   reachable only through its alias (a `.set` is not a relocation, so the
   callgraph never saw it), and `.weak_definition` is Mach-O's spelling that

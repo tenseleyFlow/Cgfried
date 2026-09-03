@@ -232,6 +232,49 @@ void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_aligned_typedef_controls_objects_and_accesses(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(t, run_lower(
+                    &f,
+                    "typedef struct { char c[8]; } V "
+                    "__attribute__((aligned(8)));\n"      /* check_bans allow */
+                    "typedef long long Low __attribute__" /* check_bans allow */
+                    "((aligned(1)));\n"
+                    "V v; Low low; long long direct "
+                    "__attribute__" /* check_bans allow */
+                    "((aligned(1)));\n"
+                    "struct Tight { char lead; Low value; char tail; } tight;\n"
+                    "extern struct Later plain_incomplete;\n"
+                    "struct Later { long long value; };\n"
+                    "extern struct LaterDirect direct_incomplete "
+                    "__attribute__" /* check_bans allow */
+                    "((aligned(1)));\n"
+                    "struct LaterDirect { long long value; };\n"
+                    "struct DirectComplete { long long value; } "
+                    "direct_complete __attribute__" /* check_bans allow */
+                    "((aligned(1)));\n"
+                    "long long get(void) { return tight.value + low + direct + "
+                    "plain_incomplete.value + direct_incomplete.value + "
+                    "direct_complete.value; }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    T_ASSERT(t, strstr(ir, "global @v size 8 align 8") != NULL);
+    T_ASSERT(t, strstr(ir, "global @low size 8 align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "global @direct size 8 align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "global @tight size 10 align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @tight+1, align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @low, align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @direct, align 1") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @plain_incomplete, align 8") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @direct_incomplete, align 8") != NULL);
+    T_ASSERT(t, strstr(ir, "load i64, @direct_complete, align 1") != NULL);
+    low_free(&f);
+}
+
 void test_lower_old_style_calls_keep_loose_contract(TestCtx *t)
 {
     LowFix f;
