@@ -43,4 +43,3 @@
 6	cd599d475f370373d0de4712e0e04cb8e741fee01e727d413a17a2682b7beed7	run	non-optdiv	20020412-1 isolates va_arg copying of variably sized aggregate arguments.	fix-sprint:s56.5-vla-va-arg
 6	dcf802f4f92750b79fc1252c757dc4442ad5f96bafe609dda373b17d7fa24013	run	non-optdiv	991014-1 isolates overflow-safe size and member-offset computation for enormous complete record and union types.	fix-sprint:s56.5-huge-object-layout
 6	eafbd9ee6d2047e6733c9c4389049f61e8421fd953404f6c163d1c20c3b9f119	run	non-optdiv	bitfld-1 isolates the difference between ordinary integer promotion of a narrow unsigned bit-field and an explicit full-width unsigned cast.	fix-sprint:s56.5-bitfield-integer-promotions
-6	f6d3c6c3983a5af0fec102c0ffaab51cd2e135250114d440c72fe4bd8854da47	run	non-optdiv	20050215-1 isolates propagation of an ELF aligned attribute from a typedef to an emitted object.	fix-sprint:s56.5-aligned-typedef-object-layout
