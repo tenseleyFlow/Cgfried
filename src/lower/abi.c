@@ -228,6 +228,17 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    if (lower_is_aggregate(t) && type_is_runtime_sized(t)) {
+        TypeLayout runtime = layout_of(lo->sema, t);
+
+        /* A variably-sized aggregate cannot be flattened into a fixed set of
+         * register leaves or described by IR's fixed-size byval annotation.
+         * GCC's extension ABI makes a caller copy and passes its address as
+         * one pointer argument on both supported psABIs. */
+        out->kind = ABI_ARG_INDIRECT;
+        out->align = (u32)(runtime.align ? runtime.align : 1);
+        return;
+    }
     if (target_is_aapcs64(lo, (Span){0})) {
         classify_arg_aapcs64(lo, t, out);
         return;
@@ -420,6 +431,12 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
          * copy's address rides one general register. */
         if (aapcs)
             b->gp++;
+        return;
+    case ABI_ARG_INDIRECT:
+        /* The address itself is an ordinary pointer argument on both ABIs.
+         * Let the backend's normal pointer queue place it in a GPR or spill
+         * it once the queue is exhausted. */
+        b->gp++;
         return;
     default:
         return; /* SCALAR: the walk charges it from the IR type. */

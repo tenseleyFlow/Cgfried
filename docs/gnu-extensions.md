@@ -91,6 +91,7 @@ predefine.
 | non-defining `extern void` linker symbols | `tests/programs/gnu/extern_void_symbol.c` | linker-script boundary symbols whose address participates in a static integer relocation |
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
+| records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form
