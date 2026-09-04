@@ -103,10 +103,12 @@ raising the target-complete ratchet to 27,037 lines (27,034 PASS keys). PR
 #78's `s56.5-utf8-wide-literal-decoding` tranche is merged as `2a3e2096`,
 raising the target-complete ratchet to 27,047 lines (27,044 PASS keys), with
 32 applied policy decisions, two retained stale decisions, eight live repair
-rows, and zero unresolved decisions. The in-progress
+rows, and zero unresolved decisions. PR #79's current
 `s56.5-builtin-abort` tranche raises the documented GNU tier table to 43
-implemented / 6 parsed-ignored / 8 refused; its large newly exposed PASS set
-still requires exact target-complete publication. Sprint 56's
+implemented / 6 parsed-ignored / 8 refused and publishes its exact
+target-complete state: 30,112 ratchet lines (30,109 PASS keys), 41 applied
+policy decisions, one retained stale decision, and zero unresolved decisions.
+It awaits post-publication CI before merge. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3040,14 +3042,60 @@ and green post-publication CI.
   non-returning; it deliberately does not substitute trap/unreachable
   semantics. Focused sema and IR tests, a permanent linked program, native
   Darwin ARM64 execution, and source emission at all five levels for both
-  Linux targets pass. The preserved ellipsis-only work resumes after this
-  prerequisite is published and merged.
-- The behavior-head CI [run 33347696647](https://github.com/tenseleyFlow/Cgfried/actions/runs/33347696647)
+  Linux targets pass. Exact behavior-head publication adds 3,065 PASS keys:
+  1,530 x86-64 and 1,535 ARM64, spanning the ordinary execute, execute-IEEE,
+  and compile-only suites. The target-complete ratchet now contains 30,109
+  PASS keys (30,112 lines including its contract header).
+
+  The newly reachable abort paths honestly expose seven existing runtime
+  compiler gaps at every optimization level. Both targets signal in
+  `20230630-2.c`, `20230630-4.c`, `pr58943.c`, `pr82210.c`, `pr85156.c`, and
+  `pr92904.c`; x86-64 additionally signals in `pr44942.c`, while ARM64 passes
+  that case. Resolving the old builtin diagnostic also exposes the existing
+  `pr28865.c` nested-flexible-array initializer refusal. Eight precise repair
+  rows now name those gaps: nested flexible-array union storage, compound
+  assignment RHS sequencing, variadic aggregate alignment, reverse-endian
+  scalar-storage-order bit-fields, x86 long-double varargs stack alignment,
+  aligned VLA record members, and `__builtin_expect` second-argument side
+  effects. The combined report has 3,921 failed cells, 41 applied decisions,
+  one retained stale decision, and zero unbucketed or unresolved cells.
+
+  Exact x86-64 evidence was generated under Apple Rosetta from five parallel
+  one-level invocations of the unchanged matrix runner, then provenance- and
+  key-checked by the repository combiner. Its SHA-256 is
+  `5a08c08a5948be962769c7b52cf9034dc5b35b467df03a8f3958ceaeccd7853c`.
+  Native ARM64 evidence from
+  [run 33854621863](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854621863)
+  has SHA-256
+  `b77bacb5e9c5c8e22c563fd324a4c41815a05d44c1df07c9d4d8ca7b87674a18`.
+  Both streams name behavior revision
+  `4de7b55a659258dc2cbd3ca2809f29615611b87b`, compiler-source SHA-256
+  `3c84329f1db2720947297274c7b9b4a31c89594228a461cee20a1cd17418ebc5`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  and identical manifest hashes. Apple Make 3.81's `-o torture-run` also
+  suppresses the dependent phony publication recipe, so the resulting no-op
+  was rejected by the reverse-order determinism check. After independent
+  import, provenance, completeness, uniqueness, policy, and regression
+  checks, the canonical triage tool atomically published the same output pair.
+  Reversing the exact input streams regenerates both files byte-identically;
+  PASS and triage SHA-256 values are respectively
+  `6c7ea64dec03cd3d354fc5c9fe6922cb4fc50d74b486cf20c20f3d97ff321450`
+  and
+  `f9862039e8179dd0039f32786c7a97dc4989d9609035bc82cdd7f5fc3c8b1bbc`.
+  The preserved ellipsis-only work resumes after this prerequisite is merged.
+- Behavior-head standard CI
+  [run 33854613606](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854613606)
   passes every check other than its intentionally pre-publication x86 PASS-set
-  gate: that gate reports only the five uncommitted `pr41935.c` promotions and
-  no regression. Both bootstrap runs pass, as do full test, sanitizer, macOS
-  ARM64, QEMU ARM64, toolchain, campaign, formatting, and fuzz lanes. A fresh
-  CI run is required after the publication commit before merge.
+  gate; full test, sanitizers, macOS ARM64, QEMU ARM64, toolchain, campaigns,
+  formatting, and the long frontend-fuzz lane are green. Exact-head PR and
+  push bootstrap runs
+  [33854613529](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854613529)
+  and
+  [33854609281](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854609281)
+  are green. The native ARM nightly's sole red job is the same expected
+  pre-publication ratchet. Fresh standard, bootstrap, and native-ARM CI are
+  required after the publication commit before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -3074,7 +3122,7 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. The remaining
-compiler debt is enumerated by 23 live `s56.5-*` repair rows representing 19
+compiler debt is enumerated by 16 live `s56.5-*` repair rows representing 15
 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
