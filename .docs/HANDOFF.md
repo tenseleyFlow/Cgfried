@@ -94,11 +94,14 @@ keys). PR #72's `s56.5-builtin-llabs-semantics` tranche is merged as
 the target-complete ratchet to 26,937 lines (26,934 PASS keys). PR #74's
 `s56.5-vla-va-arg` tranche is merged as `99b00740`, raising the target-complete
 ratchet to 26,957 lines (26,954 PASS keys). The current
-`s56.5-bitfield-integer-promotions` tranche on PR #75 is target-complete at
-26,977 ratchet lines (26,974 PASS keys), with 39 applied policy decisions,
-zero stale decisions, and zero unresolved decisions; it awaits fresh
-post-publication standard and exact native ARM64 CI. Its documented GNU tier
-table remains 42 implemented / 6 parsed-ignored / 8 refused. Sprint 56's
+`s56.5-bitfield-integer-promotions` tranche is merged through PR #75 as
+`698726f4`, raising the target-complete ratchet to 26,977 lines (26,974 PASS
+keys). The current `s56.5-bitfield-expression-precision` tranche on PR #76 is
+target-complete at 27,017 ratchet lines (27,014 PASS keys), with 34 applied
+policy decisions, one retained stale cross-host variant, and zero unresolved
+decisions; it awaits fresh post-publication standard and exact native ARM64
+CI. Its documented GNU tier table remains 42 implemented / 6 parsed-ignored /
+8 refused. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -2749,6 +2752,93 @@ and green post-publication CI.
   before merging. The next recommended target-complete compiler gap is
   `s56.5-bitfield-expression-precision` (`bitfld-3.c`, `bitfld-5.c`,
   `pr32244-1.c`, and `pr34971.c`, forty cells).
+- The current `s56.5-bitfield-expression-precision` tranche (PR #76) resolves
+  the forty target-complete `torture-execute/bitfld-3.c`, `bitfld-5.c`,
+  `pr32244-1.c`, and `pr34971.c` cells. GNU gives a bit-field wider than
+  `int` but narrower than its declared carrier an anonymous extended integer
+  type whose rank, signedness, compatibility, and value-producing operations
+  observe the field's exact precision. Cgfried now models that type explicitly
+  while retaining the ordinary 64-bit ABI carrier, applies the precision in
+  integer promotion and usual arithmetic conversion, preserves GNU comma-
+  expression bit-field identity, and narrows arithmetic, shifts, unary
+  operations, increments, conversions, and atomic compare-exchange updates at
+  the correct boundaries. Explicit casts and full-carrier-width fields retain
+  ordinary standard integer semantics.
+
+  Permanent unit coverage checks anonymous-type compatibility, rank,
+  signedness, mixed-width conversions, GNU `typeof`, comma expressions,
+  explicit-cast boundaries, post-operation narrowing, increments, and atomic
+  retry lowering. The executed fixture covers unsigned 33-, 40-, and 41-bit
+  arithmetic, struct argument passage, shifts, rotate-shaped expressions,
+  casts, and `typeof` variables. Behavior head
+  `dce7a90904a9cdda3252ade43a2f1e5fca76d6d0` passes 853 Linux unit tests /
+  4,294,360 assertions, 760 program fixtures, 110 corpus fixtures, focused
+  combined ASan+UBSan checks, and safe dogfood for all 107 compiler
+  translation units with zero exemptions. The four imported cases and the
+  permanent runtime fixture pass at O0/O1/O2/O3/Os on both Linux x86-64 and
+  native Apple ARM64. Pinned clang-format 22 is clean. The new deterministic
+  frontend-fuzz digest `de0e7ad32201685d` reproduced twice on each
+  architecture, 2,000-iteration smoke runs are clean on both, and CI's
+  100,000-case sanitized run is green.
+
+  Pre-publication standard PR
+  [run 33823553260](https://github.com/tenseleyFlow/Cgfried/actions/runs/33823553260)
+  completed with nineteen successful jobs, one expected skip, and only the
+  x86 torture gate's twenty unpublished PASS cells; this includes native Apple
+  ARM64, both Linux ARM lanes, sanitizers, all campaigns, safe dogfood, full
+  test, formatting, and 100,000-case frontend fuzzing. Exact-head native
+  full-lattice
+  [run 33823579402](https://github.com/tenseleyFlow/Cgfried/actions/runs/33823579402)
+  completed with fourteen successful jobs and only the ARM torture gate's
+  matching twenty unpublished PASS cells. Push and PR bootstrap runs
+  [33823534799](https://github.com/tenseleyFlow/Cgfried/actions/runs/33823534799)
+  and
+  [33823553300](https://github.com/tenseleyFlow/Cgfried/actions/runs/33823553300)
+  are green at O0 and O2.
+
+  Both exact-head target streams contain all 20,325 cells and share source
+  revision `dce7a90904a9cdda3252ade43a2f1e5fca76d6d0`, compiler-source
+  SHA-256
+  `d6e2d5712b174e4cf96826a79f4ea417520cd2bde0362f3b74c230845aa7831d`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The exact x86 compiler/driver SHA-256 is
+  `b1ca5549d6f79fec4c39ca5fe1371b3a21d81352eaf9836928d833e7f2bcca9f`;
+  ARM's is
+  `90c31d61f6a7d83ff5052ea1be1dab88dffe59f00d88ee9134c06a8026e13efd`.
+  Exact x86 and native ARM stream SHA-256 values are respectively
+  `0a72f543fcc909ed511be447f0c3b4d8672c5154a653d33467bb8ff63b8451cf`
+  and
+  `063c1eecc39155af85bfb88351cddb0cdecc1f31382b4651fd0129567de36d81`.
+
+  GitHub's PR checkout produced synthetic-merge x86 source revision
+  `268b08f75491377a257b1dcf933d2e10cb61adc3`, but its compiler-source hash
+  and all 13,509 x86 PASS keys are byte-identical to the exact branch-head
+  stream. Their only five differing keys (ten row representations) are the
+  already-policy-covered `limits-caselabels.c` host-capacity variant (native
+  SIGSEGV versus CI timeout). Every current stream reaches the output guard
+  for `limits-exprparen.c`, so its explicit bracket-limit fingerprint remains
+  deliberately retained as one stale cross-host policy decision.
+
+  The baseline engine processed both complete streams in forward and reverse
+  order and regenerated both outputs byte-identically. Atomic publication
+  promotes exactly the forty intended bit-field cells with zero PASS
+  regression and retires fingerprints `225de8a3...`, `3e9eddc5...`,
+  `6d8f6f38...`, and `75360aa5...`. The published state is 27,017 ratchet
+  lines / 27,014 PASS keys, 7,016 classified failures, 43 observed buckets,
+  34 applied decisions, 10 live repair rows representing 10 repair tranches,
+  one retained stale host variant, and zero unresolved decisions. PASS and
+  triage SHA-256 values are respectively
+  `3740ba74749f767f206dcbcf2b53ff468127abd0edc35b736137fc1a58d1acf2`
+  and
+  `df8f4ae53bd8c6e838f90ce23bdd84b03ab4d5b0bebec79d8aaf6d1343248001`.
+  Fresh post-publication standard CI and exact-head native ARM64 must be green
+  before merging. The next recommended target-complete compiler gap is
+  `s56.5-huge-object-layout` (`991014-1.c`, ten cells).
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
