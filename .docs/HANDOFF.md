@@ -99,13 +99,14 @@ ratchet to 26,957 lines (26,954 PASS keys). The current
 keys). PR #76's `s56.5-bitfield-expression-precision` tranche is merged as
 `363aa2db`, raising the target-complete ratchet to 27,017 lines (27,014 PASS
 keys). PR #77's `s56.5-huge-object-layout` tranche is merged as `e62f590f`,
-raising the target-complete ratchet to 27,037 lines (27,034 PASS keys). The
-current `s56.5-utf8-wide-literal-decoding` tranche on PR #78 is
-target-complete at 27,047 ratchet lines (27,044 PASS keys), with 32 applied
-policy decisions, two retained stale decisions, eight live repair rows, and
-zero unresolved decisions; it awaits fresh final-publication standard and
-exact native ARM64 CI. Its documented GNU tier table remains 42 implemented /
-6 parsed-ignored / 8 refused. Sprint 56's
+raising the target-complete ratchet to 27,037 lines (27,034 PASS keys). PR
+#78's `s56.5-utf8-wide-literal-decoding` tranche is merged as `2a3e2096`,
+raising the target-complete ratchet to 27,047 lines (27,044 PASS keys), with
+32 applied policy decisions, two retained stale decisions, eight live repair
+rows, and zero unresolved decisions. The in-progress
+`s56.5-builtin-abort` tranche raises the documented GNU tier table to 43
+implemented / 6 parsed-ignored / 8 refused; its large newly exposed PASS set
+still requires exact target-complete publication. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3022,6 +3023,25 @@ and green post-publication CI.
   failure on Darwin (the staged atomic outputs themselves remain
   byte-identical). Keep those host path/tool assumptions with the x64 simulator
   issue in the separate harness-portability tranche.
+- The in-progress `s56.5-builtin-abort` tranche was exposed while starting the
+  recommended ellipsis-only-varargs repair: after preprocessing, parsing, and
+  `va_start` advanced, `pr117432.c` reached its four calls to the previously
+  unsupported `__builtin_abort`. A bounded O0 scope probe over all 407 execute
+  cases containing that spelling used the combined exploratory worktree. On
+  x86-64 it changed 304 outcomes (297 prior compile failures to PASS and seven
+  to runtime signals); on ARM64 it changed 301 (295 to PASS and six to
+  signals). Exactly one PASS promotion per target was `pr117432.c` and belongs
+  solely to the preserved ellipsis-only work, leaving the abort-attributable
+  scope at 303 x86-64 changes (296 PASS, seven signals) and 300 ARM64 changes
+  (294 PASS, six signals). This is therefore a separate high-impact
+  prerequisite rather than a hidden addition to a ten-cell dialect tranche.
+  Cgfried now gives `__builtin_abort()` an exact zero-argument void signature,
+  lowers it to the real external `abort` symbol, and marks the IR call
+  non-returning; it deliberately does not substitute trap/unreachable
+  semantics. Focused sema and IR tests, a permanent linked program, native
+  Darwin ARM64 execution, and source emission at all five levels for both
+  Linux targets pass. The preserved ellipsis-only work resumes after this
+  prerequisite is published and merged.
 - The behavior-head CI [run 33347696647](https://github.com/tenseleyFlow/Cgfried/actions/runs/33347696647)
   passes every check other than its intentionally pre-publication x86 PASS-set
   gate: that gate reports only the five uncommitted `pr41935.c` promotions and
