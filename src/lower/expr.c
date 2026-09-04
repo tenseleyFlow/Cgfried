@@ -2073,14 +2073,25 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
     }
 }
 
-/* The Sprint 28 builtins that are NOT calls: each lowers to IR we
- * already have. The mem/str family deliberately does NOT appear here —
- * v0.1.0 lowers those to real libc calls (inline expansion is a
- * Phase 7/11 optimization, and pre-optimizing it here would make the
- * -O0 output untrue to the source). */
+/* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
+ * deliberately does NOT appear here: v0.1.0 lowers those through the generic
+ * libc-call path (inline expansion is a Phase 7/11 optimization, and
+ * pre-optimizing it here would make the -O0 output untrue to the source).
+ * __builtin_abort is the one intentional real call in this helper because its
+ * hosted semantics differ from __builtin_trap. */
 static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
 {
     switch (e->op) {
+    case SEMA_BUILTIN_ABORT:
+        /* Unlike __builtin_trap, abort has the hosted library semantics:
+         * emit the real symbol so signal handlers and interposition observe
+         * an abort call.  The builtin spelling supplies the compiler-owned
+         * prototype and noreturn fact; it does not turn abort into ud2. */
+        (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                            ir_sym(lo->m, "abort"), NULL, 0);
+        ir_call_mark_noreturn(&lo->b);
+        *out = ir_op_undef(IRT_I32);
+        return true;
     case SEMA_BUILTIN_UNREACHABLE:
         ir_build_unreachable(&lo->b);
         /* unreachable TERMINATES the block, but the C statement it came

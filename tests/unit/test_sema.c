@@ -171,6 +171,19 @@ void test_sema_rejects_invalid_lowering_inputs(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_abort_arity(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f, "void f(void) { __builtin_abort(); }\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void) { __builtin_abort(1); }\n", STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_extern_void_symbol(TestCtx *t)
 {
     SemaFix f;

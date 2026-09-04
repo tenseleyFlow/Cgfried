@@ -348,6 +348,16 @@ void test_abi_va_start_constants(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_builtin_abort_is_real_noreturn_call(TestCtx *t)
+{
+    AbiFix f;
+
+    T_ASSERT(t, run_abi(&f, "void f(void) { __builtin_abort(); }\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "call void @abort() noreturn") != NULL);
+    abi_free(&f);
+}
+
 void test_abi_floatn_default_argument_shapes(TestCtx *t)
 {
     AbiFix f;
