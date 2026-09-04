@@ -400,6 +400,19 @@ static void lower_local_static(Lower *lo, Symbol *sym, AstNode *init)
     lower_bind_static(lo, sym, idx);
 }
 
+static bool can_elide_unused_fixed_local(Lower *lo, AstNode *d, Symbol *sym)
+{
+    /* A declaration of a fixed-size automatic object has no runtime effect
+     * until an initializer, cleanup, use, assignment, or hardening policy
+     * makes its storage observable.  Eliding that otherwise-dead slot also
+     * keeps translation-limit probes from manufacturing enormous empty
+     * frames merely to hold locals that the source never touches.  VLAs stay
+     * live because evaluating their bounds is itself observable. */
+    return !d->init && !sym->reads && !sym->writes && !sym->cleanup_fn &&
+           lo->auto_var_init == LOWER_AUTO_VAR_INIT_NONE && sym->type &&
+           !type_is_runtime_sized(sym->type);
+}
+
 static void lower_one_decl(Lower *lo, AstNode *d)
 {
     Symbol *sym = d->sym;
@@ -471,6 +484,8 @@ static void lower_one_decl(Lower *lo, AstNode *d)
         return; /* block-scope extern: references resolve via the symbol */
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
+    if (can_elide_unused_fixed_local(lo, d, sym))
+        return;
 
     slot = lower_local_slot(lo, sym);
     if (!slot.v) {
@@ -527,6 +542,7 @@ static void prebind_one_decl(Lower *lo, AstNode *d)
     if (!sym || sym->kind != SYM_VAR || (d->storage & AST_SC_STATIC) ||
         (d->storage & AST_SC_EXTERN) || !sym->type ||
         type_is_runtime_sized(sym->type) ||
+        can_elide_unused_fixed_local(lo, d, sym) ||
         !layout_is_complete_for_size(sym->type) || lower_local_slot(lo, sym).v)
         return;
     l = layout_of(lo->sema, sym->type);
