@@ -214,8 +214,8 @@ static bool category_members_equal(SafeCtx *sc, Member *a, Member *b)
     if (!union_work_available(sc))
         return false;
     if (a->is_bitfield || b->is_bitfield)
-        return a->is_bitfield == b->is_bitfield &&
-               a->bit_offset == b->bit_offset && a->bit_width == b->bit_width;
+        return a->is_bitfield == b->is_bitfield && a->offset == b->offset &&
+               a->bit_shift == b->bit_shift && a->bit_width == b->bit_width;
     return a->offset == b->offset &&
            category_layout_equal(sc, a->type, b->type);
 }
@@ -273,7 +273,8 @@ static bool alternatives_equal(SafeCtx *sc, Member *a, Member *b)
     if (!union_work_available(sc))
         return false;
     if (a->is_bitfield)
-        return a->bit_offset == b->bit_offset && a->bit_width == b->bit_width;
+        return a->offset == b->offset && a->bit_shift == b->bit_shift &&
+               a->bit_width == b->bit_width;
     return a->offset == b->offset &&
            category_layout_equal(sc, a->type, b->type);
 }
@@ -504,8 +505,9 @@ static void collect_leaves(SafeCtx *sc, Type *t, u64 base_bit, u32 alternative,
 
                 if (!m->bit_width)
                     continue;
-                if (!checked_add_u64(base_bit, m->bit_offset,
-                                     &leaf.first_bit) ||
+                if (!checked_mul_u64(m->offset, 8, &member_bit) ||
+                    !checked_add_u64(member_bit, m->bit_shift, &member_bit) ||
+                    !checked_add_u64(base_bit, member_bit, &leaf.first_bit) ||
                     !checked_add_u64(leaf.first_bit, m->bit_width,
                                      &leaf.end_bit)) {
                     sc->union_analysis_exhausted = true;
@@ -670,9 +672,12 @@ static bool union_is_unsafe(SafeCtx *sc, Type *t)
         if (m->is_bitfield) {
             if (m->bit_width) {
                 SafeLeaf leaf;
+                u64 member_bit;
 
-                leaf.first_bit = m->bit_offset;
-                if (!checked_add_u64(m->bit_offset, m->bit_width,
+                if (!checked_mul_u64(m->offset, 8, &member_bit) ||
+                    !checked_add_u64(member_bit, m->bit_shift,
+                                     &leaf.first_bit) ||
+                    !checked_add_u64(leaf.first_bit, m->bit_width,
                                      &leaf.end_bit)) {
                     sc->union_analysis_exhausted = true;
                     continue;

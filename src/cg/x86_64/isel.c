@@ -1838,14 +1838,19 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         } else if (in->ops[1].kind == IROP_VALUE) {
             x->a.mem.index = to_vreg(is, &in->ops[1]);
         } else {
-            /* constant too wide to fold: pre-materialized path */
+            /* A constant too wide for disp32 must be materialized before the
+             * LEA. Do not retain a pointer to the rewound instruction slot:
+             * to_vreg can reuse that exact slot for MOVABS, so copying through
+             * the alias duplicates the MOVABS and silently drops the LEA. */
             X64VReg off;
-            X64Inst *save = x;
 
             blk(is)->n--; /* rewind the lea; order operands first */
             off = to_vreg(is, &in->ops[1]);
             x = emit(is, X64_OP_LEA, X64_Q);
-            *x = *save;
+            x->def = d;
+            x->a.kind = X64O_MEM;
+            x->a.mem.scale = 1;
+            x->a.mem.base = base;
             x->a.mem.index = off;
         }
         is->vals[in->result.v].vr = d;

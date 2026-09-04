@@ -17,9 +17,16 @@
 
 static u64 align_up(u64 v, u64 a)
 {
+    u64 remainder;
+    u64 add;
+
     if (a == 0)
         return v;
-    return (v + a - 1) / a * a;
+    remainder = v % a;
+    if (remainder == 0)
+        return v;
+    add = a - remainder;
+    return v > UINT64_MAX - add ? UINT64_MAX : v + add;
 }
 
 bool layout_is_complete_for_size(const Type *t)
@@ -125,10 +132,60 @@ static u64 declared_bits(Sema *s, Type *t)
     return layout_of(s, t).size * 8;
 }
 
+/* A complete object can be almost SIZE_MAX bytes wide, so its position in
+ * BITS need not fit u64 even though every observable sizeof and member byte
+ * offset does. Keep the record cursor as an exact byte plus a sub-byte bit
+ * position. `Member.offset` and `Member.bit_shift` retain that representation
+ * so a bit-field after an enormous ordinary member remains addressable. */
+typedef struct {
+    u64 byte;
+    u8 bit;
+} LayoutPosition;
+
+static void position_add_bytes(LayoutPosition *p, u64 bytes)
+{
+    p->byte = p->byte > UINT64_MAX - bytes ? UINT64_MAX : p->byte + bytes;
+}
+
+static void position_add_bits(LayoutPosition *p, u64 bits)
+{
+    u64 bytes = bits / 8;
+    u8 tail = (u8)(bits % 8);
+    u8 sum;
+
+    position_add_bytes(p, bytes);
+    sum = (u8)(p->bit + tail);
+    if (sum >= 8)
+        position_add_bytes(p, 1);
+    p->bit = (u8)(sum % 8);
+}
+
+static void position_align_bytes(LayoutPosition *p, u64 align)
+{
+    if (p->bit) {
+        position_add_bytes(p, 1);
+        p->bit = 0;
+    }
+    p->byte = align_up(p->byte, align);
+}
+
+static u64 position_ceil_byte(LayoutPosition p)
+{
+    if (p.bit)
+        position_add_bytes(&p, 1);
+    return p.byte;
+}
+
+static void member_set_position(Member *m, LayoutPosition p)
+{
+    m->offset = p.byte;
+    m->bit_shift = p.bit;
+}
+
 static void layout_struct(Sema *s, TagDecl *tag)
 {
     Member *m;
-    u64 offset_bits = 0; /* running position, in BITS */
+    LayoutPosition position = {0, 0};
     u64 align = 1;
     bool has_zero_sized_member = false;
 
@@ -140,7 +197,8 @@ static void layout_struct(Sema *s, TagDecl *tag)
         if (!m->type || !layout_is_complete_for_size(m->type)) {
             /* A flexible array member has no size and contributes none;
              * anything else incomplete was already diagnosed. */
-            m->offset = align_up(offset_bits, 8) / 8;
+            m->offset = position_ceil_byte(position);
+            m->bit_shift = 0;
             m->laid_out = true;
             continue;
         }
@@ -183,7 +241,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
                     zero_align = m->align_override;
                 if (m->align_override * 8 > barrier_bits)
                     barrier_bits = m->align_override * 8;
-                offset_bits = align_up(offset_bits, barrier_bits);
+                position_align_bytes(&position, barrier_bits / 8);
                 /* AAPCS64 applies a zero-width field's BASE-TYPE alignment
                  * even when packed; SysV and Apple treat it only as an
                  * allocation barrier. GCC's target hook makes this split
@@ -191,15 +249,14 @@ static void layout_struct(Sema *s, TagDecl *tag)
                 if (s->target.kind == CGF_TARGET_ARM64_LINUX &&
                     zero_align > align)
                     align = zero_align;
-                m->bit_offset = offset_bits;
-                m->offset = offset_bits / 8;
+                member_set_position(m, position);
                 m->laid_out = true;
                 continue;
             }
             /* An explicit GNU `aligned` still controls placement even when
              * `packed` reduced the implicit requirement to one byte. */
             if (m->align_override)
-                offset_bits = align_up(offset_bits, m->align_override * 8);
+                position_align_bytes(&position, m->align_override);
             /* Rule 1: place at the current bit offset unless the field
              * would STRADDLE a boundary of its declared type — that is,
              * unless it fits in what remains of the current declared-type
@@ -208,15 +265,14 @@ static void layout_struct(Sema *s, TagDecl *tag)
              * the int window is bytes 0-3, bits 7..31 are free, and 25
              * fits — so b lands at bit 7, NOT at bit 32. */
             if (!m->packed) {
-                u64 window_start = offset_bits / unit_bits * unit_bits;
-                u64 used_in_window = offset_bits - window_start;
+                u64 used_in_window =
+                    (position.byte % ml.size) * 8 + position.bit;
 
                 if (used_in_window + width > unit_bits)
-                    offset_bits = align_up(offset_bits, unit_bits);
+                    position_align_bytes(&position, ml.size);
             }
-            m->bit_offset = offset_bits;
-            m->offset = offset_bits / 8;
-            offset_bits += width;
+            member_set_position(m, position);
+            position_add_bits(&position, width);
             /* SysV and Apple let only a named nonzero bitfield impose its
              * declared type's record alignment. Linux AAPCS64 also counts an
              * unnamed nonzero bitfield. SEMA-C-08: keeping the named-only
@@ -230,12 +286,11 @@ static void layout_struct(Sema *s, TagDecl *tag)
 
         /* An ordinary member starts at the next byte boundary that
          * satisfies its own alignment. */
-        offset_bits = align_up(align_up(offset_bits, 8), malign * 8);
-        m->offset = offset_bits / 8;
-        m->bit_offset = offset_bits;
+        position_align_bytes(&position, malign);
+        member_set_position(m, position);
         m->bit_width = 0;
         m->container_size = ml.size;
-        offset_bits += ml.size * 8;
+        position_add_bytes(&position, ml.size);
         if (malign > align)
             align = malign;
         m->laid_out = true;
@@ -246,7 +301,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
     tag->align = align;
     /* Tail padding is part of sizeof: `struct { long l; char c; }` is 16,
      * not 9, and the array stride is always exactly sizeof. */
-    tag->size = align_up(align_up(offset_bits, 8) / 8, align);
+    tag->size = align_up(position_ceil_byte(position), align);
     /* Preserve the compiler's nonzero recovery layout for a genuinely empty
      * record, while honoring GNU complete zero-sized members. In particular,
      * `struct { int x[0]; }` has size 0 and alignment 4, and that zero extent
@@ -268,7 +323,7 @@ static void layout_union(Sema *s, TagDecl *tag)
         u64 natural_align;
 
         m->offset = 0;
-        m->bit_offset = 0;
+        m->bit_shift = 0;
         m->laid_out = true;
         if (!m->type || !layout_is_complete_for_size(m->type))
             continue;
@@ -755,9 +810,15 @@ static void dump_tag(Sema *s, TagDecl *tag, FILE *f)
         fprintf(f, "  %s: offset=%llu", m->name ? m->name : "<unnamed>",
                 (unsigned long long)m->offset);
         if (m->is_bitfield)
-            fprintf(f, " bit=%llu width=%u container=%llu",
-                    (unsigned long long)m->bit_offset, m->bit_width,
-                    (unsigned long long)m->container_size);
+            if (m->offset <= (UINT64_MAX - m->bit_shift) / 8)
+                fprintf(f, " bit=%llu width=%u container=%llu",
+                        (unsigned long long)(m->offset * 8 + m->bit_shift),
+                        m->bit_width, (unsigned long long)m->container_size);
+            else
+                fprintf(f,
+                        " bit-byte=%llu bit-shift=%u width=%u container=%llu",
+                        (unsigned long long)m->offset, (unsigned)m->bit_shift,
+                        m->bit_width, (unsigned long long)m->container_size);
         else
             fprintf(f, " size=%llu align=%llu",
                     (unsigned long long)layout_of(s, m->type).size,

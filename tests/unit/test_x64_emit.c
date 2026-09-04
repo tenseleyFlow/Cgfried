@@ -823,3 +823,79 @@ void test_x64_isel_ptradd_reserves_forward_offset_vreg(TestCtx *t)
     T_ASSERT_EQ_INT(t, fx.errors, 0);
     arena_free_all(&a);
 }
+
+void test_x64_isel_ptradd_imm64_materializes_before_lea(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    BlockId entry;
+    IrBuilder b;
+    ValueId zero;
+    ValueId base;
+    ValueId ptr;
+    ValueId as_int;
+    IrOperand result;
+    X64Func *xf;
+    X64VReg offset = {0};
+    u32 mov_i = UINT32_MAX;
+    u32 lea_i = UINT32_MAX;
+    u32 i;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "ptradd_imm64", IRT_I64, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    ir_builder_at(&b, m, f, entry);
+    /* Match a null-derived member address: the preceding materializations
+     * leave the MIR vector with spare capacity, which is what exposed the
+     * rewind-and-alias bug in the wide-offset path. */
+    zero = ir_build1(&b, IR_SEXT, IRT_I64, ir_op_iconst(IRT_I32, 0));
+    base = ir_build1(&b, IR_BITCAST, IRT_PTR, ir_op_value(f, zero));
+    ptr = ir_build_ptradd(&b, ir_op_value(f, base),
+                          ir_op_iconst(IRT_I64, INT64_C(9223372036854775296)));
+    as_int = ir_build1(&b, IR_BITCAST, IRT_I64, ir_op_value(f, ptr));
+    result = ir_op_value(f, as_int);
+    ir_build_ret(&b, &result);
+
+    T_ASSERT(t, ir_verify(dc, m));
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    for (i = 0; i < xf->blocks[0].n; i++) {
+        const X64Inst *x = &xf->blocks[0].insts[i];
+
+        if (x->op == X64_OP_MOVABS && x->a.kind == X64O_IMM &&
+            x->a.imm == INT64_C(9223372036854775296)) {
+            mov_i = i;
+            offset = x->def;
+        }
+        if (x->op == X64_OP_LEA && x->a.kind == X64O_MEM && offset.v &&
+            x->a.mem.index.v == offset.v)
+            lea_i = i;
+    }
+    T_ASSERT(t, mov_i != UINT32_MAX && lea_i != UINT32_MAX && lea_i > mov_i);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    x64_regalloc(xf);
+    mov_i = UINT32_MAX;
+    lea_i = UINT32_MAX;
+    for (i = 0; i < xf->blocks[0].n; i++) {
+        const X64Inst *x = &xf->blocks[0].insts[i];
+
+        if (x->op == X64_OP_MOVABS && x->a.kind == X64O_IMM &&
+            x->a.imm == INT64_C(9223372036854775296))
+            mov_i = i;
+        if (x->op == X64_OP_LEA && x->a.kind == X64O_MEM && x->a.mem.base.v &&
+            x->a.mem.index.v)
+            lea_i = i;
+    }
+    T_ASSERT(t, mov_i != UINT32_MAX && lea_i != UINT32_MAX && lea_i > mov_i);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}

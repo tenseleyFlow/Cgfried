@@ -69,19 +69,17 @@ static void lower_mem_ranges(Lower *lo, Type *t, u64 base, LowerMemRanges *out)
         layout_record(lo->sema, t);
         for (m = t->tag->members; m; m = m->next) {
             if (m->is_bitfield) {
-                u64 cbits;
                 u64 unit;
 
                 if (m->bit_width == 0 || m->container_size == 0)
                     continue;
                 if (m->packed) {
-                    u64 first = m->bit_offset / 8;
-                    u64 last = (m->bit_offset + m->bit_width + 7) / 8;
+                    u64 first = m->offset;
+                    u64 last = first + (m->bit_shift + m->bit_width + 7) / 8;
 
                     lower_mem_range_add(out, base + first, base + last);
                 } else {
-                    cbits = m->container_size * 8;
-                    unit = (m->bit_offset / cbits) * m->container_size;
+                    unit = (m->offset / m->container_size) * m->container_size;
                     lower_mem_range_add(out, base + unit,
                                         base + unit + m->container_size);
                 }

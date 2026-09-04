@@ -76,14 +76,16 @@ struct Member {
     bool bitfield_is_signed;
     Span span;
 
-    /* Filled by layout_record (Sprint 14). `offset` is in BYTES from the
-     * start of the record; for a bitfield, `bit_offset` is the bit
-     * position within the whole record and `bit_width` its declared
-     * width. `container_size` is the declared type's size — AAPCS64
+    /* Filled by layout_record (Sprint 14). `offset` is the exact byte offset
+     * from the start of the record. For a bit-field it names the byte holding
+     * the first bit, `bit_shift` is that bit's position within the byte, and
+     * `bit_width` is its declared width. This split is necessary because a
+     * valid object's byte offset can fit u64 while its absolute bit offset
+     * does not. `container_size` is the declared type's size — AAPCS64
      * mandates that a volatile bitfield access use exactly the container
      * width, so Sprints 20 and 48 read it rather than re-deriving it. */
     u64 offset;
-    u64 bit_offset;
+    u8 bit_shift;
     u32 bit_width;
     u64 container_size;
     u64 align_override; /* _Alignas on the member, 0 = none */
@@ -575,7 +577,7 @@ typedef struct {
  * the size. */
 TypeLayout layout_of(Sema *s, Type *t);
 bool layout_is_complete_for_size(const Type *t);
-/* Lays out a record, filling every Member's offset/bit_offset/bit_width.
+/* Lays out a record, filling every Member's offset/bit_shift/bit_width.
  * Idempotent and memoized on the TagDecl. */
 void layout_record(Sema *s, Type *rec);
 u64 layout_offsetof(Sema *s, Type *rec, const Member *m);
