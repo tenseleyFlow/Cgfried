@@ -99,9 +99,9 @@ ratchet to 26,957 lines (26,954 PASS keys). The current
 keys). PR #76's `s56.5-bitfield-expression-precision` tranche is merged as
 `363aa2db`, raising the target-complete ratchet to 27,017 lines (27,014 PASS
 keys). The current `s56.5-huge-object-layout` tranche on PR #77 is
-target-complete at 27,028 ratchet lines (27,025 PASS keys), with 33 applied
+target-complete at 27,037 ratchet lines (27,034 PASS keys), with 33 applied
 policy decisions, one retained stale cross-host variant, and zero unresolved
-decisions; it awaits fresh post-publication standard and exact native ARM64
+decisions; it awaits fresh final-publication standard and exact native ARM64
 CI. Its documented GNU tier table remains 42 implemented / 6 parsed-ignored /
 8 refused. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
@@ -2851,39 +2851,55 @@ and green post-publication CI.
   fixed: materializing a wide `IR_PTRADD` constant can no longer overwrite the
   LEA slot after the selector rewinds its output cursor.
 
+  The first official publication stream also exposed
+  `limits-blockid.c@O0@x86_64-linux-gnu` as a host-capacity-dependent pass: the
+  next run timed out in the same cell, so the isolated observation was not
+  safe to ratchet. The case expands to 100,000 uninitialized, unused fixed
+  automatic objects; Cgfried previously created 100,000 stack slots and nearly
+  3.9 MiB of assembly for storage that cannot be observed. Behavior head
+  `b0bcecf0fe0ca68745edcf102830733eed81f172` now elides such storage during
+  both prebinding and lowering. The fast path is intentionally narrow: an
+  initializer, read, write, cleanup, runtime-sized type, or automatic-variable
+  initialization policy keeps the object live. VLAs therefore retain their
+  bound evaluation and cleanup semantics, and zero/pattern hardening still
+  emits storage and initialization. On Apple ARM64 the testcase fell from
+  61.22 seconds to 0.18--0.20 seconds at every optimization level and for the
+  x86 target; on the slow Linux evidence host the old compiler exceeded 90
+  seconds and about 355 MiB RSS, while the repaired case completes inside the
+  normal matrix budget.
+
   Permanent unit coverage checks huge structure/union sizes, member offsets,
   alignments, array completion, and `offsetof` on all five supported target
   layouts (90 assertions), plus pre- and post-register-allocation x86 wide
   pointer addition (six assertions). The executed fixture covers the same
-  huge-object paths without allocating the enormous object. Behavior head
-  `3a179a720a20c9f103c76b42563d5f524f940898` passes 855 Linux unit tests /
-  4,294,456 assertions, 761 program fixtures, 110 corpus fixtures, all
+  huge-object paths without allocating the enormous object. A new seven-check
+  lowerer regression covers ordinary, volatile, and over-aligned unused fixed
+  locals plus the hardening exception. The behavior head passes 856 Linux unit
+  tests / 4,294,463 assertions, 761 program fixtures, 110 corpus fixtures, all
   affected sanitizer and safety lanes, exact Linux x86 execution at
-  O0/O1/O2/O3/Os, and native Apple ARM64 execution and assembly checks. Pinned
-  clang-format 22 is clean. The deterministic frontend-fuzz digest is
-  `638a06f158ddc65c`; 2,000-case frontend and preprocessor smokes and a
-  5,000-case / 63-seed IR smoke are clean, while CI's 100,000-case sanitized
-  frontend run is green.
+  O0/O1/O2/O3/Os, and native Apple ARM64 execution and assembly checks. The
+  deterministic frontend-fuzz digest remains `638a06f158ddc65c`; 2,000-case
+  frontend and preprocessor smokes, a 5,000-case / 63-seed IR smoke, and CI's
+  100,000-case sanitized frontend run are clean. A slow-host aggregate
+  `make -j2 test` reached only the known ordering-sensitive inherited-jobserver
+  failure in `campaign-musl-toolchain`; that campaign passes standalone, its
+  authoritative invocation.
 
-  Pre-publication standard PR
-  [run 33832601852](https://github.com/tenseleyFlow/Cgfried/actions/runs/33832601852)
-  completed with every non-ratchet job green, including native Apple ARM64,
-  both Linux ARM lanes, sanitizers, all campaigns, safe dogfood, full test,
-  formatting, and 100,000-case frontend fuzzing. Its x86 torture gate reports
-  the five intended `991014-1.c` passes plus an independently observed
-  `limits-blockid.c@O0` scalability pass on the official runner. Exact
-  behavior-head native ARM64
-  [run 33832617137](https://github.com/tenseleyFlow/Cgfried/actions/runs/33832617137)
-  reports only the five intended ARM passes. The same-tree integration
-  full-lattice
-  [run 33835107676](https://github.com/tenseleyFlow/Cgfried/actions/runs/33835107676)
-  completed with every campaign job green and only the ARM torture gate's five
-  unpublished intended passes.
+  Standard behavior
+  [run 33838063912](https://github.com/tenseleyFlow/Cgfried/actions/runs/33838063912)
+  has every behavior job green, including native Apple ARM64, both Linux ARM
+  lanes, sanitizers, all campaigns, safe dogfood, full test, and 100,000-case
+  frontend fuzzing. Its only failures are the corrected one-line formatting
+  delta and the four expected unpublished x86 scalability passes. Exact-head
+  native ARM64
+  [run 33838081777](https://github.com/tenseleyFlow/Cgfried/actions/runs/33838081777)
+  has every campaign green and only the five expected unpublished ARM
+  scalability passes at its torture gate.
 
-  The official x86 and native ARM streams contain all 20,325 cells and share
-  synthetic integration source revision
-  `8b1884c5471f557f9bfca09231c88de73bf62776`, compiler-source SHA-256
-  `8e2bd03361571785d587300e4297536cc28103f037988cfdba4f399ceb370be0`,
+  The exact x86 and native ARM publication streams contain all 20,325 cells
+  and share source revision
+  `b0bcecf0fe0ca68745edcf102830733eed81f172`, compiler-source SHA-256
+  `3157535d894c752419265faac7f43abea5ca403f33b4218fdc65beacd57779ea`,
   harness SHA-256
   `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
   torture-manifest SHA-256
@@ -2891,30 +2907,29 @@ and green post-publication CI.
   and c-testsuite-manifest SHA-256
   `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
   The x86 compiler/driver SHA-256 is
-  `4c25c88933e0b2172a4355478ff28f5a285275092de5acc389ad195a6a7985ed`;
+  `8ffe8105a8ebefd66a4ad88c89ea647bf0b717b06b788a45231fa5692230490e`;
   ARM's is
-  `9687b3d4588a46c061e6895885cc636192a2dd2bcbff6c2d673872d5e10d6159`.
+  `737de8e36acd9af4f2b01ef363ca7658be33b77897a760291fba59ca8645a01c`.
   Exact x86 and ARM stream SHA-256 values are respectively
-  `41a63377dfc2220b96b7f130660bcc28ea55644f97275aa788728c990a9c18c8`
+  `b6958b2b0e7400bef1648b65bd81efce99971d4bae60555407f68de460a191b9`
   and
-  `826cd9d90df5fad75edc3aeada8f203d9351bc864edf982dee6cdc76c7263351`.
-  The behavior commit and GitHub's synthetic integration commit have the same
-  tree, `e80afe4d69a60c4d822a875bd3552fee4e8eb282`.
+  `28b2bd08e53975752ec314a1890c8335785c231d92e0af72ab99f67810a2a289`.
 
   The baseline engine processed the two complete streams in forward and
   reverse order and regenerated both outputs byte-identically. Atomic
-  publication promotes the ten intended huge-object cells and the one
-  independently observed official-x86 scalability cell with zero PASS
-  regression. It retires fingerprint `dcf802f4...` while leaving the
-  24-cell compiler-scalability timeout bucket live. The published state is
-  27,028 ratchet lines / 27,025 PASS keys, 7,005 classified failures, 42
+  publication promotes all ten huge-object cells and all ten
+  `limits-blockid.c` cells relative to merged trunk, with zero PASS regression.
+  Fingerprint `dcf802f4...` remains retired; the general
+  `fix-sprint:s56.5-compiler-scalability-timeout` row stays live for the ten
+  `limits-externalid.c` cells still in its bucket. The published state is
+  27,037 ratchet lines / 27,034 PASS keys, 6,996 classified failures, 42
   observed buckets, 33 applied decisions, nine live repair rows representing
   nine repair tranches, one retained stale host variant, and zero unresolved
   decisions. PASS and triage SHA-256 values are respectively
-  `b65edb5706c55cc1af6149305fcc383c8d1418504910157a652eed3a3c8b5038`
+  `1db967d58742969f8f086ee9569135272271d6ca837f89700a3e5515ed92f9db`
   and
-  `52b73b1d6a03bbcc8e4fab3c78ab44edbbc28109357387e0087f15dddabccac9`.
-  Fresh post-publication standard CI and exact-head native ARM64 must be green
+  `5aa15e2514a51bcfa8e8266458f2dc053f0abeff4105b04afde3770045217d60`.
+  Fresh final-publication standard CI and exact-head native ARM64 must be green
   before merging. The next recommended target-complete compiler gap is
   `s56.5-utf8-wide-literal-decoding` (`ctestsuite/00220.c`, ten cells).
 - The August 28 machine transfer to Apple silicon does **not** require a native

@@ -735,8 +735,7 @@ void test_lower_unused_fixed_locals_need_no_storage(TestCtx *t)
     st_free(&f);
 
     /* Hardening makes even otherwise-unused automatic storage observable. */
-    T_ASSERT(t, run_lower_opts_s(&f,
-                                 "int f(void) { int x; return 0; }\n",
+    T_ASSERT(t, run_lower_opts_s(&f, "int f(void) { int x; return 0; }\n",
                                  LOWER_AUTO_VAR_INIT_ZERO));
     T_ASSERT(t, ir_verify(f.dc, f.m));
     T_ASSERT_EQ_INT(t, scount(stxt(&f), "alloca"), 1);

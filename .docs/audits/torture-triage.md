@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `8b1884c5471f557f9bfca09231c88de73bf62776`
-- compiler-source-sha256: `8e2bd03361571785d587300e4297536cc28103f037988cfdba4f399ceb370be0`
+- source-revision: `b0bcecf0fe0ca68745edcf102830733eed81f172`
+- compiler-source-sha256: `3157535d894c752419265faac7f43abea5ca403f33b4218fdc65beacd57779ea`
 - harness-sha256: `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`
 - torture-manifest-sha256: `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `9687b3d4588a46c061e6895885cc636192a2dd2bcbff6c2d673872d5e10d6159` | `9687b3d4588a46c061e6895885cc636192a2dd2bcbff6c2d673872d5e10d6159` |
-| x86_64-linux-gnu | `4c25c88933e0b2172a4355478ff28f5a285275092de5acc389ad195a6a7985ed` | `4c25c88933e0b2172a4355478ff28f5a285275092de5acc389ad195a6a7985ed` |
+| arm64-linux | `737de8e36acd9af4f2b01ef363ca7658be33b77897a760291fba59ca8645a01c` | `737de8e36acd9af4f2b01ef363ca7658be33b77897a760291fba59ca8645a01c` |
+| x86_64-linux-gnu | `8ffe8105a8ebefd66a4ad88c89ea647bf0b717b06b788a45231fa5692230490e` | `8ffe8105a8ebefd66a4ad88c89ea647bf0b717b06b788a45231fa5692230490e` |
 
 ## Baseline
 
@@ -29,16 +29,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
 | ctestsuite | Os | arm64-linux | 219 | 216 | 0 | 0 | 3 | 98.63% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 216 | 0 | 0 | 3 | 98.63% |
-| torture-compile | O0 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
+| torture-compile | O0 | arm64-linux | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
 | torture-compile | O0 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
-| torture-compile | O1 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
-| torture-compile | O2 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
-| torture-compile | O3 | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
-| torture-compile | Os | arm64-linux | 2016 | 1425 | 376 | 0 | 215 | 86.89% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
+| torture-compile | O1 | arm64-linux | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1427 | 376 | 0 | 213 | 87.01% |
+| torture-compile | O2 | arm64-linux | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1427 | 376 | 0 | 213 | 87.01% |
+| torture-compile | O3 | arm64-linux | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1427 | 376 | 0 | 213 | 87.01% |
+| torture-compile | Os | arm64-linux | 2016 | 1426 | 376 | 0 | 214 | 86.95% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1427 | 376 | 0 | 213 | 87.01% |
 | torture-execute | O0 | arm64-linux | 1752 | 1043 | 257 | 0 | 452 | 69.77% |
 | torture-execute | O0 | x86_64-linux-gnu | 1752 | 1043 | 257 | 0 | 452 | 69.77% |
 | torture-execute | O1 | arm64-linux | 1752 | 1043 | 257 | 0 | 452 | 69.77% |
@@ -388,20 +388,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 16
 
-- Count: 24
-- Cluster: signal=`-`; phase=`cg`
-- Fingerprint: `c0cda5231420c23bdfdec54c0367f9cfb03120dae294b0351b7a16294bac87ac`
-- Exemplars: torture-compile/limits-blockid.c@O0@arm64-linux, torture-compile/limits-blockid.c@O1@arm64-linux, torture-compile/limits-blockid.c@O1@x86_64-linux-gnu
-- Diagnostic: timeout: sending signal TERM to command 'build<path>
-- Labels: optdiv=4/24
-- Tags: -
-- Optdiv members: 4 of 24
-- Optdiv exemplars: torture-compile/limits-blockid.c@O1@x86_64-linux-gnu, torture-compile/limits-blockid.c@O2@x86_64-linux-gnu, torture-compile/limits-blockid.c@O3@x86_64-linux-gnu
-- Hypothesis: Large macro-expanded or optimization-heavy cases exceed the compiler timeout, exposing frontend or code-generation scalability limits.
-- Disposition: `fix-sprint:s56.5-compiler-scalability-timeout`
-
-### Bucket 17
-
 - Count: 20
 - Cluster: signal=`-`; phase=`parse`
 - Fingerprint: `073307837dcc1b051c517c46997080291ea26133ddf35af0e3139fe4931e0a6c`
@@ -414,7 +400,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary floating suffixes exercise complex arithmetic, which Cgfried explicitly excludes from the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 18
+### Bucket 17
 
 - Count: 20
 - Cluster: signal=`-`; phase=`parse`
@@ -428,7 +414,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.
 - Disposition: `out-of-scope`
 
-### Bucket 19
+### Bucket 18
 
 - Count: 20
 - Cluster: signal=`-`; phase=`ir-verify`
@@ -442,7 +428,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 20
+### Bucket 19
 
 - Count: 20
 - Cluster: signal=`-`; phase=`parse`
@@ -456,7 +442,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The cases use GNU complex types or complex component operators, while complex arithmetic is explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 21
+### Bucket 20
 
 - Count: 11
 - Cluster: signal=`-`; phase=`ICE`
@@ -470,7 +456,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: Accepted asm-label and large-shift cases produce assembler-invalid backend text instead of legal target assembly.
 - Disposition: `fix-sprint:s56.5-assembler-invalid-output`
 
-### Bucket 22
+### Bucket 21
 
 - Count: 10
 - Cluster: signal=`-`; phase=`cg`
@@ -484,7 +470,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The ten-thousand-level expression nesting stress exceeds the supported translation limit and now reaches the harness output guard before a bounded diagnostic is retained.
 - Disposition: `out-of-scope`
 
-### Bucket 23
+### Bucket 22
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -498,7 +484,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case uses imaginary floating suffixes and complex arithmetic, which are explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 24
+### Bucket 23
 
 - Count: 10
 - Cluster: signal=`-`; phase=`pp`
@@ -512,7 +498,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The shipped va_start macro cannot handle GNU ellipsis-only functions whose invocation has no last named parameter.
 - Disposition: `fix-sprint:s56.5-gnu-varargs-without-named-parameter`
 
-### Bucket 25
+### Bucket 24
 
 - Count: 10
 - Cluster: signal=`-`; phase=`sema`
@@ -526,7 +512,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The GCC s symbolic-address inline-asm constraint is not implemented, so constant object and string addresses are rejected before lowering.
 - Disposition: `fix-sprint:s56.5-symbolic-asm-constant-constraint`
 
-### Bucket 26
+### Bucket 25
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -540,7 +526,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 27
+### Bucket 26
 
 - Count: 10
 - Cluster: signal=`-`; phase=`ir-verify`
@@ -554,7 +540,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 28
+### Bucket 27
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -568,7 +554,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 29
+### Bucket 28
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -582,7 +568,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 30
+### Bucket 29
 
 - Count: 10
 - Cluster: signal=`-`; phase=`cg`
@@ -596,7 +582,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: extern thread-local references need the unimplemented Linux initial-exec lowering path
 - Disposition: `fix-sprint:s56.5-extern-tls-initial-exec`
 
-### Bucket 31
+### Bucket 30
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -610,7 +596,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 32
+### Bucket 31
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -623,6 +609,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Optdiv exemplars: -
 - Hypothesis: GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope
 - Disposition: `wontfix-0.1.0`
+
+### Bucket 32
+
+- Count: 10
+- Cluster: signal=`-`; phase=`cg`
+- Fingerprint: `c0cda5231420c23bdfdec54c0367f9cfb03120dae294b0351b7a16294bac87ac`
+- Exemplars: torture-compile/limits-externalid.c@O0@arm64-linux, torture-compile/limits-externalid.c@O0@x86_64-linux-gnu, torture-compile/limits-externalid.c@O1@arm64-linux
+- Diagnostic: timeout: sending signal TERM to command 'build<path>
+- Labels: -
+- Tags: -
+- Optdiv members: 0 of 10
+- Optdiv exemplars: -
+- Hypothesis: Large macro-expanded or optimization-heavy cases exceed the compiler timeout, exposing frontend or code-generation scalability limits.
+- Disposition: `fix-sprint:s56.5-compiler-scalability-timeout`
 
 ### Bucket 33
 
@@ -682,6 +682,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 37
 
+- Count: 10
+- Cluster: signal=`11`; phase=`cg`
+- Fingerprint: `de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731`
+- Exemplars: torture-compile/limits-caselabels.c@O0@arm64-linux, torture-compile/limits-caselabels.c@O0@x86_64-linux-gnu, torture-compile/limits-caselabels.c@O1@arm64-linux
+- Diagnostic: timeout: the monitored command dumped core
+- Labels: -
+- Tags: -
+- Optdiv members: 0 of 10
+- Optdiv exemplars: -
+- Hypothesis: The 100,000-case-label stress drives arm64 code generation beyond the bounded compiler budget; the hosted native process surfaces the failure as SIGSEGV while the local cross-target reproduction exhausts its timeout.
+- Disposition: `fix-sprint:s56.5-arm64-large-switch-scalability`
+
+### Bucket 38
+
 - Count: 5
 - Cluster: signal=`-`; phase=`ICE`
 - Fingerprint: `31c786bdddd648d22e6d6b264d944e323874292e54902d0803498fc8451e2704`
@@ -694,7 +708,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The valid greater-than-2-GiB automatic frame reaches arm64 regalloc, whose frame-object accounting ICEs above 2 GiB; retained attribute warnings supply the current normalized fingerprint.
 - Disposition: `fix-sprint:s56.5-arm64-large-stack-frame`
 
-### Bucket 38
+### Bucket 39
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -708,7 +722,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 39
+### Bucket 40
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -722,7 +736,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.
 - Disposition: `out-of-scope`
 
-### Bucket 40
+### Bucket 41
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -736,7 +750,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 41
+### Bucket 42
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -750,20 +764,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm text that the arm64 cross assembler rejects at a target-dependent assembly line.
 - Disposition: `out-of-scope`
 
-### Bucket 42
-
-- Count: 5
-- Cluster: signal=`11`; phase=`cg`
-- Fingerprint: `de25f493e2a030af329f5f01121c9f9249da8508936bfa0a119d0a5c8f638731`
-- Exemplars: torture-compile/limits-caselabels.c@O0@arm64-linux, torture-compile/limits-caselabels.c@O1@arm64-linux, torture-compile/limits-caselabels.c@O2@arm64-linux
-- Diagnostic: timeout: the monitored command dumped core
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 5
-- Optdiv exemplars: -
-- Hypothesis: The 100,000-case-label stress drives arm64 code generation beyond the bounded compiler budget; the hosted native process surfaces the failure as SIGSEGV while the local cross-target reproduction exhausts its timeout.
-- Disposition: `fix-sprint:s56.5-arm64-large-switch-scalability`
-
 ## Policy Overlay
 
 - Applied decisions: 33
@@ -775,8 +775,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 7005
-- Bucketed cells: 7005
+- Failed cells: 6996
+- Bucketed cells: 6996
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%
