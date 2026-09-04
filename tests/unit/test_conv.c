@@ -184,6 +184,12 @@ void test_conv_uac_all_targets(TestCtx *t)
 void test_conv_promotions(TestCtx *t)
 {
     ConvFix f;
+    Type *u35;
+    Type *u40;
+    Type *s40;
+    Type *u3;
+    Type *u32;
+    Type *mixed;
 
     conv_fix_init(&f, CGF_TARGET_X86_64_LINUX_GNU);
     /* Everything below int's rank promotes to int, because a 32-bit int
@@ -226,7 +232,8 @@ void test_conv_promotions(TestCtx *t)
     /* A GNU bit-field's effective precision, not the rank of its declared
      * base, decides the integer promotion. This is why narrow long and long
      * long fields still become signed int. At exactly int width signedness
-     * selects int versus unsigned int; wider fields retain the base type. */
+     * selects int versus unsigned int. A wider field has a GNU extended
+     * integer type whose precision is the field width, not the carrier's. */
     T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULLONG), 3,
                                            false) == type_basic(TY_INT));
     T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULONG), 31,
@@ -235,8 +242,34 @@ void test_conv_promotions(TestCtx *t)
                                            true) == type_basic(TY_INT));
     T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULONG), 32,
                                            false) == type_basic(TY_UINT));
-    T_ASSERT(t, conv_promote_bitfield_type(&f.sema, type_basic(TY_ULLONG), 35,
-                                           false) == type_basic(TY_ULLONG));
+    u35 = conv_promote_bitfield_type(&f.sema, type_basic(TY_ULLONG), 35, false);
+    u40 = conv_promote_bitfield_type(&f.sema, type_basic(TY_ULONG), 40, false);
+    s40 = conv_promote_bitfield_type(&f.sema, type_basic(TY_LLONG), 40, true);
+    T_ASSERT(t, u35 != type_basic(TY_ULLONG));
+    T_ASSERT_EQ_INT(t, conv_int_bits(&f.sema, u35), 35);
+    T_ASSERT(t, !conv_is_signed(&f.sema, u35));
+    T_ASSERT(t, !type_compatible(u35, type_basic(TY_ULLONG)));
+    T_ASSERT(t, type_compatible(
+                    u40, conv_promote_bitfield_type(
+                             &f.sema, type_basic(TY_ULLONG), 40, false)));
+
+    mixed = conv_uac_type(&f.sema, u35, u40);
+    T_ASSERT_EQ_INT(t, conv_int_bits(&f.sema, mixed), 40);
+    T_ASSERT(t, !conv_is_signed(&f.sema, mixed));
+    T_ASSERT(t, type_compatible(
+                    conv_uac_type(&f.sema, u35, type_basic(TY_UINT)), u35));
+    T_ASSERT(t, conv_uac_type(&f.sema, u40, type_basic(TY_LONG)) ==
+                    type_basic(TY_LONG));
+    T_ASSERT(t, type_compatible(
+                    conv_uac_type(&f.sema, s40, type_basic(TY_UINT)), s40));
+    mixed = conv_uac_type(&f.sema, s40, u40);
+    T_ASSERT_EQ_INT(t, conv_int_bits(&f.sema, mixed), 40);
+    T_ASSERT(t, !conv_is_signed(&f.sema, mixed));
+    u3 = type_integer_with_precision(&f.arena, type_basic(TY_ULLONG), 3, false);
+    u32 =
+        type_integer_with_precision(&f.arena, type_basic(TY_ULLONG), 32, false);
+    T_ASSERT(t, conv_promote_type(&f.sema, u3) == type_basic(TY_INT));
+    T_ASSERT(t, conv_promote_type(&f.sema, u32) == type_basic(TY_UINT));
     conv_fix_free(&f);
 }
 

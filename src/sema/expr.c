@@ -521,10 +521,21 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
 
     if (e->op == PUNCT_COMMA) {
         /* The comma operator's value is the RIGHT operand, lvalue-
-         * converted; the result is never an lvalue in C. */
+         * converted; the result is never an lvalue in C. GNU nevertheless
+         * retains bit-field identity here, so a later integer promotion can
+         * recover a wide field's anonymous precision. */
         e->rhs = rhs = conv_decay(s, rhs);
-        e->sem_type = rhs->sem_type;
+        e->sem_type =
+            rhs->sem_is_bitfield &&
+                    rhs->sem_bitfield_width < conv_int_bits(s, rhs->sem_type)
+                ? type_integer_with_precision(s->arena, rhs->sem_type,
+                                              rhs->sem_bitfield_width,
+                                              rhs->sem_bitfield_is_signed)
+                : rhs->sem_type;
         e->is_lvalue = false;
+        e->sem_bitfield_width = rhs->sem_bitfield_width;
+        e->sem_is_bitfield = rhs->sem_is_bitfield;
+        e->sem_bitfield_is_signed = rhs->sem_bitfield_is_signed;
         return e;
     }
 

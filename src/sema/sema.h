@@ -140,6 +140,13 @@ struct TagDecl {
 struct Type {
     TypeKind kind;
     unsigned quals;
+    /* GNU gives a bit-field wider than int but narrower than its declared
+     * carrier an anonymous extended integer type. Its storage/ABI carrier is
+     * still `kind`, while arithmetic, rank, compatibility, and constant
+     * folding observe this exact precision and signedness. Zero means an
+     * ordinary C integer type whose properties come from `kind`. */
+    u32 integer_precision;
+    bool integer_is_signed;
     /* GNU `may_alias` is a TYPE property, not a compatibility qualifier.
      * Accesses through a type carrying it lower with wildcard effective-type
      * metadata, while layout, ABI classification, and compatibility remain
@@ -419,6 +426,8 @@ Type *type_basic(TypeKind k);
 Type *type_qualify(Arena *ar, const Type *t, unsigned quals);
 Type *type_may_alias(Arena *ar, const Type *t);
 Type *type_with_alignment(Arena *ar, const Type *t, u64 align);
+Type *type_integer_with_precision(Arena *ar, const Type *carrier, u32 precision,
+                                  bool is_signed);
 Type *type_ptr(Arena *ar, Type *pointee);
 Type *type_array(Arena *ar, Type *elem);
 Type *type_func(Arena *ar, Type *ret);

@@ -94,6 +94,48 @@ Type *type_with_alignment(Arena *ar, const Type *t, u64 align)
     return a;
 }
 
+Type *type_integer_with_precision(Arena *ar, const Type *carrier, u32 precision,
+                                  bool is_signed)
+{
+    TypeKind kind;
+    Type *t;
+
+    if (!carrier || !type_is_integer(carrier) || !precision)
+        CGF_ICE("type_integer_with_precision requires an integer carrier");
+    if (carrier->kind == TY_ENUM)
+        carrier = type_enum_underlying(carrier);
+    kind = carrier->kind;
+    switch (kind) {
+    case TY_CHAR:
+    case TY_SCHAR:
+    case TY_UCHAR:
+        kind = is_signed ? TY_SCHAR : TY_UCHAR;
+        break;
+    case TY_SHORT:
+    case TY_USHORT:
+        kind = is_signed ? TY_SHORT : TY_USHORT;
+        break;
+    case TY_INT:
+    case TY_UINT:
+        kind = is_signed ? TY_INT : TY_UINT;
+        break;
+    case TY_LONG:
+    case TY_ULONG:
+        kind = is_signed ? TY_LONG : TY_ULONG;
+        break;
+    case TY_LLONG:
+    case TY_ULLONG:
+        kind = is_signed ? TY_LLONG : TY_ULLONG;
+        break;
+    default:
+        CGF_ICE("unsupported extended integer carrier kind %d", (int)kind);
+    }
+    t = type_new(ar, kind);
+    t->integer_precision = precision;
+    t->integer_is_signed = is_signed;
+    return t;
+}
+
 static void composite_alignment(Type *out, const Type *a, const Type *b)
 {
     out->align_override = a->align_override > b->align_override
@@ -232,6 +274,10 @@ static bool survives_default_arg_promotions(const Type *t)
 {
     if (!t || t->kind == TY_ERROR)
         return true; /* suppress cascades from an already-poisoned parameter */
+    /* Every closed target has a 32-bit int; a wider anonymous type survives
+     * exactly as conv_promote_type would leave it. */
+    if (t->integer_precision)
+        return t->integer_precision > 32;
     switch (t->kind) {
     case TY_BOOL:
     case TY_CHAR:
@@ -250,6 +296,13 @@ static const Type *default_promoted_param(const Type *t)
 {
     if (!t)
         return t;
+    if (t->integer_precision) {
+        if (t->integer_precision < 32)
+            return type_basic(TY_INT);
+        if (t->integer_precision == 32)
+            return type_basic(t->integer_is_signed ? TY_INT : TY_UINT);
+        return t;
+    }
     switch (t->kind) {
     case TY_BOOL:
     case TY_CHAR:
@@ -373,6 +426,14 @@ bool type_compatible(const Type *a, const Type *b)
      * Callers that want lvalue conversion strip them first (Sprint 13). */
     if (a->quals != b->quals)
         return false;
+    /* Anonymous extended integer types are identified by precision and
+     * signedness, independent of whether the source field used long or long
+     * long as its same-size carrier. They are not compatible with the
+     * ordinary carrier type. */
+    if (a->integer_precision || b->integer_precision)
+        return a->integer_precision && b->integer_precision &&
+               a->integer_precision == b->integer_precision &&
+               a->integer_is_signed == b->integer_is_signed;
     /* 6.7.2.2p4: every enum is compatible with its implementation-chosen
      * integer representation.  Keep distinct enum tags distinct below, but
      * bridge an enum/basic-integer pair here.  GCC exposes this through both
