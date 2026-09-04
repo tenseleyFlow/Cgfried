@@ -1753,7 +1753,7 @@ static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
 
         if (!str->tok)
             return false;
-        *out = (u64)str->tok->str.nbytes + 1;
+        *out = (u64)str->tok->str.nelems + 1;
         return true;
     }
     if (init->kind != AST_INIT_LIST)

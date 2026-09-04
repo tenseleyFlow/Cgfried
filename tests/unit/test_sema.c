@@ -1280,12 +1280,31 @@ void test_sema_incomplete_types(TestCtx *t)
     T_ASSERT(t, f.errors >= 1);
     sfix_free(&f);
 
-    /* A string literal completes a char array, terminator included. */
-    run_sema(&f, "char s[] = \"abc\";\n", STD_C17);
+    /* A string literal completes an array in elements, terminator included;
+     * encoded byte counts are not array bounds for wide literal types. */
+    run_sema(&f,
+             "char s[] = \"abc\";\n"
+             "int ws[] = L\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\";\n"
+             "unsigned short u16s[] = "
+             "u\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\";\n"
+             "unsigned int u32s[] = "
+             "U\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\";\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
     {
-        Symbol *sym = lookup(&f, "s");
-        T_ASSERT(t, sym && sym->type->has_size);
-        T_ASSERT_EQ_INT(t, (int)sym->type->size, 4);
+        Symbol *s = lookup(&f, "s");
+        Symbol *ws = lookup(&f, "ws");
+        Symbol *u16s = lookup(&f, "u16s");
+        Symbol *u32s = lookup(&f, "u32s");
+
+        T_ASSERT(t, s && s->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)s->type->size, 4);
+        T_ASSERT(t, ws && ws->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)ws->type->size, 4);
+        T_ASSERT(t, u16s && u16s->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)u16s->type->size, 5);
+        T_ASSERT(t, u32s && u32s->type->has_size);
+        T_ASSERT_EQ_INT(t, (int)u32s->type->size, 4);
     }
     sfix_free(&f);
 

@@ -67,15 +67,25 @@ static u32 pool_intern(Lower *lo, u8 tag, const u8 *bytes, u64 n,
 u32 lower_string_lit(Lower *lo, const AstNode *e)
 {
     u64 n = e->tok ? e->tok->str.nbytes : 0;
-    u8 *bytes = arena_alloc(lo->arena, (size_t)n + 1, 1);
+    u32 elem_size = 1;
+    u64 total;
+    u8 *bytes;
 
-    if (n && e->tok)
-        memcpy(bytes, e->tok->str.bytes, (size_t)n);
-    bytes[n] = 0; /* the terminator the source spelling implies */
+    if (e->tok && (e->tok->str.enc == ENC_WIDE || e->tok->str.enc == ENC_U32))
+        elem_size = 4;
+    else if (e->tok && e->tok->str.enc == ENC_U16)
+        elem_size = 2;
+    total = n + elem_size;
+    bytes = arena_alloc(lo->arena, (size_t)total, elem_size);
+
+    if (e->tok)
+        memcpy(bytes, e->tok->str.bytes, (size_t)total);
+    else
+        memset(bytes, 0, (size_t)total);
     /* The encoding class joins the key: L"a" and "a" may share bytes on
      * some targets but are different literals. */
     return pool_intern(lo, (u8)(0x10 + (e->tok ? e->tok->str.enc : 0)), bytes,
-                       n + 1, ".Lstr.", 1);
+                       total, ".Lstr.", elem_size);
 }
 
 u32 lower_func_name_object(Lower *lo, const AstNode *e)
@@ -661,12 +671,14 @@ static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
     if (init->kind == AST_EXPR_STRING) {
         u64 cap = t->has_size ? t->size : 0;
         u64 n = init->tok ? init->tok->str.nbytes : 0;
+        TypeLayout elem = layout_of(p->lo->sema, t->base);
+        u64 cap_bytes = cap * elem.size;
         u64 i;
 
-        if (n > cap)
-            n = cap;
-        plan_clear_bytes(p, (u64)off, cap);
-        plan_zero(p, (u64)off, cap);
+        if (init->tok && init->tok->str.nelems > cap)
+            n = cap_bytes;
+        plan_clear_bytes(p, (u64)off, cap_bytes);
+        plan_zero(p, (u64)off, cap_bytes);
         for (i = 0; i < n && (u64)off + i < p->size; i++)
             p->img[off + i] = init->tok->str.bytes[i];
         return;

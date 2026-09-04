@@ -1608,32 +1608,34 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
 {
     const Token *tok = init->tok;
     u64 cap = t->has_size ? t->size : 0;
+    TypeLayout elem;
+    u64 cap_bytes;
     u64 n;
     u64 i;
 
-    if (!tok)
+    if (!tok || !t->base)
         return;
+    elem = layout_of(c->s, t->base);
     /* A GNU static FAM initializer enlarges the emitted image without
      * completing the semantic array type. Its capacity is precisely the
      * payload appended beyond sizeof(record), not all bytes remaining after
      * the member offset (which would incorrectly count tail padding). */
-    if (!t->has_size && t->base && c->img->size >= c->semantic_size) {
-        TypeLayout elem = layout_of(c->s, t->base);
-
+    if (!t->has_size && c->img->size >= c->semantic_size) {
         if (elem.size)
             cap = (c->img->size - c->semantic_size) / elem.size;
     }
+    cap_bytes = cap * elem.size;
     /* A later designated initializer replaces the whole selected array
      * subobject, including any relocation left by an overlapping union
      * member.  The image starts zeroed, but source-order overrides do not. */
-    img_clear_relocs(c, off, cap);
-    img_zero(c, off, cap);
+    img_clear_relocs(c, off, cap_bytes);
+    img_zero(c, off, cap_bytes);
     n = tok->str.nbytes;
-    if (n > cap) {
+    if (tok->str.nelems > cap) {
         warn_at(c->s->lang->warnings, WARN_INITIALIZER_STRING_TOO_LONG,
                 init->span,
                 "initializer-string for array of chars is too long");
-        n = cap;
+        n = cap * elem.size;
     }
     for (i = 0; i < n && off + i < c->img->size; i++)
         c->img->bytes[off + i] = tok->str.bytes[i];
