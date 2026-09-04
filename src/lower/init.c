@@ -229,7 +229,7 @@ static void plan_clear_rt_bits(InitPlan *p, u64 bit_off, u64 bit_width)
         if (!r->active)
             continue;
         if (r->bf) {
-            store_off = (u64)r->off * 8 + r->bf->bit_offset;
+            store_off = ((u64)r->off + r->bf->offset) * 8 + r->bf->bit_shift;
             store_width = r->bf->bit_width;
         } else {
             TypeLayout l = layout_of(p->lo->sema, r->t);
@@ -601,18 +601,17 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
         u32 bit;
 
         if (member->bit_width) {
-            u64 first_byte = (cursor->off * 8 + member->bit_offset) / 8;
-            u64 last_bit =
-                cursor->off * 8 + member->bit_offset + member->bit_width - 1;
+            u64 first_byte = cursor->off + member->offset;
+            u64 first_bit = first_byte * 8 + member->bit_shift;
+            u64 last_bit = first_bit + member->bit_width - 1;
 
             plan_clear_relocs(p, first_byte, last_bit / 8 - first_byte + 1);
-            plan_clear_rt_bits(p, cursor->off * 8 + member->bit_offset,
-                               member->bit_width);
+            plan_clear_rt_bits(p, first_bit, member->bit_width);
         }
         for (bit = 0; bit < member->bit_width; bit++) {
-            u64 absolute = cursor->off * 8 + member->bit_offset + bit;
-            u64 byte = absolute / 8;
-            u8 mask = (u8)(1u << (absolute % 8));
+            u64 within = member->bit_shift + bit;
+            u64 byte = cursor->off + member->offset + within / 8;
+            u8 mask = (u8)(1u << (within % 8));
 
             if (byte >= p->size)
                 break;
@@ -900,16 +899,14 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
 {
     if (r->bf) {
         const Member *m = r->bf;
-        u64 cbits = m->container_size * 8;
-        u64 unit_byte = (m->bit_offset / cbits) * m->container_size;
+        u64 unit_byte = (m->offset / m->container_size) * m->container_size;
         IrOperand v = materialize_rt_value(lo, r);
         Lvalue lv;
 
         v = lower_scalar_convert(lo, v, r->e->sem_type, (Type *)m->type);
         memset(&lv, 0, sizeof(lv));
-        lv.addr =
-            off_addr(lo, base,
-                     r->off + (i64)(m->packed ? m->bit_offset / 8 : unit_byte));
+        lv.addr = off_addr(lo, base,
+                           r->off + (i64)(m->packed ? m->offset : unit_byte));
         switch (m->container_size) {
         case 1:
             lv.unit = IRT_I8;
@@ -929,7 +926,8 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         lv.is_bitfield = true;
         lv.packed_bitfield = m->packed;
         lv.bit_shift =
-            (u8)(m->packed ? m->bit_offset % 8 : m->bit_offset - unit_byte * 8);
+            (u8)(m->packed ? m->bit_shift
+                           : (m->offset - unit_byte) * 8 + m->bit_shift);
         lv.bit_width = (u8)m->bit_width;
         lv.is_signed = m->bitfield_is_signed;
         lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;

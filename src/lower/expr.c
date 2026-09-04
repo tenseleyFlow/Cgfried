@@ -613,7 +613,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             u64 outer = off - m->offset;
 
             memset(&lv, 0, sizeof(lv));
-            lv.addr = addr_plus(lo, base, (i64)(outer + m->bit_offset / 8));
+            lv.addr = addr_plus(lo, base, (i64)(outer + m->offset));
             switch (m->container_size) {
             case 1:
                 lv.unit = IRT_I8;
@@ -633,7 +633,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
             lv.is_bitfield = true;
             lv.packed_bitfield = true;
-            lv.bit_shift = (u8)(m->bit_offset % 8);
+            lv.bit_shift = m->bit_shift;
             lv.bit_width = (u8)m->bit_width;
             lv.is_signed = m->bitfield_is_signed;
             if (sem(e) && (sem(e)->quals & CGF_QUAL_VOLATILE))
@@ -643,14 +643,11 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         {
             /* The container window: container_size bytes, aligned to
              * itself; the shift is the field's position within it. The
-             * bit_offset Sprint 14 computed is relative to the RECORD, so
-             * rebase it against the offset we accumulated (which includes
+             * byte/bit position Sprint 14 computed is relative to the RECORD,
+             * so rebase it against the offset we accumulated (which includes
              * anonymous-member nesting). */
-            u64 cbits = m->container_size * 8;
-            u64 rec_bit = m->bit_offset;
-            u64 unit_index = rec_bit / cbits;
-            u64 unit_byte = unit_index * m->container_size;
-            u64 shift = rec_bit - unit_byte * 8;
+            u64 unit_byte = (m->offset / m->container_size) * m->container_size;
+            u64 shift = (m->offset - unit_byte) * 8 + m->bit_shift;
             u64 outer = off - m->offset; /* anonymous nesting bytes */
 
             memset(&lv, 0, sizeof(lv));
