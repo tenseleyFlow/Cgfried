@@ -98,12 +98,14 @@ ratchet to 26,957 lines (26,954 PASS keys). The current
 `698726f4`, raising the target-complete ratchet to 26,977 lines (26,974 PASS
 keys). PR #76's `s56.5-bitfield-expression-precision` tranche is merged as
 `363aa2db`, raising the target-complete ratchet to 27,017 lines (27,014 PASS
-keys). The current `s56.5-huge-object-layout` tranche on PR #77 is
-target-complete at 27,037 ratchet lines (27,034 PASS keys), with 33 applied
-policy decisions, one retained stale cross-host variant, and zero unresolved
-decisions; it awaits fresh final-publication standard and exact native ARM64
-CI. Its documented GNU tier table remains 42 implemented / 6 parsed-ignored /
-8 refused. Sprint 56's
+keys). PR #77's `s56.5-huge-object-layout` tranche is merged as `e62f590f`,
+raising the target-complete ratchet to 27,037 lines (27,034 PASS keys). The
+current `s56.5-utf8-wide-literal-decoding` tranche on PR #78 is
+target-complete at 27,047 ratchet lines (27,044 PASS keys), with 32 applied
+policy decisions, two retained stale decisions, eight live repair rows, and
+zero unresolved decisions; it awaits fresh final-publication standard and
+exact native ARM64 CI. Its documented GNU tier table remains 42 implemented /
+6 parsed-ignored / 8 refused. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -2932,6 +2934,73 @@ and green post-publication CI.
   Fresh final-publication standard CI and exact-head native ARM64 must be green
   before merging. The next recommended target-complete compiler gap is
   `s56.5-utf8-wide-literal-decoding` (`ctestsuite/00220.c`, ten cells).
+- The current `s56.5-utf8-wide-literal-decoding` tranche (PR #78) resolves all
+  ten target-complete `ctestsuite/00220.c` cells. Behavior head
+  `c70cb8802132c1dd0a186096c7f108ff582c80d8` strictly decodes raw UTF-8 into
+  Unicode scalar values for `L`, `u`, and `U` string and character literals,
+  while ordinary and `u8` literals retain their source bytes. The adjacent
+  object-representation audit repaired the element/byte distinction exposed
+  by decoded wide strings: incomplete encoded arrays complete from element
+  count, static and automatic initializer capacities scale by target element
+  width, and pooled wide literals carry a full-width zero element with 2- or
+  4-byte alignment. Pooling also keeps `L` and `U` objects distinct even when
+  their byte payloads match.
+
+  Permanent focused coverage comprises eight unit tests / 124 assertions over
+  lexing, incomplete-array completion, constant initialization, lowering, and
+  string-pool layout, plus an executed UTF-8 wide-literal fixture. The fixture
+  passes natively on Apple ARM64 at O0/O1/O2/O3/Os, under Apple Clang's strict
+  C17 reference lane at O0/O2/Os, and on Linux x86 at all five optimization
+  levels. Cross-codegen succeeds for x86_64-linux-gnu, arm64-linux, and
+  arm64-macos at all five levels. Linux affected-unit tests and imported
+  `00220.c` are green; a 2,000-case Apple ARM64 frontend fuzz smoke reproduced
+  the cross-host digest `cb4f7aad0cc90d84` twice, matching two independent
+  Linux runs.
+
+  Both exact publication streams contain all 20,325 matrix cells plus the ten
+  provenance lines (20,335 lines total) and share source revision
+  `c70cb8802132c1dd0a186096c7f108ff582c80d8`, compiler-source SHA-256
+  `31e683b0c1a60839da48c7a0b470f65c0581e1f90ea4fdfd92b8d010cd365c8a`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The exact x86 compiler/driver SHA-256 is
+  `d83be82113e0c4d8e0f5b31e484dbf1c567bfcc0428c0f98eb9eaf60500a6fc4`;
+  ARM's is
+  `c14390ae8941cc66b1b25ea4d208df516629cbd58dbf10bebea9c0bac37be3f7`.
+  Exact x86 and ARM stream SHA-256 values are respectively
+  `b58d59dff7d3e275971bd20700fe50811d0b62d8b22c6335fb487488d51c0458`
+  and
+  `69397e37922fcc1400399f6949e61649c74a75d24378ab5d4fcb16f91d790a72`.
+  Both bootstrap runs
+  [33845819947](https://github.com/tenseleyFlow/Cgfried/actions/runs/33845819947)
+  and
+  [33845817753](https://github.com/tenseleyFlow/Cgfried/actions/runs/33845817753)
+  are green. Exact-head native ARM64
+  [run 33845827252](https://github.com/tenseleyFlow/Cgfried/actions/runs/33845827252)
+  has every campaign green and only the five expected unpublished ARM
+  `00220.c` passes at its torture gate.
+
+  The baseline engine processed both complete streams in forward and reverse
+  order and regenerated both outputs byte-identically. Atomic publication
+  promotes exactly the ten intended `00220.c` cells with zero PASS regression
+  and retires observed fingerprint `cfa8a29b...` to the stale policy table.
+  The published state is 27,047 ratchet lines / 27,044 PASS keys, 6,986
+  classified failures, 41 observed buckets, 32 applied decisions, eight live
+  repair rows representing eight repair tranches, two stale decisions, and
+  zero unresolved decisions. PASS and triage SHA-256 values are respectively
+  `22334fccdb39a887c503be8262dd60b8a73eecb79890cabad3f446a4d8b75463`
+  and
+  `9f19a420935d4f5fe1a3241c9ccf0594d1467cd4a548db11568837231e711510`.
+  Fresh final-publication standard CI and exact-head native ARM64 must be green
+  before merging. The next recommended target-complete compiler gap is
+  `s56.5-gnu-varargs-without-named-parameter`
+  (`torture-execute/pr117432.c`, ten cells): its shipped `va_start` macro
+  currently requires a last named parameter and rejects GNU ellipsis-only
+  function definitions during preprocessing.
 - The August 28 machine transfer to Apple silicon does **not** require a native
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
