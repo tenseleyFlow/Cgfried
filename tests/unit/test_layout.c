@@ -270,6 +270,84 @@ void test_layout_records(TestCtx *t)
     rec_is(t, "struct S { _Alignas(8) char c; int i; };", 8, 8);
 }
 
+void test_layout_huge_object_offsets(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,      CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,
+    };
+    static const char source[] =
+        "struct S { short buf[4611686018427387648ULL]; int a; int b; "
+        "int c; int d; }; union U { int a; "
+        "char buf[4611686018427387648ULL]; }; struct B { "
+        "char prefix[4611686018427387649ULL]; unsigned flag : 1; };\n";
+    u32 i;
+
+    /* 991014-1: the short array occupies fewer than SIZE_MAX bytes, but its
+     * size in BITS exceeds u64. Record placement must therefore keep an
+     * overflow-safe byte/bit cursor instead of multiplying every ordinary
+     * member offset by CHAR_BIT. The answer is target-independent throughout
+     * the closed LP64 target set. */
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LayFix f;
+        Symbol *structure;
+        Symbol *un;
+        Symbol *bits;
+        Member *m;
+        TypeLayout l;
+
+        (void)run_lay(&f, source, targets[i]);
+        structure =
+            scope_lookup(f.sema.file_scope,
+                         intern_str(&f.in, intern_cstr(&f.in, "S")), NS_TAG);
+        un = scope_lookup(f.sema.file_scope,
+                          intern_str(&f.in, intern_cstr(&f.in, "U")), NS_TAG);
+        bits = scope_lookup(f.sema.file_scope,
+                            intern_str(&f.in, intern_cstr(&f.in, "B")), NS_TAG);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, structure && structure->tag);
+        T_ASSERT(t, un && un->tag);
+        T_ASSERT(t, bits && bits->tag);
+        if (!structure || !structure->tag || !un || !un->tag || !bits ||
+            !bits->tag) {
+            lay_free(&f);
+            continue;
+        }
+
+        l = layout_of(&f.sema, structure->tag->type);
+        T_ASSERT(t, l.size == UINT64_C(9223372036854775312));
+        T_ASSERT(t, l.align == 4);
+        m = structure->tag->members;
+        T_ASSERT(t, m && m->next && m->next->next && m->next->next->next &&
+                        m->next->next->next->next);
+        if (m && m->next && m->next->next && m->next->next->next &&
+            m->next->next->next->next) {
+            T_ASSERT(t, m->next->offset == UINT64_C(9223372036854775296));
+            T_ASSERT(t, m->next->next->offset == UINT64_C(9223372036854775300));
+            T_ASSERT(t, m->next->next->next->offset ==
+                            UINT64_C(9223372036854775304));
+            T_ASSERT(t, m->next->next->next->next->offset ==
+                            UINT64_C(9223372036854775308));
+        }
+
+        l = layout_of(&f.sema, un->tag->type);
+        T_ASSERT(t, l.size == UINT64_C(4611686018427387648));
+        T_ASSERT(t, l.align == 4);
+
+        l = layout_of(&f.sema, bits->tag->type);
+        T_ASSERT(t, l.size == UINT64_C(4611686018427387652));
+        T_ASSERT(t, l.align == 4);
+        m = bits->tag->members;
+        T_ASSERT(t, m && m->next);
+        if (m && m->next) {
+            T_ASSERT(t, m->next->offset == UINT64_C(4611686018427387649));
+            T_ASSERT(t, m->next->bit_shift == 0);
+        }
+        lay_free(&f);
+    }
+}
+
 void test_layout_zero_length_array_records(TestCtx *t)
 {
     static const TargetKind targets[] = {
@@ -681,9 +759,9 @@ void test_layout_bit_positions(TestCtx *t)
     T_ASSERT(t, sym != NULL);
     layout_record(&f.sema, sym->tag->type);
     m = sym->tag->members;
-    T_ASSERT_EQ_INT(t, (int)m->bit_offset, 0);
+    T_ASSERT_EQ_INT(t, (int)(m->offset * 8 + m->bit_shift), 0);
     /* 7 + 25 == 32 fits the int window exactly, so b does NOT advance. */
-    T_ASSERT_EQ_INT(t, (int)m->next->bit_offset, 7);
+    T_ASSERT_EQ_INT(t, (int)(m->next->offset * 8 + m->next->bit_shift), 7);
     lay_free(&f);
 
     (void)run_lay(&f, "struct S { long a:3; char b; int c:20; };\n",
@@ -692,11 +770,12 @@ void test_layout_bit_positions(TestCtx *t)
                        intern_str(&f.in, intern_cstr(&f.in, "S")), NS_TAG);
     layout_record(&f.sema, sym->tag->type);
     m = sym->tag->members;
-    T_ASSERT_EQ_INT(t, (int)m->bit_offset, 0);   /* a */
+    T_ASSERT_EQ_INT(t, (int)(m->offset * 8 + m->bit_shift), 0); /* a */
     T_ASSERT_EQ_INT(t, (int)m->next->offset, 1); /* b at byte 1 */
     /* The running offset is bit 16 and 16 + 20 == 36 overflows the int
      * window, so c DOES advance — to bit 32, not bit 16. */
-    T_ASSERT_EQ_INT(t, (int)m->next->next->bit_offset, 32);
+    T_ASSERT_EQ_INT(
+        t, (int)(m->next->next->offset * 8 + m->next->next->bit_shift), 32);
     lay_free(&f);
 
     /* `:0` forces the next field to the next unit boundary. */
@@ -706,8 +785,9 @@ void test_layout_bit_positions(TestCtx *t)
                        intern_str(&f.in, intern_cstr(&f.in, "S")), NS_TAG);
     layout_record(&f.sema, sym->tag->type);
     m = sym->tag->members;
-    T_ASSERT_EQ_INT(t, (int)m->bit_offset, 0);
-    T_ASSERT_EQ_INT(t, (int)m->next->next->bit_offset, 8);
+    T_ASSERT_EQ_INT(t, (int)(m->offset * 8 + m->bit_shift), 0);
+    T_ASSERT_EQ_INT(
+        t, (int)(m->next->next->offset * 8 + m->next->next->bit_shift), 8);
     lay_free(&f);
 }
 
@@ -785,8 +865,8 @@ void test_layout_packed_bitfields(TestCtx *t)
         m = sym->tag->members;
         T_ASSERT(t, m != NULL);
         T_ASSERT(t, m->next != NULL);
-        T_ASSERT_EQ_INT(t, (int)m->bit_offset, 0);
-        T_ASSERT_EQ_INT(t, (int)m->next->bit_offset, 31);
+        T_ASSERT_EQ_INT(t, (int)(m->offset * 8 + m->bit_shift), 0);
+        T_ASSERT_EQ_INT(t, (int)(m->next->offset * 8 + m->next->bit_shift), 31);
         T_ASSERT(t, m->next->packed);
         lay_free(&f);
 
@@ -804,7 +884,7 @@ void test_layout_packed_bitfields(TestCtx *t)
         m = sym->tag->members;
         T_ASSERT(t, m != NULL);
         T_ASSERT(t, m->next != NULL);
-        T_ASSERT_EQ_INT(t, (int)m->next->bit_offset, 8);
+        T_ASSERT_EQ_INT(t, (int)(m->next->offset * 8 + m->next->bit_shift), 8);
         lay_free(&f);
     }
 }

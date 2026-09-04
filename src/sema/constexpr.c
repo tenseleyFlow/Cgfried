@@ -1884,15 +1884,15 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
      * earlier representation.  Any relocation overlapping those bytes can
      * no longer survive the scalar write. */
     if (m->bit_width) {
-        u64 first_byte = (cursor->off * 8 + m->bit_offset) / 8;
-        u64 last_bit = cursor->off * 8 + m->bit_offset + m->bit_width - 1;
+        u64 first_byte = cursor->off + m->offset;
+        u64 last_within = m->bit_shift + m->bit_width - 1;
 
-        img_clear_relocs(c, first_byte, last_bit / 8 - first_byte + 1);
+        img_clear_relocs(c, first_byte, last_within / 8 + 1);
     }
     for (b = 0; b < m->bit_width; b++) {
-        u64 abs_bit = cursor->off * 8 + m->bit_offset + b;
-        u64 byte = abs_bit / 8;
-        u8 mask = (u8)(1u << (abs_bit % 8));
+        u64 within = m->bit_shift + b;
+        u64 byte = cursor->off + m->offset + within / 8;
+        u8 mask = (u8)(1u << (within % 8));
 
         if (byte >= c->img->size)
             break;
