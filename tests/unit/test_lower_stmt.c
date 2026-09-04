@@ -625,16 +625,29 @@ void test_lower_string_pool_dedup(TestCtx *t)
     StFix f;
 
     /* Content-keyed dedup: two occurrences of "hi" share ONE symbol;
-     * a different literal gets the next slot, in first-occurrence order. */
+     * a different literal gets the next slot, in first-occurrence order.
+     * Encoded literals retain their whole zero element and natural alignment;
+     * L and U remain distinct objects even when their bytes are identical. */
     T_ASSERT(t, run_lower_s(&f, "const char *a(void) { return \"hi\"; }\n"
                                 "const char *b(void) { return \"hi\"; }\n"
-                                "const char *c(void) { return \"ho\"; }\n"));
+                                "const char *c(void) { return \"ho\"; }\n"
+                                "const int *w(void) { return L\"hi\"; }\n"
+                                "const unsigned short *u16(void) {"
+                                " return u\"hi\"; }\n"
+                                "const unsigned int *u32(void) {"
+                                " return U\"hi\"; }\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
-    T_ASSERT_EQ_INT(t, scount(stxt(&f), "global @.Lstr."), 2);
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "global @.Lstr."), 5);
     T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.0 size 3 align 1 internal "
                                  "init x686900") != NULL);
     T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.1 size 3 align 1 internal "
                                  "init x686f00") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.2 size 12 align 4 internal "
+                                 "init x680000006900000000000000") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.3 size 6 align 2 internal "
+                                 "init x680069000000") != NULL);
+    T_ASSERT(t, strstr(stxt(&f), "global @.Lstr.4 size 12 align 4 internal "
+                                 "init x680000006900000000000000") != NULL);
     st_free(&f);
 }
 
