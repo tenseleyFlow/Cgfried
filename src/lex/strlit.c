@@ -361,10 +361,9 @@ void lex_char_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
 
     while (i < len && sp[i] != '\'') {
         bool is_ucn;
-        u32 cv = decode_char(&c, sp, len, &i,
-                             enc == ENC_WIDE || enc == ENC_U16 ||
-                                 enc == ENC_U32,
-                             &is_ucn);
+        u32 cv = decode_char(
+            &c, sp, len, &i,
+            enc == ENC_WIDE || enc == ENC_U16 || enc == ENC_U32, &is_ucn);
 
         if (c.failed)
             return;
@@ -468,11 +467,11 @@ void lex_string_lit(Preprocessor *pp, Token *t, const PpToken *run, u32 count,
          * concatenation: "\x12" "3" is two chars, never \x123. */
         while (i < len && sp[i] != '"') {
             bool is_ucn;
-            u32 cv = decode_char(&c, sp, len, &i,
-                                 result_enc == ENC_WIDE ||
-                                     result_enc == ENC_U16 ||
-                                     result_enc == ENC_U32,
-                                 &is_ucn);
+            u32 cv =
+                decode_char(&c, sp, len, &i,
+                            result_enc == ENC_WIDE || result_enc == ENC_U16 ||
+                                result_enc == ENC_U32,
+                            &is_ucn);
 
             if (c.failed) {
                 buf_free(&payload);

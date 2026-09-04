@@ -332,8 +332,8 @@ static void str_is(TestCtx *t, const char *src, EncPrefix enc,
     } else {
         for (i = 0; i < term_n; i++) {
             if (tl.toks[0].str.bytes[want_n + i] != 0) {
-                t_fail(t, __FILE__, __LINE__,
-                       "%s: nonzero terminating element", src);
+                t_fail(t, __FILE__, __LINE__, "%s: nonzero terminating element",
+                       src);
                 break;
             }
         }
@@ -382,23 +382,23 @@ void test_lex_utf8_literals(TestCtx *t)
     const char *u16 = "\xa2\0\x60\x4f\x3d\xd8\0\xde";
 
     /* Ordinary and u8 literals preserve execution-charset bytes. */
-    str_is(t, "\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_NONE,
-           raw, 9, 9);
-    str_is(t, "u8\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U8,
-           raw, 9, 9);
+    str_is(t, "\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_NONE, raw, 9,
+           9);
+    str_is(t, "u8\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U8, raw, 9,
+           9);
 
     /* Wide and U32 literals contain Unicode scalar values; U16 uses a
      * surrogate pair for the non-BMP scalar. */
-    str_is(t, "L\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_WIDE,
-           u32, 12, 3);
-    str_is(t, "U\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U32,
-           u32, 12, 3);
-    str_is(t, "u\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U16,
-           u16, 8, 4);
+    str_is(t, "L\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_WIDE, u32, 12,
+           3);
+    str_is(t, "U\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U32, u32, 12,
+           3);
+    str_is(t, "u\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U16, u16, 8,
+           4);
 
     /* The selected phase-6 prefix applies to every member of the run. */
-    str_is(t, "\"\xc2\xa2\" L\"\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n",
-           ENC_WIDE, u32, 12, 3);
+    str_is(t, "\"\xc2\xa2\" L\"\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_WIDE, u32,
+           12, 3);
 
     /* Escapes and UCNs are already values, not source UTF-8 to re-decode. */
     str_is(t, "L\"\\xe4\"\n", ENC_WIDE, "\xe4\0\0\0", 4, 1);
@@ -412,12 +412,12 @@ void test_lex_utf8_literals(TestCtx *t)
     /* Only wide destinations require valid source UTF-8. */
     str_is(t, "\"\x80\"\n", ENC_NONE, "\x80", 1, 1);
     str_is(t, "u8\"\x80\"\n", ENC_U8, "\x80", 1, 1);
-    lex_err(t, "L\"\x80\"\n", STD_C17);                 /* continuation */
-    lex_err(t, "L\"\xc0\xaf\"\n", STD_C17);             /* overlong */
-    lex_err(t, "L\"\xe2\x82\"\n", STD_C17);             /* truncated */
-    lex_err(t, "L\"\xed\xa0\x80\"\n", STD_C17);         /* surrogate */
-    lex_err(t, "L\"\xf4\x90\x80\x80\"\n", STD_C17);     /* > U+10FFFF */
-    lex_err(t, "U'\xf5\x80\x80\x80'\n", STD_C17);       /* bad lead */
+    lex_err(t, "L\"\x80\"\n", STD_C17);             /* continuation */
+    lex_err(t, "L\"\xc0\xaf\"\n", STD_C17);         /* overlong */
+    lex_err(t, "L\"\xe2\x82\"\n", STD_C17);         /* truncated */
+    lex_err(t, "L\"\xed\xa0\x80\"\n", STD_C17);     /* surrogate */
+    lex_err(t, "L\"\xf4\x90\x80\x80\"\n", STD_C17); /* > U+10FFFF */
+    lex_err(t, "U'\xf5\x80\x80\x80'\n", STD_C17);   /* bad lead */
 }
 
 void test_lex_float_consts(TestCtx *t)

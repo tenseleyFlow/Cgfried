@@ -9,7 +9,8 @@ static unsigned char utf8[] = u8"¢你😀";
 static wchar_type wide[] = L"¢你😀";
 static char16_type utf16[] = u"¢你😀";
 static char32_type utf32[] = U"¢你😀";
-static wchar_type mixed[] = "¢" L"你😀";
+static wchar_type mixed[] = "¢"
+                            L"你😀";
 
 static int bytes_are_utf8(const unsigned char *s)
 {
@@ -27,8 +28,7 @@ static int bytes_are_utf8(const unsigned char *s)
 
 static int scalars_are_wide(const wchar_type *s)
 {
-    return s[0] == 0xA2 && s[1] == 0x4F60 && s[2] == 0x1F600 &&
-           s[3] == 0;
+    return s[0] == 0xA2 && s[1] == 0x4F60 && s[2] == 0x1F600 && s[3] == 0;
 }
 
 int main(void)
@@ -40,8 +40,8 @@ int main(void)
     if (sizeof(wide) != 4 * sizeof(wchar_type) || !scalars_are_wide(wide))
         return 3;
     if (sizeof(utf16) != 5 * sizeof(char16_type) || utf16[0] != 0xA2 ||
-        utf16[1] != 0x4F60 || utf16[2] != 0xD83D ||
-        utf16[3] != 0xDE00 || utf16[4] != 0)
+        utf16[1] != 0x4F60 || utf16[2] != 0xD83D || utf16[3] != 0xDE00 ||
+        utf16[4] != 0)
         return 4;
     if (sizeof(utf32) != 4 * sizeof(char32_type) || utf32[0] != 0xA2 ||
         utf32[1] != 0x4F60 || utf32[2] != 0x1F600 || utf32[3] != 0)
