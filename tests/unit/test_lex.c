@@ -302,12 +302,19 @@ void test_lex_char_consts(TestCtx *t)
     lex_err(t, "'\\q'\n", STD_C17); /* unknown escape */
 }
 
-/* String payload check: bytes as a hex string, and the encoding. */
+/* String payload check: bytes, element count, encoding, and terminator. */
 static void str_is(TestCtx *t, const char *src, EncPrefix enc,
-                   const char *want_bytes, u32 want_n)
+                   const char *want_bytes, u32 want_n, u32 want_elems)
 {
     LexFix f;
     TokenList tl = lex_src(&f, src, STD_C17);
+    u32 term_n = 1;
+    u32 i;
+
+    if (enc == ENC_WIDE || enc == ENC_U32)
+        term_n = 4;
+    else if (enc == ENC_U16)
+        term_n = 2;
 
     if (f.errors != 0) {
         t_fail(t, __FILE__, __LINE__, "%s: unexpected error", src);
@@ -319,6 +326,17 @@ static void str_is(TestCtx *t, const char *src, EncPrefix enc,
                memcmp(tl.toks[0].str.bytes, want_bytes, want_n) != 0) {
         t_fail(t, __FILE__, __LINE__, "%s: payload mismatch (%u bytes)", src,
                (unsigned)tl.toks[0].str.nbytes);
+    } else if (tl.toks[0].str.nelems != want_elems) {
+        t_fail(t, __FILE__, __LINE__, "%s: element count %u, want %u", src,
+               (unsigned)tl.toks[0].str.nelems, (unsigned)want_elems);
+    } else {
+        for (i = 0; i < term_n; i++) {
+            if (tl.toks[0].str.bytes[want_n + i] != 0) {
+                t_fail(t, __FILE__, __LINE__,
+                       "%s: nonzero terminating element", src);
+                break;
+            }
+        }
     }
     t->assertions++;
     lfix_free(&f);
@@ -326,16 +344,16 @@ static void str_is(TestCtx *t, const char *src, EncPrefix enc,
 
 void test_lex_string_concat(TestCtx *t)
 {
-    str_is(t, "\"hi\"\n", ENC_NONE, "hi", 2);
-    str_is(t, "\"hi\" \"there\"\n", ENC_NONE, "hithere", 7);
+    str_is(t, "\"hi\"\n", ENC_NONE, "hi", 2, 2);
+    str_is(t, "\"hi\" \"there\"\n", ENC_NONE, "hithere", 7, 7);
     /* Plain + prefixed ADOPTS the prefix (6.4.5p5). */
-    str_is(t, "\"a\" L\"b\"\n", ENC_WIDE, "a\0\0\0b\0\0\0", 8);
-    str_is(t, "L\"a\" \"b\"\n", ENC_WIDE, "a\0\0\0b\0\0\0", 8);
+    str_is(t, "\"a\" L\"b\"\n", ENC_WIDE, "a\0\0\0b\0\0\0", 8, 2);
+    str_is(t, "L\"a\" \"b\"\n", ENC_WIDE, "a\0\0\0b\0\0\0", 8, 2);
     /* Escapes are decoded PER LITERAL, before concatenation: "\x12" "3"
      * is two chars, never \x123 (the classic). */
-    str_is(t, "\"\\x12\" \"3\"\n", ENC_NONE, "\x12\x33", 2);
-    str_is(t, "\"\"\n", ENC_NONE, "", 0);
-    str_is(t, "u8\"hi\"\n", ENC_U8, "hi", 2);
+    str_is(t, "\"\\x12\" \"3\"\n", ENC_NONE, "\x12\x33", 2, 2);
+    str_is(t, "\"\"\n", ENC_NONE, "", 0, 0);
+    str_is(t, "u8\"hi\"\n", ENC_U8, "hi", 2, 2);
 
     /* Two DIFFERENT prefixes: error (gcc 8 rejects; so do we). */
     lex_err(t, "L\"x\" u\"y\"\n", STD_C17);
@@ -346,7 +364,7 @@ void test_lex_string_concat(TestCtx *t)
 void test_lex_ucn(TestCtx *t)
 {
     /* U+00E9 encodes as UTF-8 c3 a9 in the execution charset. */
-    str_is(t, "\"\\u00e9\"\n", ENC_NONE, "\xc3\xa9", 2);
+    str_is(t, "\"\\u00e9\"\n", ENC_NONE, "\xc3\xa9", 2, 2);
     /* UCN constraints (6.4.3p2): below U+00A0 (except $ @ `) and the
      * surrogate range are errors. */
     lex_err(t, "\"\\u0041\"\n", STD_C17);    /* 'A' — below A0 */
@@ -354,7 +372,52 @@ void test_lex_ucn(TestCtx *t)
     lex_err(t, "\"\\u00e\"\n", STD_C17);     /* too few digits */
     lex_err(t, "\"\\U0000024\"\n", STD_C17); /* 7 digits, not 8 */
     /* $ @ ` are the sanctioned exceptions. */
-    str_is(t, "\"\\u0024\"\n", ENC_NONE, "$", 1);
+    str_is(t, "\"\\u0024\"\n", ENC_NONE, "$", 1, 1);
+}
+
+void test_lex_utf8_literals(TestCtx *t)
+{
+    const char *raw = "\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80";
+    const char *u32 = "\xa2\0\0\0\x60\x4f\0\0\0\xf6\x01\0";
+    const char *u16 = "\xa2\0\x60\x4f\x3d\xd8\0\xde";
+
+    /* Ordinary and u8 literals preserve execution-charset bytes. */
+    str_is(t, "\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_NONE,
+           raw, 9, 9);
+    str_is(t, "u8\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U8,
+           raw, 9, 9);
+
+    /* Wide and U32 literals contain Unicode scalar values; U16 uses a
+     * surrogate pair for the non-BMP scalar. */
+    str_is(t, "L\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_WIDE,
+           u32, 12, 3);
+    str_is(t, "U\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U32,
+           u32, 12, 3);
+    str_is(t, "u\"\xc2\xa2\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n", ENC_U16,
+           u16, 8, 4);
+
+    /* The selected phase-6 prefix applies to every member of the run. */
+    str_is(t, "\"\xc2\xa2\" L\"\xe4\xbd\xa0\xf0\x9f\x98\x80\"\n",
+           ENC_WIDE, u32, 12, 3);
+
+    /* Escapes and UCNs are already values, not source UTF-8 to re-decode. */
+    str_is(t, "L\"\\xe4\"\n", ENC_WIDE, "\xe4\0\0\0", 4, 1);
+    str_is(t, "L\"\\u4f60\"\n", ENC_WIDE, "\x60\x4f\0\0", 4, 1);
+
+    chr(t, "L'\xc2\xa2'\n", 0xA2);
+    chr(t, "u'\xe4\xbd\xa0'\n", 0x4F60);
+    chr(t, "U'\xf0\x9f\x98\x80'\n", 0x1F600);
+    chr(t, "'\xc2\xa2'\n", 0xC2A2); /* ordinary multi-byte constant */
+
+    /* Only wide destinations require valid source UTF-8. */
+    str_is(t, "\"\x80\"\n", ENC_NONE, "\x80", 1, 1);
+    str_is(t, "u8\"\x80\"\n", ENC_U8, "\x80", 1, 1);
+    lex_err(t, "L\"\x80\"\n", STD_C17);                 /* continuation */
+    lex_err(t, "L\"\xc0\xaf\"\n", STD_C17);             /* overlong */
+    lex_err(t, "L\"\xe2\x82\"\n", STD_C17);             /* truncated */
+    lex_err(t, "L\"\xed\xa0\x80\"\n", STD_C17);         /* surrogate */
+    lex_err(t, "L\"\xf4\x90\x80\x80\"\n", STD_C17);     /* > U+10FFFF */
+    lex_err(t, "U'\xf5\x80\x80\x80'\n", STD_C17);       /* bad lead */
 }
 
 void test_lex_float_consts(TestCtx *t)

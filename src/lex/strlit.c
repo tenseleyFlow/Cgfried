@@ -61,16 +61,71 @@ static bool ucn_value_ok(u32 v)
     return v <= 0x10FFFF;
 }
 
+/* Phase 1 has already preserved source UTF-8 bytes. Decode exactly one scalar
+ * when a wide destination needs code values rather than execution-charset
+ * bytes. Reject non-shortest forms, isolated continuations, surrogates, and
+ * values beyond Unicode's range instead of silently manufacturing elements. */
+static u32 decode_raw_utf8(LitCtx *c, const char *s, u32 len, u32 *i)
+{
+    u8 lead = (u8)s[*i];
+    u32 ncont, min, v, k;
+
+    if (lead < 0x80) {
+        (*i)++;
+        return lead;
+    }
+    if (lead >= 0xC2 && lead <= 0xDF) {
+        ncont = 1;
+        min = 0x80;
+        v = lead & 0x1F;
+    } else if (lead >= 0xE0 && lead <= 0xEF) {
+        ncont = 2;
+        min = 0x800;
+        v = lead & 0x0F;
+    } else if (lead >= 0xF0 && lead <= 0xF4) {
+        ncont = 3;
+        min = 0x10000;
+        v = lead & 0x07;
+    } else {
+        lit_err(c, "invalid UTF-8 sequence in literal");
+        return 0;
+    }
+
+    for (k = 1; k <= ncont; k++) {
+        u8 next;
+
+        if (*i + k >= len) {
+            lit_err(c, "incomplete UTF-8 sequence in literal");
+            return 0;
+        }
+        next = (u8)s[*i + k];
+        if ((next & 0xC0) != 0x80) {
+            lit_err(c, "invalid UTF-8 continuation byte in literal");
+            return 0;
+        }
+        v = (v << 6) | (next & 0x3F);
+    }
+    if (v < min || (v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF) {
+        lit_err(c, "invalid Unicode scalar value in UTF-8 literal");
+        return 0;
+    }
+    *i += ncont + 1;
+    return v;
+}
+
 /* Decodes ONE escape/UCN/plain char starting at s[*i] (past the opening
- * quote). Returns the code value; advances *i. */
-static u32 decode_char(LitCtx *c, const char *s, u32 len, u32 *i, bool *is_ucn)
+ * quote). Raw UTF-8 is decoded only for a wide destination; escapes and UCNs
+ * are already code values and must not be reinterpreted. */
+static u32 decode_char(LitCtx *c, const char *s, u32 len, u32 *i,
+                       bool decode_utf8, bool *is_ucn)
 {
     u32 v = 0;
 
     *is_ucn = false;
     if (s[*i] != '\\') {
-        /* Raw byte: UTF-8 source bytes pass through individually; the
-         * execution charset is UTF-8, so no re-encoding is needed. */
+        if (decode_utf8)
+            return decode_raw_utf8(c, s, len, i);
+        /* Ordinary and u8 payloads preserve the UTF-8 execution bytes. */
         return (u32)(u8)s[(*i)++];
     }
     (*i)++; /* backslash */
@@ -306,7 +361,10 @@ void lex_char_const(Preprocessor *pp, Token *t, const char *sp, u32 len,
 
     while (i < len && sp[i] != '\'') {
         bool is_ucn;
-        u32 cv = decode_char(&c, sp, len, &i, &is_ucn);
+        u32 cv = decode_char(&c, sp, len, &i,
+                             enc == ENC_WIDE || enc == ENC_U16 ||
+                                 enc == ENC_U32,
+                             &is_ucn);
 
         if (c.failed)
             return;
@@ -410,7 +468,11 @@ void lex_string_lit(Preprocessor *pp, Token *t, const PpToken *run, u32 count,
          * concatenation: "\x12" "3" is two chars, never \x123. */
         while (i < len && sp[i] != '"') {
             bool is_ucn;
-            u32 cv = decode_char(&c, sp, len, &i, &is_ucn);
+            u32 cv = decode_char(&c, sp, len, &i,
+                                 result_enc == ENC_WIDE ||
+                                     result_enc == ENC_U16 ||
+                                     result_enc == ENC_U32,
+                                 &is_ucn);
 
             if (c.failed) {
                 buf_free(&payload);
