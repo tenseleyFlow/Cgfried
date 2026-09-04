@@ -107,6 +107,26 @@ static IrOperand bitfield_extract(Lower *lo, IrOperand value, IrType unit,
     return ir_op_value(lo->fn, out);
 }
 
+/* GNU's anonymous extended integer types use an ordinary i64 carrier on the
+ * closed targets, but every value-producing operation still ends at the
+ * type's exact precision. Keep that reduction beside bit-field extraction:
+ * it is the same mask/sign-extension operation with a zero bit offset. */
+static IrOperand integer_precision_fit(Lower *lo, IrOperand value, Type *type)
+{
+    u32 precision;
+    u32 carrier_bits;
+
+    if (!type || !type->integer_precision || !type_is_integer(type) ||
+        value.type > IRT_I64)
+        return value;
+    precision = conv_int_bits(lo->sema, type);
+    carrier_bits = ir_type_size((IrType)value.type) * 8;
+    if (!precision || precision >= carrier_bits)
+        return value;
+    return bitfield_extract(lo, value, (IrType)value.type, 0, precision,
+                            conv_is_signed(lo->sema, type));
+}
+
 static IrOperand packed_byte_addr(Lower *lo, IrOperand base, u32 byte)
 {
     ValueId at;
@@ -331,7 +351,7 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
     }
 
     if (ft == tt)
-        return v;
+        return integer_precision_fit(lo, v, to);
     if (fint && tint) {
         if (ft == IRT_PTR && tt == IRT_PTR)
             return v;
@@ -356,11 +376,12 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
             return ir_op_value(lo->fn,
                                ir_build1(&lo->b, IR_BITCAST, IRT_PTR, wide));
         }
-        if (tt > ft)
-            return ir_op_value(
-                lo->fn,
-                ir_build1(&lo->b, is_signed_ty(lo, from) ? IR_SEXT : IR_ZEXT,
-                          tt, v));
+        if (tt > ft) {
+            ValueId wide = ir_build1(
+                &lo->b, is_signed_ty(lo, from) ? IR_SEXT : IR_ZEXT, tt, v);
+
+            return integer_precision_fit(lo, ir_op_value(lo->fn, wide), to);
+        }
         return ir_op_value(lo->fn, ir_build1(&lo->b, IR_TRUNC, tt, v));
     }
     if (fint && !tint)
@@ -368,11 +389,12 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
             lo->fn,
             ir_build1(&lo->b, is_signed_ty(lo, from) ? IR_SITOFP : IR_UITOFP,
                       tt, v));
-    if (!fint && tint)
-        return ir_op_value(
-            lo->fn,
-            ir_build1(&lo->b, is_signed_ty(lo, to) ? IR_FPTOSI : IR_FPTOUI, tt,
-                      v));
+    if (!fint && tint) {
+        ValueId integer = ir_build1(
+            &lo->b, is_signed_ty(lo, to) ? IR_FPTOSI : IR_FPTOUI, tt, v);
+
+        return integer_precision_fit(lo, ir_op_value(lo->fn, integer), to);
+    }
     /* float -> float */
     return ir_op_value(
         lo->fn, ir_build1(&lo->b, tt > ft ? IR_FPEXT : IR_FPTRUNC, tt, v));
@@ -993,7 +1015,7 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
             b = lower_scalar_convert(lo, b, sem(e->rhs), sem(e));
         r = build_source_arith(lo, arith_op_for(lo, e->op, sem(e)), t, a, b,
                                sem(e));
-        return ir_op_value(lo->fn, r);
+        return integer_precision_fit(lo, ir_op_value(lo->fn, r), sem(e));
     }
 }
 
@@ -1078,7 +1100,7 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
         return ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
                                              ir_op_value(lo->fn, result)));
     }
-    if (is_int && rmw_direct(op)) {
+    if (is_int && !lt->integer_precision && rmw_direct(op)) {
         IrOperand v = lower_scalar_convert(lo, rhs, rt, lt);
         ValueId old =
             ir_build_atomicrmw(&lo->b, rmw_kind(op), lv.unit, lv.addr, v);
@@ -2820,7 +2842,7 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
             build_source_arith(lo, inc ? IR_IADD : IR_ISUB, lower_irtype(lo, t),
                                old, ir_op_iconst(lower_irtype(lo, t), 1), t);
 
-        nv = ir_op_value(lo->fn, r);
+        nv = integer_precision_fit(lo, ir_op_value(lo->fn, r), t);
     }
     {
         IrOperand stored = lower_store(lo, lv, nv);
@@ -2879,14 +2901,14 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
         else
             r = build_source_arith(lo, IR_ISUB, lower_irtype(lo, t),
                                    ir_op_iconst(lower_irtype(lo, t), 0), v, t);
-        return ir_op_value(lo->fn, r);
+        return integer_precision_fit(lo, ir_op_value(lo->fn, r), t);
     }
     case PUNCT_TILDE: {
         IrOperand v = lower_rvalue(lo, e->lhs);
         ValueId r = ir_build2(&lo->b, IR_XOR, lower_irtype(lo, sem(e)), v,
                               ir_op_iconst(lower_irtype(lo, sem(e)), -1));
 
-        return ir_op_value(lo->fn, r);
+        return integer_precision_fit(lo, ir_op_value(lo->fn, r), sem(e));
     }
     case PUNCT_BANG: {
         /* !x is x == 0 — one compare, i32 result. */

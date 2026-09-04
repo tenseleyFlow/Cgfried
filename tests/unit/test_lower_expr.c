@@ -449,6 +449,52 @@ void test_lower_bitfield_compound_uses_effective_precision(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_bitfield_expression_precision(TestCtx *t)
+{
+    LowFix f;
+    const char *add;
+    const char *mul;
+    const char *shift;
+    const char *neg;
+    const char *inc;
+
+    T_ASSERT(t, run_lower_opts(
+                    &f,
+                    "struct B { unsigned long long u33 : 33; "
+                    "unsigned long long u40 : 40; "
+                    "signed long long s40 : 40; } g;\n"
+                    "unsigned long long add(void) { return g.u40 + g.u40; }\n"
+                    "unsigned long long mul(void) { return g.u33 * g.u33; }\n"
+                    "unsigned long long shift(void) { return g.u40 << 32; }\n"
+                    "long long neg(void) { return -g.s40; }\n"
+                    "__typeof__((0, g.u40)) ext;\n"
+                    "unsigned long long inc(void) { "
+                    "ext = 0xffffffffffULL; return ++ext; }\n"
+                    "_Atomic(__typeof__((0, g.u40))) atomic_ext;\n"
+                    "unsigned long long atomic_inc(void) { "
+                    "atomic_ext = 0xffffffffffULL; return ++atomic_ext; }\n",
+                    STD_GNU17, false));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    add = strstr(txt(&f), "@add()");
+    mul = strstr(txt(&f), "@mul()");
+    shift = strstr(txt(&f), "@shift()");
+    neg = strstr(txt(&f), "@neg()");
+    inc = strstr(txt(&f), "@inc()");
+    T_ASSERT(t, add && strstr(add, "iadd i64") &&
+                    strstr(strstr(add, "iadd i64"), "lshr i64"));
+    T_ASSERT(t, mul && strstr(mul, "imul i64") &&
+                    strstr(strstr(mul, "imul i64"), "lshr i64"));
+    T_ASSERT(t, shift && strstr(shift, "shl i64") &&
+                    strstr(strstr(shift, "shl i64"), "lshr i64"));
+    T_ASSERT(t, neg && strstr(neg, "isub i64") &&
+                    strstr(strstr(neg, "isub i64"), "ashr i64"));
+    T_ASSERT(t, inc && strstr(inc, "iadd i64") &&
+                    strstr(strstr(inc, "iadd i64"), "lshr i64"));
+    T_ASSERT(t, strstr(txt(&f), "cmpxchg i64") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "atomicrmw") == NULL);
+    low_free(&f);
+}
+
 void test_lower_shortcircuit_zero_allocas(TestCtx *t)
 {
     LowFix f;

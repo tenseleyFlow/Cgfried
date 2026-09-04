@@ -64,25 +64,32 @@ int conv_rank(const Type *t)
 {
     if (!t)
         return 0;
+    /* All closed targets use 8/16/32/64-bit standard integers. Give an
+     * extended type a rank ordered by precision, immediately below a
+     * standard type of the same precision; long long remains above long even
+     * though both are 64 bits. This also handles a GNU typeof variable made
+     * from a narrow comma-bit-field expression before integer promotion. */
+    if (t->integer_precision)
+        return (int)t->integer_precision * 100;
     switch (t->kind) {
     case TY_BOOL:
-        return 1;
+        return 100;
     case TY_CHAR:
     case TY_SCHAR:
     case TY_UCHAR:
-        return 2;
+        return 801;
     case TY_SHORT:
     case TY_USHORT:
-        return 3;
+        return 1601;
     case TY_INT:
     case TY_UINT:
-        return 4;
+        return 3201;
     case TY_LONG:
     case TY_ULONG:
-        return 5;
+        return 6401;
     case TY_LLONG:
     case TY_ULLONG:
-        return 6;
+        return 6402;
     case TY_ENUM:
         return conv_rank(type_enum_underlying(t));
     default:
@@ -96,6 +103,8 @@ bool conv_is_signed(Sema *s, const Type *t)
 
     if (!t)
         return false;
+    if (t->integer_precision)
+        return t->integer_is_signed;
     switch (t->kind) {
     case TY_BOOL:
         return false;
@@ -123,6 +132,8 @@ u32 conv_int_bits(Sema *s, const Type *t)
 
     if (!t)
         return 0;
+    if (t->integer_precision)
+        return t->integer_precision;
     switch (t->kind) {
     case TY_BOOL:
         return 1;
@@ -150,8 +161,11 @@ u32 conv_int_bits(Sema *s, const Type *t)
 }
 
 /* The unsigned type corresponding to a signed one (UAC rule e). */
-static Type *unsigned_counterpart(const Type *t)
+static Type *unsigned_counterpart(Sema *s, const Type *t)
 {
+    if (t->integer_precision)
+        return type_integer_with_precision(s->arena, t, t->integer_precision,
+                                           false);
     switch (t->kind) {
     case TY_SCHAR:
     case TY_CHAR:
@@ -259,8 +273,16 @@ Type *conv_promote_bitfield_type(Sema *s, Type *t, u32 width, bool is_signed)
      * promotion nevertheless follows the field's effective precision, not
      * the rank of that base: `unsigned long long : 3` promotes to int while
      * a 35-bit field retains its declared extended type. */
-    if (!type_is_integer(t) || width > w.int_bits)
+    if (!type_is_integer(t))
         return conv_strip_quals(s, t);
+    if (width > w.int_bits) {
+        Type *carrier = conv_strip_quals(s, t);
+
+        if (width < conv_int_bits(s, carrier))
+            return type_integer_with_precision(s->arena, carrier, width,
+                                               is_signed);
+        return carrier;
+    }
     if (width < w.int_bits || is_signed)
         return type_basic(TY_INT);
     return type_basic(TY_UINT);
@@ -373,7 +395,7 @@ Type *conv_uac_type(Sema *s, Type *a, Type *b)
     /* 4: promote both, then compare rank and signedness. */
     a = conv_promote_type(s, a);
     b = conv_promote_type(s, b);
-    if (a->kind == b->kind)
+    if (type_compatible(a, b))
         return a; /* (a) same type */
 
     ra = conv_rank(a);
@@ -398,7 +420,7 @@ Type *conv_uac_type(Sema *s, Type *a, Type *b)
         if (conv_int_bits(s, sig) > conv_int_bits(s, uns))
             return sig;
         /* (e) otherwise the unsigned counterpart of the signed type. */
-        return unsigned_counterpart(sig);
+        return unsigned_counterpart(s, sig);
     }
 }
 
