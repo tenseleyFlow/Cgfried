@@ -1445,6 +1445,59 @@ void test_sema_incomplete_types(TestCtx *t)
              STD_GNU17);
     T_ASSERT(t, f.errors >= 3);
     sfix_free(&f);
+
+    /* A fixed-size union member can provide honest storage for the flexible
+     * tail of another selected member. The extension applies recursively
+     * when the union itself is nested, but does not enlarge any semantic
+     * type or emitted definition. */
+    run_sema(&f,
+             "struct F { int head; unsigned char tail[]; };\n"
+             "union U { struct F f; unsigned char storage[16]; };\n"
+             "static union U positional = { { 1, { 2, 3 } } };\n"
+             "static union U designated = { .f = { .head = 4, "
+             ".tail = { [3] = 5 } } };\n"
+             "struct O { int before; union U u; int after; };\n"
+             "static struct O nested = { 6, { { 7, { 8 } } }, 9 };\n"
+             "void g(void) { static union U local = { { 10, { 11 } } }; "
+             "(void)local; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    {
+        Symbol *positional = lookup(&f, "positional");
+        Symbol *designated = lookup(&f, "designated");
+        Symbol *nested = lookup(&f, "nested");
+
+        T_ASSERT(t, positional && positional->type->kind == TY_UNION);
+        T_ASSERT_EQ_INT(t, (int)layout_of(&f.sema, positional->type).size, 16);
+        T_ASSERT_EQ_INT(t, (int)positional->init_storage_size, 0);
+        T_ASSERT(t, designated && designated->type == positional->type);
+        T_ASSERT_EQ_INT(t, (int)designated->init_storage_size, 0);
+        T_ASSERT(t, nested && nested->type->kind == TY_STRUCT);
+        T_ASSERT_EQ_INT(t, (int)nested->init_storage_size, 0);
+    }
+    sfix_free(&f);
+
+    /* The union must actually cover every initialized byte, and automatic
+     * storage does not gain the static-image extension. */
+    run_sema(&f,
+             "struct F { int head; int tail[]; };\n"
+             "union Tiny { struct F f; int storage; };\n"
+             "static union Tiny bad = { { 1, { 2 } } };\n"
+             "union Wide { struct F f; int storage[4]; };\n"
+             "void g(void) { union Wide automatic = { { 3, { 4 } } }; "
+             "(void)automatic; }\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors >= 2);
+    sfix_free(&f);
+
+    run_sema_opts(&f,
+                  "struct F { int head; int tail[]; };\n"
+                  "union U { struct F f; int storage[4]; };\n"
+                  "static union U object = { { 1, { 2 } } };\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, f.warnings >= 1);
+    sfix_free(&f);
 }
 
 void test_sema_redeclaration(TestCtx *t)
