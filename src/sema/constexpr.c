@@ -1456,6 +1456,10 @@ typedef struct {
     Sema *s;
     InitImage *img;
     u64 semantic_size;
+    /* Exclusive byte bound supplied by the innermost enclosing union while
+     * filling one of its FAM-bearing members. Zero selects the ordinary
+     * direct-FAM storage rule. */
+    u64 nested_fam_end;
     bool ok;
     InitUnionSelection *unions;
     u32 nunions;
@@ -1620,9 +1624,14 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
      * completing the semantic array type. Its capacity is precisely the
      * payload appended beyond sizeof(record), not all bytes remaining after
      * the member offset (which would incorrectly count tail padding). */
-    if (!t->has_size && c->img->size >= c->semantic_size) {
-        if (elem.size)
-            cap = (c->img->size - c->semantic_size) / elem.size;
+    if (!t->has_size) {
+        if (c->nested_fam_end > off) {
+            if (elem.size)
+                cap = (c->nested_fam_end - off) / elem.size;
+        } else if (c->img->size >= c->semantic_size) {
+            if (elem.size)
+                cap = (c->img->size - c->semantic_size) / elem.size;
+        }
     }
     cap_bytes = cap * elem.size;
     /* A later designated initializer replaces the whole selected array
@@ -1683,6 +1692,11 @@ static bool fill_cursor_select(InitCtx *c, FillCursor *cursor)
             (f->aggregate->has_size && f->pos >= f->aggregate->size))
             return false;
         el = layout_of(c->s, f->aggregate->base);
+        if (!f->aggregate->has_size && c->nested_fam_end) {
+            if (!el.size || f->off >= c->nested_fam_end ||
+                f->pos >= (c->nested_fam_end - f->off) / el.size)
+                return false;
+        }
         cursor->current = f->aggregate->base;
         cursor->off = f->off + f->pos * el.size;
         return true;
@@ -1907,9 +1921,26 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
 static void fill_cursor_value(InitCtx *c, const FillCursor *cursor,
                               AstNode *item)
 {
+    u64 prior_fam_end = c->nested_fam_end;
+    u32 i;
+
     if (!cursor->current) {
         c->ok = false;
         return;
+    }
+    /* Preserve the innermost union's real extent across the recursive fill
+     * of its selected member. A nested fill starts a fresh cursor, so this
+     * explicit dynamic bound is what keeps its incomplete array from either
+     * seeing zero capacity or borrowing bytes past the union. */
+    for (i = 0; i < cursor->depth; i++) {
+        const FillCursorFrame *frame = &cursor->frames[i];
+
+        if (frame->aggregate->kind == TY_UNION) {
+            TypeLayout l = layout_of(c->s, frame->aggregate);
+
+            if (frame->off <= UINT64_MAX - l.size)
+                c->nested_fam_end = frame->off + l.size;
+        }
     }
     fill_activate_cursor_unions(c, cursor);
     if (fill_is_aggregate(cursor->current) &&
@@ -1924,6 +1955,7 @@ static void fill_cursor_value(InitCtx *c, const FillCursor *cursor,
         fill_bitfield(c, cursor, item);
     else
         fill(c, cursor->current, item, cursor->off);
+    c->nested_fam_end = prior_fam_end;
 }
 
 static void fill_aggregate_list(InitCtx *c, Type *t, AstNode *init, u64 off)

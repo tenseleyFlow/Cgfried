@@ -84,6 +84,7 @@ predefine.
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 | binary integer constants (`0b...`) | `tests/programs/gnu/binary_integer_constants.c` | chibicc's UTF-8 codec; bit-mask-heavy systems code |
 | nested flexible-array-member records and arrays | `tests/programs/gnu/nested_flexible_array_member.c` | GCC torture PR16566; GNU layouts that embed the fixed prefix of a FAM-bearing record |
+| static nested flexible-array initialization backed by enclosing union storage | `tests/programs/lower-exec/exec_nested_flexible_array_union_storage.c` | GCC torture PR28865; fixed-size tagged/storage unions whose selected record uses bytes owned by the union |
 | old-style field designators (`field: value`) | `tests/programs/gnu/old_style_designators.c` | historical GNU initializers retained in GCC's torture corpus |
 | range designators (`[first ... last]`) | `tests/programs/gnu/range_designators.c` | compact lookup tables and generated initializers; the inclusive upper bound completes unsized arrays |
 | `#ident` / `#sccs` | `tests/programs/gnu/ident_directive.c` | source and generated version strings retained in ELF object metadata |
@@ -94,6 +95,16 @@ predefine.
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
 | records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
+
+Cgfried implements a storage-bounded subset of GCC's nested flexible-array
+initializer extension. A static object may initialize a flexible tail below
+its declared type when the selected FAM-bearing record is a member of a
+fixed-size union and every initialized byte fits inside that union. Neither
+the union nor an outer record changes semantic size. Ordinary containing
+structs, automatic objects, brace-elided buried tails, and unions too small
+for the requested elements remain diagnosed rather than borrowing adjacent
+storage. Strict ISO modes accept the same safe static form with a pedantic
+diagnostic; `-pedantic-errors` rejects it.
 
 Range designators are normalized after semantic analysis into the same
 current-object path used by ordinary array designators. Chained ranges form

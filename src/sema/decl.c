@@ -1880,12 +1880,11 @@ static bool fam_size_from_init(Sema *s, Type *record, const AstNode *init,
     return true;
 }
 
-/* GCC's nested-FAM extension changes which TYPES may be formed; it does not
- * create storage for a flexible tail buried inside another object. Detect an
- * initializer that reaches such a tail with the same current-object cursor
- * used for typing. This covers explicit braces, brace elision, and chained
- * designators without confusing the declared record's own direct FAM, whose
- * static-storage extension is handled by fam_size_from_init above. */
+/* Detect an initializer that reaches a flexible tail below the declared root
+ * with the same current-object cursor used for typing. This covers explicit
+ * braces, brace elision, and chained designators without confusing the
+ * declared record's own direct FAM, whose static-storage extension is handled
+ * by fam_size_from_init above. */
 static bool cursor_reaches_nested_fam(const InitCursor *cursor, Type *root,
                                       bool declared_root)
 {
@@ -1952,6 +1951,86 @@ static bool nested_fam_initialized(Sema *s, Type *target, const AstNode *init,
         init_cursor_advance(&cursor);
     }
     return false;
+}
+
+typedef struct {
+    bool found;
+    bool invalid;
+} FamBackingScan;
+
+static bool fam_init_fits_storage(Sema *s, Type *record, const AstNode *init,
+                                  u64 storage_size)
+{
+    Member *member;
+    TypeLayout element;
+    u64 count;
+
+    if (!fam_size_from_init(s, record, init, &member, &count) || !member ||
+        !member->type || !member->type->base)
+        return false;
+    layout_record(s, record);
+    element = layout_of(s, member->type->base);
+    if (member->offset > storage_size || element.size == 0)
+        return false;
+    return count <= (storage_size - member->offset) / element.size;
+}
+
+/* Cgfried accepts the useful, storage-safe subset of GCC's nested-FAM
+ * initializer extension: a selected FAM-bearing record may use the fixed
+ * extent of an enclosing union. A plain containing struct supplies no tail
+ * storage, and an undersized union is equally invalid. Nested braces are
+ * intentional here; brace-elided access to a buried FAM remains refused by
+ * nested_fam_initialized rather than guessing which enclosing bytes belong
+ * to the incomplete array. */
+static void scan_fam_backing(Sema *s, Type *target, const AstNode *init,
+                             u64 backing_size, bool nested,
+                             FamBackingScan *scan)
+{
+    InitCursor cursor;
+    Member *member;
+    u64 count;
+    u32 i;
+
+    if (!target || !init || init->kind != AST_INIT_LIST || scan->invalid)
+        return;
+    if (nested && fam_size_from_init(s, target, init, &member, &count)) {
+        scan->found = true;
+        if (!backing_size ||
+            !fam_init_fits_storage(s, target, init, backing_size))
+            scan->invalid = true;
+        return;
+    }
+
+    init_cursor_start(&cursor, target);
+    for (i = 0; i < init->nitems; i++) {
+        const AstNode *item = init->items[i];
+        u64 child_backing = 0;
+
+        if (!item)
+            continue;
+        if (item->ndesignators &&
+            !init_cursor_designate(s, &cursor, target, item))
+            continue;
+        if (!cursor.depth || !cursor.current)
+            continue;
+        if (item->kind == AST_INIT_LIST) {
+            Type *parent = cursor.frames[cursor.depth - 1].aggregate;
+
+            if (parent && parent->kind == TY_UNION)
+                child_backing = layout_of(s, parent).size;
+            scan_fam_backing(s, cursor.current, item, child_backing, true,
+                             scan);
+            init_cursor_advance(&cursor);
+            continue;
+        }
+        while (init_is_aggregate(cursor.current) &&
+               !init_expr_initializes_whole(cursor.current, item))
+            if (!init_cursor_descend(&cursor))
+                break;
+        if (cursor_reaches_nested_fam(&cursor, target, true))
+            scan->invalid = true;
+        init_cursor_advance(&cursor);
+    }
 }
 
 static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
@@ -2138,6 +2217,7 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
 {
     Member *fam_member = NULL;
     u64 fam_count = 0;
+    bool has_nested_fam;
 
     if (!d->init)
         return;
@@ -2147,12 +2227,22 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
     if (is_static_init)
         s->static_init_depth--;
 
-    if (target && target->kind != TY_ERROR && type_contains_fam(target) &&
-        nested_fam_initialized(s, target, d->init, true)) {
-        s->nerrors++;
-        diag_emit(s->dc, DIAG_ERROR, d->init->span,
-                  "initialization of flexible array member in a nested "
-                  "context");
+    has_nested_fam = target && target->kind != TY_ERROR &&
+                     type_contains_fam(target) &&
+                     nested_fam_initialized(s, target, d->init, true);
+    if (has_nested_fam) {
+        FamBackingScan scan = {false, false};
+
+        scan_fam_backing(s, target, d->init, 0, false, &scan);
+        if (!is_static_init || !scan.found || scan.invalid) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->init->span,
+                      "initialization of flexible array member in a nested "
+                      "context");
+        } else if (s->lang->pedantic) {
+            warn_at(s->lang->warnings, WARN_PEDANTIC, d->init->span,
+                    "initialization of a flexible array member");
+        }
     }
 
     if (fam_size_from_init(s, target, d->init, &fam_member, &fam_count)) {

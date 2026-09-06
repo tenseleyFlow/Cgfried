@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-04): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-06): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -106,11 +106,14 @@ raising the target-complete ratchet to 27,047 lines (27,044 PASS keys), with
 rows, and zero unresolved decisions. PR #79's `s56.5-builtin-abort` tranche is
 merged as `5f0d01c0`, raising the documented GNU tier table to 43 implemented /
 6 parsed-ignored / 8 refused and the target-complete ratchet to 30,112 lines
-(30,109 PASS keys). PR #80's current
-`s56.5-gnu-varargs-without-named-parameter` tranche publishes 30,122 ratchet
-lines (30,119 PASS keys), 39 applied policy decisions, two retained stale
-decisions, 15 live repair rows representing 14 tranches, and zero unresolved
-decisions. It awaits post-publication CI before merge. Sprint 56's
+(30,109 PASS keys). PR #80's
+`s56.5-gnu-varargs-without-named-parameter` tranche is merged as `13367fc0`,
+publishing 30,122 ratchet lines (30,119 PASS keys), 39 applied policy
+decisions, two retained stale decisions, 15 live repair rows representing 14
+tranches, and zero unresolved decisions. Its final standard, bootstrap, and
+exact-head native-ARM CI were all green. The current
+`s56.5-nested-flexible-array-union-storage` tranche targets the ten
+`torture-execute/pr28865.c` cells. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3149,10 +3152,89 @@ and green post-publication CI.
   `579a1cef0e9ebf6b20cc2ebb113196a2d25c0ef2f9afe2f3c8a8444b0591c002`
   and
   `f89639d66d34c477840ae6a950c719403c859b7596949005f6f1aaa5d588566f`.
-  Fresh standard, bootstrap, and native-ARM CI are required after the
-  publication commit before merge. The next recommended target-complete gap
-  is `s56.5-nested-flexible-array-union-storage`
-  (`torture-execute/pr28865.c`, ten cells).
+  Fresh standard
+  [run 34015417383](https://github.com/tenseleyFlow/Cgfried/actions/runs/34015417383),
+  bootstrap
+  [runs 34015417373](https://github.com/tenseleyFlow/Cgfried/actions/runs/34015417373)
+  and
+  [34015415938](https://github.com/tenseleyFlow/Cgfried/actions/runs/34015415938),
+  and exact-head native-ARM
+  [run 34015427264](https://github.com/tenseleyFlow/Cgfried/actions/runs/34015427264)
+  are all green. PR #80 is merged as `13367fc0`; its branch and temporary
+  evidence branch are deleted.
+- The in-progress `s56.5-nested-flexible-array-union-storage` tranche accepts
+  the storage-safe subset needed by `torture-execute/pr28865.c`: a static
+  initializer may reach a flexible tail below its declared root when the
+  FAM-bearing record is the selected member of a fixed-size union and every
+  initialized byte fits inside that union. The semantic size is unchanged,
+  and the static image writer carries the enclosing union's exclusive byte
+  bound into the nested fill. This raises the branch's GNU tier table to 45
+  implemented / 6 parsed-ignored / 8 refused. Plain containing structs,
+  automatic objects, brace-elided buried tails, and undersized unions remain
+  errors. Strict C17 accepts the safe static form with a pedantic diagnostic.
+
+  The focused semantic lane passes 63 assertions. Three permanent diagnostic
+  fixtures prove automatic-storage and undersized-union rejection plus the
+  pedantic boundary. The permanent execution fixture and exact `pr28865.c`
+  both run natively on Apple ARM64 at O0/O1/O2/O3/Os, while both programs emit
+  nonempty source for x86_64-linux-gnu, arm64-linux, and arm64-macos at all
+  five levels (30/30 cross-source cells). The pre-existing ordinary nested-FAM
+  refusal and nested-type extension fixtures remain green. Two independent
+  5,000-iteration frontend-fuzz runs reproduce sequence digest
+  `c87d01c92f519916`; the 2,000-iteration smoke has zero findings. Full
+  initializer differential validation reports 53/53 byte-identical static
+  images against GCC. Behavior-head standard CI
+  [run 34018064138](https://github.com/tenseleyFlow/Cgfried/actions/runs/34018064138)
+  passes every non-torture job, including standard, sanitizer, macOS ARM64,
+  native and QEMU Linux ARM64, toolchain, formatting, both O0/O2 bootstraps,
+  and 100,000 frontend-fuzz iterations with zero findings; its x86 torture
+  gate rejects only the five expected unpublished cells. Exact
+  synthetic-merge nightly
+  [run 34018200701](https://github.com/tenseleyFlow/Cgfried/actions/runs/34018200701)
+  passes all 14 non-torture jobs and rejects only the matching five native ARM
+  cells.
+
+  Both exact evidence streams contain 20,325 matrix rows plus ten provenance
+  lines and share source revision `1dfb1320b6a7dbfe01654b144bb973a07588801f`,
+  compiler-source SHA-256
+  `c6fbebb80acd77a086c295ce266e7af684fb121e2bb786e1977383986acdca31`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `3380ccce1565eb0cf4b92f789f4ac9e483009906489d6a5f378a9565557e1731`
+  and
+  `cbe49fbbf995b1d24a72f3252bd2d45043ef305fae42a072ffdc59d35d681cd1`;
+  their compiler/driver hashes are respectively
+  `d18c2e1b58b52efb8e563bde4368aaa6e07b31957667c8a122376fcf24865d90`
+  and
+  `021e6978f2c07f2ac307e126f599ee92be886e56c1f54dd717b0e96e58303ea7`.
+
+  GNU Make 4.4.1 generated the target-complete publication in both evidence
+  orders with byte-identical results. Atomic publication promotes exactly the
+  ten `pr28865.c` cells with zero PASS regression and retires only fingerprint
+  `d9e8ff1b...`. The published state is 30,132 ratchet lines / 30,129 PASS
+  keys, 3,901 classified failures, 38 applied decisions, 14 live repair rows
+  representing 13 tranches, two deliberately retained stale decisions, and
+  zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `21ee4f4269b063e931624b11b841fcc12b111c29a5c0d090739d1032aedda9a6`
+  and
+  `f8c4c1132b00ed5784fdc0baca552b196960f7002a1cc5838610232abf1b4505`.
+  Fresh post-publication standard, bootstrap, and native-ARM CI remain before
+  merge.
+
+  A sanitizer-instrumented native link probe also exposed separate pre-existing
+  Darwin driver debt: the Mach-O branch of `toolchain_build_link_argv` returns
+  without appending the required null argv terminator, so `posix_spawnp` reads
+  allocator poison at `toolchain.c:250`. An ASan+UBSan build of exact parent
+  `13367fc0` reproduces the same crash on the already-green direct-FAM fixture,
+  proving it is not caused by this tranche. Keep that bounded argv-termination
+  repair as a high-priority follow-on rather than mixing it into nested-FAM
+  semantics.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
