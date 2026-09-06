@@ -24645,6 +24645,16 @@ torture-execute/pr117095.c@O3@arm64-linux
 torture-execute/pr117095.c@O3@x86_64-linux-gnu
 torture-execute/pr117095.c@Os@arm64-linux
 torture-execute/pr117095.c@Os@x86_64-linux-gnu
+torture-execute/pr117432.c@O0@arm64-linux
+torture-execute/pr117432.c@O0@x86_64-linux-gnu
+torture-execute/pr117432.c@O1@arm64-linux
+torture-execute/pr117432.c@O1@x86_64-linux-gnu
+torture-execute/pr117432.c@O2@arm64-linux
+torture-execute/pr117432.c@O2@x86_64-linux-gnu
+torture-execute/pr117432.c@O3@arm64-linux
+torture-execute/pr117432.c@O3@x86_64-linux-gnu
+torture-execute/pr117432.c@Os@arm64-linux
+torture-execute/pr117432.c@Os@x86_64-linux-gnu
 torture-execute/pr117498.c@O0@arm64-linux
 torture-execute/pr117498.c@O0@x86_64-linux-gnu
 torture-execute/pr117498.c@O1@arm64-linux

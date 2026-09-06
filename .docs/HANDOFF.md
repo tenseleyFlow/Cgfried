@@ -103,12 +103,14 @@ raising the target-complete ratchet to 27,037 lines (27,034 PASS keys). PR
 #78's `s56.5-utf8-wide-literal-decoding` tranche is merged as `2a3e2096`,
 raising the target-complete ratchet to 27,047 lines (27,044 PASS keys), with
 32 applied policy decisions, two retained stale decisions, eight live repair
-rows, and zero unresolved decisions. PR #79's current
-`s56.5-builtin-abort` tranche raises the documented GNU tier table to 43
-implemented / 6 parsed-ignored / 8 refused and publishes its exact
-target-complete state: 30,112 ratchet lines (30,109 PASS keys), 41 applied
-policy decisions, one retained stale decision, and zero unresolved decisions.
-It awaits post-publication CI before merge. Sprint 56's
+rows, and zero unresolved decisions. PR #79's `s56.5-builtin-abort` tranche is
+merged as `5f0d01c0`, raising the documented GNU tier table to 43 implemented /
+6 parsed-ignored / 8 refused and the target-complete ratchet to 30,112 lines
+(30,109 PASS keys). PR #80's current
+`s56.5-gnu-varargs-without-named-parameter` tranche publishes 30,122 ratchet
+lines (30,119 PASS keys), 39 applied policy decisions, two retained stale
+decisions, 15 live repair rows representing 14 tranches, and zero unresolved
+decisions. It awaits post-publication CI before merge. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3106,20 +3108,51 @@ and green post-publication CI.
   and the ordinary 2,000-iteration smoke remains clean. Ban, GNU-tier,
   PP-seam, sema-target, unit-registry, and digest gates pass locally; pinned
   clang-format 22 remains CI-only on this machine. Behavior commit
-  `f3bc1304` and digest commit `5e5cf4e0` await PR and exact target-complete
-  matrix validation.
-- Behavior-head standard CI
-  [run 33854613606](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854613606)
-  passes every check other than its intentionally pre-publication x86 PASS-set
-  gate; full test, sanitizers, macOS ARM64, QEMU ARM64, toolchain, campaigns,
-  formatting, and the long frontend-fuzz lane are green. Exact-head PR and
-  push bootstrap runs
-  [33854613529](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854613529)
+  `f3bc1304`, digest commit `5e5cf4e0`, and the final ISO-boundary fixture
+  commit `33bff1e8` are carried by PR #80.
+
+  Behavior-head standard CI
+  [run 34013721423](https://github.com/tenseleyFlow/Cgfried/actions/runs/34013721423)
+  passes full test, sanitizers, macOS ARM64, native and QEMU Linux ARM64,
+  toolchain, campaign, formatting, bootstrap, and 100,000-case frontend-fuzz
+  lanes; its x86 torture gate rejects only the five expected unpublished
+  `pr117432.c` cells. The x86 artifact has SHA-256
+  `24ccf9fd425a0073c36c2bcf796684e9fe2f45a3adc540d03e6f0938cbcc6c18`.
+  To make the native evidence share the PR checkout's exact synthetic merge
+  revision, nightly
+  [run 34014568457](https://github.com/tenseleyFlow/Cgfried/actions/runs/34014568457)
+  ran its ARM matrix at `44acf2a5b4570a5fe577b252b8b631c39e8053e1` and rejected only the matching
+  five ARM cells. Its artifact has SHA-256
+  `e5087bdac5b3e93ea4167734a27f921fdc4e4402ab9c4cd5cf60565d1b13cf5d`.
+  Both 20,335-line streams share compiler-source SHA-256
+  `83b77888da789a292b941bed21c7106166d330892ecbaf4260ba455d3a09ffc6`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  The x86 and ARM compiler/driver SHA-256 values are respectively
+  `1c3f5c01fd985b19422c4aa6a25764f0e7a97b97749e6cb1a6b20bc78f4ed130`
   and
-  [33854609281](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854609281)
-  are green. The native ARM nightly's sole red job is the same expected
-  pre-publication ratchet. Fresh standard, bootstrap, and native-ARM CI are
-  required after the publication commit before merge.
+  `d8de4ca3fee68c85f65d00903031d95671ece3ad7b7184cc42c41046828fe6b2`.
+
+  GNU Make 4.4.1 exercised the complete target-validation recipe despite the
+  documented Apple Make 3.81 phony-target limitation. Forward and reversed
+  evidence order regenerated both outputs byte-identically. Atomic
+  publication promotes exactly the ten intended `pr117432.c` cells with zero
+  PASS regression and retires fingerprint `577b3a7c...`. The published state
+  is 30,122 ratchet lines / 30,119 PASS keys, 3,911 classified failures, 39
+  applied decisions, 15 live repair rows representing 14 tranches, two
+  deliberately retained stale decisions, and zero unbucketed or unresolved
+  cells. PASS and triage SHA-256 values are respectively
+  `579a1cef0e9ebf6b20cc2ebb113196a2d25c0ef2f9afe2f3c8a8444b0591c002`
+  and
+  `f89639d66d34c477840ae6a950c719403c859b7596949005f6f1aaa5d588566f`.
+  Fresh standard, bootstrap, and native-ARM CI are required after the
+  publication commit before merge. The next recommended target-complete gap
+  is `s56.5-nested-flexible-array-union-storage`
+  (`torture-execute/pr28865.c`, ten cells).
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
