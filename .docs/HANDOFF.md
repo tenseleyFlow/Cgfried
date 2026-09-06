@@ -111,9 +111,14 @@ merged as `5f0d01c0`, raising the documented GNU tier table to 43 implemented /
 publishing 30,122 ratchet lines (30,119 PASS keys), 39 applied policy
 decisions, two retained stale decisions, 15 live repair rows representing 14
 tranches, and zero unresolved decisions. Its final standard, bootstrap, and
-exact-head native-ARM CI were all green. The current
-`s56.5-nested-flexible-array-union-storage` tranche targets the ten
-`torture-execute/pr28865.c` cells. Sprint 56's
+exact-head native-ARM CI were all green. PR #81's
+`s56.5-nested-flexible-array-union-storage` tranche is merged as `3be3c2bb`,
+publishing 30,132 ratchet lines (30,129 PASS keys), 38 applied policy
+decisions, two retained stale decisions, 14 live repair rows representing 13
+tranches, and zero unresolved decisions. PR #82's Apple-native Mach-O linker
+argv repair is merged as `419afaab`; its standard and both bootstrap CI runs
+were green. The current `s56.5-builtin-expect-side-effects` tranche targets
+the ten `torture-execute/pr85156.c` cells. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3242,7 +3247,7 @@ and green post-publication CI.
   `13367fc0` reproduces the same crash on the already-green direct-FAM fixture,
   proving it is not caused by this tranche. The bounded repair is isolated in
   the follow-on below rather than mixed into nested-FAM semantics.
-- The in-progress `s56.5-macho-link-argv-termination` tranche restores the
+- The `s56.5-macho-link-argv-termination` tranche restores the
   driver's documented argv contract on Apple silicon. The Mach-O success path
   returned before the common ELF tail appended `NULL`, so `posix_spawnp` and
   the `-###` printer could walk into uninitialized vector capacity. The repair
@@ -3259,7 +3264,40 @@ and green post-publication CI.
   `exec_static_flexible_array_initializer.c` with the system Apple tools and
   no sanitizer finding at O0/O1/O2/O3/Os. The broader legacy link-unit slice
   retains its known ELF-host assumptions; the new regression itself is
-  host-independent.
+  host-independent. Standard CI
+  [run 34021600286](https://github.com/tenseleyFlow/Cgfried/actions/runs/34021600286)
+  and bootstrap
+  [runs 34021600429](https://github.com/tenseleyFlow/Cgfried/actions/runs/34021600429)
+  and
+  [34021591051](https://github.com/tenseleyFlow/Cgfried/actions/runs/34021591051)
+  are all green. PR #82 is merged as `419afaab`; its branch is deleted.
+- The in-progress `s56.5-builtin-expect-side-effects` tranche preserves the
+  documented value semantics of `__builtin_expect` while evaluating its
+  prediction operand exactly once. Lowering previously emitted only the first
+  argument, silently dropping any effects in the second. The bounded repair
+  lowers the value first, then lowers the prediction for effects; this is one
+  valid ordering for C's otherwise unspecified argument evaluation order and
+  deliberately does not invent branch-weight metadata before the optimizer
+  has a contract for it.
+
+  The target-explicit lowering unit proves both call operands appear exactly
+  once in IR. A permanent execution fixture checks the returned first value,
+  distinct scalar increments, call counters, and discarded-result context
+  without assuming an ordering between operands. On merged trunk `419afaab`,
+  the unit reports no call to the prediction function and the program exits 2;
+  both pass after the repair. The fixture and exact
+  `torture-execute/pr85156.c` execute natively on Apple ARM64 at
+  O0/O1/O2/O3/Os in ordinary and ASan+UBSan compiler builds. Both programs
+  also emit nonempty assembly for x86_64-linux-gnu, arm64-linux, and
+  arm64-macos at all five levels (30/30 cross-source cells). The
+  sanitizer-instrumented frontend fuzzer completed 2,000 iterations with zero
+  findings. Two independent 5,000-iteration ordinary runs reproduce the new
+  sequence digest `c66c73eb9a79234b`; the exact Makefile smoke and digest gate
+  pass after repinning. Focused lowering tests pass 30 assertions, all 863
+  declared units are registered, and format, ban, warning/PP/sema/target seam,
+  deferral, GNU-tier, verifier-coverage, host-FPU, and fuzz-crash gates pass
+  locally. Exact behavior-head target-complete evidence and atomic publication
+  remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -3286,7 +3324,7 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. The remaining
-compiler debt is enumerated by 16 live `s56.5-*` repair rows representing 15
+compiler debt is enumerated by 14 live `s56.5-*` repair rows representing 13
 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
