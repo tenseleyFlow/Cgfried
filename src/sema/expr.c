@@ -1125,8 +1125,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
         u16 b = sema_builtin_lookup(builtin_suffix, &want, &kind);
 
         if (b) {
-            if (b == SEMA_BUILTIN_VA_START &&
-                (e->nargs < 1 || e->nargs > 2)) {
+            if (b == SEMA_BUILTIN_VA_START && (e->nargs < 1 || e->nargs > 2)) {
                 err(s, e->span, "'%s' takes one or two arguments",
                     direct_ident->name);
                 return poison(s, e);

@@ -3100,7 +3100,7 @@ and green post-publication CI.
   motivating `torture-execute/pr117432.c` both execute natively at
   `-O0/-O1/-O2/-O3/-Os`; both x86-64 Linux and ARM64 Linux emit nonempty source
   for the two programs at all five levels. The frontend fuzz sequence moved
-  from `b98a22c83fba0d6a` to `2b13bfe8a3724568`, reproduced by two independent
+  from `b98a22c83fba0d6a` to `87916a501751a85c`, reproduced by two independent
   5,000-iteration runs before repinning. An ASan+UBSan-instrumented compiler
   and fuzzer then completed 100,000 iterations from seed 1 with zero findings,
   and the ordinary 2,000-iteration smoke remains clean. Ban, GNU-tier,
