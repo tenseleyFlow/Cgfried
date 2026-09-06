@@ -2116,8 +2116,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     case SEMA_BUILTIN_EXPECT:
         /* Honest no-op in v0.1.0 (documented): the value IS the first
          * argument. Branch weights arrive with the optimizer, and a
-         * fake metadata bit now would be a claim we cannot honor. */
+         * fake metadata bit now would be a claim we cannot honor. The
+         * prediction operand still has to be evaluated: it is an ordinary
+         * expression whose side effects the builtin cannot discard. */
         *out = lower_rvalue(lo, e->args[0]);
+        (void)lower_rvalue(lo, e->args[1]);
         return true;
     case SEMA_BUILTIN_LLABS: {
         IrOperand value = lower_rvalue(lo, e->args[0]);

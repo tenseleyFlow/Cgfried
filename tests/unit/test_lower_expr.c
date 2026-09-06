@@ -145,6 +145,18 @@ void test_lower_verifies_and_roundtrips(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_expect_evaluates_both_arguments(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t, run_lower(&f, "long value(void); long prediction(void); "
+                              "long use(void) { return "
+                              "__builtin_expect(value(), prediction()); }\n"));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @value()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @prediction()"), 1);
+    low_free(&f);
+}
+
 void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
 {
     static const char declared_call[] =
