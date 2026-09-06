@@ -3084,6 +3084,30 @@ and green post-publication CI.
   and
   `f9862039e8179dd0039f32786c7a97dc4989d9609035bc82cdd7f5fc3c8b1bbc`.
   The preserved ellipsis-only work resumes after this prerequisite is merged.
+- The resumed `s56.5-gnu-varargs-without-named-parameter` tranche accepts an
+  ellipsis-only function parameter list in the older C and GNU modes while
+  preserving the ISO boundary as a `-Wpedantic` diagnostic; `-pedantic-errors`
+  rejects it and `__extension__` suppresses that diagnostic. Cgfried's
+  `<stdarg.h>` now exposes GNU-compatible one- and two-argument `va_start`
+  forms, and semantic analysis rejects every other arity. ABI lowering starts
+  an ellipsis-only list with zero named GP and FP registers on x86-64 and
+  ARM64 Linux, and with the ordinary anonymous-argument cursor on Apple ARM64.
+  A permanent program retrieves `int`, `long long`, and `double` values through
+  the one-argument form.
+
+  Focused parser, preprocessor, semantic, and ABI-lowering validation passes
+  four tests / 41 assertions on Darwin ARM64. The permanent program and the
+  motivating `torture-execute/pr117432.c` both execute natively at
+  `-O0/-O1/-O2/-O3/-Os`; both x86-64 Linux and ARM64 Linux emit nonempty source
+  for the two programs at all five levels. The frontend fuzz sequence moved
+  from `b98a22c83fba0d6a` to `2b13bfe8a3724568`, reproduced by two independent
+  5,000-iteration runs before repinning. An ASan+UBSan-instrumented compiler
+  and fuzzer then completed 100,000 iterations from seed 1 with zero findings,
+  and the ordinary 2,000-iteration smoke remains clean. Ban, GNU-tier,
+  PP-seam, sema-target, unit-registry, and digest gates pass locally; pinned
+  clang-format 22 remains CI-only on this machine. Behavior commit
+  `f3bc1304` and digest commit `5e5cf4e0` await PR and exact target-complete
+  matrix validation.
 - Behavior-head standard CI
   [run 33854613606](https://github.com/tenseleyFlow/Cgfried/actions/runs/33854613606)
   passes every check other than its intentionally pre-publication x86 PASS-set
