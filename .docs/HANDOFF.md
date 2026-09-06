@@ -3183,8 +3183,49 @@ and green post-publication CI.
   5,000-iteration frontend-fuzz runs reproduce sequence digest
   `c87d01c92f519916`; the 2,000-iteration smoke has zero findings. Full
   initializer differential validation reports 53/53 byte-identical static
-  images against GCC. Full regression, sanitizer fuzz, exact target-complete
-  evidence, publication, and CI remain before merge.
+  images against GCC. Behavior-head standard CI
+  [run 34018064138](https://github.com/tenseleyFlow/Cgfried/actions/runs/34018064138)
+  passes every non-torture job, including standard, sanitizer, macOS ARM64,
+  native and QEMU Linux ARM64, toolchain, formatting, both O0/O2 bootstraps,
+  and 100,000 frontend-fuzz iterations with zero findings; its x86 torture
+  gate rejects only the five expected unpublished cells. Exact
+  synthetic-merge nightly
+  [run 34018200701](https://github.com/tenseleyFlow/Cgfried/actions/runs/34018200701)
+  passes all 14 non-torture jobs and rejects only the matching five native ARM
+  cells.
+
+  Both exact evidence streams contain 20,325 matrix rows plus ten provenance
+  lines and share source revision `1dfb1320b6a7dbfe01654b144bb973a07588801f`,
+  compiler-source SHA-256
+  `c6fbebb80acd77a086c295ce266e7af684fb121e2bb786e1977383986acdca31`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `3380ccce1565eb0cf4b92f789f4ac9e483009906489d6a5f378a9565557e1731`
+  and
+  `cbe49fbbf995b1d24a72f3252bd2d45043ef305fae42a072ffdc59d35d681cd1`;
+  their compiler/driver hashes are respectively
+  `d18c2e1b58b52efb8e563bde4368aaa6e07b31957667c8a122376fcf24865d90`
+  and
+  `021e6978f2c07f2ac307e126f599ee92be886e56c1f54dd717b0e96e58303ea7`.
+
+  GNU Make 4.4.1 generated the target-complete publication in both evidence
+  orders with byte-identical results. Atomic publication promotes exactly the
+  ten `pr28865.c` cells with zero PASS regression and retires only fingerprint
+  `d9e8ff1b...`. The published state is 30,132 ratchet lines / 30,129 PASS
+  keys, 3,901 classified failures, 38 applied decisions, 14 live repair rows
+  representing 13 tranches, two deliberately retained stale decisions, and
+  zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `21ee4f4269b063e931624b11b841fcc12b111c29a5c0d090739d1032aedda9a6`
+  and
+  `f8c4c1132b00ed5784fdc0baca552b196960f7002a1cc5838610232abf1b4505`.
+  Fresh post-publication standard, bootstrap, and native-ARM CI remain before
+  merge.
 
   A sanitizer-instrumented native link probe also exposed separate pre-existing
   Darwin driver debt: the Mach-O branch of `toolchain_build_link_argv` returns
