@@ -3296,8 +3296,55 @@ and green post-publication CI.
   pass after repinning. Focused lowering tests pass 30 assertions, all 863
   declared units are registered, and format, ban, warning/PP/sema/target seam,
   deferral, GNU-tier, verifier-coverage, host-FPU, and fuzz-crash gates pass
-  locally. Exact behavior-head target-complete evidence and atomic publication
-  remain before merge.
+  locally.
+
+  Behavior-head standard CI
+  [run 34024087996](https://github.com/tenseleyFlow/Cgfried/actions/runs/34024087996)
+  passes all 19 non-torture jobs, including full test, sanitizers, macOS ARM64,
+  native and QEMU Linux ARM64, toolchain, campaigns, formatting, and 100,000
+  frontend-fuzz iterations with zero findings; its x86 torture gate rejects
+  only the five expected unpublished `pr85156.c` cells. Bootstrap
+  [runs 34024087998](https://github.com/tenseleyFlow/Cgfried/actions/runs/34024087998)
+  and
+  [34024086556](https://github.com/tenseleyFlow/Cgfried/actions/runs/34024086556)
+  pass O0 and O2. Exact synthetic-merge nightly
+  [run 34024984342](https://github.com/tenseleyFlow/Cgfried/actions/runs/34024984342)
+  passes all 14 non-torture jobs and rejects only the matching five native ARM
+  cells.
+
+  Both 20,335-line evidence streams share source revision
+  `f7bfed02d4554e2739e7bc16819c00ff274cf69e`, compiler-source SHA-256
+  `6c5c680e09bea5e4e42f9805d0e44d8fb43595c324baf5db016a76fb5ca2853f`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `3351c3025cb50bc1a9de72a2498a5f30426fe3ff0e9a829eca16441f1bf435a5`
+  and
+  `83826803176a57b2a76bbf3a8451bff5946f57a7700a4254a59ee466ad3abb1e`;
+  their compiler/driver hashes are respectively
+  `a7de38a2a68de2e3e8393b2a32b4593851db66a5b532a2bfe1b4c876f1197476`
+  and
+  `7b06af3fe70c245a73540376b5f3b923eb921a6bfcd851b5a44d37285d170f87`.
+
+  GNU Make 4.4.1 generated the target-complete publication in both evidence
+  orders with byte-identical results. Atomic publication promotes exactly the
+  ten `pr85156.c` cells with zero PASS regression and retires only fingerprint
+  `ff9286c7...`. The published state is 30,142 ratchet lines / 30,139 PASS
+  keys, 3,891 classified failures, 45 observed buckets, 37 applied decisions,
+  13 live repair rows representing 12 tranches, two deliberately retained
+  stale decisions, and zero unbucketed or unresolved cells. PASS and triage
+  SHA-256 values are respectively
+  `40ac5badbfeaf137a93ce84d52d214537adde900edd9cac393e7d5e60bafd1c1`
+  and
+  `43dfd337ac26334a0c88375889bcb23c3bc3101a11a6415bebd9a0b73b759483`.
+  Fresh post-publication standard, bootstrap, and exact-head native ARM CI must
+  be green before merging. The next recommended compiler-gap tranche is
+  `s56.5-compound-assignment-rhs-sequencing` (`pr58943.c`, ten target-complete
+  cells).
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -3324,7 +3371,7 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. The remaining
-compiler debt is enumerated by 14 live `s56.5-*` repair rows representing 13
+compiler debt is enumerated by 13 live `s56.5-*` repair rows representing 12
 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
