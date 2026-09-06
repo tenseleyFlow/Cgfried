@@ -31,7 +31,7 @@
  * builtin that lowers to nothing is worse than a clean error. */
 
 /* varargs (Sprint 19; the markers predate this table) */
-B(va_start, VA_START, 2, BK_VOID)
+B(va_start, VA_START, -1, BK_VOID)
 B(va_end, VA_END, 1, BK_VOID)
 B(va_copy, VA_COPY, 2, BK_VOID)
 

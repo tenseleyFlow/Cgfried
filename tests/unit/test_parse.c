@@ -513,14 +513,28 @@ void test_parse_variadic_and_nested_kr_constraints(TestCtx *t)
 {
     ParseFix f;
 
-    /* FE-H-01: ellipsis cannot be the entire parameter list in either ISO
-     * or GNU C. A preceding typed parameter is sufficient even when unnamed. */
+    /* GCC accepts C23's ellipsis-only list as an extension in older language
+     * modes. It stays an ISO constraint under -pedantic, and __extension__
+     * suppresses exactly that diagnostic. */
     (void)parse_src(&f, "int f(...);\n", STD_C17);
-    T_ASSERT(t, f.errors >= 1);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
     pfix_free(&f);
 
     (void)parse_src(&f, "int f(...);\n", STD_GNU17);
-    T_ASSERT(t, f.errors >= 1);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    pfix_free(&f);
+
+    (void)parse_src_with_options(&f, "int f(...);\n", STD_C17, false, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    pfix_free(&f);
+
+    (void)parse_src_with_options(&f, "__extension__ int f(...);\n", STD_C17,
+                                 false, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
     pfix_free(&f);
 
     (void)parse_src(&f, "int f(int, ...); int g(int named, ...);\n", STD_C17);

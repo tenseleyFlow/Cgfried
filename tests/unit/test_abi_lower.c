@@ -348,6 +348,35 @@ void test_abi_va_start_constants(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_ellipsis_only_va_start_constants(TestCtx *t)
+{
+    AbiFix f;
+    const char *src = "typedef __builtin_va_list va_list;\n"
+                      "long long f(...) {\n"
+                      "  va_list ap; __builtin_va_start(ap);\n"
+                      "  return __builtin_va_arg(ap, long long);\n"
+                      "}\n";
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_X86_64_LINUX_GNU));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "store i32 0,") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "store i32 48,") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "va_start %") != NULL);
+    abi_free(&f);
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_LINUX));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "store i32 -64,") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "store i32 -128,") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "va_start %") != NULL);
+    abi_free(&f);
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_MACOS));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "va_start %") != NULL);
+    abi_free(&f);
+}
+
 void test_abi_builtin_abort_is_real_noreturn_call(TestCtx *t)
 {
     AbiFix f;

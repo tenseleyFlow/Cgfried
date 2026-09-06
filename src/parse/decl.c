@@ -1056,14 +1056,16 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         bool more;
 
         if (parse_eat_punct(p, PUNCT_ELLIPSIS)) {
-            /* FE-H-01: 6.7.6.3 requires a parameter-list before `, ...`;
-             * neither ISO nor GNU C admits a prototype whose entire list is
-             * ellipsis. A preceding declaration need not spell a parameter NAME
-             * -- `f(int, ...)` is valid -- but it must exist. */
-            if (params.len == 0)
-                parse_error(p, start,
-                            "'...' requires at least one parameter "
-                            "declaration before it");
+            /* ISO C through C17 requires a parameter-list before `, ...`.
+             * GCC also accepts the C23 ellipsis-only spelling as an extension
+             * in older language modes; keep the ISO boundary observable under
+             * -pedantic while letting GNU sources use `f(...)`. A preceding
+             * declaration need not spell a parameter NAME: `f(int, ...)` is
+             * ordinary ISO C and needs no diagnostic. */
+            if (params.len == 0 && !p->extension_depth)
+                warn_at(p->lang->warnings, WARN_PEDANTIC, start->span,
+                        "ISO C requires a parameter declaration before "
+                        "'...'");
             fn->is_variadic = true;
             break;
         }
