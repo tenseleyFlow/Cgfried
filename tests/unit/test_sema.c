@@ -171,6 +171,40 @@ void test_sema_rejects_invalid_lowering_inputs(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_va_start_accepts_one_or_two_arguments(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "typedef __builtin_va_list va_list; "
+             "void f(...) { va_list ap; __builtin_va_start(ap); }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "typedef __builtin_va_list va_list; "
+             "void f(int n, ...) { va_list ap; __builtin_va_start(ap, n); }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "typedef __builtin_va_list va_list; "
+             "void f(...) { va_list ap; __builtin_va_start(); }\n",
+             STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "typedef __builtin_va_list va_list; "
+             "void f(int n, ...) { va_list ap; "
+             "__builtin_va_start(ap, n, n); }\n",
+             STD_C17);
+    T_ASSERT(t, f.errors > 0);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_abort_arity(TestCtx *t)
 {
     SemaFix f;

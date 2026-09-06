@@ -56,6 +56,10 @@ observations. Remediation remains Sprint 61 work.
 Resolution: RESOLVED 2026-08-20 by `b1c29124`. The parameter parser now
 requires a declaration before ellipsis in ISO and GNU modes while preserving
 valid named and unnamed fixed parameters before `...`.
+Follow-up: the Sprint 56.5 GNU ellipsis-only-varargs tranche deliberately
+accepts the C23 spelling as GCC's older-mode extension. The ISO contract stays
+closed because the parser emits `-Wpedantic`, and this finding's
+`-std=c17 -pedantic-errors` regression remains rejected.
 
 ~~ID: `FE-H-02`~~
 ~~Title: nested K&R identifier list escapes the definition-only constraint~~

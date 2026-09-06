@@ -690,6 +690,12 @@ void test_pp_gnu_named_variadic_expansion(TestCtx *t)
     expect_pp(t, &f, "#define Z(rest...) h(rest)\nZ()\n", "h()");
     expect_pp(t, &f, "#define O(...) args __VA_ARGS__\nO(4)\n", "args 4");
     expect_pp(t, &f, "#define G(x, rest...) h(x, ##rest)\nG(1)\n", "h(1)");
+    expect_pp(t, &f,
+              "#define V(ap, ...) b(ap, ##__VA_ARGS__)\nV(cursor)\n",
+              "b(cursor)");
+    expect_pp(t, &f,
+              "#define V(ap, ...) b(ap, ##__VA_ARGS__)\nV(cursor,last)\n",
+              "b(cursor,last)");
 }
 
 void test_pp_placemarker_table(TestCtx *t)
