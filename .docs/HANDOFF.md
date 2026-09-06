@@ -3162,7 +3162,7 @@ and green post-publication CI.
   [run 34015427264](https://github.com/tenseleyFlow/Cgfried/actions/runs/34015427264)
   are all green. PR #80 is merged as `13367fc0`; its branch and temporary
   evidence branch are deleted.
-- The in-progress `s56.5-nested-flexible-array-union-storage` tranche accepts
+- The `s56.5-nested-flexible-array-union-storage` tranche accepts
   the storage-safe subset needed by `torture-execute/pr28865.c`: a static
   initializer may reach a flexible tail below its declared root when the
   FAM-bearing record is the selected member of a fixed-size union and every
@@ -3224,17 +3224,42 @@ and green post-publication CI.
   `21ee4f4269b063e931624b11b841fcc12b111c29a5c0d090739d1032aedda9a6`
   and
   `f8c4c1132b00ed5784fdc0baca552b196960f7002a1cc5838610232abf1b4505`.
-  Fresh post-publication standard, bootstrap, and native-ARM CI remain before
-  merge.
+  Fresh post-publication standard
+  [run 34019475071](https://github.com/tenseleyFlow/Cgfried/actions/runs/34019475071),
+  bootstrap
+  [runs 34019475131](https://github.com/tenseleyFlow/Cgfried/actions/runs/34019475131)
+  and
+  [34019470522](https://github.com/tenseleyFlow/Cgfried/actions/runs/34019470522),
+  and native-ARM
+  [run 34019479628](https://github.com/tenseleyFlow/Cgfried/actions/runs/34019479628)
+  are all green at publication head `726fdcb9`. PR #81 is merged as
+  `3be3c2bb`; its branch and temporary evidence branch are deleted.
 
   A sanitizer-instrumented native link probe also exposed separate pre-existing
   Darwin driver debt: the Mach-O branch of `toolchain_build_link_argv` returns
   without appending the required null argv terminator, so `posix_spawnp` reads
   allocator poison at `toolchain.c:250`. An ASan+UBSan build of exact parent
   `13367fc0` reproduces the same crash on the already-green direct-FAM fixture,
-  proving it is not caused by this tranche. Keep that bounded argv-termination
-  repair as a high-priority follow-on rather than mixing it into nested-FAM
-  semantics.
+  proving it is not caused by this tranche. The bounded repair is isolated in
+  the follow-on below rather than mixed into nested-FAM semantics.
+- The in-progress `s56.5-macho-link-argv-termination` tranche restores the
+  driver's documented argv contract on Apple silicon. The Mach-O success path
+  returned before the common ELF tail appended `NULL`, so `posix_spawnp` and
+  the `-###` printer could walk into uninitialized vector capacity. The repair
+  appends the terminator immediately before that target-specific return; ELF
+  construction is unchanged.
+
+  A target-explicit unit drives `CGF_TARGET_ARM64_MACOS` with `-nostdlib`, so
+  it exercises the Mach-O branch on every CI host without needing an Apple SDK.
+  On merged trunk `3be3c2bb` it fails both the last-payload-position and final
+  null assertions; with the repair, its four assertions pass in both ordinary
+  and ASan+UBSan builds. The unit registry reports all 862 tests registered.
+  On this Darwin ARM64 host, an ASan+UBSan compiler now prints the complete
+  `-###` assemble/link plan and compiles, assembles, links, and executes
+  `exec_static_flexible_array_initializer.c` with the system Apple tools and
+  no sanitizer finding at O0/O1/O2/O3/Os. The broader legacy link-unit slice
+  retains its known ELF-host assumptions; the new regression itself is
+  host-independent.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

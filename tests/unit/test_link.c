@@ -104,6 +104,29 @@ void test_link_argv_default_sequence(TestCtx *t)
     arena_free_all(&ar);
 }
 
+/* Mach-O returns before the ELF tail below, so keep its exec contract pinned
+ * independently of the host.  -nostdlib avoids requiring an Apple SDK when
+ * this target-explicit unit runs on Linux. */
+void test_link_argv_macho_null_terminated(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+    VecStr v = {0};
+    TargetSpec target = {CGF_TARGET_ARM64_MACOS};
+
+    arena_init(&ar);
+    fill_args(&a);
+    a.nostdlib = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, target, &ar, &v));
+    T_ASSERT(t, argv_index(&v, "-arch") > 0);
+    T_ASSERT(t, v.len > 1 && v.data[v.len - 2] &&
+                    strcmp(v.data[v.len - 2], "--trace") == 0);
+    T_ASSERT(t, v.len > 0 && v.data[v.len - 1] == NULL);
+    VecStr_free(&v);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_link_argv_static_grouping(TestCtx *t)
 {
     Arena ar;

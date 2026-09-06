@@ -981,6 +981,7 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
                     VecStr_push(out, "-lSystem");
             }
         }
+        VecStr_push(out, NULL); /* argv terminator */
         return true;
     }
     if (want_crts || want_libs) {
