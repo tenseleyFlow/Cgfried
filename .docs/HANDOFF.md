@@ -117,8 +117,13 @@ publishing 30,132 ratchet lines (30,129 PASS keys), 38 applied policy
 decisions, two retained stale decisions, 14 live repair rows representing 13
 tranches, and zero unresolved decisions. PR #82's Apple-native Mach-O linker
 argv repair is merged as `419afaab`; its standard and both bootstrap CI runs
-were green. The current `s56.5-builtin-expect-side-effects` tranche targets
-the ten `torture-execute/pr85156.c` cells. Sprint 56's
+were green. PR #83's `s56.5-builtin-expect-side-effects` tranche is merged as
+`055566ae`, publishing 30,142 ratchet lines (30,139 PASS keys), 37 applied
+policy decisions, two retained stale decisions, 13 live repair rows
+representing 12 tranches, and zero unresolved decisions. Its final standard,
+bootstrap, and exact-head native-ARM CI were all green. The current
+`s56.5-compound-assignment-rhs-sequencing` tranche targets the ten
+`torture-execute/pr58943.c` cells. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3341,10 +3346,41 @@ and green post-publication CI.
   `40ac5badbfeaf137a93ce84d52d214537adde900edd9cac393e7d5e60bafd1c1`
   and
   `43dfd337ac26334a0c88375889bcb23c3bc3101a11a6415bebd9a0b73b759483`.
-  Fresh post-publication standard, bootstrap, and exact-head native ARM CI must
-  be green before merging. The next recommended compiler-gap tranche is
-  `s56.5-compound-assignment-rhs-sequencing` (`pr58943.c`, ten target-complete
-  cells).
+  Fresh post-publication standard
+  [run 34026107507](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026107507),
+  bootstrap
+  [runs 34026107470](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026107470)
+  and
+  [34026106035](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026106035),
+  and exact-head native ARM
+  [run 34026105982](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026105982)
+  are all green at publication head `1db1717e`. PR #83 is merged as
+  `055566ae`; its branch and temporary evidence branch are deleted.
+- The in-progress `s56.5-compound-assignment-rhs-sequencing` tranche keeps a
+  compound assignment's left-hand address evaluation first and exactly once,
+  then evaluates the right operand before loading the old non-atomic value.
+  Lowering previously loaded the old value before a side-effecting RHS, so
+  `pr58943.c` overwrote the RHS's update with a result computed from stale
+  storage. Atomic compound assignments already evaluate the RHS before their
+  read-modify-write operation and are unchanged.
+
+  A focused lowering unit pins the call-load-store IR order and one RHS call.
+  A permanent execution fixture checks that the RHS is called once and its
+  update is visible to the compound operation. On merged trunk `055566ae`, the
+  unit fails, the permanent fixture exits 2, and exact `pr58943.c` aborts; all
+  three pass after moving the non-atomic load. The permanent and exact cases
+  execute natively on Apple ARM64 at O0/O1/O2/O3/Os in ordinary and
+  ASan+UBSan compiler builds. Both also emit nonempty assembly for
+  x86_64-linux-gnu, arm64-linux, and arm64-macos at all five levels (30/30
+  cross-source cells). The sanitizer frontend fuzzer completes 2,000
+  iterations with zero findings. Two independent 5,000-iteration ordinary
+  runs reproduce sequence digest `807196587aa04933`; the exact Makefile smoke
+  and digest gate pass after repinning. Three focused lowering units pass ten
+  assertions, all 864 declared units are registered,
+  and format, ban, warning/PP/sema/target seam, deferral, GNU-tier,
+  verifier-coverage, host-FPU, and fuzz-crash gates pass locally. Exact
+  behavior-head target-complete evidence and atomic publication remain before
+  merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
