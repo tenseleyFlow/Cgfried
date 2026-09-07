@@ -133,8 +133,10 @@ and
 [34143271976](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143271976),
 and exact-head native-ARM
 [run 34143283549](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143283549)
-were all green. The current `s56.5-variadic-aggregate-alignment` tranche
-targets the ten `torture-execute/pr92904.c` cells. Sprint 56's
+were all green. PR #85's current `s56.5-variadic-aggregate-alignment` tranche
+repairs and publishes the ten `torture-execute/pr92904.c` cells, raising the
+target-complete ratchet to 30,162 lines (30,159 PASS keys); its exact behavior
+evidence is complete and fresh post-publication CI remains. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3500,8 +3502,55 @@ and green post-publication CI.
   gates, 2,000-case frontend fuzz smoke, pinned 5,000-case frontend sequence,
   and 5,000-case IR fuzz smoke are green. The full Linux unit runs reach every
   new test; their only failures are existing host/emulator assumptions in the
-  x86 simulator and missing-tool spawn probes. CI remains the authoritative
-  clean-host full-suite gate before publication.
+  x86 simulator and missing-tool spawn probes.
+
+  Behavior-head standard
+  [run 34152220589](https://github.com/tenseleyFlow/Cgfried/actions/runs/34152220589)
+  passes all nineteen non-torture jobs, including the full clean-host unit and
+  sanitizer suites plus 100,000 frontend-fuzz iterations, and its x86 torture
+  gate rejects only the five expected unpublished `pr92904.c` cells. Both
+  bootstrap
+  [runs 34152220660](https://github.com/tenseleyFlow/Cgfried/actions/runs/34152220660)
+  and
+  [34152190759](https://github.com/tenseleyFlow/Cgfried/actions/runs/34152190759)
+  are green. Exact synthetic-merge nightly
+  [run 34152768245](https://github.com/tenseleyFlow/Cgfried/actions/runs/34152768245)
+  passes all fourteen non-torture jobs and rejects only the matching five
+  native ARM cells.
+
+  Both exact evidence streams contain 20,325 matrix rows plus ten provenance
+  lines and share source revision
+  `137844ef208d3520a078bf2e72f44e01efab4938`, compiler-source SHA-256
+  `0a17d659894b06c4f36685fcc1e6074d57aa8233db4848a47bc32a01cdd81cba`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `35a6373030640ae285b5b891d3f8fff2d1b191abf94d6c08a63c78096a0e8a42`
+  and
+  `1ed45564c71a7a247fb1c3fd1a78788e0b5a4704be05e367e682280cb256727e`;
+  their compiler/driver hashes are respectively
+  `b4cf045a5170c0bad49f2185a5f35d7ada84f88b55ef39111852c101d91851d6`
+  and
+  `12585f7117eb511cfd62e7f891a2f663677fd0bd85f0e7f8619a0ac4016b495e`.
+
+  GNU Make 4.4.1 validated the complete target publication in both evidence
+  orders with byte-identical results. Atomic publication promotes exactly the
+  ten `pr92904.c` cells with zero PASS regression and retires only fingerprint
+  `5f2105d1...`. The published state is 30,162 ratchet lines / 30,159 PASS
+  keys, 3,871 classified failures, 43 observed buckets, 35 applied decisions,
+  11 live repair rows representing 10 tranches, two deliberately retained
+  stale decisions, and zero unbucketed or unresolved cells. PASS and triage
+  SHA-256 values are respectively
+  `f486e85cbf325c09f0e88307899b9645ad85c91ab5c172155121a8f469cacbfb`
+  and
+  `90eb01de213d405943fadecaf9e884c1bb0bb169d25a417ff4c6a3657d1b63ae`.
+  Import verification and both exact artifact gates pass after publication.
+  Fresh post-publication standard, bootstrap, and exact-head native-ARM CI
+  remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

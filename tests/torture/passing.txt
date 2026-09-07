@@ -29050,6 +29050,16 @@ torture-execute/pr92140.c@O3@arm64-linux
 torture-execute/pr92140.c@O3@x86_64-linux-gnu
 torture-execute/pr92140.c@Os@arm64-linux
 torture-execute/pr92140.c@Os@x86_64-linux-gnu
+torture-execute/pr92904.c@O0@arm64-linux
+torture-execute/pr92904.c@O0@x86_64-linux-gnu
+torture-execute/pr92904.c@O1@arm64-linux
+torture-execute/pr92904.c@O1@x86_64-linux-gnu
+torture-execute/pr92904.c@O2@arm64-linux
+torture-execute/pr92904.c@O2@x86_64-linux-gnu
+torture-execute/pr92904.c@O3@arm64-linux
+torture-execute/pr92904.c@O3@x86_64-linux-gnu
+torture-execute/pr92904.c@Os@arm64-linux
+torture-execute/pr92904.c@Os@x86_64-linux-gnu
 torture-execute/pr93402.c@O0@arm64-linux
 torture-execute/pr93402.c@O0@x86_64-linux-gnu
 torture-execute/pr93402.c@O1@arm64-linux
