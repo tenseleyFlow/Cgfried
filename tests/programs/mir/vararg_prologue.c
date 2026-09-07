@@ -3,10 +3,10 @@
 // unconditionally; AL gating is a skipped-work optimization, and the
 // va_arg expansion never reads a slot that was not passed).
 // FLAGS: -emit-mir
-// MIR_CHECK: store.q rdi, [rbp-256]
-// MIR_CHECK: store.q r9, [rbp-216]
-// MIR_CHECK: vstore.x xmm0, [rbp-208]
-// MIR_CHECK: vstore.x xmm7, [rbp-96]
+// MIR_CHECK: store.q rdi, [rbp-240]
+// MIR_CHECK: store.q r9, [rbp-200]
+// MIR_CHECK: vstore.x xmm0, [rbp-192]
+// MIR_CHECK: vstore.x xmm7, [rbp-80]
 // MIR_CHECK: lea.q [rbp+16]
 int sum(int n, ...) {
     __builtin_va_list ap;

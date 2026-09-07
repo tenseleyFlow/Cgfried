@@ -3379,7 +3379,12 @@ and green post-publication CI.
   assertions, all 864 declared units are registered,
   and format, ban, warning/PP/sema/target seam, deferral, GNU-tier,
   verifier-coverage, host-FPU, and fuzz-crash gates pass locally. Exact
-  behavior-head target-complete evidence and atomic publication remain before
+  behavior-head CI run `34139340605` then caught one legitimate shape-contract
+  update: correct RHS-first lowering of `s += __builtin_va_arg(...)` shortens
+  `mir/vararg_prologue` by one live temporary, one saved register, and 16 frame
+  bytes. Its x86 register-save-area offsets are repinned to the smaller valid
+  frame; the temporary `d0830a2e` synthetic-merge evidence run is superseded.
+  Final-head target-complete evidence and atomic publication remain before
   merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
