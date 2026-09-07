@@ -27370,6 +27370,16 @@ torture-execute/pr58831.c@O3@arm64-linux
 torture-execute/pr58831.c@O3@x86_64-linux-gnu
 torture-execute/pr58831.c@Os@arm64-linux
 torture-execute/pr58831.c@Os@x86_64-linux-gnu
+torture-execute/pr58943.c@O0@arm64-linux
+torture-execute/pr58943.c@O0@x86_64-linux-gnu
+torture-execute/pr58943.c@O1@arm64-linux
+torture-execute/pr58943.c@O1@x86_64-linux-gnu
+torture-execute/pr58943.c@O2@arm64-linux
+torture-execute/pr58943.c@O2@x86_64-linux-gnu
+torture-execute/pr58943.c@O3@arm64-linux
+torture-execute/pr58943.c@O3@x86_64-linux-gnu
+torture-execute/pr58943.c@Os@arm64-linux
+torture-execute/pr58943.c@Os@x86_64-linux-gnu
 torture-execute/pr58984.c@O0@arm64-linux
 torture-execute/pr58984.c@O0@x86_64-linux-gnu
 torture-execute/pr58984.c@O1@arm64-linux
