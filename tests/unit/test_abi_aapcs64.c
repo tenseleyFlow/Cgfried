@@ -506,7 +506,7 @@ void test_abi_aapcs64_reg_accounting(TestCtx *t)
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
     T_ASSERT_EQ_INT(t, (int)got.n, 8);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 1);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 16);
     T_ASSERT_EQ_INT(t, (int)b.fp, 8);
     for (k = 0; k < got.n; k++)
         T_ASSERT_EQ_INT(t, (int)got.t[k], IRT_F64);
@@ -521,10 +521,10 @@ void test_abi_aapcs64_linux_even_composite_registers(TestCtx *t)
         u32 end;
         u8 stacked;
         u8 padded;
-        u8 stack_align16;
+        u32 stack_align;
     } boundaries[] = {
-        {0, 2, 0, 0, 0}, {1, 4, 0, 1, 0}, {2, 4, 0, 0, 0}, {5, 8, 0, 1, 0},
-        {6, 8, 0, 0, 0}, {7, 8, 1, 1, 1}, {8, 8, 1, 0, 1},
+        {0, 2, 0, 0, 0}, {1, 4, 0, 1, 0},  {2, 4, 0, 0, 0},  {5, 8, 0, 1, 0},
+        {6, 8, 0, 0, 0}, {7, 8, 1, 1, 16}, {8, 8, 1, 0, 16},
     };
     AbiFix f;
     AbiArg got;
@@ -550,7 +550,7 @@ void test_abi_aapcs64_linux_even_composite_registers(TestCtx *t)
         T_ASSERT_EQ_INT(t, (int)(got.kind == ABI_ARG_STACK),
                         boundaries[i].stacked);
         T_ASSERT_EQ_INT(t, (int)got.even_gp, boundaries[i].padded);
-        T_ASSERT_EQ_INT(t, (int)got.stack_align16, boundaries[i].stack_align16);
+        T_ASSERT_EQ_INT(t, (int)got.stack_align, boundaries[i].stack_align);
     }
 
     /* Eight-byte alignment never skips a register. */
@@ -560,7 +560,7 @@ void test_abi_aapcs64_linux_even_composite_registers(TestCtx *t)
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)b.gp, 3);
     T_ASSERT_EQ_INT(t, (int)got.even_gp, 0);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
     abi_close(&f);
 
     /* Apple arm64 deliberately removed the even-register rule. */
@@ -573,7 +573,7 @@ void test_abi_aapcs64_linux_even_composite_registers(TestCtx *t)
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)b.gp, 3);
     T_ASSERT_EQ_INT(t, (int)got.even_gp, 0);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
 
     /* Apple omits C.10's register skip, but C.12 still rounds NSAA when a
      * naturally 16-byte-aligned composite is forced to the stack. */
@@ -582,7 +582,7 @@ void test_abi_aapcs64_linux_even_composite_registers(TestCtx *t)
     b.gp = 8;
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 1);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 16);
     abi_close(&f);
 }
 
@@ -598,7 +598,9 @@ void test_abi_aapcs64_stack_align16_controls(TestCtx *t)
              "struct P8 { long x, y; };\n"
              "struct N9 { _Alignas(8) char x[9]; };\n"
              "struct B24 { char x[24]; };\n"
-             "struct H128 { _Float128 x; };\n",
+             "struct H128 { _Float128 x; };\n"
+             "struct Adjusted16 { long x, y; } "
+             "__attribute__((aligned(16)));\n", /* check_bans allow */
              CGF_TARGET_ARM64_LINUX);
 
     /* Registered composites, <=8-byte values, ordinary 9..16-byte values,
@@ -608,7 +610,26 @@ void test_abi_aapcs64_stack_align16_controls(TestCtx *t)
     abi_classify_arg(&f.lo, ty, &got);
     abi_budget_init(&f.lo, &b, NULL);
     abi_arg_place(&f.lo, &got, &b, false);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
+
+    /* A whole-record adjustment is not its AAPCS64 natural alignment. It
+     * neither skips odd x1 nor inserts a hole when the same value stacks. */
+    ty = tag_type(&f, "Adjusted16");
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    b.gp = 1;
+    abi_arg_place(&f.lo, &got, &b, false);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_EIGHTBYTES);
+    T_ASSERT_EQ_INT(t, (int)b.gp, 3);
+    T_ASSERT_EQ_INT(t, (int)got.even_gp, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
+
+    abi_classify_arg(&f.lo, ty, &got);
+    abi_budget_init(&f.lo, &b, NULL);
+    b.gp = 8;
+    abi_arg_place(&f.lo, &got, &b, false);
+    T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
 
     ty = tag_type(&f, "P8");
     abi_classify_arg(&f.lo, ty, &got);
@@ -616,7 +637,7 @@ void test_abi_aapcs64_stack_align16_controls(TestCtx *t)
     b.gp = 6;
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_EIGHTBYTES);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
 
     ty = tag_type(&f, "N9");
     abi_classify_arg(&f.lo, ty, &got);
@@ -624,7 +645,7 @@ void test_abi_aapcs64_stack_align16_controls(TestCtx *t)
     b.gp = 8;
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
 
     ty = tag_type(&f, "B24");
     abi_classify_arg(&f.lo, ty, &got);
@@ -632,14 +653,14 @@ void test_abi_aapcs64_stack_align16_controls(TestCtx *t)
     b.gp = 8;
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_BYVAL);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
 
     abi_classify_arg(&f.lo, type_basic(TY_FLOAT128), &got);
     abi_budget_init(&f.lo, &b, NULL);
     b.fp = 8;
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_SCALAR);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 0);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 0);
 
     /* An aligned HFA that exhausts its bank is flattened for the stack and
      * needs the same C.12 boundary. Its floating bank remains pinned. */
@@ -649,7 +670,7 @@ void test_abi_aapcs64_stack_align16_controls(TestCtx *t)
     b.fp = 8;
     abi_arg_place(&f.lo, &got, &b, false);
     T_ASSERT_EQ_INT(t, (int)got.kind, ABI_ARG_STACK);
-    T_ASSERT_EQ_INT(t, (int)got.stack_align16, 1);
+    T_ASSERT_EQ_INT(t, (int)got.stack_align, 16);
     T_ASSERT_EQ_INT(t, (int)b.fp, 8);
     abi_close(&f);
 }

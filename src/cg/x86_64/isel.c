@@ -2227,7 +2227,13 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             }
             if (kind == IR_ARG_BYVAL) {
                 u32 sz = (ir_arg_size(ann) + 7) & ~7u;
+                u32 stack_align = ir_abi_stack_align(ann);
 
+                if (stack_align) {
+                    off = (off + stack_align - 1u) & ~(stack_align - 1u);
+                    if (stack_align > is->xf->out_args_align)
+                        is->xf->out_args_align = stack_align;
+                }
                 plans[idx].in_reg = 0;
                 plans[idx].stk_off = off;
                 off += sz;
@@ -3804,7 +3810,11 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
             }
             if (ir_arg_kind(ann) == IR_ARG_BYVAL) {
                 u32 sz = (ir_arg_size(ann) + 7) & ~7u;
+                u32 stack_align = ir_abi_stack_align(ann);
 
+                if (stack_align)
+                    stack_off =
+                        (stack_off + stack_align - 1u) & ~(stack_align - 1u);
                 x = emit(&is, X64_OP_ARGLEA, X64_Q);
                 x->def = pv;
                 x->b.imm = (i64)stack_off;

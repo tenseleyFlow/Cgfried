@@ -294,6 +294,133 @@ EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
 
+# Bucket 34 / pr92904: the two Linux psABIs disagree in an important way.
+# SysV retains the whole aggregate's 16/32-byte stack boundary, including for
+# a byval MEMORY operand. AAPCS64 uses a composite's member-derived natural
+# alignment (capped at 16), ignoring an adjustment on the whole record; a
+# stacked HFA follows its homogeneous element even when the source aggregate
+# is explicitly over-aligned. Put one scalar of the relevant bank on the stack
+# first so every boundary is observable, and run both compiler directions so
+# self-consistent caller/callee mistakes cannot pass.
+check_variadic_aggregate_alignment_fixed() {
+    d=$WORK/fixed-variadic-aggregate-alignment
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+struct pair16 { _Alignas(16) long long first; long long second; };
+struct __attribute__((aligned(16))) pair_adjusted16 {
+    long long first;
+    long long second;
+};
+struct __attribute__((aligned(32))) hfa32 { double x[4]; };
+long long fixed_pair(long long, long long, long long, long long, long long,
+                     long long, long long, long long, long long,
+                     struct pair16);
+long long variadic_pair(int, ...);
+long long fixed_pair_adjusted(long long, long long, long long, long long,
+                              long long, long long, long long, long long,
+                              long long, struct pair_adjusted16);
+long long variadic_pair_adjusted(int, ...);
+double fixed_hfa(double, double, double, double, double, double, double,
+                  double, double, struct hfa32);
+double variadic_hfa(int, ...);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    struct pair16 pair = {11, 13};
+    struct pair_adjusted16 adjusted = {17, 19};
+    struct hfa32 hfa = {{1.25, 2.75, 3.5, 3.5}};
+
+    if (fixed_pair(0,1,2,3,4,5,6,7,8,pair) != 60)
+        return 1;
+    if (fixed_pair_adjusted(0,1,2,3,4,5,6,7,8,adjusted) != 72)
+        return 5;
+#if defined(__aarch64__)
+    if (variadic_pair(8, 0,0,0,0,0,0,0,0, pair) != 24)
+        return 2;
+#else
+    if (variadic_pair(6, 0,0,0,0,0,0, pair) != 24)
+        return 2;
+#endif
+    if (variadic_pair_adjusted(
+#if defined(__aarch64__)
+            8, 0,0,0,0,0,0,0,0,
+#else
+            6, 0,0,0,0,0,0,
+#endif
+            adjusted) != 36)
+        return 6;
+    if (fixed_hfa(0.,0.,0.,0.,0.,0.,0.,0.,9.,hfa) != 20.)
+        return 3;
+    if (variadic_hfa(9, 0.,0.,0.,0.,0.,0.,0.,0.,0., hfa) != 11.)
+        return 4;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+#include <stdarg.h>
+long long fixed_pair(long long a0, long long a1, long long a2, long long a3,
+                     long long a4, long long a5, long long a6, long long a7,
+                     long long a8, struct pair16 v)
+{
+    return a0+a1+a2+a3+a4+a5+a6+a7+a8+v.first+v.second;
+}
+long long variadic_pair(int n, ...)
+{
+    va_list ap;
+    struct pair16 v;
+
+    va_start(ap, n);
+    while (n--)
+        (void)va_arg(ap, int);
+    v = va_arg(ap, struct pair16);
+    va_end(ap);
+    return v.first + v.second;
+}
+long long fixed_pair_adjusted(long long a0, long long a1, long long a2,
+                              long long a3, long long a4, long long a5,
+                              long long a6, long long a7, long long a8,
+                              struct pair_adjusted16 v)
+{
+    return a0+a1+a2+a3+a4+a5+a6+a7+a8+v.first+v.second;
+}
+long long variadic_pair_adjusted(int n, ...)
+{
+    va_list ap;
+    struct pair_adjusted16 v;
+
+    va_start(ap, n);
+    while (n--)
+        (void)va_arg(ap, int);
+    v = va_arg(ap, struct pair_adjusted16);
+    va_end(ap);
+    return v.first + v.second;
+}
+double fixed_hfa(double a0, double a1, double a2, double a3, double a4,
+                  double a5, double a6, double a7, double a8, struct hfa32 v)
+{
+    return a0+a1+a2+a3+a4+a5+a6+a7+a8+v.x[0]+v.x[1]+v.x[2]+v.x[3];
+}
+double variadic_hfa(int n, ...)
+{
+    va_list ap;
+    struct hfa32 v;
+
+    va_start(ap, n);
+    while (n--)
+        (void)va_arg(ap, double);
+    v = va_arg(ap, struct hfa32);
+    va_end(ap);
+    return v.x[0]+v.x[1]+v.x[2]+v.x[3];
+}
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # Regenerate sources from a descriptor and test both directions.
 # Returns 0 when both agree.
 check_desc() {
@@ -387,6 +514,18 @@ arm64-linux|arm64-macos)
         checked=$((checked + 1))
     else
         echo "abi_differential: REGRESSION on fixed IR-C-10 stacked composite" \
+            >&2
+        failed=$((failed + 1))
+    fi
+    ;;
+esac
+
+case $target in
+x86_64-linux-gnu|arm64-linux)
+    if check_variadic_aggregate_alignment_fixed; then
+        checked=$((checked + 1))
+    else
+        echo "abi_differential: REGRESSION on variadic aggregate alignment" \
             >&2
         failed=$((failed + 1))
     fi

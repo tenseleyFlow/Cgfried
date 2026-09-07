@@ -662,6 +662,22 @@ void test_ir_verify_check9_refs(TestCtx *t)
     }
     arena_free_all(&f.arena);
 
+    /* Generalized stack boundaries remain powers of two; accepting an
+     * arbitrary byte count would make each backend's align-up mask lie. */
+    vfix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(ptr byval(32) stackalign(24) %p) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<v>");
+    T_ASSERT(t, m != NULL);
+    if (m) {
+        T_ASSERT(t, !ir_verify(f.dc, m));
+        T_ASSERT(t, fired(&f, 4));
+    }
+    arena_free_all(&f.arena);
+
     vfix_init(&f);
     m = ir_parse_module(&f.arena, f.dc,
                         "sym @external\n"

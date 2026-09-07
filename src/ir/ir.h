@@ -535,13 +535,28 @@ typedef enum IrAbiRet {
  * IR print/parse; bits 35..37 and 62..63 are already independently spoken. */
 #define IR_ABI_EVEN_GPR (1ull << 61)
 #define ir_abi_even_gpr(b) (((b) & IR_ABI_EVEN_GPR) != 0)
-/* IR-C-10 / AAPCS64 C.12: this is the first flattened eightbyte of a stacked
- * composite whose source alignment is at least 16 bytes. Once lowering splits
- * the value, neither arm64 backend walk can recover that whole-type alignment,
- * so this distinct marker tells both caller and callee to round NSAA to 16
- * first. */
-#define IR_ABI_STACK_ALIGN16 (1ull << 60)
-#define ir_abi_stack_align16(b) (((b) & IR_ABI_STACK_ALIGN16) != 0)
+/* IR-C-10 plus SysV MEMORY arguments: the first stack carrier retains the
+ * whole C argument's required power-of-two boundary.  Flattening otherwise
+ * loses it, and a SysV byval operand is only an IR-level pointer whose pointee
+ * is copied onto the stack later.  Bits 38..59 hold the alignment in
+ * eight-byte units; zero means the ordinary slot rule.  Keep the legacy
+ * 16-byte spelling for existing builders and fixtures while allowing
+ * over-aligned GNU types to carry 32 and above without another one-off flag.
+ * The marker is meaningful only from 16 bytes upward, and the scaling keeps
+ * the full 16 MiB C object-alignment limit representable in the available
+ * field. */
+#define IR_ABI_STACK_ALIGN_SHIFT 38u
+#define IR_ABI_STACK_ALIGN_FIELD_MAX (((u32)1 << 22) - 1u)
+#define IR_ABI_STACK_ALIGN_MAX ((u32)1 << 24)
+#define IR_ABI_STACK_ALIGN_MASK                                                \
+    ((u64)IR_ABI_STACK_ALIGN_FIELD_MAX << IR_ABI_STACK_ALIGN_SHIFT)
+#define IR_ABI_STACK_ALIGN16 ((u64)(16u >> 3) << IR_ABI_STACK_ALIGN_SHIFT)
+#define ir_abi_stack_align(b)                                                  \
+    ((u32)(((b) & IR_ABI_STACK_ALIGN_MASK) >> IR_ABI_STACK_ALIGN_SHIFT) << 3)
+#define ir_abi_stack_align16(b) (ir_abi_stack_align(b) == 16u)
+#define ir_abi_stack_align_annot(align)                                        \
+    (((u64)((u32)(align) >> 3) << IR_ABI_STACK_ALIGN_SHIFT) &                  \
+     IR_ABI_STACK_ALIGN_MASK)
 /* High-bit parameter-only C provenance.  It composes with the low ABI
  * annotation fields and is compared by structural equality as part of the
  * full annotation word. */

@@ -113,6 +113,9 @@ struct TagDecl {
     TargetKind laid_out_for;
     u64 size;
     u64 align;
+    /* Member-derived boundary before an adjustment on the record as a whole.
+     * AAPCS64 argument alignment observes this distinction. */
+    u64 natural_align;
     TypeKind kind; /* TY_STRUCT / TY_UNION / TY_ENUM */
     bool complete;
     Member *members;

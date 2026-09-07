@@ -1434,8 +1434,9 @@ static void lower_function(Lower *lo, AstNode *def)
                     pannots[nir_params] |= IR_ABI_EVEN_GPR;
                     any_annot = true;
                 }
-                if (k == 0 && a->stack_align16 && stacked) {
-                    pannots[nir_params] |= IR_ABI_STACK_ALIGN16;
+                if (k == 0 && a->stack_align && stacked) {
+                    pannots[nir_params] |=
+                        ir_abi_stack_align_annot(a->stack_align);
                     any_annot = true;
                 }
                 /* A stacked aggregate's leaves must ALL be marked, or the
@@ -1465,6 +1466,8 @@ static void lower_function(Lower *lo, AstNode *def)
             pannots[nir_params] = ir_arg_annot(IR_ARG_BYVAL, a->size);
             if (stacked)
                 pannots[nir_params] |= IR_PARAM_ONSTACK;
+            if (a->stack_align)
+                pannots[nir_params] |= ir_abi_stack_align_annot(a->stack_align);
             any_annot = true;
             ptypes[nir_params++] = IRT_PTR;
             break;

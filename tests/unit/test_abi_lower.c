@@ -672,6 +672,59 @@ void test_abi_sysv_stacked_fixed_aggregate_ir_contract(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_sysv_aligned_stack_aggregate_ir_contract(TestCtx *t)
+{
+    /* SysV aligns both a register-class aggregate which spills as a whole
+     * and a MEMORY-class aggregate before copying either one onto the
+     * outgoing stack.  A preceding seventh scalar makes the padding visible:
+     * it owns offset 0 and each aggregate must begin at offset 16, not 8. */
+    static const char src[] =
+        "struct A { _Alignas(16) long a; long b; };\n"
+        "struct M { _Alignas(32) long a; long b; long c; };\n"
+        "long asink(long a0, long a1, long a2, long a3, long a4, long a5, "
+        "long a6, struct A v) { return a6 + v.a + v.b; }\n"
+        "long acall(struct A v) { return asink(0,1,2,3,4,5,6,v); }\n"
+        "long msink(long a0, long a1, long a2, long a3, long a4, long a5, "
+        "long a6, struct M v) { return a6 + v.a + v.b + v.c; }\n"
+        "long mcall(struct M v) { return msink(0,1,2,3,4,5,6,v); }\n";
+    AbiFix f;
+
+    T_ASSERT(t, run_abi(&f, src));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "onstack stackalign16"), 2);
+    T_ASSERT_EQ_INT(t, acount(atxt(&f), "byval(32) stackalign(32)"), 3);
+    abi_free(&f);
+}
+
+void test_abi_aapcs64_overaligned_hfa_stack_contract(TestCtx *t)
+{
+    /* AAPCS64 gives a stacked HFA the alignment of its homogeneous element,
+     * not an explicitly larger alignment on the source aggregate.  After
+     * eight FP registers and one stacked double, this four-double HFA starts
+     * at stack offset 8.  Its va_arg cursor must use that same 8-byte rule. */
+    static const char src[] =
+        "typedef __builtin_va_list va_list;\n"
+        "struct "
+        "__attribute__" /* check_bans allow: compiler input */
+        "((aligned(32))) V { double a, b, c, d; };\n"
+        "struct V take(int n, ...) {\n"
+        "  va_list ap; struct V v; __builtin_va_start(ap, n);\n"
+        "  while (n--) (void)__builtin_va_arg(ap, double);\n"
+        "  v = __builtin_va_arg(ap, struct V); __builtin_va_end(ap);\n"
+        "  return v;\n"
+        "}\n"
+        "struct V call(struct V v) {\n"
+        "  return take(9, 0.,0.,0.,0.,0.,0.,0.,0.,0., v);\n"
+        "}\n";
+    AbiFix f;
+
+    T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_LINUX));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "onstack stackalign16") == NULL);
+    T_ASSERT(t, strstr(atxt(&f), ", -32") == NULL);
+    abi_free(&f);
+}
+
 void test_abi_va_list_both_forms_identical(TestCtx *t)
 {
     AbiFix f;
