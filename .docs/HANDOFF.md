@@ -121,9 +121,20 @@ were green. PR #83's `s56.5-builtin-expect-side-effects` tranche is merged as
 `055566ae`, publishing 30,142 ratchet lines (30,139 PASS keys), 37 applied
 policy decisions, two retained stale decisions, 13 live repair rows
 representing 12 tranches, and zero unresolved decisions. Its final standard,
-bootstrap, and exact-head native-ARM CI were all green. The current
-`s56.5-compound-assignment-rhs-sequencing` tranche targets the ten
-`torture-execute/pr58943.c` cells. Sprint 56's
+bootstrap, and exact-head native-ARM CI were all green. PR #84's
+`s56.5-compound-assignment-rhs-sequencing` tranche is merged as `6fb9b7ff`,
+publishing 30,152 ratchet lines (30,149 PASS keys), 36 applied policy
+decisions, 12 live repair rows representing 11 tranches, two deliberately
+retained stale decisions, and zero unresolved decisions. Its final standard
+[run 34143275097](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143275097),
+bootstrap
+[runs 34143275178](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143275178)
+and
+[34143271976](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143271976),
+and exact-head native-ARM
+[run 34143283549](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143283549)
+were all green. The current `s56.5-variadic-aggregate-alignment` tranche
+targets the ten `torture-execute/pr92904.c` cells. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3436,7 +3447,61 @@ and green post-publication CI.
   alternation (`\|`). The same failure reproduces on untouched merged trunk
   `055566ae`; both real target evidence gates pass, so this is isolated Apple
   test-harness portability debt rather than a compiler or publication failure.
-  Final post-publication CI remains before merge.
+  Final post-publication standard
+  [run 34143275097](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143275097)
+  passes all 20 executed jobs with only the expected performance skip.
+  Bootstrap
+  [runs 34143275178](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143275178)
+  and
+  [34143271976](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143271976),
+  and exact-head native-ARM
+  [run 34143283549](https://github.com/tenseleyFlow/Cgfried/actions/runs/34143283549)
+  are green. PR #84 is merged as `6fb9b7ff`; its branch and temporary evidence
+  branch are deleted.
+- The in-progress `s56.5-variadic-aggregate-alignment` tranche resolves the
+  ten target-complete `torture-execute/pr92904.c` cells in bucket 34. On
+  merged trunk `6fb9b7ff`, all five optimization levels abort on both Linux
+  targets. An instrumented x86-64 run first fails at the aligned-16 `struct T`
+  passed after one stacked integer: `va_arg` correctly rounds its overflow
+  cursor to 16, but the call lowering placed the by-value copy at offset 8.
+  The first native ARM64 failure is the explicitly aligned-32 four-double HFA
+  passed after one stacked double: GCC places that HFA at offset 8 and aligns
+  its variadic cursor to the homogeneous double leaf, while Cgfried incorrectly
+  used the aggregate's stronger source alignment. An added mixed-compiler
+  `aligned(16)` non-HFA also went red until register skipping, stack placement,
+  and `va_arg` all used the member-derived natural alignment rather than the
+  adjustment on the record as a whole.
+
+  The repair replaces the one-bit IR `stackalign16` contract with an exact
+  numeric stack boundary, preserving the legacy spelling for 16 and printing
+  `stackalign(N)` above it. The annotation stores eight-byte units so the full
+  16 MiB language alignment limit remains representable; parsing, printing,
+  structural call/parameter matching, and verification all preserve the exact
+  value and reject zero, sub-16, and non-power-of-two boundaries. SysV
+  lowering now retains the whole aggregate alignment on both direct MEMORY
+  byval arguments and register-class aggregates which spill as a whole. The
+  x86-64 caller and callee honor that boundary, and the caller keeps `rsp`
+  aligned through fixed and dynamic frames. AAPCS64 instead derives a stacked
+  HFA's boundary from its homogeneous leaf and other direct composites from
+  their member-derived natural alignment before any adjustment on the whole
+  type; call, parameter, and `va_arg` overflow walks now share that rule.
+
+  Red-first lowering units pin the SysV aligned-stack hole, the AAPCS64
+  over-aligned-HFA exception, and the whole-record adjustment rule. IR
+  round-trip coverage includes 16-, 32-, and
+  maximum-alignment annotations plus zero rejection; verifier coverage rejects
+  a 24-byte boundary; and x86 frame coverage pins the prologue and dynamic
+  call-area masks. The exact GCC case executes at O0/O1/O2/O3/Os on native
+  ARM64 Linux and emulated x86-64 Linux. The permanent mixed-compiler lane
+  passes 14 ARM64 and 13 x86-64 signatures in both caller/callee directions,
+  including fixed and variadic member-aligned and whole-type-adjusted
+  composites plus over-aligned-32 HFAs.
+  All 866 units are registered; the relevant unit slices, ban and static-seam
+  gates, 2,000-case frontend fuzz smoke, pinned 5,000-case frontend sequence,
+  and 5,000-case IR fuzz smoke are green. The full Linux unit runs reach every
+  new test; their only failures are existing host/emulator assumptions in the
+  x86 simulator and missing-tool spawn probes. CI remains the authoritative
+  clean-host full-suite gate before publication.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
