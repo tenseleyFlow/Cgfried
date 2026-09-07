@@ -117,8 +117,13 @@ publishing 30,132 ratchet lines (30,129 PASS keys), 38 applied policy
 decisions, two retained stale decisions, 14 live repair rows representing 13
 tranches, and zero unresolved decisions. PR #82's Apple-native Mach-O linker
 argv repair is merged as `419afaab`; its standard and both bootstrap CI runs
-were green. The current `s56.5-builtin-expect-side-effects` tranche targets
-the ten `torture-execute/pr85156.c` cells. Sprint 56's
+were green. PR #83's `s56.5-builtin-expect-side-effects` tranche is merged as
+`055566ae`, publishing 30,142 ratchet lines (30,139 PASS keys), 37 applied
+policy decisions, two retained stale decisions, 13 live repair rows
+representing 12 tranches, and zero unresolved decisions. Its final standard,
+bootstrap, and exact-head native-ARM CI were all green. The current
+`s56.5-compound-assignment-rhs-sequencing` tranche targets the ten
+`torture-execute/pr58943.c` cells. Sprint 56's
 campaign machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3341,10 +3346,97 @@ and green post-publication CI.
   `40ac5badbfeaf137a93ce84d52d214537adde900edd9cac393e7d5e60bafd1c1`
   and
   `43dfd337ac26334a0c88375889bcb23c3bc3101a11a6415bebd9a0b73b759483`.
-  Fresh post-publication standard, bootstrap, and exact-head native ARM CI must
-  be green before merging. The next recommended compiler-gap tranche is
-  `s56.5-compound-assignment-rhs-sequencing` (`pr58943.c`, ten target-complete
-  cells).
+  Fresh post-publication standard
+  [run 34026107507](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026107507),
+  bootstrap
+  [runs 34026107470](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026107470)
+  and
+  [34026106035](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026106035),
+  and exact-head native ARM
+  [run 34026105982](https://github.com/tenseleyFlow/Cgfried/actions/runs/34026105982)
+  are all green at publication head `1db1717e`. PR #83 is merged as
+  `055566ae`; its branch and temporary evidence branch are deleted.
+- The in-progress `s56.5-compound-assignment-rhs-sequencing` tranche keeps a
+  compound assignment's left-hand address evaluation first and exactly once,
+  then evaluates the right operand before loading the old non-atomic value.
+  Lowering previously loaded the old value before a side-effecting RHS, so
+  `pr58943.c` overwrote the RHS's update with a result computed from stale
+  storage. Atomic compound assignments already evaluate the RHS before their
+  read-modify-write operation and are unchanged.
+
+  A focused lowering unit pins the call-load-store IR order and one RHS call.
+  A permanent execution fixture checks that the RHS is called once and its
+  update is visible to the compound operation. On merged trunk `055566ae`, the
+  unit fails, the permanent fixture exits 2, and exact `pr58943.c` aborts; all
+  three pass after moving the non-atomic load. The permanent and exact cases
+  execute natively on Apple ARM64 at O0/O1/O2/O3/Os in ordinary and
+  ASan+UBSan compiler builds. Both also emit nonempty assembly for
+  x86_64-linux-gnu, arm64-linux, and arm64-macos at all five levels (30/30
+  cross-source cells). The sanitizer frontend fuzzer completes 2,000
+  iterations with zero findings. Two independent 5,000-iteration ordinary
+  runs reproduce sequence digest `807196587aa04933`; the exact Makefile smoke
+  and digest gate pass after repinning. Three focused lowering units pass ten
+  assertions, all 864 declared units are registered,
+  and format, ban, warning/PP/sema/target seam, deferral, GNU-tier,
+  verifier-coverage, host-FPU, and fuzz-crash gates pass locally. Initial
+  behavior-head CI run `34139340605` then caught one legitimate shape-contract
+  update: correct RHS-first lowering of `s += __builtin_va_arg(...)` shortens
+  `mir/vararg_prologue` by one live temporary, one saved register, and 16 frame
+  bytes. Its x86 register-save-area offsets are repinned to the smaller valid
+  frame; the temporary `d0830a2e` synthetic-merge evidence run is superseded.
+
+  Final behavior head `f4e14b08` has green bootstrap
+  [runs 34139864930](https://github.com/tenseleyFlow/Cgfried/actions/runs/34139864930)
+  and
+  [34139859639](https://github.com/tenseleyFlow/Cgfried/actions/runs/34139859639).
+  Standard
+  [run 34139865033](https://github.com/tenseleyFlow/Cgfried/actions/runs/34139865033)
+  passes all nineteen non-torture jobs, including 100,000-case sanitized
+  frontend fuzzing, and rejects only the five expected unpublished x86 cells.
+  Exact synthetic-merge nightly
+  [run 34139940578](https://github.com/tenseleyFlow/Cgfried/actions/runs/34139940578)
+  passes all fourteen non-torture jobs and rejects only the matching five
+  native ARM cells.
+
+  Both 20,335-line evidence streams share exact synthetic source revision
+  `9827d8aec33c58126a3b1664d65df53a6d8045c9`, compiler-source SHA-256
+  `f157df85e030ff6d883283002849c650f739dd8fb2b60215c383497ba9472df3`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `df6a772c0d8caeb4ee74818531bf8205c807422fd74a24f9e15a4e7bcbd48663`
+  and
+  `dfe87c4b51c7d36403ba254112e2c68c9dbcc3d1af716c156f8f62777f786437`;
+  their compiler/driver hashes are respectively
+  `acae56a49e4094f5e7ad13e8719f92a6e5cfc33a62fb804864b0cb9b0475caa9`
+  and
+  `a368d4239e09cd8e991b9f0c67dfe0aefdd8c728590738cc1a9bd510a005ce80`.
+
+  GNU Make 4.4.1 generated the target-complete publication in both evidence
+  orders with byte-identical results. Atomic publication promotes exactly the
+  ten `pr58943.c` cells with zero PASS regression and retires only fingerprint
+  `482cc728...`. The published state is 30,152 ratchet lines / 30,149 PASS
+  keys, 3,881 classified failures, 44 observed buckets, 36 applied decisions,
+  12 live repair rows representing 11 tranches, two deliberately retained
+  stale decisions, and zero unbucketed or unresolved cells. PASS and triage
+  SHA-256 values are respectively
+  `8b3995894d29bb46e8d61d6757ce8f1eea5869b2ac4e8a349113dd758f45671a`
+  and
+  `98c466259a4e488acbb18d9b997b5f731bfe1045f3d8222aa0aca2b47287e8b1`.
+  Artifact gates, import fixtures, all 864 registered units, static seams,
+  GNU tiers, verifier coverage, host-FPU and fuzz-crash gates, and the exact
+  2,000/5,000-case fuzz smoke pass after publication.
+
+  On Darwin only, the optional `torture-meta` fixture still fails to classify
+  its fake `codegen` diagnostic because BSD sed does not implement GNU BRE
+  alternation (`\|`). The same failure reproduces on untouched merged trunk
+  `055566ae`; both real target evidence gates pass, so this is isolated Apple
+  test-harness portability debt rather than a compiler or publication failure.
+  Final post-publication CI remains before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -1041,6 +1041,26 @@ void test_lower_compound_assign_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_compound_assign_reads_after_rhs(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+    const char *call;
+    const char *load;
+    const char *store;
+
+    T_ASSERT(t, run_lower(&f, "unsigned value; unsigned rhs(void);\n"
+                              "void use(void) { value |= rhs(); }\n"));
+    ir = txt(&f);
+    call = strstr(ir, "call i32 @rhs()");
+    load = strstr(ir, "load i32, @value");
+    store = strstr(ir, "store i32");
+    T_ASSERT_EQ_INT(t, count_of(ir, "call i32 @rhs()"), 1);
+    T_ASSERT(t, call != NULL && load != NULL && store != NULL && call < load &&
+                    load < store);
+    low_free(&f);
+}
+
 void test_lower_conditional_pointer_integer_recovery(TestCtx *t)
 {
     LowFix f;

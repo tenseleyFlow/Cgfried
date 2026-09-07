@@ -1250,8 +1250,10 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             rhs = lower_rvalue(lo, e->rhs);
             return lower_atomic_update(lo, lv, lt, op, rhs, rt, false);
         }
-        old = lower_load(lo, lv);
         rhs = lower_rvalue(lo, e->rhs);
+        /* The address is already fixed, but the read belongs to the
+         * read-modify-write operation: RHS effects must be visible to it. */
+        old = lower_load(lo, lv);
 
         if (lt->kind == TY_PTR) {
             /* p += n / p -= n. */
