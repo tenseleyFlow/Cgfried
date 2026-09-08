@@ -143,9 +143,12 @@ bucket 43 and raising the ratchet to 30,167 lines (30,164 PASS keys). Its final
 standard, bootstrap, and exact-head native-ARM CI are green. The current
 `s56.5-aligned-vla-record-members` tranche repairs the ten target-complete
 `torture-execute/pr82210.c` cells in bucket 36. Behavior commit `517a3d36` is
-locally complete on ARM64 and x86-64; pre-publication CI and target-complete
-evidence remain. Sprint 56's campaign machine and triage map remain complete
-while Sprint 58 continues its independent soak.
+locally complete on ARM64 and x86-64. PR #90's pre-publication standard and
+bootstrap coverage is complete, exact synthetic-merge ARM64/x86-64 evidence
+is source-identical, and deterministic target-complete publication raises the
+ratchet to 30,177 lines (30,174 PASS keys). Post-publication CI and merge
+remain. Sprint 56's campaign machine and triage map remain complete while
+Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -3633,7 +3636,7 @@ and green post-publication CI.
   five x86 `pr44942.c` cells with zero PASS regression and retires only
   fingerprint `892c311a...`. The published state is 30,167 ratchet lines /
   30,164 PASS keys, 3,866 classified failures, 42 observed buckets, 34 applied
-  decisions, 10 live repair rows representing 9 tranches, two deliberately
+  decisions, 11 live repair rows representing 10 tranches, two deliberately
   retained stale decisions, and zero unbucketed or unresolved cells. PASS and
   triage SHA-256 values are respectively
   `39a2d5ca5e466bedb41b1a1c15d70047a9d4f4f8793f27e7ed617f7611f41746`
@@ -3685,8 +3688,54 @@ and green post-publication CI.
   5,000-iteration runs. The ad-hoc full corpus containers pass the new fixture
   and every non-quad-runtime case; their only failures are pre-existing
   `_Float128`/ARM `long double` links caused by those minimal images lacking
-  libgcc's quad helper symbols. Fresh pre-publication CI remains before
-  evidence collection.
+  libgcc's quad helper symbols.
+
+  Pre-publication standard
+  [run 34255333789](https://github.com/tenseleyFlow/Cgfried/actions/runs/34255333789)
+  passes all nineteen non-torture jobs, including clean-host full tests,
+  sanitizers, macOS and Linux ARM64, both-architecture 250-signature ABI
+  differentials, and 100,000 frontend-fuzz iterations. Its x86 torture gate
+  rejects exactly the five expected unpublished `pr82210.c` cells and no old
+  PASS. Bootstrap
+  [runs 34255329238](https://github.com/tenseleyFlow/Cgfried/actions/runs/34255329238)
+  and
+  [34255333895](https://github.com/tenseleyFlow/Cgfried/actions/runs/34255333895)
+  pass O0 and O2. Exact synthetic-merge nightly
+  [run 34256194423](https://github.com/tenseleyFlow/Cgfried/actions/runs/34256194423)
+  passes all fourteen non-torture jobs; native ARM torture rejects exactly the
+  matching five unpublished cells and no old PASS.
+
+  Both retained 20,335-line streams name synthetic revision
+  `bdb05084ccd058c6923dc590dffd4d06a629e58d` and share compiler-source SHA-256
+  `b1c11d4434ef158ae1565f6c310de67332a6549ce52032e24f8d8d00d7b0af5a`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `21580ade867cf0e600878f392916db020c30bdcf52e98595370e26bb46c58dd8`
+  and
+  `44e13a45f982d2c958953824945bcd90d6d53ab947bfdd6c12e3cc25571f7e78`;
+  their compiler/driver hashes are respectively
+  `5b71b5b5ab5c89da3ce0ee69188698757449058fd3434744949c8a1a4e1a45a8`
+  and
+  `14081e557fa6e97b2775e1276afa773122d8955e749cce99578d85f671236bee`.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates both committed outputs byte-identically. Atomic publication
+  promotes exactly ten `pr82210.c` cells with zero PASS regression and retires
+  only fingerprint `a849f81b...`. The published state is 30,177 ratchet lines /
+  30,174 PASS keys, 3,856 classified failures, 41 observed buckets, 33 applied
+  decisions, 10 live repair rows representing 9 tranches, two deliberately
+  retained stale decisions, and zero unbucketed or unresolved cells. PASS and
+  triage SHA-256 values are respectively
+  `141c73f53fc3276c3053238f29da8b0168acac792ee5e58901e0d68b37a9d61d`
+  and
+  `6d8a04bf5207e337124509df9df32eb646cdc02bcb73ab4b92af49125a537b84`.
+  Fresh post-publication standard, bootstrap, and exact-head nightly evidence
+  remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
