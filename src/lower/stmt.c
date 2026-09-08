@@ -444,17 +444,12 @@ static void lower_one_decl(Lower *lo, AstNode *d)
          * caches per Type node — a later sizeof READS the cache). The
          * scope's stacksave is lazy: emitted at its first dynamic object. */
         IrOperand bytes = lower_type_size(lo, sym->type);
-        Type *elem = sym->type;
-        TypeLayout el;
-
-        while (elem->kind == TY_ARRAY)
-            elem = elem->base;
-        el = layout_of(lo->sema, elem);
         if (lo->scopes && !lo->scopes->token.v)
             lo->scopes->token = ir_build_stacksave(&lo->b);
-        slot = ir_build_alloca_typed(&lo->b, bytes,
-                                     lower_auto_align(sym, el.align),
-                                     lower_efftype(lo, sym->type));
+        slot = ir_build_alloca_typed(
+            &lo->b, bytes,
+            lower_auto_align(sym, lower_type_align(lo, sym->type)),
+            lower_efftype(lo, sym->type));
         lower_bind_local(lo, sym, slot);
         cleanup_register(lo, sym, slot, d->span);
         if (lo->auto_var_init != LOWER_AUTO_VAR_INIT_NONE &&

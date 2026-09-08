@@ -361,6 +361,14 @@ void lower_prebind_locals(Lower *lo, AstNode *body);
  * C17 says the size expression evaluates there). GNU records containing
  * VLA members are runtime-sized too. */
 IrOperand lower_type_size(Lower *lo, Type *t);
+/* The statically known byte alignment of a type. Runtime-sized GNU records
+ * have a recovery TypeLayout, so their real alignment is derived from their
+ * members instead of that placeholder layout. */
+u64 lower_type_align(Lower *lo, Type *t);
+/* Byte offset of a direct record member. For a runtime-sized GNU struct this
+ * is an i64 expression produced by the same walk that computes sizeof. */
+IrOperand lower_record_member_offset(Lower *lo, Type *record,
+                                     const Member *member);
 /* Evaluate and cache every runtime-sized layer named by a declaration. The
  * walk passes through pointer layers because pointer-to-VLA declarations
  * still evaluate their bounds even though the declared object is

@@ -985,6 +985,45 @@ void test_lower_runtime_record_array_uses_dynamic_alloca(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_runtime_record_member_offsets_and_alignment(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+
+    T_ASSERT(
+        t,
+        run_lower(&f, "void use(int n) {\n"
+                      "  struct S {\n"
+                      "    char lead;\n"
+                      "    __attribute__" /* check_bans allow: compiler input */
+                      "((aligned(16))) short a[n];\n"
+                      "    int b[n];\n"
+                      "  } value;\n"
+                      "  value.a[1] = 2;\n"
+                      "  value.b[1] = 3;\n"
+                      "}\n"
+                      "unsigned long where(int n) {\n"
+                      "  struct S {\n"
+                      "    char lead;\n"
+                      "    __attribute__" /* check_bans allow: compiler input */
+                      "((aligned(16))) short a[n];\n"
+                      "    int b[n];\n"
+                      "  };\n"
+                      "  return __builtin_offsetof(struct S, b);\n"
+                      "}\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    /* A runtime-sized record still has a statically known alignment. Its
+     * first VLA begins at offset 16 after `lead`; the following member begins
+     * at align_up(16 + 2*n, 4), so its address remains runtime arithmetic. */
+    T_ASSERT(t, strstr(ir, ", align 16, etype aggregate") != NULL);
+    T_ASSERT(t, strstr(ir, "ptradd %") != NULL);
+    T_ASSERT(t, count_of(ir, "udiv i64") >= 4);
+    T_ASSERT(t, strstr(ir, "func i64 @where(i32 %0)") != NULL);
+    T_ASSERT(t, strstr(ir, "ret i64 1") == NULL);
+    low_free(&f);
+}
+
 void test_lower_runtime_record_copy_uses_cached_extent(TestCtx *t)
 {
     LowFix f;
