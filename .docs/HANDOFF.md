@@ -138,8 +138,10 @@ merged as `adeebc38`, publishing the ten `torture-execute/pr92904.c` cells and
 raising the target-complete ratchet to 30,162 lines (30,159 PASS keys). Its
 behavior, publication, and final standard/bootstrap/native-ARM CI are green.
 The current `s56.5-x86-varargs-long-double-stack-alignment` tranche repairs
-the five x86-only `torture-execute/pr44942.c` cells in bucket 43. Sprint 56's
-campaign machine and triage map remain complete while Sprint 58 continues its
+and publishes the five x86-only `torture-execute/pr44942.c` cells in bucket
+43, raising the ratchet to 30,167 lines (30,164 PASS keys). Its exact behavior
+evidence is complete; fresh post-publication CI remains. Sprint 56's campaign
+machine and triage map remain complete while Sprint 58 continues its
 independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -3590,6 +3592,52 @@ and green post-publication CI.
   2,000-iteration frontend fuzz smoke has zero findings. Two independent
   5,000-iteration runs reproduce the intentionally repinned corpus digest
   `ba4cc24c4b83ef74`.
+
+  Behavior-head standard
+  [run 34242259645](https://github.com/tenseleyFlow/Cgfried/actions/runs/34242259645)
+  passes all nineteen non-torture jobs, including clean-host full tests,
+  sanitizers, macOS and Linux ARM64, both-architecture 250-signature ABI
+  differentials, and 100,000 frontend-fuzz iterations. Its x86 torture gate
+  rejects only the five expected unpublished `pr44942.c` cells. Bootstrap
+  [runs 34242253780](https://github.com/tenseleyFlow/Cgfried/actions/runs/34242253780)
+  and
+  [34242259551](https://github.com/tenseleyFlow/Cgfried/actions/runs/34242259551)
+  pass O0 and O2. Exact synthetic-merge nightly
+  [run 34245290669](https://github.com/tenseleyFlow/Cgfried/actions/runs/34245290669)
+  passes all fifteen jobs, including the already-published ARM `pr44942.c`
+  cells.
+
+  Both 20,335-line evidence streams share exact synthetic source revision
+  `5038800080102e9f7fcd31623ec9b80054ce5cd7`, compiler-source SHA-256
+  `e88c8608a6b3d48bf6dc0d10293585e4b61c195f466b29a6452f5707cbe971d1`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `9463f09c55305ff830cdff20ec839e5498ec041709f3889860d4be938826f096`
+  and
+  `a3250759d893e7389bb414066ef1b69f7addf92538fff4f9c6f3d0ddf3633b69`;
+  their compiler/driver hashes are respectively
+  `d36508257930154d1eefe11cf255e7169e1c9876e0c76aad80277b41a2ebfc2b`
+  and
+  `e6aa498b9fe0d7e70c0d449870927289c40a5640e74c0222b06e0e23c409e06d`.
+
+  GNU Make 4.4.1 generates the complete target publication in both evidence
+  orders with byte-identical results. Atomic publication promotes exactly the
+  five x86 `pr44942.c` cells with zero PASS regression and retires only
+  fingerprint `892c311a...`. The published state is 30,167 ratchet lines /
+  30,164 PASS keys, 3,866 classified failures, 42 observed buckets, 34 applied
+  decisions, 10 live repair rows representing 9 tranches, two deliberately
+  retained stale decisions, and zero unbucketed or unresolved cells. PASS and
+  triage SHA-256 values are respectively
+  `39a2d5ca5e466bedb41b1a1c15d70047a9d4f4f8793f27e7ed617f7611f41746`
+  and
+  `60d15f31eaa28c00cc51bbc17fd9ca9a85b43077099c60f8ebd34606dcbe9a63`.
+  Fresh post-publication standard, bootstrap, and exact-head native-ARM CI
+  remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -3615,9 +3663,9 @@ tranche is implemented, target-complete, and merged through PR #50 as
 `e2439e79`. The GNU `alloca` alias tranche is implemented, target-complete,
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
-The failure-decomposition tranche is merged through PR #53. After PR #85,
-the remaining compiler debt is enumerated by 11 live `s56.5-*` repair rows
-representing 10 unique repair tranches. Sprint
+The failure-decomposition tranche is merged through PR #53. On the current
+publication head, the remaining compiler debt is enumerated by 10 live
+`s56.5-*` repair rows representing 9 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
