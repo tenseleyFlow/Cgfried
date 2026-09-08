@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-06): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-08): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -137,12 +137,18 @@ were all green. PR #85's `s56.5-variadic-aggregate-alignment` tranche is
 merged as `adeebc38`, publishing the ten `torture-execute/pr92904.c` cells and
 raising the target-complete ratchet to 30,162 lines (30,159 PASS keys). Its
 behavior, publication, and final standard/bootstrap/native-ARM CI are green.
-The current `s56.5-x86-varargs-long-double-stack-alignment` tranche repairs
-and publishes the five x86-only `torture-execute/pr44942.c` cells in bucket
-43, raising the ratchet to 30,167 lines (30,164 PASS keys). Its exact behavior
-evidence is complete; fresh post-publication CI remains. Sprint 56's campaign
-machine and triage map remain complete while Sprint 58 continues its
-independent soak.
+PR #86's `s56.5-x86-varargs-long-double-stack-alignment` tranche is merged as
+`5ed4da1c`, publishing the five x86-only `torture-execute/pr44942.c` cells in
+bucket 43 and raising the ratchet to 30,167 lines (30,164 PASS keys). Its final
+standard, bootstrap, and exact-head native-ARM CI are green. The current
+`s56.5-aligned-vla-record-members` tranche repairs the ten target-complete
+`torture-execute/pr82210.c` cells in bucket 36. Behavior commit `517a3d36` is
+locally complete on ARM64 and x86-64. PR #90's pre-publication standard and
+bootstrap coverage is complete, exact synthetic-merge ARM64/x86-64 evidence
+is source-identical, and deterministic target-complete publication raises the
+ratchet to 30,177 lines (30,174 PASS keys). Post-publication CI and merge
+remain. Sprint 56's campaign machine and triage map remain complete while
+Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -3636,7 +3642,99 @@ and green post-publication CI.
   `39a2d5ca5e466bedb41b1a1c15d70047a9d4f4f8793f27e7ed617f7611f41746`
   and
   `60d15f31eaa28c00cc51bbc17fd9ca9a85b43077099c60f8ebd34606dcbe9a63`.
-  Fresh post-publication standard, bootstrap, and exact-head native-ARM CI
+  Fresh post-publication standard
+  [run 34247413433](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247413433)
+  passes all twenty executed jobs with only the expected performance skip.
+  Bootstrap
+  [runs 34247407660](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247407660)
+  and
+  [34247413451](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247413451)
+  pass O0 and O2. Exact-head nightly
+  [run 34247443011](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247443011)
+  is green after rerunning three artifact-finalization jobs that initially
+  received external HTTP 403 responses after every campaign gate had passed.
+  PR #86 is merged as `5ed4da1c`; its remote feature and temporary evidence
+  branches are deleted.
+- The current `s56.5-aligned-vla-record-members` tranche resolves the ten
+  target-complete `torture-execute/pr82210.c` cells in bucket 36, fingerprint
+  `a849f81b...`. On merged trunk `5ed4da1c`, the exact upstream case aborts at
+  O0/O1/O2/O3/Os on both ARM64 and x86-64. Runtime `sizeof(struct S)` already
+  computed GNU VLA-member extents and padding, but automatic allocation took
+  alignment 1 from sema's deliberately incomplete recovery layout and member
+  expressions took its placeholder constant offsets. In `pr82210.c`, the
+  second VLA member therefore started at byte zero and overwrote the first.
+
+  Behavior commit `517a3d36` gives lowering one runtime type-alignment query
+  and one shared runtime-record layout walk. The latter now answers either the
+  tail-padded size or a direct ordinary member's byte offset, so `sizeof`,
+  allocation, member access, and GNU runtime `__builtin_offsetof` use identical
+  alignment arithmetic. Dynamic allocas, aggregate temporaries, and indirect
+  ABI plans consume the real record alignment. The opportunistic constant
+  folder declines variably modified struct offsets rather than publishing a
+  plausible recovery-layout constant; runtime lowering then produces the real
+  value. Existing bitfield container positioning remains on its separately
+  pinned static-layout path.
+
+  A red-first lowering unit pins 16-byte allocation and dynamic
+  member/offsetof arithmetic. The permanent executable tests four extents
+  against GCC, including object alignment, both member addresses, builtin
+  offsets, tail-padded size, and non-overlapping writes. It passes under
+  Cgfried and GCC at all five optimization levels on native ARM64 and x86-64
+  Linux; exact `pr82210.c` also passes all ten cells. Focused
+  runtime-record/offsetof units, ASan+UBSan, pinned clang-format 22, bans,
+  unit-registry, host/target seam, preprocessor seam, and warning seam gates
+  are green. Frontend fuzzing reports zero findings at 2,000 iterations and
+  reproduces existing digest `ba4cc24c4b83ef74` in two independent
+  5,000-iteration runs. The ad-hoc full corpus containers pass the new fixture
+  and every non-quad-runtime case; their only failures are pre-existing
+  `_Float128`/ARM `long double` links caused by those minimal images lacking
+  libgcc's quad helper symbols.
+
+  Pre-publication standard
+  [run 34255333789](https://github.com/tenseleyFlow/Cgfried/actions/runs/34255333789)
+  passes all nineteen non-torture jobs, including clean-host full tests,
+  sanitizers, macOS and Linux ARM64, both-architecture 250-signature ABI
+  differentials, and 100,000 frontend-fuzz iterations. Its x86 torture gate
+  rejects exactly the five expected unpublished `pr82210.c` cells and no old
+  PASS. Bootstrap
+  [runs 34255329238](https://github.com/tenseleyFlow/Cgfried/actions/runs/34255329238)
+  and
+  [34255333895](https://github.com/tenseleyFlow/Cgfried/actions/runs/34255333895)
+  pass O0 and O2. Exact synthetic-merge nightly
+  [run 34256194423](https://github.com/tenseleyFlow/Cgfried/actions/runs/34256194423)
+  passes all fourteen non-torture jobs; native ARM torture rejects exactly the
+  matching five unpublished cells and no old PASS.
+
+  Both retained 20,335-line streams name synthetic revision
+  `bdb05084ccd058c6923dc590dffd4d06a629e58d` and share compiler-source SHA-256
+  `b1c11d4434ef158ae1565f6c310de67332a6549ce52032e24f8d8d00d7b0af5a`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `21580ade867cf0e600878f392916db020c30bdcf52e98595370e26bb46c58dd8`
+  and
+  `44e13a45f982d2c958953824945bcd90d6d53ab947bfdd6c12e3cc25571f7e78`;
+  their compiler/driver hashes are respectively
+  `5b71b5b5ab5c89da3ce0ee69188698757449058fd3434744949c8a1a4e1a45a8`
+  and
+  `14081e557fa6e97b2775e1276afa773122d8955e749cce99578d85f671236bee`.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates both committed outputs byte-identically. Atomic publication
+  promotes exactly ten `pr82210.c` cells with zero PASS regression and retires
+  only fingerprint `a849f81b...`. The published state is 30,177 ratchet lines /
+  30,174 PASS keys, 3,856 classified failures, 41 observed buckets, 33 applied
+  decisions, 9 live repair rows representing 8 tranches, two deliberately
+  retained stale decisions, and zero unbucketed or unresolved cells. PASS and
+  triage SHA-256 values are respectively
+  `141c73f53fc3276c3053238f29da8b0168acac792ee5e58901e0d68b37a9d61d`
+  and
+  `6d8a04bf5207e337124509df9df32eb646cdc02bcb73ab4b92af49125a537b84`.
+  Fresh post-publication standard, bootstrap, and exact-head nightly evidence
   remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
@@ -3664,8 +3762,8 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. On the current
-publication head, the remaining compiler debt is enumerated by 10 live
-`s56.5-*` repair rows representing 9 unique repair tranches. Sprint
+publication head, the remaining compiler debt is enumerated by 9 live
+`s56.5-*` repair rows representing 8 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---

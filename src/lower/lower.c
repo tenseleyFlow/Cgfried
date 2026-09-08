@@ -641,7 +641,24 @@ static u64 lower_runtime_type_align(Lower *lo, Type *t)
     return align;
 }
 
-static IrOperand lower_runtime_record_size(Lower *lo, Type *t)
+u64 lower_type_align(Lower *lo, Type *t)
+{
+    TypeLayout l;
+
+    if (!t)
+        return 1;
+    if (type_is_runtime_sized(t))
+        return lower_runtime_type_align(lo, t);
+    l = layout_of(lo->sema, t);
+    return l.align ? l.align : 1;
+}
+
+/* With member == NULL, return the record's tail-padded byte size. Otherwise,
+ * return that direct non-bitfield member's byte offset. Keeping both answers
+ * in this one walk prevents GNU VLA-member addressing from drifting away
+ * from the layout used by sizeof. */
+static IrOperand lower_runtime_record_layout(Lower *lo, Type *t,
+                                             const Member *member)
 {
     const Member *m;
     u64 record_align = lower_runtime_type_align(lo, t);
@@ -649,6 +666,8 @@ static IrOperand lower_runtime_record_size(Lower *lo, Type *t)
     if (t->kind == TY_UNION) {
         IrOperand largest = lower_i64(0);
 
+        if (member)
+            return lower_i64(0);
         for (m = t->tag->members; m; m = m->next) {
             IrOperand member_size;
             ValueId larger;
@@ -710,6 +729,8 @@ static IrOperand lower_runtime_record_size(Lower *lo, Type *t)
             }
             bits = lower_size_align_up(lo, bits, 8);
             bits = lower_size_align_up(lo, bits, member_align * 8);
+            if (m == member)
+                return lower_size_binary(lo, IR_UDIV, bits, lower_i64(8));
             bits = lower_size_binary(
                 lo, IR_IADD, bits,
                 lower_size_binary(lo, IR_IMUL, lower_type_size(lo, m->type),
@@ -720,6 +741,22 @@ static IrOperand lower_runtime_record_size(Lower *lo, Type *t)
             lo, lower_size_binary(lo, IR_UDIV, bits, lower_i64(8)),
             record_align);
     }
+}
+
+static IrOperand lower_runtime_record_size(Lower *lo, Type *t)
+{
+    return lower_runtime_record_layout(lo, t, NULL);
+}
+
+IrOperand lower_record_member_offset(Lower *lo, Type *record,
+                                     const Member *member)
+{
+    if (!record || !member)
+        return lower_i64(0);
+    layout_record(lo->sema, record);
+    if (!type_is_runtime_sized(record) || member->is_bitfield)
+        return lower_i64((i64)member->offset);
+    return lower_runtime_record_layout(lo, record, member);
 }
 
 /* Runtime byte sizes are evaluated ONCE at declaration and cached by Type
@@ -798,7 +835,7 @@ ValueId lower_temp(Lower *lo, Type *t)
                          : lower_i64((i64)(l.size ? l.size : 1));
 
     lo->ntemps++;
-    return ir_build_alloca_typed(&lo->b, size, (u32)(l.align ? l.align : 1),
+    return ir_build_alloca_typed(&lo->b, size, (u32)lower_type_align(lo, t),
                                  lower_efftype(lo, t));
 }
 

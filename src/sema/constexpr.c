@@ -843,6 +843,20 @@ static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out)
             ce_error(s, m, e->span, "this is not a constant expression");
             return false;
         }
+        /* layout_record deliberately gives a GNU record containing VLA
+         * members a small recovery layout so the rest of sema can keep
+         * typing it. Those placeholder Member.offset values are not C
+         * constants: later members depend on runtime extents, and even the
+         * first VLA member can have an explicit alignment the recovery walk
+         * did not apply. Leave runtime structs to lowering's real layout
+         * arithmetic instead of folding a plausible but wrong byte offset.
+         * A union remains constant here because every member begins at 0. */
+        if (rec->kind == TY_STRUCT && type_is_runtime_sized(rec)) {
+            ce_error(s, m, e->span,
+                     "'__builtin_offsetof' of a variably modified record "
+                     "is not constant");
+            return false;
+        }
         layout_record(s, (Type *)rec);
         /* Descend named-or-anonymous, accumulating as we go. */
         for (;;) {

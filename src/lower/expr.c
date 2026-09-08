@@ -402,8 +402,19 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
 
 /* --- member lookup (anonymous members included) --------------------------- */
 
+static IrOperand offset_add(Lower *lo, IrOperand a, IrOperand b)
+{
+    if (a.kind == IROP_ICONST && a.a == 0)
+        return b;
+    if (b.kind == IROP_ICONST && b.a == 0)
+        return a;
+    if (a.kind == IROP_ICONST && b.kind == IROP_ICONST)
+        return lower_i64((i64)(a.a + b.a));
+    return ir_op_value(lo->fn, ir_build2(&lo->b, IR_IADD, IRT_I64, a, b));
+}
+
 static bool member_offset(Lower *lo, Type *rec, const char *name, Member **out,
-                          u64 *off)
+                          u64 *static_off, IrOperand *runtime_off)
 {
     Member *m;
 
@@ -413,15 +424,20 @@ static bool member_offset(Lower *lo, Type *rec, const char *name, Member **out,
     for (m = rec->tag->members; m; m = m->next) {
         if (m->name == name) {
             *out = m;
-            *off += m->offset;
+            *static_off = m->offset;
+            *runtime_off = lower_record_member_offset(lo, rec, m);
             return true;
         }
         if (!m->name && m->type &&
             (m->type->kind == TY_STRUCT || m->type->kind == TY_UNION)) {
-            u64 sub = *off + m->offset;
+            u64 sub_static = 0;
+            IrOperand sub_runtime = lower_i64(0);
 
-            if (member_offset(lo, m->type, name, out, &sub)) {
-                *off = sub;
+            if (member_offset(lo, m->type, name, out, &sub_static,
+                              &sub_runtime)) {
+                *static_off = m->offset + sub_static;
+                *runtime_off = offset_add(
+                    lo, lower_record_member_offset(lo, rec, m), sub_runtime);
                 return true;
             }
         }
@@ -475,6 +491,13 @@ static IrOperand addr_plus(Lower *lo, IrOperand base, i64 off)
     }
     r = ir_build_ptradd(&lo->b, base, lower_i64(off));
     return ir_op_value(lo->fn, r);
+}
+
+static IrOperand addr_plus_operand(Lower *lo, IrOperand base, IrOperand off)
+{
+    if (off.kind == IROP_ICONST)
+        return addr_plus(lo, base, (i64)off.a);
+    return ir_op_value(lo->fn, ir_build_ptradd(&lo->b, base, off));
 }
 
 static void emit_pointer_index_check(Lower *lo, IrOperand origin,
@@ -573,6 +596,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         IrOperand base;
         Member *m = NULL;
         u64 off = 0;
+        IrOperand runtime_off = lower_i64(0);
         Type *rec;
         Lvalue lv;
 
@@ -588,11 +612,12 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             base = lower_rvalue(lo, e->lhs);
             rec = sem(e->lhs);
         }
-        if (!rec || !member_offset(lo, rec, e->name, &m, &off) || !m) {
+        if (!rec || !member_offset(lo, rec, e->name, &m, &off, &runtime_off) ||
+            !m) {
             return lv_of(lo, base, sem(e));
         }
         if (!m->is_bitfield) {
-            lv = lv_of(lo, addr_plus(lo, base, (i64)off), sem(e));
+            lv = lv_of(lo, addr_plus_operand(lo, base, runtime_off), sem(e));
             /* lv_of takes the alignment from the TYPE, which a packed member
              * does not have: `int b` at offset 1 is 1-aligned. The verifier
              * calls under-alignment honest and over-alignment an error, so
@@ -2967,13 +2992,12 @@ static IrOperand lower_offsetof_designator(Lower *lo, AstNode *e)
         Type *rec = e->lhs ? sem(e->lhs) : NULL;
         Member *member = NULL;
         u64 off = 0;
+        IrOperand runtime_off = lower_i64(0);
 
-        if (!member_offset(lo, rec, e->name, &member, &off) || !member)
+        if (!member_offset(lo, rec, e->name, &member, &off, &runtime_off) ||
+            !member)
             CGF_ICE("offsetof member did not survive sema");
-        if (off == 0)
-            return base;
-        return ir_op_value(lo->fn, ir_build2(&lo->b, IR_IADD, IRT_I64, base,
-                                             lower_i64((i64)off)));
+        return offset_add(lo, base, runtime_off);
     }
     case AST_EXPR_INDEX: {
         IrOperand base = lower_offsetof_designator(lo, e->lhs);
