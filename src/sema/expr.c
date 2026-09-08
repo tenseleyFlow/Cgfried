@@ -296,6 +296,18 @@ static AstNode *expr_unary(Sema *s, AstNode *e)
                 type_to_str(s->arena, op->sem_type));
             return poison(s, e);
         }
+        if (op->sem_reverse_storage_order) {
+            if (op->sem_type->kind == TY_ARRAY) {
+                warn_at(s->lang->warnings, WARN_SCALAR_STORAGE_ORDER, op->span,
+                        "address of array with reverse scalar storage order "
+                        "requested");
+            } else {
+                err(s, op->span,
+                    "cannot take the address of a scalar field with reverse "
+                    "storage order");
+                return poison(s, e);
+            }
+        }
         /* `&arr` is `T (*)[N]`, NOT `T **` — the single most common
          * confusion in this area, and the reason decay is suppressed. */
         e->sem_type = type_ptr(s->arena, op->sem_type);
@@ -905,6 +917,15 @@ static Member *find_member(const Type *t, const char *name,
     return NULL;
 }
 
+static bool sso_affects_type(const Type *t)
+{
+    if (!t)
+        return false;
+    if (t->kind == TY_ARRAY)
+        return sso_affects_type(t->base);
+    return type_is_integer(t) || type_is_floating(t);
+}
+
 static AstNode *expr_member(Sema *s, AstNode *e)
 {
     AstNode *obj = expr(s, e->lhs);
@@ -968,6 +989,9 @@ static AstNode *expr_member(Sema *s, AstNode *e)
         e->sem_lvalue_align = member_align;
     }
     e->sem_is_bitfield = m->is_bitfield;
+    e->sem_reverse_storage_order =
+        sema_scalar_storage_order_reversed(s, m->scalar_storage_order) &&
+        (m->is_bitfield || sso_affects_type(m->type));
     if (m->is_bitfield) {
         e->sem_bitfield_width = m->bit_width;
         e->sem_bitfield_is_signed = m->bitfield_is_signed;
@@ -980,8 +1004,8 @@ static AstNode *expr_member(Sema *s, AstNode *e)
 
 static AstNode *expr_index(Sema *s, AstNode *e)
 {
-    AstNode *base = conv_decay(s, expr(s, e->lhs));
-    AstNode *idx = conv_decay(s, expr(s, e->rhs));
+    AstNode *base = conv_decay_subscript(s, expr(s, e->lhs));
+    AstNode *idx = conv_decay_subscript(s, expr(s, e->rhs));
 
     e->lhs = base;
     e->rhs = idx;
@@ -991,8 +1015,10 @@ static AstNode *expr_index(Sema *s, AstNode *e)
     /* `a[i]` is `*(a + i)`, so either operand may be the pointer. */
     if (is_ptr(base->sem_type) && type_is_integer(idx->sem_type)) {
         e->sem_type = base->sem_type->base;
+        e->sem_reverse_storage_order = base->sem_reverse_storage_order;
     } else if (type_is_integer(base->sem_type) && is_ptr(idx->sem_type)) {
         e->sem_type = idx->sem_type->base;
+        e->sem_reverse_storage_order = idx->sem_reverse_storage_order;
     } else {
         err(s, e->span, "invalid subscript of '%s' by '%s'",
             type_to_str(s->arena, base->sem_type),
@@ -1595,6 +1621,7 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->sem_bitfield_width = e->lhs->sem_bitfield_width;
         e->sem_is_bitfield = e->lhs->sem_is_bitfield;
         e->sem_bitfield_is_signed = e->lhs->sem_bitfield_is_signed;
+        e->sem_reverse_storage_order = e->lhs->sem_reverse_storage_order;
         e->poisoned = e->poisoned || e->lhs->poisoned;
         return e;
     case AST_EXPR_UNARY:

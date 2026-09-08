@@ -281,6 +281,10 @@ struct AstNode {
      * silently ignores a LEADING one, and by the time sema sees a GnuDeclAttrs
      * the three positions are indistinguishable. */
     bool packed;
+    /* GNU scalar_storage_order bound to this record definition. Like packed,
+     * only the parser can distinguish a record position from a leading or
+     * declarator attribute. */
+    u8 scalar_storage_order; /* GnuScalarStorageOrder */
     /* `may_alias` bound to this record definition. Like `packed`, position
      * matters: between `struct` and the tag, or after the closing brace,
      * changes the record type; a leading attribute before `struct` does not. */
@@ -365,6 +369,10 @@ struct AstNode {
     u32 sem_bitfield_width;
     bool sem_is_bitfield; /* resolved member expression; not addressable */
     bool sem_bitfield_is_signed;
+    /* A scalar or scalar-array lvalue selected from a reverse-storage-order
+     * record. This survives direct array decay/subscript so lowering does not
+     * lose the member's memory representation at the pointer conversion. */
+    bool sem_reverse_storage_order;
     /* AST_EXPR_STRING synthesized for C11 `__func__` or GNU
      * `__FUNCTION__` / `__PRETTY_FUNCTION__`. Its element type is const char,
      * unlike an ordinary string literal's char, while lowering can share the

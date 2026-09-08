@@ -631,6 +631,7 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
             case KW_UNION: {
                 bool is_union = kw == KW_UNION;
                 bool leading_may_alias = s->gnu.may_alias;
+                u8 leading_scalar_storage_order = s->gnu.scalar_storage_order;
 
                 p->pos++;
                 s->n_other++;
@@ -642,6 +643,8 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                  * this specifier loop after the closing brace. */
                 if (leading_may_alias)
                     s->gnu.may_alias = false;
+                if (leading_scalar_storage_order)
+                    s->gnu.scalar_storage_order = GNU_SSO_UNSPEC;
                 s->saw_any = true;
                 continue;
             }
@@ -767,6 +770,11 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 if (here.packed && s->record && s->record->is_definition) {
                     s->record->packed = true;
                     here.packed = false;
+                }
+                if (here.scalar_storage_order && s->record &&
+                    s->record->is_definition && s->other_base == ABT_RECORD) {
+                    s->record->scalar_storage_order = here.scalar_storage_order;
+                    here.scalar_storage_order = GNU_SSO_UNSPEC;
                 }
                 if (here.may_alias && s->record && s->record->is_definition) {
                     s->record->may_alias = true;
@@ -1100,6 +1108,10 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
         if (s.has_alignas)
             parse_error(p, start,
                         "'_Alignas' cannot appear on a function parameter");
+        if (s.gnu.scalar_storage_order)
+            warn_at(p->lang->warnings, WARN_ATTRIBUTES, start->span,
+                    "'scalar_storage_order' attribute ignored on a function "
+                    "parameter");
 
         memset(&prm, 0, sizeof(prm));
         prm.span = start->span;
@@ -1137,6 +1149,10 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
                             "function parameter: it would change the "
                             "parameter's width and therefore the calling "
                             "convention (docs/gnu-extensions.md)");
+            if (param_gnu.scalar_storage_order)
+                warn_at(p->lang->warnings, WARN_ATTRIBUTES, at->span,
+                        "'scalar_storage_order' attribute ignored on a "
+                        "function parameter");
             /* A directly-written `may_alias` on a parameter declaration has
              * no effect in gcc. The useful form is an attributed typedef in
              * the parameter's AstType, which is preserved normally. */
@@ -1503,6 +1519,8 @@ static AstNode *parse_record_specifier(Parser *p, bool is_union)
         parse_cgf_attributes(p, &inner);
         if (inner.packed)
             rec->packed = true;
+        if (inner.scalar_storage_order)
+            rec->scalar_storage_order = inner.scalar_storage_order;
         if (inner.may_alias)
             rec->may_alias = true;
         if (inner.aligned_expr || inner.aligned_bare) {
@@ -1952,6 +1970,9 @@ AstType *parse_type_name(Parser *p)
     base->quals = s.quals;
     if (s.storage)
         parse_error(p, start, "a type name cannot have a storage class");
+    if (s.gnu.scalar_storage_order)
+        warn_at(p->lang->warnings, WARN_ATTRIBUTES, start->span,
+                "'scalar_storage_order' attribute ignored on this type name");
     /* Abstract declarator: the name is optional, and a type-name that DOES
      * name something is a constraint violation, not a parse failure. */
     ty = parse_declarator(p, base, &name, true);

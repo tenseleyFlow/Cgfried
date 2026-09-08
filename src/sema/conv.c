@@ -208,13 +208,15 @@ AstNode *conv_lvalue(Sema *s, AstNode *e)
             c->sem_is_bitfield = true;
             c->sem_bitfield_is_signed = e->sem_bitfield_is_signed;
         }
+        if (c != e)
+            c->sem_reverse_storage_order = e->sem_reverse_storage_order;
         return c;
     }
     e->is_lvalue = false;
     return e;
 }
 
-AstNode *conv_decay(Sema *s, AstNode *e)
+static AstNode *conv_decay_impl(Sema *s, AstNode *e, bool warn_storage_order)
 {
     Type *t;
 
@@ -222,6 +224,10 @@ AstNode *conv_decay(Sema *s, AstNode *e)
         return e;
     t = e->sem_type;
     if (t->kind == TY_ARRAY) {
+        if (warn_storage_order && e->sem_reverse_storage_order)
+            warn_at(s->lang->warnings, WARN_SCALAR_STORAGE_ORDER, e->span,
+                    "address of array with reverse scalar storage order "
+                    "requested");
         /* An array becomes a pointer to its first element, and the
          * ELEMENT's qualifiers ride along: `const char a[4]` decays to
          * `const char *`. GNU may_alias on an array likewise reaches each
@@ -231,6 +237,7 @@ AstNode *conv_decay(Sema *s, AstNode *e)
         AstNode *c = conv_cast(s, e, p);
 
         c->is_lvalue = false;
+        c->sem_reverse_storage_order = e->sem_reverse_storage_order;
         return c;
     }
     if (t->kind == TY_FUNC) {
@@ -240,6 +247,19 @@ AstNode *conv_decay(Sema *s, AstNode *e)
         return c;
     }
     return conv_lvalue(s, e);
+}
+
+AstNode *conv_decay(Sema *s, AstNode *e)
+{
+    return conv_decay_impl(s, e, true);
+}
+
+/* `a[i]` names the selected element directly; GCC's warning is for an array
+ * address that escapes that operation. Keep the storage-order marker needed
+ * by lowering while suppressing the warning only for this syntactic path. */
+AstNode *conv_decay_subscript(Sema *s, AstNode *e)
+{
+    return conv_decay_impl(s, e, false);
 }
 
 Type *conv_promote_type(Sema *s, Type *t)

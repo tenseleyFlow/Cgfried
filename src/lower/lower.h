@@ -53,6 +53,7 @@ typedef struct Lvalue {
     u8 bit_width;    /* bitfield only: 0 means "not a bitfield" */
     bool is_bitfield;
     bool packed_bitfield;
+    bool reverse_storage_order;
     bool is_volatile;
     bool is_atomic; /* _Atomic: loads/stores carry seq_cst (Sprint 20) */
     bool is_signed; /* of the FIELD representation: drives re-narrowing */

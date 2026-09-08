@@ -151,6 +151,152 @@ static IrOperand packed_bitfield_result(Lower *lo, const Lvalue *lv,
     return result;
 }
 
+/* Reverse-order fields are stored MSB-first in each byte. A field can begin
+ * part-way through one byte and span several more, so gather/scatter maximal
+ * byte fragments rather than pretending one native-endian integer load has
+ * the right bit numbering. */
+static IrOperand reverse_bitfield_load(Lower *lo, const Lvalue *lv)
+{
+    IrOperand bits = ir_op_iconst(IRT_I64, 0);
+    u32 remaining = lv->bit_width;
+    u32 source_pos = lv->bit_shift;
+
+    while (remaining) {
+        u32 within = source_pos % 8;
+        u32 take = 8 - within;
+        u32 source_shift;
+        u32 result_shift;
+        IrOperand addr;
+        ValueId raw;
+        ValueId wide;
+        IrOperand piece;
+        ValueId next;
+
+        if (take > remaining)
+            take = remaining;
+        source_shift = 8 - within - take;
+        result_shift = remaining - take;
+        addr = packed_byte_addr(lo, lv->addr, source_pos / 8);
+        raw = ir_build_load_typed(&lo->b, IRT_I8, addr, 1, lv_flags(lv),
+                                  lv->etype);
+        wide = ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, raw));
+        piece = ir_op_value(lo->fn, wide);
+        if (source_shift) {
+            next = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, source_shift));
+            piece = ir_op_value(lo->fn, next);
+        }
+        next = ir_build2(&lo->b, IR_AND, IRT_I64, piece,
+                         ir_op_iconst(IRT_I64, (i64)((1u << take) - 1)));
+        piece = ir_op_value(lo->fn, next);
+        if (result_shift) {
+            next = ir_build2(&lo->b, IR_SHL, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, result_shift));
+            piece = ir_op_value(lo->fn, next);
+        }
+        next = ir_build2(&lo->b, IR_OR, IRT_I64, bits, piece);
+        bits = ir_op_value(lo->fn, next);
+        source_pos += take;
+        remaining -= take;
+    }
+    return packed_bitfield_result(lo, lv, bits);
+}
+
+static IrOperand reverse_bitfield_store(Lower *lo, const Lvalue *lv,
+                                        IrOperand value)
+{
+    IrOperand wide = value;
+    IrOperand result;
+    u32 remaining = lv->bit_width;
+    u32 dest_pos = lv->bit_shift;
+
+    if (wide.type != IRT_I64) {
+        ValueId zext = ir_build1(&lo->b, IR_ZEXT, IRT_I64, wide);
+
+        wide = ir_op_value(lo->fn, zext);
+    }
+    result = packed_bitfield_result(lo, lv, wide);
+    while (remaining) {
+        u32 within = dest_pos % 8;
+        u32 take = 8 - within;
+        u32 value_shift;
+        u32 dest_shift;
+        u32 mask;
+        IrOperand addr;
+        ValueId raw;
+        ValueId cleared;
+        IrOperand piece = wide;
+        ValueId next;
+        ValueId narrowed;
+        ValueId inserted;
+
+        if (take > remaining)
+            take = remaining;
+        value_shift = remaining - take;
+        dest_shift = 8 - within - take;
+        mask = ((1u << take) - 1) << dest_shift;
+        addr = packed_byte_addr(lo, lv->addr, dest_pos / 8);
+        raw = ir_build_load_typed(&lo->b, IRT_I8, addr, 1, lv_flags(lv),
+                                  lv->etype);
+        cleared = ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, raw),
+                            ir_op_iconst(IRT_I8, (i64)(u8)~mask));
+        if (value_shift) {
+            next = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, value_shift));
+            piece = ir_op_value(lo->fn, next);
+        }
+        if (dest_shift) {
+            next = ir_build2(&lo->b, IR_SHL, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, dest_shift));
+            piece = ir_op_value(lo->fn, next);
+        }
+        narrowed = ir_build1(&lo->b, IR_TRUNC, IRT_I8, piece);
+        inserted =
+            ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, narrowed),
+                      ir_op_iconst(IRT_I8, mask));
+        next = ir_build2(&lo->b, IR_OR, IRT_I8, ir_op_value(lo->fn, cleared),
+                         ir_op_value(lo->fn, inserted));
+        ir_build_store_typed(&lo->b, ir_op_value(lo->fn, next), addr, 1,
+                             lv_flags(lv), lv->etype);
+        dest_pos += take;
+        remaining -= take;
+    }
+    return result;
+}
+
+static IrOperand reverse_integer_bytes(Lower *lo, IrOperand x)
+{
+    IrType t = (IrType)x.type;
+    u32 bytes = ir_type_size(t);
+    IrOperand acc = ir_op_iconst(t, 0);
+    u32 i;
+
+    if (bytes <= 1)
+        return x;
+    if (t != IRT_I16 && t != IRT_I32 && t != IRT_I64)
+        CGF_ICE("reverse scalar storage order reached non-integral IR type");
+    for (i = 0; i < bytes; i++) {
+        u32 from = i * 8;
+        u32 to = (bytes - 1 - i) * 8;
+        IrOperand piece = x;
+        ValueId v;
+
+        if (from) {
+            v = ir_build2(&lo->b, IR_LSHR, t, piece, ir_op_iconst(t, from));
+            piece = ir_op_value(lo->fn, v);
+        }
+        v = ir_build2(&lo->b, IR_AND, t, piece, ir_op_iconst(t, 0xff));
+        piece = ir_op_value(lo->fn, v);
+        if (to) {
+            v = ir_build2(&lo->b, IR_SHL, t, piece, ir_op_iconst(t, to));
+            piece = ir_op_value(lo->fn, v);
+        }
+        v = ir_build2(&lo->b, IR_OR, t, acc, piece);
+        acc = ir_op_value(lo->fn, v);
+    }
+    return acc;
+}
+
 /* Packed bitfields are gathered and scattered one byte at a time. GCC's
  * layout permits a 64-bit field at bit 7, whose nine-byte extent cannot be
  * represented by this IR's largest scalar unit. Byte operations are valid on
@@ -266,22 +412,31 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 {
     ValueId raw;
 
+    if (lv.reverse_storage_order && lv.is_bitfield)
+        return reverse_bitfield_load(lo, &lv);
     if (lv.packed_bitfield)
         return packed_bitfield_load(lo, &lv);
     raw = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv_ir_align(&lv),
                               lv_flags(&lv), lv.etype);
     if (!lv.is_bitfield)
-        return ir_op_value(lo->fn, raw);
+        return lv.reverse_storage_order
+                   ? reverse_integer_bytes(lo, ir_op_value(lo->fn, raw))
+                   : ir_op_value(lo->fn, raw);
     return bitfield_extract(lo, ir_op_value(lo->fn, raw), lv.unit, lv.bit_shift,
                             lv.bit_width, lv.is_signed);
 }
 
 IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 {
+    if (lv.reverse_storage_order && lv.is_bitfield)
+        return reverse_bitfield_store(lo, &lv, v);
     if (lv.packed_bitfield)
         return packed_bitfield_store(lo, &lv, v);
     if (!lv.is_bitfield) {
-        ir_build_store_typed(&lo->b, v, lv.addr, lv_ir_align(&lv),
+        IrOperand stored =
+            lv.reverse_storage_order ? reverse_integer_bytes(lo, v) : v;
+
+        ir_build_store_typed(&lo->b, stored, lv.addr, lv_ir_align(&lv),
                              lv_flags(&lv), lv.etype);
         return v;
     }
@@ -590,7 +745,12 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         emit_pointer_index_check(lo, base, wide, el, false,
                                  is_signed_ty(lo, idx_type), result);
 
-        return lv_of(lo, result, sem(e));
+        {
+            Lvalue lv = lv_of(lo, result, sem(e));
+
+            lv.reverse_storage_order = e->sem_reverse_storage_order;
+            return lv;
+        }
     }
     case AST_EXPR_MEMBER: {
         IrOperand base;
@@ -628,6 +788,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 lv.align = (u32)e->sem_lvalue_align;
             if (rec->kind == TY_UNION)
                 lv.etype = ETYPE_UNION;
+            lv.reverse_storage_order = e->sem_reverse_storage_order;
             return lv;
         }
         if (m->packed) {
@@ -658,6 +819,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
                 rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
             lv.is_bitfield = true;
             lv.packed_bitfield = true;
+            lv.reverse_storage_order = e->sem_reverse_storage_order;
             lv.bit_shift = m->bit_shift;
             lv.bit_width = (u8)m->bit_width;
             lv.is_signed = m->bitfield_is_signed;
@@ -697,6 +859,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             lv.etype =
                 rec->kind == TY_UNION ? ETYPE_UNION : lower_efftype(lo, sem(e));
             lv.is_bitfield = true;
+            lv.reverse_storage_order = e->sem_reverse_storage_order;
             lv.bit_shift = (u8)shift;
             lv.bit_width = (u8)m->bit_width;
             lv.is_signed = m->bitfield_is_signed;

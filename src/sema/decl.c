@@ -301,6 +301,7 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     /* Set BEFORE the member walk: add_member consults it, so that a record's
      * own `packed` and a member's are one rule with one implementation. */
     tag->packed = rec->packed;
+    tag->scalar_storage_order = rec->scalar_storage_order;
     tag->type->may_alias |= rec->may_alias;
     if (rec->record_aligned_expr || rec->record_aligned_bare) {
         GnuDeclAttrs ra = {0};
@@ -386,6 +387,15 @@ static bool type_contains_fam(const Type *type)
     if (type->kind == TY_ARRAY)
         return type_contains_fam(type->base);
     return false;
+}
+
+static bool sso_has_floating_component(const Type *type)
+{
+    if (!type)
+        return false;
+    if (type->kind == TY_ARRAY)
+        return sso_has_floating_component(type->base);
+    return type_is_floating(type);
 }
 
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
@@ -494,6 +504,24 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
          * before the Member is built rather than beside the alignment
          * override further down. */
         mt = gnu_mode_apply(s, mt, &m->gnu, false, m->span);
+        if (m->gnu.scalar_storage_order)
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, m->span,
+                    "'scalar_storage_order' attribute ignored on a field");
+
+        /* This tranche implements reverse order for integral scalars and
+         * bit-fields. Floating representations wider than the IR's integer
+         * carriers need a distinct byte-preserving lowering; accepting them
+         * here would silently retain native order, so fail closed. Nested
+         * records own their own storage order and are deliberately exempt. */
+        if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
+            sso_has_floating_component(mt)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, m->span,
+                      "reverse scalar storage order for floating member '%s' "
+                      "is not yet supported",
+                      m->name ? m->name : "<anonymous>");
+            mt = type_basic(TY_ERROR);
+        }
 
         mem = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
         memset(mem, 0, sizeof(*mem));
@@ -567,6 +595,7 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         mem->deprecated = m->gnu.deprecated;
         mem->deprecated_msg = m->gnu.deprecated_msg;
         mem->packed = tag->packed || m->gnu.packed;
+        mem->scalar_storage_order = tag->scalar_storage_order;
         if (mem->packed) {
             /* Ordinary unaligned loads and stores are fine on both targets;
              * the exclusive instructions that implement _Atomic on arm64 are
@@ -3058,6 +3087,20 @@ static void declare_one(Sema *s, AstNode *d)
      * inappropriate-type error catches, matching gcc. */
     type = gnu_mode_apply(s, type, &d->gnu, false, d->span);
     mark_old_style_definition(d, type);
+    if (d->gnu.scalar_storage_order) {
+        if ((d->storage & AST_SC_TYPEDEF) && type &&
+            (type->kind == TY_STRUCT || type->kind == TY_UNION)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "the 'scalar_storage_order' attribute on a typedef is "
+                      "not yet supported; attach it to the struct or union "
+                      "definition instead (docs/gnu-extensions.md)");
+        } else {
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "'scalar_storage_order' attribute ignored");
+        }
+        d->gnu.scalar_storage_order = GNU_SSO_UNSPEC;
+    }
     /* gcc gives directly-written `may_alias` semantics on a typedef (and on
      * record definitions, handled by complete_struct), not on an ordinary
      * object declaration. Keeping that distinction also means a typedef of
@@ -3913,6 +3956,10 @@ static void sema_decl(Sema *s, AstNode *d)
         /* `struct S { ... };` declares no object but DOES introduce or
          * complete a tag, which is the whole point of the line. */
         reject_nonfunction_attrs(s, d->cgf_attrs);
+        if (d->gnu.scalar_storage_order && d->type &&
+            d->type->base != ABT_RECORD)
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "'scalar_storage_order' attribute ignored");
         if (d->type)
             d->sem_type = type_from_ast(s, d->type, d->span);
         return;
