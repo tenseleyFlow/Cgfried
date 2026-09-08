@@ -29,6 +29,16 @@ static u64 align_up(u64 v, u64 a)
     return v > UINT64_MAX - add ? UINT64_MAX : v + add;
 }
 
+bool sema_scalar_storage_order_reversed(Sema *s, u8 order)
+{
+    bool requested_little;
+
+    if (!s || order == GNU_SSO_UNSPEC)
+        return false;
+    requested_little = order == GNU_SSO_LITTLE_ENDIAN;
+    return requested_little != cgf_target_is_little_endian(s->target);
+}
+
 bool layout_is_complete_for_size(const Type *t)
 {
     if (!t)

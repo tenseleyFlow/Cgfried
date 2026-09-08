@@ -12,6 +12,8 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     dst->gnu_inline |= src->gnu_inline;
     dst->always_inline |= src->always_inline;
     dst->packed |= src->packed;
+    if (src->scalar_storage_order)
+        dst->scalar_storage_order = src->scalar_storage_order;
     if (src->aligned_expr || src->aligned_bare) {
         if (dst->aligned_expr || dst->aligned_bare)
             dst->aligned_conflict = true;
@@ -88,7 +90,8 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
 
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
 {
-    return g->mode != GNU_MODE_NONE || g->may_alias;
+    return g->mode != GNU_MODE_NONE || g->may_alias ||
+           g->scalar_storage_order != GNU_SSO_UNSPEC;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -231,6 +234,40 @@ static void parse_visibility(Parser *p, const Token *name, GnuDeclAttrs *gnu)
         parse_error(p, arg,
                     "unknown visibility '%s'; expected \"default\", "
                     "\"hidden\", \"protected\" or \"internal\"",
+                    (const char *)arg->str.bytes);
+        p->pos++;
+    }
+    while (!parse_at_punct(p, PUNCT_RPAREN) && parse_peek(p)->kind != TOK_EOF)
+        p->pos++;
+    parse_eat_punct(p, PUNCT_RPAREN);
+}
+
+/* scalar_storage_order("big-endian"|"little-endian"). The requested order
+ * is kept verbatim; sema compares it with the selected target only after the
+ * attribute has reached a record definition. */
+static void parse_scalar_storage_order(Parser *p, const Token *name,
+                                       GnuDeclAttrs *gnu)
+{
+    const Token *arg;
+
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name,
+                    "attribute 'scalar_storage_order' requires an argument");
+        return;
+    }
+    arg = parse_peek(p);
+    if (arg->kind != TOK_STRING || !arg->str.bytes) {
+        parse_error(p, arg, "'scalar_storage_order' takes a string argument");
+    } else if (strcmp((const char *)arg->str.bytes, "little-endian") == 0) {
+        gnu->scalar_storage_order = GNU_SSO_LITTLE_ENDIAN;
+        p->pos++;
+    } else if (strcmp((const char *)arg->str.bytes, "big-endian") == 0) {
+        gnu->scalar_storage_order = GNU_SSO_BIG_ENDIAN;
+        p->pos++;
+    } else {
+        parse_error(p, arg,
+                    "unknown scalar storage order '%s'; expected "
+                    "\"little-endian\" or \"big-endian\"",
                     (const char *)arg->str.bytes);
         p->pos++;
     }
@@ -683,6 +720,11 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "packed")) {
                             gnu->packed = true;
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling,
+                                               "scalar_storage_order")) {
+                            parse_scalar_storage_order(p, name, gnu);
                             break;
                         }
                         if (gnu_attr_is(name->spelling, "mode")) {

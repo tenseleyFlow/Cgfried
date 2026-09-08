@@ -63,6 +63,19 @@ bool cgf_target_select(const char *name)
     return false;
 }
 
+bool cgf_target_is_little_endian(TargetSpec t)
+{
+    switch (t.kind) {
+    case CGF_TARGET_X86_64_LINUX_GNU:
+    case CGF_TARGET_ARM64_LINUX:
+    case CGF_TARGET_ARM64_MACOS:
+    case CGF_TARGET_X86_64_LINUX_MUSL:
+    case CGF_TARGET_X86_64_FREEBSD:
+        return true;
+    }
+    return false;
+}
+
 void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
 {
     /* Exhaustive on purpose: adding a target must force this table to be

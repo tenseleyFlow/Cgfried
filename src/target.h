@@ -97,6 +97,11 @@ bool cgf_target_always_pic(TargetSpec t);
  * -Wformat and __builtin_types_compatible_p can see the disagreement. */
 bool cgf_target_int64_is_longlong(TargetSpec t);
 
+/* Every current target has a uniform little-endian scalar order. Keeping the
+ * fact behind the closed target seam lets type attributes compare requested
+ * and native order without duplicating target-kind tests. */
+bool cgf_target_is_little_endian(TargetSpec t);
+
 const char *cgf_target_name(TargetSpec t);
 
 /* ELF dynamic-linker path for the target; NULL for arm64-macos (dyld,

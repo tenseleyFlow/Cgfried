@@ -48,6 +48,17 @@ typedef enum {
     GNU_VIS_INTERNAL
 } GnuVisibility;
 
+/* `scalar_storage_order` is an endian property of a record definition, not
+ * of an object declaration. Keep the requested order rather than a derived
+ * `reverse` bit: the AST and Type graph are target-neutral until sema selects
+ * the target, and a confirming spelling must remain distinguishable from no
+ * attribute at all. */
+typedef enum {
+    GNU_SSO_UNSPEC = 0,
+    GNU_SSO_LITTLE_ENDIAN,
+    GNU_SSO_BIG_ENDIAN
+} GnuScalarStorageOrder;
+
 struct AstNode;
 
 /* The priority an unprioritized `constructor`/`destructor` gets, and the top
@@ -82,6 +93,7 @@ typedef struct GnuDeclAttrs {
      * `packed` when a declaration is finished is therefore misplaced, and the
      * declaration path warns rather than silently dropping it. */
     bool packed;
+    u8 scalar_storage_order; /* GnuScalarStorageOrder */
     /* `aligned(N)`. The argument is a constant EXPRESSION -- gcc accepts
      * `aligned(sizeof(long))` and headers use it -- so the parser records the
      * expression and sema folds it with the same evaluator `_Alignas` uses.

@@ -140,15 +140,25 @@ behavior, publication, and final standard/bootstrap/native-ARM CI are green.
 PR #86's `s56.5-x86-varargs-long-double-stack-alignment` tranche is merged as
 `5ed4da1c`, publishing the five x86-only `torture-execute/pr44942.c` cells in
 bucket 43 and raising the ratchet to 30,167 lines (30,164 PASS keys). Its final
-standard, bootstrap, and exact-head native-ARM CI are green. The current
-`s56.5-aligned-vla-record-members` tranche repairs the ten target-complete
-`torture-execute/pr82210.c` cells in bucket 36. Behavior commit `517a3d36` is
-locally complete on ARM64 and x86-64. PR #90's pre-publication standard and
-bootstrap coverage is complete, exact synthetic-merge ARM64/x86-64 evidence
-is source-identical, and deterministic target-complete publication raises the
-ratchet to 30,177 lines (30,174 PASS keys). Post-publication CI and merge
-remain. Sprint 56's campaign machine and triage map remain complete while
-Sprint 58 continues its independent soak.
+standard, bootstrap, and exact-head native-ARM CI are green. PR #90's
+`s56.5-aligned-vla-record-members` tranche is merged as `57a9b8ef`, publishing
+the ten target-complete `torture-execute/pr82210.c` cells in bucket 36 and
+raising the ratchet to 30,177 lines (30,174 PASS keys). Its final standard
+[run 34266807159](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266807159),
+bootstrap
+[runs 34266803291](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266803291)
+and
+[34266807198](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266807198),
+and exact synthetic-merge nightly
+[run 34266863156](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266863156)
+are green. The current `s56.5-scalar-storage-order-bitfields` tranche targets
+the ten target-complete `20230630-2.c` and `20230630-4.c` cells in buckets 34
+and 35. Integral scalar/array and reverse bit-field semantics, address-taking
+diagnostics, focused GCC-13 comparison, native Darwin ARM64 execution, ARM64
+Linux execution, x86-64 Linux source generation, and the focused sanitizer
+pass are green locally; Linux CI and exact publication remain. Sprint 56's
+campaign machine and triage map remain complete while Sprint 58 continues its
+independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign

@@ -132,6 +132,7 @@ typedef struct RtStore {
     AstNode *e;       /* the expression to evaluate at runtime */
     const Member *bf; /* bitfield member, or NULL */
     RtValue *value;
+    u8 scalar_storage_order;
     bool active;
     struct RtStore *next;
 } RtStore;
@@ -158,6 +159,8 @@ typedef struct InitPlan {
     u32 nrelocs;
     bool reloc_overflow;
     RtValue *rt_values;
+    /* Dynamic context while walking a scalar or scalar-array member. */
+    u8 scalar_storage_order;
     PlanUnionSelection *unions;
     u32 nunions;
     u32 cap_unions;
@@ -185,6 +188,9 @@ static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
     r->e = e;
     r->bf = bf;
     r->value = value;
+    r->scalar_storage_order =
+        bf ? bf->scalar_storage_order
+           : (type_is_integer(t) ? p->scalar_storage_order : GNU_SSO_UNSPEC);
     r->active = true;
     r->next = NULL;
     if (p->rt_tail)
@@ -200,6 +206,21 @@ static void plan_put_int(InitPlan *p, u64 off, u64 v, u64 width)
 
     for (i = 0; i < width && off + i < p->size; i++)
         p->img[off + i] = (u8)(v >> (i * 8));
+}
+
+static void plan_reverse_integer(InitPlan *p, Type *t, u64 off)
+{
+    TypeLayout l = layout_of(p->lo->sema, t);
+    u64 i;
+
+    if (!type_is_integer(t) || l.size <= 1 || off + l.size > p->size)
+        return;
+    for (i = 0; i < l.size / 2; i++) {
+        u8 tmp = p->img[off + i];
+
+        p->img[off + i] = p->img[off + l.size - 1 - i];
+        p->img[off + l.size - 1 - i] = tmp;
+    }
 }
 
 static void plan_zero(InitPlan *p, u64 off, u64 width)
@@ -326,6 +347,7 @@ typedef struct PlanCursorFrame {
     Type *aggregate;
     u64 off;
     u64 pos;
+    u8 scalar_storage_order;
 } PlanCursorFrame;
 
 typedef struct PlanCursor {
@@ -334,6 +356,7 @@ typedef struct PlanCursor {
     Type *current;
     Member *member;
     u64 off;
+    u8 scalar_storage_order;
 } PlanCursor;
 
 static bool plan_is_aggregate(const Type *t)
@@ -350,6 +373,7 @@ static bool plan_cursor_select(InitPlan *p, PlanCursor *cursor)
 
     cursor->current = NULL;
     cursor->member = NULL;
+    cursor->scalar_storage_order = GNU_SSO_UNSPEC;
     if (!cursor->depth)
         return false;
     frame = &cursor->frames[cursor->depth - 1];
@@ -362,6 +386,7 @@ static bool plan_cursor_select(InitPlan *p, PlanCursor *cursor)
         element = layout_of(p->lo->sema, frame->aggregate->base);
         cursor->current = frame->aggregate->base;
         cursor->off = frame->off + frame->pos * element.size;
+        cursor->scalar_storage_order = frame->scalar_storage_order;
         return true;
     }
     if ((frame->aggregate->kind != TY_STRUCT &&
@@ -379,6 +404,7 @@ static bool plan_cursor_select(InitPlan *p, PlanCursor *cursor)
         cursor->member = member;
         cursor->off =
             member->is_bitfield ? frame->off : frame->off + member->offset;
+        cursor->scalar_storage_order = member->scalar_storage_order;
         return true;
     }
     return false;
@@ -390,6 +416,9 @@ static void plan_cursor_start(InitPlan *p, PlanCursor *cursor, Type *root,
     memset(cursor, 0, sizeof(*cursor));
     cursor->frames[0].aggregate = root;
     cursor->frames[0].off = off;
+    cursor->frames[0].scalar_storage_order = root && root->kind == TY_ARRAY
+                                                 ? p->scalar_storage_order
+                                                 : GNU_SSO_UNSPEC;
     cursor->depth = 1;
     (void)plan_cursor_select(p, cursor);
 }
@@ -404,6 +433,9 @@ static bool plan_cursor_descend(InitPlan *p, PlanCursor *cursor)
     cursor->frames[cursor->depth].aggregate = aggregate;
     cursor->frames[cursor->depth].off = off;
     cursor->frames[cursor->depth].pos = 0;
+    cursor->frames[cursor->depth].scalar_storage_order =
+        aggregate->kind == TY_ARRAY ? cursor->scalar_storage_order
+                                    : GNU_SSO_UNSPEC;
     cursor->depth++;
     return plan_cursor_select(p, cursor);
 }
@@ -526,6 +558,9 @@ static bool plan_cursor_designate(InitPlan *p, PlanCursor *cursor, Type *root,
             cursor->frames[cursor->depth].aggregate = cursor->current;
             cursor->frames[cursor->depth].off = cursor->off;
             cursor->frames[cursor->depth].pos = 0;
+            cursor->frames[cursor->depth].scalar_storage_order =
+                cursor->current->kind == TY_ARRAY ? cursor->scalar_storage_order
+                                                  : GNU_SSO_UNSPEC;
             cursor->depth++;
         }
     }
@@ -609,6 +644,13 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
     if (member && member->is_bitfield) {
         ConstValue value = constexpr_eval(p->lo->sema, item, CE_FOLD);
         u32 bit;
+        bool reverse = sema_scalar_storage_order_reversed(
+            p->lo->sema, member->scalar_storage_order);
+        u64 unit_byte =
+            (member->offset / member->container_size) * member->container_size;
+        u64 start_bit = member->packed ? member->bit_shift
+                                       : (member->offset - unit_byte) * 8 +
+                                             member->bit_shift;
 
         if (member->bit_width) {
             u64 first_byte = cursor->off + member->offset;
@@ -619,9 +661,14 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
             plan_clear_rt_bits(p, first_bit, member->bit_width);
         }
         for (bit = 0; bit < member->bit_width; bit++) {
-            u64 within = member->bit_shift + bit;
-            u64 byte = cursor->off + member->offset + within / 8;
-            u8 mask = (u8)(1u << (within % 8));
+            u64 logical = reverse ? start_bit + (member->bit_width - 1 - bit)
+                                  : member->bit_shift + bit;
+            u64 byte = cursor->off +
+                       (reverse ? (member->packed ? member->offset : unit_byte)
+                                : member->offset) +
+                       logical / 8;
+            u8 at = reverse ? (u8)(7 - logical % 8) : (u8)(logical % 8);
+            u8 mask = (u8)(1u << at);
 
             if (byte >= p->size)
                 break;
@@ -633,7 +680,16 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
             plan_rt(p, (i64)cursor->off, member->type, item, member);
         return;
     }
-    plan_walk(p, cursor->current, item, (i64)cursor->off);
+    {
+        u8 prior_order = p->scalar_storage_order;
+
+        p->scalar_storage_order = cursor->scalar_storage_order;
+        plan_walk(p, cursor->current, item, (i64)cursor->off);
+        if (sema_scalar_storage_order_reversed(p->lo->sema,
+                                               cursor->scalar_storage_order))
+            plan_reverse_integer(p, cursor->current, cursor->off);
+        p->scalar_storage_order = prior_order;
+    }
 }
 
 static void plan_aggregate_list(InitPlan *p, Type *t, AstNode *init, u64 off)
@@ -681,6 +737,10 @@ static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
         plan_zero(p, (u64)off, cap_bytes);
         for (i = 0; i < n && (u64)off + i < p->size; i++)
             p->img[off + i] = init->tok->str.bytes[i];
+        if (sema_scalar_storage_order_reversed(p->lo->sema,
+                                               p->scalar_storage_order))
+            for (i = 0; i < cap; i++)
+                plan_reverse_integer(p, t->base, (u64)off + i * elem.size);
         return;
     }
     if (init->kind != AST_INIT_LIST) {
@@ -937,6 +997,8 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         lv.etype = lower_efftype(lo, m->type);
         lv.is_bitfield = true;
         lv.packed_bitfield = m->packed;
+        lv.reverse_storage_order = sema_scalar_storage_order_reversed(
+            lo->sema, m->scalar_storage_order);
         lv.bit_shift =
             (u8)(m->packed ? m->bit_shift
                            : (m->offset - unit_byte) * 8 + m->bit_shift);
@@ -967,6 +1029,8 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         lv.etype = lower_efftype(lo, r->t);
         lv.align = (u32)(l.align ? l.align : 1);
         lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;
+        lv.reverse_storage_order = sema_scalar_storage_order_reversed(
+            lo->sema, r->scalar_storage_order);
         lower_store(lo, lv, v);
     }
 }
