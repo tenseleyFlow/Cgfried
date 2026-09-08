@@ -3636,7 +3636,7 @@ and green post-publication CI.
   five x86 `pr44942.c` cells with zero PASS regression and retires only
   fingerprint `892c311a...`. The published state is 30,167 ratchet lines /
   30,164 PASS keys, 3,866 classified failures, 42 observed buckets, 34 applied
-  decisions, 11 live repair rows representing 10 tranches, two deliberately
+  decisions, 10 live repair rows representing 9 tranches, two deliberately
   retained stale decisions, and zero unbucketed or unresolved cells. PASS and
   triage SHA-256 values are respectively
   `39a2d5ca5e466bedb41b1a1c15d70047a9d4f4f8793f27e7ed617f7611f41746`
@@ -3728,7 +3728,7 @@ and green post-publication CI.
   promotes exactly ten `pr82210.c` cells with zero PASS regression and retires
   only fingerprint `a849f81b...`. The published state is 30,177 ratchet lines /
   30,174 PASS keys, 3,856 classified failures, 41 observed buckets, 33 applied
-  decisions, 10 live repair rows representing 9 tranches, two deliberately
+  decisions, 9 live repair rows representing 8 tranches, two deliberately
   retained stale decisions, and zero unbucketed or unresolved cells. PASS and
   triage SHA-256 values are respectively
   `141c73f53fc3276c3053238f29da8b0168acac792ee5e58901e0d68b37a9d61d`
@@ -3762,8 +3762,8 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. On the current
-publication head, the remaining compiler debt is enumerated by 10 live
-`s56.5-*` repair rows representing 9 unique repair tranches. Sprint
+publication head, the remaining compiler debt is enumerated by 9 live
+`s56.5-*` repair rows representing 8 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---
