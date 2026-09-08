@@ -874,13 +874,34 @@ static bool parse_call_arg(P *p, IrOperand *slot)
         next(p);
         slot->argflags |= IROPF_ONSTACK;
     }
-    if (peek(p)->kind == T_IDENT && tok_is(peek(p), "stackalign16")) {
+    if (peek(p)->kind == T_IDENT &&
+        (tok_is(peek(p), "stackalign16") || tok_is(peek(p), "stackalign"))) {
+        bool legacy = tok_is(peek(p), "stackalign16");
+
         if (slot->kind != IROP_VALUE && slot->kind != IROP_SYMBOL) {
-            perr(p, peek(p), "'stackalign16' requires an SSA value or symbol");
+            perr(p, peek(p), "stack alignment requires an SSA value or symbol");
             return false;
         }
         next(p);
-        slot->b |= IR_ABI_STACK_ALIGN16;
+        if (legacy) {
+            slot->b |= IR_ABI_STACK_ALIGN16;
+        } else {
+            Tok *align;
+
+            if (!expect(p, T_LP, "'(' after 'stackalign'"))
+                return false;
+            align = expect(p, T_INT, "the stack alignment");
+            if (!align)
+                return false;
+            if (align->ival < 8 || (align->ival & 7u) ||
+                (u64)align->ival > IR_ABI_STACK_ALIGN_MAX) {
+                perr(p, align, "stack alignment is out of range");
+                return false;
+            }
+            slot->b |= ir_abi_stack_align_annot((u32)align->ival);
+            if (!expect(p, T_RP, "')'"))
+                return false;
+        }
     }
     if (peek(p)->kind == T_IDENT && tok_is(peek(p), "even")) {
         if (slot->kind != IROP_VALUE && slot->kind != IROP_SYMBOL) {
@@ -1903,9 +1924,31 @@ static bool parse_func(P *p)
                 pannots[nparams] |= IR_PARAM_ONSTACK;
                 any_annot = true;
             }
-            if (tok_is(peek(p), "stackalign16")) {
+            if (tok_is(peek(p), "stackalign16") ||
+                tok_is(peek(p), "stackalign")) {
+                bool legacy = tok_is(peek(p), "stackalign16");
+
                 next(p);
-                pannots[nparams] |= IR_ABI_STACK_ALIGN16;
+                if (legacy) {
+                    pannots[nparams] |= IR_ABI_STACK_ALIGN16;
+                } else {
+                    Tok *align;
+
+                    if (!expect(p, T_LP, "'(' after 'stackalign'"))
+                        return false;
+                    align = expect(p, T_INT, "the stack alignment");
+                    if (!align)
+                        return false;
+                    if (align->ival < 8 || (align->ival & 7u) ||
+                        (u64)align->ival > IR_ABI_STACK_ALIGN_MAX) {
+                        perr(p, align, "stack alignment is out of range");
+                        return false;
+                    }
+                    pannots[nparams] |=
+                        ir_abi_stack_align_annot((u32)align->ival);
+                    if (!expect(p, T_RP, "')'"))
+                        return false;
+                }
                 any_annot = true;
             }
             if (tok_is(peek(p), "even")) {

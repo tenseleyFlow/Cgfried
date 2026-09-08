@@ -336,13 +336,14 @@ typedef struct X64Const {
 
 typedef struct X64Func {
     const char *name;
-    bool allocated;   /* post-RA: X64VReg.v is X64Reg + 1 */
-    bool variadic;    /* Sprint 23: frame gets the 176-byte reg save area */
-    bool ret_f80;     /* f80 return: st0 is legitimately loaded at ret */
-    bool debug_lines; /* emit prepared line labels for this function */
-    u64 frame_size;   /* finalized rbp-relative bytes (spills + locals) */
-    u32 spill_slots;  /* count, for the printer's accounting line */
-    u32 out_args;     /* max outgoing-arg bytes over all call sites */
+    bool allocated;     /* post-RA: X64VReg.v is X64Reg + 1 */
+    bool variadic;      /* Sprint 23: frame gets the 176-byte reg save area */
+    bool ret_f80;       /* f80 return: st0 is legitimately loaded at ret */
+    bool debug_lines;   /* emit prepared line labels for this function */
+    u64 frame_size;     /* finalized rbp-relative bytes (spills + locals) */
+    u32 spill_slots;    /* count, for the printer's accounting line */
+    u32 out_args;       /* max outgoing-arg bytes over all call sites */
+    u32 out_args_align; /* max explicit outgoing stack-argument boundary */
     u32 named_stack_bytes; /* incoming stack bytes used by NAMED params
                               (va_start's overflow_arg_area starts after) */
     Arena *arena;

@@ -97,6 +97,25 @@ static IrType hfa_leaf_irtype(Lower *lo, const Type *base)
     }
 }
 
+/* AAPCS64 defines a composite's natural alignment before any adjustment on
+ * the composite as a whole. Stage B then caps a naturally over-aligned copy
+ * at 16 bytes. A record-level GNU aligned attribute therefore does not move
+ * an otherwise eight-byte-aligned argument, while an aligned member does. */
+static u32 aapcs_composite_arg_align(Lower *lo, Type *t)
+{
+    u64 align;
+
+    if ((t->kind == TY_STRUCT || t->kind == TY_UNION) && t->tag) {
+        layout_record(lo->sema, t);
+        align = t->tag->natural_align;
+    } else if (t->kind == TY_ARRAY) {
+        align = layout_of(lo->sema, t->base).align;
+    } else {
+        align = layout_of(lo->sema, t).align;
+    }
+    return (u32)(align > 8 ? 16 : align);
+}
+
 static void classify_arg_aapcs64(Lower *lo, Type *t, AbiArg *out)
 {
     TypeLayout l;
@@ -121,8 +140,10 @@ static void classify_arg_aapcs64(Lower *lo, Type *t, AbiArg *out)
         out->n = (u8)leaves;
         for (i = 0; i < leaves; i++)
             out->t[i] = hfa_leaf_irtype(lo, base);
+        out->aapcs_align = ir_type_size(out->t[0]);
         return;
     }
+    out->aapcs_align = aapcs_composite_arg_align(lo, t);
     /* Not an HFA: <=16 bytes travels in one or two general registers as
      * bit-carrying doublewords; anything larger becomes a caller-made
      * copy whose ADDRESS is the argument. */
@@ -405,7 +426,7 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
     if (anon && lo->sema->target.kind == CGF_TARGET_ARM64_MACOS &&
         (a->kind == ABI_ARG_EIGHTBYTES || a->kind == ABI_ARG_HFA)) {
         if (a->align >= 16)
-            a->stack_align16 = 1;
+            a->stack_align = a->align;
         if (!abi_replan_as_eightbytes(a, false))
             CGF_ICE("abi_arg_place: anonymous aggregate of %u bytes needs "
                     "more than the %u-leaf stack plan; no supported HFA "
@@ -431,6 +452,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
          * copy's address rides one general register. */
         if (aapcs)
             b->gp++;
+        else if (a->align > 8)
+            a->stack_align = a->align;
         return;
     case ABI_ARG_INDIRECT:
         /* The address itself is an ordinary pointer argument on both ABIs.
@@ -448,7 +471,7 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
      * argument plan: after lowering splits it into leaves, neither backend
      * can rediscover which leaf began the aligned C argument. */
     if (lo->sema->target.kind == CGF_TARGET_ARM64_LINUX && need_gp &&
-        a->kind == ABI_ARG_EIGHTBYTES && a->align >= 16 && (b->gp & 1u)) {
+        a->kind == ABI_ARG_EIGHTBYTES && a->aapcs_align == 16 && (b->gp & 1u)) {
         b->gp++;
         a->even_gp = 1;
     }
@@ -472,7 +495,11 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
     if (!aapcs) {
         /* SysV: the byval form already means by-value-on-the-stack, and the
          * exhausted bank is NOT pinned -- a later argument that does fit
-         * still gets its register. */
+         * still gets its register. Preserve the whole argument's alignment:
+         * after STACK becomes an IR byval pointer, codegen cannot recover it
+         * from the pointer type or byte size. */
+        if (a->align > 8)
+            a->stack_align = a->align;
         a->kind = (u8)ABI_ARG_STACK;
         return;
     }
@@ -484,8 +511,17 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
     if (need_gp)
         b->gp = 8;
 
-    if (a->align >= 16)
-        a->stack_align16 = 1;
+    {
+        /* Linux follows the Stage-B/C argument alignment computed before
+         * placement. Apple has its own measured PCS amendments and keeps the
+         * source type's boundary for named direct composites. */
+        u32 stack_align = lo->sema->target.kind == CGF_TARGET_ARM64_LINUX
+                              ? a->aapcs_align
+                              : a->align;
+
+        if (stack_align > 8)
+            a->stack_align = stack_align;
+    }
 
     if (!abi_replan_as_eightbytes(a, need_fp != 0))
         CGF_ICE("abi_arg_place: stacked aggregate of %u bytes needs %u "

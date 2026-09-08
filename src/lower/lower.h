@@ -414,10 +414,11 @@ typedef enum {
 #define ABI_MAX_STACK_LEAVES (ABI_MAX_HFA_LEAVES * 2)
 
 typedef struct AbiArg {
-    u8 kind;          /* AbiArgKind */
-    u8 n;             /* EIGHTBYTES: 1-2; HFA: 1-4; STACK: 1-8 */
-    u8 even_gp;       /* Linux AAPCS64: first leaf starts at even xN */
-    u8 stack_align16; /* AAPCS64: first stack leaf aligns NSAA to 16 */
+    u8 kind;         /* AbiArgKind */
+    u8 n;            /* EIGHTBYTES: 1-2; HFA: 1-4; STACK: 1-8 */
+    u8 even_gp;      /* Linux AAPCS64: first leaf starts at even xN */
+    u32 aapcs_align; /* Stage-B/C argument alignment, before placement */
+    u32 stack_align; /* first stack carrier's required power-of-two boundary */
     IrType t[ABI_MAX_STACK_LEAVES]; /* eightbyte / HFA-leaf IR types */
     u32 size;
     u32 align;

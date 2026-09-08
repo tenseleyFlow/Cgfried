@@ -866,12 +866,13 @@ static void rewrite(Ra *ra)
                 continue;
             }
             if (in.op == X64_OP_ALLOCA_DYN) {
-                /* mov r10, size; add r10, SLOP+OUT; and r10, -16;
-                 * sub rsp, r10.  For align <=16 the result is rsp+OUT.
-                 * For stricter alignment it is
+                /* mov r10, size; add r10, SLOP+OUT; and r10, -CALL_ALIGN;
+                 * sub rsp, r10.  For align <= CALL_ALIGN the result is
+                 * rsp+OUT. For stricter object alignment it is
                  * align_up(rsp+OUT, align), formed with lea+and.
                  *
-                 * OUT is the outgoing-argument area rounded up to 16, and it
+                 * OUT is the outgoing-argument area rounded up to the
+                 * strictest call-site stack boundary, and it
                  * is the whole reason this is not simply `def = rsp`. Call
                  * arguments are stored at [rsp + k] with the CURRENT rsp, so
                  * a bare `sub rsp, size` puts the fresh object exactly where
@@ -883,10 +884,14 @@ static void rewrite(Ra *ra)
                  *
                  * The epilogue recomputes rsp from rbp, so nothing downstream
                  * has to know rsp moved. */
-                u64 out64 = ((u64)f->out_args + 15u) & ~(u64)15;
+                u32 call_align =
+                    f->out_args_align > 16 ? f->out_args_align : 16;
+                u64 out64 = ((u64)f->out_args + call_align - 1u) &
+                            ~(u64)(call_align - 1u);
                 u32 out;
                 u32 align = in.table ? in.table : 1;
-                u32 slop = align > 16 ? align - 1 : 15;
+                u32 round_align = align > call_align ? align : call_align;
+                u32 slop = round_align - 1u;
                 u64 candidate_disp = out64 + (align > 16 ? align - 1 : 0);
                 X64Inst x;
                 u32 start = rb.n;
@@ -915,7 +920,7 @@ static void rewrite(Ra *ra)
                 x.b.imm = (i64)slop + out;
                 rb_put(&rb, &x);
                 x.op = X64_OP_AND;
-                x.b.imm = -16;
+                x.b.imm = -(i64)call_align;
                 rb_put(&rb, &x);
                 memset(&x, 0, sizeof(x));
                 x.op = X64_OP_SUB;
@@ -1485,6 +1490,24 @@ static void frame_finalize(Ra *ra)
                 p.b.kind = X64O_VREG;
                 p.b.r = physreg(SCRATCH_B);
             }
+            rb_put(&rb, &p);
+        }
+        if (f->out_args_align > 16) {
+            u32 align = f->out_args_align;
+
+            if ((align & (align - 1u)) || !x64_imm_fits_simm32(-(i64)align))
+                CGF_ICE("x86_64 regalloc: outgoing stack alignment %u "
+                        "exceeds the encodable range",
+                        align);
+            memset(&p, 0, sizeof(p));
+            p.op = X64_OP_AND;
+            p.width = X64_Q;
+            p.flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+            p.def = physreg(X64_RSP);
+            p.a.kind = X64O_VREG;
+            p.a.r = physreg(X64_RSP);
+            p.b.kind = X64O_IMM;
+            p.b.imm = -(i64)align;
             rb_put(&rb, &p);
         }
         if (f->variadic) {

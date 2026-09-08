@@ -296,6 +296,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
         m->laid_out = true;
     }
 
+    tag->natural_align = align;
     if (tag->align_override > align)
         align = tag->align_override;
     tag->align = align;
@@ -381,6 +382,7 @@ static void layout_union(Sema *s, TagDecl *tag)
         if (ml.align > align)
             align = ml.align;
     }
+    tag->natural_align = align;
     if (tag->align_override > align)
         align = tag->align_override;
     tag->align = align;

@@ -622,6 +622,19 @@ void test_ir_stack_align16_marker_roundtrip(TestCtx *t)
         "    call void @callee(i64 %tag onstack, i64 %lo onstack "
         "stackalign16, i64 %hi onstack)\n"
         "    ret\n"
+        "}\n"
+        "func void @wide(ptr byval(32) stackalign(32) %p) {\n"
+        "entry():\n"
+        "    ret\n"
+        "}\n"
+        "func void @wide_caller(ptr %p) {\n"
+        "entry():\n"
+        "    call void @wide(ptr %p byval(32) stackalign(32))\n"
+        "    ret\n"
+        "}\n"
+        "func void @maximum(ptr byval(32) stackalign(16777216) %p) {\n"
+        "entry():\n"
+        "    ret\n"
         "}\n";
     IrFix f;
     IrModule *m;
@@ -632,9 +645,42 @@ void test_ir_stack_align16_marker_roundtrip(TestCtx *t)
         T_ASSERT(t, ir_abi_stack_align16(m->funcs[0].param_annots[1]));
         T_ASSERT(t,
                  ir_abi_stack_align16(m->funcs[1].blocks[0].first->ops[1].b));
+        T_ASSERT_EQ_INT(t, ir_abi_stack_align(m->funcs[2].param_annots[0]), 32);
+        T_ASSERT_EQ_INT(
+            t, ir_abi_stack_align(m->funcs[3].blocks[0].first->ops[0].b), 32);
+        T_ASSERT_EQ_INT(t, ir_abi_stack_align(m->funcs[4].param_annots[0]),
+                        16777216);
         T_ASSERT(t, ir_verify(f.dc, m));
         roundtrip(t, &f, m);
     }
+    fix_free(&f);
+
+    /* Zero would encode as "no marker", and non-eight-byte units would be
+     * truncated. Reject both at the parser surfaces instead of allowing a
+     * non-round-trippable IR. */
+    fix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "func void @bad(ptr byval(8) stackalign(0) %p) {\n"
+                        "entry():\n"
+                        "    ret\n"
+                        "}\n",
+                        "<bad-stack-align>");
+    T_ASSERT(t, m == NULL);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    fix_free(&f);
+
+    fix_init(&f);
+    m = ir_parse_module(&f.arena, f.dc,
+                        "sym @external\n"
+                        "func void @bad(ptr %p) {\n"
+                        "entry():\n"
+                        "    call void @external(ptr %p byval(8) "
+                        "stackalign(20))\n"
+                        "    ret\n"
+                        "}\n",
+                        "<bad-stack-align>");
+    T_ASSERT(t, m == NULL);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
     fix_free(&f);
 }
 

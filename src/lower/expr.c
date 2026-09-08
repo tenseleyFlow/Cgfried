@@ -1410,6 +1410,7 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
     bool indirect = false;
     i64 nslots = 1;
     i64 hfa_leaf = 0; /* HFA leaf width in bytes; 0 when not an HFA */
+    u64 stack_align;
     i64 bump;
     i64 top_off, offs_off;
     BlockId join, stack;
@@ -1446,6 +1447,10 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
         indirect = true;
         break;
     }
+    /* Use the same AAPCS64 Stage-B/C boundary as call placement. In
+     * particular, a whole-type alignment adjustment does not strengthen a
+     * composite copy, and an HFA follows its homogeneous element. */
+    stack_align = is_agg ? plan.aapcs_align : l.align;
     bump = fp_path ? 16 * nslots : 8 * nslots;
     top_off = fp_path ? VA64_VR_TOP : VA64_GR_TOP;
     offs_off = fp_path ? VA64_VR_OFFS : VA64_GR_OFFS;
@@ -1468,7 +1473,8 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
         off = lower_load(lo, offlv);
 
         if (lo->sema->target.kind == CGF_TARGET_ARM64_LINUX && is_agg &&
-            plan.kind == ABI_ARG_EIGHTBYTES && plan.align >= 16 && !fp_path) {
+            plan.kind == ABI_ARG_EIGHTBYTES && plan.aapcs_align == 16 &&
+            !fp_path) {
             /* IR-C-09: __gr_offs is a negative byte offset. Adding 15 and
              * masking by -16 advances an x1 position to x2 before both the
              * fit test and save-area address calculation. Apple has a
@@ -1554,18 +1560,18 @@ static IrOperand lower_va_arg_aapcs64(Lower *lo, AstNode *e, IrOperand ap)
         ValueId next;
         IrOperand from_stack;
 
-        if (!indirect && l.align > 8) {
+        if (!indirect && stack_align > 8) {
             ValueId as_i = ir_build1(&lo->b, IR_BITCAST, IRT_I64, st);
             ValueId up =
                 ir_build2(&lo->b, IR_IADD, IRT_I64, ir_op_value(lo->fn, as_i),
-                          lower_i64((i64)l.align - 1));
+                          lower_i64((i64)stack_align - 1));
             ValueId masked =
                 ir_build2(&lo->b, IR_AND, IRT_I64, ir_op_value(lo->fn, up),
-                          lower_i64(-(i64)l.align));
+                          lower_i64(-(i64)stack_align));
 
             st = ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
                                                ir_op_value(lo->fn, masked)));
-            slot = ((u64)l.size + (u64)l.align - 1) & ~((u64)l.align - 1);
+            slot = ((u64)l.size + stack_align - 1) & ~(stack_align - 1);
         }
         next = ir_build_ptradd(&lo->b, st, lower_i64((i64)slot));
         va64_store_ptr(lo, ap, VA64_STACK, ir_op_value(lo->fn, next));
@@ -2421,8 +2427,8 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
     }
     if (plan.even_gp && !stacked && first_arg < args->len)
         args->data[first_arg].b |= IR_ABI_EVEN_GPR;
-    if (plan.stack_align16 && stacked && first_arg < args->len)
-        args->data[first_arg].b |= IR_ABI_STACK_ALIGN16;
+    if (plan.stack_align && first_arg < args->len)
+        args->data[first_arg].b |= ir_abi_stack_align_annot(plan.stack_align);
     if (flags || stacked)
         for (; first_arg < args->len; first_arg++)
             args->data[first_arg].argflags |=

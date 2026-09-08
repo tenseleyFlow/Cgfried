@@ -256,11 +256,13 @@ void test_x64_overaligned_static_and_dynamic_frame_shapes(TestCtx *t)
     char *old_spill_all = env ? strdup(env) : NULL;
     bool fixed_lea = false, fixed_mask = false;
     bool dyn_round = false, dyn_sub = false, dyn_lea = false;
+    bool call_mask = false, dyn_call_round = false;
     bool dyn_mask = false, restored = false;
 
     arena_init(&a);
     f = mkf(&a, 1);
-    f->out_args = 16; /* two stack-passed call arguments */
+    f->out_args = 32;
+    f->out_args_align = 32;
     fixed = x64_newv(f, X64RC_GP);
     size = x64_newv(f, X64RC_GP);
     saved = x64_newv(f, X64RC_GP);
@@ -304,16 +306,22 @@ void test_x64_overaligned_static_and_dynamic_frame_shapes(TestCtx *t)
         if (x->op == X64_OP_LEA && x->a.kind == X64O_MEM &&
             x->a.mem.base.v == X64_RBP + 1 && x->a.mem.disp < 0)
             fixed_lea = true;
+        if (!fixed_lea && x->op == X64_OP_AND && x->def.v == X64_RSP + 1 &&
+            x->b.kind == X64O_IMM && x->b.imm == -32)
+            call_mask = true;
         if (x->op == X64_OP_AND && x->b.kind == X64O_IMM && x->b.imm == -64 &&
             fixed_lea && !dyn_lea)
             fixed_mask = true;
-        if (x->op == X64_OP_ADD && x->b.kind == X64O_IMM && x->b.imm == 79)
-            dyn_round = true; /* 63 alignment slop + 16 outgoing bytes */
+        if (x->op == X64_OP_ADD && x->b.kind == X64O_IMM && x->b.imm == 95)
+            dyn_round = true; /* 63 alignment slop + 32 outgoing bytes */
+        if (dyn_round && !dyn_sub && x->op == X64_OP_AND &&
+            x->b.kind == X64O_IMM && x->b.imm == -32)
+            dyn_call_round = true;
         if (x->op == X64_OP_SUB && x->def.v == X64_RSP + 1 &&
             x->b.kind == X64O_VREG)
             dyn_sub = true;
         if (x->op == X64_OP_LEA && x->a.kind == X64O_MEM &&
-            x->a.mem.base.v == X64_RSP + 1 && x->a.mem.disp == 79)
+            x->a.mem.base.v == X64_RSP + 1 && x->a.mem.disp == 95)
             dyn_lea = true;
         if (dyn_lea && x->op == X64_OP_AND && x->b.kind == X64O_IMM &&
             x->b.imm == -64)
@@ -321,8 +329,9 @@ void test_x64_overaligned_static_and_dynamic_frame_shapes(TestCtx *t)
         if (dyn_mask && x->op == X64_OP_MOV && x->def.v == X64_RSP + 1)
             restored = true;
     }
-    T_ASSERT(t, fixed_lea && fixed_mask);
-    T_ASSERT(t, dyn_round && dyn_sub && dyn_lea && dyn_mask && restored);
+    T_ASSERT(t, call_mask && fixed_lea && fixed_mask);
+    T_ASSERT(t, dyn_round && dyn_call_round && dyn_sub && dyn_lea && dyn_mask &&
+                    restored);
     arena_free_all(&a);
 }
 

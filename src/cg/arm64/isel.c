@@ -2293,8 +2293,12 @@ static void bind_params(Isel *is, const IrFunc *ir)
                              : sf == A64_SF128 ? 16u
                                                : 8u;
 
-            if (ir->param_annots && ir_abi_stack_align16(ir->param_annots[i]))
-                nsaa = (nsaa + 15u) & ~15u;
+            if (ir->param_annots) {
+                u32 stack_align = ir_abi_stack_align(ir->param_annots[i]);
+
+                if (stack_align)
+                    nsaa = (nsaa + stack_align - 1u) & ~(stack_align - 1u);
+            }
             nsaa = (nsaa + slot_bytes - 1u) & ~(slot_bytes - 1u);
             memset(&mem, 0, sizeof(mem));
             mem.kind = A64O_MEM;
