@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `137844ef208d3520a078bf2e72f44e01efab4938`
-- compiler-source-sha256: `0a17d659894b06c4f36685fcc1e6074d57aa8233db4848a47bc32a01cdd81cba`
+- source-revision: `5038800080102e9f7fcd31623ec9b80054ce5cd7`
+- compiler-source-sha256: `e88c8608a6b3d48bf6dc0d10293585e4b61c195f466b29a6452f5707cbe971d1`
 - harness-sha256: `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`
 - torture-manifest-sha256: `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `12585f7117eb511cfd62e7f891a2f663677fd0bd85f0e7f8619a0ac4016b495e` | `12585f7117eb511cfd62e7f891a2f663677fd0bd85f0e7f8619a0ac4016b495e` |
-| x86_64-linux-gnu | `b4cf045a5170c0bad49f2185a5f35d7ada84f88b55ef39111852c101d91851d6` | `b4cf045a5170c0bad49f2185a5f35d7ada84f88b55ef39111852c101d91851d6` |
+| arm64-linux | `e6aa498b9fe0d7e70c0d449870927289c40a5640e74c0222b06e0e23c409e06d` | `e6aa498b9fe0d7e70c0d449870927289c40a5640e74c0222b06e0e23c409e06d` |
+| x86_64-linux-gnu | `d36508257930154d1eefe11cf255e7169e1c9876e0c76aad80277b41a2ebfc2b` | `d36508257930154d1eefe11cf255e7169e1c9876e0c76aad80277b41a2ebfc2b` |
 
 ## Baseline
 
@@ -40,15 +40,15 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | torture-compile | Os | arm64-linux | 2016 | 1432 | 376 | 0 | 208 | 87.32% |
 | torture-compile | Os | x86_64-linux-gnu | 2016 | 1433 | 376 | 0 | 207 | 87.38% |
 | torture-execute | O0 | arm64-linux | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1344 | 257 | 0 | 151 | 89.90% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
 | torture-execute | O1 | arm64-linux | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
-| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1344 | 257 | 0 | 151 | 89.90% |
+| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
 | torture-execute | O2 | arm64-linux | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
-| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1344 | 257 | 0 | 151 | 89.90% |
+| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
 | torture-execute | O3 | arm64-linux | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
-| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1344 | 257 | 0 | 151 | 89.90% |
+| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
 | torture-execute | Os | arm64-linux | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
-| torture-execute | Os | x86_64-linux-gnu | 1752 | 1344 | 257 | 0 | 151 | 89.90% |
+| torture-execute | Os | x86_64-linux-gnu | 1752 | 1345 | 257 | 0 | 150 | 89.97% |
 | torture-execute-ieee | O0 | arm64-linux | 78 | 22 | 29 | 0 | 27 | 44.90% |
 | torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 22 | 29 | 0 | 27 | 44.90% |
 | torture-execute-ieee | O1 | arm64-linux | 78 | 22 | 29 | 0 | 27 | 44.90% |
@@ -767,24 +767,9 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The 100,000-case-label stress drives arm64 code generation beyond the bounded compiler budget; the hosted native process surfaces the failure as SIGSEGV while the local cross-target reproduction exhausts its timeout.
 - Disposition: `fix-sprint:s56.5-arm64-large-switch-scalability`
 
-### Bucket 43
-
-- Count: 5
-- Cluster: signal=`6`; phase=`run`
-- Runtime split: `non-optdiv`
-- Fingerprint: `892c311a6c6a7e45a6bcd170d4877eb4bac7f55bc0f0709df053da107df266f8`
-- Exemplars: torture-execute/pr44942.c@O0@x86_64-linux-gnu, torture-execute/pr44942.c@O1@x86_64-linux-gnu, torture-execute/pr44942.c@O2@x86_64-linux-gnu
-- Diagnostic: program killed by signal 6
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 5
-- Optdiv exemplars: -
-- Hypothesis: The x86 SysV variadic cursor loses the required stack alignment after fixed long-double arguments exhaust the register save areas.
-- Disposition: `fix-sprint:s56.5-x86-varargs-long-double-stack-alignment`
-
 ## Policy Overlay
 
-- Applied decisions: 35
+- Applied decisions: 34
 - Stale decisions: 2
 
 | Signal | Fingerprint | Phase | Variant | Hypothesis | Disposition |
@@ -794,8 +779,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 3871
-- Bucketed cells: 3871
+- Failed cells: 3866
+- Bucketed cells: 3866
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

@@ -421,6 +421,61 @@ EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
 
+# Bucket 43 / pr44942: x87 long double arguments always travel in memory on
+# SysV and therefore spend neither register bank. Keep xmm7 observable after
+# seven doubles: the fixed call catches a phantom FP charge in later aggregate
+# placement, while the variadic call catches the same drift in va_start's
+# initial fp_offset. Both compiler directions keep caller and callee walks
+# independently honest.
+check_f80_register_budget_fixed() {
+    d=$WORK/fixed-f80-register-budget
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+struct one_double { double value; };
+double fixed_after_f80(double, double, double, double, double, double, double,
+                       long double, struct one_double);
+double variadic_after_f80(double, double, double, double, double, double,
+                          double, long double, ...);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    struct one_double value = {1234.};
+
+    if (fixed_after_f80(0.,0.,0.,0.,0.,0.,0.,0.L,value) != 1234.)
+        return 1;
+    if (variadic_after_f80(0.,0.,0.,0.,0.,0.,0.,0.L,5678.) != 5678.)
+        return 2;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+#include <stdarg.h>
+double fixed_after_f80(double a, double b, double c, double d, double e,
+                       double f, double g, long double h,
+                       struct one_double value)
+{
+    return a+b+c+d+e+f+g+(double)h+value.value;
+}
+double variadic_after_f80(double a, double b, double c, double d, double e,
+                          double f, double g, long double h, ...)
+{
+    va_list ap;
+    double value;
+
+    va_start(ap, h);
+    value = va_arg(ap, double);
+    va_end(ap);
+    return a+b+c+d+e+f+g+(double)h+value;
+}
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # Regenerate sources from a descriptor and test both directions.
 # Returns 0 when both agree.
 check_desc() {
@@ -531,6 +586,15 @@ x86_64-linux-gnu|arm64-linux)
     fi
     ;;
 esac
+
+if [ "$target" = x86_64-linux-gnu ]; then
+    if check_f80_register_budget_fixed; then
+        checked=$((checked + 1))
+    else
+        echo "abi_differential: REGRESSION on f80 register budget" >&2
+        failed=$((failed + 1))
+    fi
+fi
 
 # The permanent fixtures FIRST: every descriptor ever minimized out of a real
 # disagreement, replayed on every run. A generated seed only covers a shape
