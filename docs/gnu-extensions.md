@@ -53,6 +53,7 @@ predefine.
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
+| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions | `tests/corpus/x86_64/int/scalar_storage_order.c` | endian-stable wire records and GCC torture bit-field layouts |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
@@ -95,6 +96,21 @@ predefine.
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
 | records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
+
+All currently supported targets are little-endian. A big-endian
+`scalar_storage_order` record therefore takes the reverse path: integral
+members and each integral array element are byte-reversed, and bit-fields use
+MSB-first physical allocation. A confirming little-endian spelling preserves
+the ordinary representation. Pointer and nested aggregate members are
+unaffected, matching GCC's type-attribute boundary. Taking the address of a
+reverse-order scalar is an error; array decay is permitted with the default-on
+`-Wscalar-storage-order` warning, which can be disabled independently.
+
+This tranche deliberately fails closed on reverse-order floating members and
+on attaching the attribute through a typedef. Those GCC-supported forms need
+additional representation/type plumbing; neither is accepted and then stored
+in native order. Attach the attribute directly to the struct or union
+definition for the implemented integral semantics.
 
 Cgfried implements a storage-bounded subset of GCC's nested flexible-array
 initializer extension. A static object may initialize a flexible tail below

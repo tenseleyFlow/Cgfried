@@ -140,14 +140,25 @@ behavior, publication, and final standard/bootstrap/native-ARM CI are green.
 PR #86's `s56.5-x86-varargs-long-double-stack-alignment` tranche is merged as
 `5ed4da1c`, publishing the five x86-only `torture-execute/pr44942.c` cells in
 bucket 43 and raising the ratchet to 30,167 lines (30,164 PASS keys). Its final
-standard, bootstrap, and exact-head native-ARM CI are green. The current
-`s56.5-aligned-vla-record-members` tranche repairs the ten target-complete
-`torture-execute/pr82210.c` cells in bucket 36. Behavior commit `517a3d36` is
-locally complete on ARM64 and x86-64. PR #90's pre-publication standard and
-bootstrap coverage is complete, exact synthetic-merge ARM64/x86-64 evidence
-is source-identical, and deterministic target-complete publication raises the
-ratchet to 30,177 lines (30,174 PASS keys). Post-publication CI and merge
-remain. Sprint 56's campaign machine and triage map remain complete while
+standard, bootstrap, and exact-head native-ARM CI are green. PR #90's
+`s56.5-aligned-vla-record-members` tranche is merged as `57a9b8ef`, publishing
+the ten target-complete `torture-execute/pr82210.c` cells in bucket 36 and
+raising the ratchet to 30,177 lines (30,174 PASS keys). Its final standard
+[run 34266807159](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266807159),
+bootstrap
+[runs 34266803291](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266803291)
+and
+[34266807198](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266807198),
+and exact synthetic-merge nightly
+[run 34266863156](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266863156)
+are green. The current `s56.5-scalar-storage-order-bitfields` tranche (PR #91)
+resolves the twenty target-complete `20230630-2.c` and `20230630-4.c` cells in
+buckets 34 and 35. Integral scalar/array and reverse bit-field semantics,
+address-taking diagnostics, focused GCC-13 comparison, native Darwin ARM64
+execution, ARM64 Linux execution, x86-64 Linux source generation, sanitizers,
+pre-publication CI, and deterministic target-complete publication are green.
+The ratchet is 30,197 lines (30,194 PASS keys); fresh post-publication CI
+remains. Sprint 56's campaign machine and triage map remain complete while
 Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -3736,6 +3747,85 @@ and green post-publication CI.
   `6d8a04bf5207e337124509df9df32eb646cdc02bcb73ab4b92af49125a537b84`.
   Fresh post-publication standard, bootstrap, and exact-head nightly evidence
   remain before merge.
+- The current `s56.5-scalar-storage-order-bitfields` tranche (PR #91) resolves
+  the twenty target-complete `torture-execute/20230630-{2,4}.c` cells in
+  buckets 34 and 35, fingerprints `92942b7e...` and `7363a4d6...`. On merged
+  trunk `57a9b8ef`, both upstream programs abort at O0/O1/O2/O3/Os on ARM64
+  and x86-64 because the parser accepts GNU `scalar_storage_order` but the
+  type system and lowering discard it, leaving every field in native byte
+  order.
+
+  Behavior commit `348d3d76` carries storage order on completed struct/union
+  types and implements reverse-order integral scalars, integral arrays, wide
+  string initialization, and bit-field containers in constant initialization
+  and runtime loads/stores. Nested aggregates and pointer-valued fields retain
+  their own representation. Taking the address of a reverse scalar is an
+  error, reverse-array decay diagnoses under default-on
+  `-Wscalar-storage-order`, and unsupported reverse floating fields plus
+  attributed typedef placement fail closed instead of being silently ignored.
+
+  A permanent GCC-comparable corpus fixture and an edge executable cover
+  mixed scalar/array/bit-field initialization, runtime read-modify-write,
+  arrays of records, unions, wide strings, nested records, and pointer fields.
+  Seven negative fixtures pin the address, warning/suppression, floating,
+  invalid, misplaced, and typedef diagnostics. The focused programs pass on
+  native Darwin ARM64 at all six optimization levels, match GCC 13 at all six
+  levels, execute on ARM64 Linux at all five torture levels, and generate on
+  x86-64 Linux at all five levels. ASan+UBSan, clang-format 22, warning and
+  target seams, GNU extension tiers, unit registry, bans, deferral coverage,
+  ISA corpus, and two stable 5,000-iteration frontend-fuzz runs are green; the
+  fuzz digest is `fe8d5a2ce8cfd054`.
+
+  Pre-publication standard
+  [run 34277055748](https://github.com/tenseleyFlow/Cgfried/actions/runs/34277055748)
+  passes all nineteen non-torture jobs, including clean-host tests,
+  sanitizers, macOS and Linux ARM64, QEMU, toolchain and campaign lanes, and
+  100,000 frontend-fuzz iterations. Its x86 torture gate rejects exactly the
+  ten expected unpublished cells and no old PASS. Bootstrap
+  [run 34277055727](https://github.com/tenseleyFlow/Cgfried/actions/runs/34277055727)
+  passes every O0/O2 check. Exact synthetic-merge nightly
+  [run 34280852279](https://github.com/tenseleyFlow/Cgfried/actions/runs/34280852279)
+  passes all fourteen non-torture jobs; native ARM torture rejects exactly the
+  matching ten unpublished cells and no old PASS.
+
+  Both retained 20,335-line streams name synthetic revision
+  `b12e4975d4781edbf3d375b6e2baaf989020d4f1` and share compiler-source
+  SHA-256
+  `be5cb8f4d93ec420473dc6cf1f0b82a50eae7aa5a234bc5f409ece9fc8ee4330`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and CI ARM stream SHA-256 values are respectively
+  `9864e5928bf5121129340d3eeef35d088bcc24b41ffe61f05e4f2d636f6e210a`
+  and
+  `1d4dee944489b291a7a89fdda68f08476dd5a7e89c890e87871cb9a9f5126f7e`;
+  their compiler/driver hashes are respectively
+  `1dd8e37bc274510e6c795a7d2694c074f21661a0fc197a5326dfdf64c25c5727`
+  and
+  `c3398e0ee3e112fbd6464ccf8f43cc65616087727823adefa5da1ebecfdfcfb8`.
+
+  Native ARM GNU Make 4.4.1 performs a fresh 20,335-cell run after building
+  Cgfried's target runtime. Its stream SHA-256 is
+  `f67bcfde77d39c4aa7d989035bc79d79eaf02f21abf53342e006fa11abecc369`,
+  its compiler/driver hash is
+  `3480102bffeb37aa8ade1d64c35a5502507326bba405eced46489582ab32135a`,
+  and its classification body is byte-identical to the retained CI ARM
+  stream. Consuming the fresh ARM and retained x86 streams in both target
+  orders regenerates both committed outputs byte-identically. Atomic
+  publication promotes exactly twenty cells with zero PASS regression and
+  retires only fingerprints `7363a4d6...` and `92942b7e...`. The published
+  state is 30,197 ratchet lines / 30,194 PASS keys, 3,836 classified failures,
+  39 observed buckets, 31 applied decisions, 7 live repair rows representing
+  7 tranches, two deliberately retained stale decisions, and zero unbucketed
+  or unresolved cells. PASS and triage SHA-256 values are respectively
+  `296126c29905ef756aee8402f3c5278222c75d02464a273b1d437faf5591c2f7`
+  and
+  `c729c7da87eb61344bcf6d6eb4da03a1148c2362941001ad6f3b2b80e1b2b392`.
+  Fresh post-publication standard, bootstrap, and exact-head nightly evidence
+  remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -3762,8 +3852,8 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. On the current
-publication head, the remaining compiler debt is enumerated by 9 live
-`s56.5-*` repair rows representing 8 unique repair tranches. Sprint
+publication head, the remaining compiler debt is enumerated by 7 live
+`s56.5-*` repair rows representing 7 unique repair tranches. Sprint
 54 and Phase 11 subsequently closed on their independent fleet evidence.
 
 ---

@@ -139,7 +139,7 @@ function.” Both are complete.
 | -Wpragmas | -Wpragmas | done | tests/warn/pragma/malformed.c |
 | -Wredundant-decls | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wreturn-type | — | done | tests/warn/flow/return-type/falloff-diamond.c |
-| -Wscalar-storage-order | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
+| -Wscalar-storage-order | — | done | tests/programs/gnu/attr_scalar_storage_order_array_warning.c |
 | -Wsequence-point | — | out-of-scope: requires alias or value analysis beyond Phase 8 | — |
 | -Wshift-overflow | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |
 | -Wshift-overflow= | — | out-of-scope: option recognized; dedicated semantic checker is outside v0.1.0 | — |

@@ -1474,6 +1474,8 @@ typedef struct {
      * filling one of its FAM-bearing members. Zero selects the ordinary
      * direct-FAM storage rule. */
     u64 nested_fam_end;
+    /* Dynamic context while filling a scalar or scalar-array member. */
+    u8 scalar_storage_order;
     bool ok;
     InitUnionSelection *unions;
     u32 nunions;
@@ -1497,6 +1499,21 @@ static void img_put_int(InitCtx *c, u64 off, u64 value, u64 width)
     /* Little-endian: all five targets are. */
     for (i = 0; i < width && off + i < c->img->size; i++)
         c->img->bytes[off + i] = (u8)(value >> (i * 8));
+}
+
+static void img_reverse_integer(InitCtx *c, Type *t, u64 off)
+{
+    TypeLayout l = layout_of(c->s, t);
+    u64 i;
+
+    if (!type_is_integer(t) || l.size <= 1 || off + l.size > c->img->size)
+        return;
+    for (i = 0; i < l.size / 2; i++) {
+        u8 tmp = c->img->bytes[off + i];
+
+        c->img->bytes[off + i] = c->img->bytes[off + l.size - 1 - i];
+        c->img->bytes[off + l.size - 1 - i] = tmp;
+    }
 }
 
 static void img_clear_relocs(InitCtx *c, u64 off, u64 width)
@@ -1662,6 +1679,9 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
     }
     for (i = 0; i < n && off + i < c->img->size; i++)
         c->img->bytes[off + i] = tok->str.bytes[i];
+    if (sema_scalar_storage_order_reversed(c->s, c->scalar_storage_order))
+        for (i = 0; i < cap; i++)
+            img_reverse_integer(c, t->base, off + i * elem.size);
     /* Everything past the copied bytes stays zero, which supplies the
      * terminator when there is room for one. */
 }
@@ -1672,6 +1692,7 @@ typedef struct {
     Type *aggregate;
     u64 off;
     u64 pos;
+    u8 scalar_storage_order;
 } FillCursorFrame;
 
 typedef struct {
@@ -1680,6 +1701,7 @@ typedef struct {
     Type *current;
     u64 off;
     Member *member;
+    u8 scalar_storage_order;
 } FillCursor;
 
 static bool fill_is_aggregate(const Type *t)
@@ -1696,6 +1718,7 @@ static bool fill_cursor_select(InitCtx *c, FillCursor *cursor)
 
     cursor->current = NULL;
     cursor->member = NULL;
+    cursor->scalar_storage_order = GNU_SSO_UNSPEC;
     if (cursor->depth == 0)
         return false;
     f = &cursor->frames[cursor->depth - 1];
@@ -1713,6 +1736,7 @@ static bool fill_cursor_select(InitCtx *c, FillCursor *cursor)
         }
         cursor->current = f->aggregate->base;
         cursor->off = f->off + f->pos * el.size;
+        cursor->scalar_storage_order = f->scalar_storage_order;
         return true;
     }
     if ((f->aggregate->kind != TY_STRUCT && f->aggregate->kind != TY_UNION) ||
@@ -1727,6 +1751,7 @@ static bool fill_cursor_select(InitCtx *c, FillCursor *cursor)
         cursor->current = m->type;
         cursor->member = m;
         cursor->off = m->is_bitfield ? f->off : f->off + m->offset;
+        cursor->scalar_storage_order = m->scalar_storage_order;
         return true;
     }
     return false;
@@ -1738,6 +1763,9 @@ static void fill_cursor_start(InitCtx *c, FillCursor *cursor, Type *root,
     memset(cursor, 0, sizeof(*cursor));
     cursor->frames[0].aggregate = root;
     cursor->frames[0].off = off;
+    cursor->frames[0].scalar_storage_order = root && root->kind == TY_ARRAY
+                                                 ? c->scalar_storage_order
+                                                 : GNU_SSO_UNSPEC;
     cursor->depth = 1;
     (void)fill_cursor_select(c, cursor);
 }
@@ -1752,6 +1780,9 @@ static bool fill_cursor_descend(InitCtx *c, FillCursor *cursor)
     cursor->frames[cursor->depth].aggregate = aggregate;
     cursor->frames[cursor->depth].off = off;
     cursor->frames[cursor->depth].pos = 0;
+    cursor->frames[cursor->depth].scalar_storage_order =
+        aggregate->kind == TY_ARRAY ? cursor->scalar_storage_order
+                                    : GNU_SSO_UNSPEC;
     cursor->depth++;
     return fill_cursor_select(c, cursor);
 }
@@ -1836,6 +1867,9 @@ static bool fill_cursor_designate(InitCtx *c, FillCursor *cursor, Type *root,
             cursor->frames[cursor->depth].aggregate = cursor->current;
             cursor->frames[cursor->depth].off = cursor->off;
             cursor->frames[cursor->depth].pos = 0;
+            cursor->frames[cursor->depth].scalar_storage_order =
+                cursor->current->kind == TY_ARRAY ? cursor->scalar_storage_order
+                                                  : GNU_SSO_UNSPEC;
             cursor->depth++;
         }
     }
@@ -1904,10 +1938,17 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
     Member *m = cursor->member;
     i64 value;
     u32 b;
+    bool reverse;
+    u64 unit_byte;
+    u64 start_bit;
 
     if (!m || !m->is_bitfield ||
         !sema_require_ice(c->s, item, &value, "a bit-field initializer"))
         return;
+    reverse = sema_scalar_storage_order_reversed(c->s, m->scalar_storage_order);
+    unit_byte = (m->offset / m->container_size) * m->container_size;
+    start_bit =
+        m->packed ? m->bit_shift : (m->offset - unit_byte) * 8 + m->bit_shift;
     /* Clear exactly the selected bit-field before setting its new value.
      * This preserves neighboring fields in the same container while making
      * a later union/member designator replace, rather than OR with, the
@@ -1920,9 +1961,13 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
         img_clear_relocs(c, first_byte, last_within / 8 + 1);
     }
     for (b = 0; b < m->bit_width; b++) {
-        u64 within = m->bit_shift + b;
-        u64 byte = cursor->off + m->offset + within / 8;
-        u8 mask = (u8)(1u << (within % 8));
+        u64 logical =
+            reverse ? start_bit + (m->bit_width - 1 - b) : m->bit_shift + b;
+        u64 byte = cursor->off +
+                   (reverse ? (m->packed ? m->offset : unit_byte) : m->offset) +
+                   logical / 8;
+        u8 bit = reverse ? (u8)(7 - logical % 8) : (u8)(logical % 8);
+        u8 mask = (u8)(1u << bit);
 
         if (byte >= c->img->size)
             break;
@@ -1967,8 +2012,16 @@ static void fill_cursor_value(InitCtx *c, const FillCursor *cursor,
     }
     if (cursor->member && cursor->member->is_bitfield)
         fill_bitfield(c, cursor, item);
-    else
+    else {
+        u8 prior_order = c->scalar_storage_order;
+
+        c->scalar_storage_order = cursor->scalar_storage_order;
         fill(c, cursor->current, item, cursor->off);
+        if (sema_scalar_storage_order_reversed(c->s,
+                                               cursor->scalar_storage_order))
+            img_reverse_integer(c, cursor->current, cursor->off);
+        c->scalar_storage_order = prior_order;
+    }
     c->nested_fam_end = prior_fam_end;
 }
 

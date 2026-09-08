@@ -93,6 +93,7 @@ struct Member {
      * reads exactly this field, so member-level and record-level packing are
      * the same rule applied to a different set of members. */
     bool packed;
+    u8 scalar_storage_order; /* inherited from the containing TagDecl */
     bool laid_out;
     /* `deprecated` on the member itself. Flattened rather than a whole
      * GnuDeclAttrs because that is what `align_override` and `packed`
@@ -138,6 +139,7 @@ struct TagDecl {
                                alignment drops to 1 with it -- forgetting the
                                second half gives right offsets and wrong
                                sizeof (.docs/audits/packed-layout.md) */
+    u8 scalar_storage_order; /* GnuScalarStorageOrder */
     Span span;
     Type *type; /* the one Type node that names this tag */
 };
@@ -583,6 +585,9 @@ bool layout_is_complete_for_size(const Type *t);
 /* Lays out a record, filling every Member's offset/bit_shift/bit_width.
  * Idempotent and memoized on the TagDecl. */
 void layout_record(Sema *s, Type *rec);
+/* True only when an explicit record order is opposite to the selected
+ * target's uniform scalar order. */
+bool sema_scalar_storage_order_reversed(Sema *s, u8 order);
 u64 layout_offsetof(Sema *s, Type *rec, const Member *m);
 
 /* SysV x86-64 parameter classification (psABI 3.2.3). Consumed by Sprint
@@ -627,8 +632,9 @@ typedef struct {
 /* Implicit conversions are MATERIALIZED as AST_EXPR_CAST nodes with
  * `implicit` set. Later passes read the tree; none re-derives the rules. */
 AstNode *conv_cast(Sema *s, AstNode *e, Type *to);
-AstNode *conv_lvalue(Sema *s, AstNode *e);  /* drops TOP-level quals */
-AstNode *conv_decay(Sema *s, AstNode *e);   /* array->ptr, func->ptr */
+AstNode *conv_lvalue(Sema *s, AstNode *e); /* drops TOP-level quals */
+AstNode *conv_decay(Sema *s, AstNode *e);  /* array->ptr, func->ptr */
+AstNode *conv_decay_subscript(Sema *s, AstNode *e);
 AstNode *conv_promote(Sema *s, AstNode *e); /* integer promotions */
 AstNode *conv_to_bool(Sema *s, AstNode *e); /* `!= 0`, never truncation */
 Type *conv_uac(Sema *s, AstNode **a, AstNode **b);
