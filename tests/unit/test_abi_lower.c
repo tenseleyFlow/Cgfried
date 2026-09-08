@@ -346,6 +346,42 @@ void test_abi_va_start_constants(TestCtx *t)
                             "}\n"));
     T_ASSERT(t, strstr(atxt(&f), "store i32 48,") != NULL);
     abi_free(&f);
+
+    /* SysV f80 is always passed in memory and therefore spends neither the
+     * GP nor SSE register budget.  Seven named doubles leave xmm7 available
+     * to the first anonymous double, so fp_offset must start at 160, not 176.
+     */
+    T_ASSERT(t, run_abi_target(&f,
+                               "typedef __builtin_va_list va_list;\n"
+                               "void x(double a, double b, double c, double d, "
+                               "double e, double f, double g, long double h, "
+                               "...) {\n"
+                               "  va_list ap; __builtin_va_start(ap, h);\n"
+                               "  (void)__builtin_va_arg(ap, double);\n"
+                               "  __builtin_va_end(ap);\n"
+                               "}\n",
+                               CGF_TARGET_X86_64_LINUX_GNU));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "store i32 160,") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "store i32 176,") == NULL);
+    abi_free(&f);
+
+    /* The same budget drives aggregate placement at call and definition
+     * sites.  The trailing one-double struct also owns xmm7; a phantom f80
+     * charge must not turn it into an eight-byte byval stack copy. */
+    T_ASSERT(t,
+             run_abi_target(&f,
+                            "struct D { double x; };\n"
+                            "void sink(double a, double b, double c, double d, "
+                            "double e, double f, double g, long double h, "
+                            "struct D v) { (void)v; }\n"
+                            "void call(struct D v) {\n"
+                            "  sink(0.,0.,0.,0.,0.,0.,0.,0.L,v);\n"
+                            "}\n",
+                            CGF_TARGET_X86_64_LINUX_GNU));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(atxt(&f), "byval(8)") == NULL);
+    abi_free(&f);
 }
 
 void test_abi_ellipsis_only_va_start_constants(TestCtx *t)

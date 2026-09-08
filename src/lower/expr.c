@@ -2352,12 +2352,6 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
 
     abi_classify_arg(lo, type, &plan);
     abi_arg_place(lo, &plan, budget, anonymous);
-    if (plan.kind == ABI_ARG_SCALAR) {
-        if (type_is_floating(type))
-            budget->fp++;
-        else
-            budget->gp++;
-    }
     if (plan.kind == ABI_ARG_STACK) {
         plan.kind =
             (u8)(lower_is_aapcs64(lo) ? ABI_ARG_EIGHTBYTES : ABI_ARG_BYVAL);

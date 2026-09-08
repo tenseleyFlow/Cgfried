@@ -1414,10 +1414,6 @@ static void lower_function(Lower *lo, AstNode *def)
                 any_annot = true;
             }
             ptypes[nir_params++] = st;
-            if (type_is_floating(wire))
-                budget.fp++;
-            else
-                budget.gp++;
             break;
         }
         case ABI_ARG_EIGHTBYTES:

@@ -122,10 +122,6 @@ static void classify_arg_aapcs64(Lower *lo, Type *t, AbiArg *out)
     Type *base = NULL;
     int leaves = 0;
 
-    if (!lower_is_aggregate(t)) {
-        out->kind = ABI_ARG_SCALAR;
-        return;
-    }
     l = layout_of(lo->sema, t);
     out->size = (u32)l.size;
     out->align = (u32)(l.align ? l.align : 1);
@@ -249,7 +245,13 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     int n;
 
     memset(out, 0, sizeof(*out));
-    if (lower_is_aggregate(t) && type_is_runtime_sized(t)) {
+    if (!lower_is_aggregate(t)) {
+        out->kind = ABI_ARG_SCALAR;
+        out->n = 1;
+        out->t[0] = lower_irtype(lo, t);
+        return;
+    }
+    if (type_is_runtime_sized(t)) {
         TypeLayout runtime = layout_of(lo->sema, t);
 
         /* A variably-sized aggregate cannot be flattened into a fixed set of
@@ -262,10 +264,6 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     }
     if (target_is_aapcs64(lo, (Span){0})) {
         classify_arg_aapcs64(lo, t, out);
-        return;
-    }
-    if (!lower_is_aggregate(t)) {
-        out->kind = ABI_ARG_SCALAR;
         return;
     }
     l = layout_of(lo->sema, t);
@@ -436,6 +434,17 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
     }
 
     switch (a->kind) {
+    case ABI_ARG_SCALAR:
+        /* One shared budget walk must describe definitions and calls.  SysV
+         * f80 is the exception to the ordinary floating rule: it always
+         * travels in memory and consumes neither register bank.  AAPCS64
+         * lowers long double to f64 or f128, so its normal FP charge remains
+         * explicit in the wire type. */
+        if (a->t[0] == IRT_F32 || a->t[0] == IRT_F64 || a->t[0] == IRT_F128)
+            b->fp++;
+        else if (a->t[0] != IRT_F80)
+            b->gp++;
+        return;
     case ABI_ARG_HFA:
         need_fp = a->n;
         break;
@@ -462,7 +471,7 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
         b->gp++;
         return;
     default:
-        return; /* SCALAR: the walk charges it from the IR type. */
+        return;
     }
 
     /* IR-C-09 / AAPCS64 C.10: Linux rounds NGRN up to an even register for
