@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-06): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-08): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -137,12 +137,15 @@ were all green. PR #85's `s56.5-variadic-aggregate-alignment` tranche is
 merged as `adeebc38`, publishing the ten `torture-execute/pr92904.c` cells and
 raising the target-complete ratchet to 30,162 lines (30,159 PASS keys). Its
 behavior, publication, and final standard/bootstrap/native-ARM CI are green.
-The current `s56.5-x86-varargs-long-double-stack-alignment` tranche repairs
-and publishes the five x86-only `torture-execute/pr44942.c` cells in bucket
-43, raising the ratchet to 30,167 lines (30,164 PASS keys). Its exact behavior
-evidence is complete; fresh post-publication CI remains. Sprint 56's campaign
-machine and triage map remain complete while Sprint 58 continues its
-independent soak.
+PR #86's `s56.5-x86-varargs-long-double-stack-alignment` tranche is merged as
+`5ed4da1c`, publishing the five x86-only `torture-execute/pr44942.c` cells in
+bucket 43 and raising the ratchet to 30,167 lines (30,164 PASS keys). Its final
+standard, bootstrap, and exact-head native-ARM CI are green. The current
+`s56.5-aligned-vla-record-members` tranche repairs the ten target-complete
+`torture-execute/pr82210.c` cells in bucket 36. Behavior commit `517a3d36` is
+locally complete on ARM64 and x86-64; pre-publication CI and target-complete
+evidence remain. Sprint 56's campaign machine and triage map remain complete
+while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -3636,8 +3639,54 @@ and green post-publication CI.
   `39a2d5ca5e466bedb41b1a1c15d70047a9d4f4f8793f27e7ed617f7611f41746`
   and
   `60d15f31eaa28c00cc51bbc17fd9ca9a85b43077099c60f8ebd34606dcbe9a63`.
-  Fresh post-publication standard, bootstrap, and exact-head native-ARM CI
-  remain before merge.
+  Fresh post-publication standard
+  [run 34247413433](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247413433)
+  passes all twenty executed jobs with only the expected performance skip.
+  Bootstrap
+  [runs 34247407660](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247407660)
+  and
+  [34247413451](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247413451)
+  pass O0 and O2. Exact-head nightly
+  [run 34247443011](https://github.com/tenseleyFlow/Cgfried/actions/runs/34247443011)
+  is green after rerunning three artifact-finalization jobs that initially
+  received external HTTP 403 responses after every campaign gate had passed.
+  PR #86 is merged as `5ed4da1c`; its remote feature and temporary evidence
+  branches are deleted.
+- The current `s56.5-aligned-vla-record-members` tranche resolves the ten
+  target-complete `torture-execute/pr82210.c` cells in bucket 36, fingerprint
+  `a849f81b...`. On merged trunk `5ed4da1c`, the exact upstream case aborts at
+  O0/O1/O2/O3/Os on both ARM64 and x86-64. Runtime `sizeof(struct S)` already
+  computed GNU VLA-member extents and padding, but automatic allocation took
+  alignment 1 from sema's deliberately incomplete recovery layout and member
+  expressions took its placeholder constant offsets. In `pr82210.c`, the
+  second VLA member therefore started at byte zero and overwrote the first.
+
+  Behavior commit `517a3d36` gives lowering one runtime type-alignment query
+  and one shared runtime-record layout walk. The latter now answers either the
+  tail-padded size or a direct ordinary member's byte offset, so `sizeof`,
+  allocation, member access, and GNU runtime `__builtin_offsetof` use identical
+  alignment arithmetic. Dynamic allocas, aggregate temporaries, and indirect
+  ABI plans consume the real record alignment. The opportunistic constant
+  folder declines variably modified struct offsets rather than publishing a
+  plausible recovery-layout constant; runtime lowering then produces the real
+  value. Existing bitfield container positioning remains on its separately
+  pinned static-layout path.
+
+  A red-first lowering unit pins 16-byte allocation and dynamic
+  member/offsetof arithmetic. The permanent executable tests four extents
+  against GCC, including object alignment, both member addresses, builtin
+  offsets, tail-padded size, and non-overlapping writes. It passes under
+  Cgfried and GCC at all five optimization levels on native ARM64 and x86-64
+  Linux; exact `pr82210.c` also passes all ten cells. Focused
+  runtime-record/offsetof units, ASan+UBSan, pinned clang-format 22, bans,
+  unit-registry, host/target seam, preprocessor seam, and warning seam gates
+  are green. Frontend fuzzing reports zero findings at 2,000 iterations and
+  reproduces existing digest `ba4cc24c4b83ef74` in two independent
+  5,000-iteration runs. The ad-hoc full corpus containers pass the new fixture
+  and every non-quad-runtime case; their only failures are pre-existing
+  `_Float128`/ARM `long double` links caused by those minimal images lacking
+  libgcc's quad helper symbols. Fresh pre-publication CI remains before
+  evidence collection.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
