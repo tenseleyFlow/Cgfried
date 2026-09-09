@@ -105,6 +105,14 @@ static void pmem_att(Emit *e, const X64Mem *m)
             buf_printf(e->out, "(%%%s)", regn(m->base.v, X64_Q));
         return;
     }
+    if (m->gottpoff_sym) {
+        /* Initial-exec external TLS. The GOT slot holds this module's
+         * thread-pointer-relative offset, not the object's ordinary address;
+         * selection adds it to %fs:0 after this load. */
+        buf_printf(e->out, "%s@GOTTPOFF(%%rip)",
+                   e->m->syms[m->gottpoff_sym - 1]);
+        return;
+    }
     if (m->rip_sym) {
         buf_printf(e->out, "%s", e->m->syms[m->rip_sym - 1]);
         if (m->disp)

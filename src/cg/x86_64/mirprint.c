@@ -141,6 +141,24 @@ static void preg(Buf *out, const X64Func *f, X64VReg r)
 static void pmem(Buf *out, const X64Func *f, const X64Mem *m)
 {
     buf_printf(out, "[");
+    if (m->seg_fs) {
+        buf_printf(out, "fs:%d]", m->disp);
+        return;
+    }
+    if (m->tpoff_sym) {
+        buf_printf(out, "tpoff @%s", f->m->syms[m->tpoff_sym - 1]);
+        if (m->disp)
+            buf_printf(out, "%+d", m->disp);
+        buf_printf(out, "+");
+        preg(out, f, m->base);
+        buf_printf(out, "]");
+        return;
+    }
+    if (m->gottpoff_sym) {
+        buf_printf(out, "rip gottpoff @%s]",
+                   f->m->syms[m->gottpoff_sym - 1]);
+        return;
+    }
     if (m->rip_sym) {
         buf_printf(out, "rip @%s", f->m->syms[m->rip_sym - 1]);
         if (m->disp)
@@ -370,7 +388,8 @@ int x64_mir_verify(const X64Func *f, DiagCtx *dc)
 
                     if (ops[oi]->kind != X64O_MEM)
                         continue;
-                    if (m->rip_sym && (m->base.v || m->index.v)) {
+                    if ((m->rip_sym || m->gottpoff_sym) &&
+                        (m->base.v || m->index.v)) {
                         diag_emit(dc, DIAG_ERROR, sp,
                                   "mir verify @%s bb%u:%u: rip-relative "
                                   "mem with base/index",
