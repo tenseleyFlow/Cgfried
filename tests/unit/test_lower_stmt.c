@@ -714,12 +714,13 @@ void test_lower_local_static_asm_label_exact(TestCtx *t)
      * `block_local.0` is deliberately what the old name.N path generated, so
      * lowering must keep the two distinct symbols rather than emit two
      * definitions of one assembler name. */
-    T_ASSERT(t, run_lower_s(&f,
-                            "int collision __asm__(\"block_local.0\") = 9;\n"
-                            "int f(void) {\n"
-                            "  static int block_local __asm__(\"block_local\") = 8;\n"
-                            "  return block_local++;\n"
-                            "}\n"));
+    T_ASSERT(t,
+             run_lower_s(
+                 &f, "int collision __asm__(\"block_local.0\") = 9;\n"
+                     "int f(void) {\n"
+                     "  static int block_local __asm__(\"block_local\") = 8;\n"
+                     "  return block_local++;\n"
+                     "}\n"));
     T_ASSERT(t, ir_verify(f.dc, f.m));
     T_ASSERT(t, strstr(stxt(&f), "global @block_local.0 size 4 align 4 "
                                  "external init x09000000") != NULL);
