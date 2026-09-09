@@ -431,7 +431,7 @@ static u32 lower_link_sym_index(Lower *lo, const Symbol *sym)
     return ir_sym(lo->m, name);
 }
 
-static const char *lower_ir_link_name(Lower *lo, const Symbol *sym)
+const char *lower_ir_link_name(Lower *lo, const Symbol *sym)
 {
     u32 idx = lower_link_sym_index(lo, sym);
 

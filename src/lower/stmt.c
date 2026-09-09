@@ -356,17 +356,26 @@ static void scope_exit_here(Lower *lo, const LexScope *sc)
 static void lower_local_static(Lower *lo, Symbol *sym, AstNode *init)
 {
     /* A block-scope static is a file-lifetime object with a mangled
-     * internal name (deterministic: name.N in encounter order). */
+     * internal name (deterministic: name.N in encounter order), unless an
+     * explicit asm label has already supplied its linker spelling. */
     char buf[192];
+    const char *name;
     IrGlobal *g;
     TypeLayout l;
     u32 idx;
+    u32 serial;
 
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
-    snprintf(buf, sizeof(buf), "%s.%u", sym->name, lo->nlocal_static++);
+    serial = lo->nlocal_static++;
+    if (sym->asm_name)
+        name = lower_ir_link_name(lo, sym);
+    else {
+        snprintf(buf, sizeof(buf), "%s.%u", sym->name, serial);
+        name = arena_strdup(lo->arena, buf);
+    }
     l = layout_of(lo->sema, sym->type);
-    g = ir_global_new(lo->m, arena_strdup(lo->arena, buf));
+    g = ir_global_new(lo->m, name);
     g->align = lower_object_align(sym, l.align);
     g->linkage = IRLINK_INTERNAL;
     g->size = l.size;
