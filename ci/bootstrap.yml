@@ -15,18 +15,23 @@ lanes:
   - id: x86_64-linux
     target: x86_64-linux-gnu
     host: x86_64-linux
+    runner: ubuntu-24.04
+    runner_pool: github-hosted
     levels: [O0, O2]
     events: [push, pull_request, schedule, workflow_dispatch]
-    cadence_utc: '41 3 * * 0'
+    cadence_utc: '17 3 * * *'
     required_for_pull_request: true
+    required_for_soak_daily: true
   - id: arm64-linux-native
     target: arm64-linux
     host: arm64-linux
     runner: ubuntu-24.04-arm
+    runner_pool: github-hosted
     levels: [O0, O2]
     events: [schedule, workflow_dispatch]
     cadence_utc: '17 3 * * *'
     required_for_pull_request: false
+    required_for_soak_daily: true
   - id: arm64-linux-cross
     target: arm64-linux
     hosts: [x86_64-linux, arm64-linux]
@@ -104,12 +109,24 @@ timing:
   baseline_policy: first-controlled-receipt-reviewed-separately
 soak:
   state: running
-  start_utc_date: '2026-08-13'
-  start_commit: c6bf3cf6a91f50dbd561afd9c1cecd19f8a72f83
-  start_run: https://github.com/tenseleyFlow/Cgfried/actions/runs/31665602629
-  completed_distinct_utc_dates: 10
+  start_utc_date: '2026-09-09'
+  start_commit: 1a7bbe80bbb911004513baf29cc3682277e8bfa5
+  start_x86_run: https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375
+  start_arm64_run: https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365
+  completed_distinct_utc_dates: 1
   required_distinct_utc_dates: 30
   start_condition: first verified hosted run of every active lane
-  daily_requirement: 30 consecutive distinct UTC dates green
+  daily_cadence_utc: '17 3 * * *'
+  daily_required_lanes: [x86_64-linux, arm64-linux-native]
+  daily_commit_identity: same-workflow-github-sha
+  daily_runner_dependency: github-hosted-only
+  fleet_dependency: none
+  recovery_event: workflow_dispatch
+  recovery_deadline: same-utc-date
+  recovery_scope: hosted-infrastructure-before-bootstrap-only
+  compiler_or_evidence_failure: resets-streak
+  daily_requirement: >-
+    30 consecutive distinct UTC dates with matching-head O0/O2 x86_64 and
+    native arm64 fixed points green and all four artifacts retained
   weekly_requirement: every scheduled weekly run green inside that interval
   ledger: .docs/audits/bootstrap-soak.md

@@ -4,8 +4,9 @@ on:
   push:
   pull_request:
   schedule:
-    # Native arm64 is intentionally nightly rather than per-PR: it is the
-    # slower, runner-budgeted half of the fixed-point gate.
+    # The daily soak observation runs both x86_64 and native arm64 in this
+    # one hosted workflow.  That binds all four fixed points to github.sha
+    # and makes continuity independent of developer pushes or fleet hosts.
     - cron: '17 3 * * *'
     # The cross-host and -j1/path-independence probes are intentionally
     # weekly: they reuse the native fixed points, but add three full compiler
@@ -26,6 +27,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '17 3 * * *' ||
       github.event.schedule == '41 3 * * 0'
     strategy:
       fail-fast: false
@@ -41,8 +43,9 @@ jobs:
           submodules: false
       - name: install the system C toolchain
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential binutils libc6-dev
+          sudo apt-get -o Acquire::Retries=5 update -qq
+          sudo apt-get -o Acquire::Retries=5 install -y -qq \
+            build-essential binutils libc6-dev
       - name: record toolchain provenance
         run: |
           mkdir -p build/boot/ci
@@ -110,8 +113,9 @@ jobs:
           submodules: false
       - name: install the native C toolchain
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential binutils libc6-dev
+          sudo apt-get -o Acquire::Retries=5 update -qq
+          sudo apt-get -o Acquire::Retries=5 install -y -qq \
+            build-essential binutils libc6-dev
       - name: snapshot the canonical native header sysroot
         run: |
           mkdir -p build/boot/cross/sysroot
@@ -285,8 +289,9 @@ jobs:
           submodules: false
       - name: install the native C toolchain
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential binutils libc6-dev
+          sudo apt-get -o Acquire::Retries=5 update -qq
+          sudo apt-get -o Acquire::Retries=5 install -y -qq \
+            build-essential binutils libc6-dev
       - uses: actions/download-artifact@v8
         with:
           name: sprint58-bootstrap-arm64-cross-native

@@ -30,6 +30,7 @@ jobs:
         run: |
           scripts/check_bench_policy.sh --commit "$GITHUB_EVENT_COMMIT"
           scripts/check_perf_configs.sh
+          scripts/check_bootstrap_ci_policy.sh
           if git show -s --format=%B "$GITHUB_EVENT_COMMIT" | grep -Fq '[bench skip]'; then
             echo 'bench_skip=true' >> "$GITHUB_OUTPUT"
           else
