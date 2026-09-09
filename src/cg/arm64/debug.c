@@ -120,14 +120,14 @@ static void emit_cie(Buf *out)
  * data_align is -8, so `n` counts eightbytes BELOW the CFA. The pair sits at
  * new_sp + pair_off, and the CFA is new_sp + frame, so the distance below the
  * CFA is frame - pair_off. */
-static void emit_saved_pair(Buf *out, u32 frame, u32 pair_off)
+static void emit_saved_pair(Buf *out, u64 frame, u32 pair_off)
 {
-    u32 fp_below = frame - pair_off;
+    u64 fp_below = frame - pair_off;
 
     if (pair_off > frame || fp_below < 8 || (fp_below & 7u))
-        CGF_ICE("a64 CFI: saved pair at %u in a %u-byte frame is not a "
+        CGF_ICE("a64 CFI: saved pair at %u in a %llu-byte frame is not a "
                 "sane eightbyte position",
-                pair_off, frame);
+                pair_off, (unsigned long long)frame);
     buf_printf(out, "\t.byte\t%u\n", 0x80u | A64_DWREG_FP);
     emit_uleb(out, fp_below / 8u);
     buf_printf(out, "\t.byte\t%u\n", 0x80u | A64_DWREG_LR);
@@ -147,11 +147,11 @@ static void emit_advance_label(Buf *out, u32 fidx, u32 label, u32 previous,
         buf_printf(out, ".Lfb%u)/4-%u\n", fidx, prior_insns);
 }
 
-static void emit_offset_rule(Buf *out, u32 dwarf_reg, u32 byte_below_cfa)
+static void emit_offset_rule(Buf *out, u32 dwarf_reg, u64 byte_below_cfa)
 {
     if (!byte_below_cfa || (byte_below_cfa & 7u))
-        CGF_ICE("a64 CFI: register %u has invalid CFA distance %u", dwarf_reg,
-                byte_below_cfa);
+        CGF_ICE("a64 CFI: register %u has invalid CFA distance %llu", dwarf_reg,
+                (unsigned long long)byte_below_cfa);
     if (dwarf_reg < 64) {
         buf_printf(out, "\t.byte\t%u\n", 0x80u | dwarf_reg);
     } else {
@@ -177,14 +177,15 @@ static void emit_saved_callee_regs(Buf *out, const A64Func *f)
 
     for (i = 0; i < f->cfi_ngp; i++, off += 8u) {
         if (off >= f->cfi_frame)
-            CGF_ICE("a64 CFI: x%u save at %u escapes %u-byte frame",
-                    f->cfi_gp[i], off, f->cfi_frame);
+            CGF_ICE("a64 CFI: x%u save at %u escapes %llu-byte frame",
+                    f->cfi_gp[i], off, (unsigned long long)f->cfi_frame);
         emit_offset_rule(out, f->cfi_gp[i], f->cfi_frame - off);
     }
     for (i = 0; i < f->cfi_nfp; i++, off += 8u) {
         if (off >= f->cfi_frame)
-            CGF_ICE("a64 CFI: d%u save at %u escapes %u-byte frame",
-                    (u32)(f->cfi_fp[i] - A64_V0), off, f->cfi_frame);
+            CGF_ICE("a64 CFI: d%u save at %u escapes %llu-byte frame",
+                    (u32)(f->cfi_fp[i] - A64_V0), off,
+                    (unsigned long long)f->cfi_frame);
         emit_offset_rule(out, 64u + (u32)(f->cfi_fp[i] - A64_V0),
                          f->cfi_frame - off);
     }
@@ -227,15 +228,16 @@ static void emit_fde(Buf *out, const A64Func *f, u32 idx)
         for (i = 0; i < f->cfi_pre_insns; i++) {
             if (!f->cfi_sp_offsets[i] ||
                 (i && f->cfi_sp_offsets[i] <= f->cfi_sp_offsets[i - 1]))
-                CGF_ICE("a64 CFI: invalid cumulative SP adjustment %u",
-                        f->cfi_sp_offsets[i]);
+                CGF_ICE("a64 CFI: invalid cumulative SP adjustment %llu",
+                        (unsigned long long)f->cfi_sp_offsets[i]);
             buf_printf(out, "\t.byte\t65\n"); /* advance_loc 1: sub */
             buf_printf(out, "\t.byte\t14\n"); /* def_cfa_offset */
             emit_uleb(out, f->cfi_sp_offsets[i]);
         }
         if (f->cfi_sp_offsets[f->cfi_pre_insns - 1] != f->cfi_frame)
-            CGF_ICE("a64 CFI: SP rows cover %u of %u frame bytes",
-                    f->cfi_sp_offsets[f->cfi_pre_insns - 1], f->cfi_frame);
+            CGF_ICE("a64 CFI: SP rows cover %llu of %llu frame bytes",
+                    (unsigned long long)f->cfi_sp_offsets[f->cfi_pre_insns - 1],
+                    (unsigned long long)f->cfi_frame);
         if (f->cfi_pair_pre_insns)
             buf_printf(out, "\t.byte\t%u\n", 0x40u | f->cfi_pair_pre_insns);
         buf_printf(out, "\t.byte\t65\n"); /* advance_loc 1: the stp */
@@ -291,8 +293,8 @@ static void emit_fde(Buf *out, const A64Func *f, u32 idx)
             for (j = 0; j < ep->nsp; j++) {
                 if ((j && ep->sp_offsets[j] >= ep->sp_offsets[j - 1]) ||
                     (j + 1 == ep->nsp && ep->sp_offsets[j] != 0))
-                    CGF_ICE("a64 CFI: invalid epilogue CFA offset %u",
-                            ep->sp_offsets[j]);
+                    CGF_ICE("a64 CFI: invalid epilogue CFA offset %llu",
+                            (unsigned long long)ep->sp_offsets[j]);
                 emit_advance_label(out, idx, ep->sp_labels[j], last, 0);
                 buf_printf(out, "\t.byte\t14\n"); /* def_cfa_offset */
                 emit_uleb(out, ep->sp_offsets[j]);

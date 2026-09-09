@@ -1276,11 +1276,18 @@ static void marshal_calls(A64Func *f)
  * one both directions satisfy. */
 #define A64_FRAME_PREINDEX_MAX 504
 
-u32 a64_frame_total(u32 csr_bytes, u32 local_bytes, u32 out_args)
+u64 a64_frame_total(u64 csr_bytes, u64 local_bytes, u64 out_args)
 {
-    u64 raw = (u64)csr_bytes + local_bytes + out_args;
+    u64 raw;
 
-    return (u32)((raw + 15) & ~(u64)15);
+    if (csr_bytes > UINT64_MAX - local_bytes ||
+        csr_bytes + local_bytes > UINT64_MAX - out_args)
+        CGF_ICE("arm64 regalloc: stack frame size overflows 64 bits");
+    raw = csr_bytes + local_bytes + out_args;
+    if (raw > 0x7ffffffffffffff0ull)
+        CGF_ICE("arm64 regalloc: stack frame exceeds the signed 64-bit "
+                "addressable range");
+    return (raw + 15) & ~(u64)15;
 }
 
 typedef struct Frame {
@@ -1290,8 +1297,8 @@ typedef struct Frame {
     u32 nfp;
     u32 base;        /* SP offset of the x29/x30 pair == the outgoing area */
     u32 csr_size;    /* 16 + saved registers, measured from `base` */
-    u32 total;       /* whole frame, a multiple of 16 */
-    u32 local_top;   /* bytes of spill/alloca area */
+    u64 total;       /* whole frame, a multiple of 16 */
+    u64 local_top;   /* bytes of spill/alloca area */
     bool dynamic_sp; /* a VLA or stackrestore moves SP inside the body */
 } Frame;
 
@@ -1388,21 +1395,22 @@ static A64Inst mk_addsub_sp(u16 op, i64 imm)
 }
 
 /* ADD/SUB immediate is a uimm12 optionally shifted left by 12. Consume an
- * arbitrary u32 adjustment in encodable chunks, largest first. SP stays
- * monotone in the direction of travel, which matters for a signal arriving
- * between instructions; this also lets an object at the supported alignment
- * boundary coexist with the saved-register area and ordinary locals. */
-static void emit_sp_adjust(Rb *rb, u16 op, u32 amount)
+ * arbitrary supported frame adjustment in encodable chunks, largest first.
+ * SP stays monotone in the direction of travel, which matters for a signal
+ * arriving between instructions; this also lets an object at the supported
+ * alignment boundary coexist with the saved-register area and ordinary
+ * locals. */
+static void emit_sp_adjust(Rb *rb, u16 op, u64 amount)
 {
     do {
-        u32 hi = amount >> 12;
-        u32 chunk;
+        u64 hi = amount >> 12;
+        u64 chunk;
         A64Inst in;
 
         if (hi > 0xfffu)
             hi = 0xfffu;
         chunk = hi ? hi << 12 : amount;
-        in = mk_addsub_sp(op, chunk);
+        in = mk_addsub_sp(op, (i64)chunk);
         rb_put(rb, &in);
         amount -= chunk;
     } while (amount);
@@ -1410,17 +1418,18 @@ static void emit_sp_adjust(Rb *rb, u16 op, u32 amount)
 
 /* Static allocas become ordinary frame objects. Their sizes are arbitrary, so
  * they cannot go through cg_spill_slot_assign, whose power-of-two contract
- * exists for register spills; the bump arithmetic shares the same
- * downward-growing cursor, which keeps allocas and spills disjoint.
+ * exists for register spills. Start a wide upward-growing cursor at the end
+ * of that signed spill area: the two kinds remain disjoint without forcing a
+ * valid large object offset back through CgSpillSlots' i32 displacement.
  *
  * x29 is only guaranteed 16-byte alignment. For a stronger alignment reserve
  * align-1 bytes of slack and align the returned address inside that region;
  * realigning the whole frame would instead disturb unwind state, outgoing
  * arguments and every fixed spill offset. The marker records the region start
  * and requested alignment; its size is needed only while reserving space. */
-static i32 frame_object_assign(CgSpillSlots *slots, u32 size, u32 align)
+static u64 frame_object_assign(u64 *top, u32 size, u32 align)
 {
-    u64 top, start, end;
+    u64 start, end;
 
     if (!align || (align & (align - 1)))
         CGF_ICE("arm64 regalloc: frame object alignment %u is not a power of "
@@ -1428,24 +1437,24 @@ static i32 frame_object_assign(CgSpillSlots *slots, u32 size, u32 align)
                 align);
     if (!size)
         size = 1;
-    top = (u32)(-slots->next_offset);
     if (align <= 16) {
-        start = (top + align - 1) & ~(u64)(align - 1);
+        start = (*top + align - 1) & ~(u64)(align - 1);
         end = start + size;
     } else {
-        start = top;
-        end = top + size + (u64)align - 1;
+        start = *top;
+        end = *top + size + (u64)align - 1;
     }
-    if (end > 0x7fffffffu)
-        CGF_ICE("arm64 regalloc: frame object area exceeds 2 GiB");
-    slots->next_offset = -(i32)end;
-    slots->count++;
-    return (i32)start;
+    if (end > 0x7fffffffffffffffull)
+        CGF_ICE("arm64 regalloc: frame object area exceeds the signed 64-bit "
+                "addressable range");
+    *top = end;
+    return start;
 }
 
-static void frame_assign_allocas(A64Func *f, CgSpillSlots *slots)
+static u64 frame_assign_allocas(A64Func *f, const CgSpillSlots *slots)
 {
     u32 bi, ii;
+    u64 top = (u64)(-(i64)slots->next_offset);
 
     for (bi = 0; bi < f->nblocks; bi++) {
         A64Block *b = &f->blocks[bi];
@@ -1466,10 +1475,10 @@ static void frame_assign_allocas(A64Func *f, CgSpillSlots *slots)
             size = (u32)in->ops[1].imm;
             align = (u32)in->ops[2].imm;
             /* Stash the reserved region's start where the size was. */
-            in->ops[1].imm =
-                frame_object_assign(slots, size, align ? align : 8);
+            in->ops[1].imm = (i64)frame_object_assign(&top, size, align);
         }
     }
+    return top;
 }
 
 static A64Inst mk_add_imm(A64Reg dst, A64Reg base, i64 imm)
@@ -1758,9 +1767,18 @@ static void frame_fixup_slots(A64Func *f, const Frame *fr)
                     op->mem.base.id != (u32)A64_X29 + 1)
                     continue;
                 if (op->mem.mode == A64_ADDR_INCOMING) {
+                    u64 offset;
+
                     /* Incoming arguments sit immediately above the frame, and
                      * x29 is `base` bytes into it. */
-                    op->mem.offset += (i64)fr->total - (i64)fr->base;
+                    if (op->mem.offset < 0)
+                        CGF_ICE("arm64 regalloc: negative incoming stack "
+                                "offset");
+                    offset = (u64)op->mem.offset + fr->total - fr->base;
+                    if (offset > 0x7fffffffffffffffull)
+                        CGF_ICE("arm64 regalloc: incoming stack offset "
+                                "exceeds the signed 64-bit addressable range");
+                    op->mem.offset = (i64)offset;
                     op->mem.mode = (u8)a64_isel_addr(
                         op->mem.offset, op->mem.size, false, false);
                     continue;
@@ -1916,7 +1934,7 @@ static void emit_add_imm(Rb *rb, A64PhysReg dst, A64PhysReg src, u32 imm)
     rb_put(rb, &in);
 }
 
-static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u32 offset,
+static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u64 offset,
                            bool fp)
 {
     A64Inst in;
@@ -1930,6 +1948,9 @@ static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u32 offset,
     in.ops[0].reg = phys_reg((u8)value);
     in.ops[1].kind = A64O_MEM;
     in.ops[1].mem.base = phys_reg((u8)base);
+    if (offset > 0x7fffffffffffffffull)
+        CGF_ICE("arm64 regalloc: store offset exceeds the signed 64-bit "
+                "addressable range");
     in.ops[1].mem.offset = (i64)offset;
     in.ops[1].mem.size = size;
     in.ops[1].mem.mode = (u8)a64_isel_addr((i64)offset, size, false, false);
@@ -1950,6 +1971,15 @@ static A64Inst mk_store_at(A64PhysReg value, A64PhysReg base, u32 offset,
 static A64PhysReg va_scratch_for(A64PhysReg va_list_ptr)
 {
     return va_list_ptr == A64_VA_SCRATCH ? A64_VA_SCRATCH_ALT : A64_VA_SCRATCH;
+}
+
+static i64 frame_offset_with_extra(u64 offset, u32 extra, const char *what)
+{
+    if (offset > 0x7fffffffffffffffull - extra)
+        CGF_ICE("arm64 regalloc: %s exceeds the signed 64-bit addressable "
+                "range",
+                what);
+    return (i64)(offset + extra);
 }
 
 static void frame_expand_vastart(A64Func *f, const Frame *fr)
@@ -1974,7 +2004,7 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
         for (ii = 0; ii < b->n; ii++) {
             A64Inst *in = &b->insts[ii];
             A64PhysReg ap, scratch;
-            u32 vr_top, gr_top;
+            u64 vr_top, gr_top;
 
             rb.map[ii] = rb.n;
             rb.source_loc = in->loc;
@@ -1998,18 +2028,24 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
             if (cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
                 A64Inst st;
 
-                emit_add_imm(&rb, scratch, A64_X29, vr_top + f->va_named_stack);
+                emit_add_imm_split(
+                    &rb, phys_reg((u8)scratch), phys_reg(A64_X29),
+                    frame_offset_with_extra(vr_top, f->va_named_stack,
+                                            "variadic stack top"),
+                    "variadic stack top");
                 st = mk_store_at(scratch, ap, 0, false);
                 rb_put(&rb, &st);
                 continue;
             }
-            emit_add_imm(&rb, scratch, A64_X29, gr_top);
+            emit_add_imm_split(&rb, phys_reg((u8)scratch), phys_reg(A64_X29),
+                               gr_top, "variadic general-register top");
             {
                 A64Inst st = mk_store_at(scratch, ap, 8, false);
 
                 rb_put(&rb, &st);
             }
-            emit_add_imm(&rb, scratch, A64_X29, vr_top);
+            emit_add_imm_split(&rb, phys_reg((u8)scratch), phys_reg(A64_X29),
+                               vr_top, "variadic vector-register top");
             {
                 A64Inst st = mk_store_at(scratch, ap, 16, false);
 
@@ -2019,8 +2055,11 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
                  * was stacked; when one was, it sits past them. Selection
                  * used to hard-error here instead. */
                 if (f->va_named_stack)
-                    emit_add_imm(&rb, scratch, A64_X29,
-                                 vr_top + f->va_named_stack);
+                    emit_add_imm_split(
+                        &rb, phys_reg((u8)scratch), phys_reg(A64_X29),
+                        frame_offset_with_extra(vr_top, f->va_named_stack,
+                                                "variadic stack top"),
+                        "variadic stack top");
                 st = mk_store_at(scratch, ap, 0, false);
                 rb_put(&rb, &st);
             }
@@ -2031,7 +2070,7 @@ static void frame_expand_vastart(A64Func *f, const Frame *fr)
 
 static void frame_emit_save_area(A64Func *f, const Frame *fr, Rb *rb)
 {
-    u32 base = fr->total - A64_VA_SAVE_BYTES;
+    u64 base = fr->total - A64_VA_SAVE_BYTES;
     u32 i;
 
     for (i = f->va_named_gp; i < 8; i++) {
@@ -2084,7 +2123,7 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
         f->cfi_pre_insns = rb.n - before;
         f->cfi_sp_offsets = arena_alloc(
             f->arena, (size_t)f->cfi_pre_insns * sizeof(*f->cfi_sp_offsets),
-            _Alignof(u32));
+            _Alignof(u64));
         for (i = 0; i < f->cfi_pre_insns; i++) {
             const A64Inst *adj = &rb.v[before + i];
 
@@ -2094,11 +2133,13 @@ static void frame_emit_prologue(A64Func *f, const Frame *fr)
                 adj->ops[2].kind != A64O_IMM || adj->ops[2].imm <= 0)
                 CGF_ICE("arm64 regalloc: malformed prologue SP adjustment");
             f->cfi_sp_offsets[i] =
-                (i ? f->cfi_sp_offsets[i - 1] : 0) + (u32)adj->ops[2].imm;
+                (i ? f->cfi_sp_offsets[i - 1] : 0) + (u64)adj->ops[2].imm;
         }
         if (f->cfi_sp_offsets[f->cfi_pre_insns - 1] != fr->total)
-            CGF_ICE("arm64 regalloc: CFI SP adjustments cover %u of %u bytes",
-                    f->cfi_sp_offsets[f->cfi_pre_insns - 1], fr->total);
+            CGF_ICE("arm64 regalloc: CFI SP adjustments cover %llu of %llu "
+                    "bytes",
+                    (unsigned long long)f->cfi_sp_offsets[f->cfi_pre_insns - 1],
+                    (unsigned long long)fr->total);
         if (fr->base <= A64_FRAME_PREINDEX_MAX) {
             A64Inst in = mk_pair(A64_OP_STP, A64_X29, A64_X30, A64_SP,
                                  (i64)fr->base, A64_ADDR_SCALED);
@@ -2260,7 +2301,8 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
             } else {
                 A64Inst in = mk_pair(A64_OP_LDP, A64_X29, A64_X30, A64_X29, 0,
                                      A64_ADDR_SCALED);
-                u32 before, restored = 0;
+                u32 before;
+                u64 restored = 0;
 
                 ep->before_pair = ++f->cfi_next_label;
                 ep->after_pair = ++f->cfi_next_label;
@@ -2275,7 +2317,7 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                     _Alignof(u32));
                 ep->sp_offsets = arena_alloc(
                     f->arena, (size_t)ep->nsp * sizeof(*ep->sp_offsets),
-                    _Alignof(u32));
+                    _Alignof(u64));
                 for (i = 0; i < ep->nsp; i++) {
                     A64Inst *adj = &rb.v[before + i];
 
@@ -2288,15 +2330,16 @@ static void frame_emit_epilogue(A64Func *f, const Frame *fr)
                         (u64)restored + (u64)adj->ops[2].imm > fr->total)
                         CGF_ICE("arm64 regalloc: malformed epilogue SP "
                                 "adjustment");
-                    restored += (u32)adj->ops[2].imm;
+                    restored += (u64)adj->ops[2].imm;
                     ep->sp_labels[i] = ++f->cfi_next_label;
                     ep->sp_offsets[i] = fr->total - restored;
                     adj->cfi_after_label = ep->sp_labels[i];
                 }
                 if (restored != fr->total)
-                    CGF_ICE("arm64 regalloc: epilogue CFI restores %u of %u "
-                            "frame bytes",
-                            restored, fr->total);
+                    CGF_ICE("arm64 regalloc: epilogue CFI restores %llu of "
+                            "%llu frame bytes",
+                            (unsigned long long)restored,
+                            (unsigned long long)fr->total);
             }
             {
                 A64Inst ret = b->insts[ii];
@@ -2336,12 +2379,14 @@ static void frame_finalize(Ra *ra)
      * The 8 bytes are never wasted in practice: a64_frame_total rounds the
      * whole frame to 16 anyway, so this only moves where the slack sits. */
     fr.csr_size = (fr.csr_size + 15) & ~15u;
-    frame_assign_allocas(f, &ra->slots);
-    fr.local_top = (u32)(-ra->slots.next_offset);
-    fr.total = a64_frame_total(fr.base + fr.csr_size, fr.local_top,
-                               f->variadic ? A64_VA_SAVE_BYTES : 0);
+    fr.local_top = frame_assign_allocas(f, &ra->slots);
+    /* Keep all three terms separate until a64_frame_total widens them. */
+    fr.total =
+        a64_frame_total(fr.base, fr.local_top,
+                        fr.csr_size + (f->variadic ? A64_VA_SAVE_BYTES : 0));
     if (fr.total & 15)
-        CGF_ICE("arm64 regalloc: frame %u is not 16-byte aligned", fr.total);
+        CGF_ICE("arm64 regalloc: frame %llu is not 16-byte aligned",
+                (unsigned long long)fr.total);
     fr.dynamic_sp = frame_has_dynamic_sp(f);
     frame_fixup_slots(f, &fr);
     frame_expand_allocas(f, &fr);
