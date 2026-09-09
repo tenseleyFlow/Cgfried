@@ -76,6 +76,9 @@ run_import()
 }
 
 run_import >/dev/null
+awk -F "$(printf '\\t')" '$1 == "execute/float-floor.c" && $6 == "run" && $7 == "-" { found=1 }
+    END { exit !found }' "$out/MANIFEST" ||
+    fail "float-floor did not return to the runnable manifest"
 first=$(tree_digest "$out")
 run_import >/dev/null
 second=$(tree_digest "$out")

@@ -6,6 +6,7 @@ output=
 source_file=
 compile_only=0
 probe=primary
+libm_after_source=0
 while [ "$#" -gt 0 ]; do
     case $1 in
     --target=*) target=${1#--target=} ;;
@@ -18,6 +19,9 @@ while [ "$#" -gt 0 ]; do
         output=$1
         ;;
     -c) compile_only=1 ;;
+    -lm)
+        [ -z "$source_file" ] || libm_after_source=1
+        ;;
     -E) probe=pp ;;
     --dump-ast) probe=parse ;;
     -fsyntax-only) probe=sema ;;
@@ -98,6 +102,13 @@ link-libm.c)
     echo "/usr/bin/ld: fixture.o: in function 'calculate':" >&2
     echo "fixture.c:(.text+0x9): undefined reference to 'sqrt'" >&2
     exit 2
+    ;;
+libm-required.c)
+    if { [ "$compile_only" -eq 0 ] && [ "$libm_after_source" -ne 1 ]; } || \
+       { [ "$compile_only" -ne 0 ] && [ "$libm_after_source" -ne 0 ]; }; then
+        echo "/usr/bin/ld: fixture.o: undefined reference to 'sqrt'" >&2
+        exit 2
+    fi
     ;;
 link-alloca.c)
     echo "/usr/bin/ld: fixture.o: in function 'allocate':" >&2

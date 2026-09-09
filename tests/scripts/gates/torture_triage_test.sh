@@ -142,9 +142,11 @@ cp "$tmp/pair-passing.txt" "$tmp/pair-passing.expected"
 echo 'must survive second-publication failure' >"$tmp/pair-report.md"
 cp "$tmp/pair-report.md" "$tmp/pair-report.expected"
 real_mv=$(command -v mv)
+pair_passing_dir=$(CDPATH='' cd "$(dirname "$tmp/pair-passing.txt")" && pwd -P)
+pair_passing_canonical=$pair_passing_dir/$(basename "$tmp/pair-passing.txt")
 expect_status second-publication-failure 3 'triage-torture: cannot publish passing output:' env \
     PATH="$tmp/fail-mv-bin:$PATH" CGF_REAL_MV="$real_mv" \
-    CGF_FAIL_MV_DEST="$tmp/pair-passing.txt" \
+    CGF_FAIL_MV_DEST="$pair_passing_canonical" \
     CGF_TORTURE_TRIAGE_POLICY="$fixtures/policy.tsv" \
     "$triage" --emit-passing "$tmp/pair-passing.txt" \
     --output "$tmp/pair-report.md" $results

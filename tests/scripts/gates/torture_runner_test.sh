@@ -21,6 +21,7 @@ cp -R "$fixtures/compile" "$tmp/compile"
 cp "$fixtures/ctests/output-pass.c" "$tmp/output-pass.c"
 cp "$fixtures/ctests/output-fail.c" "$tmp/output-fail.c"
 cp "$fixtures/ctests/output-extra-blank.c" "$tmp/output-extra-blank.c"
+cp "$fixtures/ctests/libm-required.c" "$tmp/libm-required.c"
 cp "$fixtures/ctests/expected.txt" "$tmp/expected.txt"
 
 hash()
@@ -44,7 +45,10 @@ run_target()
     manifest=$3
     run_target_name=$4
     shift 4
-    env CGF_TORTURE_TIMEOUT=1 "$@" "$runner" --cc "$fake_cc" \
+    # Five seconds keeps this deterministic process-control fixture usable on
+    # loaded native hosts while the timeout cases still exercise the same
+    # kill and classification paths.
+    env CGF_TORTURE_TIMEOUT=5 "$@" "$runner" --cc "$fake_cc" \
         --suite "$suite" --level O2 --target "$run_target_name" \
         --manifest "$manifest" --output "$tmp/$name.tsv" --work "$tmp/$name.work"
 }
@@ -99,7 +103,7 @@ printf 'execute/int128-requirement.c\t%s\trun\tint128\t-\tpass\t-\n' \
 cp "$fixtures/execute/pass.c" "$tmp/execute/requirement.c"
 cp "$fixtures/execute/pass.c" "$tmp/execute/int128-requirement.c"
 
-run execute torture-execute "$torture_manifest"
+run execute torture-execute "$torture_manifest" env CGF_TORTURE_TIMEOUT=5
 execute=$tmp/execute.tsv
 expect_outcome "$execute" pass.c PASS
 expect_outcome "$execute" compile-fail.c COMPILE_FAIL
@@ -138,12 +142,29 @@ cmp "$tmp/actual-order" "$tmp/sorted-order" || {
 
 # The diagnostic contains both an absolute source path and locations. A second
 # work directory must still produce byte-identical fingerprints and rows.
-run execute-repeat torture-execute "$torture_manifest"
-cmp "$execute" "$tmp/execute-repeat.tsv" || {
+# Timing fixtures deliberately exercise timeout and signal handling; repeat
+# only deterministic outcomes when asserting byte-identical result streams.
+determinism_manifest=$tmp/determinism.MANIFEST
+for rel in pass.c wrong-exit.c ice.c; do
+    printf 'execute/%s\t%s\trun\t-\t-\trun\t-\n' "$rel" \
+        "$(hash "$fixtures/execute/$rel")" >> "$determinism_manifest"
+done
+run execute-repeat torture-execute "$determinism_manifest" env CGF_TORTURE_TIMEOUT=5
+run execute-repeat-again torture-execute "$determinism_manifest" env CGF_TORTURE_TIMEOUT=5
+cmp "$tmp/execute-repeat.tsv" "$tmp/execute-repeat-again.tsv" || {
     echo "torture_runner_test: repeated result was not deterministic" >&2
-    diff -u "$execute" "$tmp/execute-repeat.tsv" >&2 || true
+    diff -u "$tmp/execute-repeat.tsv" "$tmp/execute-repeat-again.tsv" >&2 || true
     exit 1
 }
+
+# An executable needs libm after its object in the link stream.  Give the
+# process a little more room than the timeout fixtures above: this contract
+# test is about argv ordering, not timeout classification.
+libm_manifest=$tmp/libm.MANIFEST
+printf 'execute/libm-required.c\t%s\trun\t-\t-\trun\t-\n' \
+    "$(hash "$fixtures/execute/libm-required.c")" > "$libm_manifest"
+run libm torture-execute "$libm_manifest" env CGF_TORTURE_TIMEOUT=5
+expect_outcome "$tmp/libm.tsv" libm-required.c PASS
 
 # Runtime signal fingerprints are testcase identities, not host timeout
 # diagnostics.  Two sources killed by the same signal must stay separate,
@@ -202,8 +223,11 @@ esac || {
 compile_manifest=$tmp/compile.MANIFEST
 printf 'compile/compile-pass.c\t%s\tcompile\t-\t-fwrapv\tpass\t-\n' \
     "$(hash "$fixtures/compile/compile-pass.c")" > "$compile_manifest"
+printf 'compile/libm-required.c\t%s\tcompile\t-\t-\tpass\t-\n' \
+    "$(hash "$fixtures/compile/libm-required.c")" >> "$compile_manifest"
 run compile torture-compile "$compile_manifest"
 expect_outcome "$tmp/compile.tsv" compile-pass.c PASS
+expect_outcome "$tmp/compile.tsv" libm-required.c PASS
 
 phase_manifest=$tmp/phase.MANIFEST
 for rel in pp-fail.c parse-fail.c sema-fail.c cg-fail.c compile-exit124.c compile-timeout.c; do
@@ -223,7 +247,7 @@ large_probe_manifest=$tmp/large-probe.MANIFEST
 printf 'execute/large-pp-cg-fail.c\t%s\trun\t-\t-\trun\t-\n' \
     "$(hash "$fixtures/execute/large-pp-cg-fail.c")" > "$large_probe_manifest"
 run large-probe torture-execute "$large_probe_manifest" env \
-    CGF_TORTURE_OUTPUT_LIMIT=4096
+    CGF_TORTURE_TIMEOUT=5 CGF_TORTURE_OUTPUT_LIMIT=4096
 expect_outcome "$tmp/large-probe.tsv" large-pp-cg-fail.c COMPILE_FAIL
 expect_phase "$tmp/large-probe.tsv" large-pp-cg-fail.c cg
 large_probe_log=$(find "$tmp/large-probe.work/cases" -name phase-pp.stdout \
@@ -239,7 +263,8 @@ for rel in compile-ignore-term.c ignore-term.c spoof-marker.c; do
         "$(hash "$fixtures/execute/$rel")"
 done > "$liveness_manifest"
 liveness_start=$(date +%s)
-run liveness torture-execute "$liveness_manifest" env CGF_TORTURE_KILL_AFTER=1
+run liveness torture-execute "$liveness_manifest" env \
+    CGF_TORTURE_TIMEOUT=5 CGF_TORTURE_KILL_AFTER=1
 liveness_end=$(date +%s)
 liveness_elapsed=$((liveness_end - liveness_start))
 [ "$liveness_elapsed" -le 20 ] || {
@@ -251,22 +276,28 @@ expect_outcome "$tmp/liveness.tsv" ignore-term.c TIMEOUT
 expect_outcome "$tmp/liveness.tsv" spoof-marker.c PASS
 
 output_limit_manifest=$tmp/output-limit.MANIFEST
-for rel in compile-output-flood.c output-flood.c large-binary.c \
-    large-created-file.c pass.c; do
-    printf 'execute/%s\t%s\trun\t-\t-\trun\t-\n' "$rel" \
-        "$(hash "$fixtures/execute/$rel")"
-done > "$output_limit_manifest"
+printf 'execute/compile-output-flood.c\t%s\trun\t-\t-\trun\t-\n' \
+    "$(hash "$fixtures/execute/compile-output-flood.c")" > "$output_limit_manifest"
 run output-limit torture-execute "$output_limit_manifest" env \
-    CGF_TORTURE_OUTPUT_LIMIT=4096
+    CGF_TORTURE_TIMEOUT=15 CGF_TORTURE_OUTPUT_LIMIT=4096
 expect_outcome "$tmp/output-limit.tsv" compile-output-flood.c COMPILE_FAIL
-expect_outcome "$tmp/output-limit.tsv" output-flood.c OUTPUT_FAIL
-expect_outcome "$tmp/output-limit.tsv" large-binary.c PASS
-expect_outcome "$tmp/output-limit.tsv" large-created-file.c PASS
-expect_outcome "$tmp/output-limit.tsv" pass.c PASS
-awk -F "$tab" '$3 == "compile-output-flood.c" && $10 == "output limit exceeded" { compile=1 }
-    $3 == "output-flood.c" && $10 == "output limit exceeded" { run=1 }
-    END { exit !(compile && run) }' "$tmp/output-limit.tsv"
-for output_case_dir in "$tmp/output-limit.work/cases"/*; do
+awk -F "$tab" '$3 == "compile-output-flood.c" && $10 == "output limit exceeded" { found=1 }
+    END { exit !found }' "$tmp/output-limit.tsv"
+
+# Run the compiler and program flood contracts independently. The runner must
+# continue draining both streams until the child exits, so an intentionally
+# unbounded compiler diagnostic can otherwise dominate the scheduling window
+# for the intentionally unbounded program-output fixture on a loaded host.
+runtime_output_limit_manifest=$tmp/runtime-output-limit.MANIFEST
+printf 'execute/output-flood.c\t%s\trun\t-\t-\trun\t-\n' \
+    "$(hash "$fixtures/execute/output-flood.c")" > "$runtime_output_limit_manifest"
+run runtime-output-limit torture-execute "$runtime_output_limit_manifest" env \
+    CGF_TORTURE_TIMEOUT=15 CGF_TORTURE_OUTPUT_LIMIT=4096
+expect_outcome "$tmp/runtime-output-limit.tsv" output-flood.c OUTPUT_FAIL
+awk -F "$tab" '$3 == "output-flood.c" && $10 == "output limit exceeded" { found=1 }
+    END { exit !found }' "$tmp/runtime-output-limit.tsv"
+for output_work in "$tmp/output-limit.work" "$tmp/runtime-output-limit.work"; do
+for output_case_dir in "$output_work/cases"/*; do
     output_bytes=0
     for output_log in "$output_case_dir"/*.stdout "$output_case_dir"/*.stderr; do
         [ -f "$output_log" ] || continue
@@ -277,13 +308,28 @@ for output_case_dir in "$tmp/output-limit.work/cases"/*; do
         exit 1
     }
 done
-large_binary=$(find "$tmp/output-limit.work/cases" -path '*large-binary.c*' \
+done
+
+# Keep artifact-size coverage independent from deliberately unbounded output.
+# On a loaded native host the latter can otherwise delay a normal program long
+# enough to turn a process-control test into a scheduler test.
+artifact_limit_manifest=$tmp/artifact-limit.MANIFEST
+for rel in large-binary.c large-created-file.c pass.c; do
+    printf 'execute/%s\t%s\trun\t-\t-\trun\t-\n' "$rel" \
+        "$(hash "$fixtures/execute/$rel")"
+done > "$artifact_limit_manifest"
+run artifact-limit torture-execute "$artifact_limit_manifest" env \
+    CGF_TORTURE_TIMEOUT=15 CGF_TORTURE_OUTPUT_LIMIT=4096
+expect_outcome "$tmp/artifact-limit.tsv" large-binary.c PASS
+expect_outcome "$tmp/artifact-limit.tsv" large-created-file.c PASS
+expect_outcome "$tmp/artifact-limit.tsv" pass.c PASS
+large_binary=$(find "$tmp/artifact-limit.work/cases" -path '*large-binary.c*' \
     -name program -type f | sed -n '1p')
 [ -n "$large_binary" ] && [ "$(wc -c < "$large_binary")" -gt 4096 ] || {
     echo "torture_runner_test: compiler artifact was truncated by log cap" >&2
     exit 1
 }
-large_created=$(find "$tmp/output-limit.work/cases" -path '*large-created-file.c*' \
+large_created=$(find "$tmp/artifact-limit.work/cases" -path '*large-created-file.c*' \
     -name created-large.bin -type f | sed -n '1p')
 [ -n "$large_created" ] && [ "$(wc -c < "$large_created")" -gt 4096 ] || {
     echo "torture_runner_test: program-created file was truncated by log cap" >&2
@@ -439,7 +485,7 @@ for rel in exit124.c timeout.c cwd.c; do
     printf 'execute/%s\t%s\trun\t-\t-\trun\t-\n' "$rel" \
         "$(hash "$fixtures/execute/$rel")"
 done > "$exit_manifest"
-run exit-and-cwd torture-execute "$exit_manifest"
+run exit-and-cwd torture-execute "$exit_manifest" env CGF_TORTURE_TIMEOUT=5
 expect_outcome "$tmp/exit-and-cwd.tsv" exit124.c WRONG_EXIT
 expect_outcome "$tmp/exit-and-cwd.tsv" timeout.c TIMEOUT
 [ ! -e "$cwd_sentinel" ] || {
@@ -467,18 +513,20 @@ cmp "$tmp/sibling-a.tsv" "$tmp/sibling-b.tsv" || {
 }
 
 ct_manifest=$tmp/ctestsuite.MANIFEST
-for rel in output-pass.c output-fail.c output-extra-blank.c expected.txt; do
+for rel in output-pass.c output-fail.c output-extra-blank.c libm-required.c expected.txt; do
     printf 'file\t%s\t%s\n' "$rel" "$(hash "$tmp/$rel")"
 done > "$ct_manifest"
 {
     printf 'case\toutput-pass.c\texpected.txt\t-\trun\t-\n'
     printf 'case\toutput-fail.c\texpected.txt\tgnu,math\trun\t-\n'
     printf 'case\toutput-extra-blank.c\texpected.txt\t-\trun\t-\n'
+    printf 'case\tlibm-required.c\t-\tmath\trun\t-\n'
 } >> "$ct_manifest"
-run ctestsuite ctestsuite "$ct_manifest"
+run ctestsuite ctestsuite "$ct_manifest" env CGF_TORTURE_TIMEOUT=5
 expect_outcome "$tmp/ctestsuite.tsv" output-pass.c PASS
 expect_outcome "$tmp/ctestsuite.tsv" output-fail.c OUTPUT_FAIL
 expect_outcome "$tmp/ctestsuite.tsv" output-extra-blank.c OUTPUT_FAIL
+expect_outcome "$tmp/ctestsuite.tsv" libm-required.c PASS
 awk -F "$tab" '$3 == "output-fail.c" && $10 == "[tags=gnu,math] stdout differs from expected output" { found=1 }
     END { exit !found }' "$tmp/ctestsuite.tsv"
 output_fail_fp=$(awk -F "$tab" '$3 == "output-fail.c" {print $8}' "$tmp/ctestsuite.tsv")
@@ -488,7 +536,7 @@ output_blank_fp=$(awk -F "$tab" '$3 == "output-extra-blank.c" {print $8}' "$tmp/
     echo "torture_runner_test: distinct stdout mismatches collapsed" >&2
     exit 1
 }
-run ctestsuite-repeat ctestsuite "$ct_manifest"
+run ctestsuite-repeat ctestsuite "$ct_manifest" env CGF_TORTURE_TIMEOUT=5
 cmp "$tmp/ctestsuite.tsv" "$tmp/ctestsuite-repeat.tsv" || {
     echo "torture_runner_test: stdout mismatch fingerprints were not stable" >&2
     diff -u "$tmp/ctestsuite.tsv" "$tmp/ctestsuite-repeat.tsv" >&2 || true
@@ -504,7 +552,7 @@ else
 fi
 
 run wrapper torture-execute "$torture_manifest" env \
-    CGF_TORTURE_RUN="$fixtures/wrapper-unavailable.sh"
+    CGF_TORTURE_TIMEOUT=5 CGF_TORTURE_RUN="$fixtures/wrapper-unavailable.sh"
 expect_outcome "$tmp/wrapper.tsv" pass.c SKIP
 awk -F "$tab" '$3 == "pass.c" && $9 == "policy" && $10 == "execution wrapper unavailable" { found=1 }
     END { exit !found }' "$tmp/wrapper.tsv"

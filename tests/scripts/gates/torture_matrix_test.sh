@@ -336,8 +336,8 @@ cp "$tmp/combined-triage.md" "$tmp/combined-triage.good"
     awk -F "$tab" '$4 == "O2" || $4 == "O3" || $4 == "Os"' \
         "$tmp/x86-results.txt"
 } >"$tmp/x86-part-b.raw"
-sed '9c\# compiler-binary-sha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' \
-    "$tmp/x86-part-b.raw" >"$tmp/x86-part-b.txt"
+awk 'NR == 9 { print "# compiler-binary-sha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"; next }
+    { print }' "$tmp/x86-part-b.raw" >"$tmp/x86-part-b.txt"
 status=0
 run_make torture-baseline CGF_TORTURE_TARGET=arm64-linux \
     CGF_TORTURE_RESULTS="$tmp/duplicate-target-arm.txt" \
@@ -388,8 +388,8 @@ cmp "$tmp/combined-passing.good" "$tmp/combined-passing.txt" >/dev/null ||
 cmp "$tmp/combined-triage.good" "$tmp/combined-triage.md" >/dev/null ||
     fail 'staged triage failure changed the report'
 
-sed '5c\# harness-sha256=9999999999999999999999999999999999999999999999999999999999999999' \
-    "$tmp/x86-results.txt" >"$tmp/mismatched-x86.txt"
+awk 'NR == 5 { print "# harness-sha256=9999999999999999999999999999999999999999999999999999999999999999"; next }
+    { print }' "$tmp/x86-results.txt" >"$tmp/mismatched-x86.txt"
 status=0
 run_make torture-baseline CGF_TORTURE_TARGET=arm64-linux \
     CGF_TORTURE_RESULTS="$tmp/mismatch-arm.txt" \
