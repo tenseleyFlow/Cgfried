@@ -155,8 +155,7 @@ static void pmem(Buf *out, const X64Func *f, const X64Mem *m)
         return;
     }
     if (m->gottpoff_sym) {
-        buf_printf(out, "rip gottpoff @%s]",
-                   f->m->syms[m->gottpoff_sym - 1]);
+        buf_printf(out, "rip gottpoff @%s]", f->m->syms[m->gottpoff_sym - 1]);
         return;
     }
     if (m->rip_sym) {

@@ -1019,8 +1019,8 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb, u32 bi, u32 at)
         const char *tpreg = a64_phys_name(tp, A64_SF64);
 
         buf_printf(e->out, "\tadrp\t%s, :gottprel:%s\n", reg, sym);
-        buf_printf(e->out, "\tldr\t%s, [%s, :gottprel_lo12:%s]\n", reg,
-                   reg, sym);
+        buf_printf(e->out, "\tldr\t%s, [%s, :gottprel_lo12:%s]\n", reg, reg,
+                   sym);
         buf_printf(e->out, "\tmrs\t%s, tpidr_el0\n", tpreg);
         buf_printf(e->out, "\tadd\t%s, %s, %s\n", reg, tpreg, reg);
         if (in->nops > 2 && in->ops[2].imm)

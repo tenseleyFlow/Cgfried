@@ -365,14 +365,13 @@ static A64Reg to_gp(Isel *is, const IrOperand *operand)
         return emit_mov_bits(is, operand->a, sf_of((IrType)operand->type));
     case IROP_SYMBOL: {
         A64Reg dest = a64_newv_width(is->func, A64RC_GP, A64_SF64);
-        IrTlsModel tls_model =
-            ir_sym_tls_model(is->module, operand->sym + 1);
+        IrTlsModel tls_model = ir_sym_tls_model(is->module, operand->sym + 1);
         /* A thread-local has no ordinary address. Local-exec obtains its
          * offset directly from the linker; initial-exec loads that offset
          * from a GOTTPREL slot before adding TPIDR_EL0. */
         A64Inst *inst =
             emit(is,
-                 tls_model == IR_TLS_LOCAL_EXEC   ? A64_OP_TLSADDR
+                 tls_model == IR_TLS_LOCAL_EXEC     ? A64_OP_TLSADDR
                  : tls_model == IR_TLS_INITIAL_EXEC ? A64_OP_TLSIEADDR
                                                     : A64_OP_ADDR,
                  A64_SF64);
