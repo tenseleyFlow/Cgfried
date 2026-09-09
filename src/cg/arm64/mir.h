@@ -181,6 +181,11 @@ typedef enum A64Op {
      * offset, because it is three instructions rather than the ordinary
      * two and none of them is an adrp. */
     A64_OP_TLSADDR,
+    /* An undefined ELF thread-local under the initial-exec model. Its GOT
+     * entry yields a thread-pointer-relative offset, then the pseudo adds
+     * TPIDR_EL0. Kept distinct from TLSADDR because its relocation family is
+     * GOTTPREL, not the local-exec TPREL pair. */
+    A64_OP_TLSIEADDR,
     A64_OP_LOAD,
     A64_OP_STORE,
     A64_OP_LDP,

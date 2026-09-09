@@ -499,6 +499,28 @@ static u8 parse_visibility_suffix(P *p)
     return GNU_VIS_UNSPEC;
 }
 
+/* ` tls(initial_exec)` on an otherwise undefined module symbol. The hyphen
+ * used in the ABI term is not an IR identifier character, so textual IR keeps
+ * the spelling deliberately parse-friendly with an underscore. */
+static IrTlsModel parse_tls_model_suffix(P *p)
+{
+    Tok *model;
+
+    if (!tok_is(peek(p), "tls"))
+        return IR_TLS_NONE;
+    next(p);
+    if (!expect(p, T_LP, "'(' after 'tls'"))
+        return IR_TLS_NONE;
+    model = next(p);
+    if (!model)
+        return IR_TLS_NONE;
+    (void)expect(p, T_RP, "')' after TLS model");
+    if (tok_is(model, "initial_exec"))
+        return IR_TLS_INITIAL_EXEC;
+    perr(p, model, "unknown TLS model in IR text");
+    return IR_TLS_NONE;
+}
+
 static const char *tok_name(P *p, const Tok *t)
 {
     if (t->kind == T_XAIDENT) {
@@ -2433,6 +2455,7 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             u32 sym;
             bool weak = false;
             u8 visibility;
+            IrTlsModel tls_model;
 
             next(&p);
             nm = expect_symbol(&p, "a symbol name");
@@ -2444,7 +2467,9 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
                 weak = true;
             }
             visibility = parse_visibility_suffix(&p);
+            tls_model = parse_tls_model_suffix(&p);
             ir_sym_set_attrs(m, sym, weak, visibility);
+            ir_sym_set_tls_model(m, sym, tls_model);
         } else if (tok_is(t, "alias")) {
             next(&p);
             if (!parse_alias(&p))

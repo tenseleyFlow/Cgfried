@@ -983,6 +983,62 @@ void test_a64_emit_tls_addends_are_encodable(TestCtx *t)
     T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
 }
 
+/* Initial-exec has two independently reserved scratch uses: it needs one
+ * register for TPIDR_EL0, then an arbitrary source addend may need one more
+ * after the address is complete. Direct MIR can name x12/x13 as its
+ * destination, so prove the emitter selects the alternate in both cases.
+ * Normal selected code has virtual destinations and regalloc withholds this
+ * pair, but that does not protect the direct-MIR contract. */
+void test_a64_emit_tls_initial_exec_uses_alternate_scratch(TestCtx *t)
+{
+    const char *syms[] = {"external_tls"};
+    IrModule module = {.syms = syms, .nsyms = CGF_ARRAY_LEN(syms)};
+    TargetSpec previous = cgf_target_selected();
+    Arena arena;
+    A64Block block = {0};
+    A64Func func = {0};
+    A64Inst addr = {.op = A64_OP_TLSIEADDR, .sf = A64_SF64, .nops = 3};
+    Buf text;
+
+    T_ASSERT(t, cgf_target_select("arm64-linux"));
+    arena_init(&arena);
+    func.name = "tls_initial_exec";
+    func.arena = &arena;
+    func.blocks = &block;
+    func.nblocks = 1;
+    func.allocated = true;
+
+    addr.ops[0] = (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X12)};
+    addr.ops[1] = (A64Operand){.kind = A64O_SYM, .id = 1};
+    addr.ops[2] = (A64Operand){.kind = A64O_IMM, .imm = 0};
+    a64_block_append(&func, &block, addr);
+
+    addr.ops[0] = (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X13)};
+    addr.ops[2] = (A64Operand){.kind = A64O_IMM, .imm = 0x1000000};
+    a64_block_append(&func, &block, addr);
+
+    buf_init(&text);
+    a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
+    buf_push_u8(&text, 0);
+
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx12, :gottprel:external_tls\n"
+                       "\tldr\tx12, [x12, :gottprel_lo12:external_tls]\n"
+                       "\tmrs\tx13, tpidr_el0\n"
+                       "\tadd\tx12, x13, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx13, :gottprel:external_tls\n"
+                       "\tldr\tx13, [x13, :gottprel_lo12:external_tls]\n"
+                       "\tmrs\tx12, tpidr_el0\n"
+                       "\tadd\tx13, x12, x13\n"
+                       "\torr\tx12, xzr, #0x1000000\n"
+                       "\tadd\tx13, x13, x12\n") != NULL);
+
+    buf_free(&text);
+    arena_free_all(&arena);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
+}
+
 void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
 {
     Arena arena;
