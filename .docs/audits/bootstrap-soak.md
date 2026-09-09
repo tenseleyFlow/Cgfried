@@ -8,10 +8,23 @@ and manifests.
 
 ## Gate contract
 
-- Daily requirement: 30 consecutive distinct UTC dates on which every active
-  scheduled lane is green. A missing or red required run breaks the streak.
+- Daily requirement: 30 consecutive distinct UTC dates with x86_64 O0/O2 and
+  native arm64 O0/O2 green at one exact commit. The `17 3 * * *` GitHub-hosted
+  workflow now launches all four jobs in one run, so `github.sha` supplies the
+  matching-head proof without relying on a developer push. Legacy split-run
+  evidence is acceptable only when both runs occurred on the same UTC date at
+  the same exact commit. A missing required job, compiler/bootstrap failure,
+  or incomplete evidence breaks the streak.
 - Weekly requirement: after the cross-host lane is truthfully activated, every
   scheduled weekly run inside the same 30-day interval must be green.
+- The soak has no dependency on Kasumi, Hasu, Nomad, a developer workstation,
+  or any self-hosted runner. Those machines may be offline without affecting
+  the gate. Both daily architectures run in GitHub's hosted runner pools.
+- `workflow_dispatch` is the recovery path for a GitHub-hosted infrastructure
+  failure that occurs before bootstrap begins. Recovery must complete the full
+  hosted lattice on the same UTC date. It cannot erase a compiler,
+  fixed-point, comparison, or evidence failure; those failures reset the
+  streak.
 - Identity means raw byte identity with no normalization. The workflow
   artifacts must retain the run manifest and bootstrap logs.
 - The final cross-host artifact must retain both hosted run manifests, both
@@ -25,16 +38,28 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 10/30 consecutive distinct UTC dates green.** The current streak
-started on 2026-08-19. The first streak began on 2026-08-13 and reached 5/30
-through 2026-08-17. It reset on 2026-08-18 because the required x86 O0 job was
-cancelled during system-toolchain installation: bootstrap was skipped, the
-evidence-manifest step failed, and no x86 O0 artifact was retained. The green
-native ARM64 pair on that date cannot cure a missing required daily lane.
-August 19 is therefore day 1 of the new streak, August 20 is day 2, August 21
-is day 3, August 22 is day 4, August 23 is day 5, August 24 is day 6, August
-25 is day 7, August 26 is day 8, August 27 is day 9, and August 28 is day 10.
-A missing or red required run resets the streak.
+**RUNNING: 1/30 consecutive distinct UTC dates green.** The current strict
+streak started on 2026-09-09. Matching-head x86 and ARM runs at `1a7bbe80`
+passed both optimization levels and retained all four required artifacts.
+
+The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
+reset on 2026-08-18 because the required x86 O0 job was cancelled during
+system-toolchain installation: bootstrap was skipped, the evidence-manifest
+step failed, and no x86 O0 artifact was retained. The second streak began on
+August 19 and reached 17/30 through September 4. September 5 had a green
+scheduled native ARM pair but no x86 bootstrap run anywhere on that UTC date,
+so it reset the streak. September 6 passed the complete weekly lattice.
+September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
+did not run at one matching commit; neither date continues a strict
+matching-head streak. September 9 is therefore the new day 1. If uninterrupted,
+day 30 is 2026-10-08.
+
+The workflow previously scheduled only ARM every day and obtained x86 evidence
+accidentally from repository pushes. The current automation repair schedules
+both architectures together, pins them to GitHub-hosted runner pools, retries
+transient package downloads, and is guarded by
+`scripts/check_bootstrap_ci_policy.sh`. A local or fleet machine going offline
+can no longer create a missing daily lane.
 
 The weekly cross-host lane is active without comparing unrelated host
 toolchains. Native ARM64 archives one canonical system-header sysroot before
@@ -78,6 +103,32 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-08-26 | `69113c47f5880e12cef84d40bb2242765d005888` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 32919964767](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767) + [ARM run 32928733136](https://github.com/tenseleyFlow/Cgfried/actions/runs/32928733136) |
 | 2026-08-27 | `6ef24ca219b8c47bd72f7f2bb821463e60d42a1d` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33056638768](https://github.com/tenseleyFlow/Cgfried/actions/runs/33056638768) + [ARM run 33080889159](https://github.com/tenseleyFlow/Cgfried/actions/runs/33080889159) |
 | 2026-08-28 | `5277c7fc871261bf52aa290f68cedb1c5209a88f` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33168831416](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168831416) + [ARM run 33184794811](https://github.com/tenseleyFlow/Cgfried/actions/runs/33184794811) |
+| 2026-08-29 | `f181f62f4a70b000f84479255f7072951970905e` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33227119302](https://github.com/tenseleyFlow/Cgfried/actions/runs/33227119302) + [ARM run 33246917588](https://github.com/tenseleyFlow/Cgfried/actions/runs/33246917588) |
+| 2026-08-30 | `0295bd50d5f8b37a6f41c12b22694aadbfa3e6a1` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 33304101150](https://github.com/tenseleyFlow/Cgfried/actions/runs/33304101150) |
+| 2026-08-31 | `ff3b9d66e0962a38bab4ae39cd06019a1d332f50` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33368714190](https://github.com/tenseleyFlow/Cgfried/actions/runs/33368714190) + [ARM run 33379158911](https://github.com/tenseleyFlow/Cgfried/actions/runs/33379158911) |
+| 2026-09-01 | `a8a23acd37cbdeb886265620c4fcec051d5afa21` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33468168248](https://github.com/tenseleyFlow/Cgfried/actions/runs/33468168248) + [ARM run 33488085949](https://github.com/tenseleyFlow/Cgfried/actions/runs/33488085949) |
+| 2026-09-02 | `a80346d5fe2d57438d250206581ba12f5dacb162` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33590148620](https://github.com/tenseleyFlow/Cgfried/actions/runs/33590148620) + [ARM run 33605918756](https://github.com/tenseleyFlow/Cgfried/actions/runs/33605918756) |
+| 2026-09-03 | `99b007402a9bc88729dbcf1cb4e2ef2fd2cbf1cd` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33719604422](https://github.com/tenseleyFlow/Cgfried/actions/runs/33719604422) + [ARM run 33731245035](https://github.com/tenseleyFlow/Cgfried/actions/runs/33731245035) |
+| 2026-09-04 | `e62f590f82af4c91bfbbc504096dac16c9f45b3d` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 33843263792](https://github.com/tenseleyFlow/Cgfried/actions/runs/33843263792) + [ARM run 33851176958](https://github.com/tenseleyFlow/Cgfried/actions/runs/33851176958) |
+| 2026-09-05 | `5f0d01c0fa2411ae2a40f16488452cf0b6f0a42c` | **RESET — no x86 run on this UTC date** | **RESET** | PASS | PASS | N/A — not due | [ARM run 33953171212](https://github.com/tenseleyFlow/Cgfried/actions/runs/33953171212) |
+| 2026-09-06 | `13367fc019cd2ea1c79d0e0b1e7ee80f36601991` | PASS | PASS + repro PASS | PASS | PASS | PASS | [run 34020937870](https://github.com/tenseleyFlow/Cgfried/actions/runs/34020937870) |
+| 2026-09-07 | `055566ae00732ce34ffede96172f10f6208d8526` | **RESET — no same-date matching-head x86 run** | **RESET** | PASS | PASS | N/A — not due | [ARM run 34099840921](https://github.com/tenseleyFlow/Cgfried/actions/runs/34099840921) + [prior-date matching x86 run 34027940467](https://github.com/tenseleyFlow/Cgfried/actions/runs/34027940467) |
+| 2026-09-08 | `6fb9b7ff4aa5a99050059d018e01c2d8a6dfe6e0` | **RESET — no same-date matching-head x86 run** | **RESET** | PASS | PASS | N/A — not due | [ARM run 34202545045](https://github.com/tenseleyFlow/Cgfried/actions/runs/34202545045) + [prior-date matching x86 run 34146266967](https://github.com/tenseleyFlow/Cgfried/actions/runs/34146266967) |
+| 2026-09-09 | `1a7bbe80bbb911004513baf29cc3682277e8bfa5` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 34318940375](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375) + [ARM run 34327498365](https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365) |
+
+The August 29–September 9 reconciliation uses GitHub's workflow, job, and
+retained-artifact metadata. Every qualifying non-Sunday pair retains
+`sprint58-bootstrap-x86_64-linux-O0`,
+`sprint58-bootstrap-x86_64-linux-O2`,
+`sprint58-bootstrap-arm64-linux-native-O0`, and
+`sprint58-bootstrap-arm64-linux-native-O2`. Full Sunday runs `33304101150`
+and `34020937870` retain those four plus
+`sprint58-bootstrap-arm64-cross-input`,
+`sprint58-bootstrap-arm64-cross-native`,
+`sprint58-bootstrap-arm64-cross-x86`, and
+`sprint58-bootstrap-arm64-cross-final`. All applicable jobs and workflows are
+green. This reconciliation does not claim a new full payload-rehash audit for
+those dates.
 
 Manual full-lattice checkpoint [run
 32603828216](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
