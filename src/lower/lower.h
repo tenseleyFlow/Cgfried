@@ -511,5 +511,8 @@ u32 lower_auto_align(const struct Symbol *sym, u64 natural);
 /* The linker name for a symbol: its `__asm__("...")` label if it has one,
  * otherwise its C identifier. Diagnostics keep the identifier. */
 const char *lower_link_name(const struct Symbol *sym);
+/* The corresponding IR spelling. On Mach-O an asm label stays exact while an
+ * ordinary C name receives the target's normal emission prefix. */
+const char *lower_ir_link_name(Lower *lo, const struct Symbol *sym);
 
 #endif

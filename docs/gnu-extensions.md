@@ -333,6 +333,10 @@ what the programmer wrote; only what the linker sees changes. That is why
 `lower_link_name` is a separate accessor rather than a rewrite of
 `Symbol.name`: an error message must still say the identifier.
 
+The rule applies to a block-scope `static` as well: it is still a
+file-lifetime object, and an explicit asm label replaces the ordinary internal
+`name.N` spelling rather than receiving a second suffix.
+
 It is not an attribute, but it lives in the same structure for the same reason
 `weak` does — a property of the symbol, decided at the declaration and consumed
 by whatever emits or references it. The name is emitted VERBATIM and is not

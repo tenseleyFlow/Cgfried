@@ -1367,7 +1367,11 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         X64Inst *x;
 
         if (in->ops[1].kind == IROP_ICONST) {
-            count = oimm((i64)in->ops[1].a);
+            /* The immediate encoding is an imm8, while x86 itself masks
+             * counts to five bits (or six for a qword).  An over-width C
+             * shift is undefined, but accepted source must still produce
+             * legal assembly; match the variable-count instruction here. */
+            count = oimm((i64)(in->ops[1].a & (w == X64_Q ? 63u : 31u)));
         } else {
             /* variable count: CL fixed-reg constraint (hardware masks
              * &63/&31; over-width shifts are C UB — matching gcc).  Give
