@@ -3869,10 +3869,17 @@ and green post-publication CI.
   output matches GCC 13 on ARM64 and x86-64, all emitted ELF/Mach-O files
   assemble, the exact upstream testcase compiles at all five levels on both
   targets, and native ASan+UBSan plus focused native/Linux unit runs are green.
-  Adding the permanent fixtures intentionally moves the 5,000-iteration
-  frontend-fuzz sequence digest to `4efa7ef289fb84c8`; ordinary and sanitizer
-  CI reproduced it independently with zero findings, and two independent
-  Apple ARM64 hash runs agree.
+  The initial permanent fixtures moved the 5,000-iteration frontend-fuzz
+  sequence digest to `4efa7ef289fb84c8`; ordinary and sanitizer CI reproduced
+  it independently, while the 100,000-case lane found a pre-existing
+  error-recovery ICE at seed 55338. An invalid bit-field width left recovered
+  zero-width metadata on a comma expression, which then attempted to build an
+  impossible zero-precision integer type. The comma path now requires a
+  nonzero width and integral carrier, and a permanent diagnostic fixture pins
+  normal rejection. Seed 55338 and ASan+UBSan reproduction are clean. Adding
+  that fixture produces final digest `8b12e120611d16b6`, reproduced by two
+  independent Apple ARM64 hash runs. The complete deterministic 100,000-case
+  Apple ARM64 lane also finishes with zero findings.
   Target-complete campaign evidence, atomic publication, CI, and merge remain.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,

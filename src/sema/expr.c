@@ -538,7 +538,8 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
          * recover a wide field's anonymous precision. */
         e->rhs = rhs = conv_decay(s, rhs);
         e->sem_type =
-            rhs->sem_is_bitfield &&
+            rhs->sem_is_bitfield && rhs->sem_bitfield_width != 0 &&
+                    type_is_integer(rhs->sem_type) &&
                     rhs->sem_bitfield_width < conv_int_bits(s, rhs->sem_type)
                 ? type_integer_with_precision(s->arena, rhs->sem_type,
                                               rhs->sem_bitfield_width,
