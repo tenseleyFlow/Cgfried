@@ -3920,6 +3920,53 @@ and green post-publication CI.
   `6a2500ad8cdfb242fe445b00b8082c90c9829e14de003119cc9162f6ae448281`.
   Fresh post-publication standard CI, bootstrap, and exact-head nightly
   evidence remain before merge.
+- The current `s56.5-assembler-invalid-output` tranche (PR #93) resolves the
+  eleven target-complete `torture-compile/mangle-1.c` and `pr39779.c` cells in
+  bucket 21, fingerprint `06b3e0e1...`. A block-scope static with an explicit
+  asm label now uses its exact IR linker spelling instead of appending the
+  ordinary internal `name.N` suffix; lowering still consumes that deterministic
+  serial so later unlabelled locals cannot drift. X86 constant shifts now mask
+  the immediate to the hardware's 5-bit or 6-bit count before emission, so
+  accepted over-width C shifts produce an encodable `imm8` just as the existing
+  `%cl` path does.
+
+  The permanent executable regression checks an external `block_local.0`
+  against a block-static exact `block_local` label on Linux x86-64, Linux ARM64,
+  and Darwin ARM64. The x86 assembly fixture checks 32- and 64-bit immediate
+  masks, while lowering-unit coverage verifies both IR global names and their
+  distinct linkage. The focused lowering run passes 32 tests / 166 assertions;
+  the native Apple ARM64 fixture run and all original source matrices are
+  assembler-clean. The fixture inventory intentionally advances the
+  deterministic frontend-fuzz digest to `ee1a791d6504e4bb`.
+
+  The retained PR x86 stream from
+  [run 34314304944](https://github.com/tenseleyFlow/Cgfried/actions/runs/34314304944)
+  and exact synthetic-merge native-ARM stream from
+  [run 34314378581](https://github.com/tenseleyFlow/Cgfried/actions/runs/34314378581)
+  each contain 20,335 lines. Both name revision
+  `197137d9ac0e95d175dfdb58ffbdc6683797361b`, compiler-source SHA-256
+  `7f5344f2aab1522f4f465247d778b51ca5cf1d4b75b289e316a41b0ca08e44bd`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `89e4f05009c9a3bcde9d38cbdf174b8c69a22ae75734f46b91562008cf37ab68`
+  and `382d1bca6493c968f1b86d15bf859c6338b1e988454d43776efb5368c2edb92a`.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates the outputs byte-identically. Atomic publication promotes exactly
+  eleven cells, with zero old-PASS regression, and retires only fingerprint
+  `06b3e0e1...`. The resulting ratchet contains 30,215 PASS keys (30,218
+  lines), 3,815 classified failures, 29 applied decisions, two deliberately
+  retained stale decisions, and zero unbucketed or unresolved cells. PASS and
+  triage SHA-256 values are respectively
+  `4a2703871a027eb1fb4d0b2f264b354a659075a353739cd41262841e7d3ee9c8`
+  and `2626113902d27e13af8a9ccee6e3d89fa7ee1dec5c4eb0e2c778b35ca5883f18`.
+  Fresh post-publication standard CI, bootstrap, and exact-head nightly
+  evidence remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
