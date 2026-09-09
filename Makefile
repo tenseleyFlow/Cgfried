@@ -696,6 +696,7 @@ test-perf-gates:
 	sh tests/scripts/gates/musl_full_build_test.sh
 	sh tests/scripts/gates/reporting_test.sh
 	sh tests/scripts/gates/bench_policy_test.sh
+	sh tests/scripts/gates/bootstrap_ci_policy_test.sh
 	sh tests/scripts/gates/perf_gate_test.sh
 	sh tests/scripts/gates/fleet_perf_test.sh
 	sh tests/scripts/gates/fleet_nightly_test.sh

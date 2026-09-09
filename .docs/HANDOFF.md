@@ -11,8 +11,14 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at 10/30 after a required-lane reset on August 18 and remains operationally
-OPEN. Matching-head August 28 x86/ARM runs
+at a strict 1/30 after required daily x86 evidence was absent on September 5
+and matching-head evidence was absent on September 7–8. It remains
+operationally OPEN. Matching-head September 9 x86/ARM runs
+[`34318940375`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375)
+and
+[`34327498365`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365)
+are green at `1a7bbe80`; if uninterrupted, day 30 is October 8. Historical
+matching-head August 28 x86/ARM runs
 [`33168831416`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168831416)
 and
 [`33184794811`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33184794811)
@@ -154,12 +160,14 @@ and exact synthetic-merge nightly
 are green. PR #91's `s56.5-scalar-storage-order-bitfields` tranche is merged as
 `bbd43b60`, publishing the twenty target-complete `20230630-{2,4}.c` cells and
 raising the ratchet to 30,197 lines (30,194 PASS keys). Its final standard,
-both bootstrap, and exact-head nightly runs are green. The current
-`s56.5-symbolic-asm-constant-constraint` tranche addresses the ten
-target-complete `torture-compile/pr27528.c` cells in bucket 24. The behavior
-implementation and focused local x86-64 Linux, ARM64 Linux, native Darwin
-ARM64, GCC-13 comparison, sanitizer, assembly, and unit evidence are green;
-target-complete publication and CI remain. Sprint 56's campaign machine and
+both bootstrap, and exact-head nightly runs are green. PR #92's symbolic
+inline-asm-constant tranche is merged as `10437b17`, PR #93's
+assembler-invalid-output tranche is merged as `1a7bbe80`, PR #94's torture
+libm-linkage tranche is merged as `1f38911a`, and PR #95's external-TLS
+initial-exec tranche is merged as `1cf718d6`. The current target-complete
+ratchet contains 30,275 PASS keys (30,278 lines), with 3,765 classified
+failures, 27 applied decisions, two deliberately retained stale decisions,
+and zero unbucketed or unresolved cells. Sprint 56's campaign machine and
 triage map remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -176,10 +184,18 @@ its independent review, and now waits only on Sprint 58's independent soak.
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, continue **Sprint 58's 30-day bootstrap soak**. Record only hosted
-runs that satisfy the machine-readable daily/weekly lane contract in
-`.docs/audits/bootstrap-soak.md`; a missing or red required run resets the
-streak. No Sprint 61 remediation remains. Do not claim Sprint 58 closed, mark
+On trunk, continue **Sprint 58's 30-day bootstrap soak**. The
+`s58-soak-daily-hosted` automation repair makes the `17 3 * * *` hosted run
+launch x86 O0/O2 and native ARM O0/O2 together at one `github.sha`; weekly
+cross-host and reproducibility work remains on `41 3 * * 0`. A fail-closed CI
+policy guard prevents daily x86, matching-head identity, or hosted-only
+execution from drifting. Kasumi, Hasu, Nomad, and developer machines are not
+soak dependencies and may be offline. Record only hosted runs that satisfy the
+machine-readable daily/weekly lane contract in
+`.docs/audits/bootstrap-soak.md`; a missing required job or compiler/evidence
+failure resets the streak. Same-date `workflow_dispatch` may recover only a
+hosted infrastructure failure that occurred before bootstrap began. No Sprint
+61 remediation remains. Do not claim Sprint 58 closed, mark
 Phases 12–13 READY, or begin the Sprint 62 release landing until the soak
 reaches 30/30.
 
@@ -621,7 +637,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at 10/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 1/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -638,8 +654,15 @@ do not call the sprint closed until that operational obligation is complete.
   (`65cd4928`, runs `32798572708`/`32807232448`), and August 26
   (`69113c47`, runs `32919964767`/`32928733136`), August 27
   (`6ef24ca2`, runs `33056638768`/`33080889159`), and August 28
-  (`5277c7fc`, runs `33168831416`/`33184794811`) are current days 1–10.
-  Continue recording distinct UTC dates and every due weekly
+  (`5277c7fc`, runs `33168831416`/`33184794811`) were days 1–10 of that
+  historical streak.
+  That second streak reached day 17 on September 4, then reset because
+  September 5 had no x86 bootstrap run. September 6 passed the full weekly
+  lattice, but September 7–8 did not have same-date matching-head x86/ARM
+  evidence. Matching-head September 9 runs `34318940375`/`34327498365` at
+  `1a7bbe80` are the new day 1. The daily-hosted automation repair now launches
+  all four required O0/O2 jobs together without depending on a push or fleet
+  host. Continue recording distinct UTC dates and every due weekly
   cross/reproducibility result; any missing or red required run breaks the
   streak. Supplemental manual run
   [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
@@ -4001,7 +4024,7 @@ and green post-publication CI.
   cells. The pre-publication CI red is solely the expected unpublished-PASS
   ratchet guard; fresh post-publication standard CI, bootstrap, and
   exact-head native-ARM evidence remain required before merge.
-- The current `s56.5-extern-tls-initial-exec` tranche (PR #95) lowers an
+- The merged `s56.5-extern-tls-initial-exec` tranche (PR #95) lowers an
   external ELF `_Thread_local` declaration through the initial-exec ABI:
   x86-64 uses its GOTTPOFF reference plus `%fs` thread pointer, and AArch64
   uses GOTTPREL plus `TPIDR_EL0`. Unsupported PIC general-dynamic TLS and
@@ -4038,8 +4061,8 @@ and green post-publication CI.
   and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
   respectively `a1eb9e4acdee9123b518c710ddb58a80a837794491cb7579cad16a4daa6e85a5`
   and `2cb6ff86b028e32dc307457c13b35d617aea53d9891a6b0d66956dbbf9ca3861`.
-  Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
-  evidence remain required before merge.
+  Final post-publication standard CI, bootstrap, and exact-head native-ARM
+  evidence are green. PR #95 merged as `1cf718d6`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
