@@ -762,6 +762,8 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
         if (m->sym_attrs[i].visibility)
             buf_printf(out, " visibility(%s)",
                        gnu_visibility_name(m->sym_attrs[i].visibility));
+        if (m->sym_attrs[i].tls_model == IR_TLS_INITIAL_EXEC)
+            buf_printf(out, " tls(initial_exec)");
         buf_printf(out, "\n");
     }
     /* Aliases before globals: an alias names a target defined LATER in the

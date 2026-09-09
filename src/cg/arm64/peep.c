@@ -586,6 +586,11 @@ static bool worst_inst_bytes(const A64Inst *in, u64 *bytes)
          * constant materialization and register-form add/sub as ADDR. */
         *bytes = 32;
         return true;
+    case A64_OP_TLSIEADDR:
+        /* GOTTPREL adrp/load + thread-pointer read/add, then the same
+         * arbitrary addend expansion as TLSADDR. */
+        *bytes = 36;
+        return true;
     case A64_OP_ATOMIC_LLSC:
         *bytes = 64;
         return true;

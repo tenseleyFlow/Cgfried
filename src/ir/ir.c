@@ -256,6 +256,16 @@ void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility)
         m->sym_attrs[index].visibility = visibility;
 }
 
+void ir_sym_set_tls_model(IrModule *m, u32 index, IrTlsModel model)
+{
+    if (!m || index >= m->nsyms || model > IR_TLS_INITIAL_EXEC)
+        return;
+    /* A symbol's final sema record decides this once. Retaining the model in
+     * the attribute table nevertheless makes parse/print and cloned IR
+     * self-contained, rather than relying on an absent IrGlobal to infer it. */
+    m->sym_attrs[index].tls_model = (u8)model;
+}
+
 u32 ir_sym_exact_asm(IrModule *m, const char *name)
 {
     size_t n;
@@ -981,21 +991,27 @@ static bool str_eq(const char *a, const char *b)
     return strcmp(a, b) == 0;
 }
 
-/* Is this symbol a thread-local OBJECT? Asked by every backend at the point
- * it would otherwise materialize an ordinary address, because a thread-local
- * has no ordinary address -- it has an offset from the thread pointer. */
-bool ir_sym_is_tls(const IrModule *m, u32 sym_index)
+IrTlsModel ir_sym_tls_model(const IrModule *m, u32 sym_index)
 {
     const char *name;
     u32 i;
 
     if (!m || !sym_index || sym_index > m->nsyms)
-        return false;
+        return IR_TLS_NONE;
     name = m->syms[sym_index - 1];
     for (i = 0; i < m->nglobals; i++)
         if (strcmp(m->globals[i].name, name) == 0)
-            return m->globals[i].is_tls;
-    return false;
+            return m->globals[i].is_tls ? IR_TLS_LOCAL_EXEC : IR_TLS_NONE;
+    return m->sym_attrs ? (IrTlsModel)m->sym_attrs[sym_index - 1].tls_model
+                        : IR_TLS_NONE;
+}
+
+/* Is this symbol a thread-local OBJECT? Asked by every backend at the point
+ * it would otherwise materialize an ordinary address, because a thread-local
+ * has no ordinary address -- it has an offset from the thread pointer. */
+bool ir_sym_is_tls(const IrModule *m, u32 sym_index)
+{
+    return ir_sym_tls_model(m, sym_index) != IR_TLS_NONE;
 }
 
 IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index)
@@ -1098,7 +1114,8 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
     for (i = 0; i < a->nsyms; i++)
         if (!str_eq(a->syms[i], b->syms[i]) ||
             a->sym_attrs[i].is_weak != b->sym_attrs[i].is_weak ||
-            a->sym_attrs[i].visibility != b->sym_attrs[i].visibility)
+            a->sym_attrs[i].visibility != b->sym_attrs[i].visibility ||
+            a->sym_attrs[i].tls_model != b->sym_attrs[i].tls_model)
             return false;
     for (i = 0; i < a->naliases; i++) {
         const IrAlias *x = &a->aliases[i];

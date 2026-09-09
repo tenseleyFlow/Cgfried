@@ -750,13 +750,25 @@ typedef struct IrAlias {
     u8 visibility; /* GnuVisibility */
 } IrAlias;
 
-/* Attributes on a symbol that may have no definition in this module.  A
- * weak hidden extern still needs `.weak`/`.hidden` in the object even though
- * it has no IrGlobal or IrFunc record of its own (musl's nullable _DYNAMIC is
- * the canonical case).  This table is parallel to IrModule.syms. */
+/* The TLS addressing model of a module symbol. Defined thread-local objects
+ * carry `IrGlobal.is_tls` and are necessarily local-exec in the current ELF
+ * output model. An undefined TLS object has no IrGlobal, so its initial-exec
+ * fact lives in the parallel symbol-attribute table instead. */
+typedef enum IrTlsModel {
+    IR_TLS_NONE,
+    IR_TLS_LOCAL_EXEC,
+    IR_TLS_INITIAL_EXEC,
+} IrTlsModel;
+
+/* Attributes on a symbol that may have no definition in this module. A weak
+ * hidden extern still needs `.weak`/`.hidden` in the object even though it has
+ * no IrGlobal or IrFunc record of its own (musl's nullable _DYNAMIC is the
+ * canonical case). The external TLS model belongs here for the same reason.
+ * This table is parallel to IrModule.syms. */
 typedef struct IrSymAttrs {
     bool is_weak;
     u8 visibility; /* GnuVisibility */
+    u8 tls_model;  /* IrTlsModel; external initial-exec only */
 } IrSymAttrs;
 
 /* How a constraint letter resolved, decided in lowering because the letters
@@ -902,6 +914,7 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
 IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
 void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility);
+void ir_sym_set_tls_model(IrModule *m, u32 index, IrTlsModel model);
 u32 ir_sym_exact_asm(IrModule *m, const char *name);
 /* An asm label is already in assembler spelling. IR keeps it distinct from an
  * ordinary C symbol with the same bytes by an internal leading `!`; textual IR
@@ -1112,6 +1125,7 @@ typedef struct IrSymBinding {
 } IrSymBinding;
 
 IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index);
+IrTlsModel ir_sym_tls_model(const IrModule *m, u32 sym_index);
 bool ir_sym_is_tls(const IrModule *m, u32 sym_index);
 
 /* Snapshot every function's count into out[m->nfuncs]. */

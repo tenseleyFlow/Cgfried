@@ -477,6 +477,8 @@ static u32 global_sym_index(Lower *lo, Symbol *sym)
         ptrmap_put_u32(lo, &lo->globals, sym, idx + 1);
     }
     ir_sym_set_attrs(lo->m, idx, sym->gnu.weak, sym->gnu.visibility);
+    if (sym->tls && sym->def_kind == DEF_NONE)
+        ir_sym_set_tls_model(lo->m, idx, IR_TLS_INITIAL_EXEC);
     return idx;
 }
 
@@ -1061,21 +1063,8 @@ static void lower_global_var(Lower *lo, Symbol *sym, AstNode *init)
 
     if (sym->alias_target)
         return; /* emitted by lower_aliases; occupies no storage of its own */
-    if (sym->def_kind == DEF_NONE) {
-        /* An extern declaration is referenced through the symbol table and
-         * emits no global -- which means a backend asking "is this symbol
-         * thread-local?" cannot tell, and answering "no" is the very silent
-         * miscompile this work removed. The local-exec model only reaches a
-         * definition in THIS translation unit anyway; an extern one needs
-         * initial-exec, which is TLS-005. Refuse rather than guess. */
-        if (sym->tls && !lo->include_inline_defs)
-            lower_unimplemented(
-                lo, sym->span,
-                "a reference to an extern _Thread_local (the initial-exec "
-                "model)",
-                51);
+    if (sym->def_kind == DEF_NONE)
         return;
-    }
     if (!sym->type || !layout_is_complete_for_size(sym->type))
         return;
     l = layout_of(lo->sema, sym->type);
