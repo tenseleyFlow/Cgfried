@@ -393,7 +393,7 @@ typedef struct A64CfiEpilogue {
     /* A64-M-04: one row per ADD, not one row after the whole adjustment.
      * A signal may arrive between the immediate chunks of a large frame. */
     u32 *sp_labels;  /* boundary after each separate SP adjustment */
-    u32 *sp_offsets; /* remaining CFA offset at the matching boundary */
+    u64 *sp_offsets; /* remaining CFA offset at the matching boundary */
     u32 nsp;
     u32 after_ret; /* restore the remembered body state for later blocks */
 } A64CfiEpilogue;
@@ -412,8 +412,8 @@ typedef struct A64Func {
      * operands are the producers. */
     u8 *vfixed;
     u32 cap_vclass;
-    u32 spill_bytes; /* post-allocation: bytes of spill/alloca area */
-    u32 frame_bytes; /* post-allocation: whole frame, a multiple of 16 */
+    u32 spill_bytes; /* post-allocation: bytes of signed-offset spill slots */
+    u64 frame_bytes; /* post-allocation: whole frame, a multiple of 16 */
     u32 out_args;    /* bytes of outgoing stack arguments, 16-byte rounded */
     bool variadic;   /* needs the AAPCS64 register save area */
     u32 va_named_gp; /* general registers the named parameters consumed */
@@ -436,13 +436,13 @@ typedef struct A64Func {
      * program is the same sixteen bytes for every function, the AArch64 one
      * depends on the frame SIZE -- so the prologue records its own shape
      * rather than the CFI encoder re-deriving which branch ran. */
-    u32 cfi_frame;     /* total frame bytes; CFA is sp+cfi_frame after entry */
+    u64 cfi_frame;     /* total frame bytes; CFA is sp+cfi_frame after entry */
     u32 cfi_pair_off;  /* byte offset of the saved x29/x30 pair from new sp */
     u32 cfi_pre_insns; /* instructions before pair store; 0 = pre-indexed */
     /* Cumulative bytes removed from SP after each prologue SUB. A frame can
      * need several immediates, and asynchronous unwinders need a CFA row
      * between them rather than only the final frame-size row. Arena-owned. */
-    u32 *cfi_sp_offsets;
+    u64 *cfi_sp_offsets;
     u8 cfi_pair_pre_insns; /* address setup between SP adjust and pair store */
     /* A64-M-04: the frame pass is the only owner of the exact save layout and
      * epilogue instruction boundaries. Preserve that truth for .eh_frame
@@ -541,7 +541,7 @@ u32 a64_liveness_words(const A64Func *f);
 void a64_liveness(const A64Func *f, u64 *live_in, u64 *live_out);
 bool a64_reg_is_callee_saved_gp(u8 reg);
 bool a64_reg_preserved_across_call(u8 reg, bool wide128);
-u32 a64_frame_total(u32 csr_bytes, u32 local_bytes, u32 out_args);
+u64 a64_frame_total(u64 csr_bytes, u64 local_bytes, u64 out_args);
 bool a64_peep_pair_mem(A64Func *f);
 
 #endif
