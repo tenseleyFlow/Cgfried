@@ -164,12 +164,14 @@ both bootstrap, and exact-head nightly runs are green. PR #92's symbolic
 inline-asm-constant tranche is merged as `10437b17`, PR #93's
 assembler-invalid-output tranche is merged as `1a7bbe80`, PR #94's torture
 libm-linkage tranche is merged as `1f38911a`, and PR #95's external-TLS
-initial-exec tranche is merged as `1cf718d6`. The current target-complete
-ratchet contains 30,275 PASS keys (30,278 lines), with 3,765 classified
-failures, 27 applied decisions, two deliberately retained stale decisions,
-three live repair rows representing three unique repair tranches, and zero
-unbucketed or unresolved cells. Sprint 56's campaign machine and triage map
-remain complete while Sprint 58 continues its independent soak.
+initial-exec tranche is merged as `1cf718d6`. PR #97's current
+`s56.5-arm64-large-stack-frame` tranche publishes five ARM-only
+`20031023-4.c` cells. The current target-complete ratchet contains 30,280 PASS
+keys (30,283 lines), with 3,760 classified failures, 26 applied decisions, two
+deliberately retained stale decisions, two live repair rows representing two
+unique repair tranches, and zero unbucketed or unresolved cells. Sprint 56's
+campaign machine and triage map remain complete while Sprint 58 continues its
+independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -4064,6 +4066,54 @@ and green post-publication CI.
   and `2cb6ff86b028e32dc307457c13b35d617aea53d9891a6b0d66956dbbf9ca3861`.
   Final post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence are green. PR #95 merged as `1cf718d6`.
+- The current `s56.5-arm64-large-stack-frame` tranche (PR #97) supports valid
+  automatic frames beyond 2 GiB without truncating ARM64 frame, alloca, stack
+  adjustment, variadic-save-area, or CFI accounting. Register spills retain
+  their narrow signed-offset allocator while static objects use a checked
+  upward `u64` cursor; stack adjustments are split into encodable immediates,
+  and frames remain bounded by the signed 64-bit addressable range. The
+  permanent regalloc regression builds two 2-GiB allocas into a
+  `0x100000010`-byte frame, checks a `0x80000010` object start plus complete
+  prologue/epilogue CFI, and verifies the resulting MIR. The existing AAPCS64
+  variadic unit now selects `arm64-linux` explicitly so Apple hosts do not
+  accidentally test Darwin varargs rules.
+
+  The focused ARM64 regalloc suite passes 24 tests / 5,161 assertions. The
+  original `torture-compile/20031023-4.c` passes O0/O1/O2/O3/Os as both
+  assembler-clean AArch64 ELF and Apple-native ARM64 Mach-O; decoded ELF CFI
+  includes the full 4-GiB-plus offsets. The 12-module ARM64 MIR lane passes
+  112 exact and deterministic patterns.
+
+  The retained PR x86 stream from
+  [run 34412016023](https://github.com/tenseleyFlow/Cgfried/actions/runs/34412016023)
+  and exact synthetic-merge native-ARM stream from
+  [run 34413591270](https://github.com/tenseleyFlow/Cgfried/actions/runs/34413591270)
+  each contain 20,335 matrix rows and name revision
+  `9d98b52eceaab4468e2e682bb1027d0ea929dca3`. They share compiler-source
+  SHA-256 `86de3a1484075a26dd931080249661f8fc003cae24e8030878061049e23a2f5a`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `25fdb264042c394a3de0fd132bbc8b240c4a53110c3d21b97576e3b610340304`
+  and `61ea95b14349c5ff05f7a712f9e7b05d437e1a30843bceb57ad70ecf7e94988c`.
+  The x86 gate is green; the ARM gate rejects only the five unpublished
+  `20031023-4.c` PASS cells, with no old-PASS regression.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates both committed outputs byte-identically. Atomic publication adds
+  exactly those five ARM PASS keys and retires only fingerprint `31c786bd...`.
+  The resulting ratchet has 30,280 PASS keys (30,283 lines), 3,760 classified
+  failures, 34 observed buckets, 26 applied decisions, two deliberately
+  retained stale decisions, two live repair rows representing two tranches,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively `8e6fecb5d160f561fdbcdd64f87b340b62354e25dda2de1d5912474c9922e64f`
+  and `70f631668fa631e10e6f21fd53bfdaa0c891141c1018c7d8658553cb31f2b099`.
+  Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
+  evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -4090,11 +4140,10 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. On the current
-publication head, the remaining compiler debt is enumerated by three live
-`s56.5-*` repair rows representing three unique repair tranches: compiler
-scalability timeouts, the ARM64 large-stack-frame repair, and ARM64
-large-switch scalability. Sprint 54 and Phase 11 subsequently closed on their
-independent fleet evidence.
+publication head, the remaining compiler debt is enumerated by two live
+`s56.5-*` repair rows representing two unique repair tranches: compiler
+scalability timeouts and ARM64 large-switch scalability. Sprint 54 and Phase
+11 subsequently closed on their independent fleet evidence.
 
 ---
 
