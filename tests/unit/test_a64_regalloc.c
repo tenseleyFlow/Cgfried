@@ -298,6 +298,8 @@ void test_a64_regalloc_frame_total_rounds_to_sixteen(TestCtx *t)
     T_ASSERT_EQ_INT(t, (long long)a64_frame_total(16, 500, 0), 528);
     T_ASSERT_EQ_INT(t, (long long)a64_frame_total(16, 0, 8), 32);
     T_ASSERT_EQ_INT(t, (long long)a64_frame_total(0, 0, 0) % 16, 0);
+    T_ASSERT_EQ_INT(t, (long long)a64_frame_total(16, 0x100000000ull, 0),
+                    0x100000010ll);
 }
 
 static bool block_has_vregs(const A64Block *b)
@@ -1003,6 +1005,7 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
 {
     Arena arena;
     A64Func f;
+    TargetSpec previous = cgf_target_selected();
     A64Reg ap;
     const A64Block *bb;
     A64Inst in;
@@ -1011,6 +1014,7 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
     u32 first_unnamed_gp = 0;
     bool seen_gr = false, seen_vr = false;
 
+    T_ASSERT(t, cgf_target_select("arm64-linux"));
     arena_init(&arena);
     init_func(&f, &arena, 1);
     f.variadic = true;
@@ -1100,6 +1104,7 @@ void test_a64_regalloc_variadic_save_area(TestCtx *t)
     T_ASSERT_EQ_INT(t, (long long)(gr_top - 8 * (8 - f.va_named_gp)),
                     (long long)first_unnamed_gp);
     arena_free_all(&arena);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
 }
 
 /* Static allocas become ordinary frame objects addressed from x29, and they
@@ -1167,6 +1172,78 @@ void test_a64_regalloc_static_allocas_get_disjoint_frame_slots(TestCtx *t)
                             bi + (i64)objects[k].size <= ai);
         }
     }
+    arena_free_all(&arena);
+}
+
+/* Valid automatic objects may cross both the signed 2 GiB boundary and, when
+ * optimization brings two source scopes into one function, the unsigned
+ * 4 GiB boundary. Register spill displacements remain i32, but the static-
+ * object cursor, address formation, SP adjustment, and CFI rows must carry
+ * the whole u64 frame. The second object also starts above INT32_MAX, catching
+ * a fix that merely widens the final frame size while narrowing starts. */
+void test_a64_regalloc_static_alloca_crosses_signed_frame_boundary(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    A64Reg large, tail;
+    const A64Block *bb;
+    DiagCtx *dc;
+    u32 i;
+    u64 farthest = 0;
+
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    large = a64_newv(&f, A64RC_GP);
+    tail = a64_newv(&f, A64RC_GP);
+    put(&f, 0, A64_OP_ALLOCA, 3, treg(large), timm(0x80000000u), timm(16));
+    put(&f, 0, A64_OP_ALLOCA, 3, treg(tail), timm(0x80000000u), timm(16));
+    put(&f, 0, A64_OP_RET, 1, treg(tail), (A64Operand){0}, (A64Operand){0});
+
+    a64_regalloc(&f);
+    dc = diag_ctx_new(&arena);
+
+    T_ASSERT_EQ_INT(t, f.spill_bytes, 0);
+    T_ASSERT_EQ_INT(t, (long long)f.frame_bytes, 0x100000010ll);
+    T_ASSERT_EQ_INT(t, (long long)(f.frame_bytes & 15u), 0);
+    T_ASSERT(t, f.cfi_pre_insns > 2);
+    T_ASSERT_EQ_INT(t, f.cfi_sp_offsets[f.cfi_pre_insns - 1], f.frame_bytes);
+    T_ASSERT_EQ_INT(t, f.cfi_nepilogues, 1);
+    T_ASSERT_EQ_INT(t, f.cfi_epilogues[0].nsp, f.cfi_pre_insns);
+    T_ASSERT_EQ_INT(
+        t, f.cfi_epilogues[0].sp_offsets[f.cfi_epilogues[0].nsp - 1], 0);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(&f, dc), 0);
+
+    bb = &f.blocks[0];
+    for (i = 0; i < bb->n; i++) {
+        const A64Inst *cur = &bb->insts[i];
+
+        T_ASSERT(t, cur->op != A64_OP_ALLOCA);
+        if (cur->op == A64_OP_ADD && cur->nops == 3 &&
+            cur->ops[0].kind == A64O_REG && cur->ops[0].reg.physical &&
+            cur->ops[0].reg.id != (u32)A64_X29 + 1 &&
+            cur->ops[1].kind == A64O_REG && cur->ops[1].reg.physical &&
+            cur->ops[1].reg.id == (u32)A64_X29 + 1 &&
+            cur->ops[2].kind == A64O_IMM && cur->ops[2].imm >= 0) {
+            u32 dst = cur->ops[0].reg.id;
+            u32 j = i + 1;
+            u64 formed = (u64)cur->ops[2].imm;
+
+            while (j < bb->n && bb->insts[j].op == A64_OP_ADD &&
+                   bb->insts[j].nops == 3 &&
+                   bb->insts[j].ops[0].kind == A64O_REG &&
+                   bb->insts[j].ops[0].reg.id == dst &&
+                   bb->insts[j].ops[1].kind == A64O_REG &&
+                   bb->insts[j].ops[1].reg.id == dst &&
+                   bb->insts[j].ops[2].kind == A64O_IMM &&
+                   bb->insts[j].ops[2].imm >= 0) {
+                formed += (u64)bb->insts[j].ops[2].imm;
+                j++;
+            }
+            if (formed > farthest)
+                farthest = formed;
+        }
+    }
+    T_ASSERT_EQ_INT(t, (long long)farthest, 0x80000010ll);
     arena_free_all(&arena);
 }
 

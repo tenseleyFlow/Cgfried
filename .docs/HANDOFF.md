@@ -167,8 +167,9 @@ libm-linkage tranche is merged as `1f38911a`, and PR #95's external-TLS
 initial-exec tranche is merged as `1cf718d6`. The current target-complete
 ratchet contains 30,275 PASS keys (30,278 lines), with 3,765 classified
 failures, 27 applied decisions, two deliberately retained stale decisions,
-and zero unbucketed or unresolved cells. Sprint 56's campaign machine and
-triage map remain complete while Sprint 58 continues its independent soak.
+three live repair rows representing three unique repair tranches, and zero
+unbucketed or unresolved cells. Sprint 56's campaign machine and triage map
+remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -4089,9 +4090,11 @@ tranche is implemented, target-complete, and merged through PR #50 as
 and merged through PR #51 as `d7d59fa`. The compound-literal array-completion
 tranche and target-complete ratchet are merged through PR #52 as `cfaec8d`.
 The failure-decomposition tranche is merged through PR #53. On the current
-publication head, the remaining compiler debt is enumerated by 7 live
-`s56.5-*` repair rows representing 7 unique repair tranches. Sprint
-54 and Phase 11 subsequently closed on their independent fleet evidence.
+publication head, the remaining compiler debt is enumerated by three live
+`s56.5-*` repair rows representing three unique repair tranches: compiler
+scalability timeouts, the ARM64 large-stack-frame repair, and ARM64
+large-switch scalability. Sprint 54 and Phase 11 subsequently closed on their
+independent fleet evidence.
 
 ---
 
