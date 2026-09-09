@@ -68,21 +68,29 @@ typedef struct Emit {
  * exactly these (`l_.str`), which ld64 resolves and then strips. A capital
  * `L` would make them assembler TEMPORARIES, forcing a section-relative
  * relocation that afs-as does not resolve. */
+static const char *a64_symbol_spelling(bool apple, const char *name, char *slot,
+                                       size_t slot_size)
+{
+    if (ir_sym_name_is_exact_asm(name))
+        return ir_sym_asm_spelling(name);
+    if (!apple)
+        return name;
+    if (name[0] == '.' && name[1] == 'L')
+        snprintf(slot, slot_size, "l_%s", name + 2);
+    else
+        snprintf(slot, slot_size, "_%s", name);
+    return slot;
+}
+
 static const char *msym(Emit *e, const char *name)
 {
     char *slot;
 
-    if (ir_sym_name_is_exact_asm(name))
-        return ir_sym_asm_spelling(name);
-    if (!e->apple)
-        return name;
+    if (!e->apple || ir_sym_name_is_exact_asm(name))
+        return a64_symbol_spelling(e->apple, name, NULL, 0);
     slot = e->symbuf[e->symslot];
     e->symslot = (e->symslot + 1) % 4;
-    if (name[0] == '.' && name[1] == 'L')
-        snprintf(slot, sizeof(e->symbuf[0]), "l_%s", name + 2);
-    else
-        snprintf(slot, sizeof(e->symbuf[0]), "_%s", name);
-    return slot;
+    return a64_symbol_spelling(e->apple, name, slot, sizeof(e->symbuf[0]));
 }
 
 /* `L` and `l_` are NOT interchangeable on Mach-O, and which one is right
@@ -1288,9 +1296,28 @@ static void a64_emit_globals_filtered(const IrModule *m, Buf *out, bool tls,
  * puts them in the mnemonic suffix, so the width modifiers mean something
  * different here: gcc's arm64 `%w0`/`%x0` SELECT the name, and there is no
  * `%b`/`%k`. A bare `%0` gets the operand's own C width, which is what
- * `add %w0, %w1, #3` on ints relies on. */
+ * `add %w0, %w1, #3` on ints relies on. `%c0` removes the ordinary `#`
+ * prefix from an integer constant; symbolic constants have no prefix in
+ * AArch64 assembler syntax either way. */
+static void a64_asm_symbol(Buf *out, const IrModule *m, const IrAsmOp *o)
+{
+    const char *name = o->sym < m->nsyms ? m->syms[o->sym] : NULL;
+    char slot[192];
+
+    if (!name) {
+        buf_printf(out, "<bad-asm-symbol-%u>", o->sym);
+        return;
+    }
+    buf_printf(out, "%s",
+               a64_symbol_spelling(cgf_target_selected().kind ==
+                                       CGF_TARGET_ARM64_MACOS,
+                                   name, slot, sizeof(slot)));
+    if (o->imm)
+        buf_printf(out, "%+lld", (long long)o->imm);
+}
+
 static void a64_asm_operand(Buf *out, const IrModule *m, const A64AsmInfo *info,
-                            u32 k, u8 sf_override)
+                            u32 k, u8 sf_override, bool constant_without_prefix)
 {
     const IrAsm *a = &m->asms[info->asm_index - 1];
     const A64AsmOp *o;
@@ -1302,7 +1329,12 @@ static void a64_asm_operand(Buf *out, const IrModule *m, const A64AsmInfo *info,
     }
     o = &info->ops[k];
     if (o->cls == ASM_CLS_IMM) {
-        buf_printf(out, "#%lld", (long long)a->ops[k].imm);
+        buf_printf(out, constant_without_prefix ? "%lld" : "#%lld",
+                   (long long)a->ops[k].imm);
+        return;
+    }
+    if (o->cls == ASM_CLS_SYM) {
+        a64_asm_symbol(out, m, &a->ops[k]);
         return;
     }
     if (!o->reg.id) {
@@ -1319,9 +1351,10 @@ static void a64_asm_operand(Buf *out, const IrModule *m, const A64AsmInfo *info,
 
 /* An inline-asm template. Basic asm (no colon in the source construct) passes
  * `%` through untouched -- gcc's rule, decided at parse time. With operands
- * the escapes are `%%`, `%0..%9`, `%w0`/`%x0` for an explicit width, and
- * `%[name]`. An unknown escape passes through: the template belongs to the
- * programmer and the assembler is entitled to complain about it. */
+ * the escapes are `%%`, `%0..%9`, `%w0`/`%x0` for an explicit width, `%c0`
+ * for an unprefixed constant, and `%[name]`. An unknown escape passes through:
+ * the template belongs to the programmer and the assembler is entitled to
+ * complain about it. */
 void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index,
                        const A64AsmInfo *info)
 {
@@ -1338,6 +1371,7 @@ void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index,
     buf_printf(out, "#APP\n\t");
     for (c = a->tmpl; *c; c++) {
         u8 sfo = 0;
+        bool constant_without_prefix = false;
 
         if (*c != '%') {
             buf_printf(out, "%c", *c);
@@ -1351,6 +1385,10 @@ void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index,
         if ((*c == 'w' || *c == 'x') && c[1] &&
             ((c[1] >= '0' && c[1] <= '9') || c[1] == '[')) {
             sfo = (u8)(*c == 'w' ? A64_SF32 : A64_SF64);
+            c++;
+        } else if (*c == 'c' && c[1] &&
+                   ((c[1] >= '0' && c[1] <= '9') || c[1] == '[')) {
+            constant_without_prefix = true;
             c++;
         }
         if (*c == '[') {
@@ -1366,19 +1404,22 @@ void a64_emit_asm_text(Buf *out, const IrModule *m, u32 asm_index,
                     a->ops[j].name[end - nm] == '\0')
                     break;
             if (j < a->nops)
-                a64_asm_operand(out, m, info, j, sfo);
+                a64_asm_operand(out, m, info, j, sfo, constant_without_prefix);
             else
                 buf_printf(out, "<unknown-asm-operand>");
             c = *end ? end : end - 1;
             continue;
         }
         if (*c >= '0' && *c <= '9') {
-            a64_asm_operand(out, m, info, (u32)(*c - '0'), sfo);
+            a64_asm_operand(out, m, info, (u32)(*c - '0'), sfo,
+                            constant_without_prefix);
             continue;
         }
         buf_printf(out, "%%");
         if (sfo)
             buf_printf(out, "%c", sfo == A64_SF32 ? 'w' : 'x');
+        else if (constant_without_prefix)
+            buf_printf(out, "c");
         if (*c)
             buf_printf(out, "%c", *c);
         else

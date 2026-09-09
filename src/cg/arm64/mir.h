@@ -332,7 +332,7 @@ typedef struct A64CallInfo {
  * what emission needs -- the size chooses `%w0` against `%x0`, which x86 has
  * no equivalent of because its widths ride the mnemonic suffix instead. */
 typedef struct A64AsmOp {
-    A64Reg reg; /* invalid for an immediate */
+    A64Reg reg; /* invalid for an integer or symbolic constant */
     u8 cls;     /* IrAsmClass */
     u8 size;    /* C operand byte size */
     bool is_output;

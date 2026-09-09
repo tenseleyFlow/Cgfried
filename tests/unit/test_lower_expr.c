@@ -837,6 +837,53 @@ void test_lower_asm_rmw_output_evaluated_once(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_asm_symbolic_constant_classes(TestCtx *t)
+{
+    LowFix f;
+    const IrAsm *a;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "int global[2];\n"
+                               "void target(void) {}\n"
+                               "void use(void) {\n"
+                               "  __asm__ volatile(\"\" :: \"s\"(global), "
+                               "\"s\"(&global[1]), \"s\"(\"abc\"), "
+                               "\"s\"(target), \"i\"(global), \"i\"(9), "
+                               "\"n\"(11));\n"
+                               "}\n",
+                               STD_GNU17, false));
+    T_ASSERT_EQ_INT(t, f.m->nasms, 1);
+    a = &f.m->asms[0];
+    T_ASSERT_EQ_INT(t, a->nops, 7);
+    T_ASSERT_EQ_INT(t, a->ops[0].cls, ASM_CLS_SYM);
+    T_ASSERT_EQ_INT(t, a->ops[1].cls, ASM_CLS_SYM);
+    T_ASSERT_EQ_INT(t, a->ops[2].cls, ASM_CLS_SYM);
+    T_ASSERT_EQ_INT(t, a->ops[3].cls, ASM_CLS_SYM);
+    T_ASSERT_EQ_INT(t, a->ops[4].cls, ASM_CLS_SYM);
+    T_ASSERT_EQ_INT(t, a->ops[5].cls, ASM_CLS_IMM);
+    T_ASSERT_EQ_INT(t, a->ops[6].cls, ASM_CLS_IMM);
+    T_ASSERT(t, strcmp(f.m->syms[a->ops[0].sym], "global") == 0);
+    T_ASSERT_EQ_INT(t, a->ops[0].imm, 0);
+    T_ASSERT(t, strcmp(f.m->syms[a->ops[1].sym], "global") == 0);
+    T_ASSERT_EQ_INT(t, a->ops[1].imm, 4);
+    T_ASSERT(t, strcmp(f.m->syms[a->ops[2].sym], ".Lstr.0") == 0);
+    T_ASSERT(t, strcmp(f.m->syms[a->ops[3].sym], "target") == 0);
+    T_ASSERT_EQ_INT(t, a->ops[5].imm, 9);
+    T_ASSERT_EQ_INT(t, a->ops[6].imm, 11);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<asm-symbolic-rt>");
+    T_ASSERT(t, round != NULL);
+    if (round) {
+        T_ASSERT_EQ_INT(t, round->nasms, 1);
+        T_ASSERT_EQ_INT(t, round->asms[0].ops[0].cls, ASM_CLS_SYM);
+        T_ASSERT_EQ_INT(t, round->asms[0].ops[1].cls, ASM_CLS_SYM);
+        T_ASSERT_EQ_INT(t, round->asms[0].ops[1].imm, 4);
+        T_ASSERT_EQ_INT(t, round->asms[0].ops[5].cls, ASM_CLS_IMM);
+    }
+    low_free(&f);
+}
+
 void test_lower_runtime_offsetof_uses_vla_stride(TestCtx *t)
 {
     LowFix f;

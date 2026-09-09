@@ -3260,8 +3260,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         for (k = 0; k < a->nops && k < 64; k++) {
             const IrAsmOp *o = &a->ops[k];
 
-            if (o->cls == ASM_CLS_IMM)
-                continue; /* no register: printed as $N */
+            if (o->cls == ASM_CLS_IMM || o->cls == ASM_CLS_SYM)
+                continue; /* no register: printed as $N or $symbol+addend */
             if (o->cls == ASM_CLS_X87 || o->cls == ASM_CLS_X87UP) {
                 if (!o->is_output) {
                     X64VReg src = x87_asm_input_addr(is, &in->ops[k]);

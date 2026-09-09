@@ -1109,8 +1109,10 @@ static bool parse_etype(P *p, u8 *out)
  *
  * The whole record is inline rather than a reference into a module table, so
  * one line of IR text is one asm and the round trip needs no side channel.
- * Registers print as rK because the NUMBER is what the backend consumes; the
- * letter that produced it was target vocabulary and is already decoded. */
+ * The constraint spelling plus a literal operand retains immediate and
+ * symbolic-constant classes. Other target-specific register classes are
+ * reconstructed only by source lowering; textual IR preserves their values
+ * but does not promise to re-run the C constraint selector. */
 static bool parse_asm_inst(P *p)
 {
     IrAsm a;
@@ -1200,6 +1202,22 @@ static bool parse_asm_inst(P *p)
         ops[n].constraint = t->s;
         if (!parse_typed(p, &vals[n]))
             return false;
+        /* Keep the target-independent constant classes executable when a
+         * printed module is fed back as textual IR. In particular, an `i`
+         * operand's payload selects integer immediate versus symbolic
+         * relocation; the spelling alone is intentionally not enough. */
+        if (strcmp(ops[n].constraint, "s") == 0 ||
+            (strcmp(ops[n].constraint, "i") == 0 &&
+             vals[n].kind == IROP_SYMBOL)) {
+            ops[n].cls = ASM_CLS_SYM;
+            ops[n].sym = vals[n].sym;
+            ops[n].imm = (i64)vals[n].a;
+        } else if (strcmp(ops[n].constraint, "i") == 0 ||
+                   strcmp(ops[n].constraint, "n") == 0 ||
+                   strcmp(ops[n].constraint, "N") == 0) {
+            ops[n].cls = ASM_CLS_IMM;
+            ops[n].imm = (i64)vals[n].a;
+        }
         n++;
     }
     if (n) {

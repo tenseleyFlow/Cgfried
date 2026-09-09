@@ -158,18 +158,26 @@ typedef struct VaPackContext {
     Type *return_type;
 } VaPackContext;
 
-/* An i/n/N asm operand is target-valid only when its instruction survives
- * source-level constant control flow.  Lowering records the check without
- * diagnosing immediately, then asm.c validates it against the completed CFG.
- * `block` is filled after all operand expressions have lowered, because a
- * later conditional operand may move the asm itself into a join block. */
-typedef struct DeferredAsmImmediate {
+typedef enum {
+    ASM_CONST_INTEGER,
+    ASM_CONST_INTEGER_OR_SYMBOL,
+    ASM_CONST_SYMBOL
+} DeferredAsmConstantKind;
+
+/* An i/n/N/s asm operand is target-valid only when its instruction survives
+ * source-level constant control flow. Lowering records the exact constant
+ * domain without diagnosing immediately, then asm.c validates it against the
+ * completed CFG. `block` is filled after all operand expressions have
+ * lowered, because a later conditional operand may move the asm itself into
+ * a join block. */
+typedef struct DeferredAsmConstant {
     AstNode *expr;
     const char *constraint;
     Span span;
     BlockId block;
-    struct DeferredAsmImmediate *next;
-} DeferredAsmImmediate;
+    u8 kind; /* DeferredAsmConstantKind */
+    struct DeferredAsmConstant *next;
+} DeferredAsmConstant;
 
 /* A configuration-derived __builtin_constant_p branch is known while
  * lowering, but flow warnings still need to know why its untaken arm vanished.
@@ -209,8 +217,8 @@ typedef struct Lower {
     Symbol *initializing_sym;   /* exact direct -Winit-self provenance */
     u32 dead_region;            /* current contiguous unreachable source */
     u32 next_dead_region;       /* stable diagnostic region numbering */
-    DeferredAsmImmediate *deferred_asm_immediates;
-    DeferredAsmImmediate *deferred_asm_immediates_tail;
+    DeferredAsmConstant *deferred_asm_constants;
+    DeferredAsmConstant *deferred_asm_constants_tail;
     DeferredConfigRemoval *deferred_config_removals;
     DeferredConfigRemoval *deferred_config_removals_tail;
     u8 auto_var_init;         /* LowerAutoVarInit; emission mitigation */
@@ -300,8 +308,8 @@ IrOperand lower_cond(Lower *lo, AstNode *e);
 /* --- statements (src/lower/stmt.c) ---------------------------------------- */
 
 void lower_stmt(Lower *lo, AstNode *s);
-/* Validate the i/n/N operands delayed until the function CFG is complete. */
-void lower_asm_validate_deferred_immediates(Lower *lo);
+/* Validate i/n/N/s operands delayed until the function CFG is complete. */
+void lower_asm_validate_deferred_constants(Lower *lo);
 /* Preserve configuration provenance for a known, ultimately unreachable arm. */
 void lower_record_deferred_config_removals(Lower *lo);
 /* A GNU statement expression `({ ... })`. Lives in stmt.c because it needs

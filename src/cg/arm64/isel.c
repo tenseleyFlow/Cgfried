@@ -2051,7 +2051,7 @@ static void select_inst(Isel *is, const IrInst *ir)
             slots[n].cls = o->cls;
             slots[n].size = o->size;
             slots[n].is_output = o->is_output;
-            if (o->cls == ASM_CLS_IMM) {
+            if (o->cls == ASM_CLS_IMM || o->cls == ASM_CLS_SYM) {
                 {
                     A64Reg none = {0, 0};
 
