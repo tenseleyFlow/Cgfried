@@ -67,7 +67,7 @@ predefine.
 | `nonnull(...)`, bare `nonnull` | `tests/programs/gnu/attr_nonnull.c` | glibc (`memcpy`, `strlen`, most of `string.h`) |
 | `noreturn` | `tests/programs/gnu/attr_noreturn.c` | glibc's `__assert_fail`/`abort`, musl, every fatal-error helper |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
-| extended `asm` — operands, constraints, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_local_register.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
+| extended `asm` — operands, constraints, symbolic `s`/`i` address constants, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_local_register.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
@@ -356,6 +356,18 @@ freestanding-only.
 The same keywords open an inline-asm STATEMENT, a different construct that
 only POSITION tells apart from a label — and it is implemented, basic and
 extended forms both.
+
+In the non-PIC mode where GCC exposes symbolic immediates, extended asm keeps
+its three constant domains distinct. Constraint `n` accepts only a known
+integer, `s` accepts only a static symbolic address, and `i` accepts either. A
+symbolic operand remains a symbol-plus-addend relocation
+through IR and bypasses register allocation; named objects, array subobjects,
+functions, strings, and declaration asm labels therefore receive the same ELF
+or Mach-O spelling they do everywhere else. Automatic addresses, null pointer
+constants, and plain numbers under `s` are diagnosed. `%cN` and `%c[name]`
+print constants without x86's ordinary `$` prefix (and without Cgfried's
+AArch64 immediate marker). The permanent positive and negative boundary is
+`tests/programs/gnu/asm_constraint_symbolic*.c`.
 
 GNU variadic argument packs are caller-specialization operands, not runtime
 `va_list` values. Cgfried expands a direct inline wrapper into each caller

@@ -8,7 +8,6 @@
 -	23af7754f9be9ce88a3c3ee27dd514f3c5f3fc71fb93562c41a282be2e1ab505	parse	all	The case uses C23 double-bracket attribute syntax while v0.1.0 targets C17 and GNU C17.	out-of-scope
 -	31c786bdddd648d22e6d6b264d944e323874292e54902d0803498fc8451e2704	ICE	all	The valid greater-than-2-GiB automatic frame reaches arm64 regalloc, whose frame-object accounting ICEs above 2 GiB; retained attribute warnings supply the current normalized fingerprint.	fix-sprint:s56.5-arm64-large-stack-frame
 -	5af19e793c6f35ae33c0aa34abf6552c58591c99400d16038ff878b4332002d0	sema	all	arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal	wontfix-0.1.0
--	5e10d749ed583a36c352321e1e6165c368cf45cb4074a3abdc3559c01df8443b	sema	all	The GCC s symbolic-address inline-asm constraint is not implemented, so constant object and string addresses are rejected before lowering.	fix-sprint:s56.5-symbolic-asm-constant-constraint
 -	61f7d78fdc241146d501a94c8a4318e23bd540586c8eab78ee1478c26d74d3e4	as	all	The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.	out-of-scope
 -	6315641ba67866fc0ce23827d143e76d664e050b8b0c57fccaa7b1d735aad925	sema	all	allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal	wontfix-0.1.0
 -	63894c5b52edea1018992f21ad3550b33865536439f4fd724edc5e49bc0bd974	parse	all	The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope

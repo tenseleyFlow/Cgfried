@@ -30,3 +30,16 @@ void select_macro_asm_operand(int value)
     else
         __asm__ volatile("# register" : : "r"(value));
 }
+
+/* The same reachability rule applies to `s`: an automatic address is not a
+ * symbolic constant, but its invalid constraint is irrelevant when
+ * __builtin_constant_p removes that arm before code generation. */
+void select_symbolic_asm_operand(void)
+{
+    int local;
+
+    if (__builtin_constant_p(&local))
+        __asm__ volatile("# symbolic" : : "s"(&local));
+    else
+        __asm__ volatile("# register" : : "r"(&local));
+}

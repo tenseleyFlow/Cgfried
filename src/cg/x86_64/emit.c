@@ -214,7 +214,7 @@ static bool asm_operand_reg(const X64Inst *in, const IrAsm *a, u32 k, u8 *reg)
         const IrAsmOp *o = &a->ops[j];
         bool is_reg_out = o->is_output && o->cls != ASM_CLS_MEM;
 
-        if (o->cls == ASM_CLS_IMM)
+        if (o->cls == ASM_CLS_IMM || o->cls == ASM_CLS_SYM)
             continue;
         if (is_reg_out) {
             bool primary = !saw_reg_output;
@@ -247,7 +247,7 @@ static bool asm_operand_reg(const X64Inst *in, const IrAsm *a, u32 k, u8 *reg)
 
 /* One operand, in the form the template asked for. */
 static void asm_print_operand(Emit *e, const X64Inst *in, const IrAsm *a, u32 k,
-                              u8 width_override)
+                              u8 width_override, bool constant_without_prefix)
 {
     const IrAsmOp *o = &a->ops[k];
     u8 reg;
@@ -261,7 +261,22 @@ static void asm_print_operand(Emit *e, const X64Inst *in, const IrAsm *a, u32 k,
         return;
     }
     if (o->cls == ASM_CLS_IMM) {
-        buf_printf(e->out, "$%lld", (long long)o->imm);
+        buf_printf(e->out, constant_without_prefix ? "%lld" : "$%lld",
+                   (long long)o->imm);
+        return;
+    }
+    if (o->cls == ASM_CLS_SYM) {
+        const char *name = o->sym < e->m->nsyms ? e->m->syms[o->sym] : NULL;
+
+        if (!constant_without_prefix)
+            buf_printf(e->out, "$");
+        if (!name) {
+            buf_printf(e->out, "<bad-asm-symbol-%u>", o->sym);
+            return;
+        }
+        buf_printf(e->out, "%s", ir_sym_asm_spelling(name));
+        if (o->imm)
+            buf_printf(e->out, "%+lld", (long long)o->imm);
         return;
     }
     if (!asm_operand_reg(in, a, k, &reg)) {
@@ -289,6 +304,7 @@ static void asm_print_operand(Emit *e, const X64Inst *in, const IrAsm *a, u32 k,
  *   %%      a literal percent
  *   %0..%63 operand N, at its C type's width
  *   %b %w %k %q  operand N as 8/16/32/64-bit
+ *   %cN     a constant without its ordinary `$` immediate prefix
  *   %[name] the operand declared with that symbolic name
  * An unknown escape is passed through rather than guessed at: the template
  * belongs to the programmer and the assembler is the one entitled to
@@ -308,6 +324,7 @@ static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
     buf_printf(e->out, "#APP\n\t");
     for (c = a->tmpl; *c; c++) {
         u8 wover = 0;
+        bool constant_without_prefix = false;
 
         if (*c != '%') {
             buf_printf(e->out, "%c", *c);
@@ -324,6 +341,10 @@ static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
                     : *c == 'k' ? X64_L
                                 : X64_Q;
             c++;
+        } else if (*c == 'c' && c[1] &&
+                   ((c[1] >= '0' && c[1] <= '9') || c[1] == '[')) {
+            constant_without_prefix = true;
+            c++;
         }
         if (*c == '[') {
             const char *nm = c + 1;
@@ -338,7 +359,7 @@ static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
                     a->ops[j].name[end - nm] == '\0')
                     break;
             if (j < a->nops)
-                asm_print_operand(e, in, a, j, wover);
+                asm_print_operand(e, in, a, j, wover, constant_without_prefix);
             else
                 buf_printf(e->out, "<unknown-asm-operand>");
             c = *end ? end : end - 1;
@@ -361,7 +382,7 @@ static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
             c--;
 
             if (k < a->nops)
-                asm_print_operand(e, in, a, k, wover);
+                asm_print_operand(e, in, a, k, wover, constant_without_prefix);
             else
                 buf_printf(e->out, "<asm-operand-%u-out-of-range>", k);
             continue;
@@ -374,6 +395,8 @@ static void emit_inline_asm(Emit *e, const X64Inst *in, u32 asm_index)
                        : wover == X64_W ? 'w'
                        : wover == X64_L ? 'k'
                                         : 'q');
+        else if (constant_without_prefix)
+            buf_printf(e->out, "c");
         if (*c)
             buf_printf(e->out, "%c", *c);
         else

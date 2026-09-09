@@ -769,7 +769,8 @@ typedef enum {
     ASM_CLS_X87UP, /* x86 x87 second stack slot (`u` / st(1)) */
     ASM_CLS_FIXED, /* one named physical register (a b c d S D, or a clobber) */
     ASM_CLS_MEM,   /* a memory operand */
-    ASM_CLS_IMM    /* an assemble-time constant */
+    ASM_CLS_IMM,   /* an assemble-time integer constant */
+    ASM_CLS_SYM    /* a symbol plus link-time constant addend */
 } IrAsmClass;
 
 typedef struct IrAsmOp {
@@ -789,7 +790,8 @@ typedef struct IrAsmOp {
      * allocator runs, so two operands name one location and nothing
      * downstream needs a third concept. */
     i32 tied_to; /* operand index, or -1 */
-    i64 imm;     /* ASM_CLS_IMM: the folded value */
+    u32 sym;     /* ASM_CLS_SYM: index in IrModule.syms */
+    i64 imm;     /* ASM_CLS_IMM: value; ASM_CLS_SYM: addend */
     /* Byte size of the C operand, so the template's `%0` prints a register
      * of the right width -- `%eax` for an int, `%rax` for a long. Without it
      * every operand would print 64-bit and `movl %1, %0` would assemble

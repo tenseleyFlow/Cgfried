@@ -151,15 +151,16 @@ and
 [34266807198](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266807198),
 and exact synthetic-merge nightly
 [run 34266863156](https://github.com/tenseleyFlow/Cgfried/actions/runs/34266863156)
-are green. The current `s56.5-scalar-storage-order-bitfields` tranche (PR #91)
-resolves the twenty target-complete `20230630-2.c` and `20230630-4.c` cells in
-buckets 34 and 35. Integral scalar/array and reverse bit-field semantics,
-address-taking diagnostics, focused GCC-13 comparison, native Darwin ARM64
-execution, ARM64 Linux execution, x86-64 Linux source generation, sanitizers,
-pre-publication CI, and deterministic target-complete publication are green.
-The ratchet is 30,197 lines (30,194 PASS keys); fresh post-publication CI
-remains. Sprint 56's campaign machine and triage map remain complete while
-Sprint 58 continues its independent soak.
+are green. PR #91's `s56.5-scalar-storage-order-bitfields` tranche is merged as
+`bbd43b60`, publishing the twenty target-complete `20230630-{2,4}.c` cells and
+raising the ratchet to 30,197 lines (30,194 PASS keys). Its final standard,
+both bootstrap, and exact-head nightly runs are green. The current
+`s56.5-symbolic-asm-constant-constraint` tranche addresses the ten
+target-complete `torture-compile/pr27528.c` cells in bucket 24. The behavior
+implementation and focused local x86-64 Linux, ARM64 Linux, native Darwin
+ARM64, GCC-13 comparison, sanitizer, assembly, and unit evidence are green;
+target-complete publication and CI remain. Sprint 56's campaign machine and
+triage map remain complete while Sprint 58 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -3824,8 +3825,101 @@ and green post-publication CI.
   `296126c29905ef756aee8402f3c5278222c75d02464a273b1d437faf5591c2f7`
   and
   `c729c7da87eb61344bcf6d6eb4da03a1148c2362941001ad6f3b2b80e1b2b392`.
-  Fresh post-publication standard, bootstrap, and exact-head nightly evidence
-  remain before merge.
+  Final standard
+  [run 34288960625](https://github.com/tenseleyFlow/Cgfried/actions/runs/34288960625),
+  bootstrap
+  [runs 34288957366](https://github.com/tenseleyFlow/Cgfried/actions/runs/34288957366)
+  and
+  [34288960699](https://github.com/tenseleyFlow/Cgfried/actions/runs/34288960699),
+  and exact-head nightly
+  [run 34289014757](https://github.com/tenseleyFlow/Cgfried/actions/runs/34289014757)
+  are green. PR #91 merged as `bbd43b60`.
+- The current `s56.5-symbolic-asm-constant-constraint` tranche resolves the
+  ten target-complete `torture-compile/pr27528.c` cells in bucket 24,
+  fingerprint `5e10d749...`. On merged trunk `bbd43b60`, every O0/O1/O2/O3/Os
+  cell fails on ARM64 and x86-64 because extended-asm constraint `s` is not
+  decoded.
+
+  GCC 13 measurement with `-fno-pic -fno-pie` establishes three distinct
+  constant domains on both targets: `n` accepts a known integer, `s` accepts a
+  symbolic address constant, and `i` accepts either. Named objects, array
+  subobjects, functions, and strings print as `global`, `global+4`, `target`,
+  and a private string symbol under `%c`; numeric literals, automatic
+  addresses, and null pointer constants do not satisfy `s`. The upstream
+  testcase itself passes all five levels under GCC on both architectures.
+
+  Lowering now represents a symbolic asm operand as its own no-register IR
+  class carrying a module symbol index and link-time addend. The existing
+  constant-expression evaluator supplies named and anonymous static origins;
+  deferred CFG-reachability validation preserves the
+  `__builtin_constant_p` exemption while diagnosing only surviving invalid
+  operands. `i` selects integer-immediate or symbolic relocation from the
+  folded expression, while `n` remains integer-only. Both backends exclude the
+  class from register allocation and substitute the target's normal ELF or
+  Mach-O symbol spelling. `%cN` and `%c[name]` are implemented for prefix-free
+  constants; declaration asm labels remain exact and Darwin strings retain
+  private `l_` spelling.
+
+  Permanent positive and negative fixtures cover `%c` numeric and named
+  operands, symbol-plus-addend, strings, functions, actual x86 `movq` and
+  AArch64 `adrp` assembly, Darwin ordinary/exact/private names, `s` numeric and
+  automatic-address rejection, `i` rejection wording, and dead-arm deferred
+  validation. A lowering unit pins the IR class, symbols, addends, integer
+  fallback, verification, and textual-IR reconstruction. The focused fixture
+  output matches GCC 13 on ARM64 and x86-64, all emitted ELF/Mach-O files
+  assemble, the exact upstream testcase compiles at all five levels on both
+  targets, and native ASan+UBSan plus focused native/Linux unit runs are green.
+  The initial permanent fixtures moved the 5,000-iteration frontend-fuzz
+  sequence digest to `4efa7ef289fb84c8`; ordinary and sanitizer CI reproduced
+  it independently, while the 100,000-case lane found a pre-existing
+  error-recovery ICE at seed 55338. An invalid bit-field width left recovered
+  zero-width metadata on a comma expression, which then attempted to build an
+  impossible zero-precision integer type. The comma path now requires a
+  nonzero width and integral carrier, and a permanent diagnostic fixture pins
+  normal rejection. Seed 55338 and ASan+UBSan reproduction are clean. Adding
+  that fixture produces final digest `8b12e120611d16b6`, reproduced by two
+  independent Apple ARM64 hash runs. The complete deterministic 100,000-case
+  Apple ARM64 lane also finishes with zero findings.
+  Pre-publication standard
+  [run 34307521010](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307521010)
+  passes every non-torture job, including sanitizer coverage, both native and
+  QEMU ARM lanes, and the deterministic 100,000-case frontend-fuzz lane. Its
+  x86 torture gate rejects exactly the five unpublished `pr27528.c` cells and
+  no old PASS. Bootstrap
+  [runs 34307520966](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307520966)
+  and
+  [34307518053](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307518053)
+  are green. Exact synthetic-merge nightly
+  [run 34307585374](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307585374)
+  passes all fourteen non-torture jobs; its native ARM torture gate rejects
+  exactly the matching five unpublished cells and no old PASS.
+
+  Both retained 20,335-line streams name synthetic revision
+  `a78a840ab7092b19c60277fd1eec098dcd8249aa` and share compiler-source
+  SHA-256 `640df1182c67e3791a7102e0a0bd7293cd5e6693cc85f1a7da7f1ae787be0226`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `104dd9a10cacb70e74e416ea033da361aa4559ee47c69b16a5f284cff37cfa64`
+  and
+  `68863d325e60c74ab4c3945172f765e6f12ac2a5f9d776480f9524e6782217ee`.
+
+  GNU Make 4.4.1 consumes those fresh exact CI streams in both target orders
+  and regenerates both committed outputs byte-identically. Atomic publication
+  promotes exactly ten `pr27528.c` cells with zero PASS regression and retires
+  only fingerprint `5e10d749...`. The published state is 30,207 ratchet lines /
+  30,204 PASS keys, 3,826 classified failures, 38 observed buckets, 30 applied
+  decisions, two deliberately retained stale decisions, and zero unbucketed or
+  unresolved cells. PASS and triage SHA-256 values are respectively
+  `199924a4687387cce1f57440e44e8211aec840b18f8579e8555f40ab8aa49649`
+  and
+  `6a2500ad8cdfb242fe445b00b8082c90c9829e14de003119cc9162f6ae448281`.
+  Fresh post-publication standard CI, bootstrap, and exact-head nightly
+  evidence remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

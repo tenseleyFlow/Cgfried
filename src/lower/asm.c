@@ -175,6 +175,13 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             op->cls = ASM_CLS_IMM;
             saw_class = true;
             continue;
+        case 's':
+            /* A symbolic address constant: the linker, rather than the
+             * register allocator, supplies its final value. Expression-aware
+             * validation below distinguishes it from a numeric immediate. */
+            op->cls = ASM_CLS_SYM;
+            saw_class = true;
+            continue;
         case 'N':
             /* x86 N is an unsigned 8-bit immediate. Keep the exact spelling
              * narrow here: a string such as rN is an ALTERNATIVE constraint,
@@ -490,6 +497,26 @@ static bool validate_operand_clobbers(Lower *lo, const AstNode *s,
     return true;
 }
 
+static bool asm_symbolic_constant(const ConstValue *cv)
+{
+    /* constexpr.c uses CV_ADDR with no origin internally while recognizing
+     * null-based offsetof idioms. That is not a relocation and must never be
+     * mistaken for GNU `s`'s link-time symbolic address. */
+    return cv->kind == CV_ADDR && (cv->sym || cv->anon);
+}
+
+static IrOperand lower_asm_symbolic_constant(Lower *lo, IrAsmOp *op,
+                                             const ConstValue *cv)
+{
+    u32 sym =
+        cv->sym ? lower_global_sym(lo, cv->sym) : lower_anon_sym(lo, cv->anon);
+
+    op->cls = ASM_CLS_SYM;
+    op->sym = sym;
+    op->imm = cv->addend;
+    return ir_op_symbol(IRT_PTR, sym, cv->addend);
+}
+
 void lower_asm(Lower *lo, AstNode *s)
 {
     IrAsm a;
@@ -497,7 +524,7 @@ void lower_asm(Lower *lo, AstNode *s)
     IrOperand vals[64];
     Lvalue output_lvalues[64];
     bool output_lvalue_valid[64] = {false};
-    DeferredAsmImmediate *deferred[64];
+    DeferredAsmConstant *deferred[64];
     u8 clobregs[64];
     u32 n = 0;
     u32 nclob = 0;
@@ -580,16 +607,18 @@ void lower_asm(Lower *lo, AstNode *s)
         } else {
             op->size = 8;
         }
-        if (op->cls == ASM_CLS_IMM) {
-            /* `i` and `n` require an assemble-time constant.  The source
+        if (op->cls == ASM_CLS_IMM || op->cls == ASM_CLS_SYM) {
+            /* `n` requires an integer known at assembly time, `s` requires a
+             * symbolic address, and `i` accepts either. The source
              * arm can, however, be removed by __builtin_constant_p before
              * code generation; diagnosing here would reject a constraint
              * that never reaches an asm instruction.  Carry a harmless
              * placeholder through lowering, then validate it after the CFG
-             * has its real constant edge.  CE_FOLD is deliberately silent;
-             * the deferred CE_ICE call owns the user diagnostic. */
+             * has its real constant edge. CE_FOLD is deliberately silent;
+             * the deferred check owns the user diagnostic. */
             ConstValue cv;
-            DeferredAsmImmediate *pending;
+            DeferredAsmConstant *pending;
+            DeferredAsmConstantKind required = ASM_CONST_INTEGER;
 
             if (nd_immediate) {
                 vals[n] = ir_op_iconst(IRT_I64, op->imm);
@@ -597,20 +626,31 @@ void lower_asm(Lower *lo, AstNode *s)
                 continue;
             }
             cv = constexpr_eval(lo->sema, src->expr, CE_FOLD);
-            op->imm = cv.kind == CV_INT ? (i64)cv.i : 0;
-            vals[n] = ir_op_iconst(IRT_I64, op->imm);
+            if (strcmp(op->constraint, "s") == 0) {
+                required = ASM_CONST_SYMBOL;
+            } else if (strcmp(op->constraint, "i") == 0) {
+                required = ASM_CONST_INTEGER_OR_SYMBOL;
+            }
+            if (asm_symbolic_constant(&cv) && required != ASM_CONST_INTEGER) {
+                vals[n] = lower_asm_symbolic_constant(lo, op, &cv);
+            } else {
+                op->cls = ASM_CLS_IMM;
+                op->imm = cv.kind == CV_INT ? (i64)cv.i : 0;
+                vals[n] = ir_op_iconst(IRT_I64, op->imm);
+            }
             pending = arena_alloc(lo->arena, sizeof(*pending),
-                                  _Alignof(DeferredAsmImmediate));
+                                  _Alignof(DeferredAsmConstant));
             pending->expr = src->expr;
             pending->constraint = op->constraint;
             pending->span = src->span;
             pending->block = BLOCK_INVALID;
+            pending->kind = (u8)required;
             pending->next = NULL;
-            if (lo->deferred_asm_immediates_tail)
-                lo->deferred_asm_immediates_tail->next = pending;
+            if (lo->deferred_asm_constants_tail)
+                lo->deferred_asm_constants_tail->next = pending;
             else
-                lo->deferred_asm_immediates = pending;
-            lo->deferred_asm_immediates_tail = pending;
+                lo->deferred_asm_constants = pending;
+            lo->deferred_asm_constants_tail = pending;
             deferred[ndeferred++] = pending;
             n++;
             continue;
@@ -711,21 +751,40 @@ void lower_asm(Lower *lo, AstNode *s)
     ir_build_asm(&lo->b, ir_asm_new(lo->m, &a), vals, n);
 }
 
-void lower_asm_validate_deferred_immediates(Lower *lo)
+void lower_asm_validate_deferred_constants(Lower *lo)
 {
-    DeferredAsmImmediate *pending;
+    DeferredAsmConstant *pending;
 
-    for (pending = lo->deferred_asm_immediates; pending && !lo->failed;
+    for (pending = lo->deferred_asm_constants; pending && !lo->failed;
          pending = pending->next) {
         ConstValue cv;
 
         if (!ir_func_block_reachable(lo->fn, pending->block))
             continue;
+        cv = constexpr_eval(lo->sema, pending->expr, CE_FOLD);
+        if (pending->kind == ASM_CONST_SYMBOL) {
+            if (asm_symbolic_constant(&cv))
+                continue;
+            asm_error(lo, pending->span,
+                      "an asm operand with constraint \"%s\" must be an "
+                      "address constant with a symbolic origin",
+                      pending->constraint);
+            return;
+        }
+        if (pending->kind == ASM_CONST_INTEGER_OR_SYMBOL &&
+            asm_symbolic_constant(&cv))
+            continue;
+        /* Preserve the existing integer-constant contract for n/N and the
+         * numeric half of i. CE_ICE, rather than GNU opportunistic folding,
+         * decides whether a numeric expression is accepted. */
         cv = constexpr_eval(lo->sema, pending->expr, CE_ICE);
         if (cv.kind != CV_INT) {
             asm_error(lo, pending->span,
-                      "an asm operand with constraint \"%s\" must be an "
-                      "integer constant expression",
+                      pending->kind == ASM_CONST_INTEGER_OR_SYMBOL
+                          ? "an asm operand with constraint \"%s\" must be an "
+                            "integer or symbolic address constant"
+                          : "an asm operand with constraint \"%s\" must be an "
+                            "integer constant expression",
                       pending->constraint);
             return;
         }

@@ -1575,8 +1575,8 @@ static void lower_function(Lower *lo, AstNode *def)
     lo->cur_return_type = ft->base;
     lo->dead_region = 0;
     lo->next_dead_region = 0;
-    lo->deferred_asm_immediates = NULL;
-    lo->deferred_asm_immediates_tail = NULL;
+    lo->deferred_asm_constants = NULL;
+    lo->deferred_asm_constants_tail = NULL;
     lo->deferred_config_removals = NULL;
     lo->deferred_config_removals_tail = NULL;
 
@@ -1713,7 +1713,7 @@ static void lower_function(Lower *lo, AstNode *def)
      * their diagnostics belong only to blocks the final source CFG can reach.
      * This must run after every goto/case edge exists and before codegen. */
     lower_record_deferred_config_removals(lo);
-    lower_asm_validate_deferred_immediates(lo);
+    lower_asm_validate_deferred_constants(lo);
     ir_func_remove_unreachable_with_log(lo->fn);
     /* Lowering fills join blocks after later-created ones, so creation
      * order != document order; renumber so the printed module reparses
