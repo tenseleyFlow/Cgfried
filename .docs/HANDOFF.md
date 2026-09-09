@@ -3880,7 +3880,46 @@ and green post-publication CI.
   that fixture produces final digest `8b12e120611d16b6`, reproduced by two
   independent Apple ARM64 hash runs. The complete deterministic 100,000-case
   Apple ARM64 lane also finishes with zero findings.
-  Target-complete campaign evidence, atomic publication, CI, and merge remain.
+  Pre-publication standard
+  [run 34307521010](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307521010)
+  passes every non-torture job, including sanitizer coverage, both native and
+  QEMU ARM lanes, and the deterministic 100,000-case frontend-fuzz lane. Its
+  x86 torture gate rejects exactly the five unpublished `pr27528.c` cells and
+  no old PASS. Bootstrap
+  [runs 34307520966](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307520966)
+  and
+  [34307518053](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307518053)
+  are green. Exact synthetic-merge nightly
+  [run 34307585374](https://github.com/tenseleyFlow/Cgfried/actions/runs/34307585374)
+  passes all fourteen non-torture jobs; its native ARM torture gate rejects
+  exactly the matching five unpublished cells and no old PASS.
+
+  Both retained 20,335-line streams name synthetic revision
+  `a78a840ab7092b19c60277fd1eec098dcd8249aa` and share compiler-source
+  SHA-256 `640df1182c67e3791a7102e0a0bd7293cd5e6693cc85f1a7da7f1ae787be0226`,
+  harness SHA-256
+  `c8495eac7944b71a0b78064a208b7fe7da0834be74cc93ca68b5a051aa1e43e9`,
+  torture-manifest SHA-256
+  `8967e250c609984a4a9e50ade6f0de10a36c5a3d956759b560940fdcc2e52f1a`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `104dd9a10cacb70e74e416ea033da361aa4559ee47c69b16a5f284cff37cfa64`
+  and
+  `68863d325e60c74ab4c3945172f765e6f12ac2a5f9d776480f9524e6782217ee`.
+
+  GNU Make 4.4.1 consumes those fresh exact CI streams in both target orders
+  and regenerates both committed outputs byte-identically. Atomic publication
+  promotes exactly ten `pr27528.c` cells with zero PASS regression and retires
+  only fingerprint `5e10d749...`. The published state is 30,207 ratchet lines /
+  30,204 PASS keys, 3,826 classified failures, 38 observed buckets, 30 applied
+  decisions, two deliberately retained stale decisions, and zero unbucketed or
+  unresolved cells. PASS and triage SHA-256 values are respectively
+  `199924a4687387cce1f57440e44e8211aec840b18f8579e8555f40ab8aa49649`
+  and
+  `6a2500ad8cdfb242fe445b00b8082c90c9829e14de003119cc9162f6ae448281`.
+  Fresh post-publication standard CI, bootstrap, and exact-head nightly
+  evidence remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
