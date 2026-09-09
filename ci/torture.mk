@@ -208,6 +208,8 @@ torture-gate: torture-import-verify torture-run
 # runs and gates never refresh either committed artifact implicitly.  The
 # baseline-results variable is intentionally a whitespace-separated list;
 # repository-generated result paths contain no whitespace.
+# The triage tool owns same-directory staging and rollback for this pair. The
+# report publishes first; the passing ratchet is the commit point.
 torture-baseline: torture-import-verify torture-run
 	@set -eu; \
 	target='$(CGF_TORTURE_TARGET)'; \
@@ -380,8 +382,6 @@ torture-baseline: torture-import-verify torture-run
 			fi; \
 		done; \
 	done <"$$baseline_tmp/input.paths"; \
-	# The triage tool owns same-directory staging and rollback for this pair. \
-	# The report publishes first; the passing ratchet is the commit point. \
 	CGF_TORTURE_TRIAGE_POLICY="$(CGF_TORTURE_TRIAGE_POLICY)" \
 	"$(CGF_TORTURE_TRIAGE_TOOL)" --output "$$report_final" \
 		--emit-passing "$$passing_final" "$$@"

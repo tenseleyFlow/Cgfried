@@ -3129,7 +3129,7 @@ execute/execute.exp	ea232d6bba747ef8b13f4b51f9dc663de0c23831d61ec26463b919ab6c7d
 execute/extzvsi.c	0dfd04930bed4f83356b74519330afcffa6e2e732f090f7bfe4be881e351c62c	run	-	-	run	-
 execute/ffs-1.c	2cd39f8954aa815c393bc284e03f0d0338be751bda8ce762bb3fbb52a1e17a11	run	-	-	run	-
 execute/ffs-2.c	b3ae15c3c3639ce034a6574ff705032168309638f7eb8bde4e4db1e60c5c0d25	run	-	-	run	-
-execute/float-floor.c	7058e692773c39351cfbdf99abcf3c6245437bb7c32b57ec972914009cee83ad	run	-	-	skip	requires libm linkage not supported by torture manifest
+execute/float-floor.c	7058e692773c39351cfbdf99abcf3c6245437bb7c32b57ec972914009cee83ad	run	-	-	run	-
 execute/floatunsisf-1.c	ec3c5354fbc75cbae1addd762ace8de45c3f1995ff3fb610b7721fb1ec7ccb7e	run	-	-	run	-
 execute/fprintf-1.c	06ca4691a6d3d3a47c26ca643ca2b962f3ed8be57af27c1454846e0324b73bca	run	-	-	skip	upstream dg-skip-if condition
 execute/fprintf-2.c	45550152d611a56847d3a86c00876569cb98f0a429375ee9d887804c0c0eb69d	run	fileio	-	skip	unsupported directive dg-prune-output

@@ -587,7 +587,12 @@ run_case()
     if [ "$mode" = compile ]; then
         set -- "$@" -c "$source" -o "$case_dir/program.o"
     else
-        set -- "$@" "$source" -o "$binary"
+        # The imported execution corpus's link contract supplies libm for
+        # every runnable case.
+        # Keep it after the source: Cgfried preserves link-input order, and
+        # an archive before its user object would not resolve that object's
+        # math references on the ELF targets this runner owns.
+        set -- "$@" "$source" -lm -o "$binary"
     fi
     compile_status=0
     capture_begin "$compile_out" "$compile_err"
@@ -623,9 +628,18 @@ run_case()
             2) phase=ld; detail='linker exited 2' ;;
             1)
                 phase=$(classify_compiler_phase)
-                if grep -Ei 'IR verif|optimizer|codegen|assembler' "$compile_err" >/dev/null 2>&1; then
-                    phase=$(sed -n 's/.*\(preprocess\|parse\|semantic\|IR verif[^: ]*\|optimizer\|codegen\|assembler\).*/\1/p' "$compile_err" | sed -n '1p')
-                    case $phase in preprocess) phase=pp ;; semantic) phase=sema ;; 'IR verif'*) phase=ir-verify ;; optimizer) phase=opt ;; codegen) phase=cg ;; assembler) phase=as ;; esac
+                # Keep this spelling-free: BSD sed treats the mixed
+                # space-bearing alternatives below differently from GNU sed.
+                # The phase probes above already own pp/parse/sema; this only
+                # refines later compiler-stage diagnostics.
+                if grep -Ei 'IR verif' "$compile_err" >/dev/null 2>&1; then
+                    phase=ir-verify
+                elif grep -Ei 'optimizer' "$compile_err" >/dev/null 2>&1; then
+                    phase=opt
+                elif grep -Ei 'codegen' "$compile_err" >/dev/null 2>&1; then
+                    phase=cg
+                elif grep -Ei 'assembler' "$compile_err" >/dev/null 2>&1; then
+                    phase=as
                 fi
                 ;;
             12[89] | 13[0-9] | 14[0-9] | 15[0-9] | 16[0-9] | 17[0-9] | 18[0-9] | 19[0-2])

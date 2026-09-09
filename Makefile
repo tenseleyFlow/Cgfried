@@ -41,10 +41,10 @@ COMPILER_PROVENANCE_INPUTS := Makefile \
 COMPILER_PROVENANCE_RECEIPT := $(BUILD)/cgfried.provenance
 # A removed source/header disappears from the dynamic prerequisite list, which
 # ordinary make timestamp logic cannot notice.  Keep one content-addressed
-# state file and update its mtime only when the current path set changes; unlike
-# permanent digest-named stamps, this also catches A -> B -> C -> B transitions.
-# The cryptographic receipt remains the exact safety check, so cksum is only a
-# rebuild trigger.
+# state file and compare its contents in the compiler recipe; unlike mtime-only
+# stamps, this also catches A -> B -> C -> B transitions made within one clock
+# tick.  The cryptographic receipt remains the exact safety check, so cksum is
+# only a rebuild trigger.
 COMPILER_SOURCE_SET_ID := $(shell { printf '%s\n' Makefile; \
     find src include -type f -print; } | LC_ALL=C sort -u | cksum | \
     awk '{ print $$1 "-" $$2 }')
@@ -223,25 +223,27 @@ $(RT_LIB): $(RT_OBJ)
 $(BUILD)/rt/:
 	mkdir -p $@
 
-$(BUILD)/cgfried: $(OBJ) $(COMPILER_PROVENANCE_INPUTS) \
-    $(COMPILER_SOURCE_SET_STAMP)
-	rm -f $(COMPILER_PROVENANCE_RECEIPT)
-	$(CC) $(CFLAGS) -o $@ $(OBJ)
+$(BUILD)/cgfried: $(OBJ) $(COMPILER_PROVENANCE_INPUTS) FORCE
+	@current='$(COMPILER_SOURCE_SET_ID)'; \
+	previous=$$(cat "$(COMPILER_SOURCE_SET_STAMP)" 2>/dev/null || :); \
+	if [ "$$current" != "$$previous" ] || \
+	   [ -n "$(filter-out FORCE,$?)" ]; then \
+		mkdir -p "$(dir $(COMPILER_SOURCE_SET_STAMP))"; \
+		rm -f "$(COMPILER_PROVENANCE_RECEIPT)"; \
+		$(CC) $(CFLAGS) -o $@ $(OBJ); \
+		tmp="$(COMPILER_SOURCE_SET_STAMP).tmp.$$$$"; \
+		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
+		printf '%s\n' "$$current" >"$$tmp"; \
+		mv -f "$$tmp" "$(COMPILER_SOURCE_SET_STAMP)"; \
+	fi
 
-$(COMPILER_PROVENANCE_RECEIPT): $(BUILD)/cgfried $(COMPILER_PROVENANCE_INPUTS)
+# The compiler recipe may deliberately remove an invalid receipt.  Force this
+# inexpensive validation step so GNU Make 3.81 cannot decide the receipt was
+# current before that removal during a same-tick source-set transition.
+$(COMPILER_PROVENANCE_RECEIPT): $(BUILD)/cgfried $(COMPILER_PROVENANCE_INPUTS) FORCE
 	scripts/torture-provenance.sh --write-receipt $@ --compiler $(BUILD)/cgfried
 
 FORCE:
-
-$(COMPILER_SOURCE_SET_STAMP): FORCE
-	@mkdir -p $(dir $@)
-	@current='$(COMPILER_SOURCE_SET_ID)'; \
-	if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$$current" ]; then \
-		tmp="$@.tmp.$$$$"; \
-		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
-		printf '%s\n' "$$current" >"$$tmp"; \
-		mv -f "$$tmp" "$@"; \
-	fi
 
 # The short alias from the locked decision.
 $(BUILD)/cgf: $(BUILD)/cgfried
