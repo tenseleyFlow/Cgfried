@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-08): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-09): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -3967,6 +3967,40 @@ and green post-publication CI.
   and `2626113902d27e13af8a9ccee6e3d89fa7ee1dec5c4eb0e2c778b35ca5883f18`.
   Fresh post-publication standard CI, bootstrap, and exact-head nightly
   evidence remain before merge.
+- The current `s56.5-torture-libm-linkage` tranche (PR #94) restores the
+  runner's normal executable link contract: `-lm` follows the source/object
+  input for runnable torture and c-testsuite cases, but is absent from
+  compile-only cases. It removes the `float-floor.c` skip and the resolved
+  missing-libm policy fingerprint `0c2661f7...`. The behavior commit is
+  `4835596b`; portable metadata-gate repairs in that same commit keep the
+  Apple-native GNU Make/BSD userland path deterministic.
+
+  The retained x86 artifact from
+  [run 34362931095](https://github.com/tenseleyFlow/Cgfried/actions/runs/34362931095)
+  and the exact synthetic-merge native-ARM artifact from
+  [run 34363826705](https://github.com/tenseleyFlow/Cgfried/actions/runs/34363826705)
+  each contain 20,325 matrix rows. Both name synthetic revision
+  `1f51b086aadfdcacd705338132248fa8b9e7460c`, compiler-source SHA-256
+  `2b07375c0fff04d547d4d881da7b8791b3f15d37af2d4b9603c14db0fa5190ed`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and the same c-testsuite manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Each target records exactly 25 new passes: all five levels for
+  `ctestsuite/00174.c`, `torture-execute/20020720-1.c`,
+  `torture-execute/float-floor.c`, and
+  `torture-execute-ieee/{20041213-1,mzero4}.c`. No old PASS is rejected.
+
+  GNU Make 4.4.1 consumes the explicit x86/ARM evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  50 target-complete PASS keys, leaving 30,265 PASS keys (30,268 lines),
+  3,775 classified failures, 36 observed buckets, 28 applied decisions, two
+  deliberately retained stale decisions, and zero unbucketed or unresolved
+  cells. The pre-publication CI red is solely the expected unpublished-PASS
+  ratchet guard; fresh post-publication standard CI, bootstrap, and
+  exact-head native-ARM evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
