@@ -3869,6 +3869,10 @@ and green post-publication CI.
   output matches GCC 13 on ARM64 and x86-64, all emitted ELF/Mach-O files
   assemble, the exact upstream testcase compiles at all five levels on both
   targets, and native ASan+UBSan plus focused native/Linux unit runs are green.
+  Adding the permanent fixtures intentionally moves the 5,000-iteration
+  frontend-fuzz sequence digest to `4efa7ef289fb84c8`; ordinary and sanitizer
+  CI reproduced it independently with zero findings, and two independent
+  Apple ARM64 hash runs agree.
   Target-complete campaign evidence, atomic publication, CI, and merge remain.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
