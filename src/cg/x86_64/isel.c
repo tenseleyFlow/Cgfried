@@ -571,8 +571,9 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
         /* 64-bit absolute addresses never fold: RIP-relative lea. */
         X64VReg r = newv(is);
         X64Inst *in;
+        IrTlsModel tls_model = ir_sym_tls_model(is->m, o->sym + 1);
 
-        if (ir_sym_is_tls(is->m, o->sym + 1)) {
+        if (tls_model == IR_TLS_LOCAL_EXEC) {
             /* Local-exec. A thread-local has no ordinary address, so the
              * address is BUILT: read the thread pointer out of %fs:0, then
              * add the symbol's link-time offset from it.
@@ -599,6 +600,51 @@ static X64VReg to_vreg(Isel *is, const IrOperand *o)
             in->a.mem.scale = 1;
             in->a.mem.tpoff_sym = o->sym + 1;
             in->a.mem.disp = (i32)(i64)o->a;
+            return r;
+        }
+        if (tls_model == IR_TLS_INITIAL_EXEC) {
+            /* Initial-exec. An extern TLS object's GOT entry holds its
+             * offset FROM the current thread pointer, not an ordinary data
+             * address. Keep the three materialization steps explicit:
+             *
+             *     movq sym@GOTTPOFF(%rip), %offset
+             *     movq %fs:0, %thread_pointer
+             *     addq %offset, %thread_pointer
+             *
+             * The result then follows the same load/store/address-of route
+             * as local-exec. A folded source-level addend belongs after the
+             * GOT-derived base; no TLS relocation can carry it. */
+            X64VReg offset = newv(is);
+            X64VReg base = newv(is);
+            X64Inst *got = emit(is, X64_OP_MOV, X64_Q);
+            X64Inst *tp = emit(is, X64_OP_MOV, X64_Q);
+            X64Inst *add;
+
+            got->def = offset;
+            got->a.kind = X64O_MEM;
+            got->a.mem.scale = 1;
+            got->a.mem.gottpoff_sym = o->sym + 1;
+
+            tp->def = base;
+            tp->a.kind = X64O_MEM;
+            tp->a.mem.seg_fs = true;
+            tp->a.mem.scale = 1;
+
+            add = emit(is, X64_OP_ADD, X64_Q);
+            add->def = r;
+            add->a = ovreg(base);
+            add->b = ovreg(offset);
+            if ((i64)o->a) {
+                X64VReg with_addend = newv(is);
+                X64Inst *lea = emit(is, X64_OP_LEA, X64_Q);
+
+                lea->def = with_addend;
+                lea->a.kind = X64O_MEM;
+                lea->a.mem.base = r;
+                lea->a.mem.scale = 1;
+                lea->a.mem.disp = (i32)(i64)o->a;
+                return with_addend;
+            }
             return r;
         }
         if (sym_data_needs_got(is, o->sym + 1)) {

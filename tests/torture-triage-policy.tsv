@@ -11,7 +11,6 @@
 -	63894c5b52edea1018992f21ad3550b33865536439f4fd724edc5e49bc0bd974	parse	all	The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
--	94be3ef186a0396bf67e3c63095e5edcc107266d44173624a9ffef72569eaf32	cg	all	extern thread-local references need the unimplemented Linux initial-exec lowering path	fix-sprint:s56.5-extern-tls-initial-exec
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	acf3af7f1c9c3a7c11b6175147cd3c92078cd42a313164f6b5145b98513ab18c	parse	all	GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope	wontfix-0.1.0
 -	afb9f891e77ea9ff3bedc8426dab776716e83fb433d22c8e2f1ed92a0df6cd4c	parse	all	The case uses GNU complex declarations and component operators, outside the v0.1.0 language scope.	out-of-scope

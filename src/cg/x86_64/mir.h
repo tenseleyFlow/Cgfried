@@ -268,6 +268,10 @@ typedef struct X64Mem {  /* [base + index*scale + disp32] or sym(%rip) */
      *              and cpool. */
     bool seg_fs;
     u32 tpoff_sym;
+    /* Initial-exec external TLS: a RIP-relative LOAD of the GOT TLS offset,
+     * spelled `sym@GOTTPOFF(%rip)`. The selector adds that offset to %fs:0;
+     * it is not the ordinary data-address GOT slot (`@GOTPCREL`). */
+    u32 gottpoff_sym;
     u32 cpool; /* Sprint 23: X64Func.consts index + 1 (rodata
                   constants: FP literals, sign/abs masks).
                   Exclusive with base/index/rip_sym. */

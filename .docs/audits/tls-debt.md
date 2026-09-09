@@ -39,11 +39,13 @@ all. The work is three separate mechanisms plus an upstream assembler change:
 | TLS-002 | Local-exec on arm64-linux | **CLOSED in Sprint 51** |
 | TLS-003 | Mach-O thread-local variables | `__DATA,__thread_vars` descriptors and a call through the descriptor — a completely different mechanism from ELF TLS, not a spelling change |
 | TLS-004 | afs-as support for the TLS relocation families on both architectures | The bundled assembler has none today |
-| TLS-005 | Initial-exec / general-dynamic models | Only needed once we emit PIC or shared objects, which is Sprint 51. Local-exec is sufficient for the non-PIE executables v0.1.0 produces. |
+| TLS-005 | External TLS models: initial-exec for ELF executables/PIE; general-dynamic for full PIC | **Initial-exec CLOSED in Sprint 56.5.** General-dynamic remains open. |
 
-TLS-005 is deliberately last: local-exec covers everything the current output
-model can produce, and implementing the dynamic models before there is a
-shared object to test them against would be unverifiable.
+TLS-005 was deliberately last: local-exec covers definitions in the current
+translation unit, while an external TLS declaration needs a different model
+even for an executable. Initial-exec is verifiable for ELF executables and
+PIE; general-dynamic remains deferred until a full-PIC/shared-object path can
+test the dynamic resolver end to end.
 
 ## Blast radius of the hard error, measured
 
@@ -85,12 +87,8 @@ nothing about semantics; `tests/programs/tls/tls_threads_are_separate.c` runs
 four threads incrementing a thread-local a thousand times each and requires
 main to still see 0. That is the number that was 1000.
 
-Two honest boundaries, both clean errors rather than guesses:
+One honest boundary remains here:
 
-- An **extern** thread-local emits no global, so nothing downstream can tell
-  the symbol is thread-local — and answering "it is not" is the original
-  silent miscompile. Local-exec only reaches a definition in this TU; an
-  extern one needs initial-exec (TLS-005). Refused by name.
 - The **bundled assembler** has neither `%fs:` nor `@tpoff` nor
   `R_X86_64_TPOFF32` (TLS-004). The driver says so and points at `CGF_AS=0`,
   instead of letting afs-as reject correct assembly and reporting it as "a cgf
@@ -120,5 +118,40 @@ a codegen bug rather than an emission-order one.
 
 Verified by running the four-thread program under qemu: `main counter=0`.
 
-Remaining: TLS-003 (Mach-O), TLS-004 (afs-as), TLS-005 (initial-exec /
-general-dynamic).
+## TLS-005 — external initial-exec, closed in Sprint 56.5
+
+An undefined TLS object has no `IrGlobal`, so `IrGlobal.is_tls` alone cannot
+describe a reference to it. The lowerer records `tls(initial_exec)` in the
+parallel symbol-attribute table; textual IR round-trips that fact, and each
+ELF backend selects a dedicated address pseudo rather than treating the
+symbol as ordinary data.
+
+On x86-64 the sequence is:
+
+    movq sym@GOTTPOFF(%rip), %rN
+    movq %fs:0, %rM
+    addq %rN, %rM
+
+On AArch64 it is:
+
+    adrp xN, :gottprel:sym
+    ldr  xN, [xN, :gottprel_lo12:sym]
+    mrs  xT, tpidr_el0
+    add  xN, xT, xN
+
+Those spellings assemble to `R_X86_64_GOTTPOFF` and the AArch64
+`TLSIE_GOTTPREL` relocation pair. The exact upstream trigger is
+`tests/torture/compile/pr78694.c`; it now emits and assembles at every tested
+optimization level on both Linux targets. The executable regression
+`tests/corpus/x86_64/int/tls_extern_initial_exec.c` places the definition in a
+separate translation unit and requires two threads to observe
+`main=5 worker=17`.
+
+Initial-exec is correct for ordinary ELF executables and PIE, but not for a
+full `-fPIC` reference that may resolve in an arbitrary DSO. That path remains
+a clean error naming the missing general-dynamic model. Mach-O TLS uses its
+own descriptor ABI (TLS-003), so an external TLS reference there is also a
+clean error rather than invalid ELF relocation syntax.
+
+Remaining: TLS-003 (Mach-O), TLS-004 (afs-as), TLS-005 general-dynamic for
+full PIC/shared objects.

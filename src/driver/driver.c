@@ -972,6 +972,20 @@ static FILE *open_asm_stage(const char *object_path, char *asm_path, size_t cap)
     return fopen(asm_path, "wb");
 }
 
+/* Full PIC may refer to a TLS object in an arbitrary DSO, so its ABI model is
+ * general-dynamic rather than the initial-exec sequence used by ordinary and
+ * PIE executables. Keep that boundary before backend emission: producing a
+ * plausible initial-exec relocation here would be a silent ABI lie. */
+static const char *first_initial_exec_tls(const IrModule *m)
+{
+    u32 i;
+
+    for (i = 0; m && i < m->nsyms; i++)
+        if (ir_sym_tls_model(m, i + 1) == IR_TLS_INITIAL_EXEC)
+            return ir_sym_asm_spelling(m->syms[i]);
+    return NULL;
+}
+
 static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                         const DriverArgs *a, const CompileJob *job)
 {
@@ -996,6 +1010,27 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     char comp_dir[4096];
     FILE *f;
     const char *dump_dir = job->plan_only ? NULL : phase_dump_dir();
+    const char *tls = first_initial_exec_tls(m);
+
+    /* This tranche implements the ELF initial-exec ABI only. Mach-O TLS is
+     * descriptor-based (TLS-003), so accepting the ELF pseudo there would
+     * merely write assembly Apple's assembler cannot interpret. */
+    if (tls && cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
+        fprintf(stderr,
+                "cgfried: error: '%s' references extern _Thread_local '%s'; "
+                "Mach-O TLS access is not supported yet\n",
+                job->path, tls);
+        return CGF_EXIT_COMPILE;
+    }
+
+    if (tls && a->fpic) {
+        fprintf(stderr,
+                "cgfried: error: '%s' references extern _Thread_local "
+                "'%s' under -fPIC; the general-dynamic TLS model is "
+                "not supported yet\n",
+                job->path, tls);
+        return CGF_EXIT_COMPILE;
+    }
 
     if (dump_dir)
         buf_init(&mir_dump);
@@ -1159,19 +1194,19 @@ emit_tail:
      * (deterministic name; kept on failure so the ICE is reproducible),
      * assemble, clean up. */
     /* THE bundled-assembler gap for thread-local storage. The assembly we
-     * produce is correct and gas assembles it; afs-as has neither the `%fs:`
-     * segment override nor the `@tpoff` operand nor R_X86_64_TPOFF32
-     * (TLS-004). Left alone, it rejects the text and the driver reports "the
-     * assembler rejected cgfried-generated assembly ... this is a cgf
-     * emission bug" -- which blames the wrong component for a gap we know
-     * about. Say what is actually true, and what to do about it. */
+     * produce is correct and gas assembles it; afs-as has neither local-exec
+     * (`%fs:`/`@tpoff`) nor initial-exec (`@GOTTPOFF`/`:gottprel:`) TLS
+     * relocation syntax (TLS-004). Left alone, it rejects the text and the
+     * driver reports "the assembler rejected cgfried-generated assembly ...
+     * this is a cgf emission bug" -- which blames the wrong component for a
+     * gap we know about. Say what is actually true, and what to do about it. */
     {
         ToolchainConfig tc = cgf_toolchain_resolve(cgf_target_selected());
-        u32 gi;
+        u32 si;
 
         if (tc.use_afs_as)
-            for (gi = 0; gi < m->nglobals; gi++) {
-                if (!m->globals[gi].is_tls)
+            for (si = 0; si < m->nsyms; si++) {
+                if (!ir_sym_is_tls(m, si + 1))
                     continue;
                 fprintf(stderr,
                         "cgfried: error: '%s' uses thread-local storage, "

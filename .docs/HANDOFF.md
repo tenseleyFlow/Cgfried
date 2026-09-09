@@ -4001,6 +4001,45 @@ and green post-publication CI.
   cells. The pre-publication CI red is solely the expected unpublished-PASS
   ratchet guard; fresh post-publication standard CI, bootstrap, and
   exact-head native-ARM evidence remain required before merge.
+- The current `s56.5-extern-tls-initial-exec` tranche (PR #95) lowers an
+  external ELF `_Thread_local` declaration through the initial-exec ABI:
+  x86-64 uses its GOTTPOFF reference plus `%fs` thread pointer, and AArch64
+  uses GOTTPREL plus `TPIDR_EL0`. Unsupported PIC general-dynamic TLS and
+  Mach-O external TLS remain explicit refusals. The two-translation-unit
+  `tls_extern_initial_exec` corpus fixture proves independently initialized
+  main and worker-thread state; it advances the permanent corpus inventory to
+  113 and deterministically repins the frontend-fuzz sequence to
+  `91407cea66a60818`.
+
+  The retained PR x86 stream from
+  [run 34393676994](https://github.com/tenseleyFlow/Cgfried/actions/runs/34393676994)
+  and exact synthetic-merge native-ARM stream from
+  [run 34393802500](https://github.com/tenseleyFlow/Cgfried/actions/runs/34393802500)
+  each contain 20,335 matrix rows. Both name revision
+  `4f521920f9a89a5801d121596fd980de00d0abf3`, compiler-source SHA-256
+  `31090c08f53ebe9ca538feaf9c97afad7fee452348367e1636db3145b253fc45`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Their SHA-256 values are respectively
+  `2e98666974ae32cd5ac4ce431215d5006c1e5edc4efe83d9a096ecdca909db2c`
+  and `0b56dcdf917268690e5bd484cc6675825edd49eaaee7adcaada6614f9d8834bc`.
+  Each gate rejects only its five unpublished `torture-compile/pr78694.c`
+  cells, one at every optimization level, with no old-PASS regression.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates the outputs byte-identically. Atomic publication promotes those
+  ten target-complete PASS keys and retires fingerprint `94be3ef1...`. The
+  resulting ratchet has 30,275 PASS keys (30,278 lines), 3,765 classified
+  failures, 27 applied decisions, two deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively `a1eb9e4acdee9123b518c710ddb58a80a837794491cb7579cad16a4daa6e85a5`
+  and `2cb6ff86b028e32dc307457c13b35d617aea53d9891a6b0d66956dbbf9ca3861`.
+  Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
+  evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

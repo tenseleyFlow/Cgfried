@@ -1000,6 +1000,33 @@ static void emit_inst(Emit *e, const A64Inst *in, u32 next_bb, u32 bi, u32 at)
             emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
         return;
     }
+    case A64_OP_TLSIEADDR: {
+        /* Initial-exec on AAPCS64. The GOT entry carries the offset from the
+         * current thread pointer, so it is deliberately not the ordinary
+         * :got: address materialization:
+         *
+         *     adrp xN, :gottprel:sym
+         *     ldr  xN, [xN, :gottprel_lo12:sym]
+         *     mrs  xT, tpidr_el0
+         *     add  xN, xT, xN
+         *
+         * x12/x13 are reserved from allocation for emission-time expansion;
+         * choose the alternate when a direct MIR test deliberately names one
+         * of them as the destination. */
+        const char *reg = rn(in->ops[0].reg, A64_SF64);
+        const char *sym = msym(e, e->m->syms[in->ops[1].id - 1]);
+        A64PhysReg tp = addr_addend_scratch(in->ops[0].reg);
+        const char *tpreg = a64_phys_name(tp, A64_SF64);
+
+        buf_printf(e->out, "\tadrp\t%s, :gottprel:%s\n", reg, sym);
+        buf_printf(e->out, "\tldr\t%s, [%s, :gottprel_lo12:%s]\n", reg, reg,
+                   sym);
+        buf_printf(e->out, "\tmrs\t%s, tpidr_el0\n", tpreg);
+        buf_printf(e->out, "\tadd\t%s, %s, %s\n", reg, tpreg, reg);
+        if (in->nops > 2 && in->ops[2].imm)
+            emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
+        return;
+    }
     case A64_OP_CALL:
         emit_call(e, in);
         return;
