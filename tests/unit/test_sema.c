@@ -1551,6 +1551,28 @@ void test_sema_redeclaration(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_returns_twice_placement_and_redeclaration(TestCtx *t)
+{
+    SemaFix f;
+    Symbol *object;
+    Symbol *resume;
+
+    run_sema(&f,
+             "int object __attribute__" /* check_bans allow */
+             "((returns_twice));\n"
+             "int resume(int) __attribute__" /* check_bans allow */
+             "((returns_twice));\n"
+             "int resume(int);\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 1);
+    object = lookup(&f, "object");
+    resume = lookup(&f, "resume");
+    T_ASSERT(t, object && !object->gnu.returns_twice);
+    T_ASSERT(t, resume && resume->gnu.returns_twice);
+    sfix_free(&f);
+}
+
 void test_sema_typedef_redeclaration(TestCtx *t)
 {
     SemaFix f;

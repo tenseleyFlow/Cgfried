@@ -79,6 +79,7 @@ predefine.
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
 | `always_inline` | `tests/programs/gnu/attr_always_inline.c` | glibc's `__extern_always_inline`, musl and performance-critical header helpers; forces every available direct call even at `-O0` |
+| `returns_twice` | `tests/programs/gnu/attr_returns_twice.c` | setjmp-like runtime entry points whose callers must keep locals in memory and preserve the resumed control-flow boundary |
 | `__builtin_va_arg_pack()` / `__builtin_va_arg_pack_len()` | `tests/corpus/x86_64/int/gnu_va_arg_pack.c` | glibc's `<error.h>` and forwarding wrappers that preserve the caller's anonymous arguments |
 | ellipsis-only variadic functions and one-argument `va_start` | `tests/programs/gnu/ellipsis_only_varargs.c` | C23-style GNU sources whose variadic function has no last named parameter |
 | GNU/TS 18661 floating types — `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<bits/floatn*.h>` and `<math.h>`, activated by the GCC 8 identity |
@@ -461,7 +462,7 @@ are a hard error naming the attribute — which is what makes implementing them
 incrementally safe: at every point the compiler either does the right thing or
 refuses, never quietly the wrong one.
 
-`returns_twice`, `transparent_union`.
+`transparent_union`.
 
 One of those sits here against this sprint's original tiering, because the
 ignore-safety question overruled it:

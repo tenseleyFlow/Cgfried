@@ -694,6 +694,8 @@ static void print_func(Buf *out, const IrModule *m, const IrFunc *f)
         buf_printf(out, " always_inline");
     if (f->inline_only)
         buf_printf(out, " inline_only");
+    if (f->returns_twice)
+        buf_printf(out, " returns_twice");
     if (f->section) {
         buf_printf(out, " section(");
         print_quoted(out, f->section);
@@ -764,6 +766,8 @@ void ir_print_module_buf(Buf *out, const IrModule *m)
                        gnu_visibility_name(m->sym_attrs[i].visibility));
         if (m->sym_attrs[i].tls_model == IR_TLS_INITIAL_EXEC)
             buf_printf(out, " tls(initial_exec)");
+        if (m->sym_attrs[i].returns_twice)
+            buf_printf(out, " returns_twice");
         buf_printf(out, "\n");
     }
     /* Aliases before globals: an alias names a target defined LATER in the

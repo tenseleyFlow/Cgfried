@@ -171,6 +171,45 @@ void test_setjmp_flag_consistency(TestCtx *t)
     T_ASSERT(t, m && !ir_verify(f.dc, m));
     T_ASSERT(t, strstr(f.msg, "ir verify [11]") != NULL);
     arena_free_all(&f.arena);
+
+    /* A GNU declaration property is the same returns-twice fact for an
+     * external call, and must survive textual IR rather than relying on the
+     * source AST that produced it. */
+    m = h_parse(&f, "sym @resume returns_twice\n"
+                    "func void @f(i32 %x) setjmp {\n"
+                    "entry():\n"
+                    "    %r = call i32 @resume(i32 %x)\n"
+                    "    ret\n"
+                    "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    T_ASSERT(t, m->sym_attrs[0].returns_twice);
+    arena_free_all(&f.arena);
+
+    m = h_parse(&f, "sym @resume returns_twice\n"
+                    "func void @f(i32 %x) {\n"
+                    "entry():\n"
+                    "    %r = call i32 @resume(i32 %x)\n"
+                    "    ret\n"
+                    "}\n");
+    T_ASSERT(t, m && !ir_verify(f.dc, m));
+    T_ASSERT(t, strstr(f.msg, "ir verify [11]") != NULL);
+    arena_free_all(&f.arena);
+
+    /* Internal direct calls consult the defined function's retained
+     * property; a forward-reference index is not mistaken for an external
+     * symbol. */
+    m = h_parse(&f, "func void @f(i32 %x) setjmp {\n"
+                    "entry():\n"
+                    "    %r = call i32 @resume(i32 %x)\n"
+                    "    ret\n"
+                    "}\n"
+                    "func i32 @resume(i32 %x) returns_twice {\n"
+                    "entry():\n"
+                    "    ret i32 %x\n"
+                    "}\n");
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    T_ASSERT(t, m->funcs[1].returns_twice);
+    arena_free_all(&f.arena);
 }
 
 void test_stackrestore_token_discipline(TestCtx *t)
