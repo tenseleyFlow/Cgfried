@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (2026-09-09): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (2026-09-10): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,9 +11,11 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 1/30 after required daily x86 evidence was absent on September 5
+at a strict 2/30 after required daily x86 evidence was absent on September 5
 and matching-head evidence was absent on September 7–8. It remains
-operationally OPEN. Matching-head September 9 x86/ARM runs
+operationally OPEN. The matching-head September 10 scheduled x86/ARM
+[run 34453507793](https://github.com/tenseleyFlow/Cgfried/actions/runs/34453507793)
+is green at `4eb240b6`. Matching-head September 9 x86/ARM runs
 [`34318940375`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375)
 and
 [`34327498365`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365)
@@ -164,14 +166,16 @@ both bootstrap, and exact-head nightly runs are green. PR #92's symbolic
 inline-asm-constant tranche is merged as `10437b17`, PR #93's
 assembler-invalid-output tranche is merged as `1a7bbe80`, PR #94's torture
 libm-linkage tranche is merged as `1f38911a`, and PR #95's external-TLS
-initial-exec tranche is merged as `1cf718d6`. PR #97's current
-`s56.5-arm64-large-stack-frame` tranche publishes five ARM-only
-`20031023-4.c` cells. The current target-complete ratchet contains 30,280 PASS
-keys (30,283 lines), with 3,760 classified failures, 26 applied decisions, two
-deliberately retained stale decisions, two live repair rows representing two
-unique repair tranches, and zero unbucketed or unresolved cells. Sprint 56's
-campaign machine and triage map remain complete while Sprint 58 continues its
-independent soak.
+initial-exec tranche is merged as `1cf718d6`. PR #97's ARM64 large-stack-frame
+tranche is merged as `0492d915`, PR #98's large-switch scalability tranche is
+merged as `7450c9fb`, and PR #99's compiler symbol-lookup scalability tranche
+is merged as `216dc507`. The current PR #100 implements GNU `returns_twice`
+semantics and publishes twenty target-complete `pr108783.c` and `pr113201.c`
+PASS keys. The resulting ratchet contains 30,320 PASS keys (30,323 lines),
+with 3,720 classified failures, 24 applied decisions, two deliberately retained
+stale decisions, no live repair rows, and zero unbucketed or unresolved cells.
+Sprint 56's campaign machine and triage map remain complete while Sprint 58
+continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -4165,9 +4169,16 @@ and green post-publication CI.
   SHA-256 values are respectively
   `09ce651d1c301a48b1530aca3165fac225658465b447f6e5562558b9e4017067`
   and `7e4aafd52094e4e419c799f0646ccff7892d36d315bd3ea8db48a5d7e8bbf4bb`.
-  Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
-  evidence remain required before merge.
-- The current `s56.5-compiler-scalability-timeout` tranche (PR #99) removes
+  Final post-publication standard
+  [run 34426959997](https://github.com/tenseleyFlow/Cgfried/actions/runs/34426959997),
+  bootstrap
+  [runs 34426957186](https://github.com/tenseleyFlow/Cgfried/actions/runs/34426957186)
+  and
+  [34426960007](https://github.com/tenseleyFlow/Cgfried/actions/runs/34426960007),
+  and exact-head native-ARM
+  [run 34426972887](https://github.com/tenseleyFlow/Cgfried/actions/runs/34426972887)
+  are green. PR #98 merged as `7450c9fb`.
+- The merged `s56.5-compiler-scalability-timeout` tranche (PR #99) removes
   the last live compiler-gap bucket: ten target-complete timeout cells for
   `limits-externalid.c`. The 15-line source expands to 100,000 distinct
   file-scope tentative definitions. IR symbol interning now uses an arena-owned
@@ -4216,6 +4227,65 @@ and green post-publication CI.
   unresolved cells. PASS and triage SHA-256 values are respectively
   `d8de415c4a024fd6b6b5a48171748d78a7e8d1fa18602e076c2264845c5767ca`
   and `c92f057f77b09926b146746ad48718e1a11f246bf7bd4a314c6c0d2bc7cf906c`.
+  Final post-publication standard
+  [run 34506376962](https://github.com/tenseleyFlow/Cgfried/actions/runs/34506376962),
+  bootstrap
+  [runs 34506372090](https://github.com/tenseleyFlow/Cgfried/actions/runs/34506372090)
+  and
+  [34506376431](https://github.com/tenseleyFlow/Cgfried/actions/runs/34506376431),
+  and exact synthetic-merge native-ARM
+  [run 34506419252](https://github.com/tenseleyFlow/Cgfried/actions/runs/34506419252)
+  are green. PR #99 merged as `216dc507`.
+- The current `s56.5-gnu-returns-twice` tranche (PR #100) promotes GNU
+  `returns_twice` from explicit refusal to a declaration property that unions
+  across redeclarations and survives cloned and textual IR. Direct calls to an
+  attributed external or internal function now use the existing conservative
+  setjmp policy: the whole caller remains memory-pinned under mem2reg and the
+  inliner preserves the nonlocal control-flow boundary. The exact linker-name
+  family remains centralized in the same decision. Misplaced object attributes
+  warn and are dropped; `transparent_union` remains explicitly refused.
+
+  Focused normal and ASan+UBSan semantic, lowering, IR round-trip, verifier,
+  mem2reg, and inliner coverage is green. The permanent GNU fixture verifies
+  declaration merging, caller marking, and pinned storage. All 20 formerly
+  failing `pr108783.c` and `pr113201.c` target/optimization cells pass, while
+  all 50 `transparent_union` target/optimization cells retain their named
+  refusal. The GNU tier gate advances to 47 implemented / 6 parsed-ignored / 8
+  refused. Pinned clang-format 22, torture import/meta, static seam, and
+  deterministic frontend-fuzz gates pass; the added fixture intentionally
+  repins the mutation digest to `c8cedc3b9c45a040`. The complete Apple-native
+  unit run reaches the known eight-failure host-assumption baseline with every
+  affected test passing.
+
+  The retained x86 stream from
+  [run 34512775864](https://github.com/tenseleyFlow/Cgfried/actions/runs/34512775864)
+  and exact synthetic-merge native-ARM stream from
+  [run 34512925798](https://github.com/tenseleyFlow/Cgfried/actions/runs/34512925798)
+  each contain 20,325 matrix rows and name revision
+  `dbfbec772a4aeefa0322a7a295f5dc726c6fb193`. They share compiler-source
+  SHA-256 `cf7d64b17b8a5d87d5bb50422d19d727e4f228618ab113aa13a9bfecc6a4c9fa`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `c3d8ec594d23c5094367dbd77cd1b55fd7040632f14edb06ffc29aea07424d9d`
+  and `fa0f4d3e1f9588e633d13e8a402306807b1a1f96250f0fa87606ce2801711f69`.
+  Each gate rejects only its ten unpublished target cells, with no old-PASS
+  regression.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly twenty PASS keys and reduces the coalesced `f3ff5037...` policy
+  bucket from 70 cells to the 50 deliberate `transparent_union` refusals. The
+  resulting ratchet has 30,320 PASS keys (30,323 lines), 3,720 classified
+  failures, 32 observed buckets, 24 applied decisions, two deliberately
+  retained stale decisions, no live repair rows, and zero unbucketed or
+  unresolved cells. PASS and triage SHA-256 values are respectively
+  `0e398b7465e0a9195c3695b14df89c6fe16319bc21cd7f65c050fbc20c84ab85`
+  and `7219ba3fb6f43779fdd5fac48292cae6cde1f34df5d77592af9d7abf50b020de`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on

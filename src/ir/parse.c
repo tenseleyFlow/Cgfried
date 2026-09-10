@@ -1910,6 +1910,7 @@ static bool parse_func(P *p)
     bool fn_used = false;
     bool fn_always_inline = false;
     bool fn_inline_only = false;
+    bool fn_returns_twice = false;
     const char *fn_section = NULL;
     bool fn_ctor = false;
     bool fn_dtor = false;
@@ -2032,18 +2033,6 @@ static bool parse_func(P *p)
         fn_weak = true;
     }
     fn_visibility = parse_visibility_suffix(p);
-    if (tok_is(peek(p), "used")) {
-        next(p);
-        fn_used = true;
-    }
-    if (tok_is(peek(p), "always_inline")) {
-        next(p);
-        fn_always_inline = true;
-    }
-    if (tok_is(peek(p), "inline_only")) {
-        next(p);
-        fn_inline_only = true;
-    }
     if (tok_is(peek(p), "align")) {
         Tok *av;
 
@@ -2056,6 +2045,22 @@ static bool parse_func(P *p)
         fn_align = (u32)av->ival;
         if (!expect(p, T_RP, "')' after the function alignment"))
             return false;
+    }
+    if (tok_is(peek(p), "used")) {
+        next(p);
+        fn_used = true;
+    }
+    if (tok_is(peek(p), "always_inline")) {
+        next(p);
+        fn_always_inline = true;
+    }
+    if (tok_is(peek(p), "inline_only")) {
+        next(p);
+        fn_inline_only = true;
+    }
+    if (tok_is(peek(p), "returns_twice")) {
+        next(p);
+        fn_returns_twice = true;
     }
     if (!parse_section_marker(p, &fn_section))
         return false;
@@ -2120,6 +2125,7 @@ static bool parse_func(P *p)
     f->is_used = fn_used;
     f->always_inline = fn_always_inline;
     f->inline_only = fn_inline_only;
+    f->returns_twice = fn_returns_twice;
     f->section = fn_section;
     f->is_ctor = fn_ctor;
     f->is_dtor = fn_dtor;
@@ -2454,6 +2460,7 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             Tok *nm;
             u32 sym;
             bool weak = false;
+            bool returns_twice = false;
             u8 visibility;
             IrTlsModel tls_model;
 
@@ -2468,8 +2475,13 @@ IrModule *ir_parse_module(Arena *arena, DiagCtx *dc, const char *src,
             }
             visibility = parse_visibility_suffix(&p);
             tls_model = parse_tls_model_suffix(&p);
+            if (tok_is(peek(&p), "returns_twice")) {
+                next(&p);
+                returns_twice = true;
+            }
             ir_sym_set_attrs(m, sym, weak, visibility);
             ir_sym_set_tls_model(m, sym, tls_model);
+            ir_sym_set_returns_twice(m, sym, returns_twice);
         } else if (tok_is(t, "alias")) {
             next(&p);
             if (!parse_alias(&p))

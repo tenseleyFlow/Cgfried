@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `9497c020d3d4d5d6683665f6cea6e590fab46faa`
-- compiler-source-sha256: `c88e9c64cba97068dabce6595bc274a301e8482cb71e8c826125c04823d32741`
+- source-revision: `dbfbec772a4aeefa0322a7a295f5dc726c6fb193`
+- compiler-source-sha256: `cf7d64b17b8a5d87d5bb50422d19d727e4f228618ab113aa13a9bfecc6a4c9fa`
 - harness-sha256: `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`
 - torture-manifest-sha256: `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `c3243f969c1f0ef99b384196a0752c7816ed6ec47b74b0941113f750f303c541` | `c3243f969c1f0ef99b384196a0752c7816ed6ec47b74b0941113f750f303c541` |
-| x86_64-linux-gnu | `9f5f674149249d5f67e7902a2bdd3ed5f387b22f32b0528a6e82be14002548ae` | `9f5f674149249d5f67e7902a2bdd3ed5f387b22f32b0528a6e82be14002548ae` |
+| arm64-linux | `e465f49e9bbfe053d0c2986f2bad536d288a1ea9d64146e7cda08d692692a75a` | `e465f49e9bbfe053d0c2986f2bad536d288a1ea9d64146e7cda08d692692a75a` |
+| x86_64-linux-gnu | `35f03cd76611cc363768fdf8904e808fdac8d92f6a0ddfc1a3c841a981cfe5de` | `35f03cd76611cc363768fdf8904e808fdac8d92f6a0ddfc1a3c841a981cfe5de` |
 
 ## Baseline
 
@@ -29,16 +29,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | arm64-linux | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
-| torture-compile | O0 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O1 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O2 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O3 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | Os | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O0 | arm64-linux | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O1 | arm64-linux | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O2 | arm64-linux | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O3 | arm64-linux | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | Os | arm64-linux | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1440 | 376 | 0 | 200 | 87.80% |
 | torture-execute | O0 | arm64-linux | 1752 | 1350 | 256 | 0 | 146 | 90.24% |
 | torture-execute | O0 | x86_64-linux-gnu | 1752 | 1350 | 256 | 0 | 146 | 90.24% |
 | torture-execute | O1 | arm64-linux | 1752 | 1350 | 256 | 0 | 146 | 90.24% |
@@ -275,20 +275,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 8
 
-- Count: 70
-- Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `f3ff5037426a3f4ed405b6fbc638a4d4d9d4411875a6434a2502a3cc083c5d58`
-- Exemplars: torture-compile/960201-1.c@O0@arm64-linux, torture-compile/960201-1.c@O0@x86_64-linux-gnu, torture-compile/960201-1.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: the <id> attribute is not yet implemented, and ignoring it would change layout, linkage or behaviour rather than just a diagnostic (docs<path>
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 70
-- Optdiv exemplars: -
-- Hypothesis: transparent_union is deliberately refused because ignoring its calling-convention semantics would miscompile calls.
-- Disposition: `wontfix-0.1.0`
-
-### Bucket 9
-
 - Count: 50
 - Cluster: signal=`-`; phase=`parse`
 - Fingerprint: `364b4e24f4d3bba9084ddbcc0a0a425e2ed0a29768c23cf5b9abe9c8713521c7`
@@ -299,6 +285,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Optdiv members: 0 of 50
 - Optdiv exemplars: -
 - Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
+- Disposition: `wontfix-0.1.0`
+
+### Bucket 9
+
+- Count: 50
+- Cluster: signal=`-`; phase=`parse`
+- Fingerprint: `f3ff5037426a3f4ed405b6fbc638a4d4d9d4411875a6434a2502a3cc083c5d58`
+- Exemplars: torture-compile/960201-1.c@O0@arm64-linux, torture-compile/960201-1.c@O0@x86_64-linux-gnu, torture-compile/960201-1.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: the <id> attribute is not yet implemented, and ignoring it would change layout, linkage or behaviour rather than just a diagnostic (docs<path>
+- Labels: -
+- Tags: -
+- Optdiv members: 0 of 50
+- Optdiv exemplars: -
+- Hypothesis: transparent_union is deliberately refused because ignoring its calling-convention semantics would miscompile calls.
 - Disposition: `wontfix-0.1.0`
 
 ### Bucket 10
@@ -635,8 +635,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 3740
-- Bucketed cells: 3740
+- Failed cells: 3720
+- Bucketed cells: 3720
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

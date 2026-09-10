@@ -501,8 +501,8 @@ void test_ir_struct_eq(TestCtx *t)
 
 void test_ir_external_symbol_attrs_roundtrip(TestCtx *t)
 {
-    static const char src[] =
-        "sym @missing weak visibility(hidden) tls(initial_exec)\n";
+    static const char src[] = "sym @missing weak visibility(hidden) "
+                              "tls(initial_exec) returns_twice\n";
     IrFix f;
     IrModule *m;
     IrModule *parsed;
@@ -519,6 +519,7 @@ void test_ir_external_symbol_attrs_roundtrip(TestCtx *t)
         T_ASSERT(t, m->sym_attrs[0].is_weak);
         T_ASSERT_EQ_INT(t, m->sym_attrs[0].visibility, GNU_VIS_HIDDEN);
         T_ASSERT_EQ_INT(t, m->sym_attrs[0].tls_model, IR_TLS_INITIAL_EXEC);
+        T_ASSERT(t, m->sym_attrs[0].returns_twice);
         T_ASSERT_EQ_INT(t, ir_sym_tls_model(m, 1), IR_TLS_INITIAL_EXEC);
 
         buf_init(&text);

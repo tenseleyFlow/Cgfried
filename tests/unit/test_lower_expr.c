@@ -1294,6 +1294,7 @@ void test_lower_atomic_live(TestCtx *t)
 void test_lower_returns_twice_exact_name_policy(TestCtx *t)
 {
     LowFix f;
+    IrModule *round;
     const char *text;
 
     T_ASSERT(t, run_lower(&f, "int setjmp(char *);\n"
@@ -1306,6 +1307,13 @@ void test_lower_returns_twice_exact_name_policy(TestCtx *t)
                               "__asm__(\"__sigsetjmp\");\n"
                               "int __sigsetjmp_local(char *, int) "
                               "__asm__(\"ordinary\");\n"
+                              "int custom(int) "
+                              "__attribute__" /* check_bans allow */
+                              "((returns_twice));\n"
+                              "int custom(int);\n"
+                              "int local_twice(int) "
+                              "__attribute__" /* check_bans allow */
+                              "((__returns_twice__, aligned(32)));\n"
                               "int a(char *p) { return setjmp(p); }\n"
                               "int b(char *p) { return _setjmp(p); }\n"
                               "int c(char *p) { return sigsetjmp(p, 1); }\n"
@@ -1315,7 +1323,10 @@ void test_lower_returns_twice_exact_name_policy(TestCtx *t)
                               "__sigsetjmp_chk(p, 1); }\n"
                               "int g(char *p) { return renamed(p, 1); }\n"
                               "int h(char *p) { return "
-                              "__sigsetjmp_local(p, 1); }\n"));
+                              "__sigsetjmp_local(p, 1); }\n"
+                              "int i(int x) { return custom(x); }\n"
+                              "int j(int x) { return local_twice(x); }\n"
+                              "int local_twice(int x) { return x; }\n"));
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, ir_verify(f.dc, f.m));
     text = txt(&f);
@@ -1327,6 +1338,15 @@ void test_lower_returns_twice_exact_name_policy(TestCtx *t)
     T_ASSERT(t, strstr(text, "func i32 @f(ptr %0) setjmp {") == NULL);
     T_ASSERT(t, strstr(text, "func i32 @g(ptr %0) setjmp {") != NULL);
     T_ASSERT(t, strstr(text, "func i32 @h(ptr %0) setjmp {") == NULL);
+    T_ASSERT(t, strstr(text, "sym @custom returns_twice") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @i(i32 %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @j(i32 %0) setjmp {") != NULL);
+    T_ASSERT(t, strstr(text, "func i32 @local_twice(i32 %0) align(32) "
+                             "returns_twice {") != NULL);
+    round = ir_parse_module(&f.arena, f.dc, text, "<returns-twice-rt>");
+    T_ASSERT(t, round != NULL);
+    if (round)
+        T_ASSERT(t, ir_module_struct_eq(f.m, round));
     low_free(&f);
 }
 

@@ -313,6 +313,13 @@ void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility)
         m->sym_attrs[index].visibility = visibility;
 }
 
+void ir_sym_set_returns_twice(IrModule *m, u32 index, bool returns_twice)
+{
+    if (!m || index >= m->nsyms)
+        return;
+    m->sym_attrs[index].returns_twice |= returns_twice;
+}
+
 void ir_sym_set_tls_model(IrModule *m, u32 index, IrTlsModel model)
 {
     if (!m || index >= m->nsyms || model > IR_TLS_INITIAL_EXEC)
@@ -1232,6 +1239,7 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
     for (i = 0; i < a->nsyms; i++)
         if (!str_eq(a->syms[i], b->syms[i]) ||
             a->sym_attrs[i].is_weak != b->sym_attrs[i].is_weak ||
+            a->sym_attrs[i].returns_twice != b->sym_attrs[i].returns_twice ||
             a->sym_attrs[i].visibility != b->sym_attrs[i].visibility ||
             a->sym_attrs[i].tls_model != b->sym_attrs[i].tls_model)
             return false;
@@ -1273,6 +1281,7 @@ bool ir_module_struct_eq(const IrModule *a, const IrModule *b)
             x->nvals != y->nvals || x->variadic != y->variadic ||
             x->unprototyped != y->unprototyped || x->abi_ret != y->abi_ret ||
             x->abi_ret_n != y->abi_ret_n || x->linkage != y->linkage ||
+            x->returns_twice != y->returns_twice ||
             x->calls_setjmp != y->calls_setjmp || x->is_weak != y->is_weak ||
             x->visibility != y->visibility ||
             x->fp_contract != y->fp_contract || x->align != y->align ||

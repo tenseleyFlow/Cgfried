@@ -250,6 +250,11 @@ typedef struct GnuDeclAttrs {
      * It joins C11 `_Noreturn` and the hardcoded library-name list at ONE
      * decision in lower_call, rather than becoming a second mechanism. */
     bool noreturn;
+    /* `returns_twice`: the call may resume a caller after its apparent first
+     * return, as setjmp does. This is a symbol property: declarations merge
+     * it and lowering applies the existing conservative setjmp policy to
+     * every direct call. */
+    bool returns_twice;
     /* `may_alias`: accesses through this TYPE do not participate in TBAA.
      * It is useful on typedefs (`typedef int alias_int ...`) and on record
      * definitions (`struct ... S { ... }`), where member accesses inherit it.
