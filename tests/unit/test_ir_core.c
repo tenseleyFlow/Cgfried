@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #include "ir/ir.h"
@@ -370,6 +371,109 @@ void test_ir_operand_constructors(TestCtx *t)
     o = ir_op_undef(IRT_F32);
     T_ASSERT_EQ_INT(t, o.kind, IROP_UNDEF);
     T_ASSERT_EQ_INT(t, o.type, IRT_F32);
+    fix_free(&f);
+}
+
+void test_ir_symbol_index_preserves_order_and_clone(TestCtx *t)
+{
+    enum { SYMBOL_COUNT = 16384 };
+    IrFix f;
+    Arena clones;
+    IrModule *m, *copy;
+    char name[32];
+    u32 i;
+
+    fix_init(&f);
+    arena_init(&clones);
+    m = ir_module_new(&f.arena, f.dc);
+    for (i = 0; i < SYMBOL_COUNT; i++) {
+        snprintf(name, sizeof(name), "external_%05u", (unsigned)i);
+        T_ASSERT_EQ_INT(t, ir_sym(m, arena_strdup(&f.arena, name)), i);
+    }
+    T_ASSERT_EQ_INT(t, m->nsyms, SYMBOL_COUNT);
+    T_ASSERT_EQ_INT(t, m->indexed_syms, SYMBOL_COUNT);
+    T_ASSERT(t, m->cap_sym_slots >= SYMBOL_COUNT * 2);
+
+    /* Re-query through distinct pointers and in reverse order. The ordered
+     * symbol vector must neither grow nor change indices. */
+    for (i = SYMBOL_COUNT; i-- > 0;) {
+        snprintf(name, sizeof(name), "external_%05u", (unsigned)i);
+        T_ASSERT_EQ_INT(t, ir_sym(m, name), i);
+    }
+    T_ASSERT_EQ_INT(t, m->nsyms, SYMBOL_COUNT);
+
+    /* Clone indices are intentionally lazy construction metadata. The first
+     * lookup rebuilds from the copied insertion-ordered symbol vector. */
+    copy = ir_module_clone(&clones, m);
+    T_ASSERT(t, copy != NULL);
+    T_ASSERT(t, copy && copy->sym_slots == NULL);
+    T_ASSERT_EQ_INT(t, copy ? copy->indexed_syms : 1, 0);
+    snprintf(name, sizeof(name), "external_%05u", SYMBOL_COUNT / 2);
+    T_ASSERT_EQ_INT(t, copy ? ir_sym(copy, name) : 0, SYMBOL_COUNT / 2);
+    T_ASSERT_EQ_INT(t, copy ? copy->indexed_syms : 0, SYMBOL_COUNT);
+    T_ASSERT_EQ_INT(t, copy ? ir_sym(copy, "external_new") : 0, SYMBOL_COUNT);
+    T_ASSERT_EQ_STR(t, copy ? copy->syms[SYMBOL_COUNT] : "", "external_new");
+
+    arena_free_all(&clones);
+    fix_free(&f);
+}
+
+void test_ir_symbol_definition_index(TestCtx *t)
+{
+    IrFix f;
+    Arena clones;
+    IrModule *m, *copy;
+    IrGlobal *tls;
+    IrFunc *kept;
+    IrSymBinding binding;
+    u32 external, global, tls_sym, removed, kept_sym;
+
+    fix_init(&f);
+    arena_init(&clones);
+    m = ir_module_new(&f.arena, f.dc);
+    external = ir_sym(m, "external_tls");
+    ir_sym_set_tls_model(m, external, IR_TLS_INITIAL_EXEC);
+    global = ir_sym(m, "global");
+    ir_global_new(m, "global")->linkage = IRLINK_INTERNAL;
+    tls_sym = ir_sym(m, "tls");
+    tls = ir_global_new(m, "tls");
+    tls->is_tls = true;
+    removed = ir_sym(m, "removed");
+    ir_func_new(m, "removed", IRT_VOID, NULL, 0);
+    kept_sym = ir_sym(m, "kept");
+    kept = ir_func_new(m, "kept", IRT_VOID, NULL, 0);
+    kept->linkage = IRLINK_INTERNAL;
+
+    binding = ir_sym_binding(m, external + 1);
+    T_ASSERT(t, !binding.defined_here && binding.external);
+    binding = ir_sym_binding(m, global + 1);
+    T_ASSERT(t, binding.defined_here && !binding.external);
+    binding = ir_sym_binding(m, removed + 1);
+    T_ASSERT(t, binding.defined_here && binding.external);
+    binding = ir_sym_binding(m, kept_sym + 1);
+    T_ASSERT(t, binding.defined_here && !binding.external);
+    T_ASSERT_EQ_INT(t, ir_sym_tls_model(m, external + 1), IR_TLS_INITIAL_EXEC);
+    T_ASSERT_EQ_INT(t, ir_sym_tls_model(m, global + 1), IR_TLS_NONE);
+    T_ASSERT_EQ_INT(t, ir_sym_tls_model(m, tls_sym + 1), IR_TLS_LOCAL_EXEC);
+
+    copy = ir_module_clone(&clones, m);
+    binding = ir_sym_binding(copy, kept_sym + 1);
+    T_ASSERT(t, binding.defined_here && !binding.external);
+    T_ASSERT_EQ_INT(t, ir_sym_tls_model(copy, tls_sym + 1), IR_TLS_LOCAL_EXEC);
+
+    /* Model the stable compaction performed by inline-only stripping and
+     * IPO: the deleted symbol becomes undefined and the retained definition
+     * follows its new function-array index. */
+    m->funcs[0] = m->funcs[1];
+    m->nfuncs = 1;
+    ir_module_refresh_func_symbol_defs(m);
+    binding = ir_sym_binding(m, removed + 1);
+    T_ASSERT(t, !binding.defined_here && binding.external);
+    binding = ir_sym_binding(m, kept_sym + 1);
+    T_ASSERT(t, binding.defined_here && !binding.external);
+    T_ASSERT_EQ_INT(t, m->sym_attrs[kept_sym].def_index, 0);
+
+    arena_free_all(&clones);
     fix_free(&f);
 }
 

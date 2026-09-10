@@ -9291,6 +9291,16 @@ torture-compile/limits-enumconst.c@O3@arm64-linux
 torture-compile/limits-enumconst.c@O3@x86_64-linux-gnu
 torture-compile/limits-enumconst.c@Os@arm64-linux
 torture-compile/limits-enumconst.c@Os@x86_64-linux-gnu
+torture-compile/limits-externalid.c@O0@arm64-linux
+torture-compile/limits-externalid.c@O0@x86_64-linux-gnu
+torture-compile/limits-externalid.c@O1@arm64-linux
+torture-compile/limits-externalid.c@O1@x86_64-linux-gnu
+torture-compile/limits-externalid.c@O2@arm64-linux
+torture-compile/limits-externalid.c@O2@x86_64-linux-gnu
+torture-compile/limits-externalid.c@O3@arm64-linux
+torture-compile/limits-externalid.c@O3@x86_64-linux-gnu
+torture-compile/limits-externalid.c@Os@arm64-linux
+torture-compile/limits-externalid.c@Os@x86_64-linux-gnu
 torture-compile/limits-idexternal.c@O0@arm64-linux
 torture-compile/limits-idexternal.c@O0@x86_64-linux-gnu
 torture-compile/limits-idexternal.c@O1@arm64-linux
