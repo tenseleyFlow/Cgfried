@@ -739,6 +739,7 @@ typedef enum {
     BK_LONG,
     BK_SIZE,
     BK_VOIDP,
+    BK_CHARP,
     BK_DOUBLE,
     BK_FLOAT,
     BK_LLONG,
