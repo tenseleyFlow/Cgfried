@@ -265,6 +265,36 @@ void test_sema_builtin_prefetch_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_strcmp_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_strcmp(\"a\", \"b\"), "
+             "int: 1, default: 0), \"strcmp result is int\"); "
+             "int f(char *a, const char *b, void *p) { "
+             "return __builtin_strcmp(a, b) + __builtin_strcmp(p, a); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(char *p) { return __builtin_strcmp(p); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(char *p) { return __builtin_strcmp(p, p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; int f(struct S s) { "
+             "return __builtin_strcmp(s, \"x\"); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_extern_void_symbol(TestCtx *t)
 {
     SemaFix f;

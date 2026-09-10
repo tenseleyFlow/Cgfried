@@ -2460,8 +2460,8 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* memcpy/memmove/memset/memcmp/strlen: a direct external call by name.
- * All five take and return only scalars, so the abstract-call machinery
+/* memcpy/memmove/memset/memcmp/strlen/strcmp: a direct libc call by name.
+ * All six take and return only scalars, so the abstract-call machinery
  * (aggregate copies, sret) is not needed here. */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -2475,6 +2475,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR},
         {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32},
         {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64},
+        {SEMA_BUILTIN_STRCMP, "strcmp", IRT_I32},
     };
     IrOperand args[3];
     u32 i, n = 0;
@@ -2485,6 +2486,17 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
             continue;
         for (i = 0; i < e->nargs && i < 3; i++)
             args[n++] = lower_rvalue(lo, e->args[i]);
+        /* A definition in this translation unit owns the same linker symbol
+         * that an ordinary libc call would reach. Model that as an internal
+         * call: besides enabling normal whole-module reasoning, this keeps
+         * textual IR truthful because its parser resolves a defined name to
+         * FUNCREF_INTERNAL. All function shells exist before body lowering,
+         * so a later definition is visible here too. */
+        for (i = 0; i < lo->m->nfuncs; i++)
+            if (strcmp(lo->m->funcs[i].name, libc[k].name) == 0)
+                return ir_op_value(lo->fn,
+                                   ir_build_call(&lo->b, libc[k].ret,
+                                                 FUNCREF_INTERNAL, i, args, n));
         return ir_op_value(lo->fn,
                            ir_build_call(&lo->b, libc[k].ret, FUNCREF_EXTERNAL,
                                          ir_sym(lo->m, libc[k].name), args, n));

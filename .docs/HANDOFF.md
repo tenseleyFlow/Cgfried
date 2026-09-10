@@ -171,10 +171,12 @@ tranche is merged as `0492d915`, PR #98's large-switch scalability tranche is
 merged as `7450c9fb`, and PR #99's compiler symbol-lookup scalability tranche
 is merged as `216dc507`. PR #100's GNU `returns_twice` tranche is merged as
 `dcfe1b44`, publishing twenty target-complete `pr108783.c` and `pr113201.c`
-PASS keys. The current PR #101 implements `__builtin_prefetch` semantics and
-publishes seventy target-complete PASS keys across `20040824-1.c` and
-`builtin-prefetch-{1..6}.c`. The resulting ratchet contains 30,390 PASS keys
-(30,393 lines), with 3,650 classified failures, 24 applied decisions, two
+PASS keys. PR #101's `__builtin_prefetch` tranche is merged as `79e41879`,
+publishing seventy target-complete PASS keys across `20040824-1.c` and
+`builtin-prefetch-{1..6}.c`. The current PR #102 implements libc-compatible
+`__builtin_strcmp` semantics and publishes 110 target-complete PASS keys across
+eleven compile and execute files. The resulting ratchet contains 30,500 PASS
+keys (30,503 lines), with 3,540 classified failures, 24 applied decisions, two
 deliberately retained stale decisions, no live repair rows, and zero unbucketed
 or unresolved cells. Sprint 56's campaign machine and triage map remain
 complete while Sprint 58 continues its independent soak.
@@ -4297,7 +4299,7 @@ and green post-publication CI.
   and exact synthetic-merge native-ARM
   [run 34515225467](https://github.com/tenseleyFlow/Cgfried/actions/runs/34515225467)
   are green. PR #100 merged as `dcfe1b44`.
-- The current `s56.6-builtin-prefetch` tranche (PR #101) promotes
+- The merged `s56.6-builtin-prefetch` tranche (PR #101) promotes
   `__builtin_prefetch` from the reserved-builtin refusal to a compiler-owned
   one-to-three-argument performance hint. Sema applies the `const void *`
   parameter conversion and requires integer constant read/write and locality
@@ -4345,6 +4347,70 @@ and green post-publication CI.
   respectively
   `114a4045e85b171db050fa42b334ccc01e48b37985a70d02f09f95665b2250a4`
   and `66e797db5e8dc93d3b4d83570e9e088775ad27b9a64e046d15189ef667bddc10`.
+  Final post-publication standard
+  [run 34524173872](https://github.com/tenseleyFlow/Cgfried/actions/runs/34524173872),
+  bootstrap
+  [runs 34524168989](https://github.com/tenseleyFlow/Cgfried/actions/runs/34524168989)
+  and
+  [34524173848](https://github.com/tenseleyFlow/Cgfried/actions/runs/34524173848),
+  and exact synthetic-merge native-ARM
+  [run 34524319980](https://github.com/tenseleyFlow/Cgfried/actions/runs/34524319980)
+  are green. PR #101 merged as `79e41879`.
+- The current `s56.7-builtin-strcmp` tranche (PR #102) promotes
+  `__builtin_strcmp` from the reserved-builtin refusal to a compiler-owned
+  alias with the libc prototype `int (const char *, const char *)`. Sema
+  applies both parameter conversions and the `int` result type. Lowering emits
+  a real `strcmp` call, while a same-named definition in the translation unit
+  remains an internal function reference so call identity survives textual IR
+  round trips and agrees with linker-symbol binding.
+
+  Focused normal and ASan+UBSan semantic and lowering coverage is green. The
+  executable fixture pins exactly-once operand evaluation, equal/less/greater
+  results, unsigned-character ordering, and the emitted libc call. All 100
+  header-independent candidate assembly-generation cells pass locally across
+  both Linux targets and O0/O1/O2/O3/Os; the hosted `920726-1.c` case also
+  passes in all five native Apple-silicon executions. The full eleven-file
+  native set is 55/55 green. The complete native unit run reaches the unchanged
+  eight-failure host-assumption baseline at 879 tests and 4,328,650 assertions,
+  with both affected tests passing. Pinned clang-format 22, static seams,
+  normal and sanitized builtin suites, all builtin program fixtures, frontend,
+  preprocessor, differential, and IR fuzz smoke, and the crash ledger are
+  green. The added fixture intentionally repins the deterministic frontend
+  mutation digest to `ab1da1c8c52691bb`.
+
+  The retained x86 stream from
+  [run 34529640772](https://github.com/tenseleyFlow/Cgfried/actions/runs/34529640772)
+  and exact synthetic-merge native-ARM stream from
+  [run 34529681616](https://github.com/tenseleyFlow/Cgfried/actions/runs/34529681616)
+  each contain 20,325 matrix rows and name revision
+  `b1e1c862f5b87b0f74809dddddb77b0cf4c177d4`. They share compiler-source
+  SHA-256 `858a93ec3f8e0521df8f3073f632fd25c1bb2f9d7a72c7ebcca11e2cb0944d5f`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `92f5e7b8be2779b0a8a061616e71f3a0c3138daa7cfd563d600652bb270b6d88`
+  and `9d154db1d7c3a688bfda82b7c05e4ed5b98927e86296898d8f660fb68d99bf41`.
+  Each gate rejects only its 55 unpublished candidate PASS cells, covering
+  `pr30564-2.c`, `pr33382.c`, `20010915-1.c`, `920726-1.c`, `921006-1.c`,
+  `921007-1.c`, `930725-1.c`, `pr44852.c`, `pr47337.c`, `pr56205.c`, and
+  `pr60062.c`, with no old-PASS regression. The remaining affected failures
+  advance deterministically to already-known follow-on gaps.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly 110 PASS keys and reduces the pre-triaged `gcc-builtin` class from
+  1,500 to 1,380 cells: 110 become PASS, while the ten target-complete
+  `split-path-7.c` cells advance to the GNU no-named-member refusal. The
+  resulting ratchet has 30,500 PASS keys (30,503 lines), 3,540 classified
+  failures across 32 buckets, 24 applied decisions, two deliberately retained
+  stale decisions, no live repair rows, and zero unbucketed or unresolved
+  cells. PASS and triage SHA-256 values are respectively
+  `64ee4a404daac1548ad0378191387dd2c73ba74a91b82f0f71ddc013ed1045ec`
+  and `0232d3dbec9fdd615a4697baf357a3a6e91e7b4d334244cd2dd78fb485936721`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
