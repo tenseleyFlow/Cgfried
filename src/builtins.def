@@ -47,6 +47,8 @@ B(expect, EXPECT, 2, BK_ARG0)
 B(prefetch, PREFETCH, -1, BK_VOID)
 
 /* memory */
+B(malloc, MALLOC, 1, BK_VOIDP)
+B(free, FREE, 1, BK_VOID)
 B(alloca, ALLOCA, 1, BK_VOIDP)
 B(memcpy, MEMCPY, 3, BK_VOIDP)
 B(memmove, MEMMOVE, 3, BK_VOIDP)

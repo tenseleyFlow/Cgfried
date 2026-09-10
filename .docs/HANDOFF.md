@@ -175,14 +175,16 @@ PASS keys. PR #101's `__builtin_prefetch` tranche is merged as `79e41879`,
 publishing seventy target-complete PASS keys across `20040824-1.c` and
 `builtin-prefetch-{1..6}.c`. PR #102's libc-compatible `__builtin_strcmp`
 tranche is merged as `a8350329`, publishing 110 target-complete PASS keys
-across eleven compile and execute files. The current PR #103 implements
-libc-compatible `__builtin_strcpy` semantics and publishes sixty
-target-complete PASS keys across six compile and execute files. The resulting
-ratchet contains 30,560 PASS keys (30,563 lines), with 3,480 classified
-failures, 24 applied decisions, two deliberately retained stale decisions, no
-live repair rows, and zero unbucketed or unresolved cells. Sprint 56's campaign
-machine and triage map remain complete while Sprint 58 continues its
-independent soak.
+across eleven compile and execute files. PR #103's libc-compatible
+`__builtin_strcpy` tranche is merged as `5cb06adb`, publishing sixty
+target-complete PASS keys across six compile and execute files. The current PR
+#104 implements the libc-compatible `__builtin_malloc`/`__builtin_free` pair
+and publishes ninety target-complete PASS keys across nine compile and execute
+files. The resulting ratchet contains 30,650 PASS keys (30,653 lines), with
+3,390 classified failures, 24 applied decisions, two deliberately retained
+stale decisions, no live repair rows, and zero unbucketed or unresolved cells.
+Sprint 56's campaign machine and triage map remain complete while Sprint 58
+continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -4423,7 +4425,7 @@ and green post-publication CI.
   and exact synthetic-merge native-ARM
   [run 34531633898](https://github.com/tenseleyFlow/Cgfried/actions/runs/34531633898)
   are green. PR #102 merged as `a8350329`.
-- The current `s56.8-builtin-strcpy` tranche (PR #103) promotes
+- The merged `s56.8-builtin-strcpy` tranche (PR #103) promotes
   `__builtin_strcpy` from the reserved-builtin refusal to a compiler-owned
   alias with the libc prototype `char *(char *, const char *)`. Sema applies
   both parameter conversions and the `char *` result type. Lowering emits a
@@ -4476,6 +4478,71 @@ and green post-publication CI.
   unresolved cells. PASS and triage SHA-256 values are respectively
   `64d6d73d519f2dfe8a21be4bf731c49d3345aa91c0826148c497cbacb9873c83`
   and `c14d14c0f76cc9779f29201edcbef725c2fc980c74fc4789eb129035737a46fa`.
+  Final post-publication standard
+  [run 34537742429](https://github.com/tenseleyFlow/Cgfried/actions/runs/34537742429),
+  bootstrap
+  [runs 34537736348](https://github.com/tenseleyFlow/Cgfried/actions/runs/34537736348)
+  and
+  [34537742417](https://github.com/tenseleyFlow/Cgfried/actions/runs/34537742417),
+  and exact synthetic-merge native-ARM
+  [run 34537771974](https://github.com/tenseleyFlow/Cgfried/actions/runs/34537771974)
+  are green. PR #103 merged as `5cb06adb`.
+- The current `s56.9-builtin-malloc-free` tranche (PR #104) promotes
+  `__builtin_malloc` and `__builtin_free` from the reserved-builtin refusal to
+  compiler-owned aliases with the hosted libc prototypes `void *(size_t)` and
+  `void (void *)`. Sema applies the size and pointer conversions. Lowering
+  emits real `malloc` and `free` calls, correctly represents the void call in
+  IR, and retains same-module function binding, so ordinary linker wrapping
+  (including `-fcgf-safe`) remains effective.
+
+  Focused normal and ASan+UBSan semantic and lowering coverage is green. The
+  executable fixture pins writable allocation, `free(NULL)`, and exactly-once
+  size and pointer evaluation. All sixteen builtin program fixtures pass in
+  both normal and sanitized Apple-silicon builds. Across O0/O1/O2/O3/Os, ten
+  native Apple compile-only cells and forty native compile-and-execute cells
+  pass. The dual-Linux-target source matrix is 90/100: all nine independently
+  unlockable files pass at every level, while the ten `20071120-1.c` cells
+  advance uniformly to the already-known GNU no-named-member refusal. The
+  complete native unit run reaches the unchanged eight-failure Apple
+  host-assumption baseline at 883 tests and 4,328,690 assertions, with both
+  new tests passing. Pinned clang-format 22, imports, static seams and policy
+  gates, normal and sanitized frontend fuzz, and the crash ledger are green.
+  The new fixture intentionally repins the deterministic frontend mutation
+  digest to `89fee489abaa8c1c`, reproduced twice normally and once under
+  ASan+UBSan at 5,000 iterations.
+
+  The retained x86 stream from
+  [run 34542235773](https://github.com/tenseleyFlow/Cgfried/actions/runs/34542235773)
+  and exact synthetic-merge native-ARM stream from
+  [run 34542290518](https://github.com/tenseleyFlow/Cgfried/actions/runs/34542290518)
+  each contain 20,325 matrix rows and name revision
+  `0bcfb7f1dd1bdf9bf5af9c83035ea5eae5bed3d6`. They share compiler-source
+  SHA-256 `4db565784a3a074b056b8ed2f7cb892ac7ab1329f7772b6cf6b8d7aa4fcfa5d0`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `427f59e27dd5982fee21283394cd5ed005f23f59b0346f471459c9953e01270e`
+  and `aecc5fb75122dfa710de5028bc0c1f64607ba21e11532aa5b443761a32c8c3e6`.
+  Each gate rejects only its 45 unpublished candidate PASS cells across
+  `20071214-1.c`, `pr23946.c`, `20071018-1.c`, `pr15262-1.c`, `pr36765.c`,
+  `pr43008.c`, `pr84339.c`, `pr84478.c`, and `strlen-7.c`, with no old-PASS
+  regression. The ten target-complete `20071120-1.c` failures leave the
+  `gcc-builtin` class for the existing no-named-member bucket.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly ninety PASS keys and reduces the pre-triaged `gcc-builtin` class
+  from 1,320 to 1,220 cells. The resulting ratchet has 30,650 PASS keys
+  (30,653 lines), 3,390 classified failures across 32 buckets, 24 applied
+  decisions, two deliberately retained stale decisions, no live repair rows,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `f974d2d930aa246c80aec278326b93d2cdc33bb865f341f6c07263893eac1deb`
+  and `fd22c9b96ab9d0bd1460dace379b0824440dd2b2fdbd53d4f9b69951ca14a127`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
