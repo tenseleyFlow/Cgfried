@@ -1156,6 +1156,11 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 err(s, e->span, "'%s' takes one or two arguments",
                     direct_ident->name);
                 return poison(s, e);
+            } else if (b == SEMA_BUILTIN_PREFETCH &&
+                       (e->nargs < 1 || e->nargs > 3)) {
+                err(s, e->span, "'%s' takes between one and three arguments",
+                    direct_ident->name);
+                return poison(s, e);
             } else if (want >= 0 && (int)e->nargs != want) {
                 err(s, e->span, "'%s' takes exactly %d argument%s",
                     direct_ident->name, want, want == 1 ? "" : "s");
@@ -1211,6 +1216,41 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     bctx.arg_index = (u32)size_arg + 1;
                     conv_assignable(s, type_basic(TY_ULONG), &e->args[size_arg],
                                     bctx);
+                }
+                if (b == SEMA_BUILTIN_PREFETCH) {
+                    Type *const_void = type_qualify(
+                        s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
+                    i64 value;
+
+                    bctx.arg_index = 1;
+                    if (!conv_assignable(s, type_ptr(s->arena, const_void),
+                                         &e->args[0], bctx) ||
+                        quiet(e->args[0], NULL))
+                        return poison(s, e);
+                    if (e->nargs > 1) {
+                        if (!sema_require_ice(s, e->args[1], &value,
+                                              "the read/write argument to "
+                                              "'__builtin_prefetch'"))
+                            return poison(s, e);
+                        if (value < 0 || value > 1) {
+                            err(s, e->args[1]->span,
+                                "read/write argument to '__builtin_prefetch' "
+                                "must be between 0 and 1");
+                            return poison(s, e);
+                        }
+                    }
+                    if (e->nargs > 2) {
+                        if (!sema_require_ice(s, e->args[2], &value,
+                                              "the locality argument to "
+                                              "'__builtin_prefetch'"))
+                            return poison(s, e);
+                        if (value < 0 || value > 3) {
+                            err(s, e->args[2]->span,
+                                "locality argument to '__builtin_prefetch' "
+                                "must be between 0 and 3");
+                            return poison(s, e);
+                        }
+                    }
                 }
                 /* BK_U* and BK_LLONG builtins have real prototypes, so their
                  * arguments convert as if by assignment. That is OBSERVABLE:

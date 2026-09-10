@@ -218,6 +218,53 @@ void test_sema_builtin_abort_arity(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_prefetch_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "enum rw { read, write }; enum locality { none, low, mid, high }; "
+             "void f(int *p) { "
+             "__builtin_prefetch(p); "
+             "__builtin_prefetch(p, write); "
+             "__builtin_prefetch(p, read, high); "
+             "__builtin_prefetch(p, 1 - 1, 1 + 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void) { __builtin_prefetch(); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(int *p) { __builtin_prefetch(p, 0, 0, 0); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(int *p, int rw) { __builtin_prefetch(p, rw, 0); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(int *p) { __builtin_prefetch(p, -1, 0); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(int *p) { __builtin_prefetch(p, 0, 4); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S s) { "
+             "__builtin_prefetch(s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_extern_void_symbol(TestCtx *t)
 {
     SemaFix f;
