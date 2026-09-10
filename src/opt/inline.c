@@ -1017,6 +1017,7 @@ bool opt_strip_inline_only(IrModule *m, const OptConfig *cfg)
             out++;
         }
     m->nfuncs = out;
+    ir_module_refresh_func_symbol_defs(m);
     for (i = 0; i < m->nfuncs; i++) {
         u32 bi;
 
