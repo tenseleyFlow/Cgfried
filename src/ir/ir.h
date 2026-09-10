@@ -615,6 +615,11 @@ typedef struct IrFunc {
      * body still has concrete incoming parameters, but calls may legally
      * pass a different count and default-promoted types. */
     bool unprototyped;
+    /* GNU returns_twice on this function's declaration or definition. Calls
+     * to one of these functions give the CALLER its calls_setjmp policy; this
+     * separate bit lets internal calls and textual IR retain why that marker
+     * is present. */
+    bool returns_twice;
     /* The blunt setjmp policy (Sprint 20): a function that CALLS
      * setjmp/_setjmp/sigsetjmp/__sigsetjmp compiles with every local
      * memory-pinned
@@ -776,6 +781,7 @@ typedef enum IrSymDefKind {
  * perturbing symbol order. This table is parallel to IrModule.syms. */
 typedef struct IrSymAttrs {
     bool is_weak;
+    bool returns_twice;
     u8 visibility; /* GnuVisibility */
     u8 tls_model;  /* IrTlsModel; external initial-exec only */
     u8 def_kind;   /* IrSymDefKind; derived, not textual IR */
@@ -930,6 +936,7 @@ IrModule *ir_module_new(Arena *arena, DiagCtx *dc);
 IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
 void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility);
+void ir_sym_set_returns_twice(IrModule *m, u32 index, bool returns_twice);
 void ir_sym_set_tls_model(IrModule *m, u32 index, IrTlsModel model);
 /* Rebuild derived function definition indices after a pass compacts funcs. */
 void ir_module_refresh_func_symbol_defs(IrModule *m);

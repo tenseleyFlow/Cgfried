@@ -47,6 +47,7 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
     dst->deprecated |= src->deprecated;
     dst->warn_unused_result |= src->warn_unused_result;
     dst->noreturn |= src->noreturn;
+    dst->returns_twice |= src->returns_twice;
     dst->may_alias |= src->may_alias;
     dst->nonnull_all |= src->nonnull_all;
     dst->nonnull_mask |= src->nonnull_mask;
@@ -85,7 +86,7 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
            g->constructor || g->destructor || g->alias_target || g->asm_name ||
            g->section_name || g->cleanup_fn || g->deprecated ||
            g->warn_unused_result || g->has_format || g->nonnull_all ||
-           g->nonnull_mask || g->noreturn;
+           g->nonnull_mask || g->noreturn || g->returns_twice;
 }
 
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
@@ -790,6 +791,11 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                         }
                         if (gnu && gnu_attr_is(name->spelling, "noreturn")) {
                             gnu->noreturn = true;
+                            break;
+                        }
+                        if (gnu &&
+                            gnu_attr_is(name->spelling, "returns_twice")) {
+                            gnu->returns_twice = true;
                             break;
                         }
                         warn_at(p->lang->warnings, WARN_ATTRIBUTES, name->span,
