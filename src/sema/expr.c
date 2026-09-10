@@ -1265,6 +1265,19 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
+                if (b == SEMA_BUILTIN_STRCPY) {
+                    Type *charp = type_ptr(s->arena, type_basic(TY_CHAR));
+                    Type *const_char = type_qualify(
+                        s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
+                    Type *params[] = {charp, type_ptr(s->arena, const_char)};
+
+                    for (i = 0; i < 2; i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
                 /* BK_U* and BK_LLONG builtins have real prototypes, so their
                  * arguments convert as if by assignment. That is OBSERVABLE:
                  * __builtin_bswap16(0x11223344) truncates to 0x3344 and swaps
@@ -1300,6 +1313,9 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 break;
             case BK_VOIDP:
                 e->sem_type = type_ptr(s->arena, type_basic(TY_VOID));
+                break;
+            case BK_CHARP:
+                e->sem_type = type_ptr(s->arena, type_basic(TY_CHAR));
                 break;
             case BK_DOUBLE:
                 e->sem_type = type_basic(TY_DOUBLE);

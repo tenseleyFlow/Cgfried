@@ -2460,8 +2460,8 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* memcpy/memmove/memset/memcmp/strlen/strcmp: a direct libc call by name.
- * All six take and return only scalars, so the abstract-call machinery
+/* memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy: direct libc calls by
+ * name. All seven take and return only scalars, so the abstract-call machinery
  * (aggregate copies, sret) is not needed here. */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -2476,6 +2476,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32},
         {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64},
         {SEMA_BUILTIN_STRCMP, "strcmp", IRT_I32},
+        {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR},
     };
     IrOperand args[3];
     u32 i, n = 0;
