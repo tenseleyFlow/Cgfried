@@ -52,6 +52,7 @@ B(memmove, MEMMOVE, 3, BK_VOIDP)
 B(memset, MEMSET, 3, BK_VOIDP)
 B(memcmp, MEMCMP, 3, BK_INT)
 B(strlen, STRLEN, 1, BK_SIZE)
+B(strcmp, STRCMP, 2, BK_INT)
 
 /* integer library intrinsics */
 B(llabs, LLABS, 1, BK_LLONG)
