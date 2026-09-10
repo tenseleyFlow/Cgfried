@@ -157,6 +157,26 @@ void test_lower_builtin_expect_evaluates_both_arguments(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_prefetch_preserves_only_address_effects(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t, run_lower(&f, "int *source(void); int *saved; "
+                              "int * volatile cursor; "
+                              "void use(void) { "
+                              "__builtin_prefetch((saved = source()), 1, 3); "
+                              "__builtin_prefetch(cursor, 0, 0); "
+                              "__builtin_prefetch((void *)1, 0, 0); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "store ptr"), 1);
+    T_ASSERT(t,
+             strstr(txt(&f), "load ptr, @cursor, align 8, volatile") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_prefetch"), 0);
+    low_free(&f);
+}
+
 void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
 {
     static const char declared_call[] =
