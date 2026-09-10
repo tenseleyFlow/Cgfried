@@ -1252,6 +1252,19 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         }
                     }
                 }
+                if (b == SEMA_BUILTIN_STRCMP) {
+                    Type *const_char = type_qualify(
+                        s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
+                    Type *const_charp = type_ptr(s->arena, const_char);
+
+                    for (i = 0; i < 2; i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, const_charp, &e->args[i],
+                                             bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
                 /* BK_U* and BK_LLONG builtins have real prototypes, so their
                  * arguments convert as if by assignment. That is OBSERVABLE:
                  * __builtin_bswap16(0x11223344) truncates to 0x3344 and swaps

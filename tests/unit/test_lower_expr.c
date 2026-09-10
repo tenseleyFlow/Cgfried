@@ -177,6 +177,38 @@ void test_lower_builtin_prefetch_preserves_only_address_effects(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_strcmp_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t,
+             run_lower(&f, "const char *left(void); const char *right(void); "
+                           "int use(void) { return "
+                           "__builtin_strcmp(left(), right()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @left()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @right()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @strcmp(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_strcmp"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strcmp-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t,
+             run_lower(&f, "static int strcmp(const char *a, const char *b) { "
+                           "(void)a; (void)b; return 7; } "
+                           "int use(const char *a, const char *b) { "
+                           "return __builtin_strcmp(a, b); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @strcmp(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strcmp-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
 {
     static const char declared_call[] =
