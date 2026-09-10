@@ -36,14 +36,13 @@ static void *zalloc(size_t n, size_t size)
 
 static i32 func_for_symbol(const IrModule *m, u32 sym)
 {
-    u32 i;
+    const IrSymAttrs *attrs;
 
     if (sym >= m->nsyms)
         return -1;
-    for (i = 0; i < m->nfuncs; i++)
-        if (m->funcs[i].name == m->syms[sym] ||
-            strcmp(m->funcs[i].name, m->syms[sym]) == 0)
-            return (i32)i;
+    attrs = &m->sym_attrs[sym];
+    if (attrs->def_kind == IR_SYM_DEF_FUNC && attrs->def_index < m->nfuncs)
+        return (i32)attrs->def_index;
     return -1;
 }
 
@@ -639,6 +638,7 @@ static bool eliminate_dead_functions(IrModule *m, const Callgraph *g,
             out++;
         }
     m->nfuncs = out;
+    ir_module_refresh_func_symbol_defs(m);
     for (i = 0; i < m->nfuncs; i++) {
         u32 bi;
 

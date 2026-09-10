@@ -3834,7 +3834,7 @@ and green post-publication CI.
   and
   `c3398e0ee3e112fbd6464ccf8f43cc65616087727823adefa5da1ebecfdfcfb8`.
 
-  Native ARM GNU Make 4.4.1 performs a fresh 20,335-cell run after building
+  Native ARM GNU Make 4.4.1 performs a fresh 20,325-cell run after building
   Cgfried's target runtime. Its stream SHA-256 is
   `f67bcfde77d39c4aa7d989035bc79d79eaf02f21abf53342e006fa11abecc369`,
   its compiler/driver hash is
@@ -4041,7 +4041,7 @@ and green post-publication CI.
   [run 34393676994](https://github.com/tenseleyFlow/Cgfried/actions/runs/34393676994)
   and exact synthetic-merge native-ARM stream from
   [run 34393802500](https://github.com/tenseleyFlow/Cgfried/actions/runs/34393802500)
-  each contain 20,335 matrix rows. Both name revision
+  each contain 20,325 matrix rows. Both name revision
   `4f521920f9a89a5801d121596fd980de00d0abf3`, compiler-source SHA-256
   `31090c08f53ebe9ca538feaf9c97afad7fee452348367e1636db3145b253fc45`,
   harness SHA-256
@@ -4088,7 +4088,7 @@ and green post-publication CI.
   [run 34412016023](https://github.com/tenseleyFlow/Cgfried/actions/runs/34412016023)
   and exact synthetic-merge native-ARM stream from
   [run 34413591270](https://github.com/tenseleyFlow/Cgfried/actions/runs/34413591270)
-  each contain 20,335 matrix rows and name revision
+  each contain 20,325 matrix rows and name revision
   `9d98b52eceaab4468e2e682bb1027d0ea929dca3`. They share compiler-source
   SHA-256 `86de3a1484075a26dd931080249661f8fc003cae24e8030878061049e23a2f5a`,
   harness SHA-256
@@ -4139,7 +4139,7 @@ and green post-publication CI.
   [run 34422464750](https://github.com/tenseleyFlow/Cgfried/actions/runs/34422464750)
   and exact synthetic-merge native-ARM stream from
   [run 34422532287](https://github.com/tenseleyFlow/Cgfried/actions/runs/34422532287)
-  each contain 20,335 matrix rows and name revision
+  each contain 20,325 matrix rows and name revision
   `d2b1480f7807bdb3d7b0eec3fa9098933c53c0f7`. They share compiler-source
   SHA-256 `bcb76b14eb53d01496110c984996a731893f378c298f1cbfd7fec4f4bc65fc4d`,
   harness SHA-256
@@ -4165,6 +4165,57 @@ and green post-publication CI.
   SHA-256 values are respectively
   `09ce651d1c301a48b1530aca3165fac225658465b447f6e5562558b9e4017067`
   and `7e4aafd52094e4e419c799f0646ccff7892d36d315bd3ea8db48a5d7e8bbf4bb`.
+  Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
+  evidence remain required before merge.
+- The current `s56.5-compiler-scalability-timeout` tranche (PR #99) removes
+  the last live compiler-gap bucket: ten target-complete timeout cells for
+  `limits-externalid.c`. The 15-line source expands to 100,000 distinct
+  file-scope tentative definitions. IR symbol interning now uses an arena-owned
+  open-addressed index while retaining the insertion-ordered symbol vector;
+  backend binding and TLS queries use derived definition indices refreshed by
+  the two optimizer passes that compact the function array.
+
+  On Apple silicon, the exact source's syntax-only compile falls from 25.59
+  seconds to 0.32 seconds. After the interning repair exposed the independent
+  backend definition scan, full x86-64 O0 assembly falls from 16.84 seconds to
+  0.36 seconds; the final ARM64 path takes 0.23 seconds. All five optimization
+  levels pass `-S` for both Linux targets, and native ARM64 Mach-O emission
+  succeeds. The x86-64 output is byte-identical to the pre-repair assembly.
+  Permanent unit coverage pins 16,384-symbol ordering and lookup, clone
+  rebuilding, definition binding, TLS, and function compaction. Focused normal
+  and ASan+UBSan IR/inline/IPO suites pass, as do sanitized 100,000-definition
+  emissions, the registry and format gates, and deterministic frontend fuzz
+  smoke. The complete native macOS unit run reaches its known eight-failure
+  host-assumption baseline with every affected test passing.
+
+  The retained x86 stream from
+  [run 34503862256](https://github.com/tenseleyFlow/Cgfried/actions/runs/34503862256)
+  and exact synthetic-merge native-ARM stream from
+  [run 34504006350](https://github.com/tenseleyFlow/Cgfried/actions/runs/34504006350)
+  each contain 20,325 matrix rows and name revision
+  `9497c020d3d4d5d6683665f6cea6e590fab46faa`. They share compiler-source
+  SHA-256 `c88e9c64cba97068dabce6595bc274a301e8482cb71e8c826125c04823d32741`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `c98404c63e8729019b0eed0a2d167f5c861f6b6cdad5765b14bf2e5ae468b2df`
+  and `b81d27a138e88eb0a4b9cc9230e6d9c09a6e1abcb4aed97784456db471a5732e`.
+  Each gate rejects only its five unpublished `limits-externalid.c` PASS
+  cells, with no old-PASS regression.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly ten PASS keys and retires only fingerprint `c0cda523...`. The
+  resulting ratchet has 30,300 PASS keys (30,303 lines), 3,740 classified
+  failures, 32 observed buckets, 24 applied decisions, two deliberately
+  retained stale decisions, no live repair rows, and zero unbucketed or
+  unresolved cells. PASS and triage SHA-256 values are respectively
+  `d8de415c4a024fd6b6b5a48171748d78a7e8d1fa18602e076c2264845c5767ca`
+  and `c92f057f77b09926b146746ad48718e1a11f246bf7bd4a314c6c0d2bc7cf906c`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on

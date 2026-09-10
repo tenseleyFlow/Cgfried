@@ -760,15 +760,26 @@ typedef enum IrTlsModel {
     IR_TLS_INITIAL_EXEC,
 } IrTlsModel;
 
+/* The definition, if any, associated with one module symbol. The index is
+ * into the corresponding insertion-ordered globals/functions array. */
+typedef enum IrSymDefKind {
+    IR_SYM_DEF_NONE,
+    IR_SYM_DEF_GLOBAL,
+    IR_SYM_DEF_FUNC,
+} IrSymDefKind;
+
 /* Attributes on a symbol that may have no definition in this module. A weak
  * hidden extern still needs `.weak`/`.hidden` in the object even though it has
  * no IrGlobal or IrFunc record of its own (musl's nullable _DYNAMIC is the
  * canonical case). The external TLS model belongs here for the same reason.
- * This table is parallel to IrModule.syms. */
+ * Derived definition indices make backend queries constant-time without
+ * perturbing symbol order. This table is parallel to IrModule.syms. */
 typedef struct IrSymAttrs {
     bool is_weak;
     u8 visibility; /* GnuVisibility */
     u8 tls_model;  /* IrTlsModel; external initial-exec only */
+    u8 def_kind;   /* IrSymDefKind; derived, not textual IR */
+    u32 def_index;
 } IrSymAttrs;
 
 /* How a constraint letter resolved, decided in lowering because the letters
@@ -865,6 +876,11 @@ typedef struct IrModule {
     const CgfAttr **sym_cgf_attrs;
     u32 nsyms;
     u32 cap_syms;
+    /* Construction-only name lookup. Slots hold symbol index + 1; syms stays
+     * insertion-ordered for deterministic printing and object emission. */
+    u32 *sym_slots;
+    u32 cap_sym_slots;
+    u32 indexed_syms;
     Span *locs; /* instruction source locations; ids are 1-based */
     u32 nlocs;
     u32 cap_locs;
@@ -915,6 +931,8 @@ IrModule *ir_module_clone(Arena *arena, const IrModule *source);
 u32 ir_sym(IrModule *m, const char *name); /* interned name -> index */
 void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility);
 void ir_sym_set_tls_model(IrModule *m, u32 index, IrTlsModel model);
+/* Rebuild derived function definition indices after a pass compacts funcs. */
+void ir_module_refresh_func_symbol_defs(IrModule *m);
 u32 ir_sym_exact_asm(IrModule *m, const char *name);
 /* An asm label is already in assembler spelling. IR keeps it distinct from an
  * ordinary C symbol with the same bytes by an internal leading `!`; textual IR
