@@ -2460,9 +2460,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy: direct libc calls by
- * name. All seven take and return only scalars, so the abstract-call machinery
- * (aggregate copies, sret) is not needed here. */
+/* malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy: direct libc
+ * calls by name. All nine have only scalar arguments and no aggregate result,
+ * so the abstract-call machinery (aggregate copies, sret) is not needed here.
+ */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
     static const struct {
@@ -2470,6 +2471,8 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         const char *name;
         IrType ret;
     } libc[] = {
+        {SEMA_BUILTIN_MALLOC, "malloc", IRT_PTR},
+        {SEMA_BUILTIN_FREE, "free", IRT_VOID},
         {SEMA_BUILTIN_MEMCPY, "memcpy", IRT_PTR},
         {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR},
         {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR},
@@ -2479,6 +2482,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR},
     };
     IrOperand args[3];
+    ValueId call;
     u32 i, n = 0;
     size_t k;
 
@@ -2494,13 +2498,16 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
          * FUNCREF_INTERNAL. All function shells exist before body lowering,
          * so a later definition is visible here too. */
         for (i = 0; i < lo->m->nfuncs; i++)
-            if (strcmp(lo->m->funcs[i].name, libc[k].name) == 0)
-                return ir_op_value(lo->fn,
-                                   ir_build_call(&lo->b, libc[k].ret,
-                                                 FUNCREF_INTERNAL, i, args, n));
-        return ir_op_value(lo->fn,
-                           ir_build_call(&lo->b, libc[k].ret, FUNCREF_EXTERNAL,
-                                         ir_sym(lo->m, libc[k].name), args, n));
+            if (strcmp(lo->m->funcs[i].name, libc[k].name) == 0) {
+                call = ir_build_call(&lo->b, libc[k].ret, FUNCREF_INTERNAL, i,
+                                     args, n);
+                return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
+                                               : ir_op_value(lo->fn, call);
+            }
+        call = ir_build_call(&lo->b, libc[k].ret, FUNCREF_EXTERNAL,
+                             ir_sym(lo->m, libc[k].name), args, n);
+        return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
+                                       : ir_op_value(lo->fn, call);
     }
     CGF_ICE("builtin %#x has no lowering", (unsigned)e->op);
 }
