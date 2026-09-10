@@ -43,6 +43,7 @@ B(trap, TRAP, 0, BK_VOID)
 /* optimizer hints — honest no-ops in v0.1.0 (documented in the sprint
  * file and in --help's absence of any claim to the contrary) */
 B(expect, EXPECT, 2, BK_ARG0)
+B(prefetch, PREFETCH, -1, BK_VOID)
 
 /* memory */
 B(alloca, ALLOCA, 1, BK_VOIDP)
