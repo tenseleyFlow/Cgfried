@@ -2318,6 +2318,17 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         *out = lower_rvalue(lo, e->args[0]);
         (void)lower_rvalue(lo, e->args[1]);
         return true;
+    case SEMA_BUILTIN_PREFETCH:
+        /* A prefetch is a performance hint, not a memory access. Targets may
+         * omit it, but the address expression still has ordinary C side
+         * effects. Lower it exactly once and discard the resulting pointer;
+         * the read/write and locality operands are ICEs already consumed by
+         * sema and therefore have no runtime evaluation. This also guarantees
+         * that an invalid hinted address cannot fault merely because it was
+         * passed to the builtin. */
+        (void)lower_rvalue(lo, e->args[0]);
+        *out = ir_op_undef(IRT_I32);
+        return true;
     case SEMA_BUILTIN_LLABS: {
         IrOperand value = lower_rvalue(lo, e->args[0]);
         IrOperand zero = ir_op_iconst(IRT_I64, 0);
