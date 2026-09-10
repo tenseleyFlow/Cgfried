@@ -179,3 +179,47 @@ void test_ir_dom_chain_and_unreachable(TestCtx *t)
     T_ASSERT(t, !ir_dominates(dt, (BlockId){0}, e));
     arena_free_all(&f.arena);
 }
+
+void test_ir_dom_large_duplicate_successors(TestCtx *t)
+{
+    enum { NCASES = 16384 };
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *m;
+    IrFunc *fn;
+    IrBuilder b;
+    IrDomTree *dt;
+    IrType params[] = {IRT_I32};
+    BlockId entry, hit, def;
+    i64 *values;
+    BlockId *targets;
+    u32 i;
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    m = ir_module_new(&arena, dc);
+    fn = ir_func_new(m, "large_switch", IRT_VOID, params, 1);
+    entry = ir_block_new(m, fn, "entry");
+    hit = ir_block_new(m, fn, "hit");
+    def = ir_block_new(m, fn, "default");
+    values = arena_alloc(&arena, NCASES * sizeof(*values), _Alignof(i64));
+    targets = arena_alloc(&arena, NCASES * sizeof(*targets), _Alignof(BlockId));
+    for (i = 0; i < NCASES; i++) {
+        values[i] = i;
+        targets[i] = hit;
+    }
+    ir_builder_at(&b, m, fn, entry);
+    ir_build_switch(&b, ir_op_value(fn, fn->param_vals[0]), def, values,
+                    targets, NCASES);
+    ir_builder_at(&b, m, fn, hit);
+    ir_build_ret(&b, NULL);
+    ir_builder_at(&b, m, fn, def);
+    ir_build_ret(&b, NULL);
+
+    dt = ir_domtree_build(&arena, fn);
+    T_ASSERT_EQ_INT(t, ir_idom(dt, hit).v, entry.v);
+    T_ASSERT_EQ_INT(t, ir_idom(dt, def).v, entry.v);
+    T_ASSERT(t, ir_dominates(dt, entry, hit));
+    T_ASSERT(t, ir_dominates(dt, entry, def));
+    arena_free_all(&arena);
+}

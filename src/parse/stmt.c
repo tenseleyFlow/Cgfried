@@ -316,7 +316,7 @@ static AstNode *parse_goto(Parser *p)
     return n;
 }
 
-static AstNode *parse_case(Parser *p)
+static AstNode *parse_case_label(Parser *p)
 {
     const Token *kw = parse_peek(p);
     AstNode *n = stmt_new(p, AST_STMT_CASE, kw->span);
@@ -349,11 +349,10 @@ static AstNode *parse_case(Parser *p)
         n->rhs = parse_cond_expr(p);
     }
     parse_expect_punct(p, PUNCT_COLON, "after a 'case' label");
-    n->body = parse_stmt(p);
     return n;
 }
 
-static AstNode *parse_default(Parser *p)
+static AstNode *parse_default_label(Parser *p)
 {
     const Token *kw = parse_peek(p);
     AstNode *n = stmt_new(p, AST_STMT_DEFAULT, kw->span);
@@ -362,8 +361,76 @@ static AstNode *parse_default(Parser *p)
     if (p->switch_depth == 0)
         parse_error(p, kw, "'default' label not within a switch statement");
     parse_expect_punct(p, PUNCT_COLON, "after 'default'");
-    n->body = parse_stmt(p);
     return n;
+}
+
+static bool parse_at_label(Parser *p)
+{
+    const Token *t = parse_peek(p);
+
+    if (t->kind == TOK_KEYWORD && (t->kw == KW_CASE || t->kw == KW_DEFAULT))
+        return true;
+    return t->kind == TOK_IDENT && parse_peek_n(p, 1)->kind == TOK_PUNCT &&
+           parse_peek_n(p, 1)->punct == PUNCT_COLON;
+}
+
+static AstNode *parse_named_label(Parser *p)
+{
+    const Token *t = parse_peek(p);
+    AstNode *n = stmt_new(p, AST_STMT_LABEL, t->span);
+    LabelEntry *e = label_intern(p, t->spelling, t->span);
+
+    if (e->defined)
+        parse_error(p, t, "duplicate label '%s'", t->spelling);
+    e->defined = true;
+    n->name = t->spelling;
+    p->pos += 2;
+    return n;
+}
+
+/* C labels associate right-to-left (`a: b: statement`), but none of the
+ * labels introduce a scope or executable action. A recursive AST chain is
+ * therefore needless host-stack debt. Keep one-label statements in their
+ * historical shape and flatten longer runs into a scope-neutral sequence of
+ * label markers followed by the one statement they all label. */
+static AstNode *parse_labeled_stmt(Parser *p)
+{
+    StmtVec labels = {NULL, 0, 0};
+    AstNode *body;
+    AstNode *result;
+    size_t i;
+
+    while (parse_at_label(p)) {
+        const Token *t = parse_peek(p);
+        AstNode *label;
+
+        if (t->kind == TOK_KEYWORD && t->kw == KW_CASE)
+            label = parse_case_label(p);
+        else if (t->kind == TOK_KEYWORD && t->kw == KW_DEFAULT)
+            label = parse_default_label(p);
+        else
+            label = parse_named_label(p);
+        StmtVec_push(&labels, label);
+    }
+
+    body = parse_stmt(p);
+    if (labels.len == 1) {
+        result = labels.data[0];
+        result->body = body;
+        StmtVec_free(&labels);
+        return result;
+    }
+
+    result = stmt_new(p, AST_STMT_COMPOUND, labels.data[0]->span);
+    result->scope_neutral = true;
+    result->nitems = (u32)(labels.len + 1);
+    result->items = arena_alloc(p->arena, result->nitems * sizeof(AstNode *),
+                                _Alignof(AstNode *));
+    for (i = 0; i < labels.len; i++)
+        result->items[i] = labels.data[i];
+    result->items[labels.len] = body;
+    StmtVec_free(&labels);
+    return result;
 }
 
 AstNode *parse_stmt(Parser *p)
@@ -374,6 +441,8 @@ AstNode *parse_stmt(Parser *p)
         return parse_scoped_compound(p);
     if (parse_eat_punct(p, PUNCT_SEMI))
         return stmt_new(p, AST_STMT_NULL, t->span);
+    if (parse_at_label(p))
+        return parse_labeled_stmt(p);
 
     if (t->kind == TOK_KEYWORD) {
         switch ((Keyword)t->kw) {
@@ -414,10 +483,6 @@ AstNode *parse_stmt(Parser *p)
             parse_eat_punct(p, PUNCT_SEMI);
             return n;
         }
-        case KW_CASE:
-            return parse_case(p);
-        case KW_DEFAULT:
-            return parse_default(p);
         case KW_BREAK: {
             AstNode *n = stmt_new(p, AST_STMT_BREAK, t->span);
             p->pos++;
@@ -519,24 +584,6 @@ AstNode *parse_stmt(Parser *p)
         default:
             break;
         }
-    }
-
-    /* A label: IDENT ':' — and labels live in their own namespace, so
-     * `foo: foo = 1; goto foo;` is three different meanings of `foo` and
-     * all three are legal. Two-token lookahead separates this from an
-     * expression statement starting with the same identifier. */
-    if (t->kind == TOK_IDENT && parse_peek_n(p, 1)->kind == TOK_PUNCT &&
-        parse_peek_n(p, 1)->punct == PUNCT_COLON) {
-        AstNode *n = stmt_new(p, AST_STMT_LABEL, t->span);
-        LabelEntry *e = label_intern(p, t->spelling, t->span);
-
-        if (e->defined)
-            parse_error(p, t, "duplicate label '%s'", t->spelling);
-        e->defined = true;
-        n->name = t->spelling;
-        p->pos += 2;
-        n->body = parse_stmt(p);
-        return n;
     }
 
     {

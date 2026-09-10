@@ -1,6 +1,7 @@
 #ifndef CGF_TEST_X64SIM_H
 #define CGF_TEST_X64SIM_H
 
+#include <float.h>
 #include <math.h>
 #include <string.h>
 
@@ -11,10 +12,10 @@
  * 23) — the allocator's and FP isel's secret weapon. It executes vreg
  * form and post-RA form alike (registers are just ids 1..32), models
  * EFLAGS from cmp/test/ucomi/fucomip, follows branches, walks the x87
- * stack with host long doubles (the unit suite runs on x86-64, where
- * host long double IS the 80-bit format), and honors the RC field for
- * fistp — so the compiled RC dance is what makes truncation happen in
- * the sim too.
+ * stack with host long doubles, and honors the RC field for fistp -- so the
+ * compiled RC dance is what makes truncation happen in the sim too. x86-64
+ * hosts can copy the 80-bit payload directly; hosts whose long double is f64
+ * use the explicit little-endian conversion below.
  *
  * Constant-pool entries materialize at SIM_CPOOL_BASE; markers
  * (readreg/argld/...) are post-RA-only concepts and are rejected. */
@@ -197,14 +198,78 @@ static inline void sim_fcmp_flags(Sim *s, long double a, long double b)
     s->fl.sf = s->fl.of = false;
 }
 
+static inline long double sim_f80(u64 sig, u16 se)
+{
+#if LDBL_MANT_DIG == 64 && LDBL_MAX_EXP == 16384
+    long double v = 0;
+
+    memcpy(&v, &sig, 8);
+    memcpy((char *)&v + 8, &se, 2);
+    return v;
+#else
+    u16 exp = (u16)(se & 0x7FFFu);
+    long double v;
+
+    if (exp == 0x7FFFu)
+        v = (sig & UINT64_C(0x7FFFFFFFFFFFFFFF)) ? NAN : INFINITY;
+    else if (sig == 0)
+        v = 0;
+    else
+        v = ldexpl((long double)sig, (exp ? (int)exp - 16383 : 1 - 16383) - 63);
+    return (se & 0x8000u) ? -v : v;
+#endif
+}
+
+static inline void sim_f80bits(long double v, u64 *sig_out, u16 *se_out)
+{
+#if LDBL_MANT_DIG == 64 && LDBL_MAX_EXP == 16384
+    u64 sig = 0;
+    u16 se = 0;
+
+    memcpy(&sig, &v, 8);
+    memcpy(&se, (const char *)&v + 8, 2);
+    *sig_out = sig;
+    *se_out = se;
+#else
+    bool negative = signbit(v);
+    u64 sig = 0;
+    u16 exp = 0;
+
+    v = fabsl(v);
+    if (isnan(v)) {
+        exp = 0x7FFFu;
+        sig = UINT64_C(0xC000000000000000);
+    } else if (isinf(v)) {
+        exp = 0x7FFFu;
+        sig = UINT64_C(0x8000000000000000);
+    } else if (v != 0) {
+        int power;
+        long double fraction = frexpl(v, &power);
+        int biased = power - 1 + 16383;
+
+        if (biased >= 0x7FFF) {
+            exp = 0x7FFFu;
+            sig = UINT64_C(0x8000000000000000);
+        } else if (biased <= 0) {
+            sig = (u64)ldexpl(v, 16382 + 63);
+        } else {
+            long double tail = ldexpl(fraction, 1) - 1;
+
+            exp = (u16)biased;
+            sig = UINT64_C(0x8000000000000000) | (u64)ldexpl(tail, 63);
+        }
+    }
+    *sig_out = sig;
+    *se_out = (u16)(exp | (negative ? 0x8000u : 0));
+#endif
+}
+
 static inline long double sim_ld_rd(TestCtx *t, Sim *s, u64 addr, u8 w)
 {
     if (w == 10) {
-        long double v = 0;
-
         T_ASSERT(t, addr + 10 <= SIM_MEM);
-        memcpy(&v, s->mem + addr, 10);
-        return v;
+        return sim_f80(sim_rdmem(t, s, addr, 8),
+                       (u16)sim_rdmem(t, s, addr + 8, 2));
     }
     if (w == 8)
         return (long double)sim_f64(sim_rdmem(t, s, addr, 8));
@@ -214,8 +279,13 @@ static inline long double sim_ld_rd(TestCtx *t, Sim *s, u64 addr, u8 w)
 static inline void sim_ld_wr(TestCtx *t, Sim *s, u64 addr, long double v, u8 w)
 {
     if (w == 10) {
+        u64 sig;
+        u16 se;
+
         T_ASSERT(t, addr + 10 <= SIM_MEM);
-        memcpy(s->mem + addr, &v, 10);
+        sim_f80bits(v, &sig, &se);
+        sim_wrmem(t, s, addr, sig, 8);
+        sim_wrmem(t, s, addr + 8, se, 2);
         return;
     }
     if (w == 8)
@@ -466,7 +536,7 @@ static inline bool sim_run(TestCtx *t, const X64Func *f, Sim *s)
             s->val[in->def.v] =
                 w == 4 ? sim_mask(s->val[in->a.r.v], 4) : s->val[in->a.r.v];
             break;
-        /* --- x87 (host long double IS f80 on x86-64) ------------------- */
+        /* --- x87 (f80 converted explicitly on non-x87 hosts) ----------- */
         case X64_OP_X87_FLD:
             T_ASSERT(t, s->nst < 8);
             s->st[s->nst++] = sim_ld_rd(t, s, sim_addr(t, s, &in->a.mem), w);

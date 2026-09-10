@@ -238,6 +238,12 @@ struct AstNode {
     AstKind kind;
     Span span;
     bool poisoned;
+    /* Parser-created AST_STMT_COMPOUND used only to flatten a run of
+     * adjacent labels. It is an ordered statement sequence, not a `{}`
+     * scope; semantic and lowering scope stacks must therefore pass through
+     * it unchanged. Keeping the sequence flat prevents valid large switches
+     * from consuming one host stack frame per case label. */
+    bool scope_neutral;
     /* AST_EXPR_TYPES_COMPATIBLE / AST_EXPR_CHOOSE_EXPR: sema's answer. */
     bool types_compatible;
     bool choose_taken;

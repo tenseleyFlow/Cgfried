@@ -816,6 +816,7 @@ static void visit_stmt(Autofix *a, AstNode *st)
         return;
     if (st->kind == AST_STMT_COMPOUND) {
         bool saved_shadow = a->snprintf_shadowed;
+        bool restores_shadow = !st->scope_neutral;
 
         for (i = 0; i < st->nitems; i++) {
             AstNode *item = st->items[i];
@@ -847,7 +848,8 @@ static void visit_stmt(Autofix *a, AstNode *st)
             }
             visit_stmt(a, item);
         }
-        a->snprintf_shadowed = saved_shadow;
+        if (restores_shadow)
+            a->snprintf_shadowed = saved_shadow;
         return;
     }
     if (st->kind == AST_STMT_DECL) {

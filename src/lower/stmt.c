@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "util/sort.h"
+
 /* Statement lowering: all of C11 6.8. Control flow builds on three
  * mechanisms and nothing else:
  *
@@ -631,8 +633,71 @@ static bool case_in_table(const SwitchCase *c)
     return !c->is_range;
 }
 
+typedef struct SwitchEntry {
+    i64 value;
+    BlockId block;
+} SwitchEntry;
+
+enum { SWITCH_RANGE_MIN_CASES = 4 };
+
+static int switch_entry_cmp(const void *ap, const void *bp, void *ctx)
+{
+    const SwitchEntry *a = ap;
+    const SwitchEntry *b = bp;
+
+    (void)ctx;
+    if (a->value != b->value)
+        return a->value < b->value ? -1 : 1;
+    return 0;
+}
+
+static bool switch_entries_are_adjacent(const SwitchEntry *a,
+                                        const SwitchEntry *b)
+{
+    return a->block.v == b->block.v && (u64)b->value == (u64)a->value + 1;
+}
+
 /* --- switch: the case-collecting pre-pass ----------------------------------
  */
+
+static void collect_one_case(Lower *lo, SwitchCtx *ctx, AstNode *s,
+                             BlockId shared, bool opens_block)
+{
+    SwitchCase *c =
+        arena_alloc(lo->arena, sizeof(SwitchCase), _Alignof(SwitchCase));
+
+    memset(c, 0, sizeof(*c));
+    c->stmt = s;
+    c->is_default = s->kind == AST_STMT_DEFAULT;
+    if (!c->is_default) {
+        ConstValue cv = constexpr_eval(lo->sema, s->lhs, CE_FOLD);
+
+        c->value = cv.kind == CV_INT ? (i64)cv.i : 0;
+        c->hi = c->value;
+        if (s->rhs) {
+            ConstValue hv = constexpr_eval(lo->sema, s->rhs, CE_FOLD);
+
+            c->hi = hv.kind == CV_INT ? (i64)hv.i : c->value;
+            /* Sema rejected the reversed form; a range that survives
+             * to here is non-empty, and a one-value range is just a
+             * plain label wearing the syntax. */
+            c->is_range = c->hi != c->value;
+        }
+    }
+    c->block = shared.v ? shared
+                        : lower_new_block(lo, c->is_default ? "sw.default"
+                                                            : "sw.case");
+    if (opens_block)
+        lower_u32map_put(lo, &ctx->case_blocks, (const char *)&s, sizeof(s),
+                         c->block.v);
+    /* Append preserving SOURCE order -- the IR table sorts later,
+     * but block creation order stays document order. */
+    if (ctx->cases_tail)
+        ctx->cases_tail->next = c;
+    else
+        ctx->cases = c;
+    ctx->cases_tail = c;
+}
 
 static void collect_cases(Lower *lo, SwitchCtx *ctx, AstNode *s)
 {
@@ -642,45 +707,39 @@ static void collect_cases(Lower *lo, SwitchCtx *ctx, AstNode *s)
         return;
     switch (s->kind) {
     case AST_STMT_CASE:
-    case AST_STMT_DEFAULT: {
-        SwitchCase *c =
-            arena_alloc(lo->arena, sizeof(SwitchCase), _Alignof(SwitchCase));
-
-        memset(c, 0, sizeof(*c));
-        c->stmt = s;
-        c->is_default = s->kind == AST_STMT_DEFAULT;
-        if (!c->is_default) {
-            ConstValue cv = constexpr_eval(lo->sema, s->lhs, CE_FOLD);
-
-            c->value = cv.kind == CV_INT ? (i64)cv.i : 0;
-            c->hi = c->value;
-            if (s->rhs) {
-                ConstValue hv = constexpr_eval(lo->sema, s->rhs, CE_FOLD);
-
-                c->hi = hv.kind == CV_INT ? (i64)hv.i : c->value;
-                /* Sema rejected the reversed form; a range that survives
-                 * to here is non-empty, and a one-value range is just a
-                 * plain label wearing the syntax. */
-                c->is_range = c->hi != c->value;
-            }
-        }
-        c->block =
-            lower_new_block(lo, c->is_default ? "sw.default" : "sw.case");
-        /* Append preserving SOURCE order — the IR table sorts later,
-         * but block creation order stays document order. */
-        {
-            SwitchCase **tail = &ctx->cases;
-
-            while (*tail)
-                tail = &(*tail)->next;
-            *tail = c;
-        }
+    case AST_STMT_DEFAULT:
+        collect_one_case(lo, ctx, s, BLOCK_INVALID, true);
         collect_cases(lo, ctx, s->body);
         return;
-    }
     case AST_STMT_SWITCH:
         return; /* nested switch owns its own cases */
     case AST_STMT_COMPOUND:
+        if (s->scope_neutral) {
+            BlockId shared = BLOCK_INVALID;
+
+            /* Every direct case/default marker in an adjacent-label
+             * sequence enters the same statement. Give the whole run one
+             * CFG block; only its first switch marker needs to open it when
+             * the flat sequence is lowered. Named labels in the same run
+             * remain independently addressable by goto. */
+            for (i = 0; i < s->nitems; i++) {
+                AstNode *item = s->items[i];
+
+                if (item && (item->kind == AST_STMT_CASE ||
+                             item->kind == AST_STMT_DEFAULT)) {
+                    bool opens_block = shared.v == 0;
+
+                    if (opens_block)
+                        shared = lower_new_block(
+                            lo, item->kind == AST_STMT_DEFAULT ? "sw.default"
+                                                               : "sw.case");
+                    collect_one_case(lo, ctx, item, shared, opens_block);
+                } else {
+                    collect_cases(lo, ctx, item);
+                }
+            }
+            return;
+        }
         for (i = 0; i < s->nitems; i++)
             collect_cases(lo, ctx, s->items[i]);
         return;
@@ -710,6 +769,7 @@ static void lower_switch(Lower *lo, AstNode *s)
     BlockId defblk = BLOCK_INVALID;
 
     memset(&ctx, 0, sizeof(ctx));
+    strmap_init(&ctx.case_blocks);
     collect_cases(lo, &ctx, s->body);
     join = lower_new_block(lo, "sw.join");
 
@@ -755,34 +815,61 @@ static void lower_switch(Lower *lo, AstNode *s)
     }
 
     /* The IR terminator carries a SORTED case table (backends choose
-     * jump-table vs tree from it; the IR just keeps it canonical). */
+     * jump-table vs tree from it; the IR just keeps it canonical). Runs of
+     * adjacent values which all enter the same statement are cheaper as the
+     * same constant-size unsigned range test used for GNU case ranges. Apart
+     * from bounding very large label lists, this also avoids manufacturing a
+     * target-specific compare chain for what is semantically one entry. */
     {
+        SwitchEntry *entries =
+            arena_alloc(lo->arena, (ncases ? ncases : 1) * sizeof(SwitchEntry),
+                        _Alignof(SwitchEntry));
         i64 *vals = arena_alloc(lo->arena, (ncases ? ncases : 1) * sizeof(i64),
                                 _Alignof(i64));
         BlockId *blks =
             arena_alloc(lo->arena, (ncases ? ncases : 1) * sizeof(BlockId),
                         _Alignof(BlockId));
         u32 n = 0;
-        u32 i, j;
+        u32 i, keep = 0;
 
         for (c = ctx.cases; c; c = c->next)
             if (!c->is_default && case_in_table(c)) {
-                vals[n] = c->value;
-                blks[n] = c->block;
+                entries[n].value = c->value;
+                entries[n].block = c->block;
                 n++;
             }
-        /* insertion sort by value — n is small and this is deterministic */
-        for (i = 1; i < n; i++)
-            for (j = i; j > 0 && vals[j - 1] > vals[j]; j--) {
-                i64 tv = vals[j];
-                BlockId tb = blks[j];
+        cgf_sort_stable(entries, n, sizeof(*entries), switch_entry_cmp, NULL);
+        for (i = 0; i < n;) {
+            u32 end = i + 1;
 
-                vals[j] = vals[j - 1];
-                blks[j] = blks[j - 1];
-                vals[j - 1] = tv;
-                blks[j - 1] = tb;
+            while (end < n && switch_entries_are_adjacent(&entries[end - 1],
+                                                          &entries[end]))
+                end++;
+            if (end - i >= SWITCH_RANGE_MIN_CASES) {
+                BlockId next = lower_new_block(lo, "sw.range.next");
+                u64 span = (u64)entries[end - 1].value - (u64)entries[i].value;
+                ValueId d =
+                    ir_build2(&lo->b, IR_ISUB, scrut.type, scrut,
+                              ir_op_iconst(scrut.type, entries[i].value));
+                ValueId t =
+                    ir_build_icmp(&lo->b, ICMP_ULE, ir_op_value(lo->b.f, d),
+                                  ir_op_iconst(scrut.type, (i64)span));
+
+                ir_build_condbr(&lo->b, ir_op_value(lo->b.f, t),
+                                entries[i].block, NULL, 0, next, NULL, 0);
+                lower_at(lo, next);
+            } else {
+                u32 j;
+
+                for (j = i; j < end; j++) {
+                    vals[keep] = entries[j].value;
+                    blks[keep] = entries[j].block;
+                    keep++;
+                }
             }
-        ir_build_switch(&lo->b, scrut, defblk, vals, blks, n);
+            i = end;
+        }
+        ir_build_switch(&lo->b, scrut, defblk, vals, blks, keep);
         mark_config_branch(lo, s->lhs);
         lo->terminated = true;
     }
@@ -805,19 +892,19 @@ static void lower_switch(Lower *lo, AstNode *s)
     lo->switches = ctx.prev;
     lo->loops = brk.prev;
     lower_at(lo, join);
+    strmap_free(&ctx.case_blocks);
 }
 
 /* The pre-pass block for a case/default node of the INNERMOST switch. */
 static BlockId case_block_of(Lower *lo, const AstNode *s)
 {
-    SwitchCase *c;
+    u32 *block;
 
     if (!lo->switches)
         return BLOCK_INVALID;
-    for (c = lo->switches->cases; c; c = c->next)
-        if (c->stmt == s)
-            return c->block;
-    return BLOCK_INVALID;
+    block = lower_u32map_get(&lo->switches->case_blocks, (const char *)&s,
+                             sizeof(s));
+    return block ? (BlockId){*block} : BLOCK_INVALID;
 }
 
 /* --- statements ------------------------------------------------------------
@@ -841,6 +928,11 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
     case AST_STMT_COMPOUND: {
         LexScope scope;
 
+        if (s->scope_neutral) {
+            for (i = 0; i < s->nitems; i++)
+                lower_stmt(lo, s->items[i]);
+            return;
+        }
         scope.token = VALUE_INVALID;
         scope.compound = s;
         scope.cleanups = NULL;

@@ -131,6 +131,8 @@ typedef struct SwitchCase {
 
 typedef struct SwitchCtx {
     SwitchCase *cases;
+    SwitchCase *cases_tail;
+    Strmap case_blocks; /* AstNode* bytes -> BlockId */
     struct SwitchCtx *prev;
 } SwitchCtx;
 
