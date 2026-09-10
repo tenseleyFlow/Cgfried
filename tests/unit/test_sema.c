@@ -295,6 +295,38 @@ void test_sema_builtin_strcmp_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_strcpy_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_strcpy((char *)0, \"x\"), "
+             "char *: 1, default: 0), \"strcpy result is char pointer\"); "
+             "char *f(char *d, const char *s, void *p) { "
+             "char *a = __builtin_strcpy(d, s); "
+             "char *b = __builtin_strcpy(p, s); return a ? a : b; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "char *f(char *p) { return __builtin_strcpy(p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "char *f(char *p) { return __builtin_strcpy(p, p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; char *f(char *p, struct S s) { "
+             "return __builtin_strcpy(p, s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_extern_void_symbol(TestCtx *t)
 {
     SemaFix f;

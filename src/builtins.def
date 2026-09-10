@@ -10,6 +10,7 @@
  *   BK_LONG     long result
  *   BK_SIZE     size_t result
  *   BK_VOIDP    void * result
+ *   BK_CHARP    char * result
  *   BK_DOUBLE   double result
  *   BK_FLOAT    float result
  *   BK_LLONG    long long result AND parameter
@@ -53,6 +54,7 @@ B(memset, MEMSET, 3, BK_VOIDP)
 B(memcmp, MEMCMP, 3, BK_INT)
 B(strlen, STRLEN, 1, BK_SIZE)
 B(strcmp, STRCMP, 2, BK_INT)
+B(strcpy, STRCPY, 2, BK_CHARP)
 
 /* integer library intrinsics */
 B(llabs, LLABS, 1, BK_LLONG)

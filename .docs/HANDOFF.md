@@ -173,13 +173,16 @@ is merged as `216dc507`. PR #100's GNU `returns_twice` tranche is merged as
 `dcfe1b44`, publishing twenty target-complete `pr108783.c` and `pr113201.c`
 PASS keys. PR #101's `__builtin_prefetch` tranche is merged as `79e41879`,
 publishing seventy target-complete PASS keys across `20040824-1.c` and
-`builtin-prefetch-{1..6}.c`. The current PR #102 implements libc-compatible
-`__builtin_strcmp` semantics and publishes 110 target-complete PASS keys across
-eleven compile and execute files. The resulting ratchet contains 30,500 PASS
-keys (30,503 lines), with 3,540 classified failures, 24 applied decisions, two
-deliberately retained stale decisions, no live repair rows, and zero unbucketed
-or unresolved cells. Sprint 56's campaign machine and triage map remain
-complete while Sprint 58 continues its independent soak.
+`builtin-prefetch-{1..6}.c`. PR #102's libc-compatible `__builtin_strcmp`
+tranche is merged as `a8350329`, publishing 110 target-complete PASS keys
+across eleven compile and execute files. The current PR #103 implements
+libc-compatible `__builtin_strcpy` semantics and publishes sixty
+target-complete PASS keys across six compile and execute files. The resulting
+ratchet contains 30,560 PASS keys (30,563 lines), with 3,480 classified
+failures, 24 applied decisions, two deliberately retained stale decisions, no
+live repair rows, and zero unbucketed or unresolved cells. Sprint 56's campaign
+machine and triage map remain complete while Sprint 58 continues its
+independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
@@ -4356,7 +4359,7 @@ and green post-publication CI.
   and exact synthetic-merge native-ARM
   [run 34524319980](https://github.com/tenseleyFlow/Cgfried/actions/runs/34524319980)
   are green. PR #101 merged as `79e41879`.
-- The current `s56.7-builtin-strcmp` tranche (PR #102) promotes
+- The merged `s56.7-builtin-strcmp` tranche (PR #102) promotes
   `__builtin_strcmp` from the reserved-builtin refusal to a compiler-owned
   alias with the libc prototype `int (const char *, const char *)`. Sema
   applies both parameter conversions and the `int` result type. Lowering emits
@@ -4411,6 +4414,68 @@ and green post-publication CI.
   cells. PASS and triage SHA-256 values are respectively
   `64ee4a404daac1548ad0378191387dd2c73ba74a91b82f0f71ddc013ed1045ec`
   and `0232d3dbec9fdd615a4697baf357a3a6e91e7b4d334244cd2dd78fb485936721`.
+  Final post-publication standard
+  [run 34531566520](https://github.com/tenseleyFlow/Cgfried/actions/runs/34531566520),
+  bootstrap
+  [runs 34531561693](https://github.com/tenseleyFlow/Cgfried/actions/runs/34531561693)
+  and
+  [34531566534](https://github.com/tenseleyFlow/Cgfried/actions/runs/34531566534),
+  and exact synthetic-merge native-ARM
+  [run 34531633898](https://github.com/tenseleyFlow/Cgfried/actions/runs/34531633898)
+  are green. PR #102 merged as `a8350329`.
+- The current `s56.8-builtin-strcpy` tranche (PR #103) promotes
+  `__builtin_strcpy` from the reserved-builtin refusal to a compiler-owned
+  alias with the libc prototype `char *(char *, const char *)`. Sema applies
+  both parameter conversions and the `char *` result type. Lowering emits a
+  real `strcpy` call and uses the same whole-module symbol binding as
+  `__builtin_strcmp`, so a same-named definition remains an internal reference
+  and textual IR round trips preserve call identity.
+
+  Focused normal and ASan+UBSan semantic and lowering coverage is green. The
+  executable fixture pins the original destination return pointer,
+  exactly-once operand evaluation, nonempty and empty copies, and an emitted
+  libc call. All builtin-focused normal and sanitized tests and all fifteen
+  builtin program fixtures pass. All sixty independently unlockable candidate
+  assembly-generation cells pass locally across both Linux targets and
+  O0/O1/O2/O3/Os; all thirty native Apple-silicon executions pass. The complete
+  native unit run reaches the unchanged eight-failure host-assumption baseline
+  at 881 tests and 4,328,667 assertions, with both added tests passing. Pinned
+  clang-format 22, static seams, frontend, preprocessor, differential, and IR
+  fuzz smoke, and the crash ledger are green. The added fixture intentionally
+  repins the deterministic frontend mutation digest to `8e7eb41c3941bdfe`,
+  reproduced by two independent 5,000-iteration runs.
+
+  The retained x86 stream from
+  [run 34536408950](https://github.com/tenseleyFlow/Cgfried/actions/runs/34536408950)
+  and exact synthetic-merge native-ARM stream from
+  [run 34536473598](https://github.com/tenseleyFlow/Cgfried/actions/runs/34536473598)
+  each contain 20,325 matrix rows and name revision
+  `fc057c88b4be4499a87a629ed51e17323e452ae7`. They share compiler-source
+  SHA-256 `c736a490ac2c2e2f2b71f7e747f211bcdbba19eeef7e4078a3b9d075673555c4`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `3380103c1d0ebccda7107918d4c9907f9b7cd31dc950ed61aa024f00e1b9b072`
+  and `90f4d23fb44226fc85a9eeb313d8a1436c837d45ffb9d2f04fbdcf0a9ad3e3cf`.
+  Each gate rejects only its thirty unpublished candidate PASS cells, covering
+  `strcpy-{1,2}.c` in the compile suite and `20021011-1.c`, `921117-1.c`,
+  `pr86528.c`, and `strcpy-2.c` in the execute suite, with no old-PASS
+  regression. The ten target-complete `strlen-7.c` failures advance from
+  `__builtin_strcpy` to the follow-on `__builtin_malloc` gap.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates PASS plus triage byte-identically. Publication adds exactly sixty
+  PASS keys and reduces the pre-triaged `gcc-builtin` class from 1,380 to 1,320
+  cells. The resulting ratchet has 30,560 PASS keys (30,563 lines), 3,480
+  classified failures across 32 buckets, 24 applied decisions, two deliberately
+  retained stale decisions, no live repair rows, and zero unbucketed or
+  unresolved cells. PASS and triage SHA-256 values are respectively
+  `64d6d73d519f2dfe8a21be4bf731c49d3345aa91c0826148c497cbacb9873c83`
+  and `c14d14c0f76cc9779f29201edcbef725c2fc980c74fc4789eb129035737a46fa`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
