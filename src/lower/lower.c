@@ -477,6 +477,7 @@ static u32 global_sym_index(Lower *lo, Symbol *sym)
         ptrmap_put_u32(lo, &lo->globals, sym, idx + 1);
     }
     ir_sym_set_attrs(lo->m, idx, sym->gnu.weak, sym->gnu.visibility);
+    ir_sym_set_returns_twice(lo->m, idx, sym->gnu.returns_twice);
     if (sym->tls && sym->def_kind == DEF_NONE)
         ir_sym_set_tls_model(lo->m, idx, IR_TLS_INITIAL_EXEC);
     return idx;
@@ -1511,6 +1512,7 @@ static void lower_function(Lower *lo, AstNode *def)
                     ptypes, nir_params);
     lo->fn->variadic = ft->variadic;
     lo->fn->unprototyped = !ft->has_proto;
+    lo->fn->returns_twice = sym->gnu.returns_twice;
     lo->fn->abi_ret = aret.ir_abi;
     lo->fn->abi_ret_n = (u8)aret.n;
     lo->fn->loc = ir_intern_span(lo->m, def->span);

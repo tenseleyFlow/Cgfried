@@ -962,14 +962,22 @@ static void check_setjmp_flag(V *v, const IrFunc *f)
         for (in = f->blocks[bi].first; in && !found; in = in->next)
             if (in->op == IR_CALL && in->subop == FUNCREF_EXTERNAL &&
                 in->callee < v->m->nsyms &&
-                ir_name_is_returns_twice(v->m->syms[in->callee]))
+                (ir_name_is_returns_twice(v->m->syms[in->callee]) ||
+                 (v->m->sym_attrs &&
+                  v->m->sym_attrs[in->callee].returns_twice)))
+                found = true;
+            else if (in->op == IR_CALL && in->subop == FUNCREF_INTERNAL &&
+                     in->callee < v->m->nfuncs &&
+                     (ir_name_is_returns_twice(v->m->funcs[in->callee].name) ||
+                      v->m->funcs[in->callee].returns_twice))
                 found = true;
     }
     if (found != f->calls_setjmp) {
         v->f = (const IrFunc *)f;
         v->blk_name = NULL;
         verr(v, 11,
-             found ? "function calls setjmp but is not marked 'setjmp'"
+             found ? "function calls a returns-twice target but is not marked "
+                     "'setjmp'"
                    : "function is marked 'setjmp' but never calls it");
         v->f = NULL;
     }

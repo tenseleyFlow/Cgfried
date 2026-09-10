@@ -3242,6 +3242,16 @@ static void declare_one(Sema *s, AstNode *d)
                 "declared 'inline'");
     }
 
+    /* returns_twice describes the control-flow boundary at a FUNCTION call.
+     * On any other declaration gcc warns and drops it; retaining it until a
+     * later redeclaration could otherwise turn an invalid placement into a
+     * real function property. */
+    if (d->gnu.returns_twice && sym->kind != SYM_FUNC) {
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                "'returns_twice' attribute ignored");
+        d->gnu.returns_twice = false;
+    }
+
     /* UNION across declarations, not replacement: an attribute on any
      * declaration of a symbol applies to the symbol. gcc's rule, and the
      * one musl's weak_alias pattern depends on -- the attribute and the

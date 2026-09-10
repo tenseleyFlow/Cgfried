@@ -2789,6 +2789,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     ValueId rv;
     u32 i;
     bool call_noreturn = false;
+    bool call_returns_twice = false;
 
     attr_ir_args = arena_alloc(
         lo->arena, (e->nargs ? e->nargs : 1) * sizeof(*attr_ir_args),
@@ -2813,6 +2814,10 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
     }
 
     callee = direct_callee(e->lhs);
+    if (callee)
+        call_returns_twice =
+            callee->gnu.returns_twice ||
+            ir_name_is_returns_twice(lower_ir_link_name(lo, callee));
     if (callee && callee->uses_va_arg_pack)
         return lower_va_pack_wrapper_call(lo, e, callee);
     /* Lowering runs after whole-translation-unit sema, so a definition that
@@ -2931,10 +2936,6 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
                 if (callee->cgf_attrs && !lo->m->sym_cgf_attrs[symidx])
                     lo->m->sym_cgf_attrs[symidx] = lower_clone_cgf_attrs(
                         lo, callee->cgf_attrs, attr_ir_args, i);
-                /* The blunt returns-twice policy marks the whole function
-                 * (see IrFunc.calls_setjmp and IR-H-06's central name set). */
-                if (ir_name_is_returns_twice(lo->m->syms[symidx]))
-                    lo->fn->calls_setjmp = true;
                 rv = ir_build_call(&lo->b, irret, FUNCREF_EXTERNAL, symidx,
                                    args.data, args.len);
             }
@@ -2949,6 +2950,13 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             ir_call_mark_variadic(&lo->b);
         if (call_noreturn)
             ir_call_mark_noreturn(&lo->b);
+        /* The conservative returns-twice policy marks the whole caller,
+         * whether the direct target is internal, external, recognized by its
+         * exact setjmp-family linker name, or declared with the GNU
+         * attribute. In particular this must sit outside the external-call
+         * arm: pass 2a gives a later definition an internal index. */
+        if (call_returns_twice)
+            lo->fn->calls_setjmp = true;
     }
 
     if (hidden)
