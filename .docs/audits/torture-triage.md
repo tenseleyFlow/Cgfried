@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `d2b1480f7807bdb3d7b0eec3fa9098933c53c0f7`
-- compiler-source-sha256: `bcb76b14eb53d01496110c984996a731893f378c298f1cbfd7fec4f4bc65fc4d`
+- source-revision: `9497c020d3d4d5d6683665f6cea6e590fab46faa`
+- compiler-source-sha256: `c88e9c64cba97068dabce6595bc274a301e8482cb71e8c826125c04823d32741`
 - harness-sha256: `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`
 - torture-manifest-sha256: `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `b9e5d902a454d0bd0cc426cca38bcf5f824e3182cd11211d1ec9c5e124967694` | `b9e5d902a454d0bd0cc426cca38bcf5f824e3182cd11211d1ec9c5e124967694` |
-| x86_64-linux-gnu | `afff4828069d8db1cfee79e99b294d86c18cb9604c52f8a67320d292eeace39f` | `afff4828069d8db1cfee79e99b294d86c18cb9604c52f8a67320d292eeace39f` |
+| arm64-linux | `c3243f969c1f0ef99b384196a0752c7816ed6ec47b74b0941113f750f303c541` | `c3243f969c1f0ef99b384196a0752c7816ed6ec47b74b0941113f750f303c541` |
+| x86_64-linux-gnu | `9f5f674149249d5f67e7902a2bdd3ed5f387b22f32b0528a6e82be14002548ae` | `9f5f674149249d5f67e7902a2bdd3ed5f387b22f32b0528a6e82be14002548ae` |
 
 ## Baseline
 
@@ -29,16 +29,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | arm64-linux | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
-| torture-compile | O0 | arm64-linux | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O1 | arm64-linux | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O2 | arm64-linux | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O3 | arm64-linux | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | Os | arm64-linux | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1437 | 376 | 0 | 203 | 87.62% |
+| torture-compile | O0 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O1 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O2 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O3 | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | Os | arm64-linux | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1438 | 376 | 0 | 202 | 87.68% |
 | torture-execute | O0 | arm64-linux | 1752 | 1350 | 256 | 0 | 146 | 90.24% |
 | torture-execute | O0 | x86_64-linux-gnu | 1752 | 1350 | 256 | 0 | 146 | 90.24% |
 | torture-execute | O1 | arm64-linux | 1752 | 1350 | 256 | 0 | 146 | 90.24% |
@@ -528,20 +528,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ### Bucket 26
 
 - Count: 10
-- Cluster: signal=`-`; phase=`cg`
-- Fingerprint: `c0cda5231420c23bdfdec54c0367f9cfb03120dae294b0351b7a16294bac87ac`
-- Exemplars: torture-compile/limits-externalid.c@O0@arm64-linux, torture-compile/limits-externalid.c@O0@x86_64-linux-gnu, torture-compile/limits-externalid.c@O1@arm64-linux
-- Diagnostic: timeout: sending signal TERM to command 'build<path>
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 10
-- Optdiv exemplars: -
-- Hypothesis: Large macro-expanded or optimization-heavy cases exceed the compiler timeout, exposing frontend or code-generation scalability limits.
-- Disposition: `fix-sprint:s56.5-compiler-scalability-timeout`
-
-### Bucket 27
-
-- Count: 10
 - Cluster: signal=`-`; phase=`parse`
 - Fingerprint: `cc5dfe026bb1609d02fc9a84176be08676c8368afe27a452bcfa84e94873550a`
 - Exemplars: torture-execute/20041124-1.c@O0@arm64-linux, torture-execute/20041124-1.c@O0@x86_64-linux-gnu, torture-execute/20041124-1.c@O1@arm64-linux
@@ -553,7 +539,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 28
+### Bucket 27
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -567,7 +553,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 29
+### Bucket 28
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -581,7 +567,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 30
+### Bucket 29
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -595,7 +581,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 31
+### Bucket 30
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -609,7 +595,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.
 - Disposition: `out-of-scope`
 
-### Bucket 32
+### Bucket 31
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -623,7 +609,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 33
+### Bucket 32
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -639,7 +625,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Policy Overlay
 
-- Applied decisions: 25
+- Applied decisions: 24
 - Stale decisions: 2
 
 | Signal | Fingerprint | Phase | Variant | Hypothesis | Disposition |
@@ -649,8 +635,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 3750
-- Bucketed cells: 3750
+- Failed cells: 3740
+- Bucketed cells: 3740
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%
