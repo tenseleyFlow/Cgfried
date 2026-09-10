@@ -4112,6 +4112,59 @@ and green post-publication CI.
   and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
   respectively `8e6fecb5d160f561fdbcdd64f87b340b62354e25dda2de1d5912474c9922e64f`
   and `70f631668fa631e10e6f21fd53bfdaa0c891141c1018c7d8658553cb31f2b099`.
+  Final post-publication standard CI, bootstrap, and exact-head native-ARM
+  evidence are green. PR #97 merged as `0492d915`.
+- The current `s56.5-arm64-large-switch-scalability` tranche (PR #98) removes
+  the last case-label translation-limit failure on both targets. Parsing now
+  flattens an adjacent label run into an internal scope-neutral sequence rather
+  than consuming one C stack frame per label. Semantic duplicate checking uses
+  an exact-value map for ordinary cases while retaining the overlap scan for
+  GNU ranges. Lowering shares one CFG block across adjacent markers, uses a
+  stable sort, and emits long runs to a common target as an unsigned range
+  predicate. Dominator DFS retains its successor cursor instead of rescanning
+  a large switch edge list for every successor.
+
+  The exact 100,000-label source falls from a parser SIGSEGV on merged trunk to
+  0.74 seconds on Apple silicon, and passes `-S` at O0/O1/O2/O3/Os for both
+  Linux targets. Native arm64-macOS object assembly passes at all five levels;
+  the O2 Linux outputs are 75 ARM64 lines and 41 x86-64 lines. Permanent
+  parser, semantic-diagnostic, lowering, native-execution, and 16,384-edge
+  dominator regressions pass, as do ASan+UBSan builds and the focused x86 f80
+  simulator tests. The latter now encode and decode the x87 80-bit format
+  explicitly on hosts such as Apple silicon where `long double` is only 64
+  bits. Adding the fixtures intentionally repins the deterministic frontend
+  fuzz sequence to `dbb5fd1a7310fe01`.
+
+  The retained PR x86 stream from
+  [run 34422464750](https://github.com/tenseleyFlow/Cgfried/actions/runs/34422464750)
+  and exact synthetic-merge native-ARM stream from
+  [run 34422532287](https://github.com/tenseleyFlow/Cgfried/actions/runs/34422532287)
+  each contain 20,335 matrix rows and name revision
+  `d2b1480f7807bdb3d7b0eec3fa9098933c53c0f7`. They share compiler-source
+  SHA-256 `bcb76b14eb53d01496110c984996a731893f378c298f1cbfd7fec4f4bc65fc4d`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `5525d5b3736489e81a2fa3c9c038180e4313fda74f48ecb036e3ed0cf2c0649c`
+  and `7a7bfa0a3ac89694a9115302f38fd78f0ee9c697cff493df27376368ec9772be`.
+  Each gate rejects only its five unpublished `limits-caselabels.c` PASS
+  cells, with no old-PASS regression.
+
+  GNU Make 4.4.1 consumes the explicit evidence pair in both target orders and
+  regenerates both committed outputs byte-identically. Atomic publication adds
+  exactly ten PASS keys and retires only ARM-specific fingerprint
+  `de25f493...`. The resulting ratchet has 30,290 PASS keys (30,293 lines),
+  3,750 classified failures, 33 observed buckets, 25 applied decisions, two
+  deliberately retained stale decisions, one live repair row, and zero
+  unbucketed or unresolved cells. The sole live compiler-gap tranche is now
+  the ten target-complete `limits-externalid.c` timeout cells. PASS and triage
+  SHA-256 values are respectively
+  `09ce651d1c301a48b1530aca3165fac225658465b447f6e5562558b9e4017067`
+  and `7e4aafd52094e4e419c799f0646ccff7892d36d315bd3ea8db48a5d7e8bbf4bb`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
