@@ -221,15 +221,69 @@ const IrMemLayout *ir_mem_layout_find(const IrModule *m, const IrInst *in,
     return NULL;
 }
 
-u32 ir_sym(IrModule *m, const char *name)
+static u64 sym_hash(const char *name)
 {
+    u64 hash = UINT64_C(14695981039346656037);
+
+    while (*name) {
+        hash ^= (u8)*name++;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static void sym_index_insert(IrModule *m, u32 index)
+{
+    u32 mask = m->cap_sym_slots - 1;
+    u32 at = (u32)sym_hash(m->syms[index]) & mask;
+
+    while (m->sym_slots[at]) {
+        u32 old = m->sym_slots[at] - 1;
+
+        if (m->syms[old] == m->syms[index] ||
+            strcmp(m->syms[old], m->syms[index]) == 0)
+            return; /* preserve the first insertion index */
+        at = (at + 1) & mask;
+    }
+    m->sym_slots[at] = index + 1;
+}
+
+static void sym_index_rebuild(IrModule *m, u32 minimum_entries)
+{
+    u32 cap = 32;
     u32 i;
 
-    /* Linear: the symbol table is small and INSERTION-ORDERED, which the
-     * printer depends on. A map would demand order bookkeeping anyway. */
+    if (minimum_entries > UINT32_MAX / 4)
+        CGF_ICE("IR symbol index capacity overflow");
+    while (cap < minimum_entries * 2)
+        cap *= 2;
+    m->sym_slots = arena_alloc(m->arena, cap * sizeof(u32), _Alignof(u32));
+    memset(m->sym_slots, 0, cap * sizeof(u32));
+    m->cap_sym_slots = cap;
     for (i = 0; i < m->nsyms; i++)
-        if (m->syms[i] == name || strcmp(m->syms[i], name) == 0)
-            return i;
+        sym_index_insert(m, i);
+    m->indexed_syms = m->nsyms;
+}
+
+u32 ir_sym(IrModule *m, const char *name)
+{
+    u32 mask, at;
+
+    if (m->nsyms == UINT32_MAX)
+        CGF_ICE("too many IR symbols");
+    if (!m->cap_sym_slots || m->indexed_syms != m->nsyms ||
+        m->nsyms >= m->cap_sym_slots - m->cap_sym_slots / 4)
+        sym_index_rebuild(m, m->nsyms + 1);
+
+    mask = m->cap_sym_slots - 1;
+    at = (u32)sym_hash(name) & mask;
+    while (m->sym_slots[at]) {
+        u32 index = m->sym_slots[at] - 1;
+
+        if (m->syms[index] == name || strcmp(m->syms[index], name) == 0)
+            return index;
+        at = (at + 1) & mask;
+    }
     if (m->nsyms == m->cap_syms) {
         u32 nc = m->cap_syms ? m->cap_syms * 2 : 8;
 
@@ -244,7 +298,10 @@ u32 ir_sym(IrModule *m, const char *name)
     m->syms[m->nsyms] = name;
     memset(&m->sym_attrs[m->nsyms], 0, sizeof(m->sym_attrs[m->nsyms]));
     m->sym_cgf_attrs[m->nsyms] = NULL;
-    return m->nsyms++;
+    m->nsyms++;
+    m->sym_slots[at] = m->nsyms;
+    m->indexed_syms = m->nsyms;
+    return m->nsyms - 1;
 }
 
 void ir_sym_set_attrs(IrModule *m, u32 index, bool is_weak, u8 visibility)
@@ -264,6 +321,30 @@ void ir_sym_set_tls_model(IrModule *m, u32 index, IrTlsModel model)
      * the attribute table nevertheless makes parse/print and cloned IR
      * self-contained, rather than relying on an absent IrGlobal to infer it. */
     m->sym_attrs[index].tls_model = (u8)model;
+}
+
+void ir_module_refresh_func_symbol_defs(IrModule *m)
+{
+    u32 i;
+
+    for (i = 0; i < m->nsyms; i++) {
+        IrSymAttrs *attrs = &m->sym_attrs[i];
+
+        if (attrs->def_kind == IR_SYM_DEF_FUNC) {
+            attrs->def_kind = IR_SYM_DEF_NONE;
+            attrs->def_index = 0;
+        }
+    }
+    for (i = 0; i < m->nfuncs; i++) {
+        u32 sym = ir_sym(m, m->funcs[i].name);
+        IrSymAttrs *attrs = &m->sym_attrs[sym];
+
+        /* Globals have the same precedence as the historical lookup. */
+        if (attrs->def_kind == IR_SYM_DEF_NONE) {
+            attrs->def_kind = IR_SYM_DEF_FUNC;
+            attrs->def_index = i;
+        }
+    }
 }
 
 u32 ir_sym_exact_asm(IrModule *m, const char *name)
@@ -423,6 +504,8 @@ IrAlias *ir_alias_new(IrModule *m, const char *name, const char *target)
 IrGlobal *ir_global_new(IrModule *m, const char *name)
 {
     IrGlobal *g;
+    IrSymAttrs *attrs;
+    u32 sym;
 
     if (m->nglobals == m->cap_globals) {
         u32 nc = m->cap_globals ? m->cap_globals * 2 : 8;
@@ -435,7 +518,12 @@ IrGlobal *ir_global_new(IrModule *m, const char *name)
     memset(g, 0, sizeof(*g));
     g->name = name;
     g->align = 1;
-    ir_sym(m, name); /* every global is referenceable */
+    sym = ir_sym(m, name); /* every global is referenceable */
+    attrs = &m->sym_attrs[sym];
+    if (attrs->def_kind != IR_SYM_DEF_GLOBAL) {
+        attrs->def_kind = IR_SYM_DEF_GLOBAL;
+        attrs->def_index = m->nglobals - 1;
+    }
     return g;
 }
 
@@ -464,7 +552,8 @@ IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,
                     const IrType *params, u32 nparams)
 {
     IrFunc *f;
-    u32 i;
+    IrSymAttrs *attrs;
+    u32 i, sym;
 
     if (m->nfuncs == m->cap_funcs) {
         u32 nc = m->cap_funcs ? m->cap_funcs * 2 : 8;
@@ -493,7 +582,12 @@ IrFunc *ir_func_new(IrModule *m, const char *name, IrType ret,
                 new_value(m, f, params[i], VDEF_FPARAM, (BlockId){1}, 0);
         }
     }
-    ir_sym(m, name);
+    sym = ir_sym(m, name);
+    attrs = &m->sym_attrs[sym];
+    if (attrs->def_kind == IR_SYM_DEF_NONE) {
+        attrs->def_kind = IR_SYM_DEF_FUNC;
+        attrs->def_index = m->nfuncs - 1;
+    }
     return f;
 }
 
@@ -993,17 +1087,27 @@ static bool str_eq(const char *a, const char *b)
 
 IrTlsModel ir_sym_tls_model(const IrModule *m, u32 sym_index)
 {
+    const IrSymAttrs *attrs;
     const char *name;
     u32 i;
 
     if (!m || !sym_index || sym_index > m->nsyms)
         return IR_TLS_NONE;
-    name = m->syms[sym_index - 1];
-    for (i = 0; i < m->nglobals; i++)
-        if (strcmp(m->globals[i].name, name) == 0)
-            return m->globals[i].is_tls ? IR_TLS_LOCAL_EXEC : IR_TLS_NONE;
-    return m->sym_attrs ? (IrTlsModel)m->sym_attrs[sym_index - 1].tls_model
-                        : IR_TLS_NONE;
+    /* A few backend unit fixtures intentionally use a minimal hand-built
+     * module. Preserve the query API's historical tolerance for those; all
+     * constructed/compiler modules take the indexed path below. */
+    if (!m->sym_attrs) {
+        name = m->syms[sym_index - 1];
+        for (i = 0; i < m->nglobals; i++)
+            if (strcmp(m->globals[i].name, name) == 0)
+                return m->globals[i].is_tls ? IR_TLS_LOCAL_EXEC : IR_TLS_NONE;
+        return IR_TLS_NONE;
+    }
+    attrs = &m->sym_attrs[sym_index - 1];
+    if (attrs->def_kind == IR_SYM_DEF_GLOBAL && attrs->def_index < m->nglobals)
+        return m->globals[attrs->def_index].is_tls ? IR_TLS_LOCAL_EXEC
+                                                   : IR_TLS_NONE;
+    return (IrTlsModel)attrs->tls_model;
 }
 
 /* Is this symbol a thread-local OBJECT? Asked by every backend at the point
@@ -1017,25 +1121,39 @@ bool ir_sym_is_tls(const IrModule *m, u32 sym_index)
 IrSymBinding ir_sym_binding(const IrModule *m, u32 sym_index)
 {
     IrSymBinding b = {false, true};
+    const IrSymAttrs *attrs;
     const char *name;
     u32 i;
 
     if (!m || !sym_index || sym_index > m->nsyms)
         return b;
-    name = m->syms[sym_index - 1];
-    for (i = 0; i < m->nglobals; i++) {
-        if (strcmp(m->globals[i].name, name) == 0) {
-            b.defined_here = true;
-            b.external = m->globals[i].linkage != IRLINK_INTERNAL;
-            return b;
-        }
+    if (!m->sym_attrs) {
+        name = m->syms[sym_index - 1];
+        for (i = 0; i < m->nglobals; i++)
+            if (strcmp(m->globals[i].name, name) == 0) {
+                b.defined_here = true;
+                b.external = m->globals[i].linkage != IRLINK_INTERNAL;
+                return b;
+            }
+        for (i = 0; i < m->nfuncs; i++)
+            if (strcmp(m->funcs[i].name, name) == 0) {
+                b.defined_here = true;
+                b.external = m->funcs[i].linkage != IRLINK_INTERNAL;
+                return b;
+            }
+        return b;
     }
-    for (i = 0; i < m->nfuncs; i++) {
-        if (strcmp(m->funcs[i].name, name) == 0) {
-            b.defined_here = true;
-            b.external = m->funcs[i].linkage != IRLINK_INTERNAL;
-            return b;
-        }
+    attrs = &m->sym_attrs[sym_index - 1];
+    if (attrs->def_kind == IR_SYM_DEF_GLOBAL &&
+        attrs->def_index < m->nglobals) {
+        b.defined_here = true;
+        b.external = m->globals[attrs->def_index].linkage != IRLINK_INTERNAL;
+        return b;
+    }
+    if (attrs->def_kind == IR_SYM_DEF_FUNC && attrs->def_index < m->nfuncs) {
+        b.defined_here = true;
+        b.external = m->funcs[attrs->def_index].linkage != IRLINK_INTERNAL;
+        return b;
     }
     /* Not defined here: undefined symbols are external by definition. */
     return b;
