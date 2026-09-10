@@ -35,8 +35,9 @@ IrDomTree *ir_domtree_build(Arena *arena, const IrFunc *f)
     u32 n = f->nblocks;
     u32 *post; /* postorder listing of block indices */
     u32 npost = 0;
-    u32 *stack;    /* DFS: block index */
-    u32 *edge_pos; /* DFS: how many successors already visited */
+    u32 *stack;              /* DFS: block index */
+    const IrInst **inst_pos; /* DFS: current instruction per stack frame */
+    u32 *edge_pos;           /* DFS: next edge of that instruction */
     bool *seen;
     u32 sp = 0;
     u32 i;
@@ -52,42 +53,46 @@ IrDomTree *ir_domtree_build(Arena *arena, const IrFunc *f)
         return t;
     post = arena_alloc(arena, n * sizeof(u32), _Alignof(u32));
     stack = arena_alloc(arena, n * sizeof(u32), _Alignof(u32));
+    inst_pos =
+        arena_alloc(arena, n * sizeof(*inst_pos), _Alignof(const IrInst *));
     edge_pos = arena_alloc(arena, n * sizeof(u32), _Alignof(u32));
     seen = arena_alloc(arena, n * sizeof(bool), _Alignof(bool));
     memset(seen, 0, n * sizeof(bool));
 
-    /* Iterative DFS from the entry, emitting postorder. edge_pos[sp] counts
-     * successors already expanded for the block at stack[sp], so each stack
-     * frame resumes where it left off — no recursion, no successor lists
-     * materialized. */
+    /* Iterative DFS from the entry, emitting postorder. Each stack frame
+     * retains its instruction and edge cursor, so successor traversal is
+     * linear even when one switch has a very large edge table. */
     stack[0] = 0;
+    inst_pos[0] = f->blocks[0].first;
     edge_pos[0] = 0;
     seen[0] = true;
     sp = 1;
     while (sp) {
         u32 b = stack[sp - 1];
-        u32 want = edge_pos[sp - 1];
-        u32 k = 0;
         u32 found = IDOM_NONE;
+        const IrInst *in;
 
-        FOR_EACH_SUCC(&f->blocks[b], e)
-        {
-            if (e->target.v == 0 || e->target.v > n)
-                continue; /* malformed edge: verifier's problem */
-            if (k++ == want) {
+        while ((in = inst_pos[sp - 1]) != NULL) {
+            if (edge_pos[sp - 1] < in->nedges) {
+                const IrEdge *e = &in->edges[edge_pos[sp - 1]++];
+
+                if (e->target.v == 0 || e->target.v > n)
+                    continue; /* malformed edge: verifier's problem */
                 found = e->target.v - 1;
                 break;
             }
+            inst_pos[sp - 1] = in->next;
+            edge_pos[sp - 1] = 0;
         }
         if (found == IDOM_NONE) {
             post[npost++] = b;
             sp--;
             continue;
         }
-        edge_pos[sp - 1]++;
         if (!seen[found]) {
             seen[found] = true;
             stack[sp] = found;
+            inst_pos[sp] = f->blocks[found].first;
             edge_pos[sp] = 0;
             sp++;
         }

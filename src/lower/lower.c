@@ -1272,6 +1272,11 @@ static void collect_labels(Lower *lo, AstNode *s, VlaPosition *vla_positions,
             arena_alloc(lo->arena, sizeof(LabelScope), _Alignof(LabelScope));
         const AstNode *next_vla = NULL;
 
+        if (s->scope_neutral) {
+            for (i = 0; i < s->nitems; i++)
+                collect_labels(lo, s->items[i], vla_positions, scope_chain);
+            return;
+        }
         here->compound = s;
         here->prev = scope_chain;
         for (i = s->nitems; i-- > 0;) {

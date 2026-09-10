@@ -200,6 +200,21 @@ static void scan_switch_segments(Sema *s, AstNode *st, CaseEntry **head,
     }
     switch (st->kind) {
     case AST_STMT_COMPOUND:
+        if (st->scope_neutral) {
+            Span pending = label_prefix;
+
+            for (i = 0; i < st->nitems; i++) {
+                AstNode *item = st->items[i];
+
+                if (item && item->kind == AST_STMT_LABEL) {
+                    pending = item->span;
+                    continue;
+                }
+                scan_switch_segments(s, item, head, tail, current, pending);
+                pending = (Span){0};
+            }
+            return;
+        }
         for (i = 0; i < st->nitems; i++)
             scan_switch_segments(s, st->items[i], head, tail, current,
                                  (Span){0});
@@ -905,7 +920,8 @@ static AstNode *unbraced_control_body(AstNode *st)
     default:
         return NULL;
     }
-    if (!st->body || st->body->kind == AST_STMT_COMPOUND)
+    if (!st->body ||
+        (st->body->kind == AST_STMT_COMPOUND && !st->body->scope_neutral))
         return NULL;
     return st->body;
 }

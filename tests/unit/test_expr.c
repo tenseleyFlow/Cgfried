@@ -509,6 +509,32 @@ void test_stmt_shapes(TestCtx *t)
                      STD_C17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     efix_free(&f);
+
+    /* Adjacent labels are one flat, scope-neutral statement sequence. The
+     * markers have no recursive body links; the final item is their shared
+     * statement. */
+    tu = parse_src_e(&f,
+                     "void f(int x) { switch (x) { "
+                     "case 1: named: case 2: case 3: break; } }\n",
+                     STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    body = tu->decls[tu->ndecls - 1]->body;
+    {
+        AstNode *blk = body->items[0]->body;
+        AstNode *seq = blk->items[0];
+
+        T_ASSERT(t, seq->kind == AST_STMT_COMPOUND);
+        T_ASSERT(t, seq->scope_neutral);
+        T_ASSERT_EQ_INT(t, seq->nitems, 5);
+        T_ASSERT(t, seq->items[0]->kind == AST_STMT_CASE);
+        T_ASSERT(t, seq->items[1]->kind == AST_STMT_LABEL);
+        T_ASSERT(t, seq->items[2]->kind == AST_STMT_CASE);
+        T_ASSERT(t, seq->items[3]->kind == AST_STMT_CASE);
+        T_ASSERT(t, seq->items[0]->body == NULL);
+        T_ASSERT(t, seq->items[1]->body == NULL);
+        T_ASSERT(t, seq->items[4]->kind == AST_STMT_BREAK);
+    }
+    efix_free(&f);
 }
 
 /* A for-init declaration scopes over the condition, the step, and the

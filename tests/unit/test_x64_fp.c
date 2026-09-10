@@ -94,11 +94,12 @@ static void fill_fcmp(IrBuilder *b, const void *u)
     } else {
         long double la = (long double)c->a, lb = (long double)c->b;
         u64 alo = 0, ahi = 0, blo = 0, bhi = 0;
+        u16 ase, bse;
 
-        memcpy(&alo, &la, 8);
-        memcpy(&ahi, (const char *)&la + 8, 2);
-        memcpy(&blo, &lb, 8);
-        memcpy(&bhi, (const char *)&lb + 8, 2);
+        sim_f80bits(la, &alo, &ase);
+        sim_f80bits(lb, &blo, &bse);
+        ahi = ase;
+        bhi = bse;
         x = ir_op_fconst(IRT_F80, alo, ahi);
         y = ir_op_fconst(IRT_F80, blo, bhi);
     }
@@ -292,19 +293,20 @@ static void fill_f80_chain(IrBuilder *b, const void *u)
 {
     long double acc = 1.0L;
     u64 lo = 0, hi = 0;
+    u16 se;
     IrOperand cur;
     ValueId r = {0};
     u32 i;
 
     (void)u;
-    memcpy(&lo, &acc, 8);
-    memcpy(&hi, (const char *)&acc + 8, 2);
+    sim_f80bits(acc, &lo, &se);
+    hi = se;
     cur = ir_op_fconst(IRT_F80, lo, hi);
     for (i = 0; i < 20; i++) {
         long double k = (long double)(i + 1);
 
-        memcpy(&lo, &k, 8);
-        memcpy(&hi, (const char *)&k + 8, 2);
+        sim_f80bits(k, &lo, &se);
+        hi = se;
         r = ir_build2(b, i % 3 == 2 ? IR_FMUL : IR_FADD, IRT_F80, cur,
                       ir_op_fconst(IRT_F80, lo, hi));
         cur = ir_op_value(b->f, r);

@@ -427,7 +427,7 @@ static void dump_stmt(FILE *out, const AstNode *s, int depth)
     switch (s->kind) {
     case AST_STMT_COMPOUND:
         indent(out, depth);
-        fprintf(out, "BLOCK\n");
+        fprintf(out, "%s\n", s->scope_neutral ? "LABEL_SEQUENCE" : "BLOCK");
         for (i = 0; i < s->nitems; i++)
             dump_stmt(out, s->items[i], depth + 1);
         return;

@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "sema/sema.h"
+#include "util/strmap.h"
 #include "util/vec.h"
 #include "warn/warn.h"
 
@@ -4152,11 +4153,10 @@ static void sema_mark_discarded_update(AstNode *e)
 
 /* --- switch label bookkeeping (6.8.4.2p2-p3, and GNU case ranges) --------
  *
- * ONE interval list answers three questions that are really one question:
- * two plain labels alike, a range overlapping a plain label, and two ranges
- * overlapping are all "do these intervals intersect". A plain `case k` is
- * the interval [k, k], so it needs no separate path -- which is the point,
- * because two paths asking the same question are two paths that drift.
+ * Plain labels use an exact-value map, while the interval list remains the
+ * authority for range overlap. A plain `case k` is still the interval [k,k];
+ * the split is only an index, so all three collision forms retain the same
+ * interval comparison and diagnostics without making N plain labels O(N^2).
  *
  * Comparison happens in the domain of the PROMOTED CONTROLLING TYPE, per
  * 6.8.4.2p5: the constant is converted to that type first. That is not a
@@ -4167,10 +4167,13 @@ typedef struct SwitchLabel {
     u64 lo, hi; /* inclusive, already converted; sign-extended if signed */
     Span span;
     struct SwitchLabel *next;
+    struct SwitchLabel *range_next;
 } SwitchLabel;
 
 typedef struct SwitchLabels {
     SwitchLabel *labels;
+    SwitchLabel *ranges;
+    Strmap singles;   /* converted plain value bytes -> first label */
     u32 bits;         /* width of the promoted controlling type */
     bool is_unsigned; /* its signedness -- the comparison domain */
     bool have_default;
@@ -4206,7 +4209,7 @@ static bool sw_le(const SwitchLabels *sw, u64 a, u64 b)
 static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
 {
     SwitchLabels *sw = s->switch_labels;
-    SwitchLabel *e, *n;
+    SwitchLabel *e = NULL, *n;
     u64 lo = sw_convert(sw, raw_lo);
     u64 hi = sw_convert(sw, raw_hi);
 
@@ -4219,9 +4222,18 @@ static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
                        "empty range specified");
         return;
     }
-    for (e = sw->labels; e; e = e->next) {
-        if (!sw_le(sw, e->lo, hi) || !sw_le(sw, lo, e->hi))
-            continue; /* disjoint */
+    if (lo == hi) {
+        e = strmap_get(&sw->singles, (const char *)&lo, sizeof(lo));
+        if (!e)
+            for (e = sw->ranges; e; e = e->range_next)
+                if (sw_le(sw, e->lo, hi) && sw_le(sw, lo, e->hi))
+                    break;
+    } else {
+        for (e = sw->labels; e; e = e->next)
+            if (sw_le(sw, e->lo, hi) && sw_le(sw, lo, e->hi))
+                break;
+    }
+    if (e) {
         s->nerrors++;
         /* gcc picks the wording from the label BEING ADDED alone, not from
          * the pair -- measured, because the obvious reading is the pair.
@@ -4243,7 +4255,14 @@ static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
     n->hi = hi;
     n->span = st->span;
     n->next = sw->labels;
+    n->range_next = NULL;
     sw->labels = n;
+    if (lo == hi)
+        (void)strmap_put(&sw->singles, (const char *)&lo, sizeof(lo), n);
+    else {
+        n->range_next = sw->ranges;
+        sw->ranges = n;
+    }
 }
 
 /* Statement WALK, not statement sema: we descend only to reach the
@@ -4275,11 +4294,14 @@ static void sema_stmt(Sema *s, AstNode *st)
          * jump target again. */
         VmDecl *saved = s->vm_chain;
 
-        scope_push(s, SCOPE_BLOCK);
+        if (!st->scope_neutral)
+            scope_push(s, SCOPE_BLOCK);
         for (i = 0; i < st->nitems; i++)
             sema_stmt(s, st->items[i]);
-        scope_pop(s);
-        s->vm_chain = saved;
+        if (!st->scope_neutral) {
+            scope_pop(s);
+            s->vm_chain = saved;
+        }
         return;
     }
     case AST_STMT_ASM: {
@@ -4397,6 +4419,7 @@ static void sema_stmt(Sema *s, AstNode *st)
             SwitchLabels sw;
 
             memset(&sw, 0, sizeof(sw));
+            strmap_init(&sw.singles);
             /* The comparison domain for every label of THIS switch. A
              * nested switch pushes its own, so an inner `case` can never
              * be measured against an outer switch's type. */
@@ -4413,6 +4436,7 @@ static void sema_stmt(Sema *s, AstNode *st)
             sema_stmt(s, st->body);
             s->switch_labels = sw.prev;
             s->vm_switch_chain = saved_sw;
+            strmap_free(&sw.singles);
             return;
         }
         sema_stmt(s, st->body);
