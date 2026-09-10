@@ -1208,6 +1208,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 case SEMA_BUILTIN_MEMCMP:
                     size_arg = 2;
                     break;
+                case SEMA_BUILTIN_MALLOC:
                 case SEMA_BUILTIN_ALLOCA:
                     size_arg = 0;
                     break;
@@ -1251,6 +1252,14 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                         }
                     }
+                }
+                if (b == SEMA_BUILTIN_FREE) {
+                    bctx.arg_index = 1;
+                    if (!conv_assignable(
+                            s, type_ptr(s->arena, type_basic(TY_VOID)),
+                            &e->args[0], bctx) ||
+                        quiet(e->args[0], NULL))
+                        return poison(s, e);
                 }
                 if (b == SEMA_BUILTIN_STRCMP) {
                     Type *const_char = type_qualify(
