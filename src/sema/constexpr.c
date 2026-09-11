@@ -1546,8 +1546,10 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                           a.kind == CV_INT || a.kind == CV_FLOAT);
         }
         if (e->op == SEMA_BUILTIN_HUGE_VAL || e->op == SEMA_BUILTIN_HUGE_VALF ||
-            e->op == SEMA_BUILTIN_INF || e->op == SEMA_BUILTIN_INFF ||
-            e->op == SEMA_BUILTIN_NAN || e->op == SEMA_BUILTIN_NANF) {
+            e->op == SEMA_BUILTIN_HUGE_VALL || e->op == SEMA_BUILTIN_INF ||
+            e->op == SEMA_BUILTIN_INFF || e->op == SEMA_BUILTIN_INFL ||
+            e->op == SEMA_BUILTIN_NAN || e->op == SEMA_BUILTIN_NANF ||
+            e->op == SEMA_BUILTIN_NANL) {
             if (m == CE_ICE) {
                 ce_error(s, m, e->span,
                          "a floating constant is not an integer constant "
@@ -1555,7 +1557,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                 return cv_error();
             }
             return cv_special_float(e->sem_type, (e->op == SEMA_BUILTIN_NAN ||
-                                                  e->op == SEMA_BUILTIN_NANF)
+                                                  e->op == SEMA_BUILTIN_NANF ||
+                                                  e->op == SEMA_BUILTIN_NANL)
                                                      ? SF_NAN
                                                      : SF_INF);
         }

@@ -128,7 +128,7 @@ for f in $exlusive; do
         status=1
     fi
 done
-markers=$(grep -rc 'UPGRADE(armv8.1-lse)' src/cg/arm64/isel.c || echo 0)
+markers=$(grep -c 'UPGRADE(armv8.1-lse)' src/cg/arm64/isel.c || echo 0)
 if [ "$markers" -lt 2 ]; then
     echo "check_bans: both atomic selection sites need UPGRADE markers" >&2
     status=1

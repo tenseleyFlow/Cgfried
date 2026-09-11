@@ -201,11 +201,16 @@ files. PR #110's `__builtin_clrsb`/`clrsbl`/`clrsbll` family is merged as
 publishing ten target-complete `builtin-bitops-1.c` cells. Its ratchet contains
 30,870 PASS keys (30,873 lines), with 3,170 classified failures, 24 applied
 decisions, two deliberately retained stale decisions, no live repair rows,
-and zero unbucketed or unresolved cells. The current
-`s56.17-builtin-fp-compare-family` tranche implements the six type-generic
-ordered/unordered floating comparison builtins and target-softfloat constant
-folding. Local validation is green; matching pre-publication x86 and native
-ARM torture streams remain required before its PASS/triage ratchet may move.
+and zero unbucketed or unresolved cells. PR #112's
+`s56.17-builtin-fp-compare-family` tranche is merged as `f8f6e463`; it
+publishes 130 target-complete floating-comparison PASS keys and leaves the
+ratchet at 31,000 PASS keys (31,003 lines). PR #113's current
+`s56.18-builtin-fp-long-double-constants` tranche implements
+`__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl` with exact
+target-format lowering and repairs the x87/GVN noreturn-predecessor secondary
+blocker exposed by `inf-2.c`. Local implementation validation is green;
+matching pre-publication x86 and native-ARM torture streams remain required
+before its expected forty PASS keys may move the PASS/triage ratchet.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5150,8 +5155,64 @@ and green post-publication CI.
   `457304cf14741d1c1e3b90c4f8b99e74c7bc84385dad373579ba2f277d905582`
   and
   `40a6d50d276e64cc3b65ff1bb84c9f4d865345d443f075e6029bdd7b10f1583f`.
-  Fresh post-publication standard, bootstrap, and exact-merge native-ARM CI
-  must be green before merge.
+  The final PR rollup is green with 24 successful and nine policy-skipped
+  checks. Fresh post-publication standard
+  [run 34647582481](https://github.com/tenseleyFlow/Cgfried/actions/runs/34647582481)
+  and bootstrap
+  [runs 34647578648](https://github.com/tenseleyFlow/Cgfried/actions/runs/34647578648)
+  and
+  [34647582576](https://github.com/tenseleyFlow/Cgfried/actions/runs/34647582576)
+  are green. PR #112 merged as `f8f6e463`; the actual merge has parents
+  `3fb6e322` and `0037b73a` and tree
+  `6732f45d4255c3a6f99efcd15080645885e6fe89`, byte-identical to tested
+  synthetic merge `4d07088de080d5b1360f8dff20e50ee1600208a7`.
+- PR #113's current `s56.18-builtin-fp-long-double-constants` tranche completes the
+  long-double suffixes for the existing floating constant builtins:
+  `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl`. The builtin
+  table now has an explicit `BK_LDOUBLE` result kind; sema gives each call the
+  exact `long double` type and exact arity, and constexpr evaluation retains
+  the existing canonical infinity/quiet-NaN policy. Runtime lowering uses the
+  target softfloat format rather than host floating point or hardcoded double
+  bits: x86 targets emit x87-80, arm64-linux emits IEEE binary128, and
+  arm64-macos emits binary64.
+
+  The newly reachable unmodified `inf-2.c` exposed a secondary x86 O3
+  optimizer ICE. It was finite progress rather than an oscillation: x87 f80
+  values intentionally remain memory-backed, while GVN counted the structural
+  successor of an `IRF_NORETURN` call as a live memory predecessor. That made
+  one load/comparison become foldable per outer iteration until the ten-pass
+  safety cap fired. GVN now applies the same semantic noreturn cut already
+  used by mem2reg when counting predecessors and recognizing direct-dominator
+  edges. A focused f80 regression pins store-to-load forwarding across a dead
+  noreturn predecessor without weakening ordinary call barriers.
+
+  Focused ordinary and fresh ASan+UBSan semantic/lowering/GVN coverage is
+  green at three tests and 32 assertions. Full ordinary and sanitizer unit
+  runs reach the unchanged eight Apple host-assumption failures at 904 tests
+  and 4,328,913 assertions, with all three new tests passing and no sanitizer
+  report. All 25 builtin fixtures pass in both configurations. The new runtime
+  fixture passes Cgfried and Apple Clang at O0/O1/O2/O3/Os, and all five
+  supported Cgfried targets compile it at all five levels. The four directly
+  affected unmodified GCC sources (`inf-1.c`, `inf-2.c`, `inf-3.c`, and
+  `pr36332.c`) pass 20/20 Cgfried and 20/20 Apple-Clang native runtime cells,
+  plus 100/100 five-target assembly cells.
+
+  Pinned clang-format 22, pristine imports, bans/deferrals, GNU-tier and unit
+  registry accounting, warning/format matrices, the architecture-dependent
+  division lint, and the determinism audit are green. The ban gate also drops
+  an unnecessary recursive `grep` option so BSD grep returns a numeric count
+  instead of `file:count`; Linux behavior is unchanged. Ordinary and
+  ASan+UBSan frontend fuzzing is 2,000/0, IR fuzzing is 5,000/0 at seed 63,
+  and both preprocessor fuzz modes are 2,000/0 in both configurations. The
+  frontend mutation digest is intentionally repinned to
+  `94e5ee8c4feafa80`, reproduced twice normally and once under ASan+UBSan at
+  5,000 iterations; the crash ledger is clean.
+
+  Publication is still pending. Push/open the branch, require all non-ratchet
+  standard/bootstrap/native-ARM jobs green, collect matching exact-revision
+  x86 and ARM result streams, verify exactly twenty new PASS keys per target
+  with no old-PASS regression, and use the atomic publisher before final
+  green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

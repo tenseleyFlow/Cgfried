@@ -282,6 +282,45 @@ void test_opt_gvn_forwards_store_to_load(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_gvn_ignores_noreturn_predecessor_for_load_forwarding(TestCtx *t)
+{
+    GvnFix f;
+    IrModule *m;
+    OptConfig cfg;
+    const IrInst *ret;
+
+    gvn_fix_init(&f);
+    m = gvn_parse(&f,
+                  "sym @abort\n"
+                  "func f80 @f(i32 %c) {\n"
+                  "entry():\n"
+                  "    %slot = alloca 16, align 16, etype f80\n"
+                  "    store f80 0x4004:0x8800000000000000, %slot, align 16, "
+                  "etype f80\n"
+                  "    condbr %c, dead(), join()\n"
+                  "dead():\n"
+                  "    call void @abort() noreturn\n"
+                  "    br join()\n"
+                  "join():\n"
+                  "    %v = load f80, %slot, align 16, etype f80\n"
+                  "    ret f80 %v\n"
+                  "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && opt_gvn(m, &cfg));
+    if (m) {
+        T_ASSERT_EQ_INT(t, count_op(m, IR_LOAD), 0);
+        ret = m->funcs[0].blocks[2].last;
+        T_ASSERT_EQ_INT(t, ret->ops[0].kind, IROP_FCONST);
+        T_ASSERT_EQ_INT(t, ret->ops[0].type, IRT_F80);
+        T_ASSERT_EQ_INT(t, ret->ops[0].a, 0x8800000000000000ULL);
+        T_ASSERT_EQ_INT(t, ret->ops[0].b, 0x4004);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_gvn_keeps_opposite_correlated_select_load(TestCtx *t)
 {
     GvnFix f;
