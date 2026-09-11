@@ -1112,6 +1112,21 @@ static Type *builtin_integer_bitop_param_type(u16 builtin)
     }
 }
 
+static bool is_builtin_fp_compare(u16 builtin)
+{
+    switch (builtin) {
+    case SEMA_BUILTIN_ISUNORDERED:
+    case SEMA_BUILTIN_ISLESS:
+    case SEMA_BUILTIN_ISLESSEQUAL:
+    case SEMA_BUILTIN_ISGREATER:
+    case SEMA_BUILTIN_ISGREATEREQUAL:
+    case SEMA_BUILTIN_ISLESSGREATER:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static AstNode *expr_call(Sema *s, AstNode *e)
 {
     AstNode *callee;
@@ -1238,6 +1253,28 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         return poison(s, e);
                     }
                 }
+            }
+            if (is_builtin_fp_compare(b)) {
+                Type *left = e->args[0]->sem_type;
+                Type *right = e->args[1]->sem_type;
+
+                /* GCC's comparison builtins are type-generic rather than
+                 * declared functions. Integer + floating is valid because
+                 * the UAC produces a floating common type; two integers are
+                 * not, and neither are pointer/aggregate operands. */
+                if (quiet(e->args[0], e->args[1]))
+                    return poison(s, e);
+                if (!type_is_arithmetic(left) || !type_is_arithmetic(right) ||
+                    (!type_is_floating(left) && !type_is_floating(right))) {
+                    err(s, e->span,
+                        "floating comparison builtin requires two arithmetic "
+                        "arguments with at least one floating type ('%s' and "
+                        "'%s')",
+                        type_to_str(s->arena, left),
+                        type_to_str(s->arena, right));
+                    return poison(s, e);
+                }
+                (void)conv_uac(s, &e->args[0], &e->args[1]);
             }
             /* The mem/str builtins take the LIBC signatures: sizes are
              * size_t, so promote the counted argument rather than

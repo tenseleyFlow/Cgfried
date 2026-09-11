@@ -647,12 +647,10 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
             v.f = sf_mul(l.f, r.f, f, &st);
             break;
         case PUNCT_SLASH:
-            if (sf_is_zero(r.f)) {
-                ce_error(s, m, e->span,
-                         "division by zero in a constant "
-                         "expression");
-                return cv_error();
-            }
+            /* IEEE nonfinite values are representable constant results:
+             * 1.0/0.0 forms infinity and 0.0/0.0 forms NaN. sf_div owns
+             * their target-format images without using the host FPU. Integer
+             * division by zero remains rejected in the integer path below. */
             v.f = sf_div(l.f, r.f, f, &st);
             break;
         case PUNCT_LT:
@@ -1497,6 +1495,49 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                 if ((a.i & (1ull << bit)) != 0)
                     count++;
             return cv_int(s, e->sem_type, parity ? count & 1u : count);
+        }
+        if ((e->op == SEMA_BUILTIN_ISUNORDERED ||
+             e->op == SEMA_BUILTIN_ISLESS ||
+             e->op == SEMA_BUILTIN_ISLESSEQUAL ||
+             e->op == SEMA_BUILTIN_ISGREATER ||
+             e->op == SEMA_BUILTIN_ISGREATEREQUAL ||
+             e->op == SEMA_BUILTIN_ISLESSGREATER) &&
+            e->nargs == 2) {
+            CeMode operand_mode = is_required(m) ? CE_ARITH : m;
+            ConstValue left = eval(s, e->args[0], operand_mode);
+            ConstValue right = eval(s, e->args[1], operand_mode);
+            bool unordered;
+            int cmp;
+            bool truth;
+
+            /* Sema has already applied the UAC, so both operands arrive in
+             * the same floating format. Evaluate through softfp: using the
+             * compiler host's FPU here would make cross-target NaN and long
+             * double behavior depend on the build machine. */
+            if (left.kind != CV_FLOAT || right.kind != CV_FLOAT)
+                return cv_error();
+            cmp = sf_cmp(left.f, right.f, &unordered);
+            switch (e->op) {
+            case SEMA_BUILTIN_ISUNORDERED:
+                truth = unordered;
+                break;
+            case SEMA_BUILTIN_ISLESS:
+                truth = !unordered && cmp < 0;
+                break;
+            case SEMA_BUILTIN_ISLESSEQUAL:
+                truth = !unordered && cmp <= 0;
+                break;
+            case SEMA_BUILTIN_ISGREATER:
+                truth = !unordered && cmp > 0;
+                break;
+            case SEMA_BUILTIN_ISGREATEREQUAL:
+                truth = !unordered && cmp >= 0;
+                break;
+            default:
+                truth = !unordered && cmp != 0;
+                break;
+            }
+            return cv_int(s, e->sem_type, truth ? 1 : 0);
         }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);

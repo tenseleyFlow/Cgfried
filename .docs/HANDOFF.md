@@ -196,13 +196,16 @@ are merged as `2ba3ea45`, publishing twenty target-complete PASS keys across
 two files. PR #109's `__builtin_popcount`/`popcountl`/`popcountll` family is
 merged as `1b015704`, publishing thirty target-complete PASS keys across three
 files. PR #110's `__builtin_clrsb`/`clrsbl`/`clrsbll` family is merged as
-`db681380`; no standalone imported test was unlocked. The current
-`s56.16-builtin-parity-family` tranche implements `__builtin_parity`,
-`parityl`, and `parityll`, publishing ten target-complete
-`builtin-bitops-1.c` cells. Its ratchet contains 30,870 PASS keys (30,873
-lines), with 3,170 classified failures, 24 applied decisions, two deliberately
-retained stale decisions, no live repair rows, and zero unbucketed or
-unresolved cells.
+`db681380`; no standalone imported test was unlocked. PR #111's
+`__builtin_parity`/`parityl`/`parityll` family is merged as `3fb6e322`,
+publishing ten target-complete `builtin-bitops-1.c` cells. Its ratchet contains
+30,870 PASS keys (30,873 lines), with 3,170 classified failures, 24 applied
+decisions, two deliberately retained stale decisions, no live repair rows,
+and zero unbucketed or unresolved cells. The current
+`s56.17-builtin-fp-compare-family` tranche implements the six type-generic
+ordered/unordered floating comparison builtins and target-softfloat constant
+folding. Local validation is green; matching pre-publication x86 and native
+ARM torture streams remain required before its PASS/triage ratchet may move.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5049,8 +5052,74 @@ and green post-publication CI.
   respectively
   `752dd12d09442a577f66a74f20d6e94f58e44e7c0013405b361efe1cc21a4e81`
   and `15115a0843bc67a57ed091bbf977ca09620cb79434cb51e88b331614daa032cb`.
-  Fresh post-publication standard CI, bootstrap, and exact synthetic-merge
-  native-ARM evidence remain required before merge.
+  Fresh post-publication standard
+  [run 34634515190](https://github.com/tenseleyFlow/Cgfried/actions/runs/34634515190)
+  is green with twenty successful jobs and one policy skip, both bootstrap
+  [runs 34634515092](https://github.com/tenseleyFlow/Cgfried/actions/runs/34634515092)
+  and
+  [34634512050](https://github.com/tenseleyFlow/Cgfried/actions/runs/34634512050)
+  are green, and exact synthetic-merge native-ARM
+  [run 34634529711](https://github.com/tenseleyFlow/Cgfried/actions/runs/34634529711)
+  is green at all fifteen jobs. The final x86 and ARM stream SHA-256 values
+  are respectively
+  `830b1c8ad26359d228ef8c2365389c47c7eb21b6730e2a1b6c2ede7dc6bfac56`
+  and
+  `6aa1bb2f56340f7b89d54695ab71cd7badcf247c1074a11da01b5d38050c3205`.
+  PR #111 merged as `3fb6e322`; the actual merge has parents `db681380` and
+  `7ff72f1d`, and tree `85389163d8a6948229416ec6c638c1d6219338ee`,
+  byte-identical to tested synthetic merge
+  `da2e4ef77cf5378f3dc5666d75a7a09af082c462`.
+- The current `s56.17-builtin-fp-compare-family` tranche implements
+  `__builtin_isunordered`, `__builtin_isless`, `__builtin_islessequal`,
+  `__builtin_isgreater`, `__builtin_isgreaterequal`, and
+  `__builtin_islessgreater`. Sema enforces exact arity and real arithmetic
+  operands with at least one floating operand, then applies the usual
+  arithmetic conversions. Constant evaluation uses target softfloat for NaN,
+  infinity, signed zero, mixed precision, and ordered-versus-unordered
+  behavior. Runtime lowering evaluates both operands exactly once and maps the
+  family directly onto the existing `uno`, `olt`, `ole`, `ogt`, `oge`, and
+  ordered-not-equal IR predicates without libc calls or new backend opcodes.
+
+  The same tranche removes the floating-only constant-expression rejection of
+  a zero denominator: target softfloat now constructs IEEE infinity for
+  `1.0 / 0.0` and NaN for `0.0 / 0.0`, while the separate integer path retains
+  its division-by-zero diagnostic. This is the second blocker in GCC's
+  `fp-cmp-{4,5,8}` family after the builtins themselves.
+
+  The first exact-merge ARM pre-publication
+  [run 34641556760](https://github.com/tenseleyFlow/Cgfried/actions/runs/34641556760)
+  then exposed four additional `fp-cmp-8l.c` failures at O1/O2/O3/Os before
+  publication: the optimizer
+  formed an f128 value select and AArch64 emitted the nonexistent scalar
+  instruction `fcsel q...`. The binary128 legalizer now rewrites f128 selects
+  to a bit-preserving `__cgf_seltf` runtime helper. Its implementation selects
+  an operand address and copies the carrier bytes, so it preserves NaN payloads
+  and does not recursively require its own legalization. A focused regression
+  failed before the repair and passes after it; native ARM64 Linux links and
+  executes `fp-cmp-8l.c` plus the expanded runtime fixture at all five
+  optimization levels. Both GCC-built and Cgfried-built runtime libraries
+  retain the existing 1,432-line libgcc differential and define the helper.
+
+  Focused ordinary and fresh ASan+UBSan semantic/lowering/softfloat coverage
+  is green. The runtime fixture passes Cgfried and Apple Clang at
+  O0/O1/O2/O3/Os, all five supported Cgfried targets compile it at all five
+  optimization levels, and eleven directly affected unmodified GCC torture
+  execute sources pass 55/55 native Apple cells. Four directly affected
+  compile sources pass 20/20 native cells and those eleven direct sources pass
+  275/275 five-target assembly cells. Full ordinary and sanitizer unit runs
+  reach the unchanged eight Apple host-assumption failures at 901 tests and
+  4,328,881 assertions, with all three new tests passing. All twenty-four
+  builtin fixtures pass in both configurations.
+
+  Pinned clang-format 22, pristine imports, bans/deferrals, GNU-tier and unit
+  registry accounting, warning/format matrices, the architecture-dependent
+  division lint, 2,000-case ordinary and sanitizer frontend fuzzing,
+  5,000-case IR fuzzing, and both 2,000-case preprocessor fuzz lanes are green.
+  The frontend mutation digest is intentionally repinned to
+  `226557d4090b8ef5`, reproduced twice normally and once under ASan+UBSan; the
+  crash ledger is clean. Matching pre-publication x86 and exact-revision
+  native-ARM streams are required before publishing the target-complete
+  ratchet.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

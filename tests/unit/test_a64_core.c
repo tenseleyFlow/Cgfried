@@ -1193,3 +1193,36 @@ void test_f128_every_predicate_has_a_libcall(TestCtx *t)
     T_ASSERT_EQ_STR(t, lower_f128_compare_libcall(FCMP_UNO), "__unordtf2");
     T_ASSERT(t, lower_f128_compare_libcall(200) == NULL);
 }
+
+void test_f128_select_has_a_libcall(TestCtx *t)
+{
+    static const char source[] =
+        "func f128 @choose(i32 %cond, f128 %yes, f128 %no) {\n"
+        "entry():\n"
+        "    %selected = select %cond, f128 %yes, %no\n"
+        "    ret f128 %selected\n"
+        "}\n";
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *module;
+    IrInst *select;
+    TargetSpec target = {CGF_TARGET_ARM64_LINUX};
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    module = ir_parse_module(&arena, dc, source, "<f128-select>");
+    T_ASSERT(t, module != NULL && !diag_had_error(dc));
+    T_ASSERT(t, module && ir_verify(dc, module));
+    if (!module || diag_had_error(dc)) {
+        arena_free_all(&arena);
+        return;
+    }
+    lower_legalize_f128(module, target);
+    select = module->funcs[0].blocks[0].first;
+    T_ASSERT(t, ir_verify(dc, module));
+    T_ASSERT_EQ_INT(t, select->op, IR_CALL);
+    T_ASSERT_EQ_INT(t, select->type, IRT_F128);
+    T_ASSERT_EQ_INT(t, select->nops, 3);
+    T_ASSERT_EQ_STR(t, module->syms[select->callee], "__cgf_seltf");
+    arena_free_all(&arena);
+}
