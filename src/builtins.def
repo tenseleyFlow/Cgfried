@@ -38,6 +38,7 @@ B(va_copy, VA_COPY, 2, BK_VOID)
 
 /* control flow / traps */
 B(abort, ABORT, 0, BK_VOID)
+B(exit, EXIT, 1, BK_VOID)
 B(unreachable, UNREACHABLE, 0, BK_VOID)
 B(trap, TRAP, 0, BK_VOID)
 
