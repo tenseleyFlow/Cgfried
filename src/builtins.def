@@ -60,6 +60,8 @@ B(strcmp, STRCMP, 2, BK_INT)
 B(strcpy, STRCPY, 2, BK_CHARP)
 
 /* integer library intrinsics */
+B(abs, ABS, 1, BK_INT)
+B(labs, LABS, 1, BK_LONG)
 B(llabs, LLABS, 1, BK_LLONG)
 
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
