@@ -77,6 +77,11 @@ B(ctz, CTZ, 1, BK_INT)
 B(ctzl, CTZL, 1, BK_INT)
 B(ctzll, CTZLL, 1, BK_INT)
 
+/* redundant leading sign bits, excluding the sign bit itself */
+B(clrsb, CLRSB, 1, BK_INT)
+B(clrsbl, CLRSBL, 1, BK_INT)
+B(clrsbll, CLRSBLL, 1, BK_INT)
+
 /* population counts over the exact unsigned parameter width */
 B(popcount, POPCOUNT, 1, BK_INT)
 B(popcountl, POPCOUNTL, 1, BK_INT)

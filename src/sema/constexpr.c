@@ -1448,6 +1448,31 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             }
             return cv_error();
         }
+        if ((e->op == SEMA_BUILTIN_CLRSB || e->op == SEMA_BUILTIN_CLRSBL ||
+             e->op == SEMA_BUILTIN_CLRSBLL) &&
+            e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
+            callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
+            ConstValue a = eval(s, e->args[0], m);
+            u32 width = conv_int_bits(s, e->args[0]->sem_type);
+            u32 count = 0;
+            u32 bit;
+            bool sign;
+
+            /* Sema has converted the operand to the builtin's exact signed
+             * prototype type. Count consecutive bits below its sign bit that
+             * equal that sign; zero and -1 therefore both return width - 1. */
+            if (a.kind != CV_INT || width == 0)
+                return cv_error();
+            sign = ((a.i >> (width - 1)) & 1) != 0;
+            for (bit = width - 1; bit > 0; bit--) {
+                bool next = ((a.i >> (bit - 1)) & 1) != 0;
+
+                if (next != sign)
+                    break;
+                count++;
+            }
+            return cv_int(s, e->sem_type, count);
+        }
         if ((e->op == SEMA_BUILTIN_POPCOUNT ||
              e->op == SEMA_BUILTIN_POPCOUNTL ||
              e->op == SEMA_BUILTIN_POPCOUNTLL) &&

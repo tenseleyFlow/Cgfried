@@ -7,5 +7,5 @@
 // clean rejection.
 int f(void)
 {
-    return __builtin_clrsb(8u);
+    return __builtin_parity(8u);
 }

@@ -2274,10 +2274,9 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
  * round; `one_based` distinguishes ffs from ctz. Every caller has an int
  * result, while sema has already converted the operand to its exact prototype
  * width. */
-static IrOperand lower_bit_scan(Lower *lo, AstNode *arg, bool leading,
-                                bool one_based)
+static IrOperand lower_bit_scan_value(Lower *lo, IrOperand original,
+                                      bool leading, bool one_based)
 {
-    IrOperand original = lower_rvalue(lo, arg);
     IrOperand value = original;
     IrOperand result = ir_op_iconst(IRT_I32, one_based ? 1 : 0);
     IrType type = (IrType)value.type;
@@ -2334,6 +2333,33 @@ static IrOperand lower_bit_scan(Lower *lo, AstNode *arg, bool leading,
                                            result,
                                            ir_op_iconst(IRT_I32, zero_result)));
     }
+}
+
+static IrOperand lower_bit_scan(Lower *lo, AstNode *arg, bool leading,
+                                bool one_based)
+{
+    return lower_bit_scan_value(lo, lower_rvalue(lo, arg), leading, one_based);
+}
+
+/* clrsb counts sign-extension bits below the sign bit. Arithmetic-shifting
+ * the exact-width signed operand produces either zero or all ones; XOR then
+ * keeps positive values and complements negative values. A leading-zero count
+ * of that normalized image, minus the excluded sign bit, is the answer for
+ * every input, including zero and -1. */
+static IrOperand lower_clrsb(Lower *lo, AstNode *arg)
+{
+    IrOperand value = lower_rvalue(lo, arg);
+    IrType type = (IrType)value.type;
+    unsigned width = ir_type_size(type) * 8;
+    ValueId sign = ir_build2(&lo->b, IR_ASHR, type, value,
+                             ir_op_iconst(type, (i64)(width - 1)));
+    ValueId normalized =
+        ir_build2(&lo->b, IR_XOR, type, value, ir_op_value(lo->fn, sign));
+    IrOperand leading =
+        lower_bit_scan_value(lo, ir_op_value(lo->fn, normalized), true, false);
+
+    return ir_op_value(lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I32, leading,
+                                         ir_op_iconst(IRT_I32, 1)));
 }
 
 /* Build masks that select the low `group_width` bits from every adjacent
@@ -2473,6 +2499,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     case SEMA_BUILTIN_CTZL:
     case SEMA_BUILTIN_CTZLL:
         *out = lower_bit_scan(lo, e->args[0], false, false);
+        return true;
+    case SEMA_BUILTIN_CLRSB:
+    case SEMA_BUILTIN_CLRSBL:
+    case SEMA_BUILTIN_CLRSBLL:
+        *out = lower_clrsb(lo, e->args[0]);
         return true;
     case SEMA_BUILTIN_POPCOUNT:
     case SEMA_BUILTIN_POPCOUNTL:

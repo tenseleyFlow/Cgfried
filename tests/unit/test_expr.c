@@ -427,7 +427,7 @@ void test_expr_builtins_defer(TestCtx *t)
     /* No row: still deferred. (Arity and offsetof member checks are SEMA's
      * — this fixture only parses — so they live in
      * tests/programs/builtins/.) */
-    expr_bad(t, "int f(void){ return __builtin_clrsb(8); }\n");
+    expr_bad(t, "int f(void){ return __builtin_parity(8); }\n");
     /* A designator is required, not an arbitrary expression. */
     expr_bad(t, "struct S { int a; };\n"
                 "unsigned long f(void){ "

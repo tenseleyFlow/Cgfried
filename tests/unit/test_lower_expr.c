@@ -558,6 +558,48 @@ void test_lower_builtin_popcount_family(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_clrsb_family(TestCtx *t)
+{
+    static const char calls[] =
+        "int source_i(void); long source_l(void); long long source_ll(void); "
+        "int use(void) { return __builtin_clrsb(source_i()) + "
+        "__builtin_clrsbl(source_l()) + __builtin_clrsbll(source_ll()); }\n";
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower_opts(&f, calls, STD_C17, true));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @source_i()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_l()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_ll()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @clrsb("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @clrsbl("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @clrsbll("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "ashr i32"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "ashr i64"), 2);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i64"), 12);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), " = select "), 37);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "isub i32"), 3);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<clrsb-family>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "long long source(void); int use(void) { "
+                               "return __builtin_clrsb(source()) + "
+                               "__builtin_clrsbl(source()); }\n",
+                               STD_C89, true));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 2);
+    T_ASSERT(t, strstr(txt(&f), "trunc i64") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "ashr i32"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "ashr i64"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i64"), 6);
+    low_free(&f);
+}
+
 void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
 {
     LowFix f;
