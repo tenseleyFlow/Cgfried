@@ -1475,24 +1475,28 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         }
         if ((e->op == SEMA_BUILTIN_POPCOUNT ||
              e->op == SEMA_BUILTIN_POPCOUNTL ||
-             e->op == SEMA_BUILTIN_POPCOUNTLL) &&
+             e->op == SEMA_BUILTIN_POPCOUNTLL || e->op == SEMA_BUILTIN_PARITY ||
+             e->op == SEMA_BUILTIN_PARITYL || e->op == SEMA_BUILTIN_PARITYLL) &&
             e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
             callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
             ConstValue a = eval(s, e->args[0], m);
             u32 width = conv_int_bits(s, e->args[0]->sem_type);
             u32 count = 0;
             u32 bit;
+            bool parity = e->op == SEMA_BUILTIN_PARITY ||
+                          e->op == SEMA_BUILTIN_PARITYL ||
+                          e->op == SEMA_BUILTIN_PARITYLL;
 
             /* Sema has converted the operand to the builtin's exact unsigned
              * prototype type. Count that target-width bit image and return
-             * int; unlike clz/ctz, zero is defined and naturally counts as
-             * zero. */
+             * either the count or its low bit as int; unlike clz/ctz, zero is
+             * defined and naturally produces zero. */
             if (a.kind != CV_INT || width == 0)
                 return cv_error();
             for (bit = 0; bit < width; bit++)
                 if ((a.i & (1ull << bit)) != 0)
                     count++;
-            return cv_int(s, e->sem_type, count);
+            return cv_int(s, e->sem_type, parity ? count & 1u : count);
         }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);

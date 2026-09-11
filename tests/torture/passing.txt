@@ -23741,6 +23741,16 @@ torture-execute/bswap-3.c@O3@arm64-linux
 torture-execute/bswap-3.c@O3@x86_64-linux-gnu
 torture-execute/bswap-3.c@Os@arm64-linux
 torture-execute/bswap-3.c@Os@x86_64-linux-gnu
+torture-execute/builtin-bitops-1.c@O0@arm64-linux
+torture-execute/builtin-bitops-1.c@O0@x86_64-linux-gnu
+torture-execute/builtin-bitops-1.c@O1@arm64-linux
+torture-execute/builtin-bitops-1.c@O1@x86_64-linux-gnu
+torture-execute/builtin-bitops-1.c@O2@arm64-linux
+torture-execute/builtin-bitops-1.c@O2@x86_64-linux-gnu
+torture-execute/builtin-bitops-1.c@O3@arm64-linux
+torture-execute/builtin-bitops-1.c@O3@x86_64-linux-gnu
+torture-execute/builtin-bitops-1.c@Os@arm64-linux
+torture-execute/builtin-bitops-1.c@Os@x86_64-linux-gnu
 torture-execute/builtin-constant.c@O0@arm64-linux
 torture-execute/builtin-constant.c@O0@x86_64-linux-gnu
 torture-execute/builtin-constant.c@O1@arm64-linux
