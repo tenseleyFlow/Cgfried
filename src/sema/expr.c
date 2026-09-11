@@ -1077,9 +1077,9 @@ static bool is_integer_abs_builtin_decl(const Symbol *sym, TypeKind kind)
 
 /* The integer bit-operation families all return int, but their prototypes
  * preserve three distinct argument widths. ffs and clrsb use the signed type;
- * the zero-scan and population-count families use its unsigned counterpart.
- * Keep that mapping beside call typing so adding one spelling cannot
- * accidentally inherit the default argument promotions. */
+ * the zero-scan, population-count, and parity families use its unsigned
+ * counterpart. Keep that mapping beside call typing so adding one spelling
+ * cannot accidentally inherit the default argument promotions. */
 static Type *builtin_integer_bitop_param_type(u16 builtin)
 {
     switch (builtin) {
@@ -1095,14 +1095,17 @@ static Type *builtin_integer_bitop_param_type(u16 builtin)
     case SEMA_BUILTIN_CLZ:
     case SEMA_BUILTIN_CTZ:
     case SEMA_BUILTIN_POPCOUNT:
+    case SEMA_BUILTIN_PARITY:
         return type_basic(TY_UINT);
     case SEMA_BUILTIN_CLZL:
     case SEMA_BUILTIN_CTZL:
     case SEMA_BUILTIN_POPCOUNTL:
+    case SEMA_BUILTIN_PARITYL:
         return type_basic(TY_ULONG);
     case SEMA_BUILTIN_CLZLL:
     case SEMA_BUILTIN_CTZLL:
     case SEMA_BUILTIN_POPCOUNTLL:
+    case SEMA_BUILTIN_PARITYLL:
         return type_basic(TY_ULLONG);
     default:
         return NULL;

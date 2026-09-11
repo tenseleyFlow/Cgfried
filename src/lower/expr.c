@@ -2407,6 +2407,17 @@ static IrOperand lower_popcount(Lower *lo, AstNode *arg)
     return value;
 }
 
+/* Parity is the low bit of the exact-width population count. Reusing the
+ * reduction keeps all three spellings target-neutral and, because that helper
+ * owns argument lowering, evaluates a side-effecting operand exactly once. */
+static IrOperand lower_parity(Lower *lo, AstNode *arg)
+{
+    IrOperand count = lower_popcount(lo, arg);
+
+    return ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32, count,
+                                         ir_op_iconst(IRT_I32, 1)));
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2509,6 +2520,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     case SEMA_BUILTIN_POPCOUNTL:
     case SEMA_BUILTIN_POPCOUNTLL:
         *out = lower_popcount(lo, e->args[0]);
+        return true;
+    case SEMA_BUILTIN_PARITY:
+    case SEMA_BUILTIN_PARITYL:
+    case SEMA_BUILTIN_PARITYLL:
+        *out = lower_parity(lo, e->args[0]);
         return true;
     case SEMA_BUILTIN_BSWAP16:
     case SEMA_BUILTIN_BSWAP32:

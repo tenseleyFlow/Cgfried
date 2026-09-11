@@ -87,6 +87,11 @@ B(popcount, POPCOUNT, 1, BK_INT)
 B(popcountl, POPCOUNTL, 1, BK_INT)
 B(popcountll, POPCOUNTLL, 1, BK_INT)
 
+/* parity of the population count over the exact unsigned parameter width */
+B(parity, PARITY, 1, BK_INT)
+B(parityl, PARITYL, 1, BK_INT)
+B(parityll, PARITYLL, 1, BK_INT)
+
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
 B(huge_val, HUGE_VAL, 0, BK_DOUBLE)
 B(huge_valf, HUGE_VALF, 0, BK_FLOAT)

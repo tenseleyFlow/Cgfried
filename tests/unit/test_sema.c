@@ -850,6 +850,40 @@ void test_sema_builtin_popcount_family_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_parity_family_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert((__builtin_parity)(0u) == 0, \"zero\"); "
+        "_Static_assert(__builtin_parity(7u) == 1, \"odd count\"); "
+        "_Static_assert(__builtin_parity(~0u) == 0, \"int width\"); "
+        "_Static_assert(__builtin_parityl(1ul << 40) == 1, \"long width\"); "
+        "_Static_assert(__builtin_parityll(0xa5a5a5a5a5a5a5a5ull) == 0, "
+        "\"long long pattern\"); "
+        "_Static_assert(__builtin_parity(0x100000001ull) == 1, "
+        "\"prototype conversion\"); "
+        "_Static_assert(_Generic(__builtin_parity(1u), int: 1, default: 0), "
+        "\"parity type\"); "
+        "_Static_assert(_Generic(__builtin_parityl(1ul), int: 1, default: 0), "
+        "\"parityl type\"); "
+        "_Static_assert(_Generic(__builtin_parityll(1ull), int: 1, default: "
+        "0), \"parityll type\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Explicit builtins fold only when their converted operand is constant. */
+    run_sema_opts(&f,
+                  "unsigned value; _Static_assert(__builtin_parity(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;
