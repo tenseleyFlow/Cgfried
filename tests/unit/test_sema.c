@@ -701,6 +701,46 @@ void test_sema_builtin_llabs_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_abs_family_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(&f,
+                  "_Static_assert((__builtin_abs)(-7) == 7, \"abs\"); "
+                  "_Static_assert((__builtin_labs)(-9L) == 9L, \"labs\"); "
+                  "_Static_assert(sizeof(__builtin_abs(1L)) == sizeof(int), "
+                  "\"abs type\"); "
+                  "_Static_assert(sizeof(__builtin_labs(1)) == sizeof(long), "
+                  "\"labs type\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    run_sema_opts(
+        &f,
+        "_Static_assert(__builtin_abs(-2147483647 - 1), \"int min\"); "
+        "_Static_assert(__builtin_labs(-9223372036854775807L - 1L), "
+        "\"long min\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+
+    /* Compatible hosted declarations select identical runtime lowering, but
+     * the plain library spellings remain outside integer constant
+     * expressions. */
+    run_sema_opts(&f, "int abs(int); _Static_assert(abs(-7) == 7, \"abs\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema_opts(
+        &f, "long labs(long); _Static_assert(labs(-9L) == 9L, \"labs\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
 {
     SemaFix f;

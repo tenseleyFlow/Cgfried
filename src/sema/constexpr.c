@@ -1369,15 +1369,24 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                 return cv_error();
             return cv_int(s, e->sem_type, cgf_bswap(a.i, bytes));
         }
-        if (e->op == SEMA_BUILTIN_LLABS && e->nargs == 1 && callee &&
-            callee->kind == AST_EXPR_IDENT && callee->name &&
-            strcmp(callee->name, "__builtin_llabs") == 0) {
+        if ((e->op == SEMA_BUILTIN_ABS || e->op == SEMA_BUILTIN_LABS ||
+             e->op == SEMA_BUILTIN_LLABS) &&
+            e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
+            callee->name &&
+            ((e->op == SEMA_BUILTIN_ABS &&
+              strcmp(callee->name, "__builtin_abs") == 0) ||
+             (e->op == SEMA_BUILTIN_LABS &&
+              strcmp(callee->name, "__builtin_labs") == 0) ||
+             (e->op == SEMA_BUILTIN_LLABS &&
+              strcmp(callee->name, "__builtin_llabs") == 0))) {
             ConstValue a = eval(s, e->args[0], m);
+            u32 w = conv_int_bits(s, e->sem_type);
 
             /* Only the explicitly spelled compiler builtin is an ICE. A
-             * hosted direct `llabs` call shares lowering but remains a
-             * library call to the constant-expression rules, matching gcc.
-             * LLONG_MIN has no representable absolute value. */
+             * hosted direct library call shares lowering but remains a library
+             * call to the constant-expression rules, matching gcc. The signed
+             * minimum of each result type has no representable absolute
+             * value. */
             if (a.kind != CV_INT)
                 return cv_error();
             if (signed_minimum_value(s, e->sem_type, a.i)) {
@@ -1385,7 +1394,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                 return cv_error();
             }
             return cv_int(s, e->sem_type,
-                          (a.i & (1ull << 63)) != 0 ? 0 - a.i : a.i);
+                          w && (a.i & (1ull << (w - 1))) != 0
+                              ? fit(s, e->sem_type, 0 - a.i)
+                              : a.i);
         }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);

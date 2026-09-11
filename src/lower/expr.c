@@ -2329,15 +2329,19 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         (void)lower_rvalue(lo, e->args[0]);
         *out = ir_op_undef(IRT_I32);
         return true;
+    case SEMA_BUILTIN_ABS:
+    case SEMA_BUILTIN_LABS:
     case SEMA_BUILTIN_LLABS: {
         IrOperand value = lower_rvalue(lo, e->args[0]);
-        IrOperand zero = ir_op_iconst(IRT_I64, 0);
+        IrType type = lower_irtype(lo, e->sem_type);
+        IrOperand zero = ir_op_iconst(type, 0);
         ValueId negative = ir_build_icmp(&lo->b, ICMP_SLT, value, zero);
-        ValueId negated = ir_build2(&lo->b, IR_ISUB, IRT_I64, zero, value);
+        ValueId negated = ir_build2(&lo->b, IR_ISUB, type, zero, value);
 
-        /* llabs(LLONG_MIN) has undefined behavior, so wrapping subtraction
-         * is sufficient. The value is lowered once before the compare and
-         * select, preserving argument side effects at -O0 as well as -O2. */
+        /* abs(INT_MIN), labs(LONG_MIN), and llabs(LLONG_MIN) have undefined
+         * behavior, so wrapping subtraction is sufficient. The value is
+         * lowered once before the compare and select, preserving argument
+         * side effects at -O0 as well as -O2. */
         *out = ir_op_value(
             lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, negative),
                                     ir_op_value(lo->fn, negated), value));
