@@ -4609,8 +4609,78 @@ and green post-publication CI.
   respectively
   `0141692429fb4e15d4664ce70f549589ef67c8c115fea5a1f5af1b8892192252`
   and `d8a60418441a636b4dbe35162ddb163128e14c348afc96982c66b6c1e5d8193e`.
-  Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
-  evidence remain required before merge.
+  After an automated benchmark-evidence commit advanced `trunk`, the branch
+  was refreshed and the full final gate was repeated on the new synthetic
+  merge. Post-publication standard
+  [run 34551947579](https://github.com/tenseleyFlow/Cgfried/actions/runs/34551947579),
+  bootstrap
+  [runs 34551945071](https://github.com/tenseleyFlow/Cgfried/actions/runs/34551945071)
+  and
+  [34551947541](https://github.com/tenseleyFlow/Cgfried/actions/runs/34551947541),
+  and exact synthetic-merge native-ARM
+  [run 34551984486](https://github.com/tenseleyFlow/Cgfried/actions/runs/34551984486)
+  are green. PR #105 merged as `77e8623a`.
+- The current `s56.11-builtin-abs-family` tranche (PR #106) completes
+  `__builtin_abs` and `__builtin_labs`, including prototype-accurate
+  assignment conversion to `int` and `long`, the corresponding result types,
+  integer-constant-expression folding, and signed-minimum overflow
+  diagnostics. Lowering shares the existing width-generic compare,
+  subtraction, and select path used by `llabs`, and evaluates its argument
+  exactly once. In hosted C89 and later, compatible external `abs` and `labs`
+  calls receive the same intrinsic lowering without turning ordinary calls
+  into constant expressions. Address-taking, freestanding mode, incompatible
+  declarations, and translation-unit-local bindings retain ordinary symbol
+  behavior.
+
+  Focused normal and ASan+UBSan coverage is green at two tests and thirty
+  assertions. The runtime fixture pins positive, negative, zero, and
+  exactly-once behavior. All eighteen builtin fixtures pass in normal and
+  sanitized Apple-silicon builds. Across O0/O1/O2/O3/Os, twenty-five native
+  Apple compile cells and ten compile-and-execute cells pass. The dual-Linux
+  source matrix is 50/50 across five ratchet-eligible files, five optimization
+  levels, and two targets. The complete native unit run reaches the unchanged
+  eight-failure Apple host-assumption baseline at 888 tests and 4,328,741
+  assertions, with both new tests passing. Pinned clang-format 22, imports,
+  static seams and policy gates, normal and sanitized frontend fuzz, and the
+  crash ledger are green. The new fixture intentionally repins the
+  deterministic frontend mutation digest to `cbb0e1444b465384`, reproduced
+  twice normally and once under ASan+UBSan at 2,000 iterations.
+
+  Pre-publication x86
+  [run 34555435138](https://github.com/tenseleyFlow/Cgfried/actions/runs/34555435138)
+  and exact matching synthetic-merge native-ARM
+  [run 34556468864](https://github.com/tenseleyFlow/Cgfried/actions/runs/34556468864)
+  each contain 20,325 matrix rows and name revision
+  `1e20af89f1063921224788225d55e6b16786592b`. They share compiler-source
+  SHA-256 `f1d8212019544fc58107ff0225f6359d9686647fc9e5942da4b3976d23a45cf0`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `316709d8eec1dc3d49b9c6eff8165718a8e73597e8b887affaf3709824931715`
+  and `7099382f132e3bb9fe4be274e02cb29a6303ff3a13c1d1728a8295eab2b2c631`.
+  Each gate rejects only its twenty-five unpublished candidate PASS cells:
+  compile fixtures `abs.c`, `pr37078.c`, and `pr46034.c`, plus execute
+  fixtures `pr34130.c` and `pr42614.c`, at all five optimization levels, with
+  no old-PASS regression. The publisher correctly rejected an earlier ARM
+  stream whose source commit differed despite an identical source tree; the
+  exact-commit rerun above restored shared provenance.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly fifty PASS keys and reduces the pre-triaged `gcc-builtin` class from
+  1,160 to 1,110 cells. The resulting ratchet has 30,760 PASS keys (30,763
+  lines), 3,280 classified failures across 32 buckets, 24 applied decisions,
+  two deliberately retained stale decisions, no live repair rows, and zero
+  unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `db0c9a575e71a80386a83319040a3782d85473c761ddcbc1d768ee7da732a743`
+  and `134dbe9680cf1cf7421049142575240afd55d5814d7105d9221f2e94177373d1`.
+  Fresh post-publication standard CI, bootstrap, and exact synthetic-merge
+  native-ARM evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
