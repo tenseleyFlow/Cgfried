@@ -483,6 +483,43 @@ void test_lower_builtin_ffs_family(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_clz_ctz_family(TestCtx *t)
+{
+    static const char calls[] =
+        "unsigned source_i(void); unsigned long source_l(void); "
+        "unsigned long long source_ll(void); int use(void) { "
+        "return __builtin_clz(source_i()) + __builtin_ctz(source_i()) + "
+        "__builtin_clzl(source_l()) + __builtin_ctzl(source_l()) + "
+        "__builtin_clzll(source_ll()) + __builtin_ctzll(source_ll()); }\n";
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower_opts(&f, calls, STD_C17, true));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @source_i()"), 2);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_l()"), 2);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_ll()"), 2);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @clz("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @ctz("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 10);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i64"), 24);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), " = select "), 74);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<clz-ctz-family>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "long long source(void); int use(void) { "
+                               "return __builtin_clz(source()) + "
+                               "__builtin_ctz(source()); }\n",
+                               STD_C89, true));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 2);
+    T_ASSERT(t, strstr(txt(&f), "trunc i64") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 10);
+    low_free(&f);
+}
+
 void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
 {
     LowFix f;

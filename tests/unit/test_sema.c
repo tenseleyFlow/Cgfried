@@ -782,6 +782,39 @@ void test_sema_builtin_ffs_family_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_clz_ctz_family_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert((__builtin_clz)(1u) == 31, \"clz\"); "
+        "_Static_assert(__builtin_clzl(1ul << 40) == 23, \"clzl\"); "
+        "_Static_assert(__builtin_clzll(1ull << 63) == 0, \"clzll\"); "
+        "_Static_assert(__builtin_ctz(0x80000000u) == 31, \"ctz\"); "
+        "_Static_assert(__builtin_ctzl(1ul << 40) == 40, \"ctzl\"); "
+        "_Static_assert(__builtin_ctzll(1ull << 63) == 63, \"ctzll\"); "
+        "_Static_assert(_Generic(__builtin_clz(1u), int: 1, default: 0), "
+        "\"clz type\"); "
+        "_Static_assert(_Generic(__builtin_clzl(1ul), int: 1, default: 0), "
+        "\"clzl type\"); "
+        "_Static_assert(_Generic(__builtin_ctzll(1ull), int: 1, default: 0), "
+        "\"ctzll type\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Only a constant nonzero operand has a defined folded value. Runtime
+     * operands remain outside integer constant expressions. */
+    run_sema_opts(&f,
+                  "unsigned value; _Static_assert(__builtin_clz(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
 {
     SemaFix f;
