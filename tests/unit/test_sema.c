@@ -218,6 +218,31 @@ void test_sema_builtin_abort_arity(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_exit_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f, "void f(unsigned char status) { __builtin_exit(status); }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void) { __builtin_exit(); }\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void) { __builtin_exit(0, 1); }\n", STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int status; }; void f(struct S s) { "
+             "__builtin_exit(s); }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_prefetch_contract(TestCtx *t)
 {
     SemaFix f;

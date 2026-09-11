@@ -280,6 +280,36 @@ void test_lower_builtin_malloc_free_calls_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_exit_call_noreturn_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "unsigned char status(void); "
+                              "void stop(void) { "
+                              "__builtin_exit(status()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i8 @status()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @exit(i32"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "noreturn"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_exit"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<exit-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static void exit(int status) { (void)status; } "
+                              "void stop(int status) { "
+                              "__builtin_exit(status); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @exit(i32"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "noreturn"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<exit-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
 {
     static const char declared_call[] =

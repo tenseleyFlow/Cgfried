@@ -1261,6 +1261,13 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         quiet(e->args[0], NULL))
                         return poison(s, e);
                 }
+                if (b == SEMA_BUILTIN_EXIT) {
+                    bctx.arg_index = 1;
+                    if (!conv_assignable(s, type_basic(TY_INT), &e->args[0],
+                                         bctx) ||
+                        quiet(e->args[0], NULL))
+                        return poison(s, e);
+                }
                 if (b == SEMA_BUILTIN_STRCMP) {
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
