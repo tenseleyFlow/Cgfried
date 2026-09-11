@@ -2,9 +2,11 @@
  *
  * arm64-linux's `long double` is IEEE binary128, and the architecture has no
  * instructions for it. Every operation is a call into libcgf_rt, whose 24
- * entry points landed in Sprint 49 D4 and are byte-identical to libgcc's over
- * 1400 cases. This pass is the other half of that: the codegen side, turning
- * the IR's native f128 opcodes into those calls.
+ * libgcc-compatible entry points landed in Sprint 49 D4 and are byte-identical
+ * to libgcc's over 1400 cases. An internal bit-preserving select helper covers
+ * the value operation for which libgcc has no standard entry point. This pass
+ * is the other half of that: the codegen side, turning the IR's native f128
+ * opcodes into those calls.
  *
  * WHY A PASS AND NOT LOWERING: f128 operations are produced at a dozen
  * lowering sites, and rewriting each would spread the target condition across
@@ -51,6 +53,17 @@ static const char *binary_libcall(u8 op)
     default:
         return NULL;
     }
+}
+
+/* AArch64 has no scalar binary128 FCSEL. The optimizer deliberately forms
+ * IR_SELECT after the comparison itself has been simplified, so keep the
+ * value-level choice in the same post-optimizer soft-float boundary as the
+ * arithmetic. The runtime helper selects the carrier bits without doing FP
+ * arithmetic; rewriting in place is exact because the condition and two arms
+ * are already the helper's three arguments. */
+static const char *select_libcall(const IrInst *in)
+{
+    return in->op == IR_SELECT && in->type == IRT_F128 ? "__cgf_seltf" : NULL;
 }
 
 /* Conversions INTO or OUT OF f128. The direction is read from the
@@ -401,8 +414,11 @@ void lower_legalize_f128(IrModule *m, TargetSpec t)
                     spliced = true;
                     continue;
                 }
-                if (in->type == IRT_F128)
-                    name = binary_libcall(in->op);
+                if (in->type == IRT_F128) {
+                    name = select_libcall(in);
+                    if (!name)
+                        name = binary_libcall(in->op);
+                }
                 if (!name && in->nops >= 1)
                     name = convert_libcall(f, in);
                 if (name)

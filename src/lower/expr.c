@@ -2526,6 +2526,44 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     case SEMA_BUILTIN_PARITYLL:
         *out = lower_parity(lo, e->args[0]);
         return true;
+    case SEMA_BUILTIN_ISUNORDERED:
+    case SEMA_BUILTIN_ISLESS:
+    case SEMA_BUILTIN_ISLESSEQUAL:
+    case SEMA_BUILTIN_ISGREATER:
+    case SEMA_BUILTIN_ISGREATEREQUAL:
+    case SEMA_BUILTIN_ISLESSGREATER: {
+        IrOperand left = lower_rvalue(lo, e->args[0]);
+        IrOperand right = lower_rvalue(lo, e->args[1]);
+        IrFcmp predicate;
+
+        /* The existing predicate set expresses these builtins exactly,
+         * including ordered-not-equal for islessgreater. Sema made the
+         * operands a common real type; lowering each once preserves their
+         * side effects without synthesizing a short-circuit expression. */
+        switch (e->op) {
+        case SEMA_BUILTIN_ISUNORDERED:
+            predicate = FCMP_UNO;
+            break;
+        case SEMA_BUILTIN_ISLESS:
+            predicate = FCMP_OLT;
+            break;
+        case SEMA_BUILTIN_ISLESSEQUAL:
+            predicate = FCMP_OLE;
+            break;
+        case SEMA_BUILTIN_ISGREATER:
+            predicate = FCMP_OGT;
+            break;
+        case SEMA_BUILTIN_ISGREATEREQUAL:
+            predicate = FCMP_OGE;
+            break;
+        default:
+            predicate = FCMP_ONE;
+            break;
+        }
+        *out =
+            ir_op_value(lo->fn, ir_build_fcmp(&lo->b, predicate, left, right));
+        return true;
+    }
     case SEMA_BUILTIN_BSWAP16:
     case SEMA_BUILTIN_BSWAP32:
     case SEMA_BUILTIN_BSWAP64: {

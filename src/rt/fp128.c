@@ -62,6 +62,21 @@ static cgf_tf tf_out(Sf v)
     return z;
 }
 
+/* The optimizer can turn `condition ? a : b` into an f128 IR select, but no
+ * supported machine has a scalar binary128 conditional-select instruction.
+ * Pick the ADDRESS here so the helper itself contains only an integer/pointer
+ * select, then copy the chosen carrier unchanged. This preserves every NaN
+ * payload and avoids recursively requiring the f128-select legalization that
+ * calls this function. */
+cgf_tf __cgf_seltf(int condition, cgf_tf yes, cgf_tf no)
+{
+    const cgf_tf *selected = condition ? &yes : &no;
+    cgf_tf out;
+
+    memcpy(&out, selected, sizeof(out));
+    return out;
+}
+
 static Sf df_in(double a)
 {
     unsigned char bits[16];

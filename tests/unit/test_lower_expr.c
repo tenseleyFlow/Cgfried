@@ -598,6 +598,41 @@ void test_lower_builtin_parity_family(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_fp_compare_family(TestCtx *t)
+{
+    static const char calls[] =
+        "float source_f(void); long double source_l(void); int use(void) { "
+        "return __builtin_isunordered(source_f(), source_l()) + "
+        "__builtin_isless(source_f(), source_l()) + "
+        "__builtin_islessequal(source_f(), source_l()) + "
+        "__builtin_isgreater(source_f(), source_l()) + "
+        "__builtin_isgreaterequal(source_f(), source_l()) + "
+        "__builtin_islessgreater(source_f(), source_l()); }\n";
+    LowFix f;
+    IrModule *round;
+
+    if (!run_lower_opts(&f, calls, STD_C17, true)) {
+        T_ASSERT(t, false);
+        low_free(&f);
+        return;
+    }
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @source_f()"), 6);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f80 @source_l()"), 6);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fpext f32"), 6);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp uno f80"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp olt f80"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp ole f80"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp ogt f80"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp oge f80"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp one f80"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_is"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<fp-compare-family>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_clrsb_family(TestCtx *t)
 {
     static const char calls[] =
