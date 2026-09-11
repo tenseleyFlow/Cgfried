@@ -2366,9 +2366,9 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
             u64 mask = (1ull << step) - 1;
             ValueId low = ir_build2(&lo->b, IR_AND, type, value,
                                     ir_op_iconst(type, (i64)mask));
-            ValueId empty = ir_build_icmp(
-                &lo->b, ICMP_EQ, ir_op_value(lo->fn, low),
-                ir_op_iconst(type, 0));
+            ValueId empty =
+                ir_build_icmp(&lo->b, ICMP_EQ, ir_op_value(lo->fn, low),
+                              ir_op_iconst(type, 0));
             ValueId shifted = ir_build2(&lo->b, IR_LSHR, type, value,
                                         ir_op_iconst(type, (i64)step));
             ValueId bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, result,
@@ -2382,13 +2382,12 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
                                         ir_op_value(lo->fn, bumped), result));
         }
         {
-            ValueId nonzero = ir_build_icmp(
-                &lo->b, ICMP_NE, original, ir_op_iconst(type, 0));
+            ValueId nonzero =
+                ir_build_icmp(&lo->b, ICMP_NE, original, ir_op_iconst(type, 0));
 
             *out = ir_op_value(
-                lo->fn,
-                ir_build_select(&lo->b, ir_op_value(lo->fn, nonzero), result,
-                                ir_op_iconst(IRT_I32, 0)));
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, nonzero),
+                                        result, ir_op_iconst(IRT_I32, 0)));
         }
         return true;
     }

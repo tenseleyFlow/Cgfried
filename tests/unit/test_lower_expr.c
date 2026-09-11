@@ -471,12 +471,11 @@ void test_lower_builtin_ffs_family(TestCtx *t)
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 0);
     low_free(&f);
 
-    T_ASSERT(t, run_lower_opts(
-                    &f,
-                    "long long source(void); int use(void) { "
-                    "return __builtin_ffs(source()) + "
-                    "__builtin_ffsl(source()); }\n",
-                    STD_C89, true));
+    T_ASSERT(t, run_lower_opts(&f,
+                               "long long source(void); int use(void) { "
+                               "return __builtin_ffs(source()) + "
+                               "__builtin_ffsl(source()); }\n",
+                               STD_C89, true));
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 2);
     T_ASSERT(t, strstr(txt(&f), "trunc i64") != NULL);
     T_ASSERT(t, strstr(txt(&f), "lshr i32") != NULL);
