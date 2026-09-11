@@ -5,4 +5,7 @@
 // loudly. There is deliberately no accept-anything-__builtin_ fallback —
 // a silently accepted builtin that lowers to nothing is worse than a
 // clean rejection.
-int f(void) { return __builtin_clz(8u); }
+int f(void)
+{
+    return __builtin_clrsb(8u);
+}

@@ -69,6 +69,14 @@ B(ffs, FFS, 1, BK_INT)
 B(ffsl, FFSL, 1, BK_INT)
 B(ffsll, FFSLL, 1, BK_INT)
 
+/* zero-based leading/trailing-zero scans; a zero argument is undefined */
+B(clz, CLZ, 1, BK_INT)
+B(clzl, CLZL, 1, BK_INT)
+B(clzll, CLZLL, 1, BK_INT)
+B(ctz, CTZ, 1, BK_INT)
+B(ctzl, CTZL, 1, BK_INT)
+B(ctzll, CTZLL, 1, BK_INT)
+
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
 B(huge_val, HUGE_VAL, 0, BK_DOUBLE)
 B(huge_valf, HUGE_VALF, 0, BK_FLOAT)

@@ -1419,6 +1419,35 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             }
             return cv_int(s, e->sem_type, bit);
         }
+        if ((e->op == SEMA_BUILTIN_CLZ || e->op == SEMA_BUILTIN_CLZL ||
+             e->op == SEMA_BUILTIN_CLZLL || e->op == SEMA_BUILTIN_CTZ ||
+             e->op == SEMA_BUILTIN_CTZL || e->op == SEMA_BUILTIN_CTZLL) &&
+            e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
+            callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
+            ConstValue a = eval(s, e->args[0], m);
+            u32 width = conv_int_bits(s, e->args[0]->sem_type);
+            bool leading = e->op == SEMA_BUILTIN_CLZ ||
+                           e->op == SEMA_BUILTIN_CLZL ||
+                           e->op == SEMA_BUILTIN_CLZLL;
+            u32 bit;
+
+            /* Sema has converted the operand to the builtin's exact unsigned
+             * prototype type. Count in that target width and return int. A
+             * zero operand is undefined by GCC's contract; choosing `width`
+             * keeps constant and runtime lowering deterministic without
+             * promising a source-level value for undefined behavior. */
+            if (a.kind != CV_INT || width == 0)
+                return cv_error();
+            if (a.i == 0)
+                return cv_int(s, e->sem_type, width);
+            for (bit = 0; bit < width; bit++) {
+                u32 shift = leading ? width - bit - 1 : bit;
+
+                if ((a.i & (1ull << shift)) != 0)
+                    return cv_int(s, e->sem_type, bit);
+            }
+            return cv_error();
+        }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);
 

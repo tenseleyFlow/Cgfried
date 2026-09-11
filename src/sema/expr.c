@@ -1075,6 +1075,33 @@ static bool is_integer_abs_builtin_decl(const Symbol *sym, TypeKind kind)
            ft->params[0] && ft->params[0]->kind == kind;
 }
 
+/* The integer scan families all return int, but their prototypes preserve
+ * three distinct argument widths. ffs uses the signed type; clz/ctz use its
+ * unsigned counterpart. Keep that mapping beside call typing so adding one
+ * spelling cannot accidentally inherit the default argument promotions. */
+static Type *builtin_bit_scan_param_type(u16 builtin)
+{
+    switch (builtin) {
+    case SEMA_BUILTIN_FFS:
+        return type_basic(TY_INT);
+    case SEMA_BUILTIN_FFSL:
+        return type_basic(TY_LONG);
+    case SEMA_BUILTIN_FFSLL:
+        return type_basic(TY_LLONG);
+    case SEMA_BUILTIN_CLZ:
+    case SEMA_BUILTIN_CTZ:
+        return type_basic(TY_UINT);
+    case SEMA_BUILTIN_CLZL:
+    case SEMA_BUILTIN_CTZL:
+        return type_basic(TY_ULONG);
+    case SEMA_BUILTIN_CLZLL:
+    case SEMA_BUILTIN_CTZLL:
+        return type_basic(TY_ULLONG);
+    default:
+        return NULL;
+    }
+}
+
 static AstNode *expr_call(Sema *s, AstNode *e)
 {
     AstNode *callee;
@@ -1313,22 +1340,14 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                  * Promoting it instead would swap the wrong bytes. */
                 {
                     Type *ut = sema_builtin_uint_type(s, kind);
+                    Type *scan_type = builtin_bit_scan_param_type(b);
 
                     if (ut && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, ut, &e->args[0], bctx);
-                    } else if (b == SEMA_BUILTIN_FFS && e->nargs > 0) {
+                    } else if (scan_type && e->nargs > 0) {
                         bctx.arg_index = 1;
-                        conv_assignable(s, type_basic(TY_INT), &e->args[0],
-                                        bctx);
-                    } else if (b == SEMA_BUILTIN_FFSL && e->nargs > 0) {
-                        bctx.arg_index = 1;
-                        conv_assignable(s, type_basic(TY_LONG), &e->args[0],
-                                        bctx);
-                    } else if (b == SEMA_BUILTIN_FFSLL && e->nargs > 0) {
-                        bctx.arg_index = 1;
-                        conv_assignable(s, type_basic(TY_LLONG), &e->args[0],
-                                        bctx);
+                        conv_assignable(s, scan_type, &e->args[0], bctx);
                     } else if (b == SEMA_BUILTIN_ABS && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, type_basic(TY_INT), &e->args[0],

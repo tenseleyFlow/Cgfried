@@ -4,5 +4,5 @@
 // ERROR_EXPECTED: is not a builtin this compiler implements
 int f(void)
 {
-    return __builtin_clz(8u);
+    return __builtin_clrsb(8u);
 }
