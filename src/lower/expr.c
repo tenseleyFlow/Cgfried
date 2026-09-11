@@ -2347,6 +2347,51 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
                                     ir_op_value(lo->fn, negated), value));
         return true;
     }
+    case SEMA_BUILTIN_FFS:
+    case SEMA_BUILTIN_FFSL:
+    case SEMA_BUILTIN_FFSLL: {
+        IrOperand original = lower_rvalue(lo, e->args[0]);
+        IrOperand value = original;
+        IrOperand result = ir_op_iconst(IRT_I32, 1);
+        IrType type = (IrType)value.type;
+        unsigned width = ir_type_size(type) * 8;
+        unsigned step;
+
+        /* Binary-search the first set bit with target-neutral integer IR.
+         * The source operand is evaluated once. Each round discards a known
+         * empty low half and adds that half's width to the one-based result.
+         * Running the same harmless search for zero keeps this branchless;
+         * the final select supplies ffs's defined zero result. */
+        for (step = width / 2; step; step /= 2) {
+            u64 mask = (1ull << step) - 1;
+            ValueId low = ir_build2(&lo->b, IR_AND, type, value,
+                                    ir_op_iconst(type, (i64)mask));
+            ValueId empty = ir_build_icmp(
+                &lo->b, ICMP_EQ, ir_op_value(lo->fn, low),
+                ir_op_iconst(type, 0));
+            ValueId shifted = ir_build2(&lo->b, IR_LSHR, type, value,
+                                        ir_op_iconst(type, (i64)step));
+            ValueId bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, result,
+                                       ir_op_iconst(IRT_I32, (i64)step));
+
+            value = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, empty),
+                                        ir_op_value(lo->fn, shifted), value));
+            result = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, empty),
+                                        ir_op_value(lo->fn, bumped), result));
+        }
+        {
+            ValueId nonzero = ir_build_icmp(
+                &lo->b, ICMP_NE, original, ir_op_iconst(type, 0));
+
+            *out = ir_op_value(
+                lo->fn,
+                ir_build_select(&lo->b, ir_op_value(lo->fn, nonzero), result,
+                                ir_op_iconst(IRT_I32, 0)));
+        }
+        return true;
+    }
     case SEMA_BUILTIN_BSWAP16:
     case SEMA_BUILTIN_BSWAP32:
     case SEMA_BUILTIN_BSWAP64: {

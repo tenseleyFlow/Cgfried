@@ -438,6 +438,52 @@ void test_lower_hosted_abs_family_builtin_boundary(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_ffs_family(TestCtx *t)
+{
+    static const char calls[] =
+        "int source_i(void); long source_l(void); long long source_ll(void); "
+        "int use(void) { return __builtin_ffs(source_i()) + "
+        "__builtin_ffsl(source_l()) + __builtin_ffsll(source_ll()); }\n";
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower_opts(&f, calls, STD_C17, true));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @source_i()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_l()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_ll()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @ffs("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @ffsl("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @ffsll("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i64"), 12);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), " = select "), 37);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<ffs-family>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "int ffs(int); "
+                               "int use(int x) { return ffs(x); }\n",
+                               STD_GNU17, false));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @ffs(i32"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 0);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(
+                    &f,
+                    "long long source(void); int use(void) { "
+                    "return __builtin_ffs(source()) + "
+                    "__builtin_ffsl(source()); }\n",
+                    STD_C89, true));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 2);
+    T_ASSERT(t, strstr(txt(&f), "trunc i64") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "lshr i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "lshr i64") != NULL);
+    low_free(&f);
+}
+
 void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
 {
     LowFix f;
