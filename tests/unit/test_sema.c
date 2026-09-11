@@ -884,6 +884,67 @@ void test_sema_builtin_parity_family_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_fp_compare_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert(__builtin_isunordered(__builtin_nan(\"\"), 0.0), "
+        "\"unordered\"); "
+        "_Static_assert(__builtin_isunordered(0.0 / 0.0, 0.0), "
+        "\"constant nan division\"); "
+        "_Static_assert(!__builtin_isless(__builtin_nan(\"\"), 0.0), "
+        "\"nan is not less\"); "
+        "_Static_assert(__builtin_isless(1, 2.0), \"mixed less\"); "
+        "_Static_assert(__builtin_islessequal(-0.0f, 0.0L), "
+        "\"signed zero less-equal\"); "
+        "_Static_assert(__builtin_isgreater(2.0, 1.0), \"greater\"); "
+        "_Static_assert(__builtin_isgreaterequal(2.0L, 2.0f), "
+        "\"mixed greater-equal\"); "
+        "_Static_assert(__builtin_islessgreater(1.0L, 2.0f), "
+        "\"ordered unequal\"); "
+        "_Static_assert(!__builtin_islessgreater(2.0, 2.0), "
+        "\"ordered equal\"); "
+        "_Static_assert(!__builtin_islessgreater(__builtin_nan(\"\"), 0.0), "
+        "\"unordered is not less-greater\"); "
+        "_Static_assert(_Generic((__builtin_isunordered)(0.0, 0.0), int: 1, "
+        "default: 0), \"int result\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Static floating initializers may construct the nonfinite values that
+     * the comparison family is specifically designed to classify. */
+    run_sema_opts(&f,
+                  "static double nan_value = 0.0 / 0.0; "
+                  "static double inf_value = 1.0 / 0.0;\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* At least one operand must have real floating type; ordinary integer
+     * operands are accepted only when the other operand makes the UAC
+     * floating. Arity remains exact and pointers are never accepted. */
+    run_sema_opts(&f,
+                  "int a = __builtin_isless(1, 2); "
+                  "int b = __builtin_isgreater((void *)0, 1.0); "
+                  "int c = __builtin_isunordered(1.0); "
+                  "int d = __builtin_islessgreater(1.0, 2.0, 3.0);\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+
+    /* A runtime comparison does not become an integer constant expression. */
+    run_sema_opts(&f,
+                  "double value; _Static_assert(__builtin_isless(value, 1.0), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;

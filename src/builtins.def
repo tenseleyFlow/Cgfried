@@ -92,6 +92,15 @@ B(parity, PARITY, 1, BK_INT)
 B(parityl, PARITYL, 1, BK_INT)
 B(parityll, PARITYLL, 1, BK_INT)
 
+/* type-generic ordered/unordered real comparisons; sema performs the usual
+ * arithmetic conversions and requires the resulting common type to be floating */
+B(isunordered, ISUNORDERED, 2, BK_INT)
+B(isless, ISLESS, 2, BK_INT)
+B(islessequal, ISLESSEQUAL, 2, BK_INT)
+B(isgreater, ISGREATER, 2, BK_INT)
+B(isgreaterequal, ISGREATEREQUAL, 2, BK_INT)
+B(islessgreater, ISLESSGREATER, 2, BK_INT)
+
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
 B(huge_val, HUGE_VAL, 0, BK_DOUBLE)
 B(huge_valf, HUGE_VALF, 0, BK_FLOAT)

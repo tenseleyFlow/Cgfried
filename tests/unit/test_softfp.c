@@ -389,8 +389,7 @@ void test_softfp_special_values(TestCtx *t)
     Sf nan;
 
     /* Division by zero yields infinity and flags invalid — the CALLER
-     * decides whether that is an error, because it is one in a required
-     * constant context and merely a fold failure elsewhere. */
+     * decides whether the source context admits that nonfinite result. */
     memset(&st, 0, sizeof(st));
     inf = sf_div(one, zero, SF_BINARY64, &st);
     T_ASSERT_EQ_INT(t, (int)inf.cls, (int)SF_INF);
