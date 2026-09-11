@@ -1398,6 +1398,27 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                               ? fit(s, e->sem_type, 0 - a.i)
                               : a.i);
         }
+        if ((e->op == SEMA_BUILTIN_FFS || e->op == SEMA_BUILTIN_FFSL ||
+             e->op == SEMA_BUILTIN_FFSLL) &&
+            e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
+            callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
+            ConstValue a = eval(s, e->args[0], m);
+            u32 bit = 1;
+
+            /* The argument already carries the exact signed prototype type.
+             * Interpret that target-width two's-complement image as bits:
+             * zero is defined to return zero, and every other value returns
+             * one plus the number of trailing zero bits. */
+            if (a.kind != CV_INT)
+                return cv_error();
+            if (a.i == 0)
+                return cv_int(s, e->sem_type, 0);
+            while ((a.i & 1) == 0) {
+                a.i >>= 1;
+                bit++;
+            }
+            return cv_int(s, e->sem_type, bit);
+        }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);
 
