@@ -850,6 +850,41 @@ void test_sema_builtin_popcount_family_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert((__builtin_clrsb)(0) == 31, \"zero\"); "
+        "_Static_assert(__builtin_clrsb(-1) == 31, \"minus one\"); "
+        "_Static_assert(__builtin_clrsb(1) == 30, \"positive\"); "
+        "_Static_assert(__builtin_clrsb(-2) == 30, \"negative\"); "
+        "_Static_assert(__builtin_clrsbl(1L << 40) == 22, \"long width\"); "
+        "_Static_assert(__builtin_clrsbll(-9223372036854775807LL - 1LL) == 0, "
+        "\"long long minimum\"); "
+        "_Static_assert(__builtin_clrsb(0x100000000LL) == 31, "
+        "\"prototype conversion\"); "
+        "_Static_assert(_Generic(__builtin_clrsb(1), int: 1, default: 0), "
+        "\"clrsb type\"); "
+        "_Static_assert(_Generic(__builtin_clrsbl(1L), int: 1, default: 0), "
+        "\"clrsbl type\"); "
+        "_Static_assert(_Generic(__builtin_clrsbll(1LL), int: 1, default: 0), "
+        "\"clrsbll type\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Explicit builtins fold only when their converted operand is constant. */
+    run_sema_opts(&f,
+                  "int value; _Static_assert(__builtin_clrsb(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
 {
     SemaFix f;
