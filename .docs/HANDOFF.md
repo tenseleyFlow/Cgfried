@@ -195,12 +195,14 @@ fifty target-complete PASS keys across five files. PR #108's
 are merged as `2ba3ea45`, publishing twenty target-complete PASS keys across
 two files. PR #109's `__builtin_popcount`/`popcountl`/`popcountll` family is
 merged as `1b015704`, publishing thirty target-complete PASS keys across three
-files. The current PR #110 implements the
-`__builtin_clrsb`/`clrsbl`/`clrsbll` family. No standalone imported test is
-unlocked until the independent parity family lands, so the target-complete
-ratchet correctly remains at 30,860 PASS keys (30,863 lines), with 3,180
-classified failures, 24 applied decisions, two deliberately retained stale
-decisions, no live repair rows, and zero unbucketed or unresolved cells.
+files. PR #110's `__builtin_clrsb`/`clrsbl`/`clrsbll` family is merged as
+`db681380`; no standalone imported test was unlocked. The current
+`s56.16-builtin-parity-family` tranche implements `__builtin_parity`,
+`parityl`, and `parityll`, publishing ten target-complete
+`builtin-bitops-1.c` cells. Its ratchet contains 30,870 PASS keys (30,873
+lines), with 3,170 classified failures, 24 applied decisions, two deliberately
+retained stale decisions, no live repair rows, and zero unbucketed or
+unresolved cells.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -4968,8 +4970,87 @@ and green post-publication CI.
   normally and once under ASan+UBSan at 5,000 iterations; the crash ledger is
   clean. No standalone imported clrsb candidate exists: the combined fixture
   remains independently parity-blocked, so this tranche must not alter the
-  committed PASS/triage ratchet. Fresh standard CI, bootstrap, and exact
-  synthetic-merge native-ARM evidence remain required before merge.
+  committed PASS/triage ratchet. Final standard
+  [run 34583675383](https://github.com/tenseleyFlow/Cgfried/actions/runs/34583675383),
+  bootstrap
+  [runs 34583671931](https://github.com/tenseleyFlow/Cgfried/actions/runs/34583671931)
+  and
+  [34583675819](https://github.com/tenseleyFlow/Cgfried/actions/runs/34583675819),
+  and exact synthetic-merge native-ARM
+  [run 34583694904](https://github.com/tenseleyFlow/Cgfried/actions/runs/34583694904)
+  are green. The final x86 and ARM streams contain 20,325 matrix rows, name
+  synthetic revision `6e0b79f787b654c20a0b0a323aae3be3c5d3483b`, share common
+  provenance, pass the unchanged ratchet, and have SHA-256 values
+  `d682d26f32bfd82d98fd9cc6378ee2733041a1b103abbc1df650e116b65803a4`
+  and `825cd8b22ee0b61e501e2cb84478116d7a94e41f53e4d19480d92a58b33c0819`.
+  PR #110 merged as `db681380`; the actual merge has parents `1b015704` and
+  `b9e0b951` and tree `88bf36eb5bace7e961323f0f89d375920f3aec4d`,
+  byte-identical to the tested synthetic merge.
+- The current `s56.16-builtin-parity-family` tranche implements
+  `__builtin_parity`, `__builtin_parityl`, and `__builtin_parityll` with exact
+  unsigned `int`, `long`, and `long long` parameter conversions and common
+  `int` results. Explicit calls fold as integer constant expressions at the
+  converted target width, including zero. Runtime lowering evaluates its
+  operand exactly once, reuses the target-neutral population-count reduction,
+  and masks the resulting `int` count to its low bit. It requires neither
+  libc symbols nor new IR/backend opcodes.
+
+  Focused normal and ASan+UBSan semantic/lowering coverage is green at two
+  tests and twenty-three assertions. All twenty-three builtin fixtures pass
+  in both configurations. Full ordinary and sanitizer unit runs reach the
+  unchanged eight Apple host-assumption failures at 898 tests and 4,328,856
+  assertions, with both new tests passing. The runtime fixture passes Cgfried
+  and Apple Clang at O0/O1/O2/O3/Os, all five supported Cgfried targets
+  compile it at all five optimization levels, and 4,096 deterministic inputs
+  per family agree with an independent shift-and-XOR reference. The original,
+  unmodified `builtin-bitops-1.c` now executes successfully under Cgfried at
+  all five optimization levels with every bit-operation family using its real
+  builtin path.
+
+  Pinned clang-format 22, pristine imports, all static seams and policy gates,
+  2,000-case normal and sanitizer frontend fuzzing, 5,000-case IR fuzzing, and
+  both 2,000-case preprocessor fuzz lanes are green. The frontend mutation
+  digest is intentionally repinned to `2df0f733d497d27c`, reproduced twice
+  normally and once under ASan+UBSan at 5,000 iterations; the crash ledger is
+  clean.
+
+  Pre-publication x86
+  [run 34630427253](https://github.com/tenseleyFlow/Cgfried/actions/runs/34630427253)
+  and exact synthetic-merge native-ARM
+  [run 34630440552](https://github.com/tenseleyFlow/Cgfried/actions/runs/34630440552)
+  each contain 20,325 matrix rows and name revision
+  `738fa07e5769c2d817c6053ccb6ecc1a3fe4741e`. They share compiler-source
+  SHA-256 `df358b363bac6cb5eae3d70cfbb98c7d89e719a4812ef1fe8ded89357388bba2`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `d91e40df8572a5e1aa3b417dfd7e1e65516f95d67e0cda48b74fb8bacbe926dc`
+  and `6c2cbd3d2b20105fd47a00dc1a8fd51175e60e3f4977c910185010fef8e8a225`.
+  Each gate rejects only its five unpublished `builtin-bitops-1.c` PASS
+  cells, with no old-PASS regression. Every non-ratchet standard and
+  native-ARM job is green, including the 100,000-case sanitizer-backed
+  frontend fuzz lane. Pre-publication bootstrap
+  [runs 34630423540](https://github.com/tenseleyFlow/Cgfried/actions/runs/34630423540)
+  and
+  [34630427125](https://github.com/tenseleyFlow/Cgfried/actions/runs/34630427125)
+  are green.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly ten PASS keys and reduces the pre-triaged `gcc-builtin` class from
+  1,010 to 1,000 cells. The resulting ratchet has 30,870 PASS keys (30,873
+  lines), 3,170 classified failures across 32 buckets, 24 applied decisions,
+  two deliberately retained stale decisions, no live repair rows, and zero
+  unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `752dd12d09442a577f66a74f20d6e94f58e44e7c0013405b361efe1cc21a4e81`
+  and `15115a0843bc67a57ed091bbf977ca09620cb79434cb51e88b331614daa032cb`.
+  Fresh post-publication standard CI, bootstrap, and exact synthetic-merge
+  native-ARM evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -4,5 +4,5 @@
 // ERROR_EXPECTED: is not a builtin this compiler implements
 int f(void)
 {
-    return __builtin_parity(8u);
+    return __builtin_object_size((void *)0, 0);
 }
