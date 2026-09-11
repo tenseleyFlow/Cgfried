@@ -520,6 +520,44 @@ void test_lower_builtin_clz_ctz_family(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_popcount_family(TestCtx *t)
+{
+    static const char calls[] =
+        "unsigned source_i(void); unsigned long source_l(void); "
+        "unsigned long long source_ll(void); int use(void) { return "
+        "__builtin_popcount(source_i()) + __builtin_popcountl(source_l()) + "
+        "__builtin_popcountll(source_ll()); }\n";
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower_opts(&f, calls, STD_C17, true));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @source_i()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_l()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_ll()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @popcount("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @popcountl("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @popcountll("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i64"), 12);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "trunc i64"), 2);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<popcount-family>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f,
+                               "unsigned long long source(void); int use(void) "
+                               "{ return __builtin_popcount(source()) + "
+                               "__builtin_popcountl(source()); }\n",
+                               STD_C89, true));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 2);
+    T_ASSERT(t, strstr(txt(&f), "trunc i64") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i32"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "lshr i64"), 6);
+    low_free(&f);
+}
+
 void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
 {
     LowFix f;

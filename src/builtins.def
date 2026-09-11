@@ -77,6 +77,11 @@ B(ctz, CTZ, 1, BK_INT)
 B(ctzl, CTZL, 1, BK_INT)
 B(ctzll, CTZLL, 1, BK_INT)
 
+/* population counts over the exact unsigned parameter width */
+B(popcount, POPCOUNT, 1, BK_INT)
+B(popcountl, POPCOUNTL, 1, BK_INT)
+B(popcountll, POPCOUNTLL, 1, BK_INT)
+
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
 B(huge_val, HUGE_VAL, 0, BK_DOUBLE)
 B(huge_valf, HUGE_VALF, 0, BK_FLOAT)
