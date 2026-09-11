@@ -5118,8 +5118,40 @@ and green post-publication CI.
   The frontend mutation digest is intentionally repinned to
   `226557d4090b8ef5`, reproduced twice normally and once under ASan+UBSan; the
   crash ledger is clean. Matching pre-publication x86 and exact-revision
-  native-ARM streams are required before publishing the target-complete
-  ratchet.
+  native-ARM streams gate the target-complete ratchet. Standard
+  [run 34644320166](https://github.com/tenseleyFlow/Cgfried/actions/runs/34644320166)
+  completed with nineteen successful jobs, one policy skip, and only the
+  expected unpublished-PASS failure in `torture-x86`; its 100,000-case
+  sanitizer-backed frontend fuzz lane is green. Exact synthetic-merge nightly
+  [run 34644351087](https://github.com/tenseleyFlow/Cgfried/actions/runs/34644351087)
+  completed with fourteen successful jobs and only the corresponding expected
+  `arm64-native` ratchet failure. Branch push/PR bootstrap
+  [runs 34644317281](https://github.com/tenseleyFlow/Cgfried/actions/runs/34644317281)
+  and
+  [34644320240](https://github.com/tenseleyFlow/Cgfried/actions/runs/34644320240),
+  plus exact-merge bootstrap
+  [run 34644353472](https://github.com/tenseleyFlow/Cgfried/actions/runs/34644353472),
+  are green.
+
+  Both evidence streams contain 20,325 data rows at exact synthetic merge
+  `b7939deca0b32ee04f5a520813f4647bb1cb93d3` and share compiler-source,
+  harness, torture-manifest, and c-testsuite-manifest provenance. X86 and ARM
+  stream SHA-256 values are respectively
+  `c73365889f602463bc4f98f09ca209f8f2987b4d6d7632160f9ccf4c5e3edb02`
+  and
+  `20e05ef55359307d95259c6b6678e7675fdd795aa0ecd4f410bcd68338367bc0`.
+  Each target has exactly 65 new PASS keys, no old-PASS regression, and zero
+  ICE rows. The atomic publisher consumes the pair byte-identically in either
+  target order and adds exactly 130 PASS keys. The resulting ratchet has
+  31,000 PASS keys (31,003 lines), 3,040 classified failures across 32
+  buckets, 24 applied decisions, two deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `457304cf14741d1c1e3b90c4f8b99e74c7bc84385dad373579ba2f277d905582`
+  and
+  `40a6d50d276e64cc3b65ff1bb84c9f4d865345d443f075e6029bdd7b10f1583f`.
+  Fresh post-publication standard, bootstrap, and exact-merge native-ARM CI
+  must be green before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
