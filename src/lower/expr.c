@@ -2418,6 +2418,30 @@ static IrOperand lower_parity(Lower *lo, AstNode *arg)
                                          ir_op_iconst(IRT_I32, 1)));
 }
 
+/* Encode a nonfinite value in the SOURCE TARGET's floating representation.
+ * This is deliberately the same Sf -> bits boundary used for literals: long
+ * double is x87-80 on x86, IEEE binary128 on arm64-linux, and binary64 on
+ * arm64-macos. Hardcoding any one image here would silently compile correctly
+ * only when the host happened to match the target. */
+static IrOperand lower_special_float_constant(Lower *lo, Type *type,
+                                              SfClass cls)
+{
+    Sf value;
+    SfFormat format = constexpr_format_of(lo->sema, type);
+    uint8_t bits[16];
+    u64 low = 0, high = 0;
+    int i;
+
+    memset(&value, 0, sizeof(value));
+    value.cls = (uint8_t)cls;
+    sf_to_bits(value, format, bits);
+    for (i = 0; i < 8; i++)
+        low |= (u64)bits[i] << (i * 8);
+    for (i = 8; i < 16; i++)
+        high |= (u64)bits[i] << ((i - 8) * 8);
+    return ir_op_fconst(lower_irtype(lo, type), low, high);
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2657,25 +2681,21 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
                 IRT_I32, (cv.kind == CV_INT || cv.kind == CV_FLOAT) ? 1 : 0);
         }
         return true;
-    /* IEEE bit patterns, written as bits — never as a host double
-     * (the no-host-FPU law: these are the same values Sprint 15's
-     * softfloat produces, and a host literal would be a second source
-     * of truth). Sf represents NaN classification rather than payload bits,
-     * so every accepted __builtin_nan payload spelling uses this canonical
-     * quiet-NaN image in both constexpr and runtime lowering. */
+    /* Sf represents NaN classification rather than payload bits, so every
+     * accepted __builtin_nan* payload spelling uses the target format's
+     * canonical quiet-NaN image in constexpr and runtime lowering. */
     case SEMA_BUILTIN_HUGE_VAL:
-    case SEMA_BUILTIN_INF:
-        *out = ir_op_fconst(IRT_F64, 0x7ff0000000000000ULL, 0);
-        return true;
     case SEMA_BUILTIN_HUGE_VALF:
+    case SEMA_BUILTIN_HUGE_VALL:
+    case SEMA_BUILTIN_INF:
     case SEMA_BUILTIN_INFF:
-        *out = ir_op_fconst(IRT_F32, 0x7f800000ULL, 0);
+    case SEMA_BUILTIN_INFL:
+        *out = lower_special_float_constant(lo, e->sem_type, SF_INF);
         return true;
     case SEMA_BUILTIN_NAN:
-        *out = ir_op_fconst(IRT_F64, 0x7ff8000000000000ULL, 0);
-        return true;
     case SEMA_BUILTIN_NANF:
-        *out = ir_op_fconst(IRT_F32, 0x7fc00000ULL, 0);
+    case SEMA_BUILTIN_NANL:
+        *out = lower_special_float_constant(lo, e->sem_type, SF_NAN);
         return true;
     }
     return false;

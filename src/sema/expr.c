@@ -1437,6 +1437,9 @@ static AstNode *expr_call(Sema *s, AstNode *e)
             case BK_FLOAT:
                 e->sem_type = type_basic(TY_FLOAT);
                 break;
+            case BK_LDOUBLE:
+                e->sem_type = type_basic(TY_LDOUBLE);
+                break;
             case BK_LLONG:
                 e->sem_type = type_basic(TY_LLONG);
                 break;
