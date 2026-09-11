@@ -4543,6 +4543,72 @@ and green post-publication CI.
   respectively
   `f974d2d930aa246c80aec278326b93d2cdc33bb865f341f6c07263893eac1deb`
   and `fd22c9b96ab9d0bd1460dace379b0824440dd2b2fdbd53d4f9b69951ca14a127`.
+  Final post-publication standard
+  [run 34543571287](https://github.com/tenseleyFlow/Cgfried/actions/runs/34543571287),
+  bootstrap
+  [runs 34543567211](https://github.com/tenseleyFlow/Cgfried/actions/runs/34543567211)
+  and
+  [34543571100](https://github.com/tenseleyFlow/Cgfried/actions/runs/34543571100),
+  and exact synthetic-merge native-ARM
+  [run 34543607427](https://github.com/tenseleyFlow/Cgfried/actions/runs/34543607427)
+  are green. PR #104 merged as `caba647c`.
+- The current `s56.10-builtin-exit` tranche (PR #105) promotes
+  `__builtin_exit` from the reserved-builtin refusal to a compiler-owned alias
+  with the hosted libc prototype `void (int)`. Sema applies the `int`
+  parameter conversion. Lowering emits a real `exit` call, retains
+  same-translation-unit symbol binding, and marks both internal and external
+  calls `noreturn` in IR. Source switch-flow analysis also treats the builtin
+  as terminating, avoiding a false implicit-fallthrough warning.
+
+  Focused normal and ASan+UBSan semantic, lowering, IR round-trip, and warning
+  coverage is green: three tests and 22 assertions. The executable fixture
+  pins status 7, exactly-once argument evaluation, dead-code termination, an
+  emitted libc call, and suppression of a false return-type warning. All
+  seventeen builtin fixtures pass in normal and sanitized Apple-silicon
+  builds. Across O0/O1/O2/O3/Os, twenty native Apple compile-only cells and
+  twenty native compile-and-execute cells pass. The dual-Linux-target source
+  probe is 70/80: seven files advance through `__builtin_exit` at every level,
+  while the ten `pr120250.c` cells uniformly reach the already-tiered-out
+  computed-goto refusal. The ratchet-eligible subset is exactly sixty cells:
+  `961203-1.c` retains its pre-existing assemble-policy skip and `pr120250.c`
+  retains its label-values requirement skip. The complete native unit run
+  reaches the unchanged eight-failure Apple host-assumption baseline at 886
+  tests and 4,328,712 assertions, with all three new tests passing. Pinned
+  clang-format 22, imports, static seams and policy gates, normal and sanitized
+  frontend fuzz, and the crash ledger are green. The new fixture intentionally
+  repins the deterministic frontend mutation digest to `a41ef5616f0382ae`,
+  reproduced twice normally and once under ASan+UBSan at 5,000 iterations.
+
+  The retained x86 stream from
+  [run 34547650663](https://github.com/tenseleyFlow/Cgfried/actions/runs/34547650663)
+  and exact synthetic-merge native-ARM stream from
+  [run 34547724837](https://github.com/tenseleyFlow/Cgfried/actions/runs/34547724837)
+  each contain 20,325 matrix rows and name revision
+  `58c1804d01395c1e7631d7d2930a8394b9eb899e`. They share compiler-source
+  SHA-256 `4d018ea81a373461390e80333d54facd2d39ab8054240280f43583b24cc082eb`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `a24646f5fc7b9b78bc54deb63faaa40c7ac635ae43dad4cbdfa59b9c2d37378e`
+  and `27ea33348358c7f34ff75e4a3d6b74e5045310d62c029ff0f897fe0f85da4fe8`.
+  Each gate rejects only its thirty unpublished candidate PASS cells across
+  `20000105-1.c`, `981001-1.c`, `pr22398.c`, `20001111-1.c`, `pr103052.c`,
+  and `pr115033.c`, with no old-PASS regression.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly sixty PASS keys and reduces the pre-triaged `gcc-builtin` class from
+  1,220 to 1,160 cells. The resulting ratchet has 30,710 PASS keys (30,713
+  lines), 3,330 classified failures across 32 buckets, 24 applied decisions,
+  two deliberately retained stale decisions, no live repair rows, and zero
+  unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `0141692429fb4e15d4664ce70f549589ef67c8c115fea5a1f5af1b8892192252`
+  and `d8a60418441a636b4dbe35162ddb163128e14c348afc96982c66b6c1e5d8193e`.
   Fresh post-publication standard CI, bootstrap, and exact-head native-ARM
   evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
