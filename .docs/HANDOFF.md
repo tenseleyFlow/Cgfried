@@ -204,7 +204,7 @@ decisions, two deliberately retained stale decisions, no live repair rows,
 and zero unbucketed or unresolved cells. PR #112's
 `s56.17-builtin-fp-compare-family` tranche is merged as `f8f6e463`; it
 publishes 130 target-complete floating-comparison PASS keys and leaves the
-ratchet at 31,000 PASS keys (31,003 lines). The current
+ratchet at 31,000 PASS keys (31,003 lines). PR #113's current
 `s56.18-builtin-fp-long-double-constants` tranche implements
 `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl` with exact
 target-format lowering and repairs the x87/GVN noreturn-predecessor secondary
@@ -5166,7 +5166,7 @@ and green post-publication CI.
   `3fb6e322` and `0037b73a` and tree
   `6732f45d4255c3a6f99efcd15080645885e6fe89`, byte-identical to tested
   synthetic merge `4d07088de080d5b1360f8dff20e50ee1600208a7`.
-- The current `s56.18-builtin-fp-long-double-constants` tranche completes the
+- PR #113's current `s56.18-builtin-fp-long-double-constants` tranche completes the
   long-double suffixes for the existing floating constant builtins:
   `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl`. The builtin
   table now has an explicit `BK_LDOUBLE` result kind; sema gives each call the
