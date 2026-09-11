@@ -4644,7 +4644,7 @@ and green post-publication CI.
   static seams and policy gates, normal and sanitized frontend fuzz, and the
   crash ledger are green. The new fixture intentionally repins the
   deterministic frontend mutation digest to `cbb0e1444b465384`, reproduced
-  twice normally and once under ASan+UBSan at 2,000 iterations.
+  twice normally and once under ASan+UBSan at 5,000 iterations.
 
   Pre-publication x86
   [run 34555435138](https://github.com/tenseleyFlow/Cgfried/actions/runs/34555435138)
