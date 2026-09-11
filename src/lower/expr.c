@@ -2460,9 +2460,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy: direct libc
- * calls by name. All nine have only scalar arguments and no aggregate result,
- * so the abstract-call machinery (aggregate copies, sret) is not needed here.
+/* exit/malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy: direct
+ * libc calls by name. All ten have only scalar arguments and no aggregate
+ * result, so the abstract-call machinery (aggregate copies, sret) is not
+ * needed here.
  */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -2470,16 +2471,18 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         u16 marker;
         const char *name;
         IrType ret;
+        bool noreturn;
     } libc[] = {
-        {SEMA_BUILTIN_MALLOC, "malloc", IRT_PTR},
-        {SEMA_BUILTIN_FREE, "free", IRT_VOID},
-        {SEMA_BUILTIN_MEMCPY, "memcpy", IRT_PTR},
-        {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR},
-        {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR},
-        {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32},
-        {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64},
-        {SEMA_BUILTIN_STRCMP, "strcmp", IRT_I32},
-        {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR},
+        {SEMA_BUILTIN_EXIT, "exit", IRT_VOID, true},
+        {SEMA_BUILTIN_MALLOC, "malloc", IRT_PTR, false},
+        {SEMA_BUILTIN_FREE, "free", IRT_VOID, false},
+        {SEMA_BUILTIN_MEMCPY, "memcpy", IRT_PTR, false},
+        {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR, false},
+        {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR, false},
+        {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32, false},
+        {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64, false},
+        {SEMA_BUILTIN_STRCMP, "strcmp", IRT_I32, false},
+        {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR, false},
     };
     IrOperand args[3];
     ValueId call;
@@ -2501,11 +2504,15 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
             if (strcmp(lo->m->funcs[i].name, libc[k].name) == 0) {
                 call = ir_build_call(&lo->b, libc[k].ret, FUNCREF_INTERNAL, i,
                                      args, n);
+                if (libc[k].noreturn)
+                    ir_call_mark_noreturn(&lo->b);
                 return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                                : ir_op_value(lo->fn, call);
             }
         call = ir_build_call(&lo->b, libc[k].ret, FUNCREF_EXTERNAL,
                              ir_sym(lo->m, libc[k].name), args, n);
+        if (libc[k].noreturn)
+            ir_call_mark_noreturn(&lo->b);
         return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                        : ir_op_value(lo->fn, call);
     }
@@ -2837,10 +2844,10 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
 
         if (lower_simple_builtin(lo, e, &bo))
             return bo;
-        /* The mem/str builtins ARE their libc functions in v0.1.0
-         * (inline expansion is Phase 7/11). They have no Symbol — sema
-         * recognized the name without declaring anything — so the call
-         * is built directly against the libc symbol NAME. */
+        /* Libc-backed builtins ARE their libc functions in v0.1.0 (inline
+         * expansion for the mem/str subset is Phase 7/11). They have no
+         * Symbol — sema recognized the name without declaring anything — so
+         * the call is built directly against the libc symbol NAME. */
         return lower_libc_builtin(lo, e);
     }
 
