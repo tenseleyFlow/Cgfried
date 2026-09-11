@@ -241,6 +241,45 @@ void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_malloc_free_calls_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "unsigned char allocation_size(void); "
+                              "char *released_pointer(void); "
+                              "void *allocate(void) { return "
+                              "__builtin_malloc(allocation_size()); } "
+                              "void release(void) { "
+                              "__builtin_free(released_pointer()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i8 @allocation_size()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @released_pointer()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @malloc(i64"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @free(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_malloc"), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_free"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<alloc-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static unsigned char storage[16]; "
+                              "static void *malloc(unsigned long n) { "
+                              "return n ? storage : (void *)0; } "
+                              "static void free(void *p) { (void)p; } "
+                              "void *use(unsigned long n, void *p) { "
+                              "void *q = __builtin_malloc(n); "
+                              "__builtin_free(p); return q; }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @malloc(i64"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @free(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<alloc-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
 {
     static const char declared_call[] =

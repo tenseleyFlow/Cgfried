@@ -327,6 +327,52 @@ void test_sema_builtin_strcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_malloc_free_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_malloc((unsigned char)8), "
+             "void *: 1, default: 0), \"malloc result is void pointer\"); "
+             "void f(char *p, unsigned char n) { "
+             "void *q = __builtin_malloc(n); "
+             "__builtin_free(p); __builtin_free(q); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "void *f(void) { return __builtin_malloc(); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void *f(void) { return __builtin_malloc(1, 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void) { __builtin_free(); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void *p) { __builtin_free(p, p); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void *f(struct S s) { "
+             "return __builtin_malloc(s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S s) { "
+             "__builtin_free(s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_extern_void_symbol(TestCtx *t)
 {
     SemaFix f;
