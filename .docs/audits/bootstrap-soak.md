@@ -38,9 +38,13 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 1/30 consecutive distinct UTC dates green.** The current strict
-streak started on 2026-09-09. Matching-head x86 and ARM runs at `1a7bbe80`
-passed both optimization levels and retained all four required artifacts.
+**RUNNING: 3/30 consecutive distinct UTC dates green.** The current strict
+streak started on 2026-09-09. Matching-head x86 and ARM runs passed both
+optimization levels and retained all four required artifacts on September
+9--11. The September 11 scheduled run did not start; same-date
+`workflow_dispatch` recovery completed the full hosted lattice before the UTC
+date ended, as the gate contract permits for a pre-bootstrap infrastructure
+failure.
 
 The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
 reset on 2026-08-18 because the required x86 O0 job was cancelled during
@@ -51,7 +55,8 @@ scheduled native ARM pair but no x86 bootstrap run anywhere on that UTC date,
 so it reset the streak. September 6 passed the complete weekly lattice.
 September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
 did not run at one matching commit; neither date continues a strict
-matching-head streak. September 9 is therefore the new day 1. If uninterrupted,
+matching-head streak. September 9 is therefore the new day 1. September 10
+and the eligible September 11 recovery are days 2 and 3. If uninterrupted,
 day 30 is 2026-10-08.
 
 The workflow previously scheduled only ARM every day and obtained x86 evidence
@@ -115,20 +120,43 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-09-07 | `055566ae00732ce34ffede96172f10f6208d8526` | **RESET — no same-date matching-head x86 run** | **RESET** | PASS | PASS | N/A — not due | [ARM run 34099840921](https://github.com/tenseleyFlow/Cgfried/actions/runs/34099840921) + [prior-date matching x86 run 34027940467](https://github.com/tenseleyFlow/Cgfried/actions/runs/34027940467) |
 | 2026-09-08 | `6fb9b7ff4aa5a99050059d018e01c2d8a6dfe6e0` | **RESET — no same-date matching-head x86 run** | **RESET** | PASS | PASS | N/A — not due | [ARM run 34202545045](https://github.com/tenseleyFlow/Cgfried/actions/runs/34202545045) + [prior-date matching x86 run 34146266967](https://github.com/tenseleyFlow/Cgfried/actions/runs/34146266967) |
 | 2026-09-09 | `1a7bbe80bbb911004513baf29cc3682277e8bfa5` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 34318940375](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375) + [ARM run 34327498365](https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365) |
+| 2026-09-10 | `4eb240b63d7f9bd1b6d48bbb21b10caf20ab43da` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 34453507793](https://github.com/tenseleyFlow/Cgfried/actions/runs/34453507793) |
+| 2026-09-11 | `5f5b0e664460edf4e186bfe43e2beea27f34bedb` | PASS | PASS + repro PASS | PASS | PASS | PASS | [recovery run 34569061464](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464) |
 
-The August 29–September 9 reconciliation uses GitHub's workflow, job, and
+The August 29–September 11 reconciliation uses GitHub's workflow, job, and
 retained-artifact metadata. Every qualifying non-Sunday pair retains
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
 `sprint58-bootstrap-arm64-linux-native-O0`, and
 `sprint58-bootstrap-arm64-linux-native-O2`. Full Sunday runs `33304101150`
-and `34020937870` retain those four plus
+and `34020937870`, plus the September 11 full-lattice recovery run
+`34569061464`, retain those four plus
 `sprint58-bootstrap-arm64-cross-input`,
 `sprint58-bootstrap-arm64-cross-native`,
 `sprint58-bootstrap-arm64-cross-x86`, and
 `sprint58-bootstrap-arm64-cross-final`. All applicable jobs and workflows are
 green. This reconciliation does not claim a new full payload-rehash audit for
 those dates.
+
+The September 11 recovery retained all eight expected artifacts. GitHub's
+artifact API reports SHA-256 digests
+`6842bcc63fd4667f4be96c88f87c3827ded57c532990a16fddb811782b908bbd`
+(x86 O0),
+`089763997c6d268ef763613382ff11bd3a6df2164bd5391ff2d5eda8fe9a44ea`
+(x86 O2),
+`685475d90a57cbfa65448074562796d9f4c42502e2280d2356d0ed80e8484a95`
+(ARM O0),
+`89a6c21cfa464594760d12bead4670ed2c16f9706d4439090d9e5e7ff0e53e41`
+(ARM O2),
+`5438601d28485ed92d8c1899af713c8d7f5dcdc11d010f91c434b50bc18e5814`
+(cross input),
+`e0e91a8f47c11b5947ba678c129b2b4d95f6444b0d31e1fb10a79d9690acce0d`
+(native cross source),
+`5820e6f9a33fdab2891ec9ccf568e609f90795d8874962d8c9ad3788173dce46`
+(x86 cross source), and
+`b164258e0e89d97fe7cbf075e04b14e894b436c310d50935f2707662bff24404`
+(final comparison). This records API metadata and successful job conclusions;
+it does not claim a separate full payload-rehash audit for that date.
 
 Manual full-lattice checkpoint [run
 32603828216](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
