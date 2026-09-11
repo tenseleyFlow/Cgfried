@@ -254,6 +254,8 @@ static bool stmt_is_noreturn_call(AstNode *st)
     e = unwrap_expr(st->lhs);
     if (!e || e->kind != AST_EXPR_CALL)
         return false;
+    if (e->op == SEMA_BUILTIN_EXIT)
+        return true;
     callee = unwrap_expr(e->lhs);
     return callee && callee->kind == AST_EXPR_IDENT && callee->sym &&
            (callee->sym->func_specs & AST_FS_NORETURN);

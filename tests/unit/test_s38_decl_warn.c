@@ -192,3 +192,25 @@ void test_s38_cross_target_portability_warnings(TestCtx *t)
         s38_free(&f);
     }
 }
+
+void test_s38_builtin_exit_terminates_switch_flow(TestCtx *t)
+{
+    static const char *const flags[] = {"implicit-fallthrough=5"};
+    S38Fix f;
+
+    s38_run(&f,
+            "int f(int x) { switch (x) { case 0: __builtin_exit(0); "
+            "case 1: return 1; } return 2; }\n",
+            STD_GNU17, flags, 1);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings[WARN_IMPLICIT_FALLTHROUGH], 0);
+    s38_free(&f);
+
+    s38_run(&f,
+            "void ordinary(void); int f(int x) { switch (x) { "
+            "case 0: ordinary(); case 1: return 1; } return 2; }\n",
+            STD_GNU17, flags, 1);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings[WARN_IMPLICIT_FALLTHROUGH], 1);
+    s38_free(&f);
+}
