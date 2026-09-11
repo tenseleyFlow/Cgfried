@@ -381,6 +381,63 @@ void test_lower_hosted_llabs_builtin_boundary(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_hosted_abs_family_builtin_boundary(TestCtx *t)
+{
+    static const char declared_calls[] =
+        "int source_i(void); long source_l(void); "
+        "int abs(int); long labs(long); "
+        "long use(void) { return abs(source_i()) + labs(source_l()); }\n";
+    bool ok;
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower_opts(&f, declared_calls, STD_C89, false));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @source_i()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source_l()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @abs("), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @labs("), 0);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i64") != NULL);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), " = select "), 2);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<abs-family>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_opts(&f, declared_calls, STD_C17, true));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @abs("), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @labs("), 1);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i32") == NULL);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt i64") == NULL);
+    low_free(&f);
+
+    T_ASSERT(t,
+             run_lower_opts(&f,
+                            "long abs(long); int labs(int); "
+                            "long use(long x) { return abs(x) + labs(1); }\n",
+                            STD_C17, false));
+    T_ASSERT(t, strstr(txt(&f), "call i64 @abs(i64") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @labs(i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "icmp slt") == NULL);
+    low_free(&f);
+
+    ok = run_lower_opts(&f,
+                        "long long source(void); "
+                        "long use(void) { "
+                        "return __builtin_abs(source()) + "
+                        "__builtin_labs(source()); }\n",
+                        STD_C89, true);
+    T_ASSERT(t, ok);
+    if (ok) {
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @source()"), 2);
+        T_ASSERT(t, strstr(txt(&f), "trunc i64") != NULL);
+        T_ASSERT(t, strstr(txt(&f), "icmp slt i32") != NULL);
+        T_ASSERT(t, strstr(txt(&f), "icmp slt i64") != NULL);
+    }
+    low_free(&f);
+}
+
 void test_lower_inner_pointer_alignment_respects_ir_contract(TestCtx *t)
 {
     LowFix f;
