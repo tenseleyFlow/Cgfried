@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak 2026-09-10; compiler gaps 2026-09-11): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-11): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,9 +11,14 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 2/30 after required daily x86 evidence was absent on September 5
+at a strict 3/30 after required daily x86 evidence was absent on September 5
 and matching-head evidence was absent on September 7–8. It remains
-operationally OPEN. The matching-head September 10 scheduled x86/ARM
+operationally OPEN. The matching-head September 11 recovery
+[`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
+is full-lattice green at `5f5b0e66`; it completed all four required daily
+jobs plus reproducibility and cross-host comparison after the scheduled run
+failed to start, so it is an eligible same-date pre-bootstrap infrastructure
+recovery. The matching-head September 10 scheduled x86/ARM
 [run 34453507793](https://github.com/tenseleyFlow/Cgfried/actions/runs/34453507793)
 is green at `4eb240b6`. Matching-head September 9 x86/ARM runs
 [`34318940375`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375)
@@ -183,10 +188,13 @@ libc-compatible `__builtin_malloc`/`__builtin_free` pair is merged as
 #105's `__builtin_exit` tranche is merged as `77e8623a`, publishing sixty
 target-complete PASS keys across six files. PR #106's `__builtin_abs` and
 `__builtin_labs` tranche is merged as `9e4bcebe`, publishing fifty
-target-complete PASS keys across five files. The current PR #107 implements
-the `__builtin_ffs`/`ffsl`/`ffsll` family and publishes fifty target-complete
-PASS keys across five files. Its ratchet contains 30,810 PASS keys (30,813
-lines), with 3,230 classified failures, 24 applied decisions, two deliberately
+target-complete PASS keys across five files. PR #107's
+`__builtin_ffs`/`ffsl`/`ffsll` family is merged as `5f5b0e66`, publishing
+fifty target-complete PASS keys across five files. The current PR #108
+implements the `__builtin_clz`/`clzl`/`clzll` and
+`__builtin_ctz`/`ctzl`/`ctzll` families and publishes twenty target-complete
+PASS keys across two files. Its ratchet contains 30,830 PASS keys (30,833
+lines), with 3,210 classified failures, 24 applied decisions, two deliberately
 retained stale decisions, no live repair rows, and zero unbucketed or
 unresolved cells.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
@@ -659,7 +667,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 1/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 3/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -682,10 +690,14 @@ do not call the sprint closed until that operational obligation is complete.
   September 5 had no x86 bootstrap run. September 6 passed the full weekly
   lattice, but September 7–8 did not have same-date matching-head x86/ARM
   evidence. Matching-head September 9 runs `34318940375`/`34327498365` at
-  `1a7bbe80` are the new day 1. The daily-hosted automation repair now launches
-  all four required O0/O2 jobs together without depending on a push or fleet
-  host. Continue recording distinct UTC dates and every due weekly
-  cross/reproducibility result; any missing or red required run breaks the
+  `1a7bbe80` are the new day 1; scheduled run `34453507793` at `4eb240b6` is
+  day 2. The September 11 cron did not start, but same-date recovery run
+  `34569061464` at `5f5b0e66` completed all four daily jobs plus the full
+  reproducibility/cross-host lattice, making it eligible day 3 under the
+  pre-bootstrap infrastructure-recovery rule. The daily-hosted automation
+  repair now launches all four required O0/O2 jobs together without depending
+  on a push or fleet host. Continue recording distinct UTC dates and every due
+  weekly cross/reproducibility result; any missing or red required run breaks the
   streak. Supplemental manual run
   [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
   passed all seven jobs and retained all eight artifacts at exact head
@@ -4758,6 +4770,74 @@ and green post-publication CI.
   respectively
   `353cd0bf5a259de4d02689c4f3dcff25f5350ce60ce6990fee7a98bdd56a73e2`
   and `be5ef1d75e1d51b136e497a92c333c6bda8fbf506e254175d29a76c1bf1a640a`.
+  Final post-publication standard
+  [run 34564192459](https://github.com/tenseleyFlow/Cgfried/actions/runs/34564192459),
+  bootstrap
+  [runs 34564189923](https://github.com/tenseleyFlow/Cgfried/actions/runs/34564189923)
+  and
+  [34564192461](https://github.com/tenseleyFlow/Cgfried/actions/runs/34564192461),
+  and exact synthetic-merge native-ARM
+  [run 34564209210](https://github.com/tenseleyFlow/Cgfried/actions/runs/34564209210)
+  are green. The final x86 and ARM streams have SHA-256 values
+  `8e2542447148228c76a7ed01f76074d4d258b1864bda70b4c371bd93e1414dc3`
+  and `2da25f1254deadd6acba57e4e149397385bd34481db9c539dc030c154fff10f8`.
+  PR #107 merged as `5f5b0e66`; the actual merge has parents `9e4bcebe`
+  and `14e74cc0` and tree `7739692615263734e93324e3009265631a617be2`,
+  byte-identical to tested synthetic merge `0fad7254e8a77f7806d61382b71010cac543b08e`.
+- The current `s56.13-builtin-clz-ctz-family` tranche (PR #108) implements
+  `__builtin_clz`, `__builtin_clzl`, `__builtin_clzll`, `__builtin_ctz`,
+  `__builtin_ctzl`, and `__builtin_ctzll` with their exact unsigned parameter
+  conversions and common `int` result type. Explicit calls fold as integer
+  constant expressions at the target width. The GCC contract leaves zero
+  undefined; permanent tests therefore do not promise a zero result. Lowering
+  evaluates the operand exactly once and shares the target-neutral branchless
+  bit-scan IR introduced by the ffs tranche, requiring neither libc symbols nor
+  backend opcodes.
+
+  Focused normal and ASan+UBSan semantic/lowering coverage, all twenty builtin
+  fixtures in both configurations, and full ordinary/sanitizer unit runs are
+  green. The full runs reach the unchanged eight Apple host-assumption failures
+  at 892 tests and 4,328,786 assertions. The new runtime fixture passes Cgfried
+  and Apple Clang at O0/O1/O2/O3/Os; all five supported Cgfried targets compile
+  it at all five optimization levels. The two isolated upstream candidates,
+  `pr59743.c` and `pr37780.c`, pass all ten native compile/execute cells and all
+  twenty dual-Linux source cells. With only the later clrsb/popcount/parity
+  names routed to the fixture's own reference functions, the original
+  `builtin-bitops-1.c` executes successfully at all five optimization levels
+  while ffs/clz/ctz remain real Cgfried builtins. Pinned clang-format 22,
+  pristine imports, all static seams and policy gates, 2,000-case normal and
+  sanitizer frontend fuzzing, 5,000-case IR fuzzing, and both 2,000-case
+  preprocessor fuzz lanes are green. The frontend mutation digest is
+  `c14c752f7bdf503d`, stable twice normally and once under ASan+UBSan at 5,000
+  iterations; the crash ledger is clean.
+
+  Pre-publication x86 evidence and exact synthetic-merge native-ARM
+  [run 34567899175](https://github.com/tenseleyFlow/Cgfried/actions/runs/34567899175)
+  each contain 20,325 matrix rows and name revision
+  `41a3f222f526973d82383c2924829d8442013fd0`. They share compiler-source
+  SHA-256 `6509eaaa4862e6d01658add206c0d3e9e1ace6644272a19062052b545c2d9a1a`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `6fa9eceaf4e1a6bdaa9ee7c37f573dbfe7811e10ca9e86f5ad3994dc8cfeba51`
+  and `9993beda4e07aa520fe1bcb7c909772fece3af174aec52eac6a62e02297346fa`.
+  Each gate rejects only the ten unpublished candidate PASS cells, covering
+  the two files above at all optimization levels, with no old-PASS regression.
+
+  The atomic publisher consumes the explicit evidence pair in both target
+  orders and regenerates PASS plus triage byte-identically. Publication adds
+  exactly twenty PASS keys and reduces the pre-triaged `gcc-builtin` class
+  from 1,060 to 1,040 cells. The resulting ratchet has 30,830 PASS keys
+  (30,833 lines), 3,210 classified failures across 32 buckets, 24 applied
+  decisions, two deliberately retained stale decisions, no live repair rows,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `5c15c1cc0b0c6a57d217431ed10cf708bcd0dec9795b47f53a62ebc1df7dcb21`
+  and `c9bed730543b85afd656ca0f2eae561aa32898f80b5011c48a63a1512c15ebe8`.
   Fresh post-publication standard CI, bootstrap, and exact synthetic-merge
   native-ARM evidence remain required before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on

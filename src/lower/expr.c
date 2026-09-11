@@ -2269,6 +2269,73 @@ static void lower_va_builtin(Lower *lo, AstNode *e)
     }
 }
 
+/* Lower the integer bit-scan families with target-neutral shifts, compares,
+ * and selects. `leading` chooses the high or low half at each binary-search
+ * round; `one_based` distinguishes ffs from ctz. Every caller has an int
+ * result, while sema has already converted the operand to its exact prototype
+ * width. */
+static IrOperand lower_bit_scan(Lower *lo, AstNode *arg, bool leading,
+                                bool one_based)
+{
+    IrOperand original = lower_rvalue(lo, arg);
+    IrOperand value = original;
+    IrOperand result = ir_op_iconst(IRT_I32, one_based ? 1 : 0);
+    IrType type = (IrType)value.type;
+    unsigned width = ir_type_size(type) * 8;
+    unsigned step;
+
+    for (step = width / 2; step; step /= 2) {
+        ValueId choose;
+        IrOperand narrowed;
+        ValueId bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, result,
+                                   ir_op_iconst(IRT_I32, (i64)step));
+
+        if (leading) {
+            ValueId high = ir_build2(&lo->b, IR_LSHR, type, value,
+                                     ir_op_iconst(type, (i64)step));
+
+            narrowed = ir_op_value(lo->fn, high);
+            choose =
+                ir_build_icmp(&lo->b, ICMP_NE, narrowed, ir_op_iconst(type, 0));
+            value = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, choose),
+                                        narrowed, value));
+            result = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, choose),
+                                        result, ir_op_value(lo->fn, bumped)));
+        } else {
+            u64 mask = (1ull << step) - 1;
+            ValueId low = ir_build2(&lo->b, IR_AND, type, value,
+                                    ir_op_iconst(type, (i64)mask));
+            ValueId shifted = ir_build2(&lo->b, IR_LSHR, type, value,
+                                        ir_op_iconst(type, (i64)step));
+
+            choose = ir_build_icmp(&lo->b, ICMP_EQ, ir_op_value(lo->fn, low),
+                                   ir_op_iconst(type, 0));
+            narrowed = ir_op_value(lo->fn, shifted);
+            value = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, choose),
+                                        narrowed, value));
+            result = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, choose),
+                                        ir_op_value(lo->fn, bumped), result));
+        }
+    }
+    {
+        ValueId nonzero =
+            ir_build_icmp(&lo->b, ICMP_NE, original, ir_op_iconst(type, 0));
+        i64 zero_result = one_based ? 0 : (i64)width;
+
+        /* ffs defines zero as zero. clz/ctz leave zero undefined; choosing
+         * the operand width matches the folder and gives the branchless
+         * search a deterministic internal result. */
+        return ir_op_value(lo->fn,
+                           ir_build_select(&lo->b, ir_op_value(lo->fn, nonzero),
+                                           result,
+                                           ir_op_iconst(IRT_I32, zero_result)));
+    }
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2349,48 +2416,19 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     }
     case SEMA_BUILTIN_FFS:
     case SEMA_BUILTIN_FFSL:
-    case SEMA_BUILTIN_FFSLL: {
-        IrOperand original = lower_rvalue(lo, e->args[0]);
-        IrOperand value = original;
-        IrOperand result = ir_op_iconst(IRT_I32, 1);
-        IrType type = (IrType)value.type;
-        unsigned width = ir_type_size(type) * 8;
-        unsigned step;
-
-        /* Binary-search the first set bit with target-neutral integer IR.
-         * The source operand is evaluated once. Each round discards a known
-         * empty low half and adds that half's width to the one-based result.
-         * Running the same harmless search for zero keeps this branchless;
-         * the final select supplies ffs's defined zero result. */
-        for (step = width / 2; step; step /= 2) {
-            u64 mask = (1ull << step) - 1;
-            ValueId low = ir_build2(&lo->b, IR_AND, type, value,
-                                    ir_op_iconst(type, (i64)mask));
-            ValueId empty =
-                ir_build_icmp(&lo->b, ICMP_EQ, ir_op_value(lo->fn, low),
-                              ir_op_iconst(type, 0));
-            ValueId shifted = ir_build2(&lo->b, IR_LSHR, type, value,
-                                        ir_op_iconst(type, (i64)step));
-            ValueId bumped = ir_build2(&lo->b, IR_IADD, IRT_I32, result,
-                                       ir_op_iconst(IRT_I32, (i64)step));
-
-            value = ir_op_value(
-                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, empty),
-                                        ir_op_value(lo->fn, shifted), value));
-            result = ir_op_value(
-                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, empty),
-                                        ir_op_value(lo->fn, bumped), result));
-        }
-        {
-            ValueId nonzero =
-                ir_build_icmp(&lo->b, ICMP_NE, original, ir_op_iconst(type, 0));
-
-            *out = ir_op_value(
-                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, nonzero),
-                                        result, ir_op_iconst(IRT_I32, 0)));
-        }
+    case SEMA_BUILTIN_FFSLL:
+        *out = lower_bit_scan(lo, e->args[0], false, true);
         return true;
-    }
+    case SEMA_BUILTIN_CLZ:
+    case SEMA_BUILTIN_CLZL:
+    case SEMA_BUILTIN_CLZLL:
+        *out = lower_bit_scan(lo, e->args[0], true, false);
+        return true;
+    case SEMA_BUILTIN_CTZ:
+    case SEMA_BUILTIN_CTZL:
+    case SEMA_BUILTIN_CTZLL:
+        *out = lower_bit_scan(lo, e->args[0], false, false);
+        return true;
     case SEMA_BUILTIN_BSWAP16:
     case SEMA_BUILTIN_BSWAP32:
     case SEMA_BUILTIN_BSWAP64: {
