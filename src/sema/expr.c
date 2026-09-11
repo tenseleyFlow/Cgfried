@@ -1058,11 +1058,12 @@ static bool require_va_arg_pack_wrapper(Sema *s, AstNode *e,
     return true;
 }
 
-/* A plain hosted `llabs` call has compiler semantics only when the visible
- * declaration is the C library interface. An incompatible declaration or a
- * block object with that spelling remains an ordinary call, and requiring
- * external linkage keeps a TU-local helper under the programmer's control. */
-static bool is_llabs_builtin_decl(const Symbol *sym)
+/* A plain hosted integer-absolute-value call has compiler semantics only when
+ * the visible declaration is the matching C library interface. An
+ * incompatible declaration or a block object with that spelling remains an
+ * ordinary call, and requiring external linkage keeps a TU-local helper under
+ * the programmer's control. */
+static bool is_integer_abs_builtin_decl(const Symbol *sym, TypeKind kind)
 {
     const Type *ft;
 
@@ -1070,8 +1071,8 @@ static bool is_llabs_builtin_decl(const Symbol *sym)
         return false;
     ft = sym->type;
     return ft && ft->kind == TY_FUNC && ft->has_proto && !ft->variadic &&
-           ft->nparams == 1 && ft->base && ft->base->kind == TY_LLONG &&
-           ft->params[0] && ft->params[0]->kind == TY_LLONG;
+           ft->nparams == 1 && ft->base && ft->base->kind == kind &&
+           ft->params[0] && ft->params[0]->kind == kind;
 }
 
 static AstNode *expr_call(Sema *s, AstNode *e)
@@ -1103,9 +1104,20 @@ static AstNode *expr_call(Sema *s, AstNode *e)
              * emits the external call, so the alias is deliberately off. */
             builtin_suffix = "alloca";
         } else if (!s->lang->freestanding &&
+                   strcmp(direct_ident->name, "abs") == 0 &&
+                   is_integer_abs_builtin_decl(direct_sym, TY_INT)) {
+            /* abs and labs are hosted C89 library functions. A compatible
+             * external declaration remains a real symbol for address-taking,
+             * while a direct call uses the compiler builtin. */
+            builtin_suffix = "abs";
+        } else if (!s->lang->freestanding &&
+                   strcmp(direct_ident->name, "labs") == 0 &&
+                   is_integer_abs_builtin_decl(direct_sym, TY_LONG)) {
+            builtin_suffix = "labs";
+        } else if (!s->lang->freestanding &&
                    (s->lang->gnu_mode || std_is_c99_or_later(s->lang->std)) &&
                    strcmp(direct_ident->name, "llabs") == 0 &&
-                   is_llabs_builtin_decl(direct_sym)) {
+                   is_integer_abs_builtin_decl(direct_sym, TY_LLONG)) {
             /* llabs joined the hosted C library in C99; gcc also exposes it
              * in GNU89. Its compatible external declaration remains a real
              * symbol for address-taking, but a direct call uses the builtin
@@ -1294,17 +1306,25 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                /* BK_U* and BK_LLONG builtins have real prototypes, so their
-                 * arguments convert as if by assignment. That is OBSERVABLE:
-                 * __builtin_bswap16(0x11223344) truncates to 0x3344 and swaps
-                 * THAT, with gcc's -Woverflow on the way. Promoting it
-                 * instead would swap the wrong bytes. */
+                /* BK_U*, integer abs, and BK_LLONG builtins have real
+                 * prototypes, so their arguments convert as if by assignment.
+                 * That is OBSERVABLE: __builtin_bswap16(0x11223344) truncates
+                 * to 0x3344 and swaps THAT, with gcc's -Woverflow on the way.
+                 * Promoting it instead would swap the wrong bytes. */
                 {
                     Type *ut = sema_builtin_uint_type(s, kind);
 
                     if (ut && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, ut, &e->args[0], bctx);
+                    } else if (b == SEMA_BUILTIN_ABS && e->nargs > 0) {
+                        bctx.arg_index = 1;
+                        conv_assignable(s, type_basic(TY_INT), &e->args[0],
+                                        bctx);
+                    } else if (b == SEMA_BUILTIN_LABS && e->nargs > 0) {
+                        bctx.arg_index = 1;
+                        conv_assignable(s, type_basic(TY_LONG), &e->args[0],
+                                        bctx);
                     } else if (kind == BK_LLONG && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, type_basic(TY_LLONG), &e->args[0],
