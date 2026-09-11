@@ -1075,11 +1075,12 @@ static bool is_integer_abs_builtin_decl(const Symbol *sym, TypeKind kind)
            ft->params[0] && ft->params[0]->kind == kind;
 }
 
-/* The integer scan families all return int, but their prototypes preserve
- * three distinct argument widths. ffs uses the signed type; clz/ctz use its
- * unsigned counterpart. Keep that mapping beside call typing so adding one
- * spelling cannot accidentally inherit the default argument promotions. */
-static Type *builtin_bit_scan_param_type(u16 builtin)
+/* The integer bit-operation families all return int, but their prototypes
+ * preserve three distinct argument widths. ffs uses the signed type; the
+ * zero-scan and population-count families use its unsigned counterpart. Keep
+ * that mapping beside call typing so adding one spelling cannot accidentally
+ * inherit the default argument promotions. */
+static Type *builtin_integer_bitop_param_type(u16 builtin)
 {
     switch (builtin) {
     case SEMA_BUILTIN_FFS:
@@ -1090,12 +1091,15 @@ static Type *builtin_bit_scan_param_type(u16 builtin)
         return type_basic(TY_LLONG);
     case SEMA_BUILTIN_CLZ:
     case SEMA_BUILTIN_CTZ:
+    case SEMA_BUILTIN_POPCOUNT:
         return type_basic(TY_UINT);
     case SEMA_BUILTIN_CLZL:
     case SEMA_BUILTIN_CTZL:
+    case SEMA_BUILTIN_POPCOUNTL:
         return type_basic(TY_ULONG);
     case SEMA_BUILTIN_CLZLL:
     case SEMA_BUILTIN_CTZLL:
+    case SEMA_BUILTIN_POPCOUNTLL:
         return type_basic(TY_ULLONG);
     default:
         return NULL;
@@ -1333,21 +1337,21 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                /* BK_U*, integer abs/bit-scan, and BK_LLONG builtins have real
-                 * prototypes, so their arguments convert as if by assignment.
-                 * That is OBSERVABLE: __builtin_bswap16(0x11223344) truncates
-                 * to 0x3344 and swaps THAT, with gcc's -Woverflow on the way.
-                 * Promoting it instead would swap the wrong bytes. */
+                /* BK_U*, integer abs/bit-operation, and BK_LLONG builtins have
+                 * real prototypes, so their arguments convert as if by
+                 * assignment. That is OBSERVABLE: __builtin_bswap16(0x11223344)
+                 * truncates to 0x3344 and swaps THAT, with gcc's -Woverflow on
+                 * the way. Promoting it instead would swap the wrong bytes. */
                 {
                     Type *ut = sema_builtin_uint_type(s, kind);
-                    Type *scan_type = builtin_bit_scan_param_type(b);
+                    Type *bitop_type = builtin_integer_bitop_param_type(b);
 
                     if (ut && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, ut, &e->args[0], bctx);
-                    } else if (scan_type && e->nargs > 0) {
+                    } else if (bitop_type && e->nargs > 0) {
                         bctx.arg_index = 1;
-                        conv_assignable(s, scan_type, &e->args[0], bctx);
+                        conv_assignable(s, bitop_type, &e->args[0], bctx);
                     } else if (b == SEMA_BUILTIN_ABS && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, type_basic(TY_INT), &e->args[0],
