@@ -1306,7 +1306,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                /* BK_U*, integer abs, and BK_LLONG builtins have real
+                /* BK_U*, integer abs/bit-scan, and BK_LLONG builtins have real
                  * prototypes, so their arguments convert as if by assignment.
                  * That is OBSERVABLE: __builtin_bswap16(0x11223344) truncates
                  * to 0x3344 and swaps THAT, with gcc's -Woverflow on the way.
@@ -1317,6 +1317,18 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     if (ut && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, ut, &e->args[0], bctx);
+                    } else if (b == SEMA_BUILTIN_FFS && e->nargs > 0) {
+                        bctx.arg_index = 1;
+                        conv_assignable(s, type_basic(TY_INT), &e->args[0],
+                                        bctx);
+                    } else if (b == SEMA_BUILTIN_FFSL && e->nargs > 0) {
+                        bctx.arg_index = 1;
+                        conv_assignable(s, type_basic(TY_LONG), &e->args[0],
+                                        bctx);
+                    } else if (b == SEMA_BUILTIN_FFSLL && e->nargs > 0) {
+                        bctx.arg_index = 1;
+                        conv_assignable(s, type_basic(TY_LLONG), &e->args[0],
+                                        bctx);
                     } else if (b == SEMA_BUILTIN_ABS && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, type_basic(TY_INT), &e->args[0],

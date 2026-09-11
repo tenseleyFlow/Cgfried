@@ -64,6 +64,11 @@ B(abs, ABS, 1, BK_INT)
 B(labs, LABS, 1, BK_LONG)
 B(llabs, LLABS, 1, BK_LLONG)
 
+/* one-based least-significant-set-bit scans; zero maps to zero */
+B(ffs, FFS, 1, BK_INT)
+B(ffsl, FFSL, 1, BK_INT)
+B(ffsll, FFSLL, 1, BK_INT)
+
 /* floating-point constants (Sprint 15 softfloat values, never host FP) */
 B(huge_val, HUGE_VAL, 0, BK_DOUBLE)
 B(huge_valf, HUGE_VALF, 0, BK_FLOAT)

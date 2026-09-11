@@ -741,6 +741,47 @@ void test_sema_builtin_abs_family_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_ffs_family_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert((__builtin_ffs)(0) == 0, \"ffs zero\"); "
+        "_Static_assert(__builtin_ffs(-8) == 4, \"ffs negative\"); "
+        "_Static_assert(__builtin_ffsl(1L << 40) == 41, \"ffsl\"); "
+        "_Static_assert(__builtin_ffsll((-9223372036854775807LL - 1LL)) "
+        "== 64, \"ffsll\"); "
+        "_Static_assert(_Generic(__builtin_ffs(1), int: 1, default: 0), "
+        "\"ffs type\"); "
+        "_Static_assert(_Generic(__builtin_ffsl(1L), int: 1, default: 0), "
+        "\"ffsl type\"); "
+        "_Static_assert(_Generic(__builtin_ffsll(1LL), int: 1, default: 0), "
+        "\"ffsll type\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Runtime operands remain nonconstant even though an explicit builtin
+     * with a constant operand is an integer constant expression. */
+    run_sema_opts(&f,
+                  "int value; _Static_assert(__builtin_ffs(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    /* The POSIX library spelling is not compiler-owned: its declaration and
+     * direct call retain ordinary symbol and constant-expression behavior. */
+    run_sema_opts(&f,
+                  "int ffs(int); _Static_assert(ffs(8) == 4, "
+                  "\"plain ffs\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
 {
     SemaFix f;
