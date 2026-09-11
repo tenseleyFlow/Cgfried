@@ -815,6 +815,41 @@ void test_sema_builtin_clz_ctz_family_constant_expression_boundary(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_popcount_family_constant_expression_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert((__builtin_popcount)(0u) == 0, \"zero\"); "
+        "_Static_assert(__builtin_popcount(~0u) == 32, \"int width\"); "
+        "_Static_assert(__builtin_popcountl(~0ul) == 64, \"long width\"); "
+        "_Static_assert(__builtin_popcountll(0xa5a5a5a5a5a5a5a5ull) == 32, "
+        "\"pattern\"); "
+        "_Static_assert(__builtin_popcount(0x100000001ull) == 1, "
+        "\"prototype conversion\"); "
+        "_Static_assert(_Generic(__builtin_popcount(1u), int: 1, default: 0), "
+        "\"popcount type\"); "
+        "_Static_assert(_Generic(__builtin_popcountl(1ul), int: 1, default: "
+        "0), "
+        "\"popcountl type\"); "
+        "_Static_assert(_Generic(__builtin_popcountll(1ull), int: 1, default: "
+        "0), "
+        "\"popcountll type\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Explicit builtins fold only when their converted operand is constant. */
+    run_sema_opts(&f,
+                  "unsigned value; _Static_assert(__builtin_popcount(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_compound_literal_array_initializer(TestCtx *t)
 {
     SemaFix f;

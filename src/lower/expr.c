@@ -2336,6 +2336,51 @@ static IrOperand lower_bit_scan(Lower *lo, AstNode *arg, bool leading,
     }
 }
 
+/* Build masks that select the low `group_width` bits from every adjacent
+ * pair of groups. The largest group is 32 bits in an i64, so no shift reaches
+ * the C host width. */
+static u64 popcount_group_mask(unsigned width, unsigned group_width)
+{
+    u64 ones = (1ull << group_width) - 1;
+    u64 mask = 0;
+    unsigned bit;
+
+    for (bit = 0; bit < width; bit += group_width * 2)
+        mask |= ones << bit;
+    return mask;
+}
+
+/* Count set bits with a target-neutral parallel reduction. Each round adds
+ * adjacent 1-, 2-, 4-, ... bit-group counts, so 32- and 64-bit operands need
+ * only five or six fixed rounds. Sema has already converted the source to the
+ * exact unsigned prototype type; lower it once and truncate only the final
+ * count to the builtin's int result. */
+static IrOperand lower_popcount(Lower *lo, AstNode *arg)
+{
+    IrOperand value = lower_rvalue(lo, arg);
+    IrType type = (IrType)value.type;
+    unsigned width = ir_type_size(type) * 8;
+    unsigned group_width;
+
+    for (group_width = 1; group_width < width; group_width *= 2) {
+        IrOperand mask =
+            ir_op_iconst(type, (i64)popcount_group_mask(width, group_width));
+        ValueId low = ir_build2(&lo->b, IR_AND, type, value, mask);
+        ValueId shifted = ir_build2(&lo->b, IR_LSHR, type, value,
+                                    ir_op_iconst(type, (i64)group_width));
+        ValueId high =
+            ir_build2(&lo->b, IR_AND, type, ir_op_value(lo->fn, shifted), mask);
+
+        value = ir_op_value(lo->fn, ir_build2(&lo->b, IR_IADD, type,
+                                              ir_op_value(lo->fn, low),
+                                              ir_op_value(lo->fn, high)));
+    }
+    if (type != IRT_I32)
+        value =
+            ir_op_value(lo->fn, ir_build1(&lo->b, IR_TRUNC, IRT_I32, value));
+    return value;
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2428,6 +2473,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     case SEMA_BUILTIN_CTZL:
     case SEMA_BUILTIN_CTZLL:
         *out = lower_bit_scan(lo, e->args[0], false, false);
+        return true;
+    case SEMA_BUILTIN_POPCOUNT:
+    case SEMA_BUILTIN_POPCOUNTL:
+    case SEMA_BUILTIN_POPCOUNTLL:
+        *out = lower_popcount(lo, e->args[0]);
         return true;
     case SEMA_BUILTIN_BSWAP16:
     case SEMA_BUILTIN_BSWAP32:
