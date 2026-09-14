@@ -1579,6 +1579,24 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             value.type = e->sem_type;
             return value;
         }
+        if ((e->op == SEMA_BUILTIN_COPYSIGN ||
+             e->op == SEMA_BUILTIN_COPYSIGNF ||
+             e->op == SEMA_BUILTIN_COPYSIGNL) &&
+            e->nargs == 2) {
+            CeMode operand_mode = is_required(m) ? CE_ARITH : m;
+            ConstValue magnitude = eval(s, e->args[0], operand_mode);
+            ConstValue sign = eval(s, e->args[1], operand_mode);
+
+            if (magnitude.kind != CV_FLOAT || sign.kind != CV_FLOAT)
+                return cv_error();
+            /* Both values are target-format Sf carriers after the builtin's
+             * fixed prototype conversions. Replacing only the sign field is
+             * exact for zeros, infinities, and NaN payloads and never invokes
+             * the build host's floating-point implementation. */
+            magnitude.f.sign = sign.f.sign;
+            magnitude.type = e->sem_type;
+            return magnitude;
+        }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);
 

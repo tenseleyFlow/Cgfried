@@ -1089,6 +1089,58 @@ void test_sema_builtin_fabs_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_copysign_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "static float sf = __builtin_copysignf(1.25f, -0.0f); "
+        "static double sd = __builtin_copysign(-2.5, 0.0); "
+        "static long double sl = __builtin_copysignl(3.75L, -1.0L); "
+        "_Static_assert(_Generic((__builtin_copysignf)(1, -1), float: 1, "
+        "default: 0), \"copysignf type\"); "
+        "_Static_assert(_Generic(__builtin_copysign(1, -1), double: 1, "
+        "default: 0), \"copysign type\"); "
+        "_Static_assert(_Generic(__builtin_copysignl(1, -1), long double: 1, "
+        "default: 0), \"copysignl type\"); "
+        "_Static_assert((int)__builtin_copysignf(16777217.0, -1.0) == "
+        "-16777216, \"prototype conversion\"); "
+        "_Static_assert((int)__builtin_copysign(-2.5, 1.0) == 2, "
+        "\"copysign value\"); "
+        "_Static_assert((int)__builtin_copysignl(3.5L, -1.0L) == -3, "
+        "\"copysignl value\"); "
+        "_Static_assert(__builtin_constant_p(__builtin_copysign(-4.0, "
+        "1.0)), \"copysign constant\"); "
+        "int use(void) { return sf == -1.25f && sd == 2.5 && sl == -3.75L; "
+        "}\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    /* The three folded floating-to-integer ICE conversions cross the same
+     * pedantic GNU-extension boundary as the fabs family. */
+    T_ASSERT_EQ_INT(t, f.warnings, 3);
+    sfix_free(&f);
+
+    /* Exact arity and assignable real-arithmetic operands are required. */
+    run_sema_opts(&f,
+                  "double a = __builtin_copysign(); "
+                  "double b = __builtin_copysign(1.0); "
+                  "double c = __builtin_copysign(1.0, 2.0, 3.0); "
+                  "double d = __builtin_copysign((void *)0, 1.0); "
+                  "double e = __builtin_copysign(1.0, (void *)0);\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+
+    /* Either runtime operand prevents constant-expression evaluation. */
+    run_sema_opts(&f,
+                  "double value; _Static_assert(__builtin_copysign(value, "
+                  "-1.0), \"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;
