@@ -65,6 +65,12 @@ B(abs, ABS, 1, BK_INT)
 B(labs, LABS, 1, BK_LONG)
 B(llabs, LLABS, 1, BK_LLONG)
 
+/* type-generic checked arithmetic; the first two operands retain their
+ * integer types and the third points at the exact result type */
+B(add_overflow, ADD_OVERFLOW, 3, BK_SPECIAL)
+B(sub_overflow, SUB_OVERFLOW, 3, BK_SPECIAL)
+B(mul_overflow, MUL_OVERFLOW, 3, BK_SPECIAL)
+
 /* one-based least-significant-set-bit scans; zero maps to zero */
 B(ffs, FFS, 1, BK_INT)
 B(ffsl, FFSL, 1, BK_INT)
@@ -94,7 +100,8 @@ B(parityl, PARITYL, 1, BK_INT)
 B(parityll, PARITYLL, 1, BK_INT)
 
 /* type-generic ordered/unordered real comparisons; sema performs the usual
- * arithmetic conversions and requires the resulting common type to be floating */
+ * arithmetic conversions and requires the resulting common type to be floating
+ */
 B(isunordered, ISUNORDERED, 2, BK_INT)
 B(isless, ISLESS, 2, BK_INT)
 B(islessequal, ISLESSEQUAL, 2, BK_INT)

@@ -1141,6 +1141,50 @@ void test_sema_builtin_copysign_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_checked_overflow_store_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "enum input_enum { INPUT_ZERO }; "
+        "int result; volatile unsigned short volatile_result; "
+        "enum input_enum e; _Bool b; "
+        "_Static_assert(_Generic(__builtin_add_overflow(1, 2, &result), "
+        "_Bool: 1, default: 0), \"add type\"); "
+        "_Static_assert(_Generic(__builtin_sub_overflow(1, 2, &result), "
+        "_Bool: 1, default: 0), \"sub type\"); "
+        "_Static_assert(_Generic(__builtin_mul_overflow(1, 2, &result), "
+        "_Bool: 1, default: 0), \"mul type\"); "
+        "int use(void) { return __builtin_add_overflow(e, b, &result) + "
+        "__builtin_sub_overflow(0, 1, &volatile_result); }\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Arity, both operand constraints, writable pointer shape, and GCC's
+     * exclusion of boolean and enumerated result types are all semantic
+     * rules rather than lowering assumptions. */
+    run_sema_opts(
+        &f,
+        "enum result_enum { RESULT_ZERO }; "
+        "int i; float f; _Bool b; enum result_enum e; const int ci = 0; "
+        "int a = __builtin_add_overflow(); "
+        "int s = __builtin_sub_overflow(1, 2); "
+        "int m = __builtin_mul_overflow(1, 2, &i, &i); "
+        "int x0 = __builtin_add_overflow(1.0, 2, &i); "
+        "int x1 = __builtin_sub_overflow(1, (void *)0, &i); "
+        "int x2 = __builtin_mul_overflow(1, 2, i); "
+        "int x3 = __builtin_add_overflow(1, 2, &f); "
+        "int x4 = __builtin_sub_overflow(1, 2, &b); "
+        "int x5 = __builtin_mul_overflow(1, 2, &e); "
+        "int x6 = __builtin_add_overflow(1, 2, &ci);\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 10);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;
