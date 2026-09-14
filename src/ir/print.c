@@ -38,18 +38,18 @@ static const char *const etype_names[] = {
 };
 
 static const char *const op_names[] = {
-    "iadd",        "isub",        "imul",         "sdiv",       "udiv",
-    "srem",        "urem",        "and",          "or",         "xor",
-    "shl",         "lshr",        "ashr",         "icmp",       "fcmp",
-    "fadd",        "fsub",        "fmul",         "fdiv",       "fneg",
-    "sext",        "zext",        "trunc",        "fpext",      "fptrunc",
-    "fptosi",      "fptoui",      "sitofp",       "uitofp",     "bitcast",
-    "alloca",      "load",        "store",        "ptradd",     "memcpy",
-    "memset",      "call",        "select",       "vsplat",     "vextract",
-    "vreduce_add", "vreduce_mul", "vreduce_and",  "vreduce_or", "vreduce_xor",
-    "va_start",    "stacksave",   "stackrestore", "atomicrmw",  "cmpxchg",
-    "asm",         "ret",         "br",           "condbr",     "switch",
-    "unreachable",
+    "iadd",        "isub",        "imul",        "sdiv",         "udiv",
+    "srem",        "urem",        "and",         "or",           "xor",
+    "shl",         "lshr",        "ashr",        "icmp",         "fcmp",
+    "fadd",        "fsub",        "fmul",        "fdiv",         "fneg",
+    "fabs",        "sext",        "zext",        "trunc",        "fpext",
+    "fptrunc",     "fptosi",      "fptoui",      "sitofp",       "uitofp",
+    "bitcast",     "alloca",      "load",        "store",        "ptradd",
+    "memcpy",      "memset",      "call",        "select",       "vsplat",
+    "vextract",    "vreduce_add", "vreduce_mul", "vreduce_and",  "vreduce_or",
+    "vreduce_xor", "va_start",    "stacksave",   "stackrestore", "atomicrmw",
+    "cmpxchg",     "asm",         "ret",         "br",           "condbr",
+    "switch",      "unreachable",
 };
 
 static const char *const rmw_names[] = {
@@ -403,7 +403,9 @@ static void print_inst(Buf *out, const IrModule *m, const IrFunc *f,
         print_atom(out, m, vn, &in->ops[1]);
         break;
     case IR_FNEG:
-        buf_printf(out, "fneg %s ", type_names[in->type]);
+    case IR_FABS:
+        buf_printf(out, "%s %s ", ir_op_name((IrOp)in->op),
+                   type_names[in->type]);
         print_atom(out, m, vn, &in->ops[0]);
         break;
     case IR_VSPLAT:

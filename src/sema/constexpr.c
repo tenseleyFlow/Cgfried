@@ -1539,6 +1539,21 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             }
             return cv_int(s, e->sem_type, truth ? 1 : 0);
         }
+        if ((e->op == SEMA_BUILTIN_FABS || e->op == SEMA_BUILTIN_FABSF ||
+             e->op == SEMA_BUILTIN_FABSL) &&
+            e->nargs == 1) {
+            CeMode operand_mode = is_required(m) ? CE_ARITH : m;
+            ConstValue value = eval(s, e->args[0], operand_mode);
+
+            if (value.kind != CV_FLOAT)
+                return cv_error();
+            /* Sf is target-format data, not a host floating value. Clearing
+             * its sign therefore handles negative zero and every long-double
+             * format without consulting the build machine's FPU. */
+            value.f.sign = 0;
+            value.type = e->sem_type;
+            return value;
+        }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], CE_FOLD);
 
