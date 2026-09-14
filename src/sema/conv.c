@@ -308,6 +308,19 @@ Type *conv_promote_bitfield_type(Sema *s, Type *t, u32 width, bool is_signed)
     return type_basic(TY_UINT);
 }
 
+Type *conv_unpromoted_integer_expr_type(Sema *s, const AstNode *e)
+{
+    Type *t;
+
+    if (!e || !e->sem_type)
+        return NULL;
+    t = conv_strip_quals(s, e->sem_type);
+    if (e->sem_is_bitfield && e->sem_bitfield_width != 0 && type_is_integer(t))
+        return type_integer_with_precision(s->arena, t, e->sem_bitfield_width,
+                                           e->sem_bitfield_is_signed);
+    return t;
+}
+
 static Type *conv_promote_expr_type(Sema *s, const AstNode *e)
 {
     if (e && e->sem_is_bitfield)

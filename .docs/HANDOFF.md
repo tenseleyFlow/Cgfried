@@ -244,13 +244,22 @@ PASS keys (31,173 lines) with 2,870 classified failures, 32 buckets, 24
 applied decisions, two deliberately retained stale decisions, and zero
 unbucketed or unresolved cells. Its final standard, bootstrap, and exact-merge
 nightly CI were fully green before merge, and the actual merge tree is
-byte-identical to the tested synthetic merge. The current
-`s56.22-builtin-checked-overflow-store` tranche on PR #117 implements the
-type-generic `__builtin_add_overflow`, `__builtin_sub_overflow`, and
-`__builtin_mul_overflow` family. Provenance-matched x86-64 and ARM64 evidence
-adds exactly 110 target-complete PASS keys across eleven execute files with
-zero old-PASS regression or ICEs. Atomic publication raises the ratchet to
-31,280 PASS keys (31,283 lines) and leaves 2,760 failures fully classified in
+byte-identical to the tested synthetic merge. PR #117's
+`s56.22-builtin-checked-overflow-store` tranche is merged as `f6181202`. It
+implements the type-generic `__builtin_add_overflow`,
+`__builtin_sub_overflow`, and `__builtin_mul_overflow` family.
+Provenance-matched x86-64 and ARM64 evidence adds exactly 110 target-complete
+PASS keys across eleven execute files with zero old-PASS regression or ICEs.
+Atomic publication raises the ratchet to 31,280 PASS keys (31,283 lines) and
+leaves 2,760 failures fully classified in 32 buckets. Its final standard,
+bootstrap, and exact-merge nightly CI were fully green before the green-only
+merge, and the actual merge tree is byte-identical to the tested final
+synthetic merge. The current
+`s56.23-builtin-checked-overflow-p` tranche on PR #118 implements the
+type-generic `__builtin_add_overflow_p`, `__builtin_sub_overflow_p`, and
+`__builtin_mul_overflow_p` predicate family. Its atomic target-complete
+publication adds ten `pr105984.c` PASS keys and raises the ratchet to 31,290
+PASS keys (31,293 lines), with 2,750 remaining failures fully classified in
 32 buckets. Final post-publication green CI remains required before merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -5729,10 +5738,103 @@ and green post-publication CI.
   `eacf4055853c98e3b1474b88493e774dcf787b8857d21b23228406a2e292d432`
   and
   `11315f7a9136c3550023c1786911597080686482f7f5e6cc979701559a762c02`.
-  Final post-publication standard, bootstrap, and exact-merge nightly CI must
-  be green before PR #117 is merged. The next bounded follow-up candidate is
-  the type-generic `__builtin_*_overflow_p` predicate family; fixed-width
-  overflow aliases remain separate.
+  Publication head `3add6a2f` passed final standard
+  [run 34862935334](https://github.com/tenseleyFlow/Cgfried/actions/runs/34862935334)
+  with twenty successful jobs and one policy skip. Branch and PR bootstrap
+  [runs 34862928423](https://github.com/tenseleyFlow/Cgfried/actions/runs/34862928423)
+  and
+  [34862935505](https://github.com/tenseleyFlow/Cgfried/actions/runs/34862935505)
+  each passed both applicable x86 jobs with the four expected event-policy
+  skips. Final exact synthetic-merge nightly
+  [run 34862967255](https://github.com/tenseleyFlow/Cgfried/actions/runs/34862967255)
+  passed all fifteen jobs, and matching full-lattice bootstrap
+  [run 34862969992](https://github.com/tenseleyFlow/Cgfried/actions/runs/34862969992)
+  passed all seven applicable jobs. PR #117 merged green-only as `f6181202`;
+  the actual merge has parents `7f09b8a2` and `3add6a2f`, and tree
+  `86a54dd3585e8135545ac6838f6bb0165622b4f2`, byte-identical to tested
+  synthetic merge `719f720e`.
+- The current `s56.23-builtin-checked-overflow-p` tranche on PR #118
+  implements GCC's type-generic `__builtin_add_overflow_p`,
+  `__builtin_sub_overflow_p`, and `__builtin_mul_overflow_p` predicate
+  family. The first two operands retain independent integer types and are
+  interpreted in infinite-precision signed arithmetic. The third expression
+  is evaluated exactly once for side effects and volatile access, while its
+  value is ignored and its unpromoted non-boolean, non-enumerated integer type
+  selects the result range. Bit-field selectors retain their exact precision
+  and signedness. The result is exact `_Bool`, and host-safe sign/magnitude
+  constant evaluation makes valid constant calls integer constant
+  expressions without relying on host signed overflow or i128 support.
+
+  Focused normal and ASan+UBSan semantic/IR tests pass two tests and 38
+  assertions. The permanent runtime fixture exhausts signed/unsigned-char
+  add/subtract/multiply results for both operands from -128 through 255,
+  exercises 64-bit extrema, mixed signs, zero products, single evaluation,
+  exact result type, and signed/unsigned five-bit selectors. All thirty
+  builtin fixtures pass natively on ARM64 macOS. The fixture and unmodified
+  GCC torture case `pr105984.c` pass Cgfried and GCC 16 at O0/O1/O2/O3/Os.
+  The fixture lowers in all fifteen target/level cells for x86-64 Linux,
+  ARM64 Linux, and ARM64 macOS; `pr105984.c` lowers in all ten x86-64/ARM64
+  Linux cells. Normal and sanitizer frontend fuzz each complete 2,000
+  mutations with zero findings and reproduce the 5,000-case digest
+  `d1801349fa0ce41f`. IR fuzz passes 5,000 cases; both normal and differential
+  preprocessor fuzz pass 2,000 cases; pinned clang-format 22 and the
+  64-row/128-fixture format matrix are green. The complete Apple unit run has
+  921 tests / 4,329,304 assertions and retains exactly the same eight
+  documented host-assumption failures, with every new test green.
+
+  Pre-publication standard
+  [run 34876620215](https://github.com/tenseleyFlow/Cgfried/actions/runs/34876620215)
+  completed with every ordinary job green and only the intended x86 ratchet
+  refusal; that includes canonical Linux tests, ASan+UBSan, QEMU/native ARM,
+  macOS ARM64, both compiler builds, campaigns, toolchain, formatting, and
+  100,000 sanitizer-backed frontend-fuzz iterations. Exact synthetic merge
+  `b0235517dc200aed364ef1f1f7287dd2c3a4edad` has parents `f6181202` and
+  behavior head `7009e4a7`, and tree
+  `3ed64eb88b8ade7a4f739840f8c5af00abded5ef`. Its nightly
+  [run 34876704931](https://github.com/tenseleyFlow/Cgfried/actions/runs/34876704931)
+  passed all fourteen ordinary jobs and refused only the matching ARM
+  ratchet. Branch and PR bootstrap
+  [runs 34876381131](https://github.com/tenseleyFlow/Cgfried/actions/runs/34876381131)
+  and
+  [34876620195](https://github.com/tenseleyFlow/Cgfried/actions/runs/34876620195)
+  are green, and exact-merge full-lattice bootstrap
+  [run 34876708279](https://github.com/tenseleyFlow/Cgfried/actions/runs/34876708279)
+  passes all seven applicable jobs.
+
+  The hosted x86 and ARM streams share exact source revision `b0235517`,
+  compiler-source SHA-256
+  `56c6fb4aa0dc11c2f2a60f32b4d92ea814387bc7e97473cf774bc392f41b98f3`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and c-testsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Each contains 20,325 unique cells: 15,645 PASS, 3,305 SKIP, and 1,375
+  COMPILE_FAIL, with zero ICEs, duplicates, or old-PASS regressions. Each
+  target adds exactly the five O0/O1/O2/O3/Os `pr105984.c` PASS keys. Hosted
+  x86 and ARM stream SHA-256 values are respectively
+  `53fe6a65774729094c8f0652a753444d1f2bcb81229bf9eb57ec1cb41be703e3`
+  and
+  `d86c1366fe245f3c59f34eae9105548072a83db8620261da61d50d37decd30ca`.
+
+  Formal GNU-make atomic publication independently regenerates the ARM stream
+  at the exact merge and consumes it with the hosted x86 stream. Its result
+  body is byte-identical to hosted ARM; only the compiler-binary/driver hash
+  headers differ because the local build root differs. Reversing the target
+  order regenerates the fresh stream and both committed outputs
+  byte-identically. The complete runner, triage, provenance, matrix,
+  rollback, and import meta-suite passes. Publication adds exactly ten
+  target-complete keys, leaving 31,290 PASS keys (31,293 lines) and 2,750
+  classified failures in 32 buckets, with 24 applied decisions, two
+  deliberately retained stale decisions, zero unbucketed cells, and zero
+  unresolved buckets. PASS and triage SHA-256 values are respectively
+  `8609b5b00cf3214edb4260073a5ff4bd0a5f0a11d473796e08e296ecef080ae9`
+  and
+  `ca3f9ba9746aeba104fe59b3441ea6a921dec7eb23a0cdd1175b1868baddbd0b`.
+  Publication head `56fd11fd` still requires final standard, bootstrap, and
+  exact-merge nightly CI before green-only merge. Fixed-width overflow
+  aliases remain a separate candidate.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

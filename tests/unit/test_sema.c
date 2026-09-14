@@ -1185,6 +1185,70 @@ void test_sema_builtin_checked_overflow_store_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_checked_overflow_predicate_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "enum input_enum { INPUT_ONE = 1 }; "
+        "struct bits { signed int s : 5; unsigned int u : 5; }; "
+        "enum input_enum e; _Bool b; const int ci = 0; "
+        "volatile unsigned short vs; struct bits bits; "
+        "_Static_assert(_Generic(__builtin_add_overflow_p(1, 2, 0), "
+        "_Bool: 1, default: 0), \"add type\"); "
+        "_Static_assert(_Generic(__builtin_sub_overflow_p(1, 2, 0), "
+        "_Bool: 1, default: 0), \"sub type\"); "
+        "_Static_assert(_Generic(__builtin_mul_overflow_p(1, 2, 0), "
+        "_Bool: 1, default: 0), \"mul type\"); "
+        "_Static_assert(__builtin_add_overflow_p(127, 1, (signed char)0), "
+        "\"signed char add\"); "
+        "_Static_assert(!__builtin_add_overflow_p(127, 1, (unsigned char)0), "
+        "\"unsigned char add\"); "
+        "_Static_assert(__builtin_sub_overflow_p(0, 1, (unsigned int)0), "
+        "\"unsigned subtract\"); "
+        "_Static_assert(__builtin_mul_overflow_p(-128, -1, (signed char)0), "
+        "\"signed char multiply\"); "
+        "int use(void) { return __builtin_add_overflow_p(e, b, ci) + "
+        "__builtin_sub_overflow_p(0, 1, vs) + "
+        "__builtin_mul_overflow_p(15, 2, bits.s) + "
+        "__builtin_add_overflow_p(31, 0, bits.u); }\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Arity, both operand constraints, and the unpromoted selector type are
+     * semantic rules. The third argument is an integer expression, not the
+     * pointer used by the storing family; boolean and enum selectors remain
+     * excluded by GCC's contract. */
+    run_sema_opts(&f,
+                  "enum result_enum { RESULT_ZERO }; "
+                  "float f; _Bool b; enum result_enum e; int i; "
+                  "int a = __builtin_add_overflow_p(); "
+                  "int s = __builtin_sub_overflow_p(1, 2); "
+                  "int m = __builtin_mul_overflow_p(1, 2, 0, 0); "
+                  "int x0 = __builtin_add_overflow_p(1.0, 2, 0); "
+                  "int x1 = __builtin_sub_overflow_p(1, (void *)0, 0); "
+                  "int x2 = __builtin_mul_overflow_p(1, 2, f); "
+                  "int x3 = __builtin_add_overflow_p(1, 2, b); "
+                  "int x4 = __builtin_sub_overflow_p(1, 2, e); "
+                  "int x5 = __builtin_mul_overflow_p(1, 2, &i);\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 9);
+    sfix_free(&f);
+
+    /* A side effect in any argument keeps the predicate out of an integer
+     * constant expression even though the third argument's value is ignored. */
+    run_sema_opts(
+        &f,
+        "int value; _Static_assert(__builtin_add_overflow_p(1, 2, value++), "
+        "\"runtime selector\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;

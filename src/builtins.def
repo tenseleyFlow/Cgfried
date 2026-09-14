@@ -71,6 +71,12 @@ B(add_overflow, ADD_OVERFLOW, 3, BK_SPECIAL)
 B(sub_overflow, SUB_OVERFLOW, 3, BK_SPECIAL)
 B(mul_overflow, MUL_OVERFLOW, 3, BK_SPECIAL)
 
+/* type-generic checked arithmetic predicates; the third expression is
+ * evaluated for side effects while its unpromoted type selects the range */
+B(add_overflow_p, ADD_OVERFLOW_P, 3, BK_SPECIAL)
+B(sub_overflow_p, SUB_OVERFLOW_P, 3, BK_SPECIAL)
+B(mul_overflow_p, MUL_OVERFLOW_P, 3, BK_SPECIAL)
+
 /* one-based least-significant-set-bit scans; zero maps to zero */
 B(ffs, FFS, 1, BK_INT)
 B(ffsl, FFSL, 1, BK_INT)
