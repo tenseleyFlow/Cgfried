@@ -210,8 +210,10 @@ ratchet at 31,000 PASS keys (31,003 lines). PR #113's current
 target-format lowering and repairs the finite-progress optimizer blocker
 exposed by `inf-2.c` plus the `va-arg-17.c` regression found by the first
 evidence pair. Local implementation validation is green; fresh matching
-pre-publication x86 and native-ARM torture streams remain required before its
-expected forty PASS keys may move the PASS/triage ratchet.
+synthetic-merge x86 and native-ARM evidence publishes the expected forty PASS
+keys with zero regression and zero ICEs. Fresh fully green post-publication
+standard, bootstrap, and nightly CI remains required before the PR is
+merge-ready.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5260,15 +5262,52 @@ and green post-publication CI.
   The newly structural `IR_UNREACHABLE` also made the x86 corpus reach its
   existing `ud2` emission through bundled `afs-as`, whose encoder did not yet
   accept that mnemonic. `afs-as`
-  [PR #30](https://github.com/FortranGoingOnForty/afs-as/pull/30) adds the
-  exact `0f 0b` encoding, rejects operands, and covers it directly plus
-  differentially; its complete local Rust suite is green. Cgfried pins commit
-  `a7c0cc6bc56536e3dad00186ae0a7c3c79b306c2`, and a local x86 ELF compile
-  through the bundled assembler succeeds. Publication remains pending a new
-  exact-revision matching x86/native-ARM pair with twenty new PASS keys per
-  target, no old-PASS regression, and zero ICE rows, plus fully green
-  standard/bootstrap/tooling CI before the atomic publisher and final
-  green-only merge.
+  [PR #30](https://github.com/FortranGoingOnForty/afs-as/pull/30) merged as
+  `7e5892a1e699306d5f5de9c593b15412b36f48ab`; it adds the exact `0f 0b`
+  encoding, rejects operands, and covers it directly plus differentially.
+  Its complete local Rust suite and hosted CI are green. Cgfried pins the PR's
+  feature commit `a7c0cc6bc56536e3dad00186ae0a7c3c79b306c2`, now reachable from
+  merged `afs-as` trunk, and a local x86 ELF compile through the bundled
+  assembler succeeds.
+
+  The final pre-publication pair tests exact synthetic merge
+  `7fde196357b1e2d0998e8b490ed6af55a801135e` (parents `f8f6e463` and
+  implementation head `253c7220`). Standard
+  [run 34809741492](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809741492)
+  has nineteen successful jobs, one policy skip, and only the expected x86
+  ratchet refusal; both push and PR bootstrap
+  [runs 34809739245](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809739245)
+  and
+  [34809741520](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809741520)
+  are green. Exact-merge nightly
+  [run 34809786106](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809786106)
+  passes all fourteen campaigns and refuses only the matching ARM ratchet.
+  Each retained stream has 20,325 rows and exactly twenty new PASS keys across
+  `inf-1.c`, `inf-2.c`, `inf-3.c`, and `pr36332.c` at O0/O1/O2/O3/Os, with
+  zero old-PASS regressions, zero duplicate keys, and zero ICE rows. The x86
+  and ARM SHA-256 values are respectively
+  `b35f0bc56ba097dd6067087ea11521345936a53f8e311d7c35d1409a482efca4`
+  and
+  `7dd3ec3f86b6c2b76f6f04c954dffafc3cf041b465b1bcc09f3085d315ab9163`.
+  Both share compiler-source SHA-256
+  `c02287bf6d9f7195f087430be7fd3c49a586d7f09286ea8aee1f42e33dbc1fae`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Formal `gmake torture-baseline` publishes exactly forty target-complete PASS
+  keys. Reversing the evidence order regenerates both outputs byte-identically.
+  The result is 31,040 PASS keys (31,043 lines), 3,000 classified failures in
+  32 buckets, 24 applied decisions, two deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `84754ee86fa4f8447ed7aba8229c9c3f19c519a354121507b281d1605a74554e`
+  and
+  `3a6b54d128c278dd5ebb53d0bd1447047d42668125348788fd7a98d38c87b08e`.
+  Publication is committed next; require fresh fully green standard,
+  bootstrap, and exact-merge nightly CI before the green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
