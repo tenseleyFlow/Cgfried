@@ -98,6 +98,7 @@ static bool speculatable_op(const IrInst *in, const OptConfig *cfg)
     case IR_ASHR:
     case IR_ICMP:
     case IR_FNEG:
+    case IR_FABS:
     case IR_PTRADD:
     case IR_SELECT:
         if (in->op == IR_SHL || in->op == IR_LSHR || in->op == IR_ASHR)

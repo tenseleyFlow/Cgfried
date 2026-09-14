@@ -215,10 +215,11 @@ static void check_inst_types(V *v, const IrInst *in)
         check_binop_types(v, in, true);
         break;
     case IR_FNEG:
-        if (!type_is_float(in->type) || in->ops[0].type != in->type)
-            verr(v, 4,
-                 "'fneg' wants one float operand matching its "
-                 "result type");
+    case IR_FABS:
+        if (in->nops != 1 || !type_is_float(in->type) ||
+            in->ops[0].type != in->type)
+            verr(v, 4, "'%s' wants one float operand matching its result type",
+                 ir_op_name((IrOp)in->op));
         break;
     case IR_VSPLAT: {
         IrType vt = (IrType)in->type;

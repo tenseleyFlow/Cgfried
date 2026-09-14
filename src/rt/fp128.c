@@ -194,6 +194,20 @@ cgf_tf __negtf2(cgf_tf a)
     return a;
 }
 
+/* fabs has the same non-arithmetic, payload-preserving contract as negate,
+ * except that it clears rather than toggles the sign bit. This compiler-owned
+ * helper is the binary128 legalization target; unlike __negtf2 it does not
+ * claim a libgcc ABI spelling. */
+cgf_tf __cgf_abstf(cgf_tf a)
+{
+    unsigned char bits[16];
+
+    memcpy(bits, &a, sizeof(bits));
+    bits[15] &= 0x7fu;
+    memcpy(&a, bits, sizeof(bits));
+    return a;
+}
+
 cgf_tf __addtf3(cgf_tf a, cgf_tf b)
 {
     SfStatus st;

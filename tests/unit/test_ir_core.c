@@ -1007,6 +1007,9 @@ void test_ir_parse_f80_f128_bits(TestCtx *t)
         "0x0001:0x0000000000000001\n"
         "    %b = fadd f128 0x3FFF000000000000:0x0000000000000001, undef\n"
         "    %c = fpext f32 0x3F800000 to f64\n"
+        "    %d = fabs f80 0xBFFF:0x8000000000000000\n"
+        "    %e = fabs f128 "
+        "0xBFFF000000000000:0x0000000000000000\n"
         "    ret\n"
         "}\n";
 
@@ -1023,6 +1026,14 @@ void test_ir_parse_f80_f128_bits(TestCtx *t)
         T_ASSERT(t, in->ops[0].b == 0x3FFF000000000000ull);
         in = in->next;
         T_ASSERT(t, in->ops[0].a == 0x3F800000ull);
+        in = in->next;
+        T_ASSERT_EQ_INT(t, in->op, IR_FABS);
+        T_ASSERT_EQ_INT(t, in->type, IRT_F80);
+        T_ASSERT(t, in->ops[0].b == 0xBFFFull);
+        in = in->next;
+        T_ASSERT_EQ_INT(t, in->op, IR_FABS);
+        T_ASSERT_EQ_INT(t, in->type, IRT_F128);
+        T_ASSERT(t, in->ops[0].b == 0xBFFF000000000000ull);
         roundtrip(t, &f, m);
     }
     fix_free(&f);

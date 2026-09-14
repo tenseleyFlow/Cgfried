@@ -590,8 +590,7 @@ static inline bool sim_run(TestCtx *t, const X64Func *f, Sim *s)
             break;
         case X64_OP_X87_FABS:
             T_ASSERT(t, s->nst >= 1);
-            if (s->st[s->nst - 1] < 0)
-                s->st[s->nst - 1] = -s->st[s->nst - 1];
+            s->st[s->nst - 1] = fabsl(s->st[s->nst - 1]);
             break;
         case X64_OP_X87_FUCOMIP:
             T_ASSERT(t, s->nst >= 2);

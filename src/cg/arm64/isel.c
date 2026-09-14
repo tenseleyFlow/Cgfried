@@ -1266,19 +1266,20 @@ static void select_fp_arith(Isel *is, const IrInst *ir)
                    : ir->op == IR_FSUB ? A64_OP_FSUB
                    : ir->op == IR_FMUL ? A64_OP_FMUL
                    : ir->op == IR_FDIV ? A64_OP_FDIV
-                                       : A64_OP_FNEG;
+                   : ir->op == IR_FNEG ? A64_OP_FNEG
+                                       : A64_OP_FABS;
     A64Reg lhs = to_fp(is, &ir->ops[0]);
     A64Reg rhs = {0};
     A64Reg dest = new_reg(is, (IrType)ir->type);
     A64Inst *inst;
 
-    if (ir->op != IR_FNEG)
+    if (ir->op != IR_FNEG && ir->op != IR_FABS)
         rhs = to_fp(is, &ir->ops[1]);
     inst = emit(is, opcode, sf);
 
     add_operand(inst, reg_op(dest));
     add_operand(inst, reg_op(lhs));
-    if (ir->op != IR_FNEG)
+    if (ir->op != IR_FNEG && ir->op != IR_FABS)
         add_operand(inst, reg_op(rhs));
     bind_result(is, ir, dest);
 }
@@ -1699,6 +1700,7 @@ static void select_inst(Isel *is, const IrInst *ir)
     case IR_FMUL:
     case IR_FDIV:
     case IR_FNEG:
+    case IR_FABS:
         if (ir_type_is_vector((IrType)ir->type)) {
             select_vector_binary(is, ir);
             break;

@@ -113,6 +113,12 @@ B(nan, NAN, 1, BK_DOUBLE)
 B(nanf, NANF, 1, BK_FLOAT)
 B(nanl, NANL, 1, BK_LDOUBLE)
 
+/* floating absolute value; each spelling has the corresponding real
+ * prototype rather than the default argument promotions */
+B(fabs, FABS, 1, BK_DOUBLE)
+B(fabsf, FABSF, 1, BK_FLOAT)
+B(fabsl, FABSL, 1, BK_LDOUBLE)
+
 /* byte swaps (glibc's <bits/byteswap.h> calls these directly once
  * __GNUC__ is defined). They lower to shifts, masks and ors -- see the
  * comment at their case in src/lower/expr.c for why there is no IR
