@@ -201,11 +201,19 @@ files. PR #110's `__builtin_clrsb`/`clrsbl`/`clrsbll` family is merged as
 publishing ten target-complete `builtin-bitops-1.c` cells. Its ratchet contains
 30,870 PASS keys (30,873 lines), with 3,170 classified failures, 24 applied
 decisions, two deliberately retained stale decisions, no live repair rows,
-and zero unbucketed or unresolved cells. The current
-`s56.17-builtin-fp-compare-family` tranche implements the six type-generic
-ordered/unordered floating comparison builtins and target-softfloat constant
-folding. Local validation is green; matching pre-publication x86 and native
-ARM torture streams remain required before its PASS/triage ratchet may move.
+and zero unbucketed or unresolved cells. PR #112's
+`s56.17-builtin-fp-compare-family` tranche is merged as `f8f6e463`; it
+publishes 130 target-complete floating-comparison PASS keys and leaves the
+ratchet at 31,000 PASS keys (31,003 lines). PR #113's current
+`s56.18-builtin-fp-long-double-constants` tranche implements
+`__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl` with exact
+target-format lowering and repairs the finite-progress optimizer blocker
+exposed by `inf-2.c` plus the `va-arg-17.c` regression found by the first
+evidence pair. Local implementation validation is green; fresh matching
+synthetic-merge x86 and native-ARM evidence publishes the expected forty PASS
+keys with zero regression and zero ICEs. Fresh fully green post-publication
+standard, bootstrap, and nightly CI remains required before the PR is
+merge-ready.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5150,8 +5158,156 @@ and green post-publication CI.
   `457304cf14741d1c1e3b90c4f8b99e74c7bc84385dad373579ba2f277d905582`
   and
   `40a6d50d276e64cc3b65ff1bb84c9f4d865345d443f075e6029bdd7b10f1583f`.
-  Fresh post-publication standard, bootstrap, and exact-merge native-ARM CI
-  must be green before merge.
+  The final PR rollup is green with 24 successful and nine policy-skipped
+  checks. Fresh post-publication standard
+  [run 34647582481](https://github.com/tenseleyFlow/Cgfried/actions/runs/34647582481)
+  and bootstrap
+  [runs 34647578648](https://github.com/tenseleyFlow/Cgfried/actions/runs/34647578648)
+  and
+  [34647582576](https://github.com/tenseleyFlow/Cgfried/actions/runs/34647582576)
+  are green. PR #112 merged as `f8f6e463`; the actual merge has parents
+  `3fb6e322` and `0037b73a` and tree
+  `6732f45d4255c3a6f99efcd15080645885e6fe89`, byte-identical to tested
+  synthetic merge `4d07088de080d5b1360f8dff20e50ee1600208a7`.
+- PR #113's current `s56.18-builtin-fp-long-double-constants` tranche completes the
+  long-double suffixes for the existing floating constant builtins:
+  `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl`. The builtin
+  table now has an explicit `BK_LDOUBLE` result kind; sema gives each call the
+  exact `long double` type and exact arity, and constexpr evaluation retains
+  the existing canonical infinity/quiet-NaN policy. Runtime lowering uses the
+  target softfloat format rather than host floating point or hardcoded double
+  bits: x86 targets emit x87-80, arm64-linux emits IEEE binary128, and
+  arm64-macos emits binary64.
+
+  The newly reachable unmodified `inf-2.c` exposed a secondary x86 O3
+  optimizer ICE. It was finite progress rather than an oscillation: x87 f80
+  values intentionally remain memory-backed, and one more load/comparison
+  became foldable per outer iteration until the ten-pass safety cap fired. An
+  initial GVN-local noreturn-predecessor repair fixed that case, but the first
+  exact-merge evidence streams proved it made the nine SysV `va_arg` diamonds
+  in `va-arg-17.c` advance one per visit and regress the previously ratcheted
+  O2/O3/Os cells on both Linux targets.
+
+  The durable repair makes noreturn semantics structural in the mandatory O0
+  CFG pass: a block containing an `IRF_NORETURN` call ends in
+  `IR_UNREACHABLE` before later optimizers inspect its predecessors. Operations
+  already lowered after the call remain in source order, including pinned
+  volatile operations; only the dead outgoing edge is removed. GVN therefore
+  returns to its ordinary structural-CFG rules. The pass manager now treats
+  its cap as ten consecutive changing iterations without structural progress.
+  A strictly smaller all-time function/block/instruction count renews that
+  budget, while comparing against the all-time minimum prevents a grow/shrink
+  oscillation from renewing it forever. Focused tests prove a true
+  value-toggling pass and a structural grow/shrink oscillation still ICE at
+  the exact cap, while a synthetic twelve-step shrinking pass converges with
+  a three-visit stall cap. CFG coverage also pins the noreturn terminator and
+  preservation of a volatile suffix.
+
+  Focused ordinary and fresh ASan+UBSan semantic/lowering/optimizer coverage
+  is green at five tests and 46 assertions. Full ordinary and sanitizer unit
+  runs reach the unchanged eight Apple host-assumption failures at 906 tests
+  and 4,328,927 assertions, with all new tests passing and no sanitizer
+  report. All 25 builtin fixtures pass in both configurations. The new runtime
+  fixture passes Cgfried and Apple Clang at O0/O1/O2/O3/Os, and all five
+  supported Cgfried targets compile it at all five levels. The four directly
+  affected unmodified GCC sources (`inf-1.c`, `inf-2.c`, `inf-3.c`, and
+  `pr36332.c`) pass 20/20 Cgfried and 20/20 Apple-Clang native runtime cells,
+  plus 100/100 five-target assembly cells.
+
+  Pinned clang-format 22, pristine imports, bans/deferrals, GNU-tier and unit
+  registry accounting, warning/format matrices, the architecture-dependent
+  division lint, and the determinism audit are green. The ban gate also drops
+  an unnecessary recursive `grep` option so BSD grep returns a numeric count
+  instead of `file:count`; Linux behavior is unchanged. Ordinary and
+  ASan+UBSan frontend fuzzing is 2,000/0, IR fuzzing is 5,000/0 at seed 63,
+  and both preprocessor fuzz modes are 2,000/0 in both configurations. The
+  frontend mutation digest is intentionally repinned to
+  `94e5ee8c4feafa80`, reproduced twice normally and once under ASan+UBSan at
+  5,000 iterations; the crash ledger is clean.
+
+  The rejected first evidence pair came from standard
+  [run 34653969384](https://github.com/tenseleyFlow/Cgfried/actions/runs/34653969384)
+  and exact synthetic-merge nightly
+  [run 34654152056](https://github.com/tenseleyFlow/Cgfried/actions/runs/34654152056)
+  at revision `08991390eec3361022edd9b79eb3c1b941ec8590`. Both 20,325-row
+  streams shared compiler-source/harness/manifest provenance and each proved
+  the expected twenty new `inf-1.c`/`inf-2.c`/`inf-3.c`/`pr36332.c` PASS
+  keys, but each also contained the three `va-arg-17.c` O2/O3/Os ICE
+  regressions. Their SHA-256 values were respectively
+  `084d04ebec12a4c6a0625c65be096a12bc83ea53fadefb5b565fb461a2f54c67`
+  and
+  `a75d02e9e331a274958dd4503bcacf0b52689186f0b41d8a6f6f1498be84144a`;
+  neither is publishable. The repaired tree compiles `va-arg-17.c` and
+  `inf-2.c` under verify-after-each for both Linux targets at all five
+  optimization levels.
+
+  A second exact-merge pair at
+  `4230dfefeca00f2737ab72b3e01d8f8b2741129b` came from standard
+  [run 34808507857](https://github.com/tenseleyFlow/Cgfried/actions/runs/34808507857)
+  and nightly
+  [run 34808536844](https://github.com/tenseleyFlow/Cgfried/actions/runs/34808536844).
+  Both streams have 20,325 rows and matching compiler-source, harness, and
+  manifest provenance. Their SHA-256 values are respectively
+  `9673f1bec94b0fbd9ca2337c9f7eea874fb9fb84f36b9f6fef948b4de943027c`
+  and
+  `82b11231e64fc38ddcf200a23c9469f11918207f918c50f30d8d54cb6c6c3b87`.
+  Each proves exactly the expected twenty new PASS keys, zero old-PASS
+  regressions, and zero ICE rows, so the optimizer repair is sound.
+
+  That second pair is nevertheless superseded and must not be published:
+  standard CI exposed two integration contracts outside the torture matrix.
+  Replacing the post-noreturn terminator initially discarded the source
+  location used by `-Wunreachable-code`; the replacement now retains the
+  original terminator location and the exact warning fixture passes again.
+  The newly structural `IR_UNREACHABLE` also made the x86 corpus reach its
+  existing `ud2` emission through bundled `afs-as`, whose encoder did not yet
+  accept that mnemonic. `afs-as`
+  [PR #30](https://github.com/FortranGoingOnForty/afs-as/pull/30) merged as
+  `7e5892a1e699306d5f5de9c593b15412b36f48ab`; it adds the exact `0f 0b`
+  encoding, rejects operands, and covers it directly plus differentially.
+  Its complete local Rust suite and hosted CI are green. Cgfried pins the PR's
+  feature commit `a7c0cc6bc56536e3dad00186ae0a7c3c79b306c2`, now reachable from
+  merged `afs-as` trunk, and a local x86 ELF compile through the bundled
+  assembler succeeds.
+
+  The final pre-publication pair tests exact synthetic merge
+  `7fde196357b1e2d0998e8b490ed6af55a801135e` (parents `f8f6e463` and
+  implementation head `253c7220`). Standard
+  [run 34809741492](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809741492)
+  has nineteen successful jobs, one policy skip, and only the expected x86
+  ratchet refusal; both push and PR bootstrap
+  [runs 34809739245](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809739245)
+  and
+  [34809741520](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809741520)
+  are green. Exact-merge nightly
+  [run 34809786106](https://github.com/tenseleyFlow/Cgfried/actions/runs/34809786106)
+  passes all fourteen campaigns and refuses only the matching ARM ratchet.
+  Each retained stream has 20,325 rows and exactly twenty new PASS keys across
+  `inf-1.c`, `inf-2.c`, `inf-3.c`, and `pr36332.c` at O0/O1/O2/O3/Os, with
+  zero old-PASS regressions, zero duplicate keys, and zero ICE rows. The x86
+  and ARM SHA-256 values are respectively
+  `b35f0bc56ba097dd6067087ea11521345936a53f8e311d7c35d1409a482efca4`
+  and
+  `7dd3ec3f86b6c2b76f6f04c954dffafc3cf041b465b1bcc09f3085d315ab9163`.
+  Both share compiler-source SHA-256
+  `c02287bf6d9f7195f087430be7fd3c49a586d7f09286ea8aee1f42e33dbc1fae`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Formal `gmake torture-baseline` publishes exactly forty target-complete PASS
+  keys. Reversing the evidence order regenerates both outputs byte-identically.
+  The result is 31,040 PASS keys (31,043 lines), 3,000 classified failures in
+  32 buckets, 24 applied decisions, two deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `84754ee86fa4f8447ed7aba8229c9c3f19c519a354121507b281d1605a74554e`
+  and
+  `3a6b54d128c278dd5ebb53d0bd1447047d42668125348788fd7a98d38c87b08e`.
+  Publication is committed next; require fresh fully green standard,
+  bootstrap, and exact-merge nightly CI before the green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

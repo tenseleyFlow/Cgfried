@@ -37,8 +37,8 @@ VEC_DECL(PpVecL, PpToken);
 
 /* Front end + lowering + verify + print. Returns false if lowering
  * refused (a deferral fired). */
-static bool run_lower_opts(LowFix *f, const char *src, CStd std,
-                           bool freestanding)
+static bool run_lower_target_opts(LowFix *f, const char *src, CStd std,
+                                  bool freestanding, TargetKind target_kind)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -65,7 +65,7 @@ static bool run_lower_opts(LowFix *f, const char *src, CStd std,
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
     f->pp.freestanding = freestanding;
-    target.kind = CGF_TARGET_X86_64_LINUX_GNU;
+    target.kind = target_kind;
 
     sf = pp_source_add_buffer(&f->pp, "t.c", src, strlen(src));
     pp_begin(&f->pp, sf, NULL);
@@ -87,6 +87,13 @@ static bool run_lower_opts(LowFix *f, const char *src, CStd std,
     ir_print_module_buf(&f->text, f->m);
     buf_push_u8(&f->text, 0);
     return true;
+}
+
+static bool run_lower_opts(LowFix *f, const char *src, CStd std,
+                           bool freestanding)
+{
+    return run_lower_target_opts(f, src, std, freestanding,
+                                 CGF_TARGET_X86_64_LINUX_GNU);
 }
 
 static bool run_lower(LowFix *f, const char *src)
@@ -631,6 +638,43 @@ void test_lower_builtin_fp_compare_family(TestCtx *t)
     round = ir_parse_module(&f.arena, f.dc, txt(&f), "<fp-compare-family>");
     T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
     low_free(&f);
+}
+
+void test_lower_builtin_long_double_constant_family(TestCtx *t)
+{
+    static const char source[] =
+        "long double inf(void) { return __builtin_infl(); } "
+        "long double huge(void) { return __builtin_huge_vall(); } "
+        "long double nan(void) { return __builtin_nanl(\"0x1\"); }\n";
+    static const struct {
+        TargetKind target;
+        const char *type;
+        const char *inf;
+        const char *nan;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, "f80",
+         "ret f80 0x7FFF:0x8000000000000000",
+         "ret f80 0x7FFF:0xC000000000000000"},
+        {CGF_TARGET_ARM64_LINUX, "f128",
+         "ret f128 0x7FFF000000000000:0x0000000000000000",
+         "ret f128 0x7FFF800000000000:0x0000000000000000"},
+        {CGF_TARGET_ARM64_MACOS, "f64", "ret f64 0x7FF0000000000000",
+         "ret f64 0x7FF8000000000000"},
+    };
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_C17, true,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), cases[i].inf), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), cases[i].nan), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), cases[i].type), 6);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
+        low_free(&f);
+    }
 }
 
 void test_lower_builtin_clrsb_family(TestCtx *t)

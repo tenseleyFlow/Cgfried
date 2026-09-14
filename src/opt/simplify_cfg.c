@@ -189,6 +189,46 @@ static bool fold_const_edges(IrFunc *f, const OptConfig *cfg)
     return changed;
 }
 
+/* Lowering keeps building the source CFG after a noreturn call so it can
+ * retain diagnostics and source provenance.  Before any optimizer consumes
+ * that CFG, make the call's semantic control-flow cut structural as well.
+ * Preserve the suffix itself: pinned operations remain in source order and
+ * are harmless if the noreturn contract holds. */
+static bool terminate_noreturn_blocks(IrFunc *f)
+{
+    bool changed = false;
+    u32 bi;
+
+    for (bi = 0; bi < f->nblocks; bi++) {
+        IrBlock *block = &f->blocks[bi];
+        IrInst *in;
+
+        for (in = block->first; in; in = in->next) {
+            IrInst *term;
+            u32 loc;
+
+            if (in->op != IR_CALL || !(in->flags & IRF_NORETURN))
+                continue;
+            term = block->last;
+            if (!term || term == in)
+                CGF_ICE("simplify_cfg: noreturn call has no terminator");
+            if (term->op == IR_UNREACHABLE)
+                break;
+            /* The replacement stands in for the discarded terminator.  Keep
+             * that terminator's source location so flow warnings can still
+             * name the first statement after the noreturn call. */
+            loc = term->loc;
+            memset(term, 0, sizeof(*term));
+            term->op = IR_UNREACHABLE;
+            term->type = IRT_VOID;
+            term->loc = loc;
+            changed = true;
+            break;
+        }
+    }
+    return changed;
+}
+
 static bool *find_reachable(Arena *arena, const IrFunc *f)
 {
     bool *reachable =
@@ -569,6 +609,8 @@ static bool prune_func_cfg(IrModule *m, IrFunc *f, const OptConfig *cfg)
 {
     bool changed = false;
 
+    if (terminate_noreturn_blocks(f))
+        changed = true;
     if (fold_const_edges(f, cfg))
         changed = true;
     if (remove_semantic_unreachable(m, f))

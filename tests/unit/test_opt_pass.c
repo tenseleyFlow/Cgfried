@@ -74,6 +74,51 @@ static bool never_converges(IrModule *m, const OptConfig *cfg)
     return true;
 }
 
+static bool shrink_one_instruction(IrModule *m, const OptConfig *cfg)
+{
+    IrFunc *f = &m->funcs[0];
+    IrBlock *block = &f->blocks[0];
+    IrInst *in = block->first;
+    IrInst *prev = NULL;
+
+    (void)cfg;
+    while (in) {
+        if (in->op == IR_IADD) {
+            if (prev)
+                prev->next = in->next;
+            else
+                block->first = in->next;
+            block->ninsts--;
+            ir_func_renumber(m->arena, f);
+            return true;
+        }
+        prev = in;
+        in = in->next;
+    }
+    return false;
+}
+
+static IrInst *structural_oscillator_inst;
+
+static bool oscillate_structural_size(IrModule *m, const OptConfig *cfg)
+{
+    IrFunc *f = &m->funcs[0];
+    IrBlock *block = &f->blocks[0];
+
+    (void)cfg;
+    if (block->first->op == IR_IADD) {
+        structural_oscillator_inst = block->first;
+        block->first = block->first->next;
+        block->ninsts--;
+    } else {
+        structural_oscillator_inst->next = block->first;
+        block->first = structural_oscillator_inst;
+        block->ninsts++;
+    }
+    ir_func_renumber(m->arena, f);
+    return true;
+}
+
 static bool reorder_volatile(IrModule *m, const OptConfig *cfg)
 {
     IrBlock *b = &m->funcs[0].blocks[0];
@@ -118,6 +163,34 @@ static void child_oscillating_pass(void)
     opt_config_init(&cfg, OPT_O2);
     cfg.verify_after_each = true;
     (void)opt_run_fixpoint(m, &cfg, passes, 1, 10);
+    arena_free_all(&arena);
+}
+
+static void child_structural_oscillator(void)
+{
+    Arena arena;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    BlockId entry;
+    IrOperand zero = ir_op_iconst(IRT_I32, 0);
+    IrOperand one = ir_op_iconst(IRT_I32, 1);
+    OptConfig cfg;
+    static const Pass pass = {"structural-oscillator-test-pass",
+                              oscillate_structural_size, PASS_PINNED_EXACT};
+    static const Pass *const passes[] = {&pass};
+
+    arena_init(&arena);
+    m = ir_module_new(&arena, diag_ctx_new(&arena));
+    f = ir_func_new(m, "f", IRT_I32, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    ir_builder_at(&b, m, f, entry);
+    (void)ir_build2(&b, IR_IADD, IRT_I32, zero, one);
+    ir_build_ret(&b, &zero);
+    structural_oscillator_inst = NULL;
+    opt_config_init(&cfg, OPT_O2);
+    cfg.verify_after_each = true;
+    (void)opt_run_fixpoint(m, &cfg, passes, 1, 2);
     arena_free_all(&arena);
 }
 
@@ -254,8 +327,54 @@ void test_opt_fixpoint_cap_names_still_changing_pass(TestCtx *t)
     if (status >= 0 && WIFEXITED(status))
         T_ASSERT_EQ_INT(t, WEXITSTATUS(status), 4);
     T_ASSERT(t,
-             strstr(err, "opt: fixpoint did not converge after 10 iterations; "
-                         "still changing: always-true-test-pass") != NULL);
+             strstr(err, "opt: fixpoint did not converge after 10 iterations "
+                         "without structural progress; still changing: "
+                         "always-true-test-pass") != NULL);
+}
+
+void test_opt_fixpoint_allows_strict_progress_past_stall_cap(TestCtx *t)
+{
+    Arena arena;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    BlockId entry;
+    IrOperand zero = ir_op_iconst(IRT_I32, 0);
+    IrOperand one = ir_op_iconst(IRT_I32, 1);
+    OptConfig cfg;
+    static const Pass pass = {"shrinking-test-pass", shrink_one_instruction,
+                              PASS_PINNED_EXACT};
+    static const Pass *const passes[] = {&pass};
+    u32 i;
+
+    arena_init(&arena);
+    m = ir_module_new(&arena, diag_ctx_new(&arena));
+    f = ir_func_new(m, "f", IRT_I32, NULL, 0);
+    entry = ir_block_new(m, f, "entry");
+    ir_builder_at(&b, m, f, entry);
+    for (i = 0; i < 12; i++)
+        (void)ir_build2(&b, IR_IADD, IRT_I32, zero, one);
+    ir_build_ret(&b, &zero);
+    opt_config_init(&cfg, OPT_O2);
+    cfg.verify_after_each = true;
+    T_ASSERT(t, opt_run_fixpoint(m, &cfg, passes, 1, 3));
+    T_ASSERT_EQ_INT(t, f->blocks[0].ninsts, 1);
+    T_ASSERT_EQ_INT(t, f->blocks[0].last->op, IR_RET);
+    T_ASSERT(t, ir_verify(m->dc, m));
+    arena_free_all(&arena);
+}
+
+void test_opt_fixpoint_structural_oscillation_does_not_reset_cap(TestCtx *t)
+{
+    char err[1024];
+    int status = run_child(child_structural_oscillator, err, sizeof(err));
+
+    T_ASSERT(t, status >= 0 && WIFEXITED(status));
+    if (status >= 0 && WIFEXITED(status))
+        T_ASSERT_EQ_INT(t, WEXITSTATUS(status), 4);
+    T_ASSERT(t, strstr(err, "opt: fixpoint did not converge after 2 iterations "
+                            "without structural progress; still changing: "
+                            "structural-oscillator-test-pass") != NULL);
 }
 
 void test_opt_pass_rejects_volatile_reordering(TestCtx *t)
