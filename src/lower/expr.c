@@ -2484,6 +2484,214 @@ static IrOperand lower_fp_signbit(Lower *lo, AstNode *argument)
     return lower_fp_signbit_value(lo, lower_rvalue(lo, argument));
 }
 
+typedef struct OverflowInteger {
+    IrOperand magnitude; /* unsigned i64 absolute value */
+    IrOperand negative;  /* i32 predicate; zero is never negative */
+} OverflowInteger;
+
+/* Preserve the source operand's signed mathematical value as sign+magnitude.
+ * Every supported source integer is at most 64 bits. In particular,
+ * 0 - INT64_MIN in unsigned IR produces the representable magnitude 2^63,
+ * so neither the compiler host nor generated code performs signed UB. */
+static OverflowInteger lower_overflow_integer(Lower *lo, IrOperand value,
+                                              Type *type)
+{
+    bool is_signed = conv_is_signed(lo->sema, type);
+    Type *wide_type = type_basic(is_signed ? TY_LLONG : TY_ULLONG);
+    OverflowInteger out;
+
+    value = lower_scalar_convert(lo, value, type, wide_type);
+    if (!is_signed) {
+        out.magnitude = value;
+        out.negative = ir_op_iconst(IRT_I32, 0);
+        return out;
+    }
+    {
+        IrOperand zero = ir_op_iconst(IRT_I64, 0);
+        ValueId negative = ir_build_icmp(&lo->b, ICMP_SLT, value, zero);
+        ValueId negated = ir_build2(&lo->b, IR_ISUB, IRT_I64, zero, value);
+
+        out.negative = ir_op_value(lo->fn, negative);
+        out.magnitude = ir_op_value(
+            lo->fn, ir_build_select(&lo->b, out.negative,
+                                    ir_op_value(lo->fn, negated), value));
+        return out;
+    }
+}
+
+static IrOperand overflow_limit(Lower *lo, IrOperand negative,
+                                Type *result_type)
+{
+    u32 width = conv_int_bits(lo->sema, result_type);
+    bool is_signed = conv_is_signed(lo->sema, result_type);
+    u64 positive_limit;
+    u64 negative_limit;
+
+    if (is_signed) {
+        positive_limit =
+            width == 64 ? UINT64_MAX >> 1 : (1ull << (width - 1)) - 1;
+        negative_limit = 1ull << (width - 1);
+    } else {
+        positive_limit = width == 64 ? UINT64_MAX : (1ull << width) - 1;
+        /* A negative mathematical result fits an unsigned destination only
+         * when its magnitude is zero; sign normalization handles that case. */
+        negative_limit = 0;
+    }
+    return ir_op_value(
+        lo->fn, ir_build_select(&lo->b, negative,
+                                ir_op_iconst(IRT_I64, (i64)negative_limit),
+                                ir_op_iconst(IRT_I64, (i64)positive_limit)));
+}
+
+static IrOperand lower_addsub_overflow(Lower *lo, OverflowInteger left,
+                                       OverflowInteger right, Type *result_type,
+                                       bool subtract)
+{
+    IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+    IrOperand one32 = ir_op_iconst(IRT_I32, 1);
+    ValueId same_sign;
+    IrOperand sum_limit;
+    ValueId right_past_limit;
+    ValueId remaining;
+    ValueId left_past_remaining;
+    ValueId sum_overflow;
+    ValueId left_ge_right;
+    ValueId left_difference;
+    ValueId right_difference;
+    IrOperand difference;
+    IrOperand difference_negative;
+    IrOperand difference_limit;
+    ValueId difference_overflow;
+
+    if (subtract) {
+        ValueId right_nonzero =
+            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
+        ValueId inverted =
+            ir_build2(&lo->b, IR_XOR, IRT_I32, right.negative, one32);
+
+        /* Negating the second mathematical operand turns subtraction into
+         * addition. Normalize zero's sign so 0 - 0 remains nonnegative. */
+        right.negative =
+            ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
+                                          ir_op_value(lo->fn, right_nonzero),
+                                          ir_op_value(lo->fn, inverted)));
+    }
+
+    same_sign = ir_build_icmp(&lo->b, ICMP_EQ, left.negative, right.negative);
+    sum_limit = overflow_limit(lo, left.negative, result_type);
+    right_past_limit =
+        ir_build_icmp(&lo->b, ICMP_UGT, right.magnitude, sum_limit);
+    remaining = ir_build2(&lo->b, IR_ISUB, IRT_I64, sum_limit, right.magnitude);
+    left_past_remaining = ir_build_icmp(&lo->b, ICMP_UGT, left.magnitude,
+                                        ir_op_value(lo->fn, remaining));
+    sum_overflow =
+        ir_build2(&lo->b, IR_OR, IRT_I32, ir_op_value(lo->fn, right_past_limit),
+                  ir_op_value(lo->fn, left_past_remaining));
+
+    /* Opposite signs subtract magnitudes, which cannot overflow a u64. The
+     * larger magnitude determines the mathematical result sign. */
+    left_ge_right =
+        ir_build_icmp(&lo->b, ICMP_UGE, left.magnitude, right.magnitude);
+    left_difference =
+        ir_build2(&lo->b, IR_ISUB, IRT_I64, left.magnitude, right.magnitude);
+    right_difference =
+        ir_build2(&lo->b, IR_ISUB, IRT_I64, right.magnitude, left.magnitude);
+    difference = ir_op_value(
+        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, left_ge_right),
+                                ir_op_value(lo->fn, left_difference),
+                                ir_op_value(lo->fn, right_difference)));
+    difference_negative = ir_op_value(
+        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, left_ge_right),
+                                left.negative, right.negative));
+    difference_limit = overflow_limit(lo, difference_negative, result_type);
+    difference_overflow =
+        ir_build_icmp(&lo->b, ICMP_UGT, difference, difference_limit);
+
+    return ir_op_value(
+        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign),
+                                ir_op_value(lo->fn, sum_overflow),
+                                ir_op_value(lo->fn, difference_overflow)));
+}
+
+static IrOperand lower_mul_overflow(Lower *lo, OverflowInteger left,
+                                    OverflowInteger right, Type *result_type)
+{
+    IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+    ValueId left_nonzero =
+        ir_build_icmp(&lo->b, ICMP_NE, left.magnitude, zero64);
+    ValueId right_nonzero =
+        ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
+    ValueId both_nonzero =
+        ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, left_nonzero),
+                  ir_op_value(lo->fn, right_nonzero));
+    ValueId sign =
+        ir_build2(&lo->b, IR_XOR, IRT_I32, left.negative, right.negative);
+    ValueId negative =
+        ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, both_nonzero),
+                  ir_op_value(lo->fn, sign));
+    IrOperand limit =
+        overflow_limit(lo, ir_op_value(lo->fn, negative), result_type);
+    IrOperand divisor = ir_op_value(
+        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, left_nonzero),
+                                left.magnitude, ir_op_iconst(IRT_I64, 1)));
+    ValueId quotient = ir_build2(&lo->b, IR_UDIV, IRT_I64, limit, divisor);
+    ValueId too_large = ir_build_icmp(&lo->b, ICMP_UGT, right.magnitude,
+                                      ir_op_value(lo->fn, quotient));
+
+    /* Compare magnitudes against limit / left instead of forming a product
+     * that could need 128 bits. Selecting divisor 1 makes the zero case
+     * defined without control flow; left_nonzero then forces its answer off. */
+    return ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
+                                         ir_op_value(lo->fn, left_nonzero),
+                                         ir_op_value(lo->fn, too_large)));
+}
+
+static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
+{
+    Type *left_type = sem(e->args[0]);
+    Type *right_type = sem(e->args[1]);
+    Type *result_type = sem(e->args[2])->base;
+    IrOperand left_value = lower_rvalue(lo, e->args[0]);
+    IrOperand right_value = lower_rvalue(lo, e->args[1]);
+    IrOperand result_address = lower_rvalue(lo, e->args[2]);
+    OverflowInteger left = lower_overflow_integer(lo, left_value, left_type);
+    OverflowInteger right = lower_overflow_integer(lo, right_value, right_type);
+    Type *arithmetic_type = type_basic(TY_ULLONG);
+    IrOperand converted_left =
+        lower_scalar_convert(lo, left_value, left_type, result_type);
+    IrOperand converted_right =
+        lower_scalar_convert(lo, right_value, right_type, result_type);
+    IrOperand arithmetic_left =
+        lower_scalar_convert(lo, converted_left, result_type, arithmetic_type);
+    IrOperand arithmetic_right =
+        lower_scalar_convert(lo, converted_right, result_type, arithmetic_type);
+    IrOp arithmetic = e->op == SEMA_BUILTIN_ADD_OVERFLOW   ? IR_IADD
+                      : e->op == SEMA_BUILTIN_SUB_OVERFLOW ? IR_ISUB
+                                                           : IR_IMUL;
+    ValueId raw_result = ir_build2(&lo->b, arithmetic, IRT_I64, arithmetic_left,
+                                   arithmetic_right);
+    IrOperand stored_result = lower_scalar_convert(
+        lo, ir_op_value(lo->fn, raw_result), arithmetic_type, result_type);
+    IrOperand overflow =
+        e->op == SEMA_BUILTIN_MUL_OVERFLOW
+            ? lower_mul_overflow(lo, left, right, result_type)
+            : lower_addsub_overflow(lo, left, right, result_type,
+                                    e->op == SEMA_BUILTIN_SUB_OVERFLOW);
+    ValueId bool_result;
+
+    /* The modular low bits equal the infinite-precision result converted to
+     * the destination type, so this store remains correct even when the
+     * predicate reports overflow. Form them in the unsigned i64 carrier: that
+     * preserves every supported destination's low bits and avoids inventing
+     * unsupported byte-width target instructions. The arithmetic
+     * intentionally carries no NSW flag: checked signed overflow is fully
+     * defined. */
+    (void)lower_store(lo, lv_of(lo, result_address, result_type),
+                      stored_result);
+    bool_result = ir_build1(&lo->b, IR_TRUNC, IRT_I8, overflow);
+    return ir_op_value(lo->fn, bool_result);
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2523,6 +2731,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         ir_build_unreachable(&lo->b);
         lower_at(lo, lower_new_block(lo, "dead"));
         *out = ir_op_undef(IRT_I32);
+        return true;
+    case SEMA_BUILTIN_ADD_OVERFLOW:
+    case SEMA_BUILTIN_SUB_OVERFLOW:
+    case SEMA_BUILTIN_MUL_OVERFLOW:
+        *out = lower_checked_overflow(lo, e);
         return true;
     case SEMA_BUILTIN_EXPECT:
         /* Honest no-op in v0.1.0 (documented): the value IS the first
