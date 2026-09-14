@@ -2692,6 +2692,33 @@ static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
     return ir_op_value(lo->fn, bool_result);
 }
 
+static IrOperand lower_checked_overflow_predicate(Lower *lo, AstNode *e)
+{
+    Type *left_type = sem(e->args[0]);
+    Type *right_type = sem(e->args[1]);
+    Type *result_type = conv_unpromoted_integer_expr_type(lo->sema, e->args[2]);
+    IrOperand left_value = lower_rvalue(lo, e->args[0]);
+    IrOperand right_value = lower_rvalue(lo, e->args[1]);
+    OverflowInteger left;
+    OverflowInteger right;
+    IrOperand overflow;
+    ValueId bool_result;
+
+    /* GCC ignores the selector's value, not its side effects. Lowering the
+     * expression once also preserves a volatile access; the resulting value
+     * deliberately has no data dependency on the predicate. */
+    (void)lower_rvalue(lo, e->args[2]);
+    left = lower_overflow_integer(lo, left_value, left_type);
+    right = lower_overflow_integer(lo, right_value, right_type);
+    overflow =
+        e->op == SEMA_BUILTIN_MUL_OVERFLOW_P
+            ? lower_mul_overflow(lo, left, right, result_type)
+            : lower_addsub_overflow(lo, left, right, result_type,
+                                    e->op == SEMA_BUILTIN_SUB_OVERFLOW_P);
+    bool_result = ir_build1(&lo->b, IR_TRUNC, IRT_I8, overflow);
+    return ir_op_value(lo->fn, bool_result);
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2736,6 +2763,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     case SEMA_BUILTIN_SUB_OVERFLOW:
     case SEMA_BUILTIN_MUL_OVERFLOW:
         *out = lower_checked_overflow(lo, e);
+        return true;
+    case SEMA_BUILTIN_ADD_OVERFLOW_P:
+    case SEMA_BUILTIN_SUB_OVERFLOW_P:
+    case SEMA_BUILTIN_MUL_OVERFLOW_P:
+        *out = lower_checked_overflow_predicate(lo, e);
         return true;
     case SEMA_BUILTIN_EXPECT:
         /* Honest no-op in v0.1.0 (documented): the value IS the first

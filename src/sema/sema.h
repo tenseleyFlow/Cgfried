@@ -642,6 +642,10 @@ Type *conv_uac(Sema *s, AstNode **a, AstNode **b);
  * without constructing expressions. */
 Type *conv_promote_type(Sema *s, Type *t);
 Type *conv_promote_bitfield_type(Sema *s, Type *t, u32 width, bool is_signed);
+/* The exact type selected by an integer expression when promotions are
+ * forbidden. GNU overflow predicates use a bit-field's own precision and
+ * signedness rather than its declared carrier type. */
+Type *conv_unpromoted_integer_expr_type(Sema *s, const AstNode *e);
 Type *conv_uac_type(Sema *s, Type *a, Type *b);
 Type *conv_strip_quals(Sema *s, const Type *t);
 int conv_rank(const Type *t);

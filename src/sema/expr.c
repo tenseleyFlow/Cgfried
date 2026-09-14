@@ -1173,11 +1173,24 @@ static bool is_builtin_fp_classification(u16 builtin)
     }
 }
 
-static bool is_builtin_checked_overflow(u16 builtin)
+static bool is_builtin_checked_overflow_store(u16 builtin)
 {
     return builtin == SEMA_BUILTIN_ADD_OVERFLOW ||
            builtin == SEMA_BUILTIN_SUB_OVERFLOW ||
            builtin == SEMA_BUILTIN_MUL_OVERFLOW;
+}
+
+static bool is_builtin_checked_overflow_predicate(u16 builtin)
+{
+    return builtin == SEMA_BUILTIN_ADD_OVERFLOW_P ||
+           builtin == SEMA_BUILTIN_SUB_OVERFLOW_P ||
+           builtin == SEMA_BUILTIN_MUL_OVERFLOW_P;
+}
+
+static bool is_builtin_checked_overflow(u16 builtin)
+{
+    return is_builtin_checked_overflow_store(builtin) ||
+           is_builtin_checked_overflow_predicate(builtin);
 }
 
 static AstNode *expr_call(Sema *s, AstNode *e)
@@ -1347,11 +1360,6 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 }
             }
             if (is_builtin_checked_overflow(b)) {
-                Type *result_pointer = e->args[2]->sem_type;
-                Type *result_type =
-                    result_pointer && result_pointer->kind == TY_PTR
-                        ? result_pointer->base
-                        : NULL;
                 bool valid = true;
 
                 /* GCC defines these in infinite-precision signed arithmetic.
@@ -1370,23 +1378,52 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         valid = false;
                     }
                 }
-                if (quiet(e->args[2], NULL)) {
-                    valid = false;
-                } else if (!result_type || !type_is_integer(result_type) ||
-                           result_type->kind == TY_BOOL ||
-                           result_type->kind == TY_ENUM) {
-                    err(s, e->args[2]->span,
-                        "result argument to '%s' must point to a non-boolean, "
-                        "non-enumerated integer type (got '%s')",
-                        direct_ident->name,
-                        type_to_str(s->arena, e->args[2]->sem_type));
-                    valid = false;
-                } else if (result_type->quals & CGF_QUAL_CONST) {
-                    err(s, e->args[2]->span,
-                        "result argument to '%s' points to a const-qualified "
-                        "integer type",
-                        direct_ident->name);
-                    valid = false;
+                if (is_builtin_checked_overflow_store(b)) {
+                    Type *result_pointer = e->args[2]->sem_type;
+                    Type *result_type =
+                        result_pointer && result_pointer->kind == TY_PTR
+                            ? result_pointer->base
+                            : NULL;
+
+                    if (quiet(e->args[2], NULL)) {
+                        valid = false;
+                    } else if (!result_type || !type_is_integer(result_type) ||
+                               result_type->kind == TY_BOOL ||
+                               result_type->kind == TY_ENUM) {
+                        err(s, e->args[2]->span,
+                            "result argument to '%s' must point to a "
+                            "non-boolean, non-enumerated integer type "
+                            "(got '%s')",
+                            direct_ident->name,
+                            type_to_str(s->arena, e->args[2]->sem_type));
+                        valid = false;
+                    } else if (result_type->quals & CGF_QUAL_CONST) {
+                        err(s, e->args[2]->span,
+                            "result argument to '%s' points to a "
+                            "const-qualified integer type",
+                            direct_ident->name);
+                        valid = false;
+                    }
+                } else {
+                    Type *selector = e->args[2]->sem_type;
+
+                    /* The value is ignored, but this is still an evaluated
+                     * expression. Its exact unpromoted type selects the
+                     * representable range; lowering also honors bit-field
+                     * precision recorded on the expression. */
+                    if (quiet(e->args[2], NULL)) {
+                        valid = false;
+                    } else if (!selector || !type_is_integer(selector) ||
+                               selector->kind == TY_BOOL ||
+                               selector->kind == TY_ENUM) {
+                        err(s, e->args[2]->span,
+                            "selector argument to '%s' must have a "
+                            "non-boolean, non-enumerated integer type "
+                            "(got '%s')",
+                            direct_ident->name,
+                            type_to_str(s->arena, selector));
+                        valid = false;
+                    }
                 }
                 if (!valid)
                     return poison(s, e);

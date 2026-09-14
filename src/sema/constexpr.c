@@ -534,6 +534,65 @@ static bool multiply_overflows(Sema *s, Type *t, u64 a, u64 b)
     return b_mag != 0 && a_mag > limit / b_mag;
 }
 
+typedef struct {
+    u64 magnitude;
+    bool negative;
+} CeOverflowInteger;
+
+static CeOverflowInteger ce_overflow_integer(Sema *s, ConstValue value)
+{
+    CeOverflowInteger out;
+    u32 width = conv_int_bits(s, value.type);
+    u64 sign = width ? 1ull << (width - 1) : 0;
+
+    out.negative = conv_is_signed(s, value.type) && (value.i & sign) != 0;
+    out.magnitude = out.negative ? 0 - value.i : value.i;
+    return out;
+}
+
+static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
+{
+    u32 width = conv_int_bits(s, result_type);
+
+    if (conv_is_signed(s, result_type)) {
+        if (negative)
+            return 1ull << (width - 1);
+        return width == 64 ? UINT64_MAX >> 1 : (1ull << (width - 1)) - 1;
+    }
+    return negative ? 0 : width == 64 ? UINT64_MAX : (1ull << width) - 1;
+}
+
+static bool ce_addsub_overflow_p(Sema *s, CeOverflowInteger left,
+                                 CeOverflowInteger right, Type *result_type,
+                                 bool subtract)
+{
+    u64 limit;
+
+    if (subtract && right.magnitude != 0)
+        right.negative = !right.negative;
+    if (left.negative == right.negative) {
+        limit = ce_overflow_limit(s, result_type, left.negative);
+        return right.magnitude > limit ||
+               left.magnitude > limit - right.magnitude;
+    }
+    if (left.magnitude >= right.magnitude) {
+        limit = ce_overflow_limit(s, result_type, left.negative);
+        return left.magnitude - right.magnitude > limit;
+    }
+    limit = ce_overflow_limit(s, result_type, right.negative);
+    return right.magnitude - left.magnitude > limit;
+}
+
+static bool ce_mul_overflow_p(Sema *s, CeOverflowInteger left,
+                              CeOverflowInteger right, Type *result_type)
+{
+    bool negative = left.magnitude != 0 && right.magnitude != 0 &&
+                    left.negative != right.negative;
+    u64 limit = ce_overflow_limit(s, result_type, negative);
+
+    return left.magnitude != 0 && right.magnitude > limit / left.magnitude;
+}
+
 static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
 {
     bool pointer_difference =
@@ -1359,6 +1418,35 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
 
         while (callee && callee->kind == AST_EXPR_PAREN)
             callee = callee->lhs;
+
+        if ((e->op == SEMA_BUILTIN_ADD_OVERFLOW_P ||
+             e->op == SEMA_BUILTIN_SUB_OVERFLOW_P ||
+             e->op == SEMA_BUILTIN_MUL_OVERFLOW_P) &&
+            e->nargs == 3) {
+            ConstValue left_value = eval(s, e->args[0], m);
+            ConstValue right_value = eval(s, e->args[1], m);
+            ConstValue selector_value = eval(s, e->args[2], m);
+            Type *result_type =
+                conv_unpromoted_integer_expr_type(s, e->args[2]);
+            CeOverflowInteger left;
+            CeOverflowInteger right;
+            bool overflow;
+
+            /* The selector expression is evaluated because its side effects
+             * are real. Its value is otherwise irrelevant; sema has already
+             * retained the exact non-promoted type and bit-field width. */
+            if (left_value.kind != CV_INT || right_value.kind != CV_INT ||
+                selector_value.kind != CV_INT)
+                return cv_error();
+            left = ce_overflow_integer(s, left_value);
+            right = ce_overflow_integer(s, right_value);
+            overflow = e->op == SEMA_BUILTIN_MUL_OVERFLOW_P
+                           ? ce_mul_overflow_p(s, left, right, result_type)
+                           : ce_addsub_overflow_p(
+                                 s, left, right, result_type,
+                                 e->op == SEMA_BUILTIN_SUB_OVERFLOW_P);
+            return cv_int(s, e->sem_type, overflow ? 1 : 0);
+        }
 
         if (bytes && e->nargs == 1) {
             ConstValue a = eval(s, e->args[0], m);
