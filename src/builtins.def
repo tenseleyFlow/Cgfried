@@ -126,6 +126,12 @@ B(fabs, FABS, 1, BK_DOUBLE)
 B(fabsf, FABSF, 1, BK_FLOAT)
 B(fabsl, FABSL, 1, BK_LDOUBLE)
 
+/* floating copy-sign; both operands convert through the exact declared
+ * real prototype, and lowering preserves the first operand's payload */
+B(copysign, COPYSIGN, 2, BK_DOUBLE)
+B(copysignf, COPYSIGNF, 2, BK_FLOAT)
+B(copysignl, COPYSIGNL, 2, BK_LDOUBLE)
+
 /* byte swaps (glibc's <bits/byteswap.h> calls these directly once
  * __GNUC__ is defined). They lower to shifts, masks and ors -- see the
  * comment at their case in src/lower/expr.c for why there is no IR

@@ -11,9 +11,9 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 5/30 after required daily x86 evidence was absent on September 5
+at a strict 6/30 after required daily x86 evidence was absent on September 5
 and matching-head evidence was absent on September 7–8. It remains
-operationally OPEN. Matching-head September 12 and 13 hosted daily runs are
+operationally OPEN. Matching-head September 12--14 hosted daily runs are
 green, and September 13's separate weekly run is full-lattice green. The
 matching-head September 11 recovery
 [`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
@@ -222,13 +222,28 @@ clearing, and native x86-64/ARM64 lowering. It publishes twenty
 target-complete PASS keys and leaves the ratchet at 31,060 PASS keys (31,063
 lines). Its final standard, bootstrap, and exact-merge nightly CI were fully
 green before the green-only merge, and the actual merge tree is byte-identical
-to the tested synthetic merge. The current
-`s56.20-builtin-fp-classification-family` tranche implements type-generic
-`__builtin_isnan`, `__builtin_isinf`, `__builtin_isfinite`, and
-`__builtin_signbit`. Focused semantic, IR, constant-evaluation, runtime,
-deterministic-fuzz, cross-target, and complete local regression-gate
-validation are green, and its provenance-matched target-complete torture
-evidence is published on the branch.
+to the tested synthetic merge. PR #115's
+`s56.20-builtin-fp-classification-family` tranche is merged as `e3f90f14`.
+It implements type-generic `__builtin_isnan`, `__builtin_isinf`,
+`__builtin_isfinite`, and `__builtin_signbit`, publishes fifty
+target-complete PASS keys, and leaves the ratchet at 31,110 PASS keys (31,113
+lines). Final standard, bootstrap, and exact-merge nightly CI were fully green
+before the green-only merge; the actual merge tree is byte-identical to the
+tested final synthetic merge. The current
+`s56.21-builtin-fp-copysign-family` tranche on PR #116 implements
+`__builtin_copysign`, `__builtin_copysignf`, and `__builtin_copysignl` with
+exact prototypes, target-softfloat constant evaluation, payload-preserving
+sign copying, and native x86-64/ARM64 lowering. Focused semantic, IR, runtime,
+sanitizer, deterministic-fuzz, oracle, and cross-target validation are green.
+The exact synthetic merge `b729689b` passed the complete bootstrap lattice in
+[run 34844539529](https://github.com/tenseleyFlow/Cgfried/actions/runs/34844539529).
+Its pre-publication standard and exact-merge nightly completed with every
+ordinary job green and only the intended x86 and ARM ratchet failures. Atomic
+two-target publication adds exactly 60 keys, raising the ratchet to 31,170
+PASS keys (31,173 lines) with 2,870 classified failures, 32 buckets, 24
+applied decisions, two deliberately retained stale decisions, and zero
+unbucketed or unresolved cells. Final post-publication PR and exact-merge CI
+remain required before the green-only merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -699,7 +714,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 5/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 6/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -733,7 +748,10 @@ do not call the sprint closed until that operational obligation is complete.
   and full weekly
   [run 34747919288](https://github.com/tenseleyFlow/Cgfried/actions/runs/34747919288)
   share that exact head and make day 5, with all four daily jobs,
-  reproducibility, and cross-host comparison green. The daily-hosted automation
+  reproducibility, and cross-host comparison green. Scheduled September 14
+  [run 34825113796](https://github.com/tenseleyFlow/Cgfried/actions/runs/34825113796)
+  passed all four required daily jobs at exact head `2b193f3c` and is day 6;
+  no weekly work was due. The daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
   weekly cross/reproducibility result; any missing or red required run breaks the
@@ -5526,6 +5544,86 @@ and green post-publication CI.
   `323ec885318d8b0c31aab13fbb9b005a0746ff3d14883c4d6722afe4e615cc5e`
   and
   `e03edbe2fde0c254705e5fa78a2c8983838151f5753dbcfa7fe4ce7d9ac26673`.
+  Publication commit `56f131c6` passed final standard
+  [run 34838944223](https://github.com/tenseleyFlow/Cgfried/actions/runs/34838944223)
+  with twenty successful jobs and one policy skip. Branch, PR, and exact-merge
+  bootstrap
+  [runs 34838940469](https://github.com/tenseleyFlow/Cgfried/actions/runs/34838940469),
+  [34838944292](https://github.com/tenseleyFlow/Cgfried/actions/runs/34838944292),
+  and
+  [34838991154](https://github.com/tenseleyFlow/Cgfried/actions/runs/34838991154)
+  are green, and final exact-merge nightly
+  [run 34839003177](https://github.com/tenseleyFlow/Cgfried/actions/runs/34839003177)
+  passes all fifteen jobs. PR #115 merged green-only as `e3f90f14`; the
+  actual merge has parents `c2a8023c` and `56f131c6`, and tree
+  `17b6d734658a8b3503f86f8bb8c4ccc5830fe5c8`, byte-identical to the fully
+  tested final synthetic merge.
+- The current `s56.21-builtin-fp-copysign-family` tranche implements GCC's
+  fixed-prototype `__builtin_copysign`, `__builtin_copysignf`, and
+  `__builtin_copysignl` operations. Sema converts both operands to the exact
+  result format. Constant evaluation replaces only the sign field in
+  target-softfloat data. Runtime lowering evaluates each operand once, takes
+  the payload-preserving absolute and negative forms of the first operand,
+  extracts the second operand's sign through the existing f32/f64 carriers or
+  f80/f128 helpers, and selects the exact result. This preserves signed zero,
+  infinity, and NaN payloads across all three target long-double ABIs without
+  consulting the build host's FPU.
+
+  Focused normal and ASan+UBSan semantic/IR tests pass two tests and seventy
+  assertions. The new runtime fixture passes Cgfried at every optimization
+  level on Apple silicon and Apple Clang at O0/O1/O2/O3/Os. It compiles to
+  assembly for arm64-linux, x86_64-linux-gnu, and arm64-macos at all five
+  levels. Four header-independent unmodified GCC candidates compile and lower
+  in all forty Linux target/level cells; three of their runtime cases pass
+  natively on Apple. The two complete upstream copy-sign stress programs
+  require Linux's supported headers, so their authoritative execution remains
+  with hosted torture CI. The intended fixture addition repins the 5,000-case
+  frontend mutation sequence to `909a9bcba3797e11`, reproduced twice normally
+  and once under ASan+UBSan; 2,000-case normal and sanitizer runs report zero
+  findings. The exact pinned clang-format 22 gate and the 64-row format matrix
+  are green. The complete Apple unit run passes every new test and retains the
+  unchanged eight documented host-assumption failures.
+
+  Pre-publication standard
+  [run 34844427418](https://github.com/tenseleyFlow/Cgfried/actions/runs/34844427418)
+  at behavior head `23d72df7` completed with every ordinary job green and only
+  the intended x86 ratchet failure. Exact synthetic-merge nightly
+  [run 34844536769](https://github.com/tenseleyFlow/Cgfried/actions/runs/34844536769)
+  at `b729689b` likewise has all fourteen ordinary jobs green and only the
+  intended native-ARM ratchet failure. Branch and PR bootstraps
+  [runs 34844423109](https://github.com/tenseleyFlow/Cgfried/actions/runs/34844423109)
+  and
+  [34844427388](https://github.com/tenseleyFlow/Cgfried/actions/runs/34844427388)
+  are green, and exact-merge
+  [run 34844539529](https://github.com/tenseleyFlow/Cgfried/actions/runs/34844539529)
+  passes the full x86 O0/O2, native ARM O0/O2, and cross-host comparison
+  lattice.
+
+  The x86 and ARM evidence streams share source revision `b729689b`, compiler
+  source, harness, torture-manifest, and c-testsuite-manifest provenance. Each
+  contains 20,325 unique cells: 15,585 PASS, 3,305 SKIP, and 1,435
+  COMPILE_FAIL, with zero ICEs, duplicates, or old-PASS regressions. Each
+  target contributes exactly thirty new PASS keys at O0/O1/O2/O3/Os across
+  `pr118501.c`, `copysign1.c`, `copysign2.c`, `mzero6.c`, `pr72824.c`, and
+  `pr44683.c`. The x86 and ARM result-stream SHA-256 hashes are respectively
+  `d7581d23160d740a37a4257daea9ca09b5d3580b1de190a4a0141fb7c59d2274`
+  and
+  `73b3cfef530c1d83e8b53e15ad9e2eafac1ff763e7d8a5c084a0cbbe8552058b`.
+
+  Formal GNU-make atomic publication consumes both streams and adds exactly
+  sixty target-complete keys. Reversing the target order regenerates both
+  outputs byte-identically, and the complete runner, triage, provenance,
+  matrix, rollback, and import meta-suite passes. The published ratchet holds
+  31,170 PASS keys (31,173 lines); triage contains 2,870 classified failures
+  in 32 buckets, 24 applied decisions, two deliberately retained stale
+  decisions, and zero unbucketed or unresolved cells. The `gcc-builtin` class
+  falls from 760 to 700 failed cells. PASS and triage SHA-256 values are
+  respectively
+  `836cc28a8432ee27f604d63540cc7dfa8785d23ed3d604109cabc2701ca9ee83`
+  and
+  `a068edad90569b7c183bdfb92ade89fe62a894722d325bd133960c4d20a7b4c2`.
+  Final post-publication standard, bootstrap, and exact-merge nightly CI must
+  be green before PR #116 is merged.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

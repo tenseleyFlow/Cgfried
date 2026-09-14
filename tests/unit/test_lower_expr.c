@@ -779,6 +779,68 @@ void test_lower_builtin_fabs_family(TestCtx *t)
     }
 }
 
+void test_lower_builtin_copysign_family(TestCtx *t)
+{
+    static const char source[] =
+        "float magnitude_f(void); float sign_f(void); "
+        "double magnitude_d(void); double sign_d(void); "
+        "long double magnitude_l(void); long double sign_l(void); "
+        "float cf(void) { return __builtin_copysignf(magnitude_f(), "
+        "sign_f()); } "
+        "double cd(void) { return __builtin_copysign(magnitude_d(), "
+        "sign_d()); } "
+        "long double cl(void) { return __builtin_copysignl(magnitude_l(), "
+        "sign_l()); }\n";
+    static const struct {
+        TargetKind target;
+        int f64_ops;
+        int f80_ops;
+        int f128_ops;
+        int f64_signbits;
+        int xf_helpers;
+        int tf_helpers;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 1, 1, 0, 1, 1, 0},
+        {CGF_TARGET_ARM64_LINUX, 1, 0, 1, 1, 0, 1},
+        {CGF_TARGET_ARM64_MACOS, 2, 0, 0, 2, 0, 0},
+    };
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        IrModule *round;
+
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_C17, true,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @magnitude_f()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @sign_f()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @magnitude_d()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @sign_d()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fneg f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f64"), cases[i].f64_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fneg f64"), cases[i].f64_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f80"), cases[i].f80_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fneg f80"), cases[i].f80_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f128"), cases[i].f128_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fneg f128"), cases[i].f128_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "bitcast f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "bitcast f64"),
+                        cases[i].f64_signbits);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__cgf_signbitxf("),
+                        cases[i].xf_helpers);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__cgf_signbittf("),
+                        cases[i].tf_helpers);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), " = select "), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_copysign"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<copysign-family>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_clrsb_family(TestCtx *t)
 {
     static const char calls[] =

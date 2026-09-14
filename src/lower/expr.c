@@ -2447,9 +2447,8 @@ static IrOperand lower_special_float_constant(Lower *lo, Type *type,
  * fixed-width formats expose their sign through an exact-width bitcast. The
  * two 16-byte formats deliberately use compiler-owned carrier helpers instead
  * of teaching the scalar IR a target-layout-dependent 128-bit bitcast. */
-static IrOperand lower_fp_signbit(Lower *lo, AstNode *argument)
+static IrOperand lower_fp_signbit_value(Lower *lo, IrOperand value)
 {
-    IrOperand value = lower_rvalue(lo, argument);
     IrType type = (IrType)value.type;
     ValueId bits, shifted, result;
     const char *helper;
@@ -2478,6 +2477,11 @@ static IrOperand lower_fp_signbit(Lower *lo, AstNode *argument)
     result = ir_build_call(&lo->b, IRT_I32, FUNCREF_EXTERNAL,
                            ir_sym(lo->m, helper), &value, 1);
     return ir_op_value(lo->fn, result);
+}
+
+static IrOperand lower_fp_signbit(Lower *lo, AstNode *argument)
+{
+    return lower_fp_signbit_value(lo, lower_rvalue(lo, argument));
 }
 
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
@@ -2661,6 +2665,28 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         *out = ir_op_value(
             lo->fn,
             ir_build1(&lo->b, IR_FABS, lower_irtype(lo, e->sem_type), value));
+        return true;
+    }
+    case SEMA_BUILTIN_COPYSIGN:
+    case SEMA_BUILTIN_COPYSIGNF:
+    case SEMA_BUILTIN_COPYSIGNL: {
+        IrOperand value = lower_rvalue(lo, e->args[0]);
+        IrOperand sign_source = lower_rvalue(lo, e->args[1]);
+        IrType type = lower_irtype(lo, e->sem_type);
+        ValueId magnitude = ir_build1(&lo->b, IR_FABS, type, value);
+        ValueId negative =
+            ir_build1(&lo->b, IR_FNEG, type, ir_op_value(lo->fn, magnitude));
+        IrOperand negative_sign = lower_fp_signbit_value(lo, sign_source);
+
+        /* FABS and FNEG are payload-preserving sign-bit operations on every
+         * supported format (the f128 legalization uses integer-carrier
+         * helpers). Selecting between +abs(x) and -abs(x) therefore copies
+         * exactly y's sign, including for signed zero and NaNs. Both source
+         * arguments were lowered once before any value is reused. */
+        *out = ir_op_value(lo->fn,
+                           ir_build_select(&lo->b, negative_sign,
+                                           ir_op_value(lo->fn, negative),
+                                           ir_op_value(lo->fn, magnitude)));
         return true;
     }
     case SEMA_BUILTIN_BSWAP16:

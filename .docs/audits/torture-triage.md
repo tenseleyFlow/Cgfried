@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `efad98affee79dc6d75409fa83a27260fb79a769`
-- compiler-source-sha256: `6bb6947b0c22bacf67e3ae04adb48dde733d01dd7f190533c05257751f3814d5`
+- source-revision: `b729689be5c2d884d004337992577d0134a72523`
+- compiler-source-sha256: `de35294bfd034bca8532156369091e540e83cdac7b893dd426e3a946959745e7`
 - harness-sha256: `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`
 - torture-manifest-sha256: `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `2b4b4323f5f23eaa07f74d799187e7633ac8fa45fefcf562e87b556542a57ebe` | `2b4b4323f5f23eaa07f74d799187e7633ac8fa45fefcf562e87b556542a57ebe` |
-| x86_64-linux-gnu | `7c48e6178b81bffdf393538f3542262149948d0bb8dbab431070ec7a0bc8ed01` | `7c48e6178b81bffdf393538f3542262149948d0bb8dbab431070ec7a0bc8ed01` |
+| arm64-linux | `b65fa9a426ac396f1301f8f31826ceb0162c36ce9d7b88a4ccf8646c35e0745c` | `b65fa9a426ac396f1301f8f31826ceb0162c36ce9d7b88a4ccf8646c35e0745c` |
+| x86_64-linux-gnu | `79b7a095f784c9bfae7cd184f066fea9468db9d44a289a9fe1c5184898145d0e` | `79b7a095f784c9bfae7cd184f066fea9468db9d44a289a9fe1c5184898145d0e` |
 
 ## Baseline
 
@@ -29,42 +29,42 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | arm64-linux | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
-| torture-compile | O0 | arm64-linux | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O1 | arm64-linux | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O2 | arm64-linux | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O3 | arm64-linux | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | Os | arm64-linux | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1463 | 376 | 0 | 177 | 89.21% |
-| torture-execute | O0 | arm64-linux | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O1 | arm64-linux | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O2 | arm64-linux | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O3 | arm64-linux | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | Os | arm64-linux | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute | Os | x86_64-linux-gnu | 1752 | 1388 | 256 | 0 | 108 | 92.78% |
-| torture-execute-ieee | O0 | arm64-linux | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O1 | arm64-linux | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O1 | x86_64-linux-gnu | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O2 | arm64-linux | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O2 | x86_64-linux-gnu | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O3 | arm64-linux | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | O3 | x86_64-linux-gnu | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | Os | arm64-linux | 78 | 42 | 29 | 0 | 7 | 85.71% |
-| torture-execute-ieee | Os | x86_64-linux-gnu | 78 | 42 | 29 | 0 | 7 | 85.71% |
+| torture-compile | O0 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O1 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O2 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O3 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | Os | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
+| torture-execute | O0 | arm64-linux | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O1 | arm64-linux | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O2 | arm64-linux | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O3 | arm64-linux | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | Os | arm64-linux | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute | Os | x86_64-linux-gnu | 1752 | 1389 | 256 | 0 | 107 | 92.85% |
+| torture-execute-ieee | O0 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O1 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O1 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O2 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O2 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O3 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | O3 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | Os | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
+| torture-execute-ieee | Os | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
 
 ## Known Pre-triaged Classes
 
 | Class | Failed cells | Disposition |
 |---|---:|---|
-| gcc-builtin | 760 | `wontfix-0.1.0` |
+| gcc-builtin | 700 | `wontfix-0.1.0` |
 | nested-functions | 260 | `wontfix-0.1.0` |
 | complex | 270 | `out-of-scope` |
 | computed-goto | 0 | `wontfix-0.1.0` |
@@ -192,20 +192,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ### Bucket 2
 
 - Count: 420
-- Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152`
-- Exemplars: torture-compile/20030518-1.c@O0@arm64-linux, torture-compile/20030518-1.c@O0@x86_64-linux-gnu, torture-compile/20030518-1.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements
-- Labels: pretriaged=420/420
-- Tags: -
-- Optdiv members: 0 of 420
-- Optdiv exemplars: -
-- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
-- Disposition: `wontfix-0.1.0`
-
-### Bucket 3
-
-- Count: 420
 - Cluster: signal=`-`; phase=`sema`
 - Fingerprint: `b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9`
 - Exemplars: ctestsuite/00216.c@O0@arm64-linux, ctestsuite/00216.c@O0@x86_64-linux-gnu, ctestsuite/00216.c@O1@arm64-linux
@@ -215,6 +201,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Optdiv members: 0 of 420
 - Optdiv exemplars: -
 - Hypothesis: GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.
+- Disposition: `wontfix-0.1.0`
+
+### Bucket 3
+
+- Count: 360
+- Cluster: signal=`-`; phase=`parse`
+- Fingerprint: `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152`
+- Exemplars: torture-compile/20030518-1.c@O0@arm64-linux, torture-compile/20030518-1.c@O0@x86_64-linux-gnu, torture-compile/20030518-1.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements
+- Labels: pretriaged=360/360
+- Tags: -
+- Optdiv members: 0 of 360
+- Optdiv exemplars: -
+- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
 - Disposition: `wontfix-0.1.0`
 
 ### Bucket 4
@@ -635,8 +635,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 2930
-- Bucketed cells: 2930
+- Failed cells: 2870
+- Bucketed cells: 2870
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%
