@@ -359,6 +359,51 @@ void test_x64_fneg_signed_zero(TestCtx *t)
     T_ASSERT(t, rax == 0x8000000000000000ull);
 }
 
+static void fill_fabs_f64_payload(IrBuilder *b, const void *u)
+{
+    ValueId a = ir_build1(b, IR_FABS, IRT_F64,
+                          ir_op_fconst(IRT_F64, 0xfff8000000001234ull, 0));
+    ValueId r = ir_build1(b, IR_BITCAST, IRT_I64, ir_op_value(b->f, a));
+    IrOperand rv = ir_op_value(b->f, r);
+
+    (void)u;
+    ir_build_ret(b, &rv);
+}
+
+static void fill_fabs_f32_payload(IrBuilder *b, const void *u)
+{
+    ValueId a =
+        ir_build1(b, IR_FABS, IRT_F32, ir_op_fconst(IRT_F32, 0xffc01234u, 0));
+    ValueId r = ir_build1(b, IR_BITCAST, IRT_I32, ir_op_value(b->f, a));
+    IrOperand rv = ir_op_value(b->f, r);
+
+    (void)u;
+    ir_build_ret(b, &rv);
+}
+
+static void fill_fabs_f80(IrBuilder *b, const void *u)
+{
+    IrOperand x = ir_op_fconst(IRT_F80, 0xe000000000000000ull, 0xc001);
+    ValueId a = ir_build1(b, IR_FABS, IRT_F80, x);
+    ValueId r = ir_build1(b, IR_FPTOSI, IRT_I64, ir_op_value(b->f, a));
+    IrOperand rv = ir_op_value(b->f, r);
+
+    (void)u;
+    ir_build_ret(b, &rv);
+}
+
+void test_x64_fabs_family_preserves_payload_and_clears_sign(TestCtx *t)
+{
+    u64 rax = 0;
+
+    run_func(t, IRT_I64, fill_fabs_f64_payload, NULL, &rax, NULL);
+    T_ASSERT(t, rax == 0x7ff8000000001234ull);
+    run_func(t, IRT_I32, fill_fabs_f32_payload, NULL, &rax, NULL);
+    T_ASSERT(t, (u32)rax == 0x7fc01234u);
+    run_func(t, IRT_I64, fill_fabs_f80, NULL, &rax, NULL);
+    T_ASSERT_EQ_INT(t, (i64)rax, 7);
+}
+
 /* --- i64/i32 <-> f64 sanity -------------------------------------------------
  */
 

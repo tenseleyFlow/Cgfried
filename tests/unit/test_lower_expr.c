@@ -677,6 +677,47 @@ void test_lower_builtin_long_double_constant_family(TestCtx *t)
     }
 }
 
+void test_lower_builtin_fabs_family(TestCtx *t)
+{
+    static const char source[] =
+        "float source_f(void); double source_d(void); "
+        "long double source_l(void); "
+        "float af(void) { return __builtin_fabsf(source_f()); } "
+        "double ad(void) { return __builtin_fabs(source_d()); } "
+        "long double al(void) { return __builtin_fabsl(source_l()); }\n";
+    static const struct {
+        TargetKind target;
+        int f64_ops;
+        int f80_ops;
+        int f128_ops;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 1, 1, 0},
+        {CGF_TARGET_ARM64_LINUX, 1, 0, 1},
+        {CGF_TARGET_ARM64_MACOS, 2, 0, 0},
+    };
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        IrModule *round;
+
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_C17, true,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @source_f()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @source_d()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f64"), cases[i].f64_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f80"), cases[i].f80_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f128"), cases[i].f128_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_fabs"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<fabs-family>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_clrsb_family(TestCtx *t)
 {
     static const char calls[] =

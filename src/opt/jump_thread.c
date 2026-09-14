@@ -46,6 +46,7 @@ static bool cloneable_op(IrOp op)
     case IR_FMUL:
     case IR_FDIV:
     case IR_FNEG:
+    case IR_FABS:
     case IR_SEXT:
     case IR_ZEXT:
     case IR_TRUNC:

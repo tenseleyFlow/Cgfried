@@ -311,6 +311,55 @@ void test_opt_fold_inst_preserves_nan_payload_operations(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_opt_fold_inst_fabs_clears_only_the_sign(TestCtx *t)
+{
+    SimplifyFix f;
+    IrModule *m;
+    OptConfig cfg;
+    IrOperand out;
+    const IrInst *in;
+
+    simplify_fix_init(&f);
+    m = simplify_parse(&f, "func void @f() {\n"
+                           "entry():\n"
+                           "    %a = fabs f32 0xBF800000\n"
+                           "    %b = fabs f64 0x8000000000000000\n"
+                           "    %c = fabs f80 0xBFFF:0x8000000000000123\n"
+                           "    %d = fabs f128 "
+                           "0xBFFF000000000123:0x456789ABCDEF0123\n"
+                           "    %nan = fabs f64 0xFFF8000000001234\n"
+                           "    ret\n"
+                           "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O1);
+    if (m) {
+        in = m->funcs[0].blocks[0].first;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT_EQ_INT(t, out.kind, IROP_FCONST);
+        T_ASSERT(t, out.a == 0x3F800000ull && out.b == 0);
+
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT(t, out.a == 0 && out.b == 0);
+
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT(t, out.a == 0x8000000000000123ull);
+        T_ASSERT(t, out.b == 0x3FFFull);
+
+        in = in->next;
+        T_ASSERT(t, opt_fold_inst(in, &out, &cfg));
+        T_ASSERT(t, out.a == 0x456789ABCDEF0123ull);
+        T_ASSERT(t, out.b == 0x3FFF000000000123ull);
+
+        /* Folding a NaN could quiet it or canonicalize its payload. Keep the
+         * raw-bit operation for the backend instead. */
+        in = in->next;
+        T_ASSERT(t, !opt_fold_inst(in, &out, &cfg));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_simplify_integer_catalog(TestCtx *t)
 {
     SimplifyFix f;
@@ -536,6 +585,38 @@ void test_opt_simplify_fp_exact_and_forbidden_identities(TestCtx *t)
         T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FMUL), 2);
         T_ASSERT(t, strstr(s, "fsub f64") != NULL);
         T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FNEG), 1);
+        T_ASSERT(t, ir_verify(f.dc, m));
+        buf_free(&text);
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_opt_simplify_fabs_nesting(TestCtx *t)
+{
+    SimplifyFix f;
+    IrModule *m;
+    OptConfig cfg;
+    Buf text;
+    char *s;
+
+    simplify_fix_init(&f);
+    m = simplify_parse(&f, "func f64 @f(f64 %x) {\n"
+                           "entry():\n"
+                           "    %n = fneg f64 %x\n"
+                           "    %a = fabs f64 %n\n"
+                           "    %b = fabs f64 %a\n"
+                           "    ret f64 %b\n"
+                           "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    T_ASSERT(t, m && opt_simplify(m, &cfg));
+    if (m) {
+        s = simplify_print(m, &text);
+        /* simplify rewires fabs to the original operand; DCE owns removal of
+         * the now-dead negate. */
+        T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FNEG), 1);
+        T_ASSERT_EQ_INT(t, simplify_count_op(m, IR_FABS), 1);
+        T_ASSERT(t, strstr(s, "fabs f64 %0") != NULL);
         T_ASSERT(t, ir_verify(f.dc, m));
         buf_free(&text);
     }

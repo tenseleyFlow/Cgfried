@@ -2628,29 +2628,33 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         }
         break;
     }
-    case IR_FNEG: {
+    case IR_FNEG:
+    case IR_FABS: {
         if (in->type == IRT_F80) {
             X64VReg av = f80_addr(is, &in->ops[0]);
             X64VReg slot = f80_slot(is);
 
             x87_mem(is, X64_OP_X87_FLD, X64_T, av, 0);
-            x87_op0(is, X64_OP_X87_FCHS);
+            x87_op0(is, in->op == IR_FNEG ? X64_OP_X87_FCHS : X64_OP_X87_FABS);
             x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
             is->vals[in->result.v].vr = slot;
             break;
         }
         {
-            /* No FP neg instruction: xorp{s,d} with the sign mask from
-             * .rodata (only the low lane matters; the full-width xor is
-             * harmless on our scalar discipline). */
+            /* SSE has neither scalar negate nor scalar absolute-value
+             * instructions. Use xor with the sign bit for negate and and
+             * with its complement for fabs; only the low lane matters. */
             X64Width w = fpw(in->type);
             X64VReg d = newvf(is);
             X64VReg av = to_fvreg(is, &in->ops[0]);
-            u32 cp = in->type == IRT_F32
-                         ? x64_cpool_intern(is->xf, 0x80000000ull, 0, 16, 16)
-                         : x64_cpool_intern(is->xf, 0x8000000000000000ull, 0,
-                                            16, 16);
-            X64Inst *x = emit(is, X64_OP_FXORM, w);
+            u64 mask = in->op == IR_FNEG
+                           ? (in->type == IRT_F32 ? 0x80000000ull
+                                                  : 0x8000000000000000ull)
+                           : (in->type == IRT_F32 ? 0x7fffffffull
+                                                  : 0x7fffffffffffffffull);
+            u32 cp = x64_cpool_intern(is->xf, mask, 0, 16, 16);
+            X64Inst *x =
+                emit(is, in->op == IR_FNEG ? X64_OP_FXORM : X64_OP_FANDM, w);
 
             x->def = d;
             x->a = ovreg(av);

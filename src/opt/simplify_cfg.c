@@ -323,6 +323,7 @@ static bool speculation_safe(IrOp op, const OptConfig *cfg)
     case IR_XOR:
     case IR_ICMP:
     case IR_FNEG:
+    case IR_FABS:
     case IR_SEXT:
     case IR_ZEXT:
     case IR_TRUNC:

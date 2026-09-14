@@ -38,13 +38,14 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 3/30 consecutive distinct UTC dates green.** The current strict
+**RUNNING: 5/30 consecutive distinct UTC dates green.** The current strict
 streak started on 2026-09-09. Matching-head x86 and ARM runs passed both
 optimization levels and retained all four required artifacts on September
-9--11. The September 11 scheduled run did not start; same-date
+9--13. The September 11 scheduled run did not start; same-date
 `workflow_dispatch` recovery completed the full hosted lattice before the UTC
 date ended, as the gate contract permits for a pre-bootstrap infrastructure
-failure.
+failure. September 13 also passed the complete weekly reproducibility and
+cross-host lattice at the same exact head as its daily run.
 
 The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
 reset on 2026-08-18 because the required x86 O0 job was cancelled during
@@ -55,8 +56,9 @@ scheduled native ARM pair but no x86 bootstrap run anywhere on that UTC date,
 so it reset the streak. September 6 passed the complete weekly lattice.
 September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
 did not run at one matching commit; neither date continues a strict
-matching-head streak. September 9 is therefore the new day 1. September 10
-and the eligible September 11 recovery are days 2 and 3. If uninterrupted,
+matching-head streak. September 9 is therefore the new day 1. September 10,
+the eligible September 11 recovery, and the September 12--13 scheduled runs
+are days 2--5. If uninterrupted,
 day 30 is 2026-10-08.
 
 The workflow previously scheduled only ARM every day and obtained x86 evidence
@@ -122,21 +124,40 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-09-09 | `1a7bbe80bbb911004513baf29cc3682277e8bfa5` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [x86 run 34318940375](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375) + [ARM run 34327498365](https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365) |
 | 2026-09-10 | `4eb240b63d7f9bd1b6d48bbb21b10caf20ab43da` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 34453507793](https://github.com/tenseleyFlow/Cgfried/actions/runs/34453507793) |
 | 2026-09-11 | `5f5b0e664460edf4e186bfe43e2beea27f34bedb` | PASS | PASS + repro PASS | PASS | PASS | PASS | [recovery run 34569061464](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464) |
+| 2026-09-12 | `f8f6e463b23ad00b9533eb9a05ef836ad4656caf` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 34681928359](https://github.com/tenseleyFlow/Cgfried/actions/runs/34681928359) |
+| 2026-09-13 | `f8f6e463b23ad00b9533eb9a05ef836ad4656caf` | PASS | PASS + repro PASS | PASS | PASS | PASS | [daily run 34747343615](https://github.com/tenseleyFlow/Cgfried/actions/runs/34747343615) + [weekly run 34747919288](https://github.com/tenseleyFlow/Cgfried/actions/runs/34747919288) |
 
-The August 29–September 11 reconciliation uses GitHub's workflow, job, and
+The August 29–September 13 reconciliation uses GitHub's workflow, job, and
 retained-artifact metadata. Every qualifying non-Sunday pair retains
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
 `sprint58-bootstrap-arm64-linux-native-O0`, and
 `sprint58-bootstrap-arm64-linux-native-O2`. Full Sunday runs `33304101150`
 and `34020937870`, plus the September 11 full-lattice recovery run
-`34569061464`, retain those four plus
+`34569061464` and September 13 weekly run `34747919288`, retain those four plus
 `sprint58-bootstrap-arm64-cross-input`,
 `sprint58-bootstrap-arm64-cross-native`,
 `sprint58-bootstrap-arm64-cross-x86`, and
 `sprint58-bootstrap-arm64-cross-final`. All applicable jobs and workflows are
 green. This reconciliation does not claim a new full payload-rehash audit for
 those dates.
+
+The September 12 run retains the four daily artifacts. GitHub's artifact API
+reports SHA-256 digests `ccc88c712696b142d817513ae6f1f287804913f8bcadadea4b478bba69f19e44`
+(x86 O0), `a0f6f85eb97d9d2cf6985d3b5166388090ab1a5dda152f676fdeffbe85f91cfd`
+(x86 O2), `dcff6dc8569664b8b77f306bed7ecfdbdba5d4e5559911ddffefd109e4dd20b1`
+(ARM O0), and `1759ed8a2aeac055d8ab8c44e0fe22aeddceebc8369ecc0921062b14e9d9af8d`
+(ARM O2). The September 13 weekly run retains all eight artifacts; their
+digests are `00c328f7522c479db93091809d2ac4a368cec8c517d1b16ff7690a75ee88fa58`
+(x86 O0), `1301896a03fae54c2a84bb2f31fe9bd468601b5319c12382bd8e87d2f6106f11`
+(x86 O2), `1759cc7c3b53e2418f6f5f553c0baf06e2da1c917bd3eb076fea3551e6c0152d`
+(ARM O0), `04b04f5545c40a5b4b98675548463f12dc6ea9e59c6cc75db4d78824e9af0cea`
+(ARM O2), `74f969361acb980fe0ca969d6cfb6adf35827ac95e51f0ad7fb0738c51b238fa`
+(cross input), `a714bea11d5f8bb27e29542b4d86e58dc0713a89acf9800445d012412c3a5ea9`
+(native cross source), `b0849197523c5d6ce8ff8ab7e57eaa15e42effb35593c6ab3fb285392c79d63d`
+(x86 cross source), and `9105c0f7ccf6d4e902920308b084f96290154a2065587e3cf636eba8226f6e4c`
+(final comparison). All twelve artifacts are unexpired. These are API metadata
+checks, not a separate download-and-rehash audit.
 
 The September 11 recovery retained all eight expected artifacts. GitHub's
 artifact API reports SHA-256 digests

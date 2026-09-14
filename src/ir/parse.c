@@ -1397,9 +1397,10 @@ static bool parse_inst(P *p)
         return true;
     }
     case IR_FNEG:
+    case IR_FABS:
         if (!parse_type(p, &ty, "the operand type"))
             return false;
-        in = inst_append(p, IR_FNEG, ty, res);
+        in = inst_append(p, (IrOp)op, ty, res);
         in->ops = ops_alloc(p, 1);
         in->nops = 1;
         return parse_atom(p, ty, &in->ops[0]);
