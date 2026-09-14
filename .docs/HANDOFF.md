@@ -219,8 +219,9 @@ green before the green-only merge. The current
 `__builtin_fabsf`, and `__builtin_fabsl` with exact prototypes,
 target-softfloat constant evaluation, payload-preserving sign clearing, and
 native x86-64/ARM64 lowering. Its implementation and local cross-target
-validation are green; target-complete torture publication and fresh
-post-publication CI remain required before merge.
+validation are green. Exact synthetic-merge x86 and native-ARM evidence has
+published twenty target-complete PASS keys with zero regression and zero ICEs;
+fresh fully green post-publication CI remains required before merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5372,13 +5373,56 @@ and green post-publication CI.
   change repins the 5,000-iteration mutation digest to `436baea21d92f3d0`,
   reproduced twice normally and once under ASan+UBSan.
 
-  The two unmodified GCC files contribute exactly twenty candidate PASS keys:
-  five optimization levels on each Linux target for each file. No baseline
-  is published from local or partial evidence. Push the implementation, open
-  the PR, obtain matching x86 and exact synthetic-merge native-ARM streams,
-  publish the target-complete pair atomically in both input orders, then
-  require fresh all-green standard, bootstrap, and exact-merge nightly CI
-  before the green-only merge.
+  The final pre-publication pair tests exact synthetic merge
+  `b994202721832dae2db173a52212614931f6b918` (parents `2b193f3c` and
+  implementation head `19a6c877`, tree `908e4bb090b50ac610bedb5b0440fb25ab263631`).
+  Standard
+  [run 34824824096](https://github.com/tenseleyFlow/Cgfried/actions/runs/34824824096)
+  completed with nineteen successful jobs, one policy skip, and only the
+  expected x86 ratchet refusal; its 100,000-case sanitizer-backed frontend
+  fuzz lane is green. Branch and PR bootstrap
+  [runs 34824816816](https://github.com/tenseleyFlow/Cgfried/actions/runs/34824816816)
+  and
+  [34824824136](https://github.com/tenseleyFlow/Cgfried/actions/runs/34824824136),
+  plus exact-merge bootstrap
+  [run 34824849253](https://github.com/tenseleyFlow/Cgfried/actions/runs/34824849253),
+  are green. Exact-merge nightly
+  [run 34824862099](https://github.com/tenseleyFlow/Cgfried/actions/runs/34824862099)
+  passes all fourteen campaigns and refuses only the matching ARM ratchet.
+
+  Both retained streams contain 20,325 rows and share source revision
+  `b9942027`, compiler-source SHA-256
+  `9090bba9c43c774548c51853b9da65c4094c4844cee296b7e5d5a04ea47e2142`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  torture-manifest SHA-256
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and ctestsuite-manifest SHA-256
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  X86 and ARM stream SHA-256 values are respectively
+  `7c87b335bbd9a5e2ec084802a12e87c1472827ee27a65ae48122fb3294d644c9`
+  and
+  `8f39db33f97b6aea7bd35c02ac58d449eebdab62a26dbb6030873d5203645331`.
+  Each target contributes exactly ten new PASS keys across
+  `20010114-2.c` and `20030331-1.c` at O0/O1/O2/O3/Os, with zero old-PASS
+  regression, zero duplicate keys, and zero ICE rows.
+
+  Formal GNU-make atomic publication consumes those freshly generated exact
+  CI streams through `make -o torture-run torture-baseline`; suppressing the
+  redundant emulated local matrix rerun retains every publisher provenance,
+  completeness, staging, and rollback check. Reversing the evidence order in
+  isolated outputs regenerates both files byte-identically. The result is
+  31,060 PASS keys (31,063 lines), 2,980 classified failures in 32 buckets,
+  24 applied decisions, two deliberately retained stale decisions, and zero
+  unbucketed or unresolved cells. The `gcc-builtin` class falls from 830 to
+  810 failed cells, while each target/level IEEE execute slice rises from 37
+  to 39 PASS cases (79.59% of applicable cases). PASS and triage SHA-256
+  values are respectively
+  `6499064b51a8cf868d66a54b484491df922aa734816f98f59bb486806095e131`
+  and
+  `8b6a7beca9009a3847116933f0d8cbb26a64373abbee622619703ba0810d022f`.
+  Publication is committed next; require fresh fully green standard,
+  bootstrap, and exact-merge nightly CI before the green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
