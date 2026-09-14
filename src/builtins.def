@@ -113,6 +113,13 @@ B(nan, NAN, 1, BK_DOUBLE)
 B(nanf, NANF, 1, BK_FLOAT)
 B(nanl, NANL, 1, BK_LDOUBLE)
 
+/* type-generic floating classification; sema preserves the operand's real
+ * type and rejects non-floating arguments */
+B(isnan, ISNAN, 1, BK_SPECIAL)
+B(isinf, ISINF, 1, BK_SPECIAL)
+B(isfinite, ISFINITE, 1, BK_SPECIAL)
+B(signbit, SIGNBIT, 1, BK_SPECIAL)
+
 /* floating absolute value; each spelling has the corresponding real
  * prototype rather than the default argument promotions */
 B(fabs, FABS, 1, BK_DOUBLE)
