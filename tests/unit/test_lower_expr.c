@@ -891,6 +891,56 @@ void test_lower_builtin_checked_overflow_store_family(TestCtx *t)
     }
 }
 
+void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
+{
+    static const char source[] =
+        "int si; long sl; long long sll; "
+        "unsigned int ui; unsigned long ul; unsigned long long ull; "
+        "long long wide; unsigned long long uwide; int use(void) { "
+        "__builtin_sadd_overflow(wide, 1, &si); "
+        "__builtin_saddl_overflow(wide, 1, &sl); "
+        "__builtin_saddll_overflow(wide, 1, &sll); "
+        "__builtin_uadd_overflow(uwide, 1, &ui); "
+        "__builtin_uaddl_overflow(uwide, 1, &ul); "
+        "__builtin_uaddll_overflow(uwide, 1, &ull); "
+        "__builtin_ssub_overflow(wide, 1, &si); "
+        "__builtin_ssubl_overflow(wide, 1, &sl); "
+        "__builtin_ssubll_overflow(wide, 1, &sll); "
+        "__builtin_usub_overflow(uwide, 1, &ui); "
+        "__builtin_usubl_overflow(uwide, 1, &ul); "
+        "__builtin_usubll_overflow(uwide, 1, &ull); "
+        "__builtin_smul_overflow(wide, 2, &si); "
+        "__builtin_smull_overflow(wide, 2, &sl); "
+        "__builtin_smulll_overflow(wide, 2, &sll); "
+        "__builtin_umul_overflow(uwide, 2, &ui); "
+        "__builtin_umull_overflow(uwide, 2, &ul); "
+        "__builtin_umulll_overflow(uwide, 2, &ull); return 0; }\n";
+    static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
+                                         CGF_TARGET_ARM64_LINUX};
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        IrModule *round;
+
+        T_ASSERT(t,
+                 run_lower_target_opts(&f, source, STD_C17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "store i32"), 6);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "store i64"), 12);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "add i64"), 6);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "mul i64"), 6);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "udiv i64"), 6);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), " nsw"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f),
+                                "<fixed-checked-overflow>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_checked_overflow_predicate_family(TestCtx *t)
 {
     static const char source[] =

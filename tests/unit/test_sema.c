@@ -1185,6 +1185,74 @@ void test_sema_builtin_checked_overflow_store_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_fixed_checked_overflow_store_family(TestCtx *t)
+{
+    SemaFix f;
+
+    /* Every fixed spelling has an explicit prototype and an exact _Bool
+     * result. Exercise all eighteen table rows so a missing rank,
+     * signedness, or operation cannot hide behind a representative case. */
+    run_sema_opts(
+        &f,
+        "int si; long sl; long long sll; "
+        "unsigned int ui; unsigned long ul; unsigned long long ull; "
+        "_Static_assert(_Generic(__builtin_sadd_overflow(1, 2, &si), "
+        "_Bool: 1, default: 0), \"sadd\"); "
+        "_Static_assert(_Generic(__builtin_saddl_overflow(1, 2, &sl), "
+        "_Bool: 1, default: 0), \"saddl\"); "
+        "_Static_assert(_Generic(__builtin_saddll_overflow(1, 2, &sll), "
+        "_Bool: 1, default: 0), \"saddll\"); "
+        "_Static_assert(_Generic(__builtin_uadd_overflow(1, 2, &ui), "
+        "_Bool: 1, default: 0), \"uadd\"); "
+        "_Static_assert(_Generic(__builtin_uaddl_overflow(1, 2, &ul), "
+        "_Bool: 1, default: 0), \"uaddl\"); "
+        "_Static_assert(_Generic(__builtin_uaddll_overflow(1, 2, &ull), "
+        "_Bool: 1, default: 0), \"uaddll\"); "
+        "_Static_assert(_Generic(__builtin_ssub_overflow(1, 2, &si), "
+        "_Bool: 1, default: 0), \"ssub\"); "
+        "_Static_assert(_Generic(__builtin_ssubl_overflow(1, 2, &sl), "
+        "_Bool: 1, default: 0), \"ssubl\"); "
+        "_Static_assert(_Generic(__builtin_ssubll_overflow(1, 2, &sll), "
+        "_Bool: 1, default: 0), \"ssubll\"); "
+        "_Static_assert(_Generic(__builtin_usub_overflow(1, 2, &ui), "
+        "_Bool: 1, default: 0), \"usub\"); "
+        "_Static_assert(_Generic(__builtin_usubl_overflow(1, 2, &ul), "
+        "_Bool: 1, default: 0), \"usubl\"); "
+        "_Static_assert(_Generic(__builtin_usubll_overflow(1, 2, &ull), "
+        "_Bool: 1, default: 0), \"usubll\"); "
+        "_Static_assert(_Generic(__builtin_smul_overflow(1, 2, &si), "
+        "_Bool: 1, default: 0), \"smul\"); "
+        "_Static_assert(_Generic(__builtin_smull_overflow(1, 2, &sl), "
+        "_Bool: 1, default: 0), \"smull\"); "
+        "_Static_assert(_Generic(__builtin_smulll_overflow(1, 2, &sll), "
+        "_Bool: 1, default: 0), \"smulll\"); "
+        "_Static_assert(_Generic(__builtin_umul_overflow(1, 2, &ui), "
+        "_Bool: 1, default: 0), \"umul\"); "
+        "_Static_assert(_Generic(__builtin_umull_overflow(1, 2, &ul), "
+        "_Bool: 1, default: 0), \"umull\"); "
+        "_Static_assert(_Generic(__builtin_umulll_overflow(1, 2, &ull), "
+        "_Bool: 1, default: 0), \"umulll\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Arity and assignment compatibility are checked at the declared call
+     * boundary. Struct operands and a floating result-address expression do
+     * not convert to the corresponding scalar/pointer parameter types. */
+    run_sema_opts(&f,
+                  "struct bad { int member; } bad; int result; float address; "
+                  "int a = __builtin_sadd_overflow(); "
+                  "int b = __builtin_uaddl_overflow(1, 2); "
+                  "int c = __builtin_smulll_overflow(1, 2, &result, &result); "
+                  "int d = __builtin_ssub_overflow(bad, 2, &result); "
+                  "int e = __builtin_usub_overflow(1, bad, &result); "
+                  "int f = __builtin_umul_overflow(1, 2, address);\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 6);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_checked_overflow_predicate_family(TestCtx *t)
 {
     SemaFix f;

@@ -1173,11 +1173,87 @@ static bool is_builtin_fp_classification(u16 builtin)
     }
 }
 
-static bool is_builtin_checked_overflow_store(u16 builtin)
+static bool is_builtin_generic_checked_overflow_store(u16 builtin)
 {
     return builtin == SEMA_BUILTIN_ADD_OVERFLOW ||
            builtin == SEMA_BUILTIN_SUB_OVERFLOW ||
            builtin == SEMA_BUILTIN_MUL_OVERFLOW;
+}
+
+static Type *builtin_fixed_overflow_param_type(u16 builtin)
+{
+    switch (builtin) {
+    case SEMA_BUILTIN_SADD_OVERFLOW:
+    case SEMA_BUILTIN_SSUB_OVERFLOW:
+    case SEMA_BUILTIN_SMUL_OVERFLOW:
+        return type_basic(TY_INT);
+    case SEMA_BUILTIN_SADDL_OVERFLOW:
+    case SEMA_BUILTIN_SSUBL_OVERFLOW:
+    case SEMA_BUILTIN_SMULL_OVERFLOW:
+        return type_basic(TY_LONG);
+    case SEMA_BUILTIN_SADDLL_OVERFLOW:
+    case SEMA_BUILTIN_SSUBLL_OVERFLOW:
+    case SEMA_BUILTIN_SMULLL_OVERFLOW:
+        return type_basic(TY_LLONG);
+    case SEMA_BUILTIN_UADD_OVERFLOW:
+    case SEMA_BUILTIN_USUB_OVERFLOW:
+    case SEMA_BUILTIN_UMUL_OVERFLOW:
+        return type_basic(TY_UINT);
+    case SEMA_BUILTIN_UADDL_OVERFLOW:
+    case SEMA_BUILTIN_USUBL_OVERFLOW:
+    case SEMA_BUILTIN_UMULL_OVERFLOW:
+        return type_basic(TY_ULONG);
+    case SEMA_BUILTIN_UADDLL_OVERFLOW:
+    case SEMA_BUILTIN_USUBLL_OVERFLOW:
+    case SEMA_BUILTIN_UMULLL_OVERFLOW:
+        return type_basic(TY_ULLONG);
+    default:
+        return NULL;
+    }
+}
+
+static bool is_builtin_fixed_checked_overflow_store(u16 builtin)
+{
+    return builtin_fixed_overflow_param_type(builtin) != NULL;
+}
+
+static bool is_builtin_checked_overflow_store(u16 builtin)
+{
+    return is_builtin_generic_checked_overflow_store(builtin) ||
+           is_builtin_fixed_checked_overflow_store(builtin);
+}
+
+/* The fixed family differs only at the call boundary. Once sema has
+ * materialized its declared prototype conversions, the generic store
+ * operations are exactly the required infinite-precision semantics. Keep one
+ * lowering implementation by normalizing the marker here. */
+static u16 builtin_checked_overflow_store_op(u16 builtin)
+{
+    switch (builtin) {
+    case SEMA_BUILTIN_SADD_OVERFLOW:
+    case SEMA_BUILTIN_SADDL_OVERFLOW:
+    case SEMA_BUILTIN_SADDLL_OVERFLOW:
+    case SEMA_BUILTIN_UADD_OVERFLOW:
+    case SEMA_BUILTIN_UADDL_OVERFLOW:
+    case SEMA_BUILTIN_UADDLL_OVERFLOW:
+        return SEMA_BUILTIN_ADD_OVERFLOW;
+    case SEMA_BUILTIN_SSUB_OVERFLOW:
+    case SEMA_BUILTIN_SSUBL_OVERFLOW:
+    case SEMA_BUILTIN_SSUBLL_OVERFLOW:
+    case SEMA_BUILTIN_USUB_OVERFLOW:
+    case SEMA_BUILTIN_USUBL_OVERFLOW:
+    case SEMA_BUILTIN_USUBLL_OVERFLOW:
+        return SEMA_BUILTIN_SUB_OVERFLOW;
+    case SEMA_BUILTIN_SMUL_OVERFLOW:
+    case SEMA_BUILTIN_SMULL_OVERFLOW:
+    case SEMA_BUILTIN_SMULLL_OVERFLOW:
+    case SEMA_BUILTIN_UMUL_OVERFLOW:
+    case SEMA_BUILTIN_UMULL_OVERFLOW:
+    case SEMA_BUILTIN_UMULLL_OVERFLOW:
+        return SEMA_BUILTIN_MUL_OVERFLOW;
+    default:
+        return builtin;
+    }
 }
 
 static bool is_builtin_checked_overflow_predicate(u16 builtin)
@@ -1359,7 +1435,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     return poison(s, e);
                 }
             }
-            if (is_builtin_checked_overflow(b)) {
+            if (is_builtin_generic_checked_overflow_store(b) ||
+                is_builtin_checked_overflow_predicate(b)) {
                 bool valid = true;
 
                 /* GCC defines these in infinite-precision signed arithmetic.
@@ -1378,7 +1455,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         valid = false;
                     }
                 }
-                if (is_builtin_checked_overflow_store(b)) {
+                if (is_builtin_generic_checked_overflow_store(b)) {
                     Type *result_pointer = e->args[2]->sem_type;
                     Type *result_type =
                         result_pointer && result_pointer->kind == TY_PTR
@@ -1424,6 +1501,29 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             type_to_str(s->arena, selector));
                         valid = false;
                     }
+                }
+                if (!valid)
+                    return poison(s, e);
+            }
+            if (is_builtin_fixed_checked_overflow_store(b)) {
+                Type *param_type = builtin_fixed_overflow_param_type(b);
+                Type *params[] = {param_type, param_type,
+                                  type_ptr(s->arena, param_type)};
+                AssignCtx bctx;
+                bool valid = true;
+
+                /* These spellings have explicit GCC prototypes. In
+                 * particular, operand conversion happens BEFORE the checked
+                 * arithmetic, and pointer qualification/mismatch diagnostics
+                 * are the ordinary function-argument diagnostics. */
+                memset(&bctx, 0, sizeof(bctx));
+                bctx.kind = ACTX_ARG;
+                bctx.callee = direct_ident->name;
+                for (i = 0; i < 3; i++) {
+                    bctx.arg_index = i + 1;
+                    if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                        quiet(e->args[i], NULL))
+                        valid = false;
                 }
                 if (!valid)
                     return poison(s, e);
@@ -1574,7 +1674,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     }
                 }
             }
-            e->op = b;
+            e->op = builtin_checked_overflow_store_op(b);
             e->is_lvalue = false;
             switch ((BuiltinKind)kind) {
             case BK_VOID:

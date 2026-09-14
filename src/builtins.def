@@ -71,6 +71,28 @@ B(add_overflow, ADD_OVERFLOW, 3, BK_SPECIAL)
 B(sub_overflow, SUB_OVERFLOW, 3, BK_SPECIAL)
 B(mul_overflow, MUL_OVERFLOW, 3, BK_SPECIAL)
 
+/* fixed-prototype checked arithmetic; each spelling converts both operands
+ * and the result pointer through its declared signed/unsigned int/long/long
+ * long prototype before using the same infinite-precision operation */
+B(sadd_overflow, SADD_OVERFLOW, 3, BK_SPECIAL)
+B(saddl_overflow, SADDL_OVERFLOW, 3, BK_SPECIAL)
+B(saddll_overflow, SADDLL_OVERFLOW, 3, BK_SPECIAL)
+B(uadd_overflow, UADD_OVERFLOW, 3, BK_SPECIAL)
+B(uaddl_overflow, UADDL_OVERFLOW, 3, BK_SPECIAL)
+B(uaddll_overflow, UADDLL_OVERFLOW, 3, BK_SPECIAL)
+B(ssub_overflow, SSUB_OVERFLOW, 3, BK_SPECIAL)
+B(ssubl_overflow, SSUBL_OVERFLOW, 3, BK_SPECIAL)
+B(ssubll_overflow, SSUBLL_OVERFLOW, 3, BK_SPECIAL)
+B(usub_overflow, USUB_OVERFLOW, 3, BK_SPECIAL)
+B(usubl_overflow, USUBL_OVERFLOW, 3, BK_SPECIAL)
+B(usubll_overflow, USUBLL_OVERFLOW, 3, BK_SPECIAL)
+B(smul_overflow, SMUL_OVERFLOW, 3, BK_SPECIAL)
+B(smull_overflow, SMULL_OVERFLOW, 3, BK_SPECIAL)
+B(smulll_overflow, SMULLL_OVERFLOW, 3, BK_SPECIAL)
+B(umul_overflow, UMUL_OVERFLOW, 3, BK_SPECIAL)
+B(umull_overflow, UMULL_OVERFLOW, 3, BK_SPECIAL)
+B(umulll_overflow, UMULLL_OVERFLOW, 3, BK_SPECIAL)
+
 /* type-generic checked arithmetic predicates; the third expression is
  * evaluated for side effects while its unpromoted type selects the range */
 B(add_overflow_p, ADD_OVERFLOW_P, 3, BK_SPECIAL)
