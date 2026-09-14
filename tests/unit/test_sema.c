@@ -945,6 +945,42 @@ void test_sema_builtin_fp_compare_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_long_double_constant_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "static long double inf = __builtin_infl(); "
+        "static long double huge = __builtin_huge_vall(); "
+        "static long double nan = __builtin_nanl(\"0x1\"); "
+        "_Static_assert(_Generic(__builtin_infl(), long double: 1, default: "
+        "0), \"infl type\"); "
+        "_Static_assert(_Generic(__builtin_huge_vall(), long double: 1, "
+        "default: 0), \"huge_vall type\"); "
+        "_Static_assert(_Generic(__builtin_nanl(\"\"), long double: 1, "
+        "default: 0), \"nanl type\"); "
+        "_Static_assert(__builtin_constant_p(__builtin_infl()), "
+        "\"infl constant\"); "
+        "_Static_assert(__builtin_constant_p(__builtin_huge_vall()), "
+        "\"huge_vall constant\"); "
+        "_Static_assert(__builtin_constant_p(__builtin_nanl(\"\")), "
+        "\"nanl constant\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    run_sema_opts(&f,
+                  "long double a = __builtin_infl(1); "
+                  "long double b = __builtin_huge_vall(1); "
+                  "long double c = __builtin_nanl(); "
+                  "long double d = __builtin_nanl(\"\", \"\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;

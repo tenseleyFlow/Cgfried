@@ -267,6 +267,22 @@ static void run_ctx_free(RunCtx *r)
     free(r->timings);
 }
 
+static u64 module_structural_size(const IrModule *m)
+{
+    u64 size = m->nfuncs;
+    u32 fi;
+
+    for (fi = 0; fi < m->nfuncs; fi++) {
+        const IrFunc *f = &m->funcs[fi];
+        u32 bi;
+
+        size += f->nblocks;
+        for (bi = 0; bi < f->nblocks; bi++)
+            size += f->blocks[bi].ninsts;
+    }
+    return size;
+}
+
 bool opt_run_pass_sequence(IrModule *m, const OptConfig *cfg,
                            const Pass *const *passes, u32 npasses)
 {
@@ -285,7 +301,8 @@ bool opt_run_fixpoint(IrModule *m, const OptConfig *cfg,
 {
     RunCtx r = {0};
     bool *last_changed;
-    u32 fixpoint = 1, iteration, i;
+    u64 smallest_size;
+    u32 fixpoint = 1, iteration, stalled = 0, i;
 
     if (cap == 0)
         CGF_ICE("opt: fixpoint iteration cap must be nonzero");
@@ -295,8 +312,10 @@ bool opt_run_fixpoint(IrModule *m, const OptConfig *cfg,
         fixpoint = ++*cfg->dump_ir_fixpoint;
     }
     last_changed = cgf_xmalloc((npasses ? npasses : 1) * sizeof(bool));
-    for (iteration = 0; iteration < cap; iteration++) {
+    smallest_size = module_structural_size(m);
+    for (iteration = 0;; iteration++) {
         bool any = false;
+        u64 size;
 
         memset(last_changed, 0, npasses * sizeof(bool));
         for (i = 0; i < npasses; i++) {
@@ -309,6 +328,17 @@ bool opt_run_fixpoint(IrModule *m, const OptConfig *cfg,
             free(last_changed);
             run_ctx_free(&r);
             return r.any_changed;
+        }
+        size = module_structural_size(m);
+        if (size < smallest_size) {
+            /* A strictly smaller IR proves finite progress even when a long
+             * source chain needs more than `cap` outer visits.  Compare to
+             * the all-time minimum, not the preceding iteration, so a
+             * grow/shrink oscillation cannot renew its budget forever. */
+            smallest_size = size;
+            stalled = 0;
+        } else if (++stalled == cap) {
+            break;
         }
     }
     {
@@ -323,8 +353,8 @@ bool opt_run_fixpoint(IrModule *m, const OptConfig *cfg,
             buf_append(&names, passes[i]->name, strlen(passes[i]->name));
         }
         buf_push_u8(&names, 0);
-        CGF_ICE("opt: fixpoint did not converge after %u iterations; still "
-                "changing: %s",
+        CGF_ICE("opt: fixpoint did not converge after %u iterations without "
+                "structural progress; still changing: %s",
                 cap, names.data);
     }
 }

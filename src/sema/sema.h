@@ -742,6 +742,7 @@ typedef enum {
     BK_CHARP,
     BK_DOUBLE,
     BK_FLOAT,
+    BK_LDOUBLE,
     BK_LLONG,
     BK_ARG0,
     BK_U16,
