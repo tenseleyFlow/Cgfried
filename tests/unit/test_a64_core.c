@@ -501,6 +501,54 @@ void test_a64_isel_bulk_memory_address_materialization(TestCtx *t)
     arena_free_all(&arena);
 }
 
+void test_a64_isel_scalar_fabs_widths(TestCtx *t)
+{
+    static const char source[] = "func f64 @abs(f32 %x, f64 %y) {\n"
+                                 "entry():\n"
+                                 "    %a = fabs f32 %x\n"
+                                 "    %b = fabs f64 %y\n"
+                                 "    %e = fpext f32 %a to f64\n"
+                                 "    %r = fadd f64 %b, %e\n"
+                                 "    ret f64 %r\n"
+                                 "}\n";
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *module;
+    A64Func *func;
+    u32 bi, ii;
+    u32 f32 = 0, f64 = 0;
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    module = ir_parse_module(&arena, dc, source, "<a64-scalar-fabs>");
+    T_ASSERT(t, module != NULL && !diag_had_error(dc));
+    T_ASSERT(t, module && ir_verify(dc, module));
+    if (!module || diag_had_error(dc)) {
+        arena_free_all(&arena);
+        return;
+    }
+    func = a64_isel_function(module, &module->funcs[0], &arena);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(func, dc), 0);
+    for (bi = 0; bi < func->nblocks; bi++) {
+        const A64Block *block = &func->blocks[bi];
+
+        for (ii = 0; ii < block->n; ii++) {
+            const A64Inst *inst = &block->insts[ii];
+
+            if (inst->op != A64_OP_FABS)
+                continue;
+            T_ASSERT_EQ_INT(t, inst->nops, 2);
+            if (inst->sf == A64_SF32)
+                f32++;
+            if (inst->sf == A64_SF64)
+                f64++;
+        }
+    }
+    T_ASSERT_EQ_INT(t, f32, 1);
+    T_ASSERT_EQ_INT(t, f64, 1);
+    arena_free_all(&arena);
+}
+
 /* Callee-side mirror of the Linux scalar-stack rule: after v0-v7 are full,
  * the ninth double arrives at incoming+0 and the following binary128 scalar
  * is rounded past the incoming+8 hole to incoming+16. */
@@ -1224,5 +1272,37 @@ void test_f128_select_has_a_libcall(TestCtx *t)
     T_ASSERT_EQ_INT(t, select->type, IRT_F128);
     T_ASSERT_EQ_INT(t, select->nops, 3);
     T_ASSERT_EQ_STR(t, module->syms[select->callee], "__cgf_seltf");
+    arena_free_all(&arena);
+}
+
+void test_f128_fabs_has_a_payload_preserving_libcall(TestCtx *t)
+{
+    static const char source[] = "func f128 @abs(f128 %value) {\n"
+                                 "entry():\n"
+                                 "    %absolute = fabs f128 %value\n"
+                                 "    ret f128 %absolute\n"
+                                 "}\n";
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *module;
+    IrInst *absolute;
+    TargetSpec target = {CGF_TARGET_ARM64_LINUX};
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    module = ir_parse_module(&arena, dc, source, "<f128-fabs>");
+    T_ASSERT(t, module != NULL && !diag_had_error(dc));
+    T_ASSERT(t, module && ir_verify(dc, module));
+    if (!module || diag_had_error(dc)) {
+        arena_free_all(&arena);
+        return;
+    }
+    lower_legalize_f128(module, target);
+    absolute = module->funcs[0].blocks[0].first;
+    T_ASSERT(t, ir_verify(dc, module));
+    T_ASSERT_EQ_INT(t, absolute->op, IR_CALL);
+    T_ASSERT_EQ_INT(t, absolute->type, IRT_F128);
+    T_ASSERT_EQ_INT(t, absolute->nops, 1);
+    T_ASSERT_EQ_STR(t, module->syms[absolute->callee], "__cgf_abstf");
     arena_free_all(&arena);
 }

@@ -981,6 +981,53 @@ void test_sema_builtin_long_double_constant_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_fabs_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "static float sf = __builtin_fabsf(-0.0f); "
+        "static double sd = __builtin_fabs(-2.0); "
+        "static long double sl = __builtin_fabsl(-3.0L); "
+        "_Static_assert(_Generic((__builtin_fabsf)(-1), float: 1, "
+        "default: 0), \"fabsf type\"); "
+        "_Static_assert(_Generic(__builtin_fabs(-1), double: 1, default: 0), "
+        "\"fabs type\"); "
+        "_Static_assert(_Generic(__builtin_fabsl(-1), long double: 1, "
+        "default: 0), \"fabsl type\"); "
+        "_Static_assert((int)__builtin_fabsf(-16777217.0) == 16777216, "
+        "\"prototype conversion\"); "
+        "_Static_assert((int)__builtin_fabs(-2.5) == 2, \"fabs value\"); "
+        "_Static_assert((int)__builtin_fabsl(-3.5L) == 3, \"fabsl value\"); "
+        "_Static_assert(__builtin_constant_p(__builtin_fabs(-4.0)), "
+        "\"fabs constant\"); "
+        "int use(void) { return sf == 0.0f && sd == 2.0 && sl == 3.0L; }\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    /* Converting a folded floating expression to an ICE is accepted as the
+     * GNU extension, with the same pedantic boundary as other FP folds. */
+    T_ASSERT_EQ_INT(t, f.warnings, 3);
+    sfix_free(&f);
+
+    /* Exact arity and an assignable real-arithmetic operand are required. */
+    run_sema_opts(&f,
+                  "double a = __builtin_fabs(); "
+                  "double b = __builtin_fabs(1.0, 2.0); "
+                  "double c = __builtin_fabs((void *)0);\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    /* A runtime operand does not become a constant expression. */
+    run_sema_opts(&f,
+                  "double value; _Static_assert(__builtin_fabs(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;

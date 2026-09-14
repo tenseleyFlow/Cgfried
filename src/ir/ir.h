@@ -133,6 +133,7 @@ typedef enum IrOp {
     IR_FMUL,
     IR_FDIV,
     IR_FNEG,
+    IR_FABS,
     /* conversions */
     IR_SEXT,
     IR_ZEXT,
