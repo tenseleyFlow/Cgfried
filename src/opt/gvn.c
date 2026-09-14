@@ -420,26 +420,10 @@ static bool block_has_edge_to(const IrBlock *from, BlockId to)
     const IrInst *in;
     u32 ei;
 
-    for (in = from->first; in; in = in->next) {
-        /* A noreturn call cuts the semantic CFG even though lowering leaves
-         * the block's structural terminator in place.  No memory state can
-         * flow through that terminator. */
-        if (in->op == IR_CALL && (in->flags & IRF_NORETURN))
-            return false;
+    for (in = from->first; in; in = in->next)
         for (ei = 0; ei < in->nedges; ei++)
             if (in->edges[ei].target.v == to.v)
                 return true;
-    }
-    return false;
-}
-
-static bool block_has_noreturn_cut(const IrBlock *block)
-{
-    const IrInst *in;
-
-    for (in = block->first; in; in = in->next)
-        if (in->op == IR_CALL && (in->flags & IRF_NORETURN))
-            return true;
     return false;
 }
 
@@ -522,7 +506,6 @@ static void build_block_insts(Arena *scratch, const IrFunc *f,
     for (bi = 0; bi < f->nblocks; bi++) {
         const IrBlock *block = &f->blocks[bi];
         const IrInst *in;
-        bool noreturn_cut = block_has_noreturn_cut(block);
         u32 pos = 0;
 
         blocks[bi].ninsts = block->ninsts;
@@ -533,11 +516,10 @@ static void build_block_insts(Arena *scratch, const IrFunc *f,
             u32 ei;
 
             blocks[bi].insts[pos++] = (IrInst *)in;
-            if (!noreturn_cut)
-                for (ei = 0; ei < in->nedges; ei++)
-                    if (in->edges[ei].target.v &&
-                        in->edges[ei].target.v <= f->nblocks)
-                        preds[in->edges[ei].target.v - 1]++;
+            for (ei = 0; ei < in->nedges; ei++)
+                if (in->edges[ei].target.v &&
+                    in->edges[ei].target.v <= f->nblocks)
+                    preds[in->edges[ei].target.v - 1]++;
         }
         if (pos != block->ninsts)
             CGF_ICE("gvn: stale instruction count in block %u", bi + 1);

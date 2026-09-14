@@ -198,6 +198,54 @@ void test_prune_cfg_o0_removes_dead_link_but_preserves_case_entry(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_prune_cfg_terminates_noreturn_block(TestCtx *t)
+{
+    CfgFix f;
+    IrModule *m;
+    OptConfig cfg;
+    IrFunc *fn;
+    const IrInst *ret;
+
+    fix_init(&f);
+    m = parse(&f, "sym @abort\n"
+                  "func f80 @f(i32 %c, ptr %side) {\n"
+                  "entry():\n"
+                  "    %slot = alloca 16, align 16, etype f80\n"
+                  "    store f80 0x4004:0x8800000000000000, %slot, align 16, "
+                  "etype f80\n"
+                  "    condbr %c, dead(), join()\n"
+                  "dead():\n"
+                  "    call void @abort() noreturn\n"
+                  "    store i32 1, %side, align 4, volatile, etype i32\n"
+                  "    br join()\n"
+                  "join():\n"
+                  "    %v = load f80, %slot, align 16, etype f80\n"
+                  "    ret f80 %v\n"
+                  "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(f.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && opt_prune_cfg(m, &cfg));
+    fn = m ? &m->funcs[0] : NULL;
+    if (fn) {
+        T_ASSERT_EQ_INT(t, fn->nblocks, 3);
+        T_ASSERT_EQ_INT(t, fn->blocks[1].ninsts, 3);
+        T_ASSERT_EQ_INT(t, fn->blocks[1].last->op, IR_UNREACHABLE);
+        T_ASSERT_EQ_INT(t, ir_count_volatile_ops(fn), 1);
+        T_ASSERT(t, ir_verify(f.dc, m));
+        T_ASSERT(t, !opt_prune_cfg(m, &cfg));
+        T_ASSERT(t, opt_gvn(m, &cfg));
+        T_ASSERT_EQ_INT(t, count_op(m, IR_LOAD), 0);
+        ret = fn->blocks[2].last;
+        T_ASSERT_EQ_INT(t, ret->ops[0].kind, IROP_FCONST);
+        T_ASSERT_EQ_INT(t, ret->ops[0].type, IRT_F80);
+        T_ASSERT_EQ_INT(t, ret->ops[0].a, 0x8800000000000000ULL);
+        T_ASSERT_EQ_INT(t, ret->ops[0].b, 0x4004);
+        T_ASSERT(t, ir_verify(f.dc, m));
+    }
+    arena_free_all(&f.arena);
+}
+
 void test_opt_simplify_cfg_merges_straight_line_and_forwards_args(TestCtx *t)
 {
     CfgFix f;

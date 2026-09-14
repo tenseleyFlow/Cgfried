@@ -207,10 +207,11 @@ publishes 130 target-complete floating-comparison PASS keys and leaves the
 ratchet at 31,000 PASS keys (31,003 lines). PR #113's current
 `s56.18-builtin-fp-long-double-constants` tranche implements
 `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl` with exact
-target-format lowering and repairs the x87/GVN noreturn-predecessor secondary
-blocker exposed by `inf-2.c`. Local implementation validation is green;
-matching pre-publication x86 and native-ARM torture streams remain required
-before its expected forty PASS keys may move the PASS/triage ratchet.
+target-format lowering and repairs the finite-progress optimizer blocker
+exposed by `inf-2.c` plus the `va-arg-17.c` regression found by the first
+evidence pair. Local implementation validation is green; fresh matching
+pre-publication x86 and native-ARM torture streams remain required before its
+expected forty PASS keys may move the PASS/triage ratchet.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5178,18 +5179,32 @@ and green post-publication CI.
 
   The newly reachable unmodified `inf-2.c` exposed a secondary x86 O3
   optimizer ICE. It was finite progress rather than an oscillation: x87 f80
-  values intentionally remain memory-backed, while GVN counted the structural
-  successor of an `IRF_NORETURN` call as a live memory predecessor. That made
-  one load/comparison become foldable per outer iteration until the ten-pass
-  safety cap fired. GVN now applies the same semantic noreturn cut already
-  used by mem2reg when counting predecessors and recognizing direct-dominator
-  edges. A focused f80 regression pins store-to-load forwarding across a dead
-  noreturn predecessor without weakening ordinary call barriers.
+  values intentionally remain memory-backed, and one more load/comparison
+  became foldable per outer iteration until the ten-pass safety cap fired. An
+  initial GVN-local noreturn-predecessor repair fixed that case, but the first
+  exact-merge evidence streams proved it made the nine SysV `va_arg` diamonds
+  in `va-arg-17.c` advance one per visit and regress the previously ratcheted
+  O2/O3/Os cells on both Linux targets.
 
-  Focused ordinary and fresh ASan+UBSan semantic/lowering/GVN coverage is
-  green at three tests and 32 assertions. Full ordinary and sanitizer unit
-  runs reach the unchanged eight Apple host-assumption failures at 904 tests
-  and 4,328,913 assertions, with all three new tests passing and no sanitizer
+  The durable repair makes noreturn semantics structural in the mandatory O0
+  CFG pass: a block containing an `IRF_NORETURN` call ends in
+  `IR_UNREACHABLE` before later optimizers inspect its predecessors. Operations
+  already lowered after the call remain in source order, including pinned
+  volatile operations; only the dead outgoing edge is removed. GVN therefore
+  returns to its ordinary structural-CFG rules. The pass manager now treats
+  its cap as ten consecutive changing iterations without structural progress.
+  A strictly smaller all-time function/block/instruction count renews that
+  budget, while comparing against the all-time minimum prevents a grow/shrink
+  oscillation from renewing it forever. Focused tests prove a true
+  value-toggling pass and a structural grow/shrink oscillation still ICE at
+  the exact cap, while a synthetic twelve-step shrinking pass converges with
+  a three-visit stall cap. CFG coverage also pins the noreturn terminator and
+  preservation of a volatile suffix.
+
+  Focused ordinary and fresh ASan+UBSan semantic/lowering/optimizer coverage
+  is green at five tests and 46 assertions. Full ordinary and sanitizer unit
+  runs reach the unchanged eight Apple host-assumption failures at 906 tests
+  and 4,328,927 assertions, with all new tests passing and no sanitizer
   report. All 25 builtin fixtures pass in both configurations. The new runtime
   fixture passes Cgfried and Apple Clang at O0/O1/O2/O3/Os, and all five
   supported Cgfried targets compile it at all five levels. The four directly
@@ -5208,10 +5223,23 @@ and green post-publication CI.
   `94e5ee8c4feafa80`, reproduced twice normally and once under ASan+UBSan at
   5,000 iterations; the crash ledger is clean.
 
-  Publication is still pending. Push/open the branch, require all non-ratchet
-  standard/bootstrap/native-ARM jobs green, collect matching exact-revision
-  x86 and ARM result streams, verify exactly twenty new PASS keys per target
-  with no old-PASS regression, and use the atomic publisher before final
+  The rejected first evidence pair came from standard
+  [run 34653969384](https://github.com/tenseleyFlow/Cgfried/actions/runs/34653969384)
+  and exact synthetic-merge nightly
+  [run 34654152056](https://github.com/tenseleyFlow/Cgfried/actions/runs/34654152056)
+  at revision `08991390eec3361022edd9b79eb3c1b941ec8590`. Both 20,325-row
+  streams shared compiler-source/harness/manifest provenance and each proved
+  the expected twenty new `inf-1.c`/`inf-2.c`/`inf-3.c`/`pr36332.c` PASS
+  keys, but each also contained the three `va-arg-17.c` O2/O3/Os ICE
+  regressions. Their SHA-256 values were respectively
+  `084d04ebec12a4c6a0625c65be096a12bc83ea53fadefb5b565fb461a2f54c67`
+  and
+  `a75d02e9e331a274958dd4503bcacf0b52689186f0b41d8a6f6f1498be84144a`;
+  neither is publishable. The repaired tree compiles `va-arg-17.c` and
+  `inf-2.c` under verify-after-each for both Linux targets at all five
+  optimization levels. Publication remains pending fresh matching x86 and
+  native-ARM streams with exactly twenty new PASS keys per target, no old-PASS
+  regression, and zero ICE rows before the atomic publisher and final
   green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
