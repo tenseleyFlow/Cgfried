@@ -5237,9 +5237,37 @@ and green post-publication CI.
   `a75d02e9e331a274958dd4503bcacf0b52689186f0b41d8a6f6f1498be84144a`;
   neither is publishable. The repaired tree compiles `va-arg-17.c` and
   `inf-2.c` under verify-after-each for both Linux targets at all five
-  optimization levels. Publication remains pending fresh matching x86 and
-  native-ARM streams with exactly twenty new PASS keys per target, no old-PASS
-  regression, and zero ICE rows before the atomic publisher and final
+  optimization levels.
+
+  A second exact-merge pair at
+  `4230dfefeca00f2737ab72b3e01d8f8b2741129b` came from standard
+  [run 34808507857](https://github.com/tenseleyFlow/Cgfried/actions/runs/34808507857)
+  and nightly
+  [run 34808536844](https://github.com/tenseleyFlow/Cgfried/actions/runs/34808536844).
+  Both streams have 20,325 rows and matching compiler-source, harness, and
+  manifest provenance. Their SHA-256 values are respectively
+  `9673f1bec94b0fbd9ca2337c9f7eea874fb9fb84f36b9f6fef948b4de943027c`
+  and
+  `82b11231e64fc38ddcf200a23c9469f11918207f918c50f30d8d54cb6c6c3b87`.
+  Each proves exactly the expected twenty new PASS keys, zero old-PASS
+  regressions, and zero ICE rows, so the optimizer repair is sound.
+
+  That second pair is nevertheless superseded and must not be published:
+  standard CI exposed two integration contracts outside the torture matrix.
+  Replacing the post-noreturn terminator initially discarded the source
+  location used by `-Wunreachable-code`; the replacement now retains the
+  original terminator location and the exact warning fixture passes again.
+  The newly structural `IR_UNREACHABLE` also made the x86 corpus reach its
+  existing `ud2` emission through bundled `afs-as`, whose encoder did not yet
+  accept that mnemonic. `afs-as`
+  [PR #30](https://github.com/FortranGoingOnForty/afs-as/pull/30) adds the
+  exact `0f 0b` encoding, rejects operands, and covers it directly plus
+  differentially; its complete local Rust suite is green. Cgfried pins commit
+  `a7c0cc6bc56536e3dad00186ae0a7c3c79b306c2`, and a local x86 ELF compile
+  through the bundled assembler succeeds. Publication remains pending a new
+  exact-revision matching x86/native-ARM pair with twenty new PASS keys per
+  target, no old-PASS regression, and zero ICE rows, plus fully green
+  standard/bootstrap/tooling CI before the atomic publisher and final
   green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,

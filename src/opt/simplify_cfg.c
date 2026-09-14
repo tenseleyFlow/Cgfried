@@ -214,7 +214,10 @@ static bool terminate_noreturn_blocks(IrFunc *f)
                 CGF_ICE("simplify_cfg: noreturn call has no terminator");
             if (term->op == IR_UNREACHABLE)
                 break;
-            loc = in->loc;
+            /* The replacement stands in for the discarded terminator.  Keep
+             * that terminator's source location so flow warnings can still
+             * name the first statement after the noreturn call. */
+            loc = term->loc;
             memset(term, 0, sizeof(*term));
             term->op = IR_UNREACHABLE;
             term->type = IRT_VOID;
