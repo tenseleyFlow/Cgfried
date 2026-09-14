@@ -945,6 +945,67 @@ void test_sema_builtin_fp_compare_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_fp_classification_family(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "_Static_assert(__builtin_isnan(__builtin_nan(\"\")), \"nan\"); "
+        "_Static_assert(__builtin_isnan(-__builtin_nanl(\"\")), "
+        "\"negative nan\"); "
+        "_Static_assert(__builtin_isinf(__builtin_inf()), \"infinity\"); "
+        "_Static_assert(__builtin_isinf(-__builtin_infl()), "
+        "\"negative infinity\"); "
+        "_Static_assert(__builtin_isfinite(0.0f), \"float zero\"); "
+        "_Static_assert(__builtin_isfinite(-3.0L), \"long double finite\"); "
+        "_Static_assert(!__builtin_isfinite(__builtin_nan(\"\")), "
+        "\"nan is not finite\"); "
+        "_Static_assert(!__builtin_isfinite(__builtin_inf()), "
+        "\"infinity is not finite\"); "
+        "_Static_assert(__builtin_signbit(-0.0f), \"negative float zero\"); "
+        "_Static_assert(__builtin_signbit(-0.0), \"negative double zero\"); "
+        "_Static_assert(__builtin_signbit(-0.0L), "
+        "\"negative long double zero\"); "
+        "_Static_assert(__builtin_signbit(-__builtin_nanl(\"\")), "
+        "\"negative nan sign\"); "
+        "_Static_assert(!__builtin_signbit(0.0L), \"positive zero\"); "
+        "_Static_assert(_Generic(__builtin_isnan(0.0f), int: 1, default: 0), "
+        "\"isnan result\"); "
+        "_Static_assert(_Generic(__builtin_isinf(0.0), int: 1, default: 0), "
+        "\"isinf result\"); "
+        "_Static_assert(_Generic(__builtin_isfinite(0.0L), int: 1, default: "
+        "0), \"isfinite result\"); "
+        "_Static_assert(_Generic(__builtin_signbit(0.0L), int: 1, default: "
+        "0), \"signbit result\"); "
+        "_Static_assert(__builtin_constant_p(__builtin_isinf("
+        "__builtin_inf())), \"classification constant\");\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* Classification is type-generic over the three real floating types, but
+     * it does not apply the default promotions to integer or pointer input. */
+    run_sema_opts(&f,
+                  "int a = __builtin_isnan(1); "
+                  "int b = __builtin_isinf((void *)0); "
+                  "int c = __builtin_isfinite(); "
+                  "int d = __builtin_signbit(0.0, 1.0);\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+
+    /* A classification of a runtime value is not an integer constant
+     * expression merely because its result type is int. */
+    run_sema_opts(&f,
+                  "double value; _Static_assert(__builtin_isfinite(value), "
+                  "\"runtime\");\n",
+                  STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_long_double_constant_family(TestCtx *t)
 {
     SemaFix f;

@@ -208,6 +208,30 @@ cgf_tf __cgf_abstf(cgf_tf a)
     return a;
 }
 
+/* Classification uses integer carrier inspection so signed zero and signed
+ * NaNs keep their sign semantics without executing a host floating operation.
+ */
+int __cgf_signbittf(cgf_tf a)
+{
+    unsigned char bits[16];
+
+    memcpy(bits, &a, sizeof(bits));
+    return (bits[15] >> 7) & 1;
+}
+
+/* SysV and Darwin x86-64 both store the x87-80 sign in bit 15 of the fifth
+ * 16-bit word; the remaining six bytes of the 16-byte object are padding.
+ * This symbol is intentionally absent from non-x86 runtime archives. */
+#if defined(__x86_64__)
+int __cgf_signbitxf(long double a)
+{
+    unsigned char bits[sizeof(a)];
+
+    memcpy(bits, &a, sizeof(bits));
+    return (bits[9] >> 7) & 1;
+}
+#endif
+
 cgf_tf __addtf3(cgf_tf a, cgf_tf b)
 {
     SfStatus st;

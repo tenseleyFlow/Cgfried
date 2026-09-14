@@ -1539,6 +1539,31 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             }
             return cv_int(s, e->sem_type, truth ? 1 : 0);
         }
+        if ((e->op == SEMA_BUILTIN_ISNAN || e->op == SEMA_BUILTIN_ISINF ||
+             e->op == SEMA_BUILTIN_ISFINITE || e->op == SEMA_BUILTIN_SIGNBIT) &&
+            e->nargs == 1) {
+            CeMode operand_mode = is_required(m) ? CE_ARITH : m;
+            ConstValue value = eval(s, e->args[0], operand_mode);
+            bool truth;
+
+            if (value.kind != CV_FLOAT)
+                return cv_error();
+            switch (e->op) {
+            case SEMA_BUILTIN_ISNAN:
+                truth = value.f.cls == SF_NAN;
+                break;
+            case SEMA_BUILTIN_ISINF:
+                truth = value.f.cls == SF_INF;
+                break;
+            case SEMA_BUILTIN_ISFINITE:
+                truth = value.f.cls != SF_INF && value.f.cls != SF_NAN;
+                break;
+            default:
+                truth = value.f.sign != 0;
+                break;
+            }
+            return cv_int(s, e->sem_type, truth ? 1 : 0);
+        }
         if ((e->op == SEMA_BUILTIN_FABS || e->op == SEMA_BUILTIN_FABSF ||
              e->op == SEMA_BUILTIN_FABSL) &&
             e->nargs == 1) {

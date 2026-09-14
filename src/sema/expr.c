@@ -1144,6 +1144,19 @@ static bool is_builtin_fp_compare(u16 builtin)
     }
 }
 
+static bool is_builtin_fp_classification(u16 builtin)
+{
+    switch (builtin) {
+    case SEMA_BUILTIN_ISNAN:
+    case SEMA_BUILTIN_ISINF:
+    case SEMA_BUILTIN_ISFINITE:
+    case SEMA_BUILTIN_SIGNBIT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static AstNode *expr_call(Sema *s, AstNode *e)
 {
     AstNode *callee;
@@ -1292,6 +1305,23 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     return poison(s, e);
                 }
                 (void)conv_uac(s, &e->args[0], &e->args[1]);
+            }
+            if (is_builtin_fp_classification(b)) {
+                Type *argument = e->args[0]->sem_type;
+
+                /* These are GCC's type-generic classification builtins, not
+                 * declared library functions. They retain float/double/long
+                 * double exactly and reject integer operands rather than
+                 * applying the default argument promotions. */
+                if (quiet(e->args[0], NULL))
+                    return poison(s, e);
+                if (!type_is_floating(argument)) {
+                    err(s, e->span,
+                        "floating classification builtin requires a "
+                        "floating argument (got '%s')",
+                        type_to_str(s->arena, argument));
+                    return poison(s, e);
+                }
             }
             /* The mem/str builtins take the LIBC signatures: sizes are
              * size_t, so promote the counted argument rather than

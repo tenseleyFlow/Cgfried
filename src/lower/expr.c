@@ -2442,6 +2442,44 @@ static IrOperand lower_special_float_constant(Lower *lo, Type *type,
     return ir_op_fconst(lower_irtype(lo, type), low, high);
 }
 
+/* signbit is the one classification operation that comparisons cannot
+ * express: -0 compares equal to +0 and a negative NaN is unordered. The
+ * fixed-width formats expose their sign through an exact-width bitcast. The
+ * two 16-byte formats deliberately use compiler-owned carrier helpers instead
+ * of teaching the scalar IR a target-layout-dependent 128-bit bitcast. */
+static IrOperand lower_fp_signbit(Lower *lo, AstNode *argument)
+{
+    IrOperand value = lower_rvalue(lo, argument);
+    IrType type = (IrType)value.type;
+    ValueId bits, shifted, result;
+    const char *helper;
+
+    if (type == IRT_F32) {
+        bits = ir_build1(&lo->b, IR_BITCAST, IRT_I32, value);
+        result = ir_build2(&lo->b, IR_LSHR, IRT_I32, ir_op_value(lo->fn, bits),
+                           ir_op_iconst(IRT_I32, 31));
+        return ir_op_value(lo->fn, result);
+    }
+    if (type == IRT_F64) {
+        bits = ir_build1(&lo->b, IR_BITCAST, IRT_I64, value);
+        shifted = ir_build2(&lo->b, IR_LSHR, IRT_I64, ir_op_value(lo->fn, bits),
+                            ir_op_iconst(IRT_I64, 63));
+        result =
+            ir_build1(&lo->b, IR_TRUNC, IRT_I32, ir_op_value(lo->fn, shifted));
+        return ir_op_value(lo->fn, result);
+    }
+
+    helper = type == IRT_F80    ? "__cgf_signbitxf"
+             : type == IRT_F128 ? "__cgf_signbittf"
+                                : NULL;
+    if (!helper)
+        CGF_ICE("signbit lowering received non-floating IR type %u",
+                (unsigned)type);
+    result = ir_build_call(&lo->b, IRT_I32, FUNCREF_EXTERNAL,
+                           ir_sym(lo->m, helper), &value, 1);
+    return ir_op_value(lo->fn, result);
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -2588,6 +2626,33 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
             ir_op_value(lo->fn, ir_build_fcmp(&lo->b, predicate, left, right));
         return true;
     }
+    case SEMA_BUILTIN_ISNAN:
+    case SEMA_BUILTIN_ISINF:
+    case SEMA_BUILTIN_ISFINITE: {
+        IrOperand value = lower_rvalue(lo, e->args[0]);
+        IrOperand compared = value;
+        IrFcmp predicate = FCMP_UNO;
+        ValueId absolute;
+
+        /* isnan(x) is unordered(x,x). For the other two predicates, compare
+         * abs(x) with target-format infinity: ordered equality recognizes
+         * either infinity sign, while ordered inequality recognizes exactly
+         * the finite values and stays false for NaNs. The SSA operand is
+         * reused, so a side-effecting source expression is evaluated once. */
+        if (e->op != SEMA_BUILTIN_ISNAN) {
+            absolute = ir_build1(&lo->b, IR_FABS, (IrType)value.type, value);
+            compared = ir_op_value(lo->fn, absolute);
+            predicate = e->op == SEMA_BUILTIN_ISINF ? FCMP_OEQ : FCMP_ONE;
+            value =
+                lower_special_float_constant(lo, e->args[0]->sem_type, SF_INF);
+        }
+        *out = ir_op_value(lo->fn,
+                           ir_build_fcmp(&lo->b, predicate, compared, value));
+        return true;
+    }
+    case SEMA_BUILTIN_SIGNBIT:
+        *out = lower_fp_signbit(lo, e->args[0]);
+        return true;
     case SEMA_BUILTIN_FABS:
     case SEMA_BUILTIN_FABSF:
     case SEMA_BUILTIN_FABSL: {

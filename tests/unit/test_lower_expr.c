@@ -640,6 +640,67 @@ void test_lower_builtin_fp_compare_family(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_fp_classification_family(TestCtx *t)
+{
+    static const char source[] =
+        "float source_f(void); double source_d(void); "
+        "long double source_l(void); "
+        "int cf(void) { return __builtin_isnan(source_f()) + "
+        "__builtin_isinf(source_f()) + __builtin_isfinite(source_f()) + "
+        "__builtin_signbit(source_f()); } "
+        "int cd(void) { return __builtin_isnan(source_d()) + "
+        "__builtin_isinf(source_d()) + __builtin_isfinite(source_d()) + "
+        "__builtin_signbit(source_d()); } "
+        "int cl(void) { return __builtin_isnan(source_l()) + "
+        "__builtin_isinf(source_l()) + __builtin_isfinite(source_l()) + "
+        "__builtin_signbit(source_l()); }\n";
+    static const struct {
+        TargetKind target;
+        int f64_ops;
+        int f80_ops;
+        int f128_ops;
+        int f64_signbits;
+        int xf_helpers;
+        int tf_helpers;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 2, 2, 0, 1, 1, 0},
+        {CGF_TARGET_ARM64_LINUX, 2, 0, 2, 1, 0, 1},
+        {CGF_TARGET_ARM64_MACOS, 4, 0, 0, 2, 0, 0},
+    };
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        IrModule *round;
+
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_C17, true,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @source_f()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @source_d()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f32"), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f64"), cases[i].f64_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f80"), cases[i].f80_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f128"), cases[i].f128_ops);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp uno f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp oeq f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp one f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "bitcast f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "bitcast f64"),
+                        cases[i].f64_signbits);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__cgf_signbitxf("),
+                        cases[i].xf_helpers);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__cgf_signbittf("),
+                        cases[i].tf_helpers);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_is"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_signbit"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<fp-classification>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_long_double_constant_family(TestCtx *t)
 {
     static const char source[] =

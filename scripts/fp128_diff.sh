@@ -107,13 +107,13 @@ if command -v "$NM" >/dev/null 2>&1; then
             exit 1
         fi
     done
-    for sym in __cgf_seltf __cgf_abstf; do
+    for sym in __cgf_seltf __cgf_abstf __cgf_signbittf; do
         if ! "$NM" "$work/libcgf_rt.a" | grep -q "T $sym\$"; then
             echo "fp128_diff: libcgf_rt.a does not define $sym" >&2
             exit 1
         fi
     done
-    echo "fp128_diff: 24 libgcc entry points plus 2 compiler helpers, $lines result lines identical to libgcc (runtime compiler: $RUNTIME_CC)"
+    echo "fp128_diff: 24 libgcc entry points plus 3 compiler helpers, $lines result lines identical to libgcc (runtime compiler: $RUNTIME_CC)"
 else
     echo "fp128_diff: $lines result lines identical to libgcc (runtime compiler: $RUNTIME_CC; $NM absent, symbol audit skipped)"
 fi
