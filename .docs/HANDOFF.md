@@ -5369,7 +5369,7 @@ and green post-publication CI.
   in the configured Linux lane. Pinned clang-format 22, static policy gates,
   the architecture-dependent division lint, and ordinary plus ASan+UBSan
   preprocessor/frontend/IR fuzz smoke are green. The intended frontend corpus
-  change repins the 5,000-iteration mutation digest to `36e9662858beae9b`,
+  change repins the 5,000-iteration mutation digest to `436baea21d92f3d0`,
   reproduced twice normally and once under ASan+UBSan.
 
   The two unmodified GCC files contribute exactly twenty candidate PASS keys:
