@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-11): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-14): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,9 +11,11 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 3/30 after required daily x86 evidence was absent on September 5
+at a strict 5/30 after required daily x86 evidence was absent on September 5
 and matching-head evidence was absent on September 7–8. It remains
-operationally OPEN. The matching-head September 11 recovery
+operationally OPEN. Matching-head September 12 and 13 hosted daily runs are
+green, and September 13's separate weekly run is full-lattice green. The
+matching-head September 11 recovery
 [`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
 is full-lattice green at `5f5b0e66`; it completed all four required daily
 jobs plus reproducibility and cross-host comparison after the scheduled run
@@ -204,16 +206,21 @@ decisions, two deliberately retained stale decisions, no live repair rows,
 and zero unbucketed or unresolved cells. PR #112's
 `s56.17-builtin-fp-compare-family` tranche is merged as `f8f6e463`; it
 publishes 130 target-complete floating-comparison PASS keys and leaves the
-ratchet at 31,000 PASS keys (31,003 lines). PR #113's current
-`s56.18-builtin-fp-long-double-constants` tranche implements
+ratchet at 31,000 PASS keys (31,003 lines). PR #113's
+`s56.18-builtin-fp-long-double-constants` tranche is merged as `2b193f3c`; it
+publishes forty target-complete PASS keys and leaves the ratchet at 31,040
+PASS keys (31,043 lines). It implemented
 `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl` with exact
-target-format lowering and repairs the finite-progress optimizer blocker
+target-format lowering and repaired the finite-progress optimizer blocker
 exposed by `inf-2.c` plus the `va-arg-17.c` regression found by the first
-evidence pair. Local implementation validation is green; fresh matching
-synthetic-merge x86 and native-ARM evidence publishes the expected forty PASS
-keys with zero regression and zero ICEs. Fresh fully green post-publication
-standard, bootstrap, and nightly CI remains required before the PR is
-merge-ready.
+evidence pair. Its final standard, bootstrap, and exact-merge nightly CI were
+green before the green-only merge. The current
+`s56.19-builtin-fp-abs-family` tranche implements `__builtin_fabs`,
+`__builtin_fabsf`, and `__builtin_fabsl` with exact prototypes,
+target-softfloat constant evaluation, payload-preserving sign clearing, and
+native x86-64/ARM64 lowering. Its implementation and local cross-target
+validation are green; target-complete torture publication and fresh
+post-publication CI remain required before merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -684,7 +691,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 3/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 5/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -711,7 +718,14 @@ do not call the sprint closed until that operational obligation is complete.
   day 2. The September 11 cron did not start, but same-date recovery run
   `34569061464` at `5f5b0e66` completed all four daily jobs plus the full
   reproducibility/cross-host lattice, making it eligible day 3 under the
-  pre-bootstrap infrastructure-recovery rule. The daily-hosted automation
+  pre-bootstrap infrastructure-recovery rule. Scheduled run
+  [`34681928359`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34681928359)
+  at `f8f6e463` is day 4. September 13 daily
+  [run 34747343615](https://github.com/tenseleyFlow/Cgfried/actions/runs/34747343615)
+  and full weekly
+  [run 34747919288](https://github.com/tenseleyFlow/Cgfried/actions/runs/34747919288)
+  share that exact head and make day 5, with all four daily jobs,
+  reproducibility, and cross-host comparison green. The daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
   weekly cross/reproducibility result; any missing or red required run breaks the
@@ -5169,7 +5183,7 @@ and green post-publication CI.
   `3fb6e322` and `0037b73a` and tree
   `6732f45d4255c3a6f99efcd15080645885e6fe89`, byte-identical to tested
   synthetic merge `4d07088de080d5b1360f8dff20e50ee1600208a7`.
-- PR #113's current `s56.18-builtin-fp-long-double-constants` tranche completes the
+- PR #113's merged `s56.18-builtin-fp-long-double-constants` tranche completes the
   long-double suffixes for the existing floating constant builtins:
   `__builtin_infl`, `__builtin_huge_vall`, and `__builtin_nanl`. The builtin
   table now has an explicit `BK_LDOUBLE` result kind; sema gives each call the
@@ -5306,8 +5320,65 @@ and green post-publication CI.
   `84754ee86fa4f8447ed7aba8229c9c3f19c519a354121507b281d1605a74554e`
   and
   `3a6b54d128c278dd5ebb53d0bd1447047d42668125348788fd7a98d38c87b08e`.
-  Publication is committed next; require fresh fully green standard,
-  bootstrap, and exact-merge nightly CI before the green-only merge.
+  Fresh post-publication standard
+  [run 34812358594](https://github.com/tenseleyFlow/Cgfried/actions/runs/34812358594),
+  branch and PR bootstrap
+  [runs 34812358507](https://github.com/tenseleyFlow/Cgfried/actions/runs/34812358507)
+  and
+  [34812358526](https://github.com/tenseleyFlow/Cgfried/actions/runs/34812358526),
+  exact synthetic-merge nightly
+  [run 34812395295](https://github.com/tenseleyFlow/Cgfried/actions/runs/34812395295),
+  and its matching bootstrap
+  [run 34812395538](https://github.com/tenseleyFlow/Cgfried/actions/runs/34812395538)
+  are fully green. The final PR rollup has 24 successful and nine
+  policy-skipped checks. PR #113 merged as `2b193f3c`; the actual merge has
+  parents `f8f6e463` and `796679a6`, and tree
+  `4890aacb5a00beee7011a6f230d88f013c319b06`, byte-identical to tested
+  synthetic merge `7bc8d249`. Post-merge standard
+  [run 34815444922](https://github.com/tenseleyFlow/Cgfried/actions/runs/34815444922)
+  and bootstrap
+  [run 34815444989](https://github.com/tenseleyFlow/Cgfried/actions/runs/34815444989)
+  are also green.
+- The current `s56.19-builtin-fp-abs-family` tranche implements
+  `__builtin_fabs`, `__builtin_fabsf`, and `__builtin_fabsl` with their exact
+  `double`, `float`, and `long double` prototypes. Constant evaluation clears
+  the sign in target-softfloat data rather than consulting the host FPU, so
+  negative zero and every target long-double format are correct. Runtime
+  lowering evaluates the operand once and emits a new scalar `fabs` IR
+  operation. The simplifier performs exact non-NaN constant sign clearing,
+  deliberately retains NaNs for payload preservation, and canonicalizes
+  nested `fabs` and `fabs(fneg(x))` forms.
+
+  ARM64 uses scalar `fabs` for f32/f64; x86-64 uses complement-sign masks for
+  f32/f64 and x87 `fabs` for f80. ARM Linux binary128 legalizes to the
+  compiler-owned `__cgf_abstf` runtime helper, which clears only the carrier's
+  sign bit. The binary128 differential still produces 1,432 result lines
+  byte-identical to libgcc and now audits 24 libgcc entry points plus both
+  compiler helpers. Focused normal and fresh ASan+UBSan semantic, IR,
+  optimizer, ARM64, and x86 tests are green. The complete Linux x86-64 unit
+  run passes 913 tests and 4,329,091 assertions; the Apple-silicon unit run
+  reaches only the unchanged eight documented host-assumption failures, with
+  every new test green.
+
+  The new payload-preserving runtime fixture passes Cgfried and Apple Clang at
+  O0/O1/O2/O3/Os. It compiles to assembly for arm64-linux,
+  x86_64-linux-gnu, and arm64-macos at all five levels. Unmodified GCC
+  `execute-ieee/20010114-2.c` and `execute-ieee/20030331-1.c` pass 10/10 Apple
+  Clang cells, 10/10 Cgfried x86 runtime cells, 10/10 Cgfried ARM-QEMU cells,
+  and 30/30 cross-target assembly cells. All 26 builtin program fixtures pass
+  in the configured Linux lane. Pinned clang-format 22, static policy gates,
+  the architecture-dependent division lint, and ordinary plus ASan+UBSan
+  preprocessor/frontend/IR fuzz smoke are green. The intended frontend corpus
+  change repins the 5,000-iteration mutation digest to `436baea21d92f3d0`,
+  reproduced twice normally and once under ASan+UBSan.
+
+  The two unmodified GCC files contribute exactly twenty candidate PASS keys:
+  five optimization levels on each Linux target for each file. No baseline
+  is published from local or partial evidence. Push the implementation, open
+  the PR, obtain matching x86 and exact synthetic-merge native-ARM streams,
+  publish the target-complete pair atomically in both input orders, then
+  require fresh all-green standard, bootstrap, and exact-merge nightly CI
+  before the green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

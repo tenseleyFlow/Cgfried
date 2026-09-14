@@ -334,14 +334,14 @@ static bool fold_fp(const IrInst *in, IrOperand *out, const OptConfig *cfg)
     const SfFormat *format = format_of((IrType)in->type);
     SfStatus status;
     Sf x, y, value;
+    bool unary = in->op == IR_FNEG || in->op == IR_FABS;
 
     if (!format || in->nops < 1 || in->ops[0].kind != IROP_FCONST ||
-        (in->op != IR_FNEG &&
-         (in->nops != 2 || in->ops[1].kind != IROP_FCONST)))
+        (!unary && (in->nops != 2 || in->ops[1].kind != IROP_FCONST)))
         return false;
     memset(&status, 0, sizeof(status));
     x = sf_of_operand(in->ops[0]);
-    if (in->op != IR_FNEG)
+    if (!unary)
         y = sf_of_operand(in->ops[1]);
     switch ((IrOp)in->op) {
     case IR_FADD:
@@ -358,6 +358,10 @@ static bool fold_fp(const IrInst *in, IrOperand *out, const OptConfig *cfg)
         break;
     case IR_FNEG:
         value = sf_neg(x);
+        break;
+    case IR_FABS:
+        value = x;
+        value.sign = 0;
         break;
     default:
         return false;
@@ -1081,6 +1085,19 @@ static bool simplify_one(IrModule *m, IrFunc *f, IrBlock *block,
             *remove = true;
             *replacement_value =
                 resolve_operand(inner->ops[0], replacement, nold);
+            return true;
+        }
+    }
+    if (in->op == IR_FABS && in->nops == 1) {
+        IrInst *inner = def_of(x, defs, nold);
+
+        if (inner && inner->op == IR_FABS && inner->nops == 1) {
+            *remove = true;
+            *replacement_value = resolve_operand(in->ops[0], replacement, nold);
+            return true;
+        }
+        if (inner && inner->op == IR_FNEG && inner->nops == 1) {
+            in->ops[0] = resolve_operand(inner->ops[0], replacement, nold);
             return true;
         }
     }

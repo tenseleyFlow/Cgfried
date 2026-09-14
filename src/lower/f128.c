@@ -50,6 +50,8 @@ static const char *binary_libcall(u8 op)
         return "__divtf3";
     case IR_FNEG:
         return "__negtf2";
+    case IR_FABS:
+        return "__cgf_abstf";
     default:
         return NULL;
     }

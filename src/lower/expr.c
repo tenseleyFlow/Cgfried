@@ -2588,6 +2588,16 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
             ir_op_value(lo->fn, ir_build_fcmp(&lo->b, predicate, left, right));
         return true;
     }
+    case SEMA_BUILTIN_FABS:
+    case SEMA_BUILTIN_FABSF:
+    case SEMA_BUILTIN_FABSL: {
+        IrOperand value = lower_rvalue(lo, e->args[0]);
+
+        *out = ir_op_value(
+            lo->fn,
+            ir_build1(&lo->b, IR_FABS, lower_irtype(lo, e->sem_type), value));
+        return true;
+    }
     case SEMA_BUILTIN_BSWAP16:
     case SEMA_BUILTIN_BSWAP32:
     case SEMA_BUILTIN_BSWAP64: {
