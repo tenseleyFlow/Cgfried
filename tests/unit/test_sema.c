@@ -352,6 +352,46 @@ void test_sema_builtin_strcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_strchr_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_strchr(\"abc\", 'b'), "
+             "char *: 1, default: 0), \"strchr result is char pointer\"); "
+             "char *f(const char *s, void *p, long c) { "
+             "char *a = __builtin_strchr(s, c); "
+             "char *b = __builtin_strchr(p, 0); return a ? a : b; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "char *f(const char *s) { return __builtin_strchr(s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "char *f(const char *s) { return __builtin_strchr(s, 0, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; char *f(struct S s) { "
+             "return __builtin_strchr(s, 0); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; char *f(const char *s, struct S v) { "
+             "return __builtin_strchr(s, v); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_formatted_output_contract(TestCtx *t)
 {
     SemaFix f;

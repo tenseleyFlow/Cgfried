@@ -3047,10 +3047,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* exit/malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy: direct
- * libc calls by name. All ten have only scalar arguments and no aggregate
- * result, so the abstract-call machinery (aggregate copies, sret) is not
- * needed here.
+/* exit/malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy/strchr:
+ * direct libc calls by name. All eleven have only scalar arguments and no
+ * aggregate result, so the abstract-call machinery (aggregate copies, sret) is
+ * not needed here.
  */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -3070,6 +3070,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64, false},
         {SEMA_BUILTIN_STRCMP, "strcmp", IRT_I32, false},
         {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR, false},
+        {SEMA_BUILTIN_STRCHR, "strchr", IRT_PTR, false},
     };
     IrOperand args[3];
     ValueId call;
