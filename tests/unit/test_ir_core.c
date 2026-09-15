@@ -966,6 +966,42 @@ void test_ir_symbolic_indirect_call_roundtrip(TestCtx *t)
     fix_free(&f);
 }
 
+void test_ir_explicit_external_call_roundtrip(TestCtx *t)
+{
+    IrFix f;
+    IrModule *m;
+    const IrInst *in;
+    Buf text;
+    const char *printed;
+    static const char src[] = "func void @same() {\n"
+                              "entry():\n"
+                              "    call void external @same()\n"
+                              "    ret\n"
+                              "}\n";
+
+    fix_init(&f);
+    m = parse_ok(t, &f, src);
+    if (!m) {
+        fix_free(&f);
+        return;
+    }
+    in = m->funcs[0].blocks[0].first;
+    T_ASSERT_EQ_INT(t, in->op, IR_CALL);
+    T_ASSERT_EQ_INT(t, in->subop, FUNCREF_EXTERNAL);
+    T_ASSERT_EQ_STR(t, m->syms[in->callee], "same");
+
+    buf_init(&text);
+    ir_print_module_buf(&text, m);
+    buf_push_u8(&text, 0);
+    printed = (const char *)text.data;
+    T_ASSERT(t, strstr(printed, "call void external @same()") != NULL);
+    buf_free(&text);
+
+    T_ASSERT(t, ir_verify(f.dc, m));
+    roundtrip(t, &f, m);
+    fix_free(&f);
+}
+
 void test_ir_parse_forward_refs(TestCtx *t)
 {
     IrFix f;
