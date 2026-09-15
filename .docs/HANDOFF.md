@@ -254,13 +254,21 @@ Atomic publication raises the ratchet to 31,280 PASS keys (31,283 lines) and
 leaves 2,760 failures fully classified in 32 buckets. Its final standard,
 bootstrap, and exact-merge nightly CI were fully green before the green-only
 merge, and the actual merge tree is byte-identical to the tested final
-synthetic merge. The current
-`s56.23-builtin-checked-overflow-p` tranche on PR #118 implements the
+synthetic merge. PR #118's
+`s56.23-builtin-checked-overflow-p` tranche is merged as `d76ca2d7`. It
+implements the
 type-generic `__builtin_add_overflow_p`, `__builtin_sub_overflow_p`, and
 `__builtin_mul_overflow_p` predicate family. Its atomic target-complete
 publication adds ten `pr105984.c` PASS keys and raises the ratchet to 31,290
 PASS keys (31,293 lines), with 2,750 remaining failures fully classified in
-32 buckets. Final post-publication green CI remains required before merge.
+32 buckets. Final standard, bootstrap, and exact-merge nightly CI were fully
+green before the green-only merge, and the actual merge tree is byte-identical
+to the tested final synthetic merge. The current
+`s56.24-builtin-fixed-overflow` tranche implements all eighteen GCC
+fixed-prototype signed/unsigned add/subtract/multiply overflow-store
+spellings for `int`, `long`, and `long long`; the imported campaign corpora do
+not currently contain those spellings, so this is compatibility closure with
+no expected ratchet publication.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5832,9 +5840,61 @@ and green post-publication CI.
   `8609b5b00cf3214edb4260073a5ff4bd0a5f0a11d473796e08e296ecef080ae9`
   and
   `ca3f9ba9746aeba104fe59b3441ea6a921dec7eb23a0cdd1175b1868baddbd0b`.
-  Publication head `56fd11fd` still requires final standard, bootstrap, and
-  exact-merge nightly CI before green-only merge. Fixed-width overflow
-  aliases remain a separate candidate.
+  Publication head `56fd11fd` passed final standard
+  [run 34885382122](https://github.com/tenseleyFlow/Cgfried/actions/runs/34885382122)
+  with twenty successful jobs and one expected policy skip. Branch and PR
+  bootstrap
+  [runs 34885382069](https://github.com/tenseleyFlow/Cgfried/actions/runs/34885382069)
+  and
+  [34885372372](https://github.com/tenseleyFlow/Cgfried/actions/runs/34885372372)
+  are green. Final exact synthetic merge `516bc73b1c560dadc83df8a161c342ab53b35557`
+  has parents `f6181202` and `9ef9273b`, tree
+  `fc3071f35a441f38331eb0bb4d2291c61f2284bb`, and passed exact-merge nightly
+  [run 34889502108](https://github.com/tenseleyFlow/Cgfried/actions/runs/34889502108)
+  with all fourteen jobs green plus full-lattice bootstrap
+  [run 34889502107](https://github.com/tenseleyFlow/Cgfried/actions/runs/34889502107)
+  with all seven applicable jobs green. PR #118 merged green-only as
+  `d76ca2d7`; the actual merge has parents `f6181202` and `9ef9273b` and the
+  same `fc3071f3` tree, byte-identical to the tested synthetic merge.
+- The current `s56.24-builtin-fixed-overflow` tranche implements the complete
+  fixed-prototype checked-overflow store family: signed and unsigned
+  add/subtract/multiply at `int`, `long`, and `long long` rank. Sema applies
+  each spelling's ordinary `[T, T, T *]` function-argument conversions before
+  normalizing it to the already-proven type-generic lowering path. This
+  preserves GCC's key distinction: unlike the generic family, source operands
+  convert to the declared type before infinite-precision arithmetic. The
+  result remains exact `_Bool`; lowering stores the wrapped result and returns
+  the overflow predicate without signed-overflow IR flags.
+
+  Unit coverage enumerates all eighteen builtin-table rows, exact result and
+  pointer types, invalid arities and incompatible arguments, both x86-64 and
+  ARM64 lowering, exact store widths, operation shapes, absence of `nsw`, and
+  IR print/parse round trips. Focused normal and ASan+UBSan runs pass two tests
+  and 25 assertions. The permanent runtime fixture covers every operation and
+  rank at signed and unsigned boundaries, prototype conversion before
+  arithmetic, aliased result storage, and exactly-once evaluation. It passes
+  Cgfried natively on ARM64 macOS at O0/O1/O2/O3/Os and GCC 16 at the same five
+  levels, and lowers across all fifteen x86-64 Linux, ARM64 Linux, and ARM64
+  macOS target/optimization cells. All 31 builtin fixtures pass natively when
+  using Apple's assembler; the bundled assembler passes this new fixture but
+  retains its unrelated pre-existing Mach-O `__DATA,__common` limitation in
+  the older `abort` fixture.
+
+  Normal and sanitizer frontend fuzz each complete 2,000 mutations with zero
+  findings and reproduce the updated 5,000-case digest `f2402bf1e42580ba`.
+  IR fuzz passes 5,000 cases; normal and differential preprocessor fuzz each
+  pass 2,000 cases; pinned clang-format 22 and the 64-row/128-fixture format
+  matrix are green. The complete Apple unit run has 923 tests / 4,329,329
+  assertions and retains exactly the same eight documented host-assumption
+  failures, with both new tests green. The changed semantic translation unit
+  is strict-clean under Apple Clang and GCC 16. A full Apple Clang build stops
+  only at the documented unsupported runtime `mode(TF)` carrier; a full GCC
+  16 build compiles the compiler cleanly with the established
+  `-Wno-format-truncation` carve-out, then stops only because Apple's `ar`
+  rejects GNU `ar`'s deterministic `D` flag. Neither host-tools limitation
+  touches the changed code. No imported GCC torture or c-testsuite input uses
+  these spellings, so the expected campaign delta is zero and no ratchet
+  publication should be made unless hosted evidence proves otherwise.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
