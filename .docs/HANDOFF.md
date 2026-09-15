@@ -271,8 +271,10 @@ campaign corpora contain none of those spellings, so it closed compatibility
 without changing the ratchet. The current
 `s56.25-builtin-formatted-output` tranche implements `__builtin_printf`,
 `__builtin_sprintf`, and `__builtin_snprintf`; local campaign measurement
-predicts exactly 280 new target-complete PASS keys, pending provenance-matched
-hosted x86 and ARM evidence before atomic publication.
+and provenance-matched hosted x86/ARM evidence proves exactly 280 new
+target-complete PASS keys with zero old-PASS regressions or ICEs. Its guarded
+atomic publication raises the ratchet to 31,570 PASS keys (31,573 lines) and
+leaves 2,470 failures fully classified.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5943,17 +5945,48 @@ and green post-publication CI.
   cleanup of a function-scoped environment override that persists in macOS
   Bash but not Linux `dash`.
 
-  A complete local sweep of the 32 currently failing imported sources that
-  use these builtins covers 320 source/target/level cells. It produces 280
-  PASS cells across 28 sources, with zero ICEs. The forty remaining cells are
+  A complete local sweep of the 32 previously failing imported sources that
+  use these builtins covered 320 source/target/level cells and predicted 280
+  PASS cells across 28 sources with zero ICEs. Provenance-matched hosted x86
+  and ARM streams at exact synthetic merge
+  `b03856c4f058cf7206564136cd54b069edea7018` confirm that result exactly.
+  Both share compiler-source SHA-256
+  `1e744630e7bf5ccfa9dacfebf4351f4f53c15f9f30b850e271af809934b7b53f`
+  and the unchanged harness/torture/c-testsuite manifest hashes. Each target
+  has 20,325 unique cells: 15,785 PASS, 3,305 SKIP, and 1,235 COMPILE_FAIL;
+  each adds exactly 140 PASS keys across the same 28 sources with zero
+  old-PASS regressions, duplicates, or ICEs. Hosted x86 and ARM stream SHA-256
+  values are respectively
+  `d211eb7325abdfa42f49f054edea368f7140c87b9a187b74565eda539686444a`
+  and
+  `e099e5fabec8fe839e13bad6b3eaf18cb52ae724133f32b5e5e94f611d0d5e44`.
+  Pre-publication PR CI
+  [run 34922106775](https://github.com/tenseleyFlow/Cgfried/actions/runs/34922106775)
+  passes every ordinary job, including the complete sanitizer fuzz lane, and
+  refuses only the intended unpublished x86 ratchet improvement.
+  Exact-merge nightly
+  [run 34922188913](https://github.com/tenseleyFlow/Cgfried/actions/runs/34922188913)
+  passes every ordinary job and refuses only the intended ARM ratchet; exact
+  full-lattice bootstrap
+  [run 34922190772](https://github.com/tenseleyFlow/Cgfried/actions/runs/34922190772)
+  passes all seven jobs.
+
+  The forty remaining cells are
   exactly four sources: `pr33173.c` retains the deliberate empty-aggregate
   refusal, `simd-5.c` and `pr70903.c` retain the deliberate `vector_size`
-  refusal, and `pr69691.c` next requires `__builtin_strchr`. Therefore hosted
-  evidence is expected to add exactly 140 PASS keys per target and atomically
-  raise the ratchet from 31,290 to 31,570 PASS keys (31,573 lines), leaving
-  2,470 classified failures. Do not publish that delta until complete x86 and
-  ARM streams share the exact synthetic-merge provenance and prove zero
-  old-PASS regressions.
+  refusal, and `pr69691.c` next requires `__builtin_strchr`. Formal GNU-make
+  publication independently regenerates ARM at the exact merge, proves its
+  result body byte-identical to hosted ARM, consumes it with hosted x86, and
+  produces byte-identical outputs with reversed target order. The complete
+  runner, triage, provenance, matrix, rollback, and import meta-suite passes.
+  Atomic publication adds exactly 280 target-complete keys, raising the
+  ratchet to 31,570 PASS keys (31,573 lines) and leaving 2,470 failures fully
+  classified in 32 buckets, with 24 applied decisions, two deliberately
+  retained stale decisions, zero unbucketed cells, and zero unresolved
+  buckets. PASS and triage SHA-256 values are respectively
+  `02b44ed0e036205cecf082fe564871897aa78beaac3ae433d7bbc00c83601d13`
+  and
+  `d0ec4011de8640a0dabd7405f135acea0698127ca7b4a803027d2a00392992f7`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
