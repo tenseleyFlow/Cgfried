@@ -283,9 +283,12 @@ green before the green-only merge, and the actual merge tree is byte-identical
 to the tested final synthetic merge. The current
 `s56.27-builtin-strncpy` tranche implements libc-compatible
 `__builtin_strncpy`, repairs the GNU-inline self-binding case exposed by
-`pr46360.c`, and provisionally unlocks thirty target-complete cells across
-three imported sources. Commit, hosted CI, exact two-target evidence, and
-ratchet publication remain pending.
+`pr46360.c`, and publishes thirty target-complete cells across three imported
+sources. Implementation commit `1cc14163` is on PR #122; pre-publication
+standard CI and exact-merge nightly reject only the expected unpublished x86
+and ARM ratchet improvements, while both bootstrap lattices are green. Exact
+two-target evidence is published locally; the publication commit and final
+green-only CI boundary remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -6138,8 +6141,56 @@ and green post-publication CI.
   cases, and IR fuzz passes 5,000 cases both normally and under sanitizers.
   Repository bans, unit registration, fuzz-crash ledger, POSIX shell,
   campaign metadata, import provenance, target-sema, verifier-coverage, and
-  no-host-FPU checks are green. Exact clang-format 22, hosted full-suite CI,
-  target result streams, ratchet publication, and the commit/PR boundary
+  no-host-FPU checks are green. Hosted format with exact clang-format 22 is
+  green.
+
+  Implementation commit `1cc1416376f25cc4ac900afb7c0840ee65cc30ae` is on
+  PR #122. Pre-publication standard
+  [run 34936898583](https://github.com/tenseleyFlow/Cgfried/actions/runs/34936898583)
+  passed all twenty ordinary jobs, including its 100,000-case sanitizer-backed
+  frontend fuzz lane, and refused only the expected fifteen unpublished x86
+  PASS cells. Branch and PR bootstrap
+  [runs 34936812623](https://github.com/tenseleyFlow/Cgfried/actions/runs/34936812623)
+  and
+  [34936898530](https://github.com/tenseleyFlow/Cgfried/actions/runs/34936898530)
+  are green.
+
+  Exact synthetic merge `b249297209ed4f6f318058da9d139016eeba9375`
+  has parents `618948ab` and `1cc14163`, and tree
+  `0153f7f70412beb2e4a996886d01ed69808af461`, byte-identical to the
+  implementation commit. Its exact-merge nightly
+  [run 34937840453](https://github.com/tenseleyFlow/Cgfried/actions/runs/34937840453)
+  passed all fourteen ordinary jobs and refused only the matching fifteen
+  native ARM PASS cells. Matching full-lattice bootstrap
+  [run 34937840492](https://github.com/tenseleyFlow/Cgfried/actions/runs/34937840492)
+  passed all seven applicable jobs.
+
+  The publishable x86 and ARM streams name that exact merge and share compiler
+  source, harness, torture-manifest, and c-testsuite-manifest SHA-256 values
+  `22de9faaebfd77c5e826ffa91d041f32dd88fc94a9bb2dbcff305fa9a848b7df`,
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`,
+  and
+  `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`.
+  Each target contains 20,325 unique cells: 15,810 PASS, 3,305 SKIP, and
+  1,210 COMPILE_FAIL, with zero ICEs, duplicate keys, or old-PASS regressions.
+  X86 and ARM stream SHA-256 values are respectively
+  `2e9135439402dd8afe2507ab663f5d4a17b91053ff36686220426b1a2763d008`
+  and
+  `6b214aa2298296695f444b2f8591fe670c64d509632ab828e97bce9feb8f44a8`.
+
+  Formal GNU-make atomic publication consumes both streams and adds exactly
+  thirty target-complete keys. Reversing target order regenerates PASS and
+  triage byte-identically; both published-stream gates and the complete
+  runner, triage, provenance, matrix, rollback, and import meta-suite pass.
+  The ratchet now holds 31,620 PASS keys (31,623 lines); triage contains 2,420
+  classified failures in 32 buckets, 24 applied decisions, two deliberately
+  retained stale decisions, and zero unbucketed or unresolved cells. PASS and
+  triage SHA-256 values are respectively
+  `9291f60ecc741d37fe1429489dcdbcb674fc3e37fd39708aafc501808e8dce98`
+  and
+  `96c0285810e4c62562181a835ab803c181b2887c119a27b394ef0baf5f17a270`.
+  The publication commit and final green-only PR/exact-merge CI boundary
   remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
