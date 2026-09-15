@@ -248,6 +248,54 @@ void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_puts_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "const char *message(void); "
+                              "int use(void) { return "
+                              "__builtin_puts(message()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @message()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @puts(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_puts"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<puts-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static int puts(const char *s) { "
+                              "return *s; } "
+                              "int use(const char *s) { "
+                              "return __builtin_puts(s); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @puts(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<puts-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(
+        t, run_lower_opts(&f,
+                          "__attribute__" /* check_bans allow: compiler input */
+                          "((gnu_inline, always_inline)) extern inline "
+                          "int puts(const char *s) { "
+                          "return __builtin_puts(s); } "
+                          "int use(const char *s) { return puts(s); }\n",
+                          STD_GNU17, false));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, f.m->nfuncs, 2);
+    T_ASSERT(t, f.m->funcs[0].always_inline);
+    T_ASSERT(t, f.m->funcs[0].inline_only);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 external @puts(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @puts(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<puts-gnu-inline>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_stpcpy_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;

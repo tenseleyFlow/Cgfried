@@ -286,14 +286,18 @@ libc-compatible `__builtin_strncpy`, repairs the GNU-inline self-binding case
 exposed by `pr46360.c`, and publishes thirty target-complete cells across
 three imported sources. Final standard, bootstrap, and exact-merge nightly CI
 were fully green before the green-only merge, and the actual merge tree is
-byte-identical to the tested final synthetic merge. The current
-`s56.28-builtin-stpcpy` tranche implements the exact hosted alias, provisionally
-unlocks thirty target-complete cells across three imported sources, and
-advances `20030518-1.c` to its separate `__builtin_mempcpy` gap. Implementation
-commit `d8355679` is on PR #123; pre-publication standard CI and exact-merge
-nightly reject only the expected unpublished x86 and ARM ratchet improvements,
-while both bootstrap lattices are green. Exact two-target evidence is published
-locally; the publication commit and final green-only CI boundary remain pending.
+byte-identical to the tested final synthetic merge. PR #123's
+`s56.28-builtin-stpcpy` tranche is merged as `dc5dbee1`; it implements the
+exact hosted alias, publishes thirty target-complete cells across three
+imported sources, and advances `20030518-1.c` to its separate
+`__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
+CI were fully green before the green-only merge, and the actual merge has the
+exact tested parents and tree. The current `s56.29-builtin-puts` tranche
+implements the exact hosted `int (const char *)` builtin alias and is expected
+to publish twenty target-complete cells across `pr55273.c` and `20241029-1.c`.
+Implementation, focused semantic/lowering/runtime/sanitizer validation, the
+20/20 cross-target compile matrix, and native ARM assemble/link/execute proof
+are locally green; publication and hosted CI remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -6299,8 +6303,52 @@ and green post-publication CI.
   `66218ed1308578bb6c82f999ef9d4b53654156cc65d70cfef28f9eb90a5668a8`
   and
   `058f2cd9e8aaf437c5d62d67ef23bd70c99cd1a56629ec956a44b60ac58a2b63`.
-  The publication commit and final green-only PR/exact-merge CI boundary
-  remain pending.
+  Publication commit `10f6132c` passed final standard
+  [run 35019128514](https://github.com/tenseleyFlow/Cgfried/actions/runs/35019128514),
+  branch and PR bootstrap
+  [runs 35019125104](https://github.com/tenseleyFlow/Cgfried/actions/runs/35019125104)
+  and
+  [35019128511](https://github.com/tenseleyFlow/Cgfried/actions/runs/35019128511).
+  Final synthetic merge `7d4cbd249261e3810c3ce95b566619c1f935e9d6`
+  passed all fifteen exact-merge nightly jobs in
+  [run 35019232703](https://github.com/tenseleyFlow/Cgfried/actions/runs/35019232703)
+  and all seven full-lattice bootstrap jobs in
+  [run 35019232529](https://github.com/tenseleyFlow/Cgfried/actions/runs/35019232529).
+  PR #123 merged green-only as
+  `dc5dbee1a7dc4b308c524ed97ea07ad355bb7911`; the actual merge has the exact
+  tested parents and tree `e5906e375e191a019457b161ea62831d1f7646cd`.
+- The current `s56.29-builtin-puts` tranche promotes `__builtin_puts` from the
+  reserved-builtin refusal to the exact hosted contract `int (const char *)`.
+  Sema applies ordinary assignment conversion to the argument and rejects
+  aggregates. Lowering evaluates the argument exactly once and emits a real
+  `puts` call, while retaining ordinary same-TU binding and the GNU-inline
+  external self-call fallback.
+
+  Focused semantic and lowering validation passes two tests and 25 assertions
+  normally and under ASan+UBSan. The permanent runtime fixture passes natively
+  on ARM64 Linux normally and with a sanitized compiler/runner; all 36 builtin
+  fixtures are green there. The two independent imported candidates,
+  `compile/pr55273.c` and `execute/20241029-1.c`, compile for x86-64 Linux and
+  ARM64 Linux at O0/O1/O2/O3/Os (20/20). Native ARM64 Linux assembles or links
+  all ten cells and executes the five runtime variants successfully. Native
+  Linux GCC accepts and executes the permanent fixture at all five levels;
+  Apple Clang 23 truthfully refuses the GCC-only builtin spelling. The only
+  other imported spelling is in the deliberately skipped DejaGNU multi-source
+  `builtins/printf.c`, which also requires unsupported `__builtin_putchar`.
+
+  The complete Apple unit suite contains 935 tests and 4,329,511 assertions,
+  retaining exactly the eight documented host-assumption failures with both
+  new tests green. Frontend fuzz completes 2,000 normal and 2,000 sanitizer
+  mutations with zero findings and reproduces the intentionally repinned
+  5,000-case digest `2e561cdb0dcdec3e` twice normally and once under
+  sanitizers. Repository bans, all unit registrations, fuzz-crash ledger,
+  closeout, POSIX shell, campaign contract/lint, warning matrix, target-sema,
+  verifier-coverage, no-host-FPU, performance/bootstrap policy, format-matrix,
+  and the complete torture runner/import meta-suite are locally green. The
+  expected publication is exactly twenty cells: 31,650 to 31,670 PASS keys,
+  2,390 to 2,370 classified failures, and `gcc-builtin` 210 to 190. Exact
+  target evidence, atomic publication, hosted format 22, and final CI remain
+  pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
