@@ -32,8 +32,9 @@ static void format_sink(void *user, const Diag *d, const DiagCtx *dc)
         f->warnings[d->warn_id]++;
 }
 
-static void format_run_with_pedantic(FormatFix *f, TargetKind target_kind,
-                                     const char *src, bool pedantic)
+static void format_run_with_options(FormatFix *f, TargetKind target_kind,
+                                    const char *src, bool pedantic,
+                                    bool freestanding)
 {
     DiagSink sink = {format_sink, f};
     SourceFile *sf;
@@ -51,9 +52,11 @@ static void format_run_with_pedantic(FormatFix *f, TargetKind target_kind,
     pp_init(&f->pp, &f->arena, f->dc, &f->in);
     f->lang.std = STD_C17;
     f->lang.pedantic = pedantic;
+    f->lang.freestanding = freestanding;
     f->lang.warnings = warn_ctx_new(&f->arena, f->dc);
     (void)warn_flag(f->lang.warnings, "format");
     f->pp.warn = f->lang.warnings;
+    f->pp.freestanding = freestanding;
 
     sf = pp_source_add_buffer(&f->pp, "format-unit.c", src, strlen(src));
     pp_begin(&f->pp, sf, NULL);
@@ -69,7 +72,7 @@ static void format_run_with_pedantic(FormatFix *f, TargetKind target_kind,
 
 static void format_run(FormatFix *f, TargetKind target_kind, const char *src)
 {
-    format_run_with_pedantic(f, target_kind, src, false);
+    format_run_with_options(f, target_kind, src, false, false);
 }
 
 static void format_free(FormatFix *f)
@@ -221,6 +224,36 @@ void test_format_builtin_calls_all_targets(TestCtx *t)
     }
 }
 
+void test_format_explicit_output_builtins_survive_freestanding(TestCtx *t)
+{
+    static const char source[] =
+        "typedef unsigned long size_t; "
+        "int printf(const char *, ...); "
+        "int sprintf(char *, const char *, ...); "
+        "int snprintf(char *, size_t, const char *, ...); "
+        "void f(char *out) { "
+        "printf(\"%s\", 1); sprintf(out, \"%s\", 1); "
+        "snprintf(out, 8, \"%s\", 1); "
+        "__builtin_printf(\"%s\", 1); "
+        "__builtin_sprintf(out, \"%s\", 1); "
+        "__builtin_snprintf(out, 8, \"%s\", 1); }";
+    int tk;
+
+    for (tk = 0; tk < CGF_TARGET_COUNT; tk++) {
+        FormatFix f;
+
+        format_run_with_options(&f, (TargetKind)tk, source, false, false);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, f.warnings[WARN_FORMAT], 6);
+        format_free(&f);
+
+        format_run_with_options(&f, (TargetKind)tk, source, false, true);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, f.warnings[WARN_FORMAT], 3);
+        format_free(&f);
+    }
+}
+
 static int format_warning_count(TargetKind target, const char *source)
 {
     FormatFix f;
@@ -237,7 +270,7 @@ static int format_pedantic_warning_count(TargetKind target, const char *source)
     FormatFix f;
     int count;
 
-    format_run_with_pedantic(&f, target, source, true);
+    format_run_with_options(&f, target, source, true, false);
     count = f.errors ? -1 : f.warnings[WARN_FORMAT];
     format_free(&f);
     return count;

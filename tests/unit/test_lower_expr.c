@@ -248,6 +248,64 @@ void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_formatted_output_variadic_abi(TestCtx *t)
+{
+    static const char source[] =
+        "char *destination(void); unsigned long capacity(void); "
+        "float float_arg(void); signed char signed_arg(void); "
+        "unsigned short unsigned_arg(void); "
+        "int use(void) { "
+        "return __builtin_printf(\"%f %d %u\", float_arg(), signed_arg(), "
+        "unsigned_arg()) + "
+        "__builtin_sprintf(destination(), \"%f %d %u\", float_arg(), "
+        "signed_arg(), unsigned_arg()) + "
+        "__builtin_snprintf(destination(), capacity(), \"%f %d %u\", "
+        "float_arg(), signed_arg(), unsigned_arg()); }\n";
+    static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
+                                         CGF_TARGET_ARM64_LINUX};
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @printf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @sprintf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @snprintf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @float_arg()"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i8 @signed_arg()"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i16 @unsigned_arg()"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fpext f32"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "sext i8"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "zext i16"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), " anon"), 9);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), ") va"), 3);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<format-builtins>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+
+    {
+        LowFix f;
+
+        T_ASSERT(t,
+                 run_lower(&f, "static int printf(const char *format, ...) { "
+                               "(void)format; return 7; } "
+                               "int use(int value) { return "
+                               "__builtin_printf(\"%d\", value); }\n"));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @printf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), ") va"), 1);
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_malloc_free_calls_and_roundtrip(TestCtx *t)
 {
     LowFix f;

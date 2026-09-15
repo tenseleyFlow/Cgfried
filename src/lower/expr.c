@@ -3242,6 +3242,64 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
                 (u8)(flags | (stacked ? (u8)IROPF_ONSTACK : 0u));
 }
 
+static const char *formatted_output_builtin_name(u16 marker, u32 *fixed)
+{
+    switch (marker) {
+    case SEMA_BUILTIN_PRINTF:
+        *fixed = 1;
+        return "printf";
+    case SEMA_BUILTIN_SPRINTF:
+        *fixed = 2;
+        return "sprintf";
+    case SEMA_BUILTIN_SNPRINTF:
+        *fixed = 3;
+        return "snprintf";
+    default:
+        return NULL;
+    }
+}
+
+/* These libc-backed builtins are genuine variadic calls.  Route every
+ * argument through the ordinary ABI classifier so x86-64's vector-register
+ * count and AAPCS64's anonymous-argument placement are encoded exactly as
+ * they are for a declared printf-family call. */
+static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
+{
+    AbiRet aret;
+    AbiBudget budget;
+    CallArgBuf args = {0};
+    const char *name;
+    ValueId call;
+    u32 fixed = 0;
+    u32 i;
+
+    name = formatted_output_builtin_name(e->op, &fixed);
+    if (!name)
+        CGF_ICE("formatted-output builtin %#x has no lowering",
+                (unsigned)e->op);
+    abi_classify_ret(lo, type_basic(TY_INT), &aret);
+    abi_budget_init(lo, &budget, &aret);
+    for (i = 0; i < e->nargs; i++) {
+        AstNode *arg = e->args[i];
+        IrOperand value = lower_rvalue(lo, arg);
+
+        lower_call_arg(lo, sem(arg), value, lower_aggregate_access_flags(arg),
+                       i >= fixed, &budget, &args);
+    }
+    for (i = 0; i < lo->m->nfuncs; i++) {
+        if (strcmp(lo->m->funcs[i].name, name) != 0)
+            continue;
+        call = ir_build_call(&lo->b, IRT_I32, FUNCREF_INTERNAL, i, args.data,
+                             args.len);
+        ir_call_mark_variadic(&lo->b);
+        return ir_op_value(lo->fn, call);
+    }
+    call = ir_build_call(&lo->b, IRT_I32, FUNCREF_EXTERNAL, ir_sym(lo->m, name),
+                         args.data, args.len);
+    ir_call_mark_variadic(&lo->b);
+    return ir_op_value(lo->fn, call);
+}
+
 static IrOperand va_pack_failed_value(Lower *lo, Type *type)
 {
     if (!type || type->kind == TY_VOID)
@@ -3431,6 +3489,9 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
 
         if (lower_simple_builtin(lo, e, &bo))
             return bo;
+        if (e->op == SEMA_BUILTIN_PRINTF || e->op == SEMA_BUILTIN_SPRINTF ||
+            e->op == SEMA_BUILTIN_SNPRINTF)
+            return lower_formatted_output_builtin(lo, e);
         /* Libc-backed builtins ARE their libc functions in v0.1.0 (inline
          * expansion for the mem/str subset is Phase 7/11). They have no
          * Symbol — sema recognized the name without declaring anything — so

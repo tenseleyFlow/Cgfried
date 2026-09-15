@@ -502,6 +502,8 @@ static void emit_addr(Emit *e, const A64Inst *in)
     const char *reg;
     char addend[32];
     char cplabel[32];
+    i64 offset = 0;
+    bool split_addend = false;
 
     if ((in->nops != 2 && in->nops != 3) || in->ops[0].kind != A64O_REG ||
         (in->ops[1].kind != A64O_SYM && in->ops[1].kind != A64O_CPOOL))
@@ -523,11 +525,21 @@ static void emit_addr(Emit *e, const A64Inst *in)
      * as accepts either order, but the bundled afs-as accepts only this one. */
     addend[0] = '\0';
     if (in->nops == 3) {
+        u64 magnitude;
+
         if (in->ops[2].kind != A64O_IMM)
             CGF_ICE("arm64 emit: global address addend is not an immediate");
-        if (in->ops[2].imm)
-            snprintf(addend, sizeof(addend), "%+lld",
-                     (long long)in->ops[2].imm);
+        offset = in->ops[2].imm;
+        magnitude = offset < 0 ? (u64)(-(offset + 1)) + 1u : (u64)offset;
+        /* A page relocation is a compact representation for ordinary member
+         * and array offsets, but it is not an arbitrary 64-bit arithmetic
+         * operation. Apple as rejects huge PAGE/PAGEOFF addends outright;
+         * ELF linkers can reject the same value when resolving ADRP's finite
+         * page range. Materialize anything beyond the existing two-immediate
+         * address fast path after forming the symbol's unadjusted address. */
+        split_addend = (magnitude >> 24) != 0;
+        if (offset && !split_addend)
+            snprintf(addend, sizeof(addend), "%+lld", (long long)offset);
     }
     /* Same pair, different punctuation: Mach-O spells the halves `@PAGE`
      * and `@PAGEOFF` where ELF uses a bare symbol and `#:lo12:`. */
@@ -548,13 +560,15 @@ static void emit_addr(Emit *e, const A64Inst *in)
             buf_printf(e->out, "\tadrp\t%s, %s@GOTPAGE\n", reg, sym);
             buf_printf(e->out, "\tldr\t%s, [%s, %s@GOTPAGEOFF]\n", reg, reg,
                        sym);
-            if (addend[0])
-                emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
+            if (offset)
+                emit_addr_addend(e, in->ops[0].reg, offset);
             return;
         }
         buf_printf(e->out, "\tadrp\t%s, %s@PAGE%s\n", reg, sym, addend);
         buf_printf(e->out, "\tadd\t%s, %s, %s@PAGEOFF%s\n", reg, reg, sym,
                    addend);
+        if (split_addend)
+            emit_addr_addend(e, in->ops[0].reg, offset);
         return;
     }
     /* ELF, position-independent: the same adrp pair, but the second half is
@@ -574,13 +588,15 @@ static void emit_addr(Emit *e, const A64Inst *in)
             buf_printf(e->out, "\tadrp\t%s, :got:%s\n", reg, sym);
             buf_printf(e->out, "\tldr\t%s, [%s, #:got_lo12:%s]\n", reg, reg,
                        sym);
-            if (addend[0])
-                emit_addr_addend(e, in->ops[0].reg, in->ops[2].imm);
+            if (offset)
+                emit_addr_addend(e, in->ops[0].reg, offset);
             return;
         }
     }
     buf_printf(e->out, "\tadrp\t%s, %s%s\n", reg, sym, addend);
     buf_printf(e->out, "\tadd\t%s, %s, #:lo12:%s%s\n", reg, reg, sym, addend);
+    if (split_addend)
+        emit_addr_addend(e, in->ops[0].reg, offset);
 }
 
 static void emit_call(Emit *e, const A64Inst *in)
