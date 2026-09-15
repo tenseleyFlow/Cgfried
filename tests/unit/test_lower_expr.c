@@ -248,6 +248,59 @@ void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_stpcpy_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t,
+             run_lower(&f, "char *destination(void); "
+                           "const char *source(void); "
+                           "char *use(void) { return "
+                           "__builtin_stpcpy(destination(), source()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @stpcpy(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_stpcpy"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<stpcpy-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static char *stpcpy(char *d, const char *s) { "
+                              "while ((*d = *s) != 0) { d++; s++; } "
+                              "return d; } "
+                              "char *use(char *d, const char *s) { "
+                              "return __builtin_stpcpy(d, s); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @stpcpy(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<stpcpy-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(
+        t, run_lower_opts(&f,
+                          "__attribute__" /* check_bans allow: compiler input */
+                          "((gnu_inline, always_inline)) extern inline "
+                          "char *stpcpy(char *d, const char *s) { "
+                          "return __builtin_stpcpy(d, s); } "
+                          "char *use(char *d, const char *s) { "
+                          "return stpcpy(d, s); }\n",
+                          STD_GNU17, false));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, f.m->nfuncs, 2);
+    T_ASSERT(t, f.m->funcs[0].always_inline);
+    T_ASSERT(t, f.m->funcs[0].inline_only);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr external @stpcpy(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @stpcpy(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<stpcpy-gnu-inline>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strchr_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
