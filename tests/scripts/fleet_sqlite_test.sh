@@ -227,6 +227,7 @@ grep -Fq 're-executing the exact-commit fleet runner' "$tmp/pass.out" ||
 fresh_checkout=$tmp/fresh-checkout
 CGF_FLEET_TEST_CHECKOUT=$fresh_checkout \
     run_sqlite 2026-08-13T120100Z env >"$tmp/fresh.out" 2>"$tmp/fresh.err"
+unset CGF_FLEET_TEST_CHECKOUT
 fresh_result=$fresh_checkout/.benchmarks/runs/2026-08-13T120100Z-kasumi-sqlite
 [ -s "$fresh_result/manifest.txt" ] ||
     fail 'fresh clone did not complete the first exact-commit transaction'
@@ -285,8 +286,9 @@ grep -Fq 'scope=designated levels=O0,O2' "$numeric/baseline-check.log" ||
     fail 'numeric baseline did not run the designated-host gate'
 
 cp "$tmp/baselines.before" "$tmp/baselines.conf"
-sed -i 's/^kasumi\.O0\.wall_ms_median=UNMEASURED$/kasumi.O0.wall_ms_median=100/' \
-    "$tmp/baselines.conf"
+sed 's/^kasumi\.O0\.wall_ms_median=UNMEASURED$/kasumi.O0.wall_ms_median=100/' \
+    "$tmp/baselines.conf" >"$tmp/baselines.tmp"
+mv "$tmp/baselines.tmp" "$tmp/baselines.conf"
 set +e
 run_sqlite 2026-08-13T123000Z env CGF_FLEET_SYNCED=1 \
     >"$tmp/partial.out" 2>"$tmp/partial.err"

@@ -937,8 +937,15 @@ void test_a64_emit_tls_addends_are_encodable(TestCtx *t)
     static const A64PhysReg regs[] = {A64_X0, A64_X1,  A64_X2,  A64_X3,
                                       A64_X4, A64_X5,  A64_X6,  A64_X7,
                                       A64_X8, A64_X11, A64_X12, A64_X13};
-    const char *syms[] = {"tls_object", "external_arena"};
-    IrModule module = {.syms = syms, .nsyms = CGF_ARRAY_LEN(syms)};
+    const char *syms[] = {"tls_object", "external_arena", "local_arena"};
+    IrGlobal globals[] = {{.name = "local_arena",
+                           .size = 1,
+                           .align = 1,
+                           .linkage = IRLINK_INTERNAL}};
+    IrModule module = {.syms = syms,
+                       .nsyms = CGF_ARRAY_LEN(syms),
+                       .globals = globals,
+                       .nglobals = CGF_ARRAY_LEN(globals)};
     TargetSpec previous = cgf_target_selected();
     Arena arena;
     A64Block block = {0};
@@ -969,6 +976,26 @@ void test_a64_emit_tls_addends_are_encodable(TestCtx *t)
         addr.ops[1] = (A64Operand){.kind = A64O_SYM, .id = 2};
         addr.ops[2] =
             (A64Operand){.kind = A64O_IMM, .imm = i ? -0x1000000 : 0x1000000};
+        a64_block_append(&func, &block, addr);
+    }
+    for (i = 0; i < 2; i++) {
+        A64Inst addr = {.op = A64_OP_ADDR, .sf = A64_SF64, .nops = 3};
+
+        addr.ops[0] =
+            (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X14 + i)};
+        addr.ops[1] = (A64Operand){.kind = A64O_SYM, .id = 3};
+        addr.ops[2] =
+            (A64Operand){.kind = A64O_IMM, .imm = i ? INT64_MIN : INT64_MAX};
+        a64_block_append(&func, &block, addr);
+    }
+    for (i = 0; i < 2; i++) {
+        A64Inst addr = {.op = A64_OP_ADDR, .sf = A64_SF64, .nops = 3};
+
+        addr.ops[0] =
+            (A64Operand){.kind = A64O_REG, .reg = a64_phys(A64_X16 + i)};
+        addr.ops[1] = (A64Operand){.kind = A64O_SYM, .id = 3};
+        addr.ops[2] =
+            (A64Operand){.kind = A64O_IMM, .imm = i ? 0x1000000 : 0xffffff};
         a64_block_append(&func, &block, addr);
     }
 
@@ -1022,10 +1049,58 @@ void test_a64_emit_tls_addends_are_encodable(TestCtx *t)
                        "\tldr\tx10, [x10, #:got_lo12:external_arena]\n"
                        "\torr\tx12, xzr, #0x1000000\n"
                        "\tsub\tx10, x10, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx14, local_arena\n"
+                       "\tadd\tx14, x14, #:lo12:local_arena\n"
+                       "\torr\tx12, xzr, #0x7fffffffffffffff\n"
+                       "\tadd\tx14, x14, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx15, local_arena\n"
+                       "\tadd\tx15, x15, #:lo12:local_arena\n"
+                       "\torr\tx12, xzr, #0x8000000000000000\n"
+                       "\tsub\tx15, x15, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "local_arena+9223372036854775807") == NULL);
+    T_ASSERT(t,
+             strstr((const char *)text.data,
+                    "\tadrp\tx16, local_arena+16777215\n"
+                    "\tadd\tx16, x16, #:lo12:local_arena+16777215\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx17, local_arena\n"
+                       "\tadd\tx17, x17, #:lo12:local_arena\n"
+                       "\torr\tx12, xzr, #0x1000000\n"
+                       "\tadd\tx17, x17, x12\n") != NULL);
     T_ASSERT(t, strstr((const char *)text.data, "#5000") == NULL);
     T_ASSERT(t, strstr((const char *)text.data, "x12, x12, x12") == NULL);
     T_ASSERT(t, strstr((const char *)text.data, "x13, x13, x13") == NULL);
 
+    buf_free(&text);
+
+    T_ASSERT(t, cgf_target_select("arm64-macos"));
+    buf_init(&text);
+    a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
+    buf_push_u8(&text, 0);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx14, _local_arena@PAGE\n"
+                       "\tadd\tx14, x14, _local_arena@PAGEOFF\n"
+                       "\torr\tx12, xzr, #0x7fffffffffffffff\n"
+                       "\tadd\tx14, x14, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx15, _local_arena@PAGE\n"
+                       "\tadd\tx15, x15, _local_arena@PAGEOFF\n"
+                       "\torr\tx12, xzr, #0x8000000000000000\n"
+                       "\tsub\tx15, x15, x12\n") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "_local_arena@PAGE+9223372036854775807") == NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx16, _local_arena@PAGE+16777215\n"
+                       "\tadd\tx16, x16, _local_arena@PAGEOFF+16777215\n") !=
+                    NULL);
+    T_ASSERT(t, strstr((const char *)text.data,
+                       "\tadrp\tx17, _local_arena@PAGE\n"
+                       "\tadd\tx17, x17, _local_arena@PAGEOFF\n"
+                       "\torr\tx12, xzr, #0x1000000\n"
+                       "\tadd\tx17, x17, x12\n") != NULL);
     buf_free(&text);
     arena_free_all(&arena);
     T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));

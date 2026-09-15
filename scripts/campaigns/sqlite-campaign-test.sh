@@ -103,8 +103,9 @@ for key in wall_regression_pct rss_regression_pct o2_absolute_wall_ms; do
         fail "malformed $key failure did not identify the threshold contract"
 done
 cp "$work/policy-numeric.conf" "$work/policy-partial.conf"
-sed -i 's/^kasumi\.O0\.wall_ms_median=100$/kasumi.O0.wall_ms_median=UNMEASURED/' \
-    "$work/policy-partial.conf"
+sed 's/^kasumi\.O0\.wall_ms_median=100$/kasumi.O0.wall_ms_median=UNMEASURED/' \
+    "$work/policy-partial.conf" >"$work/policy-partial.tmp"
+mv "$work/policy-partial.tmp" "$work/policy-partial.conf"
 if "$policy" "$work/policy-partial.conf" >"$work/policy-partial.out" \
     2>"$work/policy-partial.err"; then
     fail "policy checker accepted a partial host baseline"
@@ -234,7 +235,9 @@ grep -Fq 'host=kasumi absolute-o2=passed relative-gate=deferred-for-initial-cont
     "$work/absolute-only.out" || fail "absolute-only capture lost real host identity"
 
 cp "$unmeasured_policy" "$work/baselines.conf"
-sed -i 's/UNMEASURED/100/g' "$work/baselines.conf"
+sed 's/UNMEASURED/100/g' "$work/baselines.conf" \
+    >"$work/baselines.tmp"
+mv "$work/baselines.tmp" "$work/baselines.conf"
 write_receipt "$work/O0.txt" 130
 write_receipt "$work/O2.txt" 130
 "$root/scripts/campaigns/sqlite-baseline-check.sh" "$work/baselines.conf" \
