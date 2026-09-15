@@ -3047,10 +3047,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* exit/malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy/strchr:
- * direct libc calls by name. All eleven have only scalar arguments and no
- * aggregate result, so the abstract-call machinery (aggregate copies, sret) is
- * not needed here.
+/* exit/malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy/strchr/
+ * strncpy: direct libc calls by name. All twelve have only scalar arguments
+ * and no aggregate result, so the abstract-call machinery (aggregate copies,
+ * sret) is not needed here.
  */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -3071,6 +3071,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_STRCMP, "strcmp", IRT_I32, false},
         {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR, false},
         {SEMA_BUILTIN_STRCHR, "strchr", IRT_PTR, false},
+        {SEMA_BUILTIN_STRNCPY, "strncpy", IRT_PTR, false},
     };
     IrOperand args[3];
     ValueId call;
@@ -3089,7 +3090,9 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
          * FUNCREF_INTERNAL. All function shells exist before body lowering,
          * so a later definition is visible here too. */
         for (i = 0; i < lo->m->nfuncs; i++)
-            if (strcmp(lo->m->funcs[i].name, libc[k].name) == 0) {
+            if (strcmp(lo->m->funcs[i].name, libc[k].name) == 0 &&
+                !(lo->fn->inline_only &&
+                  strcmp(lo->fn->name, libc[k].name) == 0)) {
                 call = ir_build_call(&lo->b, libc[k].ret, FUNCREF_INTERNAL, i,
                                      args, n);
                 if (libc[k].noreturn)
@@ -3097,6 +3100,10 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
                 return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                                : ir_op_value(lo->fn, call);
             }
+        /* An inline-only definition owns no linker body. In the one
+         * ambiguous case -- its own explicit builtin -- retain the external
+         * fallback rather than manufacturing a recursive call to the
+         * temporary body kept for mandatory inlining. */
         call = ir_build_call(&lo->b, libc[k].ret, FUNCREF_EXTERNAL,
                              ir_sym(lo->m, libc[k].name), args, n);
         if (libc[k].noreturn)
