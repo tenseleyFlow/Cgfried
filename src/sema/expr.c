@@ -1702,7 +1702,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                if (b == SEMA_BUILTIN_STRCPY || b == SEMA_BUILTIN_STRNCPY) {
+                if (b == SEMA_BUILTIN_STRCPY || b == SEMA_BUILTIN_STPCPY ||
+                    b == SEMA_BUILTIN_STRNCPY) {
                     Type *charp = type_ptr(s->arena, type_basic(TY_CHAR));
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
