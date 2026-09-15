@@ -1715,6 +1715,19 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
+                if (b == SEMA_BUILTIN_STRCHR) {
+                    Type *const_char = type_qualify(
+                        s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
+                    Type *params[] = {type_ptr(s->arena, const_char),
+                                      type_basic(TY_INT)};
+
+                    for (i = 0; i < 2; i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
                 /* BK_U*, integer abs/bit-operation, and BK_LLONG builtins have
                  * real prototypes, so their arguments convert as if by
                  * assignment. That is OBSERVABLE: __builtin_bswap16(0x11223344)
