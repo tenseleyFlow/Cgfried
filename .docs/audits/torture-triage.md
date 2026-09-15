@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `b0235517dc200aed364ef1f1f7287dd2c3a4edad`
-- compiler-source-sha256: `56c6fb4aa0dc11c2f2a60f32b4d92ea814387bc7e97473cf774bc392f41b98f3`
+- source-revision: `b03856c4f058cf7206564136cd54b069edea7018`
+- compiler-source-sha256: `1e744630e7bf5ccfa9dacfebf4351f4f53c15f9f30b850e271af809934b7b53f`
 - harness-sha256: `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`
 - torture-manifest-sha256: `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `5191e3b4956ba3a895c94c941cc2f72cbf5179f7383159bfda5755fa089990be` | `5191e3b4956ba3a895c94c941cc2f72cbf5179f7383159bfda5755fa089990be` |
-| x86_64-linux-gnu | `1d58703a84d57ed9ec89f25c42daf9bd1b27274c0a80ad64144286ae82d48ed8` | `1d58703a84d57ed9ec89f25c42daf9bd1b27274c0a80ad64144286ae82d48ed8` |
+| arm64-linux | `0d609e00329946e937afc84012e1ae135245a67771989e2bd7b6f4409177360c` | `0d609e00329946e937afc84012e1ae135245a67771989e2bd7b6f4409177360c` |
+| x86_64-linux-gnu | `447188fb30d6fea758a6869d7baee3c8badb09491bc9ce4ee3baa80e89aec0a3` | `447188fb30d6fea758a6869d7baee3c8badb09491bc9ce4ee3baa80e89aec0a3` |
 
 ## Baseline
 
@@ -29,26 +29,26 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | arm64-linux | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
-| torture-compile | O0 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O1 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O2 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O3 | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | Os | arm64-linux | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1464 | 376 | 0 | 176 | 89.27% |
-| torture-execute | O0 | arm64-linux | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O1 | arm64-linux | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O2 | arm64-linux | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O3 | arm64-linux | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | Os | arm64-linux | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
-| torture-execute | Os | x86_64-linux-gnu | 1752 | 1401 | 256 | 0 | 95 | 93.65% |
+| torture-compile | O0 | arm64-linux | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O1 | arm64-linux | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O2 | arm64-linux | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O3 | arm64-linux | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | Os | arm64-linux | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1478 | 376 | 0 | 162 | 90.12% |
+| torture-execute | O0 | arm64-linux | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O1 | arm64-linux | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O2 | arm64-linux | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O3 | arm64-linux | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | Os | arm64-linux | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
+| torture-execute | Os | x86_64-linux-gnu | 1752 | 1415 | 256 | 0 | 81 | 94.59% |
 | torture-execute-ieee | O0 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
 | torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
 | torture-execute-ieee | O1 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
@@ -64,7 +64,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 | Class | Failed cells | Disposition |
 |---|---:|---|
-| gcc-builtin | 580 | `wontfix-0.1.0` |
+| gcc-builtin | 290 | `wontfix-0.1.0` |
 | nested-functions | 260 | `wontfix-0.1.0` |
 | complex | 270 | `out-of-scope` |
 | computed-goto | 0 | `wontfix-0.1.0` |
@@ -191,47 +191,19 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 2
 
-- Count: 420
+- Count: 430
 - Cluster: signal=`-`; phase=`sema`
 - Fingerprint: `b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9`
 - Exemplars: ctestsuite/00216.c@O0@arm64-linux, ctestsuite/00216.c@O0@x86_64-linux-gnu, ctestsuite/00216.c@O1@arm64-linux
 - Diagnostic: <source>:<loc>: error: a struct or union must have at least one named member; the GNU no-named-member extension is not supported (docs<path>
 - Labels: -
 - Tags: needs-cpp, needs-libc, portable
-- Optdiv members: 0 of 420
+- Optdiv members: 0 of 430
 - Optdiv exemplars: -
 - Hypothesis: GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.
 - Disposition: `wontfix-0.1.0`
 
 ### Bucket 3
-
-- Count: 300
-- Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `6350a4ee5bef78504001ddad6adf026b0ee68f80282b77424f57f830ff7a98eb`
-- Exemplars: torture-compile/920410-1.c@O0@arm64-linux, torture-compile/920410-1.c@O0@x86_64-linux-gnu, torture-compile/920410-1.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements (see src<path>
-- Labels: pretriaged=300/300
-- Tags: -
-- Optdiv members: 0 of 300
-- Optdiv exemplars: -
-- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
-- Disposition: `wontfix-0.1.0`
-
-### Bucket 4
-
-- Count: 270
-- Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152`
-- Exemplars: torture-compile/20030518-1.c@O0@arm64-linux, torture-compile/20030518-1.c@O0@x86_64-linux-gnu, torture-compile/20030518-1.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements
-- Labels: pretriaged=270/270
-- Tags: -
-- Optdiv members: 0 of 270
-- Optdiv exemplars: -
-- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
-- Disposition: `wontfix-0.1.0`
-
-### Bucket 5
 
 - Count: 270
 - Cluster: signal=`-`; phase=`parse`
@@ -245,7 +217,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: Uses C complex arithmetic, outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 6
+### Bucket 4
 
 - Count: 260
 - Cluster: signal=`-`; phase=`parse`
@@ -255,6 +227,34 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Labels: pretriaged=260/260
 - Tags: -
 - Optdiv members: 0 of 260
+- Optdiv exemplars: -
+- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
+- Disposition: `wontfix-0.1.0`
+
+### Bucket 5
+
+- Count: 200
+- Cluster: signal=`-`; phase=`parse`
+- Fingerprint: `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152`
+- Exemplars: torture-compile/20030518-1.c@O0@arm64-linux, torture-compile/20030518-1.c@O0@x86_64-linux-gnu, torture-compile/20030518-1.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements
+- Labels: pretriaged=200/200
+- Tags: -
+- Optdiv members: 0 of 200
+- Optdiv exemplars: -
+- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
+- Disposition: `wontfix-0.1.0`
+
+### Bucket 6
+
+- Count: 80
+- Cluster: signal=`-`; phase=`parse`
+- Fingerprint: `6350a4ee5bef78504001ddad6adf026b0ee68f80282b77424f57f830ff7a98eb`
+- Exemplars: torture-compile/bcopy-1.c@O0@arm64-linux, torture-compile/bcopy-1.c@O0@x86_64-linux-gnu, torture-compile/bcopy-1.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements (see src<path>
+- Labels: pretriaged=80/80
+- Tags: -
+- Optdiv members: 0 of 80
 - Optdiv exemplars: -
 - Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
 - Disposition: `wontfix-0.1.0`
@@ -635,8 +635,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 2750
-- Bucketed cells: 2750
+- Failed cells: 2470
+- Bucketed cells: 2470
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

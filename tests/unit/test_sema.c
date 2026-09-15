@@ -352,6 +352,45 @@ void test_sema_builtin_strcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_formatted_output_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(
+        &f,
+        "_Static_assert(_Generic(__builtin_printf(\"\"), int: 1, "
+        "default: 0), \"printf result is int\"); "
+        "_Static_assert(_Generic(__builtin_sprintf((char *)0, \"\"), "
+        "int: 1, default: 0), \"sprintf result is int\"); "
+        "_Static_assert(_Generic(__builtin_snprintf((char *)0, 0, \"\"), "
+        "int: 1, default: 0), \"snprintf result is int\"); "
+        "int use(char *out, const char *format, float fp, signed char sc, "
+        "unsigned short us) { "
+        "return __builtin_printf(format, fp, sc, us) + "
+        "__builtin_sprintf(out, format, fp, sc, us) + "
+        "__builtin_snprintf(out, (unsigned char)32, format, fp, sc, us); }\n",
+        STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void bad(char *out) { __builtin_printf(); "
+             "__builtin_sprintf(out); __builtin_snprintf(out, 4); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void gone(void); "
+             "void bad(char *out, struct S s) { "
+             "__builtin_printf(s); __builtin_sprintf(s, \"\"); "
+             "__builtin_snprintf(out, s, \"\"); "
+             "__builtin_printf(\"%d\", gone()); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_malloc_free_contract(TestCtx *t)
 {
     SemaFix f;

@@ -202,11 +202,12 @@ lint_ladder() {
         /^    (descriptor|expected|target|lanes|cadence|bar): / {
             if (!field) { die("campaign field precedes name"); next }
             split(substr($0, 5), pair, ": ")
-            expected_key = (field == 1 ? "descriptor" :
-                            field == 2 ? "expected" :
-                            field == 3 ? "target" :
-                            field == 4 ? "lanes" :
-                            field == 5 ? "cadence" : "bar")
+            expected_key = "bar"
+            if (field == 1) expected_key = "descriptor"
+            else if (field == 2) expected_key = "expected"
+            else if (field == 3) expected_key = "target"
+            else if (field == 4) expected_key = "lanes"
+            else if (field == 5) expected_key = "cadence"
             if (pair[1] != expected_key) die("expected field " expected_key)
             value = substr($0, index($0, ": ") + 2)
             if (value == "" || value ~ /[[:space:]]/) die(pair[1] " must be a nonempty scalar")
