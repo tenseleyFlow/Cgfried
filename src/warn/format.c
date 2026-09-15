@@ -1584,6 +1584,18 @@ void warn_format_check(WarnCtx *w, Sema *s, const AstNode *call,
                                &nseen);
 }
 
+void warn_format_check_builtin(WarnCtx *w, Sema *s, const AstNode *call,
+                               const char *libc_name)
+{
+    const BuiltinFmt *row;
+
+    if (!w || !s || !call || !libc_name)
+        return;
+    row = builtin_row(s->target, libc_name);
+    if (row)
+        warn_format_check(w, s, call, &row->spec);
+}
+
 void warn_format_check_call(WarnCtx *w, Sema *s, const AstNode *call)
 {
     const AstNode *callee;

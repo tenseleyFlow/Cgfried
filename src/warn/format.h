@@ -29,6 +29,9 @@ bool warn_format_builtin_spec(TargetSpec target, const char *name,
 
 void warn_format_check(struct WarnCtx *w, struct Sema *s,
                        const struct AstNode *call, const FmtSpec *spec);
+void warn_format_check_builtin(struct WarnCtx *w, struct Sema *s,
+                               const struct AstNode *call,
+                               const char *libc_name);
 void warn_format_check_call(struct WarnCtx *w, struct Sema *s,
                             const struct AstNode *call);
 
