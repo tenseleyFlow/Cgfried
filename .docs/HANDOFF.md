@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-14): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-15): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -268,13 +268,19 @@ to the tested final synthetic merge. PR #119's
 all eighteen GCC fixed-prototype signed/unsigned add/subtract/multiply
 overflow-store spellings for `int`, `long`, and `long long`; the imported
 campaign corpora contain none of those spellings, so it closed compatibility
-without changing the ratchet. The current
-`s56.25-builtin-formatted-output` tranche implements `__builtin_printf`,
-`__builtin_sprintf`, and `__builtin_snprintf`; local campaign measurement
-and provenance-matched hosted x86/ARM evidence proves exactly 280 new
-target-complete PASS keys with zero old-PASS regressions or ICEs. Its guarded
-atomic publication raises the ratchet to 31,570 PASS keys (31,573 lines) and
-leaves 2,470 failures fully classified.
+without changing the ratchet. PR #120's
+`s56.25-builtin-formatted-output` tranche is merged as `849b3015`. It
+implements `__builtin_printf`, `__builtin_sprintf`, and
+`__builtin_snprintf`; provenance-matched hosted x86/ARM evidence published
+exactly 280 new target-complete PASS keys with zero old-PASS regressions or
+ICEs, raising the ratchet to 31,570 PASS keys (31,573 lines) and leaving
+2,470 failures fully classified. The current PR #121
+`s56.26-builtin-strchr` tranche implements the libc-compatible
+`__builtin_strchr` alias. Its exact synthetic-merge x86/ARM evidence proves
+twenty new target-complete PASS keys across `pr34029-2.c` and `pr69691.c`,
+with zero old-PASS regressions or ICEs. Guarded publication is prepared to
+raise the ratchet to 31,590 PASS keys (31,593 lines) and leave 2,450 fully
+classified failures; final green-only CI remains pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -5908,7 +5914,7 @@ and green post-publication CI.
   `52de6c67bf42c0420e17b8e140e932e8cf082920`; its parents are `d76ca2d7`
   and behavior head `b57b8acd`, and its tree `a26f5d91` is byte-identical to
   tested synthetic merge `43fc9710`.
-- The current `s56.25-builtin-formatted-output` tranche implements
+- PR #120's merged `s56.25-builtin-formatted-output` tranche implements
   `__builtin_printf`, `__builtin_sprintf`, and `__builtin_snprintf` with their
   exact fixed prototype prefixes, default promotions for anonymous arguments,
   exact `int` results, explicit-builtin format diagnostics even under
@@ -5987,6 +5993,91 @@ and green post-publication CI.
   `02b44ed0e036205cecf082fe564871897aa78beaac3ae433d7bbc00c83601d13`
   and
   `d0ec4011de8640a0dabd7405f135acea0698127ca7b4a803027d2a00392992f7`.
+  Publication head `934a2375` passed final standard
+  [run 34924555228](https://github.com/tenseleyFlow/Cgfried/actions/runs/34924555228)
+  and PR bootstrap
+  [run 34924555263](https://github.com/tenseleyFlow/Cgfried/actions/runs/34924555263).
+  Final exact synthetic merge `31a928fbc50c6d0e8aef7c934a90001ffbeb05ca`
+  passed exact-merge nightly
+  [run 34924720329](https://github.com/tenseleyFlow/Cgfried/actions/runs/34924720329)
+  and full-lattice bootstrap
+  [run 34924720238](https://github.com/tenseleyFlow/Cgfried/actions/runs/34924720238).
+  PR #120 merged green-only as
+  `849b30150ca5da719a0a96ee30099a14821333c7`; its parents are `52de6c67`
+  and `934a2375`, and its tree `ee72c061` is byte-identical to the tested
+  final synthetic merge.
+- The current `s56.26-builtin-strchr` tranche on PR #121 promotes
+  `__builtin_strchr` from the reserved-builtin refusal to a compiler-owned
+  alias with the exact hosted prototype `char *(const char *, int)`. Sema
+  applies ordinary assignment conversions to both fixed arguments; lowering
+  calls libc `strchr` and deliberately preserves a same-name definition in
+  the current translation unit. The result is a pointer value on every
+  target. Unit coverage proves exact arity and type checking, accepted scalar
+  conversions, aggregate rejection, exactly-once lowering, `long`-to-`int`
+  truncation, external and internal-symbol paths, and IR round trips.
+
+  The permanent runtime fixture covers exact pointer results, unsigned-byte
+  matching (`0x1ff` matches `0xff`), absent matches, the terminating NUL, and
+  exactly-once evaluation. It passes natively on ARM64 macOS at
+  O0/O1/O2/O3/Os. All 33 builtin fixtures pass both normally and under fresh
+  ASan+UBSan builds. The complete Apple unit suite has 928 tests and
+  4,329,419 assertions, retaining exactly the same eight documented
+  host-assumption failures with both new tests green. The five broad Apple
+  audit-fixture failures are also reproduced identically by an exact detached
+  `trunk` control, so none is tranche-caused.
+
+  Frontend fuzz passes 2,000 normal and 2,000 sanitizer mutations with zero
+  findings and reproduces the intentionally repinned 5,000-case digest
+  `7a708f374826caec` twice normally and once under sanitizers. Preprocessor
+  fuzz passes 2,000 normal plus 2,000 differential cases; IR fuzz passes 5,000
+  cases. Repository bans, unit registration, fuzz-crash ledger, POSIX shell,
+  audit-sample, closeout metadata, and diff checks are green. Both candidate
+  imports, `torture-compile/pr34029-2.c` and
+  `torture-execute/pr69691.c`, pass all five optimization levels for both
+  x86-64 Linux and ARM64 Linux assembly (20/20); `pr69691.c` also compiles,
+  links, and runs natively on Apple Silicon at all five levels.
+
+  Provenance-matched hosted x86 and ARM streams at exact synthetic merge
+  `f37f8fa1924fd7e8d98953b7e5ae22ae83519a69` confirm exactly those twenty
+  new target-complete PASS keys with zero old-PASS regressions, duplicates, or
+  ICEs. Both share compiler-source SHA-256
+  `cfc60cb99fb9e7dd2c18337f960fc1f2c5887c0420a1f97cb3ecd18019ab7a28`
+  and unchanged harness/torture/c-testsuite manifest hashes. Each target has
+  20,325 unique cells: 15,795 PASS, 3,305 SKIP, and 1,225 COMPILE_FAIL.
+  Hosted x86 and ARM stream SHA-256 values are respectively
+  `f9a6b33270df386f2f36f39efc51a0c1888546188e866277ba78044e066cdd5b`
+  and
+  `c2ad5e7f543da728351a746bb867b757e67619369a55fdd33145ed4c95edc3a5`.
+  Pre-publication PR CI
+  [run 34928180097](https://github.com/tenseleyFlow/Cgfried/actions/runs/34928180097)
+  passes every ordinary job, including the complete sanitizer fuzz lane, and
+  refuses only the intended unpublished x86 ratchet improvement. PR bootstrap
+  [run 34928180043](https://github.com/tenseleyFlow/Cgfried/actions/runs/34928180043)
+  is green. Exact-merge nightly
+  [run 34928229415](https://github.com/tenseleyFlow/Cgfried/actions/runs/34928229415)
+  passes every ordinary campaign job and refuses only the intended ARM
+  ratchet; exact full-lattice bootstrap
+  [run 34928229487](https://github.com/tenseleyFlow/Cgfried/actions/runs/34928229487)
+  passes all applicable jobs.
+
+  The first local formal publication attempt had built only `build/cgfried`,
+  not `build/arm64-linux/libcgf_rt.a`; its resulting 120 binary128-helper link
+  failures were setup-invalid, not compiler evidence. After explicitly
+  building `make CC=gcc RT_TARGET=arm64-linux rt`, the complete local ARM
+  result body is byte-identical to hosted ARM. Formal GNU-make publication
+  with hosted x86 succeeds, direct publication from both hosted streams
+  succeeds, and reversed target order produces byte-identical artifacts. Both
+  target gates and the complete runner, triage, provenance, matrix, rollback,
+  and import meta-suite pass. Atomic publication adds exactly twenty
+  target-complete keys, raising the ratchet to 31,590 PASS keys (31,593 lines)
+  and leaving 2,450 failures fully classified in 32 buckets, with 24 applied
+  decisions, two deliberately retained stale decisions, zero unbucketed
+  cells, and zero unresolved buckets. PASS and hosted-provenance triage
+  SHA-256 values are respectively
+  `2a5fbf12c0762a9b8697377586f664d69e41881ddfe342fd3c930ef361e9ed10`
+  and
+  `238f4733ab22130439970adefd44997c4b1cde6bdf6fd151412747a697774bd0`.
+  Publication commit and final green-only CI remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
