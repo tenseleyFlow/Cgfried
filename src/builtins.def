@@ -63,6 +63,9 @@ B(stpcpy, STPCPY, 2, BK_CHARP)
 B(strchr, STRCHR, 2, BK_CHARP)
 B(strncpy, STRNCPY, 3, BK_CHARP)
 
+/* character output */
+B(puts, PUTS, 1, BK_INT)
+
 /* formatted output.  Sema owns the fixed prototype prefix and applies the
  * default argument promotions to the anonymous suffix; lowering must then
  * use the target's full variadic-call ABI rather than the scalar libc

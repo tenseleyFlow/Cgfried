@@ -391,6 +391,37 @@ void test_sema_builtin_stpcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_puts_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_puts(\"x\"), "
+             "int: 1, default: 0), \"puts result is int\"); "
+             "int f(char *s, const char *cs, void *p) { "
+             "return __builtin_puts(s) + __builtin_puts(cs) + "
+             "__builtin_puts(p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(void) { return __builtin_puts(); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(const char *s) { return __builtin_puts(s, s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; int f(struct S s) { "
+             "return __builtin_puts(s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strchr_contract(TestCtx *t)
 {
     SemaFix f;
