@@ -1578,6 +1578,7 @@ static bool parse_inst(P *p)
         u32 i;
         bool indirect;
         bool marked_indirect;
+        bool marked_external;
         IrOperand *fp = NULL;
         u32 fp_fixup = 0;
 
@@ -1593,11 +1594,18 @@ static bool parse_inst(P *p)
                  "'%%name = call ...'");
             return false;
         }
+        marked_external = tok_is(peek(p), "external");
+        if (marked_external)
+            next(p);
         marked_indirect = tok_is(peek(p), "indirect");
         if (marked_indirect)
             next(p);
         ct = peek(p);
-        indirect = marked_indirect || !tok_is_symbol(ct);
+        if (marked_external && (marked_indirect || !tok_is_symbol(ct))) {
+            perr(p, ct, "an explicitly external callee must be a symbol");
+            return false;
+        }
+        indirect = !marked_external && (marked_indirect || !tok_is_symbol(ct));
         if (indirect) {
             /* The pointer parses before the arg count is known, so it
              * gets a staging arena slot; if a fixup landed on it, the
@@ -1627,7 +1635,7 @@ static bool parse_inst(P *p)
             u32 *hit =
                 strmap_get(&p->func_ids, callee_name, strlen(callee_name));
 
-            if (hit) {
+            if (hit && !marked_external) {
                 in->subop = FUNCREF_INTERNAL;
                 in->callee = *hit - 1;
             } else {
