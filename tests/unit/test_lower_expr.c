@@ -248,6 +248,37 @@ void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_strchr_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "const char *haystack(void); long needle(void); "
+                              "char *use(void) { return "
+                              "__builtin_strchr(haystack(), needle()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @haystack()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @needle()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "trunc i64"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strchr(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_strchr"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strchr-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static char *strchr(const char *s, int c) { "
+                              "(void)c; return (char *)s; } "
+                              "char *use(const char *s) { "
+                              "return __builtin_strchr(s, 0); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strchr(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strchr-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_formatted_output_variadic_abi(TestCtx *t)
 {
     static const char source[] =
