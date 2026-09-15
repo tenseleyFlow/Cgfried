@@ -1702,13 +1702,16 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                if (b == SEMA_BUILTIN_STRCPY) {
+                if (b == SEMA_BUILTIN_STRCPY || b == SEMA_BUILTIN_STRNCPY) {
                     Type *charp = type_ptr(s->arena, type_basic(TY_CHAR));
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
-                    Type *params[] = {charp, type_ptr(s->arena, const_char)};
+                    Type *params[] = {charp, type_ptr(s->arena, const_char),
+                                      type_basic(TY_ULONG)};
+                    u32 nparams =
+                        b == SEMA_BUILTIN_STRNCPY ? CGF_ARRAY_LEN(params) : 2;
 
-                    for (i = 0; i < 2; i++) {
+                    for (i = 0; i < nparams; i++) {
                         bctx.arg_index = i + 1;
                         if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
                             quiet(e->args[i], NULL))
