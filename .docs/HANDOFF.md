@@ -6660,7 +6660,7 @@ and green post-publication CI.
   `5f92ace678856deece94faf5addc640dacd842b1`; the actual merge and tested
   synthetic commit have the same parents and tree
   `37894be6fd67589571a8d83489e764f3a4cc5cf3`.
-- The current `s56.35-mbedtls-fuzz-programs` follow-on closes Mbed TLS's
+- The merged `s56.35-mbedtls-fuzz-programs` follow-on closes Mbed TLS's
   standalone C fuzz-program surface under the same pinned symmetric-only,
   exact-`-O2` contract. The campaign freezes all ten `fuzz_*.c` targets plus
   the shared `common.c` and `onefile.c` translations. It deliberately unsets
@@ -6688,8 +6688,61 @@ and green post-publication CI.
   and `db987fdfb37a6b3e750f9ce413c68be0922d5980407bf32375c5c0ccf36b367a`.
   The Cgfried and host-GCC fuzz-probe logs are byte-identical at SHA-256
   `990704338541c555120a8a37581d70b70be02a481136e28ad80c7c4cf789e6d1`.
-  No new compiler defect surfaced; hosted dual-architecture CI and exact
-  synthetic-merge workflows remain to be recorded.
+  No new compiler defect surfaced. Exact head
+  `020cde34ae644ccc313bc0dac18df43de0534686` passed the complete standard
+  [run 35155102223](https://github.com/tenseleyFlow/Cgfried/actions/runs/35155102223):
+  28 jobs succeeded, nine policy/platform routes skipped as expected, and no
+  job failed. Synthetic merge
+  `c761b078a585f90f05953cb932443954edf81470` passed all fifteen
+  [nightly jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35160086242)
+  and all seven
+  [full-lattice bootstrap jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35160086212).
+  PR #130 merged green-only as
+  `ba797ea21e0170fccbbfd351618a8ef112450039`; its parents are exact base
+  `5f92ace678856deece94faf5addc640dacd842b1` and exact head `020cde34`, and
+  its tree `1732eab996f086cc3dfbaff670d4c3e66ec21031` is identical to the tested
+  synthetic merge.
+- The current `s56.36-mbedtls-default-libraries` follow-on adds an independent
+  upstream-default configuration closure without weakening the existing
+  symmetric-only bar. Mbed TLS 3.6.7 ships that default with assembly, PSA,
+  RSA, TLS, X.509, and the full ordinary asymmetric surface enabled; optional
+  Everest Curve25519 and P-256M backends remain off in the upstream file. Two
+  additional pristine trees let Cgfried and host GCC build all three static
+  libraries at exact `-O2`, compile and link the single upstream self-test
+  consumer, and execute all 30 enabled suites.
+
+  The default closure has its own compiler-bound receipt root, manifest, and
+  report: 114 project objects, 113 byte-checked archive members, one linked
+  product, 114 translations, and 115 receipts. It cannot accidentally borrow
+  an object from the symmetric closure. `CAMP-MBEDTLS-001` publishes the only
+  output deviation: accelerator selection is compiler- and target-dependent.
+  Cgfried deliberately excludes GNU vector types and Arm NEON intrinsics from
+  v0.1, so native ARM64 selects Mbed TLS's portable AES/GCM implementation
+  while GCC selects AESCE. Both run all 30 suites. The exact implementation
+  notes are retained and checked against the pinned upstream vocabulary; every
+  other output byte must match after removing only the `AES note:` and
+  `GCM note:` lines.
+
+  Exact implementation commit
+  `319c00dba61ee77baa557de9636aac829e938d28` is green on native ARM64 Linux
+  from a fresh configure/build/validate run. The complete combined campaign
+  passes all 26 expected rows; the original symmetric closure remains 353
+  translations and 208 products, while the new default closure reports the
+  counts above. Compiler/result SHA-256 values are
+  `7643d31da792bb92b6cac09d5263369ee9f5ebbca0c682b843ee4112e1e47109`
+  and
+  `4bda54f0cba24a28d7cc4e5071defb2fbf7c0afc453853350faa769ab6f3a581`.
+  Default closure/report SHA-256 values are
+  `df3114d1c789792d12b1338807167524c1c4814e57525ac5be73539366f6eecf`
+  and
+  `1ff0afcd9a45b601260c4a3c194ee74e5c86bbaec9e0ab3a4538cc53ae0139e5`.
+  The complete Cgfried and GCC self-test logs differ only in the two retained
+  accelerator notes; their normalized logs are byte-identical at SHA-256
+  `51d7821f92e2dcb4d91db03bad11728dd443106be4f58fa555f12150cb781f40`.
+  An Apple-silicon discovery build independently compiled all 113 default
+  library objects and passed the same 30-suite Cgfried self-test with the
+  repository's audited macOS hosted-header shim. Hosted x86-64 evidence and
+  the full PR CI bars remain to be recorded.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
