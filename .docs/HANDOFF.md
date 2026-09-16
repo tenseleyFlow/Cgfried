@@ -6619,7 +6619,7 @@ and green post-publication CI.
   The tested synthetic merge `d328086f76030a2b39a220132d4f08284fdb8964`
   and actual merge have the same parents and tree
   `1cd003384d6ff78a779a18294453013864acead1`.
-- The current `s56.34-mbedtls-programs` follow-on closes the remaining normal
+- The merged `s56.34-mbedtls-programs` follow-on closes the remaining normal
   C program surface in the same pinned campaign. Mbed TLS 3.6.7 declares 58
   normal sample/test executables under `config-symmetric-only.h`; the already
   certified standalone self-test accounts for one, leaving 57 new products.
@@ -6648,7 +6648,47 @@ and green post-publication CI.
   The expanded generated-input inventory and program-smoke log have SHA-256
   values `a2bc9f9bc3797972988b45622a1b36db6a7ffff61d206e6649cb4291695a43b0`
   and `d1716744b30c280539f0a0b1fd2b682523ce5ee522813aa21f51310814e61ebe`.
-  No new compiler defect surfaced. Hosted dual-architecture CI and the exact
+  No new compiler defect surfaced. PR #129's standard
+  [run 35123124799](https://github.com/tenseleyFlow/Cgfried/actions/runs/35123124799)
+  passed all 22 applicable CI jobs, including both native Mbed TLS campaign
+  architectures. Exact synthetic merge
+  `92a7372106efbba00833a964652a534306062f83` passed all fifteen
+  [nightly jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35133472248)
+  and all seven
+  [full-lattice bootstrap jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35133474654).
+  PR #129 merged green-only as
+  `5f92ace678856deece94faf5addc640dacd842b1`; the actual merge and tested
+  synthetic commit have the same parents and tree
+  `37894be6fd67589571a8d83489e764f3a4cc5cf3`.
+- The current `s56.35-mbedtls-fuzz-programs` follow-on closes Mbed TLS's
+  standalone C fuzz-program surface under the same pinned symmetric-only,
+  exact-`-O2` contract. The campaign freezes all ten `fuzz_*.c` targets plus
+  the shared `common.c` and `onefile.c` translations. It deliberately unsets
+  `FUZZINGENGINE`, so upstream's ordinary one-file C entry point—not an
+  external C++ fuzzing engine—links each executable through the project's
+  unchanged Make rules.
+
+  Both pristine trees build all ten products and run every executable against
+  the same nonempty deterministic input. Each run must return zero, each
+  complete ten-probe log must be byte-identical, and the manifest names every
+  fuzz object, both shared fuzz objects, all 28 test-support objects, and the
+  three static archives consumed by each link. This adds 12 object
+  translations and ten links: the exact closure is now 156 materialized
+  project objects, 113 byte-checked archive members, 208 linked products, 353
+  translations, and 364 receipts.
+
+  A fresh offline native ARM64 Linux run from exact candidate `de37d89a`
+  passes the 17-row result ratchet, all ten fuzz probes, the existing 57
+  normal products/five probes, all 140 generated suites/13,266 tests, and the
+  25-suite self-test. Compiler/result/closure/report SHA-256 values are
+  respectively
+  `067cb13200dd2afc47052a310410abafc684ffa962f20af73a7d519ea3a55b1e`,
+  `5ab3976380a9d38fee5b37b4835abdb5c8229c5a7978dd6b6d7d25f2ca7af79e`,
+  `b5f215e0f6c8d40ddf54b295caee7a5e635d3b07cf46e765cf40333b77dae8c1`,
+  and `db987fdfb37a6b3e750f9ce413c68be0922d5980407bf32375c5c0ccf36b367a`.
+  The Cgfried and host-GCC fuzz-probe logs are byte-identical at SHA-256
+  `990704338541c555120a8a37581d70b70be02a481136e28ad80c7c4cf789e6d1`.
+  No new compiler defect surfaced; hosted dual-architecture CI and exact
   synthetic-merge workflows remain to be recorded.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
