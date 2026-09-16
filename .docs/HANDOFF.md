@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 7/30 through September 15 after required daily x86 evidence was
+at a strict 8/30 through September 16 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--15 hosted daily runs are
+operationally OPEN. Matching-head September 12--16 hosted daily runs are
 green, and September 13's separate weekly run is full-lattice green. The
 matching-head September 11 recovery
 [`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
