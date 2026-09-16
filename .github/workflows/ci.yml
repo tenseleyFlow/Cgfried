@@ -239,6 +239,56 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # First post-v0.1.0 large-FOSS rung. Both native architectures must compile
+  # the complete static 8-bit Unicode library and all three test programs with
+  # Cgfried as the sole C compiler, then pass the upstream suite offline.
+  campaign-pcre2:
+    name: campaign-pcre2 (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned PCRE2 archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-pcre2-10.48-ebcc25aadf2a51fa1fefa9b8bc9e7a79b3dae86870a0f1152a22e42befd46888
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-pcre2-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make pcre2-expected
+      - name: retain PCRE2 campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-pcre2-${{ matrix.arch }}
+          path: |
+            build/campaigns/pcre2/results.txt
+            build/campaigns/pcre2/provenance.txt
+            build/campaigns/pcre2/sole-c/**
+            build/campaigns/pcre2/sole-c-closure.tsv
+            build/campaigns/pcre2/sole-c-report.txt
+            build/campaigns/pcre2/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

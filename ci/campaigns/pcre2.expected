@@ -1,0 +1,12 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc,opt=O2
+baseline.test.upstream	PASS	cases=3
+build	PASS	libraries=2,objects=35
+compiler.sole-c	PASS	project-objects=35,archive-members=32,linked-products=3
+configure	PASS	mode=static-8bit-unicode,jit=off
+linkage	PASS	binaries=3,libraries=2,static=yes
+parity.outputs	PASS	commands=pcre2grep-V+pcre2test-C
+source.archive	PASS	sha256=ebcc25aadf2a51fa1fefa9b8bc9e7a79b3dae86870a0f1152a22e42befd46888
+source.pin	PASS	commit=7978954dbd2efc6f2196869290553cf1871b4ce6,version=10.48
+test.upstream	PASS	cases=3,opt=O2
