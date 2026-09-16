@@ -6537,7 +6537,7 @@ and green post-publication CI.
   `90d0a9c7cef379f315d2d70eddc43224d6d649bf`; the actual merge and tested
   synthetic commit have the same parents and tree
   `8048907efc02c681687e7fac4fad21f87831b9e3`.
-- The current `s56.32-mbedtls-sole-c` large-FOSS tranche adds pinned Mbed TLS
+- The merged `s56.32-mbedtls-sole-c` large-FOSS tranche adds pinned Mbed TLS
   3.6.7 (tag commit `068ff080b369adfac81509f9b57b2afabaf82dc5`,
   release-archive SHA-256
   `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`)
@@ -6576,7 +6576,44 @@ and green post-publication CI.
   twelve expected variants, frozen ladder intact), sole-C adversarial tests,
   POSIX parsing, repository bans, and diff checks pass. Implementation commit
   `6f6e70d1919661555679e327e15c18bd2a3690c6` has tree
-  `fc9a512c4ae4bb668171c4f7694d6991a72f3763`.
+  `fc9a512c4ae4bb668171c4f7694d6991a72f3763`. PR #127's exact head
+  `fc3bfca182125eb68fa2d8555eebb2bafb28fe0e` passed all 24 applicable
+  standard CI jobs (one expected skip). Synthetic merge
+  `735b19f2b2fe93f91d3808f601be3d9f47e5d779` passed all fifteen nightly
+  jobs and all seven full-lattice bootstrap jobs. PR #127 merged green-only as
+  `7003d5ee292f4cef94d6dd980a1314bad058698f`; the actual and tested merge
+  commits have identical parents and tree
+  `8ca7b9f3fc60f4dc8beb5487c802bb8381666af3`.
+- The current `s56.33-mbedtls-generated-tests` follow-on expands that same
+  pinned, symmetric-only, exact-`-O2` campaign to Mbed TLS's generated test
+  harness. Test generation occurs with the host oracle before sole-C receipt
+  capture, so the generators' disposable compiler probes cannot pollute the
+  certified closure. The two pristine trees must generate byte-identical
+  input inventories: 140 suite-runner C sources, their 140 runtime data files,
+  plus 28 shared test-support sources.
+  Cgfried then compiles every retained C translation and links each runner with
+  explicit certified archive inputs; host GCC independently builds the same
+  products. Both trees must execute all 140 suites and 13,266 tests, and their
+  complete suite logs must be byte-identical.
+
+  A fresh offline native ARM64 Linux run from merge `7003d5ee` passes the
+  exact 13-row result ratchet. The sole-C closure contains 142 materialized
+  objects, 140 compile-and-link runner translations, 113 byte-checked archive
+  members, 141 linked products, 282 translations total, and exactly 283
+  receipts. The Cgfried/GCC generated-input inventories are byte-identical;
+  so are their complete test logs. Compiler/result/closure/report SHA-256
+  values are respectively
+  `c05e36528545de723a88b1fbae0877d37fa0302a8369d7c3e3ba832c9548f623`,
+  `835d76ec66174b38f2cde796683c2b116938c437d91de46ab2ed2fb9e86e3f68`,
+  `b3cea7beb60ee092257f4a3b9450274efd2de36f8bad8e3f2e89e86d611b1286`,
+  and `70e54891f61faace35e627f1eaaf1dfbbcb5f8b947d843dbf821def0d9dc6b02`.
+  The normalized generated-input inventory and complete test log have
+  SHA-256 values
+  `b420c3fce564bc04c20701881a66f12b8ef6a124c63f9a14c5bebe20c168a055`
+  and
+  `9cb78d997b8c6eae296ef404e2121c325b687dd8eb163042a555b7a62a4e22e1`.
+  No new compiler defect surfaced: this tranche converts the formerly deferred
+  generated harness into an enforced cross-architecture closure contract.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

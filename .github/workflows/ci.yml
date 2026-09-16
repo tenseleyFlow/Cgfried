@@ -291,7 +291,8 @@ jobs:
 
   # Second post-v0.1.0 large-FOSS rung. The symmetric-only configuration keeps
   # GNU integer-128 arithmetic disabled while both native Linux architectures
-  # certify all three static libraries and the upstream 25-suite self-test.
+  # certify all three static libraries, the upstream 25-suite self-test, and
+  # the 140 generated suite runners (13,266 tests).
   campaign-mbedtls:
     name: campaign-mbedtls (${{ matrix.arch }})
     strategy:
