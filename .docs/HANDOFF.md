@@ -6584,7 +6584,7 @@ and green post-publication CI.
   `7003d5ee292f4cef94d6dd980a1314bad058698f`; the actual and tested merge
   commits have identical parents and tree
   `8ca7b9f3fc60f4dc8beb5487c802bb8381666af3`.
-- The current `s56.33-mbedtls-generated-tests` follow-on expands that same
+- The merged `s56.33-mbedtls-generated-tests` follow-on expands that same
   pinned, symmetric-only, exact-`-O2` campaign to Mbed TLS's generated test
   harness. Test generation occurs with the host oracle before sole-C receipt
   capture, so the generators' disposable compiler probes cannot pollute the
@@ -6614,6 +6614,42 @@ and green post-publication CI.
   `9cb78d997b8c6eae296ef404e2121c325b687dd8eb163042a555b7a62a4e22e1`.
   No new compiler defect surfaced: this tranche converts the formerly deferred
   generated harness into an enforced cross-architecture closure contract.
+  PR #128 passed its complete standard, nightly, and full-lattice bars and
+  merged green-only as `5a9179a102a95cb73b0ab469317b8d36f7d7b636`.
+  The tested synthetic merge `d328086f76030a2b39a220132d4f08284fdb8964`
+  and actual merge have the same parents and tree
+  `1cd003384d6ff78a779a18294453013864acead1`.
+- The current `s56.34-mbedtls-programs` follow-on closes the remaining normal
+  C program surface in the same pinned campaign. Mbed TLS 3.6.7 declares 58
+  normal sample/test executables under `config-symmetric-only.h`; the already
+  certified standalone self-test accounts for one, leaving 57 new products.
+  The campaign freezes and checks that exact upstream inventory, generates
+  and compares the two additional program inputs in both pristine trees, and
+  deliberately excludes the separate fuzz, C++, shared-library `dlopen`, and
+  disabled pthread-only targets.
+
+  Cgfried and host GCC build all 57 products through upstream Make rules. Two
+  program-only support translations join the receipt closure, taking it to
+  144 materialized objects, 198 linked products, and 341 C translations. Five
+  deterministic, non-networked probes cover MD5, file SHA-256, configuration
+  lookup, included-header reporting, and PSA constant naming; their complete
+  output must be byte-identical.
+
+  A fresh offline native ARM64 Linux run from exact candidate `554acc58`
+  passes the 15-row result ratchet: all 57 products build, all five probes
+  match host GCC byte-for-byte, and the existing 140 suites/13,266 tests plus
+  25-suite self-test remain green. The exact closure contains 144 materialized
+  objects, 113 archive members, 198 linked products, 341 translations, and
+  342 receipts. Compiler/result/closure/report SHA-256 values are respectively
+  `cbdc4e311b29d62584989c01c83e070351a8d4c9b9bcb57f9525b653bbd5a681`,
+  `1a6563d55e2d03d2aa7328fb191fa693df72ce9ccbca81e417858812ac350cea`,
+  `e78028ccbc4613653f83ea49ec0448e0d584814134c879541e6e815cac8173a7`,
+  and `b5929f39f43b3876c47826b2a9115925bf775007543dedc8ddbc9479e86d1789`.
+  The expanded generated-input inventory and program-smoke log have SHA-256
+  values `a2bc9f9bc3797972988b45622a1b36db6a7ffff61d206e6649cb4291695a43b0`
+  and `d1716744b30c280539f0a0b1fd2b682523ce5ee522813aa21f51310814e61ebe`.
+  No new compiler defect surfaced. Hosted dual-architecture CI and the exact
+  synthetic-merge workflows remain to be recorded.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

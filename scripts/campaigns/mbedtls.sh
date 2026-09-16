@@ -150,6 +150,74 @@ tests/src/certs
 tests/src/psa_test_wrappers
 tests/src/test_helpers/ssl_helpers'
 
+# Mbed TLS calls these its normal sample/test programs. Keep the list frozen so
+# an upstream Makefile change cannot silently widen or narrow the campaign.
+# test/selftest is intentionally absent: it is already built as the campaign's
+# separately linked 25-suite self-test above the upstream program tree.
+program_targets='aes/crypt_and_hash
+cipher/cipher_aead_demo
+hash/generic_sum
+hash/hello
+hash/md_hmac_demo
+pkey/dh_client
+pkey/dh_genprime
+pkey/dh_server
+pkey/ecdh_curve25519
+pkey/ecdsa
+pkey/gen_key
+pkey/key_app
+pkey/key_app_writer
+pkey/mpi_demo
+pkey/pk_decrypt
+pkey/pk_encrypt
+pkey/pk_sign
+pkey/pk_verify
+pkey/rsa_decrypt
+pkey/rsa_encrypt
+pkey/rsa_genkey
+pkey/rsa_sign
+pkey/rsa_sign_pss
+pkey/rsa_verify
+pkey/rsa_verify_pss
+psa/aead_demo
+psa/crypto_examples
+psa/hmac_demo
+psa/key_ladder_demo
+psa/psa_constant_names
+psa/psa_hash
+random/gen_entropy
+random/gen_random_ctr_drbg
+ssl/dtls_client
+ssl/dtls_server
+ssl/mini_client
+ssl/ssl_client1
+ssl/ssl_client2
+ssl/ssl_context_info
+ssl/ssl_fork_server
+ssl/ssl_mail_client
+ssl/ssl_server
+ssl/ssl_server2
+test/benchmark
+test/metatest
+test/query_compile_time_config
+test/query_included_headers
+test/udp_proxy
+test/zeroize
+util/pem2der
+util/strerror
+x509/cert_app
+x509/cert_req
+x509/cert_write
+x509/crl_app
+x509/load_roots
+x509/req_app'
+
+program_generated_sources='programs/psa/psa_constant_names_generated.c
+programs/test/query_config.c'
+
+program_object_stems='programs/ssl/ssl_test_lib
+programs/test/query_config'
+
 extract_tree() {
     destination=$1
     mkdir -p "$destination"
@@ -211,7 +279,7 @@ configure_stage() {
         printf 'host_compiler=%s\n' "$hostcc"
         printf 'cflags=%s\n' "$cflags"
         printf 'configuration=config-symmetric-only.h\n'
-        printf 'test_scope=generated-suite-harness\n'
+        printf 'test_scope=generated-suite-and-normal-programs\n'
         printf 'compat_policy=%s\n' "$compat_policy"
         printf 'compat_header=%s\n' "${compat_header:-none}"
         printf 'compat_header_sha256=%s\n' "$compat_sha256"
@@ -255,6 +323,41 @@ write_test_inventory() {
     done
     [ "$support_count" -eq 28 ] ||
         fail "$label has $support_count test support sources, expected 28"
+
+    program_generated_count=0
+    for relative in $program_generated_sources; do
+        [ -f "$source/$relative" ] ||
+            fail "$label omitted generated program source: $relative"
+        digest=$(sha256sum "$source/$relative" | awk '{print $1}')
+        printf 'program-generated\t%s\t%s\n' "$relative" "$digest" >>"$inventory"
+        program_generated_count=$((program_generated_count + 1))
+    done
+    [ "$program_generated_count" -eq 2 ] ||
+        fail "$label generated $program_generated_count program sources, expected 2"
+}
+
+verify_program_inventory() {
+    label=$1
+    source=$2
+    expected=$logs/$label/program-targets.expected
+    actual=$logs/$label/program-targets.actual
+    printf '%s\n' $program_targets >"$expected"
+    : >"$actual"
+    set -- $(make -s -C "$source/programs" list)
+    [ "$#" -eq 58 ] ||
+        fail "$label upstream normal-program inventory has $# entries, expected 58"
+    selftests=0
+    for target in "$@"; do
+        if [ "$target" = test/selftest ]; then
+            selftests=$((selftests + 1))
+        else
+            printf '%s\n' "$target" >>"$actual"
+        fi
+    done
+    [ "$selftests" -eq 1 ] ||
+        fail "$label upstream program inventory omitted its single self-test"
+    cmp "$expected" "$actual" >/dev/null ||
+        fail "$label normal-program inventory changed"
 }
 
 generate_test_sources() {
@@ -270,6 +373,15 @@ generate_test_sources() {
         tail -260 "$logs/$label/generate-tests.log" >&2
         fail "$label generated-test source preparation failed"
     fi
+    status=0
+    SOURCE_DATE_EPOCH=0 make -C "$source/programs" -j"$jobs" \
+        CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= generated_files \
+        >"$logs/$label/generate-programs.log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -200 "$logs/$label/generate-programs.log" >&2
+        fail "$label generated-program source preparation failed"
+    fi
+    verify_program_inventory "$label" "$source"
     write_test_inventory "$label" "$source"
 }
 
@@ -394,6 +506,40 @@ build_generated_tests() {
     verify_test_products "$label" "$source"
 }
 
+verify_program_products() {
+    label=$1
+    source=$2
+    count=0
+    for target in $program_targets; do
+        [ -x "$source/programs/$target" ] ||
+            fail "$label omitted normal program: $target"
+        count=$((count + 1))
+    done
+    [ "$count" -eq 57 ] ||
+        fail "$label retained $count normal programs, expected 57"
+    for stem in $program_object_stems; do
+        [ -f "$source/$stem.o" ] ||
+            fail "$label omitted normal-program object: $stem.o"
+    done
+}
+
+build_programs() {
+    label=$1
+    source=$2
+    mode=$3
+    set_wrapper_environment "$mode" "$source"
+    status=0
+    SOURCE_DATE_EPOCH=0 make -C "$source/programs" -j"$jobs" \
+        CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= GEN_FILES= \
+        LDFLAGS='../library/libmbedtls.a ../library/libmbedx509.a ../library/libmbedcrypto.a' \
+        $program_targets >"$logs/$label/build-programs.log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -260 "$logs/$label/build-programs.log" >&2
+        fail "$label normal-program build failed"
+    fi
+    verify_program_products "$label" "$source"
+}
+
 build_stage() {
     [ -f "$tree/Makefile" ] || fail "configure stage has not completed"
     generate_test_sources cgfried "$tree"
@@ -403,8 +549,10 @@ build_stage() {
     "$sole" init "$receipts" "$cgf"
     build_tree cgfried "$tree" "$cgf_object" "$cgf_program" cgfried
     build_generated_tests cgfried "$tree" cgfried
+    build_programs cgfried "$tree" cgfried
     build_tree host-gcc "$host_tree" "$host_object" "$host_program" host
     build_generated_tests host-gcc "$host_tree" host
+    build_programs host-gcc "$host_tree" host
 }
 
 member_source_and_object() {
@@ -448,6 +596,36 @@ write_archive_manifest() {
     done
 }
 
+program_source_relative() {
+    target=$1
+    case $target in
+        test/metatest | test/query_compile_time_config | test/query_included_headers | test/zeroize)
+            printf 'framework/tests/programs/%s.c\n' "${target#test/}"
+            ;;
+        *) printf 'programs/%s.c\n' "$target" ;;
+    esac
+}
+
+write_program_link_inputs() {
+    target=$1
+    product=$tree/programs/$target
+    case $target in
+        ssl/ssl_client2 | ssl/ssl_server2)
+            printf 'link-input\t%s\t%s/programs/test/query_config.o\n' "$product" "$tree"
+            printf 'link-input\t%s\t%s/programs/ssl/ssl_test_lib.o\n' "$product" "$tree"
+            ;;
+        ssl/ssl_context_info | test/query_compile_time_config)
+            printf 'link-input\t%s\t%s/programs/test/query_config.o\n' "$product" "$tree"
+            ;;
+    esac
+    for stem in $test_support_stems; do
+        printf 'link-input\t%s\t%s/%s.o\n' "$product" "$tree" "$stem"
+    done
+    printf 'link-input\t%s\t%s/library/libmbedtls.a\n' "$product" "$tree"
+    printf 'link-input\t%s\t%s/library/libmbedx509.a\n' "$product" "$tree"
+    printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$product" "$tree"
+}
+
 write_manifest() {
     {
         echo '# cgf-sole-c-closure-v1'
@@ -460,6 +638,9 @@ write_manifest() {
         printf 'link-input\t%s\t%s/library/libmbedx509.a\n' "$cgf_program" "$tree"
         printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$cgf_program" "$tree"
         for stem in $test_support_stems; do
+            printf 'object\t%s/%s.c\t%s/%s.o\n' "$tree" "$stem" "$tree" "$stem"
+        done
+        for stem in $program_object_stems; do
             printf 'object\t%s/%s.c\t%s/%s.o\n' "$tree" "$stem" "$tree" "$stem"
         done
         while IFS="$(printf '\t')" read -r kind relative digest; do
@@ -475,6 +656,14 @@ write_manifest() {
             printf 'link-input\t%s\t%s/library/libmbedx509.a\n' "$product" "$tree"
             printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$product" "$tree"
         done <"$cgf_test_inventory"
+        for target in $program_targets; do
+            relative=$(program_source_relative "$target")
+            source=$tree/$relative
+            product=$tree/programs/$target
+            printf 'compile-link\t%s\t%s\n' "$source" "$product"
+            printf 'link-input\t%s\t%s\n' "$product" "$source"
+            write_program_link_inputs "$target"
+        done
     } >"$manifest"
 }
 
@@ -514,11 +703,52 @@ test_generated_tree() {
         fail "$label generated-test log has $passed passing suites, expected 140"
 }
 
+test_program_tree() {
+    label=$1
+    source=$2
+    runtime=$work/runtime-$label
+    log=$logs/$label/program-smokes.log
+    printf 'Cgfried Mbed TLS program smoke\n' >"$runtime/program-input.txt"
+    status=0
+    (
+        cd "$runtime"
+        printf 'probe=hash/hello\n'
+        "$source/programs/hash/hello"
+        printf 'probe=hash/generic_sum\n'
+        "$source/programs/hash/generic_sum" SHA256 program-input.txt
+        printf 'probe=test/query_compile_time_config\n'
+        "$source/programs/test/query_compile_time_config" MBEDTLS_AES_C
+        printf 'probe=test/query_included_headers\n'
+        "$source/programs/test/query_included_headers"
+        printf 'probe=psa/psa_constant_names\n'
+        "$source/programs/psa/psa_constant_names" alg 0x02000009
+    ) >"$log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -200 "$log" >&2
+        fail "$label normal-program smoke failed"
+    fi
+    probes=$(grep -c '^probe=' "$log" || true)
+    [ "$probes" -eq 5 ] ||
+        fail "$label normal-program log has $probes probes, expected 5"
+    grep -Fqx "  MD5('Hello, world!') = 6cd3556deb0da54bca060b4c39479839" "$log" ||
+        fail "$label hash/hello result changed"
+    grep -Fqx '4cb113e2b9b7b7ea08646330b5d328b83376d5bb18d954a21dda97f726568823  program-input.txt' "$log" ||
+        fail "$label hash/generic_sum result changed"
+    grep -Fqx 'PSA_CRYPTO_PLATFORM_H' "$log" ||
+        fail "$label included-header platform result changed"
+    grep -Fqx 'PSA_CRYPTO_STRUCT_H' "$log" ||
+        fail "$label included-header struct result changed"
+    grep -Fqx 'PSA_ALG_SHA_256' "$log" ||
+        fail "$label PSA constant-name result changed"
+}
+
 validate_stage() {
     verify_products cgfried "$tree" "$cgf_program"
     verify_products host-gcc "$host_tree" "$host_program"
     verify_test_products cgfried "$tree"
     verify_test_products host-gcc "$host_tree"
+    verify_program_products cgfried "$tree"
+    verify_program_products host-gcc "$host_tree"
     test_tree cgfried "$cgf_program"
     test_tree host-gcc "$host_program"
     cmp "$logs/host-gcc/selftest.log" "$logs/cgfried/selftest.log" >/dev/null ||
@@ -528,6 +758,11 @@ validate_stage() {
     cmp "$logs/host-gcc/generated-tests.log" \
         "$logs/cgfried/generated-tests.log" >/dev/null ||
         fail "generated-test output differs from host GCC"
+    test_program_tree cgfried "$tree"
+    test_program_tree host-gcc "$host_tree"
+    cmp "$logs/host-gcc/program-smokes.log" \
+        "$logs/cgfried/program-smokes.log" >/dev/null ||
+        fail "normal-program smoke output differs from host GCC"
 
     write_manifest
     "$sole" verify "$receipts" "$cgf" "$manifest" "$report"
@@ -536,16 +771,18 @@ validate_stage() {
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-gcc,opt=O2\n'
         printf 'baseline.test.generated\tPASS\tsuites=140,tests=13266\n'
+        printf 'baseline.test.programs\tPASS\tproducts=57,probes=5\n'
         printf 'baseline.test.selftest\tPASS\tsuites=25\n'
-        printf 'build\tPASS\tlibraries=3,translations=282\n'
-        printf 'compiler.sole-c\tPASS\tproject-objects=142,archive-members=113,linked-products=141\n'
+        printf 'build\tPASS\tlibraries=3,translations=341\n'
+        printf 'compiler.sole-c\tPASS\tproject-objects=144,archive-members=113,linked-products=198\n'
         printf 'configure\tPASS\tmode=symmetric-only,asm=off\n'
-        printf 'generated.inputs\tPASS\trunners=140,data=140,support=28,trees=byte-identical\n'
-        printf 'linkage\tPASS\tbinaries=141,libraries=3,static=yes\n'
-        printf 'parity.outputs\tPASS\tcommands=selftest,generated-tests\n'
+        printf 'generated.inputs\tPASS\trunners=140,data=140,support=28,programs=2,trees=byte-identical\n'
+        printf 'linkage\tPASS\tbinaries=198,libraries=3,static=yes\n'
+        printf 'parity.outputs\tPASS\tcommands=selftest,generated-tests,program-smokes\n'
         printf 'source.archive\tPASS\tsha256=%s\n' "$MBEDTLS_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' "$MBEDTLS_COMMIT" "$MBEDTLS_VERSION"
         printf 'test.generated\tPASS\tsuites=140,tests=13266,opt=O2\n'
+        printf 'test.programs\tPASS\tproducts=57,probes=5,opt=O2\n'
         printf 'test.selftest\tPASS\tsuites=25,opt=O2\n'
     } >"$work/results.txt"
     printf 'campaign-mbedtls: PASS target=%s results=%s artifacts=%s\n' \
