@@ -1,0 +1,12 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-gcc,opt=O2
+baseline.test.selftest	PASS	suites=25
+build	PASS	libraries=3,objects=114
+compiler.sole-c	PASS	project-objects=114,archive-members=113,linked-products=1
+configure	PASS	mode=symmetric-only,asm=off
+linkage	PASS	binaries=1,libraries=3,static=yes
+parity.outputs	PASS	command=selftest
+source.archive	PASS	sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
+source.pin	PASS	commit=068ff080b369adfac81509f9b57b2afabaf82dc5,version=3.6.7
+test.selftest	PASS	suites=25,opt=O2
