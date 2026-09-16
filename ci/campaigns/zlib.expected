@@ -3,6 +3,7 @@
 baseline.build	PASS	compiler=host-gcc,opt=O2
 baseline.test.upstream	PASS	cases=4
 build	PASS	archive=libz.a,objects=15
+compiler.sole-c	PASS	project-objects=19,archive-members=15,linked-products=5
 configure	PASS	mode=static
 linkage	PASS	binaries=4,library=static
 parity.outputs	PASS	examples=2,benchmark=crc32+adler32

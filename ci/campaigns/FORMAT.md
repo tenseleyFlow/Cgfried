@@ -37,6 +37,25 @@ publish one deterministic result file.  `foo-bar-expected` is the closure gate.
 All compiler invocations use the caller's `CGF` (normally `build/cgfried`), and
 configuration explicitly routes `CC=$(CGF)`.
 
+## Sole-C provenance
+
+A campaign that publishes a `compiler.sole-c` result uses
+`scripts/campaigns/sole-c.sh` as the build-tree `CC`. The wrapper binds every
+receipt to the exact compiler path and SHA-256, source path and SHA-256, output
+path and SHA-256, complete compiler argv, and explicit project-local link
+inputs. Its closure manifest enumerates every retained C translation, archive
+member, and linked product. Verification rejects missing, duplicate, or extra
+translations; compiler or object substitution; stale outputs; archive members
+that are not byte-identical to their certified objects; and explicit link
+inputs outside the certified closure.
+
+The host-compiler oracle remains a separate pristine tree and contributes no
+bytes to the certified products. System assembler, linker, archive tools, CRT,
+libc, runner, shell, and build tool are outside the phrase "sole C compiler";
+the claim is specifically that every in-scope C translation was performed by
+the designated Cgfried executable and that all explicit project-local link
+inputs descend from those certified translations.
+
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
 descriptor set without requiring a complete in-progress ladder; `--ladder

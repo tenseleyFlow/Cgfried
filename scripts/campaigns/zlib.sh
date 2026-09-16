@@ -19,6 +19,7 @@ work=${CGF_CAMPAIGN_ZLIB_WORK:-$root/build/campaigns/zlib}
 cgf=${CGF_CAMPAIGN_ZLIB_CGF:-$root/build/cgfried}
 hostcc=${CGF_CAMPAIGN_ZLIB_HOSTCC:-gcc}
 timeit=${CGF_CAMPAIGN_ZLIB_TIMEIT:-$root/build/timeit}
+sole=${CGF_CAMPAIGN_ZLIB_SOLE_C:-$root/scripts/campaigns/sole-c.sh}
 target=${CGF_CAMPAIGN_ZLIB_TARGET:-native}
 sysroot=${CGF_CAMPAIGN_ZLIB_SYSROOT:-}
 run_prefix=${CGF_CAMPAIGN_ZLIB_RUNNER_PREFIX:-}
@@ -128,7 +129,11 @@ fi
 tree=$work/cgfried-src
 host_tree=$work/host-gcc-src
 logs=$work/logs
+sole_receipts=$work/sole-c
+sole_manifest=$work/sole-c-closure.tsv
+sole_report=$work/sole-c-report.txt
 cc="$cgf${target_flags:+ $target_flags}"
+sole_cc="$sole cc $sole_receipts $cgf${target_flags:+ $target_flags}"
 
 extract_tree() {
     destination=$1
@@ -160,9 +165,17 @@ configure_tree() {
 build_tree() {
     label=$1
     destination=$2
+    compiler=${3:-}
+    status=0
     [ -f "$destination/Makefile" ] || fail "$label configure has not completed"
-    if ! LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$destination" -j"$jobs" static \
-        >"$logs/$label/build.log" 2>&1; then
+    if [ -n "$compiler" ]; then
+        LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$destination" -j"$jobs" \
+            "CC=$compiler" static >"$logs/$label/build.log" 2>&1 || status=$?
+    else
+        LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$destination" -j"$jobs" static \
+            >"$logs/$label/build.log" 2>&1 || status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
         tail -200 "$logs/$label/build.log" >&2
         fail "$label build failed"
     fi
@@ -176,8 +189,17 @@ test_tree() {
     label=$1
     destination=$2
     prefix=$3
-    if ! LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$destination" -j"$jobs" \
-        QEMU_RUN="$prefix" test >"$logs/$label/test.log" 2>&1; then
+    compiler=${4:-}
+    status=0
+    if [ -n "$compiler" ]; then
+        LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$destination" -j"$jobs" \
+            "CC=$compiler" QEMU_RUN="$prefix" test \
+            >"$logs/$label/test.log" 2>&1 || status=$?
+    else
+        LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$destination" -j"$jobs" \
+            QEMU_RUN="$prefix" test >"$logs/$label/test.log" 2>&1 || status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
         tail -240 "$logs/$label/test.log" >&2
         fail "$label make test failed"
     fi
@@ -232,7 +254,8 @@ configure_stage() {
 }
 
 build_stage() {
-    build_tree cgfried "$tree"
+    "$sole" init "$sole_receipts" "$cgf"
+    build_tree cgfried "$tree" "$sole_cc"
     build_tree host-gcc "$host_tree"
 }
 
@@ -266,7 +289,7 @@ EOF
 native_differential() {
     bench=$work/zlib-crc-adler-bench.c
     write_benchmark "$bench"
-    set -- "$cgf"
+    set -- "$sole" cc "$sole_receipts" "$cgf"
     case $target in
         x86_64-linux-gnu)
             [ "$target" = "$host_target" ] ||
@@ -342,12 +365,41 @@ native_differential() {
     } >"$work/performance-report.txt"
 }
 
+write_sole_c_manifest() {
+    {
+        echo '# cgf-sole-c-closure-v1'
+        for name in adler32 crc32 deflate infback inffast inflate inftrees \
+            trees zutil compress uncompr gzclose gzlib gzread gzwrite; do
+            printf 'object\t%s/%s.c\t%s/%s.o\n' "$tree" "$name" "$tree" "$name"
+        done
+        printf 'object\t%s/test/example.c\t%s/example.o\n' "$tree" "$tree"
+        printf 'object\t%s/test/minigzip.c\t%s/minigzip.o\n' "$tree" "$tree"
+        printf 'object\t%s/test/example.c\t%s/example64.o\n' "$tree" "$tree"
+        printf 'object\t%s/test/minigzip.c\t%s/minigzip64.o\n' "$tree" "$tree"
+        printf 'compile-link\t%s\t%s/zlib-bench-cgfried\n' \
+            "$work/zlib-crc-adler-bench.c" "$work"
+        for name in adler32 crc32 deflate infback inffast inflate inftrees \
+            trees zutil compress uncompr gzclose gzlib gzread gzwrite; do
+            printf 'archive\t%s/libz.a\t%s.o\t%s/%s.o\n' \
+                "$tree" "$name" "$tree" "$name"
+        done
+        for name in example minigzip example64 minigzip64; do
+            printf 'link-input\t%s/%s\t%s/%s.o\n' \
+                "$tree" "$name" "$tree" "$name"
+            printf 'link-input\t%s/%s\t%s/libz.a\n' "$tree" "$name" "$tree"
+        done
+        printf 'link-input\t%s/zlib-bench-cgfried\t%s\n' \
+            "$work" "$work/zlib-crc-adler-bench.c"
+        printf 'link-input\t%s/zlib-bench-cgfried\t%s/libz.a\n' "$work" "$tree"
+    } >"$sole_manifest"
+}
+
 validate_stage() {
     [ -f "$tree/libz.a" ] || fail "build stage has not completed"
     if [ "$target_is_native" -eq 0 ] && [ -z "$run_prefix" ]; then
         fail "cross-target validation requires CGF_CAMPAIGN_ZLIB_RUNNER_PREFIX"
     fi
-    test_tree cgfried "$tree" "$run_prefix"
+    test_tree cgfried "$tree" "$run_prefix" "$sole_cc"
     test_tree host-gcc "$host_tree" ''
     native_differential
     for binary in example minigzip example64 minigzip64; do
@@ -359,12 +411,15 @@ validate_stage() {
                 fail "$binary is dynamically linked in the musl-static lane"
         fi
     done
+    write_sole_c_manifest
+    "$sole" verify "$sole_receipts" "$cgf" "$sole_manifest" "$sole_report"
     {
         echo '# cgf-campaign-results-v1'
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-gcc,opt=O2\n'
         printf 'baseline.test.upstream\tPASS\tcases=4\n'
         printf 'build\tPASS\tarchive=libz.a,objects=15\n'
+        printf 'compiler.sole-c\tPASS\tproject-objects=19,archive-members=15,linked-products=5\n'
         printf 'configure\tPASS\tmode=static\n'
         printf 'linkage\tPASS\tbinaries=4,library=static\n'
         printf 'parity.outputs\tPASS\texamples=2,benchmark=crc32+adler32\n'
