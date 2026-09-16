@@ -292,12 +292,13 @@ exact hosted alias, publishes thirty target-complete cells across three
 imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
-exact tested parents and tree. The current `s56.29-builtin-puts` tranche
-implements the exact hosted `int (const char *)` builtin alias and is expected
-to publish twenty target-complete cells across `pr55273.c` and `20241029-1.c`.
+exact tested parents and tree. The current `s56.29-builtin-puts` tranche on PR
+#124 implements the exact hosted `int (const char *)` builtin alias and
+publishes twenty target-complete cells across `pr55273.c` and `20241029-1.c`.
 Implementation, focused semantic/lowering/runtime/sanitizer validation, the
-20/20 cross-target compile matrix, and native ARM assemble/link/execute proof
-are locally green; publication and hosted CI remain pending.
+20/20 cross-target compile matrix, native ARM assemble/link/execute proof,
+exact-CI evidence, atomic publication, and reversed-input determinism are
+green; final post-publication CI remains pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -6345,10 +6346,56 @@ and green post-publication CI.
   closeout, POSIX shell, campaign contract/lint, warning matrix, target-sema,
   verifier-coverage, no-host-FPU, performance/bootstrap policy, format-matrix,
   and the complete torture runner/import meta-suite are locally green. The
-  expected publication is exactly twenty cells: 31,650 to 31,670 PASS keys,
-  2,390 to 2,370 classified failures, and `gcc-builtin` 210 to 190. Exact
-  target evidence, atomic publication, hosted format 22, and final CI remain
-  pending.
+  publication is exactly twenty cells: 31,650 to 31,670 PASS keys, 2,390 to
+  2,370 classified failures, and `gcc-builtin` 210 to 190.
+
+  Implementation commit `aa3ddfe0aca92349668f47d643451a64851ef159` is on
+  PR #124. Pre-publication standard
+  [run 35027765172](https://github.com/tenseleyFlow/Cgfried/actions/runs/35027765172)
+  passed all nineteen applicable non-torture jobs, including hosted
+  clang-format 22, sanitizers, native ARM, QEMU, campaigns, and the 100,000-case
+  frontend fuzz lane; it skipped only the tag-only policy job and refused only
+  the ten expected unpublished x86 PASS cells. Branch and PR bootstrap
+  [runs 35027729205](https://github.com/tenseleyFlow/Cgfried/actions/runs/35027729205)
+  and
+  [35027765167](https://github.com/tenseleyFlow/Cgfried/actions/runs/35027765167)
+  are green.
+
+  Exact synthetic merge `ea75abe79f77d0076ccd09c1054831109672a365` has
+  parents `dc5dbee1` and `aa3ddfe0`, and tree
+  `a2674e16eec6e123867a9baad9d0e7eb0613e327`, byte-identical to the
+  implementation commit. Its exact-merge nightly
+  [run 35027930156](https://github.com/tenseleyFlow/Cgfried/actions/runs/35027930156)
+  passed all fourteen non-torture jobs and refused only the matching ten ARM64
+  PASS cells. Exact-merge full-lattice bootstrap
+  [run 35027930130](https://github.com/tenseleyFlow/Cgfried/actions/runs/35027930130)
+  is green in all seven jobs.
+
+  The downloaded exact-merge x86 and ARM streams have SHA-256 values
+  `bd54a0a6d2492e33b66bbacf6ab33bfc7d74db6767cf282d72e19cd0c486653d`
+  and
+  `731ee9daa2e1888044c20766d9ca626d0a1923a85ece113a4faee3e80a9e1bbd`.
+  Each contributes exactly ten new PASS keys with zero old-PASS regressions,
+  duplicate keys, or ICEs. Both name the exact synthetic merge and share
+  compiler-source SHA-256
+  `93c38e83c34241a62c3f56088e6ea071a62492936c55bef1ddf65e512c10a3f9`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes.
+
+  Formal GNU-make atomic publication consumes those freshly generated exact
+  CI streams through `gmake -o torture-run torture-baseline`, retaining the
+  publisher's provenance, complete-key, staging, and rollback checks while
+  suppressing only a redundant emulated local matrix rerun. Reversing the two
+  evidence streams regenerates both outputs byte-identically. The result is
+  31,670 PASS keys (31,673 lines), 2,370 classified failures in 32 buckets, 24
+  applied decisions, two deliberately retained stale decisions, and zero
+  unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `d943e9b5c6279051e703308f9a72378198d2e5fe88eee15c5625111b88878791`
+  and
+  `e2549203fc80b335295f257113619e73df1af5c197c47459a6b38b2202e23ddb`.
+  Final post-publication CI remains pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
