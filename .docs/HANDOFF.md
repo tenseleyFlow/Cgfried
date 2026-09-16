@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-15): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-16): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,9 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 6/30 after required daily x86 evidence was absent on September 5
-and matching-head evidence was absent on September 7–8. It remains
-operationally OPEN. Matching-head September 12--14 hosted daily runs are
+at a strict 7/30 through September 15 after required daily x86 evidence was
+absent on September 5 and matching-head evidence was absent on September 7–8.
+It remains
+operationally OPEN. Matching-head September 12--15 hosted daily runs are
 green, and September 13's separate weekly run is full-lattice green. The
 matching-head September 11 recovery
 [`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
@@ -6475,7 +6476,7 @@ and green post-publication CI.
   `e4edf92174b9470bfc5d55fb05f6b50329f04548`; the actual merge and tested
   synthetic commit have the same parents and tree
   `6c9b6659c1c8e3ed7175dc28a22c1e14335c5742`.
-- The current `s56.31-pcre2-sole-c` large-FOSS tranche adds pinned PCRE2 10.48
+- The merged `s56.31-pcre2-sole-c` large-FOSS tranche adds pinned PCRE2 10.48
   (tag commit `7978954dbd2efc6f2196869290553cf1871b4ce6`, release-archive SHA-256
   `ebcc25aadf2a51fa1fefa9b8bc9e7a79b3dae86870a0f1152a22e42befd46888`)
   as the first post-v0.1.0 campaign. It deliberately does not rewrite the
@@ -6523,6 +6524,59 @@ and green post-publication CI.
   POSIX parsing, repository bans, and diff checks pass. Implementation commit
   `fecdcfe01a0a04924d190b15a286f499f97d3b65` has tree
   `96cf12678b672dba0da0156a95b421d43ca0a6e9`.
+
+  PR #126's standard
+  [run 35066498122](https://github.com/tenseleyFlow/Cgfried/actions/runs/35066498122)
+  passed all twenty-two applicable jobs; only the tag-policy route skipped.
+  Exact synthetic merge `b4faecec3cbc9480717f71c60dcacd2b5d3833c8`
+  passed all fifteen
+  [nightly jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35067474648)
+  and all seven
+  [full-lattice bootstrap jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35067474850).
+  PR #126 merged green-only as
+  `90d0a9c7cef379f315d2d70eddc43224d6d649bf`; the actual merge and tested
+  synthetic commit have the same parents and tree
+  `8048907efc02c681687e7fac4fad21f87831b9e3`.
+- The current `s56.32-mbedtls-sole-c` large-FOSS tranche adds pinned Mbed TLS
+  3.6.7 (tag commit `068ff080b369adfac81509f9b57b2afabaf82dc5`,
+  release-archive SHA-256
+  `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`)
+  as the second post-v0.1.0 campaign. The frozen eight-entry v0.1.0 ladder is
+  unchanged; the descriptor is installed beside PCRE2 and required on pull
+  requests through a native x86-64/ARM64 Linux matrix.
+
+  The scope is Mbed TLS's shipped `config-symmetric-only.h` at exactly `-O2`,
+  with upstream assembly, Everest integer-128 arithmetic, and P-256 driver
+  arithmetic disabled. A dedicated compiler adapter carries the immutable
+  configuration through ordinary Make rules and direct compiler probes.
+  Cgfried and host GCC build separate pristine trees. The certified closure
+  contains 114 C objects: 113 byte-checked members across `libmbedcrypto.a`,
+  `libmbedx509.a`, and `libmbedtls.a`, plus the separately compiled upstream
+  `programs/test/selftest.c`. Its explicit static link produces one binary and
+  115 total receipts. Both compilers must execute all 25 enabled self-test
+  suites, emit the success sentinel, and produce byte-identical output. The
+  generator-heavy full upstream harness is not part of this bounded pass bar.
+
+  Native ARM64 Linux is green at the complete offline bar: exact 10-row result
+  ratchet, 115 receipts, self-test 25/25, and sole-C report
+  `project-objects=114 archive-members=113 linked-products=1 translations=114`.
+  Compiler/result/closure/report SHA-256 values are respectively
+  `e9ca8a7e171f11679d9e39a72991f6fddd8373d275dbf9786baf393b3da0dcd2`,
+  `7f92f5ce56784471d5114dfc0794b6c3edc1b67da101eb4bf81abc90b7df4de7`,
+  `cbd94131d8282cd9c37c093f6992c8c17ddba0db5805e67af215a14a20ef8234`,
+  and `e5c7874a5602b7199ce1dc67704b60c2bec66298af5cb2f73252bf855ec16292`.
+  Cgfried and host GCC self-test logs share SHA-256
+  `12b52abfc53499be0408a0e700834c9ed94e228fe64b0fdfd52dd7d1192849d6`.
+  The disposable x86 VM's optional container provisioning wedged before its
+  SSH banner because of host storage pressure; it was force-stopped back to
+  its prior state. Required x86 evidence therefore remains the native hosted
+  PR job, not an inferred local result.
+
+  Campaign metadata, descriptor/expected lint (ten installed descriptors,
+  twelve expected variants, frozen ladder intact), sole-C adversarial tests,
+  POSIX parsing, repository bans, and diff checks pass. Implementation commit
+  `6f6e70d1919661555679e327e15c18bd2a3690c6` has tree
+  `fc9a512c4ae4bb668171c4f7694d6991a72f3763`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
