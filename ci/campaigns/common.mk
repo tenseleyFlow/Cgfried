@@ -17,6 +17,7 @@ campaign-expected-meta: $(BUILD)/cgfried
 	ci/campaigns/test-lua.sh
 	scripts/campaigns/sqlite-campaign-test.sh
 	tests/scripts/campaign_contract_test.sh
+	tests/scripts/campaign_sole_c_test.sh
 	tests/scripts/campaign_failure_report_test.sh
 	tests/scripts/campaign_reporting_test.sh
 	tests/scripts/fleet_sqlite_test.sh

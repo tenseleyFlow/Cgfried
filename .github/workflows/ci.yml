@@ -231,6 +231,9 @@ jobs:
           path: |
             build/campaigns/zlib/results.txt
             build/campaigns/zlib/provenance.txt
+            build/campaigns/zlib/sole-c/**
+            build/campaigns/zlib/sole-c-closure.tsv
+            build/campaigns/zlib/sole-c-report.txt
             build/campaigns/zlib/performance-report.txt
             build/campaigns/zlib/logs/**
           if-no-files-found: warn
