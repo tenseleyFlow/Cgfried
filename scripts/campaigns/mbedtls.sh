@@ -218,6 +218,23 @@ programs/test/query_config.c'
 program_object_stems='programs/ssl/ssl_test_lib
 programs/test/query_config'
 
+# Keep the standalone one-file fuzz drivers frozen independently from the
+# normal-program inventory.  With FUZZINGENGINE absent, upstream links each
+# fuzz target as an ordinary C executable through onefile.c.
+fuzz_targets='fuzz_client
+fuzz_dtlsclient
+fuzz_dtlsserver
+fuzz_pkcs7
+fuzz_privkey
+fuzz_pubkey
+fuzz_server
+fuzz_x509crl
+fuzz_x509crt
+fuzz_x509csr'
+
+fuzz_support_stems='programs/fuzz/common
+programs/fuzz/onefile'
+
 extract_tree() {
     destination=$1
     mkdir -p "$destination"
@@ -279,7 +296,7 @@ configure_stage() {
         printf 'host_compiler=%s\n' "$hostcc"
         printf 'cflags=%s\n' "$cflags"
         printf 'configuration=config-symmetric-only.h\n'
-        printf 'test_scope=generated-suite-and-normal-programs\n'
+        printf 'test_scope=generated-suite-normal-and-fuzz-programs\n'
         printf 'compat_policy=%s\n' "$compat_policy"
         printf 'compat_header=%s\n' "${compat_header:-none}"
         printf 'compat_header_sha256=%s\n' "$compat_sha256"
@@ -360,6 +377,31 @@ verify_program_inventory() {
         fail "$label normal-program inventory changed"
 }
 
+verify_fuzz_inventory() {
+    label=$1
+    source=$2
+    expected=$logs/$label/fuzz-targets.expected
+    actual=$logs/$label/fuzz-targets.actual
+    printf '%s\n' $fuzz_targets >"$expected"
+    : >"$actual"
+    count=0
+    for fuzz_source in "$source"/programs/fuzz/fuzz_*.c; do
+        [ -f "$fuzz_source" ] || fail "$label omitted upstream fuzz sources"
+        target=${fuzz_source##*/}
+        target=${target%.c}
+        printf '%s\n' "$target" >>"$actual"
+        count=$((count + 1))
+    done
+    [ "$count" -eq 10 ] ||
+        fail "$label upstream fuzz-program inventory has $count entries, expected 10"
+    cmp "$expected" "$actual" >/dev/null ||
+        fail "$label fuzz-program inventory changed"
+    for stem in $fuzz_support_stems; do
+        [ -f "$source/$stem.c" ] ||
+            fail "$label omitted fuzz support source: $stem.c"
+    done
+}
+
 generate_test_sources() {
     label=$1
     source=$2
@@ -382,6 +424,7 @@ generate_test_sources() {
         fail "$label generated-program source preparation failed"
     fi
     verify_program_inventory "$label" "$source"
+    verify_fuzz_inventory "$label" "$source"
     write_test_inventory "$label" "$source"
 }
 
@@ -540,6 +583,45 @@ build_programs() {
     verify_program_products "$label" "$source"
 }
 
+verify_fuzz_products() {
+    label=$1
+    source=$2
+    count=0
+    for target in $fuzz_targets; do
+        [ -x "$source/programs/fuzz/$target" ] ||
+            fail "$label omitted fuzz program: $target"
+        [ -f "$source/programs/fuzz/$target.o" ] ||
+            fail "$label omitted fuzz-program object: $target.o"
+        count=$((count + 1))
+    done
+    [ "$count" -eq 10 ] ||
+        fail "$label retained $count fuzz programs, expected 10"
+    for stem in $fuzz_support_stems; do
+        [ -f "$source/$stem.o" ] ||
+            fail "$label omitted fuzz support object: $stem.o"
+    done
+}
+
+build_fuzz_programs() {
+    label=$1
+    source=$2
+    mode=$3
+    set_wrapper_environment "$mode" "$source"
+    status=0
+    (
+        unset FUZZINGENGINE
+        SOURCE_DATE_EPOCH=0 make -C "$source/programs/fuzz" -j"$jobs" \
+            CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= GEN_FILES= \
+            LDFLAGS='../../library/libmbedtls.a ../../library/libmbedx509.a ../../library/libmbedcrypto.a' \
+            all
+    ) >"$logs/$label/build-fuzz-programs.log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -260 "$logs/$label/build-fuzz-programs.log" >&2
+        fail "$label fuzz-program build failed"
+    fi
+    verify_fuzz_products "$label" "$source"
+}
+
 build_stage() {
     [ -f "$tree/Makefile" ] || fail "configure stage has not completed"
     generate_test_sources cgfried "$tree"
@@ -550,9 +632,11 @@ build_stage() {
     build_tree cgfried "$tree" "$cgf_object" "$cgf_program" cgfried
     build_generated_tests cgfried "$tree" cgfried
     build_programs cgfried "$tree" cgfried
+    build_fuzz_programs cgfried "$tree" cgfried
     build_tree host-gcc "$host_tree" "$host_object" "$host_program" host
     build_generated_tests host-gcc "$host_tree" host
     build_programs host-gcc "$host_tree" host
+    build_fuzz_programs host-gcc "$host_tree" host
 }
 
 member_source_and_object() {
@@ -626,6 +710,21 @@ write_program_link_inputs() {
     printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$product" "$tree"
 }
 
+write_fuzz_link_inputs() {
+    target=$1
+    product=$tree/programs/fuzz/$target
+    printf 'link-input\t%s\t%s/programs/fuzz/%s.o\n' "$product" "$tree" "$target"
+    for stem in $fuzz_support_stems; do
+        printf 'link-input\t%s\t%s/%s.o\n' "$product" "$tree" "$stem"
+    done
+    for stem in $test_support_stems; do
+        printf 'link-input\t%s\t%s/%s.o\n' "$product" "$tree" "$stem"
+    done
+    printf 'link-input\t%s\t%s/library/libmbedtls.a\n' "$product" "$tree"
+    printf 'link-input\t%s\t%s/library/libmbedx509.a\n' "$product" "$tree"
+    printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$product" "$tree"
+}
+
 write_manifest() {
     {
         echo '# cgf-sole-c-closure-v1'
@@ -663,6 +762,14 @@ write_manifest() {
             printf 'compile-link\t%s\t%s\n' "$source" "$product"
             printf 'link-input\t%s\t%s\n' "$product" "$source"
             write_program_link_inputs "$target"
+        done
+        for stem in $fuzz_support_stems; do
+            printf 'object\t%s/%s.c\t%s/%s.o\n' "$tree" "$stem" "$tree" "$stem"
+        done
+        for target in $fuzz_targets; do
+            printf 'object\t%s/programs/fuzz/%s.c\t%s/programs/fuzz/%s.o\n' \
+                "$tree" "$target" "$tree" "$target"
+            write_fuzz_link_inputs "$target"
         done
     } >"$manifest"
 }
@@ -742,6 +849,38 @@ test_program_tree() {
         fail "$label PSA constant-name result changed"
 }
 
+test_fuzz_tree() {
+    label=$1
+    source=$2
+    runtime=$work/runtime-$label
+    log=$logs/$label/fuzz-program-smokes.log
+    printf 'Cgfried-fuzz-v1\n' >"$runtime/fuzz-input.bin"
+    status=0
+    (
+        cd "$runtime"
+        for target in $fuzz_targets; do
+            printf 'probe=%s\n' "$target"
+            if "$source/programs/fuzz/$target" fuzz-input.bin; then
+                printf 'status=0\n'
+            else
+                result=$?
+                printf 'status=%s\n' "$result"
+                exit "$result"
+            fi
+        done
+    ) >"$log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -220 "$log" >&2
+        fail "$label fuzz-program smoke failed"
+    fi
+    probes=$(grep -c '^probe=' "$log" || true)
+    [ "$probes" -eq 10 ] ||
+        fail "$label fuzz-program log has $probes probes, expected 10"
+    successes=$(grep -c '^status=0$' "$log" || true)
+    [ "$successes" -eq 10 ] ||
+        fail "$label fuzz-program log has $successes successes, expected 10"
+}
+
 validate_stage() {
     verify_products cgfried "$tree" "$cgf_program"
     verify_products host-gcc "$host_tree" "$host_program"
@@ -749,6 +888,8 @@ validate_stage() {
     verify_test_products host-gcc "$host_tree"
     verify_program_products cgfried "$tree"
     verify_program_products host-gcc "$host_tree"
+    verify_fuzz_products cgfried "$tree"
+    verify_fuzz_products host-gcc "$host_tree"
     test_tree cgfried "$cgf_program"
     test_tree host-gcc "$host_program"
     cmp "$logs/host-gcc/selftest.log" "$logs/cgfried/selftest.log" >/dev/null ||
@@ -763,6 +904,11 @@ validate_stage() {
     cmp "$logs/host-gcc/program-smokes.log" \
         "$logs/cgfried/program-smokes.log" >/dev/null ||
         fail "normal-program smoke output differs from host GCC"
+    test_fuzz_tree cgfried "$tree"
+    test_fuzz_tree host-gcc "$host_tree"
+    cmp "$logs/host-gcc/fuzz-program-smokes.log" \
+        "$logs/cgfried/fuzz-program-smokes.log" >/dev/null ||
+        fail "fuzz-program smoke output differs from host GCC"
 
     write_manifest
     "$sole" verify "$receipts" "$cgf" "$manifest" "$report"
@@ -770,17 +916,19 @@ validate_stage() {
         echo '# cgf-campaign-results-v1'
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-gcc,opt=O2\n'
+        printf 'baseline.test.fuzz-programs\tPASS\tproducts=10,probes=10\n'
         printf 'baseline.test.generated\tPASS\tsuites=140,tests=13266\n'
         printf 'baseline.test.programs\tPASS\tproducts=57,probes=5\n'
         printf 'baseline.test.selftest\tPASS\tsuites=25\n'
-        printf 'build\tPASS\tlibraries=3,translations=341\n'
-        printf 'compiler.sole-c\tPASS\tproject-objects=144,archive-members=113,linked-products=198\n'
+        printf 'build\tPASS\tlibraries=3,translations=353\n'
+        printf 'compiler.sole-c\tPASS\tproject-objects=156,archive-members=113,linked-products=208\n'
         printf 'configure\tPASS\tmode=symmetric-only,asm=off\n'
         printf 'generated.inputs\tPASS\trunners=140,data=140,support=28,programs=2,trees=byte-identical\n'
-        printf 'linkage\tPASS\tbinaries=198,libraries=3,static=yes\n'
-        printf 'parity.outputs\tPASS\tcommands=selftest,generated-tests,program-smokes\n'
+        printf 'linkage\tPASS\tbinaries=208,libraries=3,static=yes\n'
+        printf 'parity.outputs\tPASS\tcommands=selftest,generated-tests,program-smokes,fuzz-program-smokes\n'
         printf 'source.archive\tPASS\tsha256=%s\n' "$MBEDTLS_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' "$MBEDTLS_COMMIT" "$MBEDTLS_VERSION"
+        printf 'test.fuzz-programs\tPASS\tproducts=10,probes=10,opt=O2\n'
         printf 'test.generated\tPASS\tsuites=140,tests=13266,opt=O2\n'
         printf 'test.programs\tPASS\tproducts=57,probes=5,opt=O2\n'
         printf 'test.selftest\tPASS\tsuites=25,opt=O2\n'
