@@ -57,8 +57,10 @@ the designated Cgfried executable and that all explicit project-local link
 inputs descend from those certified translations. Zlib is the first certified
 rung; the post-v0.1.0 PCRE2 campaign is the second, with 35 project objects, 32
 byte-checked archive members, and three linked test products. Mbed TLS 3.6.7 is
-the third: 114 project objects, 113 byte-checked members across three static
-libraries, and one explicitly linked upstream self-test product.
+the third: 142 project objects, 113 byte-checked members across three static
+libraries, one explicitly linked upstream self-test product, and 140 generated
+suite products. Its 282 retained translations execute 13,266 generated-harness
+tests in addition to the 25-suite self-test.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
@@ -134,7 +136,8 @@ frozen v0.1.0 compile-the-world ladder. Post-v0.1.0 descriptors may be included
 in the Makefile and required on pull requests without retroactively changing
 that released manifest; PCRE2 10.48 is the first such large-FOSS rung and runs
 on native x86-64 and ARM64 Linux. Mbed TLS 3.6.7 is the second; its
-symmetric-only configuration and 25-suite self-test run on the same two native
-Linux architectures. Curl's network-dependent full suite and larger campaigns
+symmetric-only configuration, 25-suite self-test, and 140 generated suite
+runners run on the same two native Linux architectures. Curl's
+network-dependent full suite and larger campaigns
 such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0; required bars must not
 silently depend on them.

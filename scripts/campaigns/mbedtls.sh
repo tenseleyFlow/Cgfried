@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+LC_ALL=C
+export LC_ALL
+
 MBEDTLS_VERSION=3.6.7
 MBEDTLS_COMMIT=068ff080b369adfac81509f9b57b2afabaf82dc5
 MBEDTLS_SHA256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
@@ -88,6 +91,8 @@ logs=$work/logs
 receipts=$work/sole-c
 manifest=$work/sole-c-closure.tsv
 report=$work/sole-c-report.txt
+cgf_test_inventory=$logs/cgfried/generated-test-inputs.tsv
+host_test_inventory=$logs/host-gcc/generated-test-inputs.tsv
 cgf_object=$work/cgfried-selftest.o
 cgf_program=$work/cgfried-selftest
 host_object=$work/host-gcc-selftest.o
@@ -115,6 +120,35 @@ tls_members='debug.o mps_reader.o mps_trace.o net_sockets.o ssl_cache.o
 ssl_ciphersuites.o ssl_client.o ssl_cookie.o ssl_debug_helpers_generated.o
 ssl_msg.o ssl_ticket.o ssl_tls.o ssl_tls12_client.o ssl_tls12_server.o
 ssl_tls13_keys.o ssl_tls13_client.o ssl_tls13_server.o ssl_tls13_generic.o'
+
+test_support_stems='framework/tests/src/asn1_helpers
+framework/tests/src/bignum_codepath_check
+framework/tests/src/bignum_helpers
+framework/tests/src/drivers/hash
+framework/tests/src/drivers/platform_builtin_keys
+framework/tests/src/drivers/test_driver_aead
+framework/tests/src/drivers/test_driver_asymmetric_encryption
+framework/tests/src/drivers/test_driver_cipher
+framework/tests/src/drivers/test_driver_key_agreement
+framework/tests/src/drivers/test_driver_key_management
+framework/tests/src/drivers/test_driver_mac
+framework/tests/src/drivers/test_driver_pake
+framework/tests/src/drivers/test_driver_signature
+framework/tests/src/drivers/xof
+framework/tests/src/fake_external_rng_for_test
+framework/tests/src/fork_helpers
+framework/tests/src/helpers
+framework/tests/src/pk_helpers
+framework/tests/src/psa_crypto_helpers
+framework/tests/src/psa_crypto_stubs
+framework/tests/src/psa_exercise_key
+framework/tests/src/psa_memory_poisoning_wrappers
+framework/tests/src/random
+framework/tests/src/test_memory
+framework/tests/src/threading_helpers
+tests/src/certs
+tests/src/psa_test_wrappers
+tests/src/test_helpers/ssl_helpers'
 
 extract_tree() {
     destination=$1
@@ -177,10 +211,66 @@ configure_stage() {
         printf 'host_compiler=%s\n' "$hostcc"
         printf 'cflags=%s\n' "$cflags"
         printf 'configuration=config-symmetric-only.h\n'
+        printf 'test_scope=generated-suite-harness\n'
         printf 'compat_policy=%s\n' "$compat_policy"
         printf 'compat_header=%s\n' "${compat_header:-none}"
         printf 'compat_header_sha256=%s\n' "$compat_sha256"
     } >"$work/provenance.txt"
+}
+
+write_test_inventory() {
+    label=$1
+    source=$2
+    inventory=$logs/$label/generated-test-inputs.tsv
+    : >"$inventory"
+    runner_count=0
+    for generated in "$source"/tests/test_suite_*.c; do
+        [ -f "$generated" ] || fail "$label omitted generated test runners"
+        relative=tests/${generated##*/}
+        digest=$(sha256sum "$generated" | awk '{print $1}')
+        printf 'runner\t%s\t%s\n' "$relative" "$digest" >>"$inventory"
+        runner_count=$((runner_count + 1))
+    done
+    [ "$runner_count" -eq 140 ] ||
+        fail "$label generated $runner_count test runners, expected 140"
+
+    data_count=0
+    for data in "$source"/tests/suites/test_suite_*.data; do
+        [ -f "$data" ] || fail "$label omitted generated test data"
+        relative=tests/suites/${data##*/}
+        digest=$(sha256sum "$data" | awk '{print $1}')
+        printf 'data\t%s\t%s\n' "$relative" "$digest" >>"$inventory"
+        data_count=$((data_count + 1))
+    done
+    [ "$data_count" -eq 140 ] ||
+        fail "$label generated $data_count test data files, expected 140"
+
+    support_count=0
+    for stem in $test_support_stems; do
+        relative=$stem.c
+        [ -f "$source/$relative" ] || fail "$label omitted test support source: $relative"
+        digest=$(sha256sum "$source/$relative" | awk '{print $1}')
+        printf 'support\t%s\t%s\n' "$relative" "$digest" >>"$inventory"
+        support_count=$((support_count + 1))
+    done
+    [ "$support_count" -eq 28 ] ||
+        fail "$label has $support_count test support sources, expected 28"
+}
+
+generate_test_sources() {
+    label=$1
+    source=$2
+    mkdir -p "$logs/$label"
+    set_wrapper_environment host "$source"
+    status=0
+    SOURCE_DATE_EPOCH=0 make -C "$source/tests" -j"$jobs" \
+        CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= generated_files c \
+        >"$logs/$label/generate-tests.log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -260 "$logs/$label/generate-tests.log" >&2
+        fail "$label generated-test source preparation failed"
+    fi
+    write_test_inventory "$label" "$source"
 }
 
 set_wrapper_environment() {
@@ -264,11 +354,57 @@ build_tree() {
     verify_products "$label" "$source" "$program"
 }
 
+verify_test_products() {
+    label=$1
+    source=$2
+    inventory=$logs/$label/generated-test-inputs.tsv
+    [ -f "$inventory" ] || fail "$label generated-test-input inventory is missing"
+    count=0
+    while IFS="$(printf '\t')" read -r kind relative digest; do
+        [ "$kind" = runner ] || continue
+        product=$source/${relative%.c}
+        [ -x "$product" ] || fail "$label omitted generated test product: $relative"
+        count=$((count + 1))
+    done <"$inventory"
+    [ "$count" -eq 140 ] || fail "$label retained $count test products, expected 140"
+
+    actual=0
+    for product in "$source"/tests/test_suite_*; do
+        [ -f "$product" ] && [ -x "$product" ] || continue
+        actual=$((actual + 1))
+    done
+    [ "$actual" -eq 140 ] ||
+        fail "$label produced $actual executable test runners, expected 140"
+}
+
+build_generated_tests() {
+    label=$1
+    source=$2
+    mode=$3
+    set_wrapper_environment "$mode" "$source"
+    status=0
+    SOURCE_DATE_EPOCH=0 make -C "$source" -j"$jobs" \
+        CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= GEN_FILES= \
+        LDFLAGS='../library/libmbedtls.a ../library/libmbedx509.a ../library/libmbedcrypto.a' \
+        tests >"$logs/$label/build-tests.log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -260 "$logs/$label/build-tests.log" >&2
+        fail "$label generated-test build failed"
+    fi
+    verify_test_products "$label" "$source"
+}
+
 build_stage() {
     [ -f "$tree/Makefile" ] || fail "configure stage has not completed"
+    generate_test_sources cgfried "$tree"
+    generate_test_sources host-gcc "$host_tree"
+    cmp "$cgf_test_inventory" "$host_test_inventory" >/dev/null ||
+        fail "generated test-input closure differs between pristine trees"
     "$sole" init "$receipts" "$cgf"
     build_tree cgfried "$tree" "$cgf_object" "$cgf_program" cgfried
+    build_generated_tests cgfried "$tree" cgfried
     build_tree host-gcc "$host_tree" "$host_object" "$host_program" host
+    build_generated_tests host-gcc "$host_tree" host
 }
 
 member_source_and_object() {
@@ -323,6 +459,22 @@ write_manifest() {
         printf 'link-input\t%s\t%s/library/libmbedtls.a\n' "$cgf_program" "$tree"
         printf 'link-input\t%s\t%s/library/libmbedx509.a\n' "$cgf_program" "$tree"
         printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$cgf_program" "$tree"
+        for stem in $test_support_stems; do
+            printf 'object\t%s/%s.c\t%s/%s.o\n' "$tree" "$stem" "$tree" "$stem"
+        done
+        while IFS="$(printf '\t')" read -r kind relative digest; do
+            [ "$kind" = runner ] || continue
+            source=$tree/$relative
+            product=$tree/${relative%.c}
+            printf 'compile-link\t%s\t%s\n' "$source" "$product"
+            printf 'link-input\t%s\t%s\n' "$product" "$source"
+            for stem in $test_support_stems; do
+                printf 'link-input\t%s\t%s/%s.o\n' "$product" "$tree" "$stem"
+            done
+            printf 'link-input\t%s\t%s/library/libmbedtls.a\n' "$product" "$tree"
+            printf 'link-input\t%s\t%s/library/libmbedx509.a\n' "$product" "$tree"
+            printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' "$product" "$tree"
+        done <"$cgf_test_inventory"
     } >"$manifest"
 }
 
@@ -344,13 +496,38 @@ test_tree() {
         fail "$label self-test omitted its success sentinel"
 }
 
+test_generated_tree() {
+    label=$1
+    source=$2
+    status=0
+    (cd "$source/tests" && perl scripts/run-test-suites.pl) \
+        >"$logs/$label/generated-tests.log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        tail -260 "$logs/$label/generated-tests.log" >&2
+        fail "$label generated-test execution failed"
+    fi
+    grep -Fqx 'PASSED (140 suites, 13266 tests run)' \
+        "$logs/$label/generated-tests.log" ||
+        fail "$label generated-test summary changed"
+    passed=$(grep -c ' PASS$' "$logs/$label/generated-tests.log" || true)
+    [ "$passed" -eq 140 ] ||
+        fail "$label generated-test log has $passed passing suites, expected 140"
+}
+
 validate_stage() {
     verify_products cgfried "$tree" "$cgf_program"
     verify_products host-gcc "$host_tree" "$host_program"
+    verify_test_products cgfried "$tree"
+    verify_test_products host-gcc "$host_tree"
     test_tree cgfried "$cgf_program"
     test_tree host-gcc "$host_program"
     cmp "$logs/host-gcc/selftest.log" "$logs/cgfried/selftest.log" >/dev/null ||
         fail "self-test output differs from host GCC"
+    test_generated_tree cgfried "$tree"
+    test_generated_tree host-gcc "$host_tree"
+    cmp "$logs/host-gcc/generated-tests.log" \
+        "$logs/cgfried/generated-tests.log" >/dev/null ||
+        fail "generated-test output differs from host GCC"
 
     write_manifest
     "$sole" verify "$receipts" "$cgf" "$manifest" "$report"
@@ -358,14 +535,17 @@ validate_stage() {
         echo '# cgf-campaign-results-v1'
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-gcc,opt=O2\n'
+        printf 'baseline.test.generated\tPASS\tsuites=140,tests=13266\n'
         printf 'baseline.test.selftest\tPASS\tsuites=25\n'
-        printf 'build\tPASS\tlibraries=3,objects=114\n'
-        printf 'compiler.sole-c\tPASS\tproject-objects=114,archive-members=113,linked-products=1\n'
+        printf 'build\tPASS\tlibraries=3,translations=282\n'
+        printf 'compiler.sole-c\tPASS\tproject-objects=142,archive-members=113,linked-products=141\n'
         printf 'configure\tPASS\tmode=symmetric-only,asm=off\n'
-        printf 'linkage\tPASS\tbinaries=1,libraries=3,static=yes\n'
-        printf 'parity.outputs\tPASS\tcommand=selftest\n'
+        printf 'generated.inputs\tPASS\trunners=140,data=140,support=28,trees=byte-identical\n'
+        printf 'linkage\tPASS\tbinaries=141,libraries=3,static=yes\n'
+        printf 'parity.outputs\tPASS\tcommands=selftest,generated-tests\n'
         printf 'source.archive\tPASS\tsha256=%s\n' "$MBEDTLS_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' "$MBEDTLS_COMMIT" "$MBEDTLS_VERSION"
+        printf 'test.generated\tPASS\tsuites=140,tests=13266,opt=O2\n'
         printf 'test.selftest\tPASS\tsuites=25,opt=O2\n'
     } >"$work/results.txt"
     printf 'campaign-mbedtls: PASS target=%s results=%s artifacts=%s\n' \
