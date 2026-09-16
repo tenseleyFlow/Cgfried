@@ -289,6 +289,56 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Second post-v0.1.0 large-FOSS rung. The symmetric-only configuration keeps
+  # GNU integer-128 arithmetic disabled while both native Linux architectures
+  # certify all three static libraries and the upstream 25-suite self-test.
+  campaign-mbedtls:
+    name: campaign-mbedtls (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned Mbed TLS archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-mbedtls-3.6.7-a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-mbedtls-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make mbedtls-expected
+      - name: retain Mbed TLS campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-mbedtls-${{ matrix.arch }}
+          path: |
+            build/campaigns/mbedtls/results.txt
+            build/campaigns/mbedtls/provenance.txt
+            build/campaigns/mbedtls/sole-c/**
+            build/campaigns/mbedtls/sole-c-closure.tsv
+            build/campaigns/mbedtls/sole-c-report.txt
+            build/campaigns/mbedtls/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS
