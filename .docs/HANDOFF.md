@@ -6395,7 +6395,75 @@ and green post-publication CI.
   `d943e9b5c6279051e703308f9a72378198d2e5fe88eee15c5625111b88878791`
   and
   `e2549203fc80b335295f257113619e73df1af5c197c47459a6b38b2202e23ddb`.
-  Final post-publication CI remains pending.
+  Publication commit `f854927672f2631845634ef50abf2e4ed1527c15`
+  passed final standard
+  [run 35041480435](https://github.com/tenseleyFlow/Cgfried/actions/runs/35041480435),
+  including all twenty applicable jobs and only the tag-only policy skip.
+  Branch and PR bootstrap
+  [runs 35041477621](https://github.com/tenseleyFlow/Cgfried/actions/runs/35041477621)
+  and
+  [35041480530](https://github.com/tenseleyFlow/Cgfried/actions/runs/35041480530)
+  are green. Final synthetic merge
+  `779c724b7ed41d9a1eb82d08cf0203110a96bafd` has parents `dc5dbee1` and
+  `f8549276` and tree `23df6298cc695bca5e6414a9a0a9fa69b94e25f6`.
+  Its exact-merge nightly
+  [run 35041533913](https://github.com/tenseleyFlow/Cgfried/actions/runs/35041533913)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35041533985](https://github.com/tenseleyFlow/Cgfried/actions/runs/35041533985)
+  passed all seven. PR #124 merged green-only as
+  `eabe9bbbbf5ddf26dedc390bec26bfe822671351`; the actual merge has the exact
+  tested parents and tree.
+- The current `s56.30-zlib-sole-c` campaign-integrity tranche makes "Cgfried
+  compiled zlib" a byte-closed claim rather than an inference from configured
+  `CC` and passing tests. Reusable POSIX wrapper
+  `scripts/campaigns/sole-c.sh` binds every retained translation receipt to the
+  exact compiler path and SHA-256, source path and SHA-256, output path and
+  SHA-256, argv, and explicit project-local inputs. Its verifier requires an
+  exact closure manifest, rejects missing or extra translations and links,
+  rehashes the compiler/sources/outputs, compares every archive member byte for
+  byte with its certified object, and proves every explicit project-local link
+  input descends from the certified closure. The pristine host-GCC oracle stays
+  in its separate source tree and contributes no bytes to Cgfried products.
+
+  Zlib is the first certified rung. Its closure is exactly 19 retained project
+  objects: the 15 `libz.a` objects plus `example.o`, `minigzip.o`,
+  `example64.o`, and `minigzip64.o`. The archive contains exactly the 15
+  certified library members. Four upstream executables and the direct
+  `zlib-bench-cgfried` compile-link make five linked products and 20 C
+  translations total. The exact result ratchet gains the sorted row
+  `compiler.sole-c PASS project-objects=19,archive-members=15,linked-products=5`.
+  Standard CI now retains the receipts, closure manifest, and verification
+  report; the nightly native and musl-static artifacts already retain their
+  complete campaign work roots. `CAMP-ALL-005` records the repaired provenance
+  boundary, and the format contract defines precisely which system tools are
+  outside the "sole C compiler" claim.
+
+  The permanent adversarial meta-test proves a valid closure and then rejects
+  six independent corruptions: a stale object, an archive-member substitution,
+  a host-compiled object with no receipt, an extra translation, a changed
+  compiler executable, and a substituted link input. It passes on Apple
+  silicon, native ARM64 Linux, and x86-64 Linux; campaign lint and strict POSIX
+  parsing pass on all three. The complete campaign metadata/reporting suite,
+  repository ban gate, and diff checks pass locally. The broad Apple
+  `make test` retains its documented pre-test failure building binary128 runtime
+  support because Apple Clang does not implement `mode(TF)`; no tranche code is
+  reached by that unsupported build target.
+
+  Both checksum-pinned offline zlib campaigns are green at their full upstream
+  and exact-ratchet bars. ARM64 Linux records compiler SHA-256
+  `8f0b51ff6f56daa45c32a68c1f45535fdbf52f032cec3bee092ac6003374545b`,
+  closure/report SHA-256 values
+  `8c01bed0971af32ff3b860c20354f98a84ae5487e1f1aaf60d798f2236028811`
+  and `f1c31a3d7bccb69e95ec088b6c32ec69962b8089b38f861067a33f611878161d`.
+  X86-64 Linux records compiler SHA-256
+  `47483003a346ba88382110935ea85f10a7081b7df78977d0068f385085cf9ffa`,
+  closure/report SHA-256 values
+  `7d0088f8b78cb98c4e032e8ef31a7ce7ace841ae6f2b69c8f106d511ce601aad`
+  and `a1c54adaa01e64569f5d2d085f268faba3167a1d3543687d683707155a0487f6`.
+  Each retains exactly 24 receipts and the same deterministic 11-row result
+  SHA-256 `266168883ea2a0daac57c723719c796af3ddf8c124f015f1c8cb3c754fce6db6`.
+  Implementation commit `88016fa4274316e3a6dcaf8b0631cc5f67d93bda`
+  has tree `4b3b771c50126d4295bced6769f543d0b69b0721`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
