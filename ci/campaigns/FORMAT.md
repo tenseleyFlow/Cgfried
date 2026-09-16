@@ -54,7 +54,9 @@ bytes to the certified products. System assembler, linker, archive tools, CRT,
 libc, runner, shell, and build tool are outside the phrase "sole C compiler";
 the claim is specifically that every in-scope C translation was performed by
 the designated Cgfried executable and that all explicit project-local link
-inputs descend from those certified translations.
+inputs descend from those certified translations. Zlib is the first certified
+rung; the post-v0.1.0 PCRE2 campaign is the second, with 35 project objects, 32
+byte-checked archive members, and three linked test products.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
@@ -125,7 +127,10 @@ locale, wall-clock time, or parallel completion order.
 ## Current ladder and deferred scope
 
 The Sprint 57 campaigns are musl, chibicc, tinycc, and qbe.  Sprint 59 adds
-zlib, lua, sqlite, and curl.  The full eight-descriptor set is the v0.1.0
-compile-the-world ladder.  Curl's network-dependent full suite and larger
-campaigns such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0; required
-bars must not silently depend on them.
+zlib, lua, sqlite, and curl.  The eight-entry publication manifest remains the
+frozen v0.1.0 compile-the-world ladder. Post-v0.1.0 descriptors may be included
+in the Makefile and required on pull requests without retroactively changing
+that released manifest; PCRE2 10.48 is the first such large-FOSS rung and runs
+on native x86-64 and ARM64 Linux. Curl's network-dependent full suite and
+larger campaigns such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0;
+required bars must not silently depend on them.

@@ -6413,7 +6413,7 @@ and green post-publication CI.
   passed all seven. PR #124 merged green-only as
   `eabe9bbbbf5ddf26dedc390bec26bfe822671351`; the actual merge has the exact
   tested parents and tree.
-- The current `s56.30-zlib-sole-c` campaign-integrity tranche makes "Cgfried
+- The merged `s56.30-zlib-sole-c` campaign-integrity tranche makes "Cgfried
   compiled zlib" a byte-closed claim rather than an inference from configured
   `CC` and passing tests. Reusable POSIX wrapper
   `scripts/campaigns/sole-c.sh` binds every retained translation receipt to the
@@ -6464,6 +6464,65 @@ and green post-publication CI.
   SHA-256 `266168883ea2a0daac57c723719c796af3ddf8c124f015f1c8cb3c754fce6db6`.
   Implementation commit `88016fa4274316e3a6dcaf8b0631cc5f67d93bda`
   has tree `4b3b771c50126d4295bced6769f543d0b69b0721`.
+  PR #125's standard
+  [run 35057219618](https://github.com/tenseleyFlow/Cgfried/actions/runs/35057219618)
+  passed all twenty applicable jobs and only the tag-policy skip. Exact
+  synthetic merge `b4d7c7d86bbf236c344619928148feeef0f7348d` passed all fifteen
+  [nightly jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35057493136)
+  and all seven
+  [full-lattice bootstrap jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35057493170).
+  PR #125 merged green-only as
+  `e4edf92174b9470bfc5d55fb05f6b50329f04548`; the actual merge and tested
+  synthetic commit have the same parents and tree
+  `6c9b6659c1c8e3ed7175dc28a22c1e14335c5742`.
+- The current `s56.31-pcre2-sole-c` large-FOSS tranche adds pinned PCRE2 10.48
+  (tag commit `7978954dbd2efc6f2196869290553cf1871b4ce6`, release-archive SHA-256
+  `ebcc25aadf2a51fa1fefa9b8bc9e7a79b3dae86870a0f1152a22e42befd46888`)
+  as the first post-v0.1.0 campaign. It deliberately does not rewrite the
+  frozen eight-entry v0.1.0 publication ladder: the descriptor is included by
+  the Makefile, linted with every installed campaign, and required on pull
+  requests through a native x86-64/ARM64 matrix.
+
+  The configuration is static 8-bit PCRE2 with Unicode enabled and JIT,
+  16-bit, 32-bit, rebuilt chartables, optional compression/readline libraries,
+  fuzzing, Valgrind, coverage, and grep callouts disabled. Cgfried and host GCC
+  configure, build, and test separate pristine source/build roots. The exact
+  Cgfried closure is 35 retained C objects: 31 members of `libpcre2-8.a`, the
+  sole member of `libpcre2-posix.a`, and one object for each of `pcre2grep`,
+  `pcre2test`, and `pcre2posix_test`. Three final links produce 38 receipts;
+  the verifier byte-checks all 32 archive members and every explicit local link
+  input. Both compilers must pass all three upstream Automake tests with zero
+  skips, and `pcre2grep -V` plus `pcre2test -C` must match byte-for-byte.
+
+  Native ARM64 Linux is green at the complete offline bar: upstream 3/3,
+  exact 10-row result ratchet, 38 receipts, and sole-C report
+  `project-objects=35 archive-members=32 linked-products=3 translations=35`.
+  Compiler/result/closure/report SHA-256 values are respectively
+  `a1fa0ad80d47a94a9ed95a15d8d8b0e4870a88fba05b7edf9262cde04617926f`,
+  `1c999176a08d08ae727ccae072cfbcfd71e593cc7321500f55d7849dc23adae1`,
+  `255ff5741b5bcc1cdb15cd9d6ed83b5741808127caa22130341df30360bd6745`,
+  and `49e007d513c899e91bea960f6b5a38a36676a754e36cf2d7709886e85c1ffe2c`.
+  The same immutable source checkpoint is green under the x86-64 Linux VM,
+  with the identical result hash and compiler/closure/report SHA-256 values
+  `f95512a9e94b241138128017523dbf0df41b73d7c200d4f0a3b6e46fc7455fe4`,
+  `71fe0c8c9a3f5ccedf4bc38bb6ab9e3491d6e779049a65eebdfaa1f97ea25c4b`,
+  and `4edac2a14b491583ec4efb3e21cec08ed948b7ff791e350d7b5502cf96e26ef2`.
+  The x86 VM was returned to its prior stopped state.
+
+  Native Apple silicon also configured and compiled the complete certified
+  closure (35 objects, three links, 38 receipts) with the scoped hosted-header
+  shim. Its fresh validation was interrupted only because the APFS data volume
+  was at its 100% allocation threshold and upstream could not create test
+  output files (`ENOSPC`); no semantic mismatch was emitted. The earlier scout
+  build on this same machine passed the complete upstream suite 3/3. Required
+  merge evidence remains the two native Linux CI architectures so local disk
+  pressure cannot be mistaken for compiler correctness.
+
+  Campaign metadata, descriptor/expected lint (nine installed descriptors,
+  eleven expected variants, frozen ladder intact), sole-C adversarial tests,
+  POSIX parsing, repository bans, and diff checks pass. Implementation commit
+  `fecdcfe01a0a04924d190b15a286f499f97d3b65` has tree
+  `96cf12678b672dba0da0156a95b421d43ca0a6e9`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
