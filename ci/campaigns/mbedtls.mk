@@ -1,7 +1,8 @@
 # Post-v0.1.0 large-FOSS campaign: the checksum-pinned Mbed TLS release is
-# cached once, then the complete symmetric-only static closure, generated
-# upstream test-suite harness, normal C programs, and standalone one-file fuzz
-# programs run offline.
+# cached once. The strict-C17 portable-default static-library closure and
+# 30-suite self-test run independently from the complete symmetric-only
+# closure, generated upstream test-suite harness, normal C programs, and
+# standalone one-file fuzz programs; both profiles run offline.
 
 include ci/campaigns/common.mk
 

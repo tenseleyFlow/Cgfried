@@ -289,11 +289,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  # Second post-v0.1.0 large-FOSS rung. The symmetric-only configuration keeps
-  # GNU integer-128 arithmetic disabled while both native Linux architectures
-  # certify all three static libraries, the upstream 25-suite self-test, the
-  # 140 generated suite runners (13,266 tests), 57 normal C programs, and all
-  # ten standalone one-file fuzz programs.
+  # Second post-v0.1.0 large-FOSS rung. Both native Linux architectures certify
+  # all three static libraries and a 30-suite self-test under the portable
+  # upstream-default configuration. The independent symmetric-only closure
+  # additionally certifies its 25-suite self-test, 140 generated suite runners
+  # (13,266 tests), 57 normal C programs, and all ten standalone one-file fuzz
+  # programs.
   campaign-mbedtls:
     name: campaign-mbedtls (${{ matrix.arch }})
     strategy:
@@ -337,6 +338,9 @@ jobs:
             build/campaigns/mbedtls/sole-c/**
             build/campaigns/mbedtls/sole-c-closure.tsv
             build/campaigns/mbedtls/sole-c-report.txt
+            build/campaigns/mbedtls/sole-c-default/**
+            build/campaigns/mbedtls/sole-c-default-closure.tsv
+            build/campaigns/mbedtls/sole-c-default-report.txt
             build/campaigns/mbedtls/logs/**
           if-no-files-found: warn
           retention-days: 30

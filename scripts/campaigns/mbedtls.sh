@@ -27,10 +27,13 @@ cc_wrapper=${CGF_CAMPAIGN_MBEDTLS_CC_WRAPPER:-$root/scripts/campaigns/mbedtls-cc
 jobs=${CGF_CAMPAIGN_JOBS:-}
 cflags=${CGF_CAMPAIGN_MBEDTLS_CFLAGS:--O2}
 linux_compat=$root/ci/campaigns/compat/arm64-linux-u128-storage.h
+default_portable_config=$root/ci/campaigns/mbedtls-default-portable.h
 
 [ -x "$cgf" ] || fail "cgfried compiler is missing or not executable: $cgf"
 [ -x "$sole" ] || fail "sole-C wrapper is missing or not executable: $sole"
 [ -x "$cc_wrapper" ] || fail "compiler adapter is missing or not executable: $cc_wrapper"
+[ -f "$default_portable_config" ] ||
+    fail "portable-default configuration overlay is missing: $default_portable_config"
 [ "$cflags" = -O2 ] || fail "Mbed TLS validation requires exactly -O2, got: $cflags"
 [ -f "$archive" ] || fail "verified source archive is missing: $archive"
 got=$(sha256sum "$archive" | awk '{print $1}')
@@ -78,6 +81,7 @@ if [ -n "$compat_header" ]; then
     [ -r "$compat_header" ] || fail "hosted-header compatibility file is unreadable"
     compat_sha256=$(sha256sum "$compat_header" | awk '{print $1}')
 fi
+default_portable_config_sha256=$(sha256sum "$default_portable_config" | awk '{print $1}')
 
 as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}
 ld_path=${CGF_LD_PATH:-$(command -v ld 2>/dev/null || true)}
@@ -87,16 +91,25 @@ export CGF_AS_PATH="$as_path" CGF_LD_PATH="$ld_path"
 
 tree=$work/cgfried-src
 host_tree=$work/host-gcc-src
+default_tree=$work/cgfried-default-src
+default_host_tree=$work/host-gcc-default-src
 logs=$work/logs
 receipts=$work/sole-c
 manifest=$work/sole-c-closure.tsv
 report=$work/sole-c-report.txt
+default_receipts=$work/sole-c-default
+default_manifest=$work/sole-c-default-closure.tsv
+default_report=$work/sole-c-default-report.txt
 cgf_test_inventory=$logs/cgfried/generated-test-inputs.tsv
 host_test_inventory=$logs/host-gcc/generated-test-inputs.tsv
 cgf_object=$work/cgfried-selftest.o
 cgf_program=$work/cgfried-selftest
 host_object=$work/host-gcc-selftest.o
 host_program=$work/host-gcc-selftest
+default_cgf_object=$work/cgfried-default-selftest.o
+default_cgf_program=$work/cgfried-default-selftest
+default_host_object=$work/host-gcc-default-selftest.o
+default_host_program=$work/host-gcc-default-selftest
 
 crypto_members='aes.o aesni.o aesce.o aria.o asn1parse.o asn1write.o
 base64.o bignum.o bignum_core.o bignum_mod.o bignum_mod_raw.o
@@ -271,6 +284,8 @@ configure_stage() {
     fi
     extract_tree "$tree"
     extract_tree "$host_tree"
+    extract_tree "$default_tree"
+    extract_tree "$default_host_tree"
     grep -F '#define MBEDTLS_VERSION_MAJOR  3' "$tree/include/mbedtls/build_info.h" >/dev/null ||
         fail "source tree does not identify Mbed TLS major version 3"
     grep -F '#define MBEDTLS_VERSION_MINOR  6' "$tree/include/mbedtls/build_info.h" >/dev/null ||
@@ -287,6 +302,27 @@ configure_stage() {
     grep -Fqx '#define MBEDTLS_PSA_P256M_DRIVER_ENABLED' "$config" &&
         fail "symmetric-only configuration unexpectedly enables P-256 arithmetic"
 
+    default_config=$default_tree/include/mbedtls/mbedtls_config.h
+    for definition in \
+        MBEDTLS_SELF_TEST \
+        MBEDTLS_PSA_CRYPTO_C \
+        MBEDTLS_RSA_C \
+        MBEDTLS_SSL_TLS_C \
+        MBEDTLS_X509_USE_C; do
+        grep -Fqx "#define $definition" "$default_config" ||
+            fail "upstream default configuration omitted $definition"
+    done
+    grep -Fqx '#define MBEDTLS_HAVE_ASM' "$default_config" ||
+        fail "upstream default configuration omitted assembly support"
+    grep -Fqx '#define MBEDTLS_ECDH_VARIANT_EVEREST_ENABLED' "$default_config" &&
+        fail "upstream default configuration unexpectedly enables Everest arithmetic"
+    grep -Fqx '#define MBEDTLS_PSA_P256M_DRIVER_ENABLED' "$default_config" &&
+        fail "upstream default configuration unexpectedly enables P-256 arithmetic"
+    grep -Fqx '#include "mbedtls/mbedtls_config.h"' "$default_portable_config" ||
+        fail "portable-default overlay omitted the upstream default configuration"
+    grep -Fqx '#undef MBEDTLS_AESNI_C' "$default_portable_config" ||
+        fail "portable-default overlay omitted the AES-NI exclusion"
+
     {
         printf 'version=%s\n' "$MBEDTLS_VERSION"
         printf 'commit=%s\n' "$MBEDTLS_COMMIT"
@@ -296,7 +332,14 @@ configure_stage() {
         printf 'host_compiler=%s\n' "$hostcc"
         printf 'cflags=%s\n' "$cflags"
         printf 'configuration=config-symmetric-only.h\n'
+        printf 'configuration_dialect=c17\n'
         printf 'test_scope=generated-suite-normal-and-fuzz-programs\n'
+        printf 'default_configuration=mbedtls_config.h\n'
+        printf 'default_configuration_overlay=mbedtls-default-portable.h\n'
+        printf 'default_configuration_overlay_sha256=%s\n' \
+            "$default_portable_config_sha256"
+        printf 'default_configuration_dialect=c17\n'
+        printf 'default_test_scope=static-libraries-and-selftest\n'
         printf 'compat_policy=%s\n' "$compat_policy"
         printf 'compat_header=%s\n' "${compat_header:-none}"
         printf 'compat_header_sha256=%s\n' "$compat_sha256"
@@ -406,7 +449,7 @@ generate_test_sources() {
     label=$1
     source=$2
     mkdir -p "$logs/$label"
-    set_wrapper_environment host "$source"
+    set_wrapper_environment host "$source" symmetric
     status=0
     SOURCE_DATE_EPOCH=0 make -C "$source/tests" -j"$jobs" \
         CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= generated_files c \
@@ -431,10 +474,25 @@ generate_test_sources() {
 set_wrapper_environment() {
     mode=$1
     source=$2
+    profile=$3
+    case $profile in
+        symmetric)
+            config=$source/configs/config-symmetric-only.h
+            active_receipts=$receipts
+            dialect=c17
+            ;;
+        default)
+            config=$default_portable_config
+            active_receipts=$default_receipts
+            dialect=c17
+            ;;
+        *) fail "unknown Mbed TLS configuration profile: $profile" ;;
+    esac
     export CGF_CAMPAIGN_MBEDTLS_CC_MODE=$mode
-    export CGF_CAMPAIGN_MBEDTLS_CONFIG=$source/configs/config-symmetric-only.h
+    export CGF_CAMPAIGN_MBEDTLS_CONFIG=$config
+    export CGF_CAMPAIGN_MBEDTLS_DIALECT=$dialect
     export CGF_CAMPAIGN_MBEDTLS_SOLE=$sole
-    export CGF_CAMPAIGN_MBEDTLS_RECEIPTS=$receipts
+    export CGF_CAMPAIGN_MBEDTLS_RECEIPTS=$active_receipts
     export CGF_CAMPAIGN_MBEDTLS_CGF=$cgf
     export CGF_CAMPAIGN_MBEDTLS_HOSTCC=$hostcc
     export CGF_CAMPAIGN_MBEDTLS_COMPAT=$compat_header
@@ -487,8 +545,9 @@ build_tree() {
     object=$3
     program=$4
     mode=$5
+    profile=$6
     mkdir -p "$logs/$label"
-    set_wrapper_environment "$mode" "$source"
+    set_wrapper_environment "$mode" "$source" "$profile"
     status=0
     LC_ALL=C SOURCE_DATE_EPOCH=0 make -C "$source" -j"$jobs" \
         CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= lib \
@@ -536,7 +595,7 @@ build_generated_tests() {
     label=$1
     source=$2
     mode=$3
-    set_wrapper_environment "$mode" "$source"
+    set_wrapper_environment "$mode" "$source" symmetric
     status=0
     SOURCE_DATE_EPOCH=0 make -C "$source" -j"$jobs" \
         CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= GEN_FILES= \
@@ -570,7 +629,7 @@ build_programs() {
     label=$1
     source=$2
     mode=$3
-    set_wrapper_environment "$mode" "$source"
+    set_wrapper_environment "$mode" "$source" symmetric
     status=0
     SOURCE_DATE_EPOCH=0 make -C "$source/programs" -j"$jobs" \
         CC="$cc_wrapper" HOSTCC="$cc_wrapper" CFLAGS= GEN_FILES= \
@@ -606,7 +665,7 @@ build_fuzz_programs() {
     label=$1
     source=$2
     mode=$3
-    set_wrapper_environment "$mode" "$source"
+    set_wrapper_environment "$mode" "$source" symmetric
     status=0
     (
         unset FUZZINGENGINE
@@ -629,14 +688,19 @@ build_stage() {
     cmp "$cgf_test_inventory" "$host_test_inventory" >/dev/null ||
         fail "generated test-input closure differs between pristine trees"
     "$sole" init "$receipts" "$cgf"
-    build_tree cgfried "$tree" "$cgf_object" "$cgf_program" cgfried
+    "$sole" init "$default_receipts" "$cgf"
+    build_tree cgfried "$tree" "$cgf_object" "$cgf_program" cgfried symmetric
     build_generated_tests cgfried "$tree" cgfried
     build_programs cgfried "$tree" cgfried
     build_fuzz_programs cgfried "$tree" cgfried
-    build_tree host-gcc "$host_tree" "$host_object" "$host_program" host
+    build_tree cgfried-default "$default_tree" "$default_cgf_object" \
+        "$default_cgf_program" cgfried default
+    build_tree host-gcc "$host_tree" "$host_object" "$host_program" host symmetric
     build_generated_tests host-gcc "$host_tree" host
     build_programs host-gcc "$host_tree" host
     build_fuzz_programs host-gcc "$host_tree" host
+    build_tree host-gcc-default "$default_host_tree" "$default_host_object" \
+        "$default_host_program" host default
 }
 
 member_source_and_object() {
@@ -664,19 +728,20 @@ member_source_and_object() {
 }
 
 write_archive_manifest() {
-    archive=$1
-    members=$2
+    source_tree=$1
+    archive=$2
+    members=$3
     for member in $members; do
-        mapping=$(member_source_and_object "$tree" "$member")
+        mapping=$(member_source_and_object "$source_tree" "$member")
         source=${mapping%%"$(printf '\t')"*}
         object=${mapping#*"$(printf '\t')"}
         printf 'object\t%s\t%s\n' "$source" "$object"
     done
     for member in $members; do
-        mapping=$(member_source_and_object "$tree" "$member")
+        mapping=$(member_source_and_object "$source_tree" "$member")
         object=${mapping#*"$(printf '\t')"}
         printf 'archive\t%s/library/%s\t%s\t%s\n' \
-            "$tree" "$archive" "$member" "$object"
+            "$source_tree" "$archive" "$member" "$object"
     done
 }
 
@@ -728,9 +793,9 @@ write_fuzz_link_inputs() {
 write_manifest() {
     {
         echo '# cgf-sole-c-closure-v1'
-        write_archive_manifest libmbedcrypto.a "$crypto_members"
-        write_archive_manifest libmbedx509.a "$x509_members"
-        write_archive_manifest libmbedtls.a "$tls_members"
+        write_archive_manifest "$tree" libmbedcrypto.a "$crypto_members"
+        write_archive_manifest "$tree" libmbedx509.a "$x509_members"
+        write_archive_manifest "$tree" libmbedtls.a "$tls_members"
         printf 'object\t%s/programs/test/selftest.c\t%s\n' "$tree" "$cgf_object"
         printf 'link-input\t%s\t%s\n' "$cgf_program" "$cgf_object"
         printf 'link-input\t%s\t%s/library/libmbedtls.a\n' "$cgf_program" "$tree"
@@ -774,9 +839,28 @@ write_manifest() {
     } >"$manifest"
 }
 
+write_default_manifest() {
+    {
+        echo '# cgf-sole-c-closure-v1'
+        write_archive_manifest "$default_tree" libmbedcrypto.a "$crypto_members"
+        write_archive_manifest "$default_tree" libmbedx509.a "$x509_members"
+        write_archive_manifest "$default_tree" libmbedtls.a "$tls_members"
+        printf 'object\t%s/programs/test/selftest.c\t%s\n' \
+            "$default_tree" "$default_cgf_object"
+        printf 'link-input\t%s\t%s\n' "$default_cgf_program" "$default_cgf_object"
+        printf 'link-input\t%s\t%s/library/libmbedtls.a\n' \
+            "$default_cgf_program" "$default_tree"
+        printf 'link-input\t%s\t%s/library/libmbedx509.a\n' \
+            "$default_cgf_program" "$default_tree"
+        printf 'link-input\t%s\t%s/library/libmbedcrypto.a\n' \
+            "$default_cgf_program" "$default_tree"
+    } >"$default_manifest"
+}
+
 test_tree() {
     label=$1
     program=$2
+    suites=$3
     runtime=$work/runtime-$label
     rm -rf "$runtime"
     mkdir -p "$runtime"
@@ -786,10 +870,25 @@ test_tree() {
         tail -240 "$logs/$label/selftest.log" >&2
         fail "$label self-test failed"
     fi
-    grep -F 'Executed 25 test suites' "$logs/$label/selftest.log" >/dev/null ||
-        fail "$label self-test did not execute exactly 25 suites"
+    grep -F "Executed $suites test suites" "$logs/$label/selftest.log" >/dev/null ||
+        fail "$label self-test did not execute exactly $suites suites"
     grep -F '[ All tests PASS ]' "$logs/$label/selftest.log" >/dev/null ||
         fail "$label self-test omitted its success sentinel"
+}
+
+normalize_default_selftest() {
+    label=$1
+    input=$logs/$label/selftest.log
+    output=$logs/$label/selftest.normalized.log
+    note_count=$(grep -Ec '^  (AES|GCM) note: ' "$input" || true)
+    allowed_count=$(grep -Ec \
+        '^  (AES note: (alternative implementation|AESNI code present \((assembly|intrinsics) implementation\)|using (AESNI|VIA Padlock|AESCE)|built-in implementation)|GCM note: (alternative implementation|using (AESNI|AESCE)|built-in implementation))\.$' \
+        "$input" || true)
+    [ "$note_count" -ge 2 ] ||
+        fail "$label default self-test omitted accelerator-selection notes"
+    [ "$note_count" -eq "$allowed_count" ] ||
+        fail "$label default self-test emitted an unknown accelerator-selection note"
+    sed '/^  AES note: /d; /^  GCM note: /d' "$input" >"$output"
 }
 
 test_generated_tree() {
@@ -884,16 +983,25 @@ test_fuzz_tree() {
 validate_stage() {
     verify_products cgfried "$tree" "$cgf_program"
     verify_products host-gcc "$host_tree" "$host_program"
+    verify_products cgfried-default "$default_tree" "$default_cgf_program"
+    verify_products host-gcc-default "$default_host_tree" "$default_host_program"
     verify_test_products cgfried "$tree"
     verify_test_products host-gcc "$host_tree"
     verify_program_products cgfried "$tree"
     verify_program_products host-gcc "$host_tree"
     verify_fuzz_products cgfried "$tree"
     verify_fuzz_products host-gcc "$host_tree"
-    test_tree cgfried "$cgf_program"
-    test_tree host-gcc "$host_program"
+    test_tree cgfried "$cgf_program" 25
+    test_tree host-gcc "$host_program" 25
     cmp "$logs/host-gcc/selftest.log" "$logs/cgfried/selftest.log" >/dev/null ||
         fail "self-test output differs from host GCC"
+    test_tree cgfried-default "$default_cgf_program" 30
+    test_tree host-gcc-default "$default_host_program" 30
+    normalize_default_selftest cgfried-default
+    normalize_default_selftest host-gcc-default
+    cmp "$logs/host-gcc-default/selftest.normalized.log" \
+        "$logs/cgfried-default/selftest.normalized.log" >/dev/null ||
+        fail "default-configuration self-test output differs from host GCC"
     test_generated_tree cgfried "$tree"
     test_generated_tree host-gcc "$host_tree"
     cmp "$logs/host-gcc/generated-tests.log" \
@@ -912,22 +1020,34 @@ validate_stage() {
 
     write_manifest
     "$sole" verify "$receipts" "$cgf" "$manifest" "$report"
+    write_default_manifest
+    "$sole" verify "$default_receipts" "$cgf" "$default_manifest" \
+        "$default_report"
     {
         echo '# cgf-campaign-results-v1'
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-gcc,opt=O2\n'
+        printf 'baseline.build.default-libraries\tPASS\tcompiler=host-gcc,opt=O2\n'
+        printf 'baseline.test.default-selftest\tPASS\tsuites=30\n'
         printf 'baseline.test.fuzz-programs\tPASS\tproducts=10,probes=10\n'
         printf 'baseline.test.generated\tPASS\tsuites=140,tests=13266\n'
         printf 'baseline.test.programs\tPASS\tproducts=57,probes=5\n'
         printf 'baseline.test.selftest\tPASS\tsuites=25\n'
         printf 'build\tPASS\tlibraries=3,translations=353\n'
+        printf 'build.default-libraries\tPASS\tlibraries=3,translations=114\n'
         printf 'compiler.sole-c\tPASS\tproject-objects=156,archive-members=113,linked-products=208\n'
-        printf 'configure\tPASS\tmode=symmetric-only,asm=off\n'
+        printf 'compiler.sole-c.default-libraries\tPASS\tproject-objects=114,archive-members=113,linked-products=1\n'
+        printf 'configure\tPASS\tmode=symmetric-only,dialect=c17,asm=off\n'
+        printf 'configure.default\tPASS\tmode=portable-default,dialect=c17,asm=on,aesni=off,everest=off,p256m=off\n'
         printf 'generated.inputs\tPASS\trunners=140,data=140,support=28,programs=2,trees=byte-identical\n'
         printf 'linkage\tPASS\tbinaries=208,libraries=3,static=yes\n'
+        printf 'linkage.default-libraries\tPASS\tbinaries=1,libraries=3,static=yes\n'
+        printf 'parity.accelerator-selection\tSKIP\tCAMP-MBEDTLS-001;selection=compiler-and-target-dependent\n'
         printf 'parity.outputs\tPASS\tcommands=selftest,generated-tests,program-smokes,fuzz-program-smokes\n'
+        printf 'parity.outputs.default-selftest\tPASS\tcommands=selftest,normalization=accelerator-notes\n'
         printf 'source.archive\tPASS\tsha256=%s\n' "$MBEDTLS_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' "$MBEDTLS_COMMIT" "$MBEDTLS_VERSION"
+        printf 'test.default-selftest\tPASS\tsuites=30,opt=O2\n'
         printf 'test.fuzz-programs\tPASS\tproducts=10,probes=10,opt=O2\n'
         printf 'test.generated\tPASS\tsuites=140,tests=13266,opt=O2\n'
         printf 'test.programs\tPASS\tproducts=57,probes=5,opt=O2\n'

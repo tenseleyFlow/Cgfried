@@ -6660,7 +6660,7 @@ and green post-publication CI.
   `5f92ace678856deece94faf5addc640dacd842b1`; the actual merge and tested
   synthetic commit have the same parents and tree
   `37894be6fd67589571a8d83489e764f3a4cc5cf3`.
-- The current `s56.35-mbedtls-fuzz-programs` follow-on closes Mbed TLS's
+- The merged `s56.35-mbedtls-fuzz-programs` follow-on closes Mbed TLS's
   standalone C fuzz-program surface under the same pinned symmetric-only,
   exact-`-O2` contract. The campaign freezes all ten `fuzz_*.c` targets plus
   the shared `common.c` and `onefile.c` translations. It deliberately unsets
@@ -6688,8 +6688,81 @@ and green post-publication CI.
   and `db987fdfb37a6b3e750f9ce413c68be0922d5980407bf32375c5c0ccf36b367a`.
   The Cgfried and host-GCC fuzz-probe logs are byte-identical at SHA-256
   `990704338541c555120a8a37581d70b70be02a481136e28ad80c7c4cf789e6d1`.
-  No new compiler defect surfaced; hosted dual-architecture CI and exact
-  synthetic-merge workflows remain to be recorded.
+  No new compiler defect surfaced. Exact head
+  `020cde34ae644ccc313bc0dac18df43de0534686` passed the complete standard
+  [run 35155102223](https://github.com/tenseleyFlow/Cgfried/actions/runs/35155102223):
+  28 jobs succeeded, nine policy/platform routes skipped as expected, and no
+  job failed. Synthetic merge
+  `c761b078a585f90f05953cb932443954edf81470` passed all fifteen
+  [nightly jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35160086242)
+  and all seven
+  [full-lattice bootstrap jobs](https://github.com/tenseleyFlow/Cgfried/actions/runs/35160086212).
+  PR #130 merged green-only as
+  `ba797ea21e0170fccbbfd351618a8ef112450039`; its parents are exact base
+  `5f92ace678856deece94faf5addc640dacd842b1` and exact head `020cde34`, and
+  its tree `1732eab996f086cc3dfbaff670d4c3e66ec21031` is identical to the tested
+  synthetic merge.
+- The current `s56.36-mbedtls-default-libraries` follow-on adds an independent
+  portable-default configuration closure without weakening the existing
+  symmetric-only bar. Mbed TLS 3.6.7 ships its default with assembly, PSA,
+  RSA, TLS, X.509, and the full ordinary asymmetric surface enabled; optional
+  Everest Curve25519 and P-256M backends remain off in the upstream file. A
+  shared, hash-recorded overlay disables only `MBEDTLS_AESNI_C`, whose x86
+  header otherwise hard-requires GCC identity, intrinsics, or GNU inline
+  assembly. Both pristine trees use that identical overlay and exact
+  `-std=c17 -O2`, build all three static libraries, compile and link the single
+  upstream self-test consumer, and execute all 30 enabled suites.
+
+  The default closure has its own compiler-bound receipt root, manifest, and
+  report: 114 project objects, 113 byte-checked archive members, one linked
+  product, 114 translations, and 115 receipts. It cannot accidentally borrow
+  an object from the symmetric closure. `CAMP-MBEDTLS-001` publishes the only
+  output deviation: accelerator selection is compiler- and target-dependent.
+  Cgfried deliberately excludes GNU vector types and Arm NEON intrinsics from
+  v0.1, so native ARM64 selects Mbed TLS's portable AES/GCM implementation
+  while GCC selects AESCE. Both run all 30 suites. The exact implementation
+  notes are retained and checked against the pinned upstream vocabulary; every
+  other output byte must match after removing only the `AES note:` and
+  `GCM note:` lines.
+
+  The rejected alternatives define the next language work honestly. Pure
+  strict-C17 default configuration reaches the x86 AES-NI compiler-identity
+  refusal. Switching both lanes to GNU17 clears that predicate but makes Mbed
+  TLS select `__attribute__((mode(TI)))` for bignum double-width arithmetic;
+  GNU integer-128 is explicitly outside Cgfried v0.1. This tranche does not
+  disguise either boundary as a compiler fix.
+
+  Pre-overlay implementation commit `319c00db` passed the full 26-row native
+  ARM64 Linux campaign, but PR #131's first x86-64 job correctly rejected the
+  pure default at `aesni.h`: strict C17 does not advertise GCC identity. The
+  shared overlay is the resulting cross-architecture correction. A clean
+  Apple-silicon build with it independently compiled all 113 library objects
+  and passed the 30-suite Cgfried self-test with the repository's audited
+  macOS hosted-header shim.
+
+  Exact corrected implementation commit
+  `b47f96cd03fef58960d68d3f92bf2b73a3eaee4a` passed the complete offline
+  native ARM64 Linux campaign from a clean clone on the VM's native disk. The
+  combined 26-row ratchet is green: the unchanged symmetric closure retains
+  156 project objects, 113 archive members, 208 linked products, and 353
+  translations; the independent portable-default closure has 114 project
+  objects, 113 archive members, one linked product, and 114 translations.
+  Compiler/result/provenance SHA-256 values are respectively
+  `6bc9972a43c985ef6bb51f51aab0de6c1292d30101523893f95eeb96cd20e716`,
+  `c88ad193adad4853037412159b0c6ea6d5b430c20edb711c01e1ff170e0b3e4b`,
+  and `699f7403b65830ae3ea8d9bdc5460bfaaa554ce62fedf5e3c64f6e11b25447ac`.
+  Symmetric closure/report hashes are
+  `490fee1068e369ea1b95f0a758dab0907e0a640c4be9edc4b4ba038736282d4c`
+  and `5167b06f27e08748bbc81f8e724fcfd54a750148fb79781f62afe94a82d6720b`;
+  portable-default closure/report hashes are
+  `a15187d653d287804189eb60acab6c353e194fc27c6f8795b96fcf1a76221cba`
+  and `ebd5296fe1a286918a1188e1b6f32dfea0e2f611fc05b75238870a0e2ff04b94`.
+  The normalized Cgfried and host-GCC default self-test logs are identical at
+  SHA-256
+  `51d7821f92e2dcb4d91db03bad11728dd443106be4f58fa555f12150cb781f40`.
+  That implementation has tree
+  `75af2f8c9061050d45c3cbae77817cb143bfacf7`; replacement hosted CI remains
+  to be recorded.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

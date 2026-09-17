@@ -136,9 +136,10 @@ frozen v0.1.0 compile-the-world ladder. Post-v0.1.0 descriptors may be included
 in the Makefile and required on pull requests without retroactively changing
 that released manifest; PCRE2 10.48 is the first such large-FOSS rung and runs
 on native x86-64 and ARM64 Linux. Mbed TLS 3.6.7 is the second; its
-symmetric-only configuration, 25-suite self-test, 140 generated suite runners,
-57 normal C sample/test programs, and ten standalone one-file fuzz programs run
-on the same two native Linux architectures. Curl's
+strict-C17 portable-default three-library closure and 30-suite self-test run
+independently from its symmetric-only configuration, 25-suite self-test, 140
+generated suite runners, 57 normal C sample/test programs, and ten standalone
+one-file fuzz programs on the same two native Linux architectures. Curl's
 network-dependent full suite and larger campaigns
 such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0; required bars must not
 silently depend on them.

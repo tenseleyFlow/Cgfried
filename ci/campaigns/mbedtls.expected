@@ -1,18 +1,27 @@
 # cgf-campaign-results-v1
 # columns=key	outcome	detail
 baseline.build	PASS	compiler=host-gcc,opt=O2
+baseline.build.default-libraries	PASS	compiler=host-gcc,opt=O2
+baseline.test.default-selftest	PASS	suites=30
 baseline.test.fuzz-programs	PASS	products=10,probes=10
 baseline.test.generated	PASS	suites=140,tests=13266
 baseline.test.programs	PASS	products=57,probes=5
 baseline.test.selftest	PASS	suites=25
 build	PASS	libraries=3,translations=353
+build.default-libraries	PASS	libraries=3,translations=114
 compiler.sole-c	PASS	project-objects=156,archive-members=113,linked-products=208
-configure	PASS	mode=symmetric-only,asm=off
+compiler.sole-c.default-libraries	PASS	project-objects=114,archive-members=113,linked-products=1
+configure	PASS	mode=symmetric-only,dialect=c17,asm=off
+configure.default	PASS	mode=portable-default,dialect=c17,asm=on,aesni=off,everest=off,p256m=off
 generated.inputs	PASS	runners=140,data=140,support=28,programs=2,trees=byte-identical
 linkage	PASS	binaries=208,libraries=3,static=yes
+linkage.default-libraries	PASS	binaries=1,libraries=3,static=yes
+parity.accelerator-selection	SKIP	CAMP-MBEDTLS-001;selection=compiler-and-target-dependent
 parity.outputs	PASS	commands=selftest,generated-tests,program-smokes,fuzz-program-smokes
+parity.outputs.default-selftest	PASS	commands=selftest,normalization=accelerator-notes
 source.archive	PASS	sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
 source.pin	PASS	commit=068ff080b369adfac81509f9b57b2afabaf82dc5,version=3.6.7
+test.default-selftest	PASS	suites=30,opt=O2
 test.fuzz-programs	PASS	products=10,probes=10,opt=O2
 test.generated	PASS	suites=140,tests=13266,opt=O2
 test.programs	PASS	products=57,probes=5,opt=O2
