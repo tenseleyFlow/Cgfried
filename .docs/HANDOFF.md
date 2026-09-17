@@ -6703,13 +6703,15 @@ and green post-publication CI.
   its tree `1732eab996f086cc3dfbaff670d4c3e66ec21031` is identical to the tested
   synthetic merge.
 - The current `s56.36-mbedtls-default-libraries` follow-on adds an independent
-  upstream-default configuration closure without weakening the existing
-  symmetric-only bar. Mbed TLS 3.6.7 ships that default with assembly, PSA,
+  portable-default configuration closure without weakening the existing
+  symmetric-only bar. Mbed TLS 3.6.7 ships its default with assembly, PSA,
   RSA, TLS, X.509, and the full ordinary asymmetric surface enabled; optional
-  Everest Curve25519 and P-256M backends remain off in the upstream file. Two
-  additional pristine trees let Cgfried and host GCC build all three static
-  libraries at exact `-O2`, compile and link the single upstream self-test
-  consumer, and execute all 30 enabled suites.
+  Everest Curve25519 and P-256M backends remain off in the upstream file. A
+  shared, hash-recorded overlay disables only `MBEDTLS_AESNI_C`, whose x86
+  header otherwise hard-requires GCC identity, intrinsics, or GNU inline
+  assembly. Both pristine trees use that identical overlay and exact
+  `-std=c17 -O2`, build all three static libraries, compile and link the single
+  upstream self-test consumer, and execute all 30 enabled suites.
 
   The default closure has its own compiler-bound receipt root, manifest, and
   report: 114 project objects, 113 byte-checked archive members, one linked
@@ -6723,26 +6725,21 @@ and green post-publication CI.
   other output byte must match after removing only the `AES note:` and
   `GCM note:` lines.
 
-  Exact implementation commit
-  `319c00dba61ee77baa557de9636aac829e938d28` is green on native ARM64 Linux
-  from a fresh configure/build/validate run. The complete combined campaign
-  passes all 26 expected rows; the original symmetric closure remains 353
-  translations and 208 products, while the new default closure reports the
-  counts above. Compiler/result SHA-256 values are
-  `7643d31da792bb92b6cac09d5263369ee9f5ebbca0c682b843ee4112e1e47109`
-  and
-  `4bda54f0cba24a28d7cc4e5071defb2fbf7c0afc453853350faa769ab6f3a581`.
-  Default closure/report SHA-256 values are
-  `df3114d1c789792d12b1338807167524c1c4814e57525ac5be73539366f6eecf`
-  and
-  `1ff0afcd9a45b601260c4a3c194ee74e5c86bbaec9e0ab3a4538cc53ae0139e5`.
-  The complete Cgfried and GCC self-test logs differ only in the two retained
-  accelerator notes; their normalized logs are byte-identical at SHA-256
-  `51d7821f92e2dcb4d91db03bad11728dd443106be4f58fa555f12150cb781f40`.
-  An Apple-silicon discovery build independently compiled all 113 default
-  library objects and passed the same 30-suite Cgfried self-test with the
-  repository's audited macOS hosted-header shim. Hosted x86-64 evidence and
-  the full PR CI bars remain to be recorded.
+  The rejected alternatives define the next language work honestly. Pure
+  strict-C17 default configuration reaches the x86 AES-NI compiler-identity
+  refusal. Switching both lanes to GNU17 clears that predicate but makes Mbed
+  TLS select `__attribute__((mode(TI)))` for bignum double-width arithmetic;
+  GNU integer-128 is explicitly outside Cgfried v0.1. This tranche does not
+  disguise either boundary as a compiler fix.
+
+  Pre-overlay implementation commit `319c00db` passed the full 26-row native
+  ARM64 Linux campaign, but PR #131's first x86-64 job correctly rejected the
+  pure default at `aesni.h`: strict C17 does not advertise GCC identity. The
+  shared overlay is the resulting cross-architecture correction. A clean
+  Apple-silicon build with it independently compiled all 113 library objects
+  and passed the 30-suite Cgfried self-test with the repository's audited
+  macOS hosted-header shim. Corrected native Linux evidence and replacement
+  hosted CI remain to be recorded.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

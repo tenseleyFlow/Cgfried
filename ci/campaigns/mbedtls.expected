@@ -11,8 +11,8 @@ build	PASS	libraries=3,translations=353
 build.default-libraries	PASS	libraries=3,translations=114
 compiler.sole-c	PASS	project-objects=156,archive-members=113,linked-products=208
 compiler.sole-c.default-libraries	PASS	project-objects=114,archive-members=113,linked-products=1
-configure	PASS	mode=symmetric-only,asm=off
-configure.default	PASS	mode=upstream-default,asm=on,everest=off,p256m=off
+configure	PASS	mode=symmetric-only,dialect=c17,asm=off
+configure.default	PASS	mode=portable-default,dialect=c17,asm=on,aesni=off,everest=off,p256m=off
 generated.inputs	PASS	runners=140,data=140,support=28,programs=2,trees=byte-identical
 linkage	PASS	binaries=208,libraries=3,static=yes
 linkage.default-libraries	PASS	binaries=1,libraries=3,static=yes

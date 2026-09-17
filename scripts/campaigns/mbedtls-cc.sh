@@ -8,11 +8,16 @@ fail() {
 
 mode=${CGF_CAMPAIGN_MBEDTLS_CC_MODE:-}
 config=${CGF_CAMPAIGN_MBEDTLS_CONFIG:-}
+dialect=${CGF_CAMPAIGN_MBEDTLS_DIALECT:-}
 [ -n "$config" ] || fail "CGF_CAMPAIGN_MBEDTLS_CONFIG is unset"
 [ -f "$config" ] || fail "configuration file is missing: $config"
+case $dialect in
+    c17 | gnu17) ;;
+    *) fail "CGF_CAMPAIGN_MBEDTLS_DIALECT must be c17 or gnu17" ;;
+esac
 
 config_define="-DMBEDTLS_CONFIG_FILE=\"$config\""
-set -- -O2 "$config_define" "$@"
+set -- "-std=$dialect" -O2 "$config_define" "$@"
 
 case $mode in
     cgfried)

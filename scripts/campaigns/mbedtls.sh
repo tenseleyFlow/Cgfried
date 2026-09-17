@@ -27,10 +27,13 @@ cc_wrapper=${CGF_CAMPAIGN_MBEDTLS_CC_WRAPPER:-$root/scripts/campaigns/mbedtls-cc
 jobs=${CGF_CAMPAIGN_JOBS:-}
 cflags=${CGF_CAMPAIGN_MBEDTLS_CFLAGS:--O2}
 linux_compat=$root/ci/campaigns/compat/arm64-linux-u128-storage.h
+default_portable_config=$root/ci/campaigns/mbedtls-default-portable.h
 
 [ -x "$cgf" ] || fail "cgfried compiler is missing or not executable: $cgf"
 [ -x "$sole" ] || fail "sole-C wrapper is missing or not executable: $sole"
 [ -x "$cc_wrapper" ] || fail "compiler adapter is missing or not executable: $cc_wrapper"
+[ -f "$default_portable_config" ] ||
+    fail "portable-default configuration overlay is missing: $default_portable_config"
 [ "$cflags" = -O2 ] || fail "Mbed TLS validation requires exactly -O2, got: $cflags"
 [ -f "$archive" ] || fail "verified source archive is missing: $archive"
 got=$(sha256sum "$archive" | awk '{print $1}')
@@ -78,6 +81,7 @@ if [ -n "$compat_header" ]; then
     [ -r "$compat_header" ] || fail "hosted-header compatibility file is unreadable"
     compat_sha256=$(sha256sum "$compat_header" | awk '{print $1}')
 fi
+default_portable_config_sha256=$(sha256sum "$default_portable_config" | awk '{print $1}')
 
 as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}
 ld_path=${CGF_LD_PATH:-$(command -v ld 2>/dev/null || true)}
@@ -314,6 +318,10 @@ configure_stage() {
         fail "upstream default configuration unexpectedly enables Everest arithmetic"
     grep -Fqx '#define MBEDTLS_PSA_P256M_DRIVER_ENABLED' "$default_config" &&
         fail "upstream default configuration unexpectedly enables P-256 arithmetic"
+    grep -Fqx '#include "mbedtls/mbedtls_config.h"' "$default_portable_config" ||
+        fail "portable-default overlay omitted the upstream default configuration"
+    grep -Fqx '#undef MBEDTLS_AESNI_C' "$default_portable_config" ||
+        fail "portable-default overlay omitted the AES-NI exclusion"
 
     {
         printf 'version=%s\n' "$MBEDTLS_VERSION"
@@ -324,8 +332,13 @@ configure_stage() {
         printf 'host_compiler=%s\n' "$hostcc"
         printf 'cflags=%s\n' "$cflags"
         printf 'configuration=config-symmetric-only.h\n'
+        printf 'configuration_dialect=c17\n'
         printf 'test_scope=generated-suite-normal-and-fuzz-programs\n'
         printf 'default_configuration=mbedtls_config.h\n'
+        printf 'default_configuration_overlay=mbedtls-default-portable.h\n'
+        printf 'default_configuration_overlay_sha256=%s\n' \
+            "$default_portable_config_sha256"
+        printf 'default_configuration_dialect=c17\n'
         printf 'default_test_scope=static-libraries-and-selftest\n'
         printf 'compat_policy=%s\n' "$compat_policy"
         printf 'compat_header=%s\n' "${compat_header:-none}"
@@ -466,15 +479,18 @@ set_wrapper_environment() {
         symmetric)
             config=$source/configs/config-symmetric-only.h
             active_receipts=$receipts
+            dialect=c17
             ;;
         default)
-            config=$source/include/mbedtls/mbedtls_config.h
+            config=$default_portable_config
             active_receipts=$default_receipts
+            dialect=c17
             ;;
         *) fail "unknown Mbed TLS configuration profile: $profile" ;;
     esac
     export CGF_CAMPAIGN_MBEDTLS_CC_MODE=$mode
     export CGF_CAMPAIGN_MBEDTLS_CONFIG=$config
+    export CGF_CAMPAIGN_MBEDTLS_DIALECT=$dialect
     export CGF_CAMPAIGN_MBEDTLS_SOLE=$sole
     export CGF_CAMPAIGN_MBEDTLS_RECEIPTS=$active_receipts
     export CGF_CAMPAIGN_MBEDTLS_CGF=$cgf
@@ -1021,8 +1037,8 @@ validate_stage() {
         printf 'build.default-libraries\tPASS\tlibraries=3,translations=114\n'
         printf 'compiler.sole-c\tPASS\tproject-objects=156,archive-members=113,linked-products=208\n'
         printf 'compiler.sole-c.default-libraries\tPASS\tproject-objects=114,archive-members=113,linked-products=1\n'
-        printf 'configure\tPASS\tmode=symmetric-only,asm=off\n'
-        printf 'configure.default\tPASS\tmode=upstream-default,asm=on,everest=off,p256m=off\n'
+        printf 'configure\tPASS\tmode=symmetric-only,dialect=c17,asm=off\n'
+        printf 'configure.default\tPASS\tmode=portable-default,dialect=c17,asm=on,aesni=off,everest=off,p256m=off\n'
         printf 'generated.inputs\tPASS\trunners=140,data=140,support=28,programs=2,trees=byte-identical\n'
         printf 'linkage\tPASS\tbinaries=208,libraries=3,static=yes\n'
         printf 'linkage.default-libraries\tPASS\tbinaries=1,libraries=3,static=yes\n'

@@ -290,10 +290,11 @@ jobs:
           retention-days: 30
 
   # Second post-v0.1.0 large-FOSS rung. Both native Linux architectures certify
-  # all three static libraries and a 30-suite self-test under the upstream
-  # default configuration. The independent symmetric-only closure additionally
-  # certifies its 25-suite self-test, 140 generated suite runners (13,266
-  # tests), 57 normal C programs, and all ten standalone one-file fuzz programs.
+  # all three static libraries and a 30-suite self-test under the portable
+  # upstream-default configuration. The independent symmetric-only closure
+  # additionally certifies its 25-suite self-test, 140 generated suite runners
+  # (13,266 tests), 57 normal C programs, and all ten standalone one-file fuzz
+  # programs.
   campaign-mbedtls:
     name: campaign-mbedtls (${{ matrix.arch }})
     strategy:
