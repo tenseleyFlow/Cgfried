@@ -6738,8 +6738,31 @@ and green post-publication CI.
   shared overlay is the resulting cross-architecture correction. A clean
   Apple-silicon build with it independently compiled all 113 library objects
   and passed the 30-suite Cgfried self-test with the repository's audited
-  macOS hosted-header shim. Corrected native Linux evidence and replacement
-  hosted CI remain to be recorded.
+  macOS hosted-header shim.
+
+  Exact corrected implementation commit
+  `b47f96cd03fef58960d68d3f92bf2b73a3eaee4a` passed the complete offline
+  native ARM64 Linux campaign from a clean clone on the VM's native disk. The
+  combined 26-row ratchet is green: the unchanged symmetric closure retains
+  156 project objects, 113 archive members, 208 linked products, and 353
+  translations; the independent portable-default closure has 114 project
+  objects, 113 archive members, one linked product, and 114 translations.
+  Compiler/result/provenance SHA-256 values are respectively
+  `6bc9972a43c985ef6bb51f51aab0de6c1292d30101523893f95eeb96cd20e716`,
+  `c88ad193adad4853037412159b0c6ea6d5b430c20edb711c01e1ff170e0b3e4b`,
+  and `699f7403b65830ae3ea8d9bdc5460bfaaa554ce62fedf5e3c64f6e11b25447ac`.
+  Symmetric closure/report hashes are
+  `490fee1068e369ea1b95f0a758dab0907e0a640c4be9edc4b4ba038736282d4c`
+  and `5167b06f27e08748bbc81f8e724fcfd54a750148fb79781f62afe94a82d6720b`;
+  portable-default closure/report hashes are
+  `a15187d653d287804189eb60acab6c353e194fc27c6f8795b96fcf1a76221cba`
+  and `ebd5296fe1a286918a1188e1b6f32dfea0e2f611fc05b75238870a0e2ff04b94`.
+  The normalized Cgfried and host-GCC default self-test logs are identical at
+  SHA-256
+  `51d7821f92e2dcb4d91db03bad11728dd443106be4f58fa555f12150cb781f40`.
+  That implementation has tree
+  `75af2f8c9061050d45c3cbae77817cb143bfacf7`; replacement hosted CI remains
+  to be recorded.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
