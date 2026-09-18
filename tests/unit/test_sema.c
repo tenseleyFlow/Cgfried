@@ -222,6 +222,7 @@ void test_sema_builtin_classify_type_contract(TestCtx *t)
 {
     SemaFix f;
 
+    T_ASSERT_EQ_INT(t, sema_builtin_classify_type(NULL, false), -1);
     run_sema(
         &f,
         "struct S { int x; }; union U { int x; double d; }; "

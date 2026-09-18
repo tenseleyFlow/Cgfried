@@ -238,25 +238,27 @@ int sema_builtin_classify_type(const Type *type, bool type_name_form)
      * arrays and functions arrive as POINTER. A written type name preserves
      * the categories handled explicitly below. Cgfried does not yet have
      * complex or vector TypeKinds, whose GCC classes are 9 and 19. */
-    if (type_name_form && type && type->kind == TY_VOID)
+    if (!type)
+        return -1;
+    if (type_name_form && type->kind == TY_VOID)
         return 0;
-    if (type_name_form && type && type->kind == TY_ENUM)
+    if (type_name_form && type->kind == TY_ENUM)
         return 3;
-    if (type_name_form && type && type->kind == TY_BOOL)
+    if (type_name_form && type->kind == TY_BOOL)
         return 4;
     if (type_is_integer(type))
         return 1;
-    if (type && type->kind == TY_PTR)
+    if (type->kind == TY_PTR)
         return 5;
     if (type_is_floating(type))
         return 8;
-    if (type_name_form && type && type->kind == TY_FUNC)
+    if (type_name_form && type->kind == TY_FUNC)
         return 10;
-    if (type && type->kind == TY_STRUCT)
+    if (type->kind == TY_STRUCT)
         return 12;
-    if (type && type->kind == TY_UNION)
+    if (type->kind == TY_UNION)
         return 13;
-    if (type_name_form && type && type->kind == TY_ARRAY)
+    if (type_name_form && type->kind == TY_ARRAY)
         return 14;
     return -1;
 }
