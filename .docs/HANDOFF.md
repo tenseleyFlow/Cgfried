@@ -6794,9 +6794,10 @@ and green post-publication CI.
   ARM64 macOS variants execute successfully. The complete Apple unit suite
   retains exactly the eight documented host-assumption failures, with both
   new tests green. Frontend fuzz passes 2,000 normal and 2,000 sanitizer
-  mutations with zero findings and reproduces the intentionally repinned
-  5,000-case digest `37a7070901d1c287` twice normally and once under
-  sanitizers. Publication and hosted CI evidence remain pending.
+  mutations with zero findings. Hosted normal and sanitizer runs plus an
+  independent x86-64 Linux VM reproduce the authoritative Linux 5,000-case
+  digest `dd612c8680021f21`; Apple ARM64 emits the target-specific digest
+  `37a7070901d1c287`. Publication and hosted CI evidence remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
