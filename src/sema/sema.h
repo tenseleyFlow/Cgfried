@@ -766,6 +766,11 @@ typedef enum {
  * converted to one type and the result typed as another. */
 Type *sema_builtin_uint_type(Sema *s, int kind);
 
+/* GCC's public numeric type class. A written type name preserves void,
+ * boolean, enum, array, and function categories; an expression reaches this
+ * after the builtin's ordinary lvalue/array/function conversions. */
+int sema_builtin_classify_type(const Type *type, bool type_name_form);
+
 /* How many bytes a __builtin_bswap* marker reverses, or 0 when the marker
  * is not one of them. TWO consumers compute the swap independently -- the
  * constant folder on a u64 and the lowering as IR shifts -- and this is

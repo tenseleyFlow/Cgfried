@@ -6702,7 +6702,7 @@ and green post-publication CI.
   `5f92ace678856deece94faf5addc640dacd842b1` and exact head `020cde34`, and
   its tree `1732eab996f086cc3dfbaff670d4c3e66ec21031` is identical to the tested
   synthetic merge.
-- The current `s56.36-mbedtls-default-libraries` follow-on adds an independent
+- The merged `s56.36-mbedtls-default-libraries` follow-on adds an independent
   portable-default configuration closure without weakening the existing
   symmetric-only bar. Mbed TLS 3.6.7 ships its default with assembly, PSA,
   RSA, TLS, X.509, and the full ordinary asymmetric surface enabled; optional
@@ -6761,8 +6761,43 @@ and green post-publication CI.
   SHA-256
   `51d7821f92e2dcb4d91db03bad11728dd443106be4f58fa555f12150cb781f40`.
   That implementation has tree
-  `75af2f8c9061050d45c3cbae77817cb143bfacf7`; replacement hosted CI remains
-  to be recorded.
+  `75af2f8c9061050d45c3cbae77817cb143bfacf7`. Corrected hosted standard
+  [run 35166551742](https://github.com/tenseleyFlow/Cgfried/actions/runs/35166551742)
+  passed every applicable job. PR #131 merged green-only as
+  `78f5af8af4d2a6439d910581cc7557f83e936e2b`.
+- The merged `s56.37-gnu-mode-ti` tranche implements GNU
+  `__attribute__((mode(TI)))` signed and unsigned 128-bit integers across
+  parsing, semantics, constant evaluation, ABI lowering, runtime helper use,
+  layout, and diagnostics while retaining the deliberate refusal boundaries
+  for unsupported TI operations. Implementation commit `66072aea` and fuzz
+  digest repin `346185bd` passed the complete hosted standard
+  [run 35298972851](https://github.com/tenseleyFlow/Cgfried/actions/runs/35298972851),
+  including x86, native and emulated ARM64, sanitizers, toolchain, campaigns,
+  and the 100,000-case frontend fuzz lane. PR #132 merged green-only as
+  `a8e8539cc37ad37bdac71547f412c0914f412399`.
+- The current `s56.38-builtin-classify-type` tranche implements GCC's
+  `__builtin_classify_type` as a parser-owned special form accepting either
+  an expression or a written type name. Expression operands receive ordinary
+  lvalue/array/function conversion; both forms are integer constant
+  expressions and remain wholly unevaluated, including variably modified
+  type bounds. The stable GCC classes for void, boolean, enum, integer,
+  pointer, real, function, struct, union, and array are covered; complex and
+  vector remain outside the type system's explicit v0.1 boundary.
+
+  Focused semantic and lowering tests pass normally and under ASan+UBSan.
+  The permanent runtime fixture passes with zero warnings on native Apple
+  ARM64 in both builds and pins expression decay, side-effect suppression,
+  VLA-bound suppression, and all supported class codes. All three imported
+  GCC torture candidates (`20040709-1.c`, `20040709-2.c`, and
+  `20040709-3.c`) compile to assembler-accepted output for x86-64 Linux and
+  ARM64 Linux at O0/O1/O2/O3/Os (30/30 target cells), and all fifteen native
+  ARM64 macOS variants execute successfully. The complete Apple unit suite
+  retains exactly the eight documented host-assumption failures, with both
+  new tests green. Frontend fuzz passes 2,000 normal and 2,000 sanitizer
+  mutations with zero findings. Hosted normal and sanitizer runs plus an
+  independent x86-64 Linux VM reproduce the authoritative Linux 5,000-case
+  digest `dd612c8680021f21`; Apple ARM64 emits the target-specific digest
+  `37a7070901d1c287`. Publication and hosted CI evidence remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -338,6 +338,17 @@ void ast_expr_render(const AstNode *e, Buf *out)
             buf_printf(out, ")");
         }
         return;
+    case AST_EXPR_CLASSIFY_TYPE:
+        buf_printf(out, "(__builtin_classify_type ");
+        if (e->type) {
+            buf_printf(out, "<");
+            ast_type_render(e->type, out);
+            buf_printf(out, ">");
+        } else {
+            ast_expr_render(e->lhs, out);
+        }
+        buf_printf(out, ")");
+        return;
     case AST_EXPR_GENERIC:
         buf_printf(out, "(_Generic ");
         ast_expr_render(e->lhs, out);

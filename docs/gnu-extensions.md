@@ -71,6 +71,7 @@ predefine.
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
+| `__builtin_classify_type(expr-or-type)` | `tests/programs/builtins/classify_type_runtime.c` | GCC torture's generic bit-field arithmetic tests; compile-time type dispatch |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -109,6 +110,16 @@ checked-overflow operations fail closed; zero-initialized static objects work.
 Floating conversions, atomic TI objects and atomic/TI compound operations, TI
 bit-fields and enums, TI switch controls, and reverse scalar storage order
 likewise receive targeted errors.
+
+`__builtin_classify_type` is an integer constant expression and never
+evaluates an expression operand. Expression operands undergo GCC's ordinary
+lvalue, array, and function conversions before classification, so `_Bool` and
+enum expressions report the integer class (`1`) while arrays and functions
+report pointer (`5`). A written type name preserves GCC's distinct void (`0`),
+enum (`3`), boolean (`4`), function (`10`), and array (`14`) classes. Real
+floating, struct, and union types report `8`, `12`, and `13`; `mode(TI)` is an
+integer. Complex and vector classes remain unavailable because those source
+types are explicitly refused rather than accepted with invented semantics.
 
 All currently supported targets are little-endian. A big-endian
 `scalar_storage_order` record therefore takes the reverse path: integral
