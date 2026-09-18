@@ -543,9 +543,10 @@ static CeOverflowInteger ce_overflow_integer(Sema *s, ConstValue value)
 {
     CeOverflowInteger out;
     u32 width = conv_int_bits(s, value.type);
-    u64 sign = width ? 1ull << (width - 1) : 0;
+    u64 sign = width && width <= 64 ? 1ull << (width - 1) : 0;
 
-    out.negative = conv_is_signed(s, value.type) && (value.i & sign) != 0;
+    out.negative =
+        conv_is_signed(s, value.type) && sign && (value.i & sign) != 0;
     out.magnitude = out.negative ? 0 - value.i : value.i;
     return out;
 }
@@ -553,6 +554,13 @@ static CeOverflowInteger ce_overflow_integer(Sema *s, ConstValue value)
 static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
 {
     u32 width = conv_int_bits(s, result_type);
+
+    /* ConstValue intentionally carries one u64 limb.  Wide constant
+     * arithmetic is refused by eval_binary below; returning the u64 ceiling
+     * here keeps opportunistic builtin folds conservative and, critically,
+     * avoids shifting the compiler's own integer by 127. */
+    if (width > 64)
+        return UINT64_MAX;
 
     if (conv_is_signed(s, result_type)) {
         if (negative)
@@ -616,6 +624,14 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
     r = eval(s, e->rhs, operand_mode);
     if (r.kind == CV_ERROR)
         return r;
+
+    if (type_is_int128(e->lhs->sem_type) || type_is_int128(e->rhs->sem_type) ||
+        type_is_int128(t)) {
+        ce_error(s, m, e->span,
+                 "128-bit mode(TI) arithmetic is not yet supported in "
+                 "constant expressions");
+        return cv_error();
+    }
 
     /* Fold pointer subtraction when both operands name the same object.  The
      * null/null case is the traditional offsetof macro; ordinary same-symbol
@@ -1229,6 +1245,13 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         }
         if (o.kind != CV_INT)
             return cv_error();
+        if (type_is_int128(e->lhs ? e->lhs->sem_type : NULL) ||
+            type_is_int128(e->sem_type)) {
+            ce_error(s, m, e->span,
+                     "128-bit mode(TI) arithmetic is not yet supported in "
+                     "constant expressions");
+            return cv_error();
+        }
         switch (e->op) {
         case PUNCT_PLUS:
             return cv_int(s, e->sem_type, fit(s, e->sem_type, o.i));

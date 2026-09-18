@@ -127,6 +127,10 @@ Type *type_integer_with_precision(Arena *ar, const Type *carrier, u32 precision,
     case TY_ULLONG:
         kind = is_signed ? TY_LLONG : TY_ULLONG;
         break;
+    case TY_INT128:
+    case TY_UINT128:
+        kind = is_signed ? TY_INT128 : TY_UINT128;
+        break;
     default:
         CGF_ICE("unsupported extended integer carrier kind %d", (int)kind);
     }
@@ -213,7 +217,12 @@ bool type_is_integer(const Type *t)
     if (!t)
         return false;
     /* An enum is an integer type; its underlying type is chosen in decl.c. */
-    return (t->kind >= TY_BOOL && t->kind <= TY_ULLONG) || t->kind == TY_ENUM;
+    return (t->kind >= TY_BOOL && t->kind <= TY_UINT128) || t->kind == TY_ENUM;
+}
+
+bool type_is_int128(const Type *t)
+{
+    return t && (t->kind == TY_INT128 || t->kind == TY_UINT128);
 }
 
 bool type_is_floating(const Type *t)
@@ -665,6 +674,10 @@ static const char *basic_name(TypeKind k)
         return "long long";
     case TY_ULLONG:
         return "unsigned long long";
+    case TY_INT128:
+        return "signed mode(TI) integer";
+    case TY_UINT128:
+        return "unsigned mode(TI) integer";
     case TY_FLOAT:
         return "float";
     case TY_DOUBLE:

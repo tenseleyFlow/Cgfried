@@ -268,10 +268,9 @@ typedef struct GnuDeclAttrs {
      * and the unsigned spelling gives exactly `unsigned long`. So the
      * attribute supplies the WIDTH and the declaration keeps the SIGN.
      *
-     * Only the INTEGER modes are here. The 128-bit, floating and vector
-     * modes are refused at parse time and stay in the refused tier: each
-     * names a type this compiler does not have, and accepting one silently
-     * would be a type of the wrong size.
+     * Only the INTEGER modes are here. Floating and vector modes remain in
+     * the refused tier: each names a type this compiler does not have, and
+     * accepting one silently would be a type of the wrong size.
      *
      * The parser stores the mode, not a byte count, because `word` and
      * `pointer` are target facts and the parser has no target. Sema resolves
@@ -285,6 +284,7 @@ typedef enum {
     GNU_MODE_HI,     /* 2 */
     GNU_MODE_SI,     /* 4 */
     GNU_MODE_DI,     /* 8 */
+    GNU_MODE_TI,     /* 16 */
     GNU_MODE_BYTE,   /* 1 */
     GNU_MODE_WORD,   /* the target's word: 8 on all five */
     GNU_MODE_POINTER /* the target's pointer width */
@@ -293,7 +293,7 @@ typedef enum {
 /* Mode name -> GnuMode, accepting gcc's four spellings (`SI`, `__SI__`,
  * and the lowercase `word`/`__word__` family). GNU_MODE_NONE for a name
  * that is not an integer mode -- which includes both the modes gcc knows
- * and refuses to give us (TI, SF, V4SI) and outright typos; the caller
+ * and refuses to give us (SF, V4SI) and outright typos; the caller
  * tells them apart so the two get different diagnostics. */
 GnuMode gnu_mode_from_name(const char *spelling);
 

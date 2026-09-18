@@ -957,7 +957,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         return;
     case AST_STMT_EXPR:
         ensure_open_block(lo, "dead");
-        (void)lower_rvalue(lo, s->lhs);
+        lower_discard_expr(lo, s->lhs);
         return;
     case AST_STMT_NULL:
         ensure_open_block(lo, "dead");
@@ -1111,7 +1111,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
         lo->loops = lc.prev;
         lower_at(lo, step);
         if (s->rhs)
-            (void)lower_rvalue(lo, s->rhs);
+            lower_discard_expr(lo, s->rhs);
         lower_branch_to(lo, header);
         lower_at(lo, exit_);
         /* The loop's exit block is inside the for's scope: a for-init
@@ -1205,7 +1205,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             ensure_open_block(lo, "dead");
             if (!ret || ret->kind == TY_VOID) {
                 if (s->lhs)
-                    (void)lower_rvalue(lo, s->lhs);
+                    lower_discard_expr(lo, s->lhs);
             } else if (s->lhs) {
                 IrOperand value = lower_rvalue(lo, s->lhs);
                 TypeLayout l = layout_of(lo->sema, ret);
@@ -1256,7 +1256,7 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             /* Sema already warned about `return expr` here. Preserve its
              * side effects while keeping warning-only IR verifier-valid. */
             if (s->lhs)
-                (void)lower_rvalue(lo, s->lhs);
+                lower_discard_expr(lo, s->lhs);
         } else if (!s->lhs) {
             /* A missing value is a warning. Scalar and small-aggregate IR
              * functions nevertheless require a return operand. */

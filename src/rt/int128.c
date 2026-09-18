@@ -1,10 +1,10 @@
 /* libcgf_rt: 128-bit integer support, with LIBGCC-COMPATIBLE NAMES.
  *
- * Cgfried deliberately does not implement the GNU __int128 source type.  The
- * supported little-endian x86-64 SysV and AAPCS64 ABIs nevertheless pass and
- * return a scalar 128-bit integer in the same two registers as this two-u64
- * aggregate (low limb first).  That lets this strict-C11 implementation keep
- * the libgcc symbol ABI without requiring the extension it exists to support.
+ * Cgfried deliberately does not implement the GNU __int128 spelling. GNU
+ * mode(TI) values and the supported little-endian x86-64 SysV and AAPCS64
+ * ABIs nevertheless pass and return a scalar 128-bit integer in the same two
+ * registers as this two-u64 aggregate (low limb first).  Keeping the runtime
+ * itself strict C11 also prevents these helpers from lowering recursively.
  *
  * None of these routines may use an operation that lowers to itself. */
 

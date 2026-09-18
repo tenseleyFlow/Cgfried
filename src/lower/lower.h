@@ -302,6 +302,11 @@ IrOperand lower_load(Lower *lo, Lvalue lv);
 /* Scalar conversion between two C types, emitting the right instruction
  * (or nothing). The one place the cast matrix lives. */
 IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to);
+IrOperand lower_scalar_convert_access(Lower *lo, IrOperand v, Type *from,
+                                      Type *to, u8 access_flags);
+/* Evaluate an expression whose result is discarded, including the actual
+ * access required when an address-backed aggregate-style value is volatile. */
+void lower_discard_expr(Lower *lo, AstNode *e);
 /* Condition value: i32, 0/1 where the source op already produces one
  * (comparisons, !, &&, ||); otherwise `expr != 0` — folded so `if (a<b)`
  * emits ONE icmp, never icmp -> icmp-ne -> condbr. */

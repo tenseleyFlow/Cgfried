@@ -464,10 +464,10 @@ GnuMode gnu_mode_from_name(const char *spelling)
     static const struct {
         const char *name;
         u8 mode;
-    } modes[] = {{"QI", GNU_MODE_QI},          {"HI", GNU_MODE_HI},
-                 {"SI", GNU_MODE_SI},          {"DI", GNU_MODE_DI},
-                 {"byte", GNU_MODE_BYTE},      {"word", GNU_MODE_WORD},
-                 {"pointer", GNU_MODE_POINTER}};
+    } modes[] = {{"QI", GNU_MODE_QI},     {"HI", GNU_MODE_HI},
+                 {"SI", GNU_MODE_SI},     {"DI", GNU_MODE_DI},
+                 {"TI", GNU_MODE_TI},     {"byte", GNU_MODE_BYTE},
+                 {"word", GNU_MODE_WORD}, {"pointer", GNU_MODE_POINTER}};
     char buf[32];
     const char *norm = gnu_attr_norm_name(spelling, buf, sizeof(buf));
     size_t i;
@@ -480,8 +480,8 @@ GnuMode gnu_mode_from_name(const char *spelling)
 
 /* mode(M) / __mode__(__M__).
  *
- * Only the integer modes land. TI (128-bit), the floating modes SF/DF/XF/TF
- * and the vector modes each name a type this compiler does not have, and
+ * Only the integer modes land. The floating modes SF/DF/XF/TF and the vector
+ * modes each name a type this compiler does not have, and
  * gcc accepts all of them -- so each is refused BY NAME rather than
  * silently ignored, which would give the declaration a type of the wrong
  * size with no diagnostic. An unknown name gets gcc's own wording. */
@@ -512,14 +512,8 @@ static void parse_mode_attr(Parser *p, const Token *name, GnuDeclAttrs *gnu)
         /* The modes gcc knows and we do not, separated from a typo: naming
          * the missing feature is more useful than "unknown", and a typo
          * should not read as an unimplemented type. */
-        if (strcmp(norm, "TI") == 0)
-            parse_error(p, arg,
-                        "only integer machine modes are supported: mode "
-                        "'%s' names a 128-bit integer type, which this "
-                        "compiler does not have (docs/gnu-extensions.md)",
-                        norm);
-        else if (strcmp(norm, "SF") == 0 || strcmp(norm, "DF") == 0 ||
-                 strcmp(norm, "XF") == 0 || strcmp(norm, "TF") == 0)
+        if (strcmp(norm, "SF") == 0 || strcmp(norm, "DF") == 0 ||
+            strcmp(norm, "XF") == 0 || strcmp(norm, "TF") == 0)
             parse_error(p, arg,
                         "only integer machine modes are supported: mode "
                         "'%s' names a floating type, and selecting one by "

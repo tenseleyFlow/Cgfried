@@ -75,7 +75,7 @@ predefine.
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
-| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` in `<sys/types.h>`, which blocks `<stdlib.h>` and most of a hosted TU once `__GNUC__` is defined |
+| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
 | `always_inline` | `tests/programs/gnu/attr_always_inline.c` | glibc's `__extern_always_inline`, musl and performance-critical header helpers; forces every available direct call even at `-O0` |
@@ -97,6 +97,18 @@ predefine.
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
 | records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
+
+`mode(TI)` provides signed and unsigned 128-bit integers without yet exposing
+the separate `__int128` source spelling. Runtime arithmetic, comparisons,
+casts to and from integer/pointer types, shifts, assignments, and SysV/AAPCS64
+parameter and return conventions are implemented through address-backed
+two-limb values and the existing libgcc-compatible runtime helpers. The
+constant evaluator and checked-overflow builtins are still one-limb, so
+explicit static initialization, required 128-bit constant arithmetic, and TI
+checked-overflow operations fail closed; zero-initialized static objects work.
+Floating conversions, atomic TI objects and atomic/TI compound operations, TI
+bit-fields and enums, TI switch controls, and reverse scalar storage order
+likewise receive targeted errors.
 
 All currently supported targets are little-endian. A big-endian
 `scalar_storage_order` record therefore takes the reverse path: integral
@@ -481,7 +493,7 @@ silently rather than fail loudly.
 |---|---|---|
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
 | arbitrary extra REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so another allocator-chosen output means widening `CgMirView`. Memory outputs are supported, as are x86 fixed-register extras with exactly one matching input: that input reserves the location and a post-asm `READREG` captures it, covering glibc `<sys/io.h>`. General `=r` extras and every arm64 multi-register-output form remain refused | Linux's allocator-chosen `__cmpxchg` shapes; no musl TU we compile |
-| non-integer `mode(...)` — `TI`, `SF`/`DF`/`XF`/`TF`, `V*` | each names a type this compiler does not have: a 128-bit integer, a floating type chosen by width (which would silently disagree with the target's own `float`/`double`/`long double` — x86-64's is x87 80-bit, so `TF` is not it), or a vector with no SysV/AAPCS64 parameter contract. The INTEGER modes are implemented; see that row | glibc uses exactly one mode in all of `/usr/include`, and it is an integer one |
+| non-integer `mode(...)` — `SF`/`DF`/`XF`/`TF`, `V*` | each names either a floating type chosen by width (which would silently disagree with the target's own `float`/`double`/`long double` — x86-64's is x87 80-bit, so `TF` is not it) or a vector with no source-type contract. The integer modes, including TI, are implemented; see that row | glibc uses exactly one mode in all of `/usr/include`, and it is an integer one |
 | `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
 | nested functions | requires executable trampolines on the stack | none of our targets |
 | computed goto (`&&label`, `goto *p`) | out of the v0.1.0 scope contract | interpreters; not our corpora |

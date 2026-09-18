@@ -27,6 +27,16 @@ static bool is_signed_ty(Lower *lo, Type *t)
     return conv_is_signed(lo->sema, t);
 }
 
+typedef struct {
+    IrOperand lo;
+    IrOperand hi;
+} WideInt;
+
+static IrOperand addr_plus(Lower *lo, IrOperand base, i64 off);
+static bool is_cmp_op(u16 op);
+static IrOperand wide_truth_ne(Lower *lo, IrOperand addr, Type *t,
+                               u8 access_flags);
+
 static ValueId build_source_arith(Lower *lo, IrOp op, IrType irty, IrOperand x,
                                   IrOperand y, Type *source_ty)
 {
@@ -48,6 +58,8 @@ static IrOperand truth_ne(Lower *lo, IrOperand v, Type *t)
 {
     ValueId r;
 
+    if (type_is_int128(t))
+        return wide_truth_ne(lo, v, t, 0);
     if (type_is_floating(t))
         r = ir_build_fcmp(&lo->b, FCMP_UNE, v, fp_zero(lo, t));
     else
@@ -466,9 +478,363 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
     }
 }
 
+/* --- GNU mode(TI) values --------------------------------------------------
+ *
+ * IR deliberately has no i128 scalar.  A TI value is an address of a
+ * 16-byte temporary, just like an aggregate rvalue, while these helpers
+ * perform cheap limb operations directly and route the operations that need
+ * full-width algorithms through libcgf_rt's libgcc-compatible entry points.
+ * The supported little-endian psABIs pass the low limb before the high limb. */
+
+static IrOperand wide_limb_addr(Lower *lo, IrOperand base, u32 limb)
+{
+    return limb ? addr_plus(lo, base, 8) : base;
+}
+
+static WideInt wide_load(Lower *lo, IrOperand addr, Type *t, u8 access_flags)
+{
+    WideInt v;
+    IrOperand hi_addr = wide_limb_addr(lo, addr, 1);
+    u8 flags = access_flags;
+
+    if (t && (t->quals & CGF_QUAL_VOLATILE))
+        flags |= IRF_VOLATILE;
+    v.lo =
+        ir_op_value(lo->fn, ir_build_load_typed(&lo->b, IRT_I64, addr, 1, flags,
+                                                lower_efftype(lo, t)));
+    v.hi =
+        ir_op_value(lo->fn, ir_build_load_typed(&lo->b, IRT_I64, hi_addr, 1,
+                                                flags, lower_efftype(lo, t)));
+    return v;
+}
+
+static void wide_store(Lower *lo, IrOperand addr, Type *t, WideInt v)
+{
+    ir_build_store_typed(&lo->b, v.lo, addr, 8, 0, lower_efftype(lo, t));
+    ir_build_store_typed(&lo->b, v.hi, wide_limb_addr(lo, addr, 1), 8, 0,
+                         lower_efftype(lo, t));
+}
+
+static IrOperand wide_materialize(Lower *lo, Type *t, WideInt v)
+{
+    ValueId tmp = lower_temp(lo, t);
+    IrOperand addr = ir_op_value(lo->fn, tmp);
+
+    wide_store(lo, addr, t, v);
+    return addr;
+}
+
+static IrOperand wide_capture(Lower *lo, IrOperand src, Type *t,
+                              u8 access_flags)
+{
+    ValueId tmp = lower_temp(lo, t);
+    IrOperand dst = ir_op_value(lo->fn, tmp);
+
+    /* Source expressions can name packed or explicitly under-aligned TI
+     * objects.  Alignment 1 is conservative for the copy and leaves the ABI
+     * alignment of the destination temporary unchanged. */
+    lower_memcpy_aggregate(lo, dst, src, t, 1, access_flags);
+    return dst;
+}
+
+static IrOperand wide_truth_ne(Lower *lo, IrOperand addr, Type *t,
+                               u8 access_flags)
+{
+    WideInt v = wide_load(lo, addr, t, access_flags);
+    ValueId bits = ir_build2(&lo->b, IR_OR, IRT_I64, v.lo, v.hi);
+    ValueId nz = ir_build_icmp(&lo->b, ICMP_NE, ir_op_value(lo->fn, bits),
+                               ir_op_iconst(IRT_I64, 0));
+
+    return ir_op_value(lo->fn, nz);
+}
+
+static IrOperand wide_from_scalar(Lower *lo, IrOperand v, Type *from, Type *to)
+{
+    IrOperand low = v;
+    IrOperand high = ir_op_iconst(IRT_I64, 0);
+    IrType ft;
+
+    if (from->kind == TY_PTR) {
+        ValueId bits = ir_build1(&lo->b, IR_BITCAST, IRT_I64, v);
+
+        low = ir_op_value(lo->fn, bits);
+    } else {
+        ft = lower_irtype(lo, from);
+        if (ft != IRT_I64) {
+            ValueId ext = ir_build1(
+                &lo->b, conv_is_signed(lo->sema, from) ? IR_SEXT : IR_ZEXT,
+                IRT_I64, v);
+
+            low = ir_op_value(lo->fn, ext);
+        }
+        if (conv_is_signed(lo->sema, from)) {
+            ValueId sign = ir_build2(&lo->b, IR_ASHR, IRT_I64, low,
+                                     ir_op_iconst(IRT_I64, 63));
+
+            high = ir_op_value(lo->fn, sign);
+        }
+    }
+    return wide_materialize(lo, to, (WideInt){low, high});
+}
+
+static IrOperand wide_to_scalar(Lower *lo, IrOperand addr, Type *from, Type *to,
+                                u8 access_flags)
+{
+    WideInt v = wide_load(lo, addr, from, access_flags);
+
+    if (to->kind == TY_BOOL) {
+        ValueId bits = ir_build2(&lo->b, IR_OR, IRT_I64, v.lo, v.hi);
+        ValueId nz = ir_build_icmp(&lo->b, ICMP_NE, ir_op_value(lo->fn, bits),
+                                   ir_op_iconst(IRT_I64, 0));
+        ValueId out =
+            ir_build1(&lo->b, IR_TRUNC, IRT_I8, ir_op_value(lo->fn, nz));
+
+        return ir_op_value(lo->fn, out);
+    }
+    if (to->kind == TY_PTR) {
+        ValueId p = ir_build1(&lo->b, IR_BITCAST, IRT_PTR, v.lo);
+
+        return ir_op_value(lo->fn, p);
+    }
+    return lower_scalar_convert(lo, v.lo, type_basic(TY_ULLONG), to);
+}
+
+static IrOperand wide_cast(Lower *lo, AstNode *e, Type *from, Type *to)
+{
+    IrOperand v = lower_rvalue(lo, e->lhs);
+
+    if (to->kind == TY_VOID) {
+        u8 flags = lower_aggregate_access_flags(e->lhs);
+
+        if (type_is_int128(from) && flags)
+            (void)wide_capture(lo, v, from, flags);
+        return ir_op_undef(IRT_I32);
+    }
+    if (type_is_int128(from)) {
+        if (type_is_int128(to))
+            return v;
+        return wide_to_scalar(lo, v, from, to,
+                              lower_aggregate_access_flags(e->lhs));
+    }
+    return wide_from_scalar(lo, v, from, to);
+}
+
+static IrOperand wide_runtime_binary(Lower *lo, const char *name, Type *type,
+                                     IrOperand a_addr, IrOperand b_addr)
+{
+    WideInt a = wide_load(lo, a_addr, type, 0);
+    WideInt b = wide_load(lo, b_addr, type, 0);
+    ValueId tmp = lower_temp(lo, type);
+    IrOperand args[5];
+
+    args[0] = ir_op_value(lo->fn, tmp);
+    args[0].b = ir_arg_annot(IR_ARG_PAIR_II, 16);
+    args[1] = a.lo;
+    args[2] = a.hi;
+    args[3] = b.lo;
+    args[4] = b.hi;
+    (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL, ir_sym(lo->m, name),
+                        args, 5);
+    return ir_op_value(lo->fn, tmp);
+}
+
+static IrOperand wide_runtime_shift(Lower *lo, const char *name, Type *type,
+                                    IrOperand a_addr, IrOperand count)
+{
+    WideInt a = wide_load(lo, a_addr, type, 0);
+    ValueId tmp = lower_temp(lo, type);
+    IrOperand args[4];
+
+    args[0] = ir_op_value(lo->fn, tmp);
+    args[0].b = ir_arg_annot(IR_ARG_PAIR_II, 16);
+    args[1] = a.lo;
+    args[2] = a.hi;
+    args[3] = count;
+    (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL, ir_sym(lo->m, name),
+                        args, 4);
+    return ir_op_value(lo->fn, tmp);
+}
+
+static IrOperand wide_compare(Lower *lo, u16 op, Type *type, WideInt a,
+                              WideInt b)
+{
+    ValueId lo_cmp;
+    ValueId hi_cmp;
+    ValueId hi_eq;
+    ValueId tied;
+    ValueId result;
+    bool is_signed = conv_is_signed(lo->sema, type);
+    IrIcmp hp;
+    IrIcmp lp;
+
+    if (op == PUNCT_EQEQ || op == PUNCT_NOTEQ) {
+        ValueId lo_eq = ir_build_icmp(&lo->b, ICMP_EQ, a.lo, b.lo);
+        ValueId hi_same = ir_build_icmp(&lo->b, ICMP_EQ, a.hi, b.hi);
+        ValueId eq =
+            ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, lo_eq),
+                      ir_op_value(lo->fn, hi_same));
+
+        if (op == PUNCT_EQEQ)
+            return ir_op_value(lo->fn, eq);
+        result = ir_build2(&lo->b, IR_XOR, IRT_I32, ir_op_value(lo->fn, eq),
+                           ir_op_iconst(IRT_I32, 1));
+        return ir_op_value(lo->fn, result);
+    }
+
+    switch (op) {
+    case PUNCT_LT:
+        hp = is_signed ? ICMP_SLT : ICMP_ULT;
+        lp = ICMP_ULT;
+        break;
+    case PUNCT_GT:
+        hp = is_signed ? ICMP_SGT : ICMP_UGT;
+        lp = ICMP_UGT;
+        break;
+    case PUNCT_LE:
+        hp = is_signed ? ICMP_SGT : ICMP_UGT;
+        lp = ICMP_UGT;
+        break;
+    case PUNCT_GE:
+        hp = is_signed ? ICMP_SLT : ICMP_ULT;
+        lp = ICMP_ULT;
+        break;
+    default:
+        CGF_ICE("wide comparison has non-comparison op %u", op);
+    }
+    hi_cmp = ir_build_icmp(&lo->b, hp, a.hi, b.hi);
+    hi_eq = ir_build_icmp(&lo->b, ICMP_EQ, a.hi, b.hi);
+    lo_cmp = ir_build_icmp(&lo->b, lp, a.lo, b.lo);
+    tied = ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, hi_eq),
+                     ir_op_value(lo->fn, lo_cmp));
+    result = ir_build2(&lo->b, IR_OR, IRT_I32, ir_op_value(lo->fn, hi_cmp),
+                       ir_op_value(lo->fn, tied));
+    if (op == PUNCT_LE || op == PUNCT_GE)
+        result = ir_build2(&lo->b, IR_XOR, IRT_I32, ir_op_value(lo->fn, result),
+                           ir_op_iconst(IRT_I32, 1));
+    return ir_op_value(lo->fn, result);
+}
+
+static IrOperand wide_inline_binary(Lower *lo, u16 op, Type *type,
+                                    IrOperand a_addr, IrOperand b_addr)
+{
+    WideInt a = wide_load(lo, a_addr, type, 0);
+    WideInt b = wide_load(lo, b_addr, type, 0);
+    WideInt r;
+    ValueId first;
+    ValueId second;
+
+    if (is_cmp_op(op))
+        return wide_compare(lo, op, type, a, b);
+    switch (op) {
+    case PUNCT_PLUS: {
+        ValueId carry;
+        ValueId carry64;
+
+        first = ir_build2(&lo->b, IR_IADD, IRT_I64, a.lo, b.lo);
+        carry =
+            ir_build_icmp(&lo->b, ICMP_ULT, ir_op_value(lo->fn, first), a.lo);
+        carry64 =
+            ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, carry));
+        second = ir_build2(&lo->b, IR_IADD, IRT_I64, a.hi, b.hi);
+        second =
+            ir_build2(&lo->b, IR_IADD, IRT_I64, ir_op_value(lo->fn, second),
+                      ir_op_value(lo->fn, carry64));
+        break;
+    }
+    case PUNCT_MINUS: {
+        ValueId borrow = ir_build_icmp(&lo->b, ICMP_ULT, a.lo, b.lo);
+        ValueId borrow64 =
+            ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, borrow));
+
+        first = ir_build2(&lo->b, IR_ISUB, IRT_I64, a.lo, b.lo);
+        second = ir_build2(&lo->b, IR_ISUB, IRT_I64, a.hi, b.hi);
+        second =
+            ir_build2(&lo->b, IR_ISUB, IRT_I64, ir_op_value(lo->fn, second),
+                      ir_op_value(lo->fn, borrow64));
+        break;
+    }
+    case PUNCT_AMP:
+    case PUNCT_CARET:
+    case PUNCT_PIPE: {
+        IrOp irop = op == PUNCT_AMP     ? IR_AND
+                    : op == PUNCT_CARET ? IR_XOR
+                                        : IR_OR;
+
+        first = ir_build2(&lo->b, irop, IRT_I64, a.lo, b.lo);
+        second = ir_build2(&lo->b, irop, IRT_I64, a.hi, b.hi);
+        break;
+    }
+    default:
+        CGF_ICE("wide inline binary has unsupported op %u", op);
+    }
+    r.lo = ir_op_value(lo->fn, first);
+    r.hi = ir_op_value(lo->fn, second);
+    return wide_materialize(lo, type, r);
+}
+
+static IrOperand wide_binary_values(Lower *lo, u16 op, Type *type,
+                                    IrOperand lhs, IrOperand rhs)
+{
+    switch (op) {
+    case PUNCT_PLUS:
+    case PUNCT_MINUS:
+    case PUNCT_AMP:
+    case PUNCT_CARET:
+    case PUNCT_PIPE:
+    case PUNCT_LT:
+    case PUNCT_GT:
+    case PUNCT_LE:
+    case PUNCT_GE:
+    case PUNCT_EQEQ:
+    case PUNCT_NOTEQ:
+        return wide_inline_binary(lo, op, type, lhs, rhs);
+    case PUNCT_STAR:
+        return wide_runtime_binary(lo, "__multi3", type, lhs, rhs);
+    case PUNCT_SLASH:
+        return wide_runtime_binary(
+            lo, conv_is_signed(lo->sema, type) ? "__divti3" : "__udivti3", type,
+            lhs, rhs);
+    case PUNCT_PERCENT:
+        return wide_runtime_binary(
+            lo, conv_is_signed(lo->sema, type) ? "__modti3" : "__umodti3", type,
+            lhs, rhs);
+    default:
+        CGF_ICE("wide binary has unsupported op %u", op);
+    }
+}
+
+static IrOperand lower_wide_binary(Lower *lo, AstNode *e)
+{
+    Type *lt = sem(e->lhs);
+    IrOperand lhs = lower_rvalue(lo, e->lhs);
+
+    /* Capture the left value before evaluating the right: an aggregate-style
+     * address alone is not an evaluation when the RHS mutates its source. */
+    lhs = wide_capture(lo, lhs, lt, lower_aggregate_access_flags(e->lhs));
+    if (e->op == PUNCT_SHL || e->op == PUNCT_SHR) {
+        IrOperand count = lower_rvalue(lo, e->rhs);
+        const char *name =
+            e->op == PUNCT_SHL
+                ? "__ashlti3"
+                : (conv_is_signed(lo->sema, lt) ? "__ashrti3" : "__lshrti3");
+
+        count =
+            lower_scalar_convert(lo, count, sem(e->rhs), type_basic(TY_INT));
+        return wide_runtime_shift(lo, name, lt, lhs, count);
+    }
+    {
+        IrOperand rhs = lower_rvalue(lo, e->rhs);
+
+        rhs = wide_capture(lo, rhs, sem(e->rhs),
+                           lower_aggregate_access_flags(e->rhs));
+        return wide_binary_values(lo, e->op, lt, lhs, rhs);
+    }
+}
+
 /* --- scalar conversions --------------------------------------------------- */
 
-IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
+IrOperand lower_scalar_convert_access(Lower *lo, IrOperand v, Type *from,
+                                      Type *to, u8 access_flags)
 {
     IrType ft, tt;
     bool fint, tint;
@@ -477,6 +843,13 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
         return v;
     if (to->kind == TY_VOID)
         return v; /* value discarded; nothing to emit */
+    if (type_is_int128(from)) {
+        if (type_is_int128(to))
+            return v;
+        return wide_to_scalar(lo, v, from, to, access_flags);
+    }
+    if (type_is_int128(to))
+        return wide_from_scalar(lo, v, from, to);
     /* AN ARRAY OR FUNCTION SOURCE HAS ALREADY DECAYED: whatever produced `v`
      * yielded an ADDRESS, so the conversion starts from a pointer even though
      * the TYPE still says array. The rule lived only at AST_EXPR_CAST, which
@@ -553,6 +926,11 @@ IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
     /* float -> float */
     return ir_op_value(
         lo->fn, ir_build1(&lo->b, tt > ft ? IR_FPEXT : IR_FPTRUNC, tt, v));
+}
+
+IrOperand lower_scalar_convert(Lower *lo, IrOperand v, Type *from, Type *to)
+{
+    return lower_scalar_convert_access(lo, v, from, to, 0);
 }
 
 /* --- member lookup (anonymous members included) --------------------------- */
@@ -735,8 +1113,9 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
          * ptr_index always did this correctly; only the dedicated subscript
          * shortcut did not. */
         IrOperand el = lower_type_size(lo, sem(e));
-        IrOperand wide =
-            lower_scalar_convert(lo, idx, idx_type, type_basic(TY_LONG));
+        IrOperand wide = lower_scalar_convert_access(
+            lo, idx, idx_type, type_basic(TY_LONG),
+            lower_aggregate_access_flags(left_is_pointer ? e->rhs : e->lhs));
         ValueId scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, wide, el);
         ValueId sum =
             ir_build_ptradd(&lo->b, base, ir_op_value(lo->fn, scaled));
@@ -934,7 +1313,13 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
 
     if (e->cond_omits_mid) {
         shared = lower_rvalue(lo, e->lhs);
-        c = truth_ne(lo, shared, sem(e->lhs));
+        if (type_is_int128(sem(e->lhs))) {
+            shared = wide_capture(lo, shared, sem(e->lhs),
+                                  lower_aggregate_access_flags(e->lhs));
+            c = wide_truth_ne(lo, shared, sem(e->lhs), 0);
+        } else {
+            c = truth_ne(lo, shared, sem(e->lhs));
+        }
     } else {
         c = lower_cond(lo, e->lhs);
     }
@@ -967,9 +1352,12 @@ static IrOperand lower_ternary(Lower *lo, AstNode *e)
     if (is_agg) {
         TypeLayout l = layout_of(lo->sema, rt);
 
+        /* An omitted middle operand was already captured before the branch,
+         * including its one required volatile access.  The then arm reads
+         * only that compiler-generated snapshot. */
         lower_memcpy_aggregate(
             lo, ir_op_value(lo->fn, agg_tmp), v, rt, (u32)l.align,
-            lower_aggregate_access_flags(e->cond_omits_mid ? e->lhs : e->mid));
+            e->cond_omits_mid ? 0 : lower_aggregate_access_flags(e->mid));
         ir_build_br(&lo->b, join, NULL, 0);
     } else if (is_void) {
         ir_build_br(&lo->b, join, NULL, 0);
@@ -1087,10 +1475,11 @@ static IrOp arith_op_for(Lower *lo, u16 op, Type *t)
 
 /* Pointer + integer with scaling; `neg` for p - n. */
 static IrOperand ptr_index(Lower *lo, IrOperand p, IrOperand n, Type *ptr_ty,
-                           Type *idx_ty, bool neg)
+                           Type *idx_ty, u8 idx_access_flags, bool neg)
 {
     IrOperand esz = lower_type_size(lo, ptr_ty->base);
-    IrOperand wide = lower_scalar_convert(lo, n, idx_ty, type_basic(TY_LONG));
+    IrOperand wide = lower_scalar_convert_access(
+        lo, n, idx_ty, type_basic(TY_LONG), idx_access_flags);
     ValueId scaled;
     IrOperand off;
     ValueId r;
@@ -1114,11 +1503,15 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
     Type *rt = sem(e->rhs);
 
     if (e->op == PUNCT_COMMA) {
-        (void)lower_rvalue(lo, e->lhs); /* side effects only */
+        lower_discard_expr(lo, e->lhs);
         return lower_rvalue(lo, e->rhs);
     }
     if (e->op == PUNCT_AMPAMP || e->op == PUNCT_PIPEPIPE)
         return lower_logical(lo, e);
+    /* Pointer/integer arithmetic and warned pointer/integer comparisons stay
+     * on the pointer path below even when the integer happens to be TI. */
+    if (type_is_int128(lt) && (!rt || rt->kind != TY_PTR))
+        return lower_wide_binary(lo, e);
 
     if (is_cmp_op(e->op)) {
         IrOperand a = lower_rvalue(lo, e->lhs);
@@ -1132,11 +1525,13 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
         } else if (lt && lt->kind == TY_PTR) {
             /* ptr vs integer (gcc-warned, still compiles): compare the
              * pointer's bits. */
-            IrOperand bi = lower_scalar_convert(lo, b, rt, lt);
+            IrOperand bi = lower_scalar_convert_access(
+                lo, b, rt, lt, lower_aggregate_access_flags(e->rhs));
 
             r = ir_build_icmp(&lo->b, icmp_pred_for(e->op, false), a, bi);
         } else if (rt && rt->kind == TY_PTR) {
-            IrOperand ai = lower_scalar_convert(lo, a, lt, rt);
+            IrOperand ai = lower_scalar_convert_access(
+                lo, a, lt, rt, lower_aggregate_access_flags(e->lhs));
 
             r = ir_build_icmp(&lo->b, icmp_pred_for(e->op, false), ai, b);
         } else {
@@ -1179,9 +1574,12 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
             IrOperand b = lower_rvalue(lo, e->rhs);
 
             if (lp)
-                return ptr_index(lo, a, b, lt, rt, e->op == PUNCT_MINUS);
+                return ptr_index(lo, a, b, lt, rt,
+                                 lower_aggregate_access_flags(e->rhs),
+                                 e->op == PUNCT_MINUS);
             /* n + p (PLUS only; sema rejected ptr on the right of -) */
-            return ptr_index(lo, b, a, rt, lt, false);
+            return ptr_index(lo, b, a, rt, lt,
+                             lower_aggregate_access_flags(e->lhs), false);
         }
     }
 
@@ -1434,6 +1832,37 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
         IrOperand old;
         IrOperand rhs;
 
+        if (type_is_int128(lt)) {
+            Type *common;
+            IrOperand result;
+            TypeLayout l = layout_of(lo->sema, lt);
+            u8 lhs_flags = lv.is_volatile ? IRF_VOLATILE : 0;
+
+            rhs = lower_rvalue(lo, e->rhs);
+            if (e->op == PUNCT_SHL_ASSIGN || e->op == PUNCT_SHR_ASSIGN) {
+                const char *name =
+                    op == PUNCT_SHL
+                        ? "__ashlti3"
+                        : (conv_is_signed(lo->sema, lt) ? "__ashrti3"
+                                                        : "__lshrti3");
+
+                rhs = lower_scalar_convert(lo, rhs, rt, type_basic(TY_INT));
+                old = wide_capture(lo, lv.addr, lt, lhs_flags);
+                result = wide_runtime_shift(lo, name, lt, old, rhs);
+            } else {
+                common = conv_uac_type(lo->sema, lt, rt);
+                if (type_is_int128(rt))
+                    rhs = wide_capture(lo, rhs, rt,
+                                       lower_aggregate_access_flags(e->rhs));
+                else
+                    rhs = wide_from_scalar(lo, rhs, rt, common);
+                old = wide_capture(lo, lv.addr, lt, lhs_flags);
+                result = wide_binary_values(lo, op, common, old, rhs);
+            }
+            lower_memcpy_aggregate(lo, lv.addr, result, lt, (u32)l.align,
+                                   lhs_flags);
+            return lv.addr;
+        }
         if (lv.is_atomic) {
             rhs = lower_rvalue(lo, e->rhs);
             return lower_atomic_update(lo, lv, lt, op, rhs, rt, false);
@@ -1445,9 +1874,22 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
 
         if (lt->kind == TY_PTR) {
             /* p += n / p -= n. */
-            IrOperand np = ptr_index(lo, old, rhs, lt, rt, op == PUNCT_MINUS);
+            IrOperand np = ptr_index(lo, old, rhs, lt, rt,
+                                     lower_aggregate_access_flags(e->rhs),
+                                     op == PUNCT_MINUS);
 
             return lower_store(lo, lv, np);
+        }
+        if (type_is_int128(rt) && op != PUNCT_SHL && op != PUNCT_SHR) {
+            Type *common = conv_uac_type(lo->sema, lt, rt);
+            IrOperand wide_old = wide_from_scalar(lo, old, lt, common);
+            IrOperand wide_rhs =
+                wide_capture(lo, rhs, rt, lower_aggregate_access_flags(e->rhs));
+            IrOperand wide_result =
+                wide_binary_values(lo, op, common, wide_old, wide_rhs);
+            IrOperand back = wide_to_scalar(lo, wide_result, common, lt, 0);
+
+            return lower_store(lo, lv, back);
         }
         {
             Type *common;
@@ -1469,7 +1911,8 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
                 common = conv_uac_type(lo->sema, left, rt);
             }
             a = lower_scalar_convert(lo, old, lt, common);
-            b2 = lower_scalar_convert(lo, rhs, rt, common);
+            b2 = lower_scalar_convert_access(
+                lo, rhs, rt, common, lower_aggregate_access_flags(e->rhs));
             r = build_source_arith(lo, arith_op_for(lo, op, common),
                                    lower_irtype(lo, common), a, b2, common);
             back = lower_scalar_convert(lo, ir_op_value(lo->fn, r), common, lt);
@@ -2707,7 +3150,7 @@ static IrOperand lower_checked_overflow_predicate(Lower *lo, AstNode *e)
     /* GCC ignores the selector's value, not its side effects. Lowering the
      * expression once also preserves a volatile access; the resulting value
      * deliberately has no data dependency on the predicate. */
-    (void)lower_rvalue(lo, e->args[2]);
+    lower_discard_expr(lo, e->args[2]);
     left = lower_overflow_integer(lo, left_value, left_type);
     right = lower_overflow_integer(lo, right_value, right_type);
     overflow =
@@ -2776,7 +3219,7 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
          * prediction operand still has to be evaluated: it is an ordinary
          * expression whose side effects the builtin cannot discard. */
         *out = lower_rvalue(lo, e->args[0]);
-        (void)lower_rvalue(lo, e->args[1]);
+        lower_discard_expr(lo, e->args[1]);
         return true;
     case SEMA_BUILTIN_PREFETCH:
         /* A prefetch is a performance hint, not a memory access. Targets may
@@ -3700,6 +4143,22 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
     Type *t = sem(e->lhs);
     IrOperand old;
 
+    if (type_is_int128(t)) {
+        TypeLayout l = layout_of(lo->sema, t);
+        u8 flags = lv.is_volatile ? IRF_VOLATILE : 0;
+        IrOperand one = wide_materialize(
+            lo, t,
+            (WideInt){ir_op_iconst(IRT_I64, 1), ir_op_iconst(IRT_I64, 0)});
+        IrOperand next;
+
+        old = wide_capture(lo, lv.addr, t, flags);
+        next = wide_inline_binary(
+            lo, e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS, t, old,
+            one);
+        lower_memcpy_aggregate(lo, lv.addr, next, t, (u32)l.align, flags);
+        return e->is_postfix ? old : lv.addr;
+    }
+
     if (lv.is_atomic) {
         u16 op = e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS;
         bool fp_or_ptr = type_is_floating(t) || t->kind == TY_PTR;
@@ -3795,12 +4254,26 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
         }
     }
     case PUNCT_PLUS:
+        if (type_is_int128(sem(e))) {
+            IrOperand v = lower_rvalue(lo, e->lhs);
+
+            return wide_capture(lo, v, sem(e),
+                                lower_aggregate_access_flags(e->lhs));
+        }
         return lower_rvalue(lo, e->lhs);
     case PUNCT_MINUS: {
         IrOperand v = lower_rvalue(lo, e->lhs);
         Type *t = sem(e);
         ValueId r;
 
+        if (type_is_int128(t)) {
+            IrOperand zero = wide_materialize(
+                lo, t,
+                (WideInt){ir_op_iconst(IRT_I64, 0), ir_op_iconst(IRT_I64, 0)});
+
+            v = wide_capture(lo, v, t, lower_aggregate_access_flags(e->lhs));
+            return wide_inline_binary(lo, PUNCT_MINUS, t, zero, v);
+        }
         if (type_is_floating(t))
             r = ir_build1(&lo->b, IR_FNEG, lower_irtype(lo, t), v);
         else
@@ -3810,6 +4283,17 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
     }
     case PUNCT_TILDE: {
         IrOperand v = lower_rvalue(lo, e->lhs);
+
+        if (type_is_int128(sem(e))) {
+            IrOperand ones =
+                wide_materialize(lo, sem(e),
+                                 (WideInt){ir_op_iconst(IRT_I64, -1),
+                                           ir_op_iconst(IRT_I64, -1)});
+
+            v = wide_capture(lo, v, sem(e),
+                             lower_aggregate_access_flags(e->lhs));
+            return wide_inline_binary(lo, PUNCT_CARET, sem(e), v, ones);
+        }
         ValueId r = ir_build2(&lo->b, IR_XOR, lower_irtype(lo, sem(e)), v,
                               ir_op_iconst(lower_irtype(lo, sem(e)), -1));
 
@@ -3821,6 +4305,14 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
         Type *t = sem(e->lhs);
         ValueId r;
 
+        if (type_is_int128(t)) {
+            IrOperand nz =
+                wide_truth_ne(lo, v, t, lower_aggregate_access_flags(e->lhs));
+            ValueId z = ir_build2(&lo->b, IR_XOR, IRT_I32, nz,
+                                  ir_op_iconst(IRT_I32, 1));
+
+            return ir_op_value(lo->fn, z);
+        }
         if (type_is_floating(t))
             r = ir_build_fcmp(&lo->b, FCMP_OEQ, v, fp_zero(lo, t));
         else
@@ -3876,7 +4368,9 @@ static IrOperand lower_offsetof_designator(Lower *lo, AstNode *e)
 
         if (!arr || !arr->base)
             CGF_ICE("offsetof array type did not survive sema");
-        idx = lower_scalar_convert(lo, idx, sem(e->rhs), type_basic(TY_LONG));
+        idx = lower_scalar_convert_access(lo, idx, sem(e->rhs),
+                                          type_basic(TY_LONG),
+                                          lower_aggregate_access_flags(e->rhs));
         stride = lower_type_size(lo, arr->base);
         scaled = ir_build2(&lo->b, IR_IMUL, IRT_I64, idx, stride);
         sum = ir_build2(&lo->b, IR_IADD, IRT_I64, base,
@@ -3951,6 +4445,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
          * address; the cast is a no-op re-labelling. */
         if (from && (from->kind == TY_ARRAY || from->kind == TY_FUNC))
             return lower_rvalue(lo, e->lhs);
+        if (type_is_int128(from) || type_is_int128(to))
+            return wide_cast(lo, e, from, to);
         union_member = e->implicit ? NULL : type_union_cast_member(to, from);
         if (union_member) {
             Type *member_type = union_member->type;
@@ -4107,6 +4603,9 @@ IrOperand lower_cond(Lower *lo, AstNode *e)
     {
         IrOperand v = lower_rvalue(lo, e);
 
+        if (type_is_int128(sem(e)))
+            return wide_truth_ne(lo, v, sem(e),
+                                 lower_aggregate_access_flags(e));
         return truth_ne(lo, v, sem(e));
     }
 }

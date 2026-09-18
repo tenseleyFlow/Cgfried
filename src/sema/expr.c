@@ -477,6 +477,20 @@ static AstNode *expr_assign(Sema *s, AstNode *e)
 
         e->rhs = conv_decay(s, e->rhs);
         rt = e->rhs->sem_type;
+        if ((type_is_int128(lt) && type_is_floating(rt)) ||
+            (type_is_floating(lt) && type_is_int128(rt))) {
+            err(s, e->span,
+                "conversion between mode(TI) and floating types is not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
+        if ((lt->quals & CGF_QUAL_ATOMIC) && type_is_int128(rt)) {
+            err(s, e->span,
+                "compound assignment between an atomic object and a "
+                "mode(TI) operand is not yet supported "
+                "(docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         switch (e->op) {
         case PUNCT_PLUS_ASSIGN:
         case PUNCT_MINUS_ASSIGN:
@@ -671,6 +685,13 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
             type_to_str(s->arena, rt));
         return poison(s, e);
     }
+    if ((type_is_int128(lt) && type_is_floating(rt)) ||
+        (type_is_floating(lt) && type_is_int128(rt))) {
+        err(s, e->span,
+            "conversion between mode(TI) and floating types is not yet "
+            "supported (docs/gnu-extensions.md)");
+        return poison(s, e);
+    }
     if ((e->op == PUNCT_PERCENT || e->op == PUNCT_AMP || e->op == PUNCT_PIPE ||
          e->op == PUNCT_CARET) &&
         (!type_is_integer(lt) || !type_is_integer(rt))) {
@@ -755,7 +776,15 @@ bool sema_require_switch_integer(Sema *s, const AstNode *e)
 {
     const Type *t = e ? e->sem_type : NULL;
 
-    if (!t || e->poisoned || type_is_integer(t))
+    if (!t || e->poisoned)
+        return true;
+    if (type_is_int128(t)) {
+        err(s, e->span,
+            "mode(TI) switch controlling expressions are not yet supported "
+            "(docs/gnu-extensions.md)");
+        return false;
+    }
+    if (type_is_integer(t))
         return true;
     err(s, e->span, "switch quantity not an integer");
     return false;
@@ -796,6 +825,13 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
     e->is_lvalue = false;
 
     if (type_is_arithmetic(at) && type_is_arithmetic(bt)) {
+        if ((type_is_int128(at) && type_is_floating(bt)) ||
+            (type_is_floating(at) && type_is_int128(bt))) {
+            err(s, e->span,
+                "conversion between mode(TI) and floating types is not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         e->sem_type = conv_uac(s, midp, &e->rhs);
         return e;
     }
@@ -1489,6 +1525,13 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                  * not, and neither are pointer/aggregate operands. */
                 if (quiet(e->args[0], e->args[1]))
                     return poison(s, e);
+                if (type_is_int128(left) || type_is_int128(right)) {
+                    err(s, e->span,
+                        "floating comparison builtin conversion from "
+                        "mode(TI) is not yet supported "
+                        "(docs/gnu-extensions.md)");
+                    return poison(s, e);
+                }
                 if (!type_is_arithmetic(left) || !type_is_arithmetic(right) ||
                     (!type_is_floating(left) && !type_is_floating(right))) {
                     err(s, e->span,
@@ -1529,6 +1572,12 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 for (i = 0; i < 2; i++) {
                     if (quiet(e->args[i], NULL)) {
                         valid = false;
+                    } else if (type_is_int128(e->args[i]->sem_type)) {
+                        err(s, e->args[i]->span,
+                            "mode(TI) operands to checked-overflow builtins "
+                            "are not yet supported "
+                            "(docs/gnu-extensions.md)");
+                        valid = false;
                     } else if (!type_is_integer(e->args[i]->sem_type)) {
                         err(s, e->args[i]->span,
                             "operand %u to '%s' must have integer type "
@@ -1546,6 +1595,12 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             : NULL;
 
                     if (quiet(e->args[2], NULL)) {
+                        valid = false;
+                    } else if (type_is_int128(result_type)) {
+                        err(s, e->args[2]->span,
+                            "mode(TI) results from checked-overflow builtins "
+                            "are not yet supported "
+                            "(docs/gnu-extensions.md)");
                         valid = false;
                     } else if (!result_type || !type_is_integer(result_type) ||
                                result_type->kind == TY_BOOL ||
@@ -1572,6 +1627,12 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                      * representable range; lowering also honors bit-field
                      * precision recorded on the expression. */
                     if (quiet(e->args[2], NULL)) {
+                        valid = false;
+                    } else if (type_is_int128(selector)) {
+                        err(s, e->args[2]->span,
+                            "mode(TI) selectors for checked-overflow "
+                            "builtins are not yet supported "
+                            "(docs/gnu-extensions.md)");
                         valid = false;
                     } else if (!selector || !type_is_integer(selector) ||
                                selector->kind == TY_BOOL ||
@@ -2241,6 +2302,13 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = false;
         if (quiet(op, NULL))
             return poison(s, e);
+        if ((type_is_int128(to) && type_is_floating(op->sem_type)) ||
+            (type_is_floating(to) && type_is_int128(op->sem_type))) {
+            err(s, e->span,
+                "conversion between mode(TI) and floating types is not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         /* GNU C permits a struct or union value to be explicitly cast to
          * its own compatible type.  This is an aggregate identity
          * conversion: lowering already represents aggregate rvalues by

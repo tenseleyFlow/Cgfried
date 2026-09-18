@@ -24,6 +24,12 @@ done
 
 cgf=${CGF_TEST_CC:-$root/build/cgfried}
 if [ -x "$cgf" ]; then
+    if command -v gcc >/dev/null 2>&1; then
+        gcc -std=gnu11 -Wall -Wextra -Werror -O2 \
+            "$root/tests/fixtures/gnu/mode_ti_abi.c" \
+            -o "$tmp/mode-ti-reference"
+        "$tmp/mode-ti-reference" >"$tmp/mode-ti-reference.out"
+    fi
     for opt in O0 O2; do
         CGF_AS=0 "$cgf" -std=c11 -Wall -Wextra -Werror -"$opt" \
             -fno-strict-aliasing -c "$root/src/rt/int128.c" \
@@ -34,6 +40,18 @@ if [ -x "$cgf" ]; then
                 -o "$tmp/candidate-cgf-$opt"
             "$tmp/candidate-cgf-$opt" >"$tmp/candidate-cgf-$opt.out"
             cmp "$tmp/reference-gcc.out" "$tmp/candidate-cgf-$opt.out"
+
+            CGF_AS=0 "$cgf" -std=gnu11 -Wall -Wextra -Werror -"$opt" \
+                -c "$root/tests/fixtures/gnu/mode_ti_abi.c" \
+                -o "$tmp/mode-ti-cgf-$opt.o"
+            gcc "$tmp/mode-ti-cgf-$opt.o" "$tmp/int128-cgf-$opt.o" \
+                -o "$tmp/mode-ti-candidate-$opt"
+            "$tmp/mode-ti-candidate-$opt" \
+                >"$tmp/mode-ti-candidate-$opt.out"
+            cmp "$tmp/mode-ti-reference.out" \
+                "$tmp/mode-ti-candidate-$opt.out"
+            printf 'mode(TI) source/arithmetic/ABI differential: %s PASS\n' \
+                "$opt"
         fi
         printf 'int128 strict-C11 self-compile/ABI: %s PASS\n' "$opt"
     done

@@ -343,12 +343,17 @@ void test_conv_char_signedness_per_target(TestCtx *t)
 
 void test_conv_rank_order(TestCtx *t)
 {
+    ConvFix f;
+
+    conv_fix_init(&f, CGF_TARGET_X86_64_LINUX_GNU);
     /* Each signed type and its unsigned counterpart share a rank — the
      * UAC's rules (c) and (d) both depend on that being true. */
     T_ASSERT_EQ_INT(t, conv_rank(type_basic(TY_INT)),
                     conv_rank(type_basic(TY_UINT)));
     T_ASSERT_EQ_INT(t, conv_rank(type_basic(TY_LONG)),
                     conv_rank(type_basic(TY_ULONG)));
+    T_ASSERT_EQ_INT(t, conv_rank(type_basic(TY_INT128)),
+                    conv_rank(type_basic(TY_UINT128)));
     T_ASSERT_EQ_INT(t, conv_rank(type_basic(TY_CHAR)),
                     conv_rank(type_basic(TY_SCHAR)));
     T_ASSERT(t,
@@ -360,6 +365,24 @@ void test_conv_rank_order(TestCtx *t)
     T_ASSERT(t, conv_rank(type_basic(TY_INT)) < conv_rank(type_basic(TY_LONG)));
     T_ASSERT(t,
              conv_rank(type_basic(TY_LONG)) < conv_rank(type_basic(TY_LLONG)));
+    T_ASSERT(t, conv_rank(type_basic(TY_LLONG)) <
+                    conv_rank(type_basic(TY_INT128)));
+    T_ASSERT_EQ_INT(
+        t,
+        conv_uac_type(&f.sema, type_basic(TY_LLONG), type_basic(TY_INT128))
+            ->kind,
+        TY_INT128);
+    T_ASSERT_EQ_INT(
+        t,
+        conv_uac_type(&f.sema, type_basic(TY_ULLONG), type_basic(TY_INT128))
+            ->kind,
+        TY_INT128);
+    T_ASSERT_EQ_INT(
+        t,
+        conv_uac_type(&f.sema, type_basic(TY_INT128), type_basic(TY_UINT128))
+            ->kind,
+        TY_UINT128);
+    conv_fix_free(&f);
 }
 
 /* --- source-level behaviour ---------------------------------------------- */
