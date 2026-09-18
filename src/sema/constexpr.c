@@ -1089,6 +1089,14 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
          * `int a[__builtin_types_compatible_p(int,int) ? 4 : 1];` failed at
          * file scope with "variably modified type". */
         return cv_int(s, type_basic(TY_INT), e->types_compatible ? 1 : 0);
+    case AST_EXPR_CLASSIFY_TYPE: {
+        int classification =
+            sema_builtin_classify_type(e->sem_operand_type, e->type != NULL);
+
+        if (classification < 0)
+            return cv_error();
+        return cv_int(s, type_basic(TY_INT), (u64)classification);
+    }
     case AST_EXPR_CHOOSE_EXPR:
         /* The SELECTED arm, and only that one. Folding the other would
          * evaluate an expression the language says is not evaluated. */

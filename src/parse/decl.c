@@ -931,6 +931,7 @@ bool parse_at_decl_specs(Parser *p)
              strcmp(t->spelling, "__builtin_va_arg_pack_len") == 0 ||
              strcmp(t->spelling, "__builtin_offsetof") == 0 ||
              strcmp(t->spelling, "__builtin_types_compatible_p") == 0 ||
+             strcmp(t->spelling, "__builtin_classify_type") == 0 ||
              strcmp(t->spelling, "__builtin_choose_expr") == 0))
             return false;
         return parse_is_typedef_name(p, t->spelling) ||

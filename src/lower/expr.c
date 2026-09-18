@@ -4559,6 +4559,11 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
     case AST_EXPR_TYPES_COMPATIBLE:
         /* Sema already answered; this is a plain int constant. */
         return ir_op_iconst(IRT_I32, e->types_compatible ? 1 : 0);
+    case AST_EXPR_CLASSIFY_TYPE:
+        /* The expression operand was typed and converted by sema but is
+         * wholly unevaluated. A type-name operand preserves its own class. */
+        return ir_op_iconst(IRT_I32, sema_builtin_classify_type(
+                                         e->sem_operand_type, e->type != NULL));
     case AST_EXPR_CHOOSE_EXPR:
         /* ONLY THE SELECTED ARM IS LOWERED. The other was typed -- gcc
          * diagnoses errors in it -- but never evaluated, so none of its

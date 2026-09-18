@@ -218,6 +218,53 @@ void test_sema_builtin_abort_arity(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_classify_type_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(
+        &f,
+        "struct S { int x; }; union U { int x; double d; }; "
+        "enum E { E0 }; typedef int ti __attribute__" /* check_bans allow:
+                                                          compiler input */
+        "((mode(TI))); "
+        "int fn(void); int array[2]; _Bool flag; enum E value; ti wide; "
+        "_Static_assert(__builtin_classify_type(flag) == 1, \"bool\"); "
+        "_Static_assert(__builtin_classify_type(value) == 1, \"enum\"); "
+        "_Static_assert(__builtin_classify_type(wide) == 1, \"TI\"); "
+        "_Static_assert(__builtin_classify_type(fn) == 5, \"function\"); "
+        "_Static_assert(__builtin_classify_type(array) == 5, \"array\"); "
+        "_Static_assert(__builtin_classify_type(1.0L) == 8, \"real\"); "
+        "_Static_assert(__builtin_classify_type((struct S){0}) == 12, "
+        "\"struct\"); "
+        "_Static_assert(__builtin_classify_type((union U){0}) == 13, "
+        "\"union\"); "
+        "_Static_assert(__builtin_classify_type(void) == 0, \"void type\"); "
+        "_Static_assert(__builtin_classify_type(_Bool) == 4, \"bool type\"); "
+        "_Static_assert(__builtin_classify_type(enum E) == 3, \"enum type\"); "
+        "_Static_assert(__builtin_classify_type(int (void)) == 10, "
+        "\"function type\"); "
+        "_Static_assert(__builtin_classify_type(int [2]) == 14, "
+        "\"array type\");\n",
+        STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "int f(void) { return __builtin_classify_type(); } "
+             "int g(int x) { return __builtin_classify_type(x, x); }\n",
+             STD_C17);
+    T_ASSERT(t, f.errors >= 2);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void source(void); int f(void) { "
+             "return __builtin_classify_type(source()); }\n",
+             STD_C17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_exit_contract(TestCtx *t)
 {
     SemaFix f;
