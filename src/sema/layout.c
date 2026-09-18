@@ -95,6 +95,11 @@ static TypeLayout basic_layout(Sema *s, const Type *t)
         r.size = w.llong_bits / 8;
         r.align = r.size;
         return r;
+    case TY_INT128:
+    case TY_UINT128:
+        r.size = 16;
+        r.align = 16;
+        return r;
     case TY_FLOAT:
     case TY_FLOAT32:
         r.size = 4;

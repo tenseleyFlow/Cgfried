@@ -1,4 +1,3 @@
-// ERROR_EXPECTED: mode 'TI' names a 128-bit integer type
 // ERROR_EXPECTED: mode 'DF' names a floating type
 // ERROR_EXPECTED: mode 'TF' names a floating type
 // ERROR_EXPECTED: mode 'V4SI' names a vector type
@@ -11,7 +10,7 @@
  * for its own sake: ERROR_EXPECTED matches ONE message, so a single line
  * covering ten constructs would keep passing while nine of them silently
  * started being accepted. Every distinct message below is pinned, including
- * the tails that tell the four "only integer machine modes" cases apart.
+ * the tails that tell the three non-integer mode families apart.
  *
  * The `mode` attribute is HALF implemented, and this fixture is the other
  * half: every construct below is one gcc ACCEPTS and this compiler refuses
@@ -19,11 +18,10 @@
  * identical from outside -- and ignoring a mode gives the declaration a
  * type of the wrong size with nothing to show for it.
  *
- * The boundary is deliberate, not incidental. An integer mode is a width
- * and a signedness, both of which this type system has. The others each
+ * The boundary is deliberate, not incidental. Integer modes, including TI,
+ * are widths and signednesses that this type system has. The others each
  * name a type it does not have:
  *
- *   TI       a 128-bit integer
  *   SF/DF/XF/TF  a floating type selected by width, which would silently
  *            disagree with the target's own float/double/long double --
  *            note x86-64's long double is x87 80-bit, so TF is NOT it
@@ -39,7 +37,6 @@
  * parameter has no symbol, so every other attribute warns and drops there;
  * dropping a mode would hand the callee an `int` where the caller passed a
  * `long`, which is a calling-convention mismatch, so it is an error. */
-typedef int ti_mode __attribute__((__mode__(__TI__)));
 typedef float df_mode __attribute__((__mode__(__DF__)));
 typedef float tf_mode __attribute__((__mode__(__TF__)));
 typedef int v4si_mode __attribute__((__mode__(__V4SI__)));

@@ -32,6 +32,10 @@ typedef enum {
     TY_ULONG,
     TY_LLONG,
     TY_ULLONG,
+    /* GNU machine-mode integers.  Cgfried deliberately does not expose the
+     * __int128 spelling yet; mode(TI) reaches these distinct 128-bit types. */
+    TY_INT128,
+    TY_UINT128,
     TY_FLOAT,
     TY_DOUBLE,
     TY_LDOUBLE,
@@ -444,6 +448,7 @@ Type *type_enum_underlying(const Type *t);
 
 bool type_is_basic(const Type *t);
 bool type_is_integer(const Type *t);
+bool type_is_int128(const Type *t);
 bool type_is_floating(const Type *t);
 bool type_is_arithmetic(const Type *t);
 bool type_is_complete(const Type *t);

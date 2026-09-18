@@ -153,12 +153,13 @@ void test_layout_scalars(TestCtx *t)
         u64 size;
         u64 align;
     } rows[] = {
-        {TY_BOOL, 1, 1},    {TY_CHAR, 1, 1},     {TY_SCHAR, 1, 1},
-        {TY_UCHAR, 1, 1},   {TY_SHORT, 2, 2},    {TY_USHORT, 2, 2},
-        {TY_INT, 4, 4},     {TY_UINT, 4, 4},     {TY_LONG, 8, 8},
-        {TY_ULONG, 8, 8},   {TY_LLONG, 8, 8},    {TY_ULLONG, 8, 8},
-        {TY_FLOAT, 4, 4},   {TY_DOUBLE, 8, 8},   {TY_FLOAT32, 4, 4},
-        {TY_FLOAT64, 8, 8}, {TY_FLOAT32X, 8, 8},
+        {TY_BOOL, 1, 1},     {TY_CHAR, 1, 1},      {TY_SCHAR, 1, 1},
+        {TY_UCHAR, 1, 1},    {TY_SHORT, 2, 2},     {TY_USHORT, 2, 2},
+        {TY_INT, 4, 4},      {TY_UINT, 4, 4},      {TY_LONG, 8, 8},
+        {TY_ULONG, 8, 8},    {TY_LLONG, 8, 8},     {TY_ULLONG, 8, 8},
+        {TY_INT128, 16, 16}, {TY_UINT128, 16, 16}, {TY_FLOAT, 4, 4},
+        {TY_DOUBLE, 8, 8},   {TY_FLOAT32, 4, 4},   {TY_FLOAT64, 8, 8},
+        {TY_FLOAT32X, 8, 8},
     };
     u32 i;
 

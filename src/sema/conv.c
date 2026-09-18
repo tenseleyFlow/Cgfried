@@ -90,6 +90,9 @@ int conv_rank(const Type *t)
     case TY_LLONG:
     case TY_ULLONG:
         return 6402;
+    case TY_INT128:
+    case TY_UINT128:
+        return 12801;
     case TY_ENUM:
         return conv_rank(type_enum_underlying(t));
     default:
@@ -118,6 +121,7 @@ bool conv_is_signed(Sema *s, const Type *t)
     case TY_INT:
     case TY_LONG:
     case TY_LLONG:
+    case TY_INT128:
         return true;
     case TY_ENUM:
         return conv_is_signed(s, type_enum_underlying(t));
@@ -153,6 +157,9 @@ u32 conv_int_bits(Sema *s, const Type *t)
     case TY_LLONG:
     case TY_ULLONG:
         return w.llong_bits;
+    case TY_INT128:
+    case TY_UINT128:
+        return 128;
     case TY_ENUM:
         return conv_int_bits(s, type_enum_underlying(t));
     default:
@@ -178,6 +185,8 @@ static Type *unsigned_counterpart(Sema *s, const Type *t)
         return type_basic(TY_ULONG);
     case TY_LLONG:
         return type_basic(TY_ULLONG);
+    case TY_INT128:
+        return type_basic(TY_UINT128);
     default:
         return (Type *)t;
     }
@@ -637,6 +646,15 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
         (type_is_arithmetic(rt) || rt->kind == TY_PTR)) {
         *rhs_slot = conv_to_bool(s, rhs);
         return true;
+    }
+
+    if ((type_is_int128(lhs) && type_is_floating(rt)) ||
+        (type_is_floating(lhs) && type_is_int128(rt))) {
+        assign_diag(s, DIAG_ERROR, rhs->span, ctx,
+                    "conversion between mode(TI) and floating types is not "
+                    "yet supported",
+                    lhs, rt);
+        return false;
     }
 
     if (type_is_arithmetic(lhs) && type_is_arithmetic(rt)) {

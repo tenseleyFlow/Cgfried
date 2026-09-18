@@ -21,8 +21,8 @@ IrOperand lower_i64(i64 v)
 
 bool lower_is_aggregate(const Type *t)
 {
-    return t &&
-           (t->kind == TY_STRUCT || t->kind == TY_UNION || t->kind == TY_ARRAY);
+    return t && (t->kind == TY_STRUCT || t->kind == TY_UNION ||
+                 t->kind == TY_ARRAY || type_is_int128(t));
 }
 
 #define LOWER_MEM_RANGES_MAX 64u
@@ -121,6 +121,14 @@ void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
     TypeLayout l = layout_of(lo->sema, t);
     LowerMemRanges ranges = {0};
     IrOperand size;
+
+    /* A mode(TI) value can come directly from a packed member or another
+     * explicitly under-aligned object.  The aggregate-style value carries
+     * only its address, not provenance precise enough to distinguish that
+     * case from an aligned temporary, so every TI copy uses the conservative
+     * promise.  ABI temporaries retain their normal 16-byte allocation. */
+    if (type_is_int128(t))
+        align = 1;
 
     if (!type_is_runtime_sized(t)) {
         lower_mem_ranges(lo, t, 0, &ranges);
@@ -223,6 +231,50 @@ u8 lower_aggregate_access_flags(const AstNode *e)
     }
 }
 
+static bool discarded_value_is_already_materialized(const AstNode *e)
+{
+    if (!e)
+        return false;
+    switch (e->kind) {
+    case AST_EXPR_PAREN:
+    case AST_EXPR_CAST:
+        return discarded_value_is_already_materialized(e->lhs);
+    case AST_EXPR_BINARY:
+        if (e->op == PUNCT_COMMA)
+            return discarded_value_is_already_materialized(e->rhs);
+        return e->op == PUNCT_ASSIGN ||
+               (e->op >= PUNCT_STAR_ASSIGN && e->op <= PUNCT_PIPE_ASSIGN);
+    case AST_EXPR_GENERIC:
+        return discarded_value_is_already_materialized(e->mid);
+    case AST_EXPR_CHOOSE_EXPR:
+        return discarded_value_is_already_materialized(
+            e->choose_taken ? e->mid : e->rhs);
+    default:
+        return false;
+    }
+}
+
+void lower_discard_expr(Lower *lo, AstNode *e)
+{
+    IrOperand value;
+    u8 flags;
+
+    if (!e)
+        return;
+    value = lower_rvalue(lo, e);
+    flags = lower_aggregate_access_flags(e);
+    /* Aggregate-style rvalues are addresses.  Merely computing the address
+     * does not perform the lvalue conversion's required volatile read. */
+    if ((flags & IRF_VOLATILE) && lower_is_aggregate(e->sem_type) &&
+        !discarded_value_is_already_materialized(e)) {
+        TypeLayout l = layout_of(lo->sema, e->sem_type);
+        ValueId tmp = lower_temp(lo, e->sem_type);
+
+        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, e->sem_type,
+                               (u32)l.align, flags);
+    }
+}
+
 IrType lower_irtype(Lower *lo, const Type *t)
 {
     switch (t->kind) {
@@ -242,6 +294,9 @@ IrType lower_irtype(Lower *lo, const Type *t)
     case TY_LLONG:
     case TY_ULLONG:
         return IRT_I64;
+    case TY_INT128:
+    case TY_UINT128:
+        CGF_ICE("128-bit integer reached scalar IR lowering");
     case TY_FLOAT:
     case TY_FLOAT32:
         return IRT_F32;
@@ -322,6 +377,11 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
     case TY_LLONG:
     case TY_ULLONG:
         return ETYPE_I64;
+    case TY_INT128:
+    case TY_UINT128:
+        /* The IR has no scalar i128 effective-type class.  Wide integers
+         * travel as two limbs and conservatively alias as an opaque object. */
+        return ETYPE_UNKNOWN;
     case TY_FLOAT:
     case TY_FLOAT32:
         return ETYPE_F32;
@@ -801,8 +861,9 @@ IrOperand lower_type_size(Lower *lo, Type *t)
         prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
     } else {
         n = lower_rvalue(lo, t->size_expr);
-        n = lower_scalar_convert(lo, n, t->size_expr->sem_type,
-                                 type_basic(TY_LONG));
+        n = lower_scalar_convert_access(
+            lo, n, t->size_expr->sem_type, type_basic(TY_LONG),
+            lower_aggregate_access_flags(t->size_expr));
         inner = lower_type_size(lo, t->base);
         prod = ir_build2(&lo->b, IR_IMUL, IRT_I64, n, inner);
     }

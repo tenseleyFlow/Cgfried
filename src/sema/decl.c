@@ -399,6 +399,13 @@ static bool sso_has_floating_component(const Type *type)
     return type_is_floating(type);
 }
 
+static bool sso_has_int128_element(const Type *type)
+{
+    while (type && type->kind == TY_ARRAY)
+        type = type->base;
+    return type_is_int128(type);
+}
+
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                        bool is_last_decl)
 {
@@ -523,6 +530,15 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                       m->name ? m->name : "<anonymous>");
             mt = type_basic(TY_ERROR);
         }
+        if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
+            sso_has_int128_element(mt)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, m->span,
+                      "reverse scalar storage order for mode(TI) member or "
+                      "array '%s' is not yet supported",
+                      m->name ? m->name : "<anonymous>");
+            mt = type_basic(TY_ERROR);
+        }
 
         mem = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
         memset(mem, 0, sizeof(*mem));
@@ -532,6 +548,14 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         mem->bitfield_width = m->bitfield_width;
         if (m->is_bitfield) {
             i64 wv = 0;
+
+            if (type_is_int128(mt)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "mode(TI) bit-fields are not yet supported "
+                          "(docs/gnu-extensions.md)");
+                mt = mem->type = type_basic(TY_ERROR);
+            }
 
             /* gcc's implementation-defined enum-bitfield representation is
              * unsigned when the enum has no negative enumerator. This is
@@ -543,7 +567,8 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                     ? mt->tag->enum_has_negative
                     : conv_is_signed(s, mt);
 
-            if (m->bitfield_width && enum_fold(s, m->bitfield_width, &wv)) {
+            if (mt->kind != TY_ERROR && m->bitfield_width &&
+                enum_fold(s, m->bitfield_width, &wv)) {
                 u64 type_bits = layout_of(s, mt).size * 8;
 
                 if (wv < 0) {
@@ -2239,6 +2264,24 @@ static void remember_foldable_const_init(Sema *s, Type *target, AstNode *d)
         d->sym->foldable_const_init = init;
 }
 
+static bool type_contains_int128_object(const Type *t)
+{
+    Member *m;
+
+    if (!t)
+        return false;
+    if (type_is_int128(t))
+        return true;
+    if (t->kind == TY_ARRAY)
+        return type_contains_int128_object(t->base);
+    if ((t->kind != TY_STRUCT && t->kind != TY_UNION) || !t->tag)
+        return false;
+    for (m = t->tag->members; m; m = m->next)
+        if (type_contains_int128_object(m->type))
+            return true;
+    return false;
+}
+
 /* Types an initializer and checks each scalar element against its current
  * object. Materializing these conversions is load-bearing for both static
  * initializer bytes and the Sprint 38 conversion-warning postpass. */
@@ -2256,6 +2299,19 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
     sema_type_initializer(s, target, &d->init);
     if (is_static_init)
         s->static_init_depth--;
+
+    /* The constant evaluator currently carries one u64 integer limb.  Zero
+     * initialization is already exact for TI objects, but accepting an
+     * explicit static initializer would either truncate the high limb or
+     * silently fall back to BSS.  Refuse that boundary until the constant
+     * image path grows a genuine two-limb value. */
+    if (is_static_init && type_contains_int128_object(target)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->init->span,
+                  "static initialization of a mode(TI) object is not yet "
+                  "supported (docs/gnu-extensions.md)");
+        return;
+    }
 
     has_nested_fam = target && target->kind != TY_ERROR &&
                      type_contains_fam(target) &&
@@ -2481,10 +2537,10 @@ static void enum_mode_retype_constants(Sema *s, Type *t, Type *repr)
 static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
                             bool binds_enum_definition, Span span)
 {
-    static const TypeKind by_rank[] = {TY_SCHAR, TY_SHORT, TY_INT, TY_LONG,
-                                       TY_LLONG};
-    static const TypeKind by_rank_u[] = {TY_UCHAR, TY_USHORT, TY_UINT, TY_ULONG,
-                                         TY_ULLONG};
+    static const TypeKind by_rank[] = {TY_SCHAR, TY_SHORT, TY_INT,
+                                       TY_LONG,  TY_LLONG, TY_INT128};
+    static const TypeKind by_rank_u[] = {TY_UCHAR, TY_USHORT, TY_UINT,
+                                         TY_ULONG, TY_ULLONG, TY_UINT128};
     u64 want = 0;
     bool is_signed;
     size_t i;
@@ -2513,6 +2569,13 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
                   "not supported");
         return t;
     }
+    if (t->kind == TY_ENUM && g->mode == GNU_MODE_TI) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "mode(TI) enumerated types are not yet supported "
+                  "(docs/gnu-extensions.md)");
+        return t;
+    }
     if (!type_is_integer(t) || t->kind == TY_BOOL) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, span,
@@ -2533,6 +2596,9 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
         break;
     case GNU_MODE_DI:
         want = 8;
+        break;
+    case GNU_MODE_TI:
+        want = 16;
         break;
     case GNU_MODE_WORD:
     case GNU_MODE_POINTER:
@@ -3386,6 +3452,11 @@ static void declare_one(Sema *s, AstNode *d)
                 diag_emit(s->dc, DIAG_ERROR, d->span,
                           "atomic struct/union types are outside v0.1.0 "
                           "scope");
+            } else if (type_is_int128(elem)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, d->span,
+                          "atomic mode(TI) objects are not yet supported "
+                          "(docs/gnu-extensions.md)");
             } else if (type_is_vm(type)) {
                 s->nerrors++;
                 diag_emit(s->dc, DIAG_ERROR, d->span,
