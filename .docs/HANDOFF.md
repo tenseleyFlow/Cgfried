@@ -6869,9 +6869,12 @@ and green post-publication CI.
   Normal and sanitizer frontend fuzz each pass 2,000 mutations and retain the
   pinned Linux digest `dd612c8680021f21`. Policy, tier, registry, crash-corpus,
   and whitespace gates are clean. Linux safe-dogfood builds all 107 compiler
-  translation units with zero exemptions and passes its smoke test. Hosted CI,
-  exact-merge evidence, and the expected ten-cell target-complete publication
-  are pending.
+  translation units with zero exemptions and passes its smoke test. The first
+  hosted run exposed the expected corpus-inventory ratchet after this fixture
+  became the 114th permanent case; the corrected ISA gate checks all 684
+  corpus/optimization objects against the x86-64/SSE2 ceiling. Corrected
+  hosted CI, exact-merge evidence, and the expected ten-cell target-complete
+  publication are pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
