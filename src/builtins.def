@@ -48,6 +48,12 @@ B(trap, TRAP, 0, BK_VOID)
 B(expect, EXPECT, 2, BK_ARG0)
 B(prefetch, PREFETCH, -1, BK_VOID)
 
+/* Return-address representation helpers. SysV x86-64 and the supported
+ * AArch64 ABIs expose the extracted code address as the same pointer bits
+ * supplied by the caller; targets with tagged or biased stored return
+ * addresses are not supported. */
+B(extract_return_addr, EXTRACT_RETURN_ADDR, 1, BK_VOIDP)
+
 /* memory */
 B(malloc, MALLOC, 1, BK_VOIDP)
 B(free, FREE, 1, BK_VOID)
