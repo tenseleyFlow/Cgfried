@@ -293,13 +293,12 @@ exact hosted alias, publishes thirty target-complete cells across three
 imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
-exact tested parents and tree. The current `s56.29-builtin-puts` tranche on PR
-#124 implements the exact hosted `int (const char *)` builtin alias and
-publishes twenty target-complete cells across `pr55273.c` and `20241029-1.c`.
-Implementation, focused semantic/lowering/runtime/sanitizer validation, the
-20/20 cross-target compile matrix, native ARM assemble/link/execute proof,
-exact-CI evidence, atomic publication, and reversed-input determinism are
-green; final post-publication CI remains pending.
+exact tested parents and tree. Compiler-gap and large-FOSS tranches through
+PR #133 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin_classify_type`, publishes thirty
+target-complete cells, and leaves the ratchet at 31,700 PASS keys. The current
+`s56.39-builtin-extract-return-addr` tranche implements the next isolated GNU
+builtin gap; publication and hosted CI remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -6775,7 +6774,7 @@ and green post-publication CI.
   including x86, native and emulated ARM64, sanitizers, toolchain, campaigns,
   and the 100,000-case frontend fuzz lane. PR #132 merged green-only as
   `a8e8539cc37ad37bdac71547f412c0914f412399`.
-- The current `s56.38-builtin-classify-type` tranche implements GCC's
+- The merged `s56.38-builtin-classify-type` tranche implements GCC's
   `__builtin_classify_type` as a parser-owned special form accepting either
   an expression or a written type name. Expression operands receive ordinary
   lvalue/array/function conversion; both forms are integer constant
@@ -6840,7 +6839,39 @@ and green post-publication CI.
   `9e11c6168af9ebd09dc774d4b31cfd668a873125aecb2b1c9bc92b86cbfd2b12`
   and
   `5c027db267bd65384eae8c0559fe6ad7a4441a573358ebb313a0ef0846537736`.
-  Final post-publication CI remains pending.
+  Final post-publication standard
+  [run 35497067999](https://github.com/tenseleyFlow/Cgfried/actions/runs/35497067999),
+  exact-merge nightly
+  [run 35497332844](https://github.com/tenseleyFlow/Cgfried/actions/runs/35497332844),
+  and exact-merge full-lattice bootstrap
+  [run 35497333659](https://github.com/tenseleyFlow/Cgfried/actions/runs/35497333659)
+  are fully green. PR #133 merged green-only as
+  `30afd68a2673d8feb6a4757ad32ee2c9be7a9ddb`; its tree is byte-identical to
+  the final tested synthetic merge.
+- The current `s56.39-builtin-extract-return-addr` tranche implements GCC's
+  exact `void *(void *)` contract for `__builtin_extract_return_addr`. The
+  operand receives ordinary pointer assignment conversion and is evaluated
+  exactly once. SysV x86-64 and the supported AArch64 ABIs store return
+  addresses in their ordinary code-pointer representation, so lowering is an
+  identity and emits no helper call. Tagged or biased return-address targets,
+  and the separate stack-introspection builtin `__builtin_return_address`,
+  remain outside the claimed surface.
+
+  Focused semantic and lowering tests pass normally and under ASan+UBSan. The
+  permanent executable fixture produces `1 1 1` at O0/O1/O2/O3/Os under
+  Cgfried and Apple Clang on native ARM64 macOS. The imported GCC torture
+  source `20040202-1.c` compiles to assembler-accepted output across all
+  fifteen target/optimization cells for x86-64 Linux, ARM64 Linux, and ARM64
+  macOS. An independent x86-64 Linux VM passes the focused units, executable
+  corpus fixture, all five imported-source optimization levels, and all five
+  GCC-reference executions. The complete Apple unit suite retains exactly
+  the eight documented host-assumption failures with both new tests green.
+  Normal and sanitizer frontend fuzz each pass 2,000 mutations and retain the
+  pinned Linux digest `dd612c8680021f21`. Policy, tier, registry, crash-corpus,
+  and whitespace gates are clean. Linux safe-dogfood builds all 107 compiler
+  translation units with zero exemptions and passes its smoke test. Hosted CI,
+  exact-merge evidence, and the expected ten-cell target-complete publication
+  are pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

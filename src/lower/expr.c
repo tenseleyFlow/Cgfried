@@ -3221,6 +3221,13 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         *out = lower_rvalue(lo, e->args[0]);
         lower_discard_expr(lo, e->args[1]);
         return true;
+    case SEMA_BUILTIN_EXTRACT_RETURN_ADDR:
+        /* GCC's helper decodes target-specific stored return-address
+         * representations. Both supported ABIs use ordinary code-pointer
+         * bits here, so extraction is an evaluated identity. Sema has
+         * already applied the declared void * parameter conversion. */
+        *out = lower_rvalue(lo, e->args[0]);
+        return true;
     case SEMA_BUILTIN_PREFETCH:
         /* A prefetch is a performance hint, not a memory access. Targets may
          * omit it, but the address expression still has ordinary C side

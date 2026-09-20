@@ -72,6 +72,7 @@ predefine.
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
 | `__builtin_classify_type(expr-or-type)` | `tests/programs/builtins/classify_type_runtime.c` | GCC torture's generic bit-field arithmetic tests; compile-time type dispatch |
+| `__builtin_extract_return_addr(ptr)` | `tests/corpus/x86_64/int/gnu_extract_return_addr.c` | target-neutral decoding of addresses obtained from return-address machinery; an evaluated identity on supported x86-64 and AArch64 ABIs |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -120,6 +121,14 @@ enum (`3`), boolean (`4`), function (`10`), and array (`14`) classes. Real
 floating, struct, and union types report `8`, `12`, and `13`; `mode(TI)` is an
 integer. Complex and vector classes remain unavailable because those source
 types are explicitly refused rather than accepted with invented semantics.
+
+`__builtin_extract_return_addr` has GCC's `void *(void *)` contract. The
+argument undergoes ordinary pointer assignment conversion and is evaluated
+exactly once. SysV x86-64 and the supported AArch64 ABIs do not need the
+tag-clearing or instruction-address adjustment required by some other GCC
+targets, so lowering is an identity and emits no helper call. Cgfried does not
+yet claim `__builtin_return_address` itself; tests requiring that separate
+stack-introspection feature remain skipped by policy.
 
 All currently supported targets are little-endian. A big-endian
 `scalar_storage_order` record therefore takes the reverse path: integral
