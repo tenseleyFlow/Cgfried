@@ -2404,6 +2404,29 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->types_compatible = ua && ub && type_compatible(ua, ub);
         return e;
     }
+    case AST_EXPR_CLASSIFY_TYPE: {
+        Type *operand;
+
+        if (e->type) {
+            operand = sema_type_from_ast(s, e->type, e->span);
+        } else {
+            e->lhs = conv_decay(s, expr(s, e->lhs));
+            if (quiet(e->lhs, NULL))
+                return poison(s, e);
+            operand = e->lhs->sem_type;
+        }
+        e->sem_operand_type = operand;
+        e->sem_type = type_basic(TY_INT);
+        e->is_lvalue = false;
+        if (sema_builtin_classify_type(operand, e->type != NULL) < 0) {
+            err(s, e->span,
+                "invalid use of expression with type '%s' in "
+                "'__builtin_classify_type'",
+                type_to_str(s->arena, operand));
+            return poison(s, e);
+        }
+        return e;
+    }
     case AST_EXPR_CHOOSE_EXPR: {
         /* BOTH ARMS ARE TYPED; only the selected one is evaluated.
          *

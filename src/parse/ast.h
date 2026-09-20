@@ -69,6 +69,9 @@ typedef enum AstKind {
      * expression at all, so it needs its own form exactly as va_arg and
      * offsetof do. Folds to an int 0/1 in sema; usable as an array bound. */
     AST_EXPR_TYPES_COMPATIBLE, /* type = T1, type2 = T2 */
+    /* `__builtin_classify_type` accepts either an unevaluated expression or
+     * a type name. `lhs` and `type` are mutually exclusive. */
+    AST_EXPR_CLASSIFY_TYPE,
     /* `__builtin_choose_expr(cond, a, b)`. The condition is an INTEGER
      * CONSTANT EXPRESSION and the result is the SELECTED arm -- type and
      * value both. The unselected arm is NOT evaluated but IS type-checked;
@@ -402,10 +405,11 @@ struct AstNode {
      * lowering and -Wconversion both read the tree, and a conversion that
      * exists only as a rule gets applied twice or not at all. */
     struct Type *sem_type;
-    /* Sema resolves a sizeof/_Alignof type-name while its lexical scope is
-     * still alive. Constant evaluation and lowering run after that scope has
-     * closed, so they must consume this type instead of resolving the syntax
-     * again (a block-scope VLA typedef is the observable case). */
+    /* Sema resolves a sizeof/_Alignof/__builtin_classify_type operand type
+     * while its lexical scope is still alive. Constant evaluation and
+     * lowering run after that scope has closed, so they must consume this
+     * type instead of resolving the syntax again (a block-scope VLA typedef
+     * is the observable case). */
     struct Type *sem_operand_type;
     struct Symbol *sym; /* AST_EXPR_IDENT: the declaration it resolved to */
     bool is_lvalue;
