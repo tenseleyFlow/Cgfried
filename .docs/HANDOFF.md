@@ -6797,7 +6797,50 @@ and green post-publication CI.
   mutations with zero findings. Hosted normal and sanitizer runs plus an
   independent x86-64 Linux VM reproduce the authoritative Linux 5,000-case
   digest `dd612c8680021f21`; Apple ARM64 emits the target-specific digest
-  `37a7070901d1c287`. Publication and hosted CI evidence remain pending.
+  `37a7070901d1c287`.
+
+  Pre-publication standard
+  [run 35386568608](https://github.com/tenseleyFlow/Cgfried/actions/runs/35386568608)
+  passed all 23 executed non-torture jobs and skipped only the tag-only policy
+  job; its sole refusal was the expected fifteen unpublished x86-64 PASS
+  cells. Exact synthetic merge
+  `04730e351ec15f35b39eee22f61bc0a80bfcb614` has parents `a8e8539c`
+  and `ec1b2a19`, and tree `1a21e14bb945ade8513833883c8d9eda8453740b`,
+  byte-identical to the tranche head. Its exact-merge nightly
+  [run 35386632756](https://github.com/tenseleyFlow/Cgfried/actions/runs/35386632756)
+  passed all fourteen non-torture jobs and refused only the matching fifteen
+  ARM64 PASS cells. Exact-merge full-lattice bootstrap
+  [run 35386634966](https://github.com/tenseleyFlow/Cgfried/actions/runs/35386634966)
+  is green in all seven jobs.
+
+  The downloaded exact-merge x86 and ARM streams have SHA-256 values
+  `5df3460b7016a02e134676bfd6a9c93c666b6f70143ec99c7fc61be5aada6571`
+  and
+  `db3bbab44380175ec6555d1d10b2a88ac65e3a25cd806e979ac3d3095078b5da`.
+  Each contains 20,325 unique cells -- 15,850 PASS, 3,305 SKIP, and 1,170
+  COMPILE_FAIL -- and contributes exactly fifteen new PASS keys with zero
+  old-PASS regressions, duplicate keys, or ICEs. Both name the exact synthetic
+  merge and share compiler-source SHA-256
+  `a4cb595a3e50a6daefdc52ecbb7efe464ba9c1fbd614b3a7f73986668b66f037`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes.
+
+  Formal GNU-make atomic publication consumes those freshly generated exact
+  CI streams through `gmake -o torture-run torture-baseline`, retaining the
+  publisher's provenance, complete-key, staging, and rollback checks while
+  suppressing only a redundant emulated local matrix rerun. Reversing the two
+  evidence streams regenerates both outputs byte-identically, both published
+  streams pass the gate, and the complete torture meta-suite is green. The
+  result is 31,700 PASS keys (31,703 lines), 2,340 classified failures in 31
+  buckets, 24 applied decisions, two deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. The pre-triaged `gcc-builtin` class
+  falls from 190 to 160 failed cells. PASS and triage SHA-256 values are
+  respectively
+  `9e11c6168af9ebd09dc774d4b31cfd668a873125aecb2b1c9bc92b86cbfd2b12`
+  and
+  `5c027db267bd65384eae8c0559fe6ad7a4441a573358ebb313a0ef0846537736`.
+  Final post-publication CI remains pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
