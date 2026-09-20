@@ -164,6 +164,28 @@ void test_lower_builtin_expect_evaluates_both_arguments(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_classify_type_is_constant_and_unevaluated(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t,
+             run_lower(&f, "struct S { int x; }; union U { int x; double d; }; "
+                           "int side; int touch(void); "
+                           "int use(int *p, struct S s, union U u) { "
+                           "return __builtin_classify_type(side++) + "
+                           "__builtin_classify_type(touch()) + "
+                           "__builtin_classify_type(p) + "
+                           "__builtin_classify_type(1.0) + "
+                           "__builtin_classify_type(s) + "
+                           "__builtin_classify_type(u); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @touch()"), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "store i32"), 0);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "add i32"), 5);
+    low_free(&f);
+}
+
 void test_lower_builtin_prefetch_preserves_only_address_effects(TestCtx *t)
 {
     LowFix f;

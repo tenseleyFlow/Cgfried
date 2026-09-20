@@ -234,6 +234,25 @@ static AstNode *parse_primary_expr(Parser *p)
             parse_expect_punct(p, PUNCT_RPAREN, "after the second type name");
             return n;
         }
+        /* GCC accepts either an expression or a type name here. A dedicated
+         * form preserves that distinction: expressions undergo the usual
+         * lvalue/array/function conversions, while type names do not. */
+        if (strcmp(t->spelling, "__builtin_classify_type") == 0) {
+            n = expr_new(p, AST_EXPR_CLASSIFY_TYPE, t->span);
+            p->pos++;
+            parse_expect_punct(p, PUNCT_LPAREN,
+                               "after '__builtin_classify_type'");
+            if (parse_at_type_name(p)) {
+                n->type = parse_type_name(p);
+            } else {
+                p->unevaluated++;
+                n->lhs = parse_assign_expr(p);
+                p->unevaluated--;
+            }
+            parse_expect_punct(p, PUNCT_RPAREN,
+                               "after the classified type or expression");
+            return n;
+        }
         /* `__builtin_choose_expr(cond, a, b)`. BOTH arms are parsed and
          * both are TYPED -- only the selected one is evaluated. The
          * unselected arm is deliberately NOT parsed unevaluated: gcc

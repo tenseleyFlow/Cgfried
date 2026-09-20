@@ -789,6 +789,9 @@ static void check_expr(Sema *s, AstNode *e, unsigned context)
         if (e->lhs && !e->unevaluated)
             check_expr(s, e->lhs, SEMA_WARN_EXPR_VALUE);
         break;
+    case AST_EXPR_CLASSIFY_TYPE:
+        /* The operand is typed but never evaluated. */
+        break;
     case AST_EXPR_CALL: {
         Type *callee_type = e->lhs ? e->lhs->sem_type : NULL;
 
