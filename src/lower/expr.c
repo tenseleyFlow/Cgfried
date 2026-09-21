@@ -3497,10 +3497,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     return false;
 }
 
-/* exit/malloc/free/memcpy/memmove/memset/memcmp/strlen/strcmp/strcpy/stpcpy/
- * strchr/strncpy/puts: direct libc calls by name. All fourteen have only
- * scalar arguments and no aggregate result, so the abstract-call machinery
- * (aggregate copies, sret) is not needed here.
+/* The scalar libc-backed builtins lower to direct calls by name. mempcpy
+ * uses memcpy, then returns the destination advanced by the converted byte
+ * count; this does not depend on a host libc exporting a mempcpy symbol.
+ * None needs the abstract-call machinery for aggregate arguments/results.
  */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -3514,6 +3514,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_MALLOC, "malloc", IRT_PTR, false},
         {SEMA_BUILTIN_FREE, "free", IRT_VOID, false},
         {SEMA_BUILTIN_MEMCPY, "memcpy", IRT_PTR, false},
+        {SEMA_BUILTIN_MEMPCPY, "memcpy", IRT_PTR, false},
         {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR, false},
         {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR, false},
         {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32, false},
@@ -3549,6 +3550,9 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
                                      args, n);
                 if (libc[k].noreturn)
                     ir_call_mark_noreturn(&lo->b);
+                if (e->op == SEMA_BUILTIN_MEMPCPY)
+                    return ir_op_value(
+                        lo->fn, ir_build_ptradd(&lo->b, args[0], args[2]));
                 return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                                : ir_op_value(lo->fn, call);
             }
@@ -3560,6 +3564,9 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
                              ir_sym(lo->m, libc[k].name), args, n);
         if (libc[k].noreturn)
             ir_call_mark_noreturn(&lo->b);
+        if (e->op == SEMA_BUILTIN_MEMPCPY)
+            return ir_op_value(lo->fn,
+                               ir_build_ptradd(&lo->b, args[0], args[2]));
         return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                        : ir_op_value(lo->fn, call);
     }

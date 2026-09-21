@@ -471,6 +471,60 @@ void test_sema_builtin_stpcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_mempcpy_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_mempcpy((void *)0, "
+             "(const void *)0, 0), void *: 1, default: 0), "
+             "\"mempcpy result is void pointer\"); "
+             "void *f(void *d, const void *s, int n) { "
+             "return __builtin_mempcpy(d, s, n); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "void *f(void *p) { return __builtin_mempcpy(p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void *f(void *p) { return __builtin_mempcpy(p, p, 1, 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void *f(struct S s, void *p) { "
+             "return __builtin_mempcpy(s, p, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void *f(const void *p) { return __builtin_mempcpy(p, p, 1); }\n",
+             STD_GNU17);
+    /* Like an ordinary void * parameter, discarded qualifiers warn. */
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, f.warnings > 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void *f(void *p, struct S s) { "
+             "return __builtin_mempcpy(p, s, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void *f(void *p, struct S s) { "
+             "return __builtin_mempcpy(p, p, s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_puts_contract(TestCtx *t)
 {
     SemaFix f;
