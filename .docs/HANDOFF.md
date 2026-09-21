@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-16): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-20): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,11 +11,12 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 8/30 through September 16 after required daily x86 evidence was
+at a strict 12/30 through September 20 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--16 hosted daily runs are
-green, and September 13's separate weekly run is full-lattice green. The
+operationally OPEN. Matching-head September 12--20 hosted daily runs are
+green, and the separate September 13 and September 20 weekly runs are
+full-lattice green. The
 matching-head September 11 recovery
 [`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
 is full-lattice green at `5f5b0e66`; it completed all four required daily
@@ -293,13 +294,13 @@ exact hosted alias, publishes thirty target-complete cells across three
 imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
-exact tested parents and tree. The current `s56.29-builtin-puts` tranche on PR
-#124 implements the exact hosted `int (const char *)` builtin alias and
-publishes twenty target-complete cells across `pr55273.c` and `20241029-1.c`.
-Implementation, focused semantic/lowering/runtime/sanitizer validation, the
-20/20 cross-target compile matrix, native ARM assemble/link/execute proof,
-exact-CI evidence, atomic publication, and reversed-input determinism are
-green; final post-publication CI remains pending.
+exact tested parents and tree. Compiler-gap and large-FOSS tranches through
+PR #133 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin_classify_type`, publishes thirty
+target-complete cells, and leaves the ratchet at 31,700 PASS keys. The current
+`s56.39-builtin-extract-return-addr` tranche implements the next isolated GNU
+builtin gap; target-complete publication is complete and final hosted CI
+remains pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -770,7 +771,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 6/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 12/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -807,7 +808,15 @@ do not call the sprint closed until that operational obligation is complete.
   reproducibility, and cross-host comparison green. Scheduled September 14
   [run 34825113796](https://github.com/tenseleyFlow/Cgfried/actions/runs/34825113796)
   passed all four required daily jobs at exact head `2b193f3c` and is day 6;
-  no weekly work was due. The daily-hosted automation
+  no weekly work was due. Scheduled September 15--19 runs `34948243637`,
+  `35074563332`, `35200797830`, `35323369962`, and `35430928573` are days
+  7--11, each with all four daily jobs and artifacts green. September 20 daily
+  [run 35499954218](https://github.com/tenseleyFlow/Cgfried/actions/runs/35499954218)
+  and full weekly
+  [run 35500570594](https://github.com/tenseleyFlow/Cgfried/actions/runs/35500570594)
+  share exact head `30afd68a` and make day 12; all four daily jobs,
+  reproducibility, cross-host comparison, and eight retained weekly artifacts
+  are green. The daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
   weekly cross/reproducibility result; any missing or red required run breaks the
@@ -6775,7 +6784,7 @@ and green post-publication CI.
   including x86, native and emulated ARM64, sanitizers, toolchain, campaigns,
   and the 100,000-case frontend fuzz lane. PR #132 merged green-only as
   `a8e8539cc37ad37bdac71547f412c0914f412399`.
-- The current `s56.38-builtin-classify-type` tranche implements GCC's
+- The merged `s56.38-builtin-classify-type` tranche implements GCC's
   `__builtin_classify_type` as a parser-owned special form accepting either
   an expression or a written type name. Expression operands receive ordinary
   lvalue/array/function conversion; both forms are integer constant
@@ -6840,7 +6849,81 @@ and green post-publication CI.
   `9e11c6168af9ebd09dc774d4b31cfd668a873125aecb2b1c9bc92b86cbfd2b12`
   and
   `5c027db267bd65384eae8c0559fe6ad7a4441a573358ebb313a0ef0846537736`.
-  Final post-publication CI remains pending.
+  Final post-publication standard
+  [run 35497067999](https://github.com/tenseleyFlow/Cgfried/actions/runs/35497067999),
+  exact-merge nightly
+  [run 35497332844](https://github.com/tenseleyFlow/Cgfried/actions/runs/35497332844),
+  and exact-merge full-lattice bootstrap
+  [run 35497333659](https://github.com/tenseleyFlow/Cgfried/actions/runs/35497333659)
+  are fully green. PR #133 merged green-only as
+  `30afd68a2673d8feb6a4757ad32ee2c9be7a9ddb`; its tree is byte-identical to
+  the final tested synthetic merge.
+- The current `s56.39-builtin-extract-return-addr` tranche implements GCC's
+  exact `void *(void *)` contract for `__builtin_extract_return_addr`. The
+  operand receives ordinary pointer assignment conversion and is evaluated
+  exactly once. SysV x86-64 and the supported AArch64 ABIs store return
+  addresses in their ordinary code-pointer representation, so lowering is an
+  identity and emits no helper call. Tagged or biased return-address targets,
+  and the separate stack-introspection builtin `__builtin_return_address`,
+  remain outside the claimed surface.
+
+  Focused semantic and lowering tests pass normally and under ASan+UBSan. The
+  permanent executable fixture produces `1 1 1` at O0/O1/O2/O3/Os under
+  Cgfried and Apple Clang on native ARM64 macOS. The imported GCC torture
+  source `20040202-1.c` compiles to assembler-accepted output across all
+  fifteen target/optimization cells for x86-64 Linux, ARM64 Linux, and ARM64
+  macOS. An independent x86-64 Linux VM passes the focused units, executable
+  corpus fixture, all five imported-source optimization levels, and all five
+  GCC-reference executions. The complete Apple unit suite retains exactly
+  the eight documented host-assumption failures with both new tests green.
+  Normal and sanitizer frontend fuzz each pass 2,000 mutations and retain the
+  pinned Linux digest `dd612c8680021f21`. Policy, tier, registry, crash-corpus,
+  and whitespace gates are clean. Linux safe-dogfood builds all 107 compiler
+  translation units with zero exemptions and passes its smoke test. The first
+  hosted run exposed the expected corpus-inventory ratchet after this fixture
+  became the 114th permanent case; the corrected ISA gate checks all 684
+  corpus/optimization objects against the x86-64/SSE2 ceiling.
+
+  Corrected pre-publication standard
+  [run 35500793298](https://github.com/tenseleyFlow/Cgfried/actions/runs/35500793298)
+  passes all 23 executed non-torture jobs, including 100,000-case frontend
+  fuzz, and skips only the tag-only policy job; its sole refusal is the five
+  unpublished x86-64 cells. GitHub's exact synthetic merge
+  `243409b892f5860b2ac30331bf9f45eb3f0ad07a` has parents `30afd68a` and
+  `368a0c22`, and tree `0e12396074dfd7cba8b9b9db7590073d9c32d926`,
+  byte-identical to the tranche head. Its exact nightly
+  [run 35501369524](https://github.com/tenseleyFlow/Cgfried/actions/runs/35501369524)
+  passes all fourteen non-torture jobs and refuses only the matching five
+  ARM64 cells. Its exact full-lattice bootstrap
+  [run 35501369486](https://github.com/tenseleyFlow/Cgfried/actions/runs/35501369486)
+  is green in all seven jobs.
+
+  The downloaded exact-merge x86 and ARM streams have SHA-256 values
+  `96ad84402c381cca72fff31cb1e82574b1035848914a86904b6d626e0cd7770f`
+  and
+  `f0e3421587e590e24f8ddbd4ea6ec626b72e8cd2121110c5d876301d7b31c6f8`.
+  Each contains 20,325 unique cells -- 15,855 PASS, 3,305 SKIP, and 1,165
+  COMPILE_FAIL -- and contributes exactly five new `20040202-1.c` PASS keys
+  with zero old-PASS regressions, duplicate keys, or ICEs. Both share source
+  revision `243409b8`, compiler-source SHA-256
+  `74544b1b0d0bd9f2f523f278c25d7f99aca4171688f3902b98e2aaede550749e`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes.
+
+  Formal GNU-make atomic publication consumes those exact streams while
+  retaining the publisher's provenance, complete-key, staging, and rollback
+  checks. Reversing stream order regenerates both outputs byte-identically,
+  both published streams pass the ratchet gate, and the complete torture
+  meta-suite is green. The result is 31,710 PASS keys (31,713 lines), 2,330
+  classified failures in 31 buckets, 24 applied decisions, two deliberately
+  retained stale decisions, and zero unbucketed or unresolved cells. The
+  pre-triaged `gcc-builtin` class falls from 160 to 150 failed cells. PASS and
+  triage SHA-256 values are respectively
+  `b76fb71f6998044f5959683c843bf7630c5850cce54c0a0af2981592d49ce40b`
+  and
+  `5a74f9b6220d544e6a4f4b746457b4233e2a23227e4ae62ed477692bf6467c56`.
+  Final post-publication standard and exact-merge CI remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

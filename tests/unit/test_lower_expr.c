@@ -206,6 +206,24 @@ void test_lower_builtin_prefetch_preserves_only_address_effects(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_extract_return_addr_is_evaluated_identity(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "void *source(void); "
+                              "void *use(void) { return "
+                              "__builtin_extract_return_addr(source()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_extract_return_addr"), 0);
+    round =
+        ir_parse_module(&f.arena, f.dc, txt(&f), "<extract-return-address>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strcmp_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;

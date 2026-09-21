@@ -266,6 +266,38 @@ void test_sema_builtin_classify_type_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_extract_return_addr_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_extract_return_addr("
+             "(void *)0), void *: 1, default: 0), \"void pointer result\"); "
+             "void *f(void *p, char *q) { "
+             "void *a = __builtin_extract_return_addr(p); "
+             "void *b = __builtin_extract_return_addr(q); "
+             "void *z = __builtin_extract_return_addr(0); "
+             "return a ? a : (b ? b : z); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void *f(void) { return __builtin_extract_return_addr(); } "
+             "void *g(void *p) { "
+             "return __builtin_extract_return_addr(p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void *f(struct S value) { "
+             "return __builtin_extract_return_addr(value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_exit_contract(TestCtx *t)
 {
     SemaFix f;
