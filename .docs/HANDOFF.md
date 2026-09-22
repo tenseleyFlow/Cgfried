@@ -7270,6 +7270,18 @@ and green post-publication CI.
   and `a7fbd454208e2dcaa2dc47fb7a125bc6ff2b8fff406bed9a932315861b135820`.
   PR #139 merged green-only as `9d2290212d8ead89c9d0042ea06c9af2eb8ef70b`;
   its parents and tree are identical to the final tested merge.
+- The current isolated `s56.45-builtin-strncmp` tranche is based on merged
+  #139. It implements the `int (const char *, const char *, size_t)` call
+  contract, evaluates converted operands once, and uses ordinary libc
+  linkage. Focused normal and ASan+UBSan semantic/lowering tests pass (two
+  tests, 20 assertions). Its Apple Silicon executable matches Clang at all
+  five native optimization levels, and imported `pr106101.c` assembles at all
+  five. The full Apple unit suite retains the same eight host-assumption
+  failures among 951 tests, with both new tests green. Normal and sanitized
+  2,000-case frontend fuzz each report zero findings. An independent x86
+  Linux VM matches the executable output and accepts `pr106101.c` at all five
+  levels; the closed x86-64/SSE2 ISA gate passes exactly 720 objects (120
+  fixtures times six levels). Publication and final CI are still pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
