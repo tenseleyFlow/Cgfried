@@ -7129,10 +7129,24 @@ and green post-publication CI.
   triage SHA-256 values are respectively
   `f7dd0974eb382e07b3e0f6dbf76f4f1904ce2881ae1d8a74d97e2ada5a755de8`
   and `71f4d7e904b545ca73cd61969f9339e408cc1983080340cd281a82cc512b693d`.
-  Pre-publication evidence is now accounted for; final post-publication CI
-  must be green before merging.
+  Final standard
+  [run 35683797893](https://github.com/tenseleyFlow/Cgfried/actions/runs/35683797893)
+  passed all 24 jobs, with 28 PR check successes and nine intended skips.
+  GitHub's exact published merge
+  `b4ad55afa37c5f2903a0a2262f0318ca833cac86` has parents `d0bacc87`
+  and `75a62ac9` and tree `534a9a94bc8bca87a81ab7174a0c37d14fd5477c`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35684446246](https://github.com/tenseleyFlow/Cgfried/actions/runs/35684446246)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35684446190](https://github.com/tenseleyFlow/Cgfried/actions/runs/35684446190)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `a32fb6781c1dc6c7e2f967acfc3db7b0ce8c76d2fbf250bdb1b1c00e5573212a`
+  and `9f720ab36c5469e85864f0841187c64b6daf7b69f70df4ba6a1ac92c2d362772`.
+  PR #137 merged green-only as `2451ae4514d4a183b6e3795ac4df429e25a4300c`;
+  its parents and tree are identical to the final tested merge.
 - The following isolated `s56.43-builtin-strcspn` tranche is local and based
-  on the published #137 head while its final CI finishes. It implements the
+  on merged #137. It implements the
   `size_t (const char *, const char *)` call contract, evaluates converted
   operands once, and uses ordinary libc linkage. Focused normal and
   ASan+UBSan semantic/lowering tests pass (two tests, 18 assertions). The
