@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-21): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-22): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -7015,8 +7015,8 @@ and green post-publication CI.
   `ada22a9f8b4c8877140ffbe0091f9c16b02f727348bdc173d8cae52536c6622a`.
   PR #135 merged green-only as `693e3b5c19205626778deaf949329760a75b288a`;
   its parents and tree are identical to the final tested merge.
-- The current `s56.41-builtin-bcopy` tranche is in a separate linked worktree
-  from merged trunk. It implements GCC's `void (const void *, void *, size_t)`
+- The `s56.41-builtin-bcopy` tranche implements GCC's
+  `void (const void *, void *, size_t)`
   source-first contract, converts and evaluates each argument once, then
   lowers to the existing overlap-safe `memmove` call with captured pointer
   arguments reversed. No host `bcopy` symbol is needed. Focused normal and
@@ -7065,8 +7065,33 @@ and green post-publication CI.
   `bbb83c89b43ed5a6bd9392924cb8fe1b1b97534d8fc5a84b71ff9bfc3b5c4162`
   and
   `248e8183583de27d485e60892459007efa3d95ac53e61de558a13b25347d17e1`.
-  Final post-publication standard and exact-merge CI remain pending; do not
-  merge with red checks.
+  Final standard
+  [run 35678706047](https://github.com/tenseleyFlow/Cgfried/actions/runs/35678706047)
+  passed all 24 jobs, and the PR rollup had 28 successes and nine intended
+  skips. GitHub's exact published merge
+  `65b50f3b3522e2a5cde57ec632ef563420f0cf97` has parents `693e3b5c`
+  and `18535382` and tree `fa3eb1897ec80ec662ba2d81268ddee7d3a64d10`,
+  byte-identical to the published head. Its native ARM nightly
+  [run 35680122827](https://github.com/tenseleyFlow/Cgfried/actions/runs/35680122827)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35680122842](https://github.com/tenseleyFlow/Cgfried/actions/runs/35680122842)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `2f737ec0eb21f18d9088b032da3567be90b938356c2683110d1c67b3facba0bd`
+  and `2033a387ae6fa452d145a8683499c6a6e9b1dfea423bcbc949a5085d6f63ce5d`.
+  PR #136 merged green-only as `d0bacc87890515c4489afad727e8b43d84755419`;
+  its parents and tree are identical to the final tested merge.
+- The next isolated `s56.42-builtin-strspn` tranche starts from merged #136.
+  It implements the `size_t (const char *, const char *)` prototype and
+  existing libc-call lowering. Focused normal and ASan+UBSan tests pass (two
+  tests, 18 assertions); the native Apple Silicon executable matches Clang
+  at O0/O1/O2/O3/Os, and Cgfried also passes Ofast. Imported `pr37976.c`
+  assembles at all five native levels. The full Apple unit suite retains the
+  same eight host-assumption failures among 945 tests, with both new tests
+  green. Normal and sanitized frontend fuzz each pass 2,000 mutations with
+  zero findings. Target-complete x86/ARM
+  torture evidence and PR CI are still required before any ratchet is
+  published or merged.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
