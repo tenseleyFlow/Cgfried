@@ -525,6 +525,57 @@ void test_sema_builtin_mempcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_bcopy_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(__builtin_types_compatible_p("
+             "__typeof__(__builtin_bcopy((const void *)0, (void *)0, 0)), "
+             "void), \"bcopy result is void\"); "
+             "void f(const void *s, void *d, int n) { "
+             "__builtin_bcopy(s, d, n); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void *p) { __builtin_bcopy(p, p); }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(void *p) { __builtin_bcopy(p, p, 1, 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S s, void *p) { "
+             "__builtin_bcopy(s, p, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(void *p, struct S s) { "
+             "__builtin_bcopy(p, s, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(void *p, struct S s) { "
+             "__builtin_bcopy(p, p, s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "void f(const void *p) { __builtin_bcopy(p, p, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, f.warnings > 0); /* destination qualifier discard */
+    sfix_free(&f);
+}
+
 void test_sema_builtin_puts_contract(TestCtx *t)
 {
     SemaFix f;

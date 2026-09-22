@@ -74,6 +74,7 @@ predefine.
 | `__builtin_classify_type(expr-or-type)` | `tests/programs/builtins/classify_type_runtime.c` | GCC torture's generic bit-field arithmetic tests; compile-time type dispatch |
 | `__builtin_extract_return_addr(ptr)` | `tests/corpus/x86_64/int/gnu_extract_return_addr.c` | target-neutral decoding of addresses obtained from return-address machinery; an evaluated identity on supported x86-64 and AArch64 ABIs |
 | `__builtin_mempcpy(dest, src, count)` | `tests/corpus/x86_64/int/gnu_mempcpy.c` | copied-range end pointer without a host `mempcpy` dependency; uses the compiler's existing `memcpy` call semantics |
+| `__builtin_bcopy(src, dest, count)` | `tests/corpus/x86_64/int/gnu_bcopy.c` | overlap-safe copy with source before destination; maps to `memmove` without a host `bcopy` dependency |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -138,6 +139,12 @@ translation-unit definition of `memcpy`), and returns destination plus the
 converted byte count. The return value is a byte-wise one-past pointer;
 there is no dependency on a platform `mempcpy` symbol. As with `memcpy`,
 overlapping source and destination ranges are not supported.
+
+`__builtin_bcopy` has the `void (const void *, void *, size_t)` contract:
+source precedes destination, unlike `memmove`. Arguments receive ordinary
+prototyped-call conversions and are each evaluated once before lowering
+reorders their captured values for an overlap-safe `memmove` call. Its result
+is void, and no platform `bcopy` symbol is needed.
 
 All currently supported targets are little-endian. A big-endian
 `scalar_storage_order` record therefore takes the reverse path: integral

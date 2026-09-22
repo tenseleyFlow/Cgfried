@@ -3498,9 +3498,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
 }
 
 /* The scalar libc-backed builtins lower to direct calls by name. mempcpy
- * uses memcpy, then returns the destination advanced by the converted byte
- * count; this does not depend on a host libc exporting a mempcpy symbol.
- * None needs the abstract-call machinery for aggregate arguments/results.
+ * uses memcpy and returns the end pointer. bcopy uses memmove with its
+ * source/destination arguments reversed and discards the result. Neither
+ * depends on the host libc exporting the nonstandard spelling. None needs
+ * the abstract-call machinery for aggregate arguments/results.
  */
 static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
 {
@@ -3516,6 +3517,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_MEMCPY, "memcpy", IRT_PTR, false},
         {SEMA_BUILTIN_MEMPCPY, "memcpy", IRT_PTR, false},
         {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR, false},
+        {SEMA_BUILTIN_BCOPY, "memmove", IRT_PTR, false},
         {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR, false},
         {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32, false},
         {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64, false},
@@ -3536,6 +3538,12 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
             continue;
         for (i = 0; i < e->nargs && i < 3; i++)
             args[n++] = lower_rvalue(lo, e->args[i]);
+        if (e->op == SEMA_BUILTIN_BCOPY) {
+            IrOperand tmp = args[0];
+
+            args[0] = args[1];
+            args[1] = tmp;
+        }
         /* A definition in this translation unit owns the same linker symbol
          * that an ordinary libc call would reach. Model that as an internal
          * call: besides enabling normal whole-module reasoning, this keeps
@@ -3553,6 +3561,8 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
                 if (e->op == SEMA_BUILTIN_MEMPCPY)
                     return ir_op_value(
                         lo->fn, ir_build_ptradd(&lo->b, args[0], args[2]));
+                if (e->op == SEMA_BUILTIN_BCOPY)
+                    return ir_op_undef(IRT_I32);
                 return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                                : ir_op_value(lo->fn, call);
             }
@@ -3567,6 +3577,8 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         if (e->op == SEMA_BUILTIN_MEMPCPY)
             return ir_op_value(lo->fn,
                                ir_build_ptradd(&lo->b, args[0], args[2]));
+        if (e->op == SEMA_BUILTIN_BCOPY)
+            return ir_op_undef(IRT_I32);
         return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                        : ir_op_value(lo->fn, call);
     }

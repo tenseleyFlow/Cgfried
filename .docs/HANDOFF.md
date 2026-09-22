@@ -6947,7 +6947,7 @@ and green post-publication CI.
   passed all seven jobs. PR #134 merged green-only as
   `81ed8d213218334730d1f5ac7931986977fbe470`; its parents and tree are
   identical to the tested merge.
-- PR #135's current `s56.40-builtin-mempcpy` tranche is in an isolated linked
+- PR #135's merged `s56.40-builtin-mempcpy` tranche was developed in an isolated linked
   worktree from merged trunk. GCC's `void *(void *, const void *, size_t)`
   contract is implemented through the existing `memcpy` call path and returns
   destination plus the converted byte count, without requiring a platform
@@ -6997,8 +6997,39 @@ and green post-publication CI.
   `294f681cb5082aff82907ef2b45271eaced6d3ac64fae1b0b22315b6eb1eabb7`
   and
   `a6aca29e27f4280b14fcb43784f6cbf79db824c24dc34376736316c6d486fbd7`.
-  Final post-publication standard and exact-merge CI remain pending; do not
-  merge with red checks.
+  Final post-publication standard
+  [run 35671986690](https://github.com/tenseleyFlow/Cgfried/actions/runs/35671986690)
+  is green in all 24 jobs; the PR rollup has 28 successes and nine intended
+  event/policy skips. GitHub's final synthetic merge
+  `ac6333e180c0101fdebf387ab612f4b8c8eebda2` has parents `81ed8d21`
+  and `3e437e89` and tree `4806cc7722422f46ffeda630c063c48923e5a5d6`,
+  byte-identical to the published PR head. Its native-ARM nightly
+  [run 35672129073](https://github.com/tenseleyFlow/Cgfried/actions/runs/35672129073)
+  is green in all 15 jobs, and full-lattice bootstrap
+  [run 35672129095](https://github.com/tenseleyFlow/Cgfried/actions/runs/35672129095)
+  is green in all seven. The final x86 and ARM streams name the exact merge,
+  pass the committed ratchet, retain all 20,325 unique cells each, and have
+  SHA-256 values
+  `94f7897022d6c276415ddedbaa906662fe1451da4fbb92fe602ed2d6b00b5cc7`
+  and
+  `ada22a9f8b4c8877140ffbe0091f9c16b02f727348bdc173d8cae52536c6622a`.
+  PR #135 merged green-only as `693e3b5c19205626778deaf949329760a75b288a`;
+  its parents and tree are identical to the final tested merge.
+- The current `s56.41-builtin-bcopy` tranche is in a separate linked worktree
+  from merged trunk. It implements GCC's `void (const void *, void *, size_t)`
+  source-first contract, converts and evaluates each argument once, then
+  lowers to the existing overlap-safe `memmove` call with captured pointer
+  arguments reversed. No host `bcopy` symbol is needed. Focused normal and
+  ASan+UBSan semantic/lowering tests pass (2 tests, 22 assertions). The
+  overlapping executable fixture matches Apple Clang and Cgfried on native
+  ARM64 macOS at O0/O1/O2/O3/Os, and imported `bcopy-1.c` produces
+  assembler-accepted output in all fifteen x86-64 Linux, ARM64 Linux, and
+  ARM64 macOS optimization cells. The full Apple unit suite retains exactly
+  eight documented host-assumption failures among 943 tests, with both new
+  tests green. Normal and sanitized 2,000-case frontend fuzz each report
+  zero findings. Policy, registry, crash-corpus, closeout, and pinned
+  clang-format 22 checks are clean. Hosted target-complete streams, formal
+  publication, and final green-only CI are still pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

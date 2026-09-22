@@ -1744,13 +1744,22 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         quiet(e->args[0], NULL))
                         return poison(s, e);
                 }
-                if (b == SEMA_BUILTIN_MEMPCPY) {
+                if (b == SEMA_BUILTIN_MEMPCPY || b == SEMA_BUILTIN_BCOPY) {
                     Type *const_void = type_qualify(
                         s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
                     Type *params[] = {type_ptr(s->arena, type_basic(TY_VOID)),
                                       type_ptr(s->arena, const_void),
                                       type_basic(TY_ULONG)};
                     bool valid = true;
+
+                    /* bcopy's source precedes its destination, unlike
+                     * memcpy/mempcpy/memmove. */
+                    if (b == SEMA_BUILTIN_BCOPY) {
+                        Type *tmp = params[0];
+
+                        params[0] = params[1];
+                        params[1] = tmp;
+                    }
 
                     for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
                         bctx.arg_index = i + 1;
