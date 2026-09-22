@@ -320,6 +320,37 @@ void test_lower_builtin_strcspn_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_strstr_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "const char *source(void); "
+                              "const char *needle(void); "
+                              "char *use(void) { return "
+                              "__builtin_strstr(source(), needle()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @needle()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strstr(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_strstr"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strstr-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static char *strstr(const char *s, "
+                              "const char *n) { (void)n; return (char *)s; } "
+                              "char *use(const char *s, const char *n) { "
+                              "return __builtin_strstr(s, n); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strstr(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strstr-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
