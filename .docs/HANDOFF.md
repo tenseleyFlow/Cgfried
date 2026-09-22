@@ -7254,7 +7254,22 @@ and green post-publication CI.
   110 to 100. PASS and triage SHA-256 values are respectively
   `0eaf49e848512e07f87ca6a5e1fb6ad3d8545b43b61e454659b7a1c23f076263`
   and `15bb1c3860ae64df9e6b8f1b735c520ec61e2d0e40129c2ca93f55ba84e0299e`.
-  Final post-publication CI remains pending; do not merge with red checks.
+  Final standard
+  [run 35792193372](https://github.com/tenseleyFlow/Cgfried/actions/runs/35792193372)
+  passed all 24 jobs, with 28 PR check successes and nine intended skips.
+  GitHub's exact published merge
+  `eb864287cab644194f9b8230b948042335dc05dd` has parents `b9e57a89`
+  and `3a2191e5` and tree `8146296ec4c32fce39173580b81c51a12dad0245`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35792336736](https://github.com/tenseleyFlow/Cgfried/actions/runs/35792336736)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35792336862](https://github.com/tenseleyFlow/Cgfried/actions/runs/35792336862)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `6ed6313737932bcb1287690fb513261a8af0d2e7b1b36cc519b499821a0d224c`
+  and `a7fbd454208e2dcaa2dc47fb7a125bc6ff2b8fff406bed9a932315861b135820`.
+  PR #139 merged green-only as `9d2290212d8ead89c9d0042ea06c9af2eb8ef70b`;
+  its parents and tree are identical to the final tested merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
