@@ -15371,6 +15371,16 @@ torture-compile/pr81003.c@O3@arm64-linux
 torture-compile/pr81003.c@O3@x86_64-linux-gnu
 torture-compile/pr81003.c@Os@arm64-linux
 torture-compile/pr81003.c@Os@x86_64-linux-gnu
+torture-compile/pr81207.c@O0@arm64-linux
+torture-compile/pr81207.c@O0@x86_64-linux-gnu
+torture-compile/pr81207.c@O1@arm64-linux
+torture-compile/pr81207.c@O1@x86_64-linux-gnu
+torture-compile/pr81207.c@O2@arm64-linux
+torture-compile/pr81207.c@O2@x86_64-linux-gnu
+torture-compile/pr81207.c@O3@arm64-linux
+torture-compile/pr81207.c@O3@x86_64-linux-gnu
+torture-compile/pr81207.c@Os@arm64-linux
+torture-compile/pr81207.c@Os@x86_64-linux-gnu
 torture-compile/pr81553.c@O0@arm64-linux
 torture-compile/pr81553.c@O0@x86_64-linux-gnu
 torture-compile/pr81553.c@O1@arm64-linux
