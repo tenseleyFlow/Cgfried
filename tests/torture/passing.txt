@@ -8471,6 +8471,16 @@ torture-compile/bc.c@O3@arm64-linux
 torture-compile/bc.c@O3@x86_64-linux-gnu
 torture-compile/bc.c@Os@arm64-linux
 torture-compile/bc.c@Os@x86_64-linux-gnu
+torture-compile/bcopy-1.c@O0@arm64-linux
+torture-compile/bcopy-1.c@O0@x86_64-linux-gnu
+torture-compile/bcopy-1.c@O1@arm64-linux
+torture-compile/bcopy-1.c@O1@x86_64-linux-gnu
+torture-compile/bcopy-1.c@O2@arm64-linux
+torture-compile/bcopy-1.c@O2@x86_64-linux-gnu
+torture-compile/bcopy-1.c@O3@arm64-linux
+torture-compile/bcopy-1.c@O3@x86_64-linux-gnu
+torture-compile/bcopy-1.c@Os@arm64-linux
+torture-compile/bcopy-1.c@Os@x86_64-linux-gnu
 torture-compile/bf.c@O0@arm64-linux
 torture-compile/bf.c@O0@x86_64-linux-gnu
 torture-compile/bf.c@O1@arm64-linux
