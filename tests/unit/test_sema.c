@@ -400,6 +400,46 @@ void test_sema_builtin_strcmp_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_strspn_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_strspn(\"abc\", \"ab\"), "
+             "__SIZE_TYPE__: 1, default: 0), \"strspn result is size_t\"); "
+             "__SIZE_TYPE__ f(char *s, const char *accept, void *p) { "
+             "return __builtin_strspn(s, accept) + "
+             "__builtin_strspn(p, s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "__SIZE_TYPE__ f(char *s) { return __builtin_strspn(s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "__SIZE_TYPE__ f(char *s) { return __builtin_strspn(s, s, s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; __SIZE_TYPE__ f(struct S s) { "
+             "return __builtin_strspn(s, \"a\"); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; __SIZE_TYPE__ f(struct S s) { "
+             "return __builtin_strspn(\"a\", s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strcpy_contract(TestCtx *t)
 {
     SemaFix f;
