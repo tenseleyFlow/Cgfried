@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-21): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-22): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -7015,8 +7015,8 @@ and green post-publication CI.
   `ada22a9f8b4c8877140ffbe0091f9c16b02f727348bdc173d8cae52536c6622a`.
   PR #135 merged green-only as `693e3b5c19205626778deaf949329760a75b288a`;
   its parents and tree are identical to the final tested merge.
-- The current `s56.41-builtin-bcopy` tranche is in a separate linked worktree
-  from merged trunk. It implements GCC's `void (const void *, void *, size_t)`
+- The `s56.41-builtin-bcopy` tranche implements GCC's
+  `void (const void *, void *, size_t)`
   source-first contract, converts and evaluates each argument once, then
   lowers to the existing overlap-safe `memmove` call with captured pointer
   arguments reversed. No host `bcopy` symbol is needed. Focused normal and
@@ -7065,8 +7065,72 @@ and green post-publication CI.
   `bbb83c89b43ed5a6bd9392924cb8fe1b1b97534d8fc5a84b71ff9bfc3b5c4162`
   and
   `248e8183583de27d485e60892459007efa3d95ac53e61de558a13b25347d17e1`.
-  Final post-publication standard and exact-merge CI remain pending; do not
-  merge with red checks.
+  Final standard
+  [run 35678706047](https://github.com/tenseleyFlow/Cgfried/actions/runs/35678706047)
+  passed all 24 jobs, and the PR rollup had 28 successes and nine intended
+  skips. GitHub's exact published merge
+  `65b50f3b3522e2a5cde57ec632ef563420f0cf97` has parents `693e3b5c`
+  and `18535382` and tree `fa3eb1897ec80ec662ba2d81268ddee7d3a64d10`,
+  byte-identical to the published head. Its native ARM nightly
+  [run 35680122827](https://github.com/tenseleyFlow/Cgfried/actions/runs/35680122827)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35680122842](https://github.com/tenseleyFlow/Cgfried/actions/runs/35680122842)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `2f737ec0eb21f18d9088b032da3567be90b938356c2683110d1c67b3facba0bd`
+  and `2033a387ae6fa452d145a8683499c6a6e9b1dfea423bcbc949a5085d6f63ce5d`.
+  PR #136 merged green-only as `d0bacc87890515c4489afad727e8b43d84755419`;
+  its parents and tree are identical to the final tested merge.
+- The next isolated `s56.42-builtin-strspn` tranche starts from merged #136.
+  It implements the `size_t (const char *, const char *)` prototype and
+  existing libc-call lowering. Focused normal and ASan+UBSan tests pass (two
+  tests, 18 assertions); the native Apple Silicon executable matches Clang
+  at O0/O1/O2/O3/Os, and Cgfried also passes Ofast. Imported `pr37976.c`
+  assembles at all five native levels. The full Apple unit suite retains the
+  same eight host-assumption failures among 945 tests, with both new tests
+  green. Normal and sanitized frontend fuzz each pass 2,000 mutations with
+  zero findings. An independent x86 Linux VM matches the executable output
+  and accepts `pr37976.c` at all five levels; the closed x86-64/SSE2 ISA gate
+  passes exactly 702 corpus objects (117 fixtures times six levels).
+
+  PR #137's pre-publication exact synthetic merge
+  `3d0a44f94219909f7aa5d8bc34d11148b36b4c6d` has parents `d0bacc87`
+  and `1df7bc87`, and tree `8597155cf31d791341097801731d34100a642808`,
+  byte-identical to the feature head. Standard
+  [run 35681670757](https://github.com/tenseleyFlow/Cgfried/actions/runs/35681670757)
+  passes its 100,000-case fuzz and all other non-torture jobs except one
+  `campaign-musl` `libc-test` failure, while torture-x86 refuses the five
+  unpublished PASS cells. The isolated musl `functional/ipc_sem-static.err`
+  reports `sem_ctime` exactly one second earlier than the test's `time(0)`
+  bound; the pinned test source has no `strspn` call. A targeted attempt-2
+  rerun of that same job passed on the identical PR head. Native ARM nightly
+  [run 35681690604](https://github.com/tenseleyFlow/Cgfried/actions/runs/35681690604)
+  passes all fourteen non-torture jobs and refuses only the five matching
+  ARM PASS cells. Full-lattice bootstrap
+  [run 35681690632](https://github.com/tenseleyFlow/Cgfried/actions/runs/35681690632)
+  passed all seven.
+
+  Exact x86 and ARM result streams have SHA-256 values
+  `ab26c94697b9684bfd471431ed8ccd91a1627e39f35df7ea81695361f3ab9707`
+  and `97556eb034c5fc86f7ac70bd5221ac34554d0d1d13df2faa13dba5b21f4029b3`.
+  Each retains 20,325 unique cells: 15,870 PASS, 3,305 SKIP, and 1,150
+  COMPILE_FAIL. Each adds exactly five `pr37976.c` PASS keys and has no
+  old-PASS regression. Both name source revision `3d0a44f9`, compiler-source
+  SHA-256 `560c7cdb0a8bf01cb7afb84500457a89923901f333ab93e4fbaa9d8fa2f9480e`,
+  harness SHA-256 `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes. Formal GNU-make atomic publication consumes
+  those exact streams and passes provenance, complete-key, staging, and
+  rollback checks; reversing stream order regenerates both outputs
+  byte-identically. Both published streams pass the ratchet gate and the
+  complete torture meta-suite is green. The proposed result is 31,740 PASS
+  keys (31,743 lines), 2,300 failed cells in 31 classified buckets, 24
+  applied decisions, two retained stale decisions, and zero
+  unbucketed/unresolved cells. `gcc-builtin` falls from 130 to 120. PASS and
+  triage SHA-256 values are respectively
+  `f7dd0974eb382e07b3e0f6dbf76f4f1904ce2881ae1d8a74d97e2ada5a755de8`
+  and `71f4d7e904b545ca73cd61969f9339e408cc1983080340cd281a82cc512b693d`.
+  Pre-publication evidence is now accounted for; final post-publication CI
+  must be green before merging.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

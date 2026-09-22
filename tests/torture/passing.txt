@@ -12301,6 +12301,16 @@ torture-compile/pr37955.c@O3@arm64-linux
 torture-compile/pr37955.c@O3@x86_64-linux-gnu
 torture-compile/pr37955.c@Os@arm64-linux
 torture-compile/pr37955.c@Os@x86_64-linux-gnu
+torture-compile/pr37976.c@O0@arm64-linux
+torture-compile/pr37976.c@O0@x86_64-linux-gnu
+torture-compile/pr37976.c@O1@arm64-linux
+torture-compile/pr37976.c@O1@x86_64-linux-gnu
+torture-compile/pr37976.c@O2@arm64-linux
+torture-compile/pr37976.c@O2@x86_64-linux-gnu
+torture-compile/pr37976.c@O3@arm64-linux
+torture-compile/pr37976.c@O3@x86_64-linux-gnu
+torture-compile/pr37976.c@Os@arm64-linux
+torture-compile/pr37976.c@Os@x86_64-linux-gnu
 torture-compile/pr37991.c@O0@arm64-linux
 torture-compile/pr37991.c@O0@x86_64-linux-gnu
 torture-compile/pr37991.c@O1@arm64-linux
