@@ -7254,6 +7254,66 @@ and green post-publication CI.
   110 to 100. PASS and triage SHA-256 values are respectively
   `0eaf49e848512e07f87ca6a5e1fb6ad3d8545b43b61e454659b7a1c23f076263`
   and `15bb1c3860ae64df9e6b8f1b735c520ec61e2d0e40129c2ca93f55ba84e0299e`.
+  Final standard
+  [run 35792193372](https://github.com/tenseleyFlow/Cgfried/actions/runs/35792193372)
+  passed all 24 jobs, with 28 PR check successes and nine intended skips.
+  GitHub's exact published merge
+  `eb864287cab644194f9b8230b948042335dc05dd` has parents `b9e57a89`
+  and `3a2191e5` and tree `8146296ec4c32fce39173580b81c51a12dad0245`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35792336736](https://github.com/tenseleyFlow/Cgfried/actions/runs/35792336736)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35792336862](https://github.com/tenseleyFlow/Cgfried/actions/runs/35792336862)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `6ed6313737932bcb1287690fb513261a8af0d2e7b1b36cc519b499821a0d224c`
+  and `a7fbd454208e2dcaa2dc47fb7a125bc6ff2b8fff406bed9a932315861b135820`.
+  PR #139 merged green-only as `9d2290212d8ead89c9d0042ea06c9af2eb8ef70b`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.45-builtin-strncmp` tranche is based on merged
+  #139. It implements the `int (const char *, const char *, size_t)` call
+  contract, evaluates converted operands once, and uses ordinary libc
+  linkage. Focused normal and ASan+UBSan semantic/lowering tests pass (two
+  tests, 20 assertions). Its Apple Silicon executable matches Clang at all
+  five native optimization levels, and imported `pr106101.c` assembles at all
+  five. The full Apple unit suite retains the same eight host-assumption
+  failures among 951 tests, with both new tests green. Normal and sanitized
+  2,000-case frontend fuzz each report zero findings. An independent x86
+  Linux VM matches the executable output and accepts `pr106101.c` at all five
+  levels; the closed x86-64/SSE2 ISA gate passes exactly 720 objects (120
+  fixtures times six levels).
+
+  Pre-publication GitHub exact synthetic merge
+  `9e4545558ba62d3ad82a5d096b3bf7a753d1032d` has parents `9d229021`
+  and `91644a09` and tree `03a460184138631eda0a8399c0122e87154159a8`,
+  byte-identical to the feature head. Standard
+  [run 35796377884](https://github.com/tenseleyFlow/Cgfried/actions/runs/35796377884)
+  passed all 23 non-torture jobs, including its 100,000-case fuzz lane; its
+  only refusal is five unpublished x86 PASS cells. Native ARM nightly
+  [run 35796440332](https://github.com/tenseleyFlow/Cgfried/actions/runs/35796440332)
+  passed all fourteen non-torture jobs and refused only the five matching ARM
+  PASS cells. Exact full-lattice bootstrap
+  [run 35796440253](https://github.com/tenseleyFlow/Cgfried/actions/runs/35796440253)
+  passed all seven.
+
+  The retained x86 and ARM streams have SHA-256 values
+  `2fcc3dbf1fa6b99360de882848975206ba5aafe6315dadc9e61509ca13f5e6c5`
+  and `a92a96bfed534e8aebe2dceb2a990c5e9eaf41e684e0fc62f2d7ec47551697e1`.
+  Each retains 20,325 unique cells -- 15,885 PASS, 3,305 SKIP, and 1,135
+  COMPILE_FAIL -- with exactly five new `pr106101.c` PASS keys and no old PASS
+  regression. Both name source revision `9e454555`, compiler-source SHA-256
+  `d62e97b77e77e0bb640464a1b5cbf2b8b0fb712a5a8e5d6f1045ff1b02a27ea4`,
+  harness SHA-256 `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes. Formal GNU-make atomic publication consumes
+  the exact streams and passes provenance, complete-key, staging, and
+  rollback checks. Reversing stream order regenerates both outputs
+  byte-identically; both published streams pass the ratchet gate and the
+  complete torture meta-suite is green. The result is 31,770 PASS keys
+  (31,773 lines), 2,270 failed cells, 24 applied decisions, two retained stale
+  decisions, and zero unbucketed/unresolved cells. `gcc-builtin` falls from
+  100 to 90. PASS and triage SHA-256 values are respectively
+  `1862ad5b9e476ebe428ed19bfd1816c301b985c2b66f9cd7bb0197d8f0220293`
+  and `981b15e8a8a615a62fa78d030c6e1dd7e49b5cff7f34dc07ad9d8ecb00dd25b6`.
   Final post-publication CI remains pending; do not merge with red checks.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
