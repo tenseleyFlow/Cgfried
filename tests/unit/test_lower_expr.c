@@ -288,6 +288,38 @@ void test_lower_builtin_strspn_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_strcspn_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "const char *source(void); "
+                              "const char *reject(void); "
+                              "__SIZE_TYPE__ use(void) { return "
+                              "__builtin_strcspn(source(), reject()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @reject()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @strcspn(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_strcspn"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strcspn-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t,
+             run_lower(&f, "static __SIZE_TYPE__ strcspn(const char *s, "
+                           "const char *r) { (void)s; (void)r; return 7; } "
+                           "__SIZE_TYPE__ use(const char *s, const char *r) { "
+                           "return __builtin_strcspn(s, r); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @strcspn(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strcspn-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strcpy_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
