@@ -76,6 +76,7 @@ predefine.
 | `__builtin_mempcpy(dest, src, count)` | `tests/corpus/x86_64/int/gnu_mempcpy.c` | copied-range end pointer without a host `mempcpy` dependency; uses the compiler's existing `memcpy` call semantics |
 | `__builtin_bcopy(src, dest, count)` | `tests/corpus/x86_64/int/gnu_bcopy.c` | overlap-safe copy with source before destination; maps to `memmove` without a host `bcopy` dependency |
 | `__builtin_strspn(string, accept)` | `tests/corpus/x86_64/int/gnu_strspn.c` | length of the initial byte span drawn from the accepted set; prototyped `size_t` result and ordinary libc linkage |
+| `__builtin_strcspn(string, reject)` | `tests/corpus/x86_64/int/gnu_strcspn.c` | length of the initial byte span containing none of the rejected set; prototyped `size_t` result and ordinary libc linkage |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -145,6 +146,8 @@ overlapping source and destination ranges are not supported.
 contract. Both pointer arguments undergo ordinary prototyped conversion and
 are evaluated once. Lowering calls `strspn`, including a translation-unit
 definition of that symbol, and returns its full-width `size_t` result.
+`__builtin_strcspn` has the same prototype and conversion rules, calling
+`strcspn` and returning the length before any rejected byte.
 
 `__builtin_bcopy` has the `void (const void *, void *, size_t)` contract:
 source precedes destination, unlike `memmove`. Arguments receive ordinary

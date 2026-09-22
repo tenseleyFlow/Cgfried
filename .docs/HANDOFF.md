@@ -7131,6 +7131,18 @@ and green post-publication CI.
   and `71f4d7e904b545ca73cd61969f9339e408cc1983080340cd281a82cc512b693d`.
   Pre-publication evidence is now accounted for; final post-publication CI
   must be green before merging.
+- The following isolated `s56.43-builtin-strcspn` tranche is local and based
+  on the published #137 head while its final CI finishes. It implements the
+  `size_t (const char *, const char *)` call contract, evaluates converted
+  operands once, and uses ordinary libc linkage. Focused normal and
+  ASan+UBSan semantic/lowering tests pass (two tests, 18 assertions). The
+  native Apple Silicon executable matches Clang at O0/O1/O2/O3/Os and also
+  passes Cgfried Ofast. Imported `pr119226.c` assembles at all five native
+  levels. The full Apple unit suite retains the same eight host-assumption
+  failures among 947 tests, with both new tests green. Normal and sanitized
+  2,000-case frontend fuzz each report zero findings. Its 118-source ISA
+  inventory, cross-target corpus evidence, and torture ratchet still require
+  validation; do not publish or merge it until #137 is green-only merged.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
