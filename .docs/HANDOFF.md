@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 13/30 through September 21 after required daily x86 evidence was
+at a strict 14/30 through September 22 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--21 hosted daily runs are
+operationally OPEN. Matching-head September 12--22 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
 full-lattice green. The
 matching-head September 11 recovery
@@ -771,7 +771,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 13/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 14/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -819,7 +819,10 @@ do not call the sprint closed until that operational obligation is complete.
   are green. September 21 scheduled
   [run 35580502002](https://github.com/tenseleyFlow/Cgfried/actions/runs/35580502002)
   at that same head makes day 13: four daily jobs green with four unexpired,
-  digest-stamped artifacts, and no weekly work due. The daily-hosted automation
+  digest-stamped artifacts, and no weekly work due. September 22 scheduled
+  [run 35705333283](https://github.com/tenseleyFlow/Cgfried/actions/runs/35705333283)
+  at exact head `2451ae45` makes day 14 with the same four-job, four-artifact
+  proof; no weekly work was due. The daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
   weekly cross/reproducibility result; any missing or red required run breaks the
@@ -7145,8 +7148,8 @@ and green post-publication CI.
   and `9f720ab36c5469e85864f0841187c64b6daf7b69f70df4ba6a1ac92c2d362772`.
   PR #137 merged green-only as `2451ae4514d4a183b6e3795ac4df429e25a4300c`;
   its parents and tree are identical to the final tested merge.
-- The current isolated `s56.43-builtin-strcspn` tranche is based on merged
-  #137 and open as PR #138. It implements the
+- The completed `s56.43-builtin-strcspn` tranche is merged through PR #138.
+  It implements the
   `size_t (const char *, const char *)` call contract, evaluates converted
   operands once, and uses ordinary libc linkage. Focused normal and
   ASan+UBSan semantic/lowering tests pass (two tests, 18 assertions). The
@@ -7191,7 +7194,34 @@ and green post-publication CI.
   are respectively
   `5fabdfc17038f1895ee729cd8ec932fab2fc895f902bcd61e87c147430c151ce`
   and `cbd8ce9686c5562d37ae7744e935117386e91fce306a52b13ded2b66a4008ebd`.
-  Final post-publication CI remains pending; do not merge with red checks.
+  Final standard
+  [run 35688889537](https://github.com/tenseleyFlow/Cgfried/actions/runs/35688889537)
+  passed all 24 jobs, with 28 PR check successes and nine intended skips.
+  GitHub's exact published merge
+  `f759008010ae273a55f9e3d274d5bfafb3555f38` has parents `2451ae45`
+  and `d4afc0b3` and tree `a137ebd7af653fa12b0deafe9945bd05542b0911`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35785986847](https://github.com/tenseleyFlow/Cgfried/actions/runs/35785986847)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35785986803](https://github.com/tenseleyFlow/Cgfried/actions/runs/35785986803)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `575646cc550b36a853fe0c1682717e4ebe8375ac54675e6f4a75bb9127855609`
+  and `2a3d3ea6343a47c9eafbc8733689a350db6ceace7bdbd9f96052dcf8420d582e`.
+  PR #138 merged green-only as `b9e57a89de4b6997a4ca2c853dda385216fb5f37`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.44-builtin-strstr` tranche is based on merged
+  #138. It implements the `char *(const char *, const char *)` call contract,
+  evaluates converted operands once, and uses ordinary libc linkage. Focused
+  normal and ASan+UBSan semantic/lowering tests pass (two tests, 18
+  assertions). Its Apple Silicon executable matches Clang at all five native
+  optimization levels, and imported `pr81207.c` assembles at all five. The
+  full Apple unit suite retains the same eight host-assumption failures among
+  949 tests, with both new tests green. Normal and sanitized 2,000-case
+  frontend fuzz each report zero findings. An independent x86 Linux VM
+  matches the executable output and accepts `pr81207.c` at all five levels;
+  the closed x86-64/SSE2 ISA gate passes exactly 714 objects (119 fixtures
+  times six levels). Publication and final CI are still pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
