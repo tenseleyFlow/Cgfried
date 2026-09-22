@@ -7089,9 +7089,48 @@ and green post-publication CI.
   assembles at all five native levels. The full Apple unit suite retains the
   same eight host-assumption failures among 945 tests, with both new tests
   green. Normal and sanitized frontend fuzz each pass 2,000 mutations with
-  zero findings. Target-complete x86/ARM
-  torture evidence and PR CI are still required before any ratchet is
-  published or merged.
+  zero findings. An independent x86 Linux VM matches the executable output
+  and accepts `pr37976.c` at all five levels; the closed x86-64/SSE2 ISA gate
+  passes exactly 702 corpus objects (117 fixtures times six levels).
+
+  PR #137's pre-publication exact synthetic merge
+  `3d0a44f94219909f7aa5d8bc34d11148b36b4c6d` has parents `d0bacc87`
+  and `1df7bc87`, and tree `8597155cf31d791341097801731d34100a642808`,
+  byte-identical to the feature head. Standard
+  [run 35681670757](https://github.com/tenseleyFlow/Cgfried/actions/runs/35681670757)
+  passes its 100,000-case fuzz and all other non-torture jobs except one
+  `campaign-musl` `libc-test` failure, while torture-x86 refuses the five
+  unpublished PASS cells. The isolated musl `functional/ipc_sem-static.err`
+  reports `sem_ctime` exactly one second earlier than the test's `time(0)`
+  bound; the pinned test source has no `strspn` call. A targeted attempt-2
+  rerun of that same job passed on the identical PR head. Native ARM nightly
+  [run 35681690604](https://github.com/tenseleyFlow/Cgfried/actions/runs/35681690604)
+  passes all fourteen non-torture jobs and refuses only the five matching
+  ARM PASS cells. Full-lattice bootstrap
+  [run 35681690632](https://github.com/tenseleyFlow/Cgfried/actions/runs/35681690632)
+  passed all seven.
+
+  Exact x86 and ARM result streams have SHA-256 values
+  `ab26c94697b9684bfd471431ed8ccd91a1627e39f35df7ea81695361f3ab9707`
+  and `97556eb034c5fc86f7ac70bd5221ac34554d0d1d13df2faa13dba5b21f4029b3`.
+  Each retains 20,325 unique cells: 15,870 PASS, 3,305 SKIP, and 1,150
+  COMPILE_FAIL. Each adds exactly five `pr37976.c` PASS keys and has no
+  old-PASS regression. Both name source revision `3d0a44f9`, compiler-source
+  SHA-256 `560c7cdb0a8bf01cb7afb84500457a89923901f333ab93e4fbaa9d8fa2f9480e`,
+  harness SHA-256 `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes. Formal GNU-make atomic publication consumes
+  those exact streams and passes provenance, complete-key, staging, and
+  rollback checks; reversing stream order regenerates both outputs
+  byte-identically. Both published streams pass the ratchet gate and the
+  complete torture meta-suite is green. The proposed result is 31,740 PASS
+  keys (31,743 lines), 2,300 failed cells in 31 classified buckets, 24
+  applied decisions, two retained stale decisions, and zero
+  unbucketed/unresolved cells. `gcc-builtin` falls from 130 to 120. PASS and
+  triage SHA-256 values are respectively
+  `f7dd0974eb382e07b3e0f6dbf76f4f1904ce2881ae1d8a74d97e2ada5a755de8`
+  and `71f4d7e904b545ca73cd61969f9339e408cc1983080340cd281a82cc512b693d`.
+  Pre-publication evidence is now accounted for; final post-publication CI
+  must be green before merging.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
