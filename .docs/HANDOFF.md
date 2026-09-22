@@ -7221,7 +7221,40 @@ and green post-publication CI.
   frontend fuzz each report zero findings. An independent x86 Linux VM
   matches the executable output and accepts `pr81207.c` at all five levels;
   the closed x86-64/SSE2 ISA gate passes exactly 714 objects (119 fixtures
-  times six levels). Publication and final CI are still pending.
+  times six levels).
+
+  Pre-publication GitHub exact synthetic merge
+  `c95b6ca0a0a32a322ca39fa68c9aad7bb9b81080` has parents `b9e57a89`
+  and `5da2fa60` and tree `c5f9b340d8cea9dd48104669f29aeec86f8b9c45`,
+  byte-identical to the feature head. Standard
+  [run 35788198545](https://github.com/tenseleyFlow/Cgfried/actions/runs/35788198545)
+  passed all 23 non-torture jobs, including its 100,000-case fuzz lane; its
+  only refusal is five unpublished x86 PASS cells. Native ARM nightly
+  [run 35788255724](https://github.com/tenseleyFlow/Cgfried/actions/runs/35788255724)
+  passed all fourteen non-torture jobs and refused only the five matching ARM
+  PASS cells. Exact full-lattice bootstrap
+  [run 35788255770](https://github.com/tenseleyFlow/Cgfried/actions/runs/35788255770)
+  passed all seven.
+
+  The retained x86 and ARM streams have SHA-256 values
+  `1ec2c04758e30718d01aa9e080080fa98bf580fc924fe1b6740f5b2e3d687922`
+  and `876fbf7c1a98fce12269d73077295bc654fd61de9acee07390363359374738c2`.
+  Each retains 20,325 unique cells -- 15,880 PASS, 3,305 SKIP, and 1,140
+  COMPILE_FAIL -- with exactly five new `pr81207.c` PASS keys and no old PASS
+  regression. Both name source revision `c95b6ca0`, compiler-source SHA-256
+  `299c4f1ec859a49af083595c9b419fc7bf5489fadfa3dd0f7024ffac8d3da062`,
+  harness SHA-256 `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes. Formal GNU-make atomic publication consumes
+  the exact streams and passes provenance, complete-key, staging, and
+  rollback checks. Reversing stream order regenerates both outputs
+  byte-identically; both published streams pass the ratchet gate and the
+  complete torture meta-suite is green. The result is 31,760 PASS keys
+  (31,763 lines), 2,280 failed cells, 24 applied decisions, two retained stale
+  decisions, and zero unbucketed/unresolved cells. `gcc-builtin` falls from
+  110 to 100. PASS and triage SHA-256 values are respectively
+  `0eaf49e848512e07f87ca6a5e1fb6ad3d8545b43b61e454659b7a1c23f076263`
+  and `15bb1c3860ae64df9e6b8f1b735c520ec61e2d0e40129c2ca93f55ba84e0299e`.
+  Final post-publication CI remains pending; do not merge with red checks.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
