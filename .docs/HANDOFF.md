@@ -7145,8 +7145,8 @@ and green post-publication CI.
   and `9f720ab36c5469e85864f0841187c64b6daf7b69f70df4ba6a1ac92c2d362772`.
   PR #137 merged green-only as `2451ae4514d4a183b6e3795ac4df429e25a4300c`;
   its parents and tree are identical to the final tested merge.
-- The following isolated `s56.43-builtin-strcspn` tranche is local and based
-  on merged #137. It implements the
+- The current isolated `s56.43-builtin-strcspn` tranche is based on merged
+  #137 and open as PR #138. It implements the
   `size_t (const char *, const char *)` call contract, evaluates converted
   operands once, and uses ordinary libc linkage. Focused normal and
   ASan+UBSan semantic/lowering tests pass (two tests, 18 assertions). The
@@ -7154,9 +7154,44 @@ and green post-publication CI.
   passes Cgfried Ofast. Imported `pr119226.c` assembles at all five native
   levels. The full Apple unit suite retains the same eight host-assumption
   failures among 947 tests, with both new tests green. Normal and sanitized
-  2,000-case frontend fuzz each report zero findings. Its 118-source ISA
-  inventory, cross-target corpus evidence, and torture ratchet still require
-  validation; do not publish or merge it until #137 is green-only merged.
+  2,000-case frontend fuzz each report zero findings. An independent x86 Linux
+  VM matches the executable output and accepts `pr119226.c` at all five
+  levels; the closed x86-64/SSE2 ISA gate passes exactly 708 objects (118
+  fixtures times six levels).
+
+  Pre-publication GitHub exact synthetic merge
+  `142d6d29d65620cdb83725f966149be2fdb5b157` has parents `2451ae45`
+  and `3d9cac96` and tree `ec291fcdf1358e9c3368005c984d6d8372704441`,
+  byte-identical to the feature head. Standard
+  [run 35686351498](https://github.com/tenseleyFlow/Cgfried/actions/runs/35686351498)
+  passed all 23 non-torture jobs, including its 100,000-case fuzz lane; its
+  only refusal is five unpublished x86 PASS cells. Native ARM nightly
+  [run 35686372057](https://github.com/tenseleyFlow/Cgfried/actions/runs/35686372057)
+  passes all fourteen non-torture jobs and refuses only the five matching
+  ARM PASS cells. Exact full-lattice bootstrap
+  [run 35686371872](https://github.com/tenseleyFlow/Cgfried/actions/runs/35686371872)
+  passed all seven.
+
+  The retained x86 and ARM streams have SHA-256 values
+  `75ea1c46ae343a7b50e329b6e4af9b70e3e0c37669802502d2383e4604e3446b`
+  and `ea6a6f3ceaa0d7b2648eed5237428abd2a9065b1218839261dc031bdee61331c`.
+  Each retains 20,325 unique cells -- 15,875 PASS, 3,305 SKIP, and 1,145
+  COMPILE_FAIL -- with exactly five new `pr119226.c` PASS keys and no old
+  PASS regression. Both name source revision `142d6d29`, compiler-source
+  SHA-256 `d6c7bb4b50a3e50c78754026fcd818a34af50402c57f43bf9f7f39747e6bd2fa`,
+  harness SHA-256 `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes. Formal GNU-make atomic publication consumes
+  the exact streams and passes provenance, complete-key, staging, and
+  rollback checks. Reversing stream order regenerates both outputs
+  byte-identically; both published streams pass the ratchet gate and the
+  complete torture meta-suite is green. The result is 31,750 PASS keys
+  (31,753 lines), 2,290 failed cells in 31 classified buckets, 24 applied
+  decisions, two retained stale decisions, and zero unbucketed/unresolved
+  cells. `gcc-builtin` falls from 120 to 110. PASS and triage SHA-256 values
+  are respectively
+  `5fabdfc17038f1895ee729cd8ec932fab2fc895f902bcd61e87c147430c151ce`
+  and `cbd8ce9686c5562d37ae7744e935117386e91fce306a52b13ded2b66a4008ebd`.
+  Final post-publication CI remains pending; do not merge with red checks.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

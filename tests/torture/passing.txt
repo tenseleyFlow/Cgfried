@@ -10671,6 +10671,16 @@ torture-compile/pr118501.c@O3@arm64-linux
 torture-compile/pr118501.c@O3@x86_64-linux-gnu
 torture-compile/pr118501.c@Os@arm64-linux
 torture-compile/pr118501.c@Os@x86_64-linux-gnu
+torture-compile/pr119226.c@O0@arm64-linux
+torture-compile/pr119226.c@O0@x86_64-linux-gnu
+torture-compile/pr119226.c@O1@arm64-linux
+torture-compile/pr119226.c@O1@x86_64-linux-gnu
+torture-compile/pr119226.c@O2@arm64-linux
+torture-compile/pr119226.c@O2@x86_64-linux-gnu
+torture-compile/pr119226.c@O3@arm64-linux
+torture-compile/pr119226.c@O3@x86_64-linux-gnu
+torture-compile/pr119226.c@Os@arm64-linux
+torture-compile/pr119226.c@Os@x86_64-linux-gnu
 torture-compile/pr120807.c@O0@arm64-linux
 torture-compile/pr120807.c@O0@x86_64-linux-gnu
 torture-compile/pr120807.c@O1@arm64-linux
