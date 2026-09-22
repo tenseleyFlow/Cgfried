@@ -103,9 +103,9 @@ find tests/corpus -type f -name '*.c' -print | sort >"$corpus_list"
 corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
 # Keep this explicit count as a corpus-drift ratchet: adding or removing a
 # source must deliberately repin the ISA matrix after the new inventory passes
-# all six optimization levels. The extract-return-address fixture is the
-# 114th permanent execution case.
-expected_corpus_count=114
+# all six optimization levels. The mempcpy fixture is the 115th permanent
+# execution case.
+expected_corpus_count=115
 if [ "$corpus_count" -ne "$expected_corpus_count" ]; then
     echo "s36_isa_driver: expected $expected_corpus_count corpus C files, found $corpus_count" >&2
     exit 1

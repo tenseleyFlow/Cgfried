@@ -73,6 +73,7 @@ predefine.
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
 | `__builtin_classify_type(expr-or-type)` | `tests/programs/builtins/classify_type_runtime.c` | GCC torture's generic bit-field arithmetic tests; compile-time type dispatch |
 | `__builtin_extract_return_addr(ptr)` | `tests/corpus/x86_64/int/gnu_extract_return_addr.c` | target-neutral decoding of addresses obtained from return-address machinery; an evaluated identity on supported x86-64 and AArch64 ABIs |
+| `__builtin_mempcpy(dest, src, count)` | `tests/corpus/x86_64/int/gnu_mempcpy.c` | copied-range end pointer without a host `mempcpy` dependency; uses the compiler's existing `memcpy` call semantics |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -129,6 +130,14 @@ tag-clearing or instruction-address adjustment required by some other GCC
 targets, so lowering is an identity and emits no helper call. Cgfried does not
 yet claim `__builtin_return_address` itself; tests requiring that separate
 stack-introspection feature remain skipped by policy.
+
+`__builtin_mempcpy` has the `void *(void *, const void *, size_t)` call
+contract. It converts all three arguments as a prototyped call, evaluates
+each once, copies through the existing `memcpy` call path (including a
+translation-unit definition of `memcpy`), and returns destination plus the
+converted byte count. The return value is a byte-wise one-past pointer;
+there is no dependency on a platform `mempcpy` symbol. As with `memcpy`,
+overlapping source and destination ranges are not supported.
 
 All currently supported targets are little-endian. A big-endian
 `scalar_storage_order` record therefore takes the reverse path: integral
