@@ -38,18 +38,18 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 12/30 consecutive distinct UTC dates green.** The current strict
+**RUNNING: 13/30 consecutive distinct UTC dates green.** The current strict
 streak started on 2026-09-09. Matching-head x86 and ARM runs passed both
 optimization levels and retained all four required artifacts on September
-9--20. The September 11 scheduled run did not start; same-date
+9--21. The September 11 scheduled run did not start; same-date
 `workflow_dispatch` recovery completed the full hosted lattice before the UTC
 date ended, as the gate contract permits for a pre-bootstrap infrastructure
 failure. September 13 also passed the complete weekly reproducibility and
 cross-host lattice at the same exact head as its daily run. September 20's
 daily and separate weekly scheduled runs share one exact head; the daily run
 passed all four fixed points and the weekly run passed the complete seven-job
-lattice. September 14--19 each passed the four daily jobs at one exact head;
-no weekly work was due on those dates.
+lattice. September 14--19 and September 21 each passed the four daily jobs at
+one exact head; no weekly work was due on those dates.
 
 The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
 reset on 2026-08-18 because the required x86 O0 job was cancelled during
@@ -61,8 +61,8 @@ so it reset the streak. September 6 passed the complete weekly lattice.
 September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
 did not run at one matching commit; neither date continues a strict
 matching-head streak. September 9 is therefore the new day 1. September 10,
-the eligible September 11 recovery, and the September 12--20 scheduled runs
-are days 2--12. If uninterrupted, day 30 is 2026-10-08.
+the eligible September 11 recovery, and the September 12--21 scheduled runs
+are days 2--13. If uninterrupted, day 30 is 2026-10-08.
 
 The workflow previously scheduled only ARM every day and obtained x86 evidence
 accidentally from repository pushes. The current automation repair schedules
@@ -136,8 +136,9 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-09-18 | `a8e8539cc37ad37bdac71547f412c0914f412399` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 35323369962](https://github.com/tenseleyFlow/Cgfried/actions/runs/35323369962) |
 | 2026-09-19 | `a8e8539cc37ad37bdac71547f412c0914f412399` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 35430928573](https://github.com/tenseleyFlow/Cgfried/actions/runs/35430928573) |
 | 2026-09-20 | `30afd68a2673d8feb6a4757ad32ee2c9be7a9ddb` | PASS | PASS + repro PASS | PASS | PASS | PASS | [daily run 35499954218](https://github.com/tenseleyFlow/Cgfried/actions/runs/35499954218) + [weekly run 35500570594](https://github.com/tenseleyFlow/Cgfried/actions/runs/35500570594) |
+| 2026-09-21 | `30afd68a2673d8feb6a4757ad32ee2c9be7a9ddb` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 35580502002](https://github.com/tenseleyFlow/Cgfried/actions/runs/35580502002) |
 
-The August 29–September 20 reconciliation uses GitHub's workflow, job, and
+The August 29–September 21 reconciliation uses GitHub's workflow, job, and
 retained-artifact metadata. Every qualifying non-Sunday pair retains
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
@@ -153,11 +154,11 @@ run `35500570594`, retain those four plus
 green. This reconciliation does not claim a new full payload-rehash audit for
 those dates.
 
-The September 15--19 daily runs each retain the expected four unexpired
+The September 15--19 and 21 daily runs each retain the expected four unexpired
 fixed-point artifacts. September 20's daily run retains those same four, and
 its separate weekly run retains all eight required daily and cross-host
 artifacts. GitHub's artifact API reports a non-expired SHA-256 digest for
-every one of those 32 artifacts. These are workflow, job, and artifact API
+every one of those 36 artifacts. These are workflow, job, and artifact API
 metadata checks, not a separate download-and-rehash audit.
 
 The September 14 run retains the four daily artifacts. GitHub's artifact API

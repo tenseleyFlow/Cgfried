@@ -389,6 +389,43 @@ void test_lower_builtin_stpcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_mempcpy_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "void *destination(void); "
+                              "const void *source(void); "
+                              "unsigned long count(void); "
+                              "void *use(void) { return __builtin_mempcpy("
+                              "destination(), source(), count()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @count()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memcpy(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "ptradd"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@mempcpy"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<mempcpy-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static void *memcpy(void *d, const void *s, "
+                              "unsigned long n) { unsigned long i; "
+                              "for (i = 0; i < n; i++) "
+                              "((char *)d)[i] = ((const char *)s)[i]; "
+                              "return d; } "
+                              "void *use(void *d, const void *s) { "
+                              "return __builtin_mempcpy(d, s, 3); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memcpy(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<mempcpy-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strchr_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
