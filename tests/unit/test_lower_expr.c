@@ -291,6 +291,55 @@ void test_lower_builtin_strncmp_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_string_large_family_calls_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(
+        t, run_lower(&f, "void *memory(void); char *destination(void); "
+                         "const char *source(void); int character(void); "
+                         "__SIZE_TYPE__ count(void); void use(void) { "
+                         "void *m = __builtin_memchr(memory(), character(), "
+                         "count()); "
+                         "char *p = __builtin_stpncpy(destination(), source(), "
+                         "count()); "
+                         "char *d = __builtin_strndup(source(), count()); "
+                         "int c = __builtin_strncasecmp(source(), source(), "
+                         "count()); "
+                         "char *a = __builtin_strncat(destination(), source(), "
+                         "count()); "
+                         "(void)m; (void)p; (void)d; (void)c; (void)a; }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memory()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 2);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @character()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @count()"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memchr(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @stpncpy(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strndup(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @strncasecmp(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strncat(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<string-large>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static char *strncat(char *d, const char *s, "
+                              "__SIZE_TYPE__ n) { "
+                              "(void)s; (void)n; return d; } "
+                              "char *use(char *d, const char *s) { "
+                              "return __builtin_strncat(d, s, 1); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strncat(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strncat-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strspn_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
