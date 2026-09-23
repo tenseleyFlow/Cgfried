@@ -299,7 +299,9 @@ PR #141 are now integrated; the detailed ledger below is authoritative. The
 latest merged tranche implements five bounded string/memory builtins, closes
 imported `string-large-1.c`, and leaves the ratchet at 31,780 PASS keys. The
 current `s56.47-builtin-pow` tranche targets the isolated `__builtin_pow` gap
-in imported `pr110444-1.c`; implementation and validation are pending.
+in imported `pr110444-1.c`; implementation and two-architecture local
+validation are complete, while exact hosted evidence and target-complete
+publication remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7405,8 +7407,23 @@ and green post-publication CI.
   its parents and tree are identical to the final tested merge.
 - The current isolated `s56.47-builtin-pow` tranche is based on merged #141.
   It targets the ordinary `double (double, double)` `__builtin_pow` contract
-  needed by imported `pr110444-1.c`. Implementation, local validation, exact
-  hosted evidence, and target-complete publication remain pending.
+  needed by imported `pr110444-1.c`. Commit `c165c9a5` gives the builtin exact
+  binary-double semantic conversions and lowers it through the ordinary
+  hosted `pow` symbol while preserving same-translation-unit binding and
+  evaluating each argument exactly once. Focused normal and ASan/UBSan tests
+  pass two tests / sixteen assertions. On Apple Silicon, the permanent
+  executable fixture and imported regression pass under Cgfried and Clang at
+  O0/O1/O2/O3/Os; the full 955-test unit suite retains only its same eight
+  documented host-assumption failures, both 2,000-case deterministic frontend
+  fuzz runs report zero findings, all 955 declared tests are registered, and
+  torture metadata, pinned clang-format 22, and the closeout gate are green.
+  An independent Linux x86_64 VM passes the focused two-test / sixteen-
+  assertion suite, the executable and imported regression under Cgfried and
+  GCC at all five optimization levels, and the complete closed-ISA gate for
+  exactly 732 corpus objects. Hosted prepublication, exact-merge evidence, and
+  target-complete publication remain pending. The expected publication is
+  exactly ten new `pr110444-1.c` PASS cells, reducing `gcc-builtin` from 80 to
+  70 without an old-PASS regression.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
