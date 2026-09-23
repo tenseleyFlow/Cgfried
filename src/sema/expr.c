@@ -1165,12 +1165,13 @@ static Type *builtin_float_abs_param_type(u16 builtin)
     }
 }
 
-/* Like fabs, the copy-sign spellings are three ordinary fixed prototypes,
- * not a type-generic operation: both operands convert to the result format. */
-static Type *builtin_float_copysign_param_type(u16 builtin)
+/* These binary floating builtins have ordinary fixed prototypes, not
+ * type-generic operands: each argument converts to the declared format. */
+static Type *builtin_float_binary_param_type(u16 builtin)
 {
     switch (builtin) {
     case SEMA_BUILTIN_COPYSIGN:
+    case SEMA_BUILTIN_POW:
         return type_basic(TY_DOUBLE);
     case SEMA_BUILTIN_COPYSIGNF:
         return type_basic(TY_FLOAT);
@@ -1885,8 +1886,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     Type *ut = sema_builtin_uint_type(s, kind);
                     Type *bitop_type = builtin_integer_bitop_param_type(b);
                     Type *float_abs_type = builtin_float_abs_param_type(b);
-                    Type *float_copysign_type =
-                        builtin_float_copysign_param_type(b);
+                    Type *float_binary_type =
+                        builtin_float_binary_param_type(b);
 
                     if (ut && e->nargs > 0) {
                         bctx.arg_index = 1;
@@ -1897,10 +1898,10 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     } else if (float_abs_type && e->nargs > 0) {
                         bctx.arg_index = 1;
                         conv_assignable(s, float_abs_type, &e->args[0], bctx);
-                    } else if (float_copysign_type) {
+                    } else if (float_binary_type) {
                         for (i = 0; i < e->nargs; i++) {
                             bctx.arg_index = i + 1;
-                            conv_assignable(s, float_copysign_type, &e->args[i],
+                            conv_assignable(s, float_binary_type, &e->args[i],
                                             bctx);
                         }
                     } else if (b == SEMA_BUILTIN_ABS && e->nargs > 0) {

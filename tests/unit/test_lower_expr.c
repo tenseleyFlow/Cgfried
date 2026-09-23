@@ -340,6 +340,36 @@ void test_lower_builtin_string_large_family_calls_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_pow_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "double base(void); double exponent(void); "
+                              "double use(void) { return "
+                              "__builtin_pow(base(), exponent()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @base()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @exponent()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @pow(f64"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_pow"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<pow-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t, run_lower(&f, "static double pow(double a, double b) { "
+                              "return a + b; } "
+                              "double use(double a, double b) { "
+                              "return __builtin_pow(a, b); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @pow(f64"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<pow-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strspn_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
