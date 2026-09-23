@@ -295,13 +295,11 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #140 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin_strncmp`, publishes ten
-target-complete cells, and leaves the ratchet at 31,770 PASS keys. The current
-`s56.46-builtin-string-large-family` tranche implements five bounded
-string/memory builtins and closes imported `string-large-1.c`; local native
-ARM and independent x86 validation are green, exact-merge target-complete
-publication is complete, and final post-publication hosted CI remains pending.
+PR #141 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements five bounded string/memory builtins, closes
+imported `string-large-1.c`, and leaves the ratchet at 31,780 PASS keys. The
+current `s56.47-builtin-pow` tranche targets the isolated `__builtin_pow` gap
+in imported `pr110444-1.c`; implementation and validation are pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7389,8 +7387,26 @@ and green post-publication CI.
   respectively
   `d5dd3c5ce325940430fb226ade94cd3a8b63f0a2ea229ee73e55eddca47026c0`
   and `b6017e41506c20502ebd802ae53baab14268544996920866bcb3565503772e03`.
-  Final post-publication standard, exact-merge nightly, and bootstrap evidence
-  remain required; do not merge this tranche yet.
+  Final standard
+  [run 35922442797](https://github.com/tenseleyFlow/Cgfried/actions/runs/35922442797)
+  passed all 24 executed jobs, with 28 PR check successes and nine intended
+  skips. GitHub's exact published merge
+  `8d4e68792a755ff458e6040aa470ca7379ab8aed` has parents `dffc958d`
+  and `c2cf3f56` and tree `8c1675d795bba84d0f5e4b1662a5bd9ac7ffe920`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35923077043](https://github.com/tenseleyFlow/Cgfried/actions/runs/35923077043)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35923077094](https://github.com/tenseleyFlow/Cgfried/actions/runs/35923077094)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `f7b40f45d9b36dd1ffaaf77f4ca0b48281f772e4350230627d93fe0a1d975aef`
+  and `cdea486ca82b8f2b11d7ad716e88771d920699648114a4dd3c645aa7b811db59`.
+  PR #141 merged green-only as `32aabb17060422cbf0bed6630d4462a17410e6df`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.47-builtin-pow` tranche is based on merged #141.
+  It targets the ordinary `double (double, double)` `__builtin_pow` contract
+  needed by imported `pr110444-1.c`. Implementation, local validation, exact
+  hosted evidence, and target-complete publication remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
