@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-22): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-23): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 14/30 through September 22 after required daily x86 evidence was
+at a strict 15/30 through September 23 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--22 hosted daily runs are
+operationally OPEN. Matching-head September 12--23 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
 full-lattice green. The
 matching-head September 11 recovery
@@ -771,7 +771,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 14/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 15/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -822,7 +822,12 @@ do not call the sprint closed until that operational obligation is complete.
   digest-stamped artifacts, and no weekly work due. September 22 scheduled
   [run 35705333283](https://github.com/tenseleyFlow/Cgfried/actions/runs/35705333283)
   at exact head `2451ae45` makes day 14 with the same four-job, four-artifact
-  proof; no weekly work was due. The daily-hosted automation
+  proof. September 23 scheduled
+  [run 35837871694](https://github.com/tenseleyFlow/Cgfried/actions/runs/35837871694)
+  at exact head `9d229021` makes day 15: all four required fixed points are
+  green, both ARM O2 ABI differentials pass, and the four expected artifacts
+  are unexpired and digest-stamped. No weekly work was due on either date. The
+  daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
   weekly cross/reproducibility result; any missing or red required run breaks the
@@ -7314,7 +7319,22 @@ and green post-publication CI.
   100 to 90. PASS and triage SHA-256 values are respectively
   `1862ad5b9e476ebe428ed19bfd1816c301b985c2b66f9cd7bb0197d8f0220293`
   and `981b15e8a8a615a62fa78d030c6e1dd7e49b5cff7f34dc07ad9d8ecb00dd25b6`.
-  Final post-publication CI remains pending; do not merge with red checks.
+  Final standard
+  [run 35799697035](https://github.com/tenseleyFlow/Cgfried/actions/runs/35799697035)
+  passed all 24 executed jobs, with 28 PR check successes and nine intended
+  skips. GitHub's exact published merge
+  `9731910501b238c3863c62d6df7e0a55b664c49c` has parents `9d229021`
+  and `061824e9` and tree `277790b42401ba455f37be594b0803b5f4980b3a`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35913526865](https://github.com/tenseleyFlow/Cgfried/actions/runs/35913526865)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35913529484](https://github.com/tenseleyFlow/Cgfried/actions/runs/35913529484)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `c30851af941b7ece11fa3da827d7c2ef6eb7b7149e324a420b8dce0afa685ab5`
+  and `1cc430b822c160ae10d424d60f1d1f710383ed3f59f53c4af5b14d41b8ac40a7`.
+  PR #140 merged green-only as `dffc958ddb9a156d2e846774d422d055ab340a22`;
+  its parents and tree are identical to the final tested merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
