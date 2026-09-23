@@ -1791,6 +1791,20 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
+                if (b == SEMA_BUILTIN_STRNCMP) {
+                    Type *const_char = type_qualify(
+                        s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
+                    Type *params[] = {type_ptr(s->arena, const_char),
+                                      type_ptr(s->arena, const_char),
+                                      type_basic(TY_ULONG)};
+
+                    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
                 if (b == SEMA_BUILTIN_PUTS) {
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);

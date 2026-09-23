@@ -256,6 +256,41 @@ void test_lower_builtin_strcmp_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_strncmp_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t,
+             run_lower(&f, "const char *left(void); const char *right(void); "
+                           "__SIZE_TYPE__ count(void); "
+                           "int use(void) { return "
+                           "__builtin_strncmp(left(), right(), count()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @left()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @right()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @count()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @strncmp(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_strncmp"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strncmp-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t,
+             run_lower(&f, "static int strncmp(const char *a, const char *b, "
+                           "__SIZE_TYPE__ n) { "
+                           "(void)a; (void)b; (void)n; return 7; } "
+                           "int use(const char *a, const char *b) { "
+                           "return __builtin_strncmp(a, b, 1); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @strncmp(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<strncmp-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strspn_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;

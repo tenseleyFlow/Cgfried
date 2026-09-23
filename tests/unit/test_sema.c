@@ -400,6 +400,52 @@ void test_sema_builtin_strcmp_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_strncmp_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_strncmp(\"a\", \"b\", 1), "
+             "int: 1, default: 0), \"strncmp result is int\"); "
+             "int f(char *a, const char *b, void *p) { "
+             "return __builtin_strncmp(a, b, 3) + "
+             "__builtin_strncmp(p, a, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(char *p) { return __builtin_strncmp(p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "int f(char *p) { return __builtin_strncmp(p, p, 1, 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; int f(struct S s) { "
+             "return __builtin_strncmp(s, \"x\", 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; int f(struct S s) { "
+             "return __builtin_strncmp(\"x\", s, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; int f(struct S s) { "
+             "return __builtin_strncmp(\"x\", \"y\", s); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strspn_contract(TestCtx *t)
 {
     SemaFix f;
