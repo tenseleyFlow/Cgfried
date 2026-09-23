@@ -446,6 +446,56 @@ void test_sema_builtin_strncmp_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_string_large_family_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_memchr(\"abc\", 'b', 3), "
+             "void *: 1, default: 0), \"memchr result is void pointer\"); "
+             "_Static_assert(_Generic(__builtin_stpncpy((char *)0, \"a\", 1), "
+             "char *: 1, default: 0), \"stpncpy result is char pointer\"); "
+             "_Static_assert(_Generic(__builtin_strndup(\"abc\", 2), "
+             "char *: 1, default: 0), \"strndup result is char pointer\"); "
+             "_Static_assert(_Generic(__builtin_strncasecmp(\"a\", \"A\", 1), "
+             "int: 1, default: 0), \"strncasecmp result is int\"); "
+             "_Static_assert(_Generic(__builtin_strncat((char *)0, \"a\", 1), "
+             "char *: 1, default: 0), \"strncat result is char pointer\"); "
+             "int f(void *p, char *d, const char *s, unsigned short n) { "
+             "void *m = __builtin_memchr(p, (unsigned char)'x', n); "
+             "char *a = __builtin_stpncpy(d, s, n); "
+             "char *b = __builtin_strndup(s, n); "
+             "int c = __builtin_strncasecmp(s, d, n); "
+             "char *e = __builtin_strncat(d, s, n); "
+             "return (m != 0) + (a != 0) + (b != 0) + c + (e != 0); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(char *p) { "
+             "__builtin_memchr(p, 0); __builtin_memchr(p, 0, 1, 2); "
+             "__builtin_stpncpy(p, p); __builtin_stpncpy(p, p, 1, 2); "
+             "__builtin_strndup(p); __builtin_strndup(p, 1, 2); "
+             "__builtin_strncasecmp(p, p); "
+             "__builtin_strncasecmp(p, p, 1, 2); "
+             "__builtin_strncat(p, p); __builtin_strncat(p, p, 1, 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 10);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value, char *p) { "
+             "__builtin_memchr(value, 0, 1); "
+             "__builtin_stpncpy(p, value, 1); "
+             "__builtin_strndup(value, 1); "
+             "__builtin_strncasecmp(p, p, value); "
+             "__builtin_strncat(value, p, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strspn_contract(TestCtx *t)
 {
     SemaFix f;

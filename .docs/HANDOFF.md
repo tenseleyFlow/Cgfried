@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-22): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-23): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 14/30 through September 22 after required daily x86 evidence was
+at a strict 15/30 through September 23 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--22 hosted daily runs are
+operationally OPEN. Matching-head September 12--23 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
 full-lattice green. The
 matching-head September 11 recovery
@@ -295,12 +295,13 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #133 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin_classify_type`, publishes thirty
-target-complete cells, and leaves the ratchet at 31,700 PASS keys. The current
-`s56.39-builtin-extract-return-addr` tranche implements the next isolated GNU
-builtin gap; target-complete publication is complete and final hosted CI
-remains pending.
+PR #140 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin_strncmp`, publishes ten
+target-complete cells, and leaves the ratchet at 31,770 PASS keys. The current
+`s56.46-builtin-string-large-family` tranche implements five bounded
+string/memory builtins and closes imported `string-large-1.c`; local native
+ARM and independent x86 validation are green, exact-merge target-complete
+publication is complete, and final post-publication hosted CI remains pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -771,7 +772,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 14/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 15/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -822,7 +823,12 @@ do not call the sprint closed until that operational obligation is complete.
   digest-stamped artifacts, and no weekly work due. September 22 scheduled
   [run 35705333283](https://github.com/tenseleyFlow/Cgfried/actions/runs/35705333283)
   at exact head `2451ae45` makes day 14 with the same four-job, four-artifact
-  proof; no weekly work was due. The daily-hosted automation
+  proof. September 23 scheduled
+  [run 35837871694](https://github.com/tenseleyFlow/Cgfried/actions/runs/35837871694)
+  at exact head `9d229021` makes day 15: all four required fixed points are
+  green, both ARM O2 ABI differentials pass, and the four expected artifacts
+  are unexpired and digest-stamped. No weekly work was due on either date. The
+  daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
   weekly cross/reproducibility result; any missing or red required run breaks the
@@ -7314,7 +7320,77 @@ and green post-publication CI.
   100 to 90. PASS and triage SHA-256 values are respectively
   `1862ad5b9e476ebe428ed19bfd1816c301b985c2b66f9cd7bb0197d8f0220293`
   and `981b15e8a8a615a62fa78d030c6e1dd7e49b5cff7f34dc07ad9d8ecb00dd25b6`.
-  Final post-publication CI remains pending; do not merge with red checks.
+  Final standard
+  [run 35799697035](https://github.com/tenseleyFlow/Cgfried/actions/runs/35799697035)
+  passed all 24 executed jobs, with 28 PR check successes and nine intended
+  skips. GitHub's exact published merge
+  `9731910501b238c3863c62d6df7e0a55b664c49c` has parents `9d229021`
+  and `061824e9` and tree `277790b42401ba455f37be594b0803b5f4980b3a`,
+  byte-identical to the published head. Native ARM nightly
+  [run 35913526865](https://github.com/tenseleyFlow/Cgfried/actions/runs/35913526865)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35913529484](https://github.com/tenseleyFlow/Cgfried/actions/runs/35913529484)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `c30851af941b7ece11fa3da827d7c2ef6eb7b7149e324a420b8dce0afa685ab5`
+  and `1cc430b822c160ae10d424d60f1d1f710383ed3f59f53c4af5b14d41b8ac40a7`.
+  PR #140 merged green-only as `dffc958ddb9a156d2e846774d422d055ab340a22`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.46-builtin-string-large-family` tranche is based
+  on merged #140. It implements libc-compatible `__builtin_memchr`,
+  `__builtin_stpncpy`, `__builtin_strndup`, `__builtin_strncasecmp`, and
+  `__builtin_strncat` contracts, including exact argument conversions,
+  result types, single evaluation, ordinary libc linkage, and translation-unit
+  definition binding. Together they close imported `string-large-1.c` and are
+  expected to promote exactly ten target-complete cells while reducing the
+  `gcc-builtin` bucket from 90 to 80.
+
+  Focused normal and ASan+UBSan semantic/lowering tests pass (two tests, 23
+  assertions). The Apple Silicon executable matches Clang at all five native
+  optimization levels, and imported `string-large-1.c` compiles at all five.
+  The full Apple unit suite retains the same eight host-assumption failures
+  among 953 tests, with both new tests green. Normal and sanitized 2,000-case
+  frontend fuzz each report zero findings; the torture metadata and closeout
+  gates are green. An independent x86 Linux VM matches the executable output
+  under Cgfried and GCC at all five optimization levels, accepts the imported
+  source at all five levels under both compilers, and passes the closed
+  x86-64/SSE2 ISA gate at exactly 726 objects (121 fixtures times six levels).
+  Pre-publication GitHub exact synthetic merge
+  `a070db43e64cef5e63c5aeb98c119ff8d8072c4f` has parents `dffc958d`
+  and `e477ef42` and tree `0d0686c85e5ae0a48b77b9c1f5ef14fadaa945bb`,
+  byte-identical to the feature head. Standard
+  [run 35918212125](https://github.com/tenseleyFlow/Cgfried/actions/runs/35918212125)
+  passed all 23 non-torture jobs, including its 100,000-case fuzz lane; its
+  only refusal is five unpublished x86 PASS cells.
+  Native ARM nightly
+  [run 35918544343](https://github.com/tenseleyFlow/Cgfried/actions/runs/35918544343)
+  passed all fourteen non-torture jobs and refused only the five matching ARM
+  PASS cells. Exact full-lattice bootstrap
+  [run 35918544293](https://github.com/tenseleyFlow/Cgfried/actions/runs/35918544293)
+  passed all seven jobs.
+
+  The retained x86 and ARM streams have SHA-256 values
+  `3550daf5e02a55c32bf9d5b9c480055b4334797c0e12e03613af42f443deaf07`
+  and `e16e9de5f0f1e3125c1942add6f2ecd1c6ee240e656f743114f7474716734ee3`.
+  Each retains 20,325 unique cells -- 15,890 PASS, 3,305 SKIP, and 1,130
+  COMPILE_FAIL -- with exactly five new `string-large-1.c` PASS keys and no
+  old PASS regression. Both name source revision `a070db43`, compiler-source
+  SHA-256 `209d477a41f6a00c78c7f5579235ee31f206bd6081546353bc76eea446e26287`,
+  harness SHA-256 `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes.
+
+  Formal GNU-make atomic publication consumes the exact streams and passes
+  provenance, complete-key, staging, and rollback checks. Reversing stream
+  order regenerates both outputs byte-identically; both published streams pass
+  the ratchet gate and the complete torture meta-suite is green. The result is
+  31,780 PASS keys (31,783 lines), 2,260 failed cells, 24 applied decisions,
+  two retained stale decisions, and zero unbucketed/unresolved cells.
+  `gcc-builtin` falls from 90 to 80. PASS and triage SHA-256 values are
+  respectively
+  `d5dd3c5ce325940430fb226ade94cd3a8b63f0a2ea229ee73e55eddca47026c0`
+  and `b6017e41506c20502ebd802ae53baab14268544996920866bcb3565503772e03`.
+  Final post-publication standard, exact-merge nightly, and bootstrap evidence
+  remain required; do not merge this tranche yet.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

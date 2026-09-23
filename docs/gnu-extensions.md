@@ -79,6 +79,7 @@ predefine.
 | `__builtin_strcspn(string, reject)` | `tests/corpus/x86_64/int/gnu_strcspn.c` | length of the initial byte span containing none of the rejected set; prototyped `size_t` result and ordinary libc linkage |
 | `__builtin_strstr(haystack, needle)` | `tests/corpus/x86_64/int/gnu_strstr.c` | first substring match, or null; prototyped `char *` result and ordinary libc linkage |
 | `__builtin_strncmp(left, right, count)` | `tests/corpus/x86_64/int/gnu_strncmp.c` | bounded byte-string comparison; prototyped `int` result, `size_t` bound, and ordinary libc linkage |
+| `__builtin_memchr`, `__builtin_stpncpy`, `__builtin_strndup`, `__builtin_strncasecmp`, `__builtin_strncat` | `tests/corpus/x86_64/int/gnu_string_large.c` | bounded memory/string search, copy, allocation, case-folded comparison, and concatenation with exact libc prototypes and linkage |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -158,6 +159,16 @@ definition of that symbol, and returns its pointer result.
 `int (const char *, const char *, size_t)` call contract. All three arguments
 undergo ordinary prototyped conversion and are evaluated once; lowering calls
 `strncmp`, including a translation-unit definition of that symbol.
+
+The bounded string/memory family follows the corresponding libc prototypes:
+`__builtin_memchr` is `void *(const void *, int, size_t)`,
+`__builtin_stpncpy` and `__builtin_strncat` are
+`char *(char *, const char *, size_t)`, `__builtin_strndup` is
+`char *(const char *, size_t)`, and `__builtin_strncasecmp` is
+`int (const char *, const char *, size_t)`. Each operand undergoes ordinary
+prototyped conversion and is evaluated exactly once. Lowering calls `memchr`,
+`stpncpy`, `strndup`, `strncasecmp`, or `strncat` through normal libc linkage,
+including a translation-unit definition of the corresponding symbol.
 
 `__builtin_bcopy` has the `void (const void *, void *, size_t)` contract:
 source precedes destination, unlike `memmove`. Arguments receive ordinary

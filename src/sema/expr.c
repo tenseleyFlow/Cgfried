@@ -1770,6 +1770,19 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     if (!valid)
                         return poison(s, e);
                 }
+                if (b == SEMA_BUILTIN_MEMCHR) {
+                    Type *const_void = type_qualify(
+                        s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
+                    Type *params[] = {type_ptr(s->arena, const_void),
+                                      type_basic(TY_INT), type_basic(TY_ULONG)};
+
+                    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
                 if (b == SEMA_BUILTIN_EXIT) {
                     bctx.arg_index = 1;
                     if (!conv_assignable(s, type_basic(TY_INT), &e->args[0],
@@ -1791,7 +1804,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                if (b == SEMA_BUILTIN_STRNCMP) {
+                if (b == SEMA_BUILTIN_STRNCMP ||
+                    b == SEMA_BUILTIN_STRNCASECMP) {
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
                     Type *params[] = {type_ptr(s->arena, const_char),
@@ -1816,16 +1830,33 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         return poison(s, e);
                 }
                 if (b == SEMA_BUILTIN_STRCPY || b == SEMA_BUILTIN_STPCPY ||
-                    b == SEMA_BUILTIN_STRNCPY) {
+                    b == SEMA_BUILTIN_STRNCPY || b == SEMA_BUILTIN_STPNCPY ||
+                    b == SEMA_BUILTIN_STRNCAT) {
                     Type *charp = type_ptr(s->arena, type_basic(TY_CHAR));
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
                     Type *params[] = {charp, type_ptr(s->arena, const_char),
                                       type_basic(TY_ULONG)};
-                    u32 nparams =
-                        b == SEMA_BUILTIN_STRNCPY ? CGF_ARRAY_LEN(params) : 2;
+                    u32 nparams = b == SEMA_BUILTIN_STRNCPY ||
+                                          b == SEMA_BUILTIN_STPNCPY ||
+                                          b == SEMA_BUILTIN_STRNCAT
+                                      ? CGF_ARRAY_LEN(params)
+                                      : 2;
 
                     for (i = 0; i < nparams; i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
+                if (b == SEMA_BUILTIN_STRNDUP) {
+                    Type *const_char = type_qualify(
+                        s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
+                    Type *params[] = {type_ptr(s->arena, const_char),
+                                      type_basic(TY_ULONG)};
+
+                    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
                         bctx.arg_index = i + 1;
                         if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
                             quiet(e->args[i], NULL))
