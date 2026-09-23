@@ -295,12 +295,13 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #133 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin_classify_type`, publishes thirty
-target-complete cells, and leaves the ratchet at 31,700 PASS keys. The current
-`s56.39-builtin-extract-return-addr` tranche implements the next isolated GNU
-builtin gap; target-complete publication is complete and final hosted CI
-remains pending.
+PR #140 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin_strncmp`, publishes ten
+target-complete cells, and leaves the ratchet at 31,770 PASS keys. The current
+`s56.46-builtin-string-large-family` tranche implements five bounded
+string/memory builtins and closes imported `string-large-1.c`; local native
+ARM and independent x86 validation are green, while hosted pre-publication
+evidence and target-complete publication remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7335,6 +7336,27 @@ and green post-publication CI.
   and `1cc430b822c160ae10d424d60f1d1f710383ed3f59f53c4af5b14d41b8ac40a7`.
   PR #140 merged green-only as `dffc958ddb9a156d2e846774d422d055ab340a22`;
   its parents and tree are identical to the final tested merge.
+- The current isolated `s56.46-builtin-string-large-family` tranche is based
+  on merged #140. It implements libc-compatible `__builtin_memchr`,
+  `__builtin_stpncpy`, `__builtin_strndup`, `__builtin_strncasecmp`, and
+  `__builtin_strncat` contracts, including exact argument conversions,
+  result types, single evaluation, ordinary libc linkage, and translation-unit
+  definition binding. Together they close imported `string-large-1.c` and are
+  expected to promote exactly ten target-complete cells while reducing the
+  `gcc-builtin` bucket from 90 to 80.
+
+  Focused normal and ASan+UBSan semantic/lowering tests pass (two tests, 23
+  assertions). The Apple Silicon executable matches Clang at all five native
+  optimization levels, and imported `string-large-1.c` compiles at all five.
+  The full Apple unit suite retains the same eight host-assumption failures
+  among 953 tests, with both new tests green. Normal and sanitized 2,000-case
+  frontend fuzz each report zero findings; the torture metadata and closeout
+  gates are green. An independent x86 Linux VM matches the executable output
+  under Cgfried and GCC at all five optimization levels, accepts the imported
+  source at all five levels under both compilers, and passes the closed
+  x86-64/SSE2 ISA gate at exactly 726 objects (121 fixtures times six levels).
+  Hosted exact-merge evidence and target-complete publication remain pending;
+  do not merge this tranche yet.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
