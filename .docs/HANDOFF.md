@@ -295,14 +295,13 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #142 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin_pow`, closes imported
-`pr110444-1.c`, and leaves the ratchet at 31,790 PASS keys. The current
-`s56.48-builtin-clear-cache` tranche targets the isolated
-`__builtin___clear_cache` gap in imported `pr100316.c`; behavior commits
-`3692854a` and `80f583e2` are locally validated on native Apple ARM64 plus
-independent Linux x86_64 and emulated ARM64 lanes. Hosted corrected-head
-evidence and publication remain pending.
+PR #143 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin___clear_cache`, closes imported
+`pr100316.c`, and leaves the ratchet at 31,800 PASS keys. The current
+`s56.49-builtin-memset-chk` tranche implements `__builtin___memset_chk` for
+the isolated ten-cell gap in imported `20070915-1.c`. Local Apple ARM64,
+independent Linux x86_64, and native Linux ARM64 validation are green;
+hosted prepublication evidence and target-complete publication remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7568,6 +7567,53 @@ and green post-publication CI.
   and `deb681ddfedc3995a27a643753784270e8999fbdce424b16f474ef24faba2b68`.
   PR #143 merged green-only as `49f30d41b25f6e4e8c6b6f64ac61f85abef312e2`;
   its parents and tree are identical to the final tested merge.
+- The current isolated `s56.49-builtin-memset-chk` tranche is based on merged
+  #143. Behavior commit `6f620444` implements GCC's exact
+  `void *(void *, int, size_t, size_t)` `__builtin___memset_chk` contract,
+  including ordinary prototyped conversions and exactly-once argument
+  evaluation. Lowering calls `__memset_chk`; a target-independent
+  `libcgf_rt` helper aborts when the requested length exceeds the supplied
+  object extent and otherwise returns the destination after calling `memset`.
+  Commit `480d85b7` deliberately repins the permanent corpus at 124 sources.
+  The tranche is expected to publish exactly ten target-complete
+  `20070915-1.c` PASS cells and reduce `gcc-builtin` from 60 to 50.
+
+  Focused normal and ASan+UBSan tests pass two tests / 53 assertions. On Apple
+  Silicon, the permanent executable fixture passes Cgfried and Clang at
+  O0/O1/O2/O3/Os, the unmodified imported source compiles under both at all
+  five levels, and a bounds-violation probe terminates with `SIGABRT` under
+  Cgfried at every level. Fixture and imported source compile in all fifty
+  combinations of five supported targets and five optimization levels, each
+  retaining exactly one checked-memset call. Cgfried compiles the runtime
+  helper for every target and Clang's integrated assemblers accept all five
+  resulting objects. The pre-existing Apple-Clang `mode(TF)` failure in
+  `src/rt/fp128.c` still prevents a complete local `make rt`; the new helper
+  itself compiles cleanly, and executable Linux runtime validation below
+  exercises the real archive rather than relying on that host limitation.
+
+  An independent Linux x86_64 VM built exact head `480d85b7`. The focused
+  suite passes 2/53, the archive exports `__memset_chk`, the safe fixture and
+  imported compile-only regression pass under Cgfried and GCC at all five
+  levels, and Cgfried's overflow probe aborts at all five levels. The complete
+  closed-ISA audit passes exactly 744 objects (124 fixtures times six levels).
+  A native Linux ARM64 VM independently built the same head and archive. Its
+  focused suite, safe/imported five-level matrix, and five overflow probes are
+  green; the complete ARM executable corpus passes 108/108 with zero failures,
+  skips, or ledger entries, including the new `gnu_memset_chk` fixture.
+
+  Complete normal and sanitizer unit runs reach 959 tests / 4,329,793
+  assertions and retain exactly the same eight documented Apple
+  host-assumption failures, with both new tests green and no sanitizer report.
+  All 37 established builtin program fixtures pass in both configurations.
+  Normal and sanitizer frontend fuzzing each complete 2,000 iterations with
+  zero findings and reproduce digest `dd612c8680021f21`; normal and sanitizer
+  IR fuzzing each pass 5,000 cases, and both preprocessor modes pass 2,000
+  cases in each configuration. Pinned clang-format 22, unit registration,
+  pristine imports, bans, deferrals, GNU-tier accounting, target seams,
+  verifier coverage, no-host-FPU, fuzz-crash, torture metadata/import,
+  closeout, and POSIX-shell gates are green. Hosted prepublication standard,
+  exact-merge ARM/bootstrap evidence, and target-complete publication remain
+  pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
