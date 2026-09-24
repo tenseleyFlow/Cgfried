@@ -403,7 +403,7 @@ void test_expr_deferrals_and_errors(TestCtx *t)
     expr_bad(t, "int a; int f(void){ return _Generic(a); }\n");
 }
 
-/* Every `__builtin_*` name defers to Sprint 28 — in BOTH positions.
+/* Unknown `__builtin_*` names defer loudly in both syntactic positions.
  * `__builtin_va_list` lexes as a keyword and the rest as identifiers, so
  * the two paths are genuinely separate code. */
 void test_expr_builtins_defer(TestCtx *t)
@@ -428,6 +428,7 @@ void test_expr_builtins_defer(TestCtx *t)
      * mode, and pointer constraints remain SEMA's responsibility. */
     expr_ok(t, "unsigned long f(void){ "
                "return __builtin_object_size((void *)0, 0); }\n");
+    expr_bad(t, "int f(void){ return __builtin_cgfried_unknown(0); }\n");
     /* A designator is required, not an arbitrary expression. */
     expr_bad(t, "struct S { int a; };\n"
                 "unsigned long f(void){ "
