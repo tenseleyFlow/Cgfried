@@ -7514,9 +7514,42 @@ and green post-publication CI.
   compiles cleanly under GCC and Cgfried, exports `__clear_cache` from the
   target archive, and makes the fixture compile, link, and execute under QEMU
   at O0/O1/O2/O3/Os. A complete fresh two-level-emulation corpus run then
-  passes 107/107 ARM64 fixtures with zero ledger entries. Hosted corrected-
-  head evidence, target-complete publication, final CI, and merge remain
-  pending.
+  passes 107/107 ARM64 fixtures with zero ledger entries.
+
+  Corrected-head branch bootstrap
+  [run 35953262947](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953262947)
+  and PR bootstrap
+  [run 35953265919](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953265919)
+  are green. GitHub's corrected prepublication synthetic merge is
+  `cecc1ed0f38aaaffff51c36c1e2ad11d853c69ea`, with parents `d958f633`
+  and `a0ba0db5` and tree `3648adbf5de42e20ee137f6236bbd3277945ff5f`;
+  that tree is byte-identical to the feature head. Standard
+  [run 35953265959](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953265959)
+  proves the complete ordinary matrix green and refuses only the expected
+  five new x86 `pr100316.c` cells before publication. Exact-merge native ARM
+  nightly
+  [run 35953382649](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953382649)
+  passes all fourteen unrelated jobs and refuses only the same five new ARM
+  cells. Exact-merge full-lattice bootstrap
+  [run 35953385098](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953385098)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams name that exact merge, share compiler-
+  source, harness, and manifest hashes, and have SHA-256 values
+  `d2187b507de9fa5590ecd04298f081e34685f9b4c187d5e9eda444cd761e7dd1`
+  and `e3f955e788959a48412fb03f884f17ab582776fa12cdc0a3c3d0b500b1c61aac`.
+  Each contains 20,325 unique cells -- 15,900 PASS, 3,305 SKIP, and 1,120
+  COMPILE_FAIL -- with exactly five new `pr100316.c` PASS keys and no old-
+  PASS regression. Formal GNU-make atomic publication consumes both exact
+  streams; reversing input order regenerates both outputs byte-identically,
+  both streams pass the published ratchet gate, and the complete torture
+  metadata suite is green. The result is 31,800 PASS keys (31,803 lines),
+  2,240 failed cells, 24 applied decisions, two retained stale decisions, and
+  zero unbucketed/unresolved cells. `gcc-builtin` falls from 70 to 60. PASS
+  and triage SHA-256 values are respectively
+  `33da7006103afd68be1c4dc586a8a089b1106756c2298a1ae1177915a8fec3d0`
+  and `78342ff0e90909c83abc51ec21e7d51eb2cf09e70fd4ee4e3007521df650640d`.
+  Final published-head CI and merge remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
