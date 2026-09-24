@@ -83,6 +83,8 @@ predefine.
 | `__builtin_pow(base, exponent)` | `tests/corpus/x86_64/int/gnu_pow.c` | double-precision power with exact `double (double, double)` conversion and ordinary libm linkage |
 | `__builtin___clear_cache(begin, end)` | `tests/corpus/x86_64/int/gnu_clear_cache.c` | evaluated-once instruction-cache synchronization; no emitted operation on coherent x86-64, compiler-runtime `__clear_cache` call on AArch64 |
 | `__builtin___memset_chk(dest, value, count, size)` | `tests/corpus/x86_64/int/gnu_memset_chk.c` | fortified byte fill with exact prototyped conversions and a target-independent compiler-runtime bounds check |
+| `__builtin_object_size(pointer, mode)` | `tests/corpus/x86_64/int/gnu_memcpy_chk.c` | unevaluated static extent query: exact for directly provable complete objects/subobjects and conservative GCC sentinels when provenance is unknown |
+| `__builtin___memcpy_chk(dest, src, count, size)` | `tests/corpus/x86_64/int/gnu_memcpy_chk.c` | fortified byte copy with exact prototyped conversions and a target-independent compiler-runtime bounds check |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -186,6 +188,24 @@ count exceeds the supplied destination extent and otherwise returns the
 destination after the ordinary `memset`. Keeping the helper in `libcgf_rt`
 gives glibc, musl, FreeBSD, and Darwin the same behavior without assuming a
 platform fortify ABI is present.
+
+`__builtin_object_size(pointer, mode)` returns `size_t` and never evaluates
+`pointer`. The mode must be an integer constant from zero through three.
+Modes zero and two select the maximum remaining enclosing-object extent;
+modes one and three select the closest remaining subobject extent. Cgfried
+proves direct complete objects, dot-selected subobjects, and constant
+nonnegative offsets. When pointer provenance is not statically established,
+it uses GCC's conservative result: `(size_t)-1` for modes zero/one and zero
+for modes two/three. In particular, merely seeing the type in `p->member`
+does not invent an allocation bound for an unknown `p`.
+
+`__builtin___memcpy_chk` has the fortified
+`void *(void *, const void *, size_t, size_t)` contract. All four operands
+undergo ordinary prototyped conversion and are evaluated exactly once.
+Lowering calls the compiler-runtime `__memcpy_chk`; the portable helper aborts
+when the copy count exceeds the supplied destination extent, otherwise calls
+ordinary `memcpy` and returns the destination. It shares the same
+platform-independent runtime policy as checked `memset`.
 
 `__builtin_bcopy` has the `void (const void *, void *, size_t)` contract:
 source precedes destination, unlike `memmove`. Arguments receive ordinary

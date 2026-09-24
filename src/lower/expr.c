@@ -3494,6 +3494,18 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
                 IRT_I32, (cv.kind == CV_INT || cv.kind == CV_FLOAT) ? 1 : 0);
         }
         return true;
+    case SEMA_BUILTIN_OBJECT_SIZE: {
+        ConstValue mode = constexpr_eval(lo->sema, e->args[1], CE_FOLD);
+
+        if (mode.kind != CV_INT || mode.i > 3)
+            CGF_ICE("invalid object-size mode reached lowering");
+        /* Deliberately do not lower args[0]: GCC defines this as an
+         * unevaluated static query, including when it contains ++ or calls. */
+        *out =
+            ir_op_iconst(IRT_I64, (i64)sema_builtin_object_size(
+                                      lo->sema, e->args[0], (unsigned)mode.i));
+        return true;
+    }
     /* Sf represents NaN classification rather than payload bits, so every
      * accepted __builtin_nan* payload spelling uses the target format's
      * canonical quiet-NaN image in constexpr and runtime lowering. */
@@ -3537,6 +3549,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_BCOPY, "memmove", IRT_PTR, false},
         {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR, false},
         {SEMA_BUILTIN_MEMSET_CHK, "__memset_chk", IRT_PTR, false},
+        {SEMA_BUILTIN_MEMCPY_CHK, "__memcpy_chk", IRT_PTR, false},
         {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32, false},
         {SEMA_BUILTIN_MEMCHR, "memchr", IRT_PTR, false},
         {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64, false},

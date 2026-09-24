@@ -7664,6 +7664,31 @@ and green post-publication CI.
   and `d6b374deaae2b5606c498431a4497e07e0604655e0c107ad88c9e48fc9738a03`.
   PR #144 merged green-only as `7d09e4dcfd4d4e1abee8d252613ffd88d08ad72d`;
   its parents and tree are identical to the final tested merge.
+- The current isolated `s56.50-builtin-object-size-memcpy-chk` tranche is
+  based on merged #144. It implements the unevaluated
+  `__builtin_object_size(pointer, mode)` contract with exact results for
+  directly provable complete objects, dot-selected subobjects, and constant
+  nonnegative offsets. Unknown provenance returns `(size_t)-1` for modes
+  zero/one and zero for modes two/three; in particular, a pointer parameter or
+  `p->member` remains unknown, matching GCC rather than inventing a bound from
+  its type. The mode is constrained to an integer constant in `[0, 3]`, and
+  constant folding and runtime lowering share the same analyzer.
+
+  The tranche also implements GCC's exact
+  `void *(void *, const void *, size_t, size_t)`
+  `__builtin___memcpy_chk` prototype. Lowering calls `__memcpy_chk`; the
+  target-independent `libcgf_rt` helper aborts when the requested length
+  exceeds the supplied extent and otherwise returns the destination after
+  `memcpy`. The new permanent `gnu_memcpy_chk.c` fixture deliberately repins
+  the closed-ISA corpus at 125 sources / 750 optimization objects. The two
+  focused tests currently pass 63 assertions across all five targets, the
+  fixture executes successfully on Apple Silicon at O0 and O2, both imported
+  `pr51077.c` and `pr65873.c` now pass the front end, and the helper itself
+  builds cleanly on Apple Silicon. A full local `make all` reaches only the
+  pre-existing Apple-Clang `src/rt/fp128.c` unsupported `mode(TF)` boundary;
+  this tranche introduces no new host-runtime failure. Publication is
+  expected to add exactly twenty target-complete PASS cells and reduce
+  `gcc-builtin` from 50 to 30.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

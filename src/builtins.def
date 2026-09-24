@@ -70,6 +70,11 @@ B(memset, MEMSET, 3, BK_VOIDP)
 /* Fortified memset: the fourth size_t argument is the known destination
  * extent. libcgf_rt owns the target-independent checking entry point. */
 B(__memset_chk, MEMSET_CHK, 4, BK_VOIDP)
+/* The static object-size query is unevaluated and has special constant
+ * semantics; checked memcpy consumes its result through the ordinary
+ * void *(void *, const void *, size_t, size_t) fortified ABI. */
+B(object_size, OBJECT_SIZE, 2, BK_SIZE)
+B(__memcpy_chk, MEMCPY_CHK, 4, BK_VOIDP)
 B(memcmp, MEMCMP, 3, BK_INT)
 B(memchr, MEMCHR, 3, BK_VOIDP)
 B(strlen, STRLEN, 1, BK_SIZE)

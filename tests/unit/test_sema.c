@@ -435,6 +435,64 @@ void test_sema_builtin_memset_chk_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_object_size_and_memcpy_chk_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "char global[11]; struct S { char first[5]; char last[7]; }; "
+             "struct S record; "
+             "_Static_assert(_Generic(__builtin_object_size(global, 0), "
+             "unsigned long: 1, default: 0), \"size_t result\"); "
+             "_Static_assert(__builtin_object_size(global, 0) == 11, "
+             "\"whole array\"); "
+             "_Static_assert(__builtin_object_size(global + 3, 0) == 8, "
+             "\"array offset\"); "
+             "_Static_assert(__builtin_object_size(record.first, 0) == 12, "
+             "\"maximum enclosing object\"); "
+             "_Static_assert(__builtin_object_size(record.first, 1) == 5, "
+             "\"closest subobject\"); "
+             "_Static_assert(__builtin_object_size(&record.first[2], 0) == "
+             "10, \"maximum after offset\"); "
+             "_Static_assert(__builtin_object_size(&record.first[2], 1) == "
+             "3, \"subobject after offset\"); "
+             "void f(char *unknown) { "
+             "_Static_assert(__builtin_object_size(unknown, 0) == "
+             "(unsigned long)-1, \"unknown maximum\"); "
+             "_Static_assert(__builtin_object_size(unknown, 2) == 0, "
+             "\"unknown minimum\"); } "
+             "void *copy(char *destination, const char *source, int length, "
+             "unsigned extent) { return __builtin___memcpy_chk(destination, "
+             "source, length, extent); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(void *p, int mode) { "
+             "__builtin_object_size(p); __builtin_object_size(p, 0, 1); "
+             "__builtin_object_size(p, mode); "
+             "__builtin_object_size(p, 4); __builtin_object_size(p, -1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value, void *p) { "
+             "__builtin_object_size(value, 0); "
+             "__builtin___memcpy_chk(); __builtin___memcpy_chk(p); "
+             "__builtin___memcpy_chk(p, p); "
+             "__builtin___memcpy_chk(p, p, 1); "
+             "__builtin___memcpy_chk(p, p, 1, 1, 1); "
+             "__builtin___memcpy_chk(value, p, 1, 1); "
+             "__builtin___memcpy_chk(p, value, 1, 1); "
+             "__builtin___memcpy_chk(p, p, value, 1); "
+             "__builtin___memcpy_chk(p, p, 1, value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 10);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strcmp_contract(TestCtx *t)
 {
     SemaFix f;

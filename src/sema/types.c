@@ -942,6 +942,207 @@ u64 cgf_bswap(u64 v, unsigned bytes)
     return r;
 }
 
+typedef struct ObjectExtent {
+    bool max_known;
+    bool sub_known;
+    u64 max;
+    u64 sub;
+} ObjectExtent;
+
+static const AstNode *object_strip_parens(const AstNode *e)
+{
+    while (e && e->kind == AST_EXPR_PAREN)
+        e = e->lhs;
+    return e;
+}
+
+static bool object_type_size(Sema *s, Type *t, u64 *size)
+{
+    if (!t || type_is_runtime_sized(t) || !layout_is_complete_for_size(t))
+        return false;
+    *size = layout_of(s, t).size;
+    return true;
+}
+
+/* Resolve a named member and its full byte offset, including promotion
+ * through anonymous record members. This mirrors expression lookup but keeps
+ * the enclosing offset that object-size needs. */
+static bool object_member(Sema *s, Type *record, const char *name,
+                          Type **member_type, u64 *member_offset)
+{
+    Member *m;
+
+    if (!record || !record->tag || !record->tag->complete)
+        return false;
+    layout_record(s, record);
+    for (m = record->tag->members; m; m = m->next) {
+        u64 offset = layout_offsetof(s, record, m);
+
+        if (m->name == name) {
+            if (m->is_bitfield)
+                return false;
+            *member_type = m->type;
+            *member_offset = offset;
+            return true;
+        }
+        if (!m->name && m->type &&
+            (m->type->kind == TY_STRUCT || m->type->kind == TY_UNION)) {
+            Type *inner_type;
+            u64 inner_offset;
+
+            if (object_member(s, m->type, name, &inner_type, &inner_offset)) {
+                if (inner_offset > UINT64_MAX - offset)
+                    return false;
+                *member_type = inner_type;
+                *member_offset = offset + inner_offset;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool object_pointer_extent(Sema *s, const AstNode *e, ObjectExtent *out);
+
+static void object_extent_subtract(ObjectExtent *extent, u64 offset)
+{
+    if (extent->max_known)
+        extent->max = offset < extent->max ? extent->max - offset : 0;
+    if (extent->sub_known)
+        extent->sub = offset < extent->sub ? extent->sub - offset : 0;
+}
+
+static bool object_lvalue_extent(Sema *s, const AstNode *e, ObjectExtent *out)
+{
+    Type *member_type;
+    u64 size, offset;
+
+    e = object_strip_parens(e);
+    if (!e)
+        return false;
+    switch (e->kind) {
+    case AST_EXPR_IDENT:
+        if (!e->sym || e->sym->kind != SYM_VAR ||
+            !object_type_size(s, e->sem_type, &size))
+            return false;
+        out->max_known = out->sub_known = true;
+        out->max = out->sub = size;
+        return true;
+    case AST_EXPR_STRING:
+    case AST_EXPR_COMPOUND_LIT:
+        if (!object_type_size(s, e->sem_type, &size))
+            return false;
+        out->max_known = out->sub_known = true;
+        out->max = out->sub = size;
+        return true;
+    case AST_EXPR_MEMBER: {
+        Type *record;
+
+        /* GCC does not infer a bound merely from `p->member` when p's
+         * provenance is unknown. A dot chain retains a concrete enclosing
+         * object and can therefore be measured exactly. */
+        if (e->is_arrow || !object_lvalue_extent(s, e->lhs, out))
+            return false;
+        record = e->lhs->sem_type;
+        if (!object_member(s, record, e->name, &member_type, &offset) ||
+            !object_type_size(s, member_type, &size))
+            return false;
+        object_extent_subtract(out, offset);
+        out->sub_known = true;
+        out->sub = size;
+        return true;
+    }
+    case AST_EXPR_INDEX: {
+        const AstNode *base = e->lhs;
+        const AstNode *index = e->rhs;
+        ConstValue cv;
+        Type *pointer_type;
+        u64 element_size;
+
+        if (!base || !base->sem_type || base->sem_type->kind != TY_PTR) {
+            base = e->rhs;
+            index = e->lhs;
+        }
+        if (!base || !base->sem_type || base->sem_type->kind != TY_PTR ||
+            !object_pointer_extent(s, base, out))
+            return false;
+        pointer_type = base->sem_type;
+        if (!object_type_size(s, pointer_type->base, &element_size))
+            return false;
+        cv = constexpr_eval(s, (AstNode *)index, CE_FOLD);
+        if (cv.kind != CV_INT || (i64)cv.i < 0 ||
+            (element_size != 0 && cv.i > UINT64_MAX / element_size))
+            return false;
+        object_extent_subtract(out, cv.i * element_size);
+        return true;
+    }
+    case AST_EXPR_UNARY:
+        if (e->op == PUNCT_STAR)
+            return object_pointer_extent(s, e->lhs, out);
+        return false;
+    default:
+        return false;
+    }
+}
+
+static bool object_pointer_extent(Sema *s, const AstNode *e, ObjectExtent *out)
+{
+    e = object_strip_parens(e);
+    if (!e)
+        return false;
+    if (e->kind == AST_EXPR_CAST && e->implicit)
+        return e->lhs && e->lhs->sem_type && e->lhs->sem_type->kind == TY_ARRAY
+                   ? object_lvalue_extent(s, e->lhs, out)
+                   : object_pointer_extent(s, e->lhs, out);
+    if (e->kind == AST_EXPR_UNARY && e->op == PUNCT_AMP)
+        return object_lvalue_extent(s, e->lhs, out);
+    if (e->kind == AST_EXPR_BINARY && e->op == PUNCT_COMMA)
+        return object_pointer_extent(s, e->rhs, out);
+    if (e->kind == AST_EXPR_BINARY &&
+        (e->op == PUNCT_PLUS || e->op == PUNCT_MINUS)) {
+        const AstNode *base = e->lhs;
+        const AstNode *index = e->rhs;
+        ConstValue cv;
+        u64 element_size;
+
+        if ((!base->sem_type || base->sem_type->kind != TY_PTR) &&
+            e->op == PUNCT_PLUS) {
+            base = e->rhs;
+            index = e->lhs;
+        }
+        if (!base->sem_type || base->sem_type->kind != TY_PTR ||
+            !object_pointer_extent(s, base, out) ||
+            !object_type_size(s, base->sem_type->base, &element_size))
+            return false;
+        cv = constexpr_eval(s, (AstNode *)index, CE_FOLD);
+        if (cv.kind != CV_INT)
+            return false;
+        if (e->op == PUNCT_MINUS) {
+            if ((i64)cv.i > 0)
+                return false;
+            cv.i = 0 - cv.i;
+        }
+        if ((i64)cv.i < 0 ||
+            (element_size != 0 && cv.i > UINT64_MAX / element_size))
+            return false;
+        object_extent_subtract(out, cv.i * element_size);
+        return true;
+    }
+    return false;
+}
+
+u64 sema_builtin_object_size(Sema *s, const AstNode *pointer, unsigned mode)
+{
+    ObjectExtent extent;
+
+    memset(&extent, 0, sizeof(extent));
+    if (mode > 3 || !object_pointer_extent(s, pointer, &extent))
+        return mode < 2 ? UINT64_MAX : 0;
+    if ((mode & 1u) != 0)
+        return extent.sub_known ? extent.sub : (mode < 2 ? UINT64_MAX : 0);
+    return extent.max_known ? extent.max : (mode < 2 ? UINT64_MAX : 0);
+}
+
 /* Anonymous-member-transparent lookup used by the offsetof folder (the
  * one in sema/expr.c is file-static and returns the innermost Member;
  * this only answers "is the name reachable from here"). */

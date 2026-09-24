@@ -1722,6 +1722,15 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             return cv_int(s, e->sem_type,
                           a.kind == CV_INT || a.kind == CV_FLOAT);
         }
+        if (e->op == SEMA_BUILTIN_OBJECT_SIZE && e->nargs == 2) {
+            ConstValue mode = eval(s, e->args[1], CE_ICE);
+
+            if (mode.kind != CV_INT || mode.i > 3)
+                return cv_error();
+            return cv_int(
+                s, e->sem_type,
+                sema_builtin_object_size(s, e->args[0], (unsigned)mode.i));
+        }
         if (e->op == SEMA_BUILTIN_HUGE_VAL || e->op == SEMA_BUILTIN_HUGE_VALF ||
             e->op == SEMA_BUILTIN_HUGE_VALL || e->op == SEMA_BUILTIN_INF ||
             e->op == SEMA_BUILTIN_INFF || e->op == SEMA_BUILTIN_INFL ||

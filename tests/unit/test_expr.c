@@ -424,11 +424,10 @@ void test_expr_builtins_defer(TestCtx *t)
     expr_ok(t,
             "int f(void){ return __builtin_types_compatible_p(int, int); }\n");
     expr_ok(t, "int f(void){ return __builtin_choose_expr(1, 2, 3); }\n");
-    /* No row: still deferred. (Arity and offsetof member checks are SEMA's
-     * — this fixture only parses — so they live in
-     * tests/programs/builtins/.) */
-    expr_bad(t, "unsigned long f(void){ "
-                "return __builtin_object_size((void *)0, 0); }\n");
+    /* The static object-size query now has a real builtin-table row. Arity,
+     * mode, and pointer constraints remain SEMA's responsibility. */
+    expr_ok(t, "unsigned long f(void){ "
+               "return __builtin_object_size((void *)0, 0); }\n");
     /* A designator is required, not an arbitrary expression. */
     expr_bad(t, "struct S { int a; };\n"
                 "unsigned long f(void){ "

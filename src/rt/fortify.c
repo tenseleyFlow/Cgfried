@@ -11,6 +11,7 @@ _Static_assert(sizeof(cgf_size_t) == 8,
 
 _Noreturn void abort(void);
 void *memset(void *destination, int value, cgf_size_t length);
+void *memcpy(void *destination, const void *source, cgf_size_t length);
 
 void *__memset_chk(void *destination, int value, cgf_size_t length,
                    cgf_size_t object_size)
@@ -18,4 +19,12 @@ void *__memset_chk(void *destination, int value, cgf_size_t length,
     if (length > object_size)
         abort();
     return memset(destination, value, length);
+}
+
+void *__memcpy_chk(void *destination, const void *source, cgf_size_t length,
+                   cgf_size_t object_size)
+{
+    if (length > object_size)
+        abort();
+    return memcpy(destination, source, length);
 }
