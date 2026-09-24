@@ -295,13 +295,12 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #144 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin___memset_chk`, closes imported
-`20070915-1.c`, and leaves the ratchet at 31,810 PASS keys. PR #145's current
-`s56.50-builtin-object-size-memcpy-chk` tranche implements the reusable
-`__builtin_object_size` foundation plus `__builtin___memcpy_chk`; its
-target-complete publication closes exactly twenty cells across imported
-`pr51077.c` and `pr65873.c`, raising the ratchet to 31,830 PASS keys.
+PR #145 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements the reusable `__builtin_object_size`
+foundation plus `__builtin___memcpy_chk`, closes exactly twenty cells across
+imported `pr51077.c` and `pr65873.c`, and raises the ratchet to 31,830 PASS
+keys. The current `s56.51-builtin-stpcpy-chk` tranche targets
+`__builtin___stpcpy_chk` and the final ten imported `pr59362.c` cells.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7665,8 +7664,8 @@ and green post-publication CI.
   and `d6b374deaae2b5606c498431a4497e07e0604655e0c107ad88c9e48fc9738a03`.
   PR #144 merged green-only as `7d09e4dcfd4d4e1abee8d252613ffd88d08ad72d`;
   its parents and tree are identical to the final tested merge.
-- The current isolated `s56.50-builtin-object-size-memcpy-chk` tranche is
-  based on merged #144. Behavior commit `0b5ce922` implements the unevaluated
+- PR #145's `s56.50-builtin-object-size-memcpy-chk` tranche is based on merged
+  #144. Behavior commit `0b5ce922` implements the unevaluated
   `__builtin_object_size(pointer, mode)` contract with exact results for
   directly provable complete objects, dot-selected subobjects, and constant
   nonnegative offsets. Unknown provenance returns `(size_t)-1` for modes
@@ -7748,6 +7747,29 @@ and green post-publication CI.
   from 50 to 30. PASS and triage SHA-256 values are respectively
   `1130ffff81bdb80961d62e9ae7fea05cf2144621c61954d11dda9eb6c18b1a50`
   and `fb7096ca1cd7d93a21fe9aa7bc81a67ec9d4001ee7e5bc30e8bc3191476b3331`.
+
+  Publication commit `2127a28d` passes final standard
+  [run 36065005435](https://github.com/tenseleyFlow/Cgfried/actions/runs/36065005435)
+  in all 24 executed jobs. GitHub's final exact synthetic merge
+  `4b005c171917271a3575cdd1a2e47fa7c5eeea97` has parents `7d09e4dc`
+  and `2127a28d` and tree `931a0e04c5c517817518f55e24c759ee07c03d9f`,
+  byte-identical to the published head. Final native ARM nightly
+  [run 36066798473](https://github.com/tenseleyFlow/Cgfried/actions/runs/36066798473)
+  passes all fifteen jobs, and full-lattice bootstrap
+  [run 36066798472](https://github.com/tenseleyFlow/Cgfried/actions/runs/36066798472)
+  passes all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `9f85587bece830e1ddddae74f678db5783d0217d62e163af0ecb74b97d8820b8`
+  and `21dc7c07adcebf38ce318e8eb020ae5b7b39e91780544c0d4e03489677407384`.
+  PR #145 merged green-only as `829eaa70d36ec5ec8c1fec6aa6b1b06594db913b`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.51-builtin-stpcpy-chk` tranche is based on merged
+  #145. It targets GCC's exact `char *(char *, const char *, size_t)`
+  `__builtin___stpcpy_chk` contract and the final ten target-complete
+  `pr59362.c` cells. The already-merged object-size analyzer supplies its
+  third argument; ordinary `__builtin_stpcpy` supplies the established
+  semantic and lowering shape. Runtime checking, exact return-pointer
+  behavior, and O0/O1/O2/O3/Os coverage remain to be implemented and proved.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
