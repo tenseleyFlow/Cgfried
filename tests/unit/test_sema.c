@@ -370,6 +370,37 @@ void test_sema_builtin_prefetch_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_clear_cache_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin___clear_cache((void *)0, "
+             "(void *)0), void: 1, default: 0), \"void result\"); "
+             "void f(char *begin, int *end) { "
+             "__builtin___clear_cache(begin, end); "
+             "__builtin___clear_cache(0, (void *)0); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(void *p) { __builtin___clear_cache(); "
+             "__builtin___clear_cache(p); "
+             "__builtin___clear_cache(p, p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value, void *p) { "
+             "__builtin___clear_cache(value, p); "
+             "__builtin___clear_cache(p, value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strcmp_contract(TestCtx *t)
 {
     SemaFix f;

@@ -48,6 +48,10 @@ B(trap, TRAP, 0, BK_VOID)
 B(expect, EXPECT, 2, BK_ARG0)
 B(prefetch, PREFETCH, -1, BK_VOID)
 
+/* instruction-cache synchronization. The x86-64 targets need no emitted
+ * operation; AArch64 lowers through the toolchain runtime's __clear_cache. */
+B(__clear_cache, CLEAR_CACHE, 2, BK_VOID)
+
 /* Return-address representation helpers. SysV x86-64 and the supported
  * AArch64 ABIs expose the extracted code address as the same pointer bits
  * supplied by the caller; targets with tagged or biased stored return

@@ -295,13 +295,14 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #141 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements five bounded string/memory builtins, closes
-imported `string-large-1.c`, and leaves the ratchet at 31,780 PASS keys. The
-current `s56.47-builtin-pow` tranche targets the isolated `__builtin_pow` gap
-in imported `pr110444-1.c`; implementation, two-architecture validation,
-exact hosted evidence, and target-complete publication are complete. Final
-post-publication CI remains pending.
+PR #142 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin_pow`, closes imported
+`pr110444-1.c`, and leaves the ratchet at 31,790 PASS keys. The current
+`s56.48-builtin-clear-cache` tranche targets the isolated
+`__builtin___clear_cache` gap in imported `pr100316.c`; behavior commits
+`3692854a` and `80f583e2` are locally validated on native Apple ARM64 plus
+independent Linux x86_64 and emulated ARM64 lanes. Hosted corrected-head
+evidence and publication remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7451,8 +7452,104 @@ and green post-publication CI.
   and triage SHA-256 values are respectively
   `eb9a5b388c48e36bbc5347ec1491959209ddbc70430ded766e3d728e517bdf44`
   and `6d180ff4d9eb8cb4410f312b6ec462c30d26c24f21315f56c4391ef3b7cdb1e9`.
-  Final exact-merge standard, nightly, and bootstrap evidence remains pending;
-  do not merge before all final checks are green.
+  Final standard
+  [run 35945138718](https://github.com/tenseleyFlow/Cgfried/actions/runs/35945138718)
+  passed all 24 executed jobs. GitHub's final exact synthetic merge
+  `8563a60792a90b0ffe9cefced05ac0db782c407c` has parents `32aabb17`
+  and `7173882f` and tree `a9d8cfa8b7c5a65e6deb0802511b59fc8ae93a14`,
+  byte-identical to the published head. Final native ARM nightly
+  [run 35945196896](https://github.com/tenseleyFlow/Cgfried/actions/runs/35945196896)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 35945197173](https://github.com/tenseleyFlow/Cgfried/actions/runs/35945197173)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `4882911e22763a4e1ab846ba302525f5da72f5ddcd63a9347e132d643a61df90`
+  and `dce2b7b6fde3ed06103e7737c47757f0bbe287cfe0fefcf577cb0c2b153491b7`.
+  PR #142 merged green-only as `d958f633d818b7dde8eacfb9a3f2074b45600285`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.48-builtin-clear-cache` tranche is based on merged
+  #142. Behavior commit `3692854a` implements the fixed two-pointer,
+  void-result `__builtin___clear_cache` contract needed by imported
+  `pr100316.c`. Sema converts both arguments to `void *` and lowering evaluates
+  each exactly once. The three coherent x86-64 targets then emit no operation;
+  ARM64 Linux and macOS call the external `__clear_cache` entry point. The
+  Apple spelling links as `___clear_cache` from libSystem, verified in the
+  produced Mach-O binary. Linux repair commit `80f583e2` supplies the standard
+  libgcc-compatible symbol in `libcgf_rt`, deriving data and instruction cache
+  line sizes from `CTR_EL0` and issuing the required `dc cvau`, `dsb`,
+  `ic ivau`, and `isb` sequence. The tranche is expected to publish exactly
+  ten target-complete PASS cells.
+
+  Focused normal and ASan+UBSan tests pass two tests / 43 assertions. The
+  permanent executable fixture passes Cgfried and Apple Clang at
+  O0/O1/O2/O3/Os, while the unmodified imported source compiles under both at
+  all five levels. Both sources compile to assembly in all 50 combinations of
+  the five supported targets and five optimization levels; explicit assembly
+  checks prove the 15 x86 cells omit `__clear_cache` and the ten ARM cells for
+  `pr100316.c` retain it. All 37 established builtin program fixtures pass in
+  normal and sanitizer configurations. The complete 957-test normal and
+  sanitizer unit runs retain exactly the same eight documented Apple host-
+  assumption failures, with 4,329,740 assertions and both new tests green.
+
+  Normal and sanitizer frontend fuzzing each complete 2,000 iterations with
+  zero findings and reproduce digest `dd612c8680021f21`. Normal and sanitizer
+  IR fuzzing each pass 5,000 cases; both preprocessor crash/hang and
+  differential modes pass 2,000 cases in each configuration. Pinned
+  clang-format 22, unit registration, imports, bans, deferrals, target-sema,
+  verifier coverage, no-host-FPU, fuzz-crash, torture metadata, closeout, and
+  POSIX-shell gates are green.
+
+  An independent Linux x86_64 VM built the exact `3692854a` archive. Its
+  focused tests pass two tests / 43 assertions; the fixture executes under
+  Cgfried and GCC at all five levels; the imported source compiles under both
+  at all five levels; every resulting x86 assembly omits a clear-cache runtime
+  call. The complete closed-ISA audit passes exactly 738 corpus objects (123
+  fixtures times six levels).
+
+  Initial PR standard run
+  [35949229405](https://github.com/tenseleyFlow/Cgfried/actions/runs/35949229405)
+  correctly caught an integration gap before merge: both QEMU and native
+  ARM64 Linux failed the new fixture because the driver did not link a system
+  provider of `__clear_cache`. The repair candidate that became `80f583e2`
+  compiles cleanly under GCC and Cgfried, exports `__clear_cache` from the
+  target archive, and makes the fixture compile, link, and execute under QEMU
+  at O0/O1/O2/O3/Os. A complete fresh two-level-emulation corpus run then
+  passes 107/107 ARM64 fixtures with zero ledger entries.
+
+  Corrected-head branch bootstrap
+  [run 35953262947](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953262947)
+  and PR bootstrap
+  [run 35953265919](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953265919)
+  are green. GitHub's corrected prepublication synthetic merge is
+  `cecc1ed0f38aaaffff51c36c1e2ad11d853c69ea`, with parents `d958f633`
+  and `a0ba0db5` and tree `3648adbf5de42e20ee137f6236bbd3277945ff5f`;
+  that tree is byte-identical to the feature head. Standard
+  [run 35953265959](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953265959)
+  proves the complete ordinary matrix green and refuses only the expected
+  five new x86 `pr100316.c` cells before publication. Exact-merge native ARM
+  nightly
+  [run 35953382649](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953382649)
+  passes all fourteen unrelated jobs and refuses only the same five new ARM
+  cells. Exact-merge full-lattice bootstrap
+  [run 35953385098](https://github.com/tenseleyFlow/Cgfried/actions/runs/35953385098)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams name that exact merge, share compiler-
+  source, harness, and manifest hashes, and have SHA-256 values
+  `d2187b507de9fa5590ecd04298f081e34685f9b4c187d5e9eda444cd761e7dd1`
+  and `e3f955e788959a48412fb03f884f17ab582776fa12cdc0a3c3d0b500b1c61aac`.
+  Each contains 20,325 unique cells -- 15,900 PASS, 3,305 SKIP, and 1,120
+  COMPILE_FAIL -- with exactly five new `pr100316.c` PASS keys and no old-
+  PASS regression. Formal GNU-make atomic publication consumes both exact
+  streams; reversing input order regenerates both outputs byte-identically,
+  both streams pass the published ratchet gate, and the complete torture
+  metadata suite is green. The result is 31,800 PASS keys (31,803 lines),
+  2,240 failed cells, 24 applied decisions, two retained stale decisions, and
+  zero unbucketed/unresolved cells. `gcc-builtin` falls from 70 to 60. PASS
+  and triage SHA-256 values are respectively
+  `33da7006103afd68be1c4dc586a8a089b1106756c2298a1ae1177915a8fec3d0`
+  and `78342ff0e90909c83abc51ec21e7d51eb2cf09e70fd4ee4e3007521df650640d`.
+  Final published-head CI and merge remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

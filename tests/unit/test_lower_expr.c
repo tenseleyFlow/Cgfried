@@ -206,6 +206,40 @@ void test_lower_builtin_prefetch_preserves_only_address_effects(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_clear_cache_target_contract(TestCtx *t)
+{
+    static const struct {
+        TargetKind target;
+        int runtime_calls;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 0}, {CGF_TARGET_X86_64_LINUX_MUSL, 0},
+        {CGF_TARGET_X86_64_FREEBSD, 0},   {CGF_TARGET_ARM64_LINUX, 1},
+        {CGF_TARGET_ARM64_MACOS, 1},
+    };
+    const char *source =
+        "void *begin(void); void *end(void); "
+        "void use(void) { __builtin___clear_cache(begin(), end()); }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_GNU17, false,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @begin()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @end()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__clear_cache(ptr"),
+                        cases[i].runtime_calls);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin___clear_cache"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<clear-cache>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_extract_return_addr_is_evaluated_identity(TestCtx *t)
 {
     LowFix f;

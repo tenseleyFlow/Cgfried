@@ -3239,6 +3239,23 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         (void)lower_rvalue(lo, e->args[0]);
         *out = ir_op_undef(IRT_I32);
         return true;
+    case SEMA_BUILTIN_CLEAR_CACHE: {
+        IrOperand args[2];
+
+        /* GCC's contract evaluates both pointer arguments on every target.
+         * x86-64 has coherent instruction/data caches, so its target hook is
+         * an honest no-op after that evaluation. AArch64 requires explicit
+         * synchronization; Darwin's libSystem and the Linux libcgf_rt supply
+         * the compiler-runtime __clear_cache entry point used by GCC and
+         * Clang. */
+        args[0] = lower_rvalue(lo, e->args[0]);
+        args[1] = lower_rvalue(lo, e->args[1]);
+        if (lower_is_aapcs64(lo))
+            (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                                ir_sym(lo->m, "__clear_cache"), args, 2);
+        *out = ir_op_undef(IRT_I32);
+        return true;
+    }
     case SEMA_BUILTIN_ABS:
     case SEMA_BUILTIN_LABS:
     case SEMA_BUILTIN_LLABS: {

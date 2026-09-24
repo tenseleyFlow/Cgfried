@@ -1745,6 +1745,16 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         quiet(e->args[0], NULL))
                         return poison(s, e);
                 }
+                if (b == SEMA_BUILTIN_CLEAR_CACHE) {
+                    Type *voidp = type_ptr(s->arena, type_basic(TY_VOID));
+
+                    for (i = 0; i < 2; i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, voidp, &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            return poison(s, e);
+                    }
+                }
                 if (b == SEMA_BUILTIN_MEMPCPY || b == SEMA_BUILTIN_BCOPY) {
                     Type *const_void = type_qualify(
                         s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
