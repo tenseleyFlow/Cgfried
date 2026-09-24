@@ -297,10 +297,11 @@ CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
 PR #144 are now integrated; the detailed ledger below is authoritative. The
 latest merged tranche implements `__builtin___memset_chk`, closes imported
-`20070915-1.c`, and leaves the ratchet at 31,810 PASS keys. The current
-`s56.50-builtin-object-size-memcpy-chk` tranche targets the reusable
-`__builtin_object_size` foundation plus `__builtin___memcpy_chk`, expected to
-close twenty cells across imported `pr51077.c` and `pr65873.c`.
+`20070915-1.c`, and leaves the ratchet at 31,810 PASS keys. PR #145's current
+`s56.50-builtin-object-size-memcpy-chk` tranche implements the reusable
+`__builtin_object_size` foundation plus `__builtin___memcpy_chk`; its
+target-complete publication closes exactly twenty cells across imported
+`pr51077.c` and `pr65873.c`, raising the ratchet to 31,830 PASS keys.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7709,8 +7710,44 @@ and green post-publication CI.
   Normal and sanitizer frontend fuzzing each pass 2,000 mutations with zero
   findings and reproduce digest `edd8338f83acfde8`; normal and sanitizer IR
   fuzzing each pass 5,000 cases, and both preprocessor modes pass 2,000 cases
-  in each configuration. Publication is expected to add exactly twenty
-  target-complete PASS cells and reduce `gcc-builtin` from 50 to 30.
+  in each configuration. Commit `9b5e1a7f` retires the two stale negative
+  fixtures that had used the now-live object-size spelling as their unknown
+  builtin, retaining the no-fallback contract with an intentional sentinel;
+  commit `c643cc12` records the resulting deliberate fuzz-sequence repin.
+
+  Prepublication standard
+  [run 36051727984](https://github.com/tenseleyFlow/Cgfried/actions/runs/36051727984)
+  passes all 23 non-torture jobs, including full ordinary and sanitizer suites
+  and 100,000 sanitizer-backed frontend-fuzz iterations, and refuses only the
+  expected ten unpublished x86 cells. Branch and PR bootstrap
+  [runs 36051722131](https://github.com/tenseleyFlow/Cgfried/actions/runs/36051722131)
+  and
+  [36051727850](https://github.com/tenseleyFlow/Cgfried/actions/runs/36051727850)
+  are green. GitHub's exact prepublication synthetic merge is
+  `8d1a25652d6e0c697d42704104542b4fdc330691`, with parents `7d09e4dc`
+  and `c643cc12` and tree `e715b76d7159854447ee73f3b3eb062bdfef0b54`,
+  byte-identical to the feature head. Exact-merge native ARM nightly
+  [run 36058018498](https://github.com/tenseleyFlow/Cgfried/actions/runs/36058018498)
+  passes all fourteen unrelated jobs and refuses only the matching ten ARM
+  cells. Exact-merge full-lattice bootstrap
+  [run 36058018567](https://github.com/tenseleyFlow/Cgfried/actions/runs/36058018567)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams both name that exact merge, share
+  compiler-source, harness, and manifest hashes, and have SHA-256 values
+  `c680c2be8e7a9b8b7c4fcef82ab05205926ebeaded90a61d596b1e4d38611259`
+  and `060b4eb4dfe94c07f361592ea134a8b814500f273f535e4295a423bbc44b9182`.
+  Each contains 20,325 unique cells -- 15,915 PASS, 3,305 SKIP, and 1,105
+  COMPILE_FAIL -- with exactly five new `pr51077.c` and five new `pr65873.c`
+  PASS keys and no old-PASS regression. Formal GNU-make atomic publication
+  consumes both exact streams; reversing input order regenerates both outputs
+  byte-identically, both streams pass the published ratchet, and the complete
+  torture metadata suite is green. The result is 31,830 PASS keys (31,833
+  lines), 2,210 failed cells in 31 buckets, 24 applied decisions, two retained
+  stale decisions, and zero unbucketed/unresolved cells. `gcc-builtin` falls
+  from 50 to 30. PASS and triage SHA-256 values are respectively
+  `1130ffff81bdb80961d62e9ae7fea05cf2144621c61954d11dda9eb6c18b1a50`
+  and `fb7096ca1cd7d93a21fe9aa7bc81a67ec9d4001ee7e5bc30e8bc3191476b3331`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
