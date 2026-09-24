@@ -7707,7 +7707,7 @@ and green post-publication CI.
   sanitizer unit run retains the same eight Apple
   host-assumption failures with both new tests green and no sanitizer report.
   Normal and sanitizer frontend fuzzing each pass 2,000 mutations with zero
-  findings and reproduce digest `dd612c8680021f21`; normal and sanitizer IR
+  findings and reproduce digest `edd8338f83acfde8`; normal and sanitizer IR
   fuzzing each pass 5,000 cases, and both preprocessor modes pass 2,000 cases
   in each configuration. Publication is expected to add exactly twenty
   target-complete PASS cells and reduce `gcc-builtin` from 50 to 30.
