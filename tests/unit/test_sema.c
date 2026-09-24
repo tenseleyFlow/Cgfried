@@ -840,6 +840,40 @@ void test_sema_builtin_stpcpy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_stpcpy_chk_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin___stpcpy_chk((char *)0, "
+             "\"x\", 2), char *: 1, default: 0), "
+             "\"checked stpcpy result is char pointer\"); "
+             "char *f(char *d, const char *s, void *p, int extent) { "
+             "char *a = __builtin___stpcpy_chk(d, s, extent); "
+             "char *b = __builtin___stpcpy_chk(p, s, 9); "
+             "return a ? a : b; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(char *p) { __builtin___stpcpy_chk(); "
+             "__builtin___stpcpy_chk(p); __builtin___stpcpy_chk(p, p); "
+             "__builtin___stpcpy_chk(p, p, 1, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value, char *p) { "
+             "__builtin___stpcpy_chk(value, p, 1); "
+             "__builtin___stpcpy_chk(p, value, 1); "
+             "__builtin___stpcpy_chk(p, p, value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_mempcpy_contract(TestCtx *t)
 {
     SemaFix f;

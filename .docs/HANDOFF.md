@@ -7768,8 +7768,23 @@ and green post-publication CI.
   `__builtin___stpcpy_chk` contract and the final ten target-complete
   `pr59362.c` cells. The already-merged object-size analyzer supplies its
   third argument; ordinary `__builtin_stpcpy` supplies the established
-  semantic and lowering shape. Runtime checking, exact return-pointer
-  behavior, and O0/O1/O2/O3/Os coverage remain to be implemented and proved.
+  semantic and lowering shape. The implementation now lowers directly to the
+  target-independent `__stpcpy_chk` runtime helper. That helper measures the
+  source, aborts unless the destination extent also accommodates the null,
+  copies the complete string, and returns the copied-null pointer.
+
+  The two focused semantic/lowering tests pass 48 assertions across all five
+  target models; the preceding object-size/checked-memcpy slice remains green
+  at 63 assertions. On Apple Silicon, the exact-capacity guarded fixture and
+  imported `pr59362.c` compile at O0/O1/O2/O3/Os, the fixture executes green
+  at every level, and an intentional one-byte-short probe aborts at every
+  level. The runtime source builds warning-clean and exports `__stpcpy_chk`.
+  The complete local unit run executes 963 tests / 4,329,905 assertions with
+  only the same eight pre-existing Apple host-assumption failures. Both new
+  tests also pass under ASan+UBSan with no sanitizer report. The permanent
+  fixture deliberately repins the closed-ISA corpus at 126 sources / 756
+  optimization objects; Linux x86, native ARM, full CI, and target-complete
+  torture publication remain to be proved.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

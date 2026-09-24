@@ -86,6 +86,9 @@ B(strncmp, STRNCMP, 3, BK_INT)
 B(strncasecmp, STRNCASECMP, 3, BK_INT)
 B(strcpy, STRCPY, 2, BK_CHARP)
 B(stpcpy, STPCPY, 2, BK_CHARP)
+/* Fortified stpcpy: the third size_t argument is the known destination
+ * extent, including space for the terminating null character. */
+B(__stpcpy_chk, STPCPY_CHK, 3, BK_CHARP)
 B(stpncpy, STPNCPY, 3, BK_CHARP)
 B(strchr, STRCHR, 2, BK_CHARP)
 B(strncpy, STRNCPY, 3, BK_CHARP)
