@@ -81,6 +81,7 @@ predefine.
 | `__builtin_strncmp(left, right, count)` | `tests/corpus/x86_64/int/gnu_strncmp.c` | bounded byte-string comparison; prototyped `int` result, `size_t` bound, and ordinary libc linkage |
 | `__builtin_memchr`, `__builtin_stpncpy`, `__builtin_strndup`, `__builtin_strncasecmp`, `__builtin_strncat` | `tests/corpus/x86_64/int/gnu_string_large.c` | bounded memory/string search, copy, allocation, case-folded comparison, and concatenation with exact libc prototypes and linkage |
 | `__builtin_pow(base, exponent)` | `tests/corpus/x86_64/int/gnu_pow.c` | double-precision power with exact `double (double, double)` conversion and ordinary libm linkage |
+| `__builtin___clear_cache(begin, end)` | `tests/corpus/x86_64/int/gnu_clear_cache.c` | evaluated-once instruction-cache synchronization; no emitted operation on coherent x86-64, compiler-runtime `__clear_cache` call on AArch64 |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
