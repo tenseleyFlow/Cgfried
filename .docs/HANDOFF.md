@@ -299,9 +299,10 @@ PR #142 are now integrated; the detailed ledger below is authoritative. The
 latest merged tranche implements `__builtin_pow`, closes imported
 `pr110444-1.c`, and leaves the ratchet at 31,790 PASS keys. The current
 `s56.48-builtin-clear-cache` tranche targets the isolated
-`__builtin___clear_cache` gap in imported `pr100316.c`; behavior commit
-`3692854a` is locally validated on native Apple ARM64 and an independent
-Linux x86_64 VM. Hosted exact-merge evidence and publication remain pending.
+`__builtin___clear_cache` gap in imported `pr100316.c`; behavior commits
+`3692854a` and `80f583e2` are locally validated on native Apple ARM64 plus
+independent Linux x86_64 and emulated ARM64 lanes. Hosted corrected-head
+evidence and publication remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7471,10 +7472,13 @@ and green post-publication CI.
   void-result `__builtin___clear_cache` contract needed by imported
   `pr100316.c`. Sema converts both arguments to `void *` and lowering evaluates
   each exactly once. The three coherent x86-64 targets then emit no operation;
-  ARM64 Linux and macOS call the toolchain runtime's external `__clear_cache`
-  entry point. The Apple spelling links as `___clear_cache`, verified in the
-  produced Mach-O binary. The tranche is expected to publish exactly ten
-  target-complete PASS cells.
+  ARM64 Linux and macOS call the external `__clear_cache` entry point. The
+  Apple spelling links as `___clear_cache` from libSystem, verified in the
+  produced Mach-O binary. Linux repair commit `80f583e2` supplies the standard
+  libgcc-compatible symbol in `libcgf_rt`, deriving data and instruction cache
+  line sizes from `CTR_EL0` and issuing the required `dc cvau`, `dsb`,
+  `ic ivau`, and `isb` sequence. The tranche is expected to publish exactly
+  ten target-complete PASS cells.
 
   Focused normal and ASan+UBSan tests pass two tests / 43 assertions. The
   permanent executable fixture passes Cgfried and Apple Clang at
@@ -7500,8 +7504,19 @@ and green post-publication CI.
   Cgfried and GCC at all five levels; the imported source compiles under both
   at all five levels; every resulting x86 assembly omits a clear-cache runtime
   call. The complete closed-ISA audit passes exactly 738 corpus objects (123
-  fixtures times six levels). Hosted exact-merge evidence, target-complete
-  publication, final CI, and merge remain pending.
+  fixtures times six levels).
+
+  Initial PR standard run
+  [35949229405](https://github.com/tenseleyFlow/Cgfried/actions/runs/35949229405)
+  correctly caught an integration gap before merge: both QEMU and native
+  ARM64 Linux failed the new fixture because the driver did not link a system
+  provider of `__clear_cache`. The repair candidate that became `80f583e2`
+  compiles cleanly under GCC and Cgfried, exports `__clear_cache` from the
+  target archive, and makes the fixture compile, link, and execute under QEMU
+  at O0/O1/O2/O3/Os. A complete fresh two-level-emulation corpus run then
+  passes 107/107 ARM64 fixtures with zero ledger entries. Hosted corrected-
+  head evidence, target-complete publication, final CI, and merge remain
+  pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
