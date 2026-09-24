@@ -7665,7 +7665,7 @@ and green post-publication CI.
   PR #144 merged green-only as `7d09e4dcfd4d4e1abee8d252613ffd88d08ad72d`;
   its parents and tree are identical to the final tested merge.
 - The current isolated `s56.50-builtin-object-size-memcpy-chk` tranche is
-  based on merged #144. It implements the unevaluated
+  based on merged #144. Behavior commit `0b5ce922` implements the unevaluated
   `__builtin_object_size(pointer, mode)` contract with exact results for
   directly provable complete objects, dot-selected subobjects, and constant
   nonnegative offsets. Unknown provenance returns `(size_t)-1` for modes
@@ -7679,16 +7679,38 @@ and green post-publication CI.
   `__builtin___memcpy_chk` prototype. Lowering calls `__memcpy_chk`; the
   target-independent `libcgf_rt` helper aborts when the requested length
   exceeds the supplied extent and otherwise returns the destination after
-  `memcpy`. The new permanent `gnu_memcpy_chk.c` fixture deliberately repins
-  the closed-ISA corpus at 125 sources / 750 optimization objects. The two
-  focused tests currently pass 63 assertions across all five targets, the
-  fixture executes successfully on Apple Silicon at O0 and O2, both imported
-  `pr51077.c` and `pr65873.c` now pass the front end, and the helper itself
-  builds cleanly on Apple Silicon. A full local `make all` reaches only the
-  pre-existing Apple-Clang `src/rt/fp128.c` unsupported `mode(TF)` boundary;
-  this tranche introduces no new host-runtime failure. Publication is
-  expected to add exactly twenty target-complete PASS cells and reduce
-  `gcc-builtin` from 50 to 30.
+  `memcpy`. The new permanent `gnu_memcpy_chk.c` fixture and ratchet commit
+  `6e2a7a46` deliberately repin the closed-ISA corpus at 125 sources / 750
+  optimization objects. The two focused tests pass 63 assertions across all
+  five targets. On Apple Silicon, the fixture and an intentional overflow
+  probe pass their expected outcomes at O0/O1/O2/O3/Os, both imported
+  `pr51077.c` and `pr65873.c` compile at all five levels, and the helper builds
+  cleanly. The complete local unit run executes 961 tests / 4,329,856
+  assertions with only the same eight pre-existing Apple host-assumption
+  failures. A full local `make all` reaches only the pre-existing Apple-Clang
+  `src/rt/fp128.c` unsupported `mode(TF)` boundary; this tranche introduces no
+  new host-runtime failure.
+
+  The committed-source archive at `6e2a7a46` has SHA-256
+  `30735c24edfbd5648032027aeb3c4c6cf87829a060c515ec35d0c7f26c8b3024`.
+  Its Linux x86 build passes all 961 tests / 4,329,857 assertions, the focused
+  2-test / 63-assertion slice, the safe fixture and overflow probe at all five
+  optimization levels, all ten imported compile cells, and the complete
+  closed-ISA audit of exactly 750 objects. Its native Linux ARM build passes
+  the focused slice, all five safe and overflow executions, all ten imported
+  compile cells, and the complete executable corpus at 109/109; its full unit
+  run has only the known `test_link_argv_default_sequence` x86-loader
+  expectation on an ARM host. Both target runtime archives export
+  `__memcpy_chk` and `__memset_chk`. Static policy, deferral, tier,
+  verification-coverage, host-FPU, semantic-target, target-seam,
+  torture-import, registry, and whitespace gates are green. The complete
+  sanitizer unit run retains the same eight Apple
+  host-assumption failures with both new tests green and no sanitizer report.
+  Normal and sanitizer frontend fuzzing each pass 2,000 mutations with zero
+  findings and reproduce digest `dd612c8680021f21`; normal and sanitizer IR
+  fuzzing each pass 5,000 cases, and both preprocessor modes pass 2,000 cases
+  in each configuration. Publication is expected to add exactly twenty
+  target-complete PASS cells and reduce `gcc-builtin` from 50 to 30.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
