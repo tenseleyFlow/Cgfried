@@ -299,8 +299,9 @@ PR #142 are now integrated; the detailed ledger below is authoritative. The
 latest merged tranche implements `__builtin_pow`, closes imported
 `pr110444-1.c`, and leaves the ratchet at 31,790 PASS keys. The current
 `s56.48-builtin-clear-cache` tranche targets the isolated
-`__builtin___clear_cache` gap in imported `pr100316.c`; implementation and
-validation are pending.
+`__builtin___clear_cache` gap in imported `pr100316.c`; behavior commit
+`3692854a` is locally validated on native Apple ARM64 and an independent
+Linux x86_64 VM. Hosted exact-merge evidence and publication remain pending.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7466,10 +7467,41 @@ and green post-publication CI.
   PR #142 merged green-only as `d958f633d818b7dde8eacfb9a3f2074b45600285`;
   its parents and tree are identical to the final tested merge.
 - The current isolated `s56.48-builtin-clear-cache` tranche is based on merged
-  #142. It targets the fixed two-pointer, void-result
-  `__builtin___clear_cache` contract needed by imported `pr100316.c` and is
-  expected to publish exactly ten target-complete PASS cells. Implementation,
-  validation, exact hosted evidence, and publication remain pending.
+  #142. Behavior commit `3692854a` implements the fixed two-pointer,
+  void-result `__builtin___clear_cache` contract needed by imported
+  `pr100316.c`. Sema converts both arguments to `void *` and lowering evaluates
+  each exactly once. The three coherent x86-64 targets then emit no operation;
+  ARM64 Linux and macOS call the toolchain runtime's external `__clear_cache`
+  entry point. The Apple spelling links as `___clear_cache`, verified in the
+  produced Mach-O binary. The tranche is expected to publish exactly ten
+  target-complete PASS cells.
+
+  Focused normal and ASan+UBSan tests pass two tests / 43 assertions. The
+  permanent executable fixture passes Cgfried and Apple Clang at
+  O0/O1/O2/O3/Os, while the unmodified imported source compiles under both at
+  all five levels. Both sources compile to assembly in all 50 combinations of
+  the five supported targets and five optimization levels; explicit assembly
+  checks prove the 15 x86 cells omit `__clear_cache` and the ten ARM cells for
+  `pr100316.c` retain it. All 37 established builtin program fixtures pass in
+  normal and sanitizer configurations. The complete 957-test normal and
+  sanitizer unit runs retain exactly the same eight documented Apple host-
+  assumption failures, with 4,329,740 assertions and both new tests green.
+
+  Normal and sanitizer frontend fuzzing each complete 2,000 iterations with
+  zero findings and reproduce digest `dd612c8680021f21`. Normal and sanitizer
+  IR fuzzing each pass 5,000 cases; both preprocessor crash/hang and
+  differential modes pass 2,000 cases in each configuration. Pinned
+  clang-format 22, unit registration, imports, bans, deferrals, target-sema,
+  verifier coverage, no-host-FPU, fuzz-crash, torture metadata, closeout, and
+  POSIX-shell gates are green.
+
+  An independent Linux x86_64 VM built the exact `3692854a` archive. Its
+  focused tests pass two tests / 43 assertions; the fixture executes under
+  Cgfried and GCC at all five levels; the imported source compiles under both
+  at all five levels; every resulting x86 assembly omits a clear-cache runtime
+  call. The complete closed-ISA audit passes exactly 738 corpus objects (123
+  fixtures times six levels). Hosted exact-merge evidence, target-complete
+  publication, final CI, and merge remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
