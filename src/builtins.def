@@ -198,6 +198,10 @@ B(copysign, COPYSIGN, 2, BK_DOUBLE)
 B(copysignf, COPYSIGNF, 2, BK_FLOAT)
 B(copysignl, COPYSIGNL, 2, BK_LDOUBLE)
 
+/* double-precision libm power function; both operands convert through the
+ * exact declared prototype and lowering uses ordinary pow linkage */
+B(pow, POW, 2, BK_DOUBLE)
+
 /* byte swaps (glibc's <bits/byteswap.h> calls these directly once
  * __GNUC__ is defined). They lower to shifts, masks and ors -- see the
  * comment at their case in src/lower/expr.c for why there is no IR

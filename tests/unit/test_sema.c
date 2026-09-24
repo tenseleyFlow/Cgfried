@@ -496,6 +496,37 @@ void test_sema_builtin_string_large_family_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_pow_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_pow(2, 3), double: 1, "
+             "default: 0), \"pow result is double\"); "
+             "double use(float base, int exponent) { "
+             "return __builtin_pow(base, exponent); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "double use(void) { "
+             "double a = __builtin_pow(); "
+             "double b = __builtin_pow(1); "
+             "double c = __builtin_pow(1, 2, 3); return a + b + c; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "double use(void *pointer) { "
+             "return __builtin_pow(pointer, 2) + "
+             "__builtin_pow(2, pointer); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strspn_contract(TestCtx *t)
 {
     SemaFix f;
