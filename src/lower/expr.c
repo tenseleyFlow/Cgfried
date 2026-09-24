@@ -3245,8 +3245,9 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         /* GCC's contract evaluates both pointer arguments on every target.
          * x86-64 has coherent instruction/data caches, so its target hook is
          * an honest no-op after that evaluation. AArch64 requires explicit
-         * synchronization; both supported AArch64 toolchains provide the
-         * compiler-runtime __clear_cache entry point used by GCC and Clang. */
+         * synchronization; Darwin's libSystem and the Linux libcgf_rt supply
+         * the compiler-runtime __clear_cache entry point used by GCC and
+         * Clang. */
         args[0] = lower_rvalue(lo, e->args[0]);
         args[1] = lower_rvalue(lo, e->args[1]);
         if (lower_is_aapcs64(lo))
