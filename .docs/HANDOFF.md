@@ -295,14 +295,12 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #143 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin___clear_cache`, closes imported
-`pr100316.c`, and leaves the ratchet at 31,800 PASS keys. The current
-`s56.49-builtin-memset-chk` tranche implements `__builtin___memset_chk` for
-the isolated ten-cell gap in imported `20070915-1.c`. Local Apple ARM64,
-independent Linux x86_64, native Linux ARM64, and hosted prepublication
-evidence are green. Target-complete publication is prepared; final green CI
-remains pending.
+PR #144 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin___memset_chk`, closes imported
+`20070915-1.c`, and leaves the ratchet at 31,810 PASS keys. The current
+`s56.50-builtin-object-size-memcpy-chk` tranche targets the reusable
+`__builtin_object_size` foundation plus `__builtin___memcpy_chk`, expected to
+close twenty cells across imported `pr51077.c` and `pr65873.c`.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7648,8 +7646,24 @@ and green post-publication CI.
   60 to 50. PASS and triage SHA-256 values are respectively
   `656c4e5a6f620717ebb567a4ad5755975da856afa183ef762cf6af0bc805134e`
   and `62af63f335820195eb057a15d8954649815c923d6b168cea0422b7ebe55a4ac8`.
-  Final post-publication standard, exact-merge nightly, and bootstrap evidence
-  remain pending.
+  Publication commit `ad41ccf2` carries those deterministic outputs.
+
+  Final standard
+  [run 36038374558](https://github.com/tenseleyFlow/Cgfried/actions/runs/36038374558)
+  passed all 24 executed jobs with one intended tag-only skip. GitHub's exact
+  final synthetic merge `9ee6a0a577428aa3e4031cbd21d19cde5684ff05` has
+  parents `49f30d41` and `ad41ccf2` and tree
+  `1d940bd3ee7e2da5f7be0dc3cfa9eb5ff7fe9849`, byte-identical to the
+  published head. Final native ARM nightly
+  [run 36038862923](https://github.com/tenseleyFlow/Cgfried/actions/runs/36038862923)
+  passed all fifteen jobs, and full-lattice bootstrap
+  [run 36038865842](https://github.com/tenseleyFlow/Cgfried/actions/runs/36038865842)
+  passed all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `2337558062bcce40bb42ab595ffd521f6de8a2263f4fe6e95a0392d850e05c4a`
+  and `d6b374deaae2b5606c498431a4497e07e0604655e0c107ad88c9e48fc9738a03`.
+  PR #144 merged green-only as `7d09e4dcfd4d4e1abee8d252613ffd88d08ad72d`;
+  its parents and tree are identical to the final tested merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
