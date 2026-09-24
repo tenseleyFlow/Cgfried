@@ -67,6 +67,9 @@ B(mempcpy, MEMPCPY, 3, BK_VOIDP)
 B(memmove, MEMMOVE, 3, BK_VOIDP)
 B(bcopy, BCOPY, 3, BK_VOID)
 B(memset, MEMSET, 3, BK_VOIDP)
+/* Fortified memset: the fourth size_t argument is the known destination
+ * extent. libcgf_rt owns the target-independent checking entry point. */
+B(__memset_chk, MEMSET_CHK, 4, BK_VOIDP)
 B(memcmp, MEMCMP, 3, BK_INT)
 B(memchr, MEMCHR, 3, BK_VOIDP)
 B(strlen, STRLEN, 1, BK_SIZE)

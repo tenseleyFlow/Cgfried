@@ -3536,6 +3536,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_MEMMOVE, "memmove", IRT_PTR, false},
         {SEMA_BUILTIN_BCOPY, "memmove", IRT_PTR, false},
         {SEMA_BUILTIN_MEMSET, "memset", IRT_PTR, false},
+        {SEMA_BUILTIN_MEMSET_CHK, "__memset_chk", IRT_PTR, false},
         {SEMA_BUILTIN_MEMCMP, "memcmp", IRT_I32, false},
         {SEMA_BUILTIN_MEMCHR, "memchr", IRT_PTR, false},
         {SEMA_BUILTIN_STRLEN, "strlen", IRT_I64, false},
@@ -3555,7 +3556,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_STRNDUP, "strndup", IRT_PTR, false},
         {SEMA_BUILTIN_PUTS, "puts", IRT_I32, false},
     };
-    IrOperand args[3];
+    IrOperand args[4];
     ValueId call;
     u32 i, n = 0;
     size_t k;
@@ -3563,7 +3564,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
     for (k = 0; k < CGF_ARRAY_LEN(libc); k++) {
         if (libc[k].marker != e->op)
             continue;
-        for (i = 0; i < e->nargs && i < 3; i++)
+        for (i = 0; i < e->nargs && i < CGF_ARRAY_LEN(args); i++)
             args[n++] = lower_rvalue(lo, e->args[i]);
         if (e->op == SEMA_BUILTIN_BCOPY) {
             IrOperand tmp = args[0];

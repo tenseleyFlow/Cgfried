@@ -1781,6 +1781,24 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     if (!valid)
                         return poison(s, e);
                 }
+                if (b == SEMA_BUILTIN_MEMSET_CHK) {
+                    Type *params[] = {type_ptr(s->arena, type_basic(TY_VOID)),
+                                      type_basic(TY_INT), type_basic(TY_ULONG),
+                                      type_basic(TY_ULONG)};
+                    bool valid = true;
+
+                    /* GCC exposes this as the declared-function contract
+                     * void *(void *, int, size_t, size_t). In particular,
+                     * both sizes are full-width before the runtime check. */
+                    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            valid = false;
+                    }
+                    if (!valid)
+                        return poison(s, e);
+                }
                 if (b == SEMA_BUILTIN_MEMCHR) {
                     Type *const_void = type_qualify(
                         s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
