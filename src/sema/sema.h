@@ -783,6 +783,14 @@ unsigned sema_builtin_bswap_bytes(u16 marker);
  * builds IR instead, and its fixture pins it against this. */
 u64 cgf_bswap(u64 v, unsigned bytes);
 
+/* The optimization-independent subset of GCC's static object-size query.
+ * Direct complete objects, dot-selected subobjects, and constant in-bounds
+ * offsets are exact. Anything requiring pointer provenance is unknown:
+ * SIZE_MAX for modes 0/1 and zero for modes 2/3. The queried expression is
+ * inspected but never evaluated. Shared by constexpr and IR lowering so an
+ * answer cannot change merely because the call appears in an ICE. */
+u64 sema_builtin_object_size(Sema *s, const AstNode *pointer, unsigned mode);
+
 /* Table lookup by spelling AFTER the "__builtin_" prefix. Returns the
  * marker (0 when the name is not a builtin we implement) and fills the
  * expected argument count and result rule. */

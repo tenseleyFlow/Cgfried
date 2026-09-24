@@ -7,5 +7,5 @@
 // clean rejection.
 int f(void)
 {
-    return __builtin_object_size((void *)0, 0);
+    return __builtin_cgfried_unknown(0);
 }

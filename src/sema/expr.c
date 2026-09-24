@@ -1799,6 +1799,45 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     if (!valid)
                         return poison(s, e);
                 }
+                if (b == SEMA_BUILTIN_OBJECT_SIZE) {
+                    Type *const_void = type_qualify(
+                        s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
+                    i64 mode;
+
+                    bctx.arg_index = 1;
+                    if (!conv_assignable(s, type_ptr(s->arena, const_void),
+                                         &e->args[0], bctx) ||
+                        quiet(e->args[0], NULL))
+                        return poison(s, e);
+                    if (!sema_require_ice(
+                            s, e->args[1], &mode,
+                            "the mode argument to '__builtin_object_size'"))
+                        return poison(s, e);
+                    if (mode < 0 || mode > 3) {
+                        err(s, e->args[1]->span,
+                            "mode argument to '__builtin_object_size' must "
+                            "be between 0 and 3");
+                        return poison(s, e);
+                    }
+                }
+                if (b == SEMA_BUILTIN_MEMCPY_CHK) {
+                    Type *const_void = type_qualify(
+                        s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);
+                    Type *params[] = {type_ptr(s->arena, type_basic(TY_VOID)),
+                                      type_ptr(s->arena, const_void),
+                                      type_basic(TY_ULONG),
+                                      type_basic(TY_ULONG)};
+                    bool valid = true;
+
+                    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            valid = false;
+                    }
+                    if (!valid)
+                        return poison(s, e);
+                }
                 if (b == SEMA_BUILTIN_MEMCHR) {
                     Type *const_void = type_qualify(
                         s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);

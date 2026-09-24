@@ -274,6 +274,52 @@ void test_lower_builtin_memset_chk_call_and_roundtrip(TestCtx *t)
     }
 }
 
+void test_lower_builtin_object_size_and_memcpy_chk(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    const char *source =
+        "struct S { char first[5]; char last[7]; }; "
+        "struct S record; char global[11]; "
+        "unsigned long maximum(void) { return "
+        "__builtin_object_size(record.first, 0); } "
+        "unsigned long subobject(void) { return "
+        "__builtin_object_size(&record.first[2], 1); } "
+        "unsigned long unknown(char *p) { return "
+        "__builtin_object_size(p, 0); } "
+        "char *side(void); unsigned long unevaluated(void) { return "
+        "__builtin_object_size(side(), 2); } "
+        "void *destination(void); const void *source(void); "
+        "unsigned length(void); unsigned extent(void); "
+        "void *copy(void) { return __builtin___memcpy_chk(destination(), "
+        "source(), length(), extent()); }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, false, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_object_size"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @side()"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @length()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @extent()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @__memcpy_chk(ptr"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin___memcpy_chk"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<object-size-chk>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_extract_return_addr_is_evaluated_identity(TestCtx *t)
 {
     LowFix f;
