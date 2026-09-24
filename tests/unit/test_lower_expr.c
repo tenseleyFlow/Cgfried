@@ -240,6 +240,40 @@ void test_lower_builtin_clear_cache_target_contract(TestCtx *t)
     }
 }
 
+void test_lower_builtin_memset_chk_call_and_roundtrip(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    const char *source =
+        "void *destination(void); short value(void); "
+        "unsigned length(void); unsigned extent(void); "
+        "void *use(void) { return __builtin___memset_chk(destination(), "
+        "value(), length(), extent()); }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, false, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i16 @value()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @length()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @extent()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @__memset_chk(ptr"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin___memset_chk"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<memset-chk>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_extract_return_addr_is_evaluated_identity(TestCtx *t)
 {
     LowFix f;

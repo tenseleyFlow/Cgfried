@@ -401,6 +401,40 @@ void test_sema_builtin_clear_cache_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_memset_chk_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin___memset_chk((void *)0, 0, "
+             "0, 0), void *: 1, default: 0), \"void pointer result\"); "
+             "void *f(char *destination, short value, int length, "
+             "unsigned object_size) { return __builtin___memset_chk("
+             "destination, value, length, object_size); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(void *p) { __builtin___memset_chk(); "
+             "__builtin___memset_chk(p); __builtin___memset_chk(p, 0); "
+             "__builtin___memset_chk(p, 0, 1); "
+             "__builtin___memset_chk(p, 0, 1, 1, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value, void *p) { "
+             "__builtin___memset_chk(value, 0, 1, 1); "
+             "__builtin___memset_chk(p, value, 1, 1); "
+             "__builtin___memset_chk(p, 0, value, 1); "
+             "__builtin___memset_chk(p, 0, 1, value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_strcmp_contract(TestCtx *t)
 {
     SemaFix f;
