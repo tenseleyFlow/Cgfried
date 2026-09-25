@@ -7887,8 +7887,32 @@ and green post-publication CI.
   respectively
   `345e78ba0199616d9ffb2f5055c3483e730f03d712722dd3239dcc7e084f0ea9`
   and `647ee3bf1633d47c930314b31417d265bfd07905f5935c0fe93791ff555e1e52`.
-  Fresh postpublication standard, nightly, and bootstrap CI remain required
-  before green-only merge.
+  Postpublication standard
+  [run 36084703492](https://github.com/tenseleyFlow/Cgfried/actions/runs/36084703492)
+  passes all 24 executed jobs with only the tag-only job skipped. GitHub's
+  exact final synthetic merge is `efc0942f73a993349ed622bcf9cf58bc023840e7`,
+  with parents `240c10ae` and `7d891362` and tree
+  `782290f9760fa48cdb70786667e714947e6222b0`, byte-identical to the
+  publication head. Exact-merge nightly
+  [run 36084749906](https://github.com/tenseleyFlow/Cgfried/actions/runs/36084749906)
+  passes all fifteen jobs, and full-lattice bootstrap
+  [run 36084751584](https://github.com/tenseleyFlow/Cgfried/actions/runs/36084751584)
+  passes all seven jobs. Final x86 and ARM streams name that exact merge,
+  pass the committed ratchet, retain all 20,325 unique cells each, and have
+  SHA-256 values
+  `c36c79b923f415ea3229fba3082849d330fbc1f255e127540b86d790ce856c2e`
+  and `2795b11c0d9225c7d6dc6d9e0d95617952953922789ec4ea4e3a5a150fd54e7c`.
+  PR #147 merged green-only as
+  `9ee16c429972ef45dbd88b32657b7707837612c2`; its parents and tree are
+  identical to the final tested merge.
+- The active `s56.53-builtin-clear-padding` tranche starts from merged #147.
+  It targets the final ten pre-triaged `gcc-builtin` cells, all from imported
+  `torture-compile/pr98087.c`: two targets by five optimization levels. The
+  implementation must provide GCC's real object-representation semantics --
+  including nested records and arrays, bit-field masks, union padding common
+  to every member, x87 `long double` tail padding, and zero-sized/VLA safety --
+  rather than a parse-only no-op. When target-complete publication succeeds,
+  the `gcc-builtin` bucket should fall from ten to zero.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
