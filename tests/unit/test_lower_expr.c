@@ -744,6 +744,37 @@ void test_lower_builtin_stpcpy_chk_call_and_roundtrip(TestCtx *t)
     }
 }
 
+void test_lower_builtin_stack_save_restore_and_roundtrip(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    const char *source =
+        "void use(unsigned n) { void *saved = __builtin_stack_save(); "
+        "(void)__builtin_alloca(n); __builtin_stack_restore(saved); }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, false, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "stacksave"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "stackrestore"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "store ptr"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "load ptr"), 1);
+        round =
+            ir_parse_module(&f.arena, f.dc, txt(&f), "<stack-save-restore>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_mempcpy_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;

@@ -874,6 +874,36 @@ void test_sema_builtin_stpcpy_chk_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_stack_save_restore_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(_Generic(__builtin_stack_save(), void *: 1, "
+             "default: 0), \"stack save result is void pointer\"); "
+             "void f(char *p) { void *saved = __builtin_stack_save(); "
+             "__builtin_stack_restore(saved); __builtin_stack_restore(p); "
+             "}\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(void *p) { __builtin_stack_save(p); "
+             "__builtin_stack_restore(); "
+             "__builtin_stack_restore(p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value) { "
+             "__builtin_stack_restore(value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_mempcpy_contract(TestCtx *t)
 {
     SemaFix f;

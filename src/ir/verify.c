@@ -409,36 +409,18 @@ static void check_inst_types(V *v, const IrInst *in)
         else if (!(in->flags & IRF_SEQ_CST))
             verr(v, 13, "'cmpxchg' must be seq_cst in v0.1.0");
         break;
-    case IR_STACKRESTORE: {
-        /* Check 12: the token must be a VALUE produced by a stacksave
-         * (dominance is check 1's job; the OPCODE of the def is ours). */
-        const IrOperand *tok = &in->ops[0];
-
-        if (in->nops != 1 || tok->type != IRT_PTR) {
+    case IR_STACKRESTORE:
+        /* A source-level stack-save token may travel through an ordinary C
+         * local, and therefore through IR memory, before restoration. Its
+         * defining instruction need not remain the stacksave itself. The
+         * pointer type is the enforceable IR contract; supplying any other
+         * pointer is source-level undefined behavior, like restoring a stale
+         * token, rather than malformed IR. */
+        if (in->nops != 1 || in->ops[0].type != IRT_PTR)
             verr(v, 12, "'stackrestore' takes one ptr token");
-            break;
-        }
-        if (tok->kind == IROP_VALUE) {
-            u32 id = (u32)tok->a;
-
-            if (id >= 1 && id <= v->f->nvals &&
-                v->f->vals[id - 1].def_kind == VDEF_INST) {
-                const IrValInfo *vi = &v->f->vals[id - 1];
-                const IrBlock *db = ir_block((IrFunc *)v->f, vi->def_block);
-                const IrInst *di = db ? db->first : NULL;
-                u32 pos = 0;
-
-                while (di && pos < vi->def_pos) {
-                    di = di->next;
-                    pos++;
-                }
-                if (di && di->result.v == id && di->op == IR_STACKSAVE)
-                    break; /* good token */
-            }
-        }
-        verr(v, 12, "'stackrestore' token is not a stacksave result");
+        else if (in->ops[0].kind == IROP_UNDEF)
+            verr(v, 12, "'stackrestore' token cannot be undef");
         break;
-    }
     case IR_RET:
         if (v->f->ret == IRT_VOID) {
             if (in->nops != 0)

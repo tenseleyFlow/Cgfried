@@ -217,27 +217,23 @@ void test_stackrestore_token_discipline(TestCtx *t)
     HFix f;
     IrModule *m = h_parse(&f, "func void @f() {\n"
                               "entry():\n"
+                              "    %slot = alloca 8, align 8\n"
                               "    %tok = stacksave\n"
-                              "    %p = alloca %tok, align 8\n"
-                              "    stackrestore %tok\n"
+                              "    store ptr %tok, %slot, align 8\n"
+                              "    %reload = load ptr, %slot, align 8\n"
+                              "    stackrestore %reload\n"
                               "    ret\n"
                               "}\n");
 
-    /* A real token verifies... (the alloca consumes it as a size only to
-     * keep the fixture small; the restore is what is under test) */
-    T_ASSERT(t, m != NULL);
-    if (m) {
-        /* size operand is a ptr — swap for a legal i64 first */
-        m->funcs[0].blocks[0].first->next->ops[0] = ir_op_iconst(IRT_I64, 8);
-        T_ASSERT(t, ir_verify(f.dc, m));
-    }
+    /* Source-level builtins expose the token as void *, so storing and
+     * reloading it through an ordinary C local must remain valid IR. */
+    T_ASSERT(t, m && ir_verify(f.dc, m));
     arena_free_all(&f.arena);
 
-    /* ...a forged token (an alloca result) fails check 12. */
+    /* The verifier still rejects an absent/undefined restore token. */
     m = h_parse(&f, "func void @f() {\n"
                     "entry():\n"
-                    "    %p = alloca 8, align 8\n"
-                    "    stackrestore %p\n"
+                    "    stackrestore undef\n"
                     "    ret\n"
                     "}\n");
     T_ASSERT(t, m && !ir_verify(f.dc, m));
