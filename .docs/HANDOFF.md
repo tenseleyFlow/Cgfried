@@ -295,13 +295,12 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #144 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin___memset_chk`, closes imported
-`20070915-1.c`, and leaves the ratchet at 31,810 PASS keys. PR #145's current
-`s56.50-builtin-object-size-memcpy-chk` tranche implements the reusable
-`__builtin_object_size` foundation plus `__builtin___memcpy_chk`; its
-target-complete publication closes exactly twenty cells across imported
-`pr51077.c` and `pr65873.c`, raising the ratchet to 31,830 PASS keys.
+PR #145 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements the reusable `__builtin_object_size`
+foundation plus `__builtin___memcpy_chk`, closes exactly twenty cells across
+imported `pr51077.c` and `pr65873.c`, and raises the ratchet to 31,830 PASS
+keys. The current `s56.51-builtin-stpcpy-chk` tranche targets
+`__builtin___stpcpy_chk` and the final ten imported `pr59362.c` cells.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7665,8 +7664,8 @@ and green post-publication CI.
   and `d6b374deaae2b5606c498431a4497e07e0604655e0c107ad88c9e48fc9738a03`.
   PR #144 merged green-only as `7d09e4dcfd4d4e1abee8d252613ffd88d08ad72d`;
   its parents and tree are identical to the final tested merge.
-- The current isolated `s56.50-builtin-object-size-memcpy-chk` tranche is
-  based on merged #144. Behavior commit `0b5ce922` implements the unevaluated
+- PR #145's `s56.50-builtin-object-size-memcpy-chk` tranche is based on merged
+  #144. Behavior commit `0b5ce922` implements the unevaluated
   `__builtin_object_size(pointer, mode)` contract with exact results for
   directly provable complete objects, dot-selected subobjects, and constant
   nonnegative offsets. Unknown provenance returns `(size_t)-1` for modes
@@ -7748,6 +7747,80 @@ and green post-publication CI.
   from 50 to 30. PASS and triage SHA-256 values are respectively
   `1130ffff81bdb80961d62e9ae7fea05cf2144621c61954d11dda9eb6c18b1a50`
   and `fb7096ca1cd7d93a21fe9aa7bc81a67ec9d4001ee7e5bc30e8bc3191476b3331`.
+
+  Publication commit `2127a28d` passes final standard
+  [run 36065005435](https://github.com/tenseleyFlow/Cgfried/actions/runs/36065005435)
+  in all 24 executed jobs. GitHub's final exact synthetic merge
+  `4b005c171917271a3575cdd1a2e47fa7c5eeea97` has parents `7d09e4dc`
+  and `2127a28d` and tree `931a0e04c5c517817518f55e24c759ee07c03d9f`,
+  byte-identical to the published head. Final native ARM nightly
+  [run 36066798473](https://github.com/tenseleyFlow/Cgfried/actions/runs/36066798473)
+  passes all fifteen jobs, and full-lattice bootstrap
+  [run 36066798472](https://github.com/tenseleyFlow/Cgfried/actions/runs/36066798472)
+  passes all seven. Final x86 and ARM streams name that exact merge, pass the
+  committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `9f85587bece830e1ddddae74f678db5783d0217d62e163af0ecb74b97d8820b8`
+  and `21dc7c07adcebf38ce318e8eb020ae5b7b39e91780544c0d4e03489677407384`.
+  PR #145 merged green-only as `829eaa70d36ec5ec8c1fec6aa6b1b06594db913b`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.51-builtin-stpcpy-chk` tranche is based on merged
+  #145. It targets GCC's exact `char *(char *, const char *, size_t)`
+  `__builtin___stpcpy_chk` contract and the final ten target-complete
+  `pr59362.c` cells. The already-merged object-size analyzer supplies its
+  third argument; ordinary `__builtin_stpcpy` supplies the established
+  semantic and lowering shape. The implementation now lowers directly to the
+  target-independent `__stpcpy_chk` runtime helper. That helper measures the
+  source, aborts unless the destination extent also accommodates the null,
+  copies the complete string, and returns the copied-null pointer.
+
+  The two focused semantic/lowering tests pass 48 assertions across all five
+  target models; the preceding object-size/checked-memcpy slice remains green
+  at 63 assertions. On Apple Silicon, the exact-capacity guarded fixture and
+  imported `pr59362.c` compile at O0/O1/O2/O3/Os, the fixture executes green
+  at every level, and an intentional one-byte-short probe aborts at every
+  level. The runtime source builds warning-clean and exports `__stpcpy_chk`.
+  The complete local unit run executes 963 tests / 4,329,905 assertions with
+  only the same eight pre-existing Apple host-assumption failures. Both new
+  tests also pass under ASan+UBSan with no sanitizer report. The permanent
+  fixture deliberately repins the closed-ISA corpus at 126 sources / 756
+  optimization objects.
+
+  Behavior commit `54264e25` plus pinned-format correction `5d77a94d` pass
+  prepublication standard
+  [run 36072434404](https://github.com/tenseleyFlow/Cgfried/actions/runs/36072434404)
+  in all 23 ordinary jobs; it refuses only the expected five unpublished x86
+  `pr59362.c` cells, and its tag-only job is intentionally skipped. PR
+  bootstrap
+  [run 36072430893](https://github.com/tenseleyFlow/Cgfried/actions/runs/36072430893)
+  is green. GitHub's exact prepublication synthetic merge is
+  `d4f128461b7de0e80c8b5eb2a2ac7368e67e4a92`, with parents `829eaa70`
+  and `5d77a94d` and tree `2dd9cb835a67ce84425f61c32c87db290feda1d4`,
+  byte-identical to the feature head. Exact-merge native ARM nightly
+  [run 36074110157](https://github.com/tenseleyFlow/Cgfried/actions/runs/36074110157)
+  passes all fourteen unrelated jobs and refuses only the matching five ARM
+  cells. Exact-merge full-lattice bootstrap
+  [run 36074112313](https://github.com/tenseleyFlow/Cgfried/actions/runs/36074112313)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams both name that exact merge, share compiler
+  source SHA-256
+  `b27f430f8322abb0c9ca6b5dc8e184f4289f5720434c47053405cadbea950ab7`
+  plus identical harness and manifest hashes, and have SHA-256 values
+  `5f919b643556a278090b69f6289316fda076a90a5c6bf542b5b12db8c9b57269`
+  and `49263b4753b8d5925af3312aac4728d95d9296cef9980c6464e97067fb23ed7d`.
+  Each contains 20,325 unique cells -- 15,920 PASS, 3,305 SKIP, and
+  1,100 COMPILE_FAIL -- with exactly five new `pr59362.c` PASS keys and no
+  old-PASS regression. Formal GNU-make atomic publication consumes both exact
+  streams; reversing their order regenerates both outputs byte-identically,
+  and both streams pass the resulting ratchet. The result is 31,840 PASS keys
+  (31,843 lines), 2,200 failed cells with complete bucket coverage,
+  24 applied decisions, two retained stale decisions, and zero
+  unbucketed/unresolved cells. `gcc-builtin` falls from 30 to 20. PASS and
+  triage SHA-256 values are respectively
+  `a4257bd85fca29c6048da7a7a78c8512e910199de30ca88afcd4ea28086292a0`
+  and `821468c913d785258b3af129085f2274aab6ad5d2ecbe98091ca52dd9c8bbd85`.
+  Fresh postpublication standard CI and exact-merge ARM evidence remain to be
+  run before green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

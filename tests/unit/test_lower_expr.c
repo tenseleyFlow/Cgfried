@@ -712,6 +712,38 @@ void test_lower_builtin_stpcpy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_stpcpy_chk_call_and_roundtrip(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    const char *source =
+        "char *destination(void); const char *source(void); "
+        "unsigned extent(void); char *copy(void) { return "
+        "__builtin___stpcpy_chk(destination(), source(), extent()); }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, false, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @extent()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @__stpcpy_chk(ptr"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin___stpcpy_chk"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<stpcpy-chk>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_mempcpy_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;

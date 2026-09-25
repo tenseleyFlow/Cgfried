@@ -3562,6 +3562,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_POW, "pow", IRT_F64, false},
         {SEMA_BUILTIN_STRCPY, "strcpy", IRT_PTR, false},
         {SEMA_BUILTIN_STPCPY, "stpcpy", IRT_PTR, false},
+        {SEMA_BUILTIN_STPCPY_CHK, "__stpcpy_chk", IRT_PTR, false},
         {SEMA_BUILTIN_STPNCPY, "stpncpy", IRT_PTR, false},
         {SEMA_BUILTIN_STRCHR, "strchr", IRT_PTR, false},
         {SEMA_BUILTIN_STRNCPY, "strncpy", IRT_PTR, false},
