@@ -295,14 +295,15 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #148 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin_clear_padding`, closes the final
-ten pre-triaged `gcc-builtin` cells, and raises the ratchet to 31,860 PASS
-keys. The active `s56.54-fgnu89-inline` tranche makes the imported
-`-fgnu89-inline` corpus runnable and implements its translation-unit-wide
-GNU89 inline model. Its two-target focused matrix currently promotes 190 of
-210 formerly skipped cells; the remaining 20 are explicitly isolated as the
-checked variadic forwarding and broader `__builtin_constant_p` candidates.
+PR #149 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements the translation-unit-wide GNU89 inline model
+and publishes 190 target-complete cells, raising the ratchet to 32,050 PASS
+keys. The active `s56.55-gnu-va-pack-checked-snprintf` tranche implements the
+exact glibc fortify call seam isolated by that work:
+`__builtin___snprintf_chk`, `__builtin_strdup`, and expansion of a final
+`__builtin_va_arg_pack()` through the checked formatted-output path. Its
+focused x86-64 and native ARM64 Linux validation promotes all ten `pr37669.c`
+cells; publication has not started.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7934,7 +7935,7 @@ and green post-publication CI.
   and `e556ae87`, and tree
   `85a8ed03d103b6250366c9620ef61cf3df3bae4f` is byte-identical to the
   tested final synthetic merge.
-- The active `s56.54-fgnu89-inline` tranche starts from merged #148. It
+- PR #149's `s56.54-fgnu89-inline` tranche starts from merged #148. It
   recognizes ordered `-fgnu89-inline` / `-fno-gnu89-inline`, exposes the
   matching preprocessor model marker without falsely claiming a GCC identity
   in strict ISO mode, applies the GNU89 inline model across the translation
@@ -7978,6 +7979,51 @@ and green post-publication CI.
   deterministic buckets. PASS and triage SHA-256 values are respectively
   `8aa3df1c0b8b1deb2f1ae0550490cdbf3c38d67b2bfc8bdd1d997e5d11c8be7e`
   and `e7d912120332d4a8bb6457a5e00af8e25ed6bc7f434475f20e4d13247387c380`.
+
+  Final standard
+  [run 36190085327](https://github.com/tenseleyFlow/Cgfried/actions/runs/36190085327)
+  passes all 24 executed jobs with one tag-only skip, and PR bootstrap
+  [run 36190085314](https://github.com/tenseleyFlow/Cgfried/actions/runs/36190085314)
+  passes its two applicable jobs. Exact synthetic-merge nightly
+  [run 36193796974](https://github.com/tenseleyFlow/Cgfried/actions/runs/36193796974)
+  passes all fifteen jobs, and matching full-lattice bootstrap
+  [run 36193799058](https://github.com/tenseleyFlow/Cgfried/actions/runs/36193799058)
+  passes all seven. The final x86 and ARM streams name synthetic merge
+  `4abe946685ab8fcd93c51d48eb73d7e561c42b1b`, contain 20,325 unique cells
+  each (16,025 PASS, 3,200 SKIP, 1,095 COMPILE_FAIL, five SIGNAL, zero ICE),
+  and have SHA-256 values
+  `35962f0d0309c8863670e9cc83e07cfaa05399653d14ad08db245b0c70679fe7`
+  and `0fe5a43581d3befcc87a30d618d220a265ff72948e1cf381e1d73602aa89d93a`.
+  PR #149 merged green-only as
+  `5cc4eb067ef34204e2cc33d5a2d20e33b1665750`; its parents are `e69985c8`
+  and `8f4ed5c4`, and tree `c2685c47b068cd5f2f8bb58991124c240ee2c295`
+  is byte-identical to the final tested synthetic merge.
+- The active `s56.55-gnu-va-pack-checked-snprintf` tranche starts from exact
+  merged #149. It adds `__builtin___snprintf_chk` with glibc's five fixed
+  operands, default promotions for its anonymous suffix, GNU format metadata
+  at operands five/six, and ordinary `__snprintf_chk` linkage. A final
+  `__builtin_va_arg_pack()` is recognized during builtin sema and expanded
+  through the existing caller-specialization capture before the destination
+  ABI is classified. `__builtin_strdup` receives its exact one-pointer
+  prototype and ordinary `strdup` linkage; this is the second missing builtin
+  in unmodified `pr37669.c`.
+
+  Focused ordinary and ASan+UBSan coverage is green at thirteen tests and 729
+  assertions. The formatted-output and expanded string-family runtime fixtures
+  pass on Darwin ARM64, Linux x86-64, and native Linux ARM64. The complete
+  Linux x86-64 unit suite passes 969 tests and 4,330,073 assertions; Darwin
+  reaches the same 969 tests with only its unchanged eight documented
+  host-assumption failures, while the auxiliary ARM VM has one unrelated
+  loader-path expectation in `test_link_argv_default_sequence`. The unmodified
+  imported `pr37669.c` emits successfully at O0/O1/O2/O3/Os on both Linux
+  targets, so all ten intended cells are locally green. All three affected
+  sources also emit in all 75 combinations of five supported targets and five
+  optimization levels. Ordinary and ASan+UBSan frontend fuzzing is 2,000/0,
+  IR fuzzing is 5,000/0 at 63 seeds, and both preprocessor fuzz modes are
+  2,000/0 in both configurations. The intended fixture growth repins the
+  5,000-iteration frontend mutation digest to `589933d5cea39a7b`, reproduced
+  twice normally and once under ASan+UBSan. Atomic target-complete evidence and
+  publication remain pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

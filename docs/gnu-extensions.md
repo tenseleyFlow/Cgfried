@@ -82,12 +82,13 @@ predefine.
 | `__builtin_strcspn(string, reject)` | `tests/corpus/x86_64/int/gnu_strcspn.c` | length of the initial byte span containing none of the rejected set; prototyped `size_t` result and ordinary libc linkage |
 | `__builtin_strstr(haystack, needle)` | `tests/corpus/x86_64/int/gnu_strstr.c` | first substring match, or null; prototyped `char *` result and ordinary libc linkage |
 | `__builtin_strncmp(left, right, count)` | `tests/corpus/x86_64/int/gnu_strncmp.c` | bounded byte-string comparison; prototyped `int` result, `size_t` bound, and ordinary libc linkage |
-| `__builtin_memchr`, `__builtin_stpncpy`, `__builtin_strndup`, `__builtin_strncasecmp`, `__builtin_strncat` | `tests/corpus/x86_64/int/gnu_string_large.c` | bounded memory/string search, copy, allocation, case-folded comparison, and concatenation with exact libc prototypes and linkage |
+| `__builtin_memchr`, `__builtin_stpncpy`, `__builtin_strdup`, `__builtin_strndup`, `__builtin_strncasecmp`, `__builtin_strncat` | `tests/corpus/x86_64/int/gnu_string_large.c` | bounded memory/string search, copy, allocation, case-folded comparison, and concatenation with exact libc prototypes and linkage |
 | `__builtin_pow(base, exponent)` | `tests/corpus/x86_64/int/gnu_pow.c` | double-precision power with exact `double (double, double)` conversion and ordinary libm linkage |
 | `__builtin___clear_cache(begin, end)` | `tests/corpus/x86_64/int/gnu_clear_cache.c` | evaluated-once instruction-cache synchronization; no emitted operation on coherent x86-64, compiler-runtime `__clear_cache` call on AArch64 |
 | `__builtin___memset_chk(dest, value, count, size)` | `tests/corpus/x86_64/int/gnu_memset_chk.c` | fortified byte fill with exact prototyped conversions and a target-independent compiler-runtime bounds check |
 | `__builtin_object_size(pointer, mode)` | `tests/corpus/x86_64/int/gnu_memcpy_chk.c` | unevaluated static extent query: exact for directly provable complete objects/subobjects and conservative GCC sentinels when provenance is unknown |
 | `__builtin___memcpy_chk(dest, src, count, size)` | `tests/corpus/x86_64/int/gnu_memcpy_chk.c` | fortified byte copy with exact prototyped conversions and a target-independent compiler-runtime bounds check |
+| `__builtin___snprintf_chk(dest, count, flag, size, format, ...)` | `tests/programs/builtins/formatted_output_runtime.c` | glibc fortify wrappers, including GNU inline forwarding through `__builtin_va_arg_pack()` |
 | `__builtin_abort()` | `tests/programs/builtins/abort.c` | assertion and compiler-torture failure paths; emits a real non-returning call to the hosted `abort` symbol |
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
@@ -181,12 +182,13 @@ undergo ordinary prototyped conversion and are evaluated once; lowering calls
 The bounded string/memory family follows the corresponding libc prototypes:
 `__builtin_memchr` is `void *(const void *, int, size_t)`,
 `__builtin_stpncpy` and `__builtin_strncat` are
-`char *(char *, const char *, size_t)`, `__builtin_strndup` is
-`char *(const char *, size_t)`, and `__builtin_strncasecmp` is
+`char *(char *, const char *, size_t)`, `__builtin_strdup` is
+`char *(const char *)`, `__builtin_strndup` is `char *(const char *, size_t)`,
+and `__builtin_strncasecmp` is
 `int (const char *, const char *, size_t)`. Each operand undergoes ordinary
 prototyped conversion and is evaluated exactly once. Lowering calls `memchr`,
-`stpncpy`, `strndup`, `strncasecmp`, or `strncat` through normal libc linkage,
-including a translation-unit definition of the corresponding symbol.
+`stpncpy`, `strdup`, `strndup`, `strncasecmp`, or `strncat` through normal libc
+linkage, including a translation-unit definition of the corresponding symbol.
 
 `__builtin_pow` has the ordinary `double pow(double, double)` prototype. Both
 arguments undergo assignment conversion to `double`, are evaluated once, and
@@ -219,6 +221,17 @@ Lowering calls the compiler-runtime `__memcpy_chk`; the portable helper aborts
 when the copy count exceeds the supplied destination extent, otherwise calls
 ordinary `memcpy` and returns the destination. It shares the same
 platform-independent runtime policy as checked `memset`.
+
+`__builtin___snprintf_chk` has glibc's fortified
+`int (char *, size_t, int, size_t, const char *, ...)` contract. The five
+fixed operands receive prototyped conversions, anonymous operands receive the
+default argument promotions, and direct calls use the fifth operand as a GNU
+`printf` format whose data arguments begin at operand six. Lowering calls the
+hosted `__snprintf_chk` symbol. When a same-translation-unit inline wrapper
+passes `__builtin_va_arg_pack()` as the final operand, specialization expands
+the caller's anonymous operands before the destination call's ABI is planned;
+the placeholder itself never reaches IR. This is the fortify pattern exercised
+by unmodified GCC torture `pr37669.c` on both Linux ABIs.
 
 `__builtin_bcopy` has the `void (const void *, void *, size_t)` contract:
 source precedes destination, unlike `memmove`. Arguments receive ordinary

@@ -419,21 +419,24 @@ void test_lower_builtin_string_large_family_calls_and_roundtrip(TestCtx *t)
                          "char *p = __builtin_stpncpy(destination(), source(), "
                          "count()); "
                          "char *d = __builtin_strndup(source(), count()); "
+                         "char *u = __builtin_strdup(source()); "
                          "int c = __builtin_strncasecmp(source(), source(), "
                          "count()); "
                          "char *a = __builtin_strncat(destination(), source(), "
                          "count()); "
-                         "(void)m; (void)p; (void)d; (void)c; (void)a; }\n"));
+                         "(void)m; (void)p; (void)d; (void)u; (void)c; "
+                         "(void)a; }\n"));
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, ir_verify(f.dc, f.m));
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memory()"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 2);
-    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 5);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @source()"), 6);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @character()"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @count()"), 5);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memchr(ptr"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @stpncpy(ptr"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strndup(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strdup(ptr"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @strncasecmp(ptr"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @strncat(ptr"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
@@ -998,7 +1001,9 @@ void test_lower_builtin_formatted_output_variadic_abi(TestCtx *t)
         "__builtin_sprintf(destination(), \"%f %d %u\", float_arg(), "
         "signed_arg(), unsigned_arg()) + "
         "__builtin_snprintf(destination(), capacity(), \"%f %d %u\", "
-        "float_arg(), signed_arg(), unsigned_arg()); }\n";
+        "float_arg(), signed_arg(), unsigned_arg()) + "
+        "__builtin___snprintf_chk(destination(), capacity(), 1, capacity(), "
+        "\"%f %d %u\", float_arg(), signed_arg(), unsigned_arg()); }\n";
     static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
                                          CGF_TARGET_ARM64_LINUX};
     size_t i;
@@ -1014,15 +1019,16 @@ void test_lower_builtin_formatted_output_variadic_abi(TestCtx *t)
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @printf("), 1);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @sprintf("), 1);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @snprintf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__snprintf_chk("), 1);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @float_arg()"), 3);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i8 @signed_arg()"), 3);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i16 @unsigned_arg()"), 3);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fpext f32"), 3);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "sext i8"), 3);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "zext i16"), 3);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), " anon"), 9);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), ") va"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @float_arg()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i8 @signed_arg()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i16 @unsigned_arg()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fpext f32"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "sext i8"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "zext i16"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), " anon"), 12);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), ") va"), 4);
         round = ir_parse_module(&f.arena, f.dc, txt(&f), "<format-builtins>");
         T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
         low_free(&f);
@@ -1040,6 +1046,48 @@ void test_lower_builtin_formatted_output_variadic_abi(TestCtx *t)
         T_ASSERT(t, ir_verify(f.dc, f.m));
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @printf("), 1);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), ") va"), 1);
+        low_free(&f);
+    }
+}
+
+void test_lower_builtin_checked_snprintf_forwards_va_pack(TestCtx *t)
+{
+    static const char source[] =
+        "char *destination(void); unsigned long capacity(void); "
+        "float float_arg(void); signed char signed_arg(void); "
+        "unsigned short unsigned_arg(void); "
+        "static inline int forward(char *out, unsigned long size, "
+        "const char *format, ...) { "
+        "return __builtin___snprintf_chk(out, size, 1, "
+        "(unsigned long)-1, format, __builtin_va_arg_pack()); } "
+        "int use(void) { return forward(destination(), capacity(), "
+        "\"%f %d %u\", float_arg(), signed_arg(), unsigned_arg()); }\n";
+    static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
+                                         CGF_TARGET_ARM64_LINUX};
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "func i32 @forward"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__snprintf_chk("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @capacity()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @float_arg()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i8 @signed_arg()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i16 @unsigned_arg()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fpext f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "sext i8"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "zext i16"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), " anon"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), ") va"), 1);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<checked-pack>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
         low_free(&f);
     }
 }

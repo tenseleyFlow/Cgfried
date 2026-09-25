@@ -102,6 +102,7 @@ B(stpncpy, STPNCPY, 3, BK_CHARP)
 B(strchr, STRCHR, 2, BK_CHARP)
 B(strncpy, STRNCPY, 3, BK_CHARP)
 B(strncat, STRNCAT, 3, BK_CHARP)
+B(strdup, STRDUP, 1, BK_CHARP)
 B(strndup, STRNDUP, 2, BK_CHARP)
 
 /* character output */
@@ -114,6 +115,9 @@ B(puts, PUTS, 1, BK_INT)
 B(printf, PRINTF, -1, BK_INT)
 B(sprintf, SPRINTF, -1, BK_INT)
 B(snprintf, SNPRINTF, -1, BK_INT)
+/* glibc fortify's checked form adds flag and known-object-size arguments
+ * before the format string, but retains the ordinary variadic printf ABI. */
+B(__snprintf_chk, SNPRINTF_CHK, -1, BK_INT)
 
 /* integer library intrinsics */
 B(abs, ABS, 1, BK_INT)
