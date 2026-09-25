@@ -1736,7 +1736,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         }
                     }
                 }
-                if (b == SEMA_BUILTIN_FREE ||
+                if (b == SEMA_BUILTIN_FREE || b == SEMA_BUILTIN_STACK_RESTORE ||
                     b == SEMA_BUILTIN_EXTRACT_RETURN_ADDR) {
                     bctx.arg_index = 1;
                     if (!conv_assignable(

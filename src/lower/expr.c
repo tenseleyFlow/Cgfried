@@ -3467,6 +3467,13 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         *out = ir_op_value(lo->b.f, ir_build_alloca(&lo->b, n, 16));
         return true;
     }
+    case SEMA_BUILTIN_STACK_SAVE:
+        *out = ir_op_value(lo->b.f, ir_build_stacksave(&lo->b));
+        return true;
+    case SEMA_BUILTIN_STACK_RESTORE:
+        ir_build_stackrestore(&lo->b, lower_rvalue(lo, e->args[0]));
+        *out = ir_op_undef(IRT_I32);
+        return true;
     case SEMA_BUILTIN_CONSTANT_P:
         /* gcc's contract: 0 when the answer is not known. We answer
          * from the constant engine at THIS point in compilation, so a

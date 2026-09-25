@@ -62,6 +62,11 @@ B(extract_return_addr, EXTRACT_RETURN_ADDR, 1, BK_VOIDP)
 B(malloc, MALLOC, 1, BK_VOIDP)
 B(free, FREE, 1, BK_VOID)
 B(alloca, ALLOCA, 1, BK_VOIDP)
+/* Explicit dynamic-stack lifetime control. The saved stack pointer is an
+ * opaque void * at the C boundary and may be stored in an ordinary local
+ * before it is supplied back to stack_restore. */
+B(stack_save, STACK_SAVE, 0, BK_VOIDP)
+B(stack_restore, STACK_RESTORE, 1, BK_VOID)
 B(memcpy, MEMCPY, 3, BK_VOIDP)
 B(mempcpy, MEMPCPY, 3, BK_VOIDP)
 B(memmove, MEMMOVE, 3, BK_VOIDP)
