@@ -7836,13 +7836,59 @@ and green post-publication CI.
   and `11fb39c43aca3a0850144d782481e151fff7d14058229bf911714a9fd23412ff`.
   PR #146 merged green-only as `240c10ae8160cc3b2e00f50dcc27222eb568f602`;
   its parents and tree are identical to the final tested merge.
-- The current isolated `s56.52-builtin-stack-save-restore` tranche is based on
-  merged #146. It targets GCC's `void *__builtin_stack_save(void)` and
-  `void __builtin_stack_restore(void *)` contracts plus the ten
-  target-complete `20071117-1.c` cells. The IR and both machine backends
-  already implement stack-save and stack-restore operations for VLA scope
-  cleanup; the remaining work is the source-level builtin contract and safe
-  transport of a saved stack pointer through an ordinary C local.
+- PR #147's `s56.52-builtin-stack-save-restore` tranche is based on merged
+  #146. Behavior commit `4509c2f6` implements GCC's
+  `void *__builtin_stack_save(void)` and
+  `void __builtin_stack_restore(void *)` contracts over the existing IR and
+  machine operations. Saved tokens may pass through ordinary C locals; the IR
+  verifier consequently enforces a defined pointer token while leaving stale
+  or forged pointers as source-level undefined behavior. Five-target semantic
+  and lowering tests prove the public contract and IR round trip. A permanent
+  dynamic-allocation fixture proves restoration and address reuse at all five
+  optimization levels on Apple ARM64 and Linux x86_64, including the forced-
+  spill lane. The closed ISA gate is repinned deliberately to 127 sources / 762
+  optimization objects and passes in the x86 VM.
+
+  The normal focused slice passes 2 tests / 43 assertions plus 1 verifier test
+  / 3 assertions; the same slices pass ASan+UBSan. The complete local unit
+  suite reaches 965 tests / 4,329,947 assertions with only the same eight
+  documented Apple host-assumption failures. Static policy, deferral, GNU-tier,
+  verifier-coverage, and target-seam gates are green. Generated x86_64-linux
+  and arm64-linux assembly for the imported source is accepted at O0/O1/O2/O3/
+  Os, and native Linux x86 execution is green at all five levels.
+
+  Prepublication standard
+  [run 36082039409](https://github.com/tenseleyFlow/Cgfried/actions/runs/36082039409)
+  passes all 23 ordinary jobs, refuses only the five expected unpublished x86
+  `20071117-1.c` cells, and intentionally skips the tag-only job. GitHub's
+  exact prepublication synthetic merge is
+  `ee20245d359f6622246c78555218e6709d69b783`, with parents `240c10ae` and
+  `4509c2f6` and tree `82f27b51256a6a555df2b7068fcb92c2f8dbdc52`,
+  byte-identical to the feature head. Exact-merge nightly
+  [run 36082137982](https://github.com/tenseleyFlow/Cgfried/actions/runs/36082137982)
+  passes all fourteen unrelated jobs and refuses only the matching five native
+  ARM cells. Exact-merge full-lattice bootstrap
+  [run 36082139809](https://github.com/tenseleyFlow/Cgfried/actions/runs/36082139809)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams both name that exact merge, share compiler
+  source SHA-256
+  `b333aad83eaa02e04e4dc5bdc03a7ae7427f2ef9a4011b9bdb0c41154f831461`
+  plus identical harness and manifest hashes, and have SHA-256 values
+  `43ddc25a20401ea25417fa387486f1c22025283934a0e4a7a7afa62df8188597`
+  and `bd62f4affcbdb72ad1379daca6ca9c7aa89a348596b468ea917041a958a8c5b8`.
+  Each contains 20,325 unique cells -- 15,925 PASS, 3,305 SKIP, and 1,095
+  COMPILE_FAIL -- with exactly five new `20071117-1.c` PASS keys and no old-
+  PASS regression. Formal GNU-make atomic publication consumes both exact
+  streams; reversing their order regenerates both outputs byte-identically.
+  The result is 31,850 PASS keys (31,853 lines), 2,190 failed cells with
+  complete bucket coverage, and zero unbucketed/unresolved cells.
+  `gcc-builtin` falls from 20 to 10. PASS and triage SHA-256 values are
+  respectively
+  `345e78ba0199616d9ffb2f5055c3483e730f03d712722dd3239dcc7e084f0ea9`
+  and `647ee3bf1633d47c930314b31417d265bfd07905f5935c0fe93791ff555e1e52`.
+  Fresh postpublication standard, nightly, and bootstrap CI remain required
+  before green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
