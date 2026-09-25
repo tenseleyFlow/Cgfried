@@ -3807,6 +3807,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
         {SEMA_BUILTIN_STRCHR, "strchr", IRT_PTR, false},
         {SEMA_BUILTIN_STRNCPY, "strncpy", IRT_PTR, false},
         {SEMA_BUILTIN_STRNCAT, "strncat", IRT_PTR, false},
+        {SEMA_BUILTIN_STRDUP, "strdup", IRT_PTR, false},
         {SEMA_BUILTIN_STRNDUP, "strndup", IRT_PTR, false},
         {SEMA_BUILTIN_PUTS, "puts", IRT_I32, false},
     };
@@ -4015,6 +4016,9 @@ static const char *formatted_output_builtin_name(u16 marker, u32 *fixed)
     case SEMA_BUILTIN_SNPRINTF:
         *fixed = 3;
         return "snprintf";
+    case SEMA_BUILTIN_SNPRINTF_CHK:
+        *fixed = 5;
+        return "__snprintf_chk";
     default:
         return NULL;
     }
@@ -4042,10 +4046,33 @@ static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
     abi_budget_init(lo, &budget, &aret);
     for (i = 0; i < e->nargs; i++) {
         AstNode *arg = e->args[i];
-        IrOperand value = lower_rvalue(lo, arg);
 
-        lower_call_arg(lo, sem(arg), value, lower_aggregate_access_flags(arg),
-                       i >= fixed, &budget, &args);
+        if (arg && arg->kind == AST_EXPR_VA_ARG_PACK) {
+            u32 pi;
+
+            if (!lo->va_pack) {
+                if (!lo->failed)
+                    diag_emit(lo->dc, DIAG_ERROR, arg->span,
+                              "variadic argument pack survived without an "
+                              "inline expansion");
+                lo->failed = true;
+                continue;
+            }
+            for (pi = 0; pi < lo->va_pack->nargs; pi++) {
+                VaPackArg *pa = &lo->va_pack->args[pi];
+
+                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, true,
+                               &budget, &args);
+            }
+            continue;
+        }
+        {
+            IrOperand value = lower_rvalue(lo, arg);
+
+            lower_call_arg(lo, sem(arg), value,
+                           lower_aggregate_access_flags(arg), i >= fixed,
+                           &budget, &args);
+        }
     }
     for (i = 0; i < lo->m->nfuncs; i++) {
         if (strcmp(lo->m->funcs[i].name, name) != 0)
@@ -4251,7 +4278,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         if (lower_simple_builtin(lo, e, &bo))
             return bo;
         if (e->op == SEMA_BUILTIN_PRINTF || e->op == SEMA_BUILTIN_SPRINTF ||
-            e->op == SEMA_BUILTIN_SNPRINTF)
+            e->op == SEMA_BUILTIN_SNPRINTF ||
+            e->op == SEMA_BUILTIN_SNPRINTF_CHK)
             return lower_formatted_output_builtin(lo, e);
         /* Libc-backed builtins ARE their libc functions in v0.1.0 (inline
          * expansion for the mem/str subset is Phase 7/11). They have no

@@ -580,6 +580,8 @@ void test_sema_builtin_string_large_family_contract(TestCtx *t)
              "char *: 1, default: 0), \"stpncpy result is char pointer\"); "
              "_Static_assert(_Generic(__builtin_strndup(\"abc\", 2), "
              "char *: 1, default: 0), \"strndup result is char pointer\"); "
+             "_Static_assert(_Generic(__builtin_strdup(\"abc\"), "
+             "char *: 1, default: 0), \"strdup result is char pointer\"); "
              "_Static_assert(_Generic(__builtin_strncasecmp(\"a\", \"A\", 1), "
              "int: 1, default: 0), \"strncasecmp result is int\"); "
              "_Static_assert(_Generic(__builtin_strncat((char *)0, \"a\", 1), "
@@ -588,9 +590,11 @@ void test_sema_builtin_string_large_family_contract(TestCtx *t)
              "void *m = __builtin_memchr(p, (unsigned char)'x', n); "
              "char *a = __builtin_stpncpy(d, s, n); "
              "char *b = __builtin_strndup(s, n); "
+             "char *u = __builtin_strdup(s); "
              "int c = __builtin_strncasecmp(s, d, n); "
              "char *e = __builtin_strncat(d, s, n); "
-             "return (m != 0) + (a != 0) + (b != 0) + c + (e != 0); }\n",
+             "return (m != 0) + (a != 0) + (b != 0) + (u != 0) + c + "
+             "(e != 0); }\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     sfix_free(&f);
@@ -600,11 +604,12 @@ void test_sema_builtin_string_large_family_contract(TestCtx *t)
              "__builtin_memchr(p, 0); __builtin_memchr(p, 0, 1, 2); "
              "__builtin_stpncpy(p, p); __builtin_stpncpy(p, p, 1, 2); "
              "__builtin_strndup(p); __builtin_strndup(p, 1, 2); "
+             "__builtin_strdup(); __builtin_strdup(p, p); "
              "__builtin_strncasecmp(p, p); "
              "__builtin_strncasecmp(p, p, 1, 2); "
              "__builtin_strncat(p, p); __builtin_strncat(p, p, 1, 2); }\n",
              STD_GNU17);
-    T_ASSERT_EQ_INT(t, f.errors, 10);
+    T_ASSERT_EQ_INT(t, f.errors, 12);
     sfix_free(&f);
 
     run_sema(&f,
@@ -612,10 +617,11 @@ void test_sema_builtin_string_large_family_contract(TestCtx *t)
              "__builtin_memchr(value, 0, 1); "
              "__builtin_stpncpy(p, value, 1); "
              "__builtin_strndup(value, 1); "
+             "__builtin_strdup(value); "
              "__builtin_strncasecmp(p, p, value); "
              "__builtin_strncat(value, p, 1); }\n",
              STD_GNU17);
-    T_ASSERT_EQ_INT(t, f.errors, 5);
+    T_ASSERT_EQ_INT(t, f.errors, 6);
     sfix_free(&f);
 }
 
@@ -1206,6 +1212,49 @@ void test_sema_builtin_formatted_output_contract(TestCtx *t)
              "__builtin_printf(\"%d\", gone()); }\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+}
+
+void test_sema_builtin_checked_snprintf_pack_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(
+        &f,
+        "typedef __SIZE_TYPE__ size_t; "
+        "_Static_assert(_Generic(__builtin___snprintf_chk((char *)0, 0, 0, "
+        "0, \"\"), int: 1, default: 0), \"checked result is int\"); "
+        "static inline int forward(char *out, size_t size, "
+        "const char *format, ...) { "
+        "return __builtin___snprintf_chk(out, size, 1, (size_t)-1, format, "
+        "__builtin_va_arg_pack()); } "
+        "int use(char *out, size_t size, float value) { "
+        "return forward(out, size, \"%.1f\", value); }\n",
+        STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void bad(char *out) { "
+             "__builtin___snprintf_chk(out, 8, 0, 8); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; int bad(struct S value) { "
+             "return __builtin___snprintf_chk(value, value, value, value, "
+             "value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "static inline int bad(char *out, ...) { "
+             "return __builtin___snprintf_chk(out, 8, 0, 8, "
+             "__builtin_va_arg_pack(), \"%d\"); }\n",
+             STD_GNU17);
+    T_ASSERT(t, f.errors > 0);
     sfix_free(&f);
 }
 

@@ -1315,6 +1315,8 @@ static u32 builtin_formatted_output_fixed_args(u16 builtin)
         return 2;
     case SEMA_BUILTIN_SNPRINTF:
         return 3;
+    case SEMA_BUILTIN_SNPRINTF_CHK:
+        return 5;
     default:
         return 0;
     }
@@ -1329,6 +1331,8 @@ static const char *builtin_formatted_output_name(u16 builtin)
         return "sprintf";
     case SEMA_BUILTIN_SNPRINTF:
         return "snprintf";
+    case SEMA_BUILTIN_SNPRINTF_CHK:
+        return "__snprintf_chk";
     default:
         return NULL;
     }
@@ -1425,7 +1429,30 @@ static AstNode *expr_call(Sema *s, AstNode *e)
         if (b) {
             u32 formatted_fixed = builtin_formatted_output_fixed_args(b);
 
-            if (formatted_fixed && e->nargs < formatted_fixed) {
+            /* A GNU pack placeholder is not an expression value and does not
+             * count toward the checked function's named prefix. Recognize it
+             * before the generic builtin-argument loop, exactly as the
+             * ordinary variadic-call path below does. */
+            if (formatted_fixed) {
+                for (i = 0; i < e->nargs; i++) {
+                    AstNode *arg = e->args[i];
+
+                    if (!arg || arg->kind != AST_EXPR_VA_ARG_PACK)
+                        continue;
+                    if (has_va_pack || i + 1 != e->nargs)
+                        err(s, arg->span,
+                            "'__builtin_va_arg_pack()' must be the final "
+                            "argument of a call");
+                    has_va_pack = true;
+                    explicit_nargs--;
+                    arg->sem_type = type_basic(TY_VOID);
+                    arg->is_lvalue = false;
+                    (void)require_va_arg_pack_wrapper(s, arg,
+                                                      "__builtin_va_arg_pack");
+                }
+            }
+
+            if (formatted_fixed && explicit_nargs < formatted_fixed) {
                 err(s, e->span, "'%s' takes at least %u argument%s",
                     direct_ident->name, (unsigned)formatted_fixed,
                     formatted_fixed == 1 ? "" : "s");
@@ -1446,6 +1473,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 return poison(s, e);
             }
             for (i = 0; i < e->nargs; i++) {
+                if (e->args[i] && e->args[i]->kind == AST_EXPR_VA_ARG_PACK)
+                    continue;
                 bool cursor_arg =
                     (b == SEMA_BUILTIN_VA_START || b == SEMA_BUILTIN_VA_END ||
                      b == SEMA_BUILTIN_VA_COPY) &&
@@ -1459,7 +1488,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     type_qualify(s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
                 Type *charp = type_ptr(s->arena, type_basic(TY_CHAR));
                 Type *const_charp = type_ptr(s->arena, const_char);
-                Type *params[] = {const_charp, NULL, NULL};
+                Type *params[] = {const_charp, NULL, NULL, NULL, NULL};
                 AssignCtx bctx;
                 bool valid = true;
 
@@ -1470,6 +1499,12 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     params[0] = charp;
                     params[1] = type_basic(TY_ULONG);
                     params[2] = const_charp;
+                } else if (b == SEMA_BUILTIN_SNPRINTF_CHK) {
+                    params[0] = charp;
+                    params[1] = type_basic(TY_ULONG);
+                    params[2] = type_basic(TY_INT);
+                    params[3] = type_basic(TY_ULONG);
+                    params[4] = const_charp;
                 }
                 memset(&bctx, 0, sizeof(bctx));
                 bctx.kind = ACTX_ARG;
@@ -1483,6 +1518,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                 for (; i < e->nargs; i++) {
                     AstNode *arg = e->args[i];
 
+                    if (arg && arg->kind == AST_EXPR_VA_ARG_PACK)
+                        continue;
                     if (quiet(arg, NULL)) {
                         valid = false;
                         continue;
@@ -1945,7 +1982,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
-                if (b == SEMA_BUILTIN_PUTS) {
+                if (b == SEMA_BUILTIN_PUTS || b == SEMA_BUILTIN_STRDUP) {
                     Type *const_char = type_qualify(
                         s->arena, type_basic(TY_CHAR), CGF_QUAL_CONST);
 
@@ -2094,7 +2131,7 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     is_builtin_checked_overflow(b) ? TY_BOOL : TY_INT);
                 break;
             }
-            if (formatted_fixed)
+            if (formatted_fixed && !has_va_pack)
                 warn_format_check_builtin(s->lang->warnings, s, e,
                                           builtin_formatted_output_name(b));
             return e;

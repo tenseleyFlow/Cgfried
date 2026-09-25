@@ -119,6 +119,7 @@ void test_format_builtin_table(TestCtx *t)
         {"strftime", FMT_STRFTIME, 3, 0}, {"strfmon", FMT_STRFMON, 3, 4},
     };
     static const FormatRow gnu[] = {
+        {"__snprintf_chk", FMT_PRINTF, 5, 6},
         {"asprintf", FMT_PRINTF, 2, 3},
         {"vasprintf", FMT_PRINTF, 2, 0},
         {"syslog", FMT_PRINTF, 2, 3},
@@ -165,6 +166,7 @@ void test_format_builtin_calls_all_targets(TestCtx *t)
         "int dprintf(int, const char *, ...); "
         "int sprintf(char *, const char *, ...); "
         "int snprintf(char *, size_t, const char *, ...); "
+        "int __snprintf_chk(char *, size_t, int, size_t, const char *, ...); "
         "int vprintf(const char *, void *); "
         "int vfprintf(void *, const char *, void *); "
         "int vdprintf(int, const char *, void *); "
@@ -193,6 +195,7 @@ void test_format_builtin_calls_all_targets(TestCtx *t)
         "void test(void) { char *out; "
         "printf(\"%r\"); fprintf(0, \"%r\"); dprintf(1, \"%r\"); "
         "sprintf(out, \"%r\"); snprintf(out, 1, \"%r\"); "
+        "__snprintf_chk(out, 1, 0, 1, \"%r\"); "
         "vprintf(\"%r\", 0); vfprintf(0, \"%r\", 0); "
         "vdprintf(1, \"%r\", 0); vsprintf(out, \"%r\", 0); "
         "vsnprintf(out, 1, \"%r\", 0); "
@@ -214,7 +217,7 @@ void test_format_builtin_calls_all_targets(TestCtx *t)
         int expected = 18;
 
         if (tk == CGF_TARGET_X86_64_LINUX_GNU || tk == CGF_TARGET_ARM64_LINUX)
-            expected += 10;
+            expected += 11;
         if (tk == CGF_TARGET_X86_64_FREEBSD)
             expected += 4;
         format_run(&f, (TargetKind)tk, source);
@@ -236,7 +239,8 @@ void test_format_explicit_output_builtins_survive_freestanding(TestCtx *t)
         "snprintf(out, 8, \"%s\", 1); "
         "__builtin_printf(\"%s\", 1); "
         "__builtin_sprintf(out, \"%s\", 1); "
-        "__builtin_snprintf(out, 8, \"%s\", 1); }";
+        "__builtin_snprintf(out, 8, \"%s\", 1); "
+        "__builtin___snprintf_chk(out, 8, 0, 8, \"%s\", 1); }";
     int tk;
 
     for (tk = 0; tk < CGF_TARGET_COUNT; tk++) {
@@ -244,12 +248,20 @@ void test_format_explicit_output_builtins_survive_freestanding(TestCtx *t)
 
         format_run_with_options(&f, (TargetKind)tk, source, false, false);
         T_ASSERT_EQ_INT(t, f.errors, 0);
-        T_ASSERT_EQ_INT(t, f.warnings[WARN_FORMAT], 6);
+        T_ASSERT_EQ_INT(t, f.warnings[WARN_FORMAT],
+                        tk == CGF_TARGET_X86_64_LINUX_GNU ||
+                                tk == CGF_TARGET_ARM64_LINUX
+                            ? 7
+                            : 6);
         format_free(&f);
 
         format_run_with_options(&f, (TargetKind)tk, source, false, true);
         T_ASSERT_EQ_INT(t, f.errors, 0);
-        T_ASSERT_EQ_INT(t, f.warnings[WARN_FORMAT], 3);
+        T_ASSERT_EQ_INT(t, f.warnings[WARN_FORMAT],
+                        tk == CGF_TARGET_X86_64_LINUX_GNU ||
+                                tk == CGF_TARGET_ARM64_LINUX
+                            ? 4
+                            : 3);
         format_free(&f);
     }
 }
