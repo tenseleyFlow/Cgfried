@@ -34,7 +34,8 @@ static void s16_sink(void *user, const Diag *d, const DiagCtx *dc)
 
 VEC_DECL(PpVecS16, PpToken);
 
-static void run16_std(S16Fix *f, const char *src, bool fcommon, CStd std)
+static void run16_opts(S16Fix *f, const char *src, bool fcommon, CStd std,
+                       bool gnu89_inline)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -56,6 +57,7 @@ static void run16_std(S16Fix *f, const char *src, bool fcommon, CStd std)
     memset(&lang, 0, sizeof(lang));
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
+    lang.gnu89_inline = gnu89_inline;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
     spec.kind = CGF_TARGET_X86_64_LINUX_GNU;
@@ -71,6 +73,11 @@ static void run16_std(S16Fix *f, const char *src, bool fcommon, CStd std)
     sema_init(&f->sema, &f->arena, f->dc, &f->in, &lang, spec);
     f->sema.fcommon = fcommon;
     sema_run(&f->sema, tu);
+}
+
+static void run16_std(S16Fix *f, const char *src, bool fcommon, CStd std)
+{
+    run16_opts(f, src, fcommon, std, std == STD_GNU89);
 }
 
 static void run16(S16Fix *f, const char *src, bool fcommon)
@@ -117,6 +124,7 @@ static void inline_is(TestCtx *t, const char *src, int want, const char *label)
 void test_s16_inline_matrix(TestCtx *t)
 {
     S16Fix f;
+    Symbol *sym;
 
     /* The four rows. */
     inline_is(t, "inline int f(void) { return 1; }\n", INL_INLINE_DEF,
@@ -176,6 +184,47 @@ void test_s16_inline_matrix(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, sym16(&f, "f") &&
                     sym16(&f, "f")->inline_kind == INL_EXTERN_INLINE);
+    s16_free(&f);
+
+    run16_opts(&f, "extern inline int f(void) { return 1; }\n", true, STD_GNU17,
+               true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t,
+             sym16(&f, "f") && sym16(&f, "f")->inline_kind == INL_INLINE_DEF);
+    s16_free(&f);
+
+    run16_opts(&f, "inline int f(void) { return 1; }\n", true, STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, sym16(&f, "f") &&
+                    sym16(&f, "f")->inline_kind == INL_EXTERN_INLINE);
+    s16_free(&f);
+
+    run16_opts(&f,
+               "extern inline int f(void) { return 1; }\n"
+               "int f(void) { return 2; }\n",
+               true, STD_GNU17, true);
+    sym = sym16(&f, "f");
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, sym && sym->inline_kind == INL_EXTERN_INLINE);
+    T_ASSERT(t, sym && sym->func_def && !sym->func_def_inline &&
+                    !sym->func_def_extern);
+    s16_free(&f);
+
+    run16_opts(&f,
+               "extern inline int f(void) { return 1; }\n"
+               "static int f(void) { return 2; }\n",
+               true, STD_GNU17, true);
+    sym = sym16(&f, "f");
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, sym && sym->linkage == LINK_INTERNAL);
+    T_ASSERT(t, sym && sym->inline_kind == INL_STATIC);
+    s16_free(&f);
+
+    run16_opts(&f,
+               "int f(void) { return 2; }\n"
+               "extern inline int f(void) { return 1; }\n",
+               true, STD_GNU17, true);
+    T_ASSERT(t, f.errors > 0);
     s16_free(&f);
 
     run16(&f, "__attribute((gnu_inline)) int f(void);\n", true);

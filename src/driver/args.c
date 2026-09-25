@@ -83,6 +83,8 @@ enum {
     F_FFREESTANDING,
     F_FHOSTED,
     F_FWRAPV,
+    F_FGNU89_INLINE,
+    F_FNO_GNU89_INLINE,
     F_FSAFE,
     F_FCGF_SAFE,
     F_FNO_CGF_SAFE,
@@ -616,6 +618,14 @@ static bool h_fflag(DriverArgs *da, const FlagSpec *fs, const char *val)
     case F_FWRAPV:
         da->fwrapv = true;
         break;
+    case F_FGNU89_INLINE:
+        da->fgnu89_inline = true;
+        da->fgnu89_inline_set = true;
+        break;
+    case F_FNO_GNU89_INLINE:
+        da->fgnu89_inline = false;
+        da->fgnu89_inline_set = true;
+        break;
     case F_FSAFE:
         da->fsafe = true;
         break;
@@ -880,6 +890,8 @@ static const FlagSpec args_flag_table[] = {
     {"-ffreestanding", ARG_NONE, h_fflag, F_FFREESTANDING},
     {"-fhosted", ARG_NONE, h_fflag, F_FHOSTED},
     {"-fwrapv", ARG_NONE, h_fflag, F_FWRAPV},
+    {"-fgnu89-inline", ARG_NONE, h_fflag, F_FGNU89_INLINE},
+    {"-fno-gnu89-inline", ARG_NONE, h_fflag, F_FNO_GNU89_INLINE},
     {"-fsafe", ARG_NONE, h_fflag, F_FSAFE},
     {"-fcgf-safe", ARG_NONE, h_fflag, F_FCGF_SAFE},
     {"-fno-cgf-safe", ARG_NONE, h_fflag, F_FNO_CGF_SAFE},
@@ -1220,6 +1232,14 @@ DriverArgs args_parse(struct Arena *arena, int argc, char **argv)
     for (i = 1; i < argc; i++)
         parse_one(&a, argv[i], argc, argv, &i, 0);
     g_ps = NULL;
+
+    /* GCC accepts the positive override in every C dialect, but the
+     * negative form is meaningful only where ISO inline semantics exist.
+     * Judge the FINAL -std= value, independent of argv order. */
+    /* CStd codes are intentionally kept out of the driver-argument header;
+     * h_std above pins 0/4 as C89/GNU89. */
+    if (a.fgnu89_inline_set && !a.fgnu89_inline && (a.std == 0 || a.std == 4))
+        a.fno_gnu89_inline_c89 = true;
 
     /* -M/-MM imply -E: depfile INSTEAD of compilation (gcc parity). */
     if (a.dep_mode != DEP_OFF && !a.dep_side)

@@ -120,6 +120,8 @@ typedef struct {
                           and documented (sprint 26 locked decision) */
     bool freestanding; /* -ffreestanding (__STDC_HOSTED__, main rules) */
     bool fwrapv;
+    bool fgnu89_inline;       /* GNU89 external-definition rules for inline */
+    bool fgnu89_inline_set;   /* explicit -f[no-]gnu89-inline */
     bool fno_strict_aliasing; /* Sprint 32 consumes */
     bool fast_math;           /* ordered -O / -f[no-]fast-math bundle state */
     u8 fp_contract;           /* 0 off, 1 on, 2 fast; defaulted from -std */
@@ -197,6 +199,7 @@ typedef struct {
     bool o_multi_conflict;       /* -o with -c/-S/-E and multiple inputs */
     bool fsafe_conflict;         /* -fsafe combined with -fno-cgf-safe */
     bool fsafe_warning_conflict; /* -fsafe combined with absolute -w */
+    bool fno_gnu89_inline_c89;   /* negative form needs a C99+ dialect */
     /* -f<unknown>/-fomit-frame-pointer: warn and continue by default (gcc
      * parity — hard-erroring breaks flag-probing configure scripts); bare
      * -Werror promotes the emitted command-line warning. */

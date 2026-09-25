@@ -8,6 +8,7 @@
 -	61f7d78fdc241146d501a94c8a4318e23bd540586c8eab78ee1478c26d74d3e4	as	all	The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.	out-of-scope
 -	6315641ba67866fc0ce23827d143e76d664e050b8b0c57fccaa7b1d735aad925	sema	all	allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal	wontfix-0.1.0
 -	63894c5b52edea1018992f21ad3550b33865536439f4fd724edc5e49bc0bd974	parse	all	The case uses imaginary j-suffix constants and complex arithmetic, which are explicitly outside the v0.1.0 language scope.	out-of-scope
+-	70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152	parse	all	The newly exposed pr37669.c case needs __builtin___snprintf_chk, __builtin_strdup, and variadic argument-pack forwarding through the checked call.	fix-sprint:s56.55-gnu-va-pack-checked-snprintf
 -	7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df	parse	all	The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.	out-of-scope
 -	83fdeab1ef4cbb24f3ac29ee248430e84ed701a663cefcc9027c129cac399e17	parse	all	The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.	wontfix-0.1.0
 -	9691b83f72e5abe92459479e7169dbe0b5131f572a6725dc5e9a90f2015b1b75	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
@@ -26,3 +27,4 @@
 -	f6e3227c914735cdb08ca070859e01469beb8bd02551aa2274362048b0685cf0	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	f765937aa5544b30bfa7277c9210cf239099e5f3c63a6598adb06d05a6dbab46	parse	all	The declaration uses GNU complex long double type, outside the v0.1.0 language scope.	out-of-scope
 -	fa6021f7913ae8533903065c2ea43cf97c022e38d708bbeee2ccca8638647ce7	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
+6	7185bb28ba16ee3587e8cde30e5763061a385d6bede1e7fc08cc4c2a48f66831	run	non-optdiv	The newly exposed bcp-1.c case needs broader __builtin_constant_p folding, including string literals and optimized inline-call expressions.	fix-sprint:s56.56-constant-p-expression-folding

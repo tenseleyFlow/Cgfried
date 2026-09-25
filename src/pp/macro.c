@@ -1190,10 +1190,14 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
         buf_printf(&b, "#define __GNUC__ 8\n");
         buf_printf(&b, "#define __GNUC_MINOR__ 3\n");
         buf_printf(&b, "#define __GNUC_PATCHLEVEL__ 0\n");
-        if (pp->std == STD_GNU89)
+        if (pp->gnu89_inline || pp->std == STD_GNU89)
             buf_printf(&b, "#define __GNUC_GNU_INLINE__ 1\n");
         else
             buf_printf(&b, "#define __GNUC_STDC_INLINE__ 1\n");
+    } else if (pp->gnu89_inline || pp->std == STD_GNU89) {
+        /* GCC exposes the selected inline model even in an ISO dialect.
+         * Cgfried deliberately withholds the GCC version tuple there. */
+        buf_printf(&b, "#define __GNUC_GNU_INLINE__ 1\n");
     }
     /* Honest scope answers (index scope contract). NO_ATOMICS is
      * deliberately absent: we ship _Atomic. */

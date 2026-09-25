@@ -106,6 +106,8 @@ static const char *const help_text[] = {
     "                    deliberate and documented here)\n"
     "  -ffreestanding    freestanding environment (-fhosted restores)\n"
     "  -fwrapv           signed overflow wraps\n"
+    "  -fgnu89-inline    use GNU89 inline emission semantics\n"
+    "  -fno-gnu89-inline  use ISO inline semantics (C99 or later)\n"
     "  -fno-strict-aliasing  disable type-based aliasing\n"
     "  -fcgf-safe        instrument unresolved heap accesses; static\n"
     "                    proofs discharge checks before code generation\n"
@@ -1456,6 +1458,8 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
                                 owns line fidelity); accepted so oracle
                                 command lines stay symmetric */
     pp.gnu_mode = pp.std >= STD_GNU89;
+    pp.gnu89_inline =
+        a->fgnu89_inline_set ? a->fgnu89_inline : pp.std == STD_GNU89;
     for (i = 0; i < a->include_dirs.len; i++)
         pp.include_dirs[pp.n_include++] = a->include_dirs.data[i];
     for (i = 0; i < a->iquote_dirs.len; i++)
@@ -1594,6 +1598,8 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
         memset(&lang, 0, sizeof(lang));
         lang.std = (CStd)a->std;
         lang.gnu_mode = lang.std >= STD_GNU89;
+        lang.gnu89_inline =
+            a->fgnu89_inline_set ? a->fgnu89_inline : lang.std == STD_GNU89;
         /* gcc contracts by default in GNU dialects and never in ISO ones;
          * -ffp-contract= overrides either way, and -ffast-math forces it. */
         lang.fp_contract = a->fp_contract_set ? a->fp_contract
@@ -2051,6 +2057,10 @@ int driver_main(int argc, char **argv)
         diag_emit(dc, DIAG_ERROR, no_span,
                   "-fsafe requires -fcgf-safe; remove -fno-cgf-safe or "
                   "compile without -fsafe");
+        status = CGF_EXIT_COMPILE;
+    } else if (a.fno_gnu89_inline_c89) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "'-fno-gnu89-inline' is only supported in C99 or later");
         status = CGF_EXIT_COMPILE;
     } else if (a.shared && !a.fpic) {
         /* An argument-consistency error, knowable from the flags alone, so

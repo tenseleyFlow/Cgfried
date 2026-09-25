@@ -511,6 +511,7 @@ typedef struct Preprocessor {
     /* Language standard. */
     CStd std;
     bool gnu_mode;
+    bool gnu89_inline;
 
     /* Expansion machinery. */
     PpTokBuf *bufs; /* rescan stack; bufs[nbufs-1] is consumed first */

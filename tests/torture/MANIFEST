@@ -12,7 +12,7 @@ compile/103818.c	167ed08568b5ecb69646da380731239aee0759c65dd124211c998471f0693fe
 compile/20000105-1.c	5474342c0ba4342d5c27526f1b95244609b1da0d31c68741bd9acf850b87f89b	compile	-	-	run	-
 compile/20000105-2.c	9199266c96c5d9f2e852c7278f6f635f5b34ea5007c05d36d0dd50398d0fce75	compile	-	-	run	-
 compile/20000120-1.c	d182944079f2f0a267853711e74cb5951719e0a2b519a330ead2d350eee06bbd	compile	-	-	run	-
-compile/20000120-2.c	1aac5f694cfa1057a70c44cea690b46e2c5de638a1c9e32f450828a4b9677d54	compile	-	-	skip	unsupported flag -fgnu89-inline
+compile/20000120-2.c	1aac5f694cfa1057a70c44cea690b46e2c5de638a1c9e32f450828a4b9677d54	compile	-	-fgnu89-inline	run	-
 compile/20000127-1.c	b0726a9dc4b5ecbcf228d599f43dfefacac9be453410101101cf4153609c6689	compile	-	-	run	-
 compile/20000211-1.c	8857d7b246b4e87339cbca02f3227493203cad8f1c1172d1332172e32e5ae25b	compile	-	-	skip	upstream dg-skip-if condition
 compile/20000211-3.c	6ac7823903ab0e29a6fe25046c51fd332b1c4ab6ff0386afc36718642cd70332	compile	-	-	run	-
@@ -123,8 +123,8 @@ compile/20011114-1.c	b8ab6d7ba04f29e7226ab07d60be1e224520d902c612afe5485c7744881
 compile/20011114-2.c	9289c21a37deb2bd2d3e6bd04e7c77551624e512e841bffd464fe152ce6511ca	compile	-	-	run	-
 compile/20011114-3.c	5b988b746e798761fae592172878e9d3f0eafaa77d4539913d5df8d0c1ad0a83	compile	-	-	run	-
 compile/20011114-4.c	e3990d7b2466104af47525167f19581730473dfac11f3e96cb594b5eba29e3e8	compile	-	-	run	-
-compile/20011119-1.c	37ab12a5072cf8ff2a40ac2bcb0377e1cd08093b52f846c9ee8c68b74e49dff4	compile	-	-	skip	unsupported flag -fgnu89-inline
-compile/20011119-2.c	f778f3730648da4a711e4508f5836d1fa6fb60426cefc04a255472c0108dfaab	compile	-	-	skip	unsupported flag -fgnu89-inline
+compile/20011119-1.c	37ab12a5072cf8ff2a40ac2bcb0377e1cd08093b52f846c9ee8c68b74e49dff4	compile	-	-fgnu89-inline	run	-
+compile/20011119-2.c	f778f3730648da4a711e4508f5836d1fa6fb60426cefc04a255472c0108dfaab	compile	-	-fgnu89-inline	run	-
 compile/20011130-1.c	434cf3fed793e535f61e20c99fa36d3686d82b29a20347a4e31c564c7ff06c76	compile	-	-	run	-
 compile/20011130-2.c	af453fbda2e01afdc4715944f5e6f11feabfa76b6ef75cf23f763d71b3e5928a	compile	-	-	run	-
 compile/20011205-1.c	be57b98e74d72ee47ba86dd67832b9d510cc6e67e18431686d5618dbaf9db5d2	compile	-	-	run	-
@@ -185,8 +185,8 @@ compile/20021103-1.c	2b2b1ff3d66ab600772c6480026a9d78c74227814ff3e66a2c4e79df143
 compile/20021108-1.c	ec9086f9ba231055bb8622c22fbf2f4285739d606ddd6f4519c6b22e5bef85e3	compile	label_values	-	run	-
 compile/20021110.c	cac15130330532c1a043a9c916a3166216f564f994e53caab48c37f6f59f7f2a	compile	-	-	run	-
 compile/20021119-1.c	5990953835a58446cefed497411a4909d23e0ac1a4b7bc522632dd064bb5142f	compile	-	-	run	-
-compile/20021120-1.c	46678a1ffdd7721ae5c57dba07fc68d58f3ccca916dc7d47f123e49b5a608c67	compile	-	-	skip	unsupported flag -fgnu89-inline
-compile/20021120-2.c	72ff6f6957dc21f35098300869f485a93daea93affa672aa096ac79ecce17d2f	compile	-	-	skip	unsupported flag -fgnu89-inline
+compile/20021120-1.c	46678a1ffdd7721ae5c57dba07fc68d58f3ccca916dc7d47f123e49b5a608c67	compile	-	-fgnu89-inline	run	-
+compile/20021120-2.c	72ff6f6957dc21f35098300869f485a93daea93affa672aa096ac79ecce17d2f	compile	-	-fgnu89-inline	run	-
 compile/20021124-1.c	c5008154ec40083d4c6debcfc1cef754d23e4582bf41b53e1ab4ad206f0aa28f	compile	-	-	run	-
 compile/20021204-1.c	6b139de8eeefe021e988b4a1e35573fb4fd4519cbd35ab5d6d4995d85b919014	compile	-	-	run	-
 compile/20021205-1.c	626d16b5e6591a73121f20df0d34296dd6bff5b635b5122c95b537a3e4821bee	compile	indirect_calls	-	run	-
@@ -322,9 +322,9 @@ compile/20050122-2.c	4be4e212218e7c56a93273a34c544478bc496ac4cf5312717bf891ddab6
 compile/20050202-1.c	2ab1e00045618ef9020d55ea76459c5bf8ced961f8e66dcec01d823898a6d351	compile	indirect_calls	-	run	-
 compile/20050206-1.c	a61188091ca0da5ead83df0f3b1f0e9b484a31bc817c218e9f49b66ff2c39ea4	compile	-	-	run	-
 compile/20050210-1.c	b79e60c5962891b4f67da39e7dd1fd246f6ff410880f43918de43183727eb422	compile	-	-	run	-
-compile/20050215-1.c	4010263d23fca7cb19341f86b002020c2e7e24987025f44056eb1f1808a2d4dd	compile	-	-	skip	unsupported flag -fgnu89-inline
-compile/20050215-2.c	0d382983c18f219446955a4fac3a762f827ef52bc410b907ff8c3fca2fb8fc55	compile	-	-	skip	unsupported flag -fgnu89-inline
-compile/20050215-3.c	dcdc11a9439a225b44e5e07383a6051f610993ece2a1965ae07ffebc0de126c3	compile	-	-	skip	unsupported flag -fgnu89-inline
+compile/20050215-1.c	4010263d23fca7cb19341f86b002020c2e7e24987025f44056eb1f1808a2d4dd	compile	-	-fgnu89-inline	run	-
+compile/20050215-2.c	0d382983c18f219446955a4fac3a762f827ef52bc410b907ff8c3fca2fb8fc55	compile	-	-fgnu89-inline	run	-
+compile/20050215-3.c	dcdc11a9439a225b44e5e07383a6051f610993ece2a1965ae07ffebc0de126c3	compile	-	-fgnu89-inline	run	-
 compile/20050217-1.c	d33770bca30143bc528f7d5891a3f765de70a4f89d1a8d1eb7f6994f63177170	compile	-	-	run	-
 compile/20050303-1.c	a350eaaa93fca912f225b08132a5413ac204dbda940839aceb94696e726bffd2	compile	int32plus,size32plus	-	skip	unsupported directive dg-require-stack-size
 compile/20050328-1.c	bb191feb79826eac0df0b57bf1739623335b0dfb8553248f08cffd763bcb6482	compile	-	-	run	-
@@ -1344,7 +1344,7 @@ compile/pr37617.c	912393270f55663580de45b554411036cd61e6e68f004a9d3710d396c1bc01
 compile/pr37662.c	462d66f3377b301b773437853bc6722e17752e198df076ca992d7cddfbdb4513	compile	-	-	run	-
 compile/pr37664.c	20616d8da56e5bf4e2d1991440c716dcfd3e3861bdc5de4dbfd238d5f52668da	compile	-	-	run	-
 compile/pr37669-2.c	0d6e42568747970577c2ef1ba65233b52d3e545bac6f67c2109287014a945953	compile	-	-	skip	upstream dg-skip-if condition
-compile/pr37669.c	d85dc47d9c72474be54b9f8419b006bd8abcd4cb7198a2579a423d2f9f955b24	compile	int32plus	-	skip	unsupported flag -fgnu89-inline
+compile/pr37669.c	d85dc47d9c72474be54b9f8419b006bd8abcd4cb7198a2579a423d2f9f955b24	compile	int32plus	-fgnu89-inline	run	-
 compile/pr37713.c	6806c23cad0cd416bcb5b0f67cf972b81a6a8f1addc2430f7345b642b1561293	compile	-	-	run	-
 compile/pr37742-3.c	9ba759f00c34ac2812db54ae9949eb03ff66eebc1637e83b828407c5d914b043	compile	-	-	skip	upstream dg-skip-if condition
 compile/pr37742.c	2290feb79e31ee99875c036494bedf6648202e4b6c0884c40ac9c63dd2b59833	compile	-	-	run	-
@@ -2183,7 +2183,7 @@ execute/20001101.c	eab613ff0506f5a395de4c05e8723593a96fe8c08b74e097fd1ce6406d463
 execute/20001108-1.c	94865503c72e48e5168c0781da368511090b82b1e0c7e02bada16416961bf8a2	run	-	-	run	-
 execute/20001111-1.c	dbd0e52c97a8d5e0a7a59761d577080645619cc7c4f480c15a31e20604c34441	run	-	-	run	-
 execute/20001112-1.c	0422f822077b3e7d973b6f91760986df1a8ad5c3bd9a44f9a8144efb0728bf8b	run	-	-	run	-
-execute/20001121-1.c	99066dd1517463627d7991c95b6a2c2f0e18d881db3609ec18e754275df69a4b	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/20001121-1.c	99066dd1517463627d7991c95b6a2c2f0e18d881db3609ec18e754275df69a4b	run	-	-fgnu89-inline	run	-
 execute/20001124-1.c	c4f0c40ed16dfed6dee46089312e3ebe51477c054fe210fa032fb1fe13e38979	run	-	-	run	-
 execute/20001130-1.c	10bdc986464fded284df081c0fafb5ac37a3510fbeef8d117f36455c5921791d	run	-	-	run	-
 execute/20001130-2.c	9a2999d2605dab5e7d7ff9530d141b5fe96d5e408c9d7b4724908ed2ec3cdffd	run	-	-	run	-
@@ -2241,7 +2241,7 @@ execute/20011217-1.c	f7587313713572270fdf254e5df681abf79287e2835ed0e1ffe5d65ad3b
 execute/20011219-1.c	7a006cf07778d9e15218ca7310c712bbf2fbadf139959dda7130ab9c36a5064d	run	-	-	run	-
 execute/20011223-1.c	83deb1a68358698bf3af29211f8906f834bf1a78fad34521f6061193e8cbd83c	run	-	-	run	-
 execute/20020103-1.c	788a37795283320b9b140127fa818cd4b3b739fffff37e6f0b99c87b83cd3eb7	run	-	-	run	-
-execute/20020107-1.c	6966b6a4ae77468a5bb6ec1e3090511ee02aa5b82b0fad5eecc1269a0219d34d	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/20020107-1.c	6966b6a4ae77468a5bb6ec1e3090511ee02aa5b82b0fad5eecc1269a0219d34d	run	-	-fgnu89-inline	run	-
 execute/20020108-1.c	633f8a970ad8fe3c0405b4658188c6338940e08e2fd2169353208be3ddf987c5	run	-	-	run	-
 execute/20020118-1.c	b0fb4e5dc583e43f4a85d934fd155d00a08c45d2a2a4d7a482dc581e0a5bd0d4	run	-	-	run	-
 execute/20020127-1.c	98b59a9520af112160f3e6d7f8ae89fe50f73c5751ba69a2fb10205b0d5571eb	run	-	-	run	-
@@ -2661,7 +2661,7 @@ execute/930429-2.c	9ef30cff0c4ea13e194f851ead4e044302d3c79bc685ef3a72e50d74f202b
 execute/930513-1.c	8f9d56a8caeb6a957f05c7c1fb8d57eacb41896c6b7e1073d9c920d22d31533b	run	-	-std=gnu89	skip	conditional options directive
 execute/930513-2.c	f8f889603ae34cdf2bdfbf1d355cd9db25c607d0f4106cceeae4bad525c9eb97	run	-	-std=gnu89	run	-
 execute/930518-1.c	da30c720d42dd20d3a187d1135bd3da3ba736910b46acce120091a25b33a954d	run	-	-std=gnu89	run	-
-execute/930526-1.c	da7154965988a7b90e2ce3d8b025e8808828e703fb677cb11d50b5c50a518395	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/930526-1.c	da7154965988a7b90e2ce3d8b025e8808828e703fb677cb11d50b5c50a518395	run	-	-fgnu89-inline	run	-
 execute/930527-1.c	e6533f5c024ad64ad47ccf34f497722b1eddd1ff60554902baeec47bbb35b550	run	-	-std=gnu89	run	-
 execute/930529-1.c	77047a2cb413c71bb8245fa16912d0b20c3a535450008893d09d4f8f1ccdf87c	run	-	-fwrapv	run	-
 execute/930603-1.c	ff5f1ffe89e7d17fd9f0381c9a80e9d963d54591ef4b598fa76629548555720e	run	-	-std=gnu89	run	-
@@ -2787,7 +2787,7 @@ execute/961122-2.c	8b4797488df14dbeb01d402cab97a04bef3bca0c56242c7443bc34cd3018f
 execute/961125-1.c	43365ddefcd738cbf9a632528b4c27b43243b2d67a7060665190177e9bd7bd10	run	-	-	run	-
 execute/961206-1.c	e3631c13368a57549e58b2e3f8717dba1947dda72b31dd13c0888c28421c3733	run	-	-	run	-
 execute/961213-1.c	71dac08b4547ca177c4b301a74bb44a769ca61d607ecafc2afae5911cc08ede0	run	-	-	run	-
-execute/961223-1.c	46501b824f2ecd0efdd8168ed271fdfd62542e6707f5a2fa2d58ae58cd17b654	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/961223-1.c	46501b824f2ecd0efdd8168ed271fdfd62542e6707f5a2fa2d58ae58cd17b654	run	-	-fgnu89-inline	run	-
 execute/970214-1.c	b187ebc071f72cc8146a68bf03b6125cdd4b466dc4f74c8d069a9105b74e9007	run	-	-	run	-
 execute/970214-2.c	a10fb6166dedc13c0573f70cac10815be56eb24da8e04c672d3d1950cf9e51df	run	-	-	run	-
 execute/970217-1.c	e9673ba3f83475198d3dffb393af8a4bb883b49415d5fc97ac0894ac42a9a866	run	-	-	run	-
@@ -2807,7 +2807,7 @@ execute/980602-1.c	51c521c68be506c6cf42ce75a4b5e82829cfa07238aaa7b35b003fa5e6da6
 execute/980602-2.c	0ac158d4b4e7df7c2e7b67ccd850e115902e2dbee376533562c51c58303b24f2	run	-	-	run	-
 execute/980604-1.c	20d7fd6d765d8bcba277fbc6b2b20ea5757cc189311eb10251c3642298b55e68	run	-	-	run	-
 execute/980605-1.c	4fce18a15b8674a4eb025d68f5c154bbfc61a066445526ef60ba52cfc22abfaf	run	-	-	skip	unsupported directive dg-add-options
-execute/980608-1.c	588cf65bb572c64a84b3dcd18c3c078973b97cb6365308c146077c6623dd7412	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/980608-1.c	588cf65bb572c64a84b3dcd18c3c078973b97cb6365308c146077c6623dd7412	run	-	-fgnu89-inline	run	-
 execute/980612-1.c	aa6fce063bfb606248d80aa051d0e0bc2b3a82095be097f127a0b4db2b23b82e	run	-	-	run	-
 execute/980617-1.c	f6d6f1604bb8a5d1561c257bf6523d3fe20b2e0f89103b46a322f9692f6bf50f	run	-	-	run	-
 execute/980618-1.c	310d0b4d6895d4ea0e0c5caf879e47200cf2ab85fde3aa911e70cb760d747d2b	run	-	-	run	-
@@ -2882,7 +2882,7 @@ execute/arith-rand-ll.c	8e4da7b080eee46dd5d37a9b588ee64a439ef009a8fa345857347527
 execute/arith-rand.c	2a7bade42fd22c970f880cb2fe78665cb71755c8557d224dd1fa97f176bc6764	run	-	-	run	-
 execute/ashldi-1.c	1ea00996ffc02dc6b6072708f3e883e15bfef485e7d2ddce7857a777f611ac66	run	-	-	run	-
 execute/ashrdi-1.c	9b7d8a875d02c6cbdf77928a400a0436f76759f9af6b840b65ae069fc69665be	run	-	-	run	-
-execute/bcp-1.c	51c01c565b099cfaf2867c9fa740d25991f51274a2c3e0380f0caa93fa10b0b8	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/bcp-1.c	51c01c565b099cfaf2867c9fa740d25991f51274a2c3e0380f0caa93fa10b0b8	run	-	-fgnu89-inline	run	-
 execute/bf-layout-1.c	a51591d99d96db695bb8159167103858ef1f90efb66c49b0411f25a5dff49cfa	run	-	-	run	-
 execute/bf-pack-1.c	c889b13e07bf0e0550ec32494f9943741ee0b4d50f70ace369eeb2bd5a4b8b2f	run	-	-	run	-
 execute/bf-sign-1.c	92271ed63e419cbde8e15e93e0fb80554379d351026b7df5eec6e96e6017b423	run	-	-	run	-
@@ -3154,7 +3154,7 @@ execute/loop-14.c	ab63e076f306f7666631e52a79a6e203b4ecb14b4c5800719c2e3f4b48ba9e
 execute/loop-15.c	7d38b0054a3eeef54468196c6be3f3a50d0353ee42b2fcba44d694577bf13f12	run	-	-	run	-
 execute/loop-2.c	43ff19f22f06f81e2a409e8c29579d84c3c6ad36792523aa07bbae32d1039ffd	run	-	-std=gnu89	run	-
 execute/loop-2b.c	f22fa29d3fd942b2069ec1fcdb6764cd6afc6070001c2026f236aaf24c4d1e29	run	-	-	run	-
-execute/loop-2c.c	4fa4898d7078ff611dc61017f1470a8e08aa09bc8bb788e99b96eb8a1be278d8	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/loop-2c.c	4fa4898d7078ff611dc61017f1470a8e08aa09bc8bb788e99b96eb8a1be278d8	run	-	-fgnu89-inline -Wno-pointer-to-int-cast	run	-
 execute/loop-2d.c	625cd058a32da8bedaf18c26965dad434479191947a65dbd1d771658a956262f	run	-	-std=gnu89	run	-
 execute/loop-2e.c	565f5ebbedd5f99f00dbfc33f17706d2ee4e9224d9c4fc59e2b5f5b2970e438c	run	-	-	run	-
 execute/loop-2f.c	a2d52eb6a92ce7d5dc7f225de6b18392b6153fff41c98fe76aa1380c4999788a	run	mmap	-	skip	upstream dg-skip-if condition
@@ -3207,7 +3207,7 @@ execute/nestfunc-4.c	bce30f3ec3a128641b864931775db4a71a148cfbd616b68bfd1c8d1116d
 execute/nestfunc-5.c	a265a5198feb2d7e9c379cb1864f674e8f30bf0ebe05cf1b0cfc1395f059a36b	run	trampolines	-	run	-
 execute/nestfunc-6.c	de7c400d4e0050ae86a7b3818b1ba13ab8c9df88d0943de5855d365534f619ec	run	trampolines	-	run	-
 execute/nestfunc-7.c	d0b668626de9fa3c999777ed0a74c7bcf7f767e85bcd8d3294e5efc4fd49be22	run	-	-	run	-
-execute/p18298.c	1513035cef91896f4384dec29c2aaf310fa7a4902adc43aa725cccb883106995	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/p18298.c	1513035cef91896f4384dec29c2aaf310fa7a4902adc43aa725cccb883106995	run	-	-fgnu89-inline	run	-
 execute/packed-1.c	e963fe550c6b16868bd472ba483d1f2b12f1c4d68492b28460488abccfc80810	run	-	-	run	-
 execute/packed-2.c	f8433306606805b8fb76ea8639f5be45c11c1f33e161654234de20f0f3129e9f	run	-	-	run	-
 execute/packed-aligned.c	b05af614cb3d96f7077aa86d23754c241e7e9632f20b5f470e0debff51001be6	run	-	-	run	-
@@ -3872,7 +3872,7 @@ execute/ptr-arith-1.c	d7125e5a3d11cef291bad1cec7eca7dbc05b2e28750e0c59525b849b64
 execute/pure-1.c	abf51160df63f0ee8af3a8d427777a4e8dedae1c39f76dbb1b226a77aab64ce2	run	-	-	run	-
 execute/pushpop_macro.c	9d034208c29a22301e50d1f52ffa363f688fc9eb112fcf10e6d7c63ae780be04	run	-	-	run	-
 execute/regstack-1.c	b2ce27db2aa43ee778a57d6296655f4605833c3aa770eb124ff10b549a5a40b1	run	-	-	run	-
-execute/restrict-1.c	39853984b84886b20804ca1610705bfab4b747534aab8a9c9ddcd7986a52d6a7	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/restrict-1.c	39853984b84886b20804ca1610705bfab4b747534aab8a9c9ddcd7986a52d6a7	run	-	-fgnu89-inline	run	-
 execute/return-addr.c	c8df956259082f63135debd4f9cf98bcb8158edec7dfafef387985a57a7aad9d	run	-	-	run	-
 execute/scal-to-vec1.c	86fadd423bc2f8d9b5974f298a331098b39ac329aa4606143f3e7afd79029607	run	-	-	run	-
 execute/scal-to-vec2.c	6231c60dff198310469e13793cc8224fd91ed62819c9eca89b1b1c525f3df85c	run	-	-	run	-
@@ -3924,7 +3924,7 @@ execute/struct-ret-1.c	cc8d3fc1dcaa9721231f0fcde3544356f5d859785219755cc649e9c7e
 execute/struct-ret-2.c	b2953932ffb53f08d74942c5799f510f59eaf732f55d0ce7c1c030fd0eca9bb0	run	-	-	run	-
 execute/switch-1.c	7909465fd9bd7e2501772ae0c636381432a306313b3fe817e8d1bfbb45ed126b	run	-	-	run	-
 execute/tstdi-1.c	db9e34b427de29c5ff96ba5e166410a8bfde4cb67e5ca87d9e9df63ab5fbfb77	run	-	-std=gnu89	run	-
-execute/unroll-1.c	b3db97295c240d2eb09cd5e6b8528ba4912e1cec3b0d4b0b5ea35ab572d5b468	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/unroll-1.c	b3db97295c240d2eb09cd5e6b8528ba4912e1cec3b0d4b0b5ea35ab572d5b468	run	-	-fgnu89-inline	run	-
 execute/usad-run.c	804dcb3bf7fce195965bbf7919d8d810eec3fa42754f78109e636028e6c2afd6	run	-	-	run	-
 execute/user-printf.c	6bad5ae75399fc0627e177e9db1e02f6e7c83f10eb107a7919a173b0159a0215	run	fileio,unwrapped	-	skip	unsupported directive dg-prune-output
 execute/usmul.c	402942f5c9cf2599e8799f0d531c494e01f0e060c05c6e18f9292b96902749c5	run	int32plus	-	run	-
@@ -3949,8 +3949,8 @@ execute/va-arg-26.c	f3c7769ca80bb973c5251a07be8f90f0ab6580d55ca477b9f366c3d158c7
 execute/va-arg-4.c	35e96b3784d0410911414106b592d48cb8188f8ab18fcb503c43fe25a596a966	run	-	-	run	-
 execute/va-arg-5.c	c4f21f1570c49976849ab2d5cb5fe9a49ae430ff19d27a3dd9069c0c6df8f2dd	run	-	-	run	-
 execute/va-arg-6.c	b0eb9fc5a52d4e43b24c9eb561410f72dbfc27027a2afdfa4c6ac55c80173401	run	-	-	run	-
-execute/va-arg-7.c	d566662a26a3f877293048b058ac53e7ed8ccdb93717ded2a73ed96a836d4226	run	-	-	skip	unsupported flag -fgnu89-inline
-execute/va-arg-8.c	d3d69b63bca0f643c44af9e58cc010b11f952aa646e5cccf135d45563d26813b	run	-	-	skip	unsupported flag -fgnu89-inline
+execute/va-arg-7.c	d566662a26a3f877293048b058ac53e7ed8ccdb93717ded2a73ed96a836d4226	run	-	-fgnu89-inline	run	-
+execute/va-arg-8.c	d3d69b63bca0f643c44af9e58cc010b11f952aa646e5cccf135d45563d26813b	run	-	-fgnu89-inline	run	-
 execute/va-arg-9.c	d81cf4ba2a988b659534a2037ecff6039bac090a41e316dad99cfd094c743cba	run	-	-	run	-
 execute/va-arg-pack-1.c	89833d58fc9113ca04e2a8a163f08d42755507f542236a58ea0fbbd0119c2f41	run	-	-	run	-
 execute/va-arg-trap-1.c	6fbbc2681a834c531d94a5e7c2d29fc13ce41857d726387ab0c7ef6e0f7e7dad	run	-	-	run	-

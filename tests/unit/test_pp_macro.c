@@ -496,6 +496,23 @@ void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
     mfix_free(&f);
 
     mfix_init(&f);
+    f.pp.std = STD_GNU17;
+    f.pp.gnu_mode = true;
+    f.pp.gnu89_inline = true;
+    run_pp(&f, "", NULL, 0);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_GNU_INLINE__") != NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_STDC_INLINE__") == NULL);
+    mfix_free(&f);
+
+    mfix_init(&f);
+    f.pp.std = STD_C17;
+    f.pp.gnu89_inline = true;
+    run_pp(&f, "", NULL, 0);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC__") == NULL);
+    T_ASSERT(t, pp_macro_lookup(&f.pp, "__GNUC_GNU_INLINE__") != NULL);
+    mfix_free(&f);
+
+    mfix_init(&f);
     f.pp.std = STD_GNU89;
     f.pp.gnu_mode = true;
     run_pp(&f, "", NULL, 0);
